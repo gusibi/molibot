@@ -33,6 +33,7 @@ export interface AgentCitySceneController {
   setVisible(visible: boolean): void;
   setTheme(theme: AgentCityTheme): void;
   setReducedMotion(reducedMotion: boolean): void;
+  setQuality(quality: Exclude<AgentCityQuality, "fallback">): void;
   getAnchors(): Record<string, AgentCityAnchor>;
   dispose(): void;
 }
@@ -287,7 +288,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = options.quality === "full";
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, options.quality === "full" ? 2 : 1.25));
 
   const scene = new THREE.Scene();
@@ -297,6 +298,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   let projection = options.projection;
   let theme = options.theme;
+  let quality = options.quality;
   let reducedMotion = options.reducedMotion;
   let visible = true;
   let disposed = false;
@@ -304,6 +306,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   let height = 1;
   let animationFrame = 0;
   let lastFrame = performance.now();
+  let lastRenderedAt = lastFrame;
   let frameSamples: number[] = [];
   let animatedPugs: AnimatedPug[] = [];
   let animatedRoutes: AnimatedRoute[] = [];
@@ -320,6 +323,15 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   sun.shadow.camera.top = 24;
   sun.shadow.camera.bottom = -24;
   scene.add(sun);
+
+  function applyQuality(): void {
+    const full = quality === "full";
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, full ? 2 : 1.25));
+    renderer.shadowMap.enabled = full;
+    sun.castShadow = full;
+    sun.shadow.mapSize.set(full ? 2048 : 512, full ? 2048 : 512);
+    if (width > 1 || height > 1) renderer.setSize(width, height, false);
+  }
 
   function applyTheme(): void {
     scene.background = new THREE.Color(theme === "dark" ? NIGHT_SKY : DAY_SKY);
@@ -405,8 +417,13 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   function animate(time: number): void {
     if (disposed || !visible) return;
+    if (quality === "low" && time - lastRenderedAt < 1000 / 30) {
+      animationFrame = requestAnimationFrame(animate);
+      return;
+    }
     const delta = Math.min(100, time - lastFrame);
     lastFrame = time;
+    lastRenderedAt = time;
 
     if (!reducedMotion) {
       for (const pug of animatedPugs) {
@@ -423,11 +440,12 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     }
 
     renderer.render(scene, camera);
-    if (options.quality === "full" && frameSamples.length < 180) {
-      if (delta > 0 && delta < 100) frameSamples.push(delta);
-      if (frameSamples.length === 180) {
+    const sampleTarget = quality === "full" ? 180 : 90;
+    if (frameSamples.length < sampleTarget) {
+      if (delta > 0) frameSamples.push(delta);
+      if (frameSamples.length === sampleTarget) {
         const average = frameSamples.reduce((sum, value) => sum + value, 0) / frameSamples.length;
-        if (average > 42) options.onPerformanceFallback();
+        if (average > (quality === "full" ? 42 : 70)) options.onPerformanceFallback();
         frameSamples = [];
       }
     }
@@ -460,6 +478,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       if (visible === nextVisible) return;
       visible = nextVisible;
       lastFrame = performance.now();
+      lastRenderedAt = lastFrame;
       if (visible) {
         cancelAnimationFrame(animationFrame);
         animationFrame = requestAnimationFrame(animate);
@@ -472,6 +491,13 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     },
     setReducedMotion(nextReducedMotion) {
       reducedMotion = nextReducedMotion;
+    },
+    setQuality(nextQuality) {
+      if (quality === nextQuality) return;
+      quality = nextQuality;
+      frameSamples = [];
+      applyQuality();
+      renderer.render(scene, camera);
     },
     getAnchors() {
       const anchors: Record<string, AgentCityAnchor> = {};

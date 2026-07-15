@@ -79,10 +79,7 @@
         if (quality === "full") {
           quality = "low";
           onQuality("low");
-          controller?.dispose();
-          controller = createAgentCityScene({ canvas, projection, theme, reducedMotion, quality: "low", onPerformanceFallback: onFallback, onContextLost: onFallback });
-          resizeObserver?.unobserve(container);
-          resizeObserver?.observe(container);
+          controller?.setQuality("low");
         } else {
           onFallback();
         }

@@ -45,6 +45,20 @@ test("reconcileAgentCitySlots preserves active assignments and fills the lowest 
   assert.equal(result.hiddenAgentCount, 0);
 });
 
+test("projectAgentCity keeps the city deterministic at zero and one regular Agent", () => {
+  const empty = projectAgentCity({ agents: [], activities: [], slots: {} });
+  assert.equal(empty.buildings.length, 10);
+  assert.equal(empty.buildings.flatMap((building) => building.floors).length, 0);
+  assert.equal(empty.globalFloor.agent.id, "default");
+  assert.equal(empty.sceneFloors, 1);
+
+  const single = projectAgentCity({ agents: [agent("agent-1")], activities: [], slots: {} });
+  assert.equal(single.buildings[0]?.floors[0]?.agent.id, "agent-1");
+  assert.equal(single.buildings[0]?.floors[0]?.floorIndex, 0);
+  assert.equal(single.buildings.slice(1).flatMap((building) => building.floors).length, 0);
+  assert.deepEqual(single.slotState.slots, { "agent-1": 0 });
+});
+
 test("projectAgentCity keeps Global and owner separate from regular Agent capacity", () => {
   const projection = projectAgentCity({
     agents: [agent("default"), ...regularAgents(101)],

@@ -56,11 +56,12 @@
 - [Done, P0] 回归验证必须覆盖运行中服务与生产构建重叠的真实窗口，并持续请求 `/api/desktop/model-routing` 断言无 500。
 
 ## 2.60 Three.js Pug Agent City (2026-07-13)
-- [Planned, P1] 将 Desktop Agent Studio 从 CSS 拼装办公室升级为 Three.js 高级桌面微缩城市；完整 PRD 与验收口径见 [GitHub Issue #10](https://github.com/gusibi/molibot/issues/10)。
-- [Planned, P1] 城市固定保留 10 个普通 Agent 地块、独立 Global 总部和中央主人调度中心；普通 Agent 从 1–10 栋一层工作室逐层增长到最多 10 栋 × 10 层，超过 100 个时只显示未展示数量。
-- [Planned, P1] 每层对应一个 Agent，并以玩偶屋剖面展示巴哥犬的真实 idle/working/completed/error 状态；任务通过道路光流与建筑数据井抵达准确楼层，Sub-agent 在父 Agent 楼层的临时协作舱中展示。
-- [Planned, P1] Three.js 只负责场景、角色、灯光和动画，现有 Svelte/Agent Activity 继续负责数据、悬浮详情、国际化与无障碍；共享 Agent City 投影作为唯一新业务 seam，禁止将可视化编排下沉 Channel 或根据任务文本伪造工具动作。
-- [Planned, P1] 第一阶段使用程序化城市与代理角色验证 1/10/11/40/41/100/101 Agent 布局、稳定槽位、明暗主题、低动效和性能；随后以 Blender GLB 替换完整模型、骨骼、动画与材质，并提供完整 3D、低画质 3D、精致 2D 自动降级。
+- [Done, P1] 将 Desktop Agent Studio 从 CSS 拼装办公室升级为 Three.js 固定等距微缩城市；完整 PRD 与验收口径见 [GitHub Issue #10](https://github.com/gusibi/molibot/issues/10)。
+- [Done, P1] 城市固定保留 10 个普通 Agent 地块、独立 Global 总部和中央主人调度中心；普通 Agent 从 1–10 栋一层工作室逐层增长到最多 10 栋 × 10 层，超过 100 个时只显示未展示数量。
+- [Done, P1] 每层对应一个 Agent，并以玩偶屋剖面展示巴哥犬的真实 disabled/idle/working/completed/error 状态；任务路线抵达准确楼层，Sub-agent 在父 Agent 楼层的临时协作舱中展示。
+- [Done, P1] Three.js 只负责场景、角色、灯光和动画，现有 Svelte/Agent Activity 继续负责数据、悬浮详情、国际化与无障碍；共享 Agent City 投影是唯一新业务 seam，Channel 无改动，也不根据任务文本伪造工具动作。
+- [Done, P1] 第一阶段使用程序化城市与代理角色验证 0/1/10/11/40/41/100/101 Agent 布局、稳定槽位、明暗主题、低动效、完整/低画质 3D 和信息等价 2D 降级。
+- [Planned, P2] 后续以 Blender GLB 整体替换代理模型、骨骼、动画与材质；不得把仅替换材质视为正式角色资产完成。
 
 ## 2.59 Owner-Level Memory Automations (2026-07-13)
 - [Done, P0] “每日记忆反思”和“每日素材整理”分别只能存在一个 Molibot Owner 级系统任务；不得按渠道或 Bot 复制 watched event。
@@ -112,6 +113,7 @@
 - [Done, P1] Web 与 Mac App Trace 页面同步交付，3 秒刷新、操作确认、中英/明暗/响应式一致。
 
 ## 2.52 Desktop Agent Studio (2026-07-12)
+- [Superseded] 本节记录的单层 CSS 办公室与 4×2 工位密度已由 2.60 Three.js Agent City 取代；保留下列条目仅用于历史追溯。
 - [Done, P1] Mac App 主导航在 Skills 下方新增 Agent/Agents 工作区，复用主窗口工作区切换，不增加独立 Tauri 窗口。
 - [Done, P1] 工作室展示 Global/default 与用户创建的 Agent；当 API 没有 `settings.agents.default` 实体时仅在展示层合成并去重，不写回设置；未显式绑定的 Bot 运行归属该工位。
 - [Done, P1] 以等距办公室工位和走动巴哥犬拟人化呈现 Agent，支持启停状态、描述、模型路由摘要、空状态与设置入口。

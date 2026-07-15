@@ -5,6 +5,16 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-15
+
+### Desktop Agent Studio upgraded to a Three.js pug micro-city
+- Replaced the CSS office with a fixed-isometric Three.js city containing 10 stable ordinary-Agent plots, a separate Global headquarters, and an owner dispatch center. Ordinary Agents grow round-robin from 1 floor to 10×10 floors; Agent 101+ is reported without extending the scene.
+- Added a pure Agent City projection boundary for stable slots, five real Activity states, exact building/floor task routes, and parent-run Sub-agent pods capped at 3 visible helpers. The projection never infers tool actions from task text and does not change Channel code.
+- Kept names/statuses and hover/focus details in semantic Svelte DOM. Automatic full→low→2D quality handling, context-loss fallback, reduced motion, offscreen pause, dark/light scenes, responsive vertical growth, and GPU/listener cleanup keep the page usable across devices.
+- The polished 2D fallback now preserves Bot, channel, start time, task summary, model routing, and Sub-agent details instead of degrading to name/status only. Performance downgrade happens in place so forcing the old WebGL context closed cannot black-screen the replacement renderer.
+- Current delivery uses procedural buildings and proxy pug models; formal Blender GLB models, rigging, animations, and materials remain a later asset milestone.
+- Verification: Agent City projection/scene tests 9/9, Desktop UI/HTTP 54/54, server Agent data-contract tests 6/6, Svelte diagnostics 0/0, production build, and a real 1280×800 Agent page check with Global + 4 regular Agents visible and no horizontal overflow.
+
 ## 2026-07-14
 
 ### Feature: Agent avatar moves left of the message and the transcript gains a centered reading column

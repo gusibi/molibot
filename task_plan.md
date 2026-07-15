@@ -1123,14 +1123,14 @@ Complete — G0 through G9 accepted
 Audit the existing issue #10 worktree against the full PRD, preserve and merge its work into `master`, then complete and verify every remaining first-version acceptance requirement.
 
 ## Current phase
-Phase 3 — implement confirmed gaps on `master`
+Phase 5 — complete
 
 ## Phases
 1. Map the issue requirements to current branch code, tests, and visual evidence — complete (implementation is incomplete)
 2. Commit the preserved worktree changes and merge the branch into current `master` — complete
-3. Implement only confirmed gaps on `master`, with focused regressions — in progress
-4. Verify projection, UI behavior, diagnostics, build, themes/locales/responsiveness, and visual quality — pending
-5. Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`; adversarially review and deliver — pending
+3. Implement only confirmed gaps on `master`, with focused regressions — complete
+4. Verify projection, UI behavior, diagnostics, build, themes/locales/responsiveness, and visual quality — complete (live narrow viewport and composed WebGL screenshot are explicitly not claimed)
+5. Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`; adversarially review and deliver — complete
 
 ## Verification gates
 - No completion claim without requirement-by-requirement source/test evidence and current visual QA.
@@ -1157,5 +1157,15 @@ Phase 3 — implement confirmed gaps on `master`
 | Merge found conflicts in App state, Agent Studio CSS, and three planning logs | 1 | Combined v2.4.8 low-performance/settings state with the Agent preview pane, selected the new city CSS that intentionally supersedes the old office, and appended both sides of historical logs. |
 | First parallel post-merge diagnostics ran before Three.js installation completed | 1 | The focused pnpm test installed the already-locked dependency; rerun diagnostics after installation rather than changing source. |
 | Sandboxed pnpm build could not open its cache SQLite database | 1 | Run the installed Vite binary directly, avoiding package-manager cache mutation. |
+| Local visual-QA port 1422 was already occupied | 1 | Preserve the existing process and start the isolated preview on the next free port. |
+| Local visual-QA port 1423 was also occupied | 2 | Stop trying the adjacent app ports and use an isolated high development port. |
+| Historical `service/server.mjs` start path no longer exists | 1 | Discover the current package script/entrypoint before starting the service; do not guess another path. |
+| Sandboxed current `npm start` could not bind localhost:3000 | 1 | Re-run the same repository start script with scoped local-bind approval. |
+| Approved service start found an existing data-directory owner while the service script reports stopped | 1 | Inspect only the reported PID before deciding whether it is stale or a live alternate service; do not kill it implicitly. |
+| Sandboxed `ps -fp 99675` was denied | 1 | Re-run the read-only process inspection with scoped approval. |
+| Combined post-onboarding DOM/screenshot capture timed out during screenshot | 1 | Keep the app state, take a fresh DOM snapshot alone, then use a bounded screenshot method instead of repeating the composite call. |
+| Bounded 1020×800 Agent-content screenshot also timed out | 2 | Stop repeating page screenshot capture; inspect the semantic DOM and read the WebGL canvas output separately, then use a different visual surface if full composition remains unavailable. |
+| First canvas-inspection orchestration string contained an unescaped nested template literal | 1 | Replace the display-only template literal with plain string concatenation; no browser or repository state changed. |
+| In-app browser viewport override reported success but remained 1280×800 on two checks | 1–2 | Stop repeating the unsupported override in this browser; correct the evidence record and retain source/responsive tests for narrow behavior without claiming live 860×620 validation. |
 
 ---

@@ -666,5 +666,25 @@
 - Began the merge into `master`. Resolved 5 conflicts surgically: App keeps v2.4.8 low-performance/settings state plus the Agent preview route; CSS replaces only the superseded office block with Agent City; planning logs retain both histories. Conflict markers and whitespace checks are clean.
 - First post-merge run passed projection/scene 8/8 and Desktop UI/HTTP 54/54. The parallel diagnostic started before pnpm finished linking the newly merged Three.js dependency, and the sandboxed pnpm build hit its cache SQLite restriction; both are environment/order failures, so verification will rerun sequentially with the installed binaries.
 - Sequential rerun passed Svelte diagnostics 0/0 and the direct Vite production build. The merge result is green and ready to commit before remaining implementation work continues on `master`.
+- Started current-page visual QA. Port 1422 was already in use, so the existing process is untouched and the isolated preview will use another port.
+- Port 1423 was occupied as well; moved the preview away from the existing Tauri/Vite port range rather than disturbing those processes.
+- Opened the isolated 1280×800 Agent route in the in-app browser. The shell renders, but the app is offline and the pane stays in its loading state, so this screenshot is not valid Agent City acceptance evidence yet.
+- Reconnected the preview to the already-running Desktop-managed service through the documented local proxy. The app now reports Online; dismissed only the preview browser's first-use overlay so the Agent surface can be inspected.
+- The first combined post-onboarding observation timed out only at screenshot capture. Following browser recovery rules, the next observation is a fresh DOM snapshot without repeating the same composite call.
+- Fresh DOM evidence confirms the common-scale city is live with Global + 4 regular Agents and real accessible name/status buttons. A bounded screenshot timed out as well; ended repeated screenshot attempts and changed visual evidence strategy.
+- The first canvas-read invocation did not execute because its wrapper contained an unescaped display template literal. Recorded it and switched to plain concatenation without changing the inspection itself.
+- Measured the live common-scale layout: 972×560 city, zero horizontal overflow, and all Global/Agent labels visible as 108×38 DOM controls.
+- Completed the narrow source audit and selected four surgical completion gaps: safe in-place quality downgrade, information-equivalent 2D details, explicit 0/1 projection coverage, and required product documentation correction.
+- Added red UI contracts for fallback detail parity and in-place quality downgrade plus explicit 0/1 projection coverage. Implemented the two fixes; Agent City tests pass 9/9, UI 52/52, and Svelte diagnostics 0/0.
+- Replaced stale CSS-office product documentation across `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`, leaving formal Blender GLB assets explicitly planned.
+- Switched the real preview to Dark theme through Settings and returned to Agent City. After the expected bootstrap poll, the complete 5-Agent semantic city is present.
+- Detected that the browser viewport override did not apply: both checks remained 1280×800. Corrected the evidence rather than claiming a narrow live pass. At the actual size, Dark background, visible labels, zero horizontal overflow, and intentional vertical workspace scrolling were verified.
+- Browser console had no errors but reported deprecated `PCFSoftShadowMap`; replaced it with supported `PCFShadowMap` and queued a clean reload check.
+- Fresh Agent-page reload is console-clean and still exposes the semantic city. Reset the temporary viewport override and completed browser QA.
+- Confirmed no service is listening on port 3000. The previously used `service/server.mjs` path no longer exists in this checkout; stopped guessing and switched to repository script discovery.
+- Found the current `npm start` entrypoint. Its first run reached the server but the sandbox denied binding 127.0.0.1:3000; the next run uses scoped host execution.
+- Host start then reported data ownership by PID 99675, while `molibot-service.sh status` reports stopped/no pid file. No process was changed; a read-only PID inspection is required to distinguish a stale lease from a live alternate instance.
+- Final verification passed: Agent City projection/scene 9/9, Desktop UI/HTTP 54/54, server Agent data contract 6/6, Svelte diagnostics 0/0, production build, and `git diff --check`.
+- The adversarial pass checked stable 0/1/100/101 projection, Canvas-safe full→low→2D downgrade, fallback information parity, rendering lifecycle cleanup, and theme/viewport evidence. It added explicit tooltip relationships for keyboard/screen-reader users and retained the honest limitation that live narrow-viewport and composed WebGL screenshot acceptance were unavailable in this browser run.
 
 ---

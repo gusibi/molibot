@@ -262,6 +262,14 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /projection\.hiddenAgentCount/);
   assert.match(agentStudio, /visibilitychange/);
   assert.match(agentCityFallback, /agent-city-fallback-building/);
+  assert.match(agentCityFallback, /floor\.activity\.botName/);
+  assert.match(agentCityFallback, /floor\.activity\.channel/);
+  assert.match(agentCityFallback, /floor\.activity\.startedAt/);
+  assert.match(agentCityFallback, /floor\.activity\.taskPreview/);
+  assert.match(agentCityFallback, /floor\.agent\.modelOverrides/);
+  assert.match(agentCityFallback, /floor\.subagents\.visible/);
+  assert.match(agentCityFallback, /role="tooltip"/);
+  assert.match(agentCityFallback, /aria-describedby/);
 });
 
 test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () => {
@@ -271,8 +279,11 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityCanvas, /function stopAnchorUpdates/);
   assert.match(agentCityCanvas, /!controller \|\| !visible \|\| document\.hidden/);
   assert.match(agentCityCanvas, /prefers-reduced-motion: reduce/);
+  assert.match(agentCityCanvas, /controller\?\.setQuality\("low"\)/);
   assert.match(agentCityCanvas, /controller\?\.dispose\(\)/);
   assert.match(agentCityScene, /new THREE\.OrthographicCamera/);
+  assert.match(agentCityScene, /setQuality\(quality: Exclude<AgentCityQuality, "fallback">\)/);
+  assert.match(agentCityScene, /if \(delta > 0\) frameSamples\.push\(delta\)/);
   assert.match(agentCityScene, /webglcontextlost/);
   assert.match(agentCityScene, /renderer\.renderLists\.dispose\(\)/);
   assert.match(agentCityScene, /renderer\.dispose\(\)/);
