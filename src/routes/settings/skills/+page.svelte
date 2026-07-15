@@ -235,7 +235,7 @@
 
   async function persistSkillsState(nextItems: SkillItem[]): Promise<void> {
     const disabledSkillPaths = nextItems.filter((item) => !item.enabled).map((item) => item.filePath);
-    const res = await fetch("/api/settings", {
+    const res = await fetch("/api/settings/skills", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ disabledSkillPaths })
@@ -269,14 +269,14 @@
     error = "";
     message = "";
     try {
-      const res = await fetch("/api/settings", {
+      const res = await fetch("/api/settings/skills", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skillSearch })
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || copy.failedSaveConfig);
-      skillSearch = normalizeSkillSearchSettings(data.settings?.skillSearch ?? skillSearch);
+      skillSearch = normalizeSkillSearchSettings(data.skillSearch ?? skillSearch);
       message = copy.configUpdated;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);

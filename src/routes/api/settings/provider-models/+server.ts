@@ -1,10 +1,8 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import {
-  buildAnthropicBaseUrl,
-  buildAnthropicCompatibleHeaders,
-  buildOpenAIBaseUrl,
-  buildOpenAICompatibleHeaders,
+  ProviderModelsError,
+  listProviderModels,
   resolveCustomProviderProtocol,
   type ProviderTestPayload
 } from "$lib/server/providers/customProtocol";
@@ -21,14 +19,6 @@ function normalizeModelsPayload(body: unknown): ProviderModelsPayload {
   };
 }
 
-function parseModelIdsFromBody(rawBody: unknown): string[] {
-  const body = rawBody as { data?: unknown[]; models?: unknown[] };
-  const rows = Array.isArray(body.data) ? body.data : Array.isArray(body.models) ? body.models : [];
-  return rows
-    .map((row) => String((row as { id?: unknown }).id ?? "").trim())
-    .filter(Boolean);
-}
-
 export const POST: RequestHandler = async ({ request }) => {
   let payload: ProviderModelsPayload;
   try {
@@ -41,34 +31,13 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "baseUrl and apiKey are required" }, { status: 400 });
   }
 
-  const protocol = resolveCustomProviderProtocol(payload.protocol);
-  const endpoint = protocol === "anthropic"
-    ? `${buildAnthropicBaseUrl(payload.baseUrl, payload.path)}/v1/models`
-    : `${buildOpenAIBaseUrl(payload.baseUrl, payload.path)}/models`;
-  const headers = protocol === "anthropic"
-    ? buildAnthropicCompatibleHeaders(payload)
-    : buildOpenAICompatibleHeaders(payload);
-
   try {
-    const response = await fetch(endpoint, { method: "GET", headers });
-    const text = await response.text();
-    if (!response.ok) {
-      return json({
-        ok: false,
-        error: `HTTP ${response.status}: ${text.slice(0, 500)}`
-      }, { status: 400 });
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      return json({ ok: false, error: "Provider /models response is not valid JSON" }, { status: 400 });
-    }
-
-    const models = Array.from(new Set(parseModelIdsFromBody(parsed))).sort((a, b) => a.localeCompare(b));
+    const models = await listProviderModels(payload);
     return json({ ok: true, models });
   } catch (error) {
+    if (error instanceof ProviderModelsError) {
+      return json({ ok: false, error: error.message }, { status: error.status });
+    }
     return json({
       ok: false,
       error: error instanceof Error ? error.message : String(error)

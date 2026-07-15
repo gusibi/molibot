@@ -162,7 +162,7 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings/dynamic/tts-generate");
+      const res = await fetch("/api/settings/tts-generate");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("loadError"));
       ttsGenerate = { ...ttsGenerate, ...(data.value ?? {}) };
@@ -191,7 +191,7 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings/dynamic/tts-generate", {
+      const res = await fetch("/api/settings/tts-generate", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: ttsGenerate })

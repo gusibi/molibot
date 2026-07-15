@@ -263,7 +263,7 @@
 - [Done] 独立服务启动与 Desktop supervisor 均读取持久化端口；显式 `PORT` 环境变量继续拥有更高优先级。
 - [Done] Desktop 设置支持保存端口并重启托管服务；外部/非托管服务禁止由 UI 强制终止，避免无法自动恢复。
 - [Done] Web 设置在托管模式下提供独立重启操作，并在端口变化后自动连接新地址。
-- [Done] Desktop Tauri HTTP capability 必须精确放行 loopback `/api/settings`，并由契约测试防止设置读写 scope 回归。
+- [Done] Desktop Tauri HTTP capability 必须精确放行 loopback `/api/settings/system`，服务端口通过该细粒度端点读取和保存，并由契约测试防止设置读写 scope 回归。
 - [Done] Desktop 重新发现先前由自身启动的 sidecar 时必须恢复托管 ownership 和重启控制，不能一律降级为 external。
 
 ## 2.31 Desktop Projects (2026-07-05)

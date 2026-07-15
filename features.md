@@ -605,6 +605,15 @@
 
 ## 2026-07-04
 
+### Settings API 按模块拆分与 Desktop/Web 存储去重
+- 单体 `/api/settings`（GET 返回全量 `RuntimeSettings`、PUT 接受任意 patch）已退役并删除；通用兜底 `dynamic/[key]`（此前零校验直接 `updateSettings`）已被摘除，所有页面切片都有了带 sanitize/validate 的专用端点：`/api/settings/locale`、`/api/settings/mcp`、`/api/settings/skills`、`/api/settings/skill-drafts`、`/api/settings/plugins`、`/api/settings/system`、`/api/settings/sandbox`、`/api/settings/web-search`、`/api/settings/image-generate`、`/api/settings/video-generate`、`/api/settings/tts-generate`、`/api/settings/agent`、`/api/settings/channel-instance?channel=xx`、`/api/settings/ai-routing`、`/api/settings/custom-providers`、`/api/settings/model-switch`、`/api/settings/profile-files`；前端五个页面（search/image/video/tts/sandbox settings）同步迁移到各自的端点，彻底消除 `runtime.updateSettings({[key]: rawBody})` 脏写面。
+- 端点间持久化逻辑抽到 `src/lib/server/settings/handlers/`（纯函数，注入 `SettingsAccessor`，便于单测与 Web/Desktop 复用）；对应切片的字段校验（agent 引用、skill draft 路径、cloudflare 插件、timezone）集中到 `src/lib/server/settings/validators.ts`，web 与 desktop 路径共用同一套校验，修复“desktop 绕过 web 校验”的历史漂移。
+- 切片级 sanitizer 从单体 `sanitizeSettings` 中抽出（`sanitizeSingleAgent`、`sanitizeSingleChannelInstance`、`sanitizeModelRoutingConfig`、`sanitizeModelFallback`、`sanitizeCompaction`、`sanitizeAiRoutingConfig`），供 handler 与原单体路径共享；custom-providers 端点改为经 `sanitizeSettings` 正规化后再落盘，修复此前 POST/PUT 直接写对象、不跑模型列表/verification/tags 正规化的问题；`/api/settings/model-switch` 只更新所选模型路由，不再意外覆盖独立配置的全局 `providerMode`。
+- Web 设置页逐页迁移到新端点（mcp、skills、skill-drafts、plugins、system、agents、web/feishu/telegram/qq/weixin、ai/routing、ai/providers、根页模型切换器、i18n setLocale）；根页 Chat 的模型切换从“PUT 整个 settings 大对象”改为 POST `/api/settings/model-switch`，运行时设置加载改由 `/api/settings/custom-providers` + `/api/settings/ai-routing` + `/api/settings/channel-instance?channel=web` 组合。
+- `src/lib/server/settings/handlers/` 现已覆盖 agents、channels、aiRouting、customProviders、plugins、skills、locale、mcp、system、skillDrafts、mediaGenerates（web-search/image/video/tts）所有切片持久化；Desktop 端 `plugins`、`skills`、`agents`、`channels`、`profiles`、`providers`、`model-routing`、`mcp`、`sandbox` 路由全部改为走同一套 handler 做持久化（保留 `buildDesktopXxxSummary` 这种“去掉凭据/绝对路径后再返回给 WebView”的投影 DTO 不变）；plugin memory 保存会保留 embedding、反思、通知和 daily materials 字段，Desktop 服务端口也迁到 `/api/settings/system` 并继续执行范围与占用校验；`upsertCustomProvider` 新增 `{activateAsDefault, switchToCustomMode}` 选项支持 desktop 创建即激活场景。
+- `parseProviderModelIdsResponse` 与整个 `/models` 拉取+解析流水线（URL/headers 拼装、HTTP 错误处理、JSON 解析）一并抽到 `src/lib/server/providers/customProtocol.ts` 的 `listProviderModels()`，web/desktop 两个 `/provider-models` 端点只负责各自的凭据来源（request body vs 已保存 provider）；消除 ~30 行复制代码，HTTP 错误统一用 `ProviderModelsError` 携带状态码。
+- 路由页不再把 `customProviders` 大列表回写服务器（providers 管理完全交给 `/api/settings/custom-providers`），channel/agent 页面的设置保存不再提交全量 settings 大对象。
+
 ### Desktop Chat 工作区 DESIGN 审计与一致性修正
 - 使用真实 Chat、Automations、Skills 截图对照 `DESIGN.md` 完成组合 UX/可访问性审计，证据与报告保存在 `docs/audits/chat-workspace-2026-07-04/`。
 - Skills 新增即时搜索、无结果状态和可展开的三行说明；卡片按自身内容高度排列，不再被同一行最长描述撑出大片空白；导航名称从“技能广场”收敛为实际能力“技能”。

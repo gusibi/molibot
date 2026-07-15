@@ -283,14 +283,14 @@
       if (skillDrafts.autoSave.enabled && !hasWorkflowSkillPath()) {
         throw new Error(copy.pathRequiredError);
       }
-      const res = await fetch("/api/settings", {
+      const res = await fetch("/api/settings/skill-drafts", {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ skillDrafts })
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || copy.failedSaveConfig);
-      skillDrafts = normalizeSkillDraftSettings(data.settings?.skillDrafts ?? skillDrafts);
+      skillDrafts = normalizeSkillDraftSettings(data.skillDrafts ?? skillDrafts);
       message = copy.configSaved;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);

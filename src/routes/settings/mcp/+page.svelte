@@ -171,10 +171,10 @@
     error = "";
     message = "";
     try {
-      const res = await fetch("/api/settings");
+      const res = await fetch("/api/settings/mcp");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
-      const map = normalizePayload(data.settings?.mcpServers ?? {});
+      const map = normalizePayload(data.mcpServers ?? {});
       servers = extractServers(map);
       rawJson = formatMcpJson(map);
       message = copy.loadedMsg.replace("{count}", String(servers.length));
@@ -198,7 +198,7 @@
       const parsed = JSON.parse(rawJson) as { mcpServers?: unknown };
       const payload = parsed.mcpServers ?? {};
 
-      const res = await fetch("/api/settings", {
+      const res = await fetch("/api/settings/mcp", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mcpServers: payload })
@@ -206,7 +206,7 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to save MCP settings");
 
-      const map = normalizePayload(data.settings?.mcpServers ?? payload);
+      const map = normalizePayload(data.mcpServers ?? payload);
       servers = extractServers(map);
       rawJson = formatMcpJson(map);
       message = copy.savedMsg;

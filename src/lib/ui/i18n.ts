@@ -29,7 +29,7 @@ export function setLocale(nextLocale: LocaleKey): void {
   if (!browser) return;
   localStorage.setItem(LS_LOCALE, normalized);
   applyDocumentLocale(normalized);
-  void fetch("/api/settings", {
+  void fetch("/api/settings/locale", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ locale: normalized })
