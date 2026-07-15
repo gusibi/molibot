@@ -6,6 +6,7 @@ import { session, setError } from "./session.svelte";
 export const skillsStore = $state({
   skills: null as DesktopSkillsSummary | null,
   loading: false,
+  error: "",
   endpoint: "",
   searchDraft: null as DesktopSkillsSummary["search"] | null,
   saving: false,
@@ -18,6 +19,7 @@ export const skillsStore = $state({
 export async function loadSkills(endpoint: string): Promise<void> {
   skillsStore.endpoint = endpoint;
   skillsStore.loading = true;
+  skillsStore.error = "";
   session.error = "";
   try {
     skillsStore.skills = await loadDesktopSkills(endpoint);
@@ -26,6 +28,7 @@ export async function loadSkills(endpoint: string): Promise<void> {
   } catch (cause) {
     skillsStore.endpoint = "";
     setError(cause);
+    skillsStore.error = session.error;
   } finally {
     skillsStore.loading = false;
   }

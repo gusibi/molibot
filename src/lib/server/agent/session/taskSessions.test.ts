@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
@@ -89,6 +89,32 @@ test("beginTaskSession without retention keeps old task sessions", () => {
     ageSessionFiles(store, chatId, oldTask, 10 * DAY_MS);
     store.beginTaskSession(chatId);
     assert.ok(store.listSessions(chatId).includes(oldTask));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("deleteSessionArtifacts removes the last UI-linked Agent context", () => {
+  const { store, dir } = makeStore();
+  try {
+    const chatId = "web:personal:web-anonymous";
+    const sessionId = "ui-session-1";
+    store.clearSessionContext(chatId, sessionId);
+    store.markSessionOrigin(chatId, sessionId, { origin: "chat" });
+    store.setActiveSession(chatId, sessionId);
+    const entries = store.getSessionEntriesPath(chatId, sessionId);
+    const context = entries.replace(/\.jsonl$/, ".json");
+    const metadata = entries.replace(/\.jsonl$/, ".meta.json");
+    const active = join(dir, chatId, "active_session.txt");
+
+    assert.equal(store.deleteSessionArtifacts(chatId, sessionId), true);
+    assert.equal(existsSync(entries), false);
+    assert.equal(existsSync(context), false);
+    assert.equal(existsSync(metadata), false);
+    assert.equal(existsSync(active), false);
+    writeFileSync(active, sessionId, "utf8");
+    assert.equal(store.deleteSessionArtifacts(chatId, sessionId), false);
+    assert.equal(existsSync(active), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

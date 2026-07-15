@@ -21,7 +21,7 @@ export const PUT: RequestHandler = async ({ request }) => {
   }
   try {
     const raw = body && typeof body === "object" && "value" in body ? body.value : body;
-    const updated = updateSystemConfig(getRuntime(), { toolSandbox: raw });
+    const updated = await updateSystemConfig(getRuntime(), { toolSandbox: raw });
     return json({ ok: true, value: updated.toolSandbox }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });

@@ -345,3 +345,10 @@ test("resolveEffectiveSandboxSettings correctly prioritizes scopes", () => {
   assert.equal(res5.enabled, true);
 });
 
+test("Project sandbox override sits below Session and above Bot/global", () => {
+  const settings = { toolSandbox: { ...defaultToolSandboxSettings, enabled: true }, channels: {}, agents: [] } as never;
+  const store = { getSessionSandboxOverride: () => null } as never;
+  assert.equal(resolveEffectiveSandboxSettings({ getSettings: () => settings, store, chatId: "c", sessionId: "s", projectOverride: false }).enabled, false);
+  const sessionStore = { getSessionSandboxOverride: () => true } as never;
+  assert.equal(resolveEffectiveSandboxSettings({ getSettings: () => settings, store: sessionStore, chatId: "c", sessionId: "s", projectOverride: false }).enabled, true);
+});

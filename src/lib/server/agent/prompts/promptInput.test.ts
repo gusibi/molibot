@@ -34,3 +34,28 @@ test("buildPromptInputEnvelope wraps the live prompt with env metadata without p
     ["Hi", "", "<channel_attachments>", "/tmp/demo.txt", "</channel_attachments>"].join("\n")
   );
 });
+
+test("buildPromptInputEnvelope injects the memory snapshot into the model message only", () => {
+  const result = buildPromptInputEnvelope({
+    messageText: "Hi",
+    messageTimestamp: "2026-04-26T02:59:24Z",
+    timezone: "Asia/Shanghai",
+    memorySnapshotText: "Long-term memory:\n1. User prefers concise replies."
+  });
+
+  assert.ok(result.modelMessage.includes("<current-memory>"));
+  assert.ok(result.modelMessage.includes("User prefers concise replies."));
+  assert.ok(result.modelMessage.indexOf("<current-memory>") < result.modelMessage.indexOf("<user_message>"));
+  assert.ok(!result.persistedMessage.includes("<current-memory>"));
+});
+
+test("buildPromptInputEnvelope omits the memory block when the snapshot is empty", () => {
+  const result = buildPromptInputEnvelope({
+    messageText: "Hi",
+    messageTimestamp: "2026-04-26T02:59:24Z",
+    timezone: "Asia/Shanghai",
+    memorySnapshotText: "   "
+  });
+
+  assert.ok(!result.modelMessage.includes("<current-memory>"));
+});

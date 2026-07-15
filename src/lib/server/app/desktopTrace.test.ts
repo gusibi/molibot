@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import {
+  buildDesktopAgentActivity,
   computeDesktopTraceTotals,
   resolveDesktopTraceWindow,
   sanitizeDesktopTraceRange
 } from "./desktopTrace";
+import type { RuntimeSettings } from "$lib/server/settings/schema";
+import { buildDesktopActiveRuns } from "./desktopActiveRuns";
+import { SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";
 
 function fact(overrides: Partial<TraceFactRecord> = {}): TraceFactRecord {
   return {
@@ -74,4 +78,124 @@ test("computeDesktopTraceTotals counts tools, models, skills, and tokens without
   assert.equal(serialized.includes("secret arg"), false);
   assert.equal(serialized.includes("private-model"), false);
   assert.equal(serialized.includes("payload"), false);
+});
+
+test("buildDesktopAgentActivity maps Bot run facts to Agents and expires terminal states", () => {
+  const settings = {
+    channels: {
+      feishu: { instances: [{ id: "smart-momo", name: "Smart Momo", enabled: true, agentId: "agent-smart" }] }
+    }
+  } as RuntimeSettings;
+  const now = Date.parse("2026-07-12T12:00:20.000Z");
+  const items = buildDesktopAgentActivity(settings, [
+    fact({ id: "active", factType: "run", factId: "run-active", runId: "run-active", channel: "feishu", botId: "smart-momo", status: "started", startedAt: "2026-07-12T12:00:00.000Z", updatedAt: "2026-07-12T12:00:00.000Z", payload: { taskPreview: "分析这个项目" } }),
+    fact({ id: "old", factType: "run", factId: "run-old", runId: "run-old", channel: "feishu", botId: "smart-momo", status: "success", finishedAt: "2026-07-12T11:59:00.000Z", updatedAt: "2026-07-12T11:59:00.000Z" })
+  ], now);
+  assert.deepEqual(items.map((item) => [item.agentId, item.status, item.channel]), [["agent-smart", "working", "feishu"]]);
+  assert.equal(items[0]?.botName, "Smart Momo");
+  assert.equal(items[0]?.taskPreview, "分析这个项目");
+  assert.deepEqual(items[0]?.subagents, []);
+
+  const completed = buildDesktopAgentActivity(settings, [
+    fact({ id: "done", factType: "run", factId: "run-done", runId: "run-done", channel: "feishu", botId: "smart-momo", status: "success", startedAt: "2026-07-12T12:00:00.000Z", finishedAt: "2026-07-12T12:00:15.000Z", updatedAt: "2026-07-12T12:00:15.000Z" })
+  ], now);
+  assert.equal(completed[0]?.status, "completed");
+  assert.equal(JSON.stringify(completed).includes("payload"), false);
+});
+
+test("buildDesktopAgentActivity assigns unbound Bots to default and nests Subagents under the parent run", () => {
+  const settings = {
+    channels: { feishu: { instances: [{ id: "general", name: "General", enabled: true }] } }
+  } as RuntimeSettings;
+  const now = Date.parse("2026-07-12T12:00:05.000Z");
+  const items = buildDesktopAgentActivity(settings, [
+    fact({ id: "parent", factType: "run", factId: "run-parent", runId: "run-parent", channel: "feishu", botId: "general", status: "started", startedAt: "2026-07-12T12:00:00.000Z", updatedAt: "2026-07-12T12:00:00.000Z" }),
+    fact({ id: "sub", factType: "subagent_task", factId: "researcher:1", runId: "run-parent", channel: "feishu", botId: "general", name: "researcher", status: "started", startedAt: "2026-07-12T12:00:02.000Z", updatedAt: "2026-07-12T12:00:02.000Z", payload: { task: "sensitive task" } })
+  ], now);
+  assert.equal(items[0]?.agentId, "default");
+  assert.deepEqual(items[0]?.subagents.map((item) => [item.name, item.status]), [["researcher", "working"]]);
+  assert.equal(JSON.stringify(items).includes("sensitive task"), false);
+});
+
+test("buildDesktopAgentActivity drops orphaned started runs after the runtime timeout grace", () => {
+  const settings = { channels: { web: { instances: [{ id: "runtime", name: "runtime", enabled: true }] } } } as RuntimeSettings;
+  const now = Date.parse("2026-07-12T12:30:00.000Z");
+  const items = buildDesktopAgentActivity(settings, [
+    fact({ id: "orphan", factType: "run", factId: "orphan", runId: "orphan", channel: "web", botId: "runtime", status: "started", startedAt: "2026-07-12T09:21:17.000Z", updatedAt: "2026-07-12T09:21:17.000Z" })
+  ], now);
+  assert.deepEqual(items, []);
+});
+
+test("active run controls distinguish running, stuck, and orphan records", () => {
+  const activeSettings = {
+    agents: [{ id: "smart", name: "Smart", enabled: true }],
+    channels: { feishu: { instances: [{ id: "bot-1", name: "Research Bot", enabled: true, agentId: "smart" }, { id: "global", name: "Global Bot", enabled: true }] } }
+  } as RuntimeSettings;
+  const activeFacts = [
+    fact({ id: "live", factType: "run", runId: "live", factId: "live", channel: "feishu", botId: "bot-1", chatId: "chat", sessionId: "session", status: "started", startedAt: "2026-07-12T12:00:00.000Z", payload: { taskPreview: "Analyze" } }),
+    fact({ id: "stuck", factType: "run", runId: "stuck", factId: "stuck", channel: "feishu", botId: "global", chatId: "old-chat", sessionId: "old-session", status: "started", startedAt: "2026-07-12T11:40:00.000Z" }),
+    fact({ id: "orphan-active", factType: "run", runId: "orphan-active", factId: "orphan-active", channel: "feishu", botId: "bot-1", chatId: "gone", sessionId: "gone", status: "started", startedAt: "2026-07-12T12:00:00.000Z" })
+  ];
+  const items = buildDesktopActiveRuns(activeSettings, activeFacts, [
+    { channel: "feishu", botId: "bot-1", chatId: "chat", sessionId: "session" },
+    { channel: "feishu", botId: "global", chatId: "old-chat", sessionId: "old-session" }
+  ], Date.parse("2026-07-12T12:01:00.000Z"));
+  assert.equal(items.find((item) => item.runId === "stuck")?.status, "stuck");
+  assert.equal(items.find((item) => item.runId === "orphan-active")?.status, "orphan");
+  assert.equal(items.find((item) => item.runId === "live")?.status, "running");
+  assert.equal(items.find((item) => item.runId === "live")?.agentName, "Smart");
+  assert.equal(items.find((item) => item.runId === "stuck")?.agentName, "Global");
+});
+
+test("active run controls treat a Web runtime snapshot as live", () => {
+  const webFact = fact({
+    id: "web-live",
+    factType: "run",
+    runId: "web-live",
+    factId: "web-live",
+    channel: "web",
+    botId: "default",
+    chatId: "web:default:web-anonymous",
+    sessionId: "session-web",
+    status: "started",
+    startedAt: "2026-07-14T12:00:00.000Z"
+  });
+  const items = buildDesktopActiveRuns({} as RuntimeSettings, [webFact], [{
+    channel: "web",
+    botId: "default",
+    chatId: "web:default:web-anonymous",
+    sessionId: "session-web"
+  }], Date.parse("2026-07-14T12:01:00.000Z"));
+  assert.equal(items[0]?.status, "running");
+});
+
+test("clearing an orphan preserves its audit fact but removes it from active runs", () => {
+  const store = new SqliteTraceStore(":memory:");
+  const started = fact({
+    id: "orphan",
+    factType: "run",
+    runId: "orphan",
+    factId: "orphan",
+    status: "started",
+    startedAt: "2026-07-14T12:00:00.000Z"
+  });
+  try {
+    store.upsertFact(started);
+    assert.equal(buildDesktopActiveRuns({} as RuntimeSettings, store.listRecentFacts(), [], Date.parse("2026-07-14T12:01:00.000Z")).length, 1);
+
+    store.upsertFact({
+      ...started,
+      status: "aborted",
+      finishedAt: "2026-07-14T12:01:00.000Z",
+      updatedAt: "2026-07-14T12:01:00.000Z",
+      payload: { clearedFromTrace: true }
+    });
+
+    const facts = store.listFactsByRunId("orphan");
+    assert.equal(facts.length, 1);
+    assert.equal(facts[0]?.status, "aborted");
+    assert.deepEqual(buildDesktopActiveRuns({} as RuntimeSettings, facts, [], Date.parse("2026-07-14T12:01:00.000Z")), []);
+  } finally {
+    store.close();
+  }
 });

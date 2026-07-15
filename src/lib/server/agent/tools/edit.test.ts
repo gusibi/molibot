@@ -51,6 +51,25 @@ test("edit replaceAll replaces every occurrence and reports count", async () => 
   });
 });
 
+test("project edit returns a project-relative structured file result", async () => {
+  await withTempDir(async (cwd) => {
+    writeFileSync(join(cwd, "README.md"), "before\n");
+    const result = await createEditTool({
+      cwd,
+      workspaceDir: cwd,
+      outputLayout: { projectRoot: cwd, scratchRoot: join(cwd, ".scratch") }
+    }).execute("t1", {
+      label: "edit",
+      path: "README.md",
+      oldText: "before",
+      newText: "after"
+    });
+    assert.equal((result.details as any)?.relativePath, "README.md");
+    assert.equal((result.details as any)?.rootKind, "project");
+    assert.equal((result.details as any)?.action, "modified");
+  });
+});
+
 test("edit rejects ambiguous matches with count when replaceAll is false", async () => {
   await withTempDir(async (cwd) => {
     writeFileSync(join(cwd, "a.txt"), "x\nx\n");

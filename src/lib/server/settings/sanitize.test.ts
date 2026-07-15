@@ -15,6 +15,50 @@ test("sanitizeSettings backfills imageGenerate for legacy settings", () => {
   assert.deepEqual(Object.keys(sanitized.imageGenerate.engines).sort(), ["agnes", "google", "modelscope", "openai", "openai-chat", "volcengine"]);
 });
 
+test("sanitizeSettings backfills default agent and links default Web profile", () => {
+  const legacySettings = {
+    ...defaultRuntimeSettings,
+    agents: [],
+    channels: {
+      ...defaultRuntimeSettings.channels,
+      web: {
+        instances: [{
+          id: "default",
+          name: "Default Web",
+          enabled: true,
+          agentId: "",
+          credentials: {},
+          allowedChatIds: []
+        }]
+      }
+    }
+  } as RuntimeSettings;
+
+  const sanitized = sanitizeSettings({}, legacySettings);
+
+  assert.equal(sanitized.agents.length, 1);
+  assert.equal(sanitized.agents[0]?.id, "default");
+  assert.equal(sanitized.channels.web.instances[0]?.agentId, "default");
+});
+
+test("sanitizeSettings backfills DuckDuckGo web search defaults for incomplete legacy settings", () => {
+  const legacySettings = {
+    ...defaultRuntimeSettings,
+    webSearch: {
+      ...defaultRuntimeSettings.webSearch,
+      defaultEngine: "auto",
+      engines: {} as RuntimeSettings["webSearch"]["engines"]
+    }
+  } as RuntimeSettings;
+
+  const sanitized = sanitizeSettings({}, legacySettings);
+
+  assert.equal(defaultRuntimeSettings.webSearch.defaultEngine, "duckduckgo");
+  assert.equal(sanitized.webSearch.defaultEngine, "auto");
+  assert.equal(sanitized.webSearch.engines.duckduckgo.enabled, true);
+  assert.equal(sanitized.webSearch.engines.duckduckgo.apiKey, "");
+});
+
 test("sanitizeSettings enables configured default image engine when legacy enabled flag is false", () => {
   const settings = {
     ...defaultRuntimeSettings,
@@ -93,6 +137,31 @@ test("sanitizeSettings only accepts supported runtime locales", () => {
     sanitizeSettings({ locale: "fr-FR" as RuntimeSettings["locale"] }, defaultRuntimeSettings).locale,
     "en-US"
   );
+});
+
+test("sanitizeSettings backfills and confines daily materials settings", () => {
+  const legacy = structuredClone(defaultRuntimeSettings);
+  delete (legacy.plugins.memory as Partial<typeof legacy.plugins.memory>).dailyMaterials;
+  const backfilled = sanitizeSettings({}, legacy);
+  assert.deepEqual(backfilled.plugins.memory.dailyMaterials, {
+    enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true, scanTokenBudget: 120000, scanModelKey: ""
+  });
+  const sanitized = sanitizeSettings({ plugins: { ...defaultRuntimeSettings.plugins, memory: { ...defaultRuntimeSettings.plugins.memory, dailyMaterials: { enabled: true, time: "99:99", projectId: "momo-agent", dir: "../outside", promptPath: "/tmp/prompt.md", notifications: false } } } }, defaultRuntimeSettings);
+  assert.equal(sanitized.plugins.memory.dailyMaterials.time, "23:30");
+  assert.equal(sanitized.plugins.memory.dailyMaterials.dir, "content/daily-materials");
+  assert.equal(sanitized.plugins.memory.dailyMaterials.promptPath, "templates/daily-material-prompt.md");
+});
+
+test("sanitizeSettings preserves dynamic feature-plugin settings keys", () => {
+  const withExtras = sanitizeSettings(
+    { plugins: { ...defaultRuntimeSettings.plugins, myFeature: { token: "abc" } } as typeof defaultRuntimeSettings.plugins },
+    defaultRuntimeSettings
+  );
+  assert.deepEqual((withExtras.plugins as unknown as Record<string, unknown>).myFeature, { token: "abc" });
+  // A later unrelated patch must not drop the stored feature settings.
+  const keptExtras = sanitizeSettings({ locale: "zh-CN" }, withExtras);
+  assert.deepEqual((keptExtras.plugins as unknown as Record<string, unknown>).myFeature, { token: "abc" });
+  assert.equal(keptExtras.plugins.memory.reflectionTime, defaultRuntimeSettings.plugins.memory.reflectionTime);
 });
 
 test("sanitizeMcpServers infers http transport from url and keeps top-level headers", () => {

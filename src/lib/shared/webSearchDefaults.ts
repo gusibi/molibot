@@ -1,4 +1,5 @@
 export const WEB_SEARCH_DEFAULT_BASE_URLS = {
+  anysearch: "https://api.anysearch.com/v1/search",
   brave: "https://api.search.brave.com/res/v1/web/search",
   tavily: "https://api.tavily.com/search",
   exa: "https://api.exa.ai/search",

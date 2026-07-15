@@ -1,12 +1,15 @@
 name: Desktop Release
 
-# Reproducible Apple Silicon unsigned-beta build per docs/requirements/molibot-macos-app-plan.md §16.1 / Phase 5.
-# Produces the Molibot DMG, its SHA-256 checksum, and a build-info manifest.
+# Reproducible unsigned-beta builds per docs/requirements/molibot-macos-app-plan.md §16.1 / Phase 5.
+# Produces Apple Silicon and Intel Molibot DMGs, SHA-256 checksums, and build-info manifests.
 # The DMG is unsigned (no Developer ID / notarization) — Gatekeeper install is the user's responsibility.
 
 on:
   push:
     tags:
+      # Release tags (bin/molibot-release convention, e.g. v2.2.5) and the legacy
+      # desktop-only tag both build and publish the DMG.
+      - "v*"
       - "molibot-v*"
   workflow_dispatch:
     # Build-only smoke (no release). Use to verify the DMG pipeline on a real macOS runner without publishing.
@@ -23,9 +26,26 @@ env:
 
 jobs:
   build:
-    name: Build unsigned DMG (Apple Silicon)
-    runs-on: macos-14
+    name: Build unsigned DMG (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple Silicon
+            arch: aarch64
+            target: aarch64-apple-darwin
+            runner: macos-14
+            node_sidecar: darwin-arm64
+          - label: Intel
+            arch: x86_64
+            target: x86_64-apple-darwin
+            runner: macos-13
+            node_sidecar: darwin-x64
+
+    env:
+      TAURI_BUILD_TARGET: ${{ matrix.target }}
 
     steps:
       - name: Checkout
@@ -33,17 +53,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      # corepack must enable pnpm BEFORE setup-node, otherwise `cache: pnpm`
+      # cannot resolve the pnpm binary to compute the store path and the step fails.
+      - name: Enable pnpm (corepack)
+        run: corepack enable
+
       - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: pnpm
 
-      - name: Enable pnpm
-        run: corepack enable
-
       - name: Setup Rust (stable)
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust target
+        run: rustup target add "$TAURI_BUILD_TARGET"
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -52,9 +77,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             apps/desktop/src-tauri/target
-          key: desktop-cargo-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          key: desktop-cargo-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
           restore-keys: |
-            desktop-cargo-${{ runner.os }}-
+            desktop-cargo-${{ runner.os }}-${{ matrix.target }}-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -65,7 +90,7 @@ jobs:
       - name: Locate release artifacts
         id: artifacts
         run: |
-          bundle_dir="apps/desktop/src-tauri/target/release/bundle/dmg"
+          bundle_dir="apps/desktop/src-tauri/target/${TAURI_BUILD_TARGET}/release/bundle/dmg"
           dmg_path="$(find "$bundle_dir" -type f -name '*.dmg' | head -n 1)"
           if [[ -z "$dmg_path" ]]; then
             echo "::error::No DMG produced under $bundle_dir"
@@ -84,11 +109,13 @@ jobs:
       - name: Write build-info manifest
         id: manifest
         run: |
-          out="$(mktemp -d)/BUILD-INFO.txt"
+          out="$(mktemp -d)/BUILD-INFO-${{ matrix.arch }}.txt"
           {
             echo "Molibot Desktop — Unsigned Beta Build"
             echo "======================================"
             echo "version: $(node -p "require('./apps/desktop/package.json').version")"
+            echo "arch: ${{ matrix.arch }}"
+            echo "tauri_build_target: ${TAURI_BUILD_TARGET}"
             echo "git_commit: $(git rev-parse HEAD)"
             echo "git_ref: $(git describe --tags --always 2>/dev/null || echo unknown)"
             echo "built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -98,9 +125,9 @@ jobs:
             echo "rustc: $(rustc --version)"
             echo "cargo: $(cargo --version)"
             echo "macos_deployment_target: ${MACOSX_DEPLOYMENT_TARGET}"
-            echo "bundled_node_sidecar: 22.23.1 (darwin-arm64)"
+            echo "bundled_node_sidecar: 22.23.1 (${{ matrix.node_sidecar }})"
             echo ""
-            echo "Intended platform: Apple Silicon, macOS 13+"
+            echo "Intended platform: ${{ matrix.label }}, macOS 13+"
             echo "Signature: unsigned (no Developer ID, no notarization)"
             echo "Install: drag Molibot.app to Applications; Gatekeeper may require an explicit override."
           } > "$out"
@@ -110,7 +137,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: molibot-desktop-dmg
+          name: molibot-desktop-dmg-${{ matrix.arch }}
           if-no-files-found: error
           path: |
             ${{ steps.artifacts.outputs.dmg_path }}
@@ -118,7 +145,7 @@ jobs:
             ${{ steps.manifest.outputs.manifest_path }}
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/molibot-v')
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}

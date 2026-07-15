@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { MemoryScope } from "$lib/server/memory/types.js";
 
 const memorySchema = Type.Object({
   action: Type.Union([
@@ -11,7 +12,10 @@ const memorySchema = Type.Object({
     Type.Literal("delete"),
     Type.Literal("flush"),
     Type.Literal("sync"),
-    Type.Literal("compact")
+    Type.Literal("compact"),
+    Type.Literal("search_content"),
+    Type.Literal("add_content"),
+    Type.Literal("set_agent_self")
   ]),
   content: Type.Optional(Type.String()),
   query: Type.Optional(Type.String()),
@@ -20,17 +24,19 @@ const memorySchema = Type.Object({
   tags: Type.Optional(Type.Array(Type.String())),
   layer: Type.Optional(Type.Union([Type.Literal("long_term"), Type.Literal("daily")])),
   expiresAt: Type.Optional(Type.String()),
-  limit: Type.Optional(Type.Number())
+  limit: Type.Optional(Type.Number()),
+  botId: Type.Optional(Type.String()),
+  type: Type.Optional(Type.String()),
+  subject: Type.Optional(Type.String())
 });
 
-type MemoryAction = "add" | "search" | "list" | "update" | "delete" | "flush" | "sync" | "compact";
+type MemoryAction = "add" | "search" | "list" | "update" | "delete" | "flush" | "sync" | "compact" | "search_content" | "add_content" | "set_agent_self";
 
 
 
 export function createMemoryTool(options: {
   memory: MemoryGateway;
-  channel: string;
-  chatId: string;
+  scope: MemoryScope;
 }): AgentTool<typeof memorySchema> {
   return {
     name: "memory",
@@ -40,8 +46,23 @@ export function createMemoryTool(options: {
     parameters: memorySchema,
     execute: async (_toolCallId, params) => {
       const action = params.action as MemoryAction;
-      const scope = { channel: options.channel, externalUserId: options.chatId };
+      const scope = options.scope;
       const allScopes = Boolean(params.allScopes);
+
+      if (action === "search_content") {
+        const rows = await options.memory.searchContent(String(params.botId ?? scope.botId ?? "default"), { query: String(params.query ?? ""), limit: params.limit ?? 10, mode: "hybrid" });
+        return { content: [{ type: "text", text: rows.length ? rows.map((row) => row.content).join("\n") : "(no similar published content)" }], details: { rows } };
+      }
+
+      if (action === "add_content" || action === "set_agent_self") {
+        const content = String(params.content ?? "").trim();
+        const subject = String(params.subject ?? "").trim();
+        if (!content || !subject) throw new Error("content and subject are required");
+        const botId = String(params.botId ?? scope.botId ?? "default");
+        const input = { content, type: (params.type ?? (action === "add_content" ? "user_fact" : "task")) as any, subject, reason: "user_explicit" };
+        const item = action === "add_content" ? await options.memory.addContentMemory(botId, input) : await options.memory.setAgentSelfMemory(botId, input);
+        return { content: [{ type: "text", text: `Saved ${action}: ${item?.id ?? "(disabled)"}` }], details: { item } };
+      }
 
       if (action === "sync") {
         const result = await options.memory.syncExternalMemories();

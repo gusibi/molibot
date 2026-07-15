@@ -4,6 +4,7 @@ import {
   buildDesktopTaskSessionMessages,
   buildDesktopTaskItem,
   buildDesktopTaskSummary,
+  buildDesktopTaskTargets,
   resolveDesktopTaskPaths
 } from "./desktopTasks";
 
@@ -86,6 +87,18 @@ test("buildDesktopTaskItem coerces unknown type and status to defaults", () => {
   assert.equal(desktop.status, "pending");
 });
 
+test("buildDesktopTaskItem exposes the persisted pause state", () => {
+  assert.equal(buildDesktopTaskItem(item({ enabled: false })).enabled, false);
+  assert.equal(buildDesktopTaskItem(item()).enabled, true);
+});
+
+test("buildDesktopTaskItem classifies explicit Molibot managed events as system tasks", () => {
+  const system = buildDesktopTaskItem(item({ managed: { by: "molibot", scope: "owner", kind: "memory-reflection", ownerId: "owner" } }));
+  assert.equal(system.category, "system");
+  assert.equal(system.systemKind, "memory-reflection");
+  assert.equal(buildDesktopTaskItem(item()).category, "user");
+});
+
 test("buildDesktopTaskSummary exposes only periodic automations", () => {
   const summary = buildDesktopTaskSummary([
     item({ type: "periodic", status: "pending", scope: "workspace", channel: "telegram" }),
@@ -101,6 +114,36 @@ test("buildDesktopTaskSummary exposes only periodic automations", () => {
   assert.equal(summary.counts.byChannel.telegram, 1);
   assert.equal(summary.counts.byChannel.feishu, undefined);
   assert.equal(summary.items[0].text.includes("API key"), true);
+  assert.deepEqual(summary.counts.executions, { total: 0, completed: 0, failed: 0 });
+});
+
+test("task targets include enabled Web profiles and external Bot allowed chat ids", () => {
+  const settings = {
+    channels: {
+      telegram: { instances: [
+        { id: "news", name: "News Bot", enabled: true, allowedChatIds: ["7706709760", " 7706709760 ", "-5296983178", ""] },
+        { id: "disabled", name: "Disabled", enabled: false, allowedChatIds: ["should-not-appear"] }
+      ] },
+      feishu: { instances: [
+        { id: "office", name: "Office Bot", enabled: true, allowedChatIds: ["oc_group__thread_topic"] }
+      ] },
+      web: { instances: [
+        { id: "default", name: "Default Web", enabled: true, allowedChatIds: ["web-chat"] }
+      ] }
+    }
+  } as unknown as Parameters<typeof buildDesktopTaskTargets>[0];
+
+  const targets = buildDesktopTaskTargets(settings);
+
+  assert.deepEqual(targets, [
+    { channel: "feishu", botId: "office", chatId: "oc_group__thread_topic", scope: "workspace", botDisplayName: "Office Bot" },
+    { channel: "telegram", botId: "news", chatId: "-5296983178", scope: "workspace", botDisplayName: "News Bot" },
+    { channel: "telegram", botId: "news", chatId: "7706709760", scope: "workspace", botDisplayName: "News Bot" },
+    { channel: "web", botId: "default", chatId: "web:default:web-anonymous", scope: "workspace", botDisplayName: "Default Web" }
+  ]);
+  assert.equal(JSON.stringify(targets).includes("should-not-appear"), false);
+  assert.equal(JSON.stringify(targets).includes("web-chat"), false);
+  assert.equal(targets.every((target) => target.scope === "workspace"), true);
 });
 
 test("task ids resolve to server-side paths and reject unknown ids", () => {

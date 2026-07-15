@@ -30,6 +30,13 @@ export function resolvePromptAttemptDecision(input: {
   finalText: string;
   attemptCount: number;
   maxEmptyRetries: number;
+  /**
+   * Whether the failed attempt already executed tool steps. Retrying re-runs the
+   * whole attempt from scratch, so if tools ran we must NOT retry — re-execution
+   * would repeat non-idempotent side effects (sent messages, written files).
+   * Such an error is treated as terminal even when otherwise retryable.
+   */
+  attemptExecutedTools?: boolean;
 }): PromptAttemptDecision {
   if (input.stopReason === "aborted") {
     return { kind: "aborted" };
@@ -44,7 +51,11 @@ export function resolvePromptAttemptDecision(input: {
       ? (input.errorMessage?.trim() || "Model request failed without an explicit error message.")
       : "";
   if (normalizedError) {
-    return input.attemptCount < input.maxEmptyRetries && isRetryableModelError(normalizedError)
+    const canRetry =
+      input.attemptCount < input.maxEmptyRetries &&
+      isRetryableModelError(normalizedError) &&
+      !input.attemptExecutedTools;
+    return canRetry
       ? { kind: "retryable_error", message: normalizedError }
       : { kind: "terminal_error", message: normalizedError };
   }

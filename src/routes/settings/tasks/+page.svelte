@@ -13,7 +13,7 @@
   type TaskType = "one-shot" | "periodic" | "immediate";
   type TaskStatus = "pending" | "running" | "completed" | "skipped" | "error";
   type TaskScope = "workspace" | "chat-scratch";
-  type TaskChannel = "telegram" | "feishu" | "qq" | "weixin";
+  type TaskChannel = "web" | "telegram" | "feishu" | "qq" | "weixin";
 
   interface TaskItem {
     channel: TaskChannel; botId: string; chatId: string; scope: TaskScope; filename: string;
@@ -169,7 +169,7 @@
     byType: { "one-shot": 0, periodic: 0, immediate: 0 },
     byStatus: { pending: 0, running: 0, completed: 0, skipped: 0, error: 0 },
     byScope: { workspace: 0, chatScratch: 0 },
-    byChannel: { telegram: 0, feishu: 0, qq: 0, weixin: 0 }
+    byChannel: { web: 0, telegram: 0, feishu: 0, qq: 0, weixin: 0 }
   };
 
   $: copy = COPY[$locale] ?? COPY["en-US"];

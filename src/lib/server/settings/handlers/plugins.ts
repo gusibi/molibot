@@ -21,13 +21,24 @@ export function updatePluginsConfig(
   const merged: Record<string, unknown> = { ...current.plugins };
 
   if (pluginsPatch.memory && typeof pluginsPatch.memory === "object") {
-    const mem = pluginsPatch.memory as { enabled?: unknown; backend?: unknown; core?: unknown };
+    const mem = pluginsPatch.memory as Record<string, unknown> & {
+      enabled?: unknown;
+      backend?: unknown;
+      core?: unknown;
+      dailyMaterials?: unknown;
+    };
     const currentMem = current.plugins.memory;
+    const memoryPatch = Object.fromEntries(Object.entries(mem).filter(([key]) => key !== "core"));
     merged.memory = {
+      ...currentMem,
+      ...memoryPatch,
       enabled: mem.enabled === undefined ? currentMem.enabled : Boolean(mem.enabled),
       backend: String(mem.backend ?? mem.core ?? currentMem.backend ?? "").trim()
         || currentMem.backend
-        || defaultRuntimeSettings.plugins.memory.backend
+        || defaultRuntimeSettings.plugins.memory.backend,
+      dailyMaterials: mem.dailyMaterials && typeof mem.dailyMaterials === "object"
+        ? { ...currentMem.dailyMaterials, ...mem.dailyMaterials as Record<string, unknown> }
+        : currentMem.dailyMaterials
     };
   }
 

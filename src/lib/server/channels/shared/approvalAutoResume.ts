@@ -1,5 +1,8 @@
 import { isActiveTurnConflictError } from "$lib/server/agent/core/turnOrchestrator.js";
 
+export const APPROVAL_AUTO_RESUME_RETRY_DELAY_MS = 1000;
+export const APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS = 60 * 60;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }

@@ -15,6 +15,7 @@ import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
+import { getProjectStore } from "$lib/server/projects/store.js";
 import { type ResolvedQQBotAccount, initApiConfig, clearTokenCache } from "$lib/server/channels/qq/sdk-adapter.js";
 import { sendText, sendMedia, type OutboundResult } from "#qqbot/src/outbound.js";
 import { startGateway, type GatewayContext } from "#qqbot/src/gateway.js";
@@ -386,9 +387,10 @@ export class QQManager extends BaseChannelRuntime {
 
     const settings = this.getSettings();
     const qqInstance = settings.channels?.qq?.instances?.find((item) => item.id === this.instanceId);
+    const selectedProject = getProjectStore().getChannelBinding("qq", this.instanceId, event.scopeId || chatId);
     const displayConfig = {
-      toolProgress: qqInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
-      showReasoning: qqInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
+      toolProgress: selectedProject?.toolProgress ?? qqInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
+      showReasoning: selectedProject?.showReasoning ?? qqInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
       gatewayNotifyInterval: qqInstance?.display?.gatewayNotifyInterval ?? settings.display?.gatewayNotifyInterval ?? 0
     };
 

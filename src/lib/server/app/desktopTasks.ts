@@ -8,6 +8,8 @@ import type {
   DesktopTaskType
 } from "$lib/shared/desktop";
 import { createHash } from "node:crypto";
+import type { RuntimeSettings } from "$lib/server/settings/schema";
+import { toWebExternalUserId } from "$lib/server/web/identity";
 
 const KNOWN_TYPES: readonly DesktopTaskType[] = ["one-shot", "periodic", "immediate"];
 const KNOWN_STATES: readonly DesktopTaskState[] = ["pending", "running", "completed", "skipped", "error"];
@@ -68,11 +70,13 @@ export function buildDesktopTaskSessionMessages(messages: unknown[]): DesktopTas
  */
 interface SharedTaskItem {
   taskId?: string;
+  managed?: { by?: string; scope?: string; kind?: string; ownerId?: string };
   channel: string;
   botId: string;
   chatId: string;
   scope: string;
   type: string;
+  enabled?: boolean;
   text: string;
   filePath: string;
   delivery: string;
@@ -108,17 +112,63 @@ function coerceState(value: string): DesktopTaskState {
  */
 export type DesktopTaskExecutionLoader = (taskId: string) => { items: DesktopTaskExecution[]; total: number };
 
+/**
+ * Projects enabled channel instances' explicit allow-lists into task targets.
+ * Desktop automations are bot-scoped watched events; chatId remains the
+ * delivery target, but event files always belong in the bot's events folder.
+ * Runtime settings are the source of truth: filesystem directories and
+ * partially populated session metadata never participate in target discovery.
+ */
+export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskTarget[] {
+  const targets: DesktopTaskTarget[] = [];
+  for (const [channel, group] of Object.entries(settings.channels ?? {})) {
+    for (const instance of group?.instances ?? []) {
+      if (instance.enabled === false) continue;
+      if (channel === "web") {
+        targets.push({
+          channel,
+          botId: instance.id,
+          botDisplayName: String(instance.name ?? "").trim() || instance.id,
+          chatId: toWebExternalUserId("web-anonymous", instance.id),
+          scope: "workspace"
+        });
+        continue;
+      }
+      const chatIds = Array.from(new Set((instance.allowedChatIds ?? []).map(String).map((value) => value.trim()).filter(Boolean)));
+      for (const chatId of chatIds) {
+        targets.push({
+          channel,
+          botId: instance.id,
+          botDisplayName: String(instance.name ?? "").trim() || instance.id,
+          chatId,
+          scope: "workspace"
+        });
+      }
+    }
+  }
+  return targets.sort((a, b) => a.channel.localeCompare(b.channel)
+    || (a.botDisplayName || a.botId).localeCompare(b.botDisplayName || b.botId)
+    || a.chatId.localeCompare(b.chatId));
+}
+
 export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: DesktopTaskExecutionLoader = () => ({ items: [], total: 0 })): DesktopTaskItem {
   const taskId = String(item.taskId ?? "").trim() || desktopTaskId(item.filePath);
   const executions = loadExecutions(taskId);
+  const systemKind = item.managed?.by === "molibot" && item.managed.scope === "owner"
+    && (item.managed.kind === "memory-reflection" || item.managed.kind === "daily-materials")
+    ? item.managed.kind
+    : "";
   return {
     id: desktopTaskId(item.filePath),
     taskId,
+    category: systemKind ? "system" : "user",
+    systemKind,
     channel: item.channel,
     botId: item.botId,
     chatId: item.chatId,
     scope: item.scope === "chat-scratch" ? "chat-scratch" : "workspace",
     type: coerceType(item.type),
+    enabled: item.enabled !== false,
     text: item.text,
     delivery: item.delivery,
     scheduleText: item.scheduleText,
@@ -151,7 +201,8 @@ export function resolveDesktopTaskPaths(items: SharedTaskItem[], ids: string[]):
 export function buildDesktopTaskSummary(
   items: SharedTaskItem[],
   loadExecutions: DesktopTaskExecutionLoader = () => ({ items: [], total: 0 }),
-  targets: DesktopTaskTarget[] = []
+  targets: DesktopTaskTarget[] = [],
+  executionTotals: { total: number; completed: number; failed: number } = { total: 0, completed: 0, failed: 0 }
 ): DesktopTaskSummary {
   const desktopItems = items.filter((item) => item.type === "periodic").map((item) => buildDesktopTaskItem(item, loadExecutions));
   const byType: Record<DesktopTaskType, number> = { "one-shot": 0, periodic: 0, immediate: 0 };
@@ -176,6 +227,6 @@ export function buildDesktopTaskSummary(
   return {
     items: desktopItems,
     targets,
-    counts: { total: desktopItems.length, byType, byStatus, byScope, byChannel }
+    counts: { total: desktopItems.length, byType, byStatus, byScope, byChannel, executions: executionTotals }
   };
 }

@@ -1,32 +1,39 @@
 {
   "name": "@molibot/desktop",
-  "version": "0.1.0",
+  "version": "0.4.6",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --test src/chat-ui.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "corepack pnpm exec tsx --test src/lib/chat/agentCityProjection.test.ts src/lib/chat/agentCityScene.test.ts && node --test src/chat-ui.test.mjs src/http-scope.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
+    "sync:version": "node ../../scripts/sync-desktop-version.mjs",
     "prepare:runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "corepack pnpm run prepare:runtime && tauri build --ci --config src-tauri/tauri.bundle.conf.json && node ../../scripts/finalize-desktop-release.mjs"
+    "tauri:build": "corepack pnpm run sync:version && corepack pnpm run prepare:runtime && node ../../scripts/build-desktop-tauri.mjs && node ../../scripts/finalize-desktop-release.mjs"
   },
   "dependencies": {
+    "@fontsource/geist-mono": "^5.2.8",
+    "@fontsource/geist-sans": "^5.2.5",
     "@phosphor-icons/web": "^2.1.2",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-http": "^2.5.9",
+    "diff2html": "^3.4.56",
     "dompurify": "^3.4.11",
+    "highlight.js": "^11.11.1",
     "marked": "^18.0.5",
     "qrcode": "^1.5.4",
-    "svelte": "^5.38.10"
+    "svelte": "^5.38.10",
+    "three": "0.185.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@tauri-apps/cli": "^2.11.3",
     "@types/qrcode": "^1.5.6",
+    "@types/three": "0.185.1",
     "svelte-check": "^4.3.2",
     "typescript": "^5.7.2",
     "vite": "^7.1.6"

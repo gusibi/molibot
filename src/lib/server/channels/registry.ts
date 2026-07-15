@@ -8,12 +8,15 @@ import { feishuChannelPlugin } from "$lib/server/channels/feishu/index.js";
 import { qqChannelPlugin } from "$lib/server/channels/qq/index.js";
 import { telegramChannelPlugin } from "$lib/server/channels/telegram/index.js";
 import { weixinChannelPlugin } from "$lib/server/channels/weixin/index.js";
+import { webChannelPlugin } from "$lib/server/channels/web/index.js";
 
 export interface ChannelManager {
   apply(config: unknown): void;
   stop(): void;
   stopTask?(scopeId: string): { aborted: boolean; clearedStale?: boolean };
   abortTaskRun?(scopeId: string, reason?: string): { aborted: boolean; clearedStale?: boolean };
+  snapshotRuns?(): Array<{ chatId: string; sessionId: string }>;
+  abortRun?(chatId: string, sessionId: string, reason?: string): { aborted: boolean };
   triggerTask?(event: unknown, filename: string): Promise<void>;
 }
 
@@ -43,6 +46,7 @@ export interface ChannelPlugin<TConfig> {
 }
 
 export const builtInChannelPlugins: ChannelPlugin<any>[] = [
+  webChannelPlugin,
   telegramChannelPlugin,
   feishuChannelPlugin,
   qqChannelPlugin,

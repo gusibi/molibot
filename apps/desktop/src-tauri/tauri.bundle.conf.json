@@ -2,9 +2,11 @@
   "bundle": {
     "active": true,
     "targets": ["dmg"],
+    "icon": ["icons/icon.png", "icons/icon.icns"],
     "resources": {
       "binaries/molibot-node-aarch64-apple-darwin": "molibot-node",
-      "resources/molibot-runtime/": "molibot-runtime/"
+      "resources/molibot-runtime.tar.gz": "molibot-runtime.tar.gz",
+      "resources/molibot-runtime.version": "molibot-runtime.version"
     }
   }
 }

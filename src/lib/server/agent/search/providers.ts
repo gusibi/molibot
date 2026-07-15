@@ -102,6 +102,41 @@ async function duckDuckGoSearch(input: WebSearchInput, context: WebSearchProvide
   return { results: limitResults(results, input.maxResults) };
 }
 
+async function anySearch(input: WebSearchInput, context: WebSearchProviderContext): Promise<WebSearchProviderResult> {
+  const config = engineConfig(context, "anysearch");
+  const apiKey = config?.apiKey?.trim();
+  const url = config?.baseUrl || WEB_SEARCH_DEFAULT_BASE_URLS.anysearch;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const body = {
+    query: withDomains(input.query, input),
+    max_results: Math.max(1, Math.min(20, input.maxResults ?? 5))
+  };
+  logRequest(context, {
+    method: "POST",
+    url,
+    headers: apiKey ? { "Content-Type": "application/json", Authorization: "Bearer <redacted>" } : headers,
+    body
+  });
+  const data = await readJson(await context.fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: context.signal
+  } as RequestInit));
+  if (data.code !== 0) throw new Error(`AnySearch API error: ${String(data.message || data.code || "unknown error")}`);
+  const rows = Array.isArray(data.data?.results) ? data.data.results : [];
+  return {
+    requestId: typeof data.data?.metadata?.request_id === "string" ? data.data.metadata.request_id : undefined,
+    results: limitResults(rows.map((row: any) => ({
+      title: row.title,
+      url: row.url,
+      snippet: row.snippet || row.content,
+      source: "anysearch"
+    })), input.maxResults)
+  };
+}
+
 async function braveSearch(input: WebSearchInput, context: WebSearchProviderContext): Promise<WebSearchProviderResult> {
   const apiKey = requireApiKey(context, "brave");
   const url = new URL(`${engineConfig(context, "brave")?.baseUrl || WEB_SEARCH_DEFAULT_BASE_URLS.brave}`);
@@ -413,6 +448,7 @@ async function bochaSearch(input: WebSearchInput, context: WebSearchProviderCont
 
 export const WEB_SEARCH_PROVIDERS: Record<WebSearchEngine, WebSearchProvider> = {
   duckduckgo: { id: "duckduckgo", search: duckDuckGoSearch },
+  anysearch: { id: "anysearch", search: anySearch },
   brave: { id: "brave", search: braveSearch },
   tavily: { id: "tavily", search: tavilySearch },
   exa: { id: "exa", search: exaSearch },

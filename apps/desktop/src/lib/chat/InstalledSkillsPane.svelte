@@ -2,26 +2,32 @@
   import type { Translation } from "../i18n";
   import { skillsStore, loadSkills } from "../stores/skills.svelte";
 
-  export let copy: Translation;
-  export let serviceEndpoint: string | null;
-  export let serviceReady: boolean;
+  let { copy, serviceEndpoint, serviceReady }: {
+    copy: Translation;
+    serviceEndpoint: string | null;
+    serviceReady: boolean;
+  } = $props();
 
-  let loadedEndpoint = "";
-  let query = "";
-  let expandedIds = new Set<string>();
-  $: if (serviceReady && serviceEndpoint && serviceEndpoint !== loadedEndpoint) {
-    loadedEndpoint = serviceEndpoint;
-    void loadSkills(serviceEndpoint);
-  }
+  let loadedEndpoint = $state("");
+  let query = $state("");
+  let expandedIds = $state(new Set<string>());
 
-  function scopeLabel(scope: "global" | "bot" | "chat"): string {
+  $effect(() => {
+    if (serviceReady && serviceEndpoint && serviceEndpoint !== loadedEndpoint) {
+      loadedEndpoint = serviceEndpoint;
+      void loadSkills(serviceEndpoint);
+    }
+  });
+
+  function scopeLabel(scope: "global" | "bot" | "chat" | "project"): string {
+    if (scope === "project") return copy.skillScopeProject;
     if (scope === "bot") return copy.skillScopeBot;
     if (scope === "chat") return copy.skillScopeChat;
     return copy.skillScopeGlobal;
   }
 
-  $: normalizedQuery = query.trim().toLowerCase();
-  $: filteredSkills = skillsStore.skills?.items.filter((skill) => !normalizedQuery || [skill.name, skill.description, skill.scope, skill.botId, skill.chatId].join("\n").toLowerCase().includes(normalizedQuery)) ?? [];
+  let normalizedQuery = $derived(query.trim().toLowerCase());
+  let filteredSkills = $derived(skillsStore.skills?.items.filter((skill) => !normalizedQuery || [skill.name, skill.description, skill.scope, skill.botId, skill.chatId].join("\n").toLowerCase().includes(normalizedQuery)) ?? []);
 
   function toggleDescription(id: string): void {
     const next = new Set(expandedIds);
@@ -32,7 +38,11 @@
 
 {#if !serviceReady}
   <div class="workspace-empty"><p>{copy.skillsUnavailable}</p></div>
-{:else if skillsStore.loading || !skillsStore.skills}
+{:else if skillsStore.loading}
+  <div class="workspace-empty"><p>{copy.loading}</p></div>
+{:else if skillsStore.error && !skillsStore.skills}
+  <div class="workspace-empty" role="alert"><p>{copy.workspaceLoadFailed}</p><small>{skillsStore.error}</small><button class="secondary-button" type="button" onclick={() => serviceEndpoint && void loadSkills(serviceEndpoint)}>{copy.retryLoading}</button></div>
+{:else if !skillsStore.skills}
   <div class="workspace-empty"><p>{copy.loading}</p></div>
 {:else if skillsStore.skills.items.length === 0}
   <div class="workspace-empty"><p>{copy.skillsEmpty}</p></div>

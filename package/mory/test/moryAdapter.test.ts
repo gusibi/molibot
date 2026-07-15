@@ -1,5 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
     InMemoryStorageAdapter,
@@ -253,16 +257,43 @@ test("SQLite: init creates schema without error", async () => {
     await assert.doesNotReject(() => storage.init());
 });
 
+test("SQLite: init adds domain to an existing database without losing rows", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mory-domain-migration-"));
+    const file = join(dir, "memory.sqlite");
+    try {
+        const db = new DatabaseSync(file);
+        db.exec(`CREATE TABLE memory_nodes (
+          id TEXT PRIMARY KEY, user_id TEXT NOT NULL, path TEXT NOT NULL,
+          memory_type TEXT NOT NULL, subject TEXT NOT NULL, l0_title TEXT,
+          l1_summary TEXT NOT NULL, l2_detail TEXT, confidence REAL NOT NULL,
+          importance REAL NOT NULL, utility REAL NOT NULL, access_count INTEGER NOT NULL,
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_accessed_at TEXT,
+          version INTEGER NOT NULL, supersedes TEXT, conflict_flag INTEGER NOT NULL,
+          archived_at TEXT, embedding TEXT
+        );
+        INSERT INTO memory_nodes VALUES ('legacy','u1','mory://task/legacy','task','legacy',NULL,'legacy value',NULL,0.8,0.5,0.5,0,'now','now',NULL,1,NULL,0,NULL,NULL);`);
+        db.close();
+        const storage = createSqliteStorageAdapter(file);
+        await storage.init();
+        const row = await storage.readById("u1", "legacy");
+        assert.equal(row?.value, "legacy value");
+        assert.equal(row?.domain, undefined);
+        await storage.update("u1", "legacy", { domain: "owner" });
+        assert.equal((await storage.readById("u1", "legacy"))?.domain, "owner");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("SQLite: insert and readByPath roundtrip", async () => {
     const storage = createSqliteStorageAdapter(":memory:");
     await storage.init();
-    const node = makeNode({ id: "sq-1" });
+    const node = makeNode({ id: "sq-1", domain: "owner" });
     await storage.insert(node);
     const rows = await storage.readByPath("u1", "mory://user_preference/language");
     assert.equal(rows.length, 1);
     assert.equal(rows[0].id, "sq-1");
     assert.equal(rows[0].value, "用户偏好中文回答");
     assert.equal(rows[0].confidence, 0.85);
+    assert.equal(rows[0].domain, "owner");
 });
 
 test("SQLite: readByPath excludes archived", async () => {

@@ -1,5 +1,5 @@
 // Scheduled tasks settings — state + orchestration.
-import { loadDesktopTaskHistory, loadDesktopTasks, loadDesktopTaskSession, runDesktopTaskAction } from "../api";
+import { loadDesktopTaskHistory, loadDesktopTasks, loadDesktopTaskSession, runDesktopTaskAction, stopDesktopActiveRun } from "../api";
 import type { DesktopTaskExecutionPage, DesktopTaskSession, DesktopTaskSummary, DesktopTaskTarget } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
@@ -22,6 +22,7 @@ export type TaskCreateDraft = DesktopTaskTarget & {
 export const tasksStore = $state({
   tasks: null as DesktopTaskSummary | null,
   loading: false,
+  error: "",
   endpoint: "",
   selected: new Set<string>(),
   taskEdit: null as TaskEditor | null,
@@ -29,6 +30,10 @@ export const tasksStore = $state({
   taskSession: null as DesktopTaskSession | null,
   historyTaskId: "",
   histories: {} as Record<string, DesktopTaskExecutionPage>,
+  runningTaskIds: new Set<string>(),
+  updatingTaskIds: new Set<string>(),
+  undoEnabledChange: null as { id: string; enabled: boolean } | null,
+  pendingDeleteIds: null as string[] | null,
   busy: "",
   query: "",
   actionMessage: ""
@@ -62,13 +67,28 @@ export function taskStatusLabel(status: "pending" | "running" | "completed" | "s
 export async function loadTasks(endpoint: string): Promise<void> {
   tasksStore.endpoint = endpoint;
   tasksStore.loading = true;
+  tasksStore.error = "";
   session.error = "";
   try {
     tasksStore.tasks = await loadDesktopTasks(endpoint);
   } catch (cause) {
     setError(cause);
+    tasksStore.error = session.error;
   } finally {
     tasksStore.loading = false;
+  }
+}
+
+export async function refreshTasks(): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || tasksStore.loading) return;
+  tasksStore.error = "";
+  session.error = "";
+  try {
+    tasksStore.tasks = await loadDesktopTasks(endpoint);
+  } catch (cause) {
+    setError(cause);
+    tasksStore.error = session.error;
   }
 }
 
@@ -82,11 +102,44 @@ export function beginTaskEdit(item: DesktopTaskSummary["items"][number]): void {
   tasksStore.taskEdit = { ...item, draftText: item.text, draftDelivery: item.delivery || "agent", draftSchedule: item.scheduleText, draftTimezone: item.timezone, draftSessionMode: item.sessionMode || (item.type === "periodic" ? "fresh" : "chat") };
 }
 
+export function isTaskRunning(id: string): boolean {
+  return tasksStore.runningTaskIds.has(id) || tasksStore.tasks?.items.some((task) => task.id === id && task.status === "running") === true;
+}
+
+export function isTaskStarting(id: string): boolean {
+  return tasksStore.runningTaskIds.has(id) && tasksStore.tasks?.items.some((task) => task.id === id && task.status === "running") !== true;
+}
+
+export function isTaskUpdating(id: string): boolean {
+  return tasksStore.updatingTaskIds.has(id);
+}
+
+/** Request deletion — stores IDs and waits for user confirmation via confirmDeleteTask(). */
+export function requestDeleteTask(ids: string[]): void {
+  if (ids.length === 0 || tasksStore.busy) return;
+  tasksStore.pendingDeleteIds = ids;
+}
+
+/** User confirmed the deletion. */
+export async function confirmDeleteTask(): Promise<void> {
+  const ids = tasksStore.pendingDeleteIds;
+  tasksStore.pendingDeleteIds = null;
+  if (!ids || ids.length === 0) return;
+  await executeTaskAction("delete", ids);
+}
+
+/** User cancelled the deletion. */
+export function cancelDeleteTask(): void {
+  tasksStore.pendingDeleteIds = null;
+}
+
 export async function executeTaskAction(action: "trigger" | "delete", ids: string[]): Promise<void> {
   const endpoint = session.endpoint;
-  if (!endpoint || tasksStore.busy || ids.length === 0) return;
-  if (action === "delete" && !window.confirm(session.text.tasksDeleteConfirm.replace("{count}", String(ids.length)))) return;
-  tasksStore.busy = action;
+  if (!endpoint || ids.length === 0) return;
+  if (action === "trigger" && ids.some((id) => isTaskRunning(id) || isTaskUpdating(id))) return;
+  if (action === "delete" && tasksStore.busy) return;
+  if (action === "trigger") tasksStore.runningTaskIds = new Set([...tasksStore.runningTaskIds, ...ids]);
+  else tasksStore.busy = action;
   session.error = "";
   try {
     const result = await runDesktopTaskAction(endpoint, { action, ids });
@@ -98,7 +151,53 @@ export async function executeTaskAction(action: "trigger" | "delete", ids: strin
   } catch (cause) {
     setError(cause);
   } finally {
-    tasksStore.busy = "";
+    if (action === "trigger") tasksStore.runningTaskIds = new Set([...tasksStore.runningTaskIds].filter((id) => !ids.includes(id)));
+    else tasksStore.busy = "";
+  }
+}
+
+export async function setTaskEnabled(id: string, enabled: boolean, recordUndo = true): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || tasksStore.busy || isTaskRunning(id) || isTaskUpdating(id)) return;
+  const before = tasksStore.tasks;
+  const previous = before?.items.find((task) => task.id === id)?.enabled;
+  tasksStore.updatingTaskIds = new Set([...tasksStore.updatingTaskIds, id]);
+  if (before) tasksStore.tasks = { ...before, items: before.items.map((task) => task.id === id ? { ...task, enabled } : task) };
+  session.error = "";
+  try {
+    const result = await runDesktopTaskAction(endpoint, { action: "update", id, patch: { enabled } });
+    tasksStore.tasks = result.summary;
+    tasksStore.histories = {};
+    tasksStore.undoEnabledChange = recordUndo && previous !== undefined ? { id, enabled: previous } : null;
+    tasksStore.actionMessage = enabled ? session.text.tasksResume : session.text.tasksPaused;
+  } catch (cause) {
+    tasksStore.tasks = before;
+    setError(cause);
+  } finally {
+    tasksStore.updatingTaskIds = new Set([...tasksStore.updatingTaskIds].filter((item) => item !== id));
+  }
+}
+
+export async function undoTaskEnabledChange(): Promise<void> {
+  const change = tasksStore.undoEnabledChange;
+  if (!change) return;
+  tasksStore.undoEnabledChange = null;
+  await setTaskEnabled(change.id, change.enabled, false);
+}
+
+export async function stopTaskRun(id: string, runId: string): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || !runId || isTaskUpdating(id)) return;
+  tasksStore.updatingTaskIds = new Set([...tasksStore.updatingTaskIds, id]);
+  session.error = "";
+  try {
+    await stopDesktopActiveRun(endpoint, runId);
+    tasksStore.actionMessage = session.text.tasksStopped;
+    await refreshTasks();
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    tasksStore.updatingTaskIds = new Set([...tasksStore.updatingTaskIds].filter((item) => item !== id));
   }
 }
 

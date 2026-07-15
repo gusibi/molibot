@@ -1,6 +1,8 @@
 export interface DesktopProfileSummary {
   id: string;
   name: string;
+  agentId?: string;
+  agentName?: string;
 }
 
 export interface DesktopBootstrapResponse {
@@ -39,7 +41,7 @@ export interface DesktopWebProfileSaveRequest {
 
 export interface DesktopProfileFilesResponse {
   ok: true;
-  fileNames: string[];
+  fileNames: readonly string[];
   files: Record<string, string>;
 }
 
@@ -152,6 +154,55 @@ export interface DesktopTraceResponse {
   summary: DesktopTraceSummary;
 }
 
+export type DesktopAgentActivityStatus = "idle" | "working" | "completed" | "error";
+
+export interface DesktopSubagentActivityItem {
+  id: string;
+  name: string;
+  status: Exclude<DesktopAgentActivityStatus, "idle">;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface DesktopAgentActivityItem {
+  agentId: string;
+  status: DesktopAgentActivityStatus;
+  runId: string;
+  channel: string;
+  botId: string;
+  botName: string;
+  taskPreview: string;
+  startedAt: string;
+  finishedAt: string;
+  subagents: DesktopSubagentActivityItem[];
+}
+
+export interface DesktopAgentActivityResponse {
+  ok: true;
+  generatedAt: string;
+  items: DesktopAgentActivityItem[];
+}
+
+export type DesktopActiveRunStatus = "running" | "stuck" | "orphan";
+
+export interface DesktopActiveRunItem {
+  runId: string;
+  agentId: string;
+  agentName: string;
+  channel: string;
+  botId: string;
+  botName: string;
+  chatId: string;
+  sessionId: string;
+  status: DesktopActiveRunStatus;
+  startedAt: string;
+  durationMs: number;
+  taskPreview: string;
+}
+
+export interface DesktopActiveRunsResponse { ok: true; generatedAt: string; items: DesktopActiveRunItem[]; }
+export interface DesktopActiveRunActionResponse { ok: true; result: "stopped" | "cleared"; }
+
 export interface DesktopSandboxSummary {
   enabled: boolean;
   initFailureMode: "warn-disable" | "block";
@@ -238,15 +289,19 @@ export interface DesktopHostBashToggleResponse {
 
 export type DesktopTaskType = "one-shot" | "periodic" | "immediate";
 export type DesktopTaskState = "pending" | "running" | "completed" | "skipped" | "error";
+export type DesktopTaskCategory = "user" | "system";
 
 export interface DesktopTaskItem {
   id: string;
   taskId: string;
+  category: DesktopTaskCategory;
+  systemKind: "memory-reflection" | "daily-materials" | "";
   channel: string;
   botId: string;
   chatId: string;
   scope: "workspace" | "chat-scratch";
   type: DesktopTaskType;
+  enabled: boolean;
   text: string;
   delivery: string;
   scheduleText: string;
@@ -269,6 +324,7 @@ export interface DesktopTaskTarget {
   botId: string;
   chatId: string;
   scope: "workspace" | "chat-scratch";
+  botDisplayName?: string;
 }
 
 export type DesktopTaskExecutionStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped";
@@ -307,6 +363,7 @@ export interface DesktopTaskSummary {
     byStatus: Record<DesktopTaskState, number>;
     byScope: { workspace: number; chatScratch: number };
     byChannel: Record<string, number>;
+    executions?: { total: number; completed: number; failed: number };
   };
 }
 
@@ -317,7 +374,7 @@ export interface DesktopTaskResponse {
 
 export type DesktopTaskActionRequest =
   | { action: "create"; task: DesktopTaskTarget & { text: string; delivery: string; schedule: string; timezone: string; sessionMode: string } }
-  | { action: "update"; id: string; patch: { text?: string; delivery?: string; at?: string; schedule?: string; timezone?: string; sessionMode?: string } }
+  | { action: "update"; id: string; patch: { enabled?: boolean; text?: string; delivery?: string; at?: string; schedule?: string; timezone?: string; sessionMode?: string } }
   | { action: "delete" | "trigger"; ids: string[] }
   | { action: "session"; id: string; executionId: string }
   | { action: "history"; id: string; page: number; pageSize: number };
@@ -345,6 +402,25 @@ export interface DesktopModelOption {
 export interface DesktopModelState {
   currentKey: string;
   options: DesktopModelOption[];
+}
+
+export type DesktopComposerSuggestionKind = "command" | "skill";
+
+export interface DesktopComposerSuggestion {
+  id: string;
+  kind: DesktopComposerSuggestionKind;
+  label: string;
+  insertText: string;
+  description: string;
+  aliases: string[];
+  argumentHint?: string;
+  submitOnSelect: boolean;
+  scope?: DesktopSkillScope;
+}
+
+export interface DesktopComposerSuggestionsResponse {
+  ok: true;
+  suggestions: DesktopComposerSuggestion[];
 }
 
 export type DesktopModelFallbackMode = "off" | "same-provider" | "any-enabled";
@@ -398,6 +474,8 @@ export interface DesktopConversationMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  model?: string;
+  thinking?: string;
   attachments?: DesktopMessageAttachment[];
   activities?: DesktopConversationActivity[];
 }
@@ -633,7 +711,7 @@ export interface DesktopMcpResponse {
   summary: DesktopMcpSummary;
 }
 
-export type DesktopSkillScope = "global" | "bot" | "chat";
+export type DesktopSkillScope = "global" | "bot" | "chat" | "project";
 
 export interface DesktopSkillItem {
   id: string;
@@ -678,12 +756,17 @@ export interface DesktopMemoryCapabilities {
   vectorSearch: boolean;
   incrementalFlush: boolean;
   layeredMemory: boolean;
+  domains: boolean;
+  versioning: boolean;
+  candidates: boolean;
 }
 
 export interface DesktopMemorySummary {
   enabled: boolean;
   configEnabled: boolean;
   backend: string;
+  embeddingProviderId: string;
+  embeddingModel: string;
   capabilities: DesktopMemoryCapabilities;
 }
 
@@ -702,12 +785,35 @@ export interface DesktopMemoryItem {
   hasConflict?: boolean;
   expiresAt?: string;
   sourceSessionId?: string;
+  namespace?: string;
+  domain?: "owner" | "project" | "agent_self" | "content";
+  type?: string;
+  subject?: string;
+  path?: string;
+  reason?: string;
+  sources?: Array<{ channel: string; sessionId: string; conversationMessageId: string; platformMessageId?: string }>;
+  pinned?: boolean;
   updatedAt: string;
 }
 
-export type DesktopMemoryAction = "list" | "search" | "sync" | "flush" | "compact" | "update" | "delete";
-export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; allScopes?: boolean; query?: string; limit?: number; id?: string; content?: string; tags?: string[]; expiresAt?: string | null }
-export interface DesktopMemoryActionResponse { ok: true; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
+export interface DesktopMemoryCandidate {
+  id: string;
+  status: "pending" | "confirmed" | "ignored" | "edited-then-confirmed";
+  namespace: string;
+  domain: "owner" | "project" | "agent_self" | "content";
+  type: string;
+  subject: string;
+  value: string;
+  confidence: number;
+  reason: string;
+  sources: Array<{ channel: string; sessionId: string; conversationMessageId: string; platformMessageId?: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type DesktopMemoryAction = "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
+export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean }
+export interface DesktopMemoryActionResponse { ok: true; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
 export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
 export interface DesktopMemoryRejectionsResponse { ok: true; items: DesktopMemoryRejection[]; counts: { total: number; add: number; update: number } }
 
@@ -803,13 +909,19 @@ export interface DesktopPluginSettingField {
 export interface DesktopPluginsSummary {
   items: DesktopPluginItem[];
   counts: { total: number; active: number; external: number };
-  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }> };
+  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embeddingProviderId: string; embeddingModel: string; embeddingProviders: Array<{ value: string; label: string }>; reflectionTime: string; reflectionNotifications: boolean; reflectionNotificationTarget: string; reflectionNotificationTargets: Array<{ value: string; label: string }>; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; projects: Array<{ value: string; label: string }>; scanModels: Array<{ value: string; label: string }> };
   featureSettings: Array<{ pluginKey: string; name: string; description: string; fields: DesktopPluginSettingField[] }>;
 }
 
 export interface DesktopPluginsUpdateRequest {
   memoryEnabled: boolean;
   memoryBackend: string;
+  memoryEmbeddingProviderId: string;
+  memoryEmbeddingModel: string;
+  memoryReflectionTime: string;
+  memoryReflectionNotifications: boolean;
+  memoryReflectionNotificationTarget: string;
+  memoryDailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean };
   values: Record<string, Record<string, string | boolean>>;
   secretValues?: Record<string, Record<string, string>>;
   clearSecrets?: Record<string, string[]>;
@@ -818,6 +930,27 @@ export interface DesktopPluginsUpdateRequest {
 export interface DesktopPluginsResponse {
   ok: true;
   summary: DesktopPluginsSummary;
+}
+
+// One-off "backfill all history" job for daily materials. Progress is polled.
+export interface DailyMaterialsBackfillStatus {
+  status: "idle" | "running" | "done" | "error";
+  startedAt?: string;
+  finishedAt?: string;
+  from?: string;
+  to?: string;
+  total: number;
+  processed: number;
+  daysWithData: number;
+  createdFiles: number;
+  scannedMessages: number;
+  currentDate?: string;
+  error?: string;
+}
+
+export interface DailyMaterialsBackfillResponse {
+  ok: true;
+  status: DailyMaterialsBackfillStatus;
 }
 
 export interface DesktopWebSearchEngine {
@@ -988,7 +1121,7 @@ export interface DesktopExternalTranscriptMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
-  attachments?: { original: string; mediaType: DesktopFileMediaType; mimeType?: string; size?: number }[];
+  attachments?: { original: string; local?: string; mediaType: DesktopFileMediaType; mimeType?: string; size?: number }[];
   activities?: DesktopConversationActivity[];
 }
 
@@ -1005,6 +1138,107 @@ export interface DesktopExternalTranscript {
 export interface DesktopExternalTranscriptResponse {
   ok: true;
   transcript: DesktopExternalTranscript;
+}
+
+/**
+ * Channels surfaced by the unified desktop conversation navigator (plan §2.2).
+ * `web` aggregates every Web Profile; the four external channels aggregate
+ * their configured Bot instances.
+ */
+export type DesktopConversationChannel = "web" | "telegram" | "feishu" | "qq" | "weixin";
+
+/**
+ * Session purpose classification (plan §12.4). The sidebar only lists
+ * `conversation`; project / automation / diagnostic / test sessions are
+ * excluded. The shared query layer derives this from existing storage signals
+ * (web index vs project index vs automation origin) so the classification is
+ * not duplicated into channels or UI components.
+ */
+export type DesktopConversationPurpose =
+  | "conversation"
+  | "project"
+  | "automation"
+  | "diagnostic"
+  | "test";
+
+/**
+ * One conversation in the unified navigator view (plan §12.2). `botId` is the
+ * Web profile id for `web`, or the external Bot instance id for external
+ * channels; `botDeleted` marks a Bot whose configuration no longer exists so
+ * the UI can surface its history under a "deleted Bot" group. `readOnly` is
+ * true for external channels (plan §3.3).
+ */
+export interface DesktopConversationItem {
+  sessionId: string;
+  title: string;
+  updatedAt: string;
+  botId: string;
+  botName: string;
+  botDeleted: boolean;
+  channel: DesktopConversationChannel;
+  purpose: DesktopConversationPurpose;
+  readOnly: boolean;
+  latestMessagePreview?: string;
+}
+
+export interface DesktopConversationsResponse {
+  ok: true;
+  channel: DesktopConversationChannel;
+  items: DesktopConversationItem[];
+  /** Opaque base64url cursor for stable `updatedAt + sessionId` pagination. */
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * One Bot group inside the "more conversations" browser (plan §5.2). Each
+ * group carries its own cursor so a single Bot can be paged independently
+ * without re-fetching the other groups.
+ */
+export interface DesktopConversationBotGroup {
+  botId: string;
+  botName: string;
+  botDeleted: boolean;
+  readOnly: boolean;
+  total: number;
+  items: DesktopConversationItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface DesktopConversationsGroupsResponse {
+  ok: true;
+  channel: DesktopConversationChannel;
+  groups: DesktopConversationBotGroup[];
+}
+
+/**
+ * Live run status for a session (plan §11.3). Used by the Desktop to restore
+ * running / waiting-for-approval / failed state after a reconnect instead of
+ * trusting its own process memory. Status comes from the runtime `runs` table
+ * and the approval broker's pending requests, never from Desktop memory.
+ */
+export type DesktopSessionRunStatus =
+  | "running"
+  | "waiting_for_approval"
+  | "completed"
+  | "failed"
+  | "aborted";
+
+export interface DesktopSessionRun {
+  /** Resolved Web profile id; empty for runs not attributable to a Web profile. */
+  profileId: string;
+  sessionId: string;
+  runId: string;
+  status: DesktopSessionRunStatus;
+  startedAt: string;
+  waitingApproval: boolean;
+  errorCode: string | null;
+}
+
+export interface DesktopSessionRunsResponse {
+  ok: true;
+  runs: DesktopSessionRun[];
 }
 
 /**

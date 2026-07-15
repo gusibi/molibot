@@ -50,6 +50,7 @@ import {
   resolveModelSelection,
   resolveModel,
   applyAgentModelRoutingOverride,
+  applyTurnModelOverride,
   buildModelFallbackSelections,
   toModelAttemptFailure,
   formatModelAttemptFailure,
@@ -96,6 +97,9 @@ import {
 import { prepareEnrichedInput } from "$lib/server/agent/core/runnerInputEnricher.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
+// Stable placeholder: the real snapshot is injected per turn via the user
+// message envelope so the system prompt never varies with memory contents.
+const SYSTEM_PROMPT_MEMORY_PLACEHOLDER = "(working memory is provided per turn in the user message envelope)";
 const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
 
 type ToolCallTrackingContext = {
@@ -115,6 +119,10 @@ type PendingToolSignalContext = {
   command?: string;
 };
 
+export function resolveSessionWorkingDir(project: MomContext["project"], scratchDir: string): string {
+  return project?.rootPath ?? scratchDir;
+}
+
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
@@ -122,6 +130,11 @@ export class MomRunner implements RunnerLike {
   private selectedMcpServerIds = new Set<string>();
   private promptRefreshKey = "";
   private systemPromptReady = false;
+  private activeProject: MomContext["project"] | undefined;
+
+  private currentWorkingDir(): string {
+    return resolveSessionWorkingDir(this.activeProject, this.store.getScratchDir(this.chatId));
+  }
   private activeRunnerEventSink: NonNullable<MomContext["onRunnerEvent"]> | undefined;
   private activeRunBudget: RunBudget | undefined;
   private activePayloadContext:
@@ -142,7 +155,8 @@ export class MomRunner implements RunnerLike {
       sessionId: this.sessionId,
       store: this.store,
       channel: this.channel,
-      botId
+      botId,
+      projectOverride: this.activeProject?.sandboxEnabled
     }).enabled;
   }
 
@@ -170,6 +184,10 @@ export class MomRunner implements RunnerLike {
   private readonly activeRunLoadedSkills = new Map<string, LoadedSkillState>();
   private readonly pendingToolSignals = new Map<string, PendingToolSignalContext>();
   private activeSkillLoadSeq = 0;
+  // Mechanical single-submission-per-turn guard for videoGenerate: once a
+  // submission succeeds in this run, further submissions are blocked at the
+  // tool gate (progress checks with a taskId stay allowed).
+  private submittedVideoTaskId: string | undefined;
 
   private readonly hookManager: HookManager;
 
@@ -204,7 +222,7 @@ export class MomRunner implements RunnerLike {
       this.store.getWorkspaceDir(),
       this.chatId,
       this.sessionId,
-      "(memory will be loaded via gateway before each run)",
+      SYSTEM_PROMPT_MEMORY_PLACEHOLDER,
       {
         channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
         timezone: settings.timezone,
@@ -290,9 +308,9 @@ export class MomRunner implements RunnerLike {
         }
 
         const blockedReason = validateToolCallPreflight(context, {
-          cwd: this.store.getScratchDir(this.chatId),
+          cwd: this.currentWorkingDir(),
           workspaceDir: this.store.getWorkspaceDir()
-        });
+        }) ?? this.resolveRepeatVideoSubmissionBlock(context);
         const budgetResult = this.activeRunBudget?.tryStartTool() ?? { ok: true };
         const finalBlockedReason = blockedReason ?? budgetResult.reason;
         if (finalBlockedReason) {
@@ -348,6 +366,7 @@ export class MomRunner implements RunnerLike {
         this.emitSkillLoadedForReadTool(context);
         this.emitSkillSearchMatches(context);
         this.emitSkillExecutedForToolSignals(context);
+        this.trackVideoSubmission(context);
         return undefined;
       },
       streamFn: (selectedModel, context, opts) => {
@@ -451,6 +470,16 @@ export class MomRunner implements RunnerLike {
     return this.running;
   }
 
+  snapshotActiveRun(): { channel: string; botId: string; chatId: string; sessionId: string } | null {
+    if (!this.running) return null;
+    return {
+      channel: this.activeHookContext?.channel ?? this.channel,
+      botId: this.activeHookContext?.botId ?? (basename(this.store.getWorkspaceDir()) || "unknown"),
+      chatId: this.chatId,
+      sessionId: this.sessionId
+    };
+  }
+
   abort(): void {
     this.abortRequested = true;
     this.agent.clearAllQueues();
@@ -539,6 +568,7 @@ export class MomRunner implements RunnerLike {
   }
 
   async run(ctx: MomContext): Promise<RunResult> {
+    this.activeProject = ctx.project;
     const messageWithRun = ctx.message as ChannelInboundMessage & { runId?: string };
     let runId = messageWithRun.runId;
     let workspaceId = messageWithRun.workspaceId;
@@ -555,9 +585,16 @@ export class MomRunner implements RunnerLike {
       runStartedAt = turn.startedAt;
     }
 
+    // Turn-lock heartbeat lease. Started inside the main try block (so the
+    // paired finally always stops it — a leaked heartbeat would keep a dead
+    // run's lock alive forever); until then the lock rides on the initial
+    // last_heartbeat written by prepareTurn.
+    let stopTurnHeartbeat: (() => void) | undefined;
+
     const botId = basename(this.store.getWorkspaceDir()) || "unknown";
     this.modelCallSeq = 0;
     this.budgetBlockedToolCallIds.clear();
+    this.submittedVideoTaskId = undefined;
     this.activeHookContext = {
       runId,
       channel: ctx.channel,
@@ -568,12 +605,14 @@ export class MomRunner implements RunnerLike {
       actorId: ctx.message.userId,
       signal: undefined
     };
+    const taskPreview = ctx.message.text.replace(/\s+/g, " ").trim().slice(0, 160);
     this.hookManager.emit("run.beforeStart", this.activeHookContext, {
       messageId: ctx.message.messageId,
       textLength: ctx.message.text.length,
       attachmentCount: ctx.message.attachments.length,
       imageCount: ctx.message.imageContents.length,
-      isEvent: Boolean(ctx.message.isEvent)
+      isEvent: Boolean(ctx.message.isEvent),
+      taskPreview
     });
     let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
     let errorMessage: string | undefined;
@@ -587,7 +626,8 @@ export class MomRunner implements RunnerLike {
           status: stopReason === "stop" ? "success" : stopReason,
           stopReason,
           durationMs: Date.now() - runStartedAt,
-          errorMessage
+          errorMessage,
+          taskPreview
         });
       }
       await this.hookManager.flush({ timeoutMs: 2000, runId: hookContext.runId });
@@ -674,7 +714,7 @@ export class MomRunner implements RunnerLike {
       queueRunning = false;
     };
 
-    const settings = this.getSettings();
+    const settings = applyTurnModelOverride(this.getSettings(), ctx.modelKeyOverride);
     const settingsError = validateRuntimeSettings(settings);
     if (settingsError) {
       stopReason = "error";
@@ -735,28 +775,35 @@ export class MomRunner implements RunnerLike {
     }
 
     const memorySnapshot = await getTurnOrchestrator().prepareTurnMemory(
-      this.channel,
-      this.chatId,
+      {
+        channel: this.channel,
+        externalUserId: this.chatId,
+        botId,
+        projectId: this.activeProject?.id
+      },
       enrichedText,
       this.memory
     );
     const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getWorkspaceDir());
+    // The per-turn memory snapshot and query are intentionally NOT part of this
+    // key: the snapshot travels in the user-message envelope, so the system
+    // prompt only changes when settings/channel/project actually change and
+    // provider prefix caching stays valid across turns.
     const runPromptKey = JSON.stringify({
       base: nextPromptKey,
-      memory: memorySnapshot.fingerprint,
-      query: memorySnapshot.query
+      project: ctx.project ? [ctx.project.id, ctx.project.rootPath, ctx.project.instructions ?? ""] : null
     });
     if (!this.systemPromptReady || this.promptRefreshKey !== runPromptKey) {
-      const memoryText = memorySnapshot.promptText || "(no working memory yet)";
       let systemPrompt = buildSystemPrompt(
         this.store.getWorkspaceDir(),
         this.chatId,
         this.sessionId,
-        memoryText,
+        SYSTEM_PROMPT_MEMORY_PLACEHOLDER,
         {
           channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
           timezone: settings.timezone,
-          settings
+          settings,
+          project: ctx.project
         },
       );
       if (this.activeHookContext) {
@@ -787,7 +834,8 @@ export class MomRunner implements RunnerLike {
 
     const { skills } = loadSkillsFromWorkspace(this.store.getWorkspaceDir(), this.chatId, {
       disabledSkillPaths: settings.disabledSkillPaths,
-      workspaceId
+      workspaceId,
+      projectRoot: ctx.project?.rootPath
     });
     this.activeRunSkillManifest = new Map(
       skills.map((skill) => [pathCompareKey(skill.filePath), skill])
@@ -865,7 +913,7 @@ export class MomRunner implements RunnerLike {
     };
     localTools = createMomTools({
       channel: ctx.channel,
-      cwd: this.store.getScratchDir(this.chatId),
+      cwd: this.currentWorkingDir(),
       workspaceDir: this.store.getWorkspaceDir(),
       chatId: this.chatId,
       sessionId: this.sessionId,
@@ -873,6 +921,7 @@ export class MomRunner implements RunnerLike {
       workspaceId,
       timezone: settings.timezone,
       messageTimestamp: ctx.message.ts,
+      project: this.activeProject,
       store: this.store,
       memory: this.memory,
       getSettings: this.getSettings,
@@ -1002,7 +1051,8 @@ export class MomRunner implements RunnerLike {
           textLength: ctx.message.text.length,
           attachmentCount: ctx.message.attachments.length,
           imageCount: ctx.message.imageContents.length,
-          isEvent: Boolean(ctx.message.isEvent)
+          isEvent: Boolean(ctx.message.isEvent),
+          taskPreview
         });
         return;
       }
@@ -1270,6 +1320,7 @@ export class MomRunner implements RunnerLike {
       | undefined;
 
     try {
+      stopTurnHeartbeat = getTurnOrchestrator().startTurnHeartbeat(runId);
       this.activeRunBudget = budget;
       this.agent.state.messages = prepareMessagesForModelContext(
         this.agent.state.messages as AgentMessage[]
@@ -1284,7 +1335,8 @@ export class MomRunner implements RunnerLike {
         messageText: effectiveInputText,
         attachmentPaths: nonImage,
         messageTimestamp: ctx.message.ts,
-        timezone: settings.timezone
+        timezone: settings.timezone,
+        memorySnapshotText: memorySnapshot.promptText
       });
       const userMessage = promptInput.modelMessage;
       currentModelPromptMessage = userMessage;
@@ -1484,6 +1536,34 @@ export class MomRunner implements RunnerLike {
         });
 
         const beforeAttempt = [...(this.agent.state.messages as AgentMessage[])];
+        // Snapshot the persisted session log alongside the in-memory context so a
+        // failed attempt can be rolled back in lockstep. Without this, message_end
+        // has already appended this attempt's assistant/toolResult steps to the
+        // store; resetting only in-memory state leaves those duplicates behind,
+        // and the finally block reloads them into the next turn's context.
+        const attemptCheckpoint = this.store.createContextCheckpoint?.(this.chatId, this.sessionId);
+        // Roll both the in-memory context and the persisted log back to the start
+        // of this attempt. Used on every retry/give-up path so a dead attempt
+        // leaves no residue in either place.
+        const rollbackAttempt = () => {
+          this.agent.state.messages = beforeAttempt;
+          if (!attemptCheckpoint) return;
+          try {
+            const dropped = this.store.restoreContextCheckpoint?.(
+              this.chatId,
+              attemptCheckpoint,
+              this.sessionId
+            ) ?? 0;
+            if (dropped > 0) {
+              // The persisted assistant message (if any) was just discarded, so a
+              // later terminal error must be free to append its own error entry.
+              assistantMessagePersisted = false;
+            }
+          } catch {
+            // A rollback failure must never abort the run; the finally reload will
+            // still fall back to whatever the store holds.
+          }
+        };
         let attemptCount = 0;
         let candidateFinalText = "";
         let overflowRetryUsed = false;
@@ -1710,12 +1790,21 @@ export class MomRunner implements RunnerLike {
               }
             }
 
+            // A retryable error re-runs the whole attempt from scratch. If the
+            // failed attempt already executed tool steps, re-running would fire
+            // them again — dangerous for non-idempotent tools (sending messages,
+            // writing files). Signal that so the decision is downgraded to
+            // terminal rather than silently double-executing side effects.
+            const attemptExecutedTools = attemptMessages.some(
+              (item) => (item as { role?: string }).role === "toolResult"
+            );
             const decision = resolvePromptAttemptDecision({
               stopReason,
               errorMessage,
               finalText: candidateFinalText,
               attemptCount,
-              maxEmptyRetries: MAX_EMPTY_RETRIES
+              maxEmptyRetries: MAX_EMPTY_RETRIES,
+              attemptExecutedTools
             });
             if (decision.kind === "aborted") {
               runAborted = true;
@@ -1734,9 +1823,13 @@ export class MomRunner implements RunnerLike {
                 model: selectedModel.id,
                 candidateIndex,
                 attempt: attemptCount,
+                attemptExecutedTools,
                 error: decision.message
               });
-              this.agent.state.messages = beforeAttempt;
+              // Discard the failed attempt from both memory and the store before
+              // retrying or giving up, so the next attempt (or the next turn)
+              // never sees the dead attempt's persisted steps.
+              rollbackAttempt();
               if (decision.kind === "retryable_error") {
                 attemptCount += 1;
                 continue;
@@ -1762,7 +1855,7 @@ export class MomRunner implements RunnerLike {
               });
               break;
             }
-            this.agent.state.messages = beforeAttempt;
+            rollbackAttempt();
             attemptCount += 1;
           }
         } catch (error) {
@@ -1777,7 +1870,7 @@ export class MomRunner implements RunnerLike {
               candidateIndex,
               error: message
             });
-            this.agent.state.messages = beforeAttempt;
+            rollbackAttempt();
             try {
               const compacted = await this.compact({
                 reason: "threshold",
@@ -1819,7 +1912,7 @@ export class MomRunner implements RunnerLike {
             candidateIndex,
             error: message
           });
-          this.agent.state.messages = beforeAttempt;
+          rollbackAttempt();
           if (candidateIndex < modelCandidates.length - 1 && isRetryableModelError(message)) {
             continue;
           }
@@ -1871,7 +1964,7 @@ export class MomRunner implements RunnerLike {
             candidateIndex
           });
         }
-        this.agent.state.messages = beforeAttempt;
+        rollbackAttempt();
       }
 
       if (successfulCandidateIndex >= 0 && pendingModelErrorEvents.length > 0) {
@@ -2038,7 +2131,7 @@ export class MomRunner implements RunnerLike {
           toolNames: usedToolNames,
           templateSkillPath
         }, {
-          cwd: this.store.getScratchDir(this.chatId),
+          cwd: this.currentWorkingDir(),
           workspaceDir: this.store.getWorkspaceDir(),
           chatId: this.chatId,
           settings
@@ -2165,6 +2258,7 @@ export class MomRunner implements RunnerLike {
       }
       return { runId, workspaceId, stopReason: "error", errorMessage: message };
     } finally {
+      stopTurnHeartbeat?.();
       unsubscribe();
       unsubscribeHooks();
       await finishHookRun();
@@ -2185,9 +2279,29 @@ export class MomRunner implements RunnerLike {
       this.activeRunLoadedSkills.clear();
       this.pendingToolSignals.clear();
       this.activeSkillLoadSeq = 0;
+      this.submittedVideoTaskId = undefined;
+      this.activeProject = undefined;
       this.abortRequested = false;
       this.running = false;
     }
+  }
+
+  private resolveRepeatVideoSubmissionBlock(context: { toolCall: { name: string }; args?: unknown }): string | undefined {
+    if (context.toolCall.name !== "videoGenerate" || !this.submittedVideoTaskId) return undefined;
+    const args = context.args as { taskId?: unknown } | undefined;
+    const isProgressCheck = typeof args?.taskId === "string" && args.taskId.trim().length > 0;
+    if (isProgressCheck) return undefined;
+    return `A video generation task (taskId: ${this.submittedVideoTaskId}) was already submitted in this turn. Do not submit another one now: report that taskId to the user and end the turn. Progress can be checked later with videoGenerate(taskId, engine).`;
+  }
+
+  private trackVideoSubmission(context: ToolCallTrackingContext): void {
+    if (context.toolCall.name !== "videoGenerate" || context.isError) return;
+    const args = context.args as { taskId?: unknown } | undefined;
+    if (typeof args?.taskId === "string" && args.taskId.trim()) return; // progress check, not a submission
+    const details = (context.result as { details?: { taskId?: unknown } } | undefined)?.details;
+    this.submittedVideoTaskId = typeof details?.taskId === "string" && details.taskId
+      ? details.taskId
+      : "unknown";
   }
 
   private cacheResolvedReadPath(context: ToolCallTrackingContext): void {
@@ -2195,7 +2309,7 @@ export class MomRunner implements RunnerLike {
     const rawPath = (context.args as { path?: unknown } | undefined)?.path;
     if (typeof rawPath !== "string" || !rawPath.trim()) return;
     try {
-      const resolvedPath = resolveToolPath(this.store.getScratchDir(this.chatId), rawPath);
+      const resolvedPath = resolveToolPath(this.currentWorkingDir(), rawPath);
       this.pendingReadPaths.set(context.toolCall.id, resolvedPath);
     } catch {
       // Skill tracking must never change tool execution behavior.

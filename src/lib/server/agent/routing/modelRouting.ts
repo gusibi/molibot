@@ -31,6 +31,12 @@ export interface ModelAttemptFailure {
   kind: "request_error" | "empty_response" | "missing_api_key";
 }
 
+export function applyTurnModelOverride(settings: RuntimeSettings, modelKey?: string): RuntimeSettings {
+  const key = String(modelKey ?? "").trim();
+  if (!key || key === settings.modelRouting.textModelKey) return settings;
+  return { ...settings, modelRouting: { ...settings.modelRouting, textModelKey: key } };
+}
+
 export function resolvePiModel(settings: RuntimeSettings): Model<any> {
   const models = getModels(settings.piModelProvider);
   const preferredModelId = resolveBuiltInProviderDefaultModel(

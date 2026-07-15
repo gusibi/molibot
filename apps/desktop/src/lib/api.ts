@@ -1,6 +1,11 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type {
   DesktopAgentsResponse,
+  DesktopAgentActivityResponse,
+  DesktopAgentActivityItem,
+  DesktopActiveRunActionResponse,
+  DesktopActiveRunItem,
+  DesktopActiveRunsResponse,
   DesktopAgentsSummary,
   DesktopAgentItem,
   DesktopAgentSaveRequest,
@@ -14,6 +19,11 @@ import type {
   DesktopChannelTestRequest,
   DesktopChannelTestResponse,
   DesktopConversationActivity,
+  DesktopConversationBotGroup,
+  DesktopConversationChannel,
+  DesktopConversationItem,
+  DesktopConversationsGroupsResponse,
+  DesktopConversationsResponse,
   DesktopExternalSession,
   DesktopExternalSessionsResponse,
   DesktopExternalSessionsSummary,
@@ -29,6 +39,8 @@ import type {
   DesktopPluginsResponse,
   DesktopPluginsSummary,
   DesktopPluginsUpdateRequest,
+  DailyMaterialsBackfillResponse,
+  DailyMaterialsBackfillStatus,
   DesktopProfileFilesResponse,
   DesktopWebSearchResponse,
   DesktopWebSearchSummary,
@@ -47,6 +59,7 @@ import type {
   DesktopSkillsResponse,
   DesktopSkillsSummary,
   DesktopSkillsUpdateRequest,
+  DesktopComposerSuggestion,
   DesktopApprovalDecision,
   DesktopApprovalOption,
   DesktopApprovalPrompt,
@@ -79,6 +92,8 @@ import type {
   DesktopSessionDetail,
   DesktopSessionFile,
   DesktopSessionFilesResponse,
+  DesktopSessionRun,
+  DesktopSessionRunsResponse,
   DesktopSessionSummary,
   DesktopTaskResponse,
   DesktopTaskSummary,
@@ -127,6 +142,149 @@ async function requestJson<T>(endpoint: string, route: string, init?: RequestIni
 export async function loadDesktopBootstrap(endpoint: string): Promise<DesktopProfileSummary[]> {
   const payload = await requestJson<DesktopBootstrapResponse>(endpoint, "/api/desktop/bootstrap");
   return payload.profiles;
+}
+
+export interface DesktopProject {
+  id: string;
+  name: string;
+  rootPath: string;
+  instructions?: string;
+  modelKey?: string;
+  thinkingLevel?: DesktopThinkingLevel;
+  sandboxEnabled?: boolean;
+  toolProgress?: "off" | "new" | "all" | "verbose";
+  showReasoning?: "off" | "on" | "stream" | "new";
+  runLogNotice?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopProjectSession {
+  conversationId: string;
+  title: string;
+  updatedAt: string;
+  origin: string;
+}
+
+export interface DesktopProjectSessionCreation {
+  session: DesktopProjectSession;
+  reused: boolean;
+}
+
+export interface DesktopProjectTreeEntry {
+  name: string;
+  path: string;
+  kind: "file" | "directory" | "symlink";
+  sizeBytes?: number;
+}
+
+export interface DesktopProjectTreePage {
+  path: string;
+  entries: DesktopProjectTreeEntry[];
+  truncated: boolean;
+  nextCursor?: string;
+}
+
+export type DesktopProjectFilePreview =
+  | { status: "text"; path: string; content: string; sizeBytes: number; truncated: boolean }
+  | { status: "binary" | "oversized"; path: string; sizeBytes: number };
+
+export interface DesktopProjectGitEntry {
+  path: string;
+  previousPath?: string;
+  previousOutsideProject?: boolean;
+  indexStatus: string;
+  worktreeStatus: string;
+  untracked: boolean;
+}
+
+export type DesktopProjectGitStatus =
+  | { status: "ok"; entries: DesktopProjectGitEntry[]; truncated: boolean }
+  | { status: "unavailable"; reason: string };
+
+export type DesktopProjectGitDiff =
+  | { status: "diff"; path: string; content: string; truncated: boolean }
+  | { status: "untracked"; path: string; preview: DesktopProjectFilePreview }
+  | { status: "binary" | "oversized"; path: string; sizeBytes: number }
+  | { status: "unavailable"; reason: string };
+
+export interface DesktopProjectMessage {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "system" | "tool";
+  content: string;
+  createdAt: string;
+  attachments?: Array<{ original: string; local: string; mediaType: "image" | "audio" | "video" | "file"; mimeType?: string; size?: number }>;
+  activities?: DesktopConversationActivity[];
+}
+
+export async function loadDesktopProjects(endpoint: string): Promise<DesktopProject[]> {
+  return (await requestJson<{ ok: true; projects: DesktopProject[] }>(endpoint, "/api/settings/projects")).projects;
+}
+
+export async function createDesktopProject(endpoint: string, input: { name: string; rootPath?: string; createDirectory?: boolean; instructions?: string }): Promise<DesktopProject> {
+  return (await requestJson<{ ok: true; project: DesktopProject }>(endpoint, "/api/settings/projects", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
+  })).project;
+}
+
+export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: DesktopThinkingLevel | null; sandboxEnabled?: boolean | null; toolProgress?: DesktopProject["toolProgress"] | null; showReasoning?: DesktopProject["showReasoning"] | null; runLogNotice?: boolean | null }): Promise<DesktopProject> {
+  return (await requestJson<{ ok: true; project: DesktopProject }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
+  })).project;
+}
+
+export async function deleteDesktopProject(endpoint: string, id: string, removeSessions = false): Promise<void> {
+  await requestJson(endpoint, `/api/settings/projects/${encodeURIComponent(id)}?removeSessions=${String(removeSessions)}`, { method: "DELETE" });
+}
+
+export async function loadDesktopProjectSessions(endpoint: string, id: string): Promise<DesktopProjectSession[]> {
+  return (await requestJson<{ ok: true; sessions: DesktopProjectSession[] }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}/sessions`)).sessions;
+}
+
+export async function createDesktopProjectSession(endpoint: string, id: string): Promise<DesktopProjectSessionCreation> {
+  const payload = await requestJson<{ ok: true; session: DesktopProjectSession; reused: boolean }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}/sessions`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+  });
+  return { session: payload.session, reused: payload.reused };
+}
+
+export async function loadDesktopProjectSession(endpoint: string, projectId: string, conversationId: string): Promise<DesktopProjectMessage[]> {
+  return (await requestJson<{ ok: true; messages: DesktopProjectMessage[] }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(conversationId)}`)).messages;
+}
+
+export async function renameDesktopProjectSession(endpoint: string, projectId: string, conversationId: string, title: string): Promise<DesktopProjectSession> {
+  const payload = await requestJson<{ ok: true; conversation: { id: string; title: string; updatedAt: string; origin?: string } }>(
+    endpoint,
+    `/api/settings/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(conversationId)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }
+  );
+  const conv = payload.conversation;
+  return { conversationId: conv.id, title: conv.title, updatedAt: conv.updatedAt, origin: conv.origin ?? "" };
+}
+
+export async function deleteDesktopProjectSession(endpoint: string, projectId: string, conversationId: string): Promise<void> {
+  await requestJson(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
+}
+
+export async function loadDesktopProjectTree(endpoint: string, projectId: string, treePath = "", cursor?: string): Promise<DesktopProjectTreePage> {
+  const query = new URLSearchParams({ path: treePath });
+  if (cursor) query.set("cursor", cursor);
+  return (await requestJson<{ ok: true; page: DesktopProjectTreePage }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/tree?${query}`)).page;
+}
+
+export async function loadDesktopProjectFile(endpoint: string, projectId: string, filePath: string): Promise<DesktopProjectFilePreview> {
+  const query = new URLSearchParams({ path: filePath });
+  return (await requestJson<{ ok: true; preview: DesktopProjectFilePreview }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/file?${query}`)).preview;
+}
+
+export async function loadDesktopProjectGitStatus(endpoint: string, projectId: string): Promise<DesktopProjectGitStatus> {
+  return (await requestJson<{ ok: true; result: DesktopProjectGitStatus }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/status`)).result;
+}
+
+export async function loadDesktopProjectGitDiff(endpoint: string, projectId: string, filePath: string): Promise<DesktopProjectGitDiff> {
+  const query = new URLSearchParams({ path: filePath });
+  return (await requestJson<{ ok: true; result: DesktopProjectGitDiff }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/diff?${query}`)).result;
 }
 
 export type DesktopModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
@@ -267,6 +425,25 @@ export function formatDurationMs(valueMs: number): string {
   return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
+/** Formats long-running Trace durations without leaking unbounded raw minutes. */
+export function formatLongDurationMs(valueMs: number, locale: "zh-CN" | "en"): string {
+  const ms = Number.isFinite(valueMs) ? Math.max(0, Math.round(valueMs)) : 0;
+  if (ms < 1000) return locale === "zh-CN" ? "少于 1 秒" : "<1s";
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor(totalSeconds % 86_400 / 3_600);
+  const minutes = Math.floor(totalSeconds % 3_600 / 60);
+  const seconds = totalSeconds % 60;
+  const parts = locale === "zh-CN"
+    ? [[days, " 天"], [hours, " 小时"], [minutes, " 分钟"], [seconds, " 秒"]] as const
+    : [[days, "d"], [hours, "h"], [minutes, "m"], [seconds, "s"]] as const;
+  const first = parts.findIndex(([value]) => value > 0);
+  return parts.slice(first < 0 ? parts.length - 1 : first, Math.min(parts.length, (first < 0 ? parts.length - 1 : first) + 3))
+    .filter(([value], index) => value > 0 || index === 0)
+    .map(([value, unit]) => `${value}${unit}`)
+    .join(" ");
+}
+
 export async function loadDesktopRunHistory(endpoint: string, limit = 200): Promise<DesktopRunHistoryItem[]> {
   const query = new URLSearchParams({ limit: String(limit) });
   const payload = await requestJson<DesktopRunHistoryResponse>(
@@ -405,13 +582,21 @@ export async function loadDesktopTasks(endpoint: string): Promise<DesktopTaskSum
   const payload = await requestJson<DesktopTaskResponse>(endpoint, "/api/desktop/tasks");
   const items = payload.summary.items
     .filter((item) => item.type === "periodic")
-    .map((item) => ({ ...item, executions: Array.isArray(item.executions) ? item.executions : [], executionCount: Number(item.executionCount ?? item.executions?.length ?? 0) }));
+    .map((item) => ({
+      ...item,
+      category: item.category === "system" ? "system" as const : "user" as const,
+      systemKind: (item.systemKind === "memory-reflection" || item.systemKind === "daily-materials" ? item.systemKind : "") as DesktopTaskSummary["items"][number]["systemKind"],
+      enabled: item.enabled !== false,
+      executions: Array.isArray(item.executions) ? item.executions : [],
+      executionCount: Number(item.executionCount ?? item.executions?.length ?? 0)
+    }));
   const counts: DesktopTaskSummary["counts"] = {
     total: items.length,
     byType: { "one-shot": 0, periodic: items.length, immediate: 0 },
     byStatus: { pending: 0, running: 0, completed: 0, skipped: 0, error: 0 },
     byScope: { workspace: 0, chatScratch: 0 },
-    byChannel: {}
+    byChannel: {},
+    executions: payload.summary.counts.executions ?? { total: 0, completed: 0, failed: 0 }
   };
   for (const item of items) {
     counts.byStatus[item.status] += 1;
@@ -492,6 +677,21 @@ export async function loadDesktopAgents(endpoint: string): Promise<DesktopAgents
   return payload.summary;
 }
 
+export async function loadDesktopAgentActivity(endpoint: string): Promise<DesktopAgentActivityItem[]> {
+  const payload = await requestJson<DesktopAgentActivityResponse>(endpoint, "/api/desktop/agent-activity");
+  return payload.items;
+}
+
+export async function loadDesktopActiveRuns(endpoint: string): Promise<DesktopActiveRunItem[]> {
+  const payload = await requestJson<DesktopActiveRunsResponse>(endpoint, "/api/desktop/active-runs");
+  return payload.items;
+}
+
+export async function stopDesktopActiveRun(endpoint: string, runId: string): Promise<DesktopActiveRunActionResponse["result"]> {
+  const payload = await requestJson<DesktopActiveRunActionResponse>(endpoint, "/api/desktop/active-runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId }) });
+  return payload.result;
+}
+
 export async function saveDesktopAgent(endpoint: string, agent: DesktopAgentSaveRequest): Promise<DesktopAgentsSummary> {
   const payload = await requestJson<DesktopAgentsResponse>(endpoint, "/api/desktop/agents", {
     method: "PUT",
@@ -539,6 +739,12 @@ export async function deleteDesktopMcp(endpoint: string, id: string): Promise<De
 export async function loadDesktopSkills(endpoint: string): Promise<DesktopSkillsSummary> {
   const payload = await requestJson<DesktopSkillsResponse>(endpoint, "/api/desktop/skills");
   return payload.summary;
+}
+
+export async function loadDesktopComposerSuggestions(endpoint: string, projectId = ""): Promise<DesktopComposerSuggestion[]> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}&profileId=personal` : "";
+  const payload = await requestJson<{ ok: true; suggestions: DesktopComposerSuggestion[] }>(endpoint, `/api/desktop/composer-suggestions${query}`);
+  return payload.suggestions;
 }
 
 export async function updateDesktopSkills(endpoint: string, input: DesktopSkillsUpdateRequest): Promise<DesktopSkillsSummary> {
@@ -612,6 +818,16 @@ export async function saveDesktopPlugins(endpoint: string, input: DesktopPlugins
   return payload.summary;
 }
 
+export async function startDailyMaterialsBackfill(endpoint: string): Promise<DailyMaterialsBackfillStatus> {
+  const payload = await requestJson<DailyMaterialsBackfillResponse>(endpoint, "/api/desktop/plugins/daily-materials-backfill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start" }) });
+  return payload.status;
+}
+
+export async function loadDailyMaterialsBackfillStatus(endpoint: string): Promise<DailyMaterialsBackfillStatus> {
+  const payload = await requestJson<DailyMaterialsBackfillResponse>(endpoint, "/api/desktop/plugins/daily-materials-backfill");
+  return payload.status;
+}
+
 export async function loadDesktopWebSearch(endpoint: string): Promise<DesktopWebSearchSummary> {
   const payload = await requestJson<DesktopWebSearchResponse>(endpoint, "/api/desktop/web-search");
   return payload.summary;
@@ -661,7 +877,11 @@ export async function saveDesktopTts(endpoint: string, input: DesktopTtsUpdateRe
 }
 
 function keyedConfig<T extends { id: string }>(items: T[]): Record<string, Omit<T, "id">> {
-  return Object.fromEntries(items.map(({ id, ...item }) => [id, item]));
+  return Object.fromEntries(items.map(({ id, ...item }) => {
+    const draft = { ...item } as Omit<T, "id"> & { apiKey?: string; clearApiKey?: boolean };
+    if (!draft.clearApiKey && !draft.apiKey?.trim()) delete draft.apiKey;
+    return [id, draft];
+  }));
 }
 
 export async function testDesktopWebSearchSettings(endpoint: string, input: DesktopWebSearchUpdateRequest, query: string, engine: string): Promise<DesktopSettingsTestResponse> {
@@ -793,6 +1013,7 @@ export function summarizeOnboardingDiagnostics(
 export const ONBOARDING_STEPS = [
   "provider",
   "agent",
+  "personalization",
   "channels",
   "launch",
   "diagnostics"
@@ -1141,6 +1362,105 @@ export function externalSessionsForBot(
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+export async function listDesktopConversations(
+  endpoint: string,
+  params: {
+    channel: DesktopConversationChannel;
+    limit?: number;
+    cursor?: string | null;
+    query?: string;
+    botId?: string;
+  }
+): Promise<DesktopConversationsResponse> {
+  const search = new URLSearchParams({ channel: params.channel });
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.cursor) search.set("cursor", params.cursor);
+  if (params.query) search.set("query", params.query);
+  if (params.botId) search.set("botId", params.botId);
+  return requestJson<DesktopConversationsResponse>(
+    endpoint,
+    `/api/desktop/conversations?${search.toString()}`
+  );
+}
+
+export async function renameDesktopConversation(
+  endpoint: string,
+  sessionId: string,
+  title: string
+): Promise<string> {
+  const payload = await requestJson<{ ok: true; title: string }>(
+    endpoint,
+    "/api/desktop/conversations",
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, title }) }
+  );
+  return payload.title;
+}
+
+export async function deleteDesktopConversation(endpoint: string, sessionId: string): Promise<void> {
+  await requestJson(
+    endpoint,
+    `/api/desktop/conversations?sessionId=${encodeURIComponent(sessionId)}`,
+    { method: "DELETE" }
+  );
+}
+
+/**
+ * Edit-and-resend: truncate a session's transcript at `fromMessageId`,
+ * dropping that message and everything after it so the caller can append a
+ * fresh, edited user message and re-run the turn. Web-only; project sessions
+ * share the same endpoint because they live in the same sessions store.
+ *
+ * Errors carry a `status` field so callers can distinguish a structurally
+ * valid request that referenced a stale message id (HTTP 422) from a missing
+ * session (404) or a running session (409) - the client reloads the session
+ * and asks the user to retry on 422.
+ */
+export async function truncateDesktopMessages(
+  endpoint: string,
+  profileId: string,
+  sessionId: string,
+  fromMessageId: string
+): Promise<{ removed: number }> {
+  const search = new URLSearchParams({ fromMessageId });
+  const response = await fetchFromDesktop(
+    serviceUrl(endpoint, `/api/sessions/${encodeURIComponent(sessionId)}/messages?${search.toString()}`),
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId })
+    }
+  );
+  let payload: { ok?: boolean; removed?: number; error?: string } = {};
+  try {
+    payload = response.status === 204 ? {} : await response.json();
+  } catch {
+    payload = {};
+  }
+  if (!response.ok || payload.ok === false) {
+    const message = String(payload.error ?? `Request failed (${response.status})`);
+    const err = new Error(message) as Error & { status?: number };
+    err.status = response.status;
+    throw err;
+  }
+  return { removed: payload.removed ?? 0 };
+}
+
+export async function listDesktopConversationGroups(
+  endpoint: string,
+  params: { channel: DesktopConversationChannel; query?: string }
+): Promise<DesktopConversationsGroupsResponse> {
+  const search = new URLSearchParams({ channel: params.channel });
+  if (params.query) search.set("query", params.query);
+  return requestJson<DesktopConversationsGroupsResponse>(
+    endpoint,
+    `/api/desktop/conversations/groups?${search.toString()}`
+  );
+}
+
+export async function listDesktopSessionRuns(endpoint: string): Promise<DesktopSessionRunsResponse> {
+  return requestJson<DesktopSessionRunsResponse>(endpoint, "/api/desktop/session-runs");
+}
+
 export async function listDesktopSessions(
   endpoint: string,
   profileId: string
@@ -1156,8 +1476,8 @@ export async function listDesktopSessions(
 export async function createDesktopSession(
   endpoint: string,
   profileId: string
-): Promise<DesktopSessionSummary> {
-  const payload = await requestJson<{ ok: true; session: DesktopSessionSummary }>(
+): Promise<DesktopSessionSummary & { reused: boolean }> {
+  const payload = await requestJson<{ ok: true; session: DesktopSessionSummary; reused: boolean }>(
     endpoint,
     "/api/sessions",
     {
@@ -1166,7 +1486,7 @@ export async function createDesktopSession(
       body: JSON.stringify({ profileId })
     }
   );
-  return payload.session;
+  return { ...payload.session, reused: payload.reused };
 }
 
 export async function loadDesktopSession(
@@ -1217,9 +1537,11 @@ export type DesktopFileFilter = "all" | DesktopFileMediaType;
 export async function listDesktopSessionFiles(
   endpoint: string,
   profileId: string,
-  sessionId: string
+  sessionId: string,
+  projectId?: string
 ): Promise<DesktopSessionFile[]> {
   const query = new URLSearchParams({ profileId, sessionId });
+  if (projectId) query.set("projectId", projectId);
   const payload = await requestJson<DesktopSessionFilesResponse>(
     endpoint,
     `/api/web/files?${query.toString()}`
@@ -1232,10 +1554,12 @@ export function desktopFileContentUrl(
   profileId: string,
   sessionId: string,
   fileId: string,
-  download = false
+  download = false,
+  projectId?: string
 ): string {
   const query = new URLSearchParams({ profileId, sessionId, fileId });
   if (download) query.set("download", "1");
+  if (projectId) query.set("projectId", projectId);
   return serviceUrl(endpoint, `/api/web/files?${query.toString()}`);
 }
 
@@ -1244,15 +1568,41 @@ export async function fetchDesktopFileBlob(
   profileId: string,
   sessionId: string,
   fileId: string,
-  download = false
+  download = false,
+  projectId?: string
 ): Promise<Blob> {
   const response = await fetchFromDesktop(
-    desktopFileContentUrl(endpoint, profileId, sessionId, fileId, download)
+    desktopFileContentUrl(endpoint, profileId, sessionId, fileId, download, projectId)
   );
   if (!response.ok) {
     throw new Error(`Failed to load file (${response.status})`);
   }
-  return await response.blob();
+  // Read the body stream manually rather than `response.blob()`. Under the
+  // Tauri plugin-http transport `response.blob()` can truncate silently on
+  // larger responses (1MB+ images stopped rendering). Concatenating chunks
+  // ourselves surfaces any mid-stream error as a thrown exception instead.
+  const body = response.body;
+  if (!body) {
+    return await response.blob();
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    chunks.push(value);
+    total += value.byteLength;
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const mime = response.headers.get("content-type") || undefined;
+  return new Blob([merged], { type: mime });
 }
 
 export function filterDesktopFiles(
@@ -1457,6 +1807,8 @@ export async function streamDesktopChat(
     sessionId: string;
     message: string;
     thinkingLevel: DesktopThinkingLevel;
+    projectId?: string;
+    modelKey?: string;
   },
   onEvent: SseHandler,
   signal?: AbortSignal
@@ -1468,7 +1820,9 @@ export async function streamDesktopChat(
       profileId: input.profileId,
       conversationId: input.sessionId,
       message: input.message,
-      thinkingLevel: input.thinkingLevel
+      thinkingLevel: input.thinkingLevel,
+      projectId: input.projectId,
+      modelKey: input.modelKey
     }),
     signal
   });
@@ -1534,6 +1888,8 @@ export async function sendDesktopChatWithFiles(
     message: string;
     thinkingLevel: DesktopThinkingLevel;
     files: File[];
+    projectId?: string;
+    modelKey?: string;
   },
   signal?: AbortSignal
 ): Promise<DesktopChatResult> {
@@ -1542,6 +1898,8 @@ export async function sendDesktopChatWithFiles(
   form.set("conversationId", input.sessionId);
   form.set("message", input.message);
   form.set("thinkingLevel", input.thinkingLevel);
+  if (input.projectId) form.set("projectId", input.projectId);
+  if (input.modelKey) form.set("modelKey", input.modelKey);
   for (const file of input.files) form.append("files", file);
 
   const payload = await requestJson<{
@@ -1732,11 +2090,23 @@ export async function deleteDesktopProvider(endpoint: string, providerId: string
   return payload.summary;
 }
 
-export async function discoverDesktopProviderModels(endpoint: string, providerId: string): Promise<string[]> {
+export async function discoverDesktopProviderModels(
+  endpoint: string,
+  providerId: string,
+  options?: {
+    baseUrl?: string;
+    apiKey?: string;
+    protocol?: string;
+    path?: string;
+  }
+): Promise<string[]> {
   const payload = await requestJson<DesktopProviderModelsResponse>(endpoint, "/api/desktop/provider-models", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ providerId })
+    body: JSON.stringify({
+      providerId,
+      ...options
+    })
   });
   return payload.models;
 }

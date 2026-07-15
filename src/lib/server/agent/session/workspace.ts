@@ -1,6 +1,10 @@
 import { resolve } from "node:path";
 
 const CHANNEL_WORKSPACE_MARKER = /\/(moli-[^/]+)\//;
+// Project runtime workspaces live at `<dataRoot>/projects/<projectId>/runtime`.
+// The marker is intentionally specific (requires the `/<id>/runtime` tail) so a
+// stray `projects` segment in an ancestor path can never be mistaken for it.
+const PROJECT_WORKSPACE_MARKER = /\/(projects)\/[^/]+\/runtime(?:\/|$)/;
 
 function normalizedResolved(pathLike: string): string {
   return resolve(pathLike).replace(/\\/g, "/");
@@ -8,12 +12,15 @@ function normalizedResolved(pathLike: string): string {
 
 function findWorkspaceMarker(pathLike: string): { marker: string; markerIndex: number } | null {
   const normalized = normalizedResolved(pathLike);
-  const match = CHANNEL_WORKSPACE_MARKER.exec(normalized);
-  if (!match || typeof match.index !== "number") return null;
-  return {
-    marker: match[1],
-    markerIndex: match.index
-  };
+  const channel = CHANNEL_WORKSPACE_MARKER.exec(normalized);
+  if (channel && typeof channel.index === "number") {
+    return { marker: channel[1], markerIndex: channel.index };
+  }
+  const project = PROJECT_WORKSPACE_MARKER.exec(normalized);
+  if (project && typeof project.index === "number") {
+    return { marker: project[1], markerIndex: project.index };
+  }
+  return null;
 }
 
 export function resolveDataRootFromWorkspacePath(pathLike: string): string {

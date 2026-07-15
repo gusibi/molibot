@@ -120,7 +120,6 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
       label: `[PI] ${providerId} / ${modelId}`,
       contextWindow,
       patch: {
-        providerMode: "pi",
         piModelProvider: providerId as RuntimeSettings["piModelProvider"],
         piModelName: modelId,
         modelRouting: {
@@ -157,7 +156,6 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
         label: `[Custom] ${provider.name} / ${modelId}`,
         contextWindow: model.contextWindow,
         patch: {
-          providerMode: "custom",
           defaultCustomProviderId: route === "text" ? provider.id : settings.defaultCustomProviderId,
           customProviders: route === "text" ? updatedProviders : settings.customProviders,
           modelRouting: {

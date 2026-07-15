@@ -3,6 +3,7 @@ import test from "node:test";
 import { transcriptDisplayContent } from "./chat/transcript";
 import type { DesktopAgentItem, DesktopSessionFile, DesktopExternalSessionsSummary, DesktopRuntimeEnvSummary, DesktopWebProfile, DesktopChannelsSummary } from "@molibot/desktop-contract";
 import { normalizeLocale } from "./i18n";
+import { runDesktopConversationTurn } from "./chat/conversationTurn";
 import {
   addToFollowUpQueue,
   applyDesktopSandboxPreset,
@@ -17,6 +18,7 @@ import {
   filterSessionsByTitle,
   findTranscriptMatches,
   formatDurationMs,
+  formatLongDurationMs,
   formatTokenCount,
   formatExternalSessionPreview,
   groupExternalSessionsForView,
@@ -42,6 +44,11 @@ import {
   runDesktopTaskAction,
   loadDesktopMemoryRejections,
   loadDesktopTasks,
+  loadDesktopProjects,
+  loadDesktopComposerSuggestions,
+  createDesktopProject,
+  deleteDesktopProject,
+  loadDesktopProjectSessions,
   normalizeDesktopTaskSession,
   loadDesktopModelRouting,
   loadDesktopMediaTasks,
@@ -53,7 +60,9 @@ import {
   saveDesktopWebSearch,
   saveDesktopImageGenerate,
   saveDesktopVideoGenerate,
+  truncateDesktopMessages,
   saveDesktopTts,
+  stopDesktopActiveRun,
   testDesktopWebSearchSettings,
   testDesktopImageGenerateSettings,
   testDesktopVideoGenerateSettings,
@@ -69,6 +78,25 @@ import {
   updateDesktopProviderGlobals,
   ONBOARDING_STEPS
 } from "./api";
+
+test("Desktop Trace action posts the selected run id", async () => {
+  const original = globalThis.fetch;
+  let captured: { url: string; method: string; body: unknown } | null = null;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    captured = { url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null };
+    return new Response(JSON.stringify({ ok: true, result: "cleared" }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal(await stopDesktopActiveRun("http://127.0.0.1:3000", "run/orphan"), "cleared");
+    assert.deepEqual(captured, {
+      url: "http://127.0.0.1:3000/api/desktop/active-runs",
+      method: "POST",
+      body: { runId: "run/orphan" }
+    });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 
 test("shared transcript localizes the generic assistant failure without changing user text", () => {
   assert.equal(transcriptDisplayContent({ role: "assistant", content: "Sorry, something went wrong." }, "回复失败，请重试。"), "回复失败，请重试。");
@@ -187,6 +215,13 @@ test("filterDesktopFiles returns all files when the filter is 'all'", () => {
   assert.deepEqual(filterDesktopFiles(files, "all"), files);
 });
 
+test("project attachment URLs retain project and session scope", () => {
+  assert.equal(
+    desktopFileContentUrl("http://127.0.0.1:3210", "personal", "session-1", "file-1", false, "project-1"),
+    "http://127.0.0.1:3210/api/web/files?profileId=personal&sessionId=session-1&fileId=file-1&projectId=project-1"
+  );
+});
+
 test("filterDesktopFiles keeps only the matching media type", () => {
   const files = [file("a", "image"), file("b", "file"), file("c", "image")];
   assert.deepEqual(
@@ -266,6 +301,40 @@ test("sendDesktopChatWithFiles posts a multipart turn to /api/chat with message,
     const files = form.getAll("files");
     assert.equal(files.length, 1);
     assert.equal((files[0] as File).name, "note.txt");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("shared conversation turn streams a project response through the same Chat transport", async () => {
+  const original = globalThis.fetch;
+  let requestBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body ?? "{}"));
+    const body = [
+      'event: token\ndata: {"delta":"hello"}',
+      'event: status\ndata: {"text":"working"}',
+      'event: done\ndata: {"response":"hello world","thinkingText":""}',
+      ""
+    ].join("\n\n");
+    return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  }) as typeof globalThis.fetch;
+  const observed = { token: "", status: "", done: "" };
+  try {
+    await runDesktopConversationTurn({
+      endpoint: "http://127.0.0.1:3210",
+      profileId: "personal",
+      sessionId: "session-1",
+      projectId: "project-1",
+      message: "hi",
+      thinkingLevel: "medium"
+    }, {
+      onToken: (delta) => (observed.token += delta),
+      onStatus: (status) => (observed.status = status),
+      onDone: (result) => (observed.done = result.response)
+    });
+    assert.equal(requestBody.projectId, "project-1");
+    assert.deepEqual(observed, { token: "hello", status: "working", done: "hello world" });
   } finally {
     globalThis.fetch = original;
   }
@@ -466,6 +535,13 @@ test("formatDurationMs renders sub-second, seconds, and minute durations compact
   assert.equal(formatDurationMs(-500), "<1s");
 });
 
+test("formatLongDurationMs renders multi-day Trace runs in human units", () => {
+  const duration = (((4 * 24 + 19) * 60 + 27) * 60 + 53) * 1000;
+  assert.equal(formatLongDurationMs(duration, "zh-CN"), "4 天 19 小时 27 分钟");
+  assert.equal(formatLongDurationMs(duration, "en"), "4d 19h 27m");
+  assert.equal(formatLongDurationMs(83_000, "zh-CN"), "1 分钟 23 秒");
+});
+
 test("groupExternalSessionsForView flattens groups in order and carries display fields", () => {
   const views = groupExternalSessionsForView(externalSummary());
   assert.deepEqual(views.map((v) => v.id), ["tg-1", "tg-2", "wx-1"]);
@@ -663,8 +739,8 @@ test("validateProviderDraft accepts a complete draft and rejects each missing fi
   assert.equal(badUrl.errors[0].field, "baseUrl");
 });
 
-test("ONBOARDING_STEPS is ordered provider → agent → channels → launch → diagnostics", () => {
-  assert.deepEqual([...ONBOARDING_STEPS], ["provider", "agent", "channels", "launch", "diagnostics"]);
+test("ONBOARDING_STEPS is ordered provider → agent → personalization → channels → launch → diagnostics", () => {
+  assert.deepEqual([...ONBOARDING_STEPS], ["provider", "agent", "personalization", "channels", "launch", "diagnostics"]);
 });
 
 test("summarizeOnboardingChannels projects ordered rows and counts connected", () => {
@@ -974,6 +1050,8 @@ test("desktop tool settings use narrow PATCH, test, and media-task endpoints", a
   }) as typeof globalThis.fetch;
   const search = { enabled: true, defaultRoute: "auto", defaultEngine: "auto", engineSelectionStrategy: "priority", maxResults: 5, timeoutMs: 5000, retryTimeoutMs: 2000, engines: [{ id: "tavily", enabled: true, baseUrl: "", apiKey: "fresh-key" }] };
   const media = { enabled: true, defaultEngine: "auto", engines: [{ id: "agnes", enabled: true, baseUrl: "", model: "agnes", apiKey: "fresh-key" }] };
+  const persistedSearch = { ...search, engines: [{ id: "tavily", enabled: true, baseUrl: "", apiKey: "" }] };
+  const persistedMedia = { ...media, engines: [{ id: "agnes", enabled: true, baseUrl: "", model: "agnes", apiKey: "" }] };
   const tts = { enabled: true, defaultProvider: "macos", providers: [{ id: "macos", enabled: true, voice: "Samantha", format: "m4a", baseUrl: "", model: "" }] };
   try {
     await saveDesktopWebSearch("http://127.0.0.1:3000", search);
@@ -983,13 +1061,19 @@ test("desktop tool settings use narrow PATCH, test, and media-task endpoints", a
     await testDesktopWebSearchSettings("http://127.0.0.1:3000", search, "query", "auto");
     await testDesktopImageGenerateSettings("http://127.0.0.1:3000", media, "prompt", "auto", "1024x1024");
     await testDesktopVideoGenerateSettings("http://127.0.0.1:3000", media, "prompt", "auto");
+    await testDesktopWebSearchSettings("http://127.0.0.1:3000", persistedSearch, "query", "tavily");
+    await testDesktopImageGenerateSettings("http://127.0.0.1:3000", persistedMedia, "prompt", "agnes");
+    await testDesktopVideoGenerateSettings("http://127.0.0.1:3000", persistedMedia, "prompt", "agnes");
     await testDesktopTtsSettings("http://127.0.0.1:3000", tts, "hello", "macos");
     await loadDesktopMediaTasks("http://127.0.0.1:3000", "image");
     await deleteDesktopMediaTask("http://127.0.0.1:3000", "image", "opaque-task-id");
     assert.deepEqual(calls.slice(0, 4).map((call) => call.method), ["PATCH", "PATCH", "PATCH", "PATCH"]);
     assert.equal(calls.slice(4, 8).every((call) => call.method === "POST" && call.url.includes("/api/settings/")), true);
-    assert.deepEqual(calls.slice(8).map((call) => call.method), ["GET", "DELETE"]);
-    assert.equal(calls[9].url.includes("taskId=opaque-task-id"), true);
+    assert.equal("apiKey" in calls[7].body.webSearch.engines.tavily, false);
+    assert.equal("apiKey" in calls[8].body.imageGenerate.engines.agnes, false);
+    assert.equal("apiKey" in calls[9].body.videoGenerate.engines.agnes, false);
+    assert.deepEqual(calls.slice(11).map((call) => call.method), ["GET", "DELETE"]);
+    assert.equal(calls[12].url.includes("taskId=opaque-task-id"), true);
   } finally {
     globalThis.fetch = original;
   }
@@ -1089,10 +1173,53 @@ test("desktop task loading tolerates an older runtime response without execution
   try {
     const summary = await loadDesktopTasks("http://127.0.0.1:3000");
     assert.deepEqual(summary.items.map((item) => item.id), ["cron"]);
+    assert.equal(summary.items[0].enabled, true);
     assert.deepEqual(summary.items[0].executions, []);
     assert.equal(summary.counts.total, 1);
     assert.equal(summary.counts.byType.periodic, 1);
     assert.equal(summary.counts.byType["one-shot"], 0);
+    assert.deepEqual(summary.counts.executions, { total: 0, completed: 0, failed: 0 });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("desktop project API uses granular project routes and preserves delete-session choice", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; method: string; body?: unknown }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (url.endsWith("/api/settings/projects") && init?.method === "POST") {
+      return new Response(JSON.stringify({ ok: true, project: { id: "wiki", name: "Wiki", rootPath: "/tmp/wiki", createdAt: "now", updatedAt: "now" } }));
+    }
+    if (url.includes("/sessions")) return new Response(JSON.stringify({ ok: true, sessions: [] }));
+    if (init?.method === "DELETE") return new Response(JSON.stringify({ ok: true }));
+    return new Response(JSON.stringify({ ok: true, projects: [] }));
+  }) as typeof globalThis.fetch;
+  try {
+    assert.deepEqual(await loadDesktopProjects("http://localhost:3000"), []);
+    assert.equal((await createDesktopProject("http://localhost:3000", { name: "Wiki", createDirectory: true })).id, "wiki");
+    assert.deepEqual(await loadDesktopProjectSessions("http://localhost:3000", "wiki"), []);
+    await deleteDesktopProject("http://localhost:3000", "wiki", true);
+    assert.equal(calls[1].method, "POST");
+    assert.deepEqual(calls[1].body, { name: "Wiki", createDirectory: true });
+    assert.match(calls[3].url, /removeSessions=true$/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("Project composer suggestions include the server-owned project context", async () => {
+  const original = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ ok: true, suggestions: [] }));
+  }) as typeof globalThis.fetch;
+  try {
+    await loadDesktopComposerSuggestions("http://localhost:3000", "momo-agent");
+    assert.match(requestedUrl, /\/api\/desktop\/composer-suggestions\?projectId=momo-agent&profileId=personal$/);
   } finally {
     globalThis.fetch = original;
   }
@@ -1109,3 +1236,35 @@ function expect<T>(actual: T) {
     }
   };
 }
+
+test("truncateDesktopMessages DELETEs the session's transcript tail with profileId in the body", async () => {
+  const original = globalThis.fetch;
+  let capturedUrl: unknown = null;
+  let capturedInit: RequestInit | undefined;
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    capturedUrl = url;
+    capturedInit = init;
+    return new Response(JSON.stringify({ ok: true, removed: 3 }), {
+      headers: { "content-type": "application/json" }
+    });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const result = await truncateDesktopMessages(
+      "http://127.0.0.1:3210",
+      "personal",
+      "session-1",
+      "msg-1"
+    );
+    assert.deepEqual(result, { removed: 3 });
+    assert.equal(
+      capturedUrl,
+      "http://127.0.0.1:3210/api/sessions/session-1/messages?fromMessageId=msg-1"
+    );
+    const init = capturedInit as RequestInit;
+    assert.equal(init.method, "DELETE");
+    assert.equal(init.body, JSON.stringify({ profileId: "personal" }));
+  } finally {
+    globalThis.fetch = original;
+  }
+});

@@ -1,13 +1,14 @@
 {
   "name": "molibot",
-  "version": "2.2.5",
+  "version": "2.4.9",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
   "imports": {
     "#weixin-agent-sdk/*": "./package/weixin-agent-sdk/*",
     "#qqbot/*": "./package/qqbot/*",
-    "#acp/*": "./package/acp/src/*"
+    "#acp/*": "./package/acp/src/*",
+    "#mory": "./package/mory/src/index.ts"
   },
   "bin": {
     "molibot": "./bin/molibot.js"
@@ -39,10 +40,12 @@
     "@mariozechner/pi-coding-agent": "^0.73.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@sinclair/typebox": "^0.34.49",
+    "@sveltejs/kit": "^2.48.1",
     "clsx": "^2.1.1",
     "diff": "^8.0.2",
     "dotenv": "^16.5.0",
     "grammy": "^1.44.0",
+    "ignore": "^7.0.5",
     "marked": "^16.4.2",
     "mpg123-decoder": "^1.0.3",
     "qrcode": "^1.5.4",
@@ -55,12 +58,14 @@
     "ws": "^8.19.0"
   },
   "devDependencies": {
-    "@mariozechner/mini-lit": "^0.2.0",
-    "@mariozechner/pi-web-ui": "^0.73.1",
     "@internationalized/date": "^3.12.1",
     "@lucide/svelte": "^1.14.0",
+    "@mariozechner/mini-lit": "^0.2.0",
+    "@mariozechner/pi-web-ui": "^0.73.1",
+    "@rollup/plugin-commonjs": "^29.0.3",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
     "@sveltejs/adapter-node": "^5.2.12",
-    "@sveltejs/kit": "^2.48.1",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@tailwindcss/vite": "^4.2.0",
     "@types/express": "^4.17.21",
@@ -69,6 +74,7 @@
     "bits-ui": "^2.18.1",
     "express": "^4.21.2",
     "lit": "^3.3.1",
+    "rollup": "^4.62.2",
     "tailwind-variants": "^3.2.2",
     "tailwindcss": "^4.2.0",
     "tsx": "^4.19.2",

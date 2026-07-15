@@ -80,6 +80,7 @@ export function validateCanonicalMemory(
   const pathRaw = toStringSafe(raw.path ?? raw.moryPath);
   const typeRaw = toStringSafe(raw.type);
   const subjectRaw = toStringSafe(raw.subject);
+  const domainRaw = toStringSafe(raw.domain);
   const valueRaw = toStringSafe(raw.value ?? raw.summary ?? raw.content);
   const confidenceRaw = Number(raw.confidence ?? 0.7);
 
@@ -120,6 +121,7 @@ export function validateCanonicalMemory(
 
   const memory: CanonicalMemory = {
     path,
+    domain: domainRaw || undefined,
     type,
     subject,
     value: valueRaw,

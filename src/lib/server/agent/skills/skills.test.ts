@@ -89,15 +89,20 @@ test("skill text formatters split summary and detail views", () => {
   skill.mcpServers = ["tavily"];
   const diagnostics = ["Duplicate skill ignored"];
 
+  // Default locale is en-US since the command i18n change; zh-CN is opt-in.
   const summary = formatSkillsSummaryText([skill], diagnostics, {
     footerLines: ["Use /skills <id> for details."]
   });
-  assert.match(summary, /当前技能列表（共1个）/);
-  assert.match(summary, /\| 编号 \| 名称 \| 路径 \|/);
+  assert.match(summary, /Loaded skills \(1 total\):/);
+  assert.match(summary, /\| Number \| Name \| Path \|/);
   assert.match(summary, /\| 1 \| web-search \| \/tmp\/bot\/skills\/web-search\/SKILL\.md \|/);
   assert.doesNotMatch(summary, /description:/);
   assert.match(summary, /Use \/skills <id> for details\./);
   assert.match(summary, /Diagnostics:/);
+
+  const zhSummary = formatSkillsSummaryText([skill], diagnostics, { locale: "zh-CN" });
+  assert.match(zhSummary, /当前技能列表（共1个）/);
+  assert.match(zhSummary, /\| 编号 \| 名称 \| 路径 \|/);
 
   const detail = formatSkillDetailText(skill);
   assert.match(detail, /Skill: web-search/);
@@ -175,4 +180,30 @@ signal skill
   assert.deepEqual(result.skills[0]?.signals.tools, ["imageGenerate", "webSearch"]);
 
   rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test("Project Skills load first, override same-name Bot Skills, and stay out of non-Project sessions", () => {
+  const root = "./.tmp/test-project-skills";
+  const workspaceDir = join(root, "workspace");
+  const projectRoot = join(root, "project");
+  const botSkillDir = join(workspaceDir, "skills/shared");
+  const projectSkillDir = join(projectRoot, ".agents/skills/shared");
+  mkdirSync(botSkillDir, { recursive: true });
+  mkdirSync(projectSkillDir, { recursive: true });
+  writeFileSync(join(botSkillDir, "SKILL.md"), `---\nname: shared\ndescription: bot version\n---\n`);
+  writeFileSync(join(projectSkillDir, "SKILL.md"), `---\nname: shared\ndescription: project version\n---\n`);
+
+  try {
+    const projectResult = loadSkillsFromWorkspace(workspaceDir, undefined, { projectRoot } as never);
+    assert.equal(projectResult.skills.length, 1);
+    assert.equal(projectResult.skills[0]?.scope, "project");
+    assert.equal(projectResult.skills[0]?.description, "project version");
+    assert.match(projectResult.diagnostics.join("\n"), /Duplicate skill name "shared" ignored/);
+
+    const ordinaryResult = loadSkillsFromWorkspace(workspaceDir);
+    assert.equal(ordinaryResult.skills[0]?.scope, "bot");
+    assert.equal(ordinaryResult.skills[0]?.description, "bot version");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

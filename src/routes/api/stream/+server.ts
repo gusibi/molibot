@@ -9,10 +9,11 @@ import {
   sanitizeWebUserId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
-import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import { resolveRuntimeContext } from "$lib/server/web/runtimeContext";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment } from "$lib/shared/types/message";
+import { resolveProjectContext } from "$lib/server/projects/context";
 
 interface StreamBody {
   userId?: string;
@@ -20,6 +21,8 @@ interface StreamBody {
   conversationId?: string;
   profileId?: string;
   thinkingLevel?: string;
+  projectId?: string;
+  modelKey?: string;
 }
 
 function writeEvent(
@@ -28,7 +31,15 @@ function writeEvent(
   event: string,
   data: unknown
 ): void {
-  controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+  // The client may have gone away mid-run (stop button, window close, network
+  // drop). enqueue() then throws — swallowing it keeps the run loop alive so
+  // the final transcript persistence below still happens; losing the live
+  // event is harmless because the client reloads the transcript anyway.
+  try {
+    controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+  } catch {
+    // stream already closed/cancelled
+  }
 }
 
 function buildRunnerDiagnostic(event: RunnerUiEvent): string | null {
@@ -83,6 +94,14 @@ export const POST: RequestHandler = async ({ request }) => {
   const message = String(body.message ?? "").trim();
   const conversationId = String(body.conversationId ?? "").trim() || undefined;
   const thinkingLevel = sanitizeRuntimeThinkingLevel(body.thinkingLevel);
+  const projectResult = resolveProjectContext(body.projectId);
+  if (!projectResult.ok) {
+    return new Response(JSON.stringify({ ok: false, error: projectResult.error }), {
+      status: projectResult.status,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  const project = projectResult.project;
 
   if (!message) {
     return new Response(JSON.stringify({ ok: false, error: "Empty message." }), {
@@ -97,11 +116,16 @@ export const POST: RequestHandler = async ({ request }) => {
   const conversation = runtime.sessions.getOrCreateConversation(
     "web",
     externalUserId,
-    conversationId
+    conversationId,
+    { projectId: project?.id }
   );
 
-  const { store, pool } = getWebRuntimeContext(profileId);
-  const runner = pool.get(externalUserId, conversation.id);
+  const { store, pool } = resolveRuntimeContext({ profileId, projectId: project?.id });
+  // Project conversations may originate on a channel bot (e.g. Feishu); keying
+  // the runner by the conversation's own externalUserId reopens that exact
+  // agent context instead of forking a Web-keyed copy.
+  const runnerChatId = project ? conversation.externalUserId : externalUserId;
+  const runner = pool.get(runnerChatId, conversation.id);
   if (runner.isRunning()) {
     return new Response(
       JSON.stringify({ ok: false, error: "Already working. Please wait for current response to finish." }),
@@ -111,7 +135,7 @@ export const POST: RequestHandler = async ({ request }) => {
       }
     );
   }
-  runtime.sessions.appendMessage(conversation.id, "user", message);
+  runtime.sessions.appendMessage(conversation.id, "user", message, { contextBacked: true });
 
   request.signal.addEventListener(
     "abort",
@@ -128,20 +152,37 @@ export const POST: RequestHandler = async ({ request }) => {
       void (async () => {
         let finalText = "";
         let thinkingText = "";
+        let responseModel = "";
         const threadNotes: string[] = [];
         const diagnostics: string[] = [];
         const responseAttachments: ConversationAttachment[] = [];
         const activityCollector = new ConversationActivityCollector();
         const ts = `${Date.now() / 1000}`;
+        // Guards the transcript against a double assistant message: the catch
+        // block's partial-persistence must not fire once the success path has
+        // already appended.
+        let assistantPersisted = false;
 
         try {
           const result = await runner.run({
             channel: "web",
             workspaceDir: store.getWorkspaceDir(),
-            chatDir: store.getChatDir(externalUserId),
+            chatDir: store.getChatDir(runnerChatId),
             thinkingLevelOverride: thinkingLevel,
+            modelKeyOverride: String(body.modelKey ?? project?.modelKey ?? "").trim() || undefined,
+            project: project ? {
+              id: project.id,
+              name: project.name,
+              rootPath: project.rootPath,
+              instructions: project.instructions,
+              sandboxEnabled: project.sandboxEnabled,
+              toolProgress: project.toolProgress,
+              showReasoning: project.showReasoning,
+              runLogNotice: project.runLogNotice,
+              scratchDir: store.getScratchDir(runnerChatId)
+            } : undefined,
             message: {
-              chatId: externalUserId,
+              chatId: runnerChatId,
               workspaceId,
               chatType: "private",
               messageId: Date.now(),
@@ -192,7 +233,7 @@ export const POST: RequestHandler = async ({ request }) => {
             uploadFile: async (filePath, title) => {
               const attachment = saveWebResponseAttachment({
                 store,
-                externalUserId,
+                externalUserId: runnerChatId,
                 filePath,
                 title,
                 ts
@@ -205,10 +246,12 @@ export const POST: RequestHandler = async ({ request }) => {
               if (diagnostic) diagnostics.push(diagnostic);
 
               if (event.type === "thinking_config") {
+                responseModel = [event.provider, event.model].filter(Boolean).join("/");
                 writeEvent(controller, encoder, "thinking_config", event);
                 return;
               }
               if (event.type === "payload") {
+                if (!responseModel) responseModel = [event.provider, event.model].filter(Boolean).join("/");
                 writeEvent(controller, encoder, "payload", event);
                 return;
               }
@@ -258,8 +301,11 @@ export const POST: RequestHandler = async ({ request }) => {
           if (result.stopReason !== "waiting_for_approval") {
             runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
               attachments: responseAttachments,
-              activities: activityCollector.snapshot()
+              activities: activityCollector.finalSnapshot(),
+              model: responseModel || undefined,
+              contextBacked: true
             });
+            assistantPersisted = true;
           }
           writeEvent(controller, encoder, "done", {
             ok: true,
@@ -272,9 +318,31 @@ export const POST: RequestHandler = async ({ request }) => {
           });
         } catch (error) {
           const messageText = error instanceof Error ? error.message : String(error);
+          // Never drop what the run already produced: persist the partial
+          // answer + tool timeline so the transcript survives the failure and
+          // a follow-up "继续" has visible anchors.
+          try {
+            const partial = finalText.trim() || threadNotes.at(-1) || "";
+            const activities = activityCollector.finalSnapshot();
+            if (!assistantPersisted && (partial || activities.length > 0 || responseAttachments.length > 0)) {
+              const notice = `⚠️ 本次回复在生成过程中中断，上面是已生成的部分。错误：${messageText}`;
+              runtime.sessions.appendMessage(
+                conversation.id,
+                "assistant",
+                partial ? `${partial}\n\n${notice}` : notice,
+                { attachments: responseAttachments, activities, model: responseModel || undefined, contextBacked: true }
+              );
+            }
+          } catch {
+            // best-effort persistence; the SSE error below still reaches the client
+          }
           writeEvent(controller, encoder, "error", { ok: false, error: messageText });
         } finally {
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // already closed/cancelled
+          }
         }
       })();
     }

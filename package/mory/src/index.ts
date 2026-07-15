@@ -141,6 +141,17 @@ export {
     toWorkingMemory,
 } from "./moryWorkspace.js";
 
+// ── Tokenizer (unified CJK-aware lexical matching) ────────────────────────
+export {
+    cjkBigrams,
+    jaccardLexicalSimilarity,
+    normalizeForMatch,
+    overlapLexicalSimilarity,
+    scoreLexical,
+    tokenizeForSimilarity,
+    tokenizeWords,
+} from "./moryTokenize.js";
+
 // ── Validation ────────────────────────────────────────────────────────────
 export {
     validateCanonicalMemory,

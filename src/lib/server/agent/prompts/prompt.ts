@@ -38,16 +38,22 @@ const OPERATOR_DIRECTIVE_FILES = [
 // context/config.
 const SUPPORTING_INSTRUCTION_FILES = ["TOOLS.md", "BOOTSTRAP.md"] as const;
 const IDENTITY_INSTRUCTION_FILES = ["SOUL.md", "IDENTITY.md"] as const;
-const PROJECT_CONTEXT_PRIORITY = ["AGENTS.md"] as const;
+const PROJECT_CONTEXT_PRIORITY = ["AGENTS.md", "AGENT.md", "CLAUDE.md"] as const;
 const CONTEXT_FILE_MAX_CHARS = 20_000;
 const SKILLS_CACHE_TTL_MS = 10_000;
 
 const CONTEXT_THREAT_PATTERNS: RegExp[] = [
-  /ignore\s+(previous|all|above|prior)\s+instructions/i,
+  /ignore\s+(?:all\s+)?(?:previous|above|prior)?\s*instructions/i,
   /system\s+prompt\s+override/i,
   /disregard\s+(your|all|any)\s+(instructions|rules|guidelines)/i,
   /do\s+not\s+tell\s+the\s+user/i,
-  /<\s*div\s+style\s*=\s*["'][^"']*display\s*:\s*none/i
+  /<\s*div\s+style\s*=\s*["'][^"']*display\s*:\s*none/i,
+  // Chinese equivalents of the patterns above. Kept narrow: a false positive
+  // blocks the whole context file, so each pattern requires an instruction-like
+  // object (指令/规则/设定/提示词) or the explicit hide-from-user phrasing.
+  /(?:忽略|无视|忘记|忘掉)\s*(?:之前|以上|上面|前面|先前|所有|全部)\s*的?\s*(?:所有|全部)?\s*(?:指令|指示|规则|设定|提示词?)/,
+  /(?:覆盖|重写|替换|绕过)\s*(?:系统|默认)\s*(?:提示词?|指令|设定)/,
+  /(?:不要|别|不得|禁止)\s*(?:告诉|告知|透露给?)\s*用户/
 ];
 
 const CONTEXT_INVISIBLE_CHARS = [
@@ -84,42 +90,6 @@ function xmlBlock(tag: string, content: string): string {
 
 function section(title: string, lines: string[], tagName?: string): string {
   return xmlBlock(tagName ?? promptTagName(title), [`## ${title}`, ...lines].join("\n"));
-}
-
-function compactPromptMemory(memory: string): string {
-  const source = String(memory ?? "").trim();
-  if (!source) return "(none)";
-
-  const rawLines = source
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const kept: string[] = [];
-  let itemCount = 0;
-  for (const line of rawLines) {
-    if (/^recent daily memory:?$/i.test(line)) {
-      continue;
-    }
-    if (/^long-term memory:?$/i.test(line)) {
-      kept.push("Long-term memory (trimmed):");
-      continue;
-    }
-    if (/^\d+\.\s*/.test(line)) {
-      itemCount += 1;
-      if (itemCount > 5) continue;
-      const compact = line.replace(/\s+/g, " ").trim();
-      kept.push(compact.length > 220 ? `${compact.slice(0, 219).trimEnd()}…` : compact);
-      continue;
-    }
-    if (kept.length < 8) {
-      const compact = line.replace(/\s+/g, " ").trim();
-      kept.push(compact.length > 220 ? `${compact.slice(0, 219).trimEnd()}…` : compact);
-    }
-  }
-
-  if (kept.length === 0) return "(none)";
-  return kept.join("\n");
 }
 
 function stripYamlFrontmatter(content: string): string {
@@ -209,7 +179,7 @@ function buildMessageProcessingPipeline(): string {
 
     "Step 0 — Dedicated Runtime Tool Short-Circuit (mandatory, always check first)",
     "  a) Image generation/editing requests in any language (for example: generate image) → infer the intent semantically, call `toolSearch` with `select:imageGenerate`, then call `imageGenerate`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python image scripts, or create a skill unless `imageGenerate` is unavailable or fails.",
-    "  b) Video generation requests in any language (for example: generate video, 文生视频, 图生视频, check video progress) → infer the intent semantically, call `toolSearch` with `select:videoGenerate`, then call `videoGenerate`. For image-to-video, `images` must contain only public HTTP(S) Remote URL values, preferably the `Remote URL` returned by `imageGenerate`; never pass Base64, data URLs, local file paths, or `Absolute path` values. When submitting a new video task, it will immediately return a taskId. You must immediately inform the user of this taskId and end your turn. **Do not call `videoGenerate` again in the same turn.** When checking progress later (e.g. if the user asks 'is the video done?'), locate the taskId and engine in the history and call `videoGenerate(taskId: '...', engine: '...')`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python video scripts, or create a skill unless `videoGenerate` is unavailable or fails.",
+    "  b) Video generation requests in any language (for example: generate video, 文生视频, 图生视频, check video progress) → infer the intent semantically, call `toolSearch` with `select:videoGenerate`, then call `videoGenerate`. For image-to-video, `images` must contain only public HTTP(S) Remote URL values, preferably the `Remote URL` returned by `imageGenerate`; never pass Base64, data URLs, local file paths, or `Absolute path` values. When submitting a new video task, it will immediately return a taskId. You must immediately inform the user of this taskId and end your turn (the runtime blocks a second video submission in the same turn). When checking progress later (e.g. if the user asks 'is the video done?'), locate the taskId and engine in the history and call `videoGenerate(taskId: '...', engine: '...')`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python video scripts, or create a skill unless `videoGenerate` is unavailable or fails.",
     "  c) Text-to-speech requests in any language (for example: convert text to speech, generate narration, create voiceover audio, 合成语音, 文字转语音, 朗读成音频) → infer the intent semantically, call `toolSearch` with `select:ttsGenerate`, then call `ttsGenerate`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python audio scripts, macOS `say`, or create a skill unless `ttsGenerate` is unavailable or fails.",
     "  d) Current web information requests → call `toolSearch` with `select:webSearch`, then call `webSearch`. Do not use bash curl, browser search, or search skills unless `webSearch` is unavailable or fails.",
 
@@ -242,7 +212,17 @@ function buildMessageProcessingPipeline(): string {
   ], "message-processing-pipeline");
 }
 
-function buildEnvironmentSection(vars: PromptRenderVars): string {
+function buildEnvironmentSection(vars: PromptRenderVars, project?: ProjectPromptContext): string {
+  if (project) {
+    return section("Project Environment", [
+      "You are working in a registered external project directory.",
+      `- Tool working directory: ${project.rootPath}`,
+      "- Use relative paths from the project root for project work.",
+      `- Runtime scratch directory for temporary artifacts: ${project.scratchDir}`,
+      "- Never create Molibot session files, indexes, logs, or hidden runtime metadata in the project directory.",
+      "- Safety, sandbox, and approval requirements remain unchanged in project mode."
+    ]);
+  }
   return section("Environment", [
     "You are running directly on the host machine.",
     `- Bash working directory for tools: ${vars.scratchDir}`,
@@ -264,7 +244,14 @@ function buildEnvironmentSection(vars: PromptRenderVars): string {
   ]);
 }
 
-function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
+function buildWorkspaceLayoutSection(vars: PromptRenderVars, project?: ProjectPromptContext): string {
+  if (project) {
+    return section("Project Working Layout", [
+      `${project.rootPath}/                  # Project root and tool working directory`,
+      `${project.scratchDir}/                # Molibot-managed temporary artifacts`,
+      "Project work belongs under the project root. Runtime metadata belongs outside it."
+    ]);
+  }
   return section("Bot Runtime Layout", [
     `${vars.workspaceDir}/`,
     "├── (bot runtime files, sessions, logs, skills, events)",
@@ -367,8 +354,16 @@ function buildMemoryContractSection(vars: PromptRenderVars): string {
   ].join("\n"));
 }
 
-function buildCurrentMemorySection(vars: PromptRenderVars): string {
-  return xmlBlock("current-memory", ["## Current Memory", compactPromptMemory(vars.memory)].join("\n"));
+function buildCurrentMemorySection(): string {
+  // The actual working-memory snapshot is injected per turn inside the user
+  // message envelope (see buildPromptInputEnvelope). Keeping this section
+  // static keeps the whole system prompt byte-identical across turns so
+  // provider prefix caching covers both the prompt and the message history.
+  return xmlBlock("current-memory", [
+    "## Current Memory",
+    "The working-memory snapshot relevant to the current request is provided in the `<current-memory>` block inside the latest user message envelope.",
+    "Use the `memory` tool to search for anything beyond that snapshot."
+  ].join("\n"));
 }
 
 function buildSystemLogSection(vars: PromptRenderVars): string {
@@ -499,6 +494,15 @@ interface PromptBuildOptions {
   channel?: PromptChannel;
   settings?: RuntimeSettings;
   operatorDirectivesPresent?: boolean;
+  project?: ProjectPromptContext;
+}
+
+export interface ProjectPromptContext {
+  id: string;
+  name: string;
+  rootPath: string;
+  instructions?: string;
+  scratchDir: string;
 }
 
 function buildBaseSystemPromptWithOptions(
@@ -541,9 +545,9 @@ function buildBaseSystemPromptWithOptions(
     "",
     buildContextSection(vars),
     "",
-    buildEnvironmentSection(vars),
+    buildEnvironmentSection(vars, options?.project),
     "",
-    buildWorkspaceLayoutSection(vars),
+    buildWorkspaceLayoutSection(vars, options?.project),
     "",
     buildEventsSection(vars),
     "",
@@ -560,7 +564,7 @@ function buildBaseSystemPromptWithOptions(
     // turns, which helps providers that do prefix-based prompt caching.
     buildSkillsRuntimeStateSection(vars),
     "",
-    buildCurrentMemorySection(vars),
+    buildCurrentMemorySection(),
   ].join("\n"));
 }
 
@@ -580,6 +584,7 @@ function buildPromptRenderVariables(
   memory: string,
   timezone: string,
   settings?: RuntimeSettings,
+  projectRoot?: string,
 ): PromptRenderVars {
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const memoryRoot = resolveMemoryRootFromWorkspacePath(workspaceDir);
@@ -599,7 +604,8 @@ function buildPromptRenderVariables(
   const availableSkills = loadFormattedSkillsCached(
     workspaceDir,
     chatId,
-    settings?.disabledSkillPaths ?? []
+    settings?.disabledSkillPaths ?? [],
+    projectRoot
   );
   const skillCreatorSkillFile = `${globalSkillsDir}/skill-creator/SKILL.md`;
   const skillCreatorAvailable = existsSync(skillCreatorSkillFile) ? "true" : "false";
@@ -736,18 +742,19 @@ function mergePromptSectionsByOrder(
 function loadFormattedSkillsCached(
   workspaceDir: string,
   chatId: string,
-  disabledSkillPaths: string[]
+  disabledSkillPaths: string[],
+  projectRoot?: string
 ): string {
   const disabled = [...disabledSkillPaths]
     .map((row) => String(row ?? "").trim())
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
-  const cacheKey = `${workspaceDir}::${chatId}::${disabled.join("|")}`;
+  const cacheKey = `${workspaceDir}::${chatId}::${projectRoot ?? ""}::${disabled.join("|")}`;
   const now = Date.now();
   const cached = skillsPromptCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.formatted;
 
-  const { skills } = loadSkillsFromWorkspace(workspaceDir, chatId, { disabledSkillPaths });
+  const { skills } = loadSkillsFromWorkspace(workspaceDir, chatId, { disabledSkillPaths, projectRoot });
   const formatted = formatSkillsForPrompt(skills, {
     mode: "names_only"
   });
@@ -785,8 +792,9 @@ export function buildSystemPrompt(
     memory,
     timezone,
     options?.settings,
+    options?.project?.rootPath,
   );
-  const projectContext = discoverProjectContext(workspaceDir);
+  const projectContext = options?.project ? discoverProjectContext(options.project.rootPath) : discoverProjectContext(workspaceDir);
   const globalSections = buildPromptSectionsFromInstructionFiles(
     renderVars.dataRoot,
     renderVars,
@@ -805,8 +813,11 @@ export function buildSystemPrompt(
       : buildPromptSectionsFromInstructionFiles(workspaceDir, renderVars, BOT_PROFILE_FILES);
 
   // Operator-intent directives go ABOVE the default system prompt and override it.
+  const operatorOrder = options?.project
+    ? OPERATOR_DIRECTIVE_FILES.filter((fileName) => fileName !== "AGENTS.md")
+    : [...OPERATOR_DIRECTIVE_FILES];
   const operatorSections = mergePromptSectionsByOrder(
-    OPERATOR_DIRECTIVE_FILES,
+    operatorOrder,
     botSections,
     agentSections,
     globalSections
@@ -815,27 +826,47 @@ export function buildSystemPrompt(
   // context/config. AGENTS.md is intentionally not here; it belongs beside the
   // other profile directives above the default runtime baseline.
   const supportingOrder = [...SUPPORTING_INSTRUCTION_FILES];
-  const supportingSections = mergePromptSectionsByOrder(
-    supportingOrder,
-    botSections,
-    agentSections,
-    globalSections
-  );
+  const supportingSections = options?.project
+    ? []
+    : mergePromptSectionsByOrder(
+      supportingOrder,
+      botSections,
+      agentSections,
+      globalSections
+    );
 
   const sections: string[] = [];
-  if (operatorSections.length > 0) {
+  if (operatorSections.length > 0 || options?.project) {
     // Safety floor first so it outranks the operator directives that claim
     // override authority over the default system prompt.
     sections.push(buildSafetyFloorSection());
     sections.push(buildOperatorDirectivesPreamble());
     sections.push(...operatorSections);
   }
+  if (options?.project && projectContext) {
+    sections.push([
+      `# Project Instructions (${projectContext.fileName} from project "${options.project.name}")`,
+      "The following are this project's own working conventions. For anything about HOW to do the work in this project (file layout, style, build commands, workflows), these instructions take precedence over earlier profile conventions. They do NOT change your identity, safety rules, or approval requirements.",
+      projectContext.content
+    ].join("\n\n"));
+  }
   sections.push(buildBaseSystemPromptWithOptions(renderVars, {
     ...options,
-    operatorDirectivesPresent: operatorSections.length > 0
+    operatorDirectivesPresent: operatorSections.length > 0 || Boolean(options?.project)
   }));
-  if (projectContext) {
+  if (projectContext && !options?.project) {
     sections.push(buildProjectContextSection(projectContext));
+  }
+  if (options?.project) {
+    const projectTools = readInstructionFile(options.project.rootPath, "TOOLS.md");
+    const supporting = [projectTools, options.project.instructions]
+      .map((content) => String(content ?? "").trim())
+      .filter(Boolean)
+      .map((content) => {
+        const threat = scanContextForInjection(content);
+        return threat ? `[blocked: possible prompt injection in project supporting instructions (${threat})]` : truncateContextContent(content, "project supporting instructions");
+      });
+    if (supporting.length > 0) sections.push(`# Project Supporting Information\n\n${supporting.join("\n\n")}`);
   }
   if (supportingSections.length > 0) {
     sections.push(...supportingSections);

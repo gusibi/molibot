@@ -1,8 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import {
   type AgentSettings,
+  DEFAULT_AGENT_ID,
   type ChannelSettingsMap,
   defaultRuntimeSettings,
+  defaultAgentSettings,
   sanitizeAgentModelRouting,
   type ModelCapabilityTag,
   type ModelCapabilityVerification,
@@ -29,6 +31,8 @@ import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import {
   sanitizeChannelInstanceDisplaySettings,
+  sanitizeHookPluginEntries,
+  sanitizeMemoryPluginSettings,
   sanitizeTtsGenerateSettings
 } from "$lib/server/settings/sanitize.js";
 import {
@@ -92,12 +96,20 @@ interface RawSettings {
   };
   systemPrompt?: string;
   locale?: string;
+  serverPort?: number | string;
   plugins?: {
     memory?: {
       enabled?: boolean | string;
       backend?: string;
       core?: string;
+      embeddingProviderId?: string;
+      embeddingModel?: string;
+      reflectionTime?: string;
+      reflectionNotifications?: boolean;
+      reflectionNotificationTarget?: unknown;
+      dailyMaterials?: Record<string, unknown>;
     };
+    hooks?: unknown;
     cloudflareHtml?: {
       enabled?: boolean | string;
       accessMode?: string;
@@ -159,6 +171,7 @@ const CAPABILITY_VERIFICATION_SET: ReadonlySet<string> = new Set(["untested", "p
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
 const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
   "duckduckgo",
+  "anysearch",
   "brave",
   "tavily",
   "exa",
@@ -1004,7 +1017,7 @@ function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
       protocol: "openai-compatible",
       baseUrl,
       apiKey,
-      models: model ? [{ id: model, tags: ["text"], supportedRoles: [...DEFAULT_ROLES] }] : [],
+      models: model ? [{ id: model, tags: ["text"], enabled: true, supportedRoles: [...DEFAULT_ROLES] }] : [],
       defaultModel: model,
       path
     }
@@ -1042,21 +1055,55 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const memoryEnabledRaw = raw.plugins?.memory?.enabled;
   const memoryEnabled = typeof memoryEnabledRaw === "boolean"
     ? memoryEnabledRaw
-    : String(memoryEnabledRaw ?? "").toLowerCase() === "true";
-  const memoryBackend = String(raw.plugins?.memory?.backend ?? raw.plugins?.memory?.core ?? "").trim() ||
-    defaultRuntimeSettings.plugins.memory.backend;
+    : memoryEnabledRaw == null
+      ? defaultRuntimeSettings.plugins.memory.enabled
+      : String(memoryEnabledRaw).toLowerCase() === "true";
+  // Full memory plugin block (reflection + daily materials included) so a
+  // restart never resets fields the save path persisted.
+  const memoryPlugin = sanitizeMemoryPluginSettings(
+    { ...(raw.plugins?.memory ?? {}), enabled: memoryEnabled },
+    defaultRuntimeSettings.plugins.memory
+  );
   const cloudflareHtml = sanitizeCloudflareHtmlPluginSettings(raw.plugins?.cloudflareHtml);
+  const hookPlugins = sanitizeHookPluginEntries(raw.plugins?.hooks);
+  // Feature-plugin settings blobs (keyed by settingsKey) round-trip untouched.
+  const pluginExtras = raw.plugins && typeof raw.plugins === "object"
+    ? Object.fromEntries(
+        Object.entries(raw.plugins as Record<string, unknown>)
+          .filter(([key, value]) => !["memory", "cloudflareHtml", "hooks"].includes(key) && value && typeof value === "object")
+      )
+    : {};
 
   const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
   const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
   const qqBotsFromList = sanitizeQQBots(raw.qqBots);
   const qqBots = qqBotsFromList.length > 0 ? qqBotsFromList : [];
+  const sanitizedAgents = sanitizeAgents(raw.agents);
+  const agents = sanitizedAgents.length > 0 ? sanitizedAgents : [defaultAgentSettings()];
   const channels = sanitizeChannels(raw.channels, telegramBots, feishuBots, qqBots);
+  if (agents.some((agent) => agent.id === DEFAULT_AGENT_ID)) {
+    const webInstances = Array.isArray(channels.web?.instances) ? channels.web.instances : [];
+    channels.web = {
+      instances: webInstances.length > 0
+        ? webInstances.map((instance) =>
+          instance.id === "default" && !String(instance.agentId ?? "").trim()
+            ? { ...instance, agentId: DEFAULT_AGENT_ID }
+            : instance
+        )
+        : [{
+          id: "default",
+          name: "Default Web",
+          enabled: true,
+          agentId: DEFAULT_AGENT_ID,
+          credentials: {},
+          allowedChatIds: []
+        }]
+    };
+  }
   const effectiveTelegramBots = telegramBots.length > 0 ? telegramBots : deriveTelegramBotsFromChannels(channels);
   const effectiveFeishuBots = feishuBots.length > 0 ? feishuBots : deriveFeishuBotsFromChannels(channels);
   const effectiveQQBots = qqBots.length > 0 ? qqBots : deriveQQBotsFromChannels(channels);
   const primaryBot = effectiveTelegramBots[0];
-  const agents = sanitizeAgents(raw.agents);
   const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
   const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
   const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);
@@ -1138,6 +1185,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
       defaultRuntimeSettings.systemPrompt,
     locale: raw.locale === "en-US" ? "en-US" : "zh-CN",
+    serverPort: Math.round(clampNumber(raw.serverPort, defaultRuntimeSettings.serverPort, 1024, 65535)),
     agents,
     channels,
     mcpServers,
@@ -1153,12 +1201,11 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     telegramBots: effectiveTelegramBots,
     qqBots: effectiveQQBots,
     plugins: {
-      memory: {
-        enabled: memoryEnabled,
-        backend: memoryBackend
-      },
-      cloudflareHtml
-    },
+      ...pluginExtras,
+      memory: memoryPlugin,
+      cloudflareHtml,
+      hooks: hookPlugins
+    } as RuntimeSettings["plugins"],
     timezone: normalizeTimeZone(
       String(raw.timezone ?? ""),
       Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -1876,24 +1923,11 @@ export class SettingsStore {
       },
       systemPrompt: settings.systemPrompt,
       locale: settings.locale,
-      plugins: {
-        memory: {
-          enabled: settings.plugins.memory.enabled,
-          backend: settings.plugins.memory.backend
-        },
-        cloudflareHtml: {
-          enabled: settings.plugins.cloudflareHtml.enabled,
-          accessMode: settings.plugins.cloudflareHtml.accessMode,
-          workerBaseHost: settings.plugins.cloudflareHtml.workerBaseHost,
-          publicBaseHost: settings.plugins.cloudflareHtml.publicBaseHost,
-          routePrefix: settings.plugins.cloudflareHtml.routePrefix,
-          bucketName: settings.plugins.cloudflareHtml.bucketName,
-          accountId: settings.plugins.cloudflareHtml.accountId,
-          accessKeyId: settings.plugins.cloudflareHtml.accessKeyId,
-          secretAccessKey: settings.plugins.cloudflareHtml.secretAccessKey,
-          objectPrefix: settings.plugins.cloudflareHtml.objectPrefix
-        }
-      },
+      serverPort: settings.serverPort,
+      // Serialize the whole plugins block (memory reflection/daily-materials,
+      // hooks, and dynamic feature-plugin settings) — a narrow field list here
+      // silently reset those settings on every restart.
+      plugins: settings.plugins,
       timezone: settings.timezone,
       mcpServers: settings.mcpServers,
       skillSearch: settings.skillSearch,

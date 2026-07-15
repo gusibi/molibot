@@ -2,7 +2,7 @@
 import { deleteDesktopWebProfile, loadDesktopProfileFiles, loadDesktopWebProfiles, patchDesktopWebProfile, saveDesktopProfileFiles, saveDesktopWebProfile } from "../api";
 import type { DesktopWebProfile } from "@molibot/desktop-contract";
 import { emptyProfileFiles } from "../settings/profileFiles";
-import { session, setError } from "./session.svelte";
+import { session, setError, notifySettingsChanged } from "./session.svelte";
 
 export type ProfileEditor = { previousId?: string; isNew: boolean; id: string; name: string; enabled: boolean; agentId: string; sandboxEnabled?: boolean; files: Record<string, string> };
 
@@ -105,6 +105,7 @@ export async function saveProfileEditor(): Promise<void> {
     await loadWebProfiles(endpoint);
     profilesStore.profileEdit = null;
     profilesStore.actionMessage = session.text.profileSaved;
+    notifySettingsChanged();
   } catch (cause) {
     setError(cause);
   } finally {
@@ -122,6 +123,7 @@ export async function removeProfile(profileId: string): Promise<void> {
     profilesStore.webProfiles = profilesStore.webProfiles.filter((profile) => profile.id !== profileId);
     if (profilesStore.profileEdit?.previousId === profileId) profilesStore.profileEdit = null;
     profilesStore.actionMessage = session.text.profileDeleted;
+    notifySettingsChanged();
   } catch (cause) {
     setError(cause);
   } finally {

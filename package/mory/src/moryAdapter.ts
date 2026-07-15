@@ -23,6 +23,7 @@ export interface PersistedMemoryNode {
   id: string;
   userId: string;
   path: string;
+  domain?: string;
   memoryType: string;
   subject: string;
   title?: string;
@@ -201,6 +202,7 @@ function rowToNode(row: SqlMemoryRow): PersistedMemoryNode {
     id: row.id,
     userId: row.user_id,
     path: row.path,
+    domain: row.domain ?? undefined,
     memoryType: row.memory_type,
     subject: row.subject,
     title: row.l0_title ?? undefined,
@@ -258,6 +260,11 @@ export class SqliteStorageAdapter implements StorageAdapter {
 
   async init(): Promise<void> {
     await this.driver.run(SQLITE_SCHEMA_SQL);
+    const columns = await this.driver.all<{ name: string }>("PRAGMA table_info(memory_nodes)");
+    if (!columns.some((column) => column.name === "domain")) {
+      await this.driver.run("ALTER TABLE memory_nodes ADD COLUMN domain TEXT");
+    }
+    await this.driver.run("CREATE INDEX IF NOT EXISTS idx_memory_nodes_user_domain ON memory_nodes(user_id, domain)");
   }
 
   async readByPath(userId: string, path: string, includeArchived = false): Promise<PersistedMemoryNode[]> {
@@ -299,13 +306,14 @@ export class SqliteStorageAdapter implements StorageAdapter {
     // (user_id, path, version) UNIQUE index on every accessCount patch.
     await this.driver.run(
       `UPDATE memory_nodes SET
-        l0_title = ?, l1_summary = ?, l2_detail = ?,
+        domain = ?, l0_title = ?, l1_summary = ?, l2_detail = ?,
         confidence = ?, importance = ?, utility = ?,
         access_count = ?, updated_at = ?, last_accessed_at = ?,
         version = ?, supersedes = ?, conflict_flag = ?,
         archived_at = ?, embedding = ?
       WHERE user_id = ? AND id = ?`,
       [
+        next.domain ?? null,
         next.title ?? null,
         next.value,
         next.detail ?? null,

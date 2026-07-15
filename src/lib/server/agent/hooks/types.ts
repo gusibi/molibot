@@ -69,6 +69,7 @@ export interface RunLifecyclePayload extends OpenPayload {
   stopReason?: string;
   durationMs?: number;
   errorMessage?: string;
+  taskPreview?: string;
 }
 
 export interface ModelCallPayload extends OpenPayload {

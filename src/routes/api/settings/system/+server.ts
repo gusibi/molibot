@@ -21,7 +21,7 @@ export const PUT: RequestHandler = async ({ request }) => {
   }
 
   try {
-    const config = updateSystemConfig(getRuntime(), body);
+    const config = await updateSystemConfig(getRuntime(), body);
     return json({ ok: true, ...config });
   } catch (error: any) {
     return json({ ok: false, error: error.message || String(error) }, { status: 400 });

@@ -1,7 +1,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { promises as fs } from "node:fs";
-import { dirname as pathDirname, basename } from "node:path";
+import { dirname as pathDirname, basename, join } from "node:path";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { createAttachTool } from "$lib/server/agent/tools/attach.js";
 import { getBashToolDefinition } from "$lib/server/agent/tools/bash.js";
@@ -37,6 +37,7 @@ import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.j
 import { wrapCommandWithVenv, execCommand } from "$lib/server/agent/tools/helpers.js";
 import { prepareToolSandboxExecution, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
+import { buildRunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 
 function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
   let chain = Promise.resolve();
@@ -127,6 +128,7 @@ export function createMomTools(options: {
   workspaceId?: string;
   timezone: string;
   messageTimestamp?: string | number | Date;
+  project?: { id?: string; rootPath: string; scratchDir: string; sandboxEnabled?: boolean };
   store: MomRuntimeStore;
   memory: MemoryGateway;
   getSettings: () => RuntimeSettings;
@@ -140,7 +142,20 @@ export function createMomTools(options: {
   uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }): AgentTool<any>[] {
-  const artifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
+  const datedArtifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
+  const artifactDir = options.project
+    ? join(options.project.scratchDir, datedArtifactDir)
+    : datedArtifactDir;
+  const toolOutputDir = options.project
+    ? join(pathDirname(options.project.scratchDir), "tool-output")
+    : undefined;
+  const outputLayout = options.project
+    ? buildRunOutputLayout({
+        cwd: options.cwd,
+        scratchRoot: artifactDir,
+        projectRoot: options.project.rootPath
+      })
+    : undefined;
   const botId = basename(options.workspaceDir) || "unknown";
   const sandboxSettings = resolveEffectiveSandboxSettings({
     getSettings: options.getSettings,
@@ -148,7 +163,8 @@ export function createMomTools(options: {
     sessionId: options.sessionId,
     store: options.store,
     channel: options.channel,
-    botId
+    botId,
+    projectOverride: options.project?.sandboxEnabled
   });
   const loadedDeferredToolNames = new Set<string>();
   const createEventRuntimeTool = wrapSerializedTool(createEventTool({
@@ -177,6 +193,7 @@ export function createMomTools(options: {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     artifactDir,
+    outputLayout,
     uploadFile: options.uploadFile,
     sessionId: options.sessionId
   }));
@@ -185,6 +202,7 @@ export function createMomTools(options: {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     artifactDir,
+    outputLayout,
     uploadFile: options.uploadFile,
     sessionId: options.sessionId
   }));
@@ -193,6 +211,7 @@ export function createMomTools(options: {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     artifactDir,
+    outputLayout,
     uploadFile: options.uploadFile
   }));
 
@@ -232,7 +251,11 @@ export function createMomTools(options: {
 
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
 
-  const buildExecutionContext = (signal?: AbortSignal): ToolExecutionContext => {
+  const buildExecutionContext = (
+    signal?: AbortSignal,
+    toolCallId?: string,
+    onUpdate?: (update: any) => void
+  ): ToolExecutionContext => {
     return {
       runId: options.runId ?? "default-run",
       sessionId: options.sessionId,
@@ -240,6 +263,8 @@ export function createMomTools(options: {
       actorId: options.chatId,
       cwd: options.cwd,
       signal,
+      toolCallId,
+      onUpdate,
       fs: {
         readText: async (path) => {
           const filePath = resolveToolPath(options.cwd, path);
@@ -338,7 +363,9 @@ export function createMomTools(options: {
         risk,
         source,
         handler: async (input, ctx) => {
-          const res = (await originalTool.execute(ctx.runId, input, ctx.signal)) as any;
+          // toolCallId falls back to runId only for callers that predate the
+          // per-call context fields; onUpdate keeps progress streaming alive.
+          const res = (await originalTool.execute(ctx.toolCallId ?? ctx.runId, input, ctx.signal, ctx.onUpdate)) as any;
           return {
             ok: !res.error,
             content: res.content,
@@ -354,7 +381,7 @@ export function createMomTools(options: {
     return {
       ...originalTool,
       execute: async (toolCallId, params, signal, onUpdate) => {
-        const toolCtx = buildExecutionContext(signal);
+        const toolCtx = buildExecutionContext(signal, toolCallId, onUpdate);
         const result = await toolRuntime.executeToolCall({
           toolId: originalTool.name,
           input: params,
@@ -380,7 +407,7 @@ export function createMomTools(options: {
       description: def.description,
       parameters: def.inputSchema as any,
       execute: async (toolCallId, params, signal, onUpdate) => {
-        const toolCtx = buildExecutionContext(signal);
+        const toolCtx = buildExecutionContext(signal, toolCallId, onUpdate);
         const result = await toolRuntime.executeToolCall({
           toolId: def.id,
           input: params,
@@ -403,15 +430,17 @@ export function createMomTools(options: {
   const readToolDef = getReadToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir });
   registry.register(readToolDef);
 
-  const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir });
+  const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir, outputLayout });
   registry.register(writeToolDef);
 
-  const editToolDef = getEditToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir });
+  const editToolDef = getEditToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, outputLayout });
   registry.register(editToolDef);
 
   const bashToolDef = getBashToolDefinition({
     cwd: options.cwd,
     artifactDir,
+    relocateRootArtifacts: !options.project,
+    toolOutputDir,
     sandbox: {
       settings: sandboxSettings,
       workspaceDir: options.workspaceDir
@@ -562,10 +591,19 @@ export function createMomTools(options: {
   deferredTools = deferredEntries.map((item) => item.entry);
 
   tools = [
-    createMemoryTool({ memory: options.memory, channel: options.channel, chatId: options.chatId }),
+    createMemoryTool({
+      memory: options.memory,
+      scope: {
+        channel: options.channel,
+        externalUserId: options.chatId,
+        botId,
+        projectId: options.project?.id
+      }
+    }),
     createSkillSearchTool({
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
+      projectRoot: options.project?.rootPath,
       getSettings: options.getSettings
     }),
     createToolSearchTool({

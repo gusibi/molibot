@@ -4,8 +4,6 @@
 
   export let activities: DesktopConversationActivity[];
   export let copy: Translation;
-  export let live = false;
-
   $: hasRunning = activities.some((activity) => activity.state === "running");
   $: hasError = activities.some((activity) => activity.state === "error");
 
@@ -17,7 +15,7 @@
   }
 </script>
 
-<details class="run-activity" open={live || hasRunning || hasError}>
+<details class="run-activity">
   <summary class="run-activity-head">
     <i class={`ph${hasRunning ? "" : "-fill"} ph-${hasRunning ? "circle-notch" : hasError ? "warning-circle" : "check-circle"}`} class:spin={hasRunning} aria-hidden="true"></i>
     <span>{hasRunning ? copy.runProgress : hasError ? copy.runFailed : copy.runCompleted}</span>

@@ -34,3 +34,13 @@ export function setError(cause: unknown): void {
 export function clearError(): void {
   session.error = "";
 }
+
+export function notifySettingsChanged(): void {
+  try {
+    const channel = new BroadcastChannel("molibot-settings-channel");
+    channel.postMessage({ type: "refresh-models" });
+    channel.close();
+  } catch (e) {
+    console.error("Failed to notify settings changed:", e);
+  }
+}

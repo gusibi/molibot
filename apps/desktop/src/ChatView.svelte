@@ -5,9 +5,9 @@
     DesktopAgentItem,
     DesktopChannelsSummary,
     DesktopApprovalDecision,
-    DesktopApprovalPrompt,
+    DesktopConversationChannel,
+    DesktopConversationItem,
     DesktopConversationMessage,
-    DesktopExternalSessionsSummary,
     DesktopExternalTranscript,
     DesktopMessageAttachment,
     DesktopModelOption,
@@ -16,56 +16,43 @@
     DesktopProviderModel,
     DesktopProviderModelTag,
     DesktopSessionFile,
-    DesktopSessionSummary,
     DesktopThinkingLevel,
     DesktopWebProfile
   } from "@molibot/desktop-contract";
   import type { Translation } from "./lib/i18n";
   import {
-    addToFollowUpQueue,
     buildOnboardingHealthCheck,
     classifyFirstLaunch,
-    createDesktopProvider,
     createDesktopSession,
-    deleteDesktopSession,
+    createDesktopProvider,
     fetchDesktopFileBlob,
+    deleteDesktopConversation,
     filterDesktopFiles,
-    filterSessionsByTitle,
     findTranscriptMatches,
-    buildExternalChannelNav,
-    externalSessionsForBot,
-    groupExternalSessionsForView,
+    listDesktopConversations,
+    renameDesktopConversation,
     listDesktopSessionFiles,
-    listDesktopSessions,
     loadDesktopAgents,
+    loadDesktopAgentFiles,
     loadDesktopBootstrap,
     loadDesktopChannels,
-    loadDesktopExternalSessions,
     loadDesktopExternalTranscript,
     loadDesktopModels,
     loadDesktopRuntimeEnv,
     loadDesktopSession,
     loadDesktopWebProfiles,
-    nextFollowUp,
     ONBOARDING_STEPS,
-    parseDesktopActivity,
-    reduceDesktopActivities,
-    parseDesktopApproval,
     patchDesktopWebProfile,
-    renameDesktopSession,
     resolveOnboardingAgentSelection,
     resolveOnboardingRepairTarget,
     resolveOnboardingStartStep,
-    resolveDesktopHostBash,
-    sendDesktopChatWithFiles,
-    stopDesktopChat,
+    saveDesktopAgentFiles,
     summarizeDesktopReadiness,
     summarizeOnboardingChannels,
     summarizeOnboardingDiagnostics,
     switchDesktopModel,
-    streamDesktopChat,
     testDesktopProvider,
-    type DesktopActivityEntry,
+    truncateDesktopMessages,
     type OnboardingChannelsView,
     type OnboardingDiagnostics,
     type DesktopFileFilter,
@@ -73,15 +60,28 @@
     type OnboardingStep,
     type OnboardingRepairTarget,
     type ProviderDraft,
-    type ChannelNavBot,
     validateProviderDraft
   } from "./lib/api";
-  import { renderMarkdown } from "./lib/markdown";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
-  import type { TranscriptAttachmentActions } from "./lib/chat/transcript";
-  import RunActivity from "./lib/chat/RunActivity.svelte";
-  import { shouldReuseFreshSession, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
+  import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./lib/chat/transcript";
+  import ApprovalCard from "./lib/chat/ApprovalCard.svelte";
+  import ChatInputArea from "./lib/chat/ChatInputArea.svelte";
+  import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
+  import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
+  import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
+  import ProjectFilePanel from "./lib/projects/ProjectFilePanel.svelte";
+  import { projectsStore } from "./lib/stores/projects.svelte";
+  import WindowDragMask from "./lib/WindowDragMask.svelte";
+  import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
+  import ConversationBrowserDialog from "./lib/chat/ConversationBrowserDialog.svelte";
+  import BotMention from "./lib/chat/BotMention.svelte";
+  import { ChatSessionStore } from "./lib/chat/chatSessionStore.svelte";
+  import { projectChatStore } from "./lib/projects/projectChatStore.svelte";
+  import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
+  import { stickToBottom } from "./lib/chat/stickToBottom";
+  import { openWorkspacePaneState, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
+  import { humanizeModelOption } from "./lib/presentation";
 
   export let copy: Translation;
   export let serviceEndpoint: string | null;
@@ -90,46 +90,81 @@
   export let launchAtLoginBusy: boolean;
   export let setLaunchAtLogin: (enabled: boolean) => Promise<boolean>;
   export let openSettings: (section?: string) => void;
-
-  type UiMessage = DesktopConversationMessage & { thinking?: string };
+  export let requestedWorkspacePane: ChatWorkspacePaneName = "chat";
 
   const PROFILE_STORAGE_KEY = "molibot-desktop-profile";
-  const SESSION_STORAGE_KEY = "molibot-desktop-last-sessions";
+  const LAST_BOT_KEY = "molibot-desktop-last-bot";
+  const LAST_SESSION_KEY = "molibot-desktop-last-session";
   const FIRST_LAUNCH_SEEN_KEY = "molibot-desktop-first-launch-seen";
+  const PERSONALIZATION_MARKER_START = "<!-- molibot:onboarding-personalization:start -->";
+  const PERSONALIZATION_MARKER_END = "<!-- molibot:onboarding-personalization:end -->";
+
+  // The per-session runtime registry + active-session bridge (plan §4/§5). The
+  // registry owns a pinned ConversationController per session so background turns
+  // keep streaming into their own state; this store projects the active entry's
+  // live turn state through the `state` store so the legacy `$:` template stays
+  // reactive (memory: legacy `$:` can't track runes `$state` directly).
+  const chatStore = new ChatSessionStore();
 
   let profiles: DesktopProfileSummary[] = [];
-  let sessions: DesktopSessionSummary[] = [];
-  let messages: UiMessage[] = [];
-  let activeProfileId = "";
-  let activeSessionId = "";
-  let connectedEndpoint = "";
-  let loading = false;
-  let sending = false;
-  let error = "";
-  let activity = "";
-  let messageInput = "";
-  let pendingFiles: File[] = [];
-  let queuedMessages: string[] = [];
-  let fileInput: HTMLInputElement;
-  let streamingText = "";
-  let streamingThinking = "";
-  let activityEntries: DesktopActivityEntry[] = [];
-  let pendingApproval: DesktopApprovalPrompt | null = null;
-  let thinkingLevel: DesktopThinkingLevel = "medium";
   let modelOptions: DesktopModelOption[] = [];
   let activeModelKey = "";
   let changingModel = false;
-  let messagesElement: HTMLDivElement;
-  let sendAbortController: AbortController | null = null;
+  let connectedEndpoint = "";
+  let connectionReady = false;
+  let loading = false;
+  let error = "";
   let connectionGeneration = 0;
+
+  // Composer state (bound to the textarea). Per-session drafts are persisted in
+  // the SessionDraftStore; these locals are mirrored into/out of it on session
+  // switch (plan §10.1).
+  let messageInput = "";
+  let pendingFiles: File[] = [];
+  let fileInput: HTMLInputElement;
+  let thinkingLevel: DesktopThinkingLevel = "medium";
+
+  // Edit-and-resend state. `editingMessageId` is set when the user clicked the
+  // pencil on one of their own messages; the composer then shows an "editing"
+  // banner and `sendMessage` truncates the server transcript at that message
+  // before re-running the turn so the history stays coherent.
+  let editingMessageId = "";
   let editingSessionId = "";
-  let editingSessionTitle = "";
-  let deleteConfirmId = "";
-  let sessionFilterQuery = "";
+  let copiedMessageId = "";
+  let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Sidebar expansion is separate from selection. Every group may be open and
+  // the preference survives restarts.
+  const SIDEBAR_TREE_KEY = "molibot-desktop-sidebar-tree-v2";
+  let conversationsExpanded = true;
+  let projectsExpanded = true;
+  let expandedChannels: Record<DesktopConversationChannel, boolean> = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
+  let channelItems: Record<string, DesktopConversationItem[]> = {};
+  let channelHasMore: Record<string, boolean> = {};
+  let channelLoading: Record<string, boolean> = {};
+  let browserChannel: DesktopConversationChannel = "web";
+  let browserOpen = false;
+  let channelSummary: DesktopChannelsSummary | null = null;
+
+  // Read-only external transcript view (plan §3.3): opened from an external
+  // channel's session row; never goes through the registry.
+  let externalTranscript: DesktopExternalTranscript | null = null;
+  let externalTranscriptLoading = false;
+  let externalTranscriptError = "";
+  let activeExternalSessionId = "";
+  let activeExternalTitle = "";
+  let activeExternalChannel = "";
+  let activeExternalBotName = "";
+  let viewMode: "local" | "external" = "local";
+  let projectPaneActive = false;
+  let activeProjectSessionId = "";
+  let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
+  let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
+
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_MIN = 220;
   const SIDEBAR_MAX = 420;
-  let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || 280);
+  let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || 260);
   let resizingSidebar = false;
   function clampSidebarWidth(value: number): number {
     return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(value)));
@@ -140,6 +175,8 @@
     resizingSidebar = true;
     window.addEventListener("mousemove", onSidebarResize);
     window.addEventListener("mouseup", stopSidebarResize);
+    window.addEventListener("blur", stopSidebarResize);
+    document.addEventListener("mouseleave", stopSidebarResize);
   }
   function onSidebarResize(event: MouseEvent): void {
     if (!resizingSidebar) return;
@@ -150,6 +187,8 @@
     resizingSidebar = false;
     window.removeEventListener("mousemove", onSidebarResize);
     window.removeEventListener("mouseup", stopSidebarResize);
+    window.removeEventListener("blur", stopSidebarResize);
+    document.removeEventListener("mouseleave", stopSidebarResize);
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
   }
   function onSidebarKeydown(event: KeyboardEvent): void {
@@ -161,31 +200,23 @@
     sidebarWidth = clampSidebarWidth(next);
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
   }
+
   let searchOpen = false;
+  let commandOpen = false;
+  let commandElement: HTMLElement | null = null;
+  let commandReturnFocus: HTMLElement | null = null;
   let searchQuery = "";
   let searchIndex = 0;
+  let searchInputElement: HTMLInputElement;
+  let messagesElement: HTMLDivElement;
   let sessionFiles: DesktopSessionFile[] = [];
   let fileFilter: DesktopFileFilter = "all";
   let filesLoading = false;
   let filePanelOpen = false;
   let previewFile: DesktopSessionFile | null = null;
   let previewUrl = "";
-  let viewMode: "local" | "external" = "local";
-  let workspacePane: ChatWorkspacePaneName = "chat";
-  // Sidebar navigation: a horizontal channel switcher picks the active channel;
-  // its Bots list below, and the active Bot expands to show its sessions. `web`
-  // is the local channel whose "Bots" are Web Profiles (editable sessions); the
-  // external channels list configured Bot instances (read-only sessions).
-  let activeChannel = "web";
-  let activeBotKey = "";
-  let channelSummary: DesktopChannelsSummary | null = null;
-  let externalSessions: DesktopExternalSessionsSummary | null = null;
-  let externalLoading = false;
-  let externalError = "";
-  let externalTranscript: DesktopExternalTranscript | null = null;
-  let externalTranscriptLoading = false;
-  let externalTranscriptError = "";
-  let activeExternalSessionId = "";
+  let copiedPath = "";
+
   let onboardingDismissed = localStorage.getItem(FIRST_LAUNCH_SEEN_KEY) === "1";
   let onboardingMode: FirstLaunchClassification = "new";
   let onboardingRepairTarget: OnboardingRepairTarget | null = null;
@@ -213,6 +244,11 @@
   let onboardingAgentSaving = false;
   let onboardingAgentSaved = false;
   let onboardingAgentError = "";
+  let onboardingUserName = "";
+  let onboardingAiStyle: "concise" | "patient" | "rigorous" | "natural" = "concise";
+  let onboardingPersonalizationSaving = false;
+  let onboardingPersonalizationSaved = false;
+  let onboardingPersonalizationError = "";
   let onboardingLaunchError = "";
   let onboardingChannels: OnboardingChannelsView = { rows: [], connectedCount: 0 };
   let onboardingDiagnostics: OnboardingDiagnostics = {
@@ -240,6 +276,7 @@
   $: onboardingStepLabels = {
     provider: copy.onboardingStepProvider,
     agent: copy.onboardingStepAgent,
+    personalization: copy.onboardingStepPersonalization,
     channels: copy.onboardingStepChannels,
     launch: copy.onboardingStepLaunch,
     diagnostics: copy.onboardingStepDiagnostics
@@ -271,73 +308,69 @@
     profileMissing: copy.healthCheckProfileMissing
   });
 
-  $: activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
-  $: activeProfileName = profiles.find((profile) => profile.id === activeProfileId)?.name ?? copy.appName;
-  $: activeProfileInitial = (activeProfileName.trim().charAt(0) || "M").toUpperCase();
-  $: filteredFiles = filterDesktopFiles(sessionFiles, fileFilter);
-  $: fileByLocal = new Map(sessionFiles.map((file) => [file.local, file]));
+  // Active-session live state, bridged through the store (plan §5). One store
+  // subscription; downstream `$:` re-derive the fields the template needs.
+  const stateStore = chatStore.state;
+  $: chatState = $stateStore;
+  $: sending = chatState.sending;
+  $: messages = chatState.messages;
+  $: streamingText = chatState.streamingText;
+  $: streamingThinking = chatState.streamingThinking;
+  $: activity = chatState.activity;
+  $: activityEntries = chatState.activities;
+  $: pendingApproval = chatState.pendingApproval;
+  $: queuedMessages = chatState.queue;
+  $: chatError = chatState.error;
+  $: activeSessionId = chatState.activeSessionId;
+  $: activeProfileId = chatState.activeProfileId;
+  $: draftMode = chatState.draftMode;
+  $: draftProfileId = chatState.draftProfileId;
+  $: statusDots = chatState.statusDots;
+
   $: modelReady = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions }).hasModel;
   $: readinessSummary = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions });
   $: showOnboarding = serviceState === "ready" && !onboardingDismissed;
-  $: visibleSessions = filterSessionsByTitle(sessions, sessionFilterQuery);
-  const CHANNEL_COLORS: Record<string, string> = {
-    web: "#5E5CE6", wechat: "#07c160", telegram: "#0A84FF", discord: "#5865F2",
-    slack: "#E01E5A", whatsapp: "#25D366", messenger: "#0084FF",
-    lark: "#00D6B9", feishu: "#00D6B9", dingtalk: "#1677FF",
-    qq: "#12B7F5", weixin: "#07c160", mail: "#FF9500", email: "#FF9500"
-  };
-  const CHANNEL_ICONS: Record<string, string> = {
-    web: "globe", wechat: "wechat-logo", telegram: "telegram-logo", discord: "discord-logo",
-    slack: "slack-logo", whatsapp: "whatsapp-logo", messenger: "messenger-logo",
-    lark: "lark-logo", feishu: "lark-logo", qq: "qq-logo", weixin: "wechat-logo",
-    mail: "envelope", email: "envelope"
-  };
-  function channelColor(channel: string): string {
-    const key = channel.toLowerCase();
-    if (CHANNEL_COLORS[key]) return CHANNEL_COLORS[key];
-    let h = 0;
-    for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) | 0;
-    const palette = ["#006bff", "#a000f8", "#f22782", "#ffae00", "#28a948", "#00ac96", "#8500d1", "#e4106e"];
-    return palette[Math.abs(h) % palette.length];
+  $: filteredFiles = filterDesktopFiles(sessionFiles, fileFilter);
+  $: fileByLocal = new Map(sessionFiles.map((file) => [file.local, file]));
+  $: botOptions = profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.agentName || copy.agentStudioGlobalName,
+    subtitle: profile.name
+  }));
+  $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
+  // The pill only shows the bare model name (last "/"-segment); the provider
+  // prefix like "[Custom] CliProxyAPI /" is kept for the dropdown + tooltip.
+  $: activeModelLabel = humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model;
+  $: thinkingLabel = {
+    off: copy.thinkingOff,
+    low: copy.thinkingLow,
+    medium: copy.thinkingMedium,
+    high: copy.thinkingHigh
+  }[thinkingLevel];
+  $: if (requestedWorkspacePane !== appliedRequestedWorkspacePane) {
+    appliedRequestedWorkspacePane = requestedWorkspacePane;
+    workspacePane = requestedWorkspacePane;
   }
-  function channelIcon(channel: string): string {
-    return CHANNEL_ICONS[channel.toLowerCase()] ?? "chat-circle-dots";
-  }
-  $: externalViews = externalSessions ? groupExternalSessionsForView(externalSessions) : [];
-  $: externalNav = buildExternalChannelNav(channelSummary, externalSessions);
-  // Horizontal channel switcher: the local "web" channel first, then the
-  // external channels that have configured Bots or recorded sessions.
-  $: channelTabs = ["web", ...externalNav.map((group) => group.channel)];
-  // Bots listed under the selected channel. Web Bots are Web Profiles (session
-  // count known only for the loaded profile); external Bots come from the nav.
-  $: activeChannelBots = activeChannel === "web"
-    ? profiles.map((profile) => ({
-        key: profile.id,
-        channel: "web",
-        instanceId: profile.id,
-        name: profile.name,
-        count: (profile.id === activeProfileId ? sessions.length : null) as number | null,
-        kind: "web" as const
-      }))
-    : (externalNav.find((group) => group.channel === activeChannel)?.bots ?? []).map((bot) => ({
-        ...bot,
-        count: bot.count as number | null,
-        kind: "external" as const
-      }));
-  type SidebarBot = (typeof activeChannelBots)[number];
-  $: activeExternalBot = activeChannel === "web"
-    ? null
-    : externalNav.flatMap((group) => group.bots).find((bot) => bot.key === activeBotKey) ?? null;
-  // Sessions for the expanded (active) Bot — editable web list or read-only
-  // external list, depending on the active channel.
-  $: activeBotSessions = activeExternalBot
-    ? externalSessionsForBot(externalViews, activeExternalBot.channel, activeExternalBot.instanceId)
-    : [];
-  $: activeExternalSession = activeExternalSessionId
-    ? externalViews.find((view) => view.id === activeExternalSessionId) ?? null
-    : null;
+  $: activeBotName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.name ?? copy.bot;
+  $: activeAgentName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.agentName || copy.agentStudioGlobalName;
+  $: activeHeaderBotName = viewMode === "external" ? (activeExternalBotName || copy.bot) : activeBotName;
+  $: activeHeaderAvatar = activeHeaderBotName.trim().charAt(0).toUpperCase() || "M";
+  $: activeSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeSessionId);
+  $: activeExternalSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeExternalSessionId);
+  $: activeSessionTitle = activeSessionItem
+    ? `${sidebarChannels.find((channel) => channel.id === activeSessionItem?.channel)?.name ?? activeSessionItem.channel} / ${activeSessionItem.title}`
+    : copy.chat;
+  $: activeExternalTitleWithSource = activeExternalSessionId
+    ? `${sidebarChannels.find((channel) => channel.id === activeExternalChannel)?.name ?? activeExternalChannel} / ${activeExternalTitle}`
+    : copy.chat;
+  $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
+  $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
   $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "");
   $: activeMatchId = searchMatchIds[Math.min(searchIndex, Math.max(searchMatchIds.length - 1, 0))] ?? "";
+  $: approvalOptions = pendingApproval?.options.map((option) => ({
+    id: option.id,
+    label: approvalOptionLabel(option)
+  })) ?? [];
   $: if (
     serviceState === "ready" &&
     serviceEndpoint &&
@@ -348,6 +381,8 @@
   $: if (serviceState !== "ready" && connectedEndpoint) {
     connectionGeneration += 1;
     connectedEndpoint = "";
+    connectionReady = false;
+    stopReconnectPoll();
     profiles = [];
     onboardingProfiles = [];
     onboardingAgents = [];
@@ -357,6 +392,11 @@
     onboardingAgentId = "";
     onboardingAgentSaved = false;
     onboardingAgentError = "";
+    onboardingUserName = "";
+    onboardingAiStyle = "concise";
+    onboardingPersonalizationSaving = false;
+    onboardingPersonalizationSaved = false;
+    onboardingPersonalizationError = "";
     onboardingLaunchError = "";
     onboardingLaunchTouched = false;
     onboardingLaunchChanging = false;
@@ -364,43 +404,128 @@
     onboardingMode = "new";
     onboardingRepairTarget = null;
     onboardingStep = "provider";
-    sessions = [];
-    messages = [];
-    activeSessionId = "";
+    channelItems = {};
+    channelHasMore = {};
+    channelLoading = {};
+    expandedChannels = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
+    projectPaneActive = false;
+    activeProjectSessionId = "";
+    activeExternalSessionId = "";
+    activeExternalTitle = "";
+    activeExternalChannel = "";
+    activeExternalBotName = "";
+    viewMode = "local";
+    externalTranscript = null;
     sessionFiles = [];
-    pendingApproval = null;
-    queuedMessages = [];
-    channelSummary = null;
-    externalSessions = null;
-    activeChannel = "web";
-    activeBotKey = "";
+    chatStore.disposeAll();
+    projectChatStore.disposeAll();
     closePreview();
   }
 
-  function lastSessions(): Record<string, string> {
-    try {
-      return JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) ?? "{}") as Record<string, string>;
-    } catch {
-      return {};
-    }
+  function buildSidebarChannels(profilesList: DesktopProfileSummary[], summary: DesktopChannelsSummary | null): ChannelDescriptor[] {
+    const enabled = (channel: string): number => summary?.groups.find((group) => group.channel === channel)?.enabled ?? 0;
+    return [
+      { id: "web", icon: "globe", name: copy.channelWeb, configured: profilesList.length > 0 },
+      { id: "telegram", icon: "telegram-logo", name: "Telegram", configured: enabled("telegram") > 0 },
+      { id: "feishu", icon: "bird", name: copy.channelFeishu, configured: enabled("feishu") > 0 },
+      { id: "qq", icon: "linux-logo", name: "QQ", configured: enabled("qq") > 0 },
+      { id: "weixin", icon: "wechat-logo", name: copy.channelWeixin, configured: enabled("weixin") > 0 }
+    ];
   }
 
-  function rememberSession(profileId: string, sessionId: string): void {
+  function conversationLabels(): ConversationLabels {
+    return {
+      working: copy.working,
+      uploading: copy.uploading,
+      stopped: copy.stopped,
+      idle: copy.idle,
+      resuming: copy.resuming
+    };
+  }
+
+  async function loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[]> {
+    const detail = await loadDesktopSession(connectedEndpoint, profileId, sessionId);
+    return detail.messages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .map((message) => ({ ...message }));
+  }
+
+  function defaultBot(): string {
+    const last = localStorage.getItem(LAST_BOT_KEY) ?? "";
+    if (last && profiles.some((profile) => profile.id === last)) return last;
+    return profiles[0]?.id ?? "";
+  }
+
+  function persistSelected(profileId: string, sessionId: string): void {
     if (!profileId || !sessionId) return;
-    localStorage.setItem(
-      SESSION_STORAGE_KEY,
-      JSON.stringify({ ...lastSessions(), [profileId]: sessionId })
-    );
+    localStorage.setItem(LAST_SESSION_KEY, `${profileId}:${sessionId}`);
+  }
+  function restoreSelected(): { profileId: string; sessionId: string } | null {
+    const saved = localStorage.getItem(LAST_SESSION_KEY) ?? "";
+    const [profileId, sessionId] = saved.split(":");
+    if (!profileId || !sessionId) return null;
+    return { profileId, sessionId };
   }
 
-  async function scrollToBottom(): Promise<void> {
-    await tick();
-    messagesElement?.scrollTo({ top: messagesElement.scrollHeight, behavior: "auto" });
+  // Mirror the composer locals into the draft store for the outgoing session,
+  // then load the incoming session's draft back into the locals (plan §10.1).
+  function syncDraftOut(): void {
+    const key = chatStore.currentDraftKey();
+    chatStore.draftStore.setText(key, messageInput);
+    chatStore.draftStore.setFiles(key, pendingFiles);
+    chatStore.draftStore.setThinking(key, thinkingLevel);
+  }
+  function loadDraftIn(): void {
+    const draft = chatStore.draftStore.get(chatStore.currentDraftKey());
+    messageInput = draft.text;
+    pendingFiles = draft.files;
+    thinkingLevel = draft.thinkingLevel;
+  }
+  const settingsChannel = new BroadcastChannel("molibot-settings-channel");
+  settingsChannel.onmessage = (event) => {
+    if (event.data?.type === "refresh-models") {
+      void refreshModelsAndProfiles();
+    }
+  };
+
+  async function refreshModelsAndProfiles(): Promise<void> {
+    if (!connectedEndpoint || loading) return;
+    try {
+      const [nextProfiles, modelState, nextWebProfiles, nextAgents, nextChannels, nextRuntimeEnv] = await Promise.all([
+        loadDesktopBootstrap(connectedEndpoint),
+        loadDesktopModels(connectedEndpoint),
+        loadDesktopWebProfiles(connectedEndpoint),
+        loadDesktopAgents(connectedEndpoint).catch(() => null),
+        loadDesktopChannels(connectedEndpoint).catch(() => null),
+        loadDesktopRuntimeEnv(connectedEndpoint).catch(() => null)
+      ]);
+      
+      profiles = nextProfiles;
+      modelOptions = modelState.options;
+      activeModelKey = modelState.currentKey;
+      onboardingProfiles = nextWebProfiles;
+      if (nextAgents) onboardingAgents = nextAgents.items;
+      if (nextChannels) {
+        channelSummary = nextChannels;
+        onboardingChannels = summarizeOnboardingChannels(nextChannels);
+      }
+      if (nextRuntimeEnv) {
+        onboardingDiagnostics = summarizeOnboardingDiagnostics(nextRuntimeEnv, true);
+      }
+      
+      const nextReadiness = summarizeDesktopReadiness(nextProfiles, modelState);
+      onboardingMode = classifyFirstLaunch(nextReadiness);
+      onboardingRepairTarget = resolveOnboardingRepairTarget(nextReadiness);
+      onboardingStep = resolveOnboardingStartStep(nextReadiness);
+    } catch (e) {
+      console.error("Failed to refresh models and profiles:", e);
+    }
   }
 
   async function connect(endpoint: string): Promise<void> {
     const generation = ++connectionGeneration;
     connectedEndpoint = endpoint;
+    connectionReady = false;
     loading = true;
     error = "";
     try {
@@ -436,12 +561,28 @@
       onboardingMode = classifyFirstLaunch(nextReadiness);
       onboardingRepairTarget = resolveOnboardingRepairTarget(nextReadiness);
       onboardingStep = resolveOnboardingStartStep(nextReadiness);
-      activeProfileId = profiles.some((profile) => profile.id === rememberedProfile)
-        ? rememberedProfile
-        : profiles[0]?.id ?? "";
-      if (activeProfileId) await loadProfile(activeProfileId, generation);
+
+      chatStore.init({
+        endpoint: () => connectedEndpoint,
+        modelReady: () => modelReady,
+        labels: () => conversationLabels(),
+        loadTranscript,
+        refreshSidebar: () => loadChannel("web"),
+        onSessionCreated: (profileId, sessionId) => {
+          localStorage.setItem(LAST_BOT_KEY, profileId);
+          void loadChannel("web");
+          void refreshFiles(profileId, sessionId);
+        }
+      });
+
+      connectionReady = true;
+      loading = false;
+      void selectDefaultSession(generation);
+      void chatStore.reconnect();
+      startReconnectPoll();
     } catch (cause) {
       if (generation === connectionGeneration) {
+        connectionReady = false;
         error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
@@ -449,200 +590,169 @@
     }
   }
 
-  async function loadProfile(profileId: string, generation = connectionGeneration): Promise<void> {
-    if (!connectedEndpoint || !profileId) return;
-    activeProfileId = profileId;
-    activeChannel = "web";
-    localStorage.setItem(PROFILE_STORAGE_KEY, profileId);
-    sessions = await listDesktopSessions(connectedEndpoint, profileId);
-    if (generation !== connectionGeneration) return;
-
-    if (sessions.length === 0) {
-      const created = await createDesktopSession(connectedEndpoint, profileId);
-      sessions = [created];
-    }
-    const remembered = lastSessions()[profileId];
-    const nextSessionId = sessions.some((session) => session.id === remembered)
-      ? remembered
-      : sessions[0].id;
-    await selectSession(nextSessionId, generation);
-    void loadExternalSessions();
+  function restoreSidebarTree(): void {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SIDEBAR_TREE_KEY) || "{}");
+      conversationsExpanded = saved.conversationsExpanded !== false;
+      projectsExpanded = saved.projectsExpanded !== false;
+      if (saved.expandedChannels && typeof saved.expandedChannels === "object") {
+        expandedChannels = { ...expandedChannels, ...saved.expandedChannels };
+      }
+    } catch { /* defaults are intentional */ }
   }
 
-  async function changeProfile(event: Event): Promise<void> {
-    if (sending) return;
-    const generation = ++connectionGeneration;
-    loading = true;
-    error = "";
+  function persistSidebarTree(): void {
+    localStorage.setItem(SIDEBAR_TREE_KEY, JSON.stringify({ conversationsExpanded, projectsExpanded, expandedChannels }));
+  }
+
+  async function selectDefaultSession(generation = connectionGeneration): Promise<void> {
+    restoreSidebarTree();
+    await Promise.all((Object.entries(expandedChannels) as Array<[DesktopConversationChannel, boolean]>).filter(([, open]) => open).map(([channel]) => loadChannel(channel)));
+    if (generation !== connectionGeneration) return;
+    const webItems = channelItems.web ?? [];
+    const last = restoreSelected();
+    const lastItem = last
+      ? webItems.find((item) => item.sessionId === last.sessionId && item.botId === last.profileId)
+      : null;
+    const target = lastItem ?? webItems[0] ?? null;
+    if (target) {
+      chatStore.selectSession(target.botId, target.sessionId);
+      loadDraftIn();
+      void refreshFiles(target.botId, target.sessionId);
+    } else chatStore.clearSelection();
+  }
+
+  async function loadChannel(channel: DesktopConversationChannel): Promise<void> {
+    if (!connectedEndpoint) return;
+    channelLoading = { ...channelLoading, [channel]: true };
     try {
-      await loadProfile((event.currentTarget as HTMLSelectElement).value, generation);
+      const res = await listDesktopConversations(connectedEndpoint, { channel, limit: 10 });
+      channelItems = { ...channelItems, [channel]: res.items };
+      channelHasMore = { ...channelHasMore, [channel]: Boolean(res.hasMore) || res.items.length >= 10 };
+    } catch {
+      channelItems = { ...channelItems, [channel]: [] };
+      channelHasMore = { ...channelHasMore, [channel]: false };
+    } finally {
+      channelLoading = { ...channelLoading, [channel]: false };
+    }
+  }
+
+  function toggleChannel(channel: DesktopConversationChannel): void {
+    const open = !expandedChannels[channel];
+    expandedChannels = { ...expandedChannels, [channel]: open };
+    persistSidebarTree();
+    if (open) void loadChannel(channel);
+  }
+
+  function toggleConversations(): void {
+    conversationsExpanded = !conversationsExpanded;
+    persistSidebarTree();
+  }
+
+  function toggleProjects(): void {
+    projectsExpanded = !projectsExpanded;
+    persistSidebarTree();
+  }
+
+  async function newConversation(): Promise<void> {
+    if (!connectedEndpoint) return;
+    workspacePane = "chat";
+    viewMode = "local";
+    projectPaneActive = false;
+    closeExternalTranscript();
+    try {
+      const created = await createDesktopSession(connectedEndpoint, defaultBot());
+      conversationsExpanded = true;
+      expandedChannels = { ...expandedChannels, web: true };
+      persistSidebarTree();
+      await loadChannel("web");
+      syncDraftOut();
+      chatStore.selectSession(defaultBot(), created.id);
+      loadDraftIn();
+      persistSelected(defaultBot(), created.id);
+      void refreshFiles(defaultBot(), created.id);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      loading = false;
     }
   }
 
-  async function refreshSessions(): Promise<void> {
-    if (!connectedEndpoint || !activeProfileId) return;
-    sessions = await listDesktopSessions(connectedEndpoint, activeProfileId);
-  }
-
-  async function selectSession(sessionId: string, generation = connectionGeneration): Promise<void> {
-    if (!connectedEndpoint || !activeProfileId || !sessionId) return;
-    workspacePane = "chat";
-    // Selecting a local session leaves the read-only external transcript view.
-    if (viewMode !== "local") {
-      viewMode = "local";
-      closeExternalTranscript();
-    }
-    // A same-session reload (after a streamed turn) keeps the queue and search;
-    // only an actual session switch resets per-session UI state.
-    const switching = sessionId !== activeSessionId;
-    activeSessionId = sessionId;
-    rememberSession(activeProfileId, sessionId);
-    const detail = await loadDesktopSession(connectedEndpoint, activeProfileId, sessionId);
-    if (generation !== connectionGeneration || sessionId !== activeSessionId) return;
-    messages = detail.messages
-      .filter((message) => message.role === "user" || message.role === "assistant")
-      .map((message) => ({ ...message }));
-    streamingText = "";
-    streamingThinking = "";
-    activityEntries = [];
-    pendingApproval = null;
-    if (switching) {
-      queuedMessages = [];
-      searchQuery = "";
-      searchIndex = 0;
-    }
-    await scrollToBottom();
-    void refreshFiles(sessionId, generation);
-  }
-
-  async function scrollToMatch(): Promise<void> {
-    await tick();
-    if (!activeMatchId) return;
-    const target = messagesElement?.querySelector(`[data-message-id="${activeMatchId}"]`);
-    target?.scrollIntoView({ block: "center", behavior: "auto" });
-  }
-
-  function onSearchInput(): void {
-    searchIndex = 0;
-    void scrollToMatch();
-  }
-
-  function gotoMatch(delta: number): void {
-    if (searchMatchIds.length === 0) return;
-    searchIndex = (searchIndex + delta + searchMatchIds.length) % searchMatchIds.length;
-    void scrollToMatch();
-  }
-
-  function toggleSearch(): void {
-    searchOpen = !searchOpen;
-    if (!searchOpen) {
-      searchQuery = "";
-      searchIndex = 0;
-    }
-  }
-
-  async function loadExternalSessions(): Promise<void> {
-    if (!connectedEndpoint) {
-      externalSessions = null;
+  function openSession(item: DesktopConversationItem): void {
+    browserOpen = false;
+    expandedChannels = { ...expandedChannels, [item.channel]: true };
+    persistSidebarTree();
+    if (item.readOnly) {
+      projectPaneActive = false;
+      void openExternalTranscript(item.sessionId, item.channel, item.title, item.botName);
+      void refreshFiles(item.botId, item.sessionId);
       return;
     }
-    externalLoading = true;
-    externalError = "";
+    workspacePane = "chat";
+    viewMode = "local";
+    projectPaneActive = false;
+    closeExternalTranscript();
+    syncDraftOut();
+    chatStore.selectSession(item.botId, item.sessionId);
+    loadDraftIn();
+    persistSelected(item.botId, item.sessionId);
+    void refreshFiles(item.botId, item.sessionId);
+  }
+
+  async function renameSession(item: DesktopConversationItem, title: string): Promise<void> {
+    if (!connectedEndpoint || item.readOnly) return;
+    const trimmed = title.trim();
+    if (!trimmed || trimmed === item.title) return;
     try {
-      externalSessions = await loadDesktopExternalSessions(connectedEndpoint);
-    } catch (error) {
-      externalSessions = null;
-      externalError = error instanceof Error ? error.message : String(error);
-    } finally {
-      externalLoading = false;
+      const saved = await renameDesktopConversation(connectedEndpoint, item.sessionId, trimmed);
+      // Reflect the sanitized title immediately, then refresh from the server.
+      channelItems = { ...channelItems, [item.channel]: (channelItems[item.channel] ?? []).map((it) =>
+        it.sessionId === item.sessionId ? { ...it, title: saved } : it
+      ) };
+      await loadChannel(item.channel);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
     }
   }
 
-  function switchViewMode(mode: "local" | "external"): void {
-    if (viewMode === mode) return;
-    viewMode = mode;
-    if (mode === "external" && !externalSessions && !externalLoading) {
-      void loadExternalSessions();
-    }
-    if (mode === "local") {
-      closeExternalTranscript();
-    }
-  }
-
-  // Channel-switcher display names. Known channels get a proper brand/localized
-  // name; anything unexpected falls back to a capitalized key.
-  function channelLabel(channel: string): string {
-    switch (channel) {
-      case "web": return copy.channelWeb;
-      case "telegram": return "Telegram";
-      case "qq": return "QQ";
-      case "feishu": return copy.channelFeishu;
-      case "weixin": return copy.channelWeixin;
-      default: return channel.charAt(0).toUpperCase() + channel.slice(1);
+  async function deleteSession(item: DesktopConversationItem): Promise<void> {
+    // Confirmation happens inline in the row menu (native window.confirm is
+    // unreliable in the Tauri webview), so this just performs the delete.
+    if (!connectedEndpoint || item.readOnly) return;
+    try {
+      await deleteDesktopConversation(connectedEndpoint, item.sessionId);
+      chatStore.disposeSession(item.botId, item.sessionId);
+      const remaining = (channelItems[item.channel] ?? []).filter((it) => it.sessionId !== item.sessionId);
+      channelItems = { ...channelItems, [item.channel]: remaining };
+      if (viewMode === "local" && item.sessionId === activeSessionId) {
+        if (remaining[0]) openSession(remaining[0]);
+        else chatStore.clearSelection();
+      }
+      await loadChannel(item.channel);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
     }
   }
 
-  // Picking a channel swaps the Bot list below it. Bot groups stay collapsed
-  // until explicitly opened so a long session list never expands by surprise.
-  function selectChannel(channel: string): void {
-    workspacePane = "chat";
-    if (channel === activeChannel) return;
-    if (channel === "web") {
-      activeChannel = "web";
-      activeBotKey = "";
-      switchViewMode("local");
-      return;
-    }
-    activeChannel = channel;
-    if (!externalSessions && !externalLoading) void loadExternalSessions();
-    activeBotKey = "";
-    switchViewMode("external");
-    closeExternalTranscript();
+  function openBrowser(channel: DesktopConversationChannel): void {
+    browserChannel = channel;
+    browserOpen = true;
   }
 
-  // Selecting a Bot expands its session list. A Web Profile loads its editable
-  // local sessions; an external Bot switches to its read-only session list and
-  // clears the open transcript until the user picks one of its sessions.
-  function selectBot(bot: SidebarBot): void {
-    if (bot.kind === "web" && sending) return;
-    if (bot.key === activeBotKey) {
-      activeBotKey = "";
-      return;
-    }
-    activeBotKey = bot.key;
-    if (bot.kind === "web") {
-      if (activeProfileId === bot.instanceId && activeChannel === "web") return;
-      const generation = ++connectionGeneration;
-      loading = true;
-      error = "";
-      void loadProfile(bot.instanceId, generation)
-        .catch((cause) => { error = cause instanceof Error ? cause.message : String(cause); })
-        .finally(() => { loading = false; });
-      return;
-    }
-    activeChannel = bot.channel;
-    activeBotKey = bot.key;
-    switchViewMode("external");
-    closeExternalTranscript();
-  }
-
-  async function openExternalTranscript(sessionId: string): Promise<void> {
+  async function openExternalTranscript(sessionId: string, channel: string, title: string, botName: string): Promise<void> {
     if (!connectedEndpoint || sessionId === activeExternalSessionId) return;
     workspacePane = "chat";
     viewMode = "external";
     activeExternalSessionId = sessionId;
+    activeExternalTitle = title;
+    activeExternalChannel = channel;
+    activeExternalBotName = botName;
     externalTranscript = null;
     externalTranscriptError = "";
     externalTranscriptLoading = true;
     try {
       externalTranscript = await loadDesktopExternalTranscript(connectedEndpoint, sessionId);
-    } catch (error) {
+    } catch (cause) {
       externalTranscript = null;
-      externalTranscriptError = error instanceof Error ? error.message : String(error);
+      externalTranscriptError = cause instanceof Error ? cause.message : String(cause);
     } finally {
       externalTranscriptLoading = false;
     }
@@ -652,6 +762,9 @@
     externalTranscript = null;
     externalTranscriptError = "";
     activeExternalSessionId = "";
+    activeExternalTitle = "";
+    activeExternalChannel = "";
+    activeExternalBotName = "";
   }
 
   function dismissOnboarding(): void {
@@ -720,6 +833,9 @@
       if (!result.ok) throw new Error(result.error ?? "Unknown error");
       providerSubmitted = true;
       providerSubmittedId = result.providerId ?? "";
+      const modelState = await loadDesktopModels(connectedEndpoint, "text");
+      modelOptions = modelState.options;
+      activeModelKey = modelState.currentKey;
     } catch (cause) {
       providerSubmitError = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -751,6 +867,7 @@
   function nextOnboardingStep(): void {
     if (onboardingStep === "provider" && !providerSubmitted) return;
     if (onboardingStep === "agent" && !onboardingAgentSaved) return;
+    if (onboardingStep === "personalization" && !onboardingPersonalizationSaved) return;
     const next = ONBOARDING_STEPS[onboardingStepIndex + 1] ?? null;
     if (next) onboardingStep = next;
   }
@@ -768,12 +885,16 @@
     }
     onboardingAgentSaved = false;
     onboardingAgentError = "";
+    onboardingPersonalizationSaved = false;
+    onboardingPersonalizationError = "";
   }
 
   function changeOnboardingAgent(event: Event): void {
     onboardingAgentId = (event.currentTarget as HTMLSelectElement).value;
     onboardingAgentSaved = false;
     onboardingAgentError = "";
+    onboardingPersonalizationSaved = false;
+    onboardingPersonalizationError = "";
   }
 
   async function confirmOnboardingAgent(): Promise<void> {
@@ -789,15 +910,56 @@
         profile.id === updated.id ? updated : profile
       );
       profiles = await loadDesktopBootstrap(connectedEndpoint);
-      if (!activeProfileId && profiles.some((profile) => profile.id === updated.id)) {
-        await loadProfile(updated.id);
-      }
       onboardingAgentSaved = true;
     } catch (cause) {
       onboardingAgentError = cause instanceof Error ? cause.message : String(cause);
       onboardingAgentSaved = false;
     } finally {
       onboardingAgentSaving = false;
+    }
+  }
+
+  function replacePersonalizationSection(existing: string, body: string): string {
+    const section = `${PERSONALIZATION_MARKER_START}\n${body.trim()}\n${PERSONALIZATION_MARKER_END}`;
+    const pattern = new RegExp(`${PERSONALIZATION_MARKER_START}[\\s\\S]*?${PERSONALIZATION_MARKER_END}`);
+    if (pattern.test(existing)) return existing.replace(pattern, section);
+    const trimmed = existing.trimEnd();
+    return `${trimmed}${trimmed ? "\n\n" : ""}${section}\n`;
+  }
+
+  function onboardingStyleInstruction(): string {
+    if (onboardingAiStyle === "patient") return "Use a patient, explanatory style. Explain assumptions and next steps clearly.";
+    if (onboardingAiStyle === "rigorous") return "Use a rigorous, direct style. Surface tradeoffs, weak assumptions, and verification steps.";
+    if (onboardingAiStyle === "natural") return "Use a natural conversational style. Keep answers warm, clear, and practical.";
+    return "Use a concise, practical style. Lead with the answer and avoid unnecessary detail.";
+  }
+
+  async function saveOnboardingPersonalization(): Promise<void> {
+    if (!connectedEndpoint || !onboardingAgentId || onboardingPersonalizationSaving) return;
+    onboardingPersonalizationSaving = true;
+    onboardingPersonalizationError = "";
+    try {
+      const currentFiles = await loadDesktopAgentFiles(connectedEndpoint, onboardingAgentId);
+      const userLines = [
+        "# User Preferences",
+        "",
+        `Preferred name: ${onboardingUserName.trim() || "Not specified"}`
+      ];
+      const soulLines = [
+        "# Assistant Style",
+        "",
+        onboardingStyleInstruction()
+      ];
+      await saveDesktopAgentFiles(connectedEndpoint, onboardingAgentId, {
+        "USER.md": replacePersonalizationSection(currentFiles["USER.md"] ?? "", userLines.join("\n")),
+        "SOUL.md": replacePersonalizationSection(currentFiles["SOUL.md"] ?? "", soulLines.join("\n"))
+      });
+      onboardingPersonalizationSaved = true;
+    } catch (cause) {
+      onboardingPersonalizationError = cause instanceof Error ? cause.message : String(cause);
+      onboardingPersonalizationSaved = false;
+    } finally {
+      onboardingPersonalizationSaving = false;
     }
   }
 
@@ -816,27 +978,28 @@
     }
   }
 
-  async function refreshFiles(sessionId = activeSessionId, generation = connectionGeneration): Promise<void> {
-    if (!connectedEndpoint || !activeProfileId || !sessionId) {
+  async function refreshFiles(profileId: string, sessionId: string): Promise<void> {
+    if (!connectedEndpoint || !profileId || !sessionId) {
       sessionFiles = [];
       return;
     }
     filesLoading = true;
     try {
-      const files = await listDesktopSessionFiles(connectedEndpoint, activeProfileId, sessionId);
-      if (generation !== connectionGeneration || sessionId !== activeSessionId) return;
+      const files = await listDesktopSessionFiles(connectedEndpoint, profileId, sessionId);
       sessionFiles = files;
     } catch {
-      if (generation === connectionGeneration && sessionId === activeSessionId) sessionFiles = [];
+      sessionFiles = [];
     } finally {
-      if (generation === connectionGeneration && sessionId === activeSessionId) filesLoading = false;
+      filesLoading = false;
     }
   }
 
   async function openPreview(file: DesktopSessionFile): Promise<void> {
-    if (!connectedEndpoint) return;
+    const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
+    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     try {
-      const blob = await fetchDesktopFileBlob(connectedEndpoint, activeProfileId, activeSessionId, file.id);
+      const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id);
       closePreview();
       previewFile = file;
       previewUrl = URL.createObjectURL(blob);
@@ -852,9 +1015,11 @@
   }
 
   async function downloadFile(file: DesktopSessionFile): Promise<void> {
-    if (!connectedEndpoint) return;
+    const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
+    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     try {
-      const blob = await fetchDesktopFileBlob(connectedEndpoint, activeProfileId, activeSessionId, file.id, true);
+      const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id, true);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -866,6 +1031,14 @@
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     }
+  }
+
+  async function copyPath(path: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(path);
+      copiedPath = path;
+      setTimeout(() => { if (copiedPath === path) copiedPath = ""; }, 1200);
+    } catch { /* clipboard unavailable */ }
   }
 
   function formatFileSize(bytes: number): string {
@@ -904,9 +1077,6 @@
     pendingFiles = pendingFiles.filter((_, position) => position !== index);
   }
 
-  // Object URLs for replaying pending (not-yet-sent) audio, e.g. a fresh
-  // recording. Tracked separately so the reactive statement only depends on
-  // `pendingFiles` and never writes the map it reads (avoiding a reactive loop).
   const pendingAudioTracked = new Map<File, string>();
   let pendingAudioUrls = new Map<File, string>();
   $: pendingAudioUrls = computePendingAudioUrls(pendingFiles);
@@ -926,8 +1096,6 @@
     return new Map(pendingAudioTracked);
   }
 
-  // Protected media is fetched through the Desktop adapter and exposed to the
-  // shared transcript as revocable Blob URLs. Nothing leaks a host path.
   let messageMediaUrls = new Map<string, string>();
   let messageMediaLoading = new Set<string>();
   let messageMediaFailed = new Set<string>();
@@ -941,19 +1109,49 @@
     preview: (file) => void openPreview(file),
     download: (file) => void downloadFile(file)
   } satisfies TranscriptAttachmentActions;
+  $: messageActions = messages.length === 0
+    ? null
+    : {
+        copiedId: copiedMessageId,
+        onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
+        onEditUser: viewMode === "external" || sending
+          ? undefined
+          : (m: TranscriptMessage) => startEditUserMessage(m),
+        editingId: editingMessageId
+      } satisfies TranscriptMessageActions;
+  // Read-only external transcript supports copy-only (no edit); bind its own
+  // actions so the clipboard still works there even when `messageActions`
+  // above is null (e.g. main transcript empty).
+  $: externalMessageActions = externalTranscript?.messages?.length
+    ? {
+        copiedId: copiedMessageId,
+        onCopy: (m: TranscriptMessage) => void copyMessageContent(m)
+      } satisfies TranscriptMessageActions
+    : null;
+  // Reset the editing banner when the active session changes underneath us;
+  // the edit is bound to a specific message id in a specific session.
+  $: if (editingMessageId && editingSessionId && activeSessionId !== editingSessionId) {
+    editingMessageId = "";
+    editingSessionId = "";
+  }
   let messageMediaSession = "";
-  $: if (activeSessionId !== messageMediaSession) {
-    for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
-    messageMediaUrls = new Map();
-    messageMediaLoading = new Set();
-    messageMediaFailed = new Set();
-    messageMediaSession = activeSessionId;
+  $: {
+    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    if (currentSessionId !== messageMediaSession) {
+      for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
+      messageMediaUrls = new Map();
+      messageMediaLoading = new Set();
+      messageMediaFailed = new Set();
+      messageMediaSession = currentSessionId;
+    }
   }
 
   async function loadMessageMedia(file: DesktopSessionFile): Promise<void> {
-    if (!connectedEndpoint) return;
+    const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
+    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     if (messageMediaUrls.has(file.local) || messageMediaLoading.has(file.local)) return;
-    const requestedSessionId = activeSessionId;
+    const requestedSessionId = currentSessionId;
     const loading = new Set(messageMediaLoading);
     loading.add(file.local);
     messageMediaLoading = loading;
@@ -961,9 +1159,9 @@
     retrying.delete(file.local);
     messageMediaFailed = retrying;
     try {
-      const blob = await fetchDesktopFileBlob(connectedEndpoint, activeProfileId, activeSessionId, file.id);
+      const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id);
       const url = URL.createObjectURL(blob);
-      if (activeSessionId !== requestedSessionId) {
+      if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) !== requestedSessionId) {
         URL.revokeObjectURL(url);
         return;
       }
@@ -971,12 +1169,12 @@
       next.set(file.local, url);
       messageMediaUrls = next;
     } catch (cause) {
-      if (activeSessionId !== requestedSessionId) return;
+      if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) !== requestedSessionId) return;
       const failed = new Set(messageMediaFailed);
       failed.add(file.local);
       messageMediaFailed = failed;
     } finally {
-      if (activeSessionId === requestedSessionId) {
+      if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) === requestedSessionId) {
         const done = new Set(messageMediaLoading);
         done.delete(file.local);
         messageMediaLoading = done;
@@ -984,210 +1182,87 @@
     }
   }
 
-  async function createSession(): Promise<void> {
-    if (!connectedEndpoint || !activeProfileId || sending) return;
-    workspacePane = "chat";
-    activeChannel = "web";
-    activeBotKey = activeProfileId;
-    sessionFilterQuery = "";
-    error = "";
-    try {
-      if (shouldReuseFreshSession({
-        activeSessionId,
-        messageCount: messages.length,
-        sending,
-        hasStreamingContent: Boolean(streamingText || streamingThinking)
-      })) {
-        await focusActiveSession();
+  async function sendMessage(): Promise<void> {
+    const text = messageInput;
+    const files = pendingFiles;
+    const editingId = editingMessageId;
+    const editingSession = editingSessionId;
+    if (editingId) {
+      // Edit-and-resend: drop the original user message and everything that
+      // followed it on the server before re-running the turn. If truncate fails,
+      // restore the composer so the user can retry instead of losing the edit.
+      if (!connectedEndpoint || !activeProfileId || !activeSessionId) {
+        error = copy.editMessageUnavailable;
         return;
       }
-      const created = await createDesktopSession(connectedEndpoint, activeProfileId);
-      await refreshSessions();
-      await selectSession(created.id);
-      await focusActiveSession();
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    }
-  }
-
-  async function focusActiveSession(): Promise<void> {
-    await tick();
-    document.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(activeSessionId)}"]`)
-      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }
-
-  function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
-    workspacePane = pane;
-    searchOpen = false;
-    filePanelOpen = false;
-  }
-
-  function beginRename(session: DesktopSessionSummary): void {
-    if (sending) return;
-    editingSessionId = session.id;
-    editingSessionTitle = session.title;
-    deleteConfirmId = "";
-  }
-
-  function cancelRename(): void {
-    editingSessionId = "";
-    editingSessionTitle = "";
-  }
-
-  async function saveRename(session: DesktopSessionSummary): Promise<void> {
-    if (!connectedEndpoint || sending) return;
-    const title = editingSessionTitle.trim();
-    if (!title) return;
-    try {
-      const updated = await renameDesktopSession(
-        connectedEndpoint,
-        activeProfileId,
-        session.id,
-        title
-      );
-      sessions = sessions.map((item) => item.id === updated.id ? updated : item);
-      cancelRename();
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    }
-  }
-
-  async function removeSession(session: DesktopSessionSummary): Promise<void> {
-    if (!connectedEndpoint || sending) return;
-    if (deleteConfirmId !== session.id) {
-      deleteConfirmId = session.id;
-      cancelRename();
-      return;
-    }
-    try {
-      await deleteDesktopSession(connectedEndpoint, activeProfileId, session.id);
-      sessions = sessions.filter((item) => item.id !== session.id);
-      if (activeSessionId === session.id) {
-        if (sessions.length === 0) {
-          const created = await createDesktopSession(connectedEndpoint, activeProfileId);
-          sessions = [created];
-        }
-        await selectSession(sessions[0].id);
-      }
-      deleteConfirmId = "";
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    }
-  }
-
-  async function sendMessage(): Promise<void> {
-    const content = messageInput.trim();
-    const outgoingFiles = pendingFiles;
-    const hasFiles = outgoingFiles.length > 0;
-    if (!connectedEndpoint || !activeProfileId || !activeSessionId || sending || !modelReady) return;
-    if (!content && !hasFiles) return;
-
-    sending = true;
-    error = "";
-    activity = hasFiles ? copy.uploading : copy.working;
-    streamingText = "";
-    streamingThinking = "";
-    activityEntries = [];
-    pendingApproval = null;
-    messageInput = "";
-    pendingFiles = [];
-    messages = [...messages, {
-      id: `pending-${Date.now()}`,
-      conversationId: activeSessionId,
-      role: "user",
-      content,
-      createdAt: new Date().toISOString(),
-      attachments: hasFiles
-        ? outgoingFiles.map((file) => ({
-            original: file.name,
-            local: "",
-            mediaType: inferAttachmentKind(file),
-            mimeType: file.type || undefined,
-            size: file.size
-          }))
-        : undefined
-    }];
-    await scrollToBottom();
-
-    if (hasFiles) {
-      sendAbortController = new AbortController();
+      messageInput = "";
+      pendingFiles = [];
+      editingMessageId = "";
+      editingSessionId = "";
       try {
-        await sendDesktopChatWithFiles(connectedEndpoint, {
-          profileId: activeProfileId,
-          sessionId: activeSessionId,
-          message: content,
-          thinkingLevel,
-          files: outgoingFiles
-        }, sendAbortController.signal);
-        await refreshSessions();
-        await selectSession(activeSessionId);
-        activity = "";
+        await truncateDesktopMessages(connectedEndpoint, activeProfileId, activeSessionId, editingId);
       } catch (cause) {
-        if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+        const status = (cause as Error & { status?: number }).status;
+        if (status === 422) {
+          // The server didn't find that message id in this session - the
+          // local transcript is stale (typically an optimistic `pending-...`
+          // id left over from a failed reload). Refresh from the server and
+          // ask the user to pick the message again.
+          await chatStore.reloadActive();
+          error = copy.editMessageStale;
+        } else {
           error = cause instanceof Error ? cause.message : String(cause);
         }
-        await selectSession(activeSessionId).catch(() => undefined);
-      } finally {
-        sending = false;
-        sendAbortController = null;
+        messageInput = text;
+        pendingFiles = files;
+        editingMessageId = editingId;
+        editingSessionId = editingSession;
+        return;
       }
-      drainQueue();
-      return;
+    } else {
+      messageInput = "";
+      pendingFiles = [];
     }
+    await chatStore.send(text, files);
+  }
 
-    sendAbortController = new AbortController();
+  async function copyMessageContent(message: TranscriptMessage): Promise<void> {
+    if (!message.content) return;
     try {
-      await streamDesktopChat(
-        connectedEndpoint,
-        {
-          profileId: activeProfileId,
-          sessionId: activeSessionId,
-          message: content,
-          thinkingLevel
-        },
-        async (event, data) => {
-          if (event === "token") streamingText += String(data.delta ?? "");
-          if (event === "replace") streamingText = String(data.text ?? "");
-          if (event === "thinking_delta") streamingThinking += String(data.delta ?? "");
-          if (event === "status") activity = String(data.text ?? copy.working);
-          if (event === "runner_event") activity = String(data.diagnostic ?? copy.working);
-          const step = parseDesktopActivity(event, data);
-          if (step) activityEntries = reduceDesktopActivities(activityEntries, step);
-          if (event === "host_bash_approval") pendingApproval = parseDesktopApproval(data);
-          if (event === "done") {
-            streamingText = String(data.response ?? streamingText);
-            streamingThinking = String(data.thinkingText ?? streamingThinking);
-          }
-          if (event === "error") throw new Error(String(data.error ?? "Stream failed"));
-          await scrollToBottom();
-        },
-        sendAbortController.signal
-      );
-      await refreshSessions();
-      await selectSession(activeSessionId);
-      activity = "";
-    } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
-        error = cause instanceof Error ? cause.message : String(cause);
+      await navigator.clipboard.writeText(message.content);
+      copiedMessageId = message.id ?? "";
+      if (copiedMessageTimer) clearTimeout(copiedMessageTimer);
+      copiedMessageTimer = setTimeout(() => {
+        copiedMessageId = "";
+        copiedMessageTimer = null;
+      }, 1500);
+    } catch { /* clipboard unavailable */ }
+  }
+
+  function startEditUserMessage(message: TranscriptMessage): void {
+    if (!message.id || !activeSessionId) return;
+    if (sending) return;
+    editingMessageId = message.id;
+    editingSessionId = activeSessionId;
+    messageInput = message.content ?? "";
+    pendingFiles = [];
+    void tick().then(() => {
+      const textarea = messagesElement?.closest(".chat-content")?.querySelector("textarea");
+      textarea?.focus();
+      if (textarea instanceof HTMLTextAreaElement) {
+        const length = textarea.value.length;
+        textarea.setSelectionRange(length, length);
       }
-      await selectSession(activeSessionId).catch(() => undefined);
-    } finally {
-      sending = false;
-      sendAbortController = null;
-    }
-    drainQueue();
+    });
+  }
+
+  function cancelEditMessage(): void {
+    editingMessageId = "";
+    editingSessionId = "";
   }
 
   async function stopRun(): Promise<void> {
-    if (!connectedEndpoint || !activeSessionId || !sending) return;
-    queuedMessages = [];
-    sendAbortController?.abort();
-    try {
-      const stopped = await stopDesktopChat(connectedEndpoint, activeProfileId, activeSessionId);
-      activity = stopped ? copy.stopped : copy.idle;
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    }
+    await chatStore.stopActive();
   }
 
   function approvalOptionLabel(option: { id: string; label: string }): string {
@@ -1199,32 +1274,11 @@
   }
 
   async function resolveApproval(decision: DesktopApprovalDecision): Promise<void> {
-    if (!connectedEndpoint || !pendingApproval || sending) return;
-    const requestId = pendingApproval.requestId;
-    const sessionId = activeSessionId;
-    pendingApproval = null;
-    sending = true;
-    error = "";
-    activity = copy.resuming;
-    try {
-      await resolveDesktopHostBash(connectedEndpoint, activeProfileId, sessionId, requestId, decision);
-      // The approved command runs and the original turn resumes in the background,
-      // appending its answer asynchronously; poll the transcript until it lands.
-      const before = messages.filter((message) => message.role === "assistant").length;
-      for (let attempt = 0; attempt < 15; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        if (sessionId !== activeSessionId) return;
-        await selectSession(sessionId);
-        const after = messages.filter((message) => message.role === "assistant").length;
-        if (decision === "reject" || after > before) break;
-      }
-      await refreshSessions();
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      sending = false;
-      activity = "";
-    }
+    await chatStore.resolveApproval(decision);
+  }
+
+  function resolveApprovalId(decision: string): void {
+    void resolveApproval(decision as DesktopApprovalDecision);
   }
 
   async function changeModel(event: Event): Promise<void> {
@@ -1246,7 +1300,9 @@
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    // Command/Ctrl+Return is the product-wide send shortcut. Shift+Enter remains
+    // supported for existing users; a bare Enter inserts a newline.
+    if (event.key === "Enter" && (event.shiftKey || event.metaKey || event.ctrlKey) && !event.isComposing) {
       event.preventDefault();
       if (sending) queueFollowUp();
       else void sendMessage();
@@ -1254,24 +1310,106 @@
   }
 
   function queueFollowUp(): void {
-    const next = addToFollowUpQueue(queuedMessages, messageInput);
-    if (next !== queuedMessages) {
-      queuedMessages = next;
-      messageInput = "";
-    }
+    if (chatStore.enqueueFollowUp(messageInput)) messageInput = "";
   }
 
   function removeQueued(index: number): void {
-    queuedMessages = queuedMessages.filter((_, position) => position !== index);
+    chatStore.removeQueued(index);
   }
 
-  function drainQueue(): void {
-    if (sending || queuedMessages.length === 0) return;
-    const { next, rest } = nextFollowUp(queuedMessages);
-    queuedMessages = rest;
-    if (next) {
-      messageInput = next;
-      void sendMessage();
+  async function toggleSearch(): Promise<void> {
+    searchOpen = !searchOpen;
+    if (!searchOpen) {
+      searchQuery = "";
+      searchIndex = 0;
+    } else {
+      await tick();
+      searchInputElement?.focus();
+    }
+  }
+
+  async function toggleCommandPalette(): Promise<void> {
+    if (commandOpen) {
+      commandOpen = false;
+      commandReturnFocus?.focus();
+      return;
+    }
+    commandReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    commandOpen = !commandOpen;
+    await tick();
+    commandElement?.querySelector<HTMLButtonElement>("button")?.focus();
+  }
+
+  function closeCommandPalette(): void {
+    commandOpen = false;
+    commandReturnFocus?.focus();
+  }
+
+  function runCommand(action: () => void | Promise<void>): void {
+    commandOpen = false;
+    void action();
+  }
+
+  function onCommandKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeCommandPalette();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const buttons = Array.from(commandElement?.querySelectorAll<HTMLButtonElement>("button") ?? []);
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (current < 0) return;
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    buttons[(current + delta + buttons.length) % buttons.length]?.focus();
+  }
+
+  function onChatShortcut(event: KeyboardEvent): void {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      void toggleCommandPalette();
+    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && workspacePane === "chat" && !projectPaneActive) {
+      event.preventDefault();
+      if (!searchOpen) void toggleSearch();
+    } else if ((event.metaKey || event.ctrlKey) && event.key === ",") {
+      event.preventDefault();
+      openSettings();
+    } else if (event.key === "Escape" && commandOpen) {
+      event.preventDefault();
+      closeCommandPalette();
+    } else if (event.key === "Escape" && searchOpen) {
+      event.preventDefault();
+      void toggleSearch();
+    }
+  }
+
+  function onSearchInput(): void {
+    searchIndex = 0;
+    void scrollToMatch();
+  }
+
+  function gotoMatch(delta: number): void {
+    if (searchMatchIds.length === 0) return;
+    searchIndex = (searchIndex + delta + searchMatchIds.length) % searchMatchIds.length;
+    void scrollToMatch();
+  }
+
+  async function scrollToMatch(): Promise<void> {
+    await tick();
+    if (!activeMatchId) return;
+    const target = messagesElement?.querySelector(`[data-message-id="${activeMatchId}"]`);
+    target?.scrollIntoView({ block: "center", behavior: "auto" });
+  }
+
+  function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
+    const next = openWorkspacePaneState(pane);
+    workspacePane = next.workspacePane;
+    projectPaneActive = next.projectPaneActive;
+    searchOpen = next.searchOpen;
+    filePanelOpen = next.filePanelOpen;
+    if (!connectionReady && !loading && serviceState === "ready" && serviceEndpoint) {
+      void connect(serviceEndpoint);
     }
   }
 
@@ -1281,9 +1419,6 @@
     return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
   }
 
-  // Session list timestamps: today shows the time, yesterday is prefixed,
-  // older entries fall back to a calendar date so a flat list still tells you
-  // which day a session belongs to.
   function formatSessionTime(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
@@ -1299,6 +1434,33 @@
       : { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
   }
 
+  // Sidebar list timestamps: show the clock only for today; anything older
+  // collapses to a bare date (no hour/minute) to keep the compact rows tidy.
+  function formatListTime(value: string): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfYesterday = startOfToday - 86400000;
+    if (date.getTime() >= startOfToday) {
+      return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+    }
+    if (date.getTime() >= startOfYesterday) return copy.groupYesterday;
+    const sameYear = date.getFullYear() === now.getFullYear();
+    return new Intl.DateTimeFormat(undefined, sameYear
+      ? { month: "numeric", day: "numeric" }
+      : { year: "numeric", month: "numeric", day: "numeric" }).format(date);
+  }
+
+  let reconnectTimer: ReturnType<typeof setInterval> | null = null;
+  function startReconnectPoll(): void {
+    stopReconnectPoll();
+    reconnectTimer = setInterval(() => { void chatStore.reconnect(); }, 4000);
+  }
+  function stopReconnectPoll(): void {
+    if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
+  }
+
   type NativeRecordingResult = {
     audioBase64: string;
     mimeType: string;
@@ -1312,20 +1474,12 @@
   let recordingSeconds = 0;
   let recordingBusy = false;
   let recordingTimer: ReturnType<typeof setInterval> | null = null;
-  // Browser-only fallback state, used when ChatView runs in a plain dev browser
-  // (`pnpm run dev`) instead of the Tauri WebView.
   let mediaRecorder: MediaRecorder | null = null;
   let recordingChunks: Blob[] = [];
   let recordingStream: MediaStream | null = null;
 
   function isTauriRuntime(): boolean {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-  }
-
-  function formatDuration(seconds: number): string {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${String(s).padStart(2, "0")}`;
   }
 
   function startRecordingTimer(): void {
@@ -1373,7 +1527,6 @@
       return;
     }
 
-    // Browser fallback (dev only).
     if (!navigator.mediaDevices?.getUserMedia) {
       recordingError = copy.recordingUnsupported;
       return;
@@ -1428,7 +1581,6 @@
       return;
     }
 
-    // Browser fallback (dev only).
     if (!mediaRecorder) { recording = false; return; }
     stopRecordingTimer();
     const recorder = mediaRecorder;
@@ -1450,7 +1602,10 @@
 
   onDestroy(() => {
     connectionGeneration += 1;
-    sendAbortController?.abort();
+    stopSidebarResize();
+    stopReconnectPoll();
+    chatStore.disposeAll();
+    projectChatStore.disposeAll();
     stopRecordingTimer();
     if (recording && isTauriRuntime()) {
       void invoke("cancel_recording").catch(() => { /* ignore */ });
@@ -1460,156 +1615,65 @@
     pendingAudioTracked.clear();
     for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
     closePreview();
+    settingsChannel.close();
   });
 </script>
 
+<svelte:window onkeydown={onChatShortcut} />
+
 <main
   class="chat-layout"
-  class:with-files={filePanelOpen && serviceState === "ready" && profiles.length > 0}
+  class:with-files={filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0)}
   class:resizing={resizingSidebar}
   style={`--sidebar-w:${sidebarWidth}px`}
 >
-  <aside class="chat-sidebar">
-    <div class="brand-row">
-      <div class="brand-mark" aria-hidden="true">M</div>
-      <div class="brand-copy">
-        <strong>{copy.appName}</strong>
+  <WindowDragMask />
+  {#if commandOpen}
+    <div class="command-palette-layer" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeCommandPalette(); }}>
+      <div class="command-palette" role="dialog" aria-modal="false" aria-label={copy.commandPalette} tabindex="-1" bind:this={commandElement} onkeydown={onCommandKeydown}>
+        <header><strong>{copy.commandPalette}</strong><kbd>⌘K</kbd></header>
+        <button type="button" onclick={() => runCommand(newConversation)}><i class="ph ph-plus-circle" aria-hidden="true"></i>{copy.newChat}</button>
+        <button type="button" onclick={() => runCommand(() => openWorkspacePane("automations"))}><i class="ph ph-list-checks" aria-hidden="true"></i>{copy.tasks}</button>
+        <button type="button" onclick={() => runCommand(() => openWorkspacePane("skills"))}><i class="ph ph-magic-wand" aria-hidden="true"></i>{copy.skills}</button>
+        <button type="button" onclick={() => runCommand(() => openSettings())}><i class="ph ph-gear-six" aria-hidden="true"></i>{copy.openSettings}</button>
       </div>
     </div>
-
-    <div class="nav-list">
-      <button class:active={workspacePane === "chat"} class="nav-item" type="button" disabled={!activeProfileId || sending} onclick={() => void createSession()}>
-        <i class="ph ph-plus-circle" aria-hidden="true"></i>
-        <span>{copy.newChat}</span>
-      </button>
-      <button class:active={workspacePane === "automations"} class="nav-item" type="button" onclick={() => openWorkspacePane("automations")}>
-        <i class="ph ph-clock-countdown" aria-hidden="true"></i>
-        <span>{copy.autoTasks}</span>
-      </button>
-      <button class:active={workspacePane === "skills"} class="nav-item" type="button" onclick={() => openWorkspacePane("skills")}>
-        <i class="ph ph-magic-wand" aria-hidden="true"></i>
-        <span>{copy.skillsSquare}</span>
-      </button>
-    </div>
-
-    <div class="channel-switch" role="tablist" aria-label={copy.channels}>
-      {#each channelTabs as channel (channel)}
-        <button
-          class="channel-chip"
-          class:active={channel === activeChannel}
-          type="button"
-          role="tab"
-          aria-selected={channel === activeChannel}
-          title={channelLabel(channel)}
-          onclick={() => selectChannel(channel)}
-        >
-          <span class="channel-chip-avatar" style={`--c:${channelColor(channel)}`}><i class={`ph-fill ph-${channelIcon(channel)}`} aria-hidden="true"></i></span>
-          <span class="channel-chip-label">{channelLabel(channel)}</span>
-        </button>
-      {/each}
-    </div>
-
-    <div class="conversation-list">
-      {#if activeChannelBots.length === 0}
-        <p class="external-empty">{copy.noBotsConfigured}</p>
-      {:else}
-        {#each activeChannelBots as bot (bot.key)}
-          {@const isActiveBot = bot.key === activeBotKey}
-          <div class="conv-group">
-            <button class="conv-group-head" class:open={isActiveBot} type="button" aria-expanded={isActiveBot} onclick={() => selectBot(bot)}>
-              <i class="ph-bold ph-caret-down conv-caret" class:open={isActiveBot} aria-hidden="true"></i>
-              <span class="conv-group-tile" style={`background:${channelColor(bot.channel)}`} aria-hidden="true"><i class="ph-fill ph-robot"></i></span>
-              <span class="conv-group-label">{bot.name || copy.externalInstanceUnknown}</span>
-              <span class="conv-group-tail">
-                {#if bot.kind === "external"}
-                  <i class="ph ph-eye conv-group-readonly-icon" aria-hidden="true" title={copy.externalSessionReadOnly}></i>
-                {/if}
-                {#if bot.count !== null}<span class="conv-group-count">{bot.count}</span>{/if}
-              </span>
-            </button>
-
-            {#if isActiveBot}
-              {#if bot.kind === "web"}
-                {#each visibleSessions as session (session.id)}
-                  <div class:active={session.id === activeSessionId && viewMode === "local"} class="conversation-row" data-session-id={session.id}>
-                    {#if editingSessionId === session.id}
-                      <div class="conversation-editor">
-                        <input bind:value={editingSessionTitle} aria-label={copy.rename} onkeydown={(event) => event.key === "Enter" && saveRename(session)} />
-                        <div>
-                          <button type="button" onclick={() => saveRename(session)}>{copy.save}</button>
-                          <button type="button" onclick={cancelRename}>{copy.cancel}</button>
-                        </div>
-                      </div>
-                    {:else}
-                      <button
-                        class="conversation-select"
-                        type="button"
-                        disabled={sending}
-                        onclick={() => {
-                          deleteConfirmId = "";
-                          void selectSession(session.id);
-                        }}
-                      >
-                        <span class="conversation-tile" style={`--tile-color:${channelColor("web")}`}><i class="ph-fill ph-chat-circle-dots" aria-hidden="true"></i></span>
-                        <span class="conversation-text">
-                          <strong>{session.title}</strong>
-                          <small>{formatSessionTime(session.updatedAt)}</small>
-                        </span>
-                      </button>
-                      <div class="conversation-actions">
-                        <button type="button" aria-label={copy.rename} title={copy.rename} onclick={() => beginRename(session)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
-                        <button type="button" class="danger-action" aria-label={copy.delete} title={copy.delete} onclick={() => removeSession(session)}>
-                          <i class="ph ph-trash" aria-hidden="true"></i>
-                        </button>
-                        {#if deleteConfirmId === session.id}
-                          <button type="button" class="confirm-delete" onclick={() => deleteConfirmId = ""}>{copy.cancel}</button>
-                        {/if}
-                      </div>
-                      {#if deleteConfirmId === session.id}
-                        <span class="confirm-delete-banner">{copy.confirmDelete}</span>
-                      {/if}
-                    {/if}
-                  </div>
-                {/each}
-                {#if sessions.length > 0 && visibleSessions.length === 0}
-                  <p class="external-empty">{copy.noMatches}</p>
-                {/if}
-              {:else if externalLoading && activeBotSessions.length === 0}
-                <p class="external-empty">{copy.loading}</p>
-              {:else if externalError}
-                <p class="external-empty external-error">{externalError}</p>
-              {:else if activeBotSessions.length === 0}
-                <p class="external-empty">{copy.noExternalSessions}</p>
-              {:else}
-                {#each activeBotSessions as session (session.id)}
-                  <div class:active={session.id === activeExternalSessionId} class="conversation-row">
-                    <button
-                      class="conversation-select"
-                      type="button"
-                      title={session.title}
-                      onclick={() => void openExternalTranscript(session.id)}
-                    >
-                      <span class="conversation-tile" style={`--tile-color:${channelColor(session.channel)}`}><i class={`ph-fill ph-${channelIcon(session.channel)}`} aria-hidden="true"></i></span>
-                      <span class="conversation-text">
-                        <strong>{session.title}</strong>
-                        <small>{formatSessionTime(session.updatedAt)}</small>
-                      </span>
-                    </button>
-                  </div>
-                {/each}
-              {/if}
-            {/if}
-          </div>
-        {/each}
-      {/if}
-    </div>
-
-    <button class="sidebar-footer" type="button" aria-label={copy.openSettings} title={copy.openSettings} onclick={() => openSettings()}>
-      <span class="sidebar-avatar" aria-hidden="true">{activeProfileInitial}</span>
-      <span class="sidebar-footer-info">{copy.accountSettings}</span>
-      <i class="ph ph-gear-six" aria-hidden="true"></i>
-    </button>
-  </aside>
+  {/if}
+  <ChatSidebar
+    {copy}
+    channels={sidebarChannels}
+    {conversationsExpanded}
+    {projectsExpanded}
+    activeWorkspacePane={workspacePane}
+    {expandedChannels}
+    {channelItems}
+    {channelHasMore}
+    {channelLoading}
+    activeSessionId={sidebarActiveSessionId}
+    {activeProjectSessionId}
+    endpoint={connectedEndpoint}
+    serviceState={serviceState}
+    {statusDots}
+    formatTime={formatListTime}
+    onNewConversation={newConversation}
+    onOpenAutoTasks={() => openWorkspacePane("automations")}
+    onOpenSkills={() => openWorkspacePane("skills")}
+    onOpenAgents={() => openWorkspacePane("agents")}
+    onOpenSettings={() => openSettings()}
+    onToggleConversations={toggleConversations}
+    onToggleProjects={toggleProjects}
+    onToggleChannel={(channel) => toggleChannel(channel as DesktopConversationChannel)}
+    onSelectSession={openSession}
+    onMoreChannel={(channel) => openBrowser(channel as DesktopConversationChannel)}
+    onRenameSession={renameSession}
+    onDeleteSession={deleteSession}
+    onActivateProjectSession={() => {
+      projectPaneActive = true;
+      workspacePane = "chat";
+      viewMode = "local";
+      activeProjectSessionId = projectsStore.selectedSessionId;
+    }}
+  />
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
   <div
@@ -1625,31 +1689,30 @@
     onkeydown={onSidebarKeydown}
   ></div>
 
+  {#if projectPaneActive}
+    <ProjectDetail
+      {copy}
+      onSearch={() => { searchOpen = !searchOpen; }}
+      onOpenFiles={() => { filePanelOpen = !filePanelOpen; }}
+    />
+  {:else}
   <section class="chat-content">
     {#if workspacePane !== "chat"}
-      <ChatWorkspacePane pane={workspacePane} {copy} serviceEndpoint={connectedEndpoint || serviceEndpoint} serviceReady={serviceState === "ready"} />
+      <ChatWorkspacePane
+        pane={workspacePane}
+        {copy}
+        serviceEndpoint={connectionReady ? connectedEndpoint : null}
+        serviceReady={connectionReady}
+        serviceError={error}
+        onRetryService={() => serviceEndpoint && void connect(serviceEndpoint)}
+        onOpenAgentSettings={() => openSettings("agents")}
+      />
     {:else}
-    <header class="chat-header">
-      <div class="chat-title-block">
-        <div class="chat-header-avatar" aria-hidden="true">{viewMode === "external" ? (activeExternalSession?.title?.replace(/^@/, "").charAt(0) || "·") : "M"}</div>
-        <div class="chat-title-text">
-          <div class="chat-title-name">{viewMode === "external" ? (activeExternalSession?.title ?? copy.chat) : (activeSession?.title ?? copy.chat)}</div>
-          <div class="chat-title-sub">
-            {#if profiles.length > 1}
-              <label class="header-profile">
-                <select value={activeProfileId} disabled={sending} onchange={changeProfile} aria-label={copy.profile}>
-                  {#each profiles as profile (profile.id)}
-                    <option value={profile.id}>{profile.name}</option>
-                  {/each}
-                </select>
-                <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
-              </label>
-            {:else}
-              <span>{profiles[0]?.name ?? copy.local}</span>
-            {/if}
-            <span class="status-dot" data-state={serviceState}></span>
-            <span>{serviceState === "ready" ? copy.statusOnline : copy.statusOffline}</span>
-          </div>
+    <header class="chat-header" data-tauri-drag-region>
+      <div class="chat-title-block" data-tauri-drag-region>
+        <div class="chat-header-avatar" data-tauri-drag-region aria-hidden="true">{activeHeaderAvatar}</div>
+        <div class="chat-title-text" data-tauri-drag-region>
+          <div class="chat-title-name" data-tauri-drag-region>{viewMode === "external" ? activeExternalTitleWithSource : activeSessionTitle}</div>
         </div>
       </div>
       <div class="header-actions">
@@ -1676,15 +1739,13 @@
             {#if sessionFiles.length}<span class="icon-badge">{sessionFiles.length}</span>{/if}
           </button>
         {/if}
-        <button class="icon-button" type="button" aria-label={copy.openSettings} title={copy.openSettings} onclick={() => openSettings()}>
-          <i class="ph ph-gear-six" aria-hidden="true"></i>
-        </button>
       </div>
     </header>
 
-    {#if searchOpen && serviceState === "ready" && profiles.length > 0}
-      <div class="search-bar">
+    {#if serviceState === "ready" && profiles.length > 0}
+      <div class:open={searchOpen} class="search-bar" aria-hidden={!searchOpen} inert={!searchOpen}>
         <input
+          bind:this={searchInputElement}
           type="search"
           bind:value={searchQuery}
           placeholder={copy.searchPlaceholder}
@@ -1702,9 +1763,9 @@
 
     {#if serviceState !== "ready"}
       <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" /></div>
+        <div class="service-starting-spinner" aria-hidden="true"><img src="/molibot-icon.png" alt="" /><span></span></div>
         <h2>{copy.serviceStarting}</h2>
-        <p>{copy.disconnectedHint}</p>
+        <p>{serviceEndpoint ? copy.serviceLaunching : copy.serviceChecking}</p>
       </div>
     {:else if loading}
       <div class="empty-state"><p>{copy.loadingChat}</p></div>
@@ -1720,9 +1781,8 @@
         <h2>{copy.chat}</h2>
         <p>{copy.externalChannelsHint}</p>
       </div>
-    {:else}
-      <div class="messages" bind:this={messagesElement} aria-live="polite">
-        {#if viewMode === "external"}
+    {:else if viewMode === "external"}
+      <div class="messages" bind:this={messagesElement} use:stickToBottom={activeSessionId} aria-live="polite">
           {#if externalTranscriptLoading}
             <div class="conversation-empty">
               <h2>{copy.loading}</h2>
@@ -1737,214 +1797,135 @@
                 <h2>{copy.noExternalSessions}</h2>
               </div>
             {/if}
-            {#if activeExternalSession?.channel}
+            {#if activeExternalChannel}
               <div class="transcript-divider">
-                <i class={`ph-fill ph-${channelIcon(activeExternalSession.channel)}`} style={`color:${channelColor(activeExternalSession.channel)}`} aria-hidden="true"></i>
-                <span>{copy.externalSessionDivider.replace("{channel}", activeExternalSession.channel)}</span>
+                <i class={`ph-fill ph-${sidebarChannels.find((c) => c.id === activeExternalChannel)?.icon ?? "chat-circle-dots"}`} style={`color:#006bff`} aria-hidden="true"></i>
+                <span>{copy.externalSessionDivider.replace("{channel}", activeExternalChannel)}</span>
               </div>
             {/if}
-            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} />
+            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} />
           {/if}
-        {:else}
-          {#if messages.length === 0 && !streamingText}
-            <div class="conversation-empty">
-              <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" /></div>
-              <h2>{copy.emptyChatTitle}</h2>
-              <p>{copy.emptyChatHint}</p>
-            </div>
-          {/if}
-          <ConversationTranscript
-            {messages}
-            {copy}
-            formatTime={formatSessionTime}
-            {searchMatchIds}
-            {activeMatchId}
-            showReadReceipt={true}
-            attachmentActions={transcriptAttachmentActions}
-          />
-        {#if sending}
-          <article class="message-row assistant streaming-message">
-            <div class="message-avatar" aria-hidden="true">M</div>
-            <div class="message-stack">
-              <div class="message-status"><span>{activity || copy.working}</span></div>
-              {#if activityEntries.length > 0}
-                <RunActivity activities={activityEntries} {copy} live={true} />
-              {/if}
-              {#if streamingThinking}
-                <details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{streamingThinking}</pre></details>
-              {/if}
-              <div class="message-bubble markdown-body">{@html renderMarkdown(streamingText || activity || copy.working)}</div>
-            </div>
-          </article>
-        {/if}
-        {#if pendingApproval}
-          <div class="approval-card" role="alertdialog" aria-label={copy.approvalTitle}>
-            <strong class="approval-title">⚠️ {copy.approvalTitle}</strong>
-            <div class="approval-field">
-              <span>{copy.approvalCommand}</span>
-              <code>{pendingApproval.command}</code>
-            </div>
-            {#if pendingApproval.reason}
-              <div class="approval-field">
-                <span>{copy.approvalReason}</span>
-                <p>{pendingApproval.reason}</p>
-              </div>
-            {/if}
-            <div class="approval-actions">
-              {#each pendingApproval.options as option (option.id)}
-                <button
-                  type="button"
-                  class:danger-action={option.id === "reject"}
-                  disabled={sending}
-                  onclick={() => resolveApproval(option.id as DesktopApprovalDecision)}
-                >{approvalOptionLabel(option)}</button>
-              {/each}
-            </div>
-          </div>
-        {/if}
-        {/if}
       </div>
-
-      {#if viewMode === "external"}
-        {#if externalTranscript}
-          <footer class="composer-wrap">
-            <p class="external-readonly-notice">
-              {copy.externalSessionReadOnly}
-            </p>
-          </footer>
-        {/if}
-      {:else}
+      {#if externalTranscript}
         <footer class="composer-wrap">
-          {#if !modelReady}
-            <div class="model-banner" role="status">
-              <div>
-                <strong>{copy.noModelBannerTitle}</strong>
-                <p>{copy.noModelBannerHint}</p>
-              </div>
-              <button class="secondary-button" type="button" onclick={() => openSettings()}>{copy.openSettings}</button>
-            </div>
-          {/if}
-          {#if error}<div class="composer-error" role="alert"><i class="ph ph-warning-circle" aria-hidden="true"></i><span><strong>{copy.chatErrorTitle}</strong>{error}</span><button type="button" aria-label={copy.chatErrorDismiss} onclick={() => (error = "")}><i class="ph ph-x" aria-hidden="true"></i></button></div>{/if}
-          {#if recordingError}<div class="composer-error" role="alert"><i class="ph ph-warning-circle" aria-hidden="true"></i><span><strong>{copy.chatErrorTitle}</strong>{recordingError}</span><button type="button" aria-label={copy.chatErrorDismiss} onclick={() => (recordingError = "")}><i class="ph ph-x" aria-hidden="true"></i></button></div>{/if}
-          {#if queuedMessages.length > 0}
-            <div class="queued-messages">
-              <span class="queued-badge">{copy.queued} · {queuedMessages.length}</span>
-              {#each queuedMessages as queued, index (index)}
-                <span class="pending-chip">
-                  <span class="pending-name" title={queued}>{queued}</span>
-                  <button type="button" aria-label={copy.removeQueued} onclick={() => removeQueued(index)}>×</button>
-                </span>
-              {/each}
-            </div>
-          {/if}
-          {#if pendingFiles.length > 0}
-            <div class="pending-files">
-              {#each pendingFiles as file, index (index)}
-                <span class="pending-chip" data-kind={inferAttachmentKind(file)}>
-                  <span class="pending-name" title={file.name}>{file.name}</span>
-                  {#if pendingAudioUrls.get(file)}
-                    <!-- svelte-ignore a11y_media_has_caption -->
-                    <audio class="pending-audio" controls src={pendingAudioUrls.get(file)}></audio>
-                  {/if}
-                  <button type="button" aria-label={copy.removeFile} disabled={sending} onclick={() => removePendingFile(index)}>×</button>
-                </span>
-              {/each}
-            </div>
-          {/if}
-          <div class="composer">
-            <input
-              bind:this={fileInput}
-              type="file"
-              multiple
-              hidden
-              onchange={onFilesPicked}
-            />
-            <textarea
-              bind:value={messageInput}
-              rows="1"
-              placeholder={sending ? copy.queueHint : copy.enterHint}
-              disabled={!activeSessionId || !modelReady}
-              onkeydown={handleComposerKeydown}
-            ></textarea>
-            {#if recording}
-              <div class="recording-bar" role="status" aria-live="polite">
-                <span class="recording-indicator" aria-hidden="true"></span>
-                <span class="recording-label">{copy.recording}</span>
-                <time>{formatDuration(recordingSeconds)}</time>
-                <button type="button" class="recording-action" onclick={() => finishRecording(false)}>{copy.cancel}</button>
-                <button type="button" class="recording-action primary" onclick={() => finishRecording(true)}>{copy.finishRecording}</button>
-              </div>
-            {/if}
-            <div class="composer-bar">
-              <div class="composer-tools">
-                <button
-                  class="composer-tool"
-                  type="button"
-                  aria-label={copy.addFiles}
-                  title={copy.addFiles}
-                  disabled={!activeSessionId || sending || !modelReady}
-                  onclick={() => fileInput?.click()}
-                ><i class="ph ph-paperclip" aria-hidden="true"></i></button>
-                <button
-                  class="composer-tool"
-                  type="button"
-                  aria-label={copy.files}
-                  title={copy.files}
-                  disabled={!activeSessionId}
-                  onclick={() => (filePanelOpen = !filePanelOpen)}
-                ><i class="ph ph-squares-four" aria-hidden="true"></i></button>
-                <button
-                  class="composer-tool"
-                  class:recording={recording}
-                  type="button"
-                  aria-label={recording ? copy.finishRecording : copy.startRecording}
-                  title={recording ? copy.finishRecording : copy.startRecording}
-                  aria-pressed={recording}
-                  disabled={!activeSessionId || sending || !modelReady}
-                  onclick={toggleRecording}
-                ><i class="ph ph-microphone" aria-hidden="true"></i></button>
-              </div>
-              <div class="composer-selectors">
-                <label class="composer-pill">
-                  <i class="ph ph-cpu" aria-hidden="true"></i>
-                  <span class="composer-pill-label">{copy.model}</span>
-                  <select value={activeModelKey} disabled={sending || changingModel || modelOptions.length === 0} onchange={changeModel} aria-label={copy.model}>
-                    {#each modelOptions as model (model.key)}
-                      <option value={model.key}>{model.label}</option>
-                    {/each}
-                  </select>
-                  <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
-                </label>
-                <label class="composer-pill">
-                  <i class="ph ph-brain" aria-hidden="true"></i>
-                  <span class="composer-pill-label">{copy.thinkingLevel}</span>
-                  <select bind:value={thinkingLevel} disabled={sending} aria-label={copy.thinkingLevel}>
-                    <option value="off">{copy.thinkingOff}</option>
-                    <option value="low">{copy.thinkingLow}</option>
-                    <option value="medium">{copy.thinkingMedium}</option>
-                    <option value="high">{copy.thinkingHigh}</option>
-                  </select>
-                  <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
-                </label>
-              </div>
-              {#if sending}
-                <button class="stop-button" type="button" aria-label={copy.stop} title={copy.stop} onclick={stopRun}>
-                  <i class="ph-fill ph-stop" aria-hidden="true"></i>
-                </button>
-              {:else}
-                <button class="send-button" type="button" aria-label={copy.send} title={copy.send} disabled={(!messageInput.trim() && pendingFiles.length === 0) || !activeSessionId || !modelReady} onclick={sendMessage}>
-                  <i class="ph-fill ph-arrow-up" aria-hidden="true"></i>
-                </button>
-              {/if}
-            </div>
-          </div>
+          <p class="external-readonly-notice">
+            {copy.externalSessionReadOnly}
+          </p>
         </footer>
       {/if}
+    {:else}
+      <ChatMessagesPane
+        bind:messagesElement
+        {messages}
+        {copy}
+        formatTime={formatSessionTime}
+        assistantName={activeAgentName}
+        stickKey={activeSessionId}
+        {sending}
+        {streamingText}
+        {streamingThinking}
+        {activity}
+        activities={activityEntries}
+        emptyTitle={copy.emptyChatTitle}
+        emptyHint={copy.emptyChatHint}
+        {searchMatchIds}
+        {activeMatchId}
+        showReadReceipt={true}
+        attachmentActions={transcriptAttachmentActions}
+        messageActions={messageActions}
+      >
+        {#if pendingApproval}
+          <ApprovalCard
+            title={copy.approvalTitle}
+            commandLabel={copy.approvalCommand}
+            reasonLabel={copy.approvalReason}
+            command={pendingApproval.command}
+            reason={pendingApproval.reason}
+            options={approvalOptions}
+            onResolve={resolveApprovalId}
+          />
+        {/if}
+      </ChatMessagesPane>
+      <input
+        bind:this={fileInput}
+        type="file"
+        multiple
+        hidden
+        onchange={onFilesPicked}
+      />
+      <ChatInputArea
+        bind:value={messageInput}
+        bind:thinkingLevel
+        endpoint={connectedEndpoint}
+        {copy}
+        {sending}
+        disabled={!modelReady || (!draftMode && !activeSessionId)}
+        canSend={Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
+        placeholder={sending ? copy.queueHint : copy.enterHint}
+        {modelReady}
+        {modelOptions}
+        {activeModelKey}
+        {activeModelLabel}
+        activeModelTitle={activeModelFullLabel}
+        thinkingLevelLabel={thinkingLabel}
+        {changingModel}
+        error={error || chatError}
+        {recordingError}
+        {queuedMessages}
+        {pendingFiles}
+        {pendingAudioUrls}
+        {recording}
+        {recordingSeconds}
+        showSettingsAction={true}
+        fileToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady}
+        recordingToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady}
+        inferAttachmentKind={inferAttachmentKind}
+        onSend={sendMessage}
+        onStop={stopRun}
+        onKeydown={handleComposerKeydown}
+        onPickFiles={() => fileInput?.click()}
+        onToggleRecording={toggleRecording}
+        onFinishRecording={(send) => void finishRecording(send)}
+        onRemoveQueued={removeQueued}
+        onRemoveFile={removePendingFile}
+        onDismissError={() => { error = ""; chatStore.clearActiveError?.(); }}
+        onDismissRecordingError={() => (recordingError = "")}
+        onOpenSettings={() => openSettings()}
+        onChangeModel={changeModel}
+      >
+        {#if profiles.length > 0 && (draftMode || activeSessionId)}
+          <BotMention
+            mode={draftMode ? "select" : "locked"}
+            bots={botOptions}
+            selectedId={draftMode ? draftProfileId : activeProfileId}
+            onSelect={(id) => chatStore.setDraftProfileId(id)}
+            labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
+          />
+        {/if}
+        {#if editingMessageId}
+          <div class="composer-edit-banner" role="status">
+            <i class="ph ph-pencil-simple-line" aria-hidden="true"></i>
+            <span>{copy.editingMessage}</span>
+            <button type="button" aria-label={copy.cancelEdit} title={copy.cancelEdit} onclick={cancelEditMessage}>
+              <i class="ph ph-x" aria-hidden="true"></i>{copy.cancelEdit}
+            </button>
+          </div>
+        {/if}
+      </ChatInputArea>
     {/if}
     {/if}
   </section>
+  {/if}
 
-  {#if filePanelOpen && serviceState === "ready" && profiles.length > 0}
+  {#if filePanelOpen && serviceState === "ready" && projectPaneActive && projectsStore.selectedProjectId}
+    <ProjectFilePanel
+      endpoint={connectedEndpoint || serviceEndpoint || ""}
+      projectId={projectsStore.selectedProjectId}
+      sessionId={projectsStore.selectedSessionId}
+      {copy}
+      onClose={() => (filePanelOpen = false)}
+    />
+  {:else if filePanelOpen && serviceState === "ready" && profiles.length > 0}
     <aside class="file-panel">
       <div class="file-panel-head">
         <i class="ph-fill ph-folder-simple file-panel-icon" aria-hidden="true"></i>
@@ -1981,6 +1962,11 @@
                 </div>
               </div>
               <div class="file-actions">
+                {#if file.local}
+                  <button type="button" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(file.local)}>
+                    <i class={`ph ph-${copiedPath === file.local ? "check" : "copy"}`} aria-hidden="true"></i>
+                  </button>
+                {/if}
                 {#if canPreview(file)}
                   <button type="button" aria-label={copy.preview} title={copy.preview} onclick={() => openPreview(file)}><i class="ph ph-eye" aria-hidden="true"></i></button>
                 {/if}
@@ -1997,6 +1983,16 @@
       </div>
     </aside>
   {/if}
+
+  <ConversationBrowserDialog
+    endpoint={connectedEndpoint}
+    channel={browserChannel}
+    open={browserOpen}
+    labels={{ search: copy.searchConversations, searchEmpty: copy.searchEmpty, loading: copy.loading, loadMore: copy.loadMore, empty: copy.noConversations, deletedBot: copy.deletedBot, unknownBot: copy.unknownBot }}
+    formatTime={formatListTime}
+    onSelect={openSession}
+    onClose={() => (browserOpen = false)}
+  />
 
   {#if showOnboarding}
     <div class="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
@@ -2122,6 +2118,29 @@
                 <p class="onboarding-error">{onboardingAgentError}</p>
               {/if}
             {/if}
+          {:else if onboardingStep === "personalization"}
+            <p class="onboarding-hint">{copy.onboardingPersonalizationHint}</p>
+            <label class="onboarding-field">
+              <span>{copy.onboardingUserName}</span>
+              <input type="text" bind:value={onboardingUserName} placeholder={copy.onboardingUserNamePlaceholder} />
+            </label>
+            <label class="onboarding-field">
+              <span>{copy.onboardingAiStyle}</span>
+              <select bind:value={onboardingAiStyle}>
+                <option value="concise">{copy.onboardingAiStyleConcise}</option>
+                <option value="patient">{copy.onboardingAiStylePatient}</option>
+                <option value="rigorous">{copy.onboardingAiStyleRigorous}</option>
+                <option value="natural">{copy.onboardingAiStyleNatural}</option>
+              </select>
+            </label>
+            <button type="button" class="secondary-button" disabled={onboardingPersonalizationSaving || !onboardingAgentId} onclick={saveOnboardingPersonalization}>
+              {onboardingPersonalizationSaving ? copy.onboardingProviderSaving : onboardingPersonalizationSaved ? copy.onboardingPersonalizationSaved : copy.onboardingPersonalizationSave}
+            </button>
+            {#if onboardingPersonalizationSaved}
+              <p class="health-check-status">{copy.onboardingPersonalizationSaved}</p>
+            {:else if onboardingPersonalizationError}
+              <p class="onboarding-error">{onboardingPersonalizationError}</p>
+            {/if}
           {:else if onboardingStep === "launch"}
             <p class="onboarding-hint">{copy.onboardingLaunchHint}</p>
             <div class="onboarding-choice">
@@ -2203,7 +2222,7 @@
           {#if onboardingMode === "usable"}
             <button type="button" class="primary-button" onclick={dismissOnboarding}>{copy.onboardingContinue}</button>
           {:else if onboardingIsGuided && onboardingStepIndex < ONBOARDING_STEPS.length - 1}
-            <button type="button" class="primary-button" disabled={(onboardingStep === "provider" && !providerSubmitted) || (onboardingStep === "agent" && !onboardingAgentSaved)} onclick={nextOnboardingStep}>{copy.onboardingNext}</button>
+            <button type="button" class="primary-button" disabled={(onboardingStep === "provider" && !providerSubmitted) || (onboardingStep === "agent" && !onboardingAgentSaved) || (onboardingStep === "personalization" && !onboardingPersonalizationSaved)} onclick={nextOnboardingStep}>{copy.onboardingNext}</button>
           {:else}
             <button type="button" class="primary-button" onclick={dismissOnboarding}>{copy.onboardingFinish}</button>
           {/if}

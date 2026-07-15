@@ -6,11 +6,23 @@ import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
 import { createEventTaskId, type MomEvent } from "$lib/server/agent/events";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
-import { TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
+import { SYSTEM_TASK_BOTS_DIR, SYSTEM_TASK_CHANNEL, TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
+import { buildDesktopTaskTargets } from "$lib/server/app/desktopTasks";
+import { dispatchTaskEvent } from "$lib/server/agent/taskScheduler";
 
 type TaskScope = "workspace" | "chat-scratch";
 type TaskType = "one-shot" | "periodic" | "immediate";
 type TaskState = "pending" | "running" | "completed" | "skipped" | "error";
+type TaskSource = TaskChannel | typeof SYSTEM_TASK_CHANNEL;
+const INTERNAL_TASK_TARGET_DIRS = new Set([
+  "attachments",
+  "contexts",
+  "events",
+  "run-details",
+  "scratch",
+  "skill-drafts",
+  "skills"
+]);
 
 interface EventStatus {
   state?: TaskState;
@@ -23,6 +35,10 @@ interface EventStatus {
 
 interface RawEventTask {
   taskId?: string;
+  managed?: { by?: string; scope?: string; kind?: string; ownerId?: string };
+  enabled?: boolean;
+  execution?: string;
+  internal?: { kind?: string };
   type: TaskType;
   chatId?: string;
   text?: string;
@@ -35,14 +51,16 @@ interface RawEventTask {
 }
 
 interface TaskItem {
-  channel: TaskChannel;
+  channel: TaskSource;
   taskId: string;
+  managed?: RawEventTask["managed"];
   botId: string;
   chatId: string;
   scope: TaskScope;
   filename: string;
   filePath: string;
   type: TaskType;
+  enabled: boolean;
   delivery: string;
   text: string;
   scheduleText: string;
@@ -69,6 +87,7 @@ interface TaskTriggerBody {
 }
 
 interface TaskUpdatePatch {
+  enabled?: boolean;
   text?: string;
   delivery?: string;
   at?: string;
@@ -108,7 +127,7 @@ function inferCreatedAt(filename: string, fallbackIso: string): string {
 
 function toTaskItem(
   raw: RawEventTask,
-  channel: TaskChannel,
+  channel: TaskSource,
   botId: string,
   fallbackChatId: string,
   scope: TaskScope,
@@ -132,12 +151,14 @@ function toTaskItem(
   return {
     channel,
     taskId: String(raw.taskId ?? "").trim(),
+    managed: raw.managed,
     botId,
     chatId,
     scope,
     filename,
     filePath,
     type,
+    enabled: raw.enabled !== false,
     delivery: String(raw.delivery ?? "agent").trim() || "agent",
     text: String(raw.text ?? "").trim(),
     scheduleText,
@@ -156,7 +177,7 @@ function toTaskItem(
 
 function readTaskFile(
   filePath: string,
-  channel: TaskChannel,
+  channel: TaskSource,
   botId: string,
   fallbackChatId: string,
   scope: TaskScope,
@@ -184,15 +205,17 @@ function collectJsonFiles(dir: string): string[] {
     .sort((a, b) => a.localeCompare(b));
 }
 
-function resolveTasksRoots(): Array<{ channel: TaskChannel; botsRoot: string }> {
+function resolveTasksRoots(): Array<{ channel: TaskSource; botsRoot: string }> {
   const dataRoot = resolve(config.dataDir);
-  return TASK_CHANNEL_ROOTS.map(({ channel, dir }) => ({
+  return [...TASK_CHANNEL_ROOTS.map(({ channel, dir }) => ({
     channel,
-    botsRoot: join(dataRoot, dir, "bots")
-  }));
+    botsRoot: channel === "web"
+      ? join(resolve(config.webWorkspaceDir), "bots")
+      : join(dataRoot, dir, "bots")
+  })), { channel: SYSTEM_TASK_CHANNEL, botsRoot: join(dataRoot, SYSTEM_TASK_BOTS_DIR) }];
 }
 
-function isTaskFilePath(filePath: string, botsRoots: Array<{ channel: TaskChannel; botsRoot: string }>): boolean {
+function isTaskFilePath(filePath: string, botsRoots: Array<{ channel: TaskSource; botsRoot: string }>): boolean {
   const resolved = resolve(filePath);
   const matchedRoot = botsRoots.find(({ botsRoot }) => resolved.startsWith(`${botsRoot}/`));
   if (!matchedRoot || !resolved.endsWith(".json")) return false;
@@ -202,8 +225,8 @@ function isTaskFilePath(filePath: string, botsRoots: Array<{ channel: TaskChanne
   );
 }
 
-function inferTaskContextFromPath(filePath: string, botsRoots: Array<{ channel: TaskChannel; botsRoot: string }>): {
-  channel: TaskChannel;
+function inferTaskContextFromPath(filePath: string, botsRoots: Array<{ channel: TaskSource; botsRoot: string }>): {
+  channel: TaskSource;
   botId: string;
   chatId: string;
   scope: TaskScope;
@@ -230,7 +253,6 @@ export const GET: RequestHandler = async () => {
   const taskRoots = resolveTasksRoots();
   const diagnostics: string[] = [];
   const items: TaskItem[] = [];
-  const targets: Array<{ channel: TaskChannel; botId: string; chatId: string; scope: TaskScope }> = [];
 
   for (const { channel, botsRoot } of taskRoots) {
     if (!existsSync(botsRoot)) continue;
@@ -239,19 +261,16 @@ export const GET: RequestHandler = async () => {
     for (const botEntry of botEntries) {
       const botId = botEntry.name;
       const botDir = join(botsRoot, botId);
-      targets.push({ channel, botId, chatId: "", scope: "workspace" });
-
       for (const filePath of collectJsonFiles(join(botDir, "events"))) {
         const item = readTaskFile(filePath, channel, botId, "", "workspace", diagnostics);
         if (item) items.push(item);
       }
 
       const chatEntries = readdirSync(botDir, { withFileTypes: true }).filter(
-        (entry) => entry.isDirectory() && entry.name !== "events" && entry.name !== "skills" && entry.name !== "attachments"
+        (entry) => entry.isDirectory() && !INTERNAL_TASK_TARGET_DIRS.has(entry.name)
       );
       for (const chatEntry of chatEntries) {
         const chatId = chatEntry.name;
-        targets.push({ channel, botId, chatId, scope: "chat-scratch" });
         for (const filePath of collectJsonFiles(join(botDir, chatId, "scratch", "events"))) {
           const item = readTaskFile(filePath, channel, botId, chatId, "chat-scratch", diagnostics);
           if (item) items.push(item);
@@ -266,6 +285,7 @@ export const GET: RequestHandler = async () => {
     if (typeDiff !== 0) return typeDiff;
     return b.updatedAt.localeCompare(a.updatedAt);
   });
+  const targets = buildDesktopTaskTargets(getRuntime().getSettings());
 
   const countsByType = {
     "one-shot": items.filter((item) => item.type === "one-shot").length,
@@ -283,11 +303,13 @@ export const GET: RequestHandler = async () => {
     workspace: items.filter((item) => item.scope === "workspace").length,
     chatScratch: items.filter((item) => item.scope === "chat-scratch").length
   };
-  const countsByChannel: Record<TaskChannel, number> = {
+  const countsByChannel: Record<TaskSource, number> = {
+    web: items.filter((item) => item.channel === "web").length,
     telegram: items.filter((item) => item.channel === "telegram").length,
     feishu: items.filter((item) => item.channel === "feishu").length,
     qq: items.filter((item) => item.channel === "qq").length,
-    weixin: items.filter((item) => item.channel === "weixin").length
+    weixin: items.filter((item) => item.channel === "weixin").length,
+    system: items.filter((item) => item.channel === "system").length
   };
 
   return json({
@@ -336,8 +358,18 @@ export const POST: RequestHandler = async ({ request }) => {
     if (!root || !botId || botId.includes("/") || botId.includes("..")) return json({ ok: false, error: "invalid task target" }, { status: 400 });
     const botDir = join(root.botsRoot, botId);
     if (!existsSync(botDir)) return json({ ok: false, error: "bot_not_found" }, { status: 404 });
-    if (scope === "chat-scratch" && (!chatId || chatId.includes("/") || chatId.includes("..") || !existsSync(join(botDir, chatId)))) {
-      return json({ ok: false, error: "chat_not_found" }, { status: 404 });
+    if (scope === "chat-scratch") {
+      if (!chatId || chatId.includes("/") || chatId.includes("..")) {
+        return json({ ok: false, error: "chat_not_found" }, { status: 404 });
+      }
+      const chatDir = join(botDir, chatId);
+      if (!existsSync(chatDir)) {
+        if (channel === "web") {
+          mkdirSync(chatDir, { recursive: true });
+        } else {
+          return json({ ok: false, error: "chat_not_found" }, { status: 404 });
+        }
+      }
     }
     const eventsDir = scope === "workspace" ? join(botDir, "events") : join(botDir, chatId, "scratch", "events");
     mkdirSync(eventsDir, { recursive: true });
@@ -345,6 +377,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const filePath = join(eventsDir, `periodic-${now}-${Math.random().toString(36).slice(2, 8)}.json`);
     const event: RawEventTask = {
       taskId: createEventTaskId(),
+      enabled: true,
       type: "periodic",
       ...(chatId ? { chatId } : {}),
       text,
@@ -386,12 +419,22 @@ export const POST: RequestHandler = async ({ request }) => {
         error: `invalid_task_payload: ${error instanceof Error ? error.message : String(error)}`
       }, { status: 400 });
     }
+    if (current.managed?.by === "molibot") {
+      return json({ ok: false, error: "system_task_managed" }, { status: 400 });
+    }
 
     if (current.type !== "one-shot" && current.type !== "periodic" && current.type !== "immediate") {
       return json({ ok: false, error: "unsupported_task_type" }, { status: 400 });
     }
 
     const next: RawEventTask = { ...current };
+
+    if (patch.enabled !== undefined) {
+      if (typeof patch.enabled !== "boolean") {
+        return json({ ok: false, error: "enabled must be boolean" }, { status: 400 });
+      }
+      next.enabled = patch.enabled;
+    }
 
     if (patch.text !== undefined) {
       next.text = String(patch.text ?? "").trim();
@@ -494,6 +537,11 @@ export const POST: RequestHandler = async ({ request }) => {
       }
 
       try {
+        const current = JSON.parse(readFileSync(resolvedPath, "utf8")) as RawEventTask;
+        if (current.managed?.by === "molibot") {
+          failed.push({ filePath: resolvedPath, reason: "system_task_managed" });
+          continue;
+        }
         unlinkSync(resolvedPath);
         deleted.push(resolvedPath);
       } catch (error) {
@@ -541,17 +589,30 @@ export const POST: RequestHandler = async ({ request }) => {
           failed.push({ filePath: resolvedPath, reason: "invalid_task_payload" });
           continue;
         }
+        if (parsed.enabled === false) {
+          failed.push({ filePath: resolvedPath, reason: "task_paused" });
+          continue;
+        }
 
-        const channelManagers = runtime.channelManagers.get(item.channel) ?? new Map();
-        const manager = channelManagers.get(item.botId);
-        if (!manager) {
+        const isOwnerInternal = item.channel === SYSTEM_TASK_CHANNEL && parsed.execution === "internal";
+        const manager = isOwnerInternal ? undefined : runtime.channelManagers.get(item.channel)?.get(item.botId);
+        if (!isOwnerInternal && !manager) {
           failed.push({ filePath: resolvedPath, reason: `${item.channel}_manager_not_found:${item.botId}` });
           continue;
         }
-        if (typeof manager.triggerTask !== "function") {
+        if (!isOwnerInternal && typeof manager?.triggerTask !== "function") {
           failed.push({ filePath: resolvedPath, reason: `${item.channel}_trigger_not_supported` });
           continue;
         }
+        const dispatch = async (eventForRun: MomEvent): Promise<void> => {
+          if (isOwnerInternal) {
+            await runtime.runInternalEvent(eventForRun, item.filename);
+          } else if (eventForRun.execution === "internal") {
+            await dispatchTaskEvent(eventForRun, item.filename, manager!, runtime.runInternalEvent);
+          } else {
+            await manager!.triggerTask!(eventForRun, item.filename);
+          }
+        };
 
         if (parsed.type === "periodic") {
           const taskId = String(parsed.taskId ?? item.taskId ?? "").trim() || createEventTaskId();
@@ -604,14 +665,14 @@ export const POST: RequestHandler = async ({ request }) => {
             status: { state: parsed.status?.state ?? "running", ...(parsed.status ?? {}), runId }
           };
           try {
-            await manager.triggerTask(eventForRun, item.filename);
+            await dispatch(eventForRun);
             store.markCompleted(lease.id, runId);
           } catch (error) {
             store.markFailed(lease.id, runId, error instanceof Error ? error.message : String(error));
             throw error;
           }
         } else {
-          await manager.triggerTask(parsed as MomEvent, item.filename);
+          await dispatch(parsed as MomEvent);
         }
         triggered.push(resolvedPath);
       } catch (error) {

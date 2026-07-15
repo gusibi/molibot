@@ -26,6 +26,7 @@ const webSearchSchema = Type.Object({
   engine: Type.Optional(Type.Union([
     Type.Literal("auto"),
     Type.Literal("duckduckgo"),
+    Type.Literal("anysearch"),
     Type.Literal("brave"),
     Type.Literal("tavily"),
     Type.Literal("exa"),
@@ -225,7 +226,7 @@ export async function runWebSearch(
       attempts.push({ engine, route, ok: false, skipped: true, error: "engine_disabled" });
       continue;
     }
-    if (engine !== "duckduckgo" && !engineSettings.apiKey.trim()) {
+    if (engine !== "duckduckgo" && engine !== "anysearch" && !engineSettings.apiKey.trim()) {
       attempts.push({ engine, route, ok: false, skipped: true, error: "missing_api_key" });
       continue;
     }
@@ -295,12 +296,17 @@ export async function runWebSearch(
     }
   }
 
+  const hasSuccessfulAttempt = attempts.some((a) => a.ok && !a.skipped);
+  const summary = hasSuccessfulAttempt
+    ? "No search results found."
+    : "No configured search engine returned results.";
+
   return buildSearchResponse({
     engine: null,
     route,
     query: input.query,
     providerResult: { results: [] },
-    summary: "No configured search engine returned results.",
+    summary,
     summarySource: "none",
     attempts,
     fallbackOrder: engines

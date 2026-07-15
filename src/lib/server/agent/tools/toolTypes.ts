@@ -43,6 +43,10 @@ export interface ToolExecutionContext {
   network: SafeNetworkApi;
   emit: (event: RunDetailEntry) => void;
   signal?: AbortSignal;
+  /** The originating agent tool-call id. Unique per call, unlike runId which is shared by every call in a run. */
+  toolCallId?: string;
+  /** Streaming progress callback from the agent loop; handlers that delegate to AgentTool.execute must pass it through. */
+  onUpdate?: (update: any) => void;
 }
 
 export interface ToolDefinition {

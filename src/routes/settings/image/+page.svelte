@@ -62,6 +62,8 @@
       testButton: "测试",
       testingButton: "生成中...",
       testResultTitle: "测试响应结果",
+      testImageUrlLabel: "参考图 URL",
+      testImageUrlPlaceholder: "参考图 URL（多个用逗号或换行分隔，留空则纯文生图）",
       saveButton: "保存设置",
       savingButton: "保存中...",
       savedMsg: "图像生成设置已保存。",
@@ -118,6 +120,8 @@
       testButton: "Test",
       testingButton: "Generating...",
       testResultTitle: "ImageGenerateToolResponse",
+      testImageUrlLabel: "Reference image URLs",
+      testImageUrlPlaceholder: "Reference image URLs (comma or newline separated; leave empty for text-to-image)",
       saveButton: "Save settings",
       savingButton: "Saving...",
       savedMsg: "Image generation settings saved.",
@@ -176,6 +180,7 @@
   let testPrompt = "A futuristic cyberpunk cat logo";
   let testEngine: EngineId | "auto" = "auto";
   let testSize = "";
+  let testImageUrl = "";
   let testResult: any = null;
 
   let showApiKey: Record<string, boolean> = {};
@@ -286,10 +291,20 @@
     error = "";
     testResult = null;
     try {
+      const rawUrls = testImageUrl.trim();
+      const images = rawUrls
+        ? rawUrls.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
+        : [];
       const res = await fetch("/api/settings/image-generate/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: testPrompt, engine: testEngine, size: testSize || undefined, imageGenerate })
+        body: JSON.stringify({
+          prompt: testPrompt,
+          engine: testEngine,
+          size: testSize || undefined,
+          images: images.length ? images : undefined,
+          imageGenerate
+        })
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("testError"));
@@ -499,6 +514,15 @@
             </NativeSelect>
             <Input bind:value={testSize} placeholder={t("testSizePlaceholder")} />
             <Button type="button" variant="secondary" onclick={runTest} disabled={testing}>{testing ? t("testingButton") : t("testButton")}</Button>
+          </div>
+          <div class="grid gap-1.5">
+            <Label for="test-image-url">{t("testImageUrlLabel")}</Label>
+            <textarea
+              id="test-image-url"
+              class="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              bind:value={testImageUrl}
+              placeholder={t("testImageUrlPlaceholder")}
+            ></textarea>
           </div>
           {#if testResult}
             <div class="rounded-lg border bg-muted/30 p-4 text-sm">

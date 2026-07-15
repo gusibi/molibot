@@ -3,7 +3,7 @@ pub mod service;
 mod supervisor;
 
 use serde::Serialize;
-use service::ServiceStatus;
+use service::{ServiceOwnership, ServiceStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -50,6 +50,23 @@ fn open_settings(app: AppHandle) {
 }
 
 #[tauri::command]
+async fn pick_project_directory() -> Result<Option<String>, String> {
+    let output = std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", "POSIX path of (choose folder)"])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Ok((!path.is_empty()).then_some(path));
+    }
+    let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if error.contains("-128") || error.to_lowercase().contains("canceled") {
+        return Ok(None);
+    }
+    Err(if error.is_empty() { "Unable to open the folder picker.".into() } else { error })
+}
+
+#[tauri::command]
 fn desktop_status(
     app: AppHandle,
     state: tauri::State<'_, Mutex<DesktopState>>,
@@ -79,6 +96,24 @@ fn set_login_start(app: AppHandle, enabled: bool) -> Result<bool, String> {
         autostart.disable().map_err(|error| error.to_string())?;
     }
     autostart.is_enabled().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn restart_service(state: tauri::State<'_, Mutex<DesktopState>>) -> Result<(), String> {
+    let desktop = state.lock().map_err(|_| "desktop state is unavailable")?;
+    if !matches!(
+        desktop.service.lock().map_err(|_| "service state is unavailable")?.ownership,
+        Some(ServiceOwnership::Managed)
+    ) {
+        return Err("Only a desktop-managed service can be restarted here.".into());
+    }
+    supervisor::request_restart(&desktop.control);
+    Ok(())
+}
+
+#[tauri::command]
+fn desktop_logs() -> Result<String, String> {
+    supervisor::read_service_log(256 * 1024)
 }
 
 fn install_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -162,8 +197,11 @@ pub fn run() {
         .manage(audio::AudioState::default())
         .invoke_handler(tauri::generate_handler![
             open_settings,
+            pick_project_directory,
             desktop_status,
             set_login_start,
+            restart_service,
+            desktop_logs,
             audio::start_recording,
             audio::stop_recording,
             audio::cancel_recording

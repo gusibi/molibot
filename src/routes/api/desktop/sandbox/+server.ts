@@ -45,7 +45,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
     const runtime = getRuntime();
     const current = runtime.getSettings().toolSandbox;
     const nextSandbox = buildDesktopSandboxUpdate(current, body);
-    updateSystemConfig(runtime, { toolSandbox: nextSandbox });
+    await updateSystemConfig(runtime, { toolSandbox: nextSandbox });
     const sandbox = await buildSummary();
     const payload: DesktopSandboxPatchResponse = { ok: true, sandbox };
     return json(payload, { headers: { "Cache-Control": "no-store" } });

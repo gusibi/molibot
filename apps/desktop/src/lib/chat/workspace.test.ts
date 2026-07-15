@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { shouldReuseFreshSession } from "./workspace";
+import { openWorkspacePaneState, shouldReuseFreshSession } from "./workspace";
 
 test("New Chat reuses the active empty session", () => {
   assert.equal(shouldReuseFreshSession({
@@ -29,3 +29,11 @@ test("New Chat does not race an active send", () => {
   }), false);
 });
 
+test("workspace navigation leaves a running Project session in the background", () => {
+  assert.deepEqual(openWorkspacePaneState("skills"), {
+    workspacePane: "skills",
+    projectPaneActive: false,
+    searchOpen: false,
+    filePanelOpen: false
+  });
+});

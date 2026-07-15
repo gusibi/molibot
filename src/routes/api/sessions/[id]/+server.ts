@@ -6,7 +6,8 @@ import {
   sanitizeWebUserId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
-import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import { deleteWebSession } from "$lib/server/web/sessionLifecycle.js";
+import { loadConversationMessages } from "$lib/server/web/conversationProjection.js";
 
 export const GET: RequestHandler = async ({ params, url }) => {
   const id = params.id;
@@ -23,7 +24,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
     return json({ ok: false, error: "Session not found" }, { status: 404 });
   }
 
-  const messages = sessions.listMessages(id, 1000);
+  const messages = loadConversationMessages({ profileId, userId, conversationId: id });
   return json({
     ok: true,
     session: {
@@ -90,16 +91,12 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
   const userId = sanitizeWebUserId(body.userId);
   const profileId = sanitizeWebProfileId(body.profileId);
   const externalUserId = toWebExternalUserId(userId, profileId);
-  const { pool } = getWebRuntimeContext(profileId);
-  const runner = pool.get(externalUserId, id);
-  if (runner.isRunning()) {
+  const result = deleteWebSession({ conversationId: id, expectedExternalUserId: externalUserId });
+  if (result === "running") {
     return json({ ok: false, error: "Cannot delete a session while it is running" }, { status: 409 });
   }
-
-  const deleted = getRuntime().sessions.deleteConversation(id, "web", externalUserId);
-  if (!deleted) {
+  if (result === "not_found") {
     return json({ ok: false, error: "Session not found" }, { status: 404 });
   }
-  pool.reset(externalUserId, id);
   return json({ ok: true, deleted: true });
 };

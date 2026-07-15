@@ -5,6 +5,7 @@ import { VIDEO_GENERATE_PROVIDERS, submitVideoTask, queryVideoTaskStatus } from 
 import type { VideoGenerateEngine, VideoGenerateInput } from "./types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { SqliteVideoTaskStore } from "./videoTaskStore.js";
+import { describeFileToolResult, type RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 
 const videoGenerateSchema = Type.Object({
   prompt: Type.Optional(Type.String({
@@ -190,6 +191,7 @@ export function createVideoGenerateTool(options: {
   cwd: string;
   workspaceDir: string;
   artifactDir?: string;
+  outputLayout?: RunOutputLayout;
   uploadFile?: (filePath: string, title?: string, text?: string) => Promise<void>;
   sessionId?: string;
   taskStore?: SqliteVideoTaskStore;
@@ -267,6 +269,9 @@ export function createVideoGenerateTool(options: {
               text: formatCompletedTaskText(taskId, taskRecord.videoUrl, filePath, uploadedMessage)
             }],
             details: {
+              ...(filePath && options.outputLayout
+                ? describeFileToolResult(options.outputLayout, filePath, "generated", taskRecord.pollParams?.outputName)
+                : {}),
               status: "completed",
               progress: 100,
               taskId,

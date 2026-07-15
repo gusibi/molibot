@@ -39,7 +39,6 @@
   const usageAvgPerDay = $derived(usageDaily.length > 0 && usage ? usage.totals.totalTokens / 30 : 0);
 </script>
 
-<p class="settings-section-hint">{session.text.usageHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.usageUnavailable}</p></div></div>
 {:else if usageStore.loading}

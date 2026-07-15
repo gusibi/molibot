@@ -67,6 +67,17 @@ export interface SessionStatusSnapshot {
   usage: SessionUsageSnapshot;
 }
 
+/**
+ * Opaque, session-scoped marker of a point in the persisted session log.
+ * Produced by {@link MomRuntimeStore.createContextCheckpoint} and consumed by
+ * {@link MomRuntimeStore.restoreContextCheckpoint} to undo a failed model
+ * attempt's persisted steps.
+ */
+export interface SessionContextCheckpoint {
+  sessionId: string;
+  bodyEntryCount: number;
+}
+
 export interface SessionOriginMetadata {
   origin?: "automation" | "chat";
   taskId?: string;
@@ -550,6 +561,32 @@ export class MomRuntimeStore {
     this.writeSessionFileEntries(chatId, id, [header]);
   }
 
+  /**
+   * Removes the persisted Agent context linked to a UI Session. Unlike the
+   * interactive session command, lifecycle deletion may remove the last
+   * context and is idempotent so a partially completed UI cleanup can retry.
+   */
+  deleteSessionArtifacts(chatId: string, sessionId: string): boolean {
+    const id = this.sanitizeSessionId(sessionId);
+    const files = [
+      this.getSessionContextFile(chatId, id),
+      this.getSessionEntriesFile(chatId, id),
+      this.getSessionMetadataFile(chatId, id)
+    ];
+    const existed = files.some((file) => existsSync(file));
+
+    for (const file of files) {
+      if (existsSync(file)) unlinkSync(file);
+    }
+
+    const activeFile = this.getActiveSessionFile(chatId);
+    if (existsSync(activeFile)) {
+      const active = this.sanitizeSessionId(readFileSync(activeFile, "utf8"));
+      if (active === id) unlinkSync(activeFile);
+    }
+    return existed;
+  }
+
   deleteSession(chatId: string, sessionId: string): { deleted: string; active: string; remaining: string[] } {
     const id = this.sanitizeSessionId(sessionId);
     const sessions = this.listSessions(chatId);
@@ -698,6 +735,33 @@ export class MomRuntimeStore {
     }
   }
 
+  /** Raw append-only message entries used by the UI projection; compaction does not erase them. */
+  listSessionMessageEntries(chatId: string, sessionId?: string): SessionMessageEntry[] {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    return this.readSessionFileEntries(chatId, id)
+      .filter((entry): entry is SessionMessageEntry => entry.type === "message")
+      .map((entry) => ({ ...entry }));
+  }
+
+  /**
+   * Edit-and-resend counterpart for Agent entries. Drops the selected raw
+   * message entry and every later log entry, then rebuilds the model snapshot.
+   */
+  truncateSessionFromEntry(chatId: string, sessionId: string, entryId: string): number {
+    const id = this.sanitizeSessionId(sessionId);
+    const entries = this.readSessionFileEntries(chatId, id);
+    const header = entries.find((entry): entry is SessionHeaderEntry => entry.type === "session")
+      ?? createSessionHeader(id);
+    const body = entries.filter((entry): entry is SessionEntry => entry.type !== "session");
+    const index = body.findIndex((entry) => entry.type === "message" && entry.id === entryId);
+    if (index < 0) return 0;
+    const kept: SessionFileEntry[] = [header, ...body.slice(0, index)];
+    this.writeSessionFileEntries(chatId, id, kept);
+    const snapshot = buildMessagesFromSessionEntries(kept).messages;
+    writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+    return body.length - index;
+  }
+
   saveContext(chatId: string, messages: AgentMessage[], sessionId?: string): void {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     const current = this.loadContext(chatId, id);
@@ -767,6 +831,48 @@ export class MomRuntimeStore {
     });
     const snapshot = this.loadContext(chatId, id);
     writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+  }
+
+  /**
+   * Capture the current length of the persisted session log so a failed model
+   * attempt can be rolled back in lockstep with the in-memory context. The
+   * token is opaque and session-scoped; {@link restoreContextCheckpoint} only
+   * ever truncates entries appended after the checkpoint, never rewrites older
+   * history.
+   */
+  createContextCheckpoint(chatId: string, sessionId?: string): SessionContextCheckpoint {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const bodyEntryCount = this.readSessionFileEntries(chatId, id)
+      .filter((entry) => entry.type !== "session").length;
+    return { sessionId: id, bodyEntryCount };
+  }
+
+  /**
+   * Roll the persisted session log back to a checkpoint, discarding any message
+   * or runtime-event entries appended after it (e.g. the assistant/toolResult
+   * steps of a failed model attempt that the retry loop already re-runs from
+   * scratch). Rewrites both the append-only entries log and the context
+   * snapshot so a later {@link loadContext} sees no duplicated steps. Returns
+   * the number of entries dropped (0 if nothing to roll back).
+   */
+  restoreContextCheckpoint(
+    chatId: string,
+    checkpoint: SessionContextCheckpoint,
+    sessionId?: string
+  ): number {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    // Checkpoints are session-scoped; never cross a session boundary.
+    if (id !== checkpoint.sessionId) return 0;
+    const entries = this.readSessionFileEntries(chatId, id);
+    const header = entries.find((entry): entry is SessionHeaderEntry => entry.type === "session")
+      ?? createSessionHeader(id);
+    const body = entries.filter((entry): entry is SessionEntry => entry.type !== "session");
+    if (body.length <= checkpoint.bodyEntryCount) return 0;
+    const kept: SessionFileEntry[] = [header, ...body.slice(0, checkpoint.bodyEntryCount)];
+    this.writeSessionFileEntries(chatId, id, kept);
+    const snapshot = buildMessagesFromSessionEntries(kept).messages;
+    writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+    return body.length - checkpoint.bodyEntryCount;
   }
 
   getSessionThinkingLevelOverride(chatId: string, sessionId?: string): RuntimeThinkingLevel | null {

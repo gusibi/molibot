@@ -67,7 +67,7 @@ export function consolidateEpisodes(
   options: ConsolidationOptions = {}
 ): ConsolidatedRule[] {
   const minSupport = options.minSupport ?? 2;
-  const similarityThreshold = options.similarityThreshold ?? 0.45;
+  const similarityThreshold = options.similarityThreshold ?? 0.15;
   if (episodes.length === 0) return [];
 
   const grouped = new Map<string, EpisodicMemory[]>();

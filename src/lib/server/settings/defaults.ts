@@ -1,6 +1,8 @@
 import type { KnownProvider } from "@mariozechner/pi-ai";
 import {
   type AgentSettings,
+  DEFAULT_AGENT_ID,
+  defaultAgentSettings,
   isKnownProvider,
   type ChannelInstanceSettings,
   type CustomProviderConfig,
@@ -182,6 +184,7 @@ const envCustomProvider: CustomProviderConfig = {
     ? [{
       id: String(process.env.CUSTOM_AI_MODEL).trim(),
       tags: ["text", "vision", "stt", "tts"],
+      enabled: true,
       supportedRoles: ["system", "user", "assistant", "tool", "developer"]
     }]
     : [],
@@ -231,7 +234,7 @@ const defaultQQBots: QQBotConfig[] = defaultQQAppId && defaultQQClientSecret
   }]
   : [];
 
-const defaultAgents: AgentSettings[] = [];
+const defaultAgents: AgentSettings[] = [defaultAgentSettings()];
 const defaultMcpServers = parseEnvMcpServers();
 const defaultSkillSearchSettings: SkillSearchSettings = {
   local: {
@@ -276,7 +279,7 @@ function webSearchEngineFromEnv(id: WebSearchEngineId, envKey: string, enabledFa
 const defaultWebSearchSettings: WebSearchSettings = {
   enabled: String(process.env.MOLIBOT_WEB_SEARCH_ENABLED ?? "true").toLowerCase() !== "false",
   defaultRoute: "auto",
-  defaultEngine: "auto",
+  defaultEngine: "duckduckgo",
   engineSelectionStrategy: "priority",
   maxResults: Math.max(1, Math.min(20, Number(process.env.MOLIBOT_WEB_SEARCH_MAX_RESULTS ?? 5) || 5)),
   timeoutMs: Math.max(1000, Math.min(120000, Number(process.env.MOLIBOT_WEB_SEARCH_TIMEOUT_MS ?? 60000) || 60000)),
@@ -286,6 +289,7 @@ const defaultWebSearchSettings: WebSearchSettings = {
       enabled: String(process.env.MOLIBOT_WEB_SEARCH_DUCKDUCKGO_ENABLED ?? "true").toLowerCase() !== "false",
       apiKey: ""
     },
+    anysearch: webSearchEngineFromEnv("anysearch", "ANYSEARCH_API_KEY", true),
     brave: webSearchEngineFromEnv("brave", "BRAVE_API_KEY"),
     tavily: webSearchEngineFromEnv("tavily", "TAVILY_API_KEY"),
     exa: webSearchEngineFromEnv("exa", "EXA_API_KEY"),
@@ -430,6 +434,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     process.env.MOLIBOT_SYSTEM_PROMPT ??
     "You are Molibot, a concise and helpful assistant.",
   locale: process.env.MOLIBOT_LOCALE === "zh-CN" ? "zh-CN" : "en-US",
+  serverPort: Math.max(1024, Math.min(65535, Math.round(Number(process.env.PORT ?? 3000) || 3000))),
   timezone: normalizeTimeZone(
     String(process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone)
   ),
@@ -441,7 +446,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
           id: "default",
           name: "Default Web",
           enabled: true,
-          agentId: "",
+          agentId: DEFAULT_AGENT_ID,
           credentials: {},
           allowedChatIds: []
         }
@@ -474,8 +479,23 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   qqBots: defaultQQBots,
   plugins: {
     memory: {
-      enabled: String(process.env.MEMORY_ENABLED ?? "false").toLowerCase() === "true",
-      backend: (process.env.MEMORY_BACKEND ?? process.env.MEMORY_CORE ?? "json-file").trim() || "json-file"
+      enabled: String(process.env.MEMORY_ENABLED ?? "true").toLowerCase() === "true",
+      backend: (process.env.MEMORY_BACKEND ?? process.env.MEMORY_CORE ?? "mory").trim() || "mory",
+      embeddingProviderId: String(process.env.MEMORY_EMBEDDING_PROVIDER_ID ?? "").trim(),
+      embeddingModel: String(process.env.MEMORY_EMBEDDING_MODEL ?? "").trim(),
+      reflectionTime: String(process.env.MEMORY_REFLECTION_TIME ?? "03:00").trim() || "03:00",
+      reflectionNotifications: String(process.env.MEMORY_REFLECTION_NOTIFICATIONS ?? "true").toLowerCase() !== "false",
+      reflectionNotificationTarget: null,
+      dailyMaterials: {
+        enabled: false,
+        time: "23:30",
+        projectId: "",
+        dir: "content/daily-materials",
+        promptPath: "templates/daily-material-prompt.md",
+        notifications: true,
+        scanTokenBudget: 120000,
+        scanModelKey: ""
+      }
     },
     cloudflareHtml: {
       ...defaultCloudflareHtmlPluginSettings

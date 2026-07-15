@@ -86,6 +86,8 @@ export interface ExternalSessionEntry {
   conversation: Conversation;
   channel: Channel;
   externalUserId: string;
+  /** Short last-message text for the sidebar preview / search (plan §12.2). */
+  preview: string;
 }
 
 /**
@@ -139,6 +141,7 @@ export function buildDesktopExternalTranscriptMessage(
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     projected.attachments = message.attachments.map((attachment) => ({
       original: attachment.original,
+      local: attachment.local,
       mediaType: attachment.mediaType,
       mimeType: attachment.mimeType,
       size: attachment.size

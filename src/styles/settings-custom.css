@@ -796,6 +796,68 @@
   background: var(--background);
 }
 
+.provider-model-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.model-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+.model-search-input {
+  width: 100%;
+  max-width: 15rem;
+  height: 2.25rem !important;
+}
+.model-tabs-wrap {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--card);
+  padding: 0.125rem;
+}
+.model-tab-button {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.model-tab-button:hover {
+  color: var(--foreground);
+}
+.model-tab-button.active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.sort-toggle-button {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: transparent;
+  cursor: pointer;
+}
+.sort-toggle-button.active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+}
+
 .providers-table-wrap {
   margin-top: 1rem;
   border: 1px solid var(--border);
@@ -3302,4 +3364,11 @@
   align-items: center;
   gap: 0.25rem;
 }
-
+.trace-live-list { display: grid; gap: 0; }
+.trace-live-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.trace-live-row:last-child { border-bottom: 0; }
+.trace-live-copy { display: grid; gap: 5px; min-width: 0; }
+.trace-live-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trace-live-copy > span, .trace-live-copy > p { margin: 0; color: var(--muted-foreground); font-size: 12px; }
+.trace-live-copy > p { max-width: 760px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .trace-live-row { align-items: stretch; flex-direction: column; }.trace-live-row > button { width: 100%; } }

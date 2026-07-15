@@ -142,6 +142,17 @@ export interface AgentSettings {
   modelRouting?: AgentModelRouting;
 }
 
+export const DEFAULT_AGENT_ID = "default";
+
+export function defaultAgentSettings(): AgentSettings {
+  return {
+    id: DEFAULT_AGENT_ID,
+    name: "Default",
+    description: "Default assistant used by Web and new channel profiles.",
+    enabled: true
+  };
+}
+
 export interface ChannelInstanceDisplaySettings {
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
@@ -166,9 +177,32 @@ export interface ChannelPluginSettings {
 
 export type ChannelSettingsMap = Record<string, ChannelPluginSettings>;
 
+export interface MemoryReflectionNotificationTarget {
+  channel: "telegram" | "feishu";
+  botId: string;
+  chatId: string;
+}
+
 export interface MemoryBackendSettings {
   enabled: boolean;
   backend: string;
+  embeddingProviderId: string;
+  embeddingModel: string;
+  reflectionTime: string;
+  reflectionNotifications: boolean;
+  reflectionNotificationTarget: MemoryReflectionNotificationTarget | null;
+  dailyMaterials: {
+    enabled: boolean;
+    time: string;
+    projectId: string;
+    dir: string;
+    promptPath: string;
+    notifications: boolean;
+    scanTokenBudget: number;
+    // Model key (`pi|provider|model` / `custom|id|model`) for the scan+synthesis
+    // calls. Empty = follow the main text model. Lets a cheaper model do the scan.
+    scanModelKey: string;
+  };
 }
 
 export interface CloudflareHtmlPluginSettings {
@@ -269,6 +303,7 @@ export interface SkillDraftSettings {
 
 export type WebSearchEngineId =
   | "duckduckgo"
+  | "anysearch"
   | "brave"
   | "tavily"
   | "exa"
@@ -479,6 +514,7 @@ export interface RuntimeSettings {
   compaction: CompactionSettings;
   systemPrompt: string;
   locale: RuntimeLocale;
+  serverPort: number;
   timezone: string;
   agents: AgentSettings[];
   channels: ChannelSettingsMap;

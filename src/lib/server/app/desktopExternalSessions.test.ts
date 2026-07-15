@@ -24,7 +24,7 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
 }
 
 function entry(channel: Channel, conversation: Conversation, externalUserId = conversation.externalUserId): ExternalSessionEntry {
-  return { conversation, channel, externalUserId };
+  return { conversation, channel, externalUserId, preview: "" };
 }
 
 test("maskExternalUserId truncates long ids and passes short ids through", () => {
@@ -156,7 +156,7 @@ function message(overrides: Partial<ConversationMessage> = {}): ConversationMess
   };
 }
 
-test("buildDesktopExternalTranscriptMessage drops system messages and the local attachment path", () => {
+test("buildDesktopExternalTranscriptMessage drops system messages and preserves the local attachment path", () => {
   const projected = buildDesktopExternalTranscriptMessage(
     message({
       id: "msg-1",
@@ -166,9 +166,8 @@ test("buildDesktopExternalTranscriptMessage drops system messages and the local 
   );
   assert.equal(projected?.role, "user");
   assert.equal(projected?.attachments?.[0].original, "photo.png");
+  assert.equal(projected?.attachments?.[0].local, "files/secret/path/photo.png");
   assert.equal(projected?.attachments?.[0].mediaType, "image");
-  assert.equal(JSON.stringify(projected).includes("local"), false);
-  assert.equal(JSON.stringify(projected).includes("files/secret"), false);
 
   assert.equal(buildDesktopExternalTranscriptMessage(message({ role: "system" })), null);
 });
@@ -190,5 +189,5 @@ test("buildDesktopExternalTranscript projects session metadata and ordered messa
   assert.equal(transcript.chatType, "group");
   assert.equal(transcript.senderName, "Alice");
   assert.deepEqual(transcript.messages.map((m) => m.id), ["m1", "m3"]);
-  assert.equal(transcript.messages.every((m) => m.role !== "system"), true);
+  assert.deepEqual(transcript.messages.map((m) => m.role), ["user", "assistant"]);
 });

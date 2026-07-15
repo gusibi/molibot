@@ -273,6 +273,34 @@ async function callPiMono(
   throw new Error("pi-mono returned empty assistant response");
 }
 
+// Derive a settings snapshot that forces one reply onto a specific model, given
+// a `pi|provider|model` or `custom|id|model` key (the format used by
+// modelRouting / buildModelOptions). Empty/unknown key = use the main model.
+export function overrideSettingsForModelKey(settings: RuntimeSettings, modelKey?: string): RuntimeSettings {
+  const key = String(modelKey ?? "").trim();
+  if (!key) return settings;
+  const separator = key.indexOf("|");
+  const kind = key.slice(0, separator);
+  const rest = key.slice(separator + 1);
+  const providerSep = rest.indexOf("|");
+  if (separator < 0 || providerSep < 0) return settings;
+  const provider = rest.slice(0, providerSep);
+  const model = rest.slice(providerSep + 1);
+  if (!provider || !model) return settings;
+  if (kind === "pi") {
+    return { ...settings, providerMode: "pi", piModelProvider: provider as RuntimeSettings["piModelProvider"], piModelName: model };
+  }
+  if (kind === "custom") {
+    return {
+      ...settings,
+      providerMode: "custom",
+      defaultCustomProviderId: provider,
+      customProviders: settings.customProviders.map((entry) => entry.id === provider ? { ...entry, defaultModel: model } : entry)
+    };
+  }
+  return settings;
+}
+
 export class AssistantService {
   constructor(
     private readonly getSettings: () => RuntimeSettings,
@@ -280,8 +308,8 @@ export class AssistantService {
     private readonly modelErrorTracker?: ModelErrorTracker
   ) {}
 
-  async reply(history: ConversationMessage[], input: string, memoryContext = ""): Promise<string> {
-    const settings = this.getSettings();
+  async reply(history: ConversationMessage[], input: string, memoryContext = "", options: { modelKey?: string } = {}): Promise<string> {
+    const settings = overrideSettingsForModelKey(this.getSettings(), options.modelKey);
     let reply: ProviderReply;
     try {
       if (settings.providerMode === "custom") {

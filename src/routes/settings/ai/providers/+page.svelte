@@ -115,6 +115,11 @@
             eyebrow: "AI 引擎",
             title: "服务商与模型",
             desc: "配置 AI 推理服务商，管理模型注册表，并为文本、视觉、STT 和 TTS 能力配置路由。",
+            modelTabBuiltin: "内置模型",
+            modelTabCustom: "自建模型",
+            modelSearchPlaceholder: "搜索模型 ID...",
+            modelSortActive: "已启用优先",
+            modelSortDefault: "默认排序",
             backToRouting: "← 返回路由设置",
             loading: "正在加载服务商设置...",
             providerSource: "服务商来源",
@@ -255,6 +260,11 @@
             eyebrow: "AI Engine",
             title: "Providers & Models",
             desc: "Configure AI inference providers, manage model registries, and set up routing for text, vision, STT, and TTS capabilities.",
+            modelTabBuiltin: "Built-in Models",
+            modelTabCustom: "Custom Models",
+            modelSearchPlaceholder: "Search model ID...",
+            modelSortActive: "Active First",
+            modelSortDefault: "Default Sort",
             backToRouting: "← Back to routing",
             loading: "Loading providers...",
             providerSource: "Provider Source",
@@ -453,8 +463,25 @@
         activeProviderTab,
         providerSearch,
         getSelectedProviderInActiveTab());
+    let modelSearch = "";
+    let modelTab: "builtin" | "custom" = "builtin";
+    let sortActiveFirst = true;
+
+    let lastProviderId = "";
+    $: {
+        const currentId = selectedProviderDetail?.id ?? "";
+        if (currentId !== lastProviderId) {
+            lastProviderId = currentId;
+            if (selectedProviderDetail) {
+                const isBuiltin = builtinProviders.some((p) => p.id === selectedProviderDetail?.id);
+                modelTab = isBuiltin ? "builtin" : "custom";
+                modelSearch = "";
+            }
+        }
+    }
+
     $: visibleModels = selectedProviderDetail
-        ? (expandedProviderModelIds, visibleModelRows(selectedProviderDetail))
+        ? getVisibleModelsList(selectedProviderDetail, modelTab, modelSearch, sortActiveFirst, expandedProviderModelIds)
         : [];
 
     function providerEnvVar(provider: string): string | undefined {
@@ -1025,24 +1052,65 @@
         );
     }
 
-    function visibleModelRows(
+    function getVisibleModelsList(
         provider: CustomProviderForm,
+        tab: "builtin" | "custom",
+        search: string,
+        sortActive: boolean,
+        expandedIds: Set<string>
     ): Array<{ model: ProviderModelForm; index: number }> {
-        const rows = provider.models.map((model, index) => ({ model, index }));
-        if (
-            !isBuiltinProvider(provider) ||
-            expandedProviderModelIds.has(provider.id) ||
-            rows.length <= collapsedBuiltinModelLimit
-        ) {
-            return rows;
+        const builtinModels = builtinProviderModels[provider.id] ?? [];
+
+        let rows = provider.models.map((model, index) => ({ model, index }));
+
+        // 1. Filter by Tab
+        rows = rows.filter((item) => {
+            const isBuiltin = builtinModels.includes(item.model.id);
+            return tab === "builtin" ? isBuiltin : !isBuiltin;
+        });
+
+        // 2. Filter by Search Query
+        const query = search.trim().toLowerCase();
+        if (query) {
+            rows = rows.filter((item) => item.model.id.toLowerCase().includes(query));
         }
-        return rows.slice(0, collapsedBuiltinModelLimit);
+
+        // 3. Sort active first
+        if (sortActive) {
+            rows = [...rows].sort((a, b) => {
+                const aVal = a.model.enabled !== false ? 1 : 0;
+                const bVal = b.model.enabled !== false ? 1 : 0;
+                if (aVal !== bVal) return bVal - aVal;
+                return a.index - b.index;
+            });
+        }
+
+        // Apply built-in limit
+        if (
+            isBuiltinProvider(provider) &&
+            !expandedIds.has(provider.id) &&
+            tab === "builtin"
+        ) {
+            if (rows.length > collapsedBuiltinModelLimit) {
+                return rows.slice(0, collapsedBuiltinModelLimit);
+            }
+        }
+
+        return rows;
     }
 
-    function hiddenModelCount(provider: CustomProviderForm): number {
+    function hiddenModelCount(provider: CustomProviderForm, tab: "builtin" | "custom", search: string): number {
         if (!isBuiltinProvider(provider)) return 0;
         if (expandedProviderModelIds.has(provider.id)) return 0;
-        return Math.max(0, provider.models.length - collapsedBuiltinModelLimit);
+        if (tab !== "builtin") return 0;
+
+        const builtinModels = builtinProviderModels[provider.id] ?? [];
+        let rows = provider.models.filter(m => builtinModels.includes(m.id));
+        const query = search.trim().toLowerCase();
+        if (query) {
+            rows = rows.filter(m => m.id.toLowerCase().includes(query));
+        }
+        return Math.max(0, rows.length - collapsedBuiltinModelLimit);
     }
 
     function toggleModelList(providerId: string): void {
@@ -1987,6 +2055,42 @@
                                 {copy.noModelsDefined}
                             </div>
                         {:else}
+                            <div class="provider-model-controls">
+                                <div class="model-controls-left">
+                                    <input
+                                        type="text"
+                                        class="providers-table-input model-search-input"
+                                        placeholder={copy.modelSearchPlaceholder}
+                                        bind:value={modelSearch}
+                                    />
+                                    <div class="model-tabs-wrap">
+                                        <button
+                                            type="button"
+                                            class="model-tab-button"
+                                            class:active={modelTab === "builtin"}
+                                            onclick={() => (modelTab = "builtin")}
+                                        >
+                                            {copy.modelTabBuiltin}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="model-tab-button"
+                                            class:active={modelTab === "custom"}
+                                            onclick={() => (modelTab = "custom")}
+                                        >
+                                            {copy.modelTabCustom}
+                                        </button>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="providers-btn-outline sort-toggle-button"
+                                    class:active={sortActiveFirst}
+                                    onclick={() => (sortActiveFirst = !sortActiveFirst)}
+                                >
+                                    {sortActiveFirst ? copy.modelSortActive : copy.modelSortDefault}
+                                </button>
+                            </div>
                             <div class="providers-table-wrap">
                                 <table class="providers-table">
                                     <thead>
@@ -2054,7 +2158,7 @@
                             </div>
                         {/if}
 
-                        {#if isBuiltinProvider(cp) && cp.models.length > collapsedBuiltinModelLimit}
+                        {#if isBuiltinProvider(cp) && modelTab === "builtin" && hiddenModelCount(cp, modelTab, modelSearch) > 0}
                             <div class="providers-models-expand">
                                 <button
                                     type="button"
@@ -2063,7 +2167,7 @@
                                 >
                                     {expandedProviderModelIds.has(cp.id)
                                         ? copy.collapseModelsBtn
-                                        : copy.showMoreModelsBtn.replace("{count}", String(hiddenModelCount(cp)))}
+                                        : copy.showMoreModelsBtn.replace("{count}", String(hiddenModelCount(cp, modelTab, modelSearch)))}
                                 </button>
                             </div>
                         {/if}

@@ -240,6 +240,7 @@ function isClearLocalWinner(matches: SkillSearchMatch[]): boolean {
 export function createSkillSearchTool(options: {
   workspaceDir: string;
   chatId: string;
+  projectRoot?: string;
   getSettings: () => RuntimeSettings;
 }): AgentTool<typeof skillSearchSchema> {
   return {
@@ -251,7 +252,8 @@ export function createSkillSearchTool(options: {
     execute: async (toolCallId, params, signal) => {
       const settings = options.getSettings();
       const { skills } = loadSkillsFromWorkspace(options.workspaceDir, options.chatId, {
-        disabledSkillPaths: settings.disabledSkillPaths
+        disabledSkillPaths: settings.disabledSkillPaths,
+        projectRoot: options.projectRoot
       });
       const intent = String(params.intent ?? "").trim();
       const maxResults = Math.max(1, Math.min(10, Number(params.maxResults ?? 5) || 5));

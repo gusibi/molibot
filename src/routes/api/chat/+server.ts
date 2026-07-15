@@ -30,15 +30,28 @@ import {
   sanitizeWebUserId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
-import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import {
+  getWebRuntimeContext,
+  getRuntimeContextForConversation,
+  resolveRunnerChatId,
+  resolveRuntimeContext
+} from "$lib/server/web/runtimeContext";
 import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
 import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import type { ConversationAttachment } from "$lib/shared/types/message";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec";
+import {
+  retryApprovalAutoResume,
+  APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
+  APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS
+} from "$lib/server/channels/shared/approvalAutoResume";
 import { getHostBashStore } from "$lib/server/hostBash";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n";
 import { saveWebResponseAttachment } from "$lib/server/web/attachments";
+import { resolveProjectContext } from "$lib/server/projects/context";
+import { getProjectStore } from "$lib/server/projects/store";
+import { WEB_COMMAND_DEFINITIONS } from "$lib/server/app/composerSuggestions";
 
 interface ChatBody {
   userId?: string;
@@ -46,6 +59,8 @@ interface ChatBody {
   conversationId?: string;
   profileId?: string;
   thinkingLevel?: string;
+  projectId?: string;
+  modelKey?: string;
 }
 
 interface ParsedWebChatRequest {
@@ -55,6 +70,8 @@ interface ParsedWebChatRequest {
   profileId: string;
   files: File[];
   thinkingLevel: RuntimeThinkingLevel;
+  projectId?: string;
+  modelKey?: string;
 }
 
 interface WebCommandResult {
@@ -124,10 +141,14 @@ function buildModelsText(profileId: string, route: ModelRoute): string {
   return lines.join("\n");
 }
 
-function buildSkillsText(profileId: string, rawArg = "", detailMode = false): string {
+function buildSkillsText(profileId: string, rawArg = "", detailMode = false, projectId?: string): string {
   const locale = commandLocaleFromSettings(getRuntime().getSettings());
-  const { store } = getWebRuntimeContext(profileId);
-  const { skills, diagnostics } = loadSkillsFromWorkspace(store.getWorkspaceDir(), "web");
+  const project = projectId ? getProjectStore().get(projectId) : null;
+  const { store } = projectId ? resolveRuntimeContext({ profileId, projectId }) : getWebRuntimeContext(profileId);
+  const { skills, diagnostics } = loadSkillsFromWorkspace(store.getWorkspaceDir(), "web", {
+    disabledSkillPaths: getRuntime().getSettings().disabledSkillPaths,
+    projectRoot: project?.rootPath
+  });
   const selector = rawArg.trim();
   if (selector) {
     const skill = findSkillBySelector(skills, selector);
@@ -173,10 +194,10 @@ async function handleWebHostToolsCommand(
   if (!externalUserId) {
     return { ok: true, response: "No active Web chat scope for Host Bash approvals." };
   }
-  const { store } = getWebRuntimeContext(profileId);
+  const { store, pool } = getRuntimeContextForConversation(profileId, conversationId);
   const hostBashStore = getHostBashStore();
   const [subcommand = "list", approvalId = ""] = rawArg.split(/\s+/).filter(Boolean);
-  const scopeId = externalUserId;
+  const scopeId = resolveRunnerChatId(conversationId, externalUserId);
   const sessionId = conversationId || store.getActiveSession(scopeId);
 
   if (subcommand === "list") {
@@ -269,51 +290,74 @@ async function handleWebHostToolsCommand(
 
         if (rewritten) {
           store.saveContext(scopeId, messages, sessionId);
-          const { pool } = getWebRuntimeContext(profileId);
           pool.reset(scopeId, sessionId);
-          const runner = pool.get(scopeId, sessionId);
 
           const workspaceId = resolveWorkspaceId();
           const messageId = Date.now();
           const ts = `${Date.now() / 1000}`;
 
-          void runner.run({
-            channel: "web",
-            workspaceDir: store.getWorkspaceDir(),
-            chatDir: store.getChatDir(scopeId),
-            message: {
-              chatId: scopeId,
-              workspaceId,
-              chatType: "private",
-              messageId,
-              userId: scopeId,
-              userName: scopeId,
-              text: "",
-              ts,
-              attachments: [],
-              imageContents: [],
-              sessionId,
-              isEvent: true
+          // The approving turn may still hold the session lock; retry until it
+          // releases instead of letting the conflict reject unhandled (which
+          // crashes the sidecar process).
+          void retryApprovalAutoResume({
+            run: async () => {
+              await pool.get(scopeId, sessionId).run({
+                channel: "web",
+                workspaceDir: store.getWorkspaceDir(),
+                chatDir: store.getChatDir(scopeId),
+                message: {
+                  chatId: scopeId,
+                  workspaceId,
+                  chatType: "private",
+                  messageId,
+                  userId: scopeId,
+                  userName: scopeId,
+                  text: "",
+                  ts,
+                  attachments: [],
+                  imageContents: [],
+                  sessionId,
+                  isEvent: true
+                },
+                respond: async (text: string) => {
+                  if (text.trim()) {
+                    getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+                  }
+                },
+                replaceMessage: async (text: string) => {
+                  if (text.trim()) {
+                    getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+                  }
+                },
+                respondInThread: async (text: string) => {
+                  if (text.trim()) {
+                    getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+                  }
+                },
+                setTyping: async () => {},
+                setWorking: async () => {},
+                deleteMessage: async () => {},
+                uploadFile: async () => {}
+                });
             },
-            respond: async (text: string) => {
-              if (text.trim()) {
-                getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+            maxAttempts: APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS,
+            delayMs: APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
+            onWarn: (warningCode, meta) => {
+              if (warningCode === "approval_auto_resume_retrying" && meta.attempt !== 1 && meta.attempt % 60 !== 0) {
+                return;
               }
+              console.warn("[web:auto-resume]", warningCode, { scopeId, sessionId, ...meta });
             },
-            replaceMessage: async (text: string) => {
-              if (text.trim()) {
-                getRuntime().sessions.appendMessage(sessionId, "assistant", text);
-              }
-            },
-            respondInThread: async (text: string) => {
-              if (text.trim()) {
-                getRuntime().sessions.appendMessage(sessionId, "assistant", text);
-              }
-            },
-            setTyping: async () => {},
-            setWorking: async () => {},
-            deleteMessage: async () => {},
-            uploadFile: async () => {}
+            onRetryExhausted: () => {
+              getRuntime().sessions.appendMessage(
+                sessionId,
+                "assistant",
+                webCommandText(
+                  "Command executed, but the session is still busy. Send any message to continue the task.",
+                  "命令已执行，但当前会话仍处于忙碌状态。发送任意消息可继续刚才的任务。"
+                )
+              );
+            }
           });
         }
       } catch (error) {
@@ -337,7 +381,8 @@ async function tryHandleWebCommand(
   message: string,
   profileId: string,
   conversationId?: string,
-  externalUserId?: string
+  externalUserId?: string,
+  projectId?: string
 ): Promise<WebCommandResult | null> {
   const trimmed = message.trim();
   if (!trimmed.startsWith("/")) return null;
@@ -353,20 +398,10 @@ async function tryHandleWebCommand(
       ok: true,
       response: [
         d("Available commands:", "可用命令："),
-        `/models - ${d("list text model options and current active model", "查看文本模型选项和当前模型")}`,
-        `/models <index|key> - ${d("switch text model", "切换文本模型")}`,
-        `/models <text|vision|stt|tts|subagent> - ${d("list a specific route", "查看指定模型路由")}`,
-        `/models <text|vision|stt|tts|subagent> <index|key> - ${d("switch that route", "切换指定模型路由")}`,
-        `/skills - ${d("list loaded skill names and file paths", "查看已加载技能名称和文件路径")}`,
-        `/skills <id> - ${d("show details for one loaded skill", "查看单个技能详情")}`,
-        `/skills-detail - ${d("show full details for all loaded skills", "查看所有技能完整详情")}`,
-        `/compact [instructions] - ${d("summarize older context in current conversation", "压缩当前会话的较早上下文")}`,
-        `/hosttools - ${d("list pending Host Bash approvals", "查看待处理的 Host Bash 审批")}`,
-        `/hosttools approve <approvalId> - ${d("approve, execute, and whitelist a pending Host Bash request", "批准、执行并将待处理的 Host Bash 请求加入白名单")}`,
-        `/hosttools approve-once <approvalId> - ${d("approve and execute once without whitelisting", "仅批准并执行一次，不加入白名单")}`,
-        `/hosttools approve-session <approvalId> - ${d("approve only for the current session", "仅为当前会话批准")}`,
-        `/hosttools reject <approvalId> - ${d("reject a pending Host Bash request", "拒绝待处理的 Host Bash 请求")}`,
-        `/help - ${d("show this help", "显示此帮助")}`
+        ...WEB_COMMAND_DEFINITIONS.map((definition) => {
+          const usage = `/${definition.name}${definition.argumentHint ? ` ${definition.argumentHint}` : ""}`;
+          return `${usage} - ${d(definition.description.en, definition.description.zh)}`;
+        })
       ].join("\n")
     };
   }
@@ -374,14 +409,14 @@ async function tryHandleWebCommand(
   if (cmd === "/skills") {
     return {
       ok: true,
-      response: buildSkillsText(profileId, rawArg, false)
+      response: buildSkillsText(profileId, rawArg, false, projectId)
     };
   }
 
   if (cmd === "/skills-detail") {
     return {
       ok: true,
-      response: buildSkillsText(profileId, rawArg, true)
+      response: buildSkillsText(profileId, rawArg, true, projectId)
     };
   }
 
@@ -437,8 +472,8 @@ async function tryHandleWebCommand(
         response: webCommandText("No active conversation to compact. Start a chat first, then run /compact.", "没有可压缩的当前会话。请先开始聊天，再运行 /compact。")
       };
     }
-    const { pool } = getWebRuntimeContext(profileId);
-    const result = await pool.compact(externalUserId, conversationId, {
+    const { pool } = getRuntimeContextForConversation(profileId, conversationId);
+    const result = await pool.compact(resolveRunnerChatId(conversationId, externalUserId), conversationId, {
       reason: "manual",
       customInstructions: rawArg || undefined
     });
@@ -535,7 +570,9 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
       conversationId: conversationRaw || undefined,
       profileId,
       files,
-      thinkingLevel: sanitizeRuntimeThinkingLevel(String(form.get("thinkingLevel") ?? ""))
+      thinkingLevel: sanitizeRuntimeThinkingLevel(String(form.get("thinkingLevel") ?? "")),
+      projectId: String(form.get("projectId") ?? "").trim() || undefined,
+      modelKey: String(form.get("modelKey") ?? "").trim() || undefined
     };
   }
 
@@ -546,7 +583,9 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
     conversationId: String(body.conversationId ?? "").trim() || undefined,
     profileId: sanitizeWebProfileId(body.profileId),
     files: [],
-    thinkingLevel: sanitizeRuntimeThinkingLevel(body.thinkingLevel)
+    thinkingLevel: sanitizeRuntimeThinkingLevel(body.thinkingLevel),
+    projectId: String(body.projectId ?? "").trim() || undefined,
+    modelKey: String(body.modelKey ?? "").trim() || undefined
   };
 }
 
@@ -568,13 +607,25 @@ export const POST: RequestHandler = async ({ request }) => {
       parsed.message,
       parsed.profileId,
       parsed.conversationId,
-      externalUserId
+      externalUserId,
+      parsed.projectId
     );
     if (command) {
+      const runtime = getRuntime();
+      const projectResult = resolveProjectContext(parsed.projectId);
+      if (!projectResult.ok) return json({ ok: false, error: projectResult.error }, { status: projectResult.status });
+      const conversation = runtime.sessions.getOrCreateConversation(
+        "web",
+        externalUserId,
+        parsed.conversationId,
+        { projectId: projectResult.project?.id }
+      );
+      runtime.sessions.appendMessage(conversation.id, "user", parsed.message);
+      runtime.sessions.appendMessage(conversation.id, "assistant", command.response);
       return json({
         ok: true,
         response: command.response,
-        conversationId: parsed.conversationId,
+        conversationId: conversation.id,
         profileId: parsed.profileId,
         diagnostics: []
       });
@@ -582,15 +633,23 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const runtime = getRuntime();
+  const projectResult = resolveProjectContext(parsed.projectId);
+  if (!projectResult.ok) return json({ ok: false, error: projectResult.error }, { status: projectResult.status });
+  const project = projectResult.project;
   const workspaceId = resolveWorkspaceId();
   const externalUserId = toWebExternalUserId(parsed.userId, parsed.profileId);
   const conversation = runtime.sessions.getOrCreateConversation(
     "web",
     externalUserId,
-    parsed.conversationId
+    parsed.conversationId,
+    { projectId: project?.id }
   );
 
-  const { store, pool } = getWebRuntimeContext(parsed.profileId);
+  const { store, pool } = resolveRuntimeContext({ profileId: parsed.profileId, projectId: project?.id });
+  // Project conversations may originate on a channel bot (e.g. Feishu); keying
+  // the runner by the conversation's own externalUserId reopens that exact
+  // agent context instead of forking a Web-keyed copy.
+  const runnerChatId = project ? conversation.externalUserId : externalUserId;
   const ts = `${Date.now() / 1000}`;
   const messageId = Date.now();
   const attachments: FileAttachment[] = [];
@@ -600,7 +659,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const bytes = Buffer.from(await file.arrayBuffer());
     const mediaType = inferMediaType(file);
     const saved = store.saveAttachment(
-      externalUserId,
+      runnerChatId,
       file.name || "upload.bin",
       ts,
       bytes,
@@ -627,7 +686,7 @@ export const POST: RequestHandler = async ({ request }) => {
     mimeType: attachment.mimeType,
     size: attachment.size
   }));
-  const runner = pool.get(externalUserId, conversation.id);
+  const runner = pool.get(runnerChatId, conversation.id);
   if (runner.isRunning()) {
     return json(
       { ok: false, error: "Already working. Please wait for current response to finish." },
@@ -635,17 +694,20 @@ export const POST: RequestHandler = async ({ request }) => {
     );
   }
   runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
-    attachments: sessionAttachments
+    attachments: sessionAttachments,
+    contextBacked: true
   });
 
   let finalText = "";
   const threadNotes: string[] = [];
   const runnerDiagnostics: string[] = [];
+  let responseModel = "";
   const responseAttachments: ConversationAttachment[] = [];
   const activityCollector = new ConversationActivityCollector();
 
   const appendRunnerDiagnostic = (event: RunnerUiEvent): void => {
     if (event.type === "thinking_config") {
+      responseModel = [event.provider, event.model].filter(Boolean).join("/");
       runnerDiagnostics.push(
         [
           `thinking_requested=${event.requestedThinkingLevel}`,
@@ -658,6 +720,7 @@ export const POST: RequestHandler = async ({ request }) => {
       return;
     }
     if (event.type === "payload") {
+      if (!responseModel) responseModel = [event.provider, event.model].filter(Boolean).join("/");
       runnerDiagnostics.push(
         [
           `payload_provider=${event.provider}`,
@@ -692,10 +755,22 @@ export const POST: RequestHandler = async ({ request }) => {
   const result = await runner.run({
     channel: "web",
     workspaceDir: store.getWorkspaceDir(),
-    chatDir: store.getChatDir(externalUserId),
+    chatDir: store.getChatDir(runnerChatId),
     thinkingLevelOverride: parsed.thinkingLevel,
+    modelKeyOverride: parsed.modelKey ?? project?.modelKey,
+    project: project ? {
+      id: project.id,
+      name: project.name,
+      rootPath: project.rootPath,
+      instructions: project.instructions,
+      sandboxEnabled: project.sandboxEnabled,
+      toolProgress: project.toolProgress,
+      showReasoning: project.showReasoning,
+      runLogNotice: project.runLogNotice,
+      scratchDir: store.getScratchDir(runnerChatId)
+    } : undefined,
     message: {
-      chatId: externalUserId,
+      chatId: runnerChatId,
       workspaceId,
       chatType: "private",
       messageId,
@@ -727,7 +802,7 @@ export const POST: RequestHandler = async ({ request }) => {
     uploadFile: async (filePath, title) => {
       responseAttachments.push(saveWebResponseAttachment({
         store,
-        externalUserId,
+        externalUserId: runnerChatId,
         filePath,
         title
       }));
@@ -747,7 +822,9 @@ export const POST: RequestHandler = async ({ request }) => {
   if (result.stopReason !== "waiting_for_approval") {
     runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
       attachments: responseAttachments,
-      activities: activityCollector.snapshot()
+      activities: activityCollector.finalSnapshot(),
+      model: responseModel || undefined,
+      contextBacked: true
     });
   }
 

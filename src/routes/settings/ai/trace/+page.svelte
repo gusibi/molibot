@@ -188,11 +188,16 @@
         runs: RunSummary[];
     }
 
+    interface ActiveRun {
+        runId: string; agentName: string; channel: string; botName: string; status: "running" | "stuck" | "orphan"; startedAt: string; durationMs: number; taskPreview: string;
+    }
+
     const COPY = {
         "zh-CN": {
             eyebrow: "Agent Trace Observatory",
             title: "Trace 分析",
             desc: "基于 agent_trace_facts 汇总工具调用、模型请求、session 和 run 维度的执行数据；原始 agent_trace_events 仍作为审计事件保留。",
+            activeRuns: { title: "当前运行", desc: "以真实 Runner 为准识别运行中、疑似卡住与孤儿 Trace。", empty: "当前没有运行或待清理的记录。", running: "运行中", stuck: "疑似卡住", orphan: "孤儿记录", stop: "停止运行", clear: "清理记录", confirmStop: "确定停止这个正在运行的任务吗？", confirmClear: "确定将这条孤儿 Trace 标记为已中止吗？审计记录不会删除。", taskMissing: "旧运行未记录任务摘要。" },
             rangeTitles: {
                 today: "今天",
                 yesterday: "昨天",
@@ -354,6 +359,7 @@
             eyebrow: "Agent Trace Observatory",
             title: "Trace Analysis",
             desc: "Aggregated execution data for tool calls, model requests, sessions, and runs based on agent_trace_facts; original agent_trace_events are retained as audit events.",
+            activeRuns: { title: "Active Runs", desc: "Uses live Runner state to distinguish running, possibly stuck, and orphan Trace records.", empty: "No active or cleanup-needed runs.", running: "Running", stuck: "Possibly stuck", orphan: "Orphan record", stop: "Stop Run", clear: "Clear Record", confirmStop: "Stop this active run?", confirmClear: "Mark this orphan Trace as aborted? The audit record will be preserved.", taskMissing: "This older run did not record a task summary." },
             rangeTitles: {
                 today: "Today",
                 yesterday: "Yesterday",
@@ -534,6 +540,32 @@
     let paginatedFacts: TraceFact[] = [];
     let totalFactsCount = 0;
     let factsLoading = false;
+    let activeRuns: ActiveRun[] = [];
+    let activeRunsLoading = true;
+    let activeRunBusy = "";
+
+    async function loadActiveRuns(): Promise<void> {
+        activeRunsLoading = activeRuns.length === 0;
+        try {
+            const res = await fetch("/api/desktop/active-runs");
+            const data = await res.json();
+            if (!res.ok || !data.ok) throw new Error(data.error || res.statusText);
+            activeRuns = data.items;
+        } catch { activeRuns = []; }
+        finally { activeRunsLoading = false; }
+    }
+
+    async function stopActiveRun(item: ActiveRun): Promise<void> {
+        if (activeRunBusy || !confirm(item.status === "orphan" ? copy.activeRuns.confirmClear : copy.activeRuns.confirmStop)) return;
+        activeRunBusy = item.runId;
+        try {
+            const res = await fetch("/api/desktop/active-runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId: item.runId }) });
+            const data = await res.json();
+            if (!res.ok || !data.ok) throw new Error(data.error || res.statusText);
+            await Promise.all([loadActiveRuns(), loadTrace()]);
+        } catch (error) { traceError = error instanceof Error ? error.message : String(error); }
+        finally { activeRunBusy = ""; }
+    }
 
     async function loadPaginatedFacts() {
         factsLoading = true;
@@ -700,7 +732,12 @@
         void loadTrace();
     }
 
-    onMount(loadTrace);
+    onMount(() => {
+        void loadTrace();
+        void loadActiveRuns();
+        const timer = setInterval(() => void loadActiveRuns(), 3000);
+        return () => clearInterval(timer);
+    });
 
     $: totals = traceStats?.totals;
     $: totalPages = Math.ceil(totalFactsCount / pageSize) || 1;
@@ -736,6 +773,20 @@
             </div>
         </div>
     </header>
+
+    <Card>
+        <CardHeader><CardTitle class="font-serif text-lg">{copy.activeRuns.title}</CardTitle><CardDescription>{copy.activeRuns.desc}</CardDescription></CardHeader>
+        <CardContent>
+            {#if activeRunsLoading}<Skeleton class="usage-skeleton-block" />
+            {:else if activeRuns.length === 0}<p class="usage-card-subtext">{copy.activeRuns.empty}</p>
+            {:else}<div class="trace-live-list">{#each activeRuns as item (item.runId)}
+                <div class="trace-live-row">
+                    <div class="trace-live-copy"><div class="trace-live-title"><strong>{item.agentName} · {item.botName}</strong><Badge variant={item.status === "running" ? "secondary" : "destructive"}>{item.status === "running" ? copy.activeRuns.running : item.status === "stuck" ? copy.activeRuns.stuck : copy.activeRuns.orphan}</Badge></div><span>{item.channel} · {formatDuration(item.durationMs)} · {formatDateTime(item.startedAt)}</span><p>{item.taskPreview || copy.activeRuns.taskMissing}</p></div>
+                    <Button variant="destructive" size="sm" disabled={Boolean(activeRunBusy)} onclick={() => stopActiveRun(item)}>{item.status === "orphan" ? copy.activeRuns.clear : copy.activeRuns.stop}</Button>
+                </div>
+            {/each}</div>{/if}
+        </CardContent>
+    </Card>
 
     {#if traceError}
         <Alert variant="destructive">

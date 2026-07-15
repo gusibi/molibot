@@ -55,6 +55,7 @@ cp "$ROOT_DIR/.env.example" "$OUTPUT_DIR/.env.example"
 mkdir -p "$OUTPUT_DIR/scripts/runtime"
 cp "$ROOT_DIR/scripts/start-server.mjs" "$OUTPUT_DIR/scripts/start-server.mjs"
 cp "$ROOT_DIR/scripts/runtime/service-lease.mjs" "$OUTPUT_DIR/scripts/runtime/service-lease.mjs"
+cp "$ROOT_DIR/scripts/runtime/service-port.mjs" "$OUTPUT_DIR/scripts/runtime/service-port.mjs"
 
 for script_name in molibot.js molibot-release.sh molibot-manage.js molibot-service.sh molibot-update.sh molibot-control.js molibot-control-service.sh; do
   if [[ -f "$ROOT_DIR/bin/$script_name" ]]; then

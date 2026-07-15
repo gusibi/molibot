@@ -51,4 +51,18 @@ export class ConversationActivityCollector {
   snapshot(): ConversationActivity[] {
     return this.activities.map((activity) => ({ ...activity }));
   }
+
+  /**
+   * Snapshot for persistence after the run has ended. Anything still "running"
+   * can never finish (abort, crash, or a tool that never emitted its end
+   * event), so it is closed out as an error — otherwise the transcript renders
+   * a spinner forever.
+   */
+  finalSnapshot(): ConversationActivity[] {
+    return this.activities.map((activity) =>
+      activity.state === "running"
+        ? { ...activity, state: "error" as const, summary: activity.summary ?? "Interrupted before completion." }
+        : { ...activity }
+    );
+  }
 }

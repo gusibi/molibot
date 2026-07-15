@@ -6,6 +6,7 @@ export interface SqlMemoryRow {
   id: string;
   user_id: string;
   path: string;
+  domain: string | null;
   memory_type: string;
   subject: string;
   l0_title: string | null;
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS memory_nodes (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   path TEXT NOT NULL,
+  domain TEXT,
   memory_type TEXT NOT NULL,
   subject TEXT NOT NULL,
   l0_title TEXT,
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS memory_nodes (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   path TEXT NOT NULL,
+  domain TEXT,
   memory_type TEXT NOT NULL,
   subject TEXT NOT NULL,
   l0_title TEXT,
@@ -95,6 +98,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_nodes_user_path_version
 CREATE INDEX IF NOT EXISTS idx_memory_nodes_user_type
   ON memory_nodes(user_id, memory_type);
 
+CREATE INDEX IF NOT EXISTS idx_memory_nodes_user_domain
+  ON memory_nodes(user_id, domain);
+
 CREATE INDEX IF NOT EXISTS idx_memory_nodes_updated
   ON memory_nodes(updated_at DESC);
 
@@ -108,15 +114,16 @@ CREATE INDEX IF NOT EXISTS idx_memory_nodes_embedding
 
 export const SQLITE_UPSERT_SQL = `
 INSERT INTO memory_nodes (
-  id, user_id, path, memory_type, subject, l0_title, l1_summary, l2_detail,
+  id, user_id, path, domain, memory_type, subject, l0_title, l1_summary, l2_detail,
   confidence, importance, utility, access_count, created_at, updated_at,
   last_accessed_at, version, supersedes, conflict_flag, archived_at, embedding
 ) VALUES (
-  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 )
 ON CONFLICT(id) DO UPDATE SET
   user_id = excluded.user_id,
   path = excluded.path,
+  domain = excluded.domain,
   memory_type = excluded.memory_type,
   subject = excluded.subject,
   l0_title = excluded.l0_title,
@@ -137,17 +144,18 @@ ON CONFLICT(id) DO UPDATE SET
 
 export const PGVECTOR_UPSERT_SQL = `
 INSERT INTO memory_nodes (
-  id, user_id, path, memory_type, subject, l0_title, l1_summary, l2_detail,
+  id, user_id, path, domain, memory_type, subject, l0_title, l1_summary, l2_detail,
   confidence, importance, utility, access_count, created_at, updated_at,
   last_accessed_at, version, supersedes, conflict_flag, archived_at, embedding
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8,
-  $9, $10, $11, $12, $13, $14,
-  $15, $16, $17, $18, $19, $20
+  $1, $2, $3, $4, $5, $6, $7, $8, $9,
+  $10, $11, $12, $13, $14, $15,
+  $16, $17, $18, $19, $20, $21
 )
 ON CONFLICT(id) DO UPDATE SET
   user_id = excluded.user_id,
   path = excluded.path,
+  domain = excluded.domain,
   memory_type = excluded.memory_type,
   subject = excluded.subject,
   l0_title = excluded.l0_title,
@@ -167,7 +175,7 @@ ON CONFLICT(id) DO UPDATE SET
 `.trim();
 
 export const PGVECTOR_SEARCH_SQL = `
-SELECT id, user_id, path, memory_type, subject, l0_title, l1_summary, l2_detail,
+SELECT id, user_id, path, domain, memory_type, subject, l0_title, l1_summary, l2_detail,
        confidence, importance, utility, access_count, created_at, updated_at, last_accessed_at,
        version, supersedes, conflict_flag, archived_at,
        1 - (embedding <=> $2::vector) AS similarity
@@ -188,6 +196,7 @@ export interface SqlNodeLike {
   id: string;
   userId: string;
   path: string;
+  domain?: string;
   memoryType: string;
   subject: string;
   title?: string;
@@ -212,6 +221,7 @@ export function toSqliteUpsertParams(node: SqlNodeLike): unknown[] {
     node.id,
     node.userId,
     node.path,
+    node.domain ?? null,
     node.memoryType,
     node.subject,
     node.title ?? null,
@@ -237,6 +247,7 @@ export function toPgvectorUpsertParams(node: SqlNodeLike): unknown[] {
     node.id,
     node.userId,
     node.path,
+    node.domain ?? null,
     node.memoryType,
     node.subject,
     node.title ?? null,

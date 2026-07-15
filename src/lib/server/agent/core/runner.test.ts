@@ -6,9 +6,10 @@ import test from "node:test";
 import { applyAssistantStreamEvent } from "$lib/server/agent/core/assistantStream.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
-import { MomRunner } from "$lib/server/agent/core/runner.js";
+import { MomRunner, resolveSessionWorkingDir } from "$lib/server/agent/core/runner.js";
 import { resolveModelSelection } from "$lib/server/agent/routing/modelRouting.js";
 import { decideVisionRouting } from "$lib/server/agent/routing/mediaFallback.js";
+import { RunnerPool, snapshotAllRuntimeRuns } from "$lib/server/agent/core/runnerPool.js";
 
 function createRunnerTestSettings(): RuntimeSettings {
   return {
@@ -32,6 +33,7 @@ function createRunnerTestSettings(): RuntimeSettings {
         models: [
           {
             id: "fake-model",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }
@@ -40,6 +42,16 @@ function createRunnerTestSettings(): RuntimeSettings {
     ]
   };
 }
+
+test("resolveSessionWorkingDir uses project root only for project runs", () => {
+  assert.equal(resolveSessionWorkingDir(undefined, "/tmp/scratch"), "/tmp/scratch");
+  assert.equal(resolveSessionWorkingDir({
+    id: "wiki",
+    name: "Wiki",
+    rootPath: "/tmp/wiki",
+    scratchDir: "/tmp/scratch"
+  }, "/tmp/scratch"), "/tmp/wiki");
+});
 
 function createRunnerTestMemory() {
   return {
@@ -144,6 +156,41 @@ function setActiveSkill(runner: MomRunner, filePath: string): void {
   ]);
 }
 
+test("shared runner registry exposes the active channel and Bot identity", async () => {
+  const { MomRuntimeStore } = await import("$lib/server/agent/session/store.js");
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-registry-"));
+  const pool = new RunnerPool(
+    "web",
+    new MomRuntimeStore(workspaceDir),
+    createRunnerTestSettings,
+    (patch) => ({ ...createRunnerTestSettings(), ...patch }),
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any,
+    createRunnerHookManager([])
+  );
+  const runner = pool.get("chat-registry", "session-registry");
+  (runner as any).running = true;
+  (runner as any).activeHookContext = {
+    channel: "web",
+    botId: "runtime",
+    chatId: "chat-registry",
+    sessionId: "session-registry"
+  };
+  try {
+    assert.deepEqual(snapshotAllRuntimeRuns().find((item) => item.chatId === "chat-registry"), {
+      channel: "web",
+      botId: "runtime",
+      chatId: "chat-registry",
+      sessionId: "session-registry"
+    });
+  } finally {
+    (runner as any).running = false;
+    pool.reset("chat-registry", "session-registry");
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
 function readToolCall(id: string, path: string) {
   return {
     toolCall: { id, name: "read", input: {} },
@@ -203,12 +250,14 @@ test("decideVisionRouting prefers an explicit dedicated vision route over a visi
         models: [
           {
             id: "mimo-v2.5-pro",
+            enabled: true,
             tags: ["text", "vision"],
             verification: { vision: "passed" },
             supportedRoles: ["system", "user", "assistant"]
           },
           {
             id: "mimo-v2.5",
+            enabled: true,
             tags: ["text", "vision"],
             verification: { vision: "passed" },
             supportedRoles: ["system", "user", "assistant"]
@@ -248,6 +297,7 @@ test("decideVisionRouting keeps the text route when the vision route resolves to
         models: [
           {
             id: "mimo-v2.5",
+            enabled: true,
             tags: ["text", "vision"],
             verification: { vision: "passed" },
             supportedRoles: ["system", "user", "assistant"]
@@ -287,11 +337,13 @@ test("decideVisionRouting does not send custom images natively before vision ver
         models: [
           {
             id: "mimo-v2.5-pro",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant"]
           },
           {
             id: "mimo-v2.5",
+            enabled: true,
             tags: ["text", "vision"],
             supportedRoles: ["system", "user", "assistant"]
           }
@@ -330,6 +382,7 @@ test("custom vision models advertise image input only after vision verification 
         models: [
           {
             id: "mimo-v2.5",
+            enabled: true,
             tags: ["text", "vision"],
             supportedRoles: ["system", "user", "assistant"]
           }
@@ -392,6 +445,7 @@ test("manual compact reloads the latest persisted session before summarizing", a
         models: [
           {
             id: "compact-model",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }
@@ -453,6 +507,7 @@ test("host bash approval is forwarded to runner event sink but does not abort ex
         models: [
           {
             id: "fake-model",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }
@@ -1164,5 +1219,76 @@ test("runner matches read skill paths after tool path correction", async () => {
     assert.equal(loaded?.payload.filePath, skillPath);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("videoGenerate submissions are blocked after a successful submission in the same run", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-video-"));
+  try {
+    const runner = await createRunnerForHookTest({
+      chatId: "chat-video",
+      workspaceDir,
+      hookManager: createRunnerHookManager([])
+    });
+    const r = runner as any;
+
+    // No submission yet: a new submission passes the gate.
+    assert.equal(
+      r.resolveRepeatVideoSubmissionBlock({ toolCall: { name: "videoGenerate" }, args: { prompt: "a cat" } }),
+      undefined
+    );
+
+    // Failed submissions are not tracked.
+    r.trackVideoSubmission({
+      toolCall: { id: "call-0", name: "videoGenerate" },
+      args: { prompt: "a cat" },
+      result: { details: { status: "failed" } },
+      isError: true
+    });
+    assert.equal(
+      r.resolveRepeatVideoSubmissionBlock({ toolCall: { name: "videoGenerate" }, args: { prompt: "a cat" } }),
+      undefined
+    );
+
+    // Successful submission is tracked from the tool result details.
+    r.trackVideoSubmission({
+      toolCall: { id: "call-1", name: "videoGenerate" },
+      args: { prompt: "a cat" },
+      result: { details: { status: "processing", taskId: "task-123", engine: "test-engine" } },
+      isError: false
+    });
+
+    const reason = r.resolveRepeatVideoSubmissionBlock({
+      toolCall: { name: "videoGenerate" },
+      args: { prompt: "another cat" }
+    });
+    assert.match(String(reason), /task-123/);
+
+    // Progress checks with a taskId stay allowed, and other tools are unaffected.
+    assert.equal(
+      r.resolveRepeatVideoSubmissionBlock({
+        toolCall: { name: "videoGenerate" },
+        args: { taskId: "task-123", engine: "test-engine" }
+      }),
+      undefined
+    );
+    assert.equal(
+      r.resolveRepeatVideoSubmissionBlock({ toolCall: { name: "bash" }, args: {} }),
+      undefined
+    );
+
+    // Progress checks must not overwrite the tracked submission.
+    r.trackVideoSubmission({
+      toolCall: { id: "call-2", name: "videoGenerate" },
+      args: { taskId: "task-123", engine: "test-engine" },
+      result: { details: { status: "processing", taskId: "task-123" } },
+      isError: false
+    });
+    assert.match(
+      String(r.resolveRepeatVideoSubmissionBlock({ toolCall: { name: "videoGenerate" }, args: { prompt: "x" } })),
+      /task-123/
+    );
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
   }
 });

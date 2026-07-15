@@ -2,7 +2,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "n
 import { join, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { EventStatus, MomEvent } from "$lib/server/agent/events.js";
+import { createEventTaskId, type EventStatus, type MomEvent } from "$lib/server/agent/events.js";
 
 const eventSchema = Type.Object({
     type: Type.Union([
@@ -11,6 +11,11 @@ const eventSchema = Type.Object({
         Type.Literal("immediate")
     ]),
     text: Type.String({ description: "The message text to deliver when the event fires." }),
+    name: Type.Optional(
+        Type.String({
+            description: "Optional short human name for this task, used only to build a readable taskId slug (e.g. 'ai-news-daily' -> taskId 'ai-news-daily-8x2k'). A globally-unique random suffix is always appended. If omitted, a generic slug is used."
+        })
+    ),
     at: Type.Optional(
         Type.String({
             description: "ISO 8601 datetime string with timezone offset, e.g. 2026-03-01T09:00:00+08:00. Required for one-shot events."
@@ -181,6 +186,11 @@ export function createEventTool(options: {
                 params.delivery ?? (params.type === "periodic" ? "agent" : "text");
             const sessionMode = params.sessionMode;
 
+            mkdirSync(eventsDir, { recursive: true });
+            // Assign a globally-unique, readable taskId now so every event created
+            // through this tool has a distinct id (never a shared/generic label).
+            const taskId = uniqueEventTaskId(eventsDir, params.name);
+
             let event: MomEvent;
             let atIso: string | undefined;
             let filename: string;
@@ -190,6 +200,7 @@ export function createEventTool(options: {
                 atIso = new Date(params.at!).toISOString();
                 event = {
                     type: "one-shot",
+                    taskId,
                     chatId: options.chatId,
                     text: params.text,
                     delivery,
@@ -199,6 +210,7 @@ export function createEventTool(options: {
             } else if (params.type === "periodic") {
                 event = {
                     type: "periodic",
+                    taskId,
                     chatId: options.chatId,
                     text: params.text,
                     delivery,
@@ -209,6 +221,7 @@ export function createEventTool(options: {
             } else {
                 event = {
                     type: "immediate",
+                    taskId,
                     chatId: options.chatId,
                     text: params.text,
                     delivery,
@@ -216,7 +229,6 @@ export function createEventTool(options: {
                 };
             }
 
-            mkdirSync(eventsDir, { recursive: true });
             if (event.type === "periodic") {
                 const periodicMatches = findPeriodicMatches(
                     eventsDir,
@@ -236,6 +248,9 @@ export function createEventTool(options: {
                     };
                     const mergedEvent: MomEvent = {
                         ...event,
+                        // Keep the existing task's id on update so execution history
+                        // stays linked; only fall back to the freshly minted id.
+                        taskId: String(primary.event.taskId ?? "").trim() || event.taskId,
                         status: nextStatus
                     };
                     writeFileSync(primary.path, `${JSON.stringify(mergedEvent, null, 2)}\n`, "utf8");
@@ -259,12 +274,12 @@ export function createEventTool(options: {
                     filename = primary.filename;
                     operation = "updated";
                 } else {
-                    filename = `event-${Date.now()}.json`;
+                    filename = newEventFilename();
                     const filePath = join(eventsDir, filename);
                     writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
                 }
             } else {
-                filename = `event-${Date.now()}.json`;
+                filename = newEventFilename();
                 const filePath = join(eventsDir, filename);
                 writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
             }
@@ -306,6 +321,43 @@ export function createEventTool(options: {
             };
         }
     };
+}
+
+// Unique event filename even when several events are created within the same
+// millisecond (a bare Date.now() name would overwrite the earlier file).
+function newEventFilename(): string {
+    return `event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
+}
+
+function collectExistingTaskIds(eventsDir: string): Set<string> {
+    const ids = new Set<string>();
+    let files: string[] = [];
+    try {
+        files = readdirSync(eventsDir).filter((name) => name.endsWith(".json"));
+    } catch {
+        return ids;
+    }
+    for (const filename of files) {
+        try {
+            const parsed = JSON.parse(readFileSync(join(eventsDir, filename), "utf8")) as Partial<MomEvent>;
+            const id = String(parsed?.taskId ?? "").trim();
+            if (id) ids.add(id);
+        } catch {
+            // Ignore malformed files.
+        }
+    }
+    return ids;
+}
+
+// Mint a `<slug>-<random>` taskId that does not collide with any existing event
+// file in this directory, so tasks are guaranteed distinct even within a bot.
+function uniqueEventTaskId(eventsDir: string, name: string | undefined): string {
+    const existing = collectExistingTaskIds(eventsDir);
+    let id = createEventTaskId(name);
+    for (let guard = 0; existing.has(id) && guard < 50; guard += 1) {
+        id = createEventTaskId(name);
+    }
+    return id;
 }
 
 interface EventFileRow {

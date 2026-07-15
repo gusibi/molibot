@@ -1,5 +1,7 @@
 import {
   type AgentSettings,
+  DEFAULT_AGENT_ID,
+  defaultAgentSettings,
   defaultRuntimeSettings,
   isKnownProvider,
   sanitizeAgentModelRouting,
@@ -36,12 +38,14 @@ import {
   sanitizeHostToolSettings,
   sanitizeToolSandboxSettings
 } from "$lib/server/settings/index.js";
+import { isAbsolute } from "node:path";
 
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
 const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
   "duckduckgo",
+  "anysearch",
   "brave",
   "tavily",
   "exa",
@@ -147,7 +151,7 @@ export function sanitizeWebSearchSettings(
     ? source.engines as Record<string, unknown>
     : {};
   const engines = Object.fromEntries(WEB_SEARCH_ENGINES.map((engine) => {
-    const fallbackEngine = fallback.engines[engine];
+    const fallbackEngine = fallback.engines?.[engine] ?? defaultRuntimeSettings.webSearch.engines[engine];
     const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
       ? enginesSource[engine] as Record<string, unknown>
       : {};
@@ -324,6 +328,66 @@ export function sanitizeHookPluginEntries(input: unknown): RuntimeSettings["plug
     });
   }
   return entries;
+}
+
+/**
+ * Sanitizes the full plugins.memory block (backend, embedding, reflection, and
+ * daily-materials). Shared by sanitizeSettings and the SettingsStore load path
+ * so every field survives a save → restart round-trip.
+ */
+export function sanitizeMemoryPluginSettings(
+  input: unknown,
+  current: RuntimeSettings["plugins"]["memory"]
+): RuntimeSettings["plugins"]["memory"] {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const dailyInput = source.dailyMaterials && typeof source.dailyMaterials === "object"
+    ? source.dailyMaterials as Record<string, unknown>
+    : current.dailyMaterials as unknown as Record<string, unknown> | undefined;
+  const safeRelativePath = (value: unknown, fallback: string): string => {
+    const normalized = String(value ?? "").trim();
+    if (!normalized || isAbsolute(normalized) || normalized.split(/[\\/]+/).includes("..")) return fallback;
+    return normalized;
+  };
+  const validTime = (value: unknown): value is string => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value ?? ""));
+  const notificationTarget = (() => {
+    if (source.reflectionNotificationTarget === undefined) return current.reflectionNotificationTarget ?? null;
+    if (!source.reflectionNotificationTarget || typeof source.reflectionNotificationTarget !== "object") return null;
+    const candidate = source.reflectionNotificationTarget as Record<string, unknown>;
+    const channel = String(candidate.channel ?? "").trim();
+    const botId = String(candidate.botId ?? "").trim();
+    const chatId = String(candidate.chatId ?? "").trim();
+    if ((channel !== "telegram" && channel !== "feishu") || !botId || !chatId) return null;
+    return { channel, botId, chatId } as RuntimeSettings["plugins"]["memory"]["reflectionNotificationTarget"];
+  })();
+  return {
+    enabled: source.enabled === undefined ? current.enabled : Boolean(source.enabled),
+    backend: String((source as { backend?: string; core?: string }).backend ?? (source as { backend?: string; core?: string }).core ?? "").trim()
+      || current.backend
+      || defaultRuntimeSettings.plugins.memory.backend,
+    embeddingProviderId: String(source.embeddingProviderId ?? current.embeddingProviderId ?? "").trim(),
+    embeddingModel: String(source.embeddingModel ?? current.embeddingModel ?? "").trim(),
+    reflectionTime: validTime(source.reflectionTime)
+      ? String(source.reflectionTime)
+      : (current.reflectionTime || "03:00"),
+    reflectionNotifications: source.reflectionNotifications === undefined
+      ? (current.reflectionNotifications ?? true)
+      : Boolean(source.reflectionNotifications),
+    reflectionNotificationTarget: notificationTarget,
+    dailyMaterials: {
+      enabled: dailyInput?.enabled === undefined ? false : Boolean(dailyInput.enabled),
+      time: validTime(dailyInput?.time) ? String(dailyInput?.time) : "23:30",
+      projectId: String(dailyInput?.projectId ?? "").trim(),
+      dir: safeRelativePath(dailyInput?.dir, "content/daily-materials"),
+      promptPath: safeRelativePath(dailyInput?.promptPath, "templates/daily-material-prompt.md"),
+      notifications: dailyInput?.notifications === undefined ? true : Boolean(dailyInput.notifications),
+      scanTokenBudget: (() => {
+        const n = Number(dailyInput?.scanTokenBudget);
+        if (!Number.isFinite(n) || n <= 0) return 120000;
+        return Math.min(900000, Math.max(8000, Math.round(n)));
+      })(),
+      scanModelKey: String(dailyInput?.scanModelKey ?? "").trim()
+    }
+  };
 }
 
 export function sanitizeCloudflareHtmlPluginSettings(
@@ -988,7 +1052,8 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
   next.locale = next.locale === "zh-CN" ? "zh-CN" : "en-US";
-  next.agents = sanitizeAgents(next.agents ?? current.agents);
+  const sanitizedAgents = sanitizeAgents(next.agents ?? current.agents);
+  next.agents = sanitizedAgents.length > 0 ? sanitizedAgents : [defaultAgentSettings()];
   const sanitizedTelegramBots = sanitizeTelegramBots(next.telegramBots);
   const sanitizedFeishuBots = sanitizeFeishuBots(next.feishuBots);
   const sanitizedQQBots = sanitizeQQBots(next.qqBots);
@@ -1022,6 +1087,25 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
     ? next.disabledSkillPaths.map((v) => String(v).trim()).filter(Boolean)
     : current.disabledSkillPaths;
   next.channels = sanitizeChannels(next.channels, next.telegramBots, next.feishuBots, next.qqBots, current.channels);
+  if (next.agents.some((agent) => agent.id === DEFAULT_AGENT_ID)) {
+    const webInstances = Array.isArray(next.channels.web?.instances) ? next.channels.web.instances : [];
+    next.channels.web = {
+      instances: webInstances.length > 0
+        ? webInstances.map((instance) =>
+          instance.id === "default" && !String(instance.agentId ?? "").trim()
+            ? { ...instance, agentId: DEFAULT_AGENT_ID }
+            : instance
+        )
+        : [{
+          id: "default",
+          name: "Default Web",
+          enabled: true,
+          agentId: DEFAULT_AGENT_ID,
+          credentials: {},
+          allowedChatIds: []
+        }]
+    };
+  }
 
   const displayInput = next.display ?? current.display;
   next.display = {
@@ -1034,21 +1118,28 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.telegramBotToken = next.telegramBots[0]?.token ?? "";
   next.telegramAllowedChatIds = next.telegramBots[0]?.allowedChatIds ?? [];
   const memoryPluginInput = next.plugins?.memory ?? current.plugins.memory;
+  // Dynamic feature-plugin settings live as extra keys on plugins (keyed by
+  // each plugin's settingsKey); carry them through so a save never drops them.
+  const currentPluginExtras = Object.fromEntries(
+    Object.entries(current.plugins as unknown as Record<string, unknown>)
+      .filter(([key]) => !["memory", "cloudflareHtml", "hooks"].includes(key))
+  );
+  const nextPluginExtras = next.plugins
+    ? Object.fromEntries(
+        Object.entries(next.plugins as unknown as Record<string, unknown>)
+          .filter(([key]) => !["memory", "cloudflareHtml", "hooks"].includes(key))
+      )
+    : {};
   next.plugins = {
-    memory: {
-      enabled: memoryPluginInput?.enabled === undefined ? current.plugins.memory.enabled : Boolean(memoryPluginInput.enabled),
-      backend: String(
-        (memoryPluginInput as { backend?: string; core?: string } | undefined)?.backend ??
-        (memoryPluginInput as { backend?: string; core?: string } | undefined)?.core ??
-        ""
-      ).trim() || current.plugins.memory.backend || defaultRuntimeSettings.plugins.memory.backend
-    },
+    ...currentPluginExtras,
+    ...nextPluginExtras,
+    memory: sanitizeMemoryPluginSettings(memoryPluginInput, current.plugins.memory),
     cloudflareHtml: sanitizeCloudflareHtmlPluginSettings(
       next.plugins?.cloudflareHtml ?? current.plugins.cloudflareHtml,
       current.plugins.cloudflareHtml
     ),
     hooks: sanitizeHookPluginEntries(next.plugins?.hooks ?? current.plugins.hooks)
-  };
+  } as RuntimeSettings["plugins"];
 
   next.budget = sanitizeBudgetSettings(next.budget ?? current.budget, current.budget);
   next.events = sanitizeEventExecutionSettings(next.events ?? current.events, current.events);

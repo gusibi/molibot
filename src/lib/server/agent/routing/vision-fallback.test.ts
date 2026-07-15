@@ -29,6 +29,7 @@ function settingsForProtocol(protocol: "openai-compatible" | "anthropic"): Runti
         models: [
           {
             id: "vision-model",
+            enabled: true,
             tags: ["text", "vision"],
             supportedRoles: ["system", "user", "assistant"]
           }

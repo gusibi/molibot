@@ -133,6 +133,57 @@ test("startup recovery releases stale running event leases into retry state", ()
   store.close();
 });
 
+test("startup recovery abandons overdue retry_wait leases so they stop blocking the task", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput({
+    taskId: "explicit",
+    timeoutMs: 60_000,
+    now: new Date("2026-05-31T10:00:00.000Z")
+  }));
+  assert.ok(lease);
+
+  // Time out into retry_wait, then never re-attempt it (process died).
+  const timedOut = store.markTimedOut(lease.id, lease.runId, 5000, new Date("2026-05-31T10:05:00.000Z"));
+  assert.equal(timedOut?.status, "retry_wait");
+  assert.equal(store.hasActiveForTask("explicit"), true);
+
+  // Not yet overdue by a full timeout window -> left alone.
+  assert.equal(store.recoverStaleRunning(new Date("2026-05-31T10:05:30.000Z")), 0);
+  assert.equal(store.hasActiveForTask("explicit"), true);
+
+  // Overdue by more than timeoutMs past the scheduled retry -> abandoned.
+  const recovered = store.recoverStaleRunning(new Date("2026-05-31T10:20:00.000Z"));
+  assert.equal(recovered, 1);
+  assert.equal(store.hasActiveForTask("explicit"), false);
+  store.close();
+});
+
+test("acquiring a lease below the timeout floor clamps to 1000ms and warns", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map((a) => String(a)).join(" "));
+  };
+  try {
+    const lease = store.acquire(acquireInput({ timeoutMs: 5 }));
+    assert.equal(lease?.timeoutMs, 1000);
+    assert.ok(
+      warnings.some((line) => line.includes("timeout_below_floor")),
+      "expected a timeout_below_floor warning"
+    );
+
+    // A normal timeout must not warn.
+    warnings.length = 0;
+    const ok = store.acquire(acquireInput({ triggerSlot: "2026-05-31T10:05", runId: "run-ok", timeoutMs: 600_000 }));
+    assert.equal(ok?.timeoutMs, 600_000);
+    assert.equal(warnings.some((line) => line.includes("timeout_below_floor")), false);
+  } finally {
+    console.warn = originalWarn;
+    store.close();
+  }
+});
+
 test("task execution history supports newest-first offset pagination and totals", () => {
   const store = new EventExecutionLeaseStore(":memory:");
   for (let index = 0; index < 12; index += 1) {

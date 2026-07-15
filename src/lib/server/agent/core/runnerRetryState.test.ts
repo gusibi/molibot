@@ -37,6 +37,40 @@ test("final attempt keeps a terminal request error when retries are exhausted", 
   });
 });
 
+test("a retryable error becomes terminal once tools have executed, to avoid re-running side effects", () => {
+  const result = resolvePromptAttemptDecision({
+    stopReason: "error",
+    errorMessage: "Chat upstream returned 429",
+    finalText: "",
+    attemptCount: 0,
+    maxEmptyRetries: 2,
+    attemptExecutedTools: true
+  });
+
+  // Retrying would re-run the tool steps (e.g. re-send a message), so the
+  // otherwise-retryable 429 is treated as terminal instead.
+  assert.deepEqual(result, {
+    kind: "terminal_error",
+    message: "Chat upstream returned 429"
+  });
+});
+
+test("a retryable error still retries when no tools executed in the failed attempt", () => {
+  const result = resolvePromptAttemptDecision({
+    stopReason: "error",
+    errorMessage: "socket hang up",
+    finalText: "",
+    attemptCount: 0,
+    maxEmptyRetries: 2,
+    attemptExecutedTools: false
+  });
+
+  assert.deepEqual(result, {
+    kind: "retryable_error",
+    message: "socket hang up"
+  });
+});
+
 test("aborted prompt is terminal and never becomes an empty-response retry", () => {
   const result = resolvePromptAttemptDecision({
     stopReason: "aborted",

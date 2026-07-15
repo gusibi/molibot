@@ -49,6 +49,8 @@ export interface ConversationMessage {
   role: Role;
   content: string;
   createdAt: string;
+  model?: string;
+  platformMessageId?: string;
   attachments?: ConversationAttachment[];
   activities?: ConversationActivity[];
 }
@@ -60,5 +62,7 @@ export interface Conversation {
   title: string;
   createdAt: string;
   updatedAt: string;
+  projectId?: string;
+  origin?: string;
   external?: ExternalSessionMetadata;
 }

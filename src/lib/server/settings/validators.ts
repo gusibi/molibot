@@ -88,4 +88,13 @@ export function validateTimezonePatch(current: RuntimeSettings, patch: Partial<R
   return null;
 }
 
+export function validateServerPortPatch(patch: Partial<RuntimeSettings>): string | null {
+  if (!("serverPort" in patch)) return null;
+  const port = Number(patch.serverPort);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    return "Server port must be an integer between 1024 and 65535.";
+  }
+  return null;
+}
+
 export type { McpServerConfig };

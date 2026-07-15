@@ -22,6 +22,7 @@ test("buildModelOptions treats enabled built-in providers as pi routes", () => {
         models: [
           {
             id: "gemini-flash-latest",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }
@@ -38,6 +39,7 @@ test("buildModelOptions treats enabled built-in providers as pi routes", () => {
         models: [
           {
             id: "grok-4.20-fast",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }
@@ -70,6 +72,7 @@ test("switchModelSelection keeps built-in switch on pi route even when providerM
         models: [
           {
             id: "gemini-flash-latest",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }
@@ -115,6 +118,7 @@ test("currentModelKey prefers configured built-in default model over stale pi fa
         models: [
           {
             id: "gemini-3.1-flash-lite-preview",
+            enabled: true,
             tags: ["text", "vision", "tool"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }
@@ -152,6 +156,7 @@ test("currentModelKey does not treat built-in or STT-only providers as custom te
         models: [
           {
             id: "gemini-flash-latest",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool"]
           }
@@ -168,6 +173,7 @@ test("currentModelKey does not treat built-in or STT-only providers as custom te
         models: [
           {
             id: "TeleAI/TeleSpeechASR",
+            enabled: true,
             tags: ["stt"],
             supportedRoles: ["system", "user", "assistant", "tool"]
           }
@@ -215,11 +221,13 @@ test("buildModelOptions returns text-capable options for subagent route", () => 
         models: [
           {
             id: "flash-text",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool"]
           },
           {
             id: "voice-only",
+            enabled: true,
             tags: ["tts"],
             supportedRoles: ["system", "user", "assistant", "tool"]
           }

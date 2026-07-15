@@ -6,7 +6,7 @@ import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { sanitizeImageGenerateSettings } from "$lib/server/settings/sanitize.js";
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: { prompt?: string; engine?: string; size?: string; imageGenerate?: unknown };
+  let body: { prompt?: string; engine?: string; size?: string; images?: string[]; imageGenerate?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -33,6 +33,7 @@ export const POST: RequestHandler = async ({ request }) => {
       prompt: body.prompt || "A high quality cyberpunk logo design",
       engine: body.engine || "auto",
       size: body.size,
+      images: body.images,
       outputName: `test_image_${Date.now()}.png`
     });
     return json({ ok: true, result });

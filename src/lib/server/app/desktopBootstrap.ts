@@ -10,6 +10,14 @@ export function resolveDesktopProfiles(settings: unknown): DesktopProfileSummary
     : {};
   const hasConfiguredInstances = Array.isArray(web.instances);
   const instances = hasConfiguredInstances ? web.instances as unknown[] : [];
+  const agents = Array.isArray(root.agents) ? root.agents as unknown[] : [];
+  const agentNameById = new Map(agents.flatMap((item): Array<[string, string]> => {
+    if (!item || typeof item !== "object") return [];
+    const agent = item as Record<string, unknown>;
+    const id = String(agent.id ?? "").trim();
+    if (!id) return [];
+    return [[id, String(agent.name ?? "").trim() || id]];
+  }));
 
   const profiles = instances.flatMap((item): DesktopProfileSummary[] => {
     if (!item || typeof item !== "object") return [];
@@ -17,7 +25,12 @@ export function resolveDesktopProfiles(settings: unknown): DesktopProfileSummary
     const id = String(profile.id ?? "").trim();
     if (!id || profile.enabled === false) return [];
     const name = String(profile.name ?? "").trim() || id;
-    return [{ id, name }];
+    const agentId = String(profile.agentId ?? "").trim();
+    return [{
+      id,
+      name,
+      ...(agentId ? { agentId, agentName: agentNameById.get(agentId) ?? agentId } : {})
+    }];
   });
 
   if (profiles.length > 0 || hasConfiguredInstances) return profiles;

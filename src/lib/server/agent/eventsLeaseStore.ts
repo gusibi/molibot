@@ -2,6 +2,13 @@ import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { momWarn } from "$lib/server/agent/common/log.js";
+
+// A lease may not run with a sub-second timeout or fewer than one attempt; both
+// are clamped on the way in. Requests below these floors are almost always a
+// caller bug (e.g. passing milliseconds where seconds were meant), so we warn.
+const MIN_LEASE_TIMEOUT_MS = 1000;
+const MIN_LEASE_ATTEMPTS = 1;
 
 export type EventExecutionLeaseStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped";
 
@@ -113,13 +120,39 @@ export class EventExecutionLeaseStore {
     this.db.close();
   }
 
+  private normalizeTimeoutMs(requested: number, context: { eventFile: string; runId: string }): number {
+    const rounded = Math.round(requested);
+    if (Number.isFinite(rounded) && rounded < MIN_LEASE_TIMEOUT_MS) {
+      momWarn("eventLease", "timeout_below_floor", {
+        requestedMs: requested,
+        appliedMs: MIN_LEASE_TIMEOUT_MS,
+        eventFile: context.eventFile,
+        runId: context.runId
+      });
+    }
+    return Math.max(MIN_LEASE_TIMEOUT_MS, Number.isFinite(rounded) ? rounded : MIN_LEASE_TIMEOUT_MS);
+  }
+
+  private normalizeMaxAttempts(requested: number, context: { eventFile: string; runId: string }): number {
+    const rounded = Math.round(requested);
+    if (Number.isFinite(rounded) && rounded < MIN_LEASE_ATTEMPTS) {
+      momWarn("eventLease", "max_attempts_below_floor", {
+        requested,
+        applied: MIN_LEASE_ATTEMPTS,
+        eventFile: context.eventFile,
+        runId: context.runId
+      });
+    }
+    return Math.max(MIN_LEASE_ATTEMPTS, Number.isFinite(rounded) ? rounded : MIN_LEASE_ATTEMPTS);
+  }
+
   acquire(input: AcquireEventLeaseInput): EventExecutionLease | null {
     const nowIso = (input.now ?? new Date()).toISOString();
     const leaseScope = input.leaseScope ?? "default";
     const sessionId = input.sessionId ?? input.chatId;
     const channel = input.channel ?? "unknown";
-    const maxAttempts = Math.max(1, Math.round(input.maxAttempts));
-    const timeoutMs = Math.max(1000, Math.round(input.timeoutMs));
+    const maxAttempts = this.normalizeMaxAttempts(input.maxAttempts, { eventFile: input.eventFile, runId: input.runId });
+    const timeoutMs = this.normalizeTimeoutMs(input.timeoutMs, { eventFile: input.eventFile, runId: input.runId });
 
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -227,6 +260,8 @@ export class EventExecutionLeaseStore {
     const leaseScope = input.leaseScope ?? "default";
     const sessionId = input.sessionId ?? input.chatId;
     const channel = input.channel ?? "unknown";
+    const maxAttempts = this.normalizeMaxAttempts(input.maxAttempts, { eventFile: input.eventFile, runId: input.runId });
+    const timeoutMs = this.normalizeTimeoutMs(input.timeoutMs, { eventFile: input.eventFile, runId: input.runId });
     const id = `event-lease-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     this.db.prepare(`
       INSERT INTO event_execution_leases (
@@ -245,8 +280,8 @@ export class EventExecutionLeaseStore {
       channel,
       input.taskId ?? null,
       input.runId,
-      Math.max(1, Math.round(input.maxAttempts)),
-      Math.max(1000, Math.round(input.timeoutMs)),
+      maxAttempts,
+      timeoutMs,
       nowIso,
       nowIso,
       nowIso,
@@ -376,6 +411,23 @@ export class EventExecutionLeaseStore {
     return Number(row?.count ?? 0);
   }
 
+  summarizeTasks(taskIds: string[]): { total: number; completed: number; failed: number } {
+    const ids = [...new Set(taskIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
+    if (ids.length === 0) return { total: 0, completed: 0, failed: 0 };
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.db.prepare(`
+      SELECT status, COUNT(*) AS count FROM event_execution_leases
+      WHERE task_id IN (${placeholders})
+      GROUP BY status
+    `).all(...ids) as Array<{ status: EventExecutionLeaseStatus; count: number }>;
+    const byStatus = new Map(rows.map((row) => [row.status, Number(row.count ?? 0)]));
+    return {
+      total: rows.reduce((sum, row) => sum + Number(row.count ?? 0), 0),
+      completed: byStatus.get("completed") ?? 0,
+      failed: (byStatus.get("failed") ?? 0) + (byStatus.get("aborted") ?? 0)
+    };
+  }
+
   listForTask(taskId: string, limit = 50, offset = 0): EventExecutionLease[] {
     const trimmed = String(taskId ?? "").trim();
     if (!trimmed) return [];
@@ -395,14 +447,39 @@ export class EventExecutionLeaseStore {
   recoverStaleRunning(now = new Date()): number {
     const rows = this.db.prepare(`
       SELECT * FROM event_execution_leases
-      WHERE status = 'running'
+      WHERE status IN ('running', 'retry_wait')
     `).all() as unknown as LeaseRow[];
     let recovered = 0;
+    const nowMs = now.getTime();
     for (const row of rows) {
-      const startedAt = Date.parse(row.started_at);
-      if (Number.isFinite(startedAt) && now.getTime() - startedAt <= row.timeout_ms) continue;
-      const lease = this.markTimedOut(row.id, row.run_id, 0, now);
-      if (lease) recovered += 1;
+      if (row.status === "running") {
+        const startedAt = Date.parse(row.started_at);
+        if (Number.isFinite(startedAt) && nowMs - startedAt <= row.timeout_ms) continue;
+        const lease = this.markTimedOut(row.id, row.run_id, 0, now);
+        if (lease) recovered += 1;
+        continue;
+      }
+
+      // retry_wait leases are only re-attempted by the in-process run loop or by
+      // resumeRecoveredLease when the event file still points at this slot. If the
+      // process died and the file moved on, the retry is orphaned and — because it
+      // stays "active" — permanently blocks hasActiveForChat/Task for shared ids.
+      // Abandon it once the scheduled retry is overdue by a full timeout window.
+      const retryAt = Date.parse(row.retry_scheduled_at ?? "");
+      const overdueRef = Number.isFinite(retryAt) ? retryAt : Date.parse(row.started_at);
+      if (!Number.isFinite(overdueRef) || nowMs - overdueRef <= row.timeout_ms) continue;
+      const nowIso = now.toISOString();
+      const result = this.db.prepare(`
+        UPDATE event_execution_leases
+        SET status = 'failed',
+            finished_at = ?,
+            stop_reason = 'retry_abandoned',
+            last_error = 'Retry was never picked up before startup recovery.',
+            retry_scheduled_at = NULL,
+            updated_at = ?
+        WHERE id = ? AND status = 'retry_wait'
+      `).run(nowIso, nowIso, row.id);
+      if (Number(result.changes ?? 0) > 0) recovered += 1;
     }
     return recovered;
   }

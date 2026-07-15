@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import {
@@ -21,6 +20,22 @@ export interface EventStatus {
 }
 
 export type EventDeliveryMode = "text" | "agent";
+export type EventExecutionMode = "channel" | "internal";
+export type InternalEventKind = "memory-reflection" | "daily-materials";
+
+export interface ManagedEventMetadata {
+  by: "molibot";
+  scope: "owner";
+  kind: InternalEventKind;
+  ownerId: string;
+}
+
+export interface InternalEventTarget {
+  ownerId: string;
+  botId: string;
+  timezone: string;
+  sourceScopes: Array<{ channel: string; externalUserId: string; projectId?: string; shareOwner?: boolean }>;
+}
 
 // fresh: run each trigger in a brand-new session (no accumulated chat history);
 // chat: append to the chat's active session (legacy behavior).
@@ -28,10 +43,25 @@ export type EventSessionMode = "fresh" | "chat";
 
 interface EventBase {
   taskId?: string;
+  managed?: ManagedEventMetadata;
+  // Missing keeps historical event files enabled.
+  enabled?: boolean;
   chatId: string;
   text: string;
   // text: send text directly; agent: run through AI agent first, then send result.
   delivery?: EventDeliveryMode;
+  execution?: EventExecutionMode;
+  internal?: {
+    kind: InternalEventKind;
+    notificationChatId?: string;
+    // Owner-managed events resolve current targets at execution time. Legacy
+    // per-Bot events retain an embedded target for migration compatibility.
+    target?: InternalEventTarget;
+    promptPath?: string;
+    output?: { projectId: string; dir?: string };
+    // daily-materials: token budget for the assembled transcript before batching.
+    scanTokenBudget?: number;
+  };
   sessionMode?: EventSessionMode;
   status?: EventStatus;
 }
@@ -53,8 +83,34 @@ export interface PeriodicEvent {
 
 export type MomEvent = (ImmediateEvent | OneShotEvent | PeriodicEvent) & EventBase;
 
-export function createEventTaskId(): string {
-  return `task_${randomUUID()}`;
+const TASK_ID_SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+// Turn an arbitrary name into a short, url-safe, kebab slug for a taskId prefix.
+// Falls back to "task" when nothing usable remains.
+export function slugifyTaskId(input: string | undefined): string {
+  const slug = String(input ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/g, "");
+  return slug || "task";
+}
+
+function randomTaskIdSuffix(length = 4): string {
+  let out = "";
+  for (let i = 0; i < length; i += 1) {
+    out += TASK_ID_SUFFIX_ALPHABET[Math.floor(Math.random() * TASK_ID_SUFFIX_ALPHABET.length)];
+  }
+  return out;
+}
+
+// Globally-unique-ish taskId in the readable form `<slug>-<4 char random>`,
+// e.g. "ai-news-daily-8x2k". Callers that can see sibling events should route
+// through a uniqueness check (see createEventTool) to guarantee no duplicates.
+export function createEventTaskId(slug?: string): string {
+  return `${slugifyTaskId(slug)}-${randomTaskIdSuffix()}`;
 }
 
 export function taskSessionRetentionMs(days: number | undefined): number | undefined {
@@ -349,6 +405,12 @@ export class EventsWatcher {
         this.updateEventFile(filename, () => identified);
       }
 
+      if (identified.enabled === false) {
+        this.cancel(filename);
+        this.knownFiles.add(filename);
+        return;
+      }
+
       if (this.isCompleted(identified)) {
         this.cancel(filename);
         this.knownFiles.add(filename);
@@ -450,6 +512,10 @@ export class EventsWatcher {
         eventPayloadJson: JSON.stringify(event),
         reason: "task_already_running"
       });
+      // Periodic dispatch already flipped the event file to "running" via the
+      // run-lock. Since we are skipping this run, release that lock so the file
+      // does not stay stuck in "running" forever.
+      this.releasePeriodicRunLock(filename, event, "task_already_running", triggerSlot, currentRunId);
       return;
     }
 
@@ -732,6 +798,41 @@ export class EventsWatcher {
     if (next && next.type === "periodic") {
       this.refreshPeriodicEntry(filename, next);
     }
+  }
+
+  // Release the "running" run-lock a periodic dispatch placed on the event file
+  // when the run is skipped before it ever executes (e.g. task_already_running).
+  // Marks this slot as consumed so the same minute is not re-dispatched, without
+  // bumping runCount. No-op for non-periodic events (their file is not pre-locked).
+  private releasePeriodicRunLock(
+    filename: string,
+    event: MomEvent,
+    reason: string,
+    slotKey: string,
+    runId: string
+  ): void {
+    if (event.type !== "periodic") return;
+    const next = this.updateEventFile(filename, (current) => {
+      if (current.type !== "periodic") return null;
+      const status = this.normalizeStatus(current.status);
+      if (status.runId && runId && status.runId !== runId) return null;
+      return {
+        ...current,
+        delivery: this.resolveDeliveryMode(current),
+        status: {
+          ...status,
+          state: "pending",
+          reason,
+          completedAt: undefined,
+          lastError: undefined,
+          lastSlotKey: slotKey ?? status.runningSlotKey ?? status.lastSlotKey,
+          runningSlotKey: undefined,
+          startedAt: undefined,
+          runId: undefined
+        }
+      };
+    });
+    if (next) this.refreshPeriodicEntry(filename, next);
   }
 
   private markSkipped(filename: string, event: MomEvent, reason: string): void {

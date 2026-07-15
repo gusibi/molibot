@@ -1,3 +1,4 @@
+import { scoreLexical } from "#mory";
 import type { MemoryAddInput, MemoryLayer, MemoryRecord } from "$lib/server/memory/types.js";
 
 export interface MemoryWriteAssessment {
@@ -7,16 +8,8 @@ export interface MemoryWriteAssessment {
 }
 
 const DURABLE_HINTS = [
-  "以后",
-  "总是",
-  "偏好",
-  "我的名字",
-  "remember this preference",
-  "always",
-  "never",
-  "prefer",
-  "call me",
-  "my name is"
+  "以后", "总是", "偏好", "我的名字", "remember this preference",
+  "always", "never", "prefer", "call me", "my name is"
 ];
 
 const REMEMBER_HINTS = [
@@ -185,15 +178,8 @@ export function classifyAutoMemoryCandidate(
   if (normalized.length > 500) return null;
 
   const hasDaily = hasHint(normalized, DAILY_HINTS);
-  const hasDurable = hasHint(normalized, DURABLE_HINTS);
   const hasRemember = hasHint(normalized, REMEMBER_HINTS);
-  const layer = hasDurable
-    ? "long_term"
-    : hasDaily
-      ? "daily"
-      : hasRemember
-        ? "long_term"
-        : null;
+  const layer = hasRemember ? (hasDaily ? "daily" : "long_term") : null;
   if (!layer) return null;
 
   return {
@@ -290,10 +276,9 @@ function memoryPriority(row: MemoryRecord, query: string): number {
   if (tags.has("class:lifestyle")) score += queryLifestyle ? 4 : -12;
 
   if (queryLower) {
-    const tokens = queryLower.split(/\s+/).filter(Boolean);
-    for (const token of tokens) {
-      if (row.content.toLowerCase().includes(token)) score += 1;
-    }
+    // CJK-aware lexical relevance (T1a), scaled to compete with the class
+    // weights above without drowning them out.
+    score += scoreLexical(row.content, queryLower) * 4;
   }
 
   return score;

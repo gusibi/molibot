@@ -94,6 +94,7 @@ interface PreparedBashOutput {
 
 function buildBashOutput(
   cwd: string,
+  toolOutputDir: string | undefined,
   output: string,
   details: BashToolDetails | undefined,
   movedArtifacts: string[]
@@ -106,7 +107,7 @@ function buildBashOutput(
   }
 
   if (truncation.truncated) {
-    const fullOutputPath = buildTempOutputPath(cwd);
+    const fullOutputPath = buildTempOutputPath(toolOutputDir ?? join(cwd, ".mom-tool-output"));
     writeFileSync(fullOutputPath, output, "utf8");
     rendered += `\n\n[Output compressed from ${truncation.totalLines} lines / ${formatSize(truncation.totalBytes)}. Full output: ${fullOutputPath}]`;
     nextDetails = { ...nextDetails, truncation, fullOutputPath };
@@ -127,8 +128,7 @@ const ROOT_ARTIFACT_EXCLUDED_NAMES = new Set([
   "yarn.lock"
 ]);
 
-function buildTempOutputPath(cwd: string): string {
-  const dir = join(cwd, ".mom-tool-output");
+function buildTempOutputPath(dir: string): string {
   mkdirSync(dir, { recursive: true });
   return join(dir, `bash-${Date.now()}-${randomBytes(4).toString("hex")}.log`);
 }
@@ -505,6 +505,7 @@ export function findApprovedHostBash(
   parsed: ParsedHostBashCommand | null
 ) : ApprovedHostBashEntry | undefined {
   if (!parsed) return undefined;
+  if (parsed.classification.kind === "one-time-script") return undefined;
   const toolIds = parsed.classification.kind === "persistent-capability"
     ? [parsed.classification.capability.toolId]
     : [...new Set(parsed.classification.capabilities.map((item) => item.toolId))];
@@ -551,21 +552,28 @@ function isSandboxPermissionFailure(output: string): boolean {
 }
 
 function buildAutomaticHostApprovalReason(parsed: ParsedHostBashCommand): string {
+  const prefix = `Sandbox denied host-level access for \`${parsed.originalCommand}\`.`;
+  if (parsed.classification.kind === "one-time-script") {
+    return `${prefix} Approve this one-time script as controlled Host Bash access if you want it to run outside the sandbox.`;
+  }
   const capabilitySummary = parsed.classification.kind === "persistent-capability"
     ? parsed.classification.capability.toolId
     : [...new Set(parsed.classification.capabilities.map((item) => item.toolId))].join(", ");
-  return `Sandbox denied host-level access for \`${parsed.originalCommand}\`. Approve ${capabilitySummary || "this capability"} as controlled Host Bash access if you want future runs to bypass sandbox for similarly classified commands.`;
+  return `${prefix} Approve ${capabilitySummary || "this capability"} as controlled Host Bash access if you want future runs to bypass sandbox for similarly classified commands.`;
 }
 
 export function getBashToolDefinition(
   options: {
     cwd: string;
     artifactDir?: string;
+    relocateRootArtifacts?: boolean;
+    toolOutputDir?: string;
     sandbox?: BashToolSandboxOptions;
     hostApproval?: BashToolHostApprovalOptions;
   }
 ): ToolDefinition {
   const artifactDir = options.artifactDir?.trim();
+  const relocateRootArtifacts = options.relocateRootArtifacts !== false;
   return {
     id: "bash",
     name: "bash",
@@ -627,14 +635,16 @@ export function getBashToolDefinition(
       if (artifactDir) {
         mkdirSync(resolve(ctx.cwd, artifactDir), { recursive: true });
       }
-      const rootFilesBefore = snapshotRootFiles(ctx.cwd);
+      const rootFilesBefore = relocateRootArtifacts ? snapshotRootFiles(ctx.cwd) : new Map<string, number>();
 
       const result = await ctx.shell.run(params.command, {
         cwd: ctx.cwd,
         timeoutMs: params.timeout ? params.timeout * 1000 : undefined
       });
 
-      const movedArtifacts = moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore);
+      const movedArtifacts = relocateRootArtifacts
+        ? moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore)
+        : [];
 
       try {
         captureSayTranscript(params.command, ctx.cwd);
@@ -650,7 +660,7 @@ export function getBashToolDefinition(
       let details: BashToolDetails | undefined = result.sandboxApplied || result.warning
         ? { sandboxApplied: result.sandboxApplied, sandboxWarning: result.warning }
         : undefined;
-      const built = buildBashOutput(ctx.cwd, output, details, movedArtifacts);
+      const built = buildBashOutput(ctx.cwd, options.toolOutputDir, output, details, movedArtifacts);
       let rendered = built.rendered;
       details = built.details;
 
@@ -664,13 +674,16 @@ export function getBashToolDefinition(
               timeoutSeconds: params.timeout,
               inheritProcessEnv: true
             });
-            const fallbackMovedArtifacts = moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore);
+            const fallbackMovedArtifacts = relocateRootArtifacts
+              ? moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore)
+              : [];
             let fallbackOutput = "";
             if (fallbackResult.stdout) fallbackOutput += fallbackResult.stdout;
             if (fallbackResult.stderr) fallbackOutput += `${fallbackOutput ? "\n" : ""}${fallbackResult.stderr}`;
             fallbackOutput = normalizeCommandOutput(stripAnsi(fallbackOutput));
             const fallbackBuilt = buildBashOutput(
               ctx.cwd,
+              options.toolOutputDir,
               fallbackOutput,
               {
                 ...details,
@@ -731,6 +744,8 @@ export function getBashToolDefinition(
 
 export function createBashTool(cwd: string, options?: {
   artifactDir?: string;
+  relocateRootArtifacts?: boolean;
+  toolOutputDir?: string;
   sandbox?: BashToolSandboxOptions;
   hostApproval?: BashToolHostApprovalOptions;
 }): AgentTool<typeof bashSchema> {

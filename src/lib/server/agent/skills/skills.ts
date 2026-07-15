@@ -4,7 +4,7 @@ import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter
 import { resolveDataRootFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 
-export type SkillScope = "chat" | "global" | "bot";
+export type SkillScope = "chat" | "global" | "bot" | "project";
 
 export interface SkillSignals {
   cli: string[];
@@ -37,6 +37,7 @@ export interface SkillSearchMatch {
 interface SkillLoadOptions {
   disabledSkillPaths?: string[];
   workspaceId?: string;
+  projectRoot?: string;
 }
 
 const TOKEN_PATTERN = /[a-z0-9][a-z0-9:_-]*/i;
@@ -53,6 +54,7 @@ function normalizeSelector(value: string): string {
 }
 
 function scopeWeight(scope: SkillScope): number {
+  if (scope === "project") return 4;
   if (scope === "chat") return 3;
   if (scope === "bot") return 2;
   return 1;
@@ -265,6 +267,9 @@ export function loadSkillsFromWorkspace(
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const roots: Array<{ scope: SkillScope; dir: string }> = [];
 
+  if (options?.projectRoot?.trim()) {
+    roots.push({ scope: "project", dir: join(options.projectRoot.trim(), ".agents", "skills") });
+  }
   roots.push({ scope: "bot", dir: join(workspaceDir, "skills") });
   roots.push({ scope: "global", dir: join(dataRoot, "skills") });
   if (chatId?.trim()) {

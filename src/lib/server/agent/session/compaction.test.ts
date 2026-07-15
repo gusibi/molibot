@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
-import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
+import {
+  compactContextMessages,
+  estimateContextTokens,
+  resolveContextTokens,
+  shouldCompactContext
+} from "$lib/server/agent/session/compaction.js";
 
 function textMessage(role: "user" | "assistant", text: string): AgentMessage {
   return {
@@ -84,6 +89,67 @@ test("shouldCompactContext uses reserveTokens as secondary limit", () => {
 
   assert.equal(shouldCompactContext(at100k, contextWindow, lowSettings), true);
   assert.equal(shouldCompactContext(below100k, contextWindow, lowSettings), false);
+});
+
+test("estimateContextTokens weights CJK characters as roughly one token each", () => {
+  const ascii = [textMessage("user", "x".repeat(4000))] as AgentMessage[];
+  const cjk = [textMessage("user", "中".repeat(4000))] as AgentMessage[];
+
+  assert.equal(estimateContextTokens(ascii), 1000);
+  assert.equal(estimateContextTokens(cjk), 4000);
+});
+
+test("resolveContextTokens prefers provider usage from the latest assistant response", () => {
+  const assistantWithUsage = {
+    role: "assistant",
+    content: [{ type: "text", text: "ok" }],
+    usage: { input: 90000, output: 500, cacheRead: 30000, cacheWrite: 0, totalTokens: 120500 },
+    timestamp: 2000
+  } as unknown as AgentMessage;
+  const messages = [
+    textMessage("user", "x".repeat(400)),
+    assistantWithUsage,
+    { role: "user", content: [{ type: "text", text: "y".repeat(400) }], timestamp: 3000 } as AgentMessage
+  ];
+
+  const resolved = resolveContextTokens(messages);
+  assert.equal(resolved.source, "usage");
+  // usage total (90000 + 30000 + 500) plus the estimate of the trailing user message
+  assert.equal(resolved.tokens, 120500 + 100);
+});
+
+test("resolveContextTokens ignores usage predating the latest compaction summary", () => {
+  const staleAssistant = {
+    role: "assistant",
+    content: [{ type: "text", text: "ok" }],
+    usage: { input: 150000, output: 400, cacheRead: 0, cacheWrite: 0, totalTokens: 150400 },
+    timestamp: 1000
+  } as unknown as AgentMessage;
+  const summaryMessage = {
+    role: "user",
+    content: "[context summary]\nEarlier conversation was compacted.",
+    timestamp: 5000
+  } as unknown as AgentMessage;
+  const messages = [summaryMessage, staleAssistant];
+
+  const resolved = resolveContextTokens(messages);
+  assert.equal(resolved.source, "estimate");
+  assert.ok(resolved.tokens < 1000);
+});
+
+test("shouldCompactContext triggers from real usage even when the char estimate is low", () => {
+  const settings = { enabled: true, thresholdPercent: 75, reserveTokens: 8192, keepRecentTokens: 20000, defaultContextWindow: 200000 };
+  const assistantWithUsage = {
+    role: "assistant",
+    content: [{ type: "text", text: "short reply" }],
+    usage: { input: 160000, output: 1000, cacheRead: 0, cacheWrite: 0, totalTokens: 161000 },
+    timestamp: 2000
+  } as unknown as AgentMessage;
+  const messages = [textMessage("user", "hello"), assistantWithUsage];
+
+  // Char estimate is tiny, but the provider reported 161k prompt+output tokens.
+  assert.equal(estimateContextTokens(messages) < 100, true);
+  assert.equal(shouldCompactContext(messages, 200000, settings), true);
 });
 
 test("shouldCompactContext disabled returns false", () => {
