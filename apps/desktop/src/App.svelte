@@ -91,6 +91,11 @@
   function changeTheme(value: DesktopTheme): void {
     theme = value;
     localStorage.setItem(THEME_STORAGE_KEY, value);
+    const root = document.documentElement;
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      root.classList.add("theme-transition");
+      window.setTimeout(() => root.classList.remove("theme-transition"), 300);
+    }
     applyTheme(value);
   }
 
@@ -261,6 +266,7 @@
   $: session.serviceReady = serviceReady;
   $: session.locale = locale;
   $: session.text = text;
+  $: document.documentElement.lang = locale;
   $: if (isSettings && activeSection === "general" && serviceReady && status?.service.endpoint
     && status.service.endpoint !== loadedReadinessEndpoint) {
     void loadReadiness(status.service.endpoint);

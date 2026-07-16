@@ -2045,7 +2045,7 @@
     endpoint={connectedEndpoint}
     channel={browserChannel}
     open={browserOpen}
-    labels={{ search: copy.searchConversations, searchEmpty: copy.searchEmpty, loading: copy.loading, loadMore: copy.loadMore, empty: copy.noConversations, deletedBot: copy.deletedBot, unknownBot: copy.unknownBot }}
+    labels={{ search: copy.searchConversations, searchEmpty: copy.searchEmpty, loading: copy.loading, loadMore: copy.loadMore, empty: copy.noConversations, deletedBot: copy.deletedBot, unknownBot: copy.unknownBot, close: copy.closeConversationBrowser }}
     formatTime={formatListTime}
     onSelect={openSession}
     onClose={() => (browserOpen = false)}
@@ -2061,7 +2061,7 @@
           <p class="onboarding-step-of">{onboardingStepOfText} · {onboardingStepLabels[onboardingStep]}</p>
           <ol class="onboarding-steps">
             {#each ONBOARDING_STEPS as step, i (step)}
-              <li class:active={i === onboardingStepIndex} class:done={i < onboardingStepIndex}>{onboardingStepLabels[step]}</li>
+              <li class:active={i === onboardingStepIndex} class:done={i < onboardingStepIndex}>{#if i < onboardingStepIndex}<i class="ph ph-check-circle" aria-hidden="true"></i>{/if}{onboardingStepLabels[step]}</li>
             {/each}
           </ol>
 

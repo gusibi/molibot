@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
-
+const listSvelteSources = (dir = new URL("./", import.meta.url)) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  const url = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dir);
+  if (entry.isDirectory()) return listSvelteSources(url);
+  return entry.name.endsWith(".svelte") ? [readFileSync(url, "utf8")] : [];
+});
 const view = read("./ChatView.svelte");
 const app = read("./App.svelte");
 const styles = read("./styles.css");
+const svelteStyleSources = listSvelteSources().flatMap((source) => [...source.matchAll(/<style(?:\s[^>]*)?>([\s\S]*?)<\/style>/g)].map((match) => match[1]));
+const allStyleSources = [styles, ...svelteStyleSources];
 const infoPlist = read("../src-tauri/Info.plist");
 
 // The settings UI is split into per-domain runes stores + section components
@@ -151,7 +157,10 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   // The Agent avatar sits to the LEFT of the message, not stacked above it.
   assert.match(transcript, /class="assistant-avatar"/);
   assert.match(styles, /\.assistant-layout\s*\{[^}]*display:\s*flex/s);
-  assert.match(styles, /\.composer-wrap\s*\{[^}]*max-width:\s*var\(--message-content-width\)/s);
+  // The composer content column still caps at the 720px reading width, but the
+  // wrap carries the same horizontal inset as .messages so it never sits flush
+  // against the pane edges on narrower surfaces (e.g. project chat).
+  assert.match(styles, /\.composer-wrap\s*\{[^}]*max-width:\s*calc\(var\(--message-content-width\)[^}]*padding:[^}]*clamp\(20px, 5vw, 56px\)/s);
   assert.match(styles, /\.composer textarea\s*\{[^}]*min-height:\s*42px;[^}]*max-height:\s*180px/s);
   assert.match(transcript, /humanizeModelOption\(message\.model, message\.model\)\.label/);
   assert.match(view, /activeAgentName[\s\S]*copy\.agentStudioGlobalName/);
@@ -791,4 +800,47 @@ test("Sandbox settings expose presets, full policy editing, diagnostics, and a f
   assert.match(sections.sandbox, /session\.text\.sandboxFilesystemAllowWrite/);
   assert.match(sections.sandbox, /form="desktop-sandbox-form"/);
   assert.match(styles, /\.sandbox-presets\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);
+});
+
+test("Geist CSS references only defined variables and keyframes", () => {
+  const css = allStyleSources.join("\n");
+  const definedVariables = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((match) => match[1]));
+  const runtimeVariables = new Set([
+    "--sidebar-w", "--detail-drag", "--kpi-accent", "--dot", "--c", "--badge-color",
+    "--file-color", "--agent-city-height", "--size", "--conversation-row-overlay"
+  ]);
+  const undefinedVariables = [...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/gi)]
+    .map((match) => match[1])
+    .filter((name) => !definedVariables.has(name) && !runtimeVariables.has(name));
+  assert.deepEqual([...new Set(undefinedVariables)], []);
+
+  const keyframes = new Set([...css.matchAll(/@keyframes\s+([a-z0-9_-]+)/gi)].map((match) => match[1]));
+  const animationNames = [...css.matchAll(/(?:^|[;{])\s*animation(?:-name)?\s*:\s*([a-z0-9_-]+)/gim)]
+    .map((match) => match[1])
+    .filter((name) => name !== "none");
+  assert.deepEqual([...new Set(animationNames.filter((name) => !keyframes.has(name)))], []);
+});
+
+test("desktop document language follows the active locale", () => {
+  assert.match(app, /document\.documentElement\.lang\s*=\s*locale/);
+});
+
+test("Geist functional typography keeps an 11px floor outside Agent City artwork", () => {
+  const violations = [];
+  const artworkSelectors = [
+    ".agent-city-landmark-label span", ".agent-city-agent-copy strong", ".agent-city-agent-copy small",
+    ".agent-city-fallback-landmark span", ".agent-city-fallback-building header small",
+    ".agent-city-fallback-floor strong", ".agent-city-fallback-floor small", ".agent-city-fallback-floor em",
+    ".agent-city-fallback-vacant"
+  ];
+  for (const css of allStyleSources) {
+    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = rule[1].trim();
+      if (artworkSelectors.some((allowed) => selector.split(",").some((part) => part.trim() === allowed))) continue;
+      for (const size of rule[2].matchAll(/font-size\s*:\s*([0-9.]+)px/gi)) {
+        if (Number(size[1]) < 11) violations.push(`${selector}: ${size[1]}px`);
+      }
+    }
+  }
+  assert.deepEqual(violations, []);
 });

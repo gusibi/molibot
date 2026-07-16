@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import type { DesktopMemoryTraceResponse } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
 
@@ -15,6 +15,18 @@
 
   let panel: HTMLElement;
   let feedbackMemoryId = "";
+  let closing = false;
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function requestClose(): void {
+    if (closing) return;
+    closing = true;
+    closeTimer = setTimeout(onClose, 200);
+  }
+
+  onDestroy(() => {
+    if (closeTimer) clearTimeout(closeTimer);
+  });
 
   onMount(async () => {
     await tick();
@@ -23,7 +35,7 @@
 
   function onKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
-      onClose();
+      requestClose();
       return;
     }
     if (event.key !== "Tab" || !panel) return;
@@ -47,7 +59,7 @@
   }
 </script>
 
-<div class="memory-trace-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && onClose()}>
+<div class="memory-trace-backdrop" class:closing role="presentation" onclick={(event) => event.target === event.currentTarget && requestClose()}>
   <div
     bind:this={panel}
     class="memory-trace-drawer"
@@ -62,7 +74,7 @@
         <h2 id="memory-trace-title">{copy.memoryTraceTitle}</h2>
         <p>{copy.memoryTraceHint}</p>
       </div>
-      <button class="icon-button" type="button" aria-label={copy.memoryTraceClose} onclick={onClose}>
+      <button class="icon-button" type="button" aria-label={copy.memoryTraceClose} onclick={requestClose}>
         <i class="ph ph-x" aria-hidden="true"></i>
       </button>
     </header>

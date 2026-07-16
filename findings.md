@@ -19,6 +19,153 @@
 
 ---
 
+# 2026-07-16 — Native experience developer board
+
+## Tracker context
+- The issue tracker is GitHub repository `gusibi/molibot` on `master`.
+- The stable triage vocabulary includes `enhancement` and `ready-for-agent`; the latter explicitly means fully specified for autonomous implementation.
+- Open Issue #13, “Molibot macOS App 界面改造报告”, is the correct parent for the follow-up board. It has no comments and remains open; the board must not edit or close it.
+- Issue #13 is a broad visual/interaction report whose foundational Geist/macOS items are already marked Done in `prd.md`. New cards must cover only the verified native-behavior delta, not reopen completed visual convergence work.
+
+## Architecture observations
+- Native host behavior currently lives directly in `App.svelte`, `ChatView.svelte`, `ProjectChat.svelte`, `WindowDragMask.svelte`, and `src-tauri/src/lib.rs`; Tauri detection and `invoke` calls are duplicated.
+- The Rust host already owns real macOS capabilities (window lifecycle, tray, autostart, native recording, dragging), while Svelte owns localization, command availability, current product state, and most user feedback. A small host port is therefore a real seam with production Tauri and in-memory/browser adapters.
+- Timers and preference listeners are distributed across App, Chat, Tasks, Trace, Agent Studio, Agent City, Projects, and media stores. Performance/background policy cannot be fixed reliably page by page.
+- Existing tests cover UI source contracts and product projections, but there is no focused test surface for command routing, startup state transitions, overlay semantics, gesture physics, host feedback, or window activity policy.
+- The existing shared UI folder has no Dialog/Sheet or direct-manipulation primitive, confirming that these behaviors are currently caller knowledge rather than deep-module implementation.
+- The repository root already uses `shadcn-svelte`/`bits-ui`, but Desktop owns a separate component directory and does not declare `bits-ui`. Desktop must gain a formal local primitive/dependency or an explicit package alias; it must not reach into the root UI through a long relative import.
+- The installed Svelte runtime exposes the class-based `Spring` motion primitive and momentum-preservation support, so the gesture slice can begin without adding a second animation framework. Pointer sampling, release projection, bounds, and cancellation still belong behind a dedicated direct-manipulation Module.
+- The installed Svelte `Spring` can preserve an already-running trajectory but cannot accept an arbitrary pointer-release velocity. A physically continuous drag therefore needs a small testable solver that accepts initial velocity; adding another public animation library is unnecessary.
+- The current Tauri target already depends on the `objc2` family for macOS media integration. `objc2-app-kit` exposes `NSHapticFeedbackManager` behind its `NSHapticFeedback` feature, so a later hardware-feedback adapter can extend the existing bridge instead of introducing another native runtime.
+- Apple limits trackpad haptics to user-initiated actions, recommends simultaneous visual feedback, and lets the system suppress feedback based on hardware/preferences. Haptics therefore belongs only on direct-manipulation commit/snap boundaries, never on background task completion.
+- `prd.md` already contains an unrelated in-progress section numbered 2.79. The native-experience plan must preserve that user-owned change and use 2.80.
+
+## Verified Tauri 2 capabilities
+- Tauri 2 supports a real application menu through `app.set_menu(...)` and `app.on_menu_event(...)`; command IDs can therefore be stable across native menus and the Svelte command registry.
+- Rust-to-frontend command events are appropriate for low-frequency menu actions. The JavaScript event listener returns an unlisten function that must be cleaned up with the owning Svelte lifecycle; high-throughput ordered data should not use this event path.
+- `WindowEvent` exposes `Focused`, `ThemeChanged`, `ScaleFactorChanged`, `Resized`, and `CloseRequested`, which is sufficient for inactive-window styling, live theme/scale state, window telemetry, and explicit close behavior without polling.
+- The official notification plugin exposes permission checks, request flow, notification grouping/actions, macOS system sounds, and cancellation. It should sit behind the host-feedback adapter and request permission only at the moment the user enables native notifications.
+- Tauri event listen/emit permissions must be added narrowly to the Desktop capability configuration; no broad shell or unrelated host permission is required for command routing.
+
+## Board constraints
+- Use Issue #13 as `Parent` for every new card.
+- Publish in dependency order only after the user approves the draft breakdown.
+- Every approved issue should receive `enhancement` + `ready-for-agent` and use the to-issues template.
+- Avoid file paths in published issue bodies; keep precise module interfaces and file-level rollout in the repository technical board where they can be reviewed together.
+
+## Board result
+- The draft contains 15 end-to-end cards. Four are no-blocker foundations: unified commands/App Menu, recoverable startup, shared Dialog semantics, and velocity-aware Tasks direct manipulation.
+- Dependent cards converge Project/Settings overlays, user-controlled close behavior, searchable commands, gesture reuse, window materials, contextual notifications, user-action-only haptics, and window-aware activity budgets.
+- The architecture deliberately uses seven deep Modules and domain-specific Adapters instead of a single NativeHost facade.
+- Adversarial review found the original all-Settings modal card too broad, so it was split into Tasks, Provider/media/entity-editor, and Memory workflow cards before handoff.
+- This turn changes planning/design documents only. No product capability is delivered, so `features.md`, `CHANGELOG.md`, and `README.md` should not be updated yet.
+
+---
+
+# 2026-07-16 — Apple-like native experience audit
+
+## Requirements
+- Analyze how Molibot Desktop can achieve a full native-app feel, including platform behavior, interaction, motion, UI, feedback, accessibility, and performance—not only animation or click effects.
+- Use the Apple Design principles supplied by the user.
+- Ground the report in the current product rather than offering generic Apple-style advice.
+- Keep this turn read-only with respect to product code.
+
+## Initial evaluation model
+- Structural layer: window/chrome, navigation model, command system, persistence, offline/error behavior, platform conventions.
+- Interaction layer: pointer-down feedback, keyboard, focus, direct manipulation, interruptibility, velocity handoff, undo and destructive-action recovery.
+- Sensory layer: material hierarchy, typography, icons, sound/haptics where the host permits, and state feedback.
+- Adaptation layer: macOS/Windows/Linux differences, touch vs pointer, responsive layout, light/dark, reduced motion/transparency/contrast, dynamic type.
+- Performance layer: input-to-paint latency, frame stability, compositor-only motion, startup/loading continuity, and perceived responsiveness.
+
+## Product and code findings — pass 1
+- The product already has an explicit macOS layer in `DESIGN.md`: system typography, a 52px drag region, quiet opaque surfaces, fixed settings footbars, a 260px resizable chat sidebar, keyboard focus, short 120–240ms transitions, reduced motion, and an 860×620 minimum window.
+- This is a strong consistency baseline, but it deliberately follows restrained Geist styling. “Apple-native” should extend this behavioral contract; replacing tokens with glass and larger radii would conflict with the existing product direction and would not solve interaction continuity.
+- Desktop is a Tauri + Svelte application, so the host can support platform integration beyond ordinary browser CSS; the current visible shell already marks custom drag regions.
+- Current motion is predominantly CSS transitions/keyframes driven by fixed durations and easing tokens. This is appropriate for hover/focus/color state, but the code search found no general spring/velocity system for gesture-driven surfaces.
+- Direct-manipulation evidence is narrow: the Tasks detail surface uses Pointer Events and pointer capture; the Chat sidebar resize path still uses `mousemove`/`mouseup`. There is no broad gesture primitive for velocity history, momentum projection, rubber-banding, or interruption.
+- Existing accessibility foundations include `:focus-visible`, `aria-live`, keyboard handlers, and reduced-motion checks. The audit still needs live keyboard/focus and reduced-transparency/contrast verification.
+
+## Audit environment
+- Product Design saved context is absent, so the current repository, its `DESIGN.md`, and screenshots from this run are the grounding sources.
+- The in-app audit browser had no existing tab to claim. A fresh local-only tab is required; it will target the current Desktop dev surface and avoid the live service port.
+- A temporary 860×620 viewport is justified because that is the product's documented minimum Desktop window and a required responsive verification state; it must be reset before browser cleanup.
+
+## Visual finding — Step 1: chat startup/disconnected state (1120×760, dark)
+- Accepted screenshot: `01-chat-starting.jpg`.
+- Strengths: the layout is calm and legible; the sidebar-to-content hierarchy is clear; the app communicates that it is checking a local dependency instead of showing a blank screen; status is text plus motion, not color alone.
+- UX risk: the center is dominated by an indefinite looping activity ring while `App.svelte` polls every second. There is no visible elapsed-time threshold, recovery action, diagnostic disclosure, or transition to a stable “still working / needs help” state. A native app should turn prolonged startup into a controllable state, not endless ambient motion.
+- Consistency risk: identity is split among a generic “B” header avatar, the illustrated Molibot icon in the startup indicator, and another Molibot avatar in the sidebar. Native polish depends on one coherent identity and predictable state mapping.
+- Evidence limit: the browser capture cannot show actual macOS traffic lights, inactive-window appearance, vibrancy, native menu behavior, or dock/tray feedback. Those require a packaged Tauri run.
+
+## Visual finding — Step 2: global command palette (1120×760, dark)
+- Accepted screenshot: `02-command-palette.jpg`; an earlier mid-transition capture was rejected and overwritten after the 120ms entrance motion settled.
+- Strengths: `⌘K` works globally; the first command receives a strong visible focus state; arrow-key navigation and Escape are implemented; the palette floats without a modal scrim, preserving context for a parallel task. This is one of the app's strongest native-feeling foundations.
+- Consistency risk visible in the same state: the sidebar says “自动任务 / 技能” while the palette says “自动化 / Skills”. A system-quality app cannot let the same destinations change vocabulary or language between surfaces.
+- Capability gap: the palette exposes only four fixed commands and no type-to-filter input. It behaves more like a shortcut menu than a native command system; it cannot yet surface current-context actions, recent destinations, app-wide search, disabled-state reasons, or full shortcut discovery.
+- Motion assessment: a short fixed CSS entrance is appropriate here because the palette is not directly dragged. Native improvement should focus on origin, focus restoration, context-aware commands, and consistent language—not add bounce.
+
+## Visual finding — Step 3: General Settings (860×650, dark)
+- Accepted screenshot: `03-settings-general.jpg`.
+- Strengths: this is already close to a well-crafted macOS settings surface—stable sidebar, compact grouped rows, restrained separators, system-scale typography, clear switches, an explicit system theme choice, and a fixed action bar. The hierarchy is stronger than a generic web dashboard.
+- Structural risk: the Settings navigation contains 22 destinations in seven groups. At the app's own 860×650 default, the sidebar becomes a long independent scroll region while the content also scrolls. The search field mitigates this, but the experience still feels like a control panel inventory rather than a task-oriented native preferences app.
+- Visual risk: the persistent bottom action bar visibly overlays the content region. The fixed-save requirement is correct, but it needs scroll-edge material/separation and guaranteed bottom content inset so it reads as attached chrome rather than a rectangle covering rows.
+- Language consistency risk: Chinese mode mixes translated destination names with “Agent”, “Skills”, “MCP”, “Web Profile”, “Host Bash”, and “Trace”. Some are product terms, but the rule must be deliberate and identical in navigation, command palette, headings, help text, and search results.
+- Native opportunity: keep the quiet card system, but make the sidebar and bottom bar platform-aware materials, including inactive-window, reduced-transparency, and increased-contrast variants. Do not apply glass to every card.
+- Evidence limit: screenshot inspection supports visible hierarchy and density findings only; actual focus order, VoiceOver labels, zoom resilience, scroll physics, and inactive-window states need interactive/platform testing.
+
+## Product and code findings — pass 2
+- Immediate press feedback already exists globally (`button:active` scales to `.98`, compact actions to `.95`). This is a useful baseline, but it is CSS `:active`; it does not implement the fuller native tap model of press-down highlight, drag-away cancellation, re-entry, and enlarged hysteresis.
+- Keyboard foundations are stronger than the visual audit alone shows: command palette focus is placed on open and restored on close; sidebar resize supports arrow keys; the shared overflow menu supports Arrow Up/Down and Escape with focus restoration.
+- There is no shared Dialog/Sheet/Button/Switch/Tabs interaction primitive in `lib/components/ui`; only nine shared UI components exist. Modal focus behavior is implemented ad hoc, and the inspected task dialogs focus the container but do not show a general focus trap or inert-background contract. This makes consistent native modal behavior hard to guarantee.
+- The only explicit content gesture found is the narrow-screen Tasks detail drag. It tracks horizontal movement 1:1 and captures the pointer, but closes at a hard 96px threshold, discards release velocity, has no projected endpoint, no rubber-band resistance, and snaps the offset back to zero. It is functional but not physically continuous.
+- Sidebar resizing is accessible by keyboard and persists its width, but pointer handling uses mouse events instead of Pointer Events/capture. Window dragging also uses a mouse-only handler. A shared pointer primitive would cover mouse, trackpad/stylus/touch and cancellation consistently.
+- Motion is broad but tokenized: 70 transitions, 33 animations, 18 keyframe definitions, with 100/160/240/300ms duration tokens. There is no spring/gesture dependency. The `--ease-spring` token is an overshooting cubic Bézier, not an interruptible velocity-aware spring.
+- Accessibility adaptation is uneven: eight reduced-motion references and one increased-contrast block exist, but reduced transparency is only sampled inside the performance-mode decision. There is no dedicated visual contract for `prefers-reduced-transparency`, nor evidence that preference changes are observed live.
+- Platform integration exists for overlay titlebars, tray, autostart, single-instance handling, native recording, reopen, and close-to-background. However, the host code builds only a tray menu; it does not expose a full localized macOS application menu with standard roles (About, Preferences, Services, Hide, Window, Help) or native command discoverability.
+- The tray menu renders bilingual labels simultaneously (`中文 / English`) instead of following the active locale, which reads as utility/debug chrome rather than native macOS menu copy.
+- Tauri window constraints contradict the design contract: Chat permits 720×520 and Settings 620×480, while `DESIGN.md` declares 860×620 as the minimum supported Desktop window. Either the product must truly support the smaller sizes or the host minimums must be raised; native quality requires one enforceable contract.
+- The packaged target is macOS 13+ and DMG-only, so a macOS-first implementation is a reasonable product choice. Platform-specific native behavior can be prioritized without building a premature cross-platform abstraction.
+
+## Live layout measurements — Settings at 860×650
+- No horizontal overflow was present, and the effective UI font stack correctly begins with `-apple-system` / `system-ui` / `SF Pro Text` / `PingFang SC`.
+- The navigation's visible height was 502px against 1031px of scroll content—slightly more than half the destinations fit at once. This confirms that Settings information architecture, not raw pixel polish, is the main density issue.
+- The content pane had 737px of content in a 542px viewport. Its sticky footbar occupied 57px beginning at y=553, so content needs an explicit bottom safe area and scroll-edge treatment to prevent perceived occlusion.
+- The visible switches were 38×22px. That is visually consistent with compact macOS controls, but the interactive hit area should be enlarged invisibly to at least 28–32px high and verified with pointer/assistive input; the visible knob does not need to grow.
+- Current environment signals were standard motion, standard transparency, and standard contrast; alternate preference behavior remains source-inspected rather than visually captured.
+
+## Visual finding — Step 4: switch to Light theme (860×650)
+- Accepted screenshot: `04-settings-light.jpg`.
+- Strengths: the theme change is immediate and keeps spatial position; selected state is visible through more than color; light surfaces retain the same hierarchy and spacing as dark mode.
+- Polish risk: the 300ms whole-tree theme transition applies color/background/border changes to every descendant. It looks smooth in a simple view, but on dense screens it can cause unnecessary style work and brightness motion. A native theme transition should be short, scope to stable surfaces, and cross-fade only where it improves continuity.
+- Visible confirmation: the sidebar and content preserve structure across themes, while the bottom footbar remains visually detached/overlaid in both themes; this is a system-chrome issue rather than a dark-theme artifact.
+
+## Existing work that the new roadmap must not duplicate
+- Issue #13 already delivered the important “native polish” baseline: shared page/row/select/search/status/menu/empty/skeleton components, system font, fixed settings chrome, pressed feedback, keyboard shortcuts, text-plus-color status, bounded lists, low-performance mode, and screenshot/accessibility checks.
+- The 2026-07-16 Geist convergence pass deliberately removed Liquid Glass remnants and standardized focus, radii, shadows, scrims, type, and symmetric modal/drawer entrance/exit. Reintroducing widespread translucency or a new visual system would undo freshly verified work.
+- Therefore the next meaningful phase is not another visual reskin. It is a **native behavior layer** above the current Geist/macOS visual foundation: application menu, window state, command registry, shared modal semantics, direct-manipulation physics, feedback orchestration, recovery/offline behavior, and packaged-app QA.
+- Two earlier completion claims should be narrowed in future docs: (1) the Tasks right-edge gesture is interruptible while the pointer is down but does not preserve velocity or animation continuity after release; (2) reduced transparency currently triggers a broad performance fallback, not a dedicated material adaptation contract.
+- The new plan should preserve the intentional rule “quiet opaque surfaces by default”; use translucency only for platform chrome and floating hierarchy where it remains legible under reduced-transparency, contrast, dark, and inactive-window states.
+
+## Prioritized recommendation
+- P0: one command registry plus standard macOS menu/tray/window behavior, an explicit startup/recovery state machine, a single minimum-window contract, and shared Dialog/Popover/Sheet semantics.
+- P1: a small direct-manipulation engine (Pointer Events, capture, velocity history, projection, rubber-band, interruptible spring) piloted only on Tasks detail, right inspector/file drawer, and sidebar resize.
+- P2: restricted platform materials, active/inactive window states, and a capability-gated feedback orchestrator for visual/sound/notification/optional haptic output.
+- P3: command/settings discovery, progressive disclosure, startup/input/frame instrumentation, background-work reduction, and packaged macOS QA across language/theme/accessibility/window states.
+
+## Adversarial conclusions
+- Do not replace the current Geist system with Liquid Glass; the likely result is lower legibility and another style split.
+- Do not add bounce to ordinary UI; springs belong only to touchable/movable surfaces and default to critically damped behavior.
+- Do not call Tauri host APIs directly from every Svelte page; introduce one shared native-experience/capability layer above product flows and outside Channel adapters.
+- Do not reorganize all 22 Settings destinations before unified search, deep links, and usage evidence exist.
+- Do not accept browser screenshots as final native proof; menus, windows, inactive appearance, VoiceOver, scroll physics, notifications, sound, haptics, and performance require a packaged Tauri run.
+
+## Resources
+- `DESIGN.md`
+- `apps/desktop/`
+- Apple Design skill supplied for this audit
+
+---
+
 # 2026-07-15 — Memory Center three-tab redesign
 
 - The selected visual truth is two independent states: generated Option 1 is the Overview tab and generated Option 2 is the Topics tab. They must not be merged into one composition.
@@ -1141,3 +1288,17 @@ rules, and contextual header format.
 - H3（发布包漏 chunks）未命中：Server adapter 已覆盖 staged chunks-first/manifest-last，Desktop archive直接打包完整 release build；故障发生在安装后固定目录被替换。
 - H4（bootstrap 只返回 default）未命中：多 Profile bootstrap 定向测试通过，服务端会投影全部 enabled Web Profile。
 - H5（选择仅改显示）未命中：DraftStore 与 SessionRuntimeRegistry 的 profileId 测试通过，运行 key 是 `profileId:sessionId`，后续 stop/approval/send 均使用固定 binding。
+# 2026-07-16 — Desktop UI Geist consistency convergence
+
+- The active goal already matches the supplied plan; no new goal should replace it.
+- The worktree contains pre-existing changes in `styles.css`, `chat-ui.test.mjs`, Chat input/live/transcript components, `features.md`, and `CHANGELOG.md`.
+- Existing changes add composer invocation chips, live status pulse, assistant-meta layout, and composer insets. These are outside the new plan but overlap files in scope and must be preserved.
+- The accepted visual direction is restrained Geist flat UI. The supplied plan explicitly forbids redesign and new component forms.
+- The main logic risk is symmetric modal/drawer exit animation because Svelte conditional unmounting can remove the element before the animation completes.
+- P0 diagnostics initially exposed the missing top-level close-label caller; after adding a dedicated bilingual key, diagnostics and all focused Desktop tests pass.
+- P0 verification evidence: Svelte 0/0; Desktop UI/HTTP 58/58; projection tests 13/13; Tauri tests 13/13.
+- Final browser QA at 860×620 covered light/dark and Chinese/English controls: no horizontal overflow, no unnamed buttons, and no functional text below 11px outside Agent City artwork.
+- Browser QA exposed a fixed-English document language despite Chinese visible copy. The root `lang` now follows the active locale so assistive technology receives the same language state as the UI.
+- Final verification evidence: Svelte 0/0, production build succeeded, Desktop UI/HTTP 61/61, projection tests 13/13, Tauri tests 13/13, and `git diff --check` passed.
+
+---

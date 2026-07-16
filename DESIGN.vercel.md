@@ -497,3 +497,9 @@ Copy is part of the design; keep it precise and free of filler.
 - Don’t use `background-200` as a general fill; it is for subtle separation only.
 - Don’t mix rounded and sharp corners, or more than two font weights, in one view.
 - Don’t swap `gray-*` for `background-*`; they are separate scales.
+
+## Molibot Desktop Decisions
+
+- Focus follows two rules: keyboard `:focus-visible` uses a two-layer surface/accent ring; text-input containers use a softer `:focus-within` border and 3px accent glow. Selection state is never represented as a focus outline.
+- Motion uses `--ease-standard` for ordinary state changes and `--ease-spring` for spatial entry. Modal, drawer, and popover entry must have a shorter mirrored exit; reduced-motion removes slide/scale and keeps only a brief opacity cross-fade.
+- Functional UI text has an 11px minimum and uses only 400/500/600 weights. Agent City artwork labels may use 9px because they are illustrative; tooltip and other information-bearing text still obeys the 11px floor.

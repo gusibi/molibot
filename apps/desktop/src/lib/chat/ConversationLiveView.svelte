@@ -50,7 +50,7 @@
       <img class="assistant-avatar" src="/molibot-icon.png" alt="" />
       <div class="message-stack">
         <div class="assistant-identity"><strong>{assistantName}</strong><span>{copy.agents}</span></div>
-        <div class="message-status"><span>{activity || copy.working}</span></div>
+        <div class="message-status" role="status"><span class="message-status-pulse" aria-hidden="true"></span><span>{activity || copy.working}</span></div>
         {#if streamingThinking}<details class="thinking-card"><summary>{copy.thinking}</summary><pre>{streamingThinking}</pre></details>{/if}
         {#if activities.length > 0}<RunActivity {activities} {copy} />{/if}
         {#if streamingText}

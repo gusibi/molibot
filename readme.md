@@ -321,7 +321,7 @@ Open: `http://localhost:3000`
 
 `make desktop-dev` builds the shared Server first and only then launches Tauri dev, so backend changes under `src/lib/server` are reflected in the Desktop-managed service. A failed Server build stops startup instead of falling back to an older `build/`.
 
-The macOS implementation is available under `apps/desktop`. It is a separate desktop UI and does not embed the existing Web pages.
+The macOS implementation is available under `apps/desktop`. It is a separate desktop UI and does not embed the existing Web pages. Its existing surfaces now converge on the flat Geist rules in `DESIGN.md`/`DESIGN.vercel.md`, including shared focus, radius, elevation, motion, typography-floor, theme, and reduced-motion contracts guarded by Desktop UI tests.
 
 ```bash
 pnpm install
@@ -733,6 +733,7 @@ The macOS app includes a Projects workspace with a name-first creation flow: it 
 | `README.md` | Project entrypoint: positioning, setup, surface overview, and doc navigation |
 | `AGENTS.md` | Long-lived collaboration rules, first-principles and adversarial-review methodology, architecture boundaries, and doc-maintenance rules |
 | `DESIGN.md` | UI/page design source of truth, including the Molibot macOS product layer that overrides the generic Geist reference for Desktop shell, layout, interaction, accessibility, and component constraints |
+| `DESIGN.vercel.md` | Geist token reference plus Molibot-specific focus, motion, and typography guardrails used by the Desktop implementation |
 | `CONTEXT.md` | Canonical product vocabulary, including the UI Session / Agent Context boundary |
 | `prd.md` | Planned scope, priorities, acceptance criteria, and still-open implementation requirements |
 | `features.md` | Delivered features, implementation notes, and detailed internal update log |

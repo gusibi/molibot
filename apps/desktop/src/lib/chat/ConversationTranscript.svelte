@@ -130,18 +130,8 @@
         {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} />{/if}
         {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>{/if}
         {#if (canShowActions && messageActions) || message.createdAt || message.model}
-          <div class="message-meta">
-            {#if canShowActions && messageActions}
-              <div class="message-actions">
-                <button
-                  type="button"
-                  class="message-action"
-                  aria-label={copy.copyMessage}
-                  title={copy.copyMessage}
-                  onclick={() => messageActions.onCopy(message)}
-                ><i class={`ph ${isCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i></button>
-              </div>
-            {/if}
+          <div class="message-meta assistant-meta">
+            {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
             {#if message.model}<details class="message-model technical-detail"><summary><i class="ph ph-cpu" aria-hidden="true"></i>{humanizeModelOption(message.model, message.model).label}</summary><code>{message.model}</code></details>{/if}
             {#if message.memoryTrace && messageActions?.onOpenMemoryTrace}
               <button
@@ -155,7 +145,17 @@
                 {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
               </button>
             {/if}
-            {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
+            {#if canShowActions && messageActions}
+              <div class="message-actions">
+                <button
+                  type="button"
+                  class="message-action"
+                  aria-label={copy.copyMessage}
+                  title={copy.copyMessage}
+                  onclick={() => messageActions.onCopy(message)}
+                ><i class={`ph ${isCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i></button>
+              </div>
+            {/if}
           </div>
         {/if}
         {#if message.attachments?.length}

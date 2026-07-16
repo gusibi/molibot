@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from "svelte/transition";
   import { session } from "../stores/session.svelte";
   import {
     mcpStore,
@@ -48,7 +49,7 @@
   {/if}
   {#if mcpStore.mcpEdit}
     {@const savedMcp = mcpStore.mcp.items.find((item) => item.id === mcpStore.mcpEdit?.previousId)}
-    <form id="desktop-mcp-form" class="settings-card provider-editor" aria-label={session.text.mcp} onsubmit={(event) => { event.preventDefault(); void saveMcpEditor(); }}>
+    <form id="desktop-mcp-form" class="settings-card provider-editor" aria-label={session.text.mcp} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveMcpEditor(); }}>
       <header class="entity-editor-head"><strong>{session.text.mcp}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={mcpStore.saving} onclick={() => (mcpStore.mcpEdit = null)}><i class="ph ph-x"></i></button></header>
       <div class="settings-form">
         <label class="settings-field"><span>{session.text.mcpId}</span><input value={mcpStore.mcpEdit.id} disabled={!mcpStore.mcpEdit.isNew} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, id: event.currentTarget.value }))} /></label>

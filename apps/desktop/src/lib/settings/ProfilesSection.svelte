@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from "svelte/transition";
   import { hasEnabledWebProfile } from "../api";
   import { session } from "../stores/session.svelte";
   import { agentsStore, loadAgents } from "../stores/agents.svelte";
@@ -67,7 +68,7 @@
   </div>
 {/if}
 {#if profilesStore.profileEdit}
-  <form id="desktop-profile-form" class="settings-card provider-editor" aria-label={session.text.profiles} onsubmit={(event) => { event.preventDefault(); void saveProfileEditor(); }}>
+  <form id="desktop-profile-form" class="settings-card provider-editor" aria-label={session.text.profiles} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveProfileEditor(); }}>
     <header class="entity-editor-head"><strong>{session.text.profiles}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={profilesStore.saving} onclick={() => (profilesStore.profileEdit = null)}><i class="ph ph-x"></i></button></header>
     <div class="settings-form">
       <label class="settings-field"><span>{session.text.profileId}</span><input value={profilesStore.profileEdit.id} disabled={!profilesStore.profileEdit.isNew} oninput={(event) => updateProfileEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>

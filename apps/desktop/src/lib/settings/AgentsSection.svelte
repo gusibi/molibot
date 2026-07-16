@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from "svelte/transition";
   import type { DesktopModelRoute } from "../api";
   import { session } from "../stores/session.svelte";
   import { modelsStore, loadModels } from "../stores/models.svelte";
@@ -78,7 +79,7 @@
   </div>
 {/if}
 {#if agentsStore.agentEdit}
-  <form id="desktop-agent-form" class="settings-card provider-editor" aria-label={session.text.agents} onsubmit={(event) => { event.preventDefault(); void saveAgentEditor(); }}>
+  <form id="desktop-agent-form" class="settings-card provider-editor" aria-label={session.text.agents} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveAgentEditor(); }}>
     <header class="entity-editor-head"><strong>{session.text.agents}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}><i class="ph ph-x"></i></button></header>
     <div class="settings-form">
       <label class="settings-field"><span>{session.text.agentId}</span><input value={agentsStore.agentEdit.id} disabled={!agentsStore.agentEdit.isNew} oninput={(event) => updateAgentEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>

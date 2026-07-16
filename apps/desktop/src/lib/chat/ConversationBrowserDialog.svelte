@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import BotAvatar from "./BotAvatar.svelte";
   import ConversationRow from "./ConversationRow.svelte";
   import { listDesktopConversationGroups, listDesktopConversations } from "../api.js";
@@ -28,6 +29,7 @@
       empty: string;
       deletedBot: string;
       unknownBot: string;
+      close: string;
     };
     formatTime: (iso: string) => string;
     onSelect: (item: DesktopConversationItem) => void;
@@ -40,6 +42,18 @@
   let loadingMore = $state<Record<string, boolean>>({});
   let error = $state("");
   let opened = false;
+  let closing = $state(false);
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function requestClose(): void {
+    if (closing) return;
+    closing = true;
+    closeTimer = setTimeout(onClose, 150);
+  }
+
+  onDestroy(() => {
+    if (closeTimer) clearTimeout(closeTimer);
+  });
 
   async function loadGroups(q: string): Promise<void> {
     loading = true;
@@ -58,6 +72,7 @@
   $effect(() => {
     if (!open) {
       opened = false;
+      closing = false;
       return;
     }
     const q = query;
@@ -87,7 +102,9 @@
   }
 
   function pick(item: DesktopConversationItem): void {
-    onSelect(item);
+    if (closing) return;
+    closing = true;
+    closeTimer = setTimeout(() => onSelect(item), 150);
   }
 
   let totalItems = $derived(groups.reduce((sum, g) => sum + g.items.length, 0));
@@ -95,14 +112,15 @@
 
 {#if open}
   <div
-    class="conversation-browser-overlay"
+    class="modal-overlay conversation-browser-overlay"
+    class:closing
     role="dialog"
     aria-modal="true"
     tabindex="-1"
-    onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    onkeydown={(e) => { if (e.key === "Escape") onClose(); }}
+    onclick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
+    onkeydown={(e) => { if (e.key === "Escape") requestClose(); }}
   >
-    <div class="conversation-browser">
+    <div class="modal-card conversation-browser" class:closing>
       <header class="browser-header">
         <div class="browser-search">
           <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
@@ -117,7 +135,7 @@
             </button>
           {/if}
         </div>
-        <button type="button" class="browser-close" aria-label="close" onclick={onClose}>
+        <button type="button" class="browser-close" aria-label={labels.close} onclick={requestClose}>
           <i class="ph ph-x" aria-hidden="true"></i>
         </button>
       </header>
@@ -167,54 +185,51 @@
 
 <style>
   .conversation-browser-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.35);
-    display: flex;
     align-items: flex-start;
-    justify-content: center;
     padding: 8vh 16px 16px;
     z-index: 60;
   }
+  .conversation-browser-overlay.closing { animation: backdrop-out 150ms var(--ease-standard) forwards; }
   .conversation-browser {
     width: min(560px, 100%);
     max-height: 76vh;
     display: flex;
     flex-direction: column;
-    background: var(--surface, #fff);
-    border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-    overflow: hidden;
   }
   .browser-header {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 10px 12px;
-    border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+    border-bottom: 1px solid var(--separator);
   }
   .browser-search {
     display: flex;
     align-items: center;
     gap: 6px;
     flex: 1 1 auto;
-    background: var(--fill, rgba(0, 0, 0, 0.04));
-    border-radius: 8px;
+    border: 1px solid var(--control-border);
+    background: var(--fill);
+    border-radius: var(--radius-control);
     padding: 4px 8px;
+  }
+  .browser-search:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--control-border-strong));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
   }
   .browser-search input {
     flex: 1 1 auto;
     border: none;
     background: transparent;
     font-size: 13px;
-    color: inherit;
+    color: var(--label-primary);
     outline: none;
   }
-  .browser-search button { border: none; background: transparent; cursor: pointer; color: inherit; }
-  .browser-close { border: none; background: transparent; cursor: pointer; color: inherit; padding: 4px; }
+  .browser-search button { border: none; background: transparent; cursor: pointer; color: var(--label-secondary); }
+  .browser-close { border: none; background: transparent; cursor: pointer; color: var(--label-secondary); padding: 4px; }
   .browser-body { overflow-y: auto; padding: 6px 8px 10px; }
-  .browser-state { padding: 24px; text-align: center; opacity: 0.6; font-size: 13px; }
-  .browser-error { color: var(--danger, #e4106e); opacity: 1; }
+  .browser-state { padding: 24px; text-align: center; color: var(--label-tertiary); font-size: 13px; }
+  .browser-error { color: var(--danger); }
   .browser-group { padding: 4px 0; }
   .browser-group-header {
     display: flex;
@@ -223,10 +238,10 @@
     padding: 6px 8px;
     font-size: 12px;
     font-weight: 600;
-    opacity: 0.75;
+    color: var(--label-secondary);
   }
   .browser-group-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .browser-group-count { font-weight: 500; opacity: 0.6; }
+  .browser-group-count { color: var(--label-tertiary); font-weight: 500; }
   .browser-load-more {
     display: block;
     width: 100%;

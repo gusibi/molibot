@@ -237,7 +237,7 @@
   }
   .plugin-collapsible-head .profile-info strong {
     font-size: 14px;
-    font-weight: 550;
+    font-weight: 500;
   }
   .plugin-collapsible-head .profile-info p {
     margin: 2px 0 0;

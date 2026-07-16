@@ -62,7 +62,7 @@
     justify-content: center;
     width: var(--size);
     height: var(--size);
-    border-radius: 8px;
+    border-radius: var(--radius-control, 8px);
     background: color-mix(in srgb, var(--c) 18%, transparent);
     color: var(--c);
     font-size: calc(var(--size) * 0.45);

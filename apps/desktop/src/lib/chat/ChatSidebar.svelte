@@ -183,7 +183,7 @@
   .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
   .nav-item.active i { color: var(--accent, #006bff); }
   .nav-item i { font-size: 16px; color: var(--label-secondary, #666); }
-  .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: 9999px; background: var(--accent, #006bff); color: #fff; font-size: 10px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: #fff; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .sidebar-channels {
     flex: 1 1 auto;
     overflow-y: auto;

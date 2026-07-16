@@ -7,6 +7,28 @@
 ---
 ## 2026-07-16
 
+### Desktop UI 全面收敛到 Geist 一致性规则（已完成）
+- 修复无效 CSS token/keyframe、深色会话浏览器白卡、会话状态色和菜单阴影等静默问题；会话浏览器改用共享 modal chrome 与双语关闭标签。
+- 统一键盘焦点与输入焦点、6/8/12/full 圆角、三档阴影与 drawer 阴影、主题化 scrim、弹层/抽屉进退场和 reduced-motion 降级；记忆抽屉移除毛玻璃并改为实底。
+- 功能文本建立 11px 地板（Agent City 插画 9px 例外），字重收敛为 400/500/600，warning 文本提高对比度，等宽内容统一使用 `--font-mono`，设置页滚动边缘、onboarding 完成态与自动深色 Agent City 补齐。
+- 新增递归 CSS 静态守卫，覆盖未定义变量、未定义 keyframe、字号地板与文档语言同步。验证：Desktop UI/HTTP 61/61、投影测试 13/13、Tauri 13/13、Svelte 0 错误 0 警告。
+
+### 流式状态运行动画 + 输入框调用 chip（已完成）
+- 流式状态行现在在后端下发的运行状态（耗时 · token 数 · 阶段，如"3m 39s · 3.7k tokens · almost done thinking…"）旁加了一个呼吸律动的强调色圆点，像 Claude Code 一样一眼就能看出这一轮在运行中。该动画在 `prefers-reduced-motion` 和 App 低性能模式下自动关闭。
+- 在输入框输入（或选择）一个已识别的命令/skill 时，会**就地**高亮开头的 `/token`：在其后方绘制一个带色胶囊（命令用强调色，skill 用紫色）。高亮是一个镜像 textarea 文本度量的覆盖层，textarea 保持不透明浮在上层，所以光标与中文 IME 输入完全原生、后续文字不位移；不再多出一行 chip。
+- 验证：`svelte-check` 0/0、Desktop production build、桌面 UI 测试（13 + 58），并对着已构建样式表实测了律动动画、像素对齐的行内 token 胶囊（skill + 命令两种）与单行布局。
+
+### 显式调用 skill 不再把整份 SKILL.md 塞进上下文和聊天视图（已完成）
+- 之前显式调用 skill（`/名字`、`$名字`、`skill:名字`）会把**整份 SKILL.md 内容**注入本轮消息——既发给模型，也作为用户消息原文渲染在会话记录里。现在 runner 只传紧凑的 `[$名字](/绝对路径/SKILL.md)` 引用（名字 + 绝对路径），agent 按 Skill Execution Protocol 自己读取该文件（"read its `SKILL.md` in full"）。删除了已失效的 `injectExplicitSkillFileContext`。这样既减少模型上下文，也让 skill 消息在聊天视图里更清爽。
+- 回答用户疑问：是的，全文之前**确实发给了 AI**；现在不再发送。
+- 验证：agent runner/helpers/prompt 测试（35 + prompt 套件）、涉及的运行时文件 `tsc` 无错。
+
+### 聊天流式只显示一个"Thinking…"；助手元信息时间靠左/复制靠右；输入框不再贴边（已完成）
+- 流式占位不再重复：消息气泡只在出现真实流式文本后才渲染，首个 token 之前只保留状态行（"Thinking…"/活动）这一处指示。
+- 助手消息底部元信息行改为时间在最左，复制按钮推到最右（模型/记忆 trace 居中）。
+- 输入框 `.composer-wrap` 现在与 `.messages` 一样带 `clamp(20px, 5vw, 56px)` 左右内缩，在 Project Chat 等较窄面板不再贴边；内容列仍限制在 720px 阅读宽度。
+- 验证：`svelte-check` 0/0、Desktop production build、桌面 UI 测试（13 + 58，含更新后的 issue-13 composer 断言）。
+
 ### Issue #17 / #18：Desktop 运行时 500 与新会话 Profile 选择修复（已完成）
 - Desktop 内置服务运行时改为按版本写入不可变目录。应用升级时不再删除仍被旧 sidecar 进程引用的哈希 chunk，Project、Provider、Plugin、Diagnostics、Sandbox、Trace、Usage、Host Bash 等延迟加载 API 不会再因 manifest 指向已删除文件而集中返回 500。
 - Desktop 新对话不再立即以 default/最近 Profile 创建空 Session，而是先进入草稿态并显示现有 Web Profile 选择器；用户首条消息发送时才创建 Session，并将所选 Profile 固定到该 Session 的 Runtime。

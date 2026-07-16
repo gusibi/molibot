@@ -184,7 +184,9 @@
     border: 1px solid var(--control-border);
     border-radius: var(--rounded-md);
     background: var(--card-bg);
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.12);
+    box-shadow: var(--popover-shadow);
+    transform-origin: bottom left;
+    animation: popover-in 120ms var(--ease-spring);
     animation: mention-pop 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   @keyframes mention-pop {

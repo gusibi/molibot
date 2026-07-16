@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from "svelte/transition";
   import type { DesktopMemoryItem } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import { session } from "../stores/session.svelte";
@@ -291,7 +292,7 @@
   {#if memoryStore.candidateEdit}
     <div class="modal-overlay" role="presentation" onclick={(event) => event.target === event.currentTarget && (memoryStore.candidateEdit = null)}>
       <div class="modal-card memory-detail-modal" role="dialog" aria-modal="true" aria-label={session.text.memoryCandidateEdit}>
-      <form class="memory-detail-form" onsubmit={(event) => { event.preventDefault(); if (memoryStore.candidateEdit) void confirmMemoryCandidate(memoryStore.candidateEdit); }}>
+      <form class="memory-detail-form" out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); if (memoryStore.candidateEdit) void confirmMemoryCandidate(memoryStore.candidateEdit); }}>
         <header class="entity-editor-head"><div><strong>{session.text.memoryCandidateEdit}</strong><p>{memoryStore.candidateEdit.createdAt.replace("T", " ").slice(0, 19)}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (memoryStore.candidateEdit = null)}><i class="ph ph-x"></i></button></header>
         <div class="modal-body settings-form">
           <label class="settings-field settings-field-wide"><span>{session.text.memoryContent}</span><textarea rows="6" bind:value={memoryStore.candidateEdit.value}></textarea></label>
@@ -310,7 +311,7 @@
   {#if memoryStore.memoryEdit}
     <div class="modal-overlay" role="presentation" onclick={(event) => event.target === event.currentTarget && (memoryStore.memoryEdit = null)}>
       <div class="modal-card memory-detail-modal" role="dialog" aria-modal="true" aria-label={session.text.memory}>
-      <form id="desktop-memory-form" class="memory-detail-form" aria-label={session.text.memory} onsubmit={(event) => { event.preventDefault(); if (memoryStore.memoryEdit) void saveMemoryItem(memoryStore.memoryEdit); }}>
+      <form id="desktop-memory-form" class="memory-detail-form" aria-label={session.text.memory} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); if (memoryStore.memoryEdit) void saveMemoryItem(memoryStore.memoryEdit); }}>
         <header class="entity-editor-head"><div><strong>{session.text.memory}</strong><p>{memoryStore.memoryEdit.channel}:{memoryStore.memoryEdit.externalUserId}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(memoryStore.busyAction)} onclick={() => (memoryStore.memoryEdit = null)}><i class="ph ph-x"></i></button></header>
         <div class="modal-body memory-detail-body">
           <div class="settings-form">

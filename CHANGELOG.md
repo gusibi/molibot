@@ -7,6 +7,26 @@
 ---
 ## 2026-07-16
 
+### Refactor: Converge Desktop UI on Geist consistency rules
+- Repaired silent CSS variable/keyframe failures and dark-theme conversation chrome, then standardized focus treatments, radius roles, elevation, scrims, modal/drawer motion, and reduced-motion behavior without redesigning existing surfaces.
+- Established an 11px functional type floor with an explicit Agent City artwork exception, normalized weights and mono typography, improved warning-text contrast, and added recursive CSS guards for undefined variables, undefined keyframes, and undersized text.
+- Verified Desktop UI/HTTP 61/61, projections 13/13, Tauri 13/13, and Svelte diagnostics at 0 errors / 0 warnings.
+
+### Feature: Live running indicator on the streaming status; composer shows an invocation chip
+- The streaming status line now carries a breathing accent dot next to the backend-pushed run status (elapsed time · token count · phase, e.g. "3m 39s · 3.7k tokens · almost done thinking…"), giving a Claude-Code-style at-a-glance signal that the turn is actively running. The pulse is disabled under `prefers-reduced-motion` and the app's low-performance mode.
+- Typing (or picking) a recognized command/skill now highlights the token **in place**: a colored pill is painted behind the `/token` at the start of the input (accent for commands, purple for skills). The highlight is an overlay that mirrors the textarea's text metrics; the textarea stays opaque on top, so the caret and CJK IME composition remain fully native and the following glyphs never shift. No extra chip row is added.
+- Verified: `svelte-check` 0/0, production Desktop build, desktop UI tests (13 + 58), plus a live render check confirming the pulse animation, pixel-aligned inline token pill (skill + command variants), and single-line layout against the shipped stylesheet.
+
+### Fix: Explicit skill invocation no longer inlines the whole SKILL.md into context or the chat view
+- Explicitly invoking a skill (`/name`, `$name`, `skill:name`) previously injected the **entire SKILL.md content** into the turn — it was both sent to the model and rendered verbatim as the user message in the transcript. The runner now passes only the compact `[$name](/abs/path/SKILL.md)` reference (name + absolute path); the agent reads the file itself per the Skill Execution Protocol ("read its `SKILL.md` in full"). Removed the now-dead `injectExplicitSkillFileContext` helper. This trims model context and de-clutters the chat view for skill messages.
+- Verified: agent runner/helpers/prompt tests (35 + prompt suite), `tsc` clean on the touched runtime files.
+
+### Fix: Chat streaming shows one "Thinking…"; assistant meta reads time-left / copy-right; composer isn't flush to pane edges
+- The streaming placeholder no longer renders twice: the message bubble only appears once real streamed text exists, so the status line ("Thinking…"/activity) is the single indicator before the first token.
+- Assistant message meta row now leads with the timestamp on the far left and pushes the copy action to the far right (model/memory-trace sit in between).
+- The composer (`.composer-wrap`) now carries the same `clamp(20px, 5vw, 56px)` horizontal inset as `.messages`, so it no longer sits flush against the edges on narrower surfaces like Project Chat, while its content column still caps at the 720px reading width.
+- Verified: `svelte-check` 0/0, production Desktop build, and the desktop UI test suite (13 + 58) including the updated issue-13 composer assertion.
+
 ### Fix: Desktop runtime upgrades no longer break lazy APIs; new chats can choose a Web Profile
 - Bundled Desktop runtimes now install into immutable versioned directories. Updating the app no longer removes hashed server chunks that an adopted or still-running previous sidecar may lazy-import, preventing the broad `ERR_MODULE_NOT_FOUND` 500 failures reported across Project, Provider, Plugin, Diagnostics, Sandbox, Trace, Usage, and Host Bash endpoints.
 - New Desktop chats now start as a Profile-selectable draft instead of eagerly creating an empty Session with the default or last Profile. The first message creates the Session with the selected Web Profile and pins that Profile to its Runtime.

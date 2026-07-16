@@ -11,6 +11,95 @@
 
 ---
 
+# 2026-07-16 — Native experience developer board
+
+## Phase 1: Tracker and seam discovery
+- **Status:** complete
+- Actions taken:
+  - Loaded the vertical-slice issue workflow and deep-module vocabulary.
+  - Confirmed GitHub tracker, `ready-for-agent` label, open Issue #13 parent, and absence of issue comments.
+  - Reconciled Issue #13 with current PRD completion claims so the board covers only remaining native-behavior work.
+  - Mapped duplicated host calls, timers, preference listeners, shared UI gaps, and available test surfaces.
+  - Verified current Tauri 2 application-menu, event, window-focus/theme/scale, notification, cleanup, and capability-permission surfaces against official documentation.
+- Files modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+## Phase 2: Deep-module boundary design
+- **Status:** complete
+- Actions taken:
+  - Confirmed Desktop cannot safely reuse the root UI source through cross-directory relative imports; the overlay slice must establish a formal Desktop-local shadcn-compatible primitive or package seam.
+  - Confirmed the installed Svelte runtime already provides a spring primitive, avoiding a speculative motion-framework dependency while leaving velocity tracking and endpoint projection inside one deep Module.
+  - Verified that Svelte's spring cannot be seeded with pointer-release velocity; selected a small pure axis-motion solver behind the gesture Module instead of adding another animation framework.
+  - Verified the `objc2-app-kit` haptic binding and Apple's user-action-only constraint; scoped haptics to gesture snap/commit and kept background completion feedback in notifications/live regions.
+  - Reserved PRD section 2.80 without touching the unrelated user-owned 2.79 work.
+
+## Phase 3–5: Board drafting, adversarial review, and approval handoff
+- **Status:** complete; GitHub publication intentionally pending user approval
+- Actions taken:
+  - Wrote the repository technical board with seven deep Modules, domain-specific production/test Adapters, a dependency graph, 15 vertical cards, acceptance criteria, verification, rollback, and packaged-app gates.
+  - Marked NATIVE-01/02/03/10 as the no-blocker first wave and preserved explicit blockers for all later cards.
+  - Added PRD §2.80 as planned work while preserving the unrelated Memory v3 §2.79 edits.
+  - Adversarially checked for a NativeHost god object, visual-effect overreach, infrastructure-only cards, duplicate listeners/timers, and false confidence from non-packaged tests.
+  - Split the over-broad Settings dialog rollout into Tasks, Provider/media/entity-editor, and Memory cards before approval handoff.
+- Files modified:
+  - `docs/designs/2026-07-16-native-experience-developer-board.md`
+  - `prd.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+---
+
+# 2026-07-16 — Apple-like native experience audit
+
+## Phase 1: Product and implementation discovery
+- **Status:** complete
+- Actions taken:
+  - Loaded the Apple Design criteria and the screenshot-first combined UX/accessibility audit workflow.
+  - Preserved the existing dirty worktree and prior planning history.
+  - Defined audit layers and verification gates; no product code has been changed.
+  - Read the current macOS product-layer design contract and mapped Desktop platform, motion, gesture, focus, and accessibility signals in source.
+  - Confirmed there is no saved Product Design context and prepared an isolated in-app browser capture at the documented minimum viewport.
+  - Captured and visually accepted the current 1120×760 dark chat startup state from the safe local dev surface.
+  - Verified `⌘K`, focus, and keyboard structure; rejected one unstable capture, then accepted a stable command-palette screenshot.
+  - Captured and accepted General Settings at the app's 860×650 window size; recorded hierarchy, density, language, and fixed-chrome findings.
+  - Audited shared components, press feedback, modal/focus behavior, gesture implementation, motion tokens, accessibility media handling, Tauri window behavior, tray integration, and platform constraints.
+  - Measured the live Settings viewport: no horizontal overflow, correct system font stack, but a 1031px navigation list inside 502px and compact 22px-high switch hit areas.
+  - Switched to Light theme, verified the selected state, captured the stable result after the known 300ms transition, and accepted the screenshot.
+  - Reconciled the audit against the already-completed Issue #13 and Geist convergence plans so the next roadmap advances platform behavior instead of repeating visual cleanup.
+  - Produced a four-phase implementation roadmap with phase-specific exit gates and completed a five-risk adversarial review.
+  - Restored the temporary browser theme to System, reset the viewport override, and finalized the audit tab.
+- Files modified:
+  - `task_plan.md` (audit plan appended)
+  - `findings.md` (requirements and evaluation model appended)
+  - `progress.md` (session progress appended)
+
+## Test results
+| Check | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Worktree preservation | Existing product changes remain untouched | Only planning sections appended | pass |
+
+## Error log
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Saved-context preflight script path did not exist at the plugin root | 1 | Locate the installed script before retrying from a different path. |
+| Global `⌘K` could not be dispatched through the `main` locator because focus changed | 1 | Switch to browser-level keypress after refreshing visible state. |
+| First command-palette image caught an unstable animation frame | 1 | Rejected as audit evidence; recapture after the defined entrance transition settles. |
+| Accepted screenshots contained JPEG bytes under `.png` names | 1 | Renamed the exact files to `.jpg` and updated every report/evidence reference. |
+| Broad finalization patch missed an exact findings line | 1 | Atomic patch changed nothing; split the update into small per-file patches. |
+
+## Final verification
+| Check | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Screenshot evidence | Four accepted, inspected files with matching formats | Four JPEG files at 1120×760 / 860×650 | pass |
+| Scope safety | No product code or live runtime data changed | Only planning logs and external audit artifacts changed | pass |
+| Report completeness | Flow, health, UX/a11y risks, limits, roadmap, adversarial review | Saved in the audit artifact directory | pass |
+| Worktree whitespace | Planning diff has no whitespace errors | `git diff --check` clean | pass |
+
+---
+
 # 2026-07-15 — PR #15 merge and release
 
 - Loaded the explicitly requested release workflow and the required file-based planning workflow.
@@ -845,3 +934,18 @@
 - [x] 根因修复、完整回归、Server/Desktop production build 与四份产品文档同步完成。
 - [x] 对抗式复查确认版本目录名已限制为安全字符、旧运行时代际不会被升级删除、新会话首发仍固定选中 Profile；无未处理阻断项。
 - `cargo fmt --check` 仍报告 `lib.rs` 与 `supervisor.rs` 中本次修改前已存在的格式差异；本次新增 Rust 代码已按 rustfmt 提示调整，未顺带格式化无关旧代码。
+# 2026-07-16 — Desktop UI Geist consistency convergence
+
+- Continued the existing `/goal` created for the supplied design plan.
+- Loaded the frontend-design and file-based planning procedures plus the project design and PRD context.
+- Audited the dirty worktree and established that pre-existing Chat UI changes must be preserved while touching shared CSS/tests/docs.
+- Created a phased execution record with P0–P3 verification gates; no product code has been changed yet for this plan.
+- Completed P0: repaired invalid CSS token/keyframe references, removed obsolete low-performance selectors, rebuilt the conversation browser on shared modal chrome, and corrected conversation-row state/shadow tokens.
+- P0 verification passed: Svelte diagnostics 0/0, Desktop UI/HTTP 58/58, projection tests 13/13, and Tauri tests 13/13.
+- Completed P1/P2: shared focus, radius, surface, shadow, motion, typography, theme-transition, bilingual close labels, reduced-motion, and modal/drawer lifecycle behavior now follow the Geist contract.
+- Completed P3: recursive CSS variable/keyframe/font-floor guards plus document-language synchronization coverage were added; product and design documentation was synchronized.
+- Browser regression at 860×620 passed in light/dark and both language control states with zero horizontal overflow, unnamed buttons, or functional text below 11px. The check found and prompted the final root-language fix.
+- Final verification passed: Svelte 0/0, production build, Desktop UI/HTTP 61/61, projections 13/13, Tauri 13/13, and clean diff whitespace.
+- Adversarial review rechecked command-palette transforms, modal exit timing, reduced-motion, semantic token completeness, user-owned dirty changes, documentation counts, and machine-specific path leakage; no unresolved blocking issue remains.
+
+---

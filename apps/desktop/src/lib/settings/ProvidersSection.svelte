@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from "svelte/transition";
   import type { DesktopProviderItem, DesktopProvidersSummary, DesktopProviderUpdateRequest } from "@molibot/desktop-contract";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
@@ -336,7 +337,7 @@
           </SettingGroup>
           {#if providersStore.providerEdit}
             <div class="modal-overlay provider-modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={providersStore.providerEdit.isNew ? session.text.providerCreateTitle : session.text.providerEditTitle} onclick={(event) => { if (event.target === event.currentTarget && !providersStore.saving) closeProviderEdit(); }} onkeydown={onProviderOverlayKeydown}>
-            <form id="desktop-provider-edit-form" class="modal-card provider-modal-card" onsubmit={(event) => { event.preventDefault(); void saveProviderEdit(); }}>
+            <form id="desktop-provider-edit-form" class="modal-card provider-modal-card" out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveProviderEdit(); }}>
               <header class="modal-head provider-modal-head">
                 <div><strong>{providersStore.providerEdit.isNew ? session.text.providerCreateTitle : session.text.providerEditTitle}</strong><p>{session.text.providerSelfHostedHint}</p></div>
                 <button class="modal-close" type="button" aria-label={session.text.cancel} disabled={providersStore.saving} onclick={closeProviderEdit}><i class="ph ph-x"></i></button>

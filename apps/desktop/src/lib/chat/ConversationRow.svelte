@@ -295,7 +295,7 @@
     padding: 0 7px;
     border: 1px solid var(--accent, #006bff);
     border-radius: var(--rounded-sm, 6px);
-    background: var(--panel-bg, #fff);
+    background: var(--card-bg);
     color: var(--label-primary, #171717);
     font-size: 13px;
     outline: none;
@@ -315,8 +315,8 @@
     animation: bot-status-pulse 1.6s infinite;
   }
   .status-dot[data-color="waiting"] { background: var(--warning, #ffae00); }
-  .status-dot[data-color="completed"] { background: var(--success, #28a948); }
-  .status-dot[data-color="failed"] { background: var(--danger, #e4106e); }
+  .status-dot[data-color="completed"] { background: var(--online); }
+  .status-dot[data-color="failed"] { background: var(--danger); }
   @keyframes bot-status-pulse {
     0% { box-shadow: 0 0 0 2px var(--sidebar-bg, #fafafa), 0 0 0 0 color-mix(in srgb, var(--accent, #006bff) 50%, transparent); }
     70% { box-shadow: 0 0 0 2px var(--sidebar-bg, #fafafa), 0 0 0 5px transparent; }
@@ -362,8 +362,10 @@
     padding: 4px;
     border: 1px solid var(--separator, rgba(0, 0, 0, 0.08));
     border-radius: var(--rounded-md, 12px);
-    background: var(--panel-bg, #fff);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.08);
+    background: var(--card-bg);
+    box-shadow: var(--popover-shadow);
+    transform-origin: top right;
+    animation: popover-in 120ms var(--ease-spring);
   }
   .row-menu-item {
     display: flex;
@@ -381,8 +383,8 @@
   }
   .row-menu-item i { font-size: 15px; opacity: 0.8; }
   .row-menu-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
-  .row-menu-item.danger { color: var(--danger, #e4106e); }
-  .row-menu-item.danger:hover { background: color-mix(in srgb, var(--danger, #e4106e) 10%, transparent); }
+  .row-menu-item.danger { color: var(--danger); }
+  .row-menu-item.danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
 
   /* Inline delete confirmation (replaces the native window.confirm). */
   .row-menu-prompt {
@@ -413,8 +415,8 @@
   .row-menu-btn-plain:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .row-menu-btn-danger {
     border-color: transparent;
-    background: var(--danger, #e4106e);
+    background: var(--danger);
     color: #fff;
   }
-  .row-menu-btn-danger:hover { background: color-mix(in srgb, var(--danger, #e4106e) 88%, #000); }
+  .row-menu-btn-danger:hover { background: color-mix(in srgb, var(--danger) 88%, #000); }
 </style>

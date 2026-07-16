@@ -5,6 +5,35 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.80 Desktop Native Experience Behavior Layer (2026-07-16)
+- 背景：Issue #13 和 §2.68/§2.78 已完成 Desktop 的 Geist/macOS 视觉基线；下一阶段不重做 UI 主题，而是补齐原生菜单、窗口生命周期、可恢复状态、覆盖层语义、直接操控、平台反馈和后台活动预算。完整技术看板、依赖和验收见 [`docs/designs/2026-07-16-native-experience-developer-board.md`](docs/designs/2026-07-16-native-experience-developer-board.md)。
+- [Planned, P0] 建立带 production/in-memory Adapter 的深 Module：CommandSystem、StartupCoordinator、Dialog/AlertDialog、WindowState、DirectManipulation、FeedbackCoordinator、ActivityScheduler；禁止收敛成万能 `NativeHost` 或在 Channel 加平台编排。
+- [Planned, P0] App Menu、Tray 与 ⌘K 使用同一稳定命令 ID/标签/快捷键/可用状态；启动超过 8 秒进入可恢复状态；关闭 Chat 的菜单栏驻留/退出行为由用户控制且继续走 orderly service shutdown。
+- [Planned, P0] 所有 Chat、Project、Settings modal 迁移到 Desktop 本地 shadcn-svelte 兼容 primitive，统一 focus trap、inert、Escape、焦点恢复和退出生命周期，并保持中英、明暗、860×620 与无障碍适配。
+- [Planned, P1] Tasks Inspector、Sidebar resize 与 Drawer 使用共享 Pointer/速度/中断语义；活动/非活动窗口和 reduced-transparency/increased-contrast 使用实时平台状态，只在 chrome 使用克制材质。
+- [Planned, P1] 前台使用应用内反馈，后台按权限发送去重的原生通知；Force Touch 触觉只响应用户主动的 snap/commit；所有数据轮询迁入窗口感知的 ActivityScheduler，禁止高频 timer 在隐藏窗口永久运行。
+- [Planned] 15 张 ready-for-agent Issue 仅在产品负责人确认粒度和依赖后发布，统一以 GitHub Issue #13 为 Parent。
+
+## 2.79 Memory System Improvement Plan v3 — Loop Closure & Honest Profile (2026-07-16)
+- 背景：v2.2（§2.36）的 T1–T7 已全部交付；对照 OpenClaw / Hermes 复盘的结论是架构已达目标形态，缺的是未闭合的回路（反馈不回流、反思只抽取不演变、巩固遗忘无排程）。直接诱因：记忆中心"综合画像/稳定偏好"实际是最近 200 条的 recency 切片（`searchAll mode:"recent" limit:200` + 客户端 recency 优先投影），与产品文案语义不符。契约、任务书与端到端验收见 `docs/requirements/memory-improvement-plan-v3.md`。
+- [Planned, P0] C1 画像构建器契约：服务端 `MemoryProfileBuilder` 一个构建器供 UI 与 prompt 注入两个消费方；稳定层取数不设 updatedAt 窗口，按稳定性分（pinned > 版本存活 > confidence > utility/accessCount）排序，recency 仅平手项；meta 必须诚实标注各板块实际参与条数与选取规则。
+- [Planned, P0] T10 记忆中心画像真实化：概览 Tab 全板块改为消费构建器输出；"稳定偏好"名副其实（pinned 旧偏好不被昨日新偏好顶掉）；"近期新增"保持 recency；UI 文案与实际选取规则一致，不再给出错误数据。
+- [Planned, P0] T11 反馈回流记分：`memory_trace_feedback` 现有反馈（有帮助/无关/错误/过时/过于私人）确定性回流到 utility/confidence/conflictFlag/expiresAt/allowInjection + suppression，幂等、走治理审计，零 LLM 成本。
+- [Planned, P0] T12 反思携带既有记忆：ReflectionExtractor 输入增加 relatedMemories，输出支持 supersedes（走版本链）/ disputes（置 conflictFlag）；与既有记忆一致的内容不产出候选，端到端"偏好演变可追溯"经反思路径成立。
+- [Planned, P1] T13 常驻画像块注入：从构建器稳定层生成 ≈500 token 画像块，session 首轮冻结快照（兼容 prefix cache，记忆仍走 user 信封），与检索注入去重；trace 区分"常驻画像"与"本轮检索"。
+- [Planned, P1] T14 巩固与遗忘排程：每日反思成功后追加 internal 巩固步骤（compact + 近似合并 + 长期未命中降权而非删除，pinned 豁免），结果进 runlog。
+- [Planned, P1] T15 候选证据累积：跨 run 同类候选合并（occurrenceCount/evidence/confidence 有界上调）而非新建；Inbox 按证据置顶；可配置自动确认阈值（默认关闭，仍走唯一 confirm 入口并标注 auto）。
+- [Planned, P1] T16 会话全文检索工具：SessionStore 建 FTS5 索引（CJK 经 moryTokenize 预分词），新增 Agent 工具按权限口径检索历史会话原文并可跳转；automation 会话在共享查询层排除。
+- [Planned, P2] T17 纠正即时止血：当轮注入过记忆且用户消息命中确定性纠正模式时，将相关注入记忆置 disputed（当天停注入），细化交给夜间反思；可一键恢复。
+- [Planned, P2] T18 程序性记忆 → Skill 提升建议：高频高 utility 的 skill 类记忆生成沉淀建议候选，确认后走既有 skill 管理链路，不自动创建。
+- [Planned] 端到端验收五场景：画像真实、反馈生效、演变闭环、检索保底（零词汇重叠仍懂偏好）、原文找回。
+
+## 2.78 Desktop UI Geist Consistency Convergence (2026-07-16)
+- [Done, P0] Desktop 静默坏样式必须被修复：CSS 变量与 keyframe 引用均可解析，会话浏览器在深色主题使用共享模态表面，会话状态与危险色不得回退到错误色值。
+- [Done, P1] 现有页面只做 Geist 扁平风收敛，不重设计；焦点、圆角、阴影、scrim、弹层与抽屉动效、设置页滚动边缘和空状态使用共享语义规则，并尊重 reduced-motion/低性能模式。
+- [Done, P1] 功能文本字号地板为 11px，字重限 400/500/600，等宽内容统一走 `--font-mono`；Agent City 画布内插画标签允许 9px，信息 tooltip 仍执行 11px 地板。
+- [Done, P2] CSS 防回归测试必须递归扫描全局与 Svelte 私有样式，阻止未定义变量、未定义 keyframe 和字号地板违规重新进入。
+
 ## 2.77 Desktop Runtime Upgrade Safety and Profile-Selectable New Chat (2026-07-16)
 - [Done, P0] Desktop 升级发布 bundled runtime 时，不得删除仍可能被已运行或已接管 sidecar 的旧 manifest 引用的哈希 chunk；不同版本必须使用彼此隔离的不可变运行时目录。
 - [Done, P0] 新建 Desktop Chat 时必须先进入 Web Profile 可选择的草稿态，不得在用户选择前用 default/最近 Profile 创建空 Session。

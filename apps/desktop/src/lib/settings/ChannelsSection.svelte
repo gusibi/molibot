@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from "svelte/transition";
   import { session } from "../stores/session.svelte";
   import { agentsStore, loadAgents } from "../stores/agents.svelte";
   import { PROFILE_FILE_NAMES } from "./profileFiles";
@@ -68,7 +69,7 @@
   {/each}
   {#if channelsStore.channelEdit}
     {@const savedInstance = channelsStore.channels.groups.find((group) => group.channel === channelsStore.channelEdit?.channel)?.instances.find((instance) => instance.id === channelsStore.channelEdit?.previousId)}
-    <form id="desktop-channel-form" class="settings-card provider-editor" aria-label={session.text.channels} onsubmit={(event) => { event.preventDefault(); void saveChannelEditor(); }}>
+    <form id="desktop-channel-form" class="settings-card provider-editor" aria-label={session.text.channels} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveChannelEditor(); }}>
       <header class="entity-editor-head"><strong>{session.text.channels} · {externalChannelLabel(channelsStore.channelEdit.channel, session.locale)}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={channelsStore.saving} onclick={() => (channelsStore.channelEdit = null)}><i class="ph ph-x"></i></button></header>
       <div class="settings-form">
         <label class="settings-field"><span>{session.text.channelInstanceId}</span><input value={channelsStore.channelEdit.id} disabled={!channelsStore.channelEdit.isNew} oninput={(event) => updateChannelEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>

@@ -31,6 +31,85 @@ Complete
 
 ---
 
+# Apple-like native experience audit (2026-07-16)
+
+## Goal
+Audit the current Molibot Desktop experience against Apple-style native interaction principles and produce an evidence-backed, prioritized optimization roadmap without changing product code.
+
+## Current phase
+Complete — evidence captured, roadmap prioritized, adversarial review complete
+
+## Phases
+1. Inspect saved design context, `DESIGN.md`, the Desktop shell, shared tokens/components, and current motion/accessibility behavior — complete
+2. Run the current app in an isolated local QA environment and capture representative accepted screenshots — complete
+3. Evaluate native experience across platform shell, navigation, input, motion, gestures, feedback, material, accessibility, and performance — complete
+4. Adversarially review the recommendations and prioritize them into shippable phases with verification gates — complete
+5. Deliver the inline audit with screenshots, evidence limits, and one concrete next action — complete
+
+## Verification gates
+- Every visual finding is tied to a screenshot captured and inspected during this audit.
+- Code-level claims cite the current Desktop implementation or design contract.
+- Structural native-experience gaps are separated from visual polish.
+- The roadmap preserves bilingual, light/dark, reduced-motion, keyboard, and 860×620 requirements.
+- No product code, settings, queues, sessions, or real runtime data are modified.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Audit before implementation | The user asked for analysis; implementation would require product-level choices about how far to adopt platform-specific behavior. |
+| Treat “Apple-like” as behavioral quality, not literal macOS imitation | Native feel comes primarily from response, continuity, platform conventions, and input adaptation; visual copying alone would create a themed web UI. |
+| Capture a small representative Desktop flow | The request is system-wide, so representative shell/chat/settings states plus source inspection provide better evidence than exhaustive screenshots of every setting page. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing planning files already contain prior task history | 1 | Preserve all existing content and append a clearly dated audit section instead of replacing files. |
+| Product Design preflight script was not at the plugin root's `scripts/` path | 1 | Locate the packaged script with `rg --files` and run it from its actual skill-relative location; do not repeat the missing path. |
+| Keyboard shortcut dispatch through a resolved `main` locator lost focus in the in-app browser | 1 | Take a fresh snapshot, then use the browser-level keypress path for the global shortcut instead of retrying the stale locator. |
+| First command-palette screenshot was captured mid-transition and showed partially missing background content | 1 | Reject it, wait just beyond the known 120ms entrance transition, then recapture and inspect before accepting. |
+| The browser returned JPEG screenshot bytes despite `.png` filenames | 1 | Preserve the exact accepted bytes and rename all four files to `.jpg`; update report and evidence references. |
+| Broad finalization patch missed the exact current `findings.md` line | 1 | The atomic patch changed nothing; split finalization into small per-file patches against freshly inspected context. |
+
+---
+
+# Native experience developer board (2026-07-16)
+
+## Goal
+Convert the Apple-like native experience audit into a developer-ready technical board of independently grabbable vertical slices, with explicit seams, dependencies, acceptance criteria, and verification plans.
+
+## Current phase
+Complete — developer board drafted and awaiting product-owner approval
+
+## Phases
+1. Confirm the project tracker/triage conventions and re-read the current native-experience evidence — complete
+2. Define the smallest deep modules and host/product seams needed by the roadmap — complete
+3. Draft tracer-bullet issues that each deliver a demoable end-to-end behavior — complete
+4. Adversarially review granularity, dependencies, rollout, and verification; write the technical board — complete
+5. Present the numbered breakdown for product-owner approval before publishing tracker issues — complete
+
+## Verification gates
+- Every card is independently grabbable, demoable, and vertically spans the relevant host/shared/UI/test layers.
+- Prefactoring is isolated and justified by leverage; no shallow pass-through module is introduced.
+- Channel adapters remain outside native Desktop experience orchestration.
+- Every card names user-visible behavior, acceptance criteria, dependencies, rollback, and packaged-app verification.
+- No GitHub issue is created until the user approves granularity and dependencies.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Draft the board before publishing issues | The issue workflow requires product-owner approval of slice granularity and dependencies before external tracker mutation. |
+| Use vertical slices, not UI/platform/test epics | Each completed card must yield a visible or executable native-experience improvement. |
+| Preserve the current Geist/macOS design foundation | The prior audit found behavior and platform integration—not visual restyling—to be the remaining gap. |
+| Use 15 vertical cards with four no-blocker foundations | Command, startup, Dialog semantics, and direct manipulation can prove their seams independently before dependent rollouts; Settings migrations are split by workflow family. |
+| Keep notifications and haptics separate | Background completion may notify; Apple trackpad haptics are limited to user-initiated direct manipulation. |
+| Treat the board as planning, not delivered product | Update `prd.md` and the technical design only; defer `features.md`, `CHANGELOG.md`, and `README.md` until implementation changes product behavior or entry points. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+
+---
+
 # PR #15 merge and release (2026-07-15)
 
 ## Goal
@@ -1430,3 +1509,46 @@ Complete
 - 严重问题优先保证数据隔离、任务幂等和 Session/prompt 不污染；共享能力不得下沉 Channel。
 - 保留用户未跟踪的 `docs/designs/2026-07-16-web-agent-session-binding-deferred.md`，除非 issue 明确要求且用户确认纳入。
 - 没有可捕获准确症状的红色反馈循环，不进入修复阶段。
+# Desktop UI Geist consistency convergence (2026-07-16)
+
+## Goal
+Execute `docs/designs/2026-07-16-desktop-ui-geist-consistency-plan.md` completely: repair silent CSS failures, converge existing Desktop surfaces on the Geist flat system without redesigning them, improve typography/accessibility/motion, add regression guards, and synchronize product documentation.
+
+## Current phase
+Complete — P0–P3 implemented, verified, documented, and adversarially reviewed
+
+## Phases
+1. Audit the current implementation, dirty worktree, design contract, and PRD — complete
+2. Implement and verify P0 silent style/component fixes — complete
+3. Implement and verify P1 focus/radius/shadow/material/motion convergence — complete
+4. Implement and verify P2 typography/theme/i18n/accessibility polish — complete
+5. Implement P3 static guards, run full verification, synchronize docs, and adversarially review — complete
+
+## Verification gates
+- `pnpm run desktop:check` reports 0 errors / 0 warnings.
+- `pnpm --dir apps/desktop run build` succeeds.
+- `pnpm run desktop:test` succeeds, including new CSS guards.
+- Light/dark, Chinese/English, reduced-motion, and narrow-width behavior remain valid.
+- Existing dirty changes in Chat composer/transcript/status behavior are preserved.
+- Final adversarial review identifies and fixes the most likely regressions before handoff.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Treat the supplied plan as the accepted implementation contract | The user explicitly requested execution, and the plan already defines scope, risks, and exit criteria. |
+| Preserve the current dirty Chat/UI work and layer Geist changes surgically | Those edits predate this execution and overlap `styles.css` and UI tests; replacing them would violate worktree ownership. |
+| Keep P1 motion lifecycle changes independently testable | Modal/drawer unmount timing is the only named logic-risk area and should not be hidden inside broad CSS replacement. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Creating the `/goal` failed because the thread already had an active goal | 1 | Read the existing goal and continued it; no duplicate goal was needed. |
+| P0 Svelte diagnostics found the new conversation-browser close label missing at the top-level caller | 1 | Added a dedicated bilingual label and passed it from `ChatView`; rerun the unchanged P0 checks. |
+| Broad P1 CSS patch missed an exact minified mobile automation line | 1 | The patch was atomically rejected; split P1 into small token/focus/modal/memory/component hunks against fresh source. |
+| Final read-only adversarial scan command had an unmatched zsh quote in a credential regex | 1 | No command ran and no file changed; split the scan and use quote-safe patterns. |
+| Desktop package has no `preview` script | 1 | Use the package-local `pnpm exec vite preview` command against the already-built output. |
+| Preview port 1422 was already occupied | 1 | Probe the existing local service first; use it if it serves the Desktop app, otherwise choose an unused port. |
+| Browser-side `parseFloat` was shadowed by the preview runtime during a read-only metric scan | 1 | Re-ran the same metric with numeric coercion; no application code was involved. |
+| Browser QA showed Chinese copy while the root document language remained `en` | 1 | Bound `document.documentElement.lang` to the active locale and added a regression assertion. |
+
+---
