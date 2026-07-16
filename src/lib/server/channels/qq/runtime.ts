@@ -533,6 +533,7 @@ export class QQManager extends BaseChannelRuntime {
 
     if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
       await this.replyCommand(target, task.text);
+      this.persistDirectEventMessage(task, task.status?.runId);
       return;
     }
 

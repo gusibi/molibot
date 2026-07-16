@@ -7,6 +7,12 @@
 ---
 ## 2026-07-16
 
+### Fix: Desktop Issue #16 provider, automation, diagnostics, and Skill regressions
+- Restored built-in AI providers by rendering the server's built-in provider summary directly, while keeping built-ins read-only and custom-provider management unchanged.
+- Automation and system records now render as bounded task cards. One-shot reminders expose their linked execution, and direct text deliveries across Web, Telegram, Feishu, QQ, and Weixin are persisted into the execution-linked Agent Context so session details contain the delivered message.
+- Removed the duplicate Automation destination from Settings, added the Desktop App version to Diagnostics, and removed the duplicate in-page Agent Studio title and excess top spacing.
+- Explicit Skill invocations now persist as a readable `[$skill-name](.../SKILL.md)` reference without embedding Skill contents or temporary control blocks in the user message. Verified with 206/206 Desktop Chat/API tests, 22/22 additional runtime/prompt tests, 56/56 Desktop UI tests, clean Svelte diagnostics, Server/Desktop production builds, and live Desktop-page inspection.
+
 ### Fix: Desktop Usage and Trace no longer loop on first load
 - Fixed both observability pages remaining on loading skeletons because their Svelte effects accidentally tracked request-generation/loading/query state that the request itself mutated, continuously superseding every response.
 - The initial-load effects now track only service readiness and endpoint while reading request-store state through `untrack`. Trace also has one active-run initialization path instead of firing from both `onMount` and the endpoint effect; its three-second polling remains unchanged.

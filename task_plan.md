@@ -1392,3 +1392,22 @@ Complete
 - 分类与隐藏必须可逆，原始 Session/消息不得删除。
 - 审批、Event 归属和历史分类属于共享上层，不下沉 Channel。
 - UI 遵循 DESIGN.md，中英、明暗主题与窄窗口保持兼容。
+
+
+---
+## 2026-07-16：Issue #16 七项缺陷修复
+
+### 目标
+修复内置服务商列表、自动化任务卡片与一次性任务 Session、设置导航、诊断 App 版本、Skill 引用格式和 Agent 页重复标题，并保留工作区既有 runtime/prompt 改动。
+
+### 阶段
+1. [complete] 读取 issue、设计/排障规范并建立红色回归信号。
+2. [complete] 定位服务商过滤、直发 Event Context、Skill 可见消息污染等根因。
+3. [complete] 实现共享 runtime 与 Desktop UI 修复。
+4. [complete] 完整测试、真实页面检查和对抗式复查。
+5. [complete] 同步 features/prd/changelog/readme 后交付。
+
+### 验收
+- 7 项 issue 症状均有回归断言；Desktop 中英、明暗主题和窄窗口不回退。
+- direct one-shot delivery 在 Web/Telegram/Feishu/QQ/Weixin 统一写入 execution 关联 Agent Context。
+- Skill 选择持久化为 `[$skill-name](/path/to/SKILL.md)`，不包含 Skill 正文或运行控制块。

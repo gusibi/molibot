@@ -1063,6 +1063,7 @@ export class FeishuManager extends BaseChannelRuntime {
         try {
             if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
                 await this.sendText(task.chatId, task.text);
+                this.persistDirectEventMessage(task, task.status?.runId);
                 momLog("feishu", "trigger_task_text_done", { filename: _filename, chatId: task.chatId });
                 return;
             }

@@ -293,7 +293,12 @@
             <li class:unread={task.reminderUnread} class:reminded={task.status === "completed"} class:error={task.status === "error" || task.status === "skipped"} class="one-shot-row">
               <span class="one-shot-check" aria-hidden="true"><i class={`ph ${task.status === "completed" ? "ph-check" : task.status === "error" || task.status === "skipped" ? "ph-warning" : "ph-bell"}`}></i></span>
               <span class="one-shot-copy"><strong>{taskTitle(task)}</strong>{#if taskBody(task.text)}<span>{taskBody(task.text)}</span>{/if}<small><i class="ph ph-clock" aria-hidden="true"></i>{taskScheduleText(task)}</small></span>
-              <span class="one-shot-state" data-status={task.status}>{#if task.reminderUnread}<i aria-hidden="true"></i>{/if}{oneShotStatusText(task)}</span>
+              <span class="one-shot-actions">
+                <span class="one-shot-state" data-status={task.status}>{#if task.reminderUnread}<i aria-hidden="true"></i>{/if}{oneShotStatusText(task)}</span>
+                {#if task.executions[0]}
+                  <button class="task-session-link one-shot-session-link" type="button" title={task.executions[0].sessionId} disabled={Boolean(tasksStore.busy) || !task.executions[0].sessionId} onclick={() => void openTaskSession(task.id, task.executions[0].id)}><i class="ph ph-chat-circle-dots" aria-hidden="true"></i>{task.executions[0].sessionId ? session.text.tasksOpenSession : session.text.tasksSessionCleaned}</button>
+                {/if}
+              </span>
             </li>
           {/each}
         </ul>

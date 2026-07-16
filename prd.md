@@ -5,6 +5,13 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.76 Desktop Issue #16 Reliability and Information Architecture (2026-07-16)
+- [Done, P0] AI 服务商页必须分别从 `builtinProviders` 与 `customProviders` 渲染对应 Tab；内置服务商不得因自定义列表过滤而消失，也不得暴露不适用的编辑/删除操作。
+- [Done, P0] 自动化、一次性任务与系统任务必须以有边界的任务卡片呈现；一次性任务要明确关联最近 execution，并能打开该 execution 的消息详情。
+- [Done, P0] 各 Channel 的 direct one-shot / immediate 文本投递必须通过共享 runtime 写入 execution 关联 Agent Context，不能只写渠道消息日志或 Desktop 展示记录。
+- [Done, P1] 自动任务只保留 Chat 工作区入口，Settings 不再重复提供；诊断页必须显示 Desktop App 版本；Agent 页只保留一层工作区标题并减少顶部留白。
+- [Done, P0] 显式 Skill 选择在持久化用户消息中只显示 `[$skill-name](.../SKILL.md)` 引用，不得内联 Skill 正文或持久化临时运行控制块。
+
 ## 2.75 Desktop Usage and Trace Observability Parity (2026-07-16)
 - [Done, P0] Desktop Usage 必须支持 today / yesterday / 7 天 / 30 天范围与模型、Bot、渠道组合筛选，并提供筛选后的 KPI、趋势、模型/API/Bot/渠道排行和分页请求明细。
 - [Done, P0] Desktop Trace 必须支持 fact 类型、Bot、渠道、Chat、Session、Run 与读取上限筛选，并提供工具/技能/模型/Bot/Chat/Session/Run 排行和分页 facts；active run 控制继续位于完整分析看板之后。

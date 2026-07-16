@@ -807,3 +807,22 @@
 - [x] 第 3 项：历史内部记录高置信度回填为 `internal:approval` / `internal:event`，普通 Chat 隐藏；测试确认原消息仍逐字可读。
 - [x] 第 4 项：移除标题 `30ch` 固定上限并让时间进入独立 flex 列；宽度回归红灯转绿。
 - [x] 第 5 项完成：核心验收 5/5、相关完整测试 111/111、Desktop UI 53/53、Svelte 0/0、Server 与 Desktop production build、`git diff --check` 全部通过。
+
+
+---
+## 2026-07-16：Issue #16 修复进度
+
+- [x] GitHub connector 读取 issue #16（7 项、无评论）。
+- [x] 读取 `DESIGN.md`、diagnosing-bugs、agent-runtime-debug-review、frontend-design 与 planning-with-files 规范。
+- [x] 建立 Skill 引用与 Desktop 7 项症状的红色回归信号。
+- [x] 第一轮实现：内置服务商、任务卡片/Session 入口、设置导航、App 版本、Skill 链接、Agent 标题、跨渠道 direct Event Context。
+- [x] Desktop `svelte-check` 第一轮从 4 errors 修正到 0 errors / 0 warnings。
+- [x] 完整测试：Desktop Chat/API 206/206、额外 runtime/prompt 定向 22/22、Desktop UI 56/56，Svelte 0 errors / 0 warnings；Server/Desktop production build 通过。
+- [x] 真实页面检查：Settings 无自动任务入口、Diagnostics 显示 App 版本、Agent 仅保留一层标题；服务商空态正常。
+- [x] 对抗式审查覆盖投递后持久化失败、execution 关联、内置/自定义服务商操作隔离、Skill 链接污染和窄窗口卡片布局；未发现未处理的阻断项。
+- [x] 同步 `features.md`、`prd.md`、`CHANGELOG.md` 与 `README.md`。
+
+### 错误记录
+- 首次创建文件化计划时未发现 Git index 中已有同名大文件，错误覆盖了工作区副本；已从 HEAD 恢复全部原内容，仅追加本节，避免 3,000+ 行无关删除。
+- direct event 测试固定 epoch 的期望 ISO 写错；已按实际 ISO 修正。
+- provider 条件数组被 TS 推断成互斥数组联合；已显式声明 discriminated union。

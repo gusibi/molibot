@@ -7,6 +7,12 @@
 ---
 ## 2026-07-16
 
+### Issue #16：Desktop 服务商、自动任务、诊断与 Skill 展示修复（已完成）
+- AI 服务商页重新直接读取内置服务商摘要，不再用自定义服务商列表反向过滤；内置项只读展示模型与默认状态，自定义服务商保留编辑、测试和删除。
+- 自动任务工作区改为有边界的任务卡片；一次性任务显示对应执行入口，Web / Telegram / Feishu / QQ / Weixin 的直接文本投递统一写入 execution 关联 Agent Context，因此执行详情能看到实际消息。
+- 设置侧栏移除重复的自动任务入口，诊断页增加 Desktop App 版本；Agent 工作区移除页内重复标题并压缩顶部留白。
+- 显式 Skill 调用持久化为可读的 `[$skill-name](.../SKILL.md)` 引用，不再把 Skill 正文或临时控制块混入用户消息。验证：Desktop Chat/API 全量 206/206、额外 runtime/prompt 定向 22/22、Desktop UI 56/56、Svelte 0 错误 0 警告、Server/Desktop production build 与真实 Desktop 页面检查通过。
+
 ### 修复 Desktop Usage / Trace 首开无限加载（已完成）
 - 修复两个页面打开后一直停在 Skeleton 的问题：加载 `$effect` 之前会同步读取并修改 store 的 generation/loading/query，导致 effect 自触发、连续发起请求，且每个响应在落地前都被下一代请求判为过期。
 - 加载 effect 现在只追踪服务 readiness 与 endpoint，store 请求状态在 `untrack` 中读取；Trace 首开也移除 `onMount` 与 effect 的重复 active-run 请求，保留单一初始化和 3 秒轮询。

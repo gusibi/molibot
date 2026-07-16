@@ -615,6 +615,7 @@ export class WeixinManager extends BaseChannelRuntime {
 
       if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
         await this.sendText(task.chatId, syntheticMessage, task.text, false);
+        this.persistDirectEventMessage(task, task.status?.runId);
         momLog("weixin", "trigger_task_text_done", { filename: _filename, chatId: task.chatId });
         return;
       }

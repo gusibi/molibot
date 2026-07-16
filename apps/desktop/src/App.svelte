@@ -1,12 +1,12 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { getVersion } from "@tauri-apps/api/app";
   import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
   import { onMount } from "svelte";
   import ChatView from "./ChatView.svelte";
   import SandboxSection from "./lib/settings/SandboxSection.svelte";
   import HostBashSection from "./lib/settings/HostBashSection.svelte";
   import RuntimeEnvSection from "./lib/settings/RuntimeEnvSection.svelte";
-  import TasksSection from "./lib/settings/TasksSection.svelte";
   import ModelsSection from "./lib/settings/ModelsSection.svelte";
   import AgentsSection from "./lib/settings/AgentsSection.svelte";
   import McpSection from "./lib/settings/McpSection.svelte";
@@ -55,7 +55,7 @@
     launchAtLogin: boolean;
   };
 
-  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "skills" | "memory" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "sandbox" | "hostBash" | "tasks" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "skills" | "memory" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "sandbox" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -67,6 +67,7 @@
   let readiness: DesktopReadiness | null = null;
   let loadedReadinessEndpoint = "";
   let diagnosticsCopied = false;
+  let appVersion: string | null = null;
   let servicePort = 3000;
   let servicePortLoadedFrom = "";
   let servicePortBusy = false;
@@ -135,7 +136,6 @@
     { id: "trace", icon: "list-magnifying-glass" },
     { id: "sandbox", icon: "shield-check" },
     { id: "hostBash", icon: "terminal-window" },
-    { id: "tasks", icon: "list-checks" },
     { id: "diagnostics", icon: "stethoscope" },
     { id: "runtimeEnv", icon: "package" }
   ];
@@ -146,7 +146,7 @@
     { id: "assistant", sections: ["agents", "skills", "memory"] },
     { id: "tools", sections: ["mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"] },
     { id: "channels", sections: ["profiles", "channels"] },
-    { id: "activity", sections: ["tasks", "runHistory", "usage", "trace", "logs"] },
+    { id: "activity", sections: ["runHistory", "usage", "trace", "logs"] },
     { id: "system", sections: ["runtimeEnv", "sandbox", "plugins", "diagnostics"] }
   ];
 
@@ -198,7 +198,6 @@
       case "trace": return copy.trace;
       case "sandbox": return copy.sandbox;
       case "hostBash": return copy.hostBash;
-      case "tasks": return copy.tasks;
       case "diagnostics": return copy.diagnostics;
       case "runtimeEnv": return copy.runtimeEnv;
       default: return copy.general;
@@ -226,7 +225,6 @@
       case "trace": return copy.traceHint;
       case "sandbox": return copy.sandboxHint;
       case "hostBash": return copy.hostBashHint;
-      case "tasks": return copy.tasksHint;
       case "diagnostics": return copy.diagnosticsHint;
       case "runtimeEnv": return copy.runtimeEnvHint;
       default: return copy.generalHint;
@@ -284,6 +282,7 @@
 
   async function copyDiagnostics(): Promise<void> {
     const summary = buildDiagnosticsSummary({
+      appVersion,
       serviceVersion: status?.service.version ?? null,
       ownership: status?.service.ownership ?? null,
       endpoint: status?.service.endpoint ?? null,
@@ -295,6 +294,18 @@
       window.setTimeout(() => (diagnosticsCopied = false), 1500);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  async function loadAppVersion(): Promise<void> {
+    if (!runningInTauri) {
+      appVersion = "preview";
+      return;
+    }
+    try {
+      appVersion = await getVersion();
+    } catch {
+      appVersion = null;
     }
   }
 
@@ -428,6 +439,7 @@
     applyTheme(theme);
     applyPerformanceMode(lowPerformance);
     window.addEventListener("storage", onThemeStorage);
+    void loadAppVersion();
     void refreshStatus();
     const timer = window.setInterval(() => void refreshStatus(), 1000);
     if (isSettings) {
@@ -600,13 +612,15 @@
         <SandboxSection />
       {:else if activeSection === "hostBash"}
         <HostBashSection />
-      {:else if activeSection === "tasks"}
-        <TasksSection presentation="workspace" />
       {:else if activeSection === "runtimeEnv"}
         <RuntimeEnvSection />
       {:else}
         <p class="settings-section-hint">{text.diagnosticsHint}</p>
         <div class="settings-card">
+          <div class="settings-row">
+            <strong>{text.diagAppVersion}</strong>
+            <span class="diag-value">{appVersion ?? text.unknownValue}</span>
+          </div>
           <div class="settings-row">
             <strong>{text.diagServiceVersion}</strong>
             <span class="diag-value">{status?.service.version ?? text.unknownValue}</span>

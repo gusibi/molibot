@@ -527,6 +527,7 @@ test("normalizeTheme accepts known themes and falls back to system", () => {
 test("buildDiagnosticsSummary lists sanitized runtime facts and falls back for missing values", () => {
   assert.equal(
     buildDiagnosticsSummary({
+      appVersion: "0.4.8",
       serviceVersion: "2.2.4",
       ownership: "managed",
       endpoint: "http://127.0.0.1:3210",
@@ -534,6 +535,7 @@ test("buildDiagnosticsSummary lists sanitized runtime facts and falls back for m
     }),
     [
       "Molibot Desktop diagnostics",
+      "app version: 0.4.8",
       "service version: 2.2.4",
       "ownership: managed",
       "endpoint: http://127.0.0.1:3210",
@@ -541,11 +543,13 @@ test("buildDiagnosticsSummary lists sanitized runtime facts and falls back for m
     ].join("\n")
   );
   const fallback = buildDiagnosticsSummary({
+    appVersion: null,
     serviceVersion: null,
     ownership: null,
     endpoint: null,
     state: "disconnected"
   });
+  assert.match(fallback, /app version: unknown/);
   assert.match(fallback, /service version: unknown/);
   assert.match(fallback, /ownership: unknown/);
   assert.match(fallback, /endpoint: n\/a/);

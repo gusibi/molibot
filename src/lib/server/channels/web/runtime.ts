@@ -63,22 +63,7 @@ export class WebManager extends BaseChannelRuntime {
 
   private appendDirectEventMessage(event: MomEvent, runId: string, filename: string): void {
     const messageId = Date.now();
-    const sessionId = this.resolveInboundSessionId(event.chatId, {
-      chatId: event.chatId,
-      chatType: "private",
-      messageId,
-      userId: "EVENT",
-      userName: "EVENT",
-      text: event.text,
-      ts: (Date.now() / 1000).toFixed(6),
-      attachments: [],
-      imageContents: [],
-      isEvent: true,
-      taskId: event.taskId,
-      sessionId: event.sessionId,
-      sessionMode: resolveEventSessionMode(event),
-      runId
-    });
+    const sessionId = this.persistDirectEventMessage(event, runId);
     this.store.logBotResponse(event.chatId, event.text, messageId);
     this.appendConversationMessage(
       "web",

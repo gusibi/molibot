@@ -92,8 +92,9 @@ test("prompt source merges skill routing into pipeline and skills protocol", () 
   assert.doesNotMatch(promptSource, /Skill Routing \(Mandatory\)/);
   assert.match(promptSource, /Route by the user's desired outcome and output format/);
   assert.match(promptSource, /Explicit invocation \(`\$skill-name`, `\/skill-name`, `skill:skill-name`, `技能:skill-name`\) → MUST use that skill for this turn\./);
-  assert.match(promptSource, /\[explicit skill invocation\]` in input → treat listed `skill_file` path as authoritative/);
-  assert.match(promptSource, /\[explicit skill file\]` in input → treat that file content as already-loaded runtime context/);
+  assert.match(promptSource, /A Markdown reference in the form `\[\$skill-name\]\(\/path\/to\/SKILL\.md\)` is an explicit invocation/);
+  assert.doesNotMatch(promptSource, /\[explicit skill invocation\]/);
+  assert.doesNotMatch(promptSource, /\[explicit skill file\]/);
   assert.match(promptSource, /If an explicitly-invoked skill cannot be found at the provided path, say that exact path is missing/);
   assert.match(promptSource, /If a skill supports the user's requested output medium or artifact, do not silently downgrade unless the skill actually failed\./);
 });

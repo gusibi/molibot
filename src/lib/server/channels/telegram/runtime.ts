@@ -1005,6 +1005,7 @@ export class TelegramManager extends BaseChannelRuntime {
       this.buildTelegramSendOptions(target.messageThreadId)
     );
     this.store.logBotResponse(event.chatId, event.text, sent.message_id);
+    this.persistDirectEventMessage(event, runId);
 
     momLog("telegram", "event_direct_sent", {
       runId,

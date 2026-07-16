@@ -1104,3 +1104,15 @@ rules, and contextual header format.
 - 第 3 项采用惰性、幂等、可逆回填：只有无 project/origin 且标题从开头严格匹配 `/hosttools` 或 `[EVENT:` 的 Web Session 才写入内部 origin；普通对话中间提到这些字符串不会命中，原消息和索引均保留。
 - 第 4 项根因是 `.row-title { max-width: min(30ch, 100%) }`；移除上限并让时间成为 `flex: 0 0 auto` 后，标题随侧栏宽度增长且不会与时间争抢布局计算。
 - 对抗式复查：Project 优先级高于内部分类；periodic fresh 分支先于来源 Session 解析；legacy Event 缺 sessionId 回退 active；hover 菜单仍使用原右侧固定槽且时间在 hover 时让位。
+
+
+---
+## 2026-07-16：Issue #16 关键发现
+
+- 内置服务商 API 正常；前端先只取 `customProviders` 再按 builtin id 过滤，导致内置 tab 必为空。
+- 一次性 direct-text Event 只写渠道/UI conversation，Desktop task detail 却读取 `MomRuntimeStore` Agent Context，因此 session 有 execution id 但无消息；修复必须位于共享 Channel Runtime。
+- 一次性任务 UI 没有展示 `task.executions[0]`，即便 execution 已存在也无法从对应任务打开 Session。
+- Skill 正文污染已有工作区修复正在移除全文注入，但 `[explicit skill invocation]` 控制块仍被当作 persisted user text；应改为单个可见 Markdown Skill 引用。
+- 设置页自动化入口和聊天工作区自动化是两个入口；仅移除设置页入口，保留聊天主工作区。
+- Agent 页重复标题来自 `ChatWorkspacePane` header 与 `AgentStudioPane` 内部 h2；应移除内部标题并收紧 padding。
+- 红色基线：Skill helper 1/1 失败；Desktop 静态契约 51/56 通过、5 项失败。

@@ -1759,6 +1759,7 @@ export function normalizeTheme(value: unknown): DesktopTheme {
 }
 
 export interface DesktopDiagnostics {
+  appVersion: string | null;
   serviceVersion: string | null;
   ownership: "managed" | "external" | null;
   endpoint: string | null;
@@ -1773,6 +1774,7 @@ export interface DesktopDiagnostics {
 export function buildDiagnosticsSummary(info: DesktopDiagnostics): string {
   return [
     "Molibot Desktop diagnostics",
+    `app version: ${info.appVersion ?? "unknown"}`,
     `service version: ${info.serviceVersion ?? "unknown"}`,
     `ownership: ${info.ownership ?? "unknown"}`,
     `endpoint: ${info.endpoint ?? "n/a"}`,

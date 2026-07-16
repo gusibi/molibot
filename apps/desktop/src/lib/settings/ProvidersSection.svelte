@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DesktopProviderUpdateRequest } from "@molibot/desktop-contract";
+  import type { DesktopProviderItem, DesktopProvidersSummary, DesktopProviderUpdateRequest } from "@molibot/desktop-contract";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import SearchField from "../components/ui/SearchField.svelte";
@@ -59,6 +59,9 @@
   let selectedProviderId = $state("");
   let pendingDeleteProviderId = $state("");
   let providerDeleteDialog = $state<HTMLElement | null>(null);
+  type ProviderBrowserItem =
+    | { kind: "builtin"; provider: DesktopProvidersSummary["builtinProviders"][number]; index: number }
+    | { kind: "custom"; provider: DesktopProviderItem; index: number };
 
   $effect(() => {
     if (pendingDeleteProviderId) queueMicrotask(() => providerDeleteDialog?.focus());
@@ -70,15 +73,9 @@
 
   let visibleProvidersList = $derived.by(() => {
     if (!providersStore.providers) return [];
-    let list = providersStore.providers.customProviders.map((provider, index) => ({ provider, index }));
-
-    const builtinProviderIds = providersStore.providers.builtinProviders.map((p) => p.id);
-
-    // 1. Filter by Tab
-    list = list.filter((item) => {
-      const isBuiltin = builtinProviderIds.includes(item.provider.id);
-      return providerTab === "builtin" ? isBuiltin : !isBuiltin;
-    });
+    let list: ProviderBrowserItem[] = providerTab === "builtin"
+      ? providersStore.providers.builtinProviders.map((provider, index) => ({ kind: "builtin" as const, provider, index }))
+      : providersStore.providers.customProviders.map((provider, index) => ({ kind: "custom" as const, provider, index }));
 
     // 2. Filter by search query
     const query = providerSearch.trim().toLowerCase();
@@ -89,8 +86,8 @@
     // 3. Sort active first if toggled
     if (providerSortActive) {
       list = [...list].sort((a, b) => {
-        const aVal = a.provider.enabled ? 1 : 0;
-        const bVal = b.provider.enabled ? 1 : 0;
+        const aVal = a.kind === "builtin" || a.provider.enabled ? 1 : 0;
+        const bVal = b.kind === "builtin" || b.provider.enabled ? 1 : 0;
         if (aVal !== bVal) return bVal - aVal;
         return a.index - b.index;
       });
@@ -100,8 +97,8 @@
   });
 
   let selectedProvider = $derived(
-    visibleProvidersList.find((item) => item.provider.id === selectedProviderId)?.provider ??
-      visibleProvidersList[0]?.provider ??
+    visibleProvidersList.find((item) => item.provider.id === selectedProviderId) ??
+      visibleProvidersList[0] ??
       null
   );
 
@@ -114,6 +111,14 @@
 
   function providerLabel(name: string, id: string): string {
     return humanizeProviderName(name, id).label;
+  }
+
+  function providerModelCount(item: (typeof visibleProvidersList)[number]): number {
+    return item.kind === "builtin" ? item.provider.models.length : item.provider.modelCount;
+  }
+
+  function providerEnabled(item: (typeof visibleProvidersList)[number]): boolean {
+    return item.kind === "builtin" || item.provider.enabled;
   }
 
   let modelSearch = $state("");
@@ -273,53 +278,56 @@
                     <button
                       type="button"
                       role="option"
-                      aria-selected={selectedProvider?.id === provider.id}
+                      aria-selected={selectedProvider?.provider.id === provider.id}
                       class="provider-browser-row"
-                      class:selected={selectedProvider?.id === provider.id}
+                      class:selected={selectedProvider?.provider.id === provider.id}
                       onclick={() => (selectedProviderId = provider.id)}
                     >
                       <span class="provider-row-copy">
                         <strong>{providerLabel(provider.name, provider.id)}</strong>
-                        <small>{provider.modelCount} {session.text.providerModels}</small>
+                        <small>{providerModelCount(item)} {session.text.providerModels}</small>
                       </span>
-                      <StatusBadge label={provider.enabled ? session.text.providerEnabled : session.text.providerDisabled} state={provider.enabled ? "ready" : "disconnected"} />
+                      <StatusBadge
+                        label={item.kind === "builtin" ? session.text.providerBuiltinTitle : providerEnabled(item) ? session.text.providerEnabled : session.text.providerDisabled}
+                        state={providerEnabled(item) ? "ready" : "disconnected"}
+                      />
                     </button>
                   {/each}
                 </div>
 
-                {#if selectedProvider}
-                  <section class="provider-browser-detail" aria-label={providerLabel(selectedProvider.name, selectedProvider.id)}>
+                {#if selectedProvider?.kind === "builtin"}
+                  {@const provider = selectedProvider.provider}
+                  <section class="provider-browser-detail" aria-label={providerLabel(provider.name, provider.id)}>
                     <header class="provider-detail-head">
                       <div>
-                        <h4>{providerLabel(selectedProvider.name, selectedProvider.id)}</h4>
-                        <StatusBadge
-                          label={selectedProvider.isDefault ? session.text.providersDefault : selectedProvider.enabled ? session.text.providerEnabled : session.text.providerDisabled}
-                          state={selectedProvider.enabled ? "ready" : "disconnected"}
-                        />
+                        <h4>{providerLabel(provider.name, provider.id)}</h4>
+                        <StatusBadge label={provider.id === providersStore.globals.piProvider ? session.text.providersDefault : session.text.providerBuiltinTitle} state="ready" />
                       </div>
-                      <OverflowMenu label={session.text.more}>
-                        <button role="menuitem" type="button" disabled={providersStore.providerEdit !== null} onclick={() => beginProviderEdit(selectedProvider.id)}><i class="ph ph-pencil-simple" aria-hidden="true"></i>{session.text.providerEdit}</button>
-                        <button role="menuitem" type="button" disabled={selectedProvider.isDefault || providersStore.saving} onclick={() => void setProviderAsDefault(selectedProvider.id)}><i class="ph ph-star" aria-hidden="true"></i>{session.text.providersSetDefault}</button>
-                        <button role="menuitem" type="button" disabled={providersStore.testingId !== null || !selectedProvider.hasApiKey} onclick={() => void verifyProvider(selectedProvider.id)}><i class="ph ph-plugs-connected" aria-hidden="true"></i>{providersStore.testingId === selectedProvider.id ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button>
-                        <button role="menuitem" class="danger-action" type="button" disabled={providersStore.saving} onclick={() => (pendingDeleteProviderId = selectedProvider.id)}><i class="ph ph-trash" aria-hidden="true"></i>{session.text.providerDelete}</button>
-                      </OverflowMenu>
                     </header>
                     <dl class="provider-summary">
-                      <div><dt>{session.text.providerModels}</dt><dd>{selectedProvider.modelCount}</dd></div>
-                      <div><dt>{session.text.providerDefaultModel}</dt><dd>{selectedProvider.defaultModel ? humanizeProviderName(selectedProvider.defaultModel.split("/").at(-1) ?? selectedProvider.defaultModel, selectedProvider.defaultModel).label : "—"}</dd></div>
-                      <div><dt>{session.text.providerApiKey}</dt><dd>{selectedProvider.hasApiKey ? session.text.providerApiKeyConfigured : session.text.providerApiKeyMissing}</dd></div>
+                      <div><dt>{session.text.providerModels}</dt><dd>{provider.models.length}</dd></div>
+                      <div><dt>{session.text.providerDefaultModel}</dt><dd>{provider.models[0] ? humanizeProviderName(provider.models[0].split("/").at(-1) ?? provider.models[0], provider.models[0]).label : "—"}</dd></div>
                     </dl>
                     <details class="provider-technical-details technical-detail">
                       <summary>{session.text.technicalDetails}</summary>
                       <dl>
-                        <div><dt>{session.text.providerId}</dt><dd><code>{selectedProvider.id}</code></dd></div>
-                        <div><dt>{session.text.providerProtocol}</dt><dd>{providerProtocolLabel(selectedProvider.protocol)}</dd></div>
-                        <div><dt>Base URL</dt><dd><code>{selectedProvider.baseUrl}</code></dd></div>
+                        <div><dt>{session.text.providerId}</dt><dd><code>{provider.id}</code></dd></div>
+                        <div><dt>{session.text.providerProtocol}</dt><dd>Pi</dd></div>
                       </dl>
                     </details>
+                  </section>
+                {:else if selectedProvider?.kind === "custom"}
+                  {@const provider = selectedProvider.provider}
+                  <section class="provider-browser-detail" aria-label={providerLabel(provider.name, provider.id)}>
+                    <header class="provider-detail-head">
+                      <div><h4>{providerLabel(provider.name, provider.id)}</h4><StatusBadge label={provider.isDefault ? session.text.providersDefault : provider.enabled ? session.text.providerEnabled : session.text.providerDisabled} state={provider.enabled ? "ready" : "disconnected"} /></div>
+                      <OverflowMenu label={session.text.more}><button role="menuitem" type="button" disabled={providersStore.providerEdit !== null} onclick={() => beginProviderEdit(provider.id)}><i class="ph ph-pencil-simple" aria-hidden="true"></i>{session.text.providerEdit}</button><button role="menuitem" type="button" disabled={provider.isDefault || providersStore.saving} onclick={() => void setProviderAsDefault(provider.id)}><i class="ph ph-star" aria-hidden="true"></i>{session.text.providersSetDefault}</button><button role="menuitem" type="button" disabled={providersStore.testingId !== null || !provider.hasApiKey} onclick={() => void verifyProvider(provider.id)}><i class="ph ph-plugs-connected" aria-hidden="true"></i>{providersStore.testingId === provider.id ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button><button role="menuitem" class="danger-action" type="button" disabled={providersStore.saving} onclick={() => (pendingDeleteProviderId = provider.id)}><i class="ph ph-trash" aria-hidden="true"></i>{session.text.providerDelete}</button></OverflowMenu>
+                    </header>
+                    <dl class="provider-summary"><div><dt>{session.text.providerModels}</dt><dd>{provider.modelCount}</dd></div><div><dt>{session.text.providerDefaultModel}</dt><dd>{provider.defaultModel ? humanizeProviderName(provider.defaultModel.split("/").at(-1) ?? provider.defaultModel, provider.defaultModel).label : "—"}</dd></div><div><dt>{session.text.providerApiKey}</dt><dd>{provider.hasApiKey ? session.text.providerApiKeyConfigured : session.text.providerApiKeyMissing}</dd></div></dl>
+                    <details class="provider-technical-details technical-detail"><summary>{session.text.technicalDetails}</summary><dl><div><dt>{session.text.providerId}</dt><dd><code>{provider.id}</code></dd></div><div><dt>{session.text.providerProtocol}</dt><dd>{providerProtocolLabel(provider.protocol)}</dd></div><div><dt>Base URL</dt><dd><code>{provider.baseUrl}</code></dd></div></dl></details>
                     <div class="provider-detail-actions">
-                      <button class="secondary-button" type="button" disabled={providersStore.providerEdit !== null} onclick={() => beginProviderEdit(selectedProvider.id)}>{session.text.providerEdit}</button>
-                      <button class="secondary-button" type="button" disabled={providersStore.testingId !== null || !selectedProvider.hasApiKey} onclick={() => void verifyProvider(selectedProvider.id)}>{providersStore.testingId === selectedProvider.id ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button>
+                      <button class="secondary-button" type="button" disabled={providersStore.providerEdit !== null} onclick={() => beginProviderEdit(provider.id)}>{session.text.providerEdit}</button>
+                      <button class="secondary-button" type="button" disabled={providersStore.testingId !== null || !provider.hasApiKey} onclick={() => void verifyProvider(provider.id)}>{providersStore.testingId === provider.id ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button>
                     </div>
                   </section>
                 {/if}

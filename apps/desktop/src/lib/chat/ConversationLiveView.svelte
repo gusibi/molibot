@@ -53,8 +53,10 @@
         <div class="message-status"><span>{activity || copy.working}</span></div>
         {#if streamingThinking}<details class="thinking-card"><summary>{copy.thinking}</summary><pre>{streamingThinking}</pre></details>{/if}
         {#if activities.length > 0}<RunActivity {activities} {copy} />{/if}
-        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-        <div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(streamingText || activity || copy.working, copy.copyCode)}</div>
+        {#if streamingText}
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+          <div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(streamingText, copy.copyCode)}</div>
+        {/if}
       </div>
     </div>
   </article>

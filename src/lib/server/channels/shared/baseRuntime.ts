@@ -8,7 +8,7 @@ import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
-import { resolveEventTargetSessionId, taskSessionRetentionMs } from "$lib/server/agent/events.js";
+import { resolveEventSessionMode, resolveEventTargetSessionId, taskSessionRetentionMs, type MomEvent } from "$lib/server/agent/events.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
@@ -31,6 +31,7 @@ import { getProjectStore } from "$lib/server/projects/store.js";
 import { ProjectAwareRunnerPool } from "$lib/server/channels/shared/projectRunnerRouter.js";
 
 import type { HookManager } from "$lib/server/agent/hooks/index.js";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 
 interface BaseChannelRuntimeInit {
   channel: PromptChannel;
@@ -46,6 +47,20 @@ interface BaseChannelRuntimeInit {
     modelErrorTracker: ModelErrorTracker;
     hookManager: HookManager;
   };
+}
+
+export function appendDirectEventContextMessage(
+  store: MomRuntimeStore,
+  chatId: string,
+  sessionId: string,
+  text: string,
+  timestamp = Date.now()
+): void {
+  store.appendContextMessage(chatId, {
+    role: "assistant",
+    content: [{ type: "text", text }],
+    timestamp
+  } as AgentMessage, sessionId);
 }
 
 export abstract class BaseChannelRuntime {
@@ -173,6 +188,29 @@ export abstract class BaseChannelRuntime {
     if (event.isEvent && event.runId) {
       getEventExecutionLeaseStore().attachSessionByRunId(event.runId, sessionId);
     }
+    return sessionId;
+  }
+
+  /** Persist a direct text automation in the same Agent Context linked by its execution lease. */
+  protected persistDirectEventMessage(event: MomEvent, runId?: string): string {
+    const now = Date.now();
+    const sessionId = this.resolveInboundSessionId(event.chatId, {
+      chatId: event.chatId,
+      chatType: "private",
+      messageId: now,
+      userId: "EVENT",
+      userName: "EVENT",
+      text: event.text,
+      ts: (now / 1000).toFixed(6),
+      attachments: [],
+      imageContents: [],
+      isEvent: true,
+      taskId: event.taskId,
+      sessionId: event.sessionId,
+      sessionMode: resolveEventSessionMode(event),
+      runId
+    });
+    appendDirectEventContextMessage(this.store, event.chatId, sessionId, event.text, now);
     return sessionId;
   }
 

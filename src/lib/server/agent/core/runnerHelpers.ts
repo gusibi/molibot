@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
@@ -295,66 +294,28 @@ export function injectExplicitSkillInvocationContext(
   skills: Array<{ name: string; scope: string; filePath: string; baseDir?: string; aliases?: string[] }>
 ): string {
   if (skills.length === 0) return inputText;
-  const lines = skills.map(
-    (skill) =>
-      `- name: ${skill.name}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}${
-        skill.baseDir ? `\n  base_dir: ${skill.baseDir}` : ""
-      }${
-        Array.isArray(skill.aliases) && skill.aliases.length > 0 ? `\n  aliases: ${skill.aliases.join(", ")}` : ""
-      }`
-  );
-  return `${inputText}\n\n[explicit skill invocation]\n${lines.join("\n")}\n[/explicit skill invocation]`;
-}
+  let rendered = inputText;
+  const missingReferences: string[] = [];
 
-export function injectExplicitSkillFileContext(
-  inputText: string,
-  skills: Array<{ name: string; scope: string; filePath: string; baseDir?: string }>
-): string {
-  if (skills.length === 0) return inputText;
-
-  const blocks: string[] = [];
   for (const skill of skills) {
-    try {
-      const raw = readFileSync(skill.filePath, "utf8").trim();
-      if (!raw) {
-        blocks.push(
-          [
-            `- name: ${skill.name}`,
-            `  scope: ${skill.scope}`,
-            `  skill_file: ${skill.filePath}`,
-            ...(skill.baseDir ? [`  base_dir: ${skill.baseDir}`] : []),
-            "  status: empty"
-          ].join("\n")
-        );
-        continue;
-      }
-
-      blocks.push(
-        [
-          `- name: ${skill.name}`,
-          `  scope: ${skill.scope}`,
-          `  skill_file: ${skill.filePath}`,
-          ...(skill.baseDir ? [`  base_dir: ${skill.baseDir}`] : []),
-          "  status: loaded",
-          "  content: |",
-          ...raw.split("\n").map((line) => `    ${line}`)
-        ].join("\n")
-      );
-    } catch (error) {
-      blocks.push(
-        [
-          `- name: ${skill.name}`,
-          `  scope: ${skill.scope}`,
-          `  skill_file: ${skill.filePath}`,
-          ...(skill.baseDir ? [`  base_dir: ${skill.baseDir}`] : []),
-          `  status: read_failed`,
-          `  error: ${error instanceof Error ? error.message : String(error)}`
-        ].join("\n")
-      );
+    const reference = `[$${skill.name}](${skill.filePath})`;
+    const selectors = [skill.name, ...(skill.aliases ?? [])]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[-_]/g, "[-_]"));
+    const selector = selectors.length > 0
+      ? new RegExp(`(^|\\s)(?:\\/|\\$|skill:|技能:)(${selectors.join("|")})(?=\\s|$)`, "i")
+      : null;
+    if (selector?.test(rendered)) {
+      rendered = rendered.replace(selector, (_match, prefix: string) => `${prefix}${reference}`);
+    } else {
+      missingReferences.push(reference);
     }
   }
 
-  return `${inputText}\n\n[explicit skill file]\n${blocks.join("\n")}\n[/explicit skill file]`;
+  return missingReferences.length > 0
+    ? `${missingReferences.join(" ")} ${rendered}`.trim()
+    : rendered;
 }
 
 export function buildPromptRefreshKey(

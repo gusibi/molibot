@@ -179,17 +179,10 @@
 </script>
 
 <section class="agent-studio" aria-label={copy.agentStudio}>
-  <div class="agent-studio-intro">
-    <div>
-      <span class="agent-studio-eyebrow">{copy.agentStudioEyebrow}</span>
-      <h2>{copy.agentStudio}</h2>
-      <p>{copy.agentStudioHint}</p>
-    </div>
-    <div class="agent-studio-summary" aria-label={copy.agentStudioSummary}>
-      <span><strong>{visibleAgents.length}</strong>{copy.agentStudioResidents}</span>
-      <span><strong>{enabledCount}</strong>{copy.agentStudioOnDuty}</span>
-      <span><strong>{projection.workingCount}</strong>{copy.agentStudioWorkingCount}</span>
-    </div>
+  <div class="agent-studio-summary" aria-label={copy.agentStudioSummary}>
+    <span><strong>{visibleAgents.length}</strong>{copy.agentStudioResidents}</span>
+    <span><strong>{enabledCount}</strong>{copy.agentStudioOnDuty}</span>
+    <span><strong>{projection.workingCount}</strong>{copy.agentStudioWorkingCount}</span>
   </div>
 
   {#if !serviceReady}

@@ -86,7 +86,6 @@ import {
   removeOrphanToolResultsFromContext,
   hasExplicitMcpInvocation,
   injectExplicitSkillInvocationContext,
-  injectExplicitSkillFileContext,
   buildPromptRefreshKey,
   validateRuntimeSettings,
   isContextOverflowError,
@@ -856,10 +855,11 @@ export class MomRunner implements RunnerLike {
     const skillExplicitlyInvoked = explicitlyInvokedSkills.length > 0;
     const mcpExplicitlyInvoked = hasExplicitMcpInvocation(enrichedText);
     const skillRequiresMcp = explicitlyInvokedSkills.some((skill) => skill.mcpServers.length > 0);
-    const effectiveInputText = injectExplicitSkillFileContext(
-      injectExplicitSkillInvocationContext(enrichedText, explicitlyInvokedSkills),
-      explicitlyInvokedSkills
-    );
+    // Pass only the skill's name and absolute path to the model (and the
+    // persisted transcript). The agent reads the SKILL.md itself per the Skill
+    // Execution Protocol, so we no longer inline the full file content — it kept
+    // the whole skill out of the model context and cluttered the chat view.
+    const effectiveInputText = injectExplicitSkillInvocationContext(enrichedText, explicitlyInvokedSkills);
     if (this.activeHookContext) {
       for (const skill of explicitlyInvokedSkills) {
         this.markSkillLoaded(skill);

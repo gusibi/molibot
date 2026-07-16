@@ -138,7 +138,7 @@ test("issue 13 automation uses a fixed list-detail template with separated statu
   assert.match(sections.tasks, /<OverflowMenu label=\{session\.text\.more\}>/);
   assert.match(sections.tasks, /formatNaturalSchedule\(task\.scheduleText, session\.locale\)/);
   assert.match(sections.tasks, /stopTaskRun\(selectedTask\.id/);
-  assert.match(app, /<TasksSection presentation="workspace"/);
+  assert.match(chatWorkspace, /<TasksSection presentation="workspace"/);
   assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*320px minmax\(420px, 1fr\)/s);
   assert.match(styles, /@media \(max-width: 1099px\)[\s\S]*\.automation-task-detail\s*\{[^}]*position:\s*absolute/s);
 });
@@ -247,6 +247,8 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.ok(app.indexOf('const runningInTauri = "__TAURI_INTERNALS__" in window') < app.indexOf('searchParams.get("pane")'));
   assert.match(chatWorkspace, /import\("\.\/AgentStudioPane\.svelte"\)/);
   assert.match(chatWorkspace, /<AgentStudioComponent/);
+  assert.doesNotMatch(agentStudio, /<h2>\{copy\.agentStudio\}<\/h2>/);
+  assert.match(styles, /\.agent-studio\s*\{[^}]*padding:\s*12px 0 40px/s);
   assert.match(agentStudio, /id: "default"/);
   assert.match(agentStudio, /loadDesktopAgents\(endpoint\)/);
   assert.match(agentStudio, /loadDesktopAgentActivity\(endpoint\)/);
@@ -388,15 +390,15 @@ test("automation management uses a command deck and opens full history in a moda
   assert.match(styles, /\.task-history-modal\s*\{[^}]*width:\s*min\(820px/s);
 });
 
-test("automation workspace uses a dense list with a selected task detail pane", () => {
+test("automation workspace keeps each task in a bounded card while retaining task details", () => {
   const workspacePane = read("./lib/chat/ChatWorkspacePane.svelte");
   assert.match(workspacePane, /<TasksSection presentation="workspace"/);
   assert.match(sections.tasks, /presentation\?: "settings" \| "workspace"/);
   assert.match(sections.tasks, /class="automation-workspace-layout"/);
   assert.match(sections.tasks, /class="automation-task-row"/);
   assert.match(sections.tasks, /class="automation-task-detail"/);
-  assert.match(styles, /\.automation-workspace-layout\s*\{[^}]*grid-template-columns:/s);
-  assert.match(styles, /\.automation-task-row\.active\s*\{[^}]*background: var\(--fill\)/s);
+  assert.match(styles, /\.automation-workspace-list\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\([^;]+480px\)\)/s);
+  assert.match(styles, /\.automation-task-row\s*\{[^}]*border:\s*1px solid var\(--separator\)[^}]*border-radius:\s*var\(--rounded-md\)[^}]*background:\s*var\(--card-bg\)/s);
 });
 
 test("automation workspace separates user and system tasks with accessible tabs", () => {
@@ -422,6 +424,31 @@ test("automation details are opt-in and execution state stays task-scoped", () =
   assert.match(taskStore, /if \(action === "trigger"\) tasksStore\.runningTaskIds/);
   assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:/s);
   assert.match(styles, /@keyframes automation-spin/);
+});
+
+test("one-shot task rows expose the execution that triggered each reminder", () => {
+  assert.match(sections.tasks, /task\.executions\[0\]/);
+  assert.match(sections.tasks, /openTaskSession\(task\.id, task\.executions\[0\]\.id\)/);
+  assert.match(sections.tasks, /session\.text\.tasksOpenSession/);
+});
+
+test("provider, settings, and diagnostics regressions stay fixed", () => {
+  const providers = read("./lib/settings/ProvidersSection.svelte");
+  assert.match(providers, /providersStore\.providers\.builtinProviders\.map/);
+  assert.doesNotMatch(providers, /let list = providersStore\.providers\.customProviders[\s\S]{0,220}providerTab === "builtin" \? isBuiltin/);
+  assert.doesNotMatch(app, /\{ id: "tasks", icon: "list-checks" \}/);
+  assert.match(app, /text\.diagAppVersion/);
+  assert.match(app, /appVersion/);
+});
+
+test("direct one-shot delivery is persisted through the shared runtime for every channel", () => {
+  const baseRuntime = read("../../../src/lib/server/channels/shared/baseRuntime.ts");
+  for (const channel of ["web", "telegram", "feishu", "qq", "weixin"]) {
+    const runtime = read(`../../../src/lib/server/channels/${channel}/runtime.ts`);
+    assert.match(runtime, /persistDirectEventMessage\(/, `${channel} must persist direct event delivery`);
+  }
+  assert.match(baseRuntime, /appendContextMessage/);
+  assert.match(baseRuntime, /resolveInboundSessionId/);
 });
 
 test("automation and skills shortcuts reflect the active workspace pane", () => {
@@ -716,7 +743,7 @@ test("settings navigation keeps the current product taxonomy and entity editors 
   assert.match(app, /id: "assistant", sections: \["agents", "skills", "memory"\]/);
   assert.match(app, /id: "tools", sections: \["mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"\]/);
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
-  assert.match(app, /id: "activity", sections: \["tasks", "runHistory", "usage", "trace", "logs"\]/);
+  assert.match(app, /id: "activity", sections: \["runHistory", "usage", "trace", "logs"\]/);
   assert.match(app, /id: "system", sections: \["runtimeEnv", "sandbox", "plugins", "diagnostics"\]/);
   for (const [formId, key] of Object.entries(formSectionKey)) {
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
