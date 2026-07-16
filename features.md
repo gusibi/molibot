@@ -7,6 +7,11 @@
 ---
 ## 2026-07-16
 
+### Issue #17 / #18：Desktop 运行时 500 与新会话 Profile 选择修复（已完成）
+- Desktop 内置服务运行时改为按版本写入不可变目录。应用升级时不再删除仍被旧 sidecar 进程引用的哈希 chunk，Project、Provider、Plugin、Diagnostics、Sandbox、Trace、Usage、Host Bash 等延迟加载 API 不会再因 manifest 指向已删除文件而集中返回 500。
+- Desktop 新对话不再立即以 default/最近 Profile 创建空 Session，而是先进入草稿态并显示现有 Web Profile 选择器；用户首条消息发送时才创建 Session，并将所选 Profile 固定到该 Session 的 Runtime。
+- 新增跨运行时代际保留 chunk 的 Rust 回归测试和新会话不得提前创建 Session 的 UI 契约测试。验证：Rust 13/13、Desktop Chat/API 206/206、Desktop UI 56/56、Profile bootstrap/draft 8/8、Svelte 0 错误 0 警告，以及 Server/Desktop production build。
+
 ### Issue #16：Desktop 服务商、自动任务、诊断与 Skill 展示修复（已完成）
 - AI 服务商页重新直接读取内置服务商摘要，不再用自定义服务商列表反向过滤；内置项只读展示模型与默认状态，自定义服务商保留编辑、测试和删除。
 - 自动任务工作区改为有边界的任务卡片；一次性任务显示对应执行入口，Web / Telegram / Feishu / QQ / Weixin 的直接文本投递统一写入 execution 关联 Agent Context，因此执行详情能看到实际消息。

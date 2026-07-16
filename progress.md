@@ -826,3 +826,22 @@
 - 首次创建文件化计划时未发现 Git index 中已有同名大文件，错误覆盖了工作区副本；已从 HEAD 恢复全部原内容，仅追加本节，避免 3,000+ 行无关删除。
 - direct event 测试固定 epoch 的期望 ISO 写错；已按实际 ISO 修正。
 - provider 条件数组被 TS 推断成互斥数组联合；已显式声明 discriminated union。
+
+
+---
+## 2026-07-16：Issue #17 / #18 修复进度
+
+- [x] 启用 GitHub、diagnosing-bugs 与 planning-with-files skills。
+- [x] 建立文件化计划并记录未跟踪用户设计稿保护约束。
+- [x] 读取 issue 与评论，形成精确验收清单（两个 issue 均无评论）。
+- [x] 红色反馈 #17：`cargo test ... bundled_runtime_upgrade_keeps_chunks_used_by_the_previous_generation` 稳定失败；v1/v2 都落到固定 `desktop-runtime`，旧 chunk 被删除。
+- [x] 红色反馈 #18：`node --test src/chat-ui.test.mjs` 55/56；Desktop 新对话没有进入 `newConversationDraft(defaultBot())`，仍立即创建 default Session。
+- [x] #17 最小修复：Desktop bundled runtime 按版本落到不可变目录，升级不再删除旧 sidecar 所需 chunks；原 repro 转绿。
+- [x] #18 最小修复：新对话进入可选择 Profile 的 draft，第一条消息才创建并固定 Session；Desktop UI 56/56、bootstrap/draft 8/8。
+
+### 错误记录
+- 真实页面预览首次连接 `127.0.0.1:3000` 失败（无服务监听）；改用隔离的临时 `DATA_DIR` 和独立端口启动 QA 服务，不读取或修改真实用户 settings/Session。
+- 隔离 QA 服务仍继承了进程环境中的 Channel 配置并启动外部适配器；发现后立即终止，不再用该方式做页面 QA。没有发送测试消息，但适配器启动期间可能执行了正常的渠道连接与 Session 状态保存。
+- [x] 根因修复、完整回归、Server/Desktop production build 与四份产品文档同步完成。
+- [x] 对抗式复查确认版本目录名已限制为安全字符、旧运行时代际不会被升级删除、新会话首发仍固定选中 Profile；无未处理阻断项。
+- `cargo fmt --check` 仍报告 `lib.rs` 与 `supervisor.rs` 中本次修改前已存在的格式差异；本次新增 Rust 代码已按 rustfmt 提示调整，未顺带格式化无关旧代码。

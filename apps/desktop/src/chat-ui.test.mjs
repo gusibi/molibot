@@ -313,9 +313,10 @@ test("chat primary navigation stays in the Chat workspace", () => {
   assert.match(view, /openWorkspacePane\("skills"\)/);
   assert.doesNotMatch(view, /onclick=\{\(\) => openSettings\("tasks"\)\}/);
   assert.doesNotMatch(view, /onclick=\{\(\) => openSettings\("skills"\)\}/);
-  // New chat persists (or reuses) its Session before selecting it.
-  assert.match(view, /await createDesktopSession\(connectedEndpoint, defaultBot\(\)\)/);
-  assert.match(view, /chatStore\.selectSession\(/);
+  // New chat must enter a profile-selectable draft. The first send creates the
+  // Session through ChatSessionStore with that pinned profile.
+  assert.match(view, /chatStore\.newConversationDraft\(defaultBot\(\)\)/);
+  assert.doesNotMatch(view, /async function newConversation[\s\S]*?await createDesktopSession\(connectedEndpoint, defaultBot\(\)\)/);
 });
 
 test("chat header is single-line and service status lives on the sidebar logo", () => {

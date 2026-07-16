@@ -24,7 +24,6 @@
   import {
     buildOnboardingHealthCheck,
     classifyFirstLaunch,
-    createDesktopSession,
     createDesktopProvider,
     fetchDesktopFileBlob,
     deleteDesktopConversation,
@@ -714,26 +713,19 @@
     persistSidebarTree();
   }
 
-  async function newConversation(): Promise<void> {
+  function newConversation(): void {
     if (!connectedEndpoint) return;
     workspacePane = "chat";
     viewMode = "local";
     projectPaneActive = false;
     closeExternalTranscript();
-    try {
-      const created = await createDesktopSession(connectedEndpoint, defaultBot());
-      conversationsExpanded = true;
-      expandedChannels = { ...expandedChannels, web: true };
-      persistSidebarTree();
-      await loadChannel("web");
-      syncDraftOut();
-      chatStore.selectSession(defaultBot(), created.id);
-      loadDraftIn();
-      persistSelected(defaultBot(), created.id);
-      void refreshFiles(defaultBot(), created.id);
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    }
+    conversationsExpanded = true;
+    expandedChannels = { ...expandedChannels, web: true };
+    persistSidebarTree();
+    syncDraftOut();
+    chatStore.newConversationDraft(defaultBot());
+    loadDraftIn();
+    void refreshFiles("", "");
   }
 
   function openSession(item: DesktopConversationItem): void {

@@ -1116,3 +1116,28 @@ rules, and contextual header format.
 - 设置页自动化入口和聊天工作区自动化是两个入口；仅移除设置页入口，保留聊天主工作区。
 - Agent 页重复标题来自 `ChatWorkspacePane` header 与 `AgentStudioPane` 内部 h2；应移除内部标题并收紧 padding。
 - 红色基线：Skill helper 1/1 失败；Desktop 静态契约 51/56 通过、5 项失败。
+
+
+---
+## 2026-07-16：Issue #17 / #18 关键发现
+
+### GitHub 事实
+- #17「desktop 500 问题」：Project 删除/Session 增删查、Providers、Plugins、Diagnostics、Sandbox、Trace、Active Runs、Usage、Host Bash 等大量 Desktop API 均返回 500；共同错误是运行中的 `desktop-runtime/build/server/manifest.js` 动态 import 已不存在的哈希 chunk（`ERR_MODULE_NOT_FOUND`）。无评论。
+- #18「web/app 无法选择多 bot/profile」：设置中添加多个 Web Profile 后，新 Session 的 Chat 输入区仍只能使用 default；期望在输入框上方的 Chat 区选择 Profile/Bot。无评论。
+
+### 初步验收口径
+- #17 必须证明发布/更新 Desktop runtime 时，manifest 与全部哈希 chunks 始终来自同一构建代次；运行中旧进程与更新后新进程都不能引用被覆盖/删除的 chunk。
+- #18 必须让 Web 与 Desktop 的新会话显式选择已启用 Web Profile，并把选中的 profileId 贯穿会话创建、消息发送、Session 列表/恢复，而不是仅改变显示文本。
+
+### 代码证据
+- #17 Desktop supervisor 解压新版 runtime 到 staging 后，直接 `remove_dir_all(runtime/desktop-runtime)` 再把新版 rename 到同一路径。若旧 Desktop sidecar 仍在运行，它已加载旧 manifest，但后续懒加载会从这个已被删除/替换的固定路径读取旧哈希 chunk，完全吻合 issue 的 `manifest.js → missing _server.ts-<old hash>.js`。
+- Server 构建自身已有 staged publish + “旧 chunk 保留”测试，但它只保护同一 build 目录内的热构建；Desktop supervisor 的整目录删除绕过了这层保护。
+- #18 Desktop 已存在 `BotMention`：draft 时可选 Web Profile，已有 Session 时 locked；`ChatSessionStore` 也以 `profileId:sessionId` 固定 runtime。需要继续确认 newConversation 是否真正进入 draft，以及 Web 浏览器端是否缺少等价选择器。
+- 用户工作区里的 Deferred 设计稿讨论的是“只保留 default Profile、改为 Session 级 Agent 选择”，而 #18 当前明确要求选择多个 Web Profile/Bot。此次不应偷偷采用那个尚未决策的 Agent 模型，也不修改该未跟踪文档。
+
+### 假设验证
+- H1（#17）命中：runtime 改为 `desktop-runtime-<version>` 不可变代次目录后，升级回归测试确认 v1/v2 路径分离且旧 chunk 仍存在。
+- H2（#18）命中：Desktop 新对话改走现有 `newConversationDraft(defaultBot())` 后，输入框上方 `BotMention` 进入 select mode；第一条消息仍由 `ChatSessionStore.send` 使用选中 profileId 创建并固定 Session。
+- H3（发布包漏 chunks）未命中：Server adapter 已覆盖 staged chunks-first/manifest-last，Desktop archive直接打包完整 release build；故障发生在安装后固定目录被替换。
+- H4（bootstrap 只返回 default）未命中：多 Profile bootstrap 定向测试通过，服务端会投影全部 enabled Web Profile。
+- H5（选择仅改显示）未命中：DraftStore 与 SessionRuntimeRegistry 的 profileId 测试通过，运行 key 是 `profileId:sessionId`，后续 stop/approval/send 均使用固定 binding。

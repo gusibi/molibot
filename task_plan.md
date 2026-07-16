@@ -1411,3 +1411,22 @@ Complete
 - 7 项 issue 症状均有回归断言；Desktop 中英、明暗主题和窄窗口不回退。
 - direct one-shot delivery 在 Web/Telegram/Feishu/QQ/Weixin 统一写入 execution 关联 Agent Context。
 - Skill 选择持久化为 `[$skill-name](/path/to/SKILL.md)`，不包含 Skill 正文或运行控制块。
+
+
+---
+## 2026-07-16：Issue #17 / #18 严重缺陷修复
+
+### 目标
+读取两个 GitHub issue 的完整证据，为每个用户症状建立快速、确定、可自动运行的红色反馈循环；定位共享层根因并做最小修复，避免污染真实 settings、Session、队列与运行时数据。
+
+### 阶段
+1. [complete] 读取 issue、评论、相关上下文/ADR，并记录验收口径。
+2. [complete] 为 #17 与 #18 分别建立并重复运行红色回归测试。
+3. [complete] 给出 3–5 个可证伪假设并逐项验证根因。
+4. [complete] 实现最小修复并跑原始 repro、相关测试和构建。
+5. [complete] 对抗式审查，更新 features/prd/changelog/readme 后交付。
+
+### 约束
+- 严重问题优先保证数据隔离、任务幂等和 Session/prompt 不污染；共享能力不得下沉 Channel。
+- 保留用户未跟踪的 `docs/designs/2026-07-16-web-agent-session-binding-deferred.md`，除非 issue 明确要求且用户确认纳入。
+- 没有可捕获准确症状的红色反馈循环，不进入修复阶段。

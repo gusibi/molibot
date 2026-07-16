@@ -5,6 +5,12 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.77 Desktop Runtime Upgrade Safety and Profile-Selectable New Chat (2026-07-16)
+- [Done, P0] Desktop 升级发布 bundled runtime 时，不得删除仍可能被已运行或已接管 sidecar 的旧 manifest 引用的哈希 chunk；不同版本必须使用彼此隔离的不可变运行时目录。
+- [Done, P0] 新建 Desktop Chat 时必须先进入 Web Profile 可选择的草稿态，不得在用户选择前用 default/最近 Profile 创建空 Session。
+- [Done, P0] 第一条消息发送时才创建 Session，并把草稿选择的 Profile 固定到该 Session Runtime；后续轮次不得因默认 Profile 变化而漂移。
+- [Done, P0] 回归测试必须模拟旧运行时代际仍读取 chunk 时安装新版本，并锁定“点击新会话不提前请求创建 Session”的客户端契约。
+
 ## 2.76 Desktop Issue #16 Reliability and Information Architecture (2026-07-16)
 - [Done, P0] AI 服务商页必须分别从 `builtinProviders` 与 `customProviders` 渲染对应 Tab；内置服务商不得因自定义列表过滤而消失，也不得暴露不适用的编辑/删除操作。
 - [Done, P0] 自动化、一次性任务与系统任务必须以有边界的任务卡片呈现；一次性任务要明确关联最近 execution，并能打开该 execution 的消息详情。

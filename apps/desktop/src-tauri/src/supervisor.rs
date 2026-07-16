@@ -173,9 +173,23 @@ fn materialize_bundled_runtime(resource_dir: &Path, data_dir: &Path) -> Result<P
     let archive = resource_dir.join("molibot-runtime.tar.gz");
     let version = read_to_string(resource_dir.join("molibot-runtime.version"))
         .map_err(|error| format!("failed to read bundled runtime version: {error}"))?;
-    let runtime_cache = data_dir.join("runtime/desktop-runtime");
+    let version_slug = version.trim();
+    if version_slug.is_empty()
+        || !version_slug
+            .chars()
+            .all(|value| value.is_ascii_alphanumeric() || matches!(value, '.' | '-' | '_'))
+    {
+        return Err("bundled runtime version contains unsupported characters".into());
+    }
+    // Runtime generations are immutable. An adopted sidecar may still have the
+    // previous manifest in memory and lazy-load its hashed chunks after the new
+    // Desktop app starts, so replacing a shared directory would break that live
+    // process with ERR_MODULE_NOT_FOUND.
+    let runtime_cache = data_dir
+        .join("runtime")
+        .join(format!("desktop-runtime-{version_slug}"));
     let marker = runtime_cache.join(".molibot-runtime-version");
-    if read_to_string(&marker).ok().as_deref() == Some(version.as_str())
+    if read_to_string(&marker).ok().as_deref() == Some(version_slug)
         && runtime_cache.join("scripts/start-server.mjs").is_file()
         && runtime_cache
             .join("node_modules/dotenv/package.json")
@@ -214,7 +228,7 @@ fn materialize_bundled_runtime(resource_dir: &Path, data_dir: &Path) -> Result<P
         let _ = remove_dir_all(&staging_parent);
         return Err("bundled runtime archive is incomplete".into());
     }
-    std::fs::write(staged_runtime.join(".molibot-runtime-version"), &version)
+    std::fs::write(staged_runtime.join(".molibot-runtime-version"), version_slug)
         .map_err(|error| error.to_string())?;
     let _ = remove_dir_all(&runtime_cache);
     rename(&staged_runtime, &runtime_cache).map_err(|error| error.to_string())?;
@@ -794,6 +808,59 @@ mod tests {
         assert_eq!(
             read_to_string(second.join("preserved")).expect("preserved marker"),
             "yes"
+        );
+        remove_dir_all(temp_dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn bundled_runtime_upgrade_keeps_chunks_used_by_the_previous_generation() {
+        let temp_dir = env::temp_dir().join(format!("molibot-runtime-upgrade-{}", Uuid::new_v4()));
+        let resources = temp_dir.join("resources");
+        let source = temp_dir.join("source/molibot-runtime");
+        let data_dir = temp_dir.join("data");
+        create_dir_all(source.join("scripts")).expect("create scripts fixture");
+        create_dir_all(source.join("node_modules/dotenv")).expect("create dependency fixture");
+        create_dir_all(&resources).expect("create resources fixture");
+        write(source.join("scripts/start-server.mjs"), "// fixture\n")
+            .expect("write server fixture");
+        write(source.join("node_modules/dotenv/package.json"), "{}")
+            .expect("write dependency fixture");
+        write(resources.join("molibot-runtime.version"), "1.0.0\n").expect("write v1 version");
+        let archive = resources.join("molibot-runtime.tar.gz");
+        let first_tar = Command::new("/usr/bin/tar")
+            .args(["-czf"])
+            .arg(&archive)
+            .arg("-C")
+            .arg(temp_dir.join("source"))
+            .arg("molibot-runtime")
+            .status()
+            .expect("create v1 runtime archive");
+        assert!(first_tar.success());
+
+        let first = materialize_bundled_runtime(&resources, &data_dir).expect("materialize v1");
+        let old_chunk = first.join("build/server/chunks/old-route.js");
+        create_dir_all(old_chunk.parent().expect("old chunk parent")).expect("create old chunks");
+        write(&old_chunk, "export const oldRoute = true;\n").expect("write old chunk");
+
+        write(resources.join("molibot-runtime.version"), "1.0.1\n").expect("write v2 version");
+        let second_tar = Command::new("/usr/bin/tar")
+            .args(["-czf"])
+            .arg(&archive)
+            .arg("-C")
+            .arg(temp_dir.join("source"))
+            .arg("molibot-runtime")
+            .status()
+            .expect("create v2 runtime archive");
+        assert!(second_tar.success());
+
+        let second = materialize_bundled_runtime(&resources, &data_dir).expect("materialize v2");
+        assert_ne!(
+            first, second,
+            "each runtime version needs an immutable directory"
+        );
+        assert!(
+            old_chunk.is_file(),
+            "the running v1 manifest still needs its old chunk"
         );
         remove_dir_all(temp_dir).expect("remove temp dir");
     }

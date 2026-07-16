@@ -7,6 +7,11 @@
 ---
 ## 2026-07-16
 
+### Fix: Desktop runtime upgrades no longer break lazy APIs; new chats can choose a Web Profile
+- Bundled Desktop runtimes now install into immutable versioned directories. Updating the app no longer removes hashed server chunks that an adopted or still-running previous sidecar may lazy-import, preventing the broad `ERR_MODULE_NOT_FOUND` 500 failures reported across Project, Provider, Plugin, Diagnostics, Sandbox, Trace, Usage, and Host Bash endpoints.
+- New Desktop chats now start as a Profile-selectable draft instead of eagerly creating an empty Session with the default or last Profile. The first message creates the Session with the selected Web Profile and pins that Profile to its Runtime.
+- Added regression coverage for cross-generation chunk retention and the no-eager-session client contract. Verified with Rust 13/13, Desktop Chat/API 206/206, Desktop UI 56/56, Profile bootstrap/draft 8/8, clean Svelte diagnostics, and production Server/Desktop builds.
+
 ### Fix: Desktop Issue #16 provider, automation, diagnostics, and Skill regressions
 - Restored built-in AI providers by rendering the server's built-in provider summary directly, while keeping built-ins read-only and custom-provider management unchanged.
 - Automation and system records now render as bounded task cards. One-shot reminders expose their linked execution, and direct text deliveries across Web, Telegram, Feishu, QQ, and Weixin are persisted into the execution-linked Agent Context so session details contain the delivered message.
