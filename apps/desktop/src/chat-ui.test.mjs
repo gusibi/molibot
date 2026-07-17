@@ -168,6 +168,13 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   assert.match(styles, /\.composer\s*\{[^}]*flex-direction:\s*column/s);
 });
 
+test("Desktop Chat keeps structural sidebars separate from one unified workspace surface", () => {
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
+  assert.match(styles, /\.file-panel\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
+  assert.match(styles, /\.chat-content\s*\{[^}]*background:\s*var\(--header-bg\)/s);
+  assert.match(styles, /\.chat-header\s*\{[^}]*background:\s*var\(--header-bg\)/s);
+});
+
 test("shared composer provides keyboard slash suggestions and transcript invocation styling", () => {
   assert.match(chatInputArea, /ensureComposerSuggestions/);
   assert.match(chatInputArea, /ArrowDown/);

@@ -7,6 +7,11 @@
 ---
 ## 2026-07-17
 
+### Fix: Apply the surface hierarchy to Desktop Chat
+- Kept the Desktop navigation and file panes on the sidebar surface while unifying the central Header and transcript on one design-derived workspace surface with shared separators.
+- Preserved the Settings secondary canvas/card hierarchy and automatic light/dark theme adaptation without adding hardcoded color values.
+- Added a Desktop UI regression and verified all 60 UI tests, clean Svelte diagnostics, and the production Desktop build; live browser inspection was unavailable because the sandbox denied local port binding.
+
 ### Polish: Clarify Web Chat and Settings surface hierarchy
 - Kept the Web Chat navigation and file sidebars on their existing sidebar surface while unifying the central header and transcript on the primary card surface with quiet separators.
 - Gave Web Settings a secondary canvas with primary-surface cards and softer card/divider borders, using theme tokens only so light and dark modes remain aligned.

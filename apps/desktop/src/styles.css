@@ -46,7 +46,7 @@
   --fill: rgba(0,0,0,0.05);
   --fill-hover: rgba(0,0,0,0.08);
 
-  /* Surfaces — content canvas is background-200, cards/panels are background-100 */
+  /* Surfaces — settings use a secondary canvas; Chat uses one primary workspace */
   --panel-bg: #ffffff;
   --sidebar-bg: #fafafa;
   --sidebar-surface: rgba(0,0,0,0.045);
@@ -545,7 +545,7 @@ a:focus-visible {
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray-700); }
 .status-dot[data-state="ready"] { background: var(--online); }
 .status-dot[data-state="error"], .status-dot[data-state="incompatible"] { background: var(--danger); }
-.chat-content { min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; height: 100%; background: var(--content-bg); }
+.chat-content { min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; height: 100%; background: var(--header-bg); }
 .settings-content {
   min-width: 0;
   min-height: 0;

@@ -5,6 +5,11 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.82 Desktop Chat Workspace Surface Hierarchy (2026-07-17)
+- [Done, P0] Desktop Chat 左侧导航和右侧文件面板保持侧栏表面，中间 Header 与消息内容区统一为主工作区表面，并保留共享浅分隔线。
+- [Done, P0] Chat 工作区使用 DESIGN 派生的语义 token，不复用设置页次级画布，也不新增硬编码色值。
+- [Done] 明暗主题、窄窗口和设置页既有“次级画布 + 主卡片”层级保持兼容，并由 Desktop UI 回归、Svelte 检查和 production build 验证。
+
 ## 2.81 Web Chat / Settings Surface Hierarchy (2026-07-17)
 - [Done, P1] Web Chat 保持左右侧栏现有表面，中间 Header 与消息区域统一为主表面，并以浅分隔线明确三栏边界。
 - [Done, P1] Web 设置页主内容使用次级画布，设置卡片使用主卡片表面，卡片边框与内部横向分隔线降低对比度。
