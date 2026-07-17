@@ -21,6 +21,8 @@ function makeNode(overrides: Partial<PersistedMemoryNode> = {}): PersistedMemory
         confidence: 0.8,
         importance: 0.7,
         accessCount: 0,
+        injectionCount: 0,
+        lifecycleState: "active",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         version: 1,

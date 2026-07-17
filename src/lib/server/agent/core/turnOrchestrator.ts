@@ -310,14 +310,25 @@ export class TurnOrchestrator {
   async prepareTurnMemory(
     scope: MemoryScope,
     queryText: string,
-    memoryGateway: MemoryGateway
+    memoryGateway: MemoryGateway,
+    options?: { sessionId?: string }
   ): Promise<any> {
     await memoryGateway.syncExternalMemories();
-    return await memoryGateway.createPromptSnapshot(
+    const snapshot = await memoryGateway.createPromptSnapshot(
       scope,
       queryText,
       12
     );
+    if (options?.sessionId && scope.botId && scope.shareOwner !== false) {
+      snapshot.profile = await memoryGateway.createProfileTurnSnapshot(options.sessionId, {
+        ...scope,
+        ownerId: scope.ownerId ?? "owner",
+        botId: scope.botId,
+        includeOwner: true,
+        includeAgentSelf: true
+      });
+    }
+    return snapshot;
   }
 
   async compactSessionContext(input: {

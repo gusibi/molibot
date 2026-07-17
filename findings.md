@@ -1302,3 +1302,58 @@ rules, and contextual header format.
 - Final verification evidence: Svelte 0/0, production build succeeded, Desktop UI/HTTP 61/61, projection tests 13/13, Tauri tests 13/13, and `git diff --check` passed.
 
 ---
+# Memory improvement v3.2 implementation findings (2026-07-17)
+
+## Requirements captured
+- Authoritative specification: `docs/requirements/memory-improvement-plan-v3.md` v3.2.
+- Scope is the full C0/C1 and T10–T18 plan, not only the visible Memory Center defect.
+- Highest-risk invariants: access/provenance separation, privacy suppression round-trip, effective-injection trace identity, stable base snapshot plus revocation overlay, append-only feedback effects, independent watched maintenance, and FTS deletion lifecycle.
+- Implementation changes must update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` after delivery.
+
+## Initial repository findings
+- Root planning files already contain prior task history and must be appended to rather than replaced.
+- `prd.md` contains an older v3 summary that still says maintenance runs only after reflection and describes feedback/snapshot semantics less precisely than v3.2; it must be synchronized when corresponding functionality is delivered.
+- The v3.2 requirements document is currently untracked in Git; preserve it and treat its content as authoritative for this goal.
+- Runtime review skill identifies prompt-cache invalidation, CJK tokenization, lease duplication, and transient control persistence as known failure modes relevant to this implementation.
+- Current `PersistedMemoryNode` has utility/access/version/conflict/archive fields but no explicit active/disputed/dormant state, injection counters, lastInjectedAt, privacy suppression, or provenance fields.
+- `MemoryRecord` exposes only a subset of mory state; it lacks version/supersedes/utility/access/injection/state and complete owner/Bot/project provenance.
+- Storage adapter listing is updatedAt-desc with type/path filters only; profile top-K cannot implement v3.2 state/stability ordering without extending adapter/query contracts and indexes.
+- `MoryRecordMeta` JSON detail is the current host metadata envelope. Add/update paths mostly preserve allowInjection, but compact duplicate metadata reconstruction omits it at `moryCore.ts:742-756`, confirming the documented privacy regression.
+- `findRecord()` authorizes by scanning `managementNamespaces(scope)` and only returns non-archived rows; authorization remains implicit in namespace derivation rather than an explicit server-derived access scope.
+- Existing trace feedback storage overwrites one row per `(traceId,memoryId)` and cannot represent append-only events or owned reversible effects.
+- Candidate storage has a suppression table but no cross-run evidence/occurrence model yet.
+- Current canonical namespace tests intentionally share owner memory across Web/Telegram when ownerId matches and isolate chat namespaces. v3.2 must preserve this as an explicit grant, not derive sharing from origin Bot/channel.
+- The mory SQLite adapter already performs additive migrations in `init()` (currently for `domain`), so lifecycle/injection columns can be introduced compatibly there with deterministic defaults for old rows.
+- Mory engine nodes are the right indexed home for lifecycle state and injection counters; host-only provenance/privacy metadata remains in `detail`, while privacy suppression itself needs a separate governance table so archiving a node cannot erase it.
+- Existing e2e tests use temporary directories and are the safe place to add compact/restart/scope regression coverage.
+- `promptMemoryNamespaces()` already supports `shareOwner:false`; an explicit `MemoryAccessScope` can wrap this existing behavior without rewriting Channel adapters.
+- Existing mory adapter migration test constructs a legacy pre-domain table, providing a direct fixture for lifecycle/injection default migration.
+- `toRecord()` currently drops version, supersedes, utility, importance, accessCount and archived state even though the underlying node has them.
+- `MoryMemoryBackend.searchNamespaces()` trusts the namespaces argument; the public gateway should be the enforcement point that intersects requested namespaces with a server-derived access scope before calling it.
+
+## Technical decisions
+| Decision | Rationale |
+| --- | --- |
+| Start with an evidence matrix and C0 foundations | Later tasks depend on complete identity, state, metadata, and audit contracts. |
+| Keep authorization and provenance separate in types/storage | Creator identity is not an access-control grant. |
+| Treat privacy suppression as governance state independent of record archival | Archiving content must not erase the rule that blocks reinjection or candidate recreation. |
+| Extend host metadata first, then add storage columns only for fields needed in indexed ordering/state queries | This keeps provenance/suppression round-trip simple while giving profile and lifecycle queries efficient indexed fields. |
+| Add indexed `lifecycleState`, `injectionCount`, and `lastInjectedAt` to mory nodes | C1/T14 require storage-layer state and stability ordering; hiding these only in JSON would force full scans. |
+| Keep privacy suppression in a host governance store keyed independently from memory archival | The suppression rule must survive archive/merge and block future equivalent candidates. |
+| Use a durable conversation-search change ledger plus tombstones | Source writes and index projection cannot be atomic; replay must preserve delete ordering and never revive removed content. |
+| Prefer SQLite FTS5 but support an embedded-runtime term-index fallback | The shipped Node SQLite lacks FTS5 even though the host sqlite CLI has it; both paths use the same CJK word tokens and SQL authorization filters. |
+| Treat Skill evolution as a review artifact, not a memory confirmation | Repeated successful procedures may propose a draft, but must never become executable instructions without the existing review/promotion flow. |
+| Restore an archived predecessor only through an explicit backend primitive | Normal update deliberately cannot locate archived rows; safe auto-confirm revocation therefore needs a narrow audited restore operation and successor checks. |
+
+## C0 implementation notes
+- Added required indexed mory node fields for lifecycle state and actual prompt injection usage; old SQLite rows migrate to `active`, `0`, and null without data loss.
+- Production mory node creation now initializes these fields, while tests must declare them explicitly so incomplete fixtures cannot hide migration/state regressions.
+- Focused mory build and 12 namespace/memory e2e tests pass after the first implementation.
+- Root `tsc --noEmit` currently fails on numerous unrelated baseline issues (missing third-party declarations, channel hook typing, media tests, settings fixtures). New memory-specific errors are isolated to json-file normalization, prompt injection item source, and a few strict fixtures; these will be corrected while preserving the broader baseline report.
+- Json-file maintenance backend now needs the same lifecycle/default projection so the shared `MemoryBackend` contract remains honest even though mory is the only formal backend.
+- Per-turn materialization is the single production constructor for current retrieved `MemoryInjectionItem`; tagging it `source:"retrieved"` preserves existing behavior and prepares trace separation for T13.
+- The feedback route currently verifies only that a trace exists; it accepts a forged `memoryId` and overwrites one `(traceId,memoryId)` row, so it cannot provide authorization, replay, reversibility, or audit history.
+- Trace persistence has no scope snapshot. The runner already saves traces only after a successful turn, which is the correct seam for idempotent injection usage keyed by Assistant source entry plus memory ID.
+- Trace/governance data live in the settings SQLite database while mory nodes live in the mory database. Cross-database atomicity is unavailable, so governance mutations require a durable outbox/state machine rather than a fictitious shared transaction.
+
+---

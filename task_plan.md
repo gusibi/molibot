@@ -1552,3 +1552,51 @@ Complete — P0–P3 implemented, verified, documented, and adversarially review
 | Browser QA showed Chinese copy while the root document language remained `en` | 1 | Bound `document.documentElement.lang` to the active locale and added a regression assertion. |
 
 ---
+# Memory improvement v3.2 implementation (2026-07-17)
+
+## Goal
+Implement every C0/C1 and T10–T18 requirement in `docs/requirements/memory-improvement-plan-v3.md` as a production-ready, verified memory system, including persistence migrations, authorization isolation, prompt safety, feedback evolution, maintenance scheduling, transcript search, Desktop UI, and documentation.
+
+## Current phase
+Complete — C0/C1 and T10–T18 implemented, verified, documented, and adversarially reviewed
+
+## Phases
+1. Audit current worktree, map C0/C1/T10–T18 to code, tests, migrations, UI, and docs — complete
+2. C0a–C0c: access/provenance, state/suppression round-trip, usage/audit/outbox foundations — complete
+3. C1 + T10 + T13: shared profile builder, honest Desktop profile, stable snapshot with governance revocation — complete
+4. T11 + T12 + T15 + T17: feedback ledger, reflection evolution, evidence aggregation, immediate correction — complete
+5. T14: independent watched-event maintenance plan, leases, dry-run and safe execution — complete
+6. T16: authorized CJK FTS with mutation tombstones and reconciliation — complete
+7. T18: reviewed Skill draft suggestions from successful procedural evidence — complete
+8. Full verification, bilingual/theme/responsive UI QA, adversarial review, and product docs — complete
+
+## Verification gates
+- Every explicit v3.2 acceptance item maps to executable evidence; no task is marked done from indirect tests.
+- All SQLite/settings/session/trace/queue/event tests use temporary or injectable stores, never live runtime data.
+- Authorization is applied before retrieval/writeback; owner sharing is explicit and Bot/chat/project data cannot leak.
+- System prompt bytes remain stable; per-turn memory and revocation state stay in the user envelope/runtime snapshot.
+- Privacy suppression survives compact/restart/archive and can only be lifted by an explicit audited governance action.
+- Watched event JSON and shared runtime remain the only scheduling path.
+- UI changes follow `DESIGN.md`, shared shadcn/semantic CSS, Chinese/English, light/dark, and mobile/minimum window checks.
+- `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` reflect delivered—not merely planned—behavior.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Implement in v3.2 dependency order | The plan contains safety prerequisites; profile injection and feedback cannot safely precede access/state foundations. |
+| Preserve unrelated dirty-worktree changes | The shared workspace contains user-owned work; every edit must trace to this objective. |
+| Use focused tests before broad suites | Persistence and prompt regressions need reproducible red/green evidence while keeping iteration surgical. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing root planning files belong to several prior tasks | 1 | Preserve them and append this dated implementation section instead of replacing history. |
+| Initial C0 red tests fail on missing lifecycle/injection fields and governance read API | 1 | Expected red state; implement the indexed fields, host projection, state-aware reads, and explicit governance lookup next. |
+| First planning-log patch missed the exact progress table context | 1 | Inspected current tails and split the update into exact small patches. |
+| First mory lifecycle build found two direct integration fixtures missing required fields | 1 | Added explicit lifecycle/injection defaults to those fixtures; production constructors already set them. |
+| Full-project `tsc --noEmit` is not a usable clean gate in the current worktree | 1 | It reports many pre-existing dependency/channel/UI errors; track and fix only memory-related deltas, and use focused builds/tests plus Desktop check later. |
+| Legacy SQLite migration fails before additive columns run because the base schema creates a lifecycle index first | 1 | Move SQLite lifecycle-index creation to adapter initialization after the additive `ALTER TABLE` migrations. |
+| Embedded Node SQLite does not include FTS5 | 1 | Prefer FTS5 when available and use the same CJK-pretokenized SQL term index otherwise; keep authorization and tombstone behavior identical. |
+| Adversarial review found cross-session reconciliation, path disclosure, and provenance merge risks | 1 | Scope external source keys by Session, return only draft filenames to the WebView, and merge exact-duplicate source evidence before archival. |
+
+---

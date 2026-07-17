@@ -11,6 +11,10 @@ function memoryRecord(id: string, content: string, layer: MemoryRecord["layer"] 
     content,
     tags: [],
     layer,
+    state: "active",
+    version: 1,
+    accessCount: 0,
+    injectionCount: 0,
     confidence: 0.9,
     reason: "user_explicit",
     sources: [],
@@ -131,4 +135,22 @@ test("memory injection snapshot preserves the exact truncated text sent to the m
   assert.equal(item.promptText.length, 220);
   assert.ok(item.promptText.endsWith("…"));
   assert.ok(result.modelMessage.includes(item.promptText));
+});
+
+test("stable profile is injected without lexical retrieval and deduplicates retrieved items", () => {
+  const record = memoryRecord("profile-1", "User always prefers concise replies.");
+  const snapshot = memorySnapshot([record]);
+  snapshot.selected = [record];
+  snapshot.longTerm = [record];
+  snapshot.profile = {
+    version: 1,
+    baseFingerprint: "profile-base",
+    baseItems: [{ memoryId: record.id, order: 0, promptText: `- ${record.content}`, source: "profile", snapshot: { displayText: record.content, content: record.content, layer: record.layer, tags: [], updatedAt: record.updatedAt } }],
+    revokedMemoryIds: [],
+    effectiveItems: [{ memoryId: record.id, order: 0, promptText: `- ${record.content}`, source: "profile", snapshot: { displayText: record.content, content: record.content, layer: record.layer, tags: [], updatedAt: record.updatedAt } }]
+  };
+  const result = buildPromptInputEnvelope({ messageText: "Unrelated question", timezone: "UTC", memorySnapshot: snapshot });
+  assert.match(result.modelMessage, /Stable profile:/);
+  assert.equal(result.memoryInjection.items.length, 1);
+  assert.equal(result.memoryInjection.items[0]?.source, "profile");
 });

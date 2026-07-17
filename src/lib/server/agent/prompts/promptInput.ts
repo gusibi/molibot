@@ -25,7 +25,8 @@ function compactMemoryLine(index: number, record: MemoryRecord): string {
 }
 
 export function materializeMemoryInjection(snapshot?: MemoryPromptSnapshot): MemoryInjectionSnapshot {
-  if (!snapshot || snapshot.selected.length === 0) {
+  const profileItems = snapshot?.profile?.effectiveItems ?? [];
+  if (!snapshot || (snapshot.selected.length === 0 && profileItems.length === 0)) {
     return {
       createdAt: snapshot?.createdAt ?? new Date(0).toISOString(),
       query: snapshot?.query ?? "",
@@ -35,16 +36,20 @@ export function materializeMemoryInjection(snapshot?: MemoryPromptSnapshot): Mem
     };
   }
 
-  const selected = snapshot.selected.slice(0, MAX_INJECTED_MEMORIES);
+  const profileIds = new Set(profileItems.map((item) => item.memoryId));
+  const selected = snapshot.selected.filter((record) => !profileIds.has(record.id)).slice(0, MAX_INJECTED_MEMORIES);
   let longTermIndex = 0;
   let dailyIndex = 0;
-  const items = selected.map((record, order) => {
+  const retrievedItems = selected.map((record, order) => {
     const index = record.layer === "daily" ? ++dailyIndex : ++longTermIndex;
     const promptText = compactMemoryLine(index, record);
     return {
       memoryId: record.id,
       order,
       promptText,
+      source: "retrieved" as const,
+      namespace: record.namespace,
+      domain: record.domain,
       snapshot: {
         displayText: record.content,
         content: record.content,
@@ -58,9 +63,16 @@ export function materializeMemoryInjection(snapshot?: MemoryPromptSnapshot): Mem
     };
   });
   const hasLongTerm = selected.some((record) => record.layer !== "daily");
-  const promptText = [hasLongTerm ? "Long-term memory (trimmed):" : "", ...items.map((item) => item.promptText)]
-    .filter(Boolean)
-    .join("\n");
+  const items = [
+    ...profileItems.map((item, order) => ({ ...item, order })),
+    ...retrievedItems.map((item, offset) => ({ ...item, order: profileItems.length + offset }))
+  ];
+  const promptText = [
+    profileItems.length > 0 ? "Stable profile:" : "",
+    ...profileItems.map((item) => item.promptText),
+    selected.length > 0 ? (hasLongTerm ? "Retrieved long-term memory (trimmed):" : "Retrieved memory:") : "",
+    ...retrievedItems.map((item) => item.promptText)
+  ].filter(Boolean).join("\n");
   return {
     createdAt: snapshot.createdAt,
     query: snapshot.query,

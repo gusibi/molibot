@@ -389,7 +389,7 @@ test("engine.retrieve: promptContext includes L0/L1 sections when hits exist", a
     }
 });
 
-test("engine.retrieve: CJK lexical channel matches ICU-oversplit terms", async () => {
+test("engine.retrieve: CJK lexical channel matches unknown terms", async () => {
     const e = makeEngine();
     await e.init();
     const written = await e.ingest({ userId: "u1", memory: { path: "mory://user_fact/research", type: "user_fact", subject: "research", value: "主人让我调研一家有潜力的公司", confidence: 0.9, updatedPolicy: "overwrite" } });
@@ -614,6 +614,8 @@ test("SQLite e2e: forgetting policy archives low-retention nodes", async () => {
         confidence: 0.95,
         importance: 0.95,
         accessCount: 15,
+        injectionCount: 7,
+        lifecycleState: "active" as const,
         createdAt: now,
         updatedAt: now,
         version: 1,
@@ -629,6 +631,8 @@ test("SQLite e2e: forgetting policy archives low-retention nodes", async () => {
         confidence: 0.3,
         importance: 0.05,
         accessCount: 0,
+        injectionCount: 0,
+        lifecycleState: "active" as const,
         createdAt: sixtyDaysAgo,
         updatedAt: sixtyDaysAgo,
         version: 1,

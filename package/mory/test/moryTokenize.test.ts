@@ -15,8 +15,7 @@ test("scoreLexical: Chinese query hits Chinese content (word/bigram channel)", (
   assert.ok(score > 0, `expected positive score, got ${score}`);
 });
 
-test("scoreLexical: ICU-oversplit word (调研) recovered by bigram channel", () => {
-  // ICU segments 调研 into 调|研; the bigram channel must still anchor it.
+test("scoreLexical: unknown words are recovered by the bigram channel", () => {
   assert.ok(cjkBigrams("调研").includes("调研"));
   const score = scoreLexical("主人又让我调研一家看起来很有潜力的公司", "调研");
   assert.ok(score > 0, `expected positive score, got ${score}`);
@@ -53,8 +52,9 @@ test("scoreLexical: English multi-word query still works", () => {
   assert.ok(score > 0.5, `expected strong match, got ${score}`);
 });
 
-test("tokenizeWords: segments Chinese and strips stopwords", () => {
-  const tokens = tokenizeWords("主人又让我调研一家很有潜力的公司");
+test("tokenizeWords: uses Jieba search mode and strips stopwords", () => {
+  const tokens = tokenizeWords("上个月主人又让我调研一家很有潜力的公司");
+  assert.ok(tokens.includes("上个月"));
   assert.ok(tokens.includes("主人"));
   assert.ok(tokens.includes("公司"));
   assert.ok(!tokens.includes("的"));

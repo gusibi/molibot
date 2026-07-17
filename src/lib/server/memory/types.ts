@@ -4,6 +4,7 @@ export interface MemoryScope {
   botId?: string;
   ownerId?: string;
   projectId?: string;
+  conversationId?: string;
   shareOwner?: boolean;
 }
 
@@ -12,12 +13,35 @@ export type MemorySearchMode = "keyword" | "recent" | "hybrid";
 export type MemoryDomain = "owner" | "project" | "agent_self" | "content";
 export type MemorySemanticType = "user_preference" | "user_fact" | "skill" | "event" | "task" | "world_knowledge";
 export type MemoryNamespace = `owner:${string}` | `chat:${string}:${string}:${string}` | `project:${string}:${string}` | `agent:${string}` | `content:${string}`;
+export type MemoryState = "active" | "disputed" | "dormant" | "archived";
+export type MemoryMutableState = Exclude<MemoryState, "archived">;
+
+export interface MemoryAccessScope extends MemoryScope {
+  authorizedNamespaces: MemoryNamespace[];
+}
+
+export interface MemoryOrigin {
+  botId?: string;
+  channel?: string;
+  externalUserId?: string;
+  projectId?: string;
+  conversationId?: string;
+}
 
 export interface MemorySourceRef {
   channel: string;
   sessionId: string;
   conversationMessageId: string;
   platformMessageId?: string;
+  observedAt?: string;
+}
+
+export interface MemorySkillDraftSuggestion {
+  description: string;
+  inputs: string[];
+  outputs: string[];
+  boundaries: string[];
+  successfulExecutionCount: number;
 }
 
 export interface MemoryRecord {
@@ -32,12 +56,24 @@ export interface MemoryRecord {
   type?: MemorySemanticType;
   subject?: string;
   path?: string;
+  state: MemoryState;
+  version: number;
+  supersedes?: string;
   lowConfidencePath?: boolean;
   confidence?: number;
+  importance?: number;
+  utility?: number;
+  accessCount: number;
+  lastAccessedAt?: string;
+  injectionCount: number;
+  lastInjectedAt?: string;
   reason?: string;
   sources?: MemorySourceRef[];
   pinned?: boolean;
   allowInjection?: boolean;
+  privacySuppressed?: boolean;
+  suppressionKey?: string;
+  origin?: MemoryOrigin;
   factKey?: string;
   hasConflict?: boolean;
   sourceSessionId?: string;
@@ -81,6 +117,12 @@ export interface MemoryCandidate {
   layer: MemoryLayer;
   expiresAt?: string;
   pinned?: boolean;
+  supersedesMemoryId?: string;
+  disputesMemoryId?: string;
+  occurrenceCount?: number;
+  evidenceDates?: string[];
+  possibleRelations?: Array<{ candidateId: string; kind: "possible_duplicate" | "possible_conflict" }>;
+  skillDraftSuggestion?: MemorySkillDraftSuggestion;
   status: MemoryCandidateStatus;
   confirmedMemoryId?: string;
   createdAt: string;
@@ -88,7 +130,7 @@ export interface MemoryCandidate {
 }
 
 export type MemoryCandidateCreateInput = Omit<MemoryCandidate, "id" | "fingerprint" | "status" | "confirmedMemoryId" | "createdAt" | "updatedAt"> & { fingerprint?: string };
-export type MemoryCandidateEdit = Partial<Pick<MemoryCandidate, "namespace" | "domain" | "type" | "subject" | "value" | "confidence" | "reason" | "sources" | "layer" | "expiresAt" | "pinned">>;
+export type MemoryCandidateEdit = Partial<Pick<MemoryCandidate, "namespace" | "domain" | "type" | "subject" | "value" | "confidence" | "reason" | "sources" | "layer" | "expiresAt" | "pinned" | "supersedesMemoryId" | "disputesMemoryId">>;
 
 export interface MemoryUpdateInput {
   content?: string;
@@ -96,6 +138,13 @@ export interface MemoryUpdateInput {
   expiresAt?: string | null;
   pinned?: boolean;
   allowInjection?: boolean;
+  state?: MemoryMutableState;
+  confidence?: number;
+  utility?: number;
+  /** Governance-only: ordinary edit surfaces must not expose this field. */
+  privacySuppressed?: boolean;
+  /** Governance-only deterministic key retained independently of record lifecycle. */
+  suppressionKey?: string | null;
 }
 
 export interface MemorySearchInput {
@@ -113,6 +162,15 @@ export interface MemoryPromptSnapshot {
   longTerm: MemoryRecord[];
   daily: MemoryRecord[];
   selected: MemoryRecord[];
+  profile?: MemoryProfileTurnSnapshot;
+}
+
+export interface MemoryProfileTurnSnapshot {
+  version: 1;
+  baseFingerprint: string;
+  baseItems: MemoryInjectionItem[];
+  revokedMemoryIds: string[];
+  effectiveItems: MemoryInjectionItem[];
 }
 
 export interface MemoryInjectionItem {
@@ -120,6 +178,9 @@ export interface MemoryInjectionItem {
   order: number;
   /** Exact numbered line serialized into the model context. */
   promptText: string;
+  source: "profile" | "retrieved";
+  namespace?: MemoryNamespace;
+  domain?: MemoryDomain;
   snapshot: {
     displayText: string;
     content: string;
@@ -175,12 +236,16 @@ export interface MemoryBackend {
   add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord>;
   search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]>;
   searchNamespaces?(namespaces: MemoryNamespace[], scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]>;
+  listProfileRecords?(namespaces: MemoryNamespace[], scope: MemoryScope, limit: number): Promise<MemoryRecord[]>;
+  listMaintenanceRecords?(scope: MemoryScope, limit: number): Promise<MemoryRecord[]>;
   versions?(scope: MemoryScope, id: string): Promise<MemoryRecord[]>;
   configureEmbedder?(embedder?: (text: string) => Promise<number[]>, modelVersion?: string): void;
   backfillEmbeddings?(limit?: number): Promise<{ scannedCount: number; updatedCount: number; remainingCount: number }>;
   searchAll(input: MemorySearchInput): Promise<MemoryRecord[]>;
   delete(scope: MemoryScope, id: string): Promise<boolean>;
   update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null>;
+  restoreArchived?(scope: MemoryScope, id: string): Promise<MemoryRecord | null>;
+  recordInjectionUsage?(scope: MemoryScope, id: string, eventKey: string, injectedAt: string): Promise<boolean>;
   flush(scope: MemoryScope): Promise<MemoryFlushResult>;
   compact(scope?: MemoryScope): Promise<MemoryCompactResult>;
 }

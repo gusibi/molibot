@@ -1599,7 +1599,8 @@ export async function submitDesktopMemoryTraceFeedback(
   endpoint: string,
   traceId: string,
   memoryId: string,
-  value: "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private"
+  value: "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private",
+  idempotencyKey: string = crypto.randomUUID()
 ): Promise<void> {
   await requestJson(
     endpoint,
@@ -1607,7 +1608,7 @@ export async function submitDesktopMemoryTraceFeedback(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memoryId, value })
+      body: JSON.stringify({ memoryId, value, idempotencyKey })
     }
   );
 }

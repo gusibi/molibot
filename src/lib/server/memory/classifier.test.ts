@@ -12,6 +12,10 @@ function record(id: string, content: string, tags: string[] = ["class:general"])
     content,
     tags,
     layer: "long_term",
+    state: "active",
+    version: 1,
+    accessCount: 0,
+    injectionCount: 0,
     createdAt: now,
     updatedAt: now
   };

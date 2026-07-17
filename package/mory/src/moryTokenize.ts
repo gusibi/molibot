@@ -5,15 +5,16 @@
  *
  * Whitespace splitting cannot tokenize Chinese: a Chinese query becomes one
  * giant token and matching degenerates to whole-sentence substring search.
- * Word segmentation here uses the ICU dictionary via Intl.Segmenter; because
- * ICU splits some domain words apart (调研 -> 调|研), a CJK character-bigram
- * channel backs it up. Function words are filtered on both channels so a
- * query like "的了" cannot match every record.
+ * Word segmentation uses Jieba search mode; a CJK character-bigram channel
+ * backs it up for unknown domain words. Function words are filtered on both
+ * channels so a query like "的了" cannot match every record.
  *
  * This module is the single lexical-matching primitive for the memory stack
  * (host keyword search, prompt row selection, and — per T1b — moryRetrieval
  * and write-gate dedupe).
  */
+
+import { cut_for_search } from "jieba-wasm";
 
 const CJK_CHAR_RE = /[㐀-䶿一-鿿]/;
 
@@ -43,37 +44,17 @@ const STOP_CHARS = new Set(
   "的了是在有和与就都也很还吗呢吧啊嘛呀哦嗯哈这那我你他她它对把被给让从到会能要想说来去又再只才等着过得地"
 );
 
-let cachedSegmenter: Intl.Segmenter | null | undefined;
-
-function getSegmenter(): Intl.Segmenter | null {
-  if (cachedSegmenter !== undefined) return cachedSegmenter;
-  try {
-    cachedSegmenter = new Intl.Segmenter("zh", { granularity: "word" });
-  } catch {
-    // ICU without segmentation data (small-icu builds); fall back to
-    // whitespace tokens + bigram channel.
-    cachedSegmenter = null;
-  }
-  return cachedSegmenter;
-}
-
 export function normalizeForMatch(input: string): string {
   return String(input ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-/** Dictionary word tokens (ICU), lowercased, stopwords removed. */
+/** Jieba search-mode tokens, lowercased, punctuation and stopwords removed. */
 export function tokenizeWords(text: string): string[] {
   const normalized = normalizeForMatch(text);
   if (!normalized) return [];
-  const segmenter = getSegmenter();
-  const raw = segmenter
-    ? Array.from(segmenter.segment(normalized))
-      .filter((part) => part.isWordLike)
-      .map((part) => part.segment)
-    : normalized.split(/\s+/);
-  return raw
+  return cut_for_search(normalized, true)
     .map((token) => token.trim())
-    .filter((token) => token.length > 0 && !STOP_WORDS.has(token));
+    .filter((token) => /[\p{L}\p{N}]/u.test(token) && !STOP_WORDS.has(token));
 }
 
 /** Character bigrams over contiguous CJK runs, skipping pure function-char pairs. */
@@ -131,8 +112,8 @@ export function overlapLexicalSimilarity(a: string, b: string): number {
  * - Empty query returns 1 (listing mode: every record is eligible).
  * - A query with no signal after stopword filtering returns 0 rather than
  *   matching everything.
- * - Word channel: ICU tokens matched by substring, single-char tokens
- *   down-weighted (ICU over-splits domain words). Bigram channel: overlap
+ * - Word channel: Jieba search-mode tokens matched by substring, single-char
+ *   tokens down-weighted. Bigram channel: overlap
  *   ratio of CJK bigrams, catching words the dictionary split apart.
  */
 export function scoreLexical(content: string, query: string): number {

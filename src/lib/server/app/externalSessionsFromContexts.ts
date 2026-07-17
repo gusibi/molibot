@@ -7,6 +7,7 @@ import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 import type { ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
 import type { Channel, Conversation, ConversationMessage, ConversationAttachment } from "$lib/shared/types/message.js";
 import { mediaTypeFromName, mimeFromFilename } from "$lib/shared/filePreview.js";
+import { isAuthorizedConversationSource, type AuthorizedConversationSource } from "$lib/server/sessions/conversationAuthorization.js";
 
 /**
  * Read-only projection of external-channel conversations from the Agent
@@ -326,7 +327,10 @@ function buildMessages(ref: ExternalSessionRef, entries: SessionFileEntry[], wor
  * entries (e.g. an unused `default` session) are skipped so the list matches the
  * prior "conversations that actually happened" behavior.
  */
-export function listExternalSessionsFromContexts(dataRoot: string): ExternalSessionEntry[] {
+export function listExternalSessionsFromContexts(
+  dataRoot: string,
+  authorizedSources?: AuthorizedConversationSource[]
+): ExternalSessionEntry[] {
   const root = resolve(dataRoot);
   const out: ExternalSessionEntry[] = [];
   for (const { channel, dir } of TASK_CHANNEL_ROOTS) {
@@ -345,6 +349,12 @@ export function listExternalSessionsFromContexts(dataRoot: string): ExternalSess
           const messageEntries = messageEntriesOf(entries);
           if (messageEntries.length === 0) continue;
           const ref: ExternalSessionRef = { channel, botId: bot.name, chatId: chat.name, sessionId };
+          if (authorizedSources && !authorizedSources.some((source) => isAuthorizedConversationSource(source, {
+            botId: ref.botId,
+            channel: ref.channel,
+            chatId: ref.chatId,
+            purpose: "chat"
+          }))) continue;
           const conversation = buildConversation(ref, entries);
           const lastMessage = messageEntries[messageEntries.length - 1];
           const preview = lastMessage

@@ -12,6 +12,7 @@ import { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { PluginCatalog, ProviderPlugin } from "$lib/server/plugins/types.js";
 import { AssistantService } from "$lib/server/providers/assistantService.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
+import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
 import { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
@@ -23,7 +24,9 @@ import { ensureGlobalProfileDefaults } from "$lib/server/agent/prompts/profiles.
 import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, recommendedCandidateNamespace, type ReflectionExtractor, type ReflectionTarget } from "$lib/server/memory/reflection.js";
 import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInternal } from "$lib/server/memory/dailyMaterials.js";
 import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfill.js";
+import { MemoryMaintenanceService, MemoryMaintenanceStore, type MemoryMaintenanceTarget } from "$lib/server/memory/maintenance.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
+import { getMemoryTraceStore } from "$lib/server/memory/traceStore.js";
 import {
   configureConversationProjectionRuntime,
   loadStoredConversationMessages
@@ -45,6 +48,7 @@ interface RuntimeState {
   taskScheduler: TaskScheduler;
   reflectionState: ReflectionStateStore;
   reflectionService: MemoryReflectionService;
+  maintenanceService: MemoryMaintenanceService;
   dailyMaterialsService: DailyMaterialsService;
   dailyMaterialsBackfill: DailyMaterialsBackfillJob;
   runInternalEvent: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>;
@@ -139,6 +143,7 @@ export function getRuntime(): RuntimeState {
     }
 
     const sessions = new SessionStore();
+    sessions.setConversationSearchIndex(getConversationSearchIndex(storagePaths.moryDbFile), "web");
     const currentSettings = { value: settings };
     const usageTracker = new AiUsageTracker();
     const modelErrorTracker = new ModelErrorTracker();
@@ -166,12 +171,17 @@ export function getRuntime(): RuntimeState {
 
     const reflectionState = new ReflectionStateStore(storagePaths.moryDbFile);
     const reflectionExtractor: ReflectionExtractor = {
-      extract: async ({ target, projection }) => {
+      extract: async ({ target, projection, relatedMemories }) => {
         const transcript = projection.messages.map((message) => `${message.role}: ${message.content}`).join("\n");
+        const related = relatedMemories.map((memory) =>
+          `${memory.ref} | ${memory.namespace} | ${memory.type}/${memory.subject} | ${memory.path} | ${memory.summary}`
+        ).join("\n");
         const prompt = [
-          "Extract durable memory candidates from this conversation.",
-          "Return JSON only: {\"memories\":[{\"domain\":\"owner|project|agent_self|content\",\"type\":\"user_preference|user_fact|skill|event|task|world_knowledge\",\"subject\":\"stable_snake_case\",\"value\":\"complete durable statement\",\"confidence\":0.0,\"reason\":\"why it matters\"}]}",
+          "Classify durable information as: a new fact, an evolution that supersedes one related memory, or a contradiction that disputes one related memory.",
+          "Return JSON only: {\"memories\":[{\"domain\":\"owner|project|agent_self|content\",\"type\":\"user_preference|user_fact|skill|event|task|world_knowledge\",\"subject\":\"stable_snake_case\",\"value\":\"complete durable statement\",\"confidence\":0.0,\"reason\":\"why it matters\",\"supersedesRef\":\"R1 optional\",\"disputesRef\":\"R2 optional\"}]}",
+          "Use only the supplied R tokens. Never copy or invent internal IDs. For supersedes, the server will inherit namespace, type, subject and canonical path from the referenced record.",
           "Do not extract reminders, transient execution state, guesses, or the summary itself.",
+          related ? `Authorized related memories:\n${related}` : "Authorized related memories: (none)",
           projection.latestSummary ? `Recent summary (context only): ${projection.latestSummary}` : "",
           transcript
         ].filter(Boolean).join("\n\n");
@@ -198,7 +208,9 @@ export function getRuntime(): RuntimeState {
             value: String(item.value ?? ""),
             confidence: Number(item.confidence ?? 0.7),
             reason: String(item.reason ?? "reflection"),
-            layer: type === "event" ? "daily" as const : "long_term" as const
+            layer: type === "event" ? "daily" as const : "long_term" as const,
+            supersedesRef: typeof item.supersedesRef === "string" ? item.supersedesRef : undefined,
+            disputesRef: typeof item.disputesRef === "string" ? item.disputesRef : undefined
           };
         });
       }
@@ -208,6 +220,11 @@ export function getRuntime(): RuntimeState {
       new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir),
       reflectionState,
       reflectionExtractor
+    );
+    const maintenanceService = new MemoryMaintenanceService(
+      memory,
+      new MemoryMaintenanceStore(storagePaths.moryDbFile),
+      (sourceEntryId) => Boolean(getMemoryTraceStore().getBySourceEntryId(sourceEntryId))
     );
     const dailyMaterialsService = new DailyMaterialsService(
       new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir, dailyMaterialsTargetId),
@@ -239,6 +256,7 @@ export function getRuntime(): RuntimeState {
       if (event.internal?.kind === "memory-reflection") {
         if (event.internal.target) {
           const result = await reflectionService.run(event.internal.target as ReflectionTarget);
+          await maintenanceService.run(event.internal.target as MemoryMaintenanceTarget, { triggerKey: `reflection:${filename}:${event.internal.target.botId}` });
           console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
           return {
             kind: "memory-reflection",
@@ -253,6 +271,7 @@ export function getRuntime(): RuntimeState {
           collectMemoryReflectionInternals(currentSettings.value),
           async (internal) => {
             const result = await reflectionService.run(internal.target as ReflectionTarget);
+            if (internal.target) await maintenanceService.run(internal.target as MemoryMaintenanceTarget, { triggerKey: `reflection:${filename}:${internal.target.botId}` });
             console.log(`${memoryLabel("reflection")} completed file=${filename} target=${internal.target?.botId} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
             return result;
           },
@@ -261,6 +280,24 @@ export function getRuntime(): RuntimeState {
             : undefined
         );
         return { kind: "memory-reflection", ...result };
+      }
+      if (event.internal?.kind === "memory-maintenance") {
+        const internals = event.internal.target ? [event.internal] : collectMemoryReflectionInternals(currentSettings.value);
+        let completedTargets = 0;
+        let archivedCount = 0;
+        let dormantCount = 0;
+        let compactRemovedCount = 0;
+        let reviewDuplicateCount = 0;
+        for (const internal of internals) {
+          if (!internal.target) continue;
+          const result = await maintenanceService.run(internal.target as MemoryMaintenanceTarget, { triggerKey: `periodic:${filename}:${internal.target.botId}` });
+          if (result.status !== "skipped") completedTargets += 1;
+          archivedCount += result.archivedCount;
+          dormantCount += result.dormantCount;
+          compactRemovedCount += result.compactRemovedCount;
+          reviewDuplicateCount += result.reviewDuplicateCount;
+        }
+        return { kind: "memory-maintenance", completedTargets, archivedCount, dormantCount, compactRemovedCount, reviewDuplicateCount };
       }
       if (event.internal?.kind === "daily-materials") {
         if (event.internal.target) {
@@ -316,6 +353,7 @@ export function getRuntime(): RuntimeState {
       taskScheduler,
       reflectionState,
       reflectionService,
+      maintenanceService,
       dailyMaterialsService,
       dailyMaterialsBackfill,
       runInternalEvent,

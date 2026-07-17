@@ -31,6 +31,7 @@
     "prepack": "corepack pnpm run clean && corepack pnpm run test"
   },
   "dependencies": {
+    "jieba-wasm": "^2.4.0",
     "pg": "^8.16.3"
   },
   "devDependencies": {

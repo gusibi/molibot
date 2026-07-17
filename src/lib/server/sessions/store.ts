@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
+import type { ConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import type {
   Channel,
   Conversation,
@@ -333,9 +334,58 @@ function ensureWebIndexEntry(index: WebSessionsIndex, externalUserId: string, co
 
 export class SessionStore {
   private messageProjector?: (conversationId: string) => ConversationMessage[];
+  private conversationSearch?: { index: ConversationSearchIndex; botId: string };
 
   setMessageProjector(projector: (conversationId: string) => ConversationMessage[]): void {
     this.messageProjector = projector;
+  }
+
+  setConversationSearchIndex(index: ConversationSearchIndex, botId: string): void {
+    this.conversationSearch = { index, botId };
+  }
+
+  private searchSource(conversation: Conversation): { sourceKey: string; purpose: "chat" | "project" } | null {
+    const configured = this.conversationSearch;
+    if (!configured) return null;
+    if (conversation.origin === "automation" || conversation.origin?.startsWith("internal:")) return null;
+    const purpose = conversation.projectId ? "project" : "chat";
+    return {
+      sourceKey: purpose === "project"
+        ? `project:${configured.botId}:${conversation.projectId}`
+        : `${conversation.channel}:${configured.botId}:${conversation.externalUserId}`,
+      purpose
+    };
+  }
+
+  private indexConversationMessage(conversation: Conversation, message: ConversationMessage): void {
+    const configured = this.conversationSearch;
+    const source = this.searchSource(conversation);
+    if (!configured || !source || (message.role !== "user" && message.role !== "assistant")) return;
+    try {
+      configured.index.enqueueUpsert({
+        messageId: message.id,
+        conversationId: conversation.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        botId: configured.botId,
+        channel: conversation.channel,
+        chatId: conversation.projectId ? undefined : conversation.externalUserId,
+        projectId: conversation.projectId,
+        origin: conversation.origin,
+        purpose: source.purpose,
+        sourceKey: source.sourceKey
+      });
+    } catch {
+      // The change row is committed before projection; replayPending repairs an
+      // interrupted index without turning a successful source write into a 500.
+    }
+  }
+
+  private enqueueSearchDelete(run: (index: ConversationSearchIndex) => void): void {
+    const index = this.conversationSearch?.index;
+    if (!index) return;
+    try { run(index); } catch { /* durable pending changes replay on the next index pass */ }
   }
 
   private createConversation(channel: Channel, externalUserId: string, projectId?: string, origin?: string): Conversation {
@@ -640,20 +690,24 @@ export class SessionStore {
 
     if (located?.type === "web") {
       writeWebSession(located.externalUserId, file);
+      this.indexConversationMessage(file.conversation, message);
       return message;
     }
 
     if (located?.type === "project") {
       writeProjectSession(located.projectId, file);
+      this.indexConversationMessage(file.conversation, message);
       return message;
     }
 
     if (located?.type === "legacy") {
       writeLegacySession(file);
+      this.indexConversationMessage(file.conversation, message);
       return message;
     }
 
     writeLegacySession(file);
+    this.indexConversationMessage(file.conversation, message);
     return message;
   }
 
@@ -701,6 +755,8 @@ export class SessionStore {
         .filter((id) => id !== conversationId);
       delete index.byConversationId[conversationId];
       writeWebIndex(index);
+      const source = this.searchSource(conversation);
+      if (source) this.enqueueSearchDelete((index) => index.enqueueDeleteConversation(source.sourceKey, conversationId));
       return true;
     }
 
@@ -713,6 +769,8 @@ export class SessionStore {
     index.byUserKey[key] = (index.byUserKey[key] ?? []).filter((id) => id !== conversationId);
     delete index.byConversationId[conversationId];
     writeLegacyIndex(index);
+    const source = this.searchSource(conversation);
+    if (source) this.enqueueSearchDelete((index) => index.enqueueDeleteConversation(source.sourceKey, conversationId));
     return true;
   }
 
@@ -740,13 +798,20 @@ export class SessionStore {
       (err as Error & { code?: string }).code = "MESSAGE_NOT_FOUND";
       throw err;
     }
-    const removed = messages.length - index;
+    const removedMessages = messages.slice(index);
+    const removed = removedMessages.length;
     messages.length = index;
     located.file.messageCount = messages.length;
     located.file.conversation.updatedAt = new Date().toISOString();
     if (located.type === "web") writeWebSession(located.externalUserId, located.file);
     else if (located.type === "project") writeProjectSession(located.projectId, located.file);
     else writeLegacySession(located.file);
+    const source = this.searchSource(located.file.conversation);
+    if (source) {
+      for (const message of removedMessages) {
+        this.enqueueSearchDelete((index) => index.enqueueDeleteMessage(source.sourceKey, conversationId, message.id));
+      }
+    }
     return removed;
   }
 
@@ -961,10 +1026,13 @@ export class SessionStore {
   deleteProjectConversation(projectId: string, conversationId: string): boolean {
     const index = readProjectIndex(projectId);
     if (!index.byConversationId[conversationId]) return false;
+    const conversation = readProjectSession(projectId, conversationId)?.conversation;
     fs.rmSync(projectSessionFilePath(projectId, conversationId), { force: true });
     index.order = index.order.filter((id) => id !== conversationId);
     delete index.byConversationId[conversationId];
     writeProjectIndex(projectId, index);
+    const source = conversation ? this.searchSource(conversation) : null;
+    if (source) this.enqueueSearchDelete((index) => index.enqueueDeleteConversation(source.sourceKey, conversationId));
     return true;
   }
 

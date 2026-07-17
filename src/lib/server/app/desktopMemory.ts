@@ -4,7 +4,7 @@ import type { DesktopMemorySummary } from "$lib/shared/desktop";
 
 export interface DesktopMemoryRuntimeState {
   enabled: boolean;
-  capabilities: MemoryBackendCapabilities;
+  capabilities: MemoryBackendCapabilities | null;
 }
 
 /**

@@ -109,12 +109,16 @@ export class JsonFileMemoryBackend implements MemoryBackend {
     const raw = readJsonFile<{ items?: MemoryRecord[]; cursors?: Record<string, number> }>(this.filePath, {});
     const nowMs = Date.now();
     const items = Array.isArray(raw.items)
-      ? raw.items.map((row) => ({
+      ? raw.items.map((row): MemoryRecord => ({
           ...row,
           layer: row.layer === "daily" ? "daily" : "long_term",
+          state: row.state === "disputed" || row.state === "dormant" || row.state === "archived" ? row.state : "active",
+          version: Number.isFinite(row.version) ? row.version : 1,
+          accessCount: Number.isFinite(row.accessCount) ? row.accessCount : 0,
+          injectionCount: Number.isFinite(row.injectionCount) ? row.injectionCount : 0,
           tags: Array.isArray(row.tags) ? row.tags : [],
           expiresAt: normalizeExpiresAt(row.expiresAt),
-          factKey: typeof row.factKey === "string" ? row.factKey : inferFactKey(row.content),
+          factKey: typeof row.factKey === "string" ? row.factKey : inferFactKey(row.content) ?? undefined,
           hasConflict: Boolean(row.hasConflict)
         })).filter((row) => !isExpired(row, nowMs))
       : [];
@@ -234,7 +238,18 @@ export class JsonFileMemoryBackend implements MemoryBackend {
       content,
       tags: normalizeTags(input.tags),
       layer,
+      state: "active",
+      version: 1,
+      accessCount: 0,
+      injectionCount: 0,
       allowInjection: input.allowInjection,
+      origin: {
+        botId: scope.botId,
+        channel: scope.channel,
+        externalUserId: scope.externalUserId,
+        projectId: scope.projectId,
+        conversationId: scope.conversationId
+      },
       factKey: inferFactKey(content) ?? undefined,
       hasConflict: false,
       sourceSessionId: input.sourceSessionId,
@@ -257,14 +272,14 @@ export class JsonFileMemoryBackend implements MemoryBackend {
   async search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
     const data = this.loadData();
     return this.scoreAndSlice(
-      data.items.filter((item) => this.inScope(item, scope)),
+      data.items.filter((item) => this.inScope(item, scope) && item.state === "active"),
       input
     );
   }
 
   async searchAll(input: MemorySearchInput): Promise<MemoryRecord[]> {
     const data = this.loadData();
-    return this.scoreAndSlice(data.items, input);
+    return this.scoreAndSlice(data.items.filter((item) => item.state === "active"), input);
   }
 
   async delete(scope: MemoryScope, id: string): Promise<boolean> {
@@ -302,6 +317,11 @@ export class JsonFileMemoryBackend implements MemoryBackend {
       if (typeof input.allowInjection === "boolean") {
         duplicate.allowInjection = input.allowInjection;
       }
+      if (input.state) duplicate.state = input.state;
+      if (typeof input.confidence === "number") duplicate.confidence = Math.max(0, Math.min(1, input.confidence));
+      if (typeof input.utility === "number") duplicate.utility = Math.max(0, Math.min(1, input.utility));
+      if (typeof input.privacySuppressed === "boolean") duplicate.privacySuppressed = input.privacySuppressed;
+      if (typeof input.suppressionKey !== "undefined") duplicate.suppressionKey = input.suppressionKey ?? undefined;
       duplicate.updatedAt = new Date().toISOString();
       data.items = data.items.filter((item) => item.id !== id);
       this.reconcileConflicts(data);
@@ -320,6 +340,11 @@ export class JsonFileMemoryBackend implements MemoryBackend {
     if (typeof input.allowInjection === "boolean") {
       found.allowInjection = input.allowInjection;
     }
+    if (input.state) found.state = input.state;
+    if (typeof input.confidence === "number") found.confidence = Math.max(0, Math.min(1, input.confidence));
+    if (typeof input.utility === "number") found.utility = Math.max(0, Math.min(1, input.utility));
+    if (typeof input.privacySuppressed === "boolean") found.privacySuppressed = input.privacySuppressed;
+    if (typeof input.suppressionKey !== "undefined") found.suppressionKey = input.suppressionKey ?? undefined;
     found.factKey = inferFactKey(found.content) ?? undefined;
     found.updatedAt = new Date().toISOString();
     this.reconcileConflicts(data);

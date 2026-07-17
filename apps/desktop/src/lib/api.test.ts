@@ -1187,10 +1187,10 @@ test("desktop memory trace loads lazily and submits scoped feedback", async () =
   }) as typeof globalThis.fetch;
   try {
     assert.equal((await loadDesktopMemoryTrace("http://127.0.0.1:3000", "trace/1")).id, "trace/1");
-    await submitDesktopMemoryTraceFeedback("http://127.0.0.1:3000", "trace/1", "memory-1", "irrelevant");
+    await submitDesktopMemoryTraceFeedback("http://127.0.0.1:3000", "trace/1", "memory-1", "irrelevant", "feedback-1");
     assert.deepEqual(calls, [
       { url: "http://127.0.0.1:3000/api/desktop/memory-trace/trace%2F1", method: "GET", body: null },
-      { url: "http://127.0.0.1:3000/api/desktop/memory-trace/trace%2F1", method: "POST", body: { memoryId: "memory-1", value: "irrelevant" } }
+      { url: "http://127.0.0.1:3000/api/desktop/memory-trace/trace%2F1", method: "POST", body: { memoryId: "memory-1", value: "irrelevant", idempotencyKey: "feedback-1" } }
     ]);
   } finally {
     globalThis.fetch = original;

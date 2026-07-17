@@ -343,6 +343,9 @@ export function sanitizeMemoryPluginSettings(
   const dailyInput = source.dailyMaterials && typeof source.dailyMaterials === "object"
     ? source.dailyMaterials as Record<string, unknown>
     : current.dailyMaterials as unknown as Record<string, unknown> | undefined;
+  const autoConfirmInput = source.autoConfirm && typeof source.autoConfirm === "object"
+    ? source.autoConfirm as Record<string, unknown>
+    : current.autoConfirm as unknown as Record<string, unknown> | undefined;
   const safeRelativePath = (value: unknown, fallback: string): string => {
     const normalized = String(value ?? "").trim();
     if (!normalized || isAbsolute(normalized) || normalized.split(/[\\/]+/).includes("..")) return fallback;
@@ -373,6 +376,12 @@ export function sanitizeMemoryPluginSettings(
       ? (current.reflectionNotifications ?? true)
       : Boolean(source.reflectionNotifications),
     reflectionNotificationTarget: notificationTarget,
+    autoConfirm: {
+      enabled: autoConfirmInput?.enabled === undefined ? false : Boolean(autoConfirmInput.enabled),
+      occurrenceThreshold: Math.max(2, Math.min(20, Math.round(Number(autoConfirmInput?.occurrenceThreshold) || 3))),
+      confidenceThreshold: Math.max(0.5, Math.min(0.99, Number(autoConfirmInput?.confidenceThreshold) || 0.85)),
+      allowProjectTasks: Boolean(autoConfirmInput?.allowProjectTasks)
+    },
     dailyMaterials: {
       enabled: dailyInput?.enabled === undefined ? false : Boolean(dailyInput.enabled),
       time: validTime(dailyInput?.time) ? String(dailyInput?.time) : "23:30",

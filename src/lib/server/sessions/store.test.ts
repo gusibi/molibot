@@ -5,6 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { storagePaths } from "$lib/server/infra/db/storage";
 import { SessionStore } from "./store";
+import { ConversationSearchIndex } from "./conversationSearch";
+import { listAuthorizedConversationSources } from "./conversationAuthorization";
 
 test("deleting a Web conversation removes its file and index entry", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-desktop-sessions-"));
@@ -358,6 +360,34 @@ test("truncateMessagesFrom drops the picked message and everything after it", ()
       /Session not found/
     );
   } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("SessionStore incrementally indexes and tombstones truncated or deleted messages", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-session-search-lifecycle-"));
+  const original = { webWorkspaceDir: storagePaths.webWorkspaceDir, sessionsDir: storagePaths.sessionsDir, sessionsIndexFile: storagePaths.sessionsIndexFile };
+  const index = new ConversationSearchIndex(":memory:");
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    const store = new SessionStore();
+    store.setConversationSearchIndex(index, "web");
+    const externalUserId = "web:personal:web-anonymous";
+    const conversation = store.createWebConversation(externalUserId);
+    store.appendMessage(conversation.id, "user", "上个月讨论过火星旅行计划");
+    const removed = store.appendMessage(conversation.id, "assistant", "旧分支包含木星会议安排");
+    const authorizedSources = listAuthorizedConversationSources({ botId: "web", channel: "web", chatId: externalUserId });
+    assert.equal(index.search({ query: "火星旅行", authorizedSources }).length, 1);
+    assert.equal(index.search({ query: "木星会议", authorizedSources }).length, 1);
+    store.truncateMessagesFrom(conversation.id, removed.id);
+    assert.equal(index.search({ query: "木星会议", authorizedSources }).length, 0);
+    assert.equal(store.deleteConversation(conversation.id, "web", externalUserId), true);
+    assert.equal(index.search({ query: "火星旅行", authorizedSources }).length, 0);
+  } finally {
+    index.close();
     Object.assign(storagePaths, original);
     rmSync(root, { recursive: true, force: true });
   }

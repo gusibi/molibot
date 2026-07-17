@@ -15,6 +15,7 @@
     refreshMemoryRecords,
     runMemoryMaintenance,
     saveMemoryItem
+    ,restoreMemoryState
   } from "../stores/memory.svelte";
   import { compactMemoryText, memoryTopicFor, projectMemoryCenter, type MemoryTopicId } from "./memoryCenter";
 
@@ -26,7 +27,7 @@
   let showAllCandidates = $state(false);
   let advancedOpen = $state(false);
 
-  const center = $derived(projectMemoryCenter(memoryStore.items, memoryStore.candidates));
+  const center = $derived(projectMemoryCenter(memoryStore.items, memoryStore.candidates, memoryStore.profile));
   const selectedTopicData = $derived(center.topics.find((topic) => topic.id === selectedTopic) ?? center.topics[0]);
   const visibleCandidates = $derived(showAllCandidates ? center.pendingCandidates : center.pendingCandidates.slice(0, 3));
   const filteredAllItems = $derived(allTopicFilter ? memoryStore.items.filter((item) => memoryTopicFor(item) === allTopicFilter) : memoryStore.items);
@@ -58,6 +59,16 @@
 
   function replaceCount(template: string, count: number): string {
     return template.replace("{count}", String(count));
+  }
+
+  function profileMetaText(): string {
+    const meta = center.profileMeta?.stablePreferences;
+    if (!meta) return replaceCount(session.text.memoryUnderstandingMeta, center.summarySourceCount);
+    return session.text.memoryUnderstandingMeta
+      .replace("{count}", String(meta.selectedCount))
+      .replace("{scanned}", String(meta.scannedCount))
+      .replace("{excluded}", String(meta.excludedCount))
+      .replace("{truncated}", meta.truncated ? session.text.yes : session.text.no);
   }
 
   function formatMemoryDate(value: string | undefined, locale: string): string {
@@ -135,7 +146,7 @@
               <h3>{session.text.memoryUnderstandingTitle}</h3>
             </div>
             <p>{center.summary || session.text.memoryUnderstandingEmpty}</p>
-            <span><i class="ph ph-chat-circle-dots" aria-hidden="true"></i>{replaceCount(session.text.memoryUnderstandingMeta, center.summarySourceCount)}</span>
+            <span><i class="ph ph-chat-circle-dots" aria-hidden="true"></i>{profileMetaText()}</span>
           </div>
         </header>
 
@@ -148,6 +159,19 @@
               <ul class="memory-reading-list">
                 {#each center.currentFocus as item (item.id)}
                   <li><button type="button" onclick={() => void beginMemoryEdit(item)}>{compactMemoryText(item.content, 92)}<i class="ph ph-caret-right" aria-hidden="true"></i></button></li>
+                {/each}
+              </ul>
+            {/if}
+          </section>
+
+          <section class="memory-overview-panel">
+            <header><div><i class="ph ph-warning-circle" aria-hidden="true"></i><h4>{session.text.memoryNeedsAttention}</h4></div></header>
+            {#if center.attentionItems.length === 0}
+              <p class="memory-panel-empty">{session.text.memoryNoAttention}</p>
+            {:else}
+              <ul class="memory-reading-list">
+                {#each center.attentionItems as item (item.id)}
+                  <li><button type="button" onclick={() => void beginMemoryEdit(item)}>{compactMemoryText(item.content, 72)}</button>{#if (item.state === "disputed" || item.state === "dormant") && !item.privacySuppressed}<button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void restoreMemoryState(item)}>{session.text.memoryRestoreState}</button>{/if}</li>
                 {/each}
               </ul>
             {/if}
@@ -192,7 +216,7 @@
                       <span>{session.text.memoryRecordedAt} {formatMemoryDate(candidate.updatedAt, session.locale)}</span>
                     </button>
                     <div>
-                      <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void confirmMemoryCandidate(candidate)}>{session.text.memoryCandidateConfirm}</button>
+                      <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void confirmMemoryCandidate(candidate)}>{candidate.skillDraftSuggestion ? session.text.memorySkillDraftConfirm : session.text.memoryCandidateConfirm}</button>
                       <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void ignoreMemoryCandidate(candidate)}>{session.text.memoryCandidateInaccurate}</button>
                     </div>
                   </article>
@@ -301,8 +325,17 @@
           <label class="settings-field"><span>{session.text.memoryCandidateType}</span><input bind:value={memoryStore.candidateEdit.type} /></label>
           <label class="settings-field"><span>{session.text.memoryCandidateSubject}</span><input bind:value={memoryStore.candidateEdit.subject} /></label>
           <label class="settings-field settings-field-wide"><span>{session.text.memoryCandidateReason}</span><input bind:value={memoryStore.candidateEdit.reason} /></label>
+          {#if memoryStore.candidateEdit.skillDraftSuggestion}
+            <div class="settings-field settings-field-wide">
+              <span>{session.text.memorySkillDraftReview}</span>
+              <p>{memoryStore.candidateEdit.skillDraftSuggestion.description}</p>
+              <p>{session.text.memorySkillDraftInputs}: {memoryStore.candidateEdit.skillDraftSuggestion.inputs.join("; ")}</p>
+              <p>{session.text.memorySkillDraftOutputs}: {memoryStore.candidateEdit.skillDraftSuggestion.outputs.join("; ")}</p>
+              <p>{session.text.memorySkillDraftBoundaries}: {memoryStore.candidateEdit.skillDraftSuggestion.boundaries.join("; ")}</p>
+            </div>
+          {/if}
         </div>
-        <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={() => (memoryStore.candidateEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(memoryStore.busyAction) || !memoryStore.candidateEdit.value.trim()}>{session.text.memoryCandidateConfirm}</button></footer>
+        <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={() => (memoryStore.candidateEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(memoryStore.busyAction) || !memoryStore.candidateEdit.value.trim()}>{memoryStore.candidateEdit.skillDraftSuggestion ? session.text.memorySkillDraftConfirm : session.text.memoryCandidateConfirm}</button></footer>
       </form>
       </div>
     </div>

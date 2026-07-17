@@ -8,6 +8,8 @@ import { resolve } from "node:path";
 import { config } from "$lib/server/app/env";
 import { readMemoryGovernanceRejections } from "$lib/server/memory/governanceLog";
 import { readExternalTranscriptFromContexts } from "$lib/server/app/externalSessionsFromContexts";
+import { resolveDesktopWebProfiles } from "$lib/server/app/desktopProfiles";
+import { saveSkillDraft } from "$lib/server/agent/skills/skillDraft";
 
 export const GET: RequestHandler = async ({ url }) => {
   if (url.searchParams.get("view") === "rejections") {
@@ -35,19 +37,57 @@ export const POST: RequestHandler = async ({ request }) => {
     const memory = getRuntime().memory;
     const scope = memoryScope(body);
     let payload: DesktopMemoryActionResponse;
-    if (body.action === "list-candidates") {
+    if (body.action === "profile") {
+      const defaultProfile = resolveDesktopWebProfiles(getRuntime().getSettings()).find((profile) => profile.enabled);
+      const botId = String(body.botId ?? defaultProfile?.agentId ?? defaultProfile?.id ?? "default").trim() || "default";
+      const externalUserId = String(body.userId ?? "desktop-memory-center").trim() || "desktop-memory-center";
+      payload = { ok: true, profile: await memory.buildProfile({
+        ownerId: String(body.ownerId ?? "owner").trim() || "owner",
+        botId,
+        channel: String(body.channel ?? "web").trim() || "web",
+        externalUserId,
+        conversationId: body.conversationId?.trim() || undefined,
+        projectId: body.projectId?.trim() || undefined,
+        includeOwner: body.includeOwner !== false,
+        includeAgentSelf: body.includeAgentSelf !== false
+      }) };
+    } else if (body.action === "restore-state") {
+      if (!body.id?.trim()) throw new Error("id is required");
+      const existing = await memory.getForGovernance(scope, body.id.trim());
+      if (!existing || existing.privacySuppressed) throw new Error("Only a visible non-private memory state can be restored here");
+      payload = { ok: true, item: await memory.update(scope, body.id.trim(), { state: "active" }) ?? undefined };
+    } else if (body.action === "list-candidates") {
       payload = { ok: true, candidates: memory.listCandidates("pending", body.limit ?? 200) };
     } else if (body.action === "confirm-candidate") {
       if (!body.id?.trim()) throw new Error("id is required");
-      payload = { ok: true, candidate: await memory.confirmCandidate(body.id.trim(), {
-        value: body.content,
-        namespace: body.namespace as any,
-        domain: body.domain,
-        type: body.type as any,
-        subject: body.subject,
-        confidence: body.confidence,
-        reason: body.reason
-      }) };
+      const current = memory.listCandidates("pending", 1_000).find((candidate) => candidate.id === body.id!.trim());
+      payload = { ok: true, candidate: current?.skillDraftSuggestion
+        ? await memory.confirmSkillDraftSuggestion(body.id.trim(), (candidate) => {
+            const suggestion = candidate.skillDraftSuggestion!;
+            const saved = saveSkillDraft({
+              workspaceDir: config.webWorkspaceDir,
+              chatId: candidate.sources[0]?.sessionId ?? "memory-review",
+              userMessage: suggestion.description,
+              finalAnswer: [
+                `Inputs: ${suggestion.inputs.join("; ")}`,
+                `Outputs: ${suggestion.outputs.join("; ")}`,
+                `Boundaries: ${suggestion.boundaries.join("; ")}`
+              ].join("\n"),
+              toolNames: [], failedToolNames: [], explicitSkillNames: [], modelFailures: [],
+              requestedName: candidate.subject,
+              requestedDescription: suggestion.description
+            });
+            return saved.fileName;
+          })
+        : await memory.confirmCandidate(body.id.trim(), {
+            value: body.content,
+            namespace: body.namespace as any,
+            domain: body.domain,
+            type: body.type as any,
+            subject: body.subject,
+            confidence: body.confidence,
+            reason: body.reason
+          }) };
     } else if (body.action === "ignore-candidate") {
       if (!body.id?.trim()) throw new Error("id is required");
       payload = { ok: true, candidate: memory.ignoreCandidate(body.id.trim()) };
@@ -77,7 +117,7 @@ export const POST: RequestHandler = async ({ request }) => {
     } else if (body.action === "update") {
       if (!body.id?.trim()) throw new Error("id is required");
       const item = await memory.update(scope, body.id.trim(), { content: body.content, tags: body.tags, expiresAt: body.expiresAt === null ? null : body.expiresAt, pinned: body.pinned, allowInjection: body.allowInjection });
-      payload = { ok: true, item };
+      payload = { ok: true, item: item ?? undefined };
     } else throw new Error("Unsupported memory action");
     return json(payload);
   } catch (cause) {

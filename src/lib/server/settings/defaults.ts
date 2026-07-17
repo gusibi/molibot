@@ -486,6 +486,12 @@ export const defaultRuntimeSettings: RuntimeSettings = {
       reflectionTime: String(process.env.MEMORY_REFLECTION_TIME ?? "03:00").trim() || "03:00",
       reflectionNotifications: String(process.env.MEMORY_REFLECTION_NOTIFICATIONS ?? "true").toLowerCase() !== "false",
       reflectionNotificationTarget: null,
+      autoConfirm: {
+        enabled: false,
+        occurrenceThreshold: 3,
+        confidenceThreshold: 0.85,
+        allowProjectTasks: false
+      },
       dailyMaterials: {
         enabled: false,
         time: "23:30",

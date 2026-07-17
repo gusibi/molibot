@@ -5,6 +5,15 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-17
+
+### Feature: Memory v3.2 closes the profile, feedback, maintenance, search, and Skill-review loops
+- Replaced recency-shaped “profiles” with one server-built, scope-authorized profile used by both Desktop and prompt injection, including restart-stable Session snapshots and immediate governance revocations.
+- Added explicit memory lifecycle/usage metadata, durable privacy suppression, append-only verified feedback effects, evolution-aware reflection, cross-run candidate evidence, guarded default-off auto-confirm, and safe version revocation.
+- Added independent watched-event maintenance and the authorized `conversation_search` Agent tool with Jieba search-mode CJK indexing, bigram fallback for unknown words, resumable projection, SQL scope filters, and deletion/truncation tombstones. Memory lexical retrieval uses the same tokenizer.
+- Added deterministic immediate-correction quarantine and trace-backed Skill draft suggestions that always require the existing human review/promotion flow.
+- Verified mory 186/186, focused Server memory/Session tests 93/93, Desktop Chat/API 206/206, Svelte diagnostics 0/0, and a production Server build.
+
 ## 2026-07-16
 
 ### Refactor: Converge Desktop UI on Geist consistency rules
@@ -453,7 +462,7 @@
 ## 2026-07-10
 
 ### Memory search CJK tokenization (Memory Plan T1a)
-- Added a shared CJK-aware tokenizer to the mory SDK (`moryTokenize.ts`: Intl.Segmenter word segmentation + CJK character bigrams + stopword filtering + query-weight normalization) and switched all three host keyword-scoring sites to it (mory backend, json-file backend, prompt memory-row selection). Chinese queries previously collapsed into a single whitespace token, degrading memory search to whole-sentence substring matching.
+- Added a shared CJK-aware tokenizer to the mory SDK (`moryTokenize.ts`: initially Intl.Segmenter, upgraded to Jieba search mode on 2026-07-17, plus CJK character bigrams, stopword filtering, and query-weight normalization) and switched all three host keyword-scoring sites to it (mory backend, json-file backend, prompt memory-row selection). Chinese queries previously collapsed into a single whitespace token, degrading memory search to whole-sentence substring matching.
 
 ### DuckDuckGo / Web Search UX polish
 - Polished the built-in search tool response summary to distinguish between successful queries with no search results and configuration errors. When a search engine successfully queries but returns 0 results, the system now returns "No search results found." instead of "No configured search engine returned results.".

@@ -12,12 +12,16 @@ import type { MomEvent } from "$lib/server/agent/events.js";
 
 export interface InternalTaskExecutionResult {
   notificationText?: string;
-  kind?: "memory-reflection" | "daily-materials";
+  kind?: "memory-reflection" | "memory-maintenance" | "daily-materials";
   completedTargets?: number;
   scannedConversations?: number;
   scannedMessages?: number;
   createdCandidates?: number;
   createdFiles?: string[];
+  archivedCount?: number;
+  dormantCount?: number;
+  compactRemovedCount?: number;
+  reviewDuplicateCount?: number;
 }
 
 export async function dispatchTaskEvent(
@@ -146,6 +150,34 @@ export function ensureOwnerMemoryReflectionEvent(eventsDir: string, settings?: R
   return filePath;
 }
 
+export function ensureOwnerMemoryMaintenanceEvent(eventsDir: string, settings?: RuntimeSettings): string | null {
+  const filePath = join(eventsDir, "memory-maintenance.json");
+  if (!settings?.plugins.memory.enabled || settings.plugins.memory.backend !== "mory") return disableManagedEvent(filePath);
+  const [reflectionHour] = (settings.plugins.memory.reflectionTime || "03:00").split(":").map(Number);
+  const hour = (reflectionHour + 1) % 24;
+  const event: MomEvent = {
+    type: "periodic",
+    enabled: true,
+    taskId: "memory-maintenance-owner",
+    managed: { by: "molibot", scope: "owner", kind: "memory-maintenance", ownerId: SYSTEM_TASK_OWNER_ID },
+    chatId: "internal-memory-maintenance",
+    text: "Daily memory maintenance",
+    schedule: `0 ${hour} * * *`,
+    timezone: settings.timezone,
+    execution: "internal",
+    internal: { kind: "memory-maintenance" }
+  };
+  if (existsSync(filePath)) {
+    try {
+      const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
+      if (managedEventMatches(current, event)) return filePath;
+      event.status = current.status;
+    } catch { /* replace malformed managed event */ }
+  }
+  writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+  return filePath;
+}
+
 // Build the `internal` payload for a daily-materials event for one channel/bot,
 // or null when the feature is disabled/unconfigured or the bot has no chat ids.
 // Shared by the periodic scheduler and the one-off history backfill so both scan
@@ -219,7 +251,7 @@ export function migrateLegacyManagedMemoryEvents(botsRoot: string): string[] {
   for (const botEntry of readdirSync(botsRoot, { withFileTypes: true })) {
     if (!botEntry.isDirectory()) continue;
     const eventsDir = join(botsRoot, botEntry.name, "events");
-    for (const [filename, kind] of [["memory-reflection.json", "memory-reflection"], ["daily-materials.json", "daily-materials"]] as const) {
+    for (const [filename, kind] of [["memory-reflection.json", "memory-reflection"], ["memory-maintenance.json", "memory-maintenance"], ["daily-materials.json", "daily-materials"]] as const) {
       const filePath = join(eventsDir, filename);
       if (!existsSync(filePath)) continue;
       try {
@@ -283,6 +315,7 @@ export class TaskScheduler {
     const ownerEventsDir = join(dataRoot, SYSTEM_TASK_BOTS_DIR, SYSTEM_TASK_OWNER_ID, "events");
     mkdirSync(ownerEventsDir, { recursive: true });
     ensureOwnerMemoryReflectionEvent(ownerEventsDir, settings);
+    ensureOwnerMemoryMaintenanceEvent(ownerEventsDir, settings);
     ensureOwnerDailyMaterialsEvent(ownerEventsDir, settings);
     const ownerWatcher = new EventsWatcher(
       ownerEventsDir,

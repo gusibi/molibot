@@ -1,9 +1,10 @@
 # 记忆系统改进任务清单 v3（Memory Improvement Plan v3 — 回路闭合与画像真实化）
 
 > 日期：2026-07-16（v3.2，已纳入第二轮技术审查修正）
+> 实施状态：已于 2026-07-17 完成。下方“现状问题”保留为实施前基线，交付事实与验证证据见 `features.md`、`CHANGELOG.md` 与 `prd.md` §2.79。
 > 背景：v2.2 清单（`memory-improvement-plan.md`）的 T1–T7 已全部交付：mory 唯一后端、namespace/domain、稳定路径与版本链、每日反思 + Candidate Inbox、语义检索、审计与遗忘机制、记忆 trace 与记忆中心。对照 OpenClaw / Hermes Agent 的记忆架构复盘后结论是：**架构已是目标形态（候选层 + 置信度 + 溯源 + 用户审核，两家都没有），缺的是几个没有闭合的回路**——反馈不回流、反思只抽取不演变、画像是 recency 切片、巩固遗忘无排程。"越用越好"由回路决定，不由存储决定。
 > 直接诱因（owner 反馈 2026-07-16）：记忆中心"综合画像 / 稳定偏好"实际展示的是最近记忆切片，与产品文案语义不符——**给出的是错误数据**。此为本清单第一优先级。
-> 约束：本文档只做规划，不包含实现。实现时每个任务按 AGENTS.md 规则同步更新 `features.md` / `CHANGELOG.md`。
+> 约束：本文档定义需求与验收，不承载逐文件实现流水；交付时按 AGENTS.md 同步更新 `features.md` / `prd.md` / `CHANGELOG.md` / `README.md`。
 
 ## 现状链路速览（实现前必读，均已按代码核实）
 
@@ -169,7 +170,7 @@ trace 必须分列 `profile` 与 `retrieved` 项，记录 base fingerprint、被
 
 **改进目标**：
 
-1. SessionStore 侧建 FTS 索引（SQLite FTS5；中文按 `moryTokenize` 的 word+bigram 预分词写入，规避 FTS5 默认 tokenizer 对 CJK 的失效）；增量维护，首次提供可中断续跑的后台回填。回填与实时增量共用单调 watermark/change sequence，避免并发期间漏写或复活已删除内容。
+1. SessionStore 侧建 FTS 索引（SQLite FTS5；中文统一使用 `moryTokenize` 的 Jieba search-mode 分词，并保留 CJK bigram 作为未登录词兜底，规避 FTS5 默认 tokenizer 对 CJK 的失效）；增量维护，首次提供可中断续跑的后台回填。回填与实时增量共用单调 watermark/change sequence，避免并发期间漏写或复活已删除内容。
 2. 新增 Agent 工具 `conversation_search`：输入 query + 可选时间范围/channel/project，输出命中消息片段 + 会话/消息定位（conversationMessageId，可供 UI 跳转）。
 3. **权限边界**：抽出共享的 `listAuthorizedConversationSources(scope)`，供 reflection、conversation_search、Desktop external sessions 共用。索引行写入 botId/channel/chatId/projectId/origin/purpose；查询在 SQL 层带这些 allowlist filter，而不是先全文搜索再在应用层过滤。automation/internal/legacy `[EVENT:...]` 会话默认排除。
 4. 外部渠道 contexts 投影会话纳入索引，但只索引与现有外部 transcript 投影一致的 user/assistant 展示文本；不得索引原始 JSONL 中的 tool result、system prompt、附件绝对路径或敏感运行内容。

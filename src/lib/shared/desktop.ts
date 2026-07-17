@@ -977,8 +977,38 @@ export interface DesktopMemoryItem {
   sources?: Array<{ channel: string; sessionId: string; conversationMessageId: string; platformMessageId?: string }>;
   pinned?: boolean;
   allowInjection?: boolean;
+  state?: "active" | "disputed" | "dormant" | "archived";
+  utility?: number;
+  injectionCount?: number;
+  privacySuppressed?: boolean;
   createdAt?: string;
   updatedAt: string;
+}
+
+export interface DesktopMemoryProfileSectionMeta {
+  selectedCount: number;
+  scannedCount: number;
+  excludedCount: number;
+  truncated: boolean;
+  rule: string;
+}
+
+export interface DesktopMemoryProfile {
+  summary: string;
+  stablePreferences: DesktopMemoryItem[];
+  profileFacts: DesktopMemoryItem[];
+  currentFocus: DesktopMemoryItem[];
+  recentItems: DesktopMemoryItem[];
+  attentionItems: DesktopMemoryItem[];
+  meta: {
+    scope: { ownerId: string; botId: string; channel: string; externalUserId: string; includeOwner: boolean; includeAgentSelf: boolean; authorizedNamespaces: string[]; conversationId?: string; projectId?: string };
+    fingerprint: string;
+    stablePreferences: DesktopMemoryProfileSectionMeta;
+    profileFacts: DesktopMemoryProfileSectionMeta;
+    currentFocus: DesktopMemoryProfileSectionMeta;
+    recentItems: DesktopMemoryProfileSectionMeta;
+    attentionItems: DesktopMemoryProfileSectionMeta;
+  };
 }
 
 export interface DesktopMemoryCandidate {
@@ -992,13 +1022,22 @@ export interface DesktopMemoryCandidate {
   confidence: number;
   reason: string;
   sources: Array<{ channel: string; sessionId: string; conversationMessageId: string; platformMessageId?: string }>;
+  occurrenceCount?: number;
+  evidenceDates?: string[];
+  skillDraftSuggestion?: {
+    description: string;
+    inputs: string[];
+    outputs: string[];
+    boundaries: string[];
+    successfulExecutionCount: number;
+  };
   createdAt: string;
   updatedAt: string;
 }
 
-export type DesktopMemoryAction = "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
-export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean; allowInjection?: boolean }
-export interface DesktopMemoryActionResponse { ok: true; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
+export type DesktopMemoryAction = "profile" | "restore-state" | "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
+export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; botId?: string; ownerId?: string; conversationId?: string; projectId?: string; includeOwner?: boolean; includeAgentSelf?: boolean; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean; allowInjection?: boolean }
+export interface DesktopMemoryActionResponse { ok: true; profile?: DesktopMemoryProfile; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
 export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
 export interface DesktopMemoryRejectionsResponse { ok: true; items: DesktopMemoryRejection[]; counts: { total: number; add: number; update: number } }
 

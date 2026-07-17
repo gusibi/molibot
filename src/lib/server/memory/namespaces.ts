@@ -1,4 +1,4 @@
-import type { MemoryDomain, MemoryNamespace, MemoryScope } from "$lib/server/memory/types.js";
+import type { MemoryAccessScope, MemoryDomain, MemoryNamespace, MemoryScope } from "$lib/server/memory/types.js";
 
 const DEFAULT_OWNER_ID = "owner";
 
@@ -46,4 +46,10 @@ export function promptMemoryNamespaces(scope: MemoryScope): MemoryNamespace[] {
   const project = projectNamespace(scope);
   if (project) result.push(project);
   return result;
+}
+
+export function deriveMemoryAccessScope(scope: MemoryScope, options: { includeContent?: boolean } = {}): MemoryAccessScope {
+  const authorizedNamespaces = promptMemoryNamespaces(scope);
+  if (options.includeContent) authorizedNamespaces.push(contentNamespace(scope.botId));
+  return { ...scope, authorizedNamespaces: [...new Set(authorizedNamespaces)] };
 }

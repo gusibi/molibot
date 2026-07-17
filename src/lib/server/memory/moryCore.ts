@@ -18,6 +18,7 @@ import type {
   MemoryFlushResult,
   MemoryLayer,
   MemoryDomain,
+  MemoryOrigin,
   MemoryNamespace,
   MemoryRecord,
   MemoryScope,
@@ -50,6 +51,9 @@ interface MoryRecordMeta {
   sources?: MemoryRecord["sources"];
   pinned?: boolean;
   allowInjection?: boolean;
+  origin?: MemoryOrigin;
+  privacySuppressed?: boolean;
+  suppressionKey?: string;
 }
 
 export interface MoryWritePlan {
@@ -181,7 +185,10 @@ function parseMeta(detail: string | undefined, fallback: MemoryScope, fallbackLa
         reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
         sources: Array.isArray(parsed.sources) ? parsed.sources : undefined,
         pinned: parsed.pinned === true,
-        allowInjection: parsed.allowInjection !== false
+        allowInjection: parsed.allowInjection !== false,
+        origin: parsed.origin && typeof parsed.origin === "object" ? { ...parsed.origin } : undefined,
+        privacySuppressed: parsed.privacySuppressed === true,
+        suppressionKey: typeof parsed.suppressionKey === "string" ? parsed.suppressionKey : undefined
       };
     } catch {
       // fall through
@@ -201,7 +208,10 @@ function parseMeta(detail: string | undefined, fallback: MemoryScope, fallbackLa
     reason: undefined,
     sources: undefined,
     pinned: undefined,
-    allowInjection: true
+    allowInjection: true,
+    origin: undefined,
+    privacySuppressed: false,
+    suppressionKey: undefined
   };
 }
 
@@ -220,12 +230,24 @@ function toRecord(row: PersistedMemoryNode, fallbackScope: MemoryScope): MemoryR
     type: row.memoryType as MemoryRecord["type"],
     subject: row.subject,
     path: row.path,
+    state: row.archivedAt ? "archived" : row.lifecycleState,
+    version: row.version,
+    supersedes: row.supersedes,
     lowConfidencePath: meta.lowConfidencePath,
     confidence: row.confidence,
+    importance: row.importance,
+    utility: row.utility,
+    accessCount: row.accessCount,
+    lastAccessedAt: row.lastAccessedAt,
+    injectionCount: row.injectionCount,
+    lastInjectedAt: row.lastInjectedAt,
     reason: meta.reason,
     sources: meta.sources,
     pinned: meta.pinned,
     allowInjection: meta.allowInjection,
+    privacySuppressed: meta.privacySuppressed,
+    suppressionKey: meta.suppressionKey,
+    origin: meta.origin,
     factKey: meta.factKey,
     hasConflict: row.conflictFlag,
     sourceSessionId: meta.sourceSessionId,
@@ -417,6 +439,13 @@ export class MoryMemoryBackend implements MemoryBackend {
     );
     if (existing) {
       const mergedTags = normalizeTags([...(existing.tags ?? []), ...(input.tags ?? [])]);
+      const existingSourceKeys = new Set((existing.sources ?? []).map((source) => `${source.channel}:${source.sessionId}:${source.conversationMessageId}`));
+      const mergedSources = [...(existing.sources ?? []), ...(input.sources ?? []).filter((source) => {
+        const key = `${source.channel}:${source.sessionId}:${source.conversationMessageId}`;
+        if (existingSourceKeys.has(key)) return false;
+        existingSourceKeys.add(key);
+        return true;
+      })];
       const nextExpiresAt = normalizeExpiresAt(input.expiresAt) ?? existing.expiresAt ?? defaultExpiresAt(layer);
       const meta: MoryRecordMeta = {
         channel: scope.channel,
@@ -430,9 +459,12 @@ export class MoryMemoryBackend implements MemoryBackend {
         domain,
         lowConfidencePath: existing.lowConfidencePath ?? plan.lowConfidencePath,
         reason: input.reason ?? existing.reason,
-        sources: input.sources ?? existing.sources,
+        sources: mergedSources.length > 0 ? mergedSources : undefined,
         pinned: input.pinned ?? existing.pinned,
-        allowInjection: input.allowInjection ?? existing.allowInjection
+        allowInjection: input.allowInjection ?? existing.allowInjection,
+        origin: existing.origin,
+        privacySuppressed: existing.privacySuppressed,
+        suppressionKey: existing.suppressionKey
       };
       const updated = await this.storage.update(userId, existing.id, {
         detail: JSON.stringify(meta),
@@ -487,7 +519,15 @@ export class MoryMemoryBackend implements MemoryBackend {
       reason: input.reason,
       sources: input.sources,
       pinned: input.pinned,
-      allowInjection: input.allowInjection
+      allowInjection: input.allowInjection,
+      origin: {
+        botId: scope.botId,
+        channel: scope.channel,
+        externalUserId: scope.externalUserId,
+        projectId: scope.projectId,
+        conversationId: scope.conversationId
+      },
+      privacySuppressed: false
     };
 
     const updated = await this.storage.update(userId, row.id, {
@@ -527,8 +567,32 @@ export class MoryMemoryBackend implements MemoryBackend {
     return result.hits
       .filter((hit) => !input.query.trim() || hit.lexicalScore > 0 || hit.semanticScore > 0)
       .map((hit) => toRecord(hit.node, scope))
+      .filter((row) => row.state === "active")
       .filter((row) => !isExpired(row, Date.now()))
       .slice(0, limit);
+  }
+
+  async listProfileRecords(namespaces: MemoryNamespace[], scope: MemoryScope, limit: number): Promise<MemoryRecord[]> {
+    await this.ensureInit();
+    const safeLimit = Math.max(1, Math.min(2_000, limit));
+    const rows = (await Promise.all([...new Set(namespaces)].map((namespace) => this.storage.list(namespace, {
+      includeArchived: false,
+      lifecycleStates: ["active", "disputed", "dormant"],
+      memoryTypes: ["user_preference", "user_fact", "task", "event"],
+      limit: safeLimit
+    })))).flat();
+    return rows.map((row) => toRecord(row, scope)).slice(0, safeLimit);
+  }
+
+  async listMaintenanceRecords(scope: MemoryScope, limit: number): Promise<MemoryRecord[]> {
+    await this.ensureInit();
+    const safeLimit = Math.max(1, Math.min(10_000, limit));
+    const rows = (await Promise.all(this.managementNamespaces(scope).map((namespace) => this.storage.list(namespace, {
+      includeArchived: false,
+      lifecycleStates: ["active", "disputed", "dormant"],
+      limit: safeLimit
+    })))).flat();
+    return rows.map((row) => toRecord(row, scope)).slice(0, safeLimit);
   }
 
   async searchAll(input: MemorySearchInput): Promise<MemoryRecord[]> {
@@ -577,6 +641,9 @@ export class MoryMemoryBackend implements MemoryBackend {
       : current.expiresAt;
     const nextPinned = typeof input.pinned === "boolean" ? input.pinned : current.pinned;
     const nextAllowInjection = typeof input.allowInjection === "boolean" ? input.allowInjection : current.allowInjection;
+    const nextState = input.state ?? (current.state === "archived" ? "active" : current.state);
+    const nextConfidence = typeof input.confidence === "number" ? Math.max(0, Math.min(1, input.confidence)) : current.confidence;
+    const nextUtility = typeof input.utility === "number" ? Math.max(0, Math.min(1, input.utility)) : current.utility;
     const siblingRows = await this.storage.list(userId, { includeArchived: false, limit: 2000 });
     const sibling = siblingRows.map((row) => toRecord(row, scope)).find((row) =>
       row.id !== id &&
@@ -586,6 +653,13 @@ export class MoryMemoryBackend implements MemoryBackend {
 
     if (sibling) {
       const mergedTags = normalizeTags([...(sibling.tags ?? []), ...nextTags]);
+      const siblingSourceKeys = new Set((sibling.sources ?? []).map((source) => `${source.channel}:${source.sessionId}:${source.conversationMessageId}`));
+      const mergedSources = [...(sibling.sources ?? []), ...(current.sources ?? []).filter((source) => {
+        const key = `${source.channel}:${source.sessionId}:${source.conversationMessageId}`;
+        if (siblingSourceKeys.has(key)) return false;
+        siblingSourceKeys.add(key);
+        return true;
+      })];
       const mergedExpiresAt = nextExpiresAt ?? sibling.expiresAt;
       const siblingMeta: MoryRecordMeta = {
         channel: scope.channel,
@@ -599,14 +673,20 @@ export class MoryMemoryBackend implements MemoryBackend {
         domain: sibling.domain,
         lowConfidencePath: sibling.lowConfidencePath,
         reason: sibling.reason,
-        sources: sibling.sources,
+        sources: mergedSources.length > 0 ? mergedSources : undefined,
         pinned: nextPinned ?? sibling.pinned,
-        allowInjection: nextAllowInjection ?? sibling.allowInjection
+        allowInjection: nextAllowInjection ?? sibling.allowInjection,
+        origin: sibling.origin ?? current.origin,
+        privacySuppressed: input.privacySuppressed ?? (sibling.privacySuppressed || current.privacySuppressed),
+        suppressionKey: input.suppressionKey === null ? undefined : input.suppressionKey ?? sibling.suppressionKey ?? current.suppressionKey
       };
       const updatedSibling = await this.storage.update(userId, sibling.id, {
         detail: JSON.stringify(siblingMeta),
         updatedAt: new Date().toISOString(),
-        conflictFlag: false
+        conflictFlag: nextState === "disputed",
+        lifecycleState: nextState,
+        confidence: nextConfidence,
+        utility: nextUtility
       });
       await this.storage.archive(userId, [id]);
       return updatedSibling ? toRecord(updatedSibling, scope) : sibling;
@@ -626,7 +706,10 @@ export class MoryMemoryBackend implements MemoryBackend {
       reason: current.reason,
       sources: current.sources,
       pinned: nextPinned,
-      allowInjection: nextAllowInjection
+      allowInjection: nextAllowInjection,
+      origin: current.origin,
+      privacySuppressed: input.privacySuppressed ?? current.privacySuppressed,
+      suppressionKey: input.suppressionKey === null ? undefined : input.suppressionKey ?? current.suppressionKey
     };
 
     const updated = await this.storage.update(userId, id, {
@@ -634,10 +717,36 @@ export class MoryMemoryBackend implements MemoryBackend {
       title: nextContent.slice(0, 40),
       detail: JSON.stringify(meta),
       updatedAt: new Date().toISOString(),
-      conflictFlag: false
+      conflictFlag: nextState === "disputed",
+      lifecycleState: nextState,
+      confidence: nextConfidence,
+      utility: nextUtility
     });
 
     return updated ? toRecord(updated, scope) : null;
+  }
+
+  async restoreArchived(scope: MemoryScope, id: string): Promise<MemoryRecord | null> {
+    await this.ensureInit();
+    for (const userId of this.managementNamespaces(scope)) {
+      const row = await this.storage.readById(userId, id);
+      if (!row?.archivedAt) continue;
+      const restored = await this.storage.update(userId, id, {
+        archivedAt: undefined,
+        lifecycleState: "active",
+        conflictFlag: false,
+        updatedAt: new Date().toISOString()
+      });
+      return restored ? toRecord(restored, scope) : null;
+    }
+    return null;
+  }
+
+  async recordInjectionUsage(scope: MemoryScope, id: string, eventKey: string, injectedAt: string): Promise<boolean> {
+    await this.ensureInit();
+    const located = await this.findRecord(scope, id);
+    if (!located || located.row.lifecycleState !== "active" || located.row.archivedAt) return false;
+    return this.storage.recordInjectionUsage(located.userId, id, eventKey, injectedAt);
   }
 
   async flush(scope: MemoryScope): Promise<MemoryFlushResult> {
@@ -712,6 +821,7 @@ export class MoryMemoryBackend implements MemoryBackend {
       const seen = new Set<string>();
       const duplicateIds: string[] = [];
       const tagsByKey = new Map<string, string[]>();
+      const sourcesByKey = new Map<string, NonNullable<MemoryRecord["sources"]>>();
       const survivorIdByKey = new Map<string, string>();
 
       for (const record of records) {
@@ -720,6 +830,14 @@ export class MoryMemoryBackend implements MemoryBackend {
         const key = `${record.layer}:${normalizeContent(record.content).toLowerCase()}`;
         if (!tagsByKey.has(key)) tagsByKey.set(key, [...record.tags]);
         else tagsByKey.set(key, normalizeTags([...(tagsByKey.get(key) ?? []), ...record.tags]));
+        const knownSources = sourcesByKey.get(key) ?? [];
+        const sourceIds = new Set(knownSources.map((source) => `${source.channel}:${source.sessionId}:${source.conversationMessageId}`));
+        sourcesByKey.set(key, [...knownSources, ...(record.sources ?? []).filter((source) => {
+          const sourceId = `${source.channel}:${source.sessionId}:${source.conversationMessageId}`;
+          if (sourceIds.has(sourceId)) return false;
+          sourceIds.add(sourceId);
+          return true;
+        })]);
 
         if (seen.has(key) && !record.pinned) {
           duplicateIds.push(record.id);
@@ -737,7 +855,10 @@ export class MoryMemoryBackend implements MemoryBackend {
         const key = `${record.layer}:${normalizeContent(record.content).toLowerCase()}`;
         if (survivorIdByKey.get(key) !== record.id) continue;
         const mergedTags = tagsByKey.get(key) ?? record.tags;
-        if (mergedTags.length === record.tags.length && mergedTags.every((tag, idx) => tag === record.tags[idx])) continue;
+        const mergedSources = sourcesByKey.get(key) ?? record.sources;
+        const tagsUnchanged = mergedTags.length === record.tags.length && mergedTags.every((tag, idx) => tag === record.tags[idx]);
+        const sourcesUnchanged = (mergedSources?.length ?? 0) === (record.sources?.length ?? 0);
+        if (tagsUnchanged && sourcesUnchanged) continue;
         await this.storage.update(userId, record.id, {
           detail: JSON.stringify({
             channel: record.channel,
@@ -751,8 +872,12 @@ export class MoryMemoryBackend implements MemoryBackend {
             domain: record.domain,
             lowConfidencePath: record.lowConfidencePath,
             reason: record.reason,
-            sources: record.sources,
-            pinned: record.pinned
+            sources: mergedSources,
+            pinned: record.pinned,
+            allowInjection: record.allowInjection,
+            origin: record.origin,
+            privacySuppressed: record.privacySuppressed,
+            suppressionKey: record.suppressionKey
           })
         });
       }
@@ -760,7 +885,9 @@ export class MoryMemoryBackend implements MemoryBackend {
       const pinnedIds = new Set(records.filter((record) => record.pinned).map((record) => record.id));
       const forgetting = planForgetting(rows.filter((row) => !pinnedIds.has(row.id) && !expiredIdSet.has(row.id) && !duplicateIdSet.has(row.id)), {
         capacity: 500,
-        minRetentionScore: 0.25,
+        // Low retention alone becomes dormant in MemoryMaintenanceService;
+        // compact archives only when the explicit capacity ceiling is exceeded.
+        minRetentionScore: 0,
         halfLifeDays: 21
       });
       if (forgetting.archivedIds.length > 0) {

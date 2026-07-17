@@ -33,13 +33,16 @@ export interface PersistedMemoryNode {
   importance: number;
   utility?: number;
   accessCount: number;
+  injectionCount: number;
   createdAt: string;
   updatedAt: string;
   lastAccessedAt?: string;
+  lastInjectedAt?: string;
   embedding?: number[];
   version: number;
   supersedes?: string;
   conflictFlag: boolean;
+  lifecycleState: "active" | "disputed" | "dormant" | "archived";
   archivedAt?: string;
 }
 
@@ -47,6 +50,7 @@ export interface ListOptions {
   includeArchived?: boolean;
   memoryTypes?: string[];
   pathPrefixes?: string[];
+  lifecycleStates?: PersistedMemoryNode["lifecycleState"][];
   limit?: number;
 }
 
@@ -65,6 +69,7 @@ export interface StorageAdapter {
   insert(node: PersistedMemoryNode): Promise<PersistedMemoryNode>;
   update(userId: string, id: string, patch: Partial<PersistedMemoryNode>): Promise<PersistedMemoryNode | undefined>;
   archive(userId: string, ids: string[]): Promise<number>;
+  recordInjectionUsage(userId: string, id: string, eventKey: string, injectedAt: string): Promise<boolean>;
   vectorSearch(userId: string, options: VectorSearchOptions): Promise<Array<{ node: PersistedMemoryNode; similarity: number }>>;
 }
 
@@ -80,11 +85,15 @@ function matchesListOptions(node: PersistedMemoryNode, options: ListOptions): bo
   if (options.pathPrefixes && options.pathPrefixes.length > 0) {
     if (!options.pathPrefixes.some((prefix) => node.path.startsWith(prefix))) return false;
   }
+  if (options.lifecycleStates && options.lifecycleStates.length > 0 && !options.lifecycleStates.includes(node.lifecycleState)) {
+    return false;
+  }
   return true;
 }
 
 export class InMemoryStorageAdapter implements StorageAdapter {
   private rows: PersistedMemoryNode[] = [];
+  private readonly injectionUsageEvents = new Set<string>();
 
   async init(): Promise<void> {
     // no-op
@@ -110,8 +119,13 @@ export class InMemoryStorageAdapter implements StorageAdapter {
   }
 
   async insert(node: PersistedMemoryNode): Promise<PersistedMemoryNode> {
-    this.rows.push(node);
-    return node;
+    const normalized = {
+      ...node,
+      injectionCount: node.injectionCount ?? 0,
+      lifecycleState: node.archivedAt ? "archived" as const : (node.lifecycleState ?? "active" as const),
+    };
+    this.rows.push(normalized);
+    return normalized;
   }
 
   async update(userId: string, id: string, patch: Partial<PersistedMemoryNode>): Promise<PersistedMemoryNode | undefined> {
@@ -133,9 +147,19 @@ export class InMemoryStorageAdapter implements StorageAdapter {
     this.rows = this.rows.map((row) => {
       if (row.userId !== userId || !idSet.has(row.id) || row.archivedAt) return row;
       count += 1;
-      return { ...row, archivedAt: now, updatedAt: now };
+      return { ...row, archivedAt: now, lifecycleState: "archived", updatedAt: now };
     });
     return count;
+  }
+
+  async recordInjectionUsage(userId: string, id: string, eventKey: string, injectedAt: string): Promise<boolean> {
+    if (this.injectionUsageEvents.has(eventKey)) return false;
+    const row = this.rows.find((item) => item.userId === userId && item.id === id && !item.archivedAt);
+    if (!row) return false;
+    this.injectionUsageEvents.add(eventKey);
+    row.injectionCount += 1;
+    row.lastInjectedAt = injectedAt;
+    return true;
   }
 
   async vectorSearch(
@@ -146,6 +170,7 @@ export class InMemoryStorageAdapter implements StorageAdapter {
       memoryTypes: options.memoryTypes,
       pathPrefixes: options.pathPrefixes,
       includeArchived: false,
+      lifecycleStates: ["active"],
       limit: Math.max(options.topK * 5, options.topK),
     });
 
@@ -212,13 +237,16 @@ function rowToNode(row: SqlMemoryRow): PersistedMemoryNode {
     importance: row.importance,
     utility: row.utility ?? undefined,
     accessCount: row.access_count,
+    injectionCount: row.injection_count ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastAccessedAt: row.last_accessed_at ?? undefined,
+    lastInjectedAt: row.last_injected_at ?? undefined,
     embedding,
     version: row.version,
     supersedes: row.supersedes ?? undefined,
     conflictFlag: !!row.conflict_flag,
+    lifecycleState: row.archived_at ? "archived" : (row.lifecycle_state === "disputed" || row.lifecycle_state === "dormant" ? row.lifecycle_state : "active"),
     archivedAt: row.archived_at ?? undefined,
   };
 }
@@ -264,7 +292,17 @@ export class SqliteStorageAdapter implements StorageAdapter {
     if (!columns.some((column) => column.name === "domain")) {
       await this.driver.run("ALTER TABLE memory_nodes ADD COLUMN domain TEXT");
     }
+    if (!columns.some((column) => column.name === "lifecycle_state")) {
+      await this.driver.run("ALTER TABLE memory_nodes ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'active'");
+    }
+    if (!columns.some((column) => column.name === "injection_count")) {
+      await this.driver.run("ALTER TABLE memory_nodes ADD COLUMN injection_count INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!columns.some((column) => column.name === "last_injected_at")) {
+      await this.driver.run("ALTER TABLE memory_nodes ADD COLUMN last_injected_at TEXT");
+    }
     await this.driver.run("CREATE INDEX IF NOT EXISTS idx_memory_nodes_user_domain ON memory_nodes(user_id, domain)");
+    await this.driver.run("CREATE INDEX IF NOT EXISTS idx_memory_nodes_user_state_type ON memory_nodes(user_id, lifecycle_state, memory_type)");
   }
 
   async readByPath(userId: string, path: string, includeArchived = false): Promise<PersistedMemoryNode[]> {
@@ -308,8 +346,8 @@ export class SqliteStorageAdapter implements StorageAdapter {
       `UPDATE memory_nodes SET
         domain = ?, l0_title = ?, l1_summary = ?, l2_detail = ?,
         confidence = ?, importance = ?, utility = ?,
-        access_count = ?, updated_at = ?, last_accessed_at = ?,
-        version = ?, supersedes = ?, conflict_flag = ?,
+        access_count = ?, injection_count = ?, updated_at = ?, last_accessed_at = ?, last_injected_at = ?,
+        version = ?, supersedes = ?, conflict_flag = ?, lifecycle_state = ?,
         archived_at = ?, embedding = ?
       WHERE user_id = ? AND id = ?`,
       [
@@ -321,11 +359,14 @@ export class SqliteStorageAdapter implements StorageAdapter {
         next.importance,
         next.utility ?? 0.5,
         next.accessCount,
+        next.injectionCount,
         next.updatedAt,
         next.lastAccessedAt ?? null,
+        next.lastInjectedAt ?? null,
         next.version,
         next.supersedes ?? null,
         next.conflictFlag ? 1 : 0,
+        next.archivedAt ? "archived" : next.lifecycleState,
         next.archivedAt ?? null,
         next.embedding ? JSON.stringify(next.embedding) : null,
         userId,
@@ -341,12 +382,47 @@ export class SqliteStorageAdapter implements StorageAdapter {
     let updated = 0;
     for (const id of ids) {
       await this.driver.run(
-        "UPDATE memory_nodes SET archived_at = ?, updated_at = ? WHERE user_id = ? AND id = ? AND archived_at IS NULL",
+        "UPDATE memory_nodes SET archived_at = ?, lifecycle_state = 'archived', updated_at = ? WHERE user_id = ? AND id = ? AND archived_at IS NULL",
         [now, now, userId, id]
       );
       updated += 1;
     }
     return updated;
+  }
+
+  async recordInjectionUsage(userId: string, id: string, eventKey: string, injectedAt: string): Promise<boolean> {
+    await this.driver.run("BEGIN IMMEDIATE");
+    try {
+      const existing = await this.driver.get<{ event_key: string }>(
+        "SELECT event_key FROM memory_injection_usage_events WHERE event_key = ?",
+        [eventKey]
+      );
+      if (existing) {
+        await this.driver.run("ROLLBACK");
+        return false;
+      }
+      const memory = await this.driver.get<{ id: string }>(
+        "SELECT id FROM memory_nodes WHERE user_id = ? AND id = ? AND archived_at IS NULL",
+        [userId, id]
+      );
+      if (!memory) {
+        await this.driver.run("ROLLBACK");
+        return false;
+      }
+      await this.driver.run(
+        "INSERT INTO memory_injection_usage_events(event_key, user_id, memory_id, injected_at) VALUES (?, ?, ?, ?)",
+        [eventKey, userId, id, injectedAt]
+      );
+      await this.driver.run(
+        "UPDATE memory_nodes SET injection_count = injection_count + 1, last_injected_at = ? WHERE user_id = ? AND id = ?",
+        [injectedAt, userId, id]
+      );
+      await this.driver.run("COMMIT");
+      return true;
+    } catch (error) {
+      await this.driver.run("ROLLBACK");
+      throw error;
+    }
   }
 
   async vectorSearch(userId: string, options: VectorSearchOptions): Promise<Array<{ node: PersistedMemoryNode; similarity: number }>> {
@@ -460,10 +536,28 @@ export class PgvectorStorageAdapter implements StorageAdapter {
     if (ids.length === 0) return 0;
     const now = new Date().toISOString();
     const { rows } = await this.driver.query<{ id: string }>(
-      "UPDATE memory_nodes SET archived_at = $1, updated_at = $1 WHERE user_id = $2 AND id = ANY($3::text[]) AND archived_at IS NULL RETURNING id",
+      "UPDATE memory_nodes SET archived_at = $1, lifecycle_state = 'archived', updated_at = $1 WHERE user_id = $2 AND id = ANY($3::text[]) AND archived_at IS NULL RETURNING id",
       [now, userId, ids]
     );
     return rows.length;
+  }
+
+  async recordInjectionUsage(userId: string, id: string, eventKey: string, injectedAt: string): Promise<boolean> {
+    const inserted = await this.driver.query<{ event_key: string }>(`
+      INSERT INTO memory_injection_usage_events(event_key, user_id, memory_id, injected_at)
+      SELECT $1, $2, $3, $4
+      WHERE EXISTS (
+        SELECT 1 FROM memory_nodes WHERE user_id = $2 AND id = $3 AND archived_at IS NULL
+      )
+      ON CONFLICT(event_key) DO NOTHING
+      RETURNING event_key
+    `, [eventKey, userId, id, injectedAt]);
+    if (inserted.rows.length === 0) return false;
+    await this.driver.query(
+      "UPDATE memory_nodes SET injection_count = injection_count + 1, last_injected_at = $1 WHERE user_id = $2 AND id = $3",
+      [injectedAt, userId, id]
+    );
+    return true;
   }
 
   async vectorSearch(userId: string, options: VectorSearchOptions): Promise<Array<{ node: PersistedMemoryNode; similarity: number }>> {

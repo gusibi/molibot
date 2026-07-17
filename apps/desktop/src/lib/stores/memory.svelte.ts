@@ -1,6 +1,6 @@
 // Memory settings — state + orchestration.
 import { loadDesktopMemory, loadDesktopMemoryRejections, runDesktopMemoryAction } from "../api";
-import type { DesktopMemoryCandidate, DesktopMemoryItem, DesktopMemoryRejection, DesktopMemorySummary } from "@molibot/desktop-contract";
+import type { DesktopMemoryCandidate, DesktopMemoryItem, DesktopMemoryProfile, DesktopMemoryRejection, DesktopMemorySummary } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
 export const memoryStore = $state({
@@ -8,6 +8,7 @@ export const memoryStore = $state({
   loading: false,
   endpoint: "",
   items: [] as DesktopMemoryItem[],
+  profile: null as DesktopMemoryProfile | null,
   candidates: [] as DesktopMemoryCandidate[],
   candidateEdit: null as DesktopMemoryCandidate | null,
   memoryEdit: null as DesktopMemoryItem | null,
@@ -28,14 +29,16 @@ export async function loadMemory(endpoint: string): Promise<void> {
   memoryStore.loading = true;
   session.error = "";
   try {
-    const [summary, records, candidates, rejections] = await Promise.all([
+    const [summary, records, profile, candidates, rejections] = await Promise.all([
       loadDesktopMemory(endpoint),
       runDesktopMemoryAction(endpoint, { action: "list", allScopes: true, limit: 200 }),
+      runDesktopMemoryAction(endpoint, { action: "profile", includeOwner: true, includeAgentSelf: true }),
       runDesktopMemoryAction(endpoint, { action: "list-candidates", limit: 200 }),
       loadDesktopMemoryRejections(endpoint)
     ]);
     memoryStore.memory = summary;
     memoryStore.items = records.items ?? [];
+    memoryStore.profile = profile.profile ?? null;
     memoryStore.candidates = candidates.candidates ?? [];
     memoryStore.rejections = rejections.items;
   } catch (cause) {
@@ -130,6 +133,20 @@ export async function saveMemoryItem(item: DesktopMemoryItem): Promise<void> {
   } finally {
     memoryStore.busyAction = "";
   }
+}
+
+export async function restoreMemoryState(item: DesktopMemoryItem): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || memoryStore.busyAction) return;
+  memoryStore.busyAction = item.id;
+  try {
+    const result = await runDesktopMemoryAction(endpoint, { action: "restore-state", channel: item.channel, userId: item.externalUserId, id: item.id });
+    if (result.item) {
+      memoryStore.items = memoryStore.items.map((candidate) => candidate.id === item.id ? result.item! : candidate);
+      memoryStore.profile = null;
+      await loadMemory(endpoint);
+    }
+  } catch (cause) { setError(cause); } finally { memoryStore.busyAction = ""; }
 }
 
 export async function beginMemoryEdit(item: DesktopMemoryItem): Promise<void> {

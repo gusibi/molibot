@@ -46,6 +46,7 @@
     "dotenv": "^16.5.0",
     "grammy": "^1.44.0",
     "ignore": "^7.0.5",
+    "jieba-wasm": "^2.4.0",
     "marked": "^16.4.2",
     "mpg123-decoder": "^1.0.3",
     "qrcode": "^1.5.4",

@@ -1,4 +1,4 @@
-import type { DesktopMemoryCandidate, DesktopMemoryItem } from "@molibot/desktop-contract";
+import type { DesktopMemoryCandidate, DesktopMemoryItem, DesktopMemoryProfile } from "@molibot/desktop-contract";
 
 export const MEMORY_TOPIC_IDS = ["projects", "technology", "design", "wellness", "content", "habits"] as const;
 export type MemoryTopicId = (typeof MEMORY_TOPIC_IDS)[number];
@@ -19,6 +19,7 @@ export interface MemoryRelatedEntity {
 export interface MemoryCenterProjection {
   summary: string;
   summarySourceCount: number;
+  profileMeta?: DesktopMemoryProfile["meta"];
   currentFocus: DesktopMemoryItem[];
   stablePreferences: DesktopMemoryItem[];
   recentItems: DesktopMemoryItem[];
@@ -133,7 +134,8 @@ function buildRelatedEntities(items: DesktopMemoryItem[]): MemoryRelatedEntity[]
 
 export function projectMemoryCenter(
   items: DesktopMemoryItem[],
-  candidates: DesktopMemoryCandidate[]
+  candidates: DesktopMemoryCandidate[],
+  profile?: DesktopMemoryProfile | null
 ): MemoryCenterProjection {
   const recentItems = [...items].sort(compareRecent);
   const topicMap = new Map<MemoryTopicId, DesktopMemoryItem[]>(MEMORY_TOPIC_IDS.map((id) => [id, []]));
@@ -149,15 +151,16 @@ export function projectMemoryCenter(
   const attentionItems = recentItems
     .filter((item) => item.hasConflict || item.allowInjection === false || (item.expiresAt && timestamp(item.expiresAt) <= Date.now()))
     .slice(0, 4);
-  const summary = buildSummary(recentItems);
+  const summary = profile?.summary ?? buildSummary(recentItems);
 
   return {
     summary,
-    summarySourceCount: recentItems.filter((item) => item.layer === "long_term").length,
-    currentFocus: explicitFocus.length > 0 ? explicitFocus : topicMap.get("projects")!.slice(0, 4),
-    stablePreferences,
-    recentItems: recentItems.slice(0, 5),
-    attentionItems,
+    summarySourceCount: profile?.meta.stablePreferences.scannedCount ?? recentItems.filter((item) => item.layer === "long_term").length,
+    profileMeta: profile?.meta,
+    currentFocus: profile?.currentFocus ?? (explicitFocus.length > 0 ? explicitFocus : topicMap.get("projects")!.slice(0, 4)),
+    stablePreferences: profile?.stablePreferences ?? stablePreferences,
+    recentItems: profile?.recentItems ?? recentItems.slice(0, 5),
+    attentionItems: profile?.attentionItems ?? attentionItems,
     pendingCandidates: [...candidates].sort((left, right) => timestamp(right.updatedAt) - timestamp(left.updatedAt)),
     topics: MEMORY_TOPIC_IDS.map((id) => ({
       id,

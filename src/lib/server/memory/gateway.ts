@@ -14,6 +14,7 @@ import type {
   MemoryCandidateEdit,
   MemoryCandidateStatus,
   MemoryFlushResult,
+  MemoryInjectionItem,
   MemoryPromptSnapshot,
   MemoryRecord,
   MemoryScope,
@@ -37,6 +38,12 @@ import {
   selectPromptMemoryRows
 } from "$lib/server/memory/classifier.js";
 import { appendMemoryGovernanceRejection } from "$lib/server/memory/governanceLog.js";
+import type { MemoryTraceFeedbackValue, SqliteMemoryTraceStore } from "$lib/server/memory/traceStore.js";
+import { MemoryProfileBuilder, type MemoryProfileResult, type MemoryProfileScope } from "$lib/server/memory/profileBuilder.js";
+import { deriveMemoryAccessScope } from "$lib/server/memory/namespaces.js";
+import { tokenizeWords } from "#mory";
+import { getMemoryProfileSnapshotStore, type MemoryProfileSnapshotStore } from "$lib/server/memory/profileSnapshotStore.js";
+import type { MemoryProfileTurnSnapshot } from "$lib/server/memory/types.js";
 
 export class MemoryCandidateValidationError extends Error {
   override readonly name = "MemoryCandidateValidationError";
@@ -47,6 +54,7 @@ export class MemoryGateway {
   private readonly backendDefinitions: MemoryBackendDefinition[];
   private readonly importers: MemoryImporter[];
   private readonly candidates: MemoryCandidateStore;
+  private readonly profileSnapshots?: MemoryProfileSnapshotStore;
   private embeddingConfigKey = "";
 
   constructor(
@@ -58,6 +66,7 @@ export class MemoryGateway {
       backends?: Record<string, MemoryBackend>;
       backendDefinitions?: MemoryBackendDefinition[];
       importers?: MemoryImporter[];
+      profileSnapshotStore?: MemoryProfileSnapshotStore;
     }
   ) {
     this.backendDefinitions = options?.backendDefinitions ?? builtInMemoryBackends;
@@ -66,6 +75,7 @@ export class MemoryGateway {
     );
     this.importers = options?.importers ?? builtInMemoryImporters;
     this.candidates = options?.candidateStore ?? new MemoryCandidateStore(storagePaths.moryDbFile);
+    this.profileSnapshots = options?.profileSnapshotStore;
   }
 
   isEnabled(): boolean {
@@ -135,6 +145,58 @@ export class MemoryGateway {
     return this.candidates.create({ ...validated, fingerprint: input.fingerprint || candidateFingerprint(validated) });
   }
 
+  async maybeAutoConfirmCandidate(id: string): Promise<MemoryCandidate | null> {
+    const policy = this.getSettings().plugins.memory.autoConfirm;
+    if (!policy?.enabled) return this.candidates.get(id);
+    const candidate = this.candidates.get(id);
+    if (!candidate || candidate.status !== "pending") return candidate;
+    const sensitivePreference = /(?:health|medical|disease|medication|location|address|identity|religion|politic|sexual|lifestyle|健康|疾病|药物|住址|位置|身份|宗教|政治|性取向|生活方式)/i
+      .test(`${candidate.subject} ${candidate.value}`);
+    const allowedType = candidate.type === "user_preference" && candidate.domain === "owner" && !sensitivePreference
+      || (policy.allowProjectTasks && candidate.type === "task" && candidate.domain === "project");
+    const sessions = new Set(candidate.sources.map((source) => source.sessionId));
+    if (!allowedType
+      || (candidate.occurrenceCount ?? 1) < policy.occurrenceThreshold
+      || candidate.confidence < policy.confidenceThreshold
+      || sessions.size < 2
+      || (candidate.evidenceDates?.length ?? 0) < 2
+      || (candidate.possibleRelations?.length ?? 0) > 0) return candidate;
+    return this.confirmCandidate(id, { reason: `${candidate.reason}; audit:auto-confirm` });
+  }
+
+  async revokeAutoConfirmedCandidate(id: string): Promise<{ revoked: boolean; predecessorRestored: boolean; needsReview: boolean }> {
+    const candidate = this.candidates.get(id);
+    if (!candidate?.confirmedMemoryId || !candidate.reason.includes("audit:auto-confirm")) {
+      return { revoked: false, predecessorRestored: false, needsReview: false };
+    }
+    const namespaceParts = candidate.namespace.split(":");
+    const governanceScope = {
+      channel: candidate.sources[0]?.channel ?? "web",
+      externalUserId: candidate.sources[0]?.sessionId ?? "memory-governance",
+      botId: this.botIdFromNamespace(candidate.namespace),
+      ownerId: candidate.domain === "owner" ? namespaceParts.slice(1).join(":") : undefined,
+      projectId: candidate.domain === "project" ? namespaceParts.slice(2).join(":") : undefined
+    };
+    const memory = await this.getForGovernance(governanceScope, candidate.confirmedMemoryId);
+    if (!memory || memory.state === "archived") return { revoked: false, predecessorRestored: false, needsReview: false };
+    const records = await this.listForMaintenance(governanceScope);
+    const versions = await this.versions(governanceScope, memory.id);
+    const laterSuccessors = records.filter((record) => record.supersedes === memory.id && record.state !== "archived");
+    await this.delete(governanceScope, memory.id);
+    const predecessorId = memory.supersedes ?? candidate.supersedesMemoryId;
+    if (!predecessorId) return { revoked: true, predecessorRestored: false, needsReview: false };
+    const predecessor = versions.find((record) => record.id === predecessorId);
+    const otherActiveSuccessors = records.filter((record) =>
+      record.supersedes === predecessorId && record.id !== memory.id && record.state !== "archived"
+    );
+    if (!predecessor || laterSuccessors.length > 0 || otherActiveSuccessors.length > 0) {
+      return { revoked: true, predecessorRestored: false, needsReview: true };
+    }
+    const restored = await this.getBackend().restoreArchived?.(governanceScope, predecessor.id);
+    if (!restored) return { revoked: true, predecessorRestored: false, needsReview: true };
+    return { revoked: true, predecessorRestored: true, needsReview: false };
+  }
+
   listCandidates(status?: MemoryCandidateStatus, limit?: number): MemoryCandidate[] {
     if (!this.isEnabled()) return [];
     return this.candidates.list(status, limit);
@@ -145,9 +207,16 @@ export class MemoryGateway {
     const reserved = this.candidates.reserveConfirmation(id);
     if (!reserved) return this.candidates.get(id);
     try {
+      if (reserved.skillDraftSuggestion) throw new Error("Skill suggestions must be confirmed through the draft review flow.");
       const definedEdit = edit
         ? Object.fromEntries(Object.entries(edit).filter(([, value]) => typeof value !== "undefined")) as MemoryCandidateEdit
         : undefined;
+      if (definedEdit?.namespace && definedEdit.namespace !== reserved.namespace) {
+        throw new Error("Candidate namespace identity cannot be changed during confirmation.");
+      }
+      if (definedEdit?.domain && definedEdit.domain !== reserved.domain) {
+        throw new Error("Candidate domain identity cannot be changed during confirmation.");
+      }
       const merged = this.validateCandidate({ ...reserved, ...definedEdit, fingerprint: reserved.fingerprint });
       if (this.candidates.isSuppressed(merged)) throw new Error("Candidate content is suppressed.");
       const memory = await this.getBackend().add({
@@ -169,6 +238,45 @@ export class MemoryGateway {
         pinned: merged.pinned
       });
       return this.candidates.completeConfirmation(id, merged, memory.id, Boolean(definedEdit && Object.keys(definedEdit).length > 0));
+    } catch (cause) {
+      this.candidates.releaseConfirmation(id);
+      throw cause;
+    }
+  }
+
+  prepareSkillDraftSuggestions(isSuccessfulExecution: (sourceEntryId: string) => boolean): MemoryCandidate[] {
+    const prepared: MemoryCandidate[] = [];
+    for (const candidate of this.candidates.list("pending", 1_000)) {
+      if (candidate.type !== "skill" || candidate.skillDraftSuggestion || (candidate.occurrenceCount ?? 1) < 3) continue;
+      const successful = candidate.sources.filter((source) => isSuccessfulExecution(source.conversationMessageId));
+      if (new Set(successful.map((source) => `${source.sessionId}:${source.conversationMessageId}`)).size < 2) continue;
+      const updated = this.candidates.setSkillDraftSuggestion(candidate.id, {
+        description: candidate.value,
+        inputs: ["The user-provided inputs referenced by the successful source runs."],
+        outputs: ["A verified result matching the successful source runs."],
+        boundaries: [
+          "Create a reviewable draft only; never execute or publish it automatically.",
+          "Do not copy secrets, absolute attachment paths, system prompts, or tool-result payloads."
+        ],
+        successfulExecutionCount: successful.length
+      });
+      if (updated) prepared.push(updated);
+    }
+    return prepared;
+  }
+
+  async confirmSkillDraftSuggestion(
+    id: string,
+    createDraft: (candidate: MemoryCandidate) => Promise<string> | string
+  ): Promise<MemoryCandidate | null> {
+    if (!this.isEnabled() || this.getActiveBackendKey() !== "mory") return null;
+    const reserved = this.candidates.reserveConfirmation(id);
+    if (!reserved) return this.candidates.get(id);
+    try {
+      if (reserved.type !== "skill" || !reserved.skillDraftSuggestion) throw new Error("Candidate is not a verified Skill draft suggestion.");
+      const reference = await createDraft(reserved);
+      if (!String(reference).trim()) throw new Error("Skill draft writer returned no review reference.");
+      return this.candidates.completeConfirmation(id, reserved, `draft:${reference}`, false);
     } catch (cause) {
       this.candidates.releaseConfirmation(id);
       throw cause;
@@ -256,12 +364,20 @@ export class MemoryGateway {
 
   async search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
     if (!this.isEnabled()) return [];
-    return this.getBackend().search(scope, input);
+    return (await this.getBackend().search(scope, input))
+      .map((record) => this.withGovernanceState(record))
+      .filter((record) => !record.privacySuppressed);
+  }
+
+  async getForGovernance(scope: MemoryScope, id: string): Promise<MemoryRecord | null> {
+    if (!this.isEnabled()) return null;
+    const record = await this.getBackend().get(scope, id);
+    return record ? this.withGovernanceState(record) : null;
   }
 
   async searchAll(input: MemorySearchInput): Promise<MemoryRecord[]> {
     if (!this.isEnabled()) return [];
-    return this.getBackend().searchAll(input);
+    return (await this.getBackend().searchAll(input)).map((record) => this.withGovernanceState(record));
   }
 
   async searchContent(botId: string, input: MemorySearchInput): Promise<MemoryRecord[]> {
@@ -348,6 +464,228 @@ export class MemoryGateway {
     return updated;
   }
 
+  async suppressPrivacy(scope: MemoryScope, id: string, options: { idempotencyKey: string; reason: string }): Promise<MemoryRecord | null> {
+    if (!this.isEnabled()) return null;
+    const existing = await this.getBackend().get(scope, id);
+    if (!existing) return null;
+    const shape = this.governanceShape(existing);
+    if (!shape) throw new Error("Memory lacks canonical identity required for privacy suppression.");
+    const suppression = this.candidates.suppressForPrivacy(shape, { ...options, memoryId: id });
+    const updated = await this.getBackend().update(scope, id, {
+      allowInjection: false,
+      privacySuppressed: true,
+      suppressionKey: suppression.suppressionKey
+    });
+    return updated ? this.withGovernanceState(updated) : this.withGovernanceState(existing);
+  }
+
+  async restorePrivacy(scope: MemoryScope, id: string, options: { idempotencyKey: string; reason: string }): Promise<MemoryRecord | null> {
+    if (!this.isEnabled()) return null;
+    const existing = await this.getBackend().get(scope, id);
+    if (!existing) return null;
+    const shape = this.governanceShape(existing);
+    if (!shape) throw new Error("Memory lacks canonical identity required for privacy restoration.");
+    this.candidates.restorePrivacySuppression(shape, { ...options, memoryId: id });
+    const updated = await this.getBackend().update(scope, id, {
+      allowInjection: true,
+      privacySuppressed: false,
+      suppressionKey: null
+    });
+    return updated ? this.withGovernanceState(updated) : this.withGovernanceState(existing);
+  }
+
+  async applyTraceFeedback(
+    traceStore: SqliteMemoryTraceStore,
+    input: {
+      traceId: string;
+      memoryId: string;
+      value: MemoryTraceFeedbackValue;
+      comment?: string;
+      idempotencyKey: string;
+    }
+  ): Promise<{ duplicate: boolean; memory: MemoryRecord }> {
+    const trace = traceStore.getById(input.traceId);
+    if (!trace) throw new Error("Memory trace not found.");
+    const existing = await this.getBackend().get(trace.scope, input.memoryId);
+    if (!existing) throw new Error("Memory is not authorized in the trace scope.");
+    const recorded = traceStore.recordFeedback(input);
+    const previousEffect = traceStore.getFeedbackEffect(input.traceId, input.memoryId);
+    const contributionFor = (value: MemoryTraceFeedbackValue): number => value === "helpful" ? 0.08 : value === "irrelevant" ? -0.08 : 0;
+    const currentValues = traceStore.listCurrentFeedbackValues(input.memoryId);
+    const baseUtility = traceStore.getOrCreateBaseUtility(input.memoryId, existing.utility ?? 0.5);
+    const utility = Math.max(0, Math.min(1, baseUtility + currentValues.reduce((sum, item) => sum + contributionFor(item.value), 0)));
+    const patch: MemoryUpdateInput = { utility };
+    let ownsDispute = previousEffect?.ownsDispute ?? false;
+    let previousConfidence = previousEffect?.previousConfidence;
+    let ownsExpiry = previousEffect?.ownsExpiry ?? false;
+    let previousExpiresAt = previousEffect?.previousExpiresAt;
+
+    if (input.value === "incorrect" && previousEffect?.value !== "incorrect") {
+      if (existing.state !== "disputed") {
+        ownsDispute = true;
+        previousConfidence = existing.confidence;
+        patch.state = "disputed";
+        patch.confidence = Math.max(0, (existing.confidence ?? 0.7) - 0.15);
+      }
+    } else if (input.value !== "incorrect" && ownsDispute && !currentValues.some((item) => item.value === "incorrect")) {
+      patch.state = "active";
+      if (typeof previousConfidence === "number") patch.confidence = previousConfidence;
+      ownsDispute = false;
+    }
+
+    if (input.value === "expired" && previousEffect?.value !== "expired") {
+      ownsExpiry = true;
+      previousExpiresAt = existing.expiresAt;
+      patch.expiresAt = new Date().toISOString();
+    } else if (input.value !== "expired" && ownsExpiry && !currentValues.some((item) => item.value === "expired")) {
+      patch.expiresAt = previousExpiresAt ?? null;
+      ownsExpiry = false;
+    }
+
+    if (input.value === "too_private") {
+      await this.suppressPrivacy(trace.scope, input.memoryId, {
+        idempotencyKey: `feedback-privacy:${recorded.event.id}`,
+        reason: "too_private"
+      });
+    }
+    const updated = await this.getBackend().update(trace.scope, input.memoryId, patch);
+    if (!updated) throw new Error("Memory feedback effect could not be applied.");
+    traceStore.saveFeedbackEffect({
+      traceId: input.traceId,
+      memoryId: input.memoryId,
+      value: input.value,
+      utilityContribution: contributionFor(input.value),
+      ownsDispute,
+      previousConfidence,
+      ownsExpiry,
+      previousExpiresAt,
+      updatedAt: new Date().toISOString()
+    });
+    traceStore.markFeedbackEffectApplied(recorded.event.id);
+    return { duplicate: recorded.duplicate, memory: this.withGovernanceState(updated) };
+  }
+
+  async replayPendingTraceFeedback(traceStore: SqliteMemoryTraceStore, options: { dryRun?: boolean; limit?: number } = {}): Promise<{ pendingCount: number; appliedCount: number; failedCount: number }> {
+    traceStore.enqueueHistoricalFeedbackEffects();
+    const events = traceStore.listPendingFeedbackEffects(options.limit ?? 100);
+    if (options.dryRun) return { pendingCount: events.length, appliedCount: 0, failedCount: 0 };
+    let appliedCount = 0;
+    let failedCount = 0;
+    for (const event of events) {
+      try {
+        await this.applyTraceFeedback(traceStore, {
+          traceId: event.traceId,
+          memoryId: event.memoryId,
+          value: event.value,
+          comment: event.comment,
+          idempotencyKey: event.idempotencyKey
+        });
+        appliedCount += 1;
+      } catch (cause) {
+        failedCount += 1;
+        traceStore.markFeedbackEffectFailed(event.id, cause instanceof Error ? cause.message : String(cause));
+      }
+    }
+    return { pendingCount: events.length, appliedCount, failedCount };
+  }
+
+  async recordSuccessfulInjectionUsage(scope: MemoryScope, traceId: string, memoryIds: string[], injectedAt = new Date().toISOString()): Promise<number> {
+    const backend = this.getBackend();
+    if (!backend.recordInjectionUsage) return 0;
+    let recorded = 0;
+    for (const memoryId of [...new Set(memoryIds.filter(Boolean))]) {
+      if (await backend.recordInjectionUsage(scope, memoryId, `${traceId}:${memoryId}`, injectedAt)) recorded += 1;
+    }
+    return recorded;
+  }
+
+  async disputeFromImmediateCorrection(scope: MemoryScope, memoryIds: string[]): Promise<string[]> {
+    const disputed: string[] = [];
+    for (const memoryId of [...new Set(memoryIds)]) {
+      const existing = await this.getForGovernance(scope, memoryId);
+      if (!existing || existing.state !== "active") continue;
+      const updated = await this.getBackend().update(scope, memoryId, { state: "disputed" });
+      if (updated?.state === "disputed") disputed.push(memoryId);
+    }
+    return disputed;
+  }
+
+  async buildProfile(input: Omit<MemoryProfileScope, "authorizedNamespaces">): Promise<MemoryProfileResult> {
+    const derived = deriveMemoryAccessScope({
+      ...input,
+      shareOwner: input.includeOwner
+    });
+    const authorizedNamespaces = derived.authorizedNamespaces.filter((namespace) =>
+      (input.includeAgentSelf || !namespace.startsWith("agent:"))
+      && (input.includeOwner || !namespace.startsWith("owner:"))
+    );
+    const scope: MemoryProfileScope = { ...input, authorizedNamespaces };
+    const backend = this.getBackend();
+    const builder = new MemoryProfileBuilder(async (profileScope, limit) => {
+      const items = backend.listProfileRecords
+        ? await backend.listProfileRecords(profileScope.authorizedNamespaces, profileScope, limit)
+        : await backend.searchNamespaces?.(profileScope.authorizedNamespaces, profileScope, { query: "", mode: "recent", limit }) ?? [];
+      const governed = items.map((record) => this.withGovernanceState(record));
+      return { items: governed, scannedCount: governed.length, truncated: governed.length >= limit };
+    });
+    return builder.build(scope);
+  }
+
+  async listForMaintenance(scope: MemoryScope, limit = 10_000): Promise<MemoryRecord[]> {
+    const backend = this.getBackend();
+    const rows = backend.listMaintenanceRecords
+      ? await backend.listMaintenanceRecords(scope, limit)
+      : await backend.search(scope, { query: "", mode: "recent", limit: Math.min(limit, 500) });
+    return rows.map((record) => this.withGovernanceState(record));
+  }
+
+  async createProfileTurnSnapshot(sessionId: string, input: Omit<MemoryProfileScope, "authorizedNamespaces">, tokenBudget = 500): Promise<MemoryProfileTurnSnapshot> {
+    const profile = await this.buildProfile(input);
+    const candidates = [...profile.stablePreferences, ...profile.profileFacts];
+    const items: MemoryInjectionItem[] = [];
+    let usedTokens = 0;
+    for (const record of candidates) {
+      const promptText = `- ${record.content.replace(/\s+/g, " ").trim()}`;
+      const tokens = tokenizeWords(promptText).length;
+      if (tokens === 0 || usedTokens + tokens > tokenBudget) continue;
+      usedTokens += tokens;
+      items.push({
+        memoryId: record.id,
+        order: items.length,
+        promptText,
+        source: "profile" as const,
+        namespace: record.namespace,
+        domain: record.domain,
+        snapshot: {
+          displayText: record.content,
+          content: record.content,
+          layer: record.layer,
+          type: record.type,
+          confidence: record.confidence,
+          reason: record.reason,
+          tags: [...record.tags],
+          updatedAt: record.updatedAt
+        }
+      });
+    }
+    const scopeKey = createHash("sha256").update(JSON.stringify(profile.meta.scope)).digest("hex");
+    const base = (this.profileSnapshots ?? getMemoryProfileSnapshotStore()).getOrCreate(sessionId, scopeKey, items);
+    const revokedMemoryIds: string[] = [];
+    const effectiveItems: MemoryInjectionItem[] = [];
+    for (const item of base.baseItems) {
+      const current = await this.getForGovernance(input, item.memoryId);
+      const revoked = !current
+        || current.state !== "active"
+        || current.hasConflict
+        || current.allowInjection === false
+        || current.privacySuppressed
+        || Boolean(current.expiresAt && !current.pinned && Date.parse(current.expiresAt) <= Date.now());
+      if (revoked) revokedMemoryIds.push(item.memoryId);
+      else effectiveItems.push(item);
+    }
+    return { ...base, revokedMemoryIds, effectiveItems };
+  }
+
   async versions(scope: MemoryScope, id: string): Promise<MemoryRecord[]> {
     if (!this.isEnabled()) return [];
     return this.getBackend().versions?.(scope, id) ?? [];
@@ -391,7 +729,7 @@ export class MemoryGateway {
       };
     }
     const rows = dedupeMemoryRows(await this.search(scope, { query, limit: Math.max(limit * 4, 20), mode: "hybrid" }))
-      .filter((row) => row.allowInjection !== false);
+      .filter((row) => row.state === "active" && !row.hasConflict && row.allowInjection !== false && !row.privacySuppressed);
     if (rows.length === 0) {
       return {
         createdAt: new Date().toISOString(),
@@ -516,6 +854,21 @@ export class MemoryGateway {
   async backfillEmbeddings(limit?: number): Promise<{ scannedCount: number; updatedCount: number; remainingCount: number }> {
     if (!this.isEnabled()) return { scannedCount: 0, updatedCount: 0, remainingCount: 0 };
     return this.getBackend().backfillEmbeddings?.(limit) ?? { scannedCount: 0, updatedCount: 0, remainingCount: 0 };
+  }
+
+  private governanceShape(record: MemoryRecord): Pick<MemoryCandidateCreateInput, "namespace" | "domain" | "type" | "subject" | "value"> | null {
+    if (!record.namespace || !record.domain || !record.type || !record.subject) return null;
+    return { namespace: record.namespace, domain: record.domain, type: record.type, subject: record.subject, value: record.content };
+  }
+
+  private withGovernanceState(record: MemoryRecord): MemoryRecord {
+    const shape = this.governanceShape(record);
+    const privacySuppressed = record.privacySuppressed === true
+      || this.candidates.isMemoryPrivacySuppressed(record.id)
+      || Boolean(shape && this.candidates.isPrivacySuppressed(shape));
+    return privacySuppressed
+      ? { ...record, privacySuppressed: true, allowInjection: false }
+      : record;
   }
 }
 

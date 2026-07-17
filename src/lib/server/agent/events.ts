@@ -24,7 +24,7 @@ export interface EventStatus {
 
 export type EventDeliveryMode = "text" | "agent";
 export type EventExecutionMode = "channel" | "internal";
-export type InternalEventKind = "memory-reflection" | "daily-materials";
+export type InternalEventKind = "memory-reflection" | "memory-maintenance" | "daily-materials";
 
 export interface ManagedEventMetadata {
   by: "molibot";

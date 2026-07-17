@@ -15,18 +15,13 @@
 - [Planned] 15 张 ready-for-agent Issue 仅在产品负责人确认粒度和依赖后发布，统一以 GitHub Issue #13 为 Parent。
 
 ## 2.79 Memory System Improvement Plan v3 — Loop Closure & Honest Profile (2026-07-16)
-- 背景：v2.2（§2.36）的 T1–T7 已全部交付；对照 OpenClaw / Hermes 复盘的结论是架构已达目标形态，缺的是未闭合的回路（反馈不回流、反思只抽取不演变、巩固遗忘无排程）。直接诱因：记忆中心"综合画像/稳定偏好"实际是最近 200 条的 recency 切片（`searchAll mode:"recent" limit:200` + 客户端 recency 优先投影），与产品文案语义不符。契约、任务书与端到端验收见 `docs/requirements/memory-improvement-plan-v3.md`。
-- [Planned, P0] C1 画像构建器契约：服务端 `MemoryProfileBuilder` 一个构建器供 UI 与 prompt 注入两个消费方；稳定层取数不设 updatedAt 窗口，按稳定性分（pinned > 版本存活 > confidence > utility/accessCount）排序，recency 仅平手项；meta 必须诚实标注各板块实际参与条数与选取规则。
-- [Planned, P0] T10 记忆中心画像真实化：概览 Tab 全板块改为消费构建器输出；"稳定偏好"名副其实（pinned 旧偏好不被昨日新偏好顶掉）；"近期新增"保持 recency；UI 文案与实际选取规则一致，不再给出错误数据。
-- [Planned, P0] T11 反馈回流记分：`memory_trace_feedback` 现有反馈（有帮助/无关/错误/过时/过于私人）确定性回流到 utility/confidence/conflictFlag/expiresAt/allowInjection + suppression，幂等、走治理审计，零 LLM 成本。
-- [Planned, P0] T12 反思携带既有记忆：ReflectionExtractor 输入增加 relatedMemories，输出支持 supersedes（走版本链）/ disputes（置 conflictFlag）；与既有记忆一致的内容不产出候选，端到端"偏好演变可追溯"经反思路径成立。
-- [Planned, P1] T13 常驻画像块注入：从构建器稳定层生成 ≈500 token 画像块，session 首轮冻结快照（兼容 prefix cache，记忆仍走 user 信封），与检索注入去重；trace 区分"常驻画像"与"本轮检索"。
-- [Planned, P1] T14 巩固与遗忘排程：每日反思成功后追加 internal 巩固步骤（compact + 近似合并 + 长期未命中降权而非删除，pinned 豁免），结果进 runlog。
-- [Planned, P1] T15 候选证据累积：跨 run 同类候选合并（occurrenceCount/evidence/confidence 有界上调）而非新建；Inbox 按证据置顶；可配置自动确认阈值（默认关闭，仍走唯一 confirm 入口并标注 auto）。
-- [Planned, P1] T16 会话全文检索工具：SessionStore 建 FTS5 索引（CJK 经 moryTokenize 预分词），新增 Agent 工具按权限口径检索历史会话原文并可跳转；automation 会话在共享查询层排除。
-- [Planned, P2] T17 纠正即时止血：当轮注入过记忆且用户消息命中确定性纠正模式时，将相关注入记忆置 disputed（当天停注入），细化交给夜间反思；可一键恢复。
-- [Planned, P2] T18 程序性记忆 → Skill 提升建议：高频高 utility 的 skill 类记忆生成沉淀建议候选，确认后走既有 skill 管理链路，不自动创建。
-- [Planned] 端到端验收五场景：画像真实、反馈生效、演变闭环、检索保底（零词汇重叠仍懂偏好）、原文找回。
+- 状态：**已完成（2026-07-17）**。v3.2 的 C0/C1 与 T10–T18 已交付；权威契约、边界和六组顶层验收保留在 [`docs/requirements/memory-improvement-plan-v3.md`](docs/requirements/memory-improvement-plan-v3.md)。
+- [Done, P0] C0/C1：记忆拥有显式 active/disputed/dormant/archived 生命周期、真实注入计数、版本/utility/provenance、独立隐私 suppression 与服务端授权 scope；`MemoryProfileBuilder` 同时服务 UI 和 prompt，稳定偏好不再被 recency 截断。
+- [Done, P0] T10/T11/T12：Desktop 消费真实画像及扫描/排除元数据；反馈改为 append-only、幂等、验证实际注入并可重放；反思只通过授权 R 引用建立 supersedes/disputes，拒绝伪造关系与重复值。
+- [Done, P1] T13/T14：Session 持久化冻结约 500-token 的 profile base，治理 revocation 每轮覆盖且不补位；maintenance 由独立 watched event 与机会触发共用租约/计划/dry-run/幂等审计，不依赖反思成功。
+- [Done, P1] T15/T16：候选按确定性 evidence key 跨 run 聚合并识别冲突；自动确认默认关闭且仅允许低敏感偏好/显式 project task，撤销检查后继版本。`conversation_search` 使用 Jieba search-mode + CJK bigram 预分词、增量 change sequence、可续跑回填、SQL allowlist、delete/truncate tombstone 与 reconciliation；FTS5 缺失的嵌入式 SQLite 自动使用等价 term index。
+- [Done, P2] T17/T18：确定性纠正只对上一成功 trace 中实际注入且相关的记忆置 disputed，并可恢复；Skill 建议要求三次证据和至少两次成功执行 trace，确认只创建既有 review 流程中的 draft，未确认绝不创建可执行 Skill。
+- [Done] 顶层验收覆盖画像隔离、隐私反馈、偏好演变、稳定快照撤销、独立维护与授权原文找回；临时 SQLite 测试、mory 全量、Desktop API/Svelte 与 production build 均已执行。
 
 ## 2.78 Desktop UI Geist Consistency Convergence (2026-07-16)
 - [Done, P0] Desktop 静默坏样式必须被修复：CSS 变量与 keyframe 引用均可解析，会话浏览器在深色主题使用共享模态表面，会话状态与危险色不得回退到错误色值。
@@ -308,7 +303,7 @@
 ## 2.36 Memory System Improvement Plan v2.2 (2026-07-10)
 - 背景：定位收敛为「记忆优先、可审计、长期陪伴的个人 Agent」（魔魔计划）；审计发现 mory SDK 能力足够但宿主接线不足。经三轮外部 review 修订至 v2.2，详细契约、任务书与端到端验收见 `docs/requirements/memory-improvement-plan.md`。
 - [Decided] C0 统一契约：**mory 为唯一正式后端**（owner 决策 2026-07-10，`MemoryBackend` 插拔接口保留供未来接入其他记忆工具，json-file 转维护模式 + 迁移）；**namespace（owner/chat/project/agent/content 编码）是 mory 的检索隔离键，domain 只做审计与注入策略标签，注入由显式 query plan 合并 namespace，content 绝不自动注入普通聊天**（v2.1）；三入口写入状态机（显式记住直写 / 反思抽取进候选 / importer 收编治理），**候选确认唯一入口 `gateway.confirmCandidate`：reload → revalidate → 策略 → ingest → 原子确认，编辑后必须重校验，任何入口不得绕过（v2.2）**；**反思运行契约**：watched-event `execution:"internal"` → MemoryReflectionService（**不经聊天 Runner、不写会话消息、不向用户外泄过程，通知为成功后的独立步骤**，v2.2），幂等键 ReflectionTargetId(hash of owner+bot+timezone+scopes)+localDate + per-conversation watermark + 候选 fingerprint，重试幂等、中断不推进，输入经 ReflectionSourceReader 只读投影（messages + 可选 Summary，可降级）；溯源为多消息数组（conversationMessageId 必填 + platformMessageId 可选）；layer/retention 与 lowConfidencePath 入契约；Summary 定位为会话连续性输入而非长期记忆。
-- [Done] T1a 宿主中文分词止血：`package/mory/src/moryTokenize.ts`（Intl.Segmenter + CJK bigram + 停用词降权 + query 归一），替换三处按空格切词的打分（moryCore / jsonFileCore / classifier.memoryPriority）；mory 179 测试 + 宿主 classifier 中文单测通过。
+- [Done] T1a 宿主中文分词止血：`package/mory/src/moryTokenize.ts`（当前为 Jieba search mode + CJK bigram + 停用词降权 + query 归一），替换三处按空格切词的打分（moryCore / jsonFileCore / classifier.memoryPriority）；mory 179 测试 + 宿主 classifier 中文单测通过。
 - [Planned, P1] T1b mory 全链路统一 tokenizer：宿主检索 / prompt 行选择 / moryRetrieval / writeGate 去重冲突四个消费点强制统一，防止 T4 接管后中文匹配回退。
 - [Planned, P1] T2 稳定路径与版本链激活：路径主来源为 extractor 完整输出（domain+type+subject+path），inferFactKey 仅低置信兜底且不落共享路径（防「喜欢简洁」覆盖「喜欢中文」）；与 T6a 同批做一次 schema 变更。
 - [Planned, P1] T3 双链路抽取：即时链路只处理显式「记住」（廉价）；每日反思走 watched-event `execution:"internal"` 内部执行（不经聊天 Runner、不污染会话、不外发过程，通知独立，v2.2），按 ReflectionTarget 经 SourceReader 批量读当天增量 + 可选 Summary + 既有记忆，产出结构化候选进 Inbox，**不再挂在 per-message flush 上**；同 RunKey 重试幂等、中断不推进 watermark。

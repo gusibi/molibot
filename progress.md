@@ -949,3 +949,61 @@
 - Adversarial review rechecked command-palette transforms, modal exit timing, reduced-motion, semantic token completeness, user-owned dirty changes, documentation counts, and machine-specific path leakage; no unresolved blocking issue remains.
 
 ---
+# Memory improvement v3.2 implementation progress (2026-07-17)
+
+## Phase 1: authoritative-state audit and requirement matrix
+- **Status:** complete; C0/C1/T10/T11/T13 implementation is now underway
+- **Started:** 2026-07-17
+- Actions taken:
+  - Loaded the planning-with-files and agent-runtime-debug-review procedures.
+  - Confirmed the v3.2 requirements document and existing PRD references.
+  - Preserved existing root planning history and appended a dedicated implementation plan.
+  - Audited mory schema/adapter/SQL, host memory types/namespaces, candidate/trace stores, and mory add/search/update/compact flows.
+  - Identified the first concrete red/green seam: metadata/state projection plus compact round-trip and explicit access scope.
+  - Confirmed mory adapter additive migration support and selected indexed lifecycle/injection columns plus a separate host governance suppression store.
+- Files modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+## Test results
+| Test | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Initial implementation verification | Not run before audit/implementation | Pending | pending |
+| C0 mory adapter red test | New lifecycle/injection fields compile and migrate | Type errors: fields do not exist yet | expected red |
+| C0 host memory red test | State filtering and governance lookup work | 6 passed, 2 failed on missing behavior | expected red |
+| C0 focused green | Mory build plus namespace/e2e behavior | Build passed; 12/12 tests passed | passed |
+| Root TypeScript baseline | No new memory errors | Many unrelated existing errors plus identified memory deltas | baseline dirty; memory deltas pending |
+| Full mory regression | 185/185 | 185/185 after migration-order fix | passed |
+| Feedback ledger red/green | Append-only, idempotent, effective-injection authorization | Red: missing API; green: 2/2 trace-store tests pass | passed |
+| C0 privacy/feedback/usage focused regression | Suppression, reversible feedback, real usage semantics | 16/16 pass; mory 186/186 pass | passed |
+| C1/T10 focused regression | >200-row profile ordering, memory/UI projections, API | Server 17/17 and Desktop 77/77 pass; first Svelte check found one UUID-literal inference error | fix applied; recheck pending |
+| T13 stable snapshot/revocation | Restart-stable base, no replacement after revocation, prompt dedupe | 13/13 profile/e2e tests pass; Svelte 0/0 | passed |
+| T12/T15 focused evolution | Authorized refs, canonical inheritance, duplicate rejection, cross-run evidence | Reflection 7/7 and candidate 5/5 pass | passed |
+| T17 deterministic correction detector | Explicit correction + previous effective trace + lexical relevance | Detector 1/1 pass; runner integration and UI restore added | focused UI recheck pending |
+
+## Error log
+| Timestamp | Error | Attempt | Resolution |
+| --- | --- | --- | --- |
+| 2026-07-17 | Root planning files already contain unrelated task histories | 1 | Appended a new dated section; did not overwrite existing content. |
+| 2026-07-17 | Mory build rejects lifecycle/injection fields; host e2e lacks state projection/getForGovernance | 1 | Expected test-first red state; implement missing contracts without weakening assertions. |
+| 2026-07-17 | Combined planning-log patch missed an exact progress-table line | 1 | Inspected file tails and applied a smaller exact patch. |
+| 2026-07-17 | Mory lifecycle build found two integration fixtures missing new required fields | 1 | Added explicit defaults to the fixtures; did not weaken the production type. |
+| 2026-07-17 | Root TypeScript check reports broad pre-existing dependency/channel/UI failures | 1 | Preserve baseline; use focused checks and remove all memory-related errors from the report. |
+| 2026-07-17 | Legacy SQLite migration creates a lifecycle index before adding `lifecycle_state` | 1 | Removed that index from the base SQLite schema string; adapter init creates it after additive migrations. |
+| 2026-07-17 | Desktop Svelte check inferred the default idempotency key as a UUID template-literal type | 1 | Annotated the public parameter as `string`; deterministic test keys remain valid. |
+| 2026-07-17 | T13 focused run imported a nonexistent `moryTokenize` symbol | 1 | Switched to mory's exported CJK-aware `tokenizeWords` function from the same tokenizer module. |
+| 2026-07-17 | Node's embedded SQLite build reports `no such module: fts5` | 1 | Keep FTS5 as the preferred virtual table, and automatically use the same CJK-pretokenized SQL term index when the embedded build lacks FTS5; authorization/tombstone semantics are identical. |
+| 2026-07-17 | First fallback search returned no rows because `origin NOT LIKE` rejects SQL NULL | 1 | Made the internal-origin exclusion explicitly NULL-safe and retained the purpose allowlist. |
+| 2026-07-17 | Auto-confirm sensitive-fact test fixture was rejected as too short | 1 | Replaced it with a realistic longer location fact; kept the production write gate unchanged. |
+
+## Phases 2–7 completion update
+- C0 lifecycle, injection usage, privacy governance and append-only feedback are implemented and covered by focused mory/host tests.
+- C1/T10/T13 profile construction, persisted session base snapshots and governance revocation overlays are implemented; Desktop displays real server profile metadata.
+- T12/T15/T17 evolution relations, cross-run evidence aggregation, guarded auto-confirm, safe revoke and deterministic immediate correction are implemented.
+- T14 independent watched maintenance, leases, dry-run/idempotent actions and opportunistic execution are implemented.
+- T16 authorized conversation search now has CJK pretokenization, FTS5-when-available, incremental change sequence, resumable backfill, tombstones, reconciliation and the `conversation_search` Agent tool.
+- T18 Skill suggestions require three occurrences and two successful trace-backed executions; confirmation creates only a review draft and ignore suppression prevents repeats.
+- Final evidence: mory 186/186; combined Server memory/Session/prompt/scheduler suite 93/93; Desktop Chat/API 206/206; Desktop Svelte 0/0; Server production build passed.
+
+---

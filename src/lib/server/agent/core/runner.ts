@@ -72,6 +72,7 @@ import {
 } from "$lib/server/providers/customProtocol.js";
 import { stripImagePartsForTextOnlyModel } from "$lib/server/agent/routing/mediaFallback.js";
 import { getMemoryTraceStore, type MemoryWriteReceipt } from "$lib/server/memory/traceStore.js";
+import { detectImmediateMemoryCorrections } from "$lib/server/memory/correctionDetector.js";
 import { memoryWriteReceiptsFromToolCall } from "$lib/server/memory/writeReceipt.js";
 
 // Imported helpers from extracted runnerHelpers.ts and runnerInputEnricher.ts
@@ -784,15 +785,24 @@ export class MomRunner implements RunnerLike {
       });
     }
 
-    const memorySnapshot = await getTurnOrchestrator().prepareTurnMemory(
-      {
-        channel: this.channel,
-        externalUserId: this.chatId,
-        botId,
-        projectId: this.activeProject?.id
-      },
+    const memoryScope = {
+      channel: this.channel,
+      externalUserId: this.chatId,
+      botId,
+      projectId: this.activeProject?.id
+    };
+    const correctionMemoryIds = detectImmediateMemoryCorrections(
       enrichedText,
-      this.memory
+      getMemoryTraceStore().getLatestForSession(this.sessionId)
+    );
+    if (correctionMemoryIds.length > 0) {
+      await this.memory.disputeFromImmediateCorrection(memoryScope, correctionMemoryIds);
+    }
+    const memorySnapshot = await getTurnOrchestrator().prepareTurnMemory(
+      memoryScope,
+      enrichedText,
+      this.memory,
+      { sessionId: this.sessionId }
     );
     const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getWorkspaceDir());
     // The per-turn memory snapshot and query are intentionally NOT part of this
@@ -2215,10 +2225,13 @@ export class MomRunner implements RunnerLike {
       }
       if (stopReason === "stop" && assistantSourceEntryId && (promptInput.memoryInjection.items.length > 0 || this.activeMemoryWriteReceipts.length > 0)) {
         try {
-          getMemoryTraceStore().save({
+          const trace = getMemoryTraceStore().save({
             runId,
             sessionId: this.sessionId,
             chatId: this.chatId,
+            scope: memorySnapshot.scope,
+            profileBaseFingerprint: memorySnapshot.profile?.baseFingerprint,
+            profileRevokedMemoryIds: memorySnapshot.profile?.revokedMemoryIds ?? [],
             assistantSourceEntryId,
             query: memorySnapshot.query,
             retrievedCount: memorySnapshot.selected.length,
@@ -2227,6 +2240,12 @@ export class MomRunner implements RunnerLike {
             writeReceipts: [...this.activeMemoryWriteReceipts],
             createdAt: new Date().toISOString()
           });
+          await this.memory.recordSuccessfulInjectionUsage(
+            memorySnapshot.scope,
+            trace.id,
+            trace.injectedItems.map((item) => item.memoryId),
+            trace.createdAt
+          );
         } catch (traceError) {
           momWarn("runner", "memory_trace_save_failed", {
             runId,

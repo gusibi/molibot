@@ -8,6 +8,7 @@ import {
   collectMemoryReflectionInternals,
   dispatchTaskEvent,
   ensureOwnerDailyMaterialsEvent,
+  ensureOwnerMemoryMaintenanceEvent,
   ensureOwnerMemoryReflectionEvent,
   listMemoryReflectionNotificationTargets,
   migrateLegacyManagedMemoryEvents,
@@ -82,6 +83,20 @@ test("owner runtime creates one dynamic reflection event regardless of Bot count
     assert.equal(updated.status.runCount, 3);
     assert.equal(collectMemoryReflectionInternals(settings).length, 2);
     assert.equal(readdirSync(eventsDir).filter((name) => name === "memory-reflection.json").length, 1);
+  } finally { rmSync(eventsDir, { recursive: true, force: true }); }
+});
+
+test("owner runtime creates an independent watched maintenance event after reflection", () => {
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-maintenance-event-"));
+  try {
+    const settings = { timezone: "Asia/Shanghai", plugins: { memory: { enabled: true, backend: "mory", reflectionTime: "03:30" } } } as any;
+    const file = ensureOwnerMemoryMaintenanceEvent(eventsDir, settings);
+    assert.ok(file);
+    const event = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(event.execution, "internal");
+    assert.equal(event.internal.kind, "memory-maintenance");
+    assert.equal(event.schedule, "0 4 * * *");
+    assert.deepEqual(event.managed, { by: "molibot", scope: "owner", kind: "memory-maintenance", ownerId: "owner" });
   } finally { rmSync(eventsDir, { recursive: true, force: true }); }
 });
 

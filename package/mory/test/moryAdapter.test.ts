@@ -22,6 +22,8 @@ function makeNode(overrides: Partial<PersistedMemoryNode> = {}): PersistedMemory
         confidence: 0.85,
         importance: 0.7,
         accessCount: 0,
+        injectionCount: 0,
+        lifecycleState: "active",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         version: 1,
@@ -257,7 +259,7 @@ test("SQLite: init creates schema without error", async () => {
     await assert.doesNotReject(() => storage.init());
 });
 
-test("SQLite: init adds domain to an existing database without losing rows", async () => {
+test("SQLite: init migrates lifecycle and injection columns without losing legacy rows", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mory-domain-migration-"));
     const file = join(dir, "memory.sqlite");
     try {
@@ -278,6 +280,9 @@ test("SQLite: init adds domain to an existing database without losing rows", asy
         const row = await storage.readById("u1", "legacy");
         assert.equal(row?.value, "legacy value");
         assert.equal(row?.domain, undefined);
+        assert.equal(row?.lifecycleState, "active");
+        assert.equal(row?.injectionCount, 0);
+        assert.equal(row?.lastInjectedAt, undefined);
         await storage.update("u1", "legacy", { domain: "owner" });
         assert.equal((await storage.readById("u1", "legacy"))?.domain, "owner");
     } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -384,4 +389,31 @@ test("SQLite: conflictFlag roundtrips correctly", async () => {
     await storage.insert(node);
     const found = await storage.readById("u1", "conflict-node");
     assert.equal(found!.conflictFlag, true);
+});
+
+test("SQLite: lifecycle and real injection usage roundtrip", async () => {
+    const storage = createSqliteStorageAdapter(":memory:");
+    await storage.init();
+    const node = makeNode({
+        id: "usage-node",
+        lifecycleState: "dormant",
+        injectionCount: 4,
+        lastInjectedAt: "2026-07-17T01:02:03.000Z",
+    });
+    await storage.insert(node);
+    const found = await storage.readById("u1", "usage-node");
+    assert.equal(found?.lifecycleState, "dormant");
+    assert.equal(found?.injectionCount, 4);
+    assert.equal(found?.lastInjectedAt, "2026-07-17T01:02:03.000Z");
+});
+
+test("SQLite: successful injection usage is idempotent by event key", async () => {
+    const storage = createSqliteStorageAdapter(":memory:");
+    await storage.init();
+    await storage.insert(makeNode({ id: "usage-idempotent" }));
+    assert.equal(await storage.recordInjectionUsage("u1", "usage-idempotent", "trace-1:usage-idempotent", "2026-07-17T02:00:00.000Z"), true);
+    assert.equal(await storage.recordInjectionUsage("u1", "usage-idempotent", "trace-1:usage-idempotent", "2026-07-17T02:01:00.000Z"), false);
+    const found = await storage.readById("u1", "usage-idempotent");
+    assert.equal(found?.injectionCount, 1);
+    assert.equal(found?.lastInjectedAt, "2026-07-17T02:00:00.000Z");
 });

@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getMemoryTraceStore, type MemoryTraceFeedbackValue } from "$lib/server/memory/traceStore.js";
 import type { DesktopMemoryTraceResponse } from "$lib/shared/desktop.js";
+import { getRuntime } from "$lib/server/app/runtime.js";
 
 export const GET: RequestHandler = async ({ params }) => {
   const trace = params.id ? getMemoryTraceStore().getById(params.id) : null;
@@ -23,15 +24,28 @@ const FEEDBACK_VALUES: MemoryTraceFeedbackValue[] = ["helpful", "irrelevant", "i
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const traceId = String(params.id ?? "").trim();
-  const body = (await request.json().catch(() => null)) as { memoryId?: unknown; value?: unknown; comment?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { memoryId?: unknown; value?: unknown; comment?: unknown; idempotencyKey?: unknown } | null;
   const memoryId = String(body?.memoryId ?? "").trim();
   const value = String(body?.value ?? "") as MemoryTraceFeedbackValue;
-  if (!traceId || !memoryId || !FEEDBACK_VALUES.includes(value)) {
-    return json({ ok: false, error: "trace id, memory id, and valid feedback are required" }, { status: 400 });
+  const idempotencyKey = String(body?.idempotencyKey ?? "").trim();
+  if (!traceId || !memoryId || !idempotencyKey || !FEEDBACK_VALUES.includes(value)) {
+    return json({ ok: false, error: "trace id, memory id, idempotency key, and valid feedback are required" }, { status: 400 });
   }
   if (!getMemoryTraceStore().getById(traceId)) {
     return json({ ok: false, error: "Memory trace not found" }, { status: 404 });
   }
-  getMemoryTraceStore().setFeedback(traceId, memoryId, value, String(body?.comment ?? ""));
-  return json({ ok: true });
+  try {
+    const result = await getRuntime().memory.applyTraceFeedback(getMemoryTraceStore(), {
+      traceId,
+      memoryId,
+      value,
+      comment: String(body?.comment ?? ""),
+      idempotencyKey
+    });
+    return json({ ok: true, duplicate: result.duplicate });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    const status = /not injected|not authorized/i.test(message) ? 403 : 409;
+    return json({ ok: false, error: message }, { status });
+  }
 };

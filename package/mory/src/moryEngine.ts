@@ -251,13 +251,16 @@ export class MoryEngine {
       importance: memory.importance ?? 0.6,
       utility: memory.utility,
       accessCount: 0,
+      injectionCount: 0,
       createdAt: now,
       updatedAt: now,
       lastAccessedAt: undefined,
+      lastInjectedAt: undefined,
       embedding,
       version: opts.version,
       supersedes: opts.supersedes,
       conflictFlag: opts.conflictFlag,
+      lifecycleState: opts.conflictFlag ? "disputed" : "active",
       archivedAt: undefined,
     };
 

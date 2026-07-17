@@ -191,6 +191,12 @@ export interface MemoryBackendSettings {
   reflectionTime: string;
   reflectionNotifications: boolean;
   reflectionNotificationTarget: MemoryReflectionNotificationTarget | null;
+  autoConfirm: {
+    enabled: boolean;
+    occurrenceThreshold: number;
+    confidenceThreshold: number;
+    allowProjectTasks: boolean;
+  };
   dailyMaterials: {
     enabled: boolean;
     time: string;

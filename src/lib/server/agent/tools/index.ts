@@ -11,6 +11,7 @@ import { createEventTool } from "$lib/server/agent/tools/event.js";
 import { createMcpInvokeTool } from "$lib/server/agent/tools/mcpInvoke.js";
 import { createLoadMcpTool } from "$lib/server/agent/tools/loadMcp.js";
 import { createMemoryTool } from "$lib/server/agent/tools/memory.js";
+import { createConversationSearchTool } from "$lib/server/agent/tools/conversationSearch.js";
 import { createProfileFilesTool } from "$lib/server/agent/tools/profileFiles.js";
 import { getReadToolDefinition } from "$lib/server/agent/tools/read.js";
 import { createSkillManageTool } from "$lib/server/agent/tools/skillManage.js";
@@ -38,6 +39,9 @@ import { wrapCommandWithVenv, execCommand } from "$lib/server/agent/tools/helper
 import { prepareToolSandboxExecution, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
 import { buildRunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
+import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { config } from "$lib/server/app/env.js";
 
 function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
   let chain = Promise.resolve();
@@ -597,6 +601,16 @@ export function createMomTools(options: {
       scope: {
         channel: options.channel,
         externalUserId: options.chatId,
+        botId,
+        projectId: options.project?.id
+      }
+    }),
+    createConversationSearchTool({
+      index: getConversationSearchIndex(storagePaths.moryDbFile),
+      externalDataRoot: config.dataDir,
+      scope: {
+        channel: options.channel,
+        chatId: options.chatId,
         botId,
         projectId: options.project?.id
       }

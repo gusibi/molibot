@@ -5,6 +5,17 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-17
+
+### 记忆优化 v3.2：画像、治理、演变、维护与原文找回闭环（已完成）
+- Mory 与宿主统一补齐显式生命周期、版本/utility/provenance、真实注入使用计数和独立隐私 suppression；反馈采用 append-only 事件账本、有效注入授权、可逆 effect 与幂等 outbox，`too_private` 只能由独立治理动作恢复。
+- 服务端 `MemoryProfileBuilder` 成为 Desktop 与 prompt 的共同事实源；Session 持久化稳定 profile base，治理变化只做 revocation、不补位。Desktop 展示真实扫描/选取/排除/截断元数据以及 disputed/dormant 注意项和恢复入口。
+- Reflection 使用授权的既有记忆引用生成 supersedes/disputes；候选跨 run 聚合 occurrence/evidence，冲突不合并。低敏感自动确认默认关闭，撤销自动确认版本时会检查后继并仅安全恢复 predecessor。
+- 独立 `memory-maintenance.json` watched event 与机会触发共用维护计划、scope lease、dry-run 和动作幂等；过期归档、长期未使用降为 dormant、pin 豁免与 compact 不再依赖反思成功。
+- 记忆词法检索与 Agent `conversation_search` 统一改用 `jieba-wasm` 的 Jieba search-mode 中文分词，并保留 CJK bigram 作为未登录词兜底；FTS5 与 term-index 降级路径消费同一组 token。会话检索继续提供 SQL 授权 allowlist、外部 context 安全文本投影、可续跑回填、change sequence、删除/截断 tombstone 与 reconciliation，返回可跳转 `conversationMessageId`。
+- 即时纠正通道只处理确定性纠正、上一成功 trace 的有效注入与相关记忆；程序性 `skill` 只有累计三次且两次成功执行证据时才建议 Skill 草稿，确认仍只进入现有 draft/review，绝不自动生成可执行 Skill。
+- 验证：mory 186/186，Server 记忆/Session 聚焦回归 93/93，Desktop Chat/API 206/206，Desktop Svelte 0/0，Server production build 通过，`git diff --check` 通过。
+
 ## 2026-07-16
 
 ### Desktop UI 全面收敛到 Geist 一致性规则（已完成）
@@ -399,7 +410,7 @@
 - **验证**：五个 review 点先红后绿，并补充基础设施失败保护；Memory 全套 24/24、调度器/Desktop/API 71/71 通过。
 
 ### Memory 改进计划 v2.2 剩余批次（已完成）
-- **T1b/T4 检索**：mory 写入门控、冲突、consolidation 与 retrieve 统一使用 CJK word+bigram tokenizer；retrieve 支持显式多 namespace/domain 合并。可在 Plugins 中配置 OpenAI-compatible embedding Provider/模型，向量不可用自动回退 lexical；存量向量按模型版本可中断回填。
+- **T1b/T4 检索**：mory 写入门控、冲突、consolidation 与 retrieve 统一使用中文 word+bigram tokenizer（word 通道已于 2026-07-17 从 Intl.Segmenter 升级为 Jieba search mode）；retrieve 支持显式多 namespace/domain 合并。可在 Plugins 中配置 OpenAI-compatible embedding Provider/模型，向量不可用自动回退 lexical；存量向量按模型版本可中断回填。
 - **T3/T5 反思与 Inbox**：即时 flush 只处理显式“记住”；默认每日 03:00 创建 internal watched event，经只读 ReflectionSourceReader 扫描 Web/Project/外部 context，不写会话、不发渠道消息。候选使用独立 SQLite、watermark/fingerprint 幂等，confirm 是唯一正式写入入口，ignore 生成确定性 suppression；importer 与 json-file 迁移默认进候选治理。
 - **T6b/T7 应用与审计**：Memory 工具支持 content 防重检索、content/agent_self 结构化写入；Desktop Inbox 支持编辑确认/忽略，正式记忆展示 namespace/domain/type、reason、sources、来源对话、版本历史、冲突、过期与 pin。compact 会归档过期/重复/超容量低保留项，pin 全程豁免。
 - **默认值**：新安装默认启用 Memory 并选择 mory；旧配置仍由 sanitizer 保持显式值。
@@ -483,7 +494,7 @@
 ## 2026-07-10
 
 ### 记忆检索中文分词（记忆改进计划 T1a）
-- 新增共享 tokenizer 模块 `package/mory/src/moryTokenize.ts`：`Intl.Segmenter("zh")` 词级切分 + CJK 字符 bigram 兜底（接住 ICU 把「调研」切成「调|研」的场景）+ 中英停用词过滤与单字降权 + 按 query 权重归一，输出 0..1 的 `scoreLexical`。零第三方依赖，不增加桌面打包负担。
+- 新增共享 tokenizer 模块 `package/mory/src/moryTokenize.ts`：本批最初使用 `Intl.Segmenter("zh")` 词级切分 + CJK 字符 bigram 兜底；word 通道已于 2026-07-17 升级为 Jieba search mode，bigram、中英停用词过滤、单字降权与 0..1 `scoreLexical` 归一继续保留。
 - 三处按空格切词的打分统一切换：`moryCore.ts` 与 `jsonFileCore.ts` 的 `scoreByQuery`（消除重复实现）、`classifier.ts` 的 `memoryPriority`（决定每轮 prompt 注入选哪些记忆）。此前中文查询整句成单 token，检索退化为整句子串匹配。
 - 纯虚词查询（如「的了吧」）不再可能命中全量记忆；空查询保持列表语义（match-all）不变。
 - **验证**：mory 包测试 179/179 通过（含新增 tokenizer 单测 11 项：「短版」命中、「调研」bigram 通道、虚词零分、中英混合、排序断言）；宿主新增 `src/lib/server/memory/classifier.test.ts` 2/2 通过；desktopMemory 与 sessions store 回归 7/7 通过。详见 `docs/requirements/memory-improvement-plan.md` T1a。
