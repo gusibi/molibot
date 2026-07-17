@@ -45,7 +45,7 @@
   }
 
   .settings-item-divider > * + * {
-    border-top: 1px solid var(--border);
+    border-top: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
   }
 
   .settings-icon-btn {

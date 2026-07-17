@@ -5,6 +5,11 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.81 Web Chat / Settings Surface Hierarchy (2026-07-17)
+- [Done, P1] Web Chat 保持左右侧栏现有表面，中间 Header 与消息区域统一为主表面，并以浅分隔线明确三栏边界。
+- [Done, P1] Web 设置页主内容使用次级画布，设置卡片使用主卡片表面，卡片边框与内部横向分隔线降低对比度。
+- [Done] 页面只消费 DESIGN/theme 语义 token，不新增硬编码色值，并保持中英、明暗主题与窄宽度布局兼容。
+
 ## 2.80 Desktop Native Experience Behavior Layer (2026-07-16)
 - 背景：Issue #13 和 §2.68/§2.78 已完成 Desktop 的 Geist/macOS 视觉基线；下一阶段不重做 UI 主题，而是补齐原生菜单、窗口生命周期、可恢复状态、覆盖层语义、直接操控、平台反馈和后台活动预算。完整技术看板、依赖和验收见 [`docs/designs/2026-07-16-native-experience-developer-board.md`](docs/designs/2026-07-16-native-experience-developer-board.md)。
 - [Planned, P0] 建立带 production/in-memory Adapter 的深 Module：CommandSystem、StartupCoordinator、Dialog/AlertDialog、WindowState、DirectManipulation、FeedbackCoordinator、ActivityScheduler；禁止收敛成万能 `NativeHost` 或在 Channel 加平台编排。

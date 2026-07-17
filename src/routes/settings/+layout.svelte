@@ -541,7 +541,7 @@
     height: 100dvh;
     overflow: hidden;
     position: relative;
-    background: var(--background);
+    background: color-mix(in oklab, var(--background) 88%, var(--muted));
   }
 
   /* ── Top Bar ── */

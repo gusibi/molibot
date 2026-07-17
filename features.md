@@ -7,6 +7,11 @@
 ---
 ## 2026-07-17
 
+### Web Chat 与设置页表面层级优化（已完成）
+- Web Chat 左侧导航与右侧文件面板继续使用侧栏表面，中间 Header 和消息工作区统一使用主卡片表面，并保留语义分隔线，形成完整清晰的主工作区。
+- Web 设置页右侧改为次级浅灰画布，设置卡片使用主卡片表面，卡片边框与设置项横向分隔线进一步弱化；全部颜色由 `--background`、`--muted`、`--card`、`--border` 等设计 token 派生，自动适配明暗主题。
+- 验证：浅色/深色真实页面计算样式与视觉检查通过，未新增硬编码色值，`git diff --check` 和 Server production build 通过。
+
 ### 记忆优化 v3.2：画像、治理、演变、维护与原文找回闭环（已完成）
 - Mory 与宿主统一补齐显式生命周期、版本/utility/provenance、真实注入使用计数和独立隐私 suppression；反馈采用 append-only 事件账本、有效注入授权、可逆 effect 与幂等 outbox，`too_private` 只能由独立治理动作恢复。
 - 服务端 `MemoryProfileBuilder` 成为 Desktop 与 prompt 的共同事实源；Session 持久化稳定 profile base，治理变化只做 revocation、不补位。Desktop 展示真实扫描/选取/排除/截断元数据以及 disputed/dormant 注意项和恢复入口。

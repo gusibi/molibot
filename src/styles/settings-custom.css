@@ -76,7 +76,7 @@
 
 .routing-card {
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.625rem;
   padding: 1.5rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04);
@@ -416,7 +416,7 @@
 
 .providers-detail-card {
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.625rem;
   padding: 1.5rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04);
@@ -438,7 +438,7 @@
   gap: 1rem;
   padding: 1.25rem;
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.625rem;
   max-height: calc(100dvh - 9rem);
   overflow-y: auto;
@@ -600,7 +600,7 @@
   justify-content: space-between;
   gap: 1rem;
   padding-bottom: 1.25rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
 }
 
 .providers-detail-name {
@@ -803,7 +803,7 @@
   gap: 0.75rem;
   margin-top: 1rem;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
 }
 .model-controls-left {
   display: flex;
@@ -883,12 +883,12 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted-foreground);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
 }
 
 .providers-table td {
   padding: 0.5rem 0.875rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
   vertical-align: middle;
 }
 
@@ -1128,7 +1128,7 @@
   width: 100%;
   max-width: 28rem;
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.75rem;
   padding: 1.5rem;
   display: flex;
@@ -1156,7 +1156,7 @@
   justify-content: flex-end;
   gap: 0.5rem;
   padding-top: 0.5rem;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
 }
 
 .providers-modal-caps {
@@ -1275,7 +1275,7 @@
   gap: 0.75rem;
   margin-top: 2rem;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
 }
 
 .providers-models-expand {
@@ -1809,7 +1809,7 @@
 }
 
 .errors-kpi-card {
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.5rem;
   background: var(--card);
   padding: 1rem;
@@ -2003,7 +2003,7 @@
 }
 
 .errors-event-card {
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.625rem;
   background: var(--card);
   padding: 1.25rem;
@@ -2018,7 +2018,7 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
   padding-bottom: 0.75rem;
 }
 
@@ -2195,7 +2195,7 @@
 
 .mcp-card {
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.625rem;
   padding: 1.5rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04);
@@ -2473,7 +2473,7 @@
 
 .search-card {
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.625rem;
   padding: 1.5rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04);
@@ -2923,7 +2923,7 @@
 
 .channel-card {
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.625rem;
   padding: 1.5rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04);
@@ -3184,7 +3184,7 @@
 
 .channel-accordion-body {
   padding: 1rem 1.25rem;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
 }
 
 .channel-accordion-body .channel-textarea {
@@ -3326,7 +3326,7 @@
   gap: 1rem;
   padding-top: 1rem;
   margin-top: 0.5rem;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
 }
 
 .pagination-info {
@@ -3365,7 +3365,7 @@
   gap: 0.25rem;
 }
 .trace-live-list { display: grid; gap: 0; }
-.trace-live-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.trace-live-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent); }
 .trace-live-row:last-child { border-bottom: 0; }
 .trace-live-copy { display: grid; gap: 5px; min-width: 0; }
 .trace-live-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

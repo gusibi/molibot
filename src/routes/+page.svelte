@@ -2002,8 +2002,8 @@
       </div>
     </aside>
 
-    <section class="chat-main-pane flex min-w-0 flex-1 flex-col bg-[color-mix(in_oklab,var(--background)_92%,var(--card))]">
-      <header class="chat-topbar h-auto border-b border-[var(--border)] bg-[var(--background)] px-4 py-4 sm:px-7">
+    <section class="chat-main-pane flex min-w-0 flex-1 flex-col">
+      <header class="chat-topbar h-auto border-b border-[var(--border)] px-4 py-4 sm:px-7">
         <div class="flex items-center gap-3">
           <button
             class="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-xs transition hover:bg-[var(--muted)] lg:hidden"

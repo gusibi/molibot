@@ -7,6 +7,11 @@
 ---
 ## 2026-07-17
 
+### Polish: Clarify Web Chat and Settings surface hierarchy
+- Kept the Web Chat navigation and file sidebars on their existing sidebar surface while unifying the central header and transcript on the primary card surface with quiet separators.
+- Gave Web Settings a secondary canvas with primary-surface cards and softer card/divider borders, using theme tokens only so light and dark modes remain aligned.
+- Verified computed light/dark surfaces in the live Web UI, confirmed no new hardcoded color literals, and completed the production Server build.
+
 ### Feature: Memory v3.2 closes the profile, feedback, maintenance, search, and Skill-review loops
 - Replaced recency-shaped “profiles” with one server-built, scope-authorized profile used by both Desktop and prompt injection, including restart-stable Session snapshots and immediate governance revocations.
 - Added explicit memory lifecycle/usage metadata, durable privacy suppression, append-only verified feedback effects, evolution-aware reflection, cross-run candidate evidence, guarded default-off auto-confirm, and safe version revocation.

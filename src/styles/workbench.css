@@ -134,27 +134,15 @@
   }
 
   .settings-viewport [data-slot="card"] {
-    border-color: color-mix(in oklab, var(--border) 58%, transparent);
+    border-color: color-mix(in oklab, var(--border) 44%, transparent);
     border-radius: 1.35rem;
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in oklab, #faf9f5 76%, var(--card)),
-        color-mix(in oklab, var(--card) 94%, transparent)
-      ),
-      var(--card);
+    background: var(--card);
     box-shadow: var(--shadow);
   }
 
   .dark .settings-viewport [data-slot="card"] {
     border-color: color-mix(in oklab, var(--border) 34%, transparent);
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in oklab, #252320 78%, var(--card)),
-        color-mix(in oklab, var(--card) 94%, transparent)
-      ),
-      var(--card);
+    background: var(--card);
   }
 
   .settings-viewport [data-slot="card"][data-size="sm"] {
@@ -1016,12 +1004,11 @@
   }
 
   .chat-main-pane {
-    background:
-      linear-gradient(180deg, color-mix(in oklab, var(--background) 90%, var(--card)), var(--background));
+    background: var(--card);
   }
 
   .chat-topbar {
-    background: color-mix(in oklab, var(--background) 88%, var(--card));
+    background: var(--card);
   }
 
   .chat-composer-shell,
