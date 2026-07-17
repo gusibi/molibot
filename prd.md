@@ -5,6 +5,11 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.83 Desktop Settings Canvas and Card Hierarchy (2026-07-17)
+- [Done, P0] Desktop 设置左侧导航保持既有侧栏表面，右侧 Header 与主内容统一使用次级浅灰画布，白色设置卡片形成清晰层级。
+- [Done, P0] 设置卡片外框与内部横向分隔线使用更低对比度的现有 DESIGN token，不新增硬编码颜色。
+- [Done] 保持中英、显式/系统明暗主题、窄窗口与固定保存底栏兼容，并由 Desktop UI 回归、Svelte 检查和 production build 验证。
+
 ## 2.82 Desktop Chat Workspace Surface Hierarchy (2026-07-17)
 - [Done, P0] Desktop Chat 左侧导航和右侧文件面板保持侧栏表面，中间 Header 与消息内容区统一为主工作区表面，并保留共享浅分隔线。
 - [Done, P0] Chat 工作区使用 DESIGN 派生的语义 token，不复用设置页次级画布，也不新增硬编码色值。

@@ -554,7 +554,7 @@ a:focus-visible {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--content-bg);
+  background: var(--gray-100);
 }
 .chat-header, .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--separator); }
 .chat-header { min-height: 60px; background: var(--header-bg); }
@@ -1402,14 +1402,14 @@ a:focus-visible {
   width: min(calc(100% - 56px), var(--settings-content-width));
   margin: 0 auto;
   overflow: hidden;
-  border: 1px solid var(--separator);
+  border: 1px solid var(--hairline);
   border-radius: var(--rounded-md);
   background: var(--card-bg);
   box-shadow: none;
 }
 .settings-card + .settings-group-title { margin-top: 30px; }
 .settings-card + .settings-card { margin-top: 16px; }
-.settings-card .settings-row + .settings-row { border-top: 0.5px solid var(--hairline); }
+.settings-card .settings-row + .settings-row { border-top: 0.5px solid var(--gray-alpha-100); }
 
 .setting-group-section { width: min(calc(100% - 56px), var(--settings-content-width)); margin: 0 auto 24px; }
 .setting-group-section .settings-card { width: 100%; margin: 0; }

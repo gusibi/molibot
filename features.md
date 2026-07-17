@@ -7,6 +7,11 @@
 ---
 ## 2026-07-17
 
+### Desktop 设置页浅灰画布与白色卡片层级（已完成）
+- Desktop 设置左侧导航保持原有侧栏表面，右侧 Header 与滚动内容统一使用 Geist `--gray-100` 次级画布；设置卡片继续使用 `--card-bg` 主表面。
+- 卡片外框从通用分隔线弱化为 `--hairline`，卡片内部横线改用 `--gray-alpha-100`，全部复用现有 DESIGN token 并自动适配显式/系统明暗主题。
+- 验证：Desktop UI 61/61、Svelte 0 错误 0 警告、Desktop production build 与 `git diff --check` 通过，未新增硬编码色值。
+
 ### Desktop Chat 主工作区表面层级修正（已完成）
 - Desktop Chat 左侧导航与右侧文件面板继续使用侧栏表面；中间 Header 和消息内容区统一复用现有 `--header-bg` 设计 token，三栏边界继续使用共享分隔线。
 - 设置页仍使用原有次级内容画布和白色卡片层级，没有被 Chat 的表面调整影响；明暗主题会随底层设计 token 自动切换，未新增硬编码色值。

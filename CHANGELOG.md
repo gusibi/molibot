@@ -7,6 +7,11 @@
 ---
 ## 2026-07-17
 
+### Polish: Give Desktop Settings a secondary canvas and quieter cards
+- Kept the Settings navigation on its existing sidebar surface while moving the right-side Header and content onto the Geist secondary canvas, with primary-surface setting cards above it.
+- Reduced card-border and row-divider contrast using existing theme tokens only, preserving explicit/system light and dark modes, compact windows, and fixed save footbars.
+- Added a Desktop Settings surface regression and verified all 61 UI tests, clean Svelte diagnostics, and the production Desktop build.
+
 ### Fix: Apply the surface hierarchy to Desktop Chat
 - Kept the Desktop navigation and file panes on the sidebar surface while unifying the central Header and transcript on one design-derived workspace surface with shared separators.
 - Preserved the Settings secondary canvas/card hierarchy and automatic light/dark theme adaptation without adding hardcoded color values.

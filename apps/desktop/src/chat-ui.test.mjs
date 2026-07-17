@@ -175,6 +175,13 @@ test("Desktop Chat keeps structural sidebars separate from one unified workspace
   assert.match(styles, /\.chat-header\s*\{[^}]*background:\s*var\(--header-bg\)/s);
 });
 
+test("Desktop Settings uses a secondary canvas with quiet primary-surface cards", () => {
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
+  assert.match(styles, /\.settings-content\s*\{[^}]*background:\s*var\(--gray-100\)/s);
+  assert.match(styles, /\.settings-card\s*\{[^}]*border:\s*1px solid var\(--hairline\)[^}]*background:\s*var\(--card-bg\)/s);
+  assert.match(styles, /\.settings-card \.settings-row \+ \.settings-row\s*\{[^}]*border-top:\s*0\.5px solid var\(--gray-alpha-100\)/s);
+});
+
 test("shared composer provides keyboard slash suggestions and transcript invocation styling", () => {
   assert.match(chatInputArea, /ensureComposerSuggestions/);
   assert.match(chatInputArea, /ArrowDown/);
