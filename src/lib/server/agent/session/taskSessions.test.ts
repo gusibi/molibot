@@ -66,6 +66,54 @@ test("beginTaskSession uses date-scoped random ids", () => {
   }
 });
 
+test("beginTaskArchiveSession reuses one archive per task and separates different tasks", () => {
+  const { store, dir } = makeStore();
+  try {
+    const chatId = "chat1";
+    const first = store.beginTaskArchiveSession(chatId, "daily-report");
+    const second = store.beginTaskArchiveSession(chatId, "daily-report");
+    const other = store.beginTaskArchiveSession(chatId, "weekly-report");
+
+    assert.equal(second, first);
+    assert.notEqual(other, first);
+    assert.match(first, /^task-archive-[a-f0-9]{16}$/);
+    assert.deepEqual(store.readSessionOrigin(chatId, first), {
+      origin: "automation",
+      taskId: "daily-report",
+      archiveMode: "shared",
+      createdAt: store.readSessionOrigin(chatId, first)?.createdAt
+    });
+    assert.equal(store.getActiveSession(chatId), other);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("beginTaskArchiveSession keeps legacy fresh behavior without a stable task id", () => {
+  const { store, dir } = makeStore();
+  try {
+    const first = store.beginTaskArchiveSession("chat1", "");
+    const second = store.beginTaskArchiveSession("chat1", "");
+    assert.notEqual(second, first);
+    assert.match(first, /^task-\d{8}-[a-z]{4}$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("shared task archive remembers and clears the chat Session return target", () => {
+  const { store, dir } = makeStore();
+  try {
+    const archiveId = store.beginTaskArchiveSession("chat1", "daily-report");
+    store.setTaskArchiveReturnSession("chat1", archiveId, "user-session");
+    assert.equal(store.readSessionOrigin("chat1", archiveId)?.returnSessionId, "user-session");
+    store.setTaskArchiveReturnSession("chat1", archiveId);
+    assert.equal(store.readSessionOrigin("chat1", archiveId)?.returnSessionId, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("pruneTaskSessions removes expired task sessions but keeps active and user sessions", () => {
   const { store, dir } = makeStore();
   try {

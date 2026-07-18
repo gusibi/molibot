@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
   import { hasEnabledWebProfile } from "../api";
+  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { session } from "../stores/session.svelte";
   import { agentsStore, loadAgents } from "../stores/agents.svelte";
   import { PROFILE_FILE_NAMES } from "./profileFiles";
@@ -51,18 +52,12 @@
             <button class="secondary-button danger-action" type="button" disabled={profilesStore.saving} onclick={() => void removeProfile(profile.id)}>{session.text.profileDelete}</button>
           </div>
         </div>
-        <button
-          class:active={profile.enabled}
-          class="switch"
-          type="button"
-          role="switch"
-          aria-label={profile.name}
-          aria-checked={profile.enabled}
+        <IosSwitch
+          checked={profile.enabled}
+          ariaLabel={profile.name}
           disabled={profilesStore.patchingProfileId === profile.id}
-          onclick={() => void toggleProfile(profile)}
-        >
-          <span></span>
-        </button>
+          onCheckedChange={() => void toggleProfile(profile)}
+        />
       </div>
     {/each}
   </div>
@@ -76,7 +71,7 @@
       <label class="settings-field"><span>{session.text.profileAgent}</span><select value={profilesStore.profileEdit.agentId} onchange={(event) => updateProfileEdit((draft) => ({ ...draft, agentId: (event.currentTarget as HTMLSelectElement).value }))}><option value="">{session.text.profileNoAgent}</option>{#each agentsStore.agents?.items.filter((agent) => agent.enabled) ?? [] as agent (agent.id)}<option value={agent.id}>{agent.name}</option>{/each}</select></label>
       <label class="settings-field"><span>{session.text.profileSandbox}</span><select value={profilesStore.profileEdit.sandboxEnabled === undefined ? "inherit" : profilesStore.profileEdit.sandboxEnabled ? "on" : "off"} onchange={(event) => { const value = (event.currentTarget as HTMLSelectElement).value; updateProfileEdit((draft) => ({ ...draft, sandboxEnabled: value === "inherit" ? undefined : value === "on" })); }}><option value="inherit">{session.text.profileSandboxInherit}</option><option value="on">{session.text.profileSandboxOn}</option><option value="off">{session.text.profileSandboxOff}</option></select></label>
     </div>
-    <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.profileEnabled}</span><button class:active={profilesStore.profileEdit.enabled} class="switch" type="button" role="switch" aria-label={session.text.profileEnabled} aria-checked={profilesStore.profileEdit.enabled} onclick={() => updateProfileEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div></div>
+    <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.profileEnabled}</span><IosSwitch checked={profilesStore.profileEdit.enabled} ariaLabel={session.text.profileEnabled} onCheckedChange={(checked) => updateProfileEdit((draft) => ({ ...draft, enabled: checked }))} /></div></div>
     <div class="provider-editor-toolbar"><strong>{session.text.profileFiles}</strong></div>
     <div class="profile-files-editor">
       {#each PROFILE_FILE_NAMES as fileName (fileName)}

@@ -2,6 +2,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import type { DesktopMemoryTraceResponse } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
+  import { DirectManipulation } from "../native/directManipulation";
 
   export let trace: DesktopMemoryTraceResponse["trace"] | null = null;
   export let loading = false;
@@ -12,8 +13,32 @@
   export let onRetry: () => void;
   export let onFeedback: (memoryId: string, value: "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private") => void;
   export let onManageMemory: (memoryId: string) => void;
+  export let onHapticCommit: (gestureId: string) => void = () => {};
 
   let panel: HTMLElement;
+  let drawerHandle: HTMLButtonElement | null = null;
+  let drawerOffset = 0;
+  let drawerGesturePhase = "idle";
+  let drawerFrame: number | null = null;
+  let drawerFrameTime = 0;
+  let drawerGestureId = "";
+  const drawerManipulation = new DirectManipulation({
+    min: 0,
+    max: 400,
+    reducedMotion: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    onUpdate(snapshot) {
+      drawerOffset = snapshot.position;
+      drawerGesturePhase = snapshot.phase;
+    },
+    onSettled(target) {
+      drawerOffset = 0;
+      drawerGesturePhase = "idle";
+      if (target > 0) requestClose();
+    },
+    onCommitted() {
+      if (drawerGestureId) onHapticCommit(drawerGestureId);
+    }
+  });
   let feedbackMemoryId = "";
   let closing = false;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -24,8 +49,56 @@
     closeTimer = setTimeout(onClose, 200);
   }
 
+  function stepDrawerGesture(timestamp: number): void {
+    const elapsed = drawerFrameTime ? timestamp - drawerFrameTime : 16;
+    drawerFrameTime = timestamp;
+    if (drawerManipulation.step(elapsed)) drawerFrame = requestAnimationFrame(stepDrawerGesture);
+    else drawerFrame = null;
+  }
+
+  function settleDrawerGesture(): void {
+    if (drawerFrame === null && drawerManipulation.current().phase === "settling") {
+      drawerFrameTime = 0;
+      drawerFrame = requestAnimationFrame(stepDrawerGesture);
+    }
+  }
+
+  function beginDrawerDrag(event: PointerEvent): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    drawerGestureId = `memory-trace:${event.pointerId}:${event.timeStamp}`;
+    drawerHandle?.setPointerCapture(event.pointerId);
+    if (drawerManipulation.current().phase === "settling") {
+      drawerManipulation.interrupt(event.pointerId, event.clientX, event.timeStamp);
+    } else {
+      drawerManipulation.begin(event.pointerId, event.clientX, event.timeStamp, drawerOffset);
+    }
+  }
+
+  function moveDrawerDrag(event: PointerEvent): void {
+    drawerManipulation.move(event.pointerId, event.clientX, event.timeStamp);
+  }
+
+  function endDrawerDrag(event: PointerEvent): void {
+    if (drawerHandle?.hasPointerCapture(event.pointerId)) drawerHandle.releasePointerCapture(event.pointerId);
+    drawerManipulation.end(event.pointerId, event.timeStamp);
+    settleDrawerGesture();
+  }
+
+  function cancelDrawerDrag(event?: PointerEvent): void {
+    if (event && drawerHandle?.hasPointerCapture(event.pointerId)) drawerHandle.releasePointerCapture(event.pointerId);
+    if (drawerManipulation.current().phase === "idle") return;
+    drawerManipulation.cancel();
+    settleDrawerGesture();
+  }
+
+  function cancelDrawerDragOnBlur(): void {
+    cancelDrawerDrag();
+  }
+
   onDestroy(() => {
     if (closeTimer) clearTimeout(closeTimer);
+    if (drawerFrame !== null) cancelAnimationFrame(drawerFrame);
   });
 
   onMount(async () => {
@@ -59,16 +132,32 @@
   }
 </script>
 
+<svelte:window onblur={cancelDrawerDragOnBlur} />
+
 <div class="memory-trace-backdrop" class:closing role="presentation" onclick={(event) => event.target === event.currentTarget && requestClose()}>
   <div
     bind:this={panel}
     class="memory-trace-drawer"
+    class:dragging={drawerGesturePhase === "dragging"}
+    class:settling={drawerGesturePhase === "settling"}
+    style={`--memory-trace-offset:${drawerOffset}px`}
     role="dialog"
     aria-modal="true"
     aria-labelledby="memory-trace-title"
     tabindex="-1"
     onkeydown={onKeydown}
   >
+    <button
+      class="memory-trace-drag-handle"
+      type="button"
+      aria-label={copy.memoryTraceClose}
+      bind:this={drawerHandle}
+      onpointerdown={beginDrawerDrag}
+      onpointermove={moveDrawerDrag}
+      onpointerup={endDrawerDrag}
+      onpointercancel={cancelDrawerDrag}
+      onlostpointercapture={cancelDrawerDrag}
+    ></button>
     <header class="memory-trace-header">
       <div>
         <h2 id="memory-trace-title">{copy.memoryTraceTitle}</h2>

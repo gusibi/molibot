@@ -1098,4 +1098,21 @@ export class FeishuManager extends BaseChannelRuntime {
         }
     }
 
+    async sendInternalNotice(
+        chatId: string,
+        text: string,
+        metadata: { kind: string; filename: string }
+    ): Promise<void> {
+        if (!this.client) throw new Error("Feishu bot is not running.");
+        const sent = await this.sendText(chatId, text);
+        momLog("feishu", "internal_notice_sent", {
+            botId: this.instanceId,
+            chatId,
+            kind: metadata.kind,
+            filename: metadata.filename,
+            messageId: sent?.message_id,
+            textLength: text.length
+        });
+    }
+
 }

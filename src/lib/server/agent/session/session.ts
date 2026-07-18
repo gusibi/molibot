@@ -25,6 +25,8 @@ export interface SessionEntryBase {
 
 export interface SessionMessageEntry extends SessionEntryBase {
   type: "message";
+  /** Owning execution when multiple fresh runs share one automation archive. */
+  runId?: string;
   message: AgentMessage;
 }
 

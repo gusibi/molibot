@@ -1,4 +1,5 @@
 <script lang="ts">
+  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { session } from "../stores/session.svelte";
   import { hostBashStore, loadHostBash, toggleHostBashWhitelist } from "../stores/hostBash.svelte";
 
@@ -30,18 +31,12 @@
             <p>{item.toolId} · {item.approvalMode} · {session.text.hostBashFs}: {item.permissions.filesystem} · {session.text.hostBashNet}: {item.permissions.network} · {session.text.hostBashEnv}: {item.permissions.envAllowlist}</p>
             {#if item.reason}<p>{item.reason}</p>{/if}
           </div>
-          <button
-            class:active={item.enabled}
-            class="switch"
-            type="button"
-            role="switch"
-            aria-label={item.displayName || item.toolId}
-            aria-checked={item.enabled}
+          <IosSwitch
+            checked={item.enabled}
+            ariaLabel={item.displayName || item.toolId}
             disabled={hostBashStore.togglingId === item.id}
-            onclick={() => void toggleHostBashWhitelist(item.id, !item.enabled)}
-          >
-            <span></span>
-          </button>
+            onCheckedChange={(checked) => void toggleHostBashWhitelist(item.id, checked)}
+          />
         </div>
       {/each}
     </div>

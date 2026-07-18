@@ -40,6 +40,7 @@ export interface ConversationView {
 export interface ConversationLabels {
   working: string;
   uploading: string;
+  recognizingImage: string;
   stopped: string;
   idle: string;
   resuming: string;
@@ -116,6 +117,59 @@ export class ConversationController {
   private abort: AbortController | null = null;
 
   /**
+   * Streaming deltas are buffered here and flushed to the reactive fields at
+   * most once per animation frame. Without this, every SSE token mutates
+   * `streamingText`, which re-renders the whole `{@html}` bubble per token —
+   * the transcript visibly "refreshes" and long replies saturate the main
+   * thread. Plain fields on purpose: buffering must not be reactive.
+   */
+  private pendingStreamText = "";
+  private pendingThinking = "";
+  private streamFlushHandle: number | null = null;
+
+  private scheduleStreamFlush(): void {
+    if (this.streamFlushHandle !== null) return;
+    // Node test environments have no requestAnimationFrame.
+    if (typeof requestAnimationFrame === "function") {
+      this.streamFlushHandle = requestAnimationFrame(() => {
+        this.streamFlushHandle = null;
+        this.flushStreamBuffers();
+      });
+    } else {
+      this.streamFlushHandle = setTimeout(() => {
+        this.streamFlushHandle = null;
+        this.flushStreamBuffers();
+      }, 16) as unknown as number;
+    }
+  }
+
+  private cancelStreamFlush(): void {
+    if (this.streamFlushHandle === null) return;
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.streamFlushHandle);
+    else clearTimeout(this.streamFlushHandle);
+    this.streamFlushHandle = null;
+  }
+
+  private flushStreamBuffers(): void {
+    this.cancelStreamFlush();
+    if (this.pendingStreamText) {
+      this.streamingText += this.pendingStreamText;
+      this.pendingStreamText = "";
+    }
+    if (this.pendingThinking) {
+      this.streamingThinking += this.pendingThinking;
+      this.pendingThinking = "";
+    }
+  }
+
+  /** Drop buffered deltas so a stale flush can't land on a later turn/session. */
+  private resetStreamBuffers(): void {
+    this.cancelStreamFlush();
+    this.pendingStreamText = "";
+    this.pendingThinking = "";
+  }
+
+  /**
    * Full turn context pinned at send() start. A queued follow-up (drainQueue
    * passes a sessionId override) reuses this snapshot instead of re-reading the
    * host, so switching project / session / model before the queue drains can't
@@ -134,6 +188,7 @@ export class ConversationController {
 
   /** Reset streaming/approval scratch state when switching sessions. */
   clearTurn(): void {
+    this.resetStreamBuffers();
     this.streamingText = "";
     this.streamingThinking = "";
     this.activities = [];
@@ -199,6 +254,7 @@ export class ConversationController {
     this.turnSessionId = sessionId;
     this.host.clearError();
     this.activity = hasFiles ? labels.uploading : labels.working;
+    this.resetStreamBuffers();
     this.streamingText = "";
     this.streamingThinking = "";
     this.activities = [];
@@ -219,20 +275,36 @@ export class ConversationController {
         thinkingLevel: context.thinkingLevel,
         files: hasFiles ? files : undefined,
         signal: this.abort.signal
-      }, hasFiles ? {} : {
-        onToken: (delta) => (this.streamingText += delta),
-        onReplace: (text) => (this.streamingText = text),
-        onThinking: (delta) => (this.streamingThinking += delta),
+      }, {
+        onUploadComplete: hasFiles ? () => (this.activity = labels.recognizingImage) : undefined,
+        onToken: (delta) => {
+          this.activity = "";
+          this.pendingStreamText += delta;
+          this.scheduleStreamFlush();
+        },
+        onReplace: (text) => {
+          this.activity = "";
+          // Replacement supersedes anything still buffered.
+          this.pendingStreamText = "";
+          this.flushStreamBuffers();
+          this.streamingText = text;
+        },
+        onThinking: (delta) => {
+          this.pendingThinking += delta;
+          this.scheduleStreamFlush();
+        },
         onStatus: (text) => { if (text) this.activity = text; },
         onActivities: (next) => (this.activities = next),
         onApproval: (approval) => (this.pendingApproval = approval),
         onDone: (done) => {
+          this.flushStreamBuffers();
           this.streamingText = done.response || this.streamingText;
           this.streamingThinking = done.thinkingText || this.streamingThinking;
         }
       });
       await this.host.refreshSessions?.();
       await this.host.reload(sessionId);
+      this.resetStreamBuffers();
       this.streamingText = "";
       this.streamingThinking = "";
       this.activity = "";
@@ -243,6 +315,7 @@ export class ConversationController {
       }
       await this.host.reload(sessionId).catch(() => undefined);
     } finally {
+      this.resetStreamBuffers();
       this.sending = false;
       this.abort = null;
     }

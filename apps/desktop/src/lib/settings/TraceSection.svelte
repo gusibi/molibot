@@ -1,14 +1,16 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import type { DesktopActiveRunItem, DesktopTraceFact, DesktopTraceFactType, DesktopTraceRange, DesktopTraceStatus } from "@molibot/desktop-contract";
   import { formatDurationMs, formatLongDurationMs, formatTokenCount, loadDesktopActiveRuns, stopDesktopActiveRun } from "../api";
   import EmptyState from "../components/ui/EmptyState.svelte";
+  import AlertDialog from "../components/ui/AlertDialog.svelte";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
   import StatusBadge from "../components/ui/StatusBadge.svelte";
   import { formatNaturalDateTime, humanizeModelOption, humanizeTechnicalName } from "../presentation";
   import { session } from "../stores/session.svelte";
+  import { ActivityScheduler, documentActivityVisibility, interactiveActivityPolicy } from "../native/activityScheduler";
   import { TRACE_FACT_TYPES, TRACE_RANGES, loadTrace, resetTraceFilters, traceRangeLabel, traceStore, updateTraceQuery } from "../stores/trace.svelte";
   import { DONUT_R, donutSegments, percentOf } from "./charts";
 
@@ -26,21 +28,29 @@
   let activeRunBusy = $state("");
   let activeRunMessage = $state("");
   let pendingActiveRun = $state<DesktopActiveRunItem | null>(null);
-  let activeRunDialog = $state<HTMLDivElement>();
+  let activeRunsGeneration = 0;
+  let activeRunsScheduler: ActivityScheduler | null = null;
 
   async function refreshActiveRuns(): Promise<void> {
-    if (!session.serviceReady || !session.endpoint) { activeRuns = []; return; }
+    const endpoint = session.serviceReady ? session.endpoint : null;
+    if (!endpoint) { activeRuns = []; return; }
+    const generation = ++activeRunsGeneration;
     activeRunsLoading = activeRuns.length === 0;
-    try { activeRuns = await loadDesktopActiveRuns(session.endpoint); }
-    catch { activeRuns = []; }
-    finally { activeRunsLoading = false; }
+    try {
+      const nextRuns = await loadDesktopActiveRuns(endpoint);
+      if (generation !== activeRunsGeneration || endpoint !== session.endpoint || !session.serviceReady) return;
+      activeRuns = nextRuns;
+    } catch {
+      if (generation !== activeRunsGeneration || endpoint !== session.endpoint) return;
+      activeRuns = [];
+    } finally {
+      if (generation === activeRunsGeneration) activeRunsLoading = false;
+    }
   }
 
-  async function requestActiveRunAction(item: DesktopActiveRunItem): Promise<void> {
+  function requestActiveRunAction(item: DesktopActiveRunItem): void {
     if (activeRunBusy) return;
     pendingActiveRun = item;
-    await tick();
-    activeRunDialog?.focus();
   }
 
   function cancelActiveRunAction(): void {
@@ -117,15 +127,24 @@
   }
 
   onMount(() => {
-    const timer = setInterval(() => void refreshActiveRuns(), 3000);
-    return () => clearInterval(timer);
+    activeRunsScheduler = new ActivityScheduler(
+      interactiveActivityPolicy,
+      refreshActiveRuns,
+      documentActivityVisibility
+    );
+    activeRunsScheduler.start();
+    return () => {
+      activeRunsGeneration += 1;
+      activeRunsScheduler?.dispose();
+      activeRunsScheduler = null;
+    };
   });
 
   $effect(() => {
     const endpoint = session.serviceReady ? session.endpoint : null;
     if (endpoint) untrack(() => {
       if (endpoint !== traceStore.endpoint) void loadTrace(endpoint);
-      void refreshActiveRuns();
+      activeRunsScheduler?.wake("manual");
     });
   });
 
@@ -230,4 +249,4 @@
   {:else}{#each activeRuns as item (item.runId)}<div class="settings-row trace-active-run-row"><div class="profile-info"><div class="trace-active-run-title"><strong>{item.agentName} · {item.botName}</strong><StatusBadge label={item.status === "running" ? session.text.traceRunRunning : item.status === "stuck" ? session.text.traceRunStuck : session.text.traceRunOrphan} state={item.status === "running" ? "ready" : item.status === "stuck" ? "warning" : "disconnected"} /></div><p>{item.channel} · {formatLongDurationMs(item.durationMs, session.locale)} · {formatNaturalDateTime(item.startedAt, session.locale)}</p><details class="trace-run-technical technical-detail"><summary>{session.text.technicalDetails}</summary><dl><div><dt>{session.text.traceTask}</dt><dd>{item.taskPreview || session.text.traceTaskUnavailable}</dd></div><div><dt>{session.text.traceRunId}</dt><dd><code>{item.runId}</code></dd></div></dl></details></div><OverflowMenu label={session.text.more}><button role="menuitem" class="danger-action" type="button" disabled={Boolean(activeRunBusy)} onclick={() => void requestActiveRunAction(item)}><i class="ph ph-{item.status === "orphan" ? "trash" : "stop-circle"}" aria-hidden="true"></i>{item.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}</button></OverflowMenu></div>{/each}{/if}
 </div>
 {#if activeRunMessage}<p class="settings-section-hint">{activeRunMessage}</p>{/if}
-{#if pendingActiveRun}<div bind:this={activeRunDialog} class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={pendingActiveRun.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun} onclick={cancelActiveRunAction} onkeydown={(event) => { if (event.key === "Escape") cancelActiveRunAction(); }}><div class="modal-card task-delete-confirm-modal" role="presentation" onclick={(event) => event.stopPropagation()}><header class="modal-head"><div><strong>{pendingActiveRun.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}</strong><p>{pendingActiveRun.status === "orphan" ? session.text.traceClearOrphanConfirm : session.text.traceStopRunConfirm}</p></div></header><footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={cancelActiveRunAction}>{session.text.cancel}</button><button class="primary-button danger-action" type="button" onclick={() => void stopActiveRun()}>{pendingActiveRun.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}</button></footer></div></div>{/if}
+{#if pendingActiveRun}<AlertDialog open={Boolean(pendingActiveRun)} busy={Boolean(activeRunBusy)} contentClass="task-delete-confirm-modal" labelledBy="trace-confirm-title" describedBy="trace-confirm-description" onOpenChange={(next) => { if (!next) cancelActiveRunAction(); }}><header class="modal-head"><div><strong id="trace-confirm-title">{pendingActiveRun.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}</strong><p id="trace-confirm-description">{pendingActiveRun.status === "orphan" ? session.text.traceClearOrphanConfirm : session.text.traceStopRunConfirm}</p></div></header><footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(activeRunBusy)} onclick={cancelActiveRunAction}>{session.text.cancel}</button><button class="primary-button danger-action" type="button" disabled={Boolean(activeRunBusy)} onclick={() => void stopActiveRun()}>{pendingActiveRun.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}</button></footer></AlertDialog>{/if}

@@ -32,6 +32,8 @@ This is **Molipibot** — a multi-channel bot framework with a settings UI. See 
 - **All toggle/switch controls must use `IosSwitch`** (from `$lib/components/ui/ios-switch`). Do NOT use the generic `Switch` component — its styling does not clearly convey an on/off state. `IosSwitch` provides the expected iOS-style toggle appearance.
 - Never hard-code absolute paths (`/Users/...`) into code, docs, or prompts.
 - After any feature change, update `features.md` and `CHANGELOG.md`. (Old entries in `prd.md` / `CHANGELOG.md` / `features.md` are archived quarterly in `docs/archive/`).
+- Bug fixes: BEFORE debugging, search `CHANGELOG.md` (+ archives) and the pitfalls below for prior occurrences of the same symptom/surface. BEFORE merging, answer the "Fix 收尾三问" in AGENTS.md §开发流程沉淀规则 (root-cause class → machine guard → pitfall entry). A second occurrence of the same root-cause class makes a machine guard mandatory.
+- No band-aid-then-root-fix: if a fix needs caller-side gating/special-casing instead of a shared-layer solution, either do the root fix now or file it in `prd.md` with the band-aid's removal condition.
 
 ## Recurring Pitfalls (distilled from CHANGELOG.md / prd.md — read BEFORE touching these areas)
 
@@ -45,3 +47,5 @@ Each item below caused **multiple** shipped bugs. Check the relevant one before 
 6. **Reuse shared modules, no forked copies**: session rows use `ConversationRow`, composers use `ChatInputArea`, completed messages use the shared transcript renderer, turn logic goes through `ConversationController` with a host adapter. Generic shared components must not contain project/channel conditionals — callers inject differences.
 7. **CJK handling**: any tokenizer, relevance scorer, or token estimator must handle Chinese explicitly (whitespace splitting collapses CJK to one token; chars/4 under-counts CJK ~3-4x and silently disabled compaction). Use `package/mory/src/moryTokenize.ts` for keyword scoring; weight CJK chars ≈ 1 token when estimating.
 8. **Verification convention**: desktop UI changes = `svelte-check` 0 errors/0 warnings + `vite build` + desktop UI tests; agent/runtime changes = agent test suite + `tsc` on touched files. State the results in `CHANGELOG.md` entries.
+9. **Cold-start smoke walk** (many shipped bugs were "first open blank / first click dead / reset after restart" — tests and builds passed): after UI/desktop changes, additionally exercise the real cold path — restart the service, first-open/first-click every affected pane, switch sessions, and recover from a service interruption — before claiming done.
+10. **Settings round-trip** (fixed 2+ times): every new/changed settings field needs a save → fresh store → load round-trip regression against a temporary database; narrow serialization silently resets fields on restart.

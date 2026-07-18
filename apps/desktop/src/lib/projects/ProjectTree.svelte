@@ -10,6 +10,8 @@
   } from "../api";
   import ConversationRow from "../chat/ConversationRow.svelte";
   import GroupHeader from "../chat/GroupHeader.svelte";
+  import Dialog from "../components/ui/Dialog.svelte";
+  import AlertDialog from "../components/ui/AlertDialog.svelte";
   import {
     addProject,
     newProjectSession,
@@ -302,49 +304,43 @@
 </div>
 
 {#if adding}
-  <div class="project-dialog-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelAdding()}>
-    <div class="project-dialog project-create-dialog" role="dialog" aria-modal="true" aria-labelledby="project-create-title">
-      <div class="project-dialog-heading"><span class="project-dialog-icon" aria-hidden="true"><i class="ph-fill ph-folder-plus"></i></span><div><h2 id="project-create-title">{copy.projectCreateTitle}</h2><p>{createStep === "name" ? copy.projectCreateNameHint : copy.projectChooseLocationHint}</p></div></div>
-      {#if createStep === "name"}
-        <form onsubmit={(event) => { event.preventDefault(); if (name.trim()) createStep = "location"; }}><label class="project-name-field"><span>{copy.projectName}</span><input bind:this={nameInput} bind:value={name} autocomplete="off" required placeholder={copy.projectNamePlaceholder} /></label><div class="project-form-actions"><button class="secondary-button" type="button" onclick={cancelAdding}>{copy.cancel}</button><button class="primary-button" disabled={!name.trim()}>{copy.continueAction}</button></div></form>
-      {:else}
-        <div class="project-location-options" aria-label={copy.projectChooseLocation}><button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void createProject({ name: name.trim(), createDirectory: true })}><span class="project-location-icon"><i class="ph-fill ph-folder-simple-plus" aria-hidden="true"></i></span><span><strong>{copy.projectCreateFolder}</strong><small>{copy.projectCreateFolderHint}</small></span><i class="ph ph-arrow-right" aria-hidden="true"></i></button><button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void useExistingProjectFolder()}><span class="project-location-icon"><i class="ph-fill ph-folder-open" aria-hidden="true"></i></span><span><strong>{copy.projectUseExistingFolder}</strong><small>{copy.projectUseExistingFolderHint}</small></span><i class="ph ph-arrow-right" aria-hidden="true"></i></button></div>
-        {#if selectedRootPath}<div class="project-selected-location"><i class="ph-fill ph-folder-open" aria-hidden="true"></i><span><small>{copy.projectSelectedLocation}</small><strong>{selectedRootPath}</strong></span></div>{/if}
-        <div class="project-form-actions project-location-actions"><button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={() => (createStep = "name")}>{copy.back}</button><button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={cancelAdding}>{copy.cancel}</button><button class="primary-button" type="button" disabled={!selectedRootPath || projectsStore.busy === "add"} onclick={() => void createProject({ name: name.trim(), rootPath: selectedRootPath })}>{copy.projectCreateAction}</button></div>
-      {/if}
-    </div>
-  </div>
+  <Dialog open={adding} busy={projectsStore.busy === "add"} contentClass="project-dialog project-create-dialog" labelledBy="project-create-title" onOpenChange={(next) => { if (!next) cancelAdding(); }}>
+    <div class="project-dialog-heading"><span class="project-dialog-icon" aria-hidden="true"><i class="ph-fill ph-folder-plus"></i></span><div><h2 id="project-create-title">{copy.projectCreateTitle}</h2><p>{createStep === "name" ? copy.projectCreateNameHint : copy.projectChooseLocationHint}</p></div></div>
+    {#if createStep === "name"}
+      <form onsubmit={(event) => { event.preventDefault(); if (name.trim()) createStep = "location"; }}><label class="project-name-field"><span>{copy.projectName}</span><input bind:this={nameInput} bind:value={name} autocomplete="off" required placeholder={copy.projectNamePlaceholder} /></label><div class="project-form-actions"><button class="secondary-button" type="button" onclick={cancelAdding}>{copy.cancel}</button><button class="primary-button" disabled={!name.trim()}>{copy.continueAction}</button></div></form>
+    {:else}
+      <div class="project-location-options" aria-label={copy.projectChooseLocation}><button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void createProject({ name: name.trim(), createDirectory: true })}><span class="project-location-icon"><i class="ph-fill ph-folder-simple-plus" aria-hidden="true"></i></span><span><strong>{copy.projectCreateFolder}</strong><small>{copy.projectCreateFolderHint}</small></span><i class="ph ph-arrow-right" aria-hidden="true"></i></button><button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void useExistingProjectFolder()}><span class="project-location-icon"><i class="ph-fill ph-folder-open" aria-hidden="true"></i></span><span><strong>{copy.projectUseExistingFolder}</strong><small>{copy.projectUseExistingFolderHint}</small></span><i class="ph ph-arrow-right" aria-hidden="true"></i></button></div>
+      {#if selectedRootPath}<div class="project-selected-location"><i class="ph-fill ph-folder-open" aria-hidden="true"></i><span><small>{copy.projectSelectedLocation}</small><strong>{selectedRootPath}</strong></span></div>{/if}
+      <div class="project-form-actions project-location-actions"><button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={() => (createStep = "name")}>{copy.back}</button><button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={cancelAdding}>{copy.cancel}</button><button class="primary-button" type="button" disabled={!selectedRootPath || projectsStore.busy === "add"} onclick={() => void createProject({ name: name.trim(), rootPath: selectedRootPath })}>{copy.projectCreateAction}</button></div>
+    {/if}
+  </Dialog>
 {/if}
 
 {#if renameProjectId}
-  <div class="project-dialog-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelRenameProject()}>
-    <div class="project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-rename-title">
-      <form onsubmit={(event) => { event.preventDefault(); void confirmRenameProject(); }}>
-        <h2 id="project-rename-title">{copy.renameProject}</h2>
-        <label class="project-name-field"><span>{copy.projectName}</span><input bind:value={renameProjectName} autocomplete="off" required /></label>
-        <div class="project-form-actions">
-          <button class="secondary-button" type="button" disabled={projectsStore.busy === "rename-project"} onclick={cancelRenameProject}>{copy.cancel}</button>
-          <button class="primary-button" disabled={!renameProjectName.trim() || projectsStore.busy === "rename-project"}>{copy.save}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  <Dialog open={Boolean(renameProjectId)} busy={projectsStore.busy === "rename-project"} contentClass="project-dialog" labelledBy="project-rename-title" onOpenChange={(next) => { if (!next) cancelRenameProject(); }}>
+    <form onsubmit={(event) => { event.preventDefault(); void confirmRenameProject(); }}>
+      <h2 id="project-rename-title">{copy.renameProject}</h2>
+      <label class="project-name-field"><span>{copy.projectName}</span><input bind:value={renameProjectName} autocomplete="off" required /></label>
+      <div class="project-form-actions">
+        <button class="secondary-button" type="button" disabled={projectsStore.busy === "rename-project"} onclick={cancelRenameProject}>{copy.cancel}</button>
+        <button class="primary-button" disabled={!renameProjectName.trim() || projectsStore.busy === "rename-project"}>{copy.save}</button>
+      </div>
+    </form>
+  </Dialog>
 {/if}
 
 {#if deleteProjectId}
   {@const deleteTarget = projectsStore.projects.find((item) => item.id === deleteProjectId)}
-  <div class="project-dialog-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelRemoveProject()}>
-    <div class="project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-delete-title">
-      <h2 id="project-delete-title">{copy.projectDeleteTitle}</h2>
-      {#if deleteTarget}<p><strong>{deleteTarget.name}</strong></p>{/if}
-      <p>{copy.projectDeleteNotice}</p>
-      <label class="project-delete-option"><input type="checkbox" bind:checked={deleteProjectSessions} disabled={projectsStore.busy === "delete"} /><span>{copy.projectDeleteSessions}</span></label>
-      <div class="project-form-actions">
-        <button class="secondary-button" type="button" disabled={projectsStore.busy === "delete"} onclick={cancelRemoveProject}>{copy.cancel}</button>
-        <button class="error-button" type="button" disabled={projectsStore.busy === "delete"} onclick={() => void confirmRemoveProject()}>{copy.deleteProject}</button>
-      </div>
+  <AlertDialog open={Boolean(deleteProjectId)} busy={projectsStore.busy === "delete"} contentClass="project-dialog" labelledBy="project-delete-title" onOpenChange={(next) => { if (!next) cancelRemoveProject(); }}>
+    <h2 id="project-delete-title">{copy.projectDeleteTitle}</h2>
+    {#if deleteTarget}<p><strong>{deleteTarget.name}</strong></p>{/if}
+    <p>{copy.projectDeleteNotice}</p>
+    <label class="project-delete-option"><input type="checkbox" bind:checked={deleteProjectSessions} disabled={projectsStore.busy === "delete"} /><span>{copy.projectDeleteSessions}</span></label>
+    <div class="project-form-actions">
+      <button class="secondary-button" type="button" disabled={projectsStore.busy === "delete"} onclick={cancelRemoveProject}>{copy.cancel}</button>
+      <button class="error-button" type="button" disabled={projectsStore.busy === "delete"} onclick={() => void confirmRemoveProject()}>{copy.deleteProject}</button>
     </div>
-  </div>
+  </AlertDialog>
 {/if}
 
 <style>

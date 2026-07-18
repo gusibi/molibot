@@ -44,6 +44,10 @@ export interface ChannelInboundMessage {
   initialStatusText?: string;
   initialStatusMessageId?: number;
   runId?: string;
+  /** Internal: resume only this execution from a shared automation archive. */
+  contextRunId?: string;
+  /** Internal: active chat Session to restore after a suspended run finishes. */
+  restoreSessionId?: string;
 }
 
 export interface LoggedMessage {

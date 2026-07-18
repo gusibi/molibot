@@ -4,6 +4,7 @@
   import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./transcript";
   import ConversationLiveView from "./ConversationLiveView.svelte";
   import { stickToBottom } from "./stickToBottom";
+  import { settleEntrances } from "./settleEntrances";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -27,7 +28,7 @@
   export let messagesElement: HTMLDivElement | undefined = undefined;
 </script>
 
-<div class="messages" bind:this={messagesElement} use:stickToBottom={stickKey} aria-live="polite" aria-busy={loading}>
+<div class="messages" bind:this={messagesElement} use:stickToBottom={stickKey} use:settleEntrances={`${stickKey}:${loading}`} aria-live="polite" aria-busy={loading}>
   {#if loading}
     <div class="project-transcript-loading" role="status">
       <i class="ph ph-spinner-gap" aria-hidden="true"></i>{loadingLabel}

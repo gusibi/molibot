@@ -55,7 +55,7 @@
         {#if activities.length > 0}<RunActivity {activities} {copy} />{/if}
         {#if streamingText}
           <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-          <div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(streamingText, copy.copyCode)}</div>
+          <div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(streamingText, copy.copyCode, { streaming: true })}</div>
         {/if}
       </div>
     </div>

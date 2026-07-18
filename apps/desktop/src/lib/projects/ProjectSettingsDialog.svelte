@@ -3,6 +3,7 @@
   import type { DesktopProject } from "../api";
   import type { Translation } from "../i18n";
   import { saveProjectSettings, projectsStore } from "../stores/projects.svelte";
+  import Dialog from "../components/ui/Dialog.svelte";
 
   export let project: DesktopProject;
   export let copy: Translation;
@@ -34,9 +35,9 @@
   }
 </script>
 
-<div class="modal-overlay project-settings-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={copy.projectSettings} onclick={(event) => { if (event.target === event.currentTarget && !projectsStore.busy) onClose(); }} onkeydown={(event) => { if (event.key === "Escape" && !projectsStore.busy) onClose(); }}>
-  <form class="modal-card project-settings-modal" onsubmit={(event) => { event.preventDefault(); void save(); }}>
-    <header class="modal-head"><div><strong>{copy.projectSettings}</strong><p>{copy.projectSettingsHint}</p></div><button class="modal-close" type="button" aria-label={copy.cancel} disabled={Boolean(projectsStore.busy)} onclick={onClose}><i class="ph ph-x"></i></button></header>
+<Dialog open={true} busy={Boolean(projectsStore.busy)} contentClass="project-settings-modal" labelledBy="project-settings-title" describedBy="project-settings-hint" onOpenChange={(next) => { if (!next) onClose(); }}>
+  <form onsubmit={(event) => { event.preventDefault(); void save(); }}>
+    <header class="modal-head"><div><strong id="project-settings-title">{copy.projectSettings}</strong><p id="project-settings-hint">{copy.projectSettingsHint}</p></div><button class="modal-close" type="button" aria-label={copy.cancel} disabled={Boolean(projectsStore.busy)} onclick={onClose}><i class="ph ph-x"></i></button></header>
     <div class="modal-body project-settings-body">
       <div class="settings-form">
         <label class="settings-field"><span>{copy.projectName}</span><input bind:value={name} required /></label>
@@ -52,4 +53,4 @@
     </div>
     <footer class="settings-footbar"><span class="settings-footbar-label">{saved ? copy.projectSettingsSaved : projectsStore.error}</span><div class="settings-footbar-actions"><button class="secondary-button" type="button" onclick={onClose}>{copy.cancel}</button><button class="primary-button" type="submit" disabled={!name.trim() || Boolean(projectsStore.busy)}>{copy.save}</button></div></footer>
   </form>
-</div>
+</Dialog>

@@ -471,9 +471,11 @@ export class MomRunner implements RunnerLike {
       },
     });
 
-    const saved = this.store.loadContext(this.chatId, this.sessionId);
-    if (saved.length > 0) {
-      this.agent.state.messages = prepareMessagesForModelContext(saved);
+    if (this.store.readSessionOrigin?.(this.chatId, this.sessionId)?.archiveMode !== "shared") {
+      const saved = this.store.loadContext(this.chatId, this.sessionId);
+      if (saved.length > 0) {
+        this.agent.state.messages = prepareMessagesForModelContext(saved);
+      }
     }
   }
 
@@ -596,6 +598,20 @@ export class MomRunner implements RunnerLike {
       runStartedAt = turn.startedAt;
     }
 
+    const isIsolatedAutomationRun = ctx.message.isEvent === true && ctx.message.sessionMode === "fresh";
+    const contextRunId = String(ctx.message.contextRunId ?? "").trim();
+    const isRunScopedAutomation = isIsolatedAutomationRun || Boolean(contextRunId);
+    const executionScopeSessionId = isRunScopedAutomation ? runId : this.sessionId;
+    if (isIsolatedAutomationRun) {
+      // The Session is a shared transcript archive, not model context. Runtime
+      // controls use the execution-scoped run id and every run starts empty.
+      this.agent.state.messages = [];
+    } else if (contextRunId) {
+      this.agent.state.messages = prepareMessagesForModelContext(
+        this.store.loadContextForRun(this.chatId, this.sessionId, contextRunId)
+      );
+    }
+
     // Turn-lock heartbeat lease. Started inside the main try block (so the
     // paired finally always stops it — a leaked heartbeat would keep a dead
     // run's lock alive forever); until then the lock rides on the initial
@@ -651,6 +667,8 @@ export class MomRunner implements RunnerLike {
         workspaceId
       });
     };
+    const appendRunContextMessage = (message: AgentMessage): string =>
+      this.store.appendContextMessage(this.chatId, message, this.sessionId, { runId });
     const respondInThread = async (text: string): Promise<void> => {
       const normalized = String(text ?? "").trim();
       if (!normalized) return;
@@ -802,7 +820,7 @@ export class MomRunner implements RunnerLike {
       memoryScope,
       enrichedText,
       this.memory,
-      { sessionId: this.sessionId }
+      { sessionId: executionScopeSessionId }
     );
     const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getWorkspaceDir());
     // The per-turn memory snapshot and query are intentionally NOT part of this
@@ -940,6 +958,8 @@ export class MomRunner implements RunnerLike {
       workspaceDir: this.store.getWorkspaceDir(),
       chatId: this.chatId,
       sessionId: this.sessionId,
+      executionSessionId: executionScopeSessionId,
+      isolateSessionHostApproval: isIsolatedAutomationRun,
       runId,
       workspaceId,
       timezone: settings.timezone,
@@ -1242,10 +1262,10 @@ export class MomRunner implements RunnerLike {
           const isCurrentPrompt = getMessageText(message).trim() === currentModelPromptMessage.trim();
           const isTransientRuntimeNotice = stripTransientRuntimeNoticesFromMessages([message]).length === 0;
           if (!isCurrentPrompt && !isTransientRuntimeNotice) {
-            this.store.appendContextMessage(this.chatId, persisted, this.sessionId);
+            appendRunContextMessage(persisted);
           }
         } else if (message.role === "assistant" || message.role === "toolResult") {
-          const sourceEntryId = this.store.appendContextMessage(this.chatId, message, this.sessionId);
+          const sourceEntryId = appendRunContextMessage(message);
           if (message.role === "assistant") {
             assistantMessagePersisted = true;
             if (getMessageText(message).trim()) assistantSourceEntryId = sourceEntryId;
@@ -1413,11 +1433,7 @@ export class MomRunner implements RunnerLike {
         const resolvedKey = await resolveApiKeyForModel(selectedModel, settings);
         if (!resolvedKey) {
           if (!promptUserPersisted) {
-            this.store.appendContextMessage(
-              this.chatId,
-              createPersistedUserMessage(promptInput.persistedMessage, ctx.message.ts),
-              this.sessionId
-            );
+            appendRunContextMessage(createPersistedUserMessage(promptInput.persistedMessage, ctx.message.ts));
             promptUserPersisted = true;
           }
           const keyError =
@@ -1451,13 +1467,11 @@ export class MomRunner implements RunnerLike {
             }
             await ctx.setWorking(false);
             await ctx.replaceMessage(keyError);
-            this.store.appendContextMessage(
-              this.chatId,
+            appendRunContextMessage(
               createAssistantErrorMessage({
                 errorMessage: keyError,
                 model: selectedModel
-              }),
-              this.sessionId
+              })
             );
             assistantMessagePersisted = true;
             logRunDetail({ type: "final", summary: keyError, isError: true });
@@ -1496,7 +1510,7 @@ export class MomRunner implements RunnerLike {
         this.agent.sessionId = buildAgentSessionId(
           this.channel,
           this.chatId,
-          this.sessionId,
+          executionScopeSessionId,
           modelUseCase,
           selection
         );
@@ -1520,11 +1534,7 @@ export class MomRunner implements RunnerLike {
           }
         }
         if (!promptUserPersisted) {
-          this.store.appendContextMessage(
-            this.chatId,
-            createPersistedUserMessage(promptInput.persistedMessage, ctx.message.ts),
-            this.sessionId
-          );
+          appendRunContextMessage(createPersistedUserMessage(promptInput.persistedMessage, ctx.message.ts));
           promptUserPersisted = true;
         }
         momLog("runner", "model_selected", {
@@ -2127,14 +2137,12 @@ export class MomRunner implements RunnerLike {
       }
 
       if (stopReason === "error" && errorMessage && !assistantMessagePersisted) {
-        this.store.appendContextMessage(
-          this.chatId,
+        appendRunContextMessage(
           createAssistantErrorMessage({
             text: finalText || streamedAssistantText.trim(),
             errorMessage,
             model: activeSelection.model
-          }),
-          this.sessionId
+          })
         );
         assistantMessagePersisted = true;
       }
@@ -2259,14 +2267,12 @@ export class MomRunner implements RunnerLike {
       const message = error instanceof Error ? error.message : String(error);
       const partialText = streamedAssistantText.trim();
       if (!assistantMessagePersisted) {
-        this.store.appendContextMessage(
-          this.chatId,
+        appendRunContextMessage(
           createAssistantErrorMessage({
             text: partialText,
             errorMessage: message,
             model: activeSelection.model
-          }),
-          this.sessionId
+          })
         );
         assistantMessagePersisted = true;
       }
@@ -2323,11 +2329,15 @@ export class MomRunner implements RunnerLike {
       this.activeModelPromptContext = undefined;
       this.activeModelCallContext = undefined;
       this.activeMemoryWriteReceipts = [];
-      try {
-        const saved = this.store.loadContext(this.chatId, this.sessionId);
-        this.agent.state.messages = prepareMessagesForModelContext(saved);
-      } catch {
-        // keep in-memory state if session reload fails
+      if (isRunScopedAutomation) {
+        this.agent.state.messages = [];
+      } else {
+        try {
+          const saved = this.store.loadContext(this.chatId, this.sessionId);
+          this.agent.state.messages = prepareMessagesForModelContext(saved);
+        } catch {
+          // keep in-memory state if session reload fails
+        }
       }
       this.activeRunBudget = undefined;
       this.activeRunnerEventSink = undefined;

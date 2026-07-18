@@ -1600,3 +1600,159 @@ Complete — C0/C1 and T10–T18 implemented, verified, documented, and adversar
 | Adversarial review found cross-session reconciliation, path disclosure, and provenance merge risks | 1 | Scope external source keys by Session, return only draft filenames to the WebView, and merge exact-duplicate source evidence before archival. |
 
 ---
+
+# Native desktop experience implementation (2026-07-17)
+
+## Goal
+Implement the approved NATIVE-01 through NATIVE-15 board in `docs/designs/2026-07-16-native-experience-developer-board.md` as production Desktop behavior, preserving channel boundaries and unrelated dirty-worktree changes.
+
+## Current phase
+NATIVE-01 through NATIVE-15 source behavior, automated/package validation, and independent packaged-host runtime validation are complete. NATIVE-09 additionally has local success-only recency, workspace recommendation, retention, and relevance-ordering coverage. The existing user-owned debug instance remains untouched. The remaining interaction matrix is explicitly limited by this macOS session's denied accessibility/display-capture permissions, missing Developer ID identity, and unavailable Force Touch hardware.
+
+## Progress
+1. NATIVE-01 through NATIVE-15 — implemented: typed unified commands; startup coordination; shared dialog/alert primitives and caller migrations; direct manipulation; persisted close behavior; palette/menu/tray routing; WindowState; feedback/notifications; haptics; and ActivityScheduler migrations.
+2. Packaging — completed: Tauri produces the release `.app`; Finder AppleEvent timeout falls back to an installer with no custom icon positioning; finalization resolves the actual architecture target so old artifacts are not renamed.
+3. Documentation — completed with exact automated/package/isolated-host evidence and explicit interaction-test limits.
+
+## Verified evidence
+- Desktop native/unit tests: 45/45 passing.
+- Desktop UI/HTTP tests: 74/74 passing.
+- Rust tests: 19/19 passing; `cargo check` passing.
+- `svelte-check`: 0 errors, 0 warnings; Vite production build and `git diff --check` passing.
+- Full final regression rerun: Desktop native/unit 45/45; Desktop UI/HTTP 74/74; Rust 19/19; `svelte-check` 0 errors/0 warnings; Vite production build; `cargo check`; release finalizer 4/4; and `git diff --check` all pass. Vite retains only existing dynamic-import/chunk-size advisories.
+
+## Independent packaged-host evidence
+- A temporary Tauri config-overlay build compiled `Molibot Native QA.app` with the distinct identifier `com.eztoolab.molibot.nativeqa`, so it did not share the debug app's compiled single-instance identity.
+- LaunchServices registered the QA bundle as a foreground native application. Standard bundle launch resolved `Contents/Resources`, extracted its runtime into the temporary `DATA_DIR`, and started its desktop-managed sidecar at `http://127.0.0.1:3001` (PID 47755, protocol 1, version 2.5.8).
+- A second `open -n` launch retained one QA host process (`initial=1`, `final=1`), confirming its single-instance route. The user-owned debug host (PID 55692) and service on port 3000 remained running and were not modified.
+
+## Remaining interaction evidence
+- Retest after process enumeration became available confirmed that UI scripting remains denied: enumerating process names succeeds, but querying `Molibot Native QA` menu-bar/window UI elements returns `osascript 不允许辅助访问` (`-1728`/`-1719`). Screen capture remains denied. A follow-up isolated QA rebuild with `com.eztoolab.molibot.nativeqa` again confirmed the bundle identity and left the debug host/port-3000 service untouched; targeted QA accessibility reads still returned `-1728`, and `screencapture` remained unavailable. This does not provide the menu, focus, shortcut, or dialog evidence required by the board.
+- Notification permission/delivery/action remains unexercised because the product correctly requests permission only from an explicit in-app preference action. Force Touch and direct-manipulation haptics require supported hardware.
+- There are zero local Developer ID identities, so signing/notarization/Gatekeeper verification is not available in this environment.
+
+## Errors encountered
+| Error | Resolution |
+| --- | --- |
+| Focused test commands initially ran from the repository root rather than Desktop package root. | Re-ran them with `pnpm --dir apps/desktop`; no source change required. |
+| New startup path used a Node timer type in browser code and a nullable deferred resolver that Svelte’s checker narrowed incorrectly. | Use browser `number` timer handle and a safe initialized resolver; diagnostics are clean. |
+| Tauri DMG Finder layout failed with an AppleEvent timeout (`-1712`). | The build wrapper retains Tauri’s normal path, then creates a functional `--skip-jenkins` DMG only after a completed `.app` exists and no target-versioned DMG exists. |
+| The release finalizer searched non-target `target/release`, risking selection of an older artifact. | Default the finalizer to the current host target; add regression coverage for target-aware directory selection. |
+| Re-signing a temporary app after only changing `Info.plist` did not isolate the existing debug app. | Tauri’s single-instance identity is compiled from its build configuration, so the copied app forwarded to the user debug process and exited. Rebuild a temporary QA bundle from a config overlay with a distinct compile-time identifier. |
+
+---
+# Unified memory task notifications (2026-07-18)
+
+## Goal
+Make memory reflection and daily materials share one explicitly selected Telegram/Feishu Bot chat for completion notifications, delivered through a dedicated non-Agent, non-Session notification path.
+
+## Current phase
+Complete — implementation, documentation, broad verification, and adversarial review finished
+
+## Phases
+1. Add red tests for dedicated internal notices, shared target resolution, aggregation, and context isolation — complete
+2. Add the shared channel notification interface and Telegram/Feishu implementations — complete
+3. Route reflection and daily-material completion summaries once to the shared selected target — complete
+4. Update bilingual Settings copy and persistence/API regressions — complete
+5. Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`; run focused and broad verification — complete
+6. Adversarially review prompt/session isolation, fallback behavior, duplicate delivery, and legacy reminder compatibility — complete
+
+## Verification gates
+- Internal completion notices never call the Agent Runner, append Agent Context, create/replace an active Session, or persist temporary controls.
+- Reflection and daily materials resolve the same authorized Telegram/Feishu target and send at most one aggregate notice per owner task run.
+- A saved authorized target is honored; legacy empty/stale selections retain the existing first-authorized-target fallback, and no available target means no delivery.
+- User-created one-shot reminders still return to their persisted source Session.
+- Settings remain restart-safe and bilingual; existing light/dark/responsive shared form behavior is unchanged.
+- Persistence tests use temporary/injected stores only; live settings, contexts, and watched-event files are not mutated.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Reuse the persisted `reflectionNotificationTarget` field as the shared memory-task target | Preserves upgrade compatibility and implements the user's request for one common destination without a schema migration. |
+| Add a dedicated ChannelManager internal-notice method | Keeps human notifications separate from Agent turns while preserving channel-native delivery. |
+| Keep one-shot reminder persistence unchanged | User reminders are intentional conversation events; the defect is specific to internal completion notices. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Root planning files contain prior task history | 1 | Preserve all history and append this dated section. |
+| Initial notification regression suite cannot import the new delivery helpers | 1 | Expected red state before implementation; add the dedicated interface/helpers without weakening assertions. |
+| First bilingual copy patch missed the exact existing English wording | 1 | Inspected the current lines and applied a smaller exact patch; no source changed in the failed attempt. |
+| First four-document patch used the wrong PRD title | 1 | The atomic patch changed nothing; inspected each exact insertion point and split the documentation update. |
+
+---
+### 2026-07-18 verification environment note
+
+- Root production build passed.
+- Desktop production build via the default Homebrew Node failed before Vite could compile because macOS rejected `libicudata.78.dylib` for an invalid code signature (`EXIT=134`). This is an environment/runtime failure, so verification will continue with the bundled Codex Node runtime instead of repeating the same command.
+- Desktop Vite production build passed with the bundled Codex Node runtime; only the existing dynamic-import and chunk-size advisories remain.
+
+---
+# Fresh automation shared archive Session (2026-07-18)
+
+## Goal
+Keep every periodic task run model-context-fresh while appending all of that task's transcripts to one stable automation archive Session, with each execution detail still isolated by `runId`.
+
+## Current phase
+Complete — implementation, compatibility, verification, and adversarial review finished
+
+## Phases
+1. Audit current fresh Session creation, Runner context loading, execution leases, and detail projection — complete
+2. Add red tests for stable archive identity, empty per-run context, and run-scoped transcript reads — complete
+3. Implement shared Runtime/Session/Runner changes without Channel-specific orchestration — complete
+4. Preserve legacy execution history and update required product documentation — complete
+5. Run focused tests, type/build checks, and adversarial review — complete
+
+## Verification gates
+- Two runs of one task create/reuse one logical automation archive Session.
+- The second model request contains no messages from the first run.
+- Each execution row opens only messages tagged with its own `runId`; legacy rows still load their old Session.
+- Runtime locks, approvals, memory snapshots, stop/retry identity, and tool execution remain scoped to the unique run rather than the shared archive.
+- Different tasks do not share archives, ordinary chat does not activate an automation archive, and persistence tests use temporary stores/databases.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Separate archive identity from execution scope | The Runner may be keyed by the archive Session, while model state, Memory, provider/tool/Subagent identity, and persisted message ownership use the unique `runId`. |
+| Use a stable per-task archive, not one global archive | Prevents unrelated tasks from mixing and keeps history navigation understandable. |
+| Tag persisted transcript entries with `runId` | Timestamp filtering is ambiguous and execution rows already have the authoritative run identity. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Runner test stubs lacked the newly required `createProfileTurnSnapshot` Memory method | 1 | Add the current no-op profile snapshot contract to test doubles only. |
+| Fresh Runner test emitted an Assistant event without updating Agent state, triggering the real empty-response retry path | 1 | Make the fake Agent mirror production by appending its Assistant message before emitting `message_end`. |
+| A broad approval-isolation patch missed the exact Bash ternary context | 1 | The atomic patch changed nothing; split it into small type, sanitizer, Bash, Store, Runner, and Runtime patches against freshly inspected lines. |
+| `npx tsc --noEmit` is red across the existing dirty worktree | 1 | Confirmed failures are broad pre-existing dependency/package/UI/test typing issues; no new implementation file error was introduced. Used focused runtime tests plus the successful production build as the delivery gates. |
+| Added-line safety scan used a shell regex with conflicting quotes | 1 | The read-only command failed before scanning; rerun as separate simple fixed-string scans instead of retrying the composite expression. |
+
+---
+
+# Desktop settings switch unification (2026-07-18)
+
+## Goal
+Replace the incorrect unstyled Desktop settings toggles on Skills, Search, Image, Video, Voice, Host Bash, Web Profiles, Sandbox, and Plugins with the shared macOS-style `IosSwitch` while preserving behavior and persistence.
+
+## Current phase
+Complete — implementation, documentation, automated verification, and bounded cold-path review finished
+
+## Phases
+1. Build a red structural regression and map the affected controls — complete
+2. Replace only affected controls with the shared component — complete
+3. Run focused tests, Svelte diagnostics, build, and visual/cold-path checks — complete
+4. Update product documentation and adversarially review likely regressions — complete
+
+## Verification gates
+- Every boolean control on the nine screenshot/text-scoped Desktop pages renders through `IosSwitch`.
+- Checked, unchecked, disabled, keyboard focus, light/dark, Chinese/English, and compact-width behavior remain shared and accessible.
+- Existing click handlers, dirty-state tracking, API calls, and save flows are unchanged.
+- No unrelated dirty-worktree changes are overwritten.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Root planning files already contain other task history | 1 | Preserve all existing sections and append this dated task. |
+| First multi-file planning append used an outdated task-plan anchor | 1 | The atomic patch changed nothing; inspect current tails and append against exact live content. |
+| First four-file component patch assumed Sandbox's import order | 1 | The atomic patch changed nothing; inspect the live file heads and apply smaller exact patches. |
+| Browser preview cannot use the Tauri status bridge, so data-backed settings stayed disconnected | 1 | Validate cold startup, compact layout, shared switch computed styles, page switching, and disconnected/reconnect affordance in preview; rely on Svelte/build/structural tests for connected-page markup without stopping the user's running Desktop host. |
+| Planning completion helper was not executable directly and then reported the append-only aggregate plan incomplete | 1 | Run it through `sh`; its template-specific parser counts unrelated historical `### Phase` headings but cannot read this repository's aggregate plan format, so use the explicit completed phase list and verification evidence above. |

@@ -81,7 +81,9 @@ export interface BashToolHostApprovalOptions {
   chatId: string;
   scopeId: string;
   sessionId: string;
+  runId?: string;
   store: MomRuntimeStore;
+  ignoreSessionApprovalMode?: boolean;
   hostBashStore?: HostBashStore;
   requestedByDepth?: number;
   approvalWaitTimeoutMs?: number;
@@ -329,12 +331,14 @@ function requestApprovalFromBash(
       ? {
           kind: "run_approved_host_bash",
           originalCommand: parsed.originalCommand,
+          runId: options.runId,
           args: parsed.args,
           timeout: timeoutSeconds
         }
       : {
           kind: "run_one_time_host_script",
           originalCommand: parsed.originalCommand,
+          runId: options.runId,
           timeout: timeoutSeconds
         },
     channel: options.channel,
@@ -667,7 +671,10 @@ export function getBashToolDefinition(
       if (result.exitCode !== 0) {
         let errorBody = `${rendered}\n\nCommand exited with code ${result.exitCode}`.trim();
         if (result.sandboxApplied && options.hostApproval && isSandboxPermissionFailure(rendered)) {
-          if (options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session") {
+          if (
+            !options.hostApproval.ignoreSessionApprovalMode
+            && options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session"
+          ) {
             const wrappedCommand = wrapCommandWithVenv(params.command);
             const fallbackResult = await execCommand(wrappedCommand, {
               cwd: ctx.cwd,

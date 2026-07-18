@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   desktopArchFromTarget,
+  defaultDmgDirectory,
   finalizeDesktopRelease,
   releaseDmgName,
   writeDesktopReleaseChecksum
@@ -57,4 +58,13 @@ test("maps macOS Rust targets to stable DMG architecture suffixes", () => {
   assert.equal(desktopArchFromTarget("aarch64-apple-darwin"), "aarch64");
   assert.equal(desktopArchFromTarget("x86_64-apple-darwin"), "x86_64");
   assert.equal(releaseDmgName("2.3.3", "aarch64"), "Molibot_2.3.3_aarch64.dmg");
+});
+
+test("uses the host build target for default DMG finalization", () => {
+  const expectedTarget = process.arch === "x64" ? "x86_64-apple-darwin" : "aarch64-apple-darwin";
+  assert.match(defaultDmgDirectory(), new RegExp(`/target/${expectedTarget}/release/bundle/dmg$`));
+  assert.match(
+    defaultDmgDirectory("x86_64-apple-darwin"),
+    /\/target\/x86_64-apple-darwin\/release\/bundle\/dmg$/
+  );
 });

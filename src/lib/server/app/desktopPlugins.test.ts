@@ -108,7 +108,7 @@ test("plugin save validates and persists daily materials project settings", () =
   assert.deepEqual(saved.memory.dailyMaterials, input.memoryDailyMaterials);
 });
 
-test("plugin summary and save expose only authorized reflection notification targets", () => {
+test("plugin summary and save expose the shared memory task target from authorized chats only", () => {
   const settings = {
     plugins: {
       memory: { ...defaultRuntimeSettings.plugins.memory, reflectionNotificationTarget: { channel: "feishu", botId: "momo", chatId: "oc_daily" } },

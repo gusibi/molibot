@@ -1,4 +1,7 @@
+mod app_menu;
 mod audio;
+mod desktop_preferences;
+mod native_feedback;
 pub mod service;
 mod supervisor;
 
@@ -7,8 +10,6 @@ use service::{ServiceOwnership, ServiceStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
-use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_opener::OpenerExt;
@@ -34,6 +35,9 @@ impl Default for DesktopState {
 struct DesktopStatus {
     service: ServiceStatus,
     launch_at_login: bool,
+    close_behavior: desktop_preferences::CloseBehavior,
+    notification_preference: desktop_preferences::NotificationPreference,
+    haptic_preference: desktop_preferences::HapticPreference,
 }
 
 fn show_window(app: &AppHandle, label: &str) {
@@ -42,6 +46,21 @@ fn show_window(app: &AppHandle, label: &str) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+#[tauri::command]
+fn execute_native_command(app: AppHandle, id: String) -> Result<(), String> {
+    app_menu::execute(&app, &id)
+}
+
+#[tauri::command]
+fn sync_native_command_menu(app: AppHandle, commands: Vec<app_menu::CommandMenuEntry>) {
+    app_menu::sync(&app, commands);
+}
+
+#[tauri::command]
+fn show_main_window(app: AppHandle) {
+    show_window(&app, "chat");
 }
 
 #[tauri::command]
@@ -84,7 +103,46 @@ fn desktop_status(
     Ok(DesktopStatus {
         service,
         launch_at_login,
+        close_behavior: desktop_preferences::load_close_behavior(&desktop_preferences_path(&app)?),
+        notification_preference: desktop_preferences::load_notification_preference(&desktop_preferences_path(&app)?),
+        haptic_preference: desktop_preferences::load_haptic_preference(&desktop_preferences_path(&app)?),
     })
+}
+
+fn desktop_preferences_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|directory| directory.join(desktop_preferences::PREFERENCES_FILE))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_close_behavior(app: AppHandle, close_behavior: desktop_preferences::CloseBehavior) -> Result<desktop_preferences::CloseBehavior, String> {
+    desktop_preferences::save_close_behavior(&desktop_preferences_path(&app)?, close_behavior)?;
+    Ok(close_behavior)
+}
+
+#[tauri::command]
+fn set_haptic_preference(
+    app: AppHandle,
+    haptic_preference: desktop_preferences::HapticPreference,
+) -> Result<desktop_preferences::HapticPreference, String> {
+    desktop_preferences::save_haptic_preference(&desktop_preferences_path(&app)?, haptic_preference)?;
+    Ok(haptic_preference)
+}
+
+#[tauri::command]
+fn perform_haptic_feedback() {
+    native_feedback::perform_commit();
+}
+
+#[tauri::command]
+fn set_notification_preference(
+    app: AppHandle,
+    notification_preference: desktop_preferences::NotificationPreference,
+) -> Result<desktop_preferences::NotificationPreference, String> {
+    desktop_preferences::save_notification_preference(&desktop_preferences_path(&app)?, notification_preference)?;
+    Ok(notification_preference)
 }
 
 #[tauri::command]
@@ -129,69 +187,25 @@ fn open_desktop_log(app: AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn install_tray(app: &tauri::App) -> tauri::Result<()> {
-    let open = MenuItemBuilder::with_id("open", "打开 Molibot / Open Molibot").build(app)?;
-    let open_web = MenuItemBuilder::with_id("open_web", "打开 Web / Open Web").build(app)?;
-    let settings = MenuItemBuilder::with_id("settings", "设置 / Settings").build(app)?;
-    let restart =
-        MenuItemBuilder::with_id("restart", "重新启动服务 / Restart Service").build(app)?;
-    let diagnostics = MenuItemBuilder::with_id("diagnostics", "查看诊断 / Diagnostics")
-        .enabled(false)
-        .build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "退出 Molibot / Quit Molibot").build(app)?;
-    let menu = MenuBuilder::new(app)
-        .items(&[&open, &open_web, &settings])
-        .separator()
-        .items(&[&restart, &diagnostics])
-        .separator()
-        .item(&quit)
-        .build()?;
-
-    let mut tray = TrayIconBuilder::with_id("molibot-tray")
-        .menu(&menu)
-        .show_menu_on_left_click(true)
-        .tooltip("Molibot")
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => show_window(app, "chat"),
-            "settings" => show_window(app, "settings"),
-            "open_web" => {
-                let endpoint = app
-                    .state::<Mutex<DesktopState>>()
-                    .lock()
-                    .ok()
-                    .and_then(|state| state.service.lock().ok()?.endpoint.clone());
-                if let Some(endpoint) = endpoint {
-                    let _ = app.opener().open_url(endpoint, None::<&str>);
-                }
+fn configure_window_close_behavior(app: &tauri::App) {
+    let Some(window) = app.get_webview_window("chat") else {
+        return;
+    };
+    let app_handle = app.handle().clone();
+    let window_handle = window.clone();
+    window.on_window_event(move |window_event| {
+        if let WindowEvent::CloseRequested { api, .. } = window_event {
+            api.prevent_close();
+            let behavior = desktop_preferences_path(&app_handle)
+                .map(|path| desktop_preferences::load_close_behavior(&path))
+                .unwrap_or(desktop_preferences::CloseBehavior::Background);
+            if behavior == desktop_preferences::CloseBehavior::Background {
+                let _ = window_handle.hide();
+            } else {
+                app_handle.exit(0);
             }
-            "restart" => {
-                if let Ok(state) = app.state::<Mutex<DesktopState>>().lock() {
-                    supervisor::request_restart(&state.control);
-                }
-            }
-            "quit" => app.exit(0),
-            _ => {}
-        });
-
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
-    }
-    tray.build(app)?;
-    Ok(())
-}
-
-fn configure_close_to_background(app: &tauri::App) {
-    for label in ["chat", "settings"] {
-        if let Some(window) = app.get_webview_window(label) {
-            let window_handle = window.clone();
-            window.on_window_event(move |window_event| {
-                if let WindowEvent::CloseRequested { api, .. } = window_event {
-                    api.prevent_close();
-                    let _ = window_handle.hide();
-                }
-            });
         }
-    }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -205,14 +219,22 @@ pub fn run() {
             Some(vec!["--background"]),
         ))
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(DesktopState::default()))
         .manage(audio::AudioState::default())
         .invoke_handler(tauri::generate_handler![
+            execute_native_command,
+            sync_native_command_menu,
+            show_main_window,
             open_settings,
             pick_project_directory,
             desktop_status,
             set_login_start,
+            set_close_behavior,
+            perform_haptic_feedback,
+            set_haptic_preference,
+            set_notification_preference,
             restart_service,
             desktop_logs,
             desktop_log_path,
@@ -222,8 +244,8 @@ pub fn run() {
             audio::cancel_recording
         ])
         .setup(|app| {
-            install_tray(app)?;
-            configure_close_to_background(app);
+            app_menu::install(app)?;
+            configure_window_close_behavior(app);
             let app_handle = app.handle().clone();
             if let Ok(state) = app.state::<Mutex<DesktopState>>().lock() {
                 let status = state.service.clone();

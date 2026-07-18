@@ -43,6 +43,21 @@ test("approve with once scope does not persist a whitelist entry", () => {
   assert.equal(approved?.record.status, "approved");
 });
 
+test("pending approval preserves the owning fresh automation run", () => {
+  const store = createStore();
+  const requested = store.requestApproval(requestInput({
+    pendingAction: {
+      kind: "run_approved_host_bash",
+      originalCommand: "agent-browser --open",
+      runId: "automation-run-2",
+      args: ["--open"]
+    }
+  }));
+
+  assert.equal(requested.approval?.pendingAction?.runId, "automation-run-2");
+  assert.equal(store.listPending("scope-1", "session-1")[0]?.pendingAction?.runId, "automation-run-2");
+});
+
 test("approve with persistent scope whitelists every capability of a compound command", () => {
   const store = createStore();
   const classification = classifyHostBashCommand("gh pr list | osascript -e 'beep'");

@@ -268,7 +268,18 @@ export class MemoryReflectionService {
         const related = relationRef ? relatedByRef.get(relationRef as `R${number}`) : undefined;
         if (relationRef && !related) continue;
         if (item.supersedesRef && related && item.type !== related.type) continue;
-        if (relatedMemories.some((memory) => memory.record.content.replace(/\s+/g, " ").trim().toLocaleLowerCase() === item.value.replace(/\s+/g, " ").trim().toLocaleLowerCase())) continue;
+        const equivalent = relatedMemories.find((memory) => memory.record.content.replace(/\s+/g, " ").trim().toLocaleLowerCase() === item.value.replace(/\s+/g, " ").trim().toLocaleLowerCase());
+        if (equivalent) {
+          // Same durable fact mentioned again: reinforce the confirmed memory
+          // instead of silently dropping the repetition. Best-effort — a failed
+          // reinforcement must not block sibling candidates or the watermark.
+          try {
+            await this.gateway.reinforceMemory({ ...projection.scope, ownerId: target.ownerId, botId: target.botId }, equivalent.record.id);
+          } catch {
+            // ignore
+          }
+          continue;
+        }
         const sourceMessages = projection.messages.filter((message) =>
           message.role === "user" || (item.type === "skill" && message.role === "assistant")
         );

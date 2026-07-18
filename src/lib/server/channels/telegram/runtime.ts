@@ -995,6 +995,29 @@ export class TelegramManager extends BaseChannelRuntime {
     return this.handleSyntheticEvent(task, filename);
   }
 
+  async sendInternalNotice(
+    chatId: string,
+    text: string,
+    metadata: { kind: string; filename: string }
+  ): Promise<void> {
+    if (!this.bot) throw new Error("Telegram bot is not running.");
+    const target = this.parseChatScopeId(chatId);
+    const sent = await sendTelegramText(
+      this.bot,
+      target.chatId,
+      text,
+      this.buildTelegramSendOptions(target.messageThreadId)
+    );
+    momLog("telegram", "internal_notice_sent", {
+      botId: this.instanceId,
+      chatId,
+      kind: metadata.kind,
+      filename: metadata.filename,
+      messageId: sent.message_id,
+      textLength: text.length
+    });
+  }
+
   private async deliverDirectEventMessage(event: MomEvent, runId: string, filename: string): Promise<void> {
     if (!this.bot) return;
     const target = this.parseChatScopeId(event.chatId);

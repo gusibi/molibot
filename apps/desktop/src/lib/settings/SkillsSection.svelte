@@ -1,4 +1,5 @@
 <script lang="ts">
+  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { session } from "../stores/session.svelte";
   import { skillsStore, discardSkillsSearch, loadSkills, saveSkillsSearch, toggleSkill } from "../stores/skills.svelte";
 
@@ -23,8 +24,8 @@
     {@const selectedSkillProvider = skillsStore.searchDraft.providers.find((provider) => provider.id === skillsStore.searchDraft?.apiProvider)}
     <form id="desktop-skills-search-form" class="settings-card provider-editor" onsubmit={(event) => { event.preventDefault(); void saveSkillsSearch(); }}>
       <div class="provider-editor-toolbar"><strong>{session.text.skillsSearchConfig}</strong></div>
-      <div class="settings-row"><strong>{session.text.skillSearchLocal}</strong><button class:active={skillsStore.searchDraft.localEnabled} class="switch" type="button" role="switch" aria-label={session.text.skillSearchLocal} aria-checked={skillsStore.searchDraft.localEnabled} onclick={() => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, localEnabled: !skillsStore.searchDraft.localEnabled } : null)}><span></span></button></div>
-      <div class="settings-row"><strong>{session.text.skillSearchApi}</strong><button class:active={skillsStore.searchDraft.apiEnabled} class="switch" type="button" role="switch" aria-label={session.text.skillSearchApi} aria-checked={skillsStore.searchDraft.apiEnabled} onclick={() => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, apiEnabled: !skillsStore.searchDraft.apiEnabled } : null)}><span></span></button></div>
+      <div class="settings-row"><strong>{session.text.skillSearchLocal}</strong><IosSwitch checked={skillsStore.searchDraft.localEnabled} ariaLabel={session.text.skillSearchLocal} onCheckedChange={(checked) => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, localEnabled: checked } : null)} /></div>
+      <div class="settings-row"><strong>{session.text.skillSearchApi}</strong><IosSwitch checked={skillsStore.searchDraft.apiEnabled} ariaLabel={session.text.skillSearchApi} onCheckedChange={(checked) => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, apiEnabled: checked } : null)} /></div>
       <div class="settings-form">
         <label class="settings-field"><span>{session.text.skillsSearchProvider}</span><select value={skillsStore.searchDraft.apiProvider} onchange={(event) => { const provider = skillsStore.searchDraft?.providers.find((item) => item.id === event.currentTarget.value); if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiProvider: provider?.id ?? "", apiModel: provider?.models.includes(skillsStore.searchDraft.apiModel) ? skillsStore.searchDraft.apiModel : provider?.defaultModel ?? provider?.models[0] ?? "" }; }}><option value="">{session.text.unavailable}</option>{#each skillsStore.searchDraft.providers as provider (provider.id)}<option value={provider.id}>{provider.name}</option>{/each}</select></label>
         <label class="settings-field"><span>{session.text.skillsSearchModel}</span><select value={skillsStore.searchDraft.apiModel} onchange={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiModel: event.currentTarget.value }; }}><option value="">{session.text.unavailable}</option>{#each selectedSkillProvider?.models ?? [] as model (model)}<option value={model}>{model}</option>{/each}</select></label>
@@ -46,7 +47,7 @@
             {#if skill.description}<p>{skill.description}</p>{/if}
             <p>{skill.scope === "global" ? session.text.skillScopeGlobal : skill.scope === "bot" ? session.text.skillScopeBot : session.text.skillScopeChat}{skill.botId ? ` · ${skill.botId}` : ""}{skill.chatId ? ` / ${skill.chatId}` : ""}{skill.mcpServerCount > 0 ? ` · ${session.text.skillMcpServers}: ${skill.mcpServerCount}` : ""}</p>
           </div>
-          <button class:active={skill.enabled} class="switch" type="button" role="switch" aria-label={skill.name} aria-checked={skill.enabled} disabled={skillsStore.savingId === skill.id} onclick={() => void toggleSkill(skill.id, !skill.enabled)}><span></span></button>
+          <IosSwitch checked={skill.enabled} ariaLabel={skill.name} disabled={skillsStore.savingId === skill.id} onCheckedChange={(checked) => void toggleSkill(skill.id, checked)} />
         </div>
       {/each}
     </div>

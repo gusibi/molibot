@@ -1357,3 +1357,70 @@ rules, and contextual header format.
 - Trace/governance data live in the settings SQLite database while mory nodes live in the mory database. Cross-database atomicity is unavailable, so governance mutations require a durable outbox/state machine rather than a fictitious shared transaction.
 
 ---
+
+# Native desktop experience implementation findings (2026-07-17)
+
+- NATIVE-01 uses one typed `CommandSystem` catalog across the command surface, application menu, and tray; a command-domain adapter is sufficient and does not create a universal native host.
+- NATIVE-09 keeps palette personalization local and intentionally narrow: only successful stable command IDs, counts, and local timestamps are retained (versioned, 20-entry cap, 90-day expiry). Query text, labels, arguments, session/profile data, errors, and user content never enter storage. Empty search deterministically prefers valid recency, active workspace/catalog recommendations, then label/ID fallbacks; typed search remains relevance-first, and disabled commands stay discoverable but cannot execute.
+- Tauri menu synchronization receives only serializable ID/label/enabled snapshots. Rust revalidates desktop-owned service restart and endpoint availability, so stale WebView state cannot bypass host rules.
+- Native host rejection is transformed to `{ status: "failed" }` before it reaches root feedback; accessible/live and native notification strings remain generic localized copy, never raw exception contents.
+- `ActivityScheduler` owns visibility subscription, timer, in-flight coalescing, and disposal. Components retain request owner/generation validation; recording display clocks intentionally remain outside the scheduler.
+- Dialog/AlertDialog now own focus trap, inert, Escape, close animation and focus restoration; callers no longer retain duplicate backdrop, timer, or focus paths.
+- `WindowState` is root-owned and projects only document state. Chrome consumes inactive/theme/scale/transparency/contrast tokens; content cards remain quiet opaque surfaces.
+- Feedback requests notification permission only through an explicit preference enable action. Terminal inactive events can notify only after permission; foreground events use a compact polite live region; notification action restores the Chat window.
+- Haptic output is an optional macOS host bridge restricted to settled user-pointer commit signals and the system/off preference. It is not connected to task, error, notification, keyboard, cancellation, or automated flows.
+- Tauri's standard DMG Finder layout failed in this user session with AppleEvent timeout `-1712`. The generated helper succeeds with `--skip-jenkins`, so the local wrapper falls back only after a valid `.app` exists and no target-versioned DMG is present.
+- The release finalizer formerly fell back to `target/release/bundle/dmg` when `TAURI_BUILD_TARGET` was unset, which could select a stale package after a target-specific build. It now derives the current host target and has a dedicated regression test.
+- The built Apple Silicon DMG passed its written SHA-256 check, `hdiutil verify`, and a mount inspection (`Molibot.app` plus `Applications`). The local keychain has no Developer ID signing identity.
+- An isolated, compile-time-identified `Molibot Native QA.app` launched through macOS application semantics as a foreground native app. It resolved bundled resources, used only its temporary `DATA_DIR`, started a managed sidecar on port 3001, and retained exactly one process after a second launch; the user-owned debug host and service on port 3000 stayed untouched.
+- Current macOS policy denied System Events UI scripting and display capture. Listing process names is permitted, but reading `Molibot Native QA` menu-bar/window UI elements returns `osascript 不允许辅助访问` (`-1728`/`-1719`); it cannot substantiate menu/tray interaction, keyboard/focus/VoiceOver, dialog behavior, window-state visuals, notification action, or supported-device haptics.
+- The release-sidecar supervisor resolves `DATA_DIR` before its default `~/.molibot`, while Desktop preferences are scoped through Tauri's `app_config_dir`. A temporary copied app with a distinct `CFBundleIdentifier`, ad-hoc signature, and temporary `DATA_DIR` can therefore be independently launched without stopping the user debug instance or reading/writing its sidecar data; this is the selected host-QA path.
+- First QA-copy launch demonstrated that Tauri single-instance identity is embedded at compile time, not read solely from `Info.plist`: after mutating and ad-hoc-signing a copied app, it forwarded to the existing debug instance and exited. The isolated QA app must instead be rebuilt with a temporary Tauri config overlay that changes the compiled identifier, then launched with the temporary `DATA_DIR`.
+
+---
+# Unified memory task notifications findings (2026-07-18)
+
+- The reproduced polluted Session retains the original user/assistant turns; entry `73bf7676` is a later direct assistant append from the daily-materials completion notice.
+- Internal daily-material notices currently call `manager.triggerTask({ type: "immediate", delivery: "text" })`. Immediate events default to chat mode, so missing `sessionId` falls back to the Bot/chat active Session and `persistDirectEventMessage` appends model-visible history.
+- Web additionally creates an `origin: "automation"`, `contextBacked: false` UI row, proving UI classification and Agent Context persistence are currently inconsistent.
+- Daily materials currently fan out over every eligible source Bot and choose each Bot's first allowed chat; it has only a notification boolean, not a target selector.
+- Memory reflection already exposes one authorized Telegram/Feishu target, but a missing or stale saved target silently falls back to the first available option.
+- The user's chosen product behavior is one shared explicit Telegram/Feishu target for both memory tasks and a dedicated internal-notice delivery path that never executes an Agent.
+- Existing direct-event tests intentionally preserve user reminders in execution-linked Agent Context; the fix must not weaken that behavior.
+- The narrow shared seam is `ChannelManager.sendInternalNotice(chatId, text, metadata)`: Telegram and Feishu can reuse their native text senders without calling `persistDirectEventMessage`, `appendConversationMessage`, or a Runner.
+- The existing `reflectionNotificationTarget` resolver is suitable as the shared memory-task destination and retains upgrade-safe first-authorized-target fallback when the saved target is empty or stale.
+- Daily-material output paths may repeat across source Bots because they can write the same dated project file; notification formatting must deduplicate paths before reporting a file count.
+- Final review found no remaining memory-task completion path that invokes `triggerTask`; its remaining uses are the intentional ordinary scheduled-task path and the channel implementations retained for user reminders.
+- Feishu internal notices enqueue only the native text outbox, and Telegram internal notices call the native text API directly. Neither path records a Bot response in the thread registry nor persists a conversation message.
+- The historical polluted Session was used read-only for diagnosis and remains untouched, avoiding an unapproved destructive edit to live conversation history.
+
+---
+# Fresh automation shared archive findings (2026-07-18)
+
+- `BaseChannelRuntime.resolveInboundSessionId()` currently calls `beginTaskSession()` for every fresh event, making a new `task-*` context and attaching that Session to the execution lease.
+- `MomRunner` loads persisted Session messages in its constructor and reloads them in `finally`; merely reusing a Session ID would therefore feed prior automation output into the next model turn.
+- Execution history stores both `runId` and `sessionId`, but the Desktop session endpoint currently ignores `runId` and loads the entire Session context.
+- Session message entries have no run ownership field. A backward-compatible optional `runId` is required for exact projection of executions sharing one archive.
+- Session-scoped approval, memory profile snapshots, turn locks, tool stores, and provider session identity must not silently become task-lifetime state. The runtime Session ID must remain execution-unique even when transcript persistence targets a stable archive ID.
+- Current `appendContextMessage()` rebuilds the JSON snapshot from all JSONL entries after each append. Shared archives need a persistence path that does not make aggregate history the model snapshot or cause repeated full-history reloads.
+
+## Technical decision
+Use two identities for fresh automation runs: an execution-unique runtime Session ID for Runner/control state, and a deterministic task archive Session ID for transcript persistence and UI history. Keep legacy one-Session-per-run records readable.
+
+## Approval continuation finding
+- Host Bash approval commands intentionally discover pending requests through the active Session, and delayed execution rewrites that Session before resuming the Agent. A shared archive therefore cannot simply use `runId` as the Host Bash Session ID.
+- Approval-safe continuation needs both identities: keep the archive Session for approval discovery, persist the original `runId` in the pending action, rewrite only that run's tagged entries, and resume the Runner from only that run's context. The next independently scheduled fresh run must still ignore any archive-level Session bypass preference.
+
+---
+
+# Desktop settings switch unification findings (2026-07-18)
+
+- The reference General page uses the shared `IosSwitch`, whose track is 38×22px, pill-shaped, accent-colored when checked, and exposes a native checkbox for focus/disabled semantics.
+- The eight reported pages still render hand-written `<button class="switch" role="switch">` controls.
+- `apps/desktop/src/styles.css` no longer contains any `.switch` rule, so those buttons collapse to small default squares, exactly matching the screenshots.
+- Project history already records `IosSwitch` as the required settings-toggle primitive; the correct root fix is component migration, not restoring a second global `.switch` implementation.
+- The third screenshot is the Search page, so `WebSearchSection` is included alongside the text-listed Web Profile page.
+- Final target scan finds no legacy `.switch` in the nine affected sections; all render `IosSwitch` and retain their prior update/store functions.
+- At 860×620 the shared control computes to 38×22px with a 999px track radius and no document-level horizontal overflow. The local browser preview cannot call Tauri's service-status bridge, so populated data-backed pages could only be verified structurally; stopping the user's live Desktop host to force a packaged cold start was intentionally avoided.
+
+---

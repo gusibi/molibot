@@ -225,6 +225,7 @@ test("bash can request host tool approval without a separate approval tool", asy
         chatId: "chat-1",
         scopeId: "chat-1",
         sessionId: "session-1",
+        runId: "automation-run-2",
         store: hostApprovalStore(),
         hostBashStore: capturingHostBashStore(pendingApprovals),
         getSettings: () => settings,
@@ -250,6 +251,7 @@ test("bash can request host tool approval without a separate approval tool", asy
     assert.equal(pendingApprovals[0]?.command, "agent-browser");
     assert.equal(pendingApprovals[0]?.approvalMode, "persistent");
     assert.equal(pendingApprovals[0]?.pendingAction?.kind, "run_approved_host_bash");
+    assert.equal(pendingApprovals[0]?.pendingAction?.runId, "automation-run-2");
     assert.deepEqual(pendingApprovals[0]?.pendingAction?.args, ["--open"]);
     assert.match(firstText(result), /Host Bash approval requested/);
     assert.equal(Boolean(result.details && "hostBashApproval" in result.details), true);

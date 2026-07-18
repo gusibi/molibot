@@ -33,8 +33,12 @@ export async function dispatchTaskEvent(
   if (event.execution === "internal") {
     if (!runInternalEvent) throw new Error("Internal event handler is not configured.");
     const result = await runInternalEvent(event, filename);
-    if (result?.notificationText && event.internal?.notificationChatId && manager.triggerTask) {
-      await manager.triggerTask({ type: "immediate", chatId: event.internal.notificationChatId, text: result.notificationText, delivery: "text" }, `${filename}:notification`);
+    if (result?.notificationText && event.internal?.notificationChatId) {
+      if (!manager.sendInternalNotice) throw new Error("Channel manager does not support internal notices.");
+      await manager.sendInternalNotice(event.internal.notificationChatId, result.notificationText, {
+        kind: result.kind ?? event.internal.kind,
+        filename
+      });
     }
     return result;
   }
@@ -85,6 +89,29 @@ export function resolveMemoryReflectionNotificationTarget(settings?: RuntimeSett
   return options[0]?.target ?? null;
 }
 
+export async function deliverMemoryTaskNotification(
+  channelManagers: Map<string, Map<string, ChannelManager>>,
+  settings: RuntimeSettings,
+  text: string,
+  metadata: { kind: "memory-reflection" | "daily-materials"; filename: string }
+): Promise<boolean> {
+  const target = resolveMemoryReflectionNotificationTarget(settings);
+  if (!target) return false;
+  const manager = channelManagers.get(target.channel)?.get(target.botId);
+  if (!manager?.sendInternalNotice) {
+    throw new Error(`Memory notification target is unavailable: ${target.channel}/${target.botId}`);
+  }
+  await manager.sendInternalNotice(target.chatId, text, metadata);
+  return true;
+}
+
+export function formatDailyMaterialsNotification(createdFiles: string[]): string | undefined {
+  const uniqueFiles = Array.from(new Set(createdFiles.map((file) => String(file).trim()).filter(Boolean)));
+  if (uniqueFiles.length === 0) return undefined;
+  if (uniqueFiles.length === 1) return `今日素材已生成：${uniqueFiles[0]}`;
+  return `今日素材已生成 ${uniqueFiles.length} 个文件：\n${uniqueFiles.map((file) => `- ${file}`).join("\n")}`;
+}
+
 export function collectMemoryReflectionInternals(settings?: RuntimeSettings): Array<NonNullable<MomEvent["internal"]>> {
   if (!settings?.plugins.memory.enabled || settings.plugins.memory.backend !== "mory") return [];
   const internals: Array<NonNullable<MomEvent["internal"]>> = [];
@@ -95,7 +122,6 @@ export function collectMemoryReflectionInternals(settings?: RuntimeSettings): Ar
       if (chatIds.length === 0) continue;
       internals.push({
         kind: "memory-reflection",
-        notificationChatId: settings.plugins.memory.reflectionNotifications ? chatIds[0] : undefined,
         target: {
           ownerId: SYSTEM_TASK_OWNER_ID,
           botId: instance.id,
@@ -191,7 +217,6 @@ export function buildDailyMaterialsInternal(channel: string, botId: string, sett
   if (chatIds.length === 0) return null;
   return {
     kind: "daily-materials",
-    notificationChatId: configured.notifications ? chatIds[0] : undefined,
     target: {
       ownerId: "owner",
       botId,

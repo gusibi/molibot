@@ -155,6 +155,35 @@ test("reflection rejects duplicate values and forged refs without blocking the w
   } finally { h.cleanup(); }
 });
 
+test("repeated mention reinforces the confirmed memory instead of dropping it", async () => {
+  const h = harness();
+  try {
+    const existing: MemoryRecord = {
+      id: "memory-existing", channel: "web", externalUserId: "profile-1", content: "主人明确偏好简短直接的回答", tags: [], layer: "long_term",
+      namespace: "owner:owner", domain: "owner", type: "user_preference", subject: "answer_length", path: "mory://user_preference/answer_length",
+      state: "active", version: 1, confidence: 0.5, utility: 0.5, accessCount: 0, injectionCount: 0,
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
+    };
+    h.backend.search = async () => [existing];
+    h.backend.get = async (_scope, id) => (id === existing.id ? existing : null);
+    const updates: Array<{ id: string; confidence?: number }> = [];
+    h.backend.update = async (_scope, id, input) => {
+      updates.push({ id, confidence: input.confidence });
+      return { ...existing, confidence: input.confidence ?? existing.confidence };
+    };
+    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
+      extract: async () => [
+        { namespace: "owner:owner", domain: "owner", type: "user_preference", subject: "answer_length", path: existing.path, value: existing.content, confidence: 0.9, reason: "duplicate", layer: "long_term" }
+      ]
+    });
+    assert.equal((await service.run(h.target, { now: new Date("2026-07-12T19:00:00.000Z") })).createdCandidates, 0);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].id, existing.id);
+    assert.ok(Math.abs((updates[0].confidence ?? 0) - 0.52) < 1e-9);
+    assert.ok(h.state.get(h.targetId, "session-1"));
+  } finally { h.cleanup(); }
+});
+
 test("skill reflection keeps runtime-owned assistant evidence and rejects extractor-forged sources", async () => {
   const h = harness();
   try {

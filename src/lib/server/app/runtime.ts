@@ -4,7 +4,7 @@ import { applyChannelPlugins } from "$lib/server/plugins/loader.js";
 import { getToolSandboxEnvStartupReport } from "$lib/server/agent/tools/sandbox.js";
 import { config, liveServicesDisabled } from "$lib/server/app/env.js";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
-import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternals, resolveMemoryReflectionNotificationTarget, TaskScheduler, type InternalTaskExecutionResult } from "$lib/server/agent/taskScheduler.js";
+import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternals, deliverMemoryTaskNotification, formatDailyMaterialsNotification, TaskScheduler, type InternalTaskExecutionResult } from "$lib/server/agent/taskScheduler.js";
 import { executeOwnerMemoryReflection } from "$lib/server/agent/ownerMemoryReflection.js";
 import { MessageRouter } from "$lib/server/channels/shared/messageRouter.js";
 import { initDb, storagePaths } from "$lib/server/infra/db/storage.js";
@@ -153,6 +153,24 @@ export function getRuntime(): RuntimeState {
       `${config.dataDir}/memory-governance/rejections.jsonl`
     );
     const assistant = new AssistantService(() => currentSettings.value, usageTracker, modelErrorTracker);
+    memory.setProfileSummarizer(async (profile) => {
+      const lines = [...profile.stablePreferences, ...profile.profileFacts, ...profile.currentFocus]
+        .map((record) => `- [${record.type}] ${record.content.replace(/\s+/g, " ").trim()}`)
+        .join("\n");
+      const prompt = [
+        "Synthesize the memory records below into a second-person user profile of 2-4 flowing sentences (\"你…\").",
+        "Write in the language most of the records use (Simplified Chinese when mixed). Merge related records, keep concrete specifics such as names, numbers, and dates, and never invent information.",
+        "Return only the profile text — no lists, no headings, no preamble.",
+        lines
+      ].join("\n\n");
+      return assistant.reply([{
+        id: `profile-summary:${profile.meta.fingerprint}`,
+        conversationId: `profile-summary:${profile.meta.scope.botId}`,
+        role: "user",
+        content: prompt,
+        createdAt: new Date().toISOString()
+      }], prompt);
+    });
     const router = new MessageRouter(sessions, assistant, memory);
     const applySettingsPatch = (patch: Partial<RuntimeSettings>): RuntimeSettings => {
       // Always merge patches on top of the latest persisted settings snapshot.
@@ -238,19 +256,12 @@ export function getRuntime(): RuntimeState {
       }], prompt, "", { modelKey: currentSettings.value.plugins.memory.dailyMaterials.scanModelKey })
     );
     let state!: RuntimeState;
-    const sendInternalNotice = async (internal: NonNullable<MomEvent["internal"]>, text: string, filename: string, index: number): Promise<void> => {
-      if (!internal.notificationChatId || !internal.target) return;
-      const channel = internal.target.sourceScopes[0]?.channel;
-      const manager = channel ? state.channelManagers.get(channel)?.get(internal.target.botId) : undefined;
-      if (!manager?.triggerTask) return;
-      await manager.triggerTask({ type: "immediate", chatId: internal.notificationChatId, text, delivery: "text" }, `${filename}:notification:${index}`);
-    };
-    const sendOwnerReflectionNotice = async (text: string, filename: string): Promise<void> => {
-      const target = resolveMemoryReflectionNotificationTarget(currentSettings.value);
-      if (!target) throw new Error("No authorized Feishu or Telegram reflection notification target is available.");
-      const manager = state.channelManagers.get(target.channel)?.get(target.botId);
-      if (!manager?.triggerTask) throw new Error(`Reflection notification target is unavailable: ${target.channel}/${target.botId}`);
-      await manager.triggerTask({ type: "immediate", chatId: target.chatId, text, delivery: "text" }, `${filename}:owner-notification`);
+    const sendMemoryNotice = async (
+      text: string,
+      kind: "memory-reflection" | "daily-materials",
+      filename: string
+    ): Promise<void> => {
+      await deliverMemoryTaskNotification(state.channelManagers, currentSettings.value, text, { kind, filename });
     };
     const runInternalEvent = async (event: MomEvent, filename: string): Promise<InternalTaskExecutionResult | void> => {
       if (event.internal?.kind === "memory-reflection") {
@@ -258,13 +269,15 @@ export function getRuntime(): RuntimeState {
           const result = await reflectionService.run(event.internal.target as ReflectionTarget);
           await maintenanceService.run(event.internal.target as MemoryMaintenanceTarget, { triggerKey: `reflection:${filename}:${event.internal.target.botId}` });
           console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
+          if (currentSettings.value.plugins.memory.reflectionNotifications) {
+            await sendMemoryNotice(`记忆反思完成：扫描 ${result.scannedMessages} 条消息，新增 ${result.createdCandidates} 条待确认记忆。`, "memory-reflection", filename);
+          }
           return {
             kind: "memory-reflection",
             completedTargets: 1,
             scannedConversations: result.scannedConversations,
             scannedMessages: result.scannedMessages,
-            createdCandidates: result.createdCandidates,
-            notificationText: result.createdCandidates > 0 ? `记忆反思完成：新增 ${result.createdCandidates} 条待确认记忆。` : undefined
+            createdCandidates: result.createdCandidates
           };
         }
         const result = await executeOwnerMemoryReflection(
@@ -276,7 +289,7 @@ export function getRuntime(): RuntimeState {
             return result;
           },
           currentSettings.value.plugins.memory.reflectionNotifications
-            ? (text) => sendOwnerReflectionNotice(text, filename)
+            ? (text) => sendMemoryNotice(text, "memory-reflection", filename)
             : undefined
         );
         return { kind: "memory-reflection", ...result };
@@ -303,13 +316,16 @@ export function getRuntime(): RuntimeState {
         if (event.internal.target) {
           const result = await dailyMaterialsService.run(event.internal as DailyMaterialsInternal, { taskId: event.taskId });
           console.log(`${memoryLabel("daily-materials")} completed file=${filename} output=${result.createdFile ?? "(none)"} messages=${result.scannedMessages}`);
+          const notificationText = formatDailyMaterialsNotification(result.createdFile ? [result.createdFile] : []);
+          if (notificationText && currentSettings.value.plugins.memory.dailyMaterials.notifications) {
+            await sendMemoryNotice(notificationText, "daily-materials", filename);
+          }
           return {
             kind: "daily-materials",
             completedTargets: 1,
             scannedConversations: result.scannedConversations,
             scannedMessages: result.scannedMessages,
-            createdFiles: result.createdFile ? [result.createdFile] : [],
-            notificationText: result.createdFile ? `今日素材已生成：${result.createdFile}` : undefined
+            createdFiles: result.createdFile ? [result.createdFile] : []
           };
         }
         const failures: unknown[] = [];
@@ -317,7 +333,7 @@ export function getRuntime(): RuntimeState {
         let scannedConversations = 0;
         let scannedMessages = 0;
         const createdFiles: string[] = [];
-        for (const [index, internal] of collectDailyMaterialsBackfillInternals(currentSettings.value).entries()) {
+        for (const internal of collectDailyMaterialsBackfillInternals(currentSettings.value)) {
           try {
             const result = await dailyMaterialsService.run(internal as DailyMaterialsInternal, { taskId: event.taskId });
             completedTargets += 1;
@@ -325,12 +341,15 @@ export function getRuntime(): RuntimeState {
             scannedMessages += result.scannedMessages;
             if (result.createdFile) createdFiles.push(result.createdFile);
             console.log(`${memoryLabel("daily-materials")} completed file=${filename} target=${internal.target?.botId} output=${result.createdFile ?? "(none)"} messages=${result.scannedMessages}`);
-            if (result.createdFile) await sendInternalNotice(internal, `今日素材已生成：${result.createdFile}`, filename, index);
           } catch (cause) {
             failures.push(cause);
           }
         }
         if (failures.length > 0) throw new AggregateError(failures, `${failures.length} daily materials target(s) failed.`);
+        const notificationText = formatDailyMaterialsNotification(createdFiles);
+        if (notificationText && currentSettings.value.plugins.memory.dailyMaterials.notifications) {
+          await sendMemoryNotice(notificationText, "daily-materials", filename);
+        }
         return { kind: "daily-materials", completedTargets, scannedConversations, scannedMessages, createdFiles };
       }
       throw new Error("Unsupported internal event.");

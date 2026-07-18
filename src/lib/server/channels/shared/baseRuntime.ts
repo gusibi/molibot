@@ -54,13 +54,14 @@ export function appendDirectEventContextMessage(
   chatId: string,
   sessionId: string,
   text: string,
-  timestamp = Date.now()
+  timestamp = Date.now(),
+  runId?: string
 ): void {
   store.appendContextMessage(chatId, {
     role: "assistant",
     content: [{ type: "text", text }],
     timestamp
-  } as AgentMessage, sessionId);
+  } as AgentMessage, sessionId, { runId });
 }
 
 export abstract class BaseChannelRuntime {
@@ -165,23 +166,21 @@ export abstract class BaseChannelRuntime {
   }
 
   /**
-   * Scheduled-event runs marked sessionMode=fresh start a new task session
-   * (and prune expired ones); everything else uses the chat's active session.
+   * Scheduled-event runs marked sessionMode=fresh reuse a task transcript
+   * archive (legacy tasks without an id keep per-run Sessions); everything else
+   * uses the chat's active Session.
    */
   protected resolveInboundSessionId(scopeId: string, event: ChannelInboundMessage): string {
     if (event.isEvent && event.sessionMode === "fresh") {
-      const sessionId = this.store.beginTaskSession(
+      const sessionId = this.store.beginTaskArchiveSession(
         scopeId,
+        String((event as ChannelInboundMessage & { taskId?: string }).taskId ?? ""),
         taskSessionRetentionMs(this.getSettings().events?.taskSessionRetentionDays),
-        {
-          taskId: (event as ChannelInboundMessage & { taskId?: string }).taskId,
-          runId: event.runId
-        }
       );
       if (event.runId) {
         getEventExecutionLeaseStore().attachSessionByRunId(event.runId, sessionId);
       }
-      momLog(this.channelName, "event_fresh_session_created", { chatId: scopeId, sessionId });
+      momLog(this.channelName, "event_fresh_archive_resolved", { chatId: scopeId, sessionId, taskId: event.taskId });
       return sessionId;
     }
     const sessionId = resolveEventTargetSessionId(event, this.store.getActiveSession(scopeId));
@@ -194,6 +193,9 @@ export abstract class BaseChannelRuntime {
   /** Persist a direct text automation in the same Agent Context linked by its execution lease. */
   protected persistDirectEventMessage(event: MomEvent, runId?: string): string {
     const now = Date.now();
+    const previousActiveSessionId = resolveEventSessionMode(event) === "fresh"
+      ? this.store.getActiveSession(event.chatId)
+      : undefined;
     const sessionId = this.resolveInboundSessionId(event.chatId, {
       chatId: event.chatId,
       chatType: "private",
@@ -210,7 +212,10 @@ export abstract class BaseChannelRuntime {
       sessionMode: resolveEventSessionMode(event),
       runId
     });
-    appendDirectEventContextMessage(this.store, event.chatId, sessionId, event.text, now);
+    appendDirectEventContextMessage(this.store, event.chatId, sessionId, event.text, now, runId);
+    if (previousActiveSessionId && previousActiveSessionId !== sessionId) {
+      this.store.setActiveSession(event.chatId, previousActiveSessionId);
+    }
     return sessionId;
   }
 
@@ -457,12 +462,21 @@ export abstract class BaseChannelRuntime {
         });
 
         try {
-          const sessionId = this.store.getActiveSession(input.scopeId);
-          const messages = this.store.loadContext(input.scopeId, sessionId);
+          const sessionId = request.sessionId || this.store.getActiveSession(input.scopeId);
+          const contextRunId = String(request.pendingAction.runId ?? "").trim();
+          const origin = this.store.readSessionOrigin(input.scopeId, sessionId);
+          const messages = origin?.archiveMode === "shared" && contextRunId
+            ? this.store.loadContextForRun(input.scopeId, sessionId, contextRunId)
+            : this.store.loadContext(input.scopeId, sessionId);
           const rewritten = rewriteApprovalToolResultInContext(messages, request.command, executed.rendered);
 
           if (rewritten) {
-            this.store.saveContext(input.scopeId, messages, sessionId);
+            if (origin?.archiveMode === "shared" && contextRunId) {
+              this.store.replaceContextForRun(input.scopeId, sessionId, contextRunId, messages);
+            } else {
+              this.store.saveContext(input.scopeId, messages, sessionId);
+            }
+            this.store.setActiveSession(input.scopeId, sessionId);
             this.runners.reset(input.scopeId, sessionId);
 
             const isEnglishChannel = this.channelName === "telegram" || this.channelName === "feishu";
@@ -475,7 +489,11 @@ export abstract class BaseChannelRuntime {
               ts: (Date.now() / 1000).toFixed(6),
               attachments: [],
               imageContents: [],
-              isEvent: true
+              isEvent: true,
+              sessionId,
+              runId: contextRunId || undefined,
+              contextRunId: contextRunId || undefined,
+              restoreSessionId: origin?.returnSessionId
             };
             this.resumeApprovedHostBashTask(input.scopeId, event, {
               createBotMessageId: () => Math.floor(Math.random() * 1000000),
@@ -535,16 +553,37 @@ export abstract class BaseChannelRuntime {
     }
   ): Promise<void> {
     event.workspaceId = event.workspaceId || this.workspaceId;
+    const previousActiveSessionId = event.isEvent && event.sessionMode === "fresh"
+      ? this.store.getActiveSession(scopeId)
+      : event.restoreSessionId;
     const activeSessionId = event.isEvent
       ? this.resolveInboundSessionId(scopeId, event)
       : event.sessionId || this.resolveInboundSessionId(scopeId, event);
+    if (
+      event.isEvent
+      && event.sessionMode === "fresh"
+      && previousActiveSessionId
+      && previousActiveSessionId !== activeSessionId
+    ) {
+      this.store.setTaskArchiveReturnSession(scopeId, activeSessionId, previousActiveSessionId);
+    }
+    const restorePreviousActiveSession = (): void => {
+      if (!previousActiveSessionId || previousActiveSessionId === activeSessionId) return;
+      this.store.setActiveSession(scopeId, previousActiveSessionId);
+      this.store.setTaskArchiveReturnSession(scopeId, activeSessionId);
+    };
 
     // Prepare turn metadata via TurnOrchestrator
-    getTurnOrchestrator().prepareTurn({
-      chatId: scopeId,
-      sessionId: activeSessionId,
-      message: event
-    });
+    try {
+      getTurnOrchestrator().prepareTurn({
+        chatId: scopeId,
+        sessionId: activeSessionId,
+        message: event
+      });
+    } catch (error) {
+      restorePreviousActiveSession();
+      throw error;
+    }
 
     this.running.add(scopeId);
 
@@ -611,11 +650,28 @@ export abstract class BaseChannelRuntime {
       onSessionAppendWarning: options.onSessionAppendWarning
     });
 
+    let runStopReason: "stop" | "aborted" | "error" | "waiting_for_approval" | undefined;
     try {
       const result = await runner.run(ctx);
+      runStopReason = result.stopReason;
       await options.onRunComplete?.(result, { activeSessionId, threadEventCount });
     } finally {
       this.running.delete(scopeId);
+      if (
+        previousActiveSessionId
+        && previousActiveSessionId !== activeSessionId
+        && runStopReason !== "waiting_for_approval"
+      ) {
+        try {
+          restorePreviousActiveSession();
+        } catch (error) {
+          momWarn(this.channelName, "event_active_session_restore_failed", {
+            chatId: scopeId,
+            sessionId: previousActiveSessionId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
     }
   }
 }

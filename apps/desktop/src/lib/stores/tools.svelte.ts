@@ -33,6 +33,7 @@ import type {
   DesktopWebSearchUpdateRequest
 } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
+import { ActivityScheduler, documentActivityVisibility, mediaActivityPolicy } from "../native/activityScheduler";
 
 export type ToolSettingsSection = "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate";
 
@@ -143,7 +144,8 @@ export const toolsStore = $state({
   revealedSecrets: new Set<string>()
 });
 
-let mediaPollTimer: ReturnType<typeof setInterval> | null = null;
+const mediaSchedulers = new Map<"image" | "video", ActivityScheduler>();
+const mediaPollGenerations = new Map<"image" | "video", number>();
 // Bumped on every detail open/close so a slow blob fetch for a previously
 // selected task can't overwrite the currently shown preview.
 let mediaDetailGen = 0;
@@ -359,25 +361,42 @@ function refreshMediaTaskDetail(kind: "image" | "video"): void {
 async function pollMediaTasks(kind: "image" | "video"): Promise<void> {
   const endpoint = session.endpoint;
   if (!endpoint) return;
+  const generation = (mediaPollGenerations.get(kind) ?? 0) + 1;
+  mediaPollGenerations.set(kind, generation);
   try {
     const tasks = await loadDesktopMediaTasks(endpoint, kind);
+    if (generation !== mediaPollGenerations.get(kind) || endpoint !== session.endpoint) return;
     if (kind === "image") toolsStore.imageTasks = tasks;
     else toolsStore.videoTasks = tasks;
     refreshMediaTaskDetail(kind);
+    ensureMediaPolling(kind);
   } catch {
-    // keep last-known list on transient errors
+    // Keep the last-known list on transient errors.
   }
 }
 
 export function ensureMediaPolling(kind: "image" | "video"): void {
-  const list = mediaTaskList(kind);
-  const hasProcessing = list.some((task) => task.status === "processing");
-  if (hasProcessing && !mediaPollTimer) {
-    mediaPollTimer = setInterval(() => { void pollMediaTasks(kind); }, 5000);
-  } else if (!hasProcessing && mediaPollTimer) {
-    clearInterval(mediaPollTimer);
-    mediaPollTimer = null;
+  const hasProcessing = mediaTaskList(kind).some((task) => task.status === "processing");
+  const scheduler = mediaSchedulers.get(kind);
+  if (!hasProcessing) {
+    scheduler?.dispose();
+    mediaSchedulers.delete(kind);
+    return;
   }
+  if (scheduler) return;
+  const nextScheduler = new ActivityScheduler(
+    mediaActivityPolicy,
+    () => pollMediaTasks(kind),
+    documentActivityVisibility
+  );
+  mediaSchedulers.set(kind, nextScheduler);
+  nextScheduler.start();
+}
+
+export function stopMediaPolling(kind: "image" | "video"): void {
+  mediaPollGenerations.set(kind, (mediaPollGenerations.get(kind) ?? 0) + 1);
+  mediaSchedulers.get(kind)?.dispose();
+  mediaSchedulers.delete(kind);
 }
 
 export function openMediaTaskDetail(task: DesktopMediaTask): void {

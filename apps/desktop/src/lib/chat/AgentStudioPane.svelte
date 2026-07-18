@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import { ActivityScheduler, agentActivityPolicy, documentActivityVisibility } from "../native/activityScheduler";
   import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
   import { loadDesktopAgentActivity, loadDesktopAgents } from "../api";
   import type { Translation } from "../i18n";
@@ -31,7 +32,7 @@
   let anchors: Record<string, AgentCityAnchor> = {};
   let loading = false;
   let error = "";
-  let refreshTimer: ReturnType<typeof setInterval> | undefined;
+  let refreshScheduler: ActivityScheduler | null = null;
   let refreshGeneration = 0;
   let quality: AgentCityQuality = "full";
   let fallback = false;
@@ -72,7 +73,7 @@
   $: cityHeight = agentCityViewportHeight(projection.sceneFloors, cityWidth);
 
   async function refresh(): Promise<void> {
-    if (!serviceReady || !serviceEndpoint || document.hidden) return;
+    if (!serviceReady || !serviceEndpoint) return;
     const endpoint = serviceEndpoint;
     const generation = ++refreshGeneration;
     loading = agents.length === 0;
@@ -96,10 +97,6 @@
     } finally {
       if (generation === refreshGeneration) loading = false;
     }
-  }
-
-  function handleVisibilityChange(): void {
-    if (!document.hidden) void refresh();
   }
 
   function shortBotName(name: string): string {
@@ -149,9 +146,8 @@
   }
 
   onMount(() => {
-    void refresh();
-    refreshTimer = setInterval(() => void refresh(), 2500);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    refreshScheduler = new ActivityScheduler(agentActivityPolicy, refresh, documentActivityVisibility);
+    refreshScheduler.start();
     shellObserver = new ResizeObserver(([entry]) => {
       if (entry) cityWidth = entry.contentRect.width;
     });
@@ -170,8 +166,8 @@
 
   onDestroy(() => {
     refreshGeneration += 1;
-    if (refreshTimer) clearInterval(refreshTimer);
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    refreshScheduler?.dispose();
+    refreshScheduler = null;
     shellObserver?.disconnect();
     themeObserver?.disconnect();
     cleanupSystemTheme();

@@ -5,6 +5,33 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.87 Desktop Settings macOS Switch Consistency (2026-07-18)
+- [Done, P0] Skills、搜索、图像、视频、语音、Host Bash、Web Profile、沙箱和插件页的布尔开关必须复用 General 页同一 `IosSwitch`，不得保留无样式的 `.switch` 按钮或新增页面私有开关。
+- [Done, P0] 迁移不得改变原有状态更新、禁用态、dirty 标记、细粒度保存/API 与持久化行为；共享组件继续负责 checked/unchecked、键盘焦点、明暗主题、中英和紧凑窗口表现。
+- [Done] 结构回归覆盖全部目标页面，并通过 Desktop UI、Svelte diagnostics、production build 与 860×620 冷启动/页面切换检查。
+
+## 2.86 Fresh Automation Shared Archive Sessions (2026-07-18)
+- [Done, P0] 带稳定 `taskId` 的 fresh 周期任务必须按“每个任务一个隐藏归档 Session”聚合历史结果，不得每次触发都创建新的 Session；缺少稳定任务 ID 的旧 Event 保持逐次 Session 兼容。
+- [Done, P0] 共享归档只能作为 transcript persistence，模型每次执行必须从空消息上下文开始并在结束后清空；Memory profile、provider execution identity、通用工具审批和 Subagent 不得继承前次运行作用域。
+- [Done, P0] 归档消息必须记录 `runId`，执行历史打开详情时只投影对应运行；旧执行记录没有消息 `runId` 时继续读取其原 Session。
+- [Done, P1] 归档追加不得反复重建全历史模型快照；fresh 任务结束后恢复此前 Active Session，普通聊天不得长期停留在自动任务归档中。
+- [Done, P1] 自动任务等待 Host Bash 审批时保留可发现的归档 Session；真正的新 fresh 运行忽略归档上残留的 Session 旁路模式，避免审批能力跨定时执行扩大。
+- [Done, P0] Host Bash 审批续跑必须持久化原 `runId`、只改写/加载该 run 的归档消息，并恢复同一 Turn 状态；不得用聚合 Session 上下文续跑或覆盖兄弟运行。
+
+## 2.85 Unified Context-Free Memory Task Notifications (2026-07-18)
+- [Done, P0] 记忆反思与每日素材必须共用同一个已授权 Telegram/飞书 Bot + Chat 通知目标；两者分别保留自己的通知开关，但不得按素材源 Bot 各自选择首个聊天。
+- [Done, P0] 内部完成通知必须走独立 Channel 投递接口，不得调用 Agent Runner、不得追加 Agent Context、不得创建/替换 active Session，也不得作为普通 assistant 消息回灌模型。
+- [Done, P0] 每个 Owner 任务运行最多发送一条完成摘要；每日素材聚合所有目标结果并对相同输出路径去重，反思继续发送聚合扫描/候选结果。
+- [Done, P0] 用户创建的一次性提醒继续返回其来源 Session；修复内部通知不得改变普通 reminder 的 execution-linked 持久化契约。
+- [Done, P1] 设置页使用中英文说明共享目标，并在反思或每日素材任一通知开启时允许选择目标；已保存目标失效时只可安全回退到仍授权的 Telegram/飞书会话。
+
+## 2.84 Desktop Clipboard Image Attachments and Live Recognition (2026-07-17)
+- [Done, P0] Desktop 普通 Chat 与 Project Chat 的共享输入框必须接收剪贴板 `image/*` 文件；使用系统截图工具复制后直接粘贴，应自动加入待发送附件，同时普通文本粘贴行为保持不变。
+- [Done, P0] 同一次剪贴板粘贴若为同一截图暴露 PNG/TIFF 等多个图片表示，只能选择第一个有效表示并生成一个附件，不得重复添加。
+- [Done, P0] 图片附件发送必须按“上传中 → 图片识别中 → AI 流式响应”即时更新，不得因附件存在而退化到非流式 `/api/chat` 整轮等待。
+- [Done, P0] `/api/stream` 必须同时兼容既有 JSON 文本请求和 multipart 附件请求，并把附件、图片内容与 Session 展示元数据交给同一共享 Web/Agent 运行链路。
+- [Done] 回归测试锁定剪贴板过滤/命名、multipart SSE、上传完成阶段、Token 流更新和两种 Desktop Chat 表面接线；Svelte 检查保持 0 错误 0 警告。
+
 ## 2.83 Desktop Settings Canvas and Card Hierarchy (2026-07-17)
 - [Done, P0] Desktop 设置左侧导航保持既有侧栏表面，右侧 Header 与主内容统一使用次级浅灰画布，白色设置卡片形成清晰层级。
 - [Done, P0] 设置卡片外框与内部横向分隔线使用更低对比度的现有 DESIGN token，不新增硬编码颜色。
@@ -21,13 +48,14 @@
 - [Done] 页面只消费 DESIGN/theme 语义 token，不新增硬编码色值，并保持中英、明暗主题与窄宽度布局兼容。
 
 ## 2.80 Desktop Native Experience Behavior Layer (2026-07-16)
-- 背景：Issue #13 和 §2.68/§2.78 已完成 Desktop 的 Geist/macOS 视觉基线；下一阶段不重做 UI 主题，而是补齐原生菜单、窗口生命周期、可恢复状态、覆盖层语义、直接操控、平台反馈和后台活动预算。完整技术看板、依赖和验收见 [`docs/designs/2026-07-16-native-experience-developer-board.md`](docs/designs/2026-07-16-native-experience-developer-board.md)。
-- [Planned, P0] 建立带 production/in-memory Adapter 的深 Module：CommandSystem、StartupCoordinator、Dialog/AlertDialog、WindowState、DirectManipulation、FeedbackCoordinator、ActivityScheduler；禁止收敛成万能 `NativeHost` 或在 Channel 加平台编排。
-- [Planned, P0] App Menu、Tray 与 ⌘K 使用同一稳定命令 ID/标签/快捷键/可用状态；启动超过 8 秒进入可恢复状态；关闭 Chat 的菜单栏驻留/退出行为由用户控制且继续走 orderly service shutdown。
-- [Planned, P0] 所有 Chat、Project、Settings modal 迁移到 Desktop 本地 shadcn-svelte 兼容 primitive，统一 focus trap、inert、Escape、焦点恢复和退出生命周期，并保持中英、明暗、860×620 与无障碍适配。
-- [Planned, P1] Tasks Inspector、Sidebar resize 与 Drawer 使用共享 Pointer/速度/中断语义；活动/非活动窗口和 reduced-transparency/increased-contrast 使用实时平台状态，只在 chrome 使用克制材质。
-- [Planned, P1] 前台使用应用内反馈，后台按权限发送去重的原生通知；Force Touch 触觉只响应用户主动的 snap/commit；所有数据轮询迁入窗口感知的 ActivityScheduler，禁止高频 timer 在隐藏窗口永久运行。
-- [Planned] 15 张 ready-for-agent Issue 仅在产品负责人确认粒度和依赖后发布，统一以 GitHub Issue #13 为 Parent。
+- 状态：**实现、自动化、DMG 产物与隔离 packaged-host 运行验证完成；受当前 macOS 权限/硬件限制的最终交互矩阵待补。** 完整技术看板、依赖和验收见 [`docs/designs/2026-07-16-native-experience-developer-board.md`](docs/designs/2026-07-16-native-experience-developer-board.md)。
+- [Implemented, P0] 深 Module 已提供 production/in-memory Adapter：`CommandSystem`、`StartupCoordinator`、`Dialog`/`AlertDialog`、`WindowState`、`DirectManipulation`、`FeedbackCoordinator`、`ActivityScheduler`；未创建万能 `NativeHost`，Channel 未承载平台编排。
+- [Implemented, P0] App Menu、Tray 与 ⌘K 使用同一稳定命令 ID/标签/快捷键/可用状态；⌘K 空查询按本地成功历史、当前 workspace 和 catalog 推荐级别显示动作，检索保持文本相关性优先。版本化本地历史只保留命令 ID、成功次数和本地时间，最多 20 项、保留 90 天，不记录查询、用户内容、会话/Profile、参数、标签或错误；启动超过 8 秒进入可恢复状态；关闭 Chat 的菜单栏驻留/退出行为由用户偏好控制并走 orderly service shutdown。
+- [Implemented, P0] Chat、Project、Settings modal 已迁移到 Desktop 本地 primitive，统一 focus trap、inert、Escape、焦点恢复和退出生命周期，并保留中英、明暗、860×620 与无障碍契约。
+- [Implemented, P1] Tasks Inspector、Sidebar resize 与 Drawer 使用共享 Pointer/速度/中断语义；活动/非活动窗口和 reduced-transparency/increased-contrast 使用实时平台状态，克制材质只用于 chrome。
+- [Implemented, P1] 前台使用应用内反馈，后台按权限发送去重的原生通知；Force Touch 触觉只响应用户主动的 snap/commit；数据轮询迁入窗口感知的 `ActivityScheduler`，隐藏窗口不保留高频 timer。
+- [Verified] Desktop native/unit 45/45、UI/HTTP 74/74、Rust 19/19、`svelte-check` 0 errors/0 warnings、Vite build、`cargo check` 与 `git diff --check` 均通过。Apple Silicon DMG `Molibot_0.5.5_aarch64.dmg` 已生成，SHA-256 与 `hdiutil verify` 均通过且挂载内容正确；独立编译 identifier 的 QA `.app` 已以前台原生应用启动、解析 bundle resources、在隔离 `DATA_DIR` 启动 3001 managed sidecar，并验证二次启动保持单一 QA host，未影响原 debug host/3000 service。
+- [Pending manual host verification] 本机 System Events 辅助功能自动化和显示捕获均被 macOS 拒绝，因而 menu/tray 点击、关闭/重开、通知点击、VoiceOver/焦点、显示缩放/主题/辅助功能视觉状态及 Force Touch 矩阵仍须在允许这些能力且具备支持硬件的 macOS 会话完成；通知权限未绕过产品约束，仅能由用户显式开启设置时请求。本机也没有 Developer ID 签名 identity。
 
 ## 2.79 Memory System Improvement Plan v3 — Loop Closure & Honest Profile (2026-07-16)
 - 状态：**已完成（2026-07-17）**。v3.2 的 C0/C1 与 T10–T18 已交付；权威契约、边界和六组顶层验收保留在 [`docs/requirements/memory-improvement-plan-v3.md`](docs/requirements/memory-improvement-plan-v3.md)。

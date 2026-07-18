@@ -13,12 +13,17 @@ export function desktopArchFromTarget(target = process.env.TAURI_BUILD_TARGET ??
   return process.arch === "x64" ? "x86_64" : "aarch64";
 }
 
+export function desktopBuildTarget(target = process.env.TAURI_BUILD_TARGET ?? "") {
+  const explicitTarget = String(target).trim();
+  if (explicitTarget) return explicitTarget;
+  return process.arch === "x64" ? "x86_64-apple-darwin" : "aarch64-apple-darwin";
+}
+
 export function defaultDmgDirectory(target = process.env.TAURI_BUILD_TARGET ?? "") {
-  const targetPart = String(target).trim();
   return path.join(
     repositoryRoot,
     "apps/desktop/src-tauri/target",
-    ...(targetPart ? [targetPart] : []),
+    desktopBuildTarget(target),
     "release/bundle/dmg"
   );
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import type {
     DesktopAgentItem,
     DesktopChannelsSummary,
@@ -84,15 +85,41 @@
   import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
   import { stickToBottom } from "./lib/chat/stickToBottom";
   import { openWorkspacePaneState, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
+  import {
+    CommandSystem,
+    CallbackCommandHostAdapter,
+    type CommandContext,
+    type CommandExecution,
+    type CommandId,
+    type CommandSnapshot
+  } from "./lib/native/commandSystem";
   import { humanizeModelOption } from "./lib/presentation";
+  import {
+    loadCommandUsage,
+    rankCommands,
+    recordCommandSuccess,
+    saveCommandUsage,
+    type CommandUsage
+  } from "./lib/native/commandPalette";
+  import { DirectManipulation } from "./lib/native/directManipulation";
+  import { ActivityScheduler, backgroundActivityPolicy, documentActivityVisibility, reconnectActivityPolicy } from "./lib/native/activityScheduler";
   import MemoryTraceDrawer from "./lib/chat/MemoryTraceDrawer.svelte";
 
   export let copy: Translation;
+  export let locale: "zh-CN" | "en";
   export let serviceEndpoint: string | null;
   export let serviceState: "disconnected" | "ready" | "incompatible" | "error";
+  export let startupPhase: "checking" | "starting" | "delayed" | "ready" | "error" | "retrying" = "checking";
+  export let startupError = "";
+  export let retryStartup: () => void = () => {};
+  export let openStartupDiagnostics: () => void = () => {};
+  export let openStartupLogs: () => void = () => {};
+  export let serviceOwnership: "managed" | "external" | null = null;
   export let launchAtLogin: boolean;
   export let launchAtLoginBusy: boolean;
   export let setLaunchAtLogin: (enabled: boolean) => Promise<boolean>;
+  export let onHapticCommit: (gestureId: string) => void = () => {};
+  export let onCommandResult: (result: CommandExecution) => void = () => {};
   export let openSettings: (section?: string) => void;
   export let requestedWorkspacePane: ChatWorkspacePaneName = "chat";
 
@@ -100,6 +127,7 @@
   const LAST_BOT_KEY = "molibot-desktop-last-bot";
   const LAST_SESSION_KEY = "molibot-desktop-last-session";
   const FIRST_LAUNCH_SEEN_KEY = "molibot-desktop-first-launch-seen";
+  const NATIVE_COMMAND_EVENT = "native-command";
   const PERSONALIZATION_MARKER_START = "<!-- molibot:onboarding-personalization:start -->";
   const PERSONALIZATION_MARKER_END = "<!-- molibot:onboarding-personalization:end -->";
 
@@ -206,48 +234,88 @@
   let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let automationUnreadCount = 0;
+  let automationUnreadScheduler: ActivityScheduler | null = null;
+  let reconnectScheduler: ActivityScheduler | null = null;
 
   async function refreshAutomationUnread(): Promise<void> {
-    if (!connectionReady || !connectedEndpoint || document.hidden) return;
+    const endpoint = connectedEndpoint;
+    const generation = connectionGeneration;
+    if (!connectionReady || !endpoint) return;
     try {
-      automationUnreadCount = await loadDesktopTaskUnreadCount(connectedEndpoint);
+      const unreadCount = await loadDesktopTaskUnreadCount(endpoint);
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      automationUnreadCount = unreadCount;
     } catch {
       // The Automations workspace owns visible loading errors; a stale badge is
       // less disruptive than surfacing a second global error for the same API.
     }
   }
 
-  const automationUnreadTimer = setInterval(() => void refreshAutomationUnread(), 15_000);
+  function startAutomationUnreadPolling(): void {
+    automationUnreadScheduler?.dispose();
+    automationUnreadScheduler = new ActivityScheduler(
+      backgroundActivityPolicy,
+      refreshAutomationUnread,
+      documentActivityVisibility
+    );
+    automationUnreadScheduler.start();
+  }
+
+  function stopAutomationUnreadPolling(): void {
+    automationUnreadScheduler?.dispose();
+    automationUnreadScheduler = null;
+  }
 
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_MIN = 220;
   const SIDEBAR_MAX = 420;
   let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || 260);
   let resizingSidebar = false;
+  let sidebarGestureId = "";
+  let sidebarResizer: HTMLDivElement | null = null;
+  const sidebarManipulation = new DirectManipulation({
+    min: SIDEBAR_MIN,
+    max: SIDEBAR_MAX,
+    mode: "continuous",
+    onUpdate(snapshot) {
+      sidebarWidth = clampSidebarWidth(snapshot.position);
+      resizingSidebar = snapshot.phase === "tracking" || snapshot.phase === "dragging";
+    },
+    onSettled(target) {
+      sidebarWidth = clampSidebarWidth(target);
+      resizingSidebar = false;
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    },
+    onCommitted() {
+      if (sidebarGestureId) onHapticCommit(sidebarGestureId);
+    }
+  });
   function clampSidebarWidth(value: number): number {
     return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(value)));
   }
-  function startSidebarResize(event: MouseEvent): void {
+  function startSidebarResize(event: PointerEvent): void {
     if (event.button !== 0) return;
     event.preventDefault();
-    resizingSidebar = true;
-    window.addEventListener("mousemove", onSidebarResize);
-    window.addEventListener("mouseup", stopSidebarResize);
-    window.addEventListener("blur", stopSidebarResize);
-    document.addEventListener("mouseleave", stopSidebarResize);
+    sidebarGestureId = `sidebar:${event.pointerId}:${event.timeStamp}`;
+    sidebarResizer?.setPointerCapture(event.pointerId);
+    sidebarManipulation.interrupt(event.pointerId, event.clientX, event.timeStamp);
   }
-  function onSidebarResize(event: MouseEvent): void {
-    if (!resizingSidebar) return;
-    sidebarWidth = clampSidebarWidth(event.clientX);
+  function onSidebarResize(event: PointerEvent): void {
+    sidebarManipulation.move(event.pointerId, event.clientX, event.timeStamp);
   }
-  function stopSidebarResize(): void {
-    if (!resizingSidebar) return;
-    resizingSidebar = false;
-    window.removeEventListener("mousemove", onSidebarResize);
-    window.removeEventListener("mouseup", stopSidebarResize);
-    window.removeEventListener("blur", stopSidebarResize);
-    document.removeEventListener("mouseleave", stopSidebarResize);
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+  function stopSidebarResize(event?: PointerEvent): void {
+    if (event && sidebarResizer?.hasPointerCapture(event.pointerId)) {
+      sidebarResizer.releasePointerCapture(event.pointerId);
+    }
+    if (event) sidebarManipulation.end(event.pointerId, event.timeStamp);
+    else sidebarManipulation.cancel();
+  }
+  function cancelSidebarResize(event?: PointerEvent): void {
+    if (sidebarManipulation.current().phase === "idle") return;
+    if (event && sidebarResizer?.hasPointerCapture(event.pointerId)) {
+      sidebarResizer.releasePointerCapture(event.pointerId);
+    }
+    sidebarManipulation.cancel();
   }
   function onSidebarKeydown(event: KeyboardEvent): void {
     let next = sidebarWidth;
@@ -262,7 +330,20 @@
   let searchOpen = false;
   let commandOpen = false;
   let commandElement: HTMLElement | null = null;
+  let commandInputElement: HTMLInputElement | null = null;
   let commandReturnFocus: HTMLElement | null = null;
+  let commandQuery = "";
+  let commandIndex = 0;
+  let commandSystem: CommandSystem;
+  let commandContext: CommandContext = {
+    locale: "en",
+    runtime: "browser",
+    workspace: "chat",
+    service: { restartAvailable: false, webAvailable: false }
+  };
+  let commandSnapshot: CommandSnapshot[] = [];
+  let commandUsage: CommandUsage = [];
+  let nativeCommandUnlisten: UnlistenFn | null = null;
   let searchQuery = "";
   let searchIndex = 0;
   let searchInputElement: HTMLInputElement;
@@ -440,6 +521,7 @@
     connectionGeneration += 1;
     connectedEndpoint = "";
     connectionReady = false;
+    stopAutomationUnreadPolling();
     stopReconnectPoll();
     profiles = [];
     onboardingProfiles = [];
@@ -495,6 +577,7 @@
     return {
       working: copy.working,
       uploading: copy.uploading,
+      recognizingImage: copy.recognizingImage,
       stopped: copy.stopped,
       idle: copy.idle,
       resuming: copy.resuming
@@ -635,7 +718,7 @@
 
       connectionReady = true;
       loading = false;
-      void refreshAutomationUnread();
+      startAutomationUnreadPolling();
       void selectDefaultSession(generation);
       void chatStore.reconnect();
       startReconnectPoll();
@@ -1125,6 +1208,10 @@
     input.value = "";
   }
 
+  function addPastedFiles(files: File[]): void {
+    pendingFiles = [...pendingFiles, ...files];
+  }
+
   function removePendingFile(index: number): void {
     pendingFiles = pendingFiles.filter((_, position) => position !== index);
   }
@@ -1381,6 +1468,82 @@
     }
   }
 
+  async function executeCommand(id: CommandId): Promise<void> {
+    switch (id) {
+      case "app.open-chat":
+      case "app.open-web":
+      case "app.quit":
+        await invoke("execute_native_command", { id });
+        return;
+      case "chat.new":
+        newConversation();
+        return;
+      case "chat.search":
+        if (!searchOpen) await toggleSearch();
+        return;
+      case "workspace.automations":
+        openWorkspacePane("automations");
+        return;
+      case "workspace.skills":
+        openWorkspacePane("skills");
+        return;
+      case "workspace.agents":
+        openWorkspacePane("agents");
+        return;
+      case "app.open-settings":
+        openSettings();
+        return;
+      case "diagnostics.open":
+        openSettings("diagnostics");
+        return;
+      case "service.restart":
+        await invoke("restart_service");
+        return;
+      default:
+        if (id.startsWith("settings.")) {
+          openSettings(id.slice("settings.".length));
+        }
+    }
+  }
+
+  commandSystem = new CommandSystem(new CallbackCommandHostAdapter(executeCommand));
+  // Deps must be referenced directly in the reactive statement (a no-arg
+  // helper call would run once and go stale — tray items stay disabled).
+  $: commandContext = {
+    locale,
+    runtime: isTauriRuntime() ? "desktop" : "browser",
+    workspace: projectPaneActive ? "project" : workspacePane,
+    service: {
+      restartAvailable: serviceOwnership === "managed",
+      webAvailable: Boolean(serviceEndpoint)
+    }
+  };
+  $: commandSnapshot = commandSystem.snapshot(commandContext);
+  $: commandResults = rankCommands(commandSnapshot, commandQuery, commandUsage);
+  $: if (commandIndex >= commandResults.length) commandIndex = 0;
+  $: if (commandContext.runtime === "desktop") {
+    void invoke("sync_native_command_menu", { commands: commandSnapshot });
+  }
+
+  async function runSystemCommand(id: string): Promise<void> {
+    const result = await commandSystem.execute(id, commandContext);
+    if (result.status === "executed") {
+      commandUsage = recordCommandSuccess(commandUsage, result.id, commandSnapshot);
+      saveCommandUsage(localStorage, commandUsage);
+    }
+    onCommandResult(result);
+  }
+
+  onMount(() => {
+    commandUsage = loadCommandUsage(localStorage, commandSnapshot);
+    if (!isTauriRuntime()) return;
+    void listen<string>(NATIVE_COMMAND_EVENT, (event) => {
+      void runSystemCommand(event.payload);
+    }).then((unlisten) => {
+      nativeCommandUnlisten = unlisten;
+    });
+  });
+
   async function toggleCommandPalette(): Promise<void> {
     if (commandOpen) {
       commandOpen = false;
@@ -1388,9 +1551,11 @@
       return;
     }
     commandReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    commandOpen = !commandOpen;
+    commandQuery = "";
+    commandIndex = 0;
+    commandOpen = true;
     await tick();
-    commandElement?.querySelector<HTMLButtonElement>("button")?.focus();
+    commandInputElement?.focus();
   }
 
   function closeCommandPalette(): void {
@@ -1398,9 +1563,19 @@
     commandReturnFocus?.focus();
   }
 
-  function runCommand(action: () => void | Promise<void>): void {
+  function runCommand(id: CommandId): void {
     commandOpen = false;
-    void action();
+    void runSystemCommand(id);
+  }
+
+  function selectCommand(delta: number): void {
+    if (commandResults.length === 0) return;
+    commandIndex = (commandIndex + delta + commandResults.length) % commandResults.length;
+  }
+
+  function onCommandInput(event: Event): void {
+    commandQuery = (event.currentTarget as HTMLInputElement).value;
+    commandIndex = 0;
   }
 
   function onCommandKeydown(event: KeyboardEvent): void {
@@ -1409,13 +1584,17 @@
       closeCommandPalette();
       return;
     }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const buttons = Array.from(commandElement?.querySelectorAll<HTMLButtonElement>("button") ?? []);
-    const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (current < 0) return;
-    event.preventDefault();
-    const delta = event.key === "ArrowDown" ? 1 : -1;
-    buttons[(current + delta + buttons.length) % buttons.length]?.focus();
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      selectCommand(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (event.key === "Enter") {
+      const command = commandResults[commandIndex];
+      if (!command) return;
+      event.preventDefault();
+      runCommand(command.id);
+    }
   }
 
   function onChatShortcut(event: KeyboardEvent): void {
@@ -1464,7 +1643,7 @@
     if (!connectionReady && !loading && serviceState === "ready" && serviceEndpoint) {
       void connect(serviceEndpoint);
     }
-    if (pane === "automations") void refreshAutomationUnread();
+    if (pane === "automations") automationUnreadScheduler?.wake("manual");
   }
 
   function formatTime(value: string): string {
@@ -1506,13 +1685,19 @@
       : { year: "numeric", month: "numeric", day: "numeric" }).format(date);
   }
 
-  let reconnectTimer: ReturnType<typeof setInterval> | null = null;
   function startReconnectPoll(): void {
-    stopReconnectPoll();
-    reconnectTimer = setInterval(() => { void chatStore.reconnect(); }, 4000);
+    reconnectScheduler?.dispose();
+    reconnectScheduler = new ActivityScheduler(
+      reconnectActivityPolicy,
+      async () => { await chatStore.reconnect(); },
+      documentActivityVisibility
+    );
+    reconnectScheduler.start();
   }
+
   function stopReconnectPoll(): void {
-    if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
+    reconnectScheduler?.dispose();
+    reconnectScheduler = null;
   }
 
   type NativeRecordingResult = {
@@ -1655,10 +1840,12 @@
   }
 
   onDestroy(() => {
+    nativeCommandUnlisten?.();
+    nativeCommandUnlisten = null;
     connectionGeneration += 1;
     stopSidebarResize();
     stopReconnectPoll();
-    clearInterval(automationUnreadTimer);
+    stopAutomationUnreadPolling();
     chatStore.disposeAll();
     projectChatStore.disposeAll();
     stopRecordingTimer();
@@ -1687,10 +1874,36 @@
     <div class="command-palette-layer" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeCommandPalette(); }}>
       <div class="command-palette" role="dialog" aria-modal="false" aria-label={copy.commandPalette} tabindex="-1" bind:this={commandElement} onkeydown={onCommandKeydown}>
         <header><strong>{copy.commandPalette}</strong><kbd>⌘K</kbd></header>
-        <button type="button" onclick={() => runCommand(newConversation)}><i class="ph ph-plus-circle" aria-hidden="true"></i>{copy.newChat}</button>
-        <button type="button" onclick={() => runCommand(() => openWorkspacePane("automations"))}><i class="ph ph-list-checks" aria-hidden="true"></i>{copy.tasks}</button>
-        <button type="button" onclick={() => runCommand(() => openWorkspacePane("skills"))}><i class="ph ph-magic-wand" aria-hidden="true"></i>{copy.skills}</button>
-        <button type="button" onclick={() => runCommand(() => openSettings())}><i class="ph ph-gear-six" aria-hidden="true"></i>{copy.openSettings}</button>
+        <input
+          class="command-palette-input"
+          bind:this={commandInputElement}
+          value={commandQuery}
+          placeholder={copy.searchPlaceholder}
+          aria-label={copy.commandPalette}
+          aria-controls="command-palette-results"
+          oninput={onCommandInput}
+        />
+        <div id="command-palette-results" class="command-palette-results" role="listbox" aria-label={copy.commandPalette}>
+          {#if commandResults.length === 0}
+            <p class="command-palette-empty">{copy.noMatches}</p>
+          {:else}
+            {#each commandResults as command, index (command.id)}
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === commandIndex}
+                class:selected={index === commandIndex}
+                disabled={!command.enabled}
+                title={command.disabledReason}
+                onclick={() => runCommand(command.id)}
+              >
+                <span>{command.label}</span>
+                {#if command.shortcut}<kbd>{command.shortcut}</kbd>{/if}
+                {#if !command.enabled && command.disabledReason}<small>{command.disabledReason}</small>{/if}
+              </button>
+            {/each}
+          {/if}
+        </div>
       </div>
     </div>
   {/if}
@@ -1741,7 +1954,12 @@
     aria-valuemin={SIDEBAR_MIN}
     aria-valuemax={SIDEBAR_MAX}
     tabindex="0"
-    onmousedown={startSidebarResize}
+    bind:this={sidebarResizer}
+    onpointerdown={startSidebarResize}
+    onpointermove={onSidebarResize}
+    onpointerup={stopSidebarResize}
+    onpointercancel={cancelSidebarResize}
+    onlostpointercapture={cancelSidebarResize}
     onkeydown={onSidebarKeydown}
   ></div>
 
@@ -1819,10 +2037,21 @@
     {/if}
 
     {#if serviceState !== "ready"}
-      <div class="empty-state">
-        <div class="service-starting-spinner" aria-hidden="true"><img src="/molibot-icon.png" alt="" /><span></span></div>
-        <h2>{copy.serviceStarting}</h2>
-        <p>{serviceEndpoint ? copy.serviceLaunching : copy.serviceChecking}</p>
+      <div class="empty-state" aria-live="polite">
+        {#if startupPhase === "checking" || startupPhase === "starting" || startupPhase === "retrying"}
+          <div class="service-starting-spinner" aria-hidden="true"><img src="/molibot-icon.png" alt="" /><span></span></div>
+        {:else}
+          <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" /></div>
+        {/if}
+        <h2>{startupPhase === "delayed" ? copy.serviceStarting : startupPhase === "error" ? copy.diagStateError : copy.serviceStarting}</h2>
+        <p>{startupError || (serviceEndpoint ? copy.serviceLaunching : copy.serviceChecking)}</p>
+        {#if startupPhase === "delayed" || startupPhase === "error"}
+          <div class="startup-recovery-actions">
+            <button class="secondary-button" type="button" onclick={retryStartup}>{copy.reconnectService}</button>
+            <button class="secondary-button" type="button" onclick={openStartupDiagnostics}>{copy.diagnostics}</button>
+            <button class="secondary-button" type="button" onclick={openStartupLogs}>{copy.openLogFile}</button>
+          </div>
+        {/if}
       </div>
     {:else if loading}
       <div class="empty-state"><p>{copy.loadingChat}</p></div>
@@ -1940,6 +2169,7 @@
         onSend={sendMessage}
         onStop={stopRun}
         onKeydown={handleComposerKeydown}
+        onPasteFiles={addPastedFiles}
         onPickFiles={() => fileInput?.click()}
         onToggleRecording={toggleRecording}
         onFinishRecording={(send) => void finishRecording(send)}
@@ -2322,5 +2552,6 @@
     onRetry={() => void openMemoryTrace(memoryTraceId)}
     onFeedback={(memoryId, value) => void submitMemoryTraceFeedback(memoryId, value)}
     onManageMemory={(memoryId) => { localStorage.setItem("molibot-desktop-memory-focus", memoryId); closeMemoryTrace(); openSettings("memory"); }}
+    {onHapticCommit}
   />
 {/if}

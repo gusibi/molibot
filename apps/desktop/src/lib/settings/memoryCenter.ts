@@ -28,6 +28,22 @@ export interface MemoryCenterProjection {
   topics: MemoryTopicProjection[];
 }
 
+export interface MemoryCandidateGroups {
+  aboutOwner: DesktopMemoryCandidate[];
+  agentLearnings: DesktopMemoryCandidate[];
+}
+
+// Owner/project candidates shape the user's own profile and deserve attention
+// first; agent_self/content candidates are runtime learnings and stay collapsed.
+export function splitPendingCandidates(candidates: DesktopMemoryCandidate[]): MemoryCandidateGroups {
+  const aboutOwner: DesktopMemoryCandidate[] = [];
+  const agentLearnings: DesktopMemoryCandidate[] = [];
+  for (const candidate of candidates) {
+    (candidate.domain === "agent_self" || candidate.domain === "content" ? agentLearnings : aboutOwner).push(candidate);
+  }
+  return { aboutOwner, agentLearnings };
+}
+
 const TOPIC_TERMS: Record<MemoryTopicId, string[]> = {
   projects: ["project", "product", "molibot", "项目", "产品", "里程碑", "客户端", "agent"],
   technology: ["technology", "technical", "stack", "code", "svelte", "tauri", "typescript", "rust", "node", "golang", "技术", "开发", "代码", "架构"],

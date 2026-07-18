@@ -6,10 +6,12 @@ import { tmpdir } from "node:os";
 import type { MomEvent } from "./events";
 import {
   collectMemoryReflectionInternals,
+  deliverMemoryTaskNotification,
   dispatchTaskEvent,
   ensureOwnerDailyMaterialsEvent,
   ensureOwnerMemoryMaintenanceEvent,
   ensureOwnerMemoryReflectionEvent,
+  formatDailyMaterialsNotification,
   listMemoryReflectionNotificationTargets,
   migrateLegacyManagedMemoryEvents,
   migrateLegacyWebTaskEvents,
@@ -54,14 +56,23 @@ test("internal memory reflection bypasses channel task delivery", async () => {
   assert.equal(channelCalls, 0);
 });
 
-test("internal reflection sends one separate direct notice only when requested", async () => {
+test("internal reflection sends one separate context-free notice only when requested", async () => {
   const deliveries: any[] = [];
+  let taskCalls = 0;
   const event: MomEvent = {
     type: "periodic", chatId: "internal-memory", text: "", schedule: "15 4 * * *", timezone: "Asia/Shanghai", execution: "internal",
     internal: { kind: "memory-reflection", notificationChatId: "chat-1", target: { ownerId: "owner", botId: "momo", timezone: "Asia/Shanghai", sourceScopes: [] } }
   };
-  await dispatchTaskEvent(event, "memory-reflection.json", { triggerTask: async (notice: unknown) => { deliveries.push(notice); } } as any, async () => ({ notificationText: "新增 2 条候选" }));
-  assert.deepEqual(deliveries, [{ type: "immediate", chatId: "chat-1", text: "新增 2 条候选", delivery: "text" }]);
+  await dispatchTaskEvent(event, "memory-reflection.json", {
+    triggerTask: async () => { taskCalls += 1; },
+    sendInternalNotice: async (chatId: string, text: string, metadata: unknown) => { deliveries.push({ chatId, text, metadata }); }
+  } as any, async () => ({ notificationText: "新增 2 条候选", kind: "memory-reflection" }));
+  assert.equal(taskCalls, 0, "internal completion notices must not enter the scheduled Agent task path");
+  assert.deepEqual(deliveries, [{
+    chatId: "chat-1",
+    text: "新增 2 条候选",
+    metadata: { kind: "memory-reflection", filename: "memory-reflection.json" }
+  }]);
 });
 
 test("owner runtime creates one dynamic reflection event regardless of Bot count", () => {
@@ -134,6 +145,41 @@ test("reflection notification target resolves the saved authorized destination a
   assert.deepEqual(resolveMemoryReflectionNotificationTarget(settings), { channel: "feishu", botId: "fs", chatId: "chat-fs" });
   settings.channels.feishu.instances[0].allowedChatIds = [];
   assert.deepEqual(resolveMemoryReflectionNotificationTarget(settings), { channel: "telegram", botId: "tg", chatId: "chat-tg" });
+});
+
+test("both memory tasks deliver through the same selected Telegram or Feishu target", async () => {
+  const settings = {
+    plugins: { memory: { reflectionNotificationTarget: { channel: "feishu", botId: "fs", chatId: "chat-fs" } } },
+    channels: {
+      telegram: { instances: [{ id: "tg", name: "TG", enabled: true, allowedChatIds: ["chat-tg"], credentials: {} }] },
+      feishu: { instances: [{ id: "fs", name: "FS", enabled: true, allowedChatIds: ["chat-fs"], credentials: {} }] }
+    }
+  } as any;
+  const deliveries: any[] = [];
+  const channelManagers = new Map([
+    ["telegram", new Map([["tg", { sendInternalNotice: async () => { throw new Error("wrong target"); } }]])],
+    ["feishu", new Map([["fs", { sendInternalNotice: async (chatId: string, text: string, metadata: unknown) => deliveries.push({ chatId, text, metadata }) }]])]
+  ]) as any;
+
+  assert.equal(await deliverMemoryTaskNotification(channelManagers, settings, "反思完成", { kind: "memory-reflection", filename: "memory-reflection.json" }), true);
+  assert.equal(await deliverMemoryTaskNotification(channelManagers, settings, "素材完成", { kind: "daily-materials", filename: "daily-materials.json" }), true);
+  assert.deepEqual(deliveries, [
+    { chatId: "chat-fs", text: "反思完成", metadata: { kind: "memory-reflection", filename: "memory-reflection.json" } },
+    { chatId: "chat-fs", text: "素材完成", metadata: { kind: "daily-materials", filename: "daily-materials.json" } }
+  ]);
+});
+
+test("daily materials completion notice is aggregated and deduplicates output paths", () => {
+  assert.equal(formatDailyMaterialsNotification([]), undefined);
+  assert.equal(formatDailyMaterialsNotification(["content/daily-materials/2026-07-17.md"]), "今日素材已生成：content/daily-materials/2026-07-17.md");
+  assert.equal(
+    formatDailyMaterialsNotification([
+      "content/daily-materials/2026-07-17.md",
+      "content/daily-materials/2026-07-17.md",
+      "content/other/2026-07-17.md"
+    ]),
+    "今日素材已生成 2 个文件：\n- content/daily-materials/2026-07-17.md\n- content/other/2026-07-17.md"
+  );
 });
 
 test("owner reflection always sends one aggregate completion notice, including zero output", async () => {

@@ -1945,20 +1945,35 @@ export async function streamDesktopChat(
     thinkingLevel: DesktopThinkingLevel;
     projectId?: string;
     modelKey?: string;
+    files?: File[];
   },
   onEvent: SseHandler,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onConnected?: () => void
 ): Promise<void> {
+  const hasFiles = Boolean(input.files?.length);
+  const body = hasFiles ? new FormData() : null;
+  if (body) {
+    body.set("profileId", input.profileId);
+    body.set("conversationId", input.sessionId);
+    body.set("message", input.message);
+    body.set("thinkingLevel", input.thinkingLevel);
+    if (input.projectId) body.set("projectId", input.projectId);
+    if (input.modelKey) body.set("modelKey", input.modelKey);
+    for (const file of input.files ?? []) body.append("files", file);
+  }
   const response = await fetchFromDesktop(serviceUrl(endpoint, "/api/stream"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    ...(body ? { body } : {
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
       profileId: input.profileId,
       conversationId: input.sessionId,
       message: input.message,
       thinkingLevel: input.thinkingLevel,
       projectId: input.projectId,
       modelKey: input.modelKey
+      })
     }),
     signal
   });
@@ -1974,6 +1989,7 @@ export async function streamDesktopChat(
     throw new Error(message || `Stream failed (${response.status})`);
   }
 
+  onConnected?.();
   await consumeDesktopSse(response, onEvent);
 }
 

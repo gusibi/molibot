@@ -2,7 +2,7 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
-import type { RunnerUiEvent } from "$lib/server/agent/core/types";
+import type { ChannelInboundMessage, FileAttachment, RunnerUiEvent } from "$lib/server/agent/core/types";
 import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings";
 import {
   sanitizeWebProfileId,
@@ -14,15 +14,14 @@ import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment } from "$lib/shared/types/message";
 import { resolveProjectContext } from "$lib/server/projects/context";
+import { parseStreamRequest, type ParsedStreamRequest } from "./request";
 
-interface StreamBody {
-  userId?: string;
-  message?: string;
-  conversationId?: string;
-  profileId?: string;
-  thinkingLevel?: string;
-  projectId?: string;
-  modelKey?: string;
+function inferMediaType(file: File): FileAttachment["mediaType"] {
+  const type = file.type.toLowerCase();
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("audio/")) return "audio";
+  if (type.startsWith("video/")) return "video";
+  return "file";
 }
 
 function writeEvent(
@@ -79,9 +78,9 @@ function buildRunnerDiagnostic(event: RunnerUiEvent): string | null {
 }
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: StreamBody;
+  let body: ParsedStreamRequest;
   try {
-    body = (await request.json()) as StreamBody;
+    body = await parseStreamRequest(request);
   } catch {
     return new Response(JSON.stringify({ ok: false, error: "Invalid request body" }), {
       status: 400,
@@ -103,7 +102,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   const project = projectResult.project;
 
-  if (!message) {
+  if (!message && body.files.length === 0) {
     return new Response(JSON.stringify({ ok: false, error: "Empty message." }), {
       status: 400,
       headers: { "Content-Type": "application/json" }
@@ -135,7 +134,37 @@ export const POST: RequestHandler = async ({ request }) => {
       }
     );
   }
-  runtime.sessions.appendMessage(conversation.id, "user", message, { contextBacked: true });
+  const ts = `${Date.now() / 1000}`;
+  const attachments: FileAttachment[] = [];
+  const imageContents: ChannelInboundMessage["imageContents"] = [];
+  for (const file of body.files) {
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const mediaType = inferMediaType(file);
+    const saved = store.saveAttachment(runnerChatId, file.name || "upload.bin", ts, bytes, {
+      mediaType,
+      mimeType: file.type || undefined
+    });
+    attachments.push(saved);
+    if (mediaType === "image") {
+      imageContents.push({
+        type: "image",
+        mimeType: file.type || "image/jpeg",
+        data: bytes.toString("base64")
+      });
+    }
+  }
+  const inboundText = message || "(attachment)";
+  const sessionAttachments: ConversationAttachment[] = attachments.map((attachment) => ({
+    original: attachment.original,
+    local: attachment.local,
+    mediaType: attachment.mediaType,
+    mimeType: attachment.mimeType,
+    size: attachment.size
+  }));
+  runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
+    attachments: sessionAttachments,
+    contextBacked: true
+  });
 
   request.signal.addEventListener(
     "abort",
@@ -157,7 +186,6 @@ export const POST: RequestHandler = async ({ request }) => {
         const diagnostics: string[] = [];
         const responseAttachments: ConversationAttachment[] = [];
         const activityCollector = new ConversationActivityCollector();
-        const ts = `${Date.now() / 1000}`;
         // Guards the transcript against a double assistant message: the catch
         // block's partial-persistence must not fire once the success path has
         // already appended.
@@ -188,10 +216,10 @@ export const POST: RequestHandler = async ({ request }) => {
               messageId: Date.now(),
               userId: externalUserId,
               userName: userId,
-              text: message,
+              text: inboundText,
               ts,
-              attachments: [],
-              imageContents: [],
+              attachments,
+              imageContents,
               sessionId: conversation.id
             },
             respond: async (text, shouldLog = true) => {

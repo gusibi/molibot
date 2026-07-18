@@ -140,7 +140,9 @@ export const POST: RequestHandler = async ({ request }) => {
       if (markerIndex < 0) throw new Error("Unsupported task path");
       const workspaceDir = resolve(item.filePath).slice(0, markerIndex);
       const store = new MomRuntimeStore(workspaceDir);
-      const messages = buildDesktopTaskSessionMessages(store.loadContext(item.chatId, execution.sessionId));
+      const messages = buildDesktopTaskSessionMessages(
+        store.loadContextForRun(item.chatId, execution.sessionId, execution.runId)
+      );
       const response: DesktopTaskActionResponse = {
         ok: true,
         summary: buildSummary(before),

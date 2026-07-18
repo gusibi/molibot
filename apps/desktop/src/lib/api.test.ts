@@ -4,6 +4,7 @@ import { transcriptDisplayContent } from "./chat/transcript";
 import type { DesktopAgentItem, DesktopSessionFile, DesktopExternalSessionsSummary, DesktopRuntimeEnvSummary, DesktopWebProfile, DesktopChannelsSummary } from "@molibot/desktop-contract";
 import { normalizeLocale } from "./i18n";
 import { runDesktopConversationTurn } from "./chat/conversationTurn";
+import { clipboardImageFiles } from "./chat/clipboardFiles";
 import {
   addToFollowUpQueue,
   applyDesktopSandboxPreset,
@@ -369,6 +370,67 @@ test("shared conversation turn streams a project response through the same Chat 
     });
     assert.equal(requestBody.projectId, "project-1");
     assert.deepEqual(observed, { token: "hello", status: "working", done: "hello world" });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("clipboard image items become composer attachments while text items stay untouched", () => {
+  const image = new File([new Uint8Array([137, 80, 78, 71])], "", { type: "image/png" });
+  const files = clipboardImageFiles([
+    { kind: "string", type: "text/plain", getAsFile: () => null },
+    { kind: "file", type: "image/png", getAsFile: () => image },
+    { kind: "file", type: "application/pdf", getAsFile: () => new File(["pdf"], "note.pdf") }
+  ]);
+
+  assert.equal(files.length, 1);
+  assert.equal(files[0]?.type, "image/png");
+  assert.match(files[0]?.name ?? "", /^clipboard-image-\d+\.png$/);
+});
+
+test("one clipboard image with multiple image representations becomes one attachment", () => {
+  const png = new File([new Uint8Array([137, 80, 78, 71])], "", { type: "image/png" });
+  const tiff = new File([new Uint8Array([73, 73, 42, 0])], "", { type: "image/tiff" });
+  const files = clipboardImageFiles([
+    { kind: "file", type: "image/png", getAsFile: () => png },
+    { kind: "file", type: "image/tiff", getAsFile: () => tiff }
+  ]);
+
+  assert.equal(files.length, 1);
+  assert.equal(files[0]?.type, "image/png");
+});
+
+test("attachment turns keep upload, recognition, and response streaming live", async () => {
+  const original = globalThis.fetch;
+  let requestBody: BodyInit | null | undefined;
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    requestBody = init?.body;
+    const body = [
+      'event: token\ndata: {"delta":"recognized"}',
+      'event: done\ndata: {"response":"recognized image","thinkingText":""}',
+      ""
+    ].join("\n\n");
+    return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  }) as typeof globalThis.fetch;
+  const phases: string[] = [];
+  let answer = "";
+  try {
+    await runDesktopConversationTurn({
+      endpoint: "http://127.0.0.1:3210",
+      profileId: "personal",
+      sessionId: "session-with-image",
+      message: "",
+      thinkingLevel: "medium",
+      files: [new File([new Uint8Array([137, 80, 78, 71])], "shot.png", { type: "image/png" })]
+    }, {
+      onUploadComplete: () => phases.push("recognizing"),
+      onToken: (delta) => (answer += delta)
+    });
+
+    assert.ok(requestBody instanceof FormData);
+    assert.equal(requestBody.getAll("files").length, 1);
+    assert.deepEqual(phases, ["recognizing"]);
+    assert.equal(answer, "recognized");
   } finally {
     globalThis.fetch = original;
   }

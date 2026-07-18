@@ -11,6 +11,7 @@
   import ApprovalCard from "../chat/ApprovalCard.svelte";
   import ChatInputArea from "../chat/ChatInputArea.svelte";
   import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
+  import Dialog from "../components/ui/Dialog.svelte";
   import { projectChatStore } from "./projectChatStore.svelte";
   import {
     fetchDesktopFileBlob,
@@ -128,6 +129,7 @@
     labels: () => ({
       working: copy.working,
       uploading: copy.uploading,
+      recognizingImage: copy.recognizingImage,
       stopped: copy.stopped,
       idle: copy.idle,
       resuming: copy.resuming
@@ -174,6 +176,10 @@
     const picked = Array.from(input.files ?? []).filter((file) => file.size > 0);
     if (picked.length > 0) pendingFiles = [...pendingFiles, ...picked];
     input.value = "";
+  }
+
+  function addPastedFiles(files: File[]): void {
+    pendingFiles = [...pendingFiles, ...files];
   }
 
   function removePendingFile(index: number): void {
@@ -693,6 +699,7 @@
     onSend={sendMessage}
     onStop={stopRun}
     onKeydown={handleComposerKeydown}
+    onPasteFiles={addPastedFiles}
     onPickFiles={() => fileInput?.click()}
     onToggleRecording={toggleRecording}
     onFinishRecording={(send) => void finishRecording(send)}
@@ -716,22 +723,20 @@
 </section>
 
 {#if previewFile && previewUrl}
-  <div class="preview-overlay" role="dialog" aria-modal="true" aria-label={previewFile.original}>
-    <div class="preview-card">
-      <header>
-        <strong title={previewFile.original}>{previewFile.original}</strong>
-        <button type="button" onclick={closeProjectPreview}>{copy.closePreview}</button>
-      </header>
-      <div class="preview-body">
-        {#if previewFile.mediaType === "image"}
-          <img src={previewUrl} alt={previewFile.original} />
-        {:else if previewFile.mediaType === "video"}
-          <!-- svelte-ignore a11y_media_has_caption -->
-          <video src={previewUrl} controls></video>
-        {:else if previewFile.mediaType === "audio"}
-          <audio src={previewUrl} controls></audio>
-        {/if}
-      </div>
+  <Dialog open={true} contentClass="preview-card" labelledBy="project-preview-title" onOpenChange={(next) => { if (!next) closeProjectPreview(); }}>
+    <header>
+      <strong id="project-preview-title" title={previewFile.original}>{previewFile.original}</strong>
+      <button type="button" onclick={closeProjectPreview}>{copy.closePreview}</button>
+    </header>
+    <div class="preview-body">
+      {#if previewFile.mediaType === "image"}
+        <img src={previewUrl} alt={previewFile.original} />
+      {:else if previewFile.mediaType === "video"}
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video src={previewUrl} controls></video>
+      {:else if previewFile.mediaType === "audio"}
+        <audio src={previewUrl} controls></audio>
+      {/if}
     </div>
-  </div>
+  </Dialog>
 {/if}

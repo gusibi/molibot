@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { fly } from "svelte/transition";
-  import type { DesktopMemoryItem } from "@molibot/desktop-contract";
+  import type { DesktopMemoryCandidate, DesktopMemoryItem } from "@molibot/desktop-contract";
+  import IosSwitch from "../components/ui/IosSwitch.svelte";
+  import Dialog from "../components/ui/Dialog.svelte";
   import type { Translation } from "../i18n";
   import { session } from "../stores/session.svelte";
   import {
@@ -14,10 +15,10 @@
     loadMemory,
     refreshMemoryRecords,
     runMemoryMaintenance,
-    saveMemoryItem
-    ,restoreMemoryState
+    saveMemoryItem,
+    restoreMemoryState
   } from "../stores/memory.svelte";
-  import { compactMemoryText, memoryTopicFor, projectMemoryCenter, type MemoryTopicId } from "./memoryCenter";
+  import { compactMemoryText, memoryTopicFor, projectMemoryCenter, splitPendingCandidates, type MemoryTopicId } from "./memoryCenter";
 
   type MemoryCenterTab = "overview" | "topics" | "all";
 
@@ -25,11 +26,13 @@
   let selectedTopic = $state<MemoryTopicId>("projects");
   let allTopicFilter = $state<MemoryTopicId | null>(null);
   let showAllCandidates = $state(false);
+  let agentCandidatesOpen = $state(false);
   let advancedOpen = $state(false);
 
   const center = $derived(projectMemoryCenter(memoryStore.items, memoryStore.candidates, memoryStore.profile));
   const selectedTopicData = $derived(center.topics.find((topic) => topic.id === selectedTopic) ?? center.topics[0]);
-  const visibleCandidates = $derived(showAllCandidates ? center.pendingCandidates : center.pendingCandidates.slice(0, 3));
+  const candidateGroups = $derived(splitPendingCandidates(center.pendingCandidates));
+  const visibleOwnerCandidates = $derived(showAllCandidates ? candidateGroups.aboutOwner : candidateGroups.aboutOwner.slice(0, 3));
   const filteredAllItems = $derived(allTopicFilter ? memoryStore.items.filter((item) => memoryTopicFor(item) === allTopicFilter) : memoryStore.items);
   const filteredMemoryRejections = $derived(
     memoryStore.rejections.filter((item) => !memoryStore.rejectionQuery.trim() || [item.reason, item.content, item.channel, item.externalUserId, item.tags.join(",")].join("\n").toLowerCase().includes(memoryStore.rejectionQuery.trim().toLowerCase()))
@@ -100,20 +103,7 @@
     allTopicFilter = topic;
     activeTab = "all";
   }
-
-  function closeOverlays(): void {
-    advancedOpen = false;
-    memoryStore.candidateEdit = null;
-    memoryStore.memoryEdit = null;
-    memoryStore.sourcePreview = null;
-  }
-
-  function onWindowKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape" && (advancedOpen || memoryStore.candidateEdit || memoryStore.memoryEdit || memoryStore.sourcePreview)) closeOverlays();
-  }
 </script>
-
-<svelte:window onkeydown={onWindowKeydown} />
 
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.memoryUnavailable}</p></div></div>
@@ -204,24 +194,46 @@
           </section>
 
           <section class="memory-overview-panel memory-pending-panel">
-            <header><div><i class="ph ph-tray" aria-hidden="true"></i><h4>{session.text.memoryPendingReview}</h4><span>{center.pendingCandidates.length}</span></div>{#if center.pendingCandidates.length > 3}<button type="button" onclick={() => showAllCandidates = !showAllCandidates}>{showAllCandidates ? session.text.memoryViewLess : session.text.memoryViewAll}</button>{/if}</header>
-            {#if visibleCandidates.length === 0}
+            {#snippet candidateRow(candidate: DesktopMemoryCandidate)}
+              <article>
+                <button class="memory-candidate-copy" type="button" onclick={() => beginCandidateEdit(candidate)}>
+                  <strong>{compactMemoryText(candidate.value, 92)}</strong>
+                  <span>{session.text.memoryRecordedAt} {formatMemoryDate(candidate.updatedAt, session.locale)}</span>
+                </button>
+                <div>
+                  <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void confirmMemoryCandidate(candidate)}>{candidate.skillDraftSuggestion ? session.text.memorySkillDraftConfirm : session.text.memoryCandidateConfirm}</button>
+                  <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void ignoreMemoryCandidate(candidate)}>{session.text.memoryCandidateInaccurate}</button>
+                </div>
+              </article>
+            {/snippet}
+            <header><div><i class="ph ph-tray" aria-hidden="true"></i><h4>{session.text.memoryPendingReview}</h4><span>{center.pendingCandidates.length}</span></div>{#if candidateGroups.aboutOwner.length > 3}<button type="button" onclick={() => showAllCandidates = !showAllCandidates}>{showAllCandidates ? session.text.memoryViewLess : session.text.memoryViewAll}</button>{/if}</header>
+            {#if center.pendingCandidates.length === 0}
               <p class="memory-panel-empty">{session.text.memoryNoCandidates}</p>
             {:else}
-              <div class="memory-candidate-list">
-                {#each visibleCandidates as candidate (candidate.id)}
-                  <article>
-                    <button class="memory-candidate-copy" type="button" onclick={() => beginCandidateEdit(candidate)}>
-                      <strong>{compactMemoryText(candidate.value, 92)}</strong>
-                      <span>{session.text.memoryRecordedAt} {formatMemoryDate(candidate.updatedAt, session.locale)}</span>
-                    </button>
-                    <div>
-                      <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void confirmMemoryCandidate(candidate)}>{candidate.skillDraftSuggestion ? session.text.memorySkillDraftConfirm : session.text.memoryCandidateConfirm}</button>
-                      <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void ignoreMemoryCandidate(candidate)}>{session.text.memoryCandidateInaccurate}</button>
-                    </div>
-                  </article>
-                {/each}
-              </div>
+              {#if candidateGroups.aboutOwner.length > 0}
+                {#if candidateGroups.agentLearnings.length > 0}
+                  <p class="memory-candidate-group-label">{session.text.memoryCandidateGroupOwner}</p>
+                {/if}
+                <div class="memory-candidate-list">
+                  {#each visibleOwnerCandidates as candidate (candidate.id)}
+                    {@render candidateRow(candidate)}
+                  {/each}
+                </div>
+              {/if}
+              {#if candidateGroups.agentLearnings.length > 0}
+                <button class="memory-candidate-group-toggle" type="button" aria-expanded={agentCandidatesOpen} onclick={() => agentCandidatesOpen = !agentCandidatesOpen}>
+                  <i class={`ph ph-caret-${agentCandidatesOpen ? "down" : "right"}`} aria-hidden="true"></i>
+                  <span>{session.text.memoryCandidateGroupAgent}</span>
+                  <small>{candidateGroups.agentLearnings.length}</small>
+                </button>
+                {#if agentCandidatesOpen}
+                  <div class="memory-candidate-list">
+                    {#each candidateGroups.agentLearnings as candidate (candidate.id)}
+                      {@render candidateRow(candidate)}
+                    {/each}
+                  </div>
+                {/if}
+              {/if}
             {/if}
           </section>
         </div>
@@ -314,10 +326,15 @@
   </section>
 
   {#if memoryStore.candidateEdit}
-    <div class="modal-overlay" role="presentation" onclick={(event) => event.target === event.currentTarget && (memoryStore.candidateEdit = null)}>
-      <div class="modal-card memory-detail-modal" role="dialog" aria-modal="true" aria-label={session.text.memoryCandidateEdit}>
-      <form class="memory-detail-form" out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); if (memoryStore.candidateEdit) void confirmMemoryCandidate(memoryStore.candidateEdit); }}>
-        <header class="entity-editor-head"><div><strong>{session.text.memoryCandidateEdit}</strong><p>{memoryStore.candidateEdit.createdAt.replace("T", " ").slice(0, 19)}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (memoryStore.candidateEdit = null)}><i class="ph ph-x"></i></button></header>
+    <Dialog
+      open={Boolean(memoryStore.candidateEdit)}
+      busy={Boolean(memoryStore.busyAction)}
+      contentClass="memory-detail-modal"
+      labelledBy="memory-candidate-edit-title"
+      onOpenChange={(next) => { if (!next) memoryStore.candidateEdit = null; }}
+    >
+      <form class="memory-detail-form" onsubmit={(event) => { event.preventDefault(); if (memoryStore.candidateEdit) void confirmMemoryCandidate(memoryStore.candidateEdit); }}>
+        <header class="entity-editor-head"><div><strong id="memory-candidate-edit-title">{session.text.memoryCandidateEdit}</strong><p>{memoryStore.candidateEdit.createdAt.replace("T", " ").slice(0, 19)}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (memoryStore.candidateEdit = null)}><i class="ph ph-x"></i></button></header>
         <div class="modal-body settings-form">
           <label class="settings-field settings-field-wide"><span>{session.text.memoryContent}</span><textarea rows="6" bind:value={memoryStore.candidateEdit.value}></textarea></label>
           <label class="settings-field"><span>{session.text.memoryCandidateNamespace}</span><input bind:value={memoryStore.candidateEdit.namespace} /></label>
@@ -337,41 +354,65 @@
         </div>
         <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={() => (memoryStore.candidateEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(memoryStore.busyAction) || !memoryStore.candidateEdit.value.trim()}>{memoryStore.candidateEdit.skillDraftSuggestion ? session.text.memorySkillDraftConfirm : session.text.memoryCandidateConfirm}</button></footer>
       </form>
-      </div>
-    </div>
+    </Dialog>
   {/if}
 
   {#if memoryStore.memoryEdit}
-    <div class="modal-overlay" role="presentation" onclick={(event) => event.target === event.currentTarget && (memoryStore.memoryEdit = null)}>
-      <div class="modal-card memory-detail-modal" role="dialog" aria-modal="true" aria-label={session.text.memory}>
-      <form id="desktop-memory-form" class="memory-detail-form" aria-label={session.text.memory} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); if (memoryStore.memoryEdit) void saveMemoryItem(memoryStore.memoryEdit); }}>
-        <header class="entity-editor-head"><div><strong>{session.text.memory}</strong><p>{memoryStore.memoryEdit.channel}:{memoryStore.memoryEdit.externalUserId}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(memoryStore.busyAction)} onclick={() => (memoryStore.memoryEdit = null)}><i class="ph ph-x"></i></button></header>
+    <Dialog
+      open={Boolean(memoryStore.memoryEdit)}
+      busy={Boolean(memoryStore.busyAction)}
+      contentClass="memory-detail-modal"
+      labelledBy="memory-edit-title"
+      onOpenChange={(next) => { if (!next) memoryStore.memoryEdit = null; }}
+    >
+      <form id="desktop-memory-form" class="memory-detail-form" aria-label={session.text.memory} onsubmit={(event) => { event.preventDefault(); if (memoryStore.memoryEdit) void saveMemoryItem(memoryStore.memoryEdit); }}>
+        <header class="entity-editor-head"><div><strong id="memory-edit-title">{session.text.memory}</strong><p>{memoryStore.memoryEdit.channel}:{memoryStore.memoryEdit.externalUserId}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(memoryStore.busyAction)} onclick={() => (memoryStore.memoryEdit = null)}><i class="ph ph-x"></i></button></header>
         <div class="modal-body memory-detail-body">
           <div class="settings-form">
             <label class="settings-field settings-field-wide"><span>{session.text.memoryContent}</span><textarea rows="7" bind:value={memoryStore.memoryEdit.content}></textarea></label>
             <label class="settings-field"><span>{session.text.memoryTags}</span><input value={memoryStore.memoryEdit.tags.join(",")} oninput={(event) => { if (memoryStore.memoryEdit) memoryStore.memoryEdit = { ...memoryStore.memoryEdit, tags: event.currentTarget.value.split(",").map((value) => value.trim()).filter(Boolean) }; }} /></label>
             <label class="settings-field"><span>{session.text.memoryExpires}</span><input bind:value={memoryStore.memoryEdit.expiresAt} /></label>
           </div>
-          <div class="settings-row"><strong>{session.text.memoryPinned}</strong><button class:active={Boolean(memoryStore.memoryEdit.pinned)} class="switch" type="button" role="switch" aria-label={session.text.memoryPinned} aria-checked={Boolean(memoryStore.memoryEdit.pinned)} onclick={() => { if (memoryStore.memoryEdit) memoryStore.memoryEdit.pinned = !memoryStore.memoryEdit.pinned; }}><span></span></button></div>
-          <div class="settings-row"><div class="profile-info"><strong>{session.text.memoryAllowInjection}</strong><p>{session.text.memoryAllowInjectionHint}</p></div><button class:active={memoryStore.memoryEdit.allowInjection !== false} class="switch" type="button" role="switch" aria-label={session.text.memoryAllowInjection} aria-checked={memoryStore.memoryEdit.allowInjection !== false} onclick={() => { if (memoryStore.memoryEdit) memoryStore.memoryEdit.allowInjection = memoryStore.memoryEdit.allowInjection === false; }}><span></span></button></div>
+          <div class="settings-row"><strong>{session.text.memoryPinned}</strong><IosSwitch
+  checked={Boolean(memoryStore.memoryEdit.pinned)}
+  ariaLabel={session.text.memoryPinned}
+  onCheckedChange={(checked) => { if (memoryStore.memoryEdit) memoryStore.memoryEdit.pinned = checked; }}
+/></div>
+          <div class="settings-row"><div class="profile-info"><strong>{session.text.memoryAllowInjection}</strong><p>{session.text.memoryAllowInjectionHint}</p></div><IosSwitch
+  checked={memoryStore.memoryEdit.allowInjection !== false}
+  ariaLabel={session.text.memoryAllowInjection}
+  onCheckedChange={(checked) => { if (memoryStore.memoryEdit) memoryStore.memoryEdit.allowInjection = checked; }}
+/></div>
           {#if memoryStore.memoryEdit.reason}<div class="settings-row"><div class="profile-info"><strong>{session.text.memoryReason}</strong><p>{memoryStore.memoryEdit.reason}</p></div></div>{/if}
           {#if memoryStore.memoryEdit.sources?.length}<div class="settings-row"><div class="profile-info"><strong>{session.text.memorySources}</strong>{#each memoryStore.memoryEdit.sources as source}<p>{source.channel} · {source.sessionId} · {source.conversationMessageId} <button class="secondary-button" type="button" onclick={() => void openMemorySource(source)}>{session.text.memoryOpenSource}</button></p>{/each}</div></div>{/if}
           <div class="settings-row"><div class="profile-info"><strong>{session.text.memoryVersions} · {memoryStore.memoryVersions.length}</strong>{#each memoryStore.memoryVersions as version}<p>{version.updatedAt.replace("T", " ").slice(0, 19)} · {version.content}</p>{/each}</div></div>
         </div>
         <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => (memoryStore.memoryEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(memoryStore.busyAction) || !memoryStore.memoryEdit.content.trim()}>{memoryStore.busyAction ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
       </form>
-      </div>
-    </div>
+    </Dialog>
   {/if}
 
   {#if memoryStore.sourcePreview}
-    <div class="modal-overlay" role="presentation" onclick={(event) => event.target === event.currentTarget && (memoryStore.sourcePreview = null)}><div class="modal-card memory-detail-modal" role="dialog" aria-modal="true" aria-label={session.text.memorySourcePreview}><header class="entity-editor-head"><div><strong>{session.text.memorySourcePreview}</strong><p>{memoryStore.sourcePreview.sessionId}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (memoryStore.sourcePreview = null)}><i class="ph ph-x"></i></button></header><div class="modal-body memory-source-list">{#each memoryStore.sourcePreview.messages as message}<article><strong>{message.role} · {message.createdAt.replace("T", " ").slice(0, 19)}{message.selected ? " · ←" : ""}</strong><p>{message.content}</p></article>{/each}</div></div></div>
+    <Dialog
+      open={Boolean(memoryStore.sourcePreview)}
+      contentClass="memory-detail-modal"
+      labelledBy="memory-source-preview-title"
+      onOpenChange={(next) => { if (!next) memoryStore.sourcePreview = null; }}
+    >
+      <header class="entity-editor-head"><div><strong id="memory-source-preview-title">{session.text.memorySourcePreview}</strong><p>{memoryStore.sourcePreview.sessionId}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (memoryStore.sourcePreview = null)}><i class="ph ph-x"></i></button></header><div class="modal-body memory-source-list">{#each memoryStore.sourcePreview.messages as message}<article><strong>{message.role} · {message.createdAt.replace("T", " ").slice(0, 19)}{message.selected ? " · ←" : ""}</strong><p>{message.content}</p></article>{/each}</div>
+    </Dialog>
   {/if}
 
   {#if advancedOpen}
-    <div class="modal-overlay" role="presentation" onclick={(event) => event.target === event.currentTarget && (advancedOpen = false)}>
-      <div class="modal-card memory-advanced-modal" role="dialog" aria-modal="true" aria-label={session.text.memoryAdvanced}>
-        <header class="entity-editor-head"><div><strong>{session.text.memoryAdvanced}</strong><p>{session.text.memoryAdvancedHint}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => advancedOpen = false}><i class="ph ph-x"></i></button></header>
+    <Dialog
+      open={advancedOpen}
+      busy={Boolean(memoryStore.busyAction)}
+      contentClass="memory-advanced-modal"
+      labelledBy="memory-advanced-title"
+      describedBy="memory-advanced-hint"
+      onOpenChange={(next) => { if (!next) advancedOpen = false; }}
+    >
+      <header class="entity-editor-head"><div><strong id="memory-advanced-title">{session.text.memoryAdvanced}</strong><p id="memory-advanced-hint">{session.text.memoryAdvancedHint}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => advancedOpen = false}><i class="ph ph-x"></i></button></header>
         <div class="modal-body memory-advanced-body">
           <section class="settings-card">
             <div class="settings-row"><strong>{session.text.memoryRuntimeEnabled}</strong><span class="status-badge" data-state={memoryStore.memory.enabled ? "ready" : "disconnected"}>{memoryStore.memory.enabled ? session.text.yes : session.text.no}</span></div>
@@ -391,7 +432,11 @@
               <label class="settings-field"><span>{session.text.memoryUserId}</span><input bind:value={memoryStore.userId} placeholder={session.text.memoryUserIdPlaceholder} /></label>
               <label class="settings-field settings-field-wide"><span>{session.text.memorySearch}</span><input bind:value={memoryStore.query} placeholder={session.text.memorySearchHint} /></label>
             </div>
-            <div class="settings-row"><strong>{session.text.memoryAllScopes}</strong><button class:active={memoryStore.allScopes} class="switch" type="button" role="switch" aria-label={session.text.memoryAllScopes} aria-checked={memoryStore.allScopes} onclick={() => (memoryStore.allScopes = !memoryStore.allScopes)}><span></span></button></div>
+            <div class="settings-row"><strong>{session.text.memoryAllScopes}</strong><IosSwitch
+  checked={memoryStore.allScopes}
+  ariaLabel={session.text.memoryAllScopes}
+  onCheckedChange={(checked) => { memoryStore.allScopes = checked; }}
+/></div>
             <div class="provider-inline-options">
               <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void refreshMemoryRecords()}>{session.text.memorySearchButton}</button>
               <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void runMemoryMaintenance("sync")}>{session.text.memorySync}</button>
@@ -408,7 +453,6 @@
           </section>
           {#if memoryStore.actionMessage}<p class="settings-action-message">{memoryStore.actionMessage}</p>{/if}
         </div>
-      </div>
-    </div>
+    </Dialog>
   {/if}
 {/if}

@@ -63,6 +63,32 @@ test("prepareTurn preserves caller-provided workspace and run id", () => {
   assert.equal(turn.runId, "run-custom");
 });
 
+test("prepareTurn resumes a run suspended for approval", () => {
+  const orchestrator = new TurnOrchestrator();
+  const sessionId = `session-resume-${Date.now()}-${Math.random()}`;
+  const runId = `run-resume-${Date.now()}-${Math.random()}`;
+  const db = new DatabaseSync(storagePaths.settingsDbFile);
+  db.prepare(`
+    INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at)
+    VALUES (?, ?, 'user-1', 'web', 'waiting_for_approval', datetime('now'))
+  `).run(runId, sessionId);
+  db.close();
+
+  const inbound = message({ runId });
+  const turn = orchestrator.prepareTurn({ chatId: "chat-1", sessionId, message: inbound });
+  assert.equal(turn.runId, runId);
+
+  const verifyDb = new DatabaseSync(storagePaths.settingsDbFile);
+  const row = verifyDb.prepare("SELECT status, last_heartbeat FROM runs WHERE id = ?").get(runId) as {
+    status: string;
+    last_heartbeat: string | null;
+  };
+  verifyDb.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+  verifyDb.close();
+  assert.equal(row.status, "running");
+  assert.ok(row.last_heartbeat);
+});
+
 test("prepareTurn prevents concurrent active turns on same session", () => {
   const orchestrator = new TurnOrchestrator();
   const inbound1 = message({ messageId: 101 });

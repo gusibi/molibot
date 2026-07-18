@@ -55,6 +55,7 @@ export class MemoryGateway {
   private readonly importers: MemoryImporter[];
   private readonly candidates: MemoryCandidateStore;
   private readonly profileSnapshots?: MemoryProfileSnapshotStore;
+  private profileSummarizer?: (profile: MemoryProfileResult) => Promise<string>;
   private embeddingConfigKey = "";
 
   constructor(
@@ -494,6 +495,18 @@ export class MemoryGateway {
     return updated ? this.withGovernanceState(updated) : this.withGovernanceState(existing);
   }
 
+  // Repeated-mention reinforcement: reflection observed the same durable fact
+  // again, so nudge confidence and freshness instead of dropping the signal.
+  // Utility stays untouched — it is owned by the trace-feedback ledger.
+  async reinforceMemory(scope: MemoryScope, id: string): Promise<MemoryRecord | null> {
+    if (!this.isEnabled()) return null;
+    const existing = await this.getForGovernance(scope, id);
+    if (!existing || existing.state !== "active" || existing.privacySuppressed) return null;
+    const confidence = Math.min(0.99, (existing.confidence ?? 0.7) + 0.02);
+    const updated = await this.getBackend().update(scope, id, { confidence });
+    return updated ? this.withGovernanceState(updated) : null;
+  }
+
   async applyTraceFeedback(
     traceStore: SqliteMemoryTraceStore,
     input: {
@@ -628,7 +641,31 @@ export class MemoryGateway {
       const governed = items.map((record) => this.withGovernanceState(record));
       return { items: governed, scannedCount: governed.length, truncated: governed.length >= limit };
     });
-    return builder.build(scope);
+    const profile = await builder.build(scope);
+    return this.withSynthesizedSummary(profile);
+  }
+
+  // LLM synthesis runs at most once per profile fingerprint: cache hits reuse
+  // the stored text, and any synthesis failure keeps the concatenated fallback.
+  setProfileSummarizer(summarizer: (profile: MemoryProfileResult) => Promise<string>): void {
+    this.profileSummarizer = summarizer;
+  }
+
+  private async withSynthesizedSummary(profile: MemoryProfileResult): Promise<MemoryProfileResult> {
+    if (!this.profileSummarizer) return profile;
+    if (profile.stablePreferences.length + profile.profileFacts.length + profile.currentFocus.length === 0) return profile;
+    const store = this.profileSnapshots ?? getMemoryProfileSnapshotStore();
+    const scopeKey = createHash("sha256").update(JSON.stringify(profile.meta.scope)).digest("hex");
+    const cached = store.getSummary(scopeKey, profile.meta.fingerprint);
+    if (cached) return { ...profile, summary: cached };
+    try {
+      const summary = (await this.profileSummarizer(profile)).trim();
+      if (!summary) return profile;
+      store.setSummary(scopeKey, profile.meta.fingerprint, summary);
+      return { ...profile, summary };
+    } catch {
+      return profile;
+    }
   }
 
   async listForMaintenance(scope: MemoryScope, limit = 10_000): Promise<MemoryRecord[]> {

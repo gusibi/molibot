@@ -8,6 +8,11 @@ interface SnapshotRow {
   items_json: string;
 }
 
+interface SummaryRow {
+  fingerprint: string;
+  summary: string;
+}
+
 export class MemoryProfileSnapshotStore {
   private readonly db: DatabaseSync;
 
@@ -24,7 +29,27 @@ export class MemoryProfileSnapshotStore {
         created_at TEXT NOT NULL,
         PRIMARY KEY(session_id, scope_key)
       );
+      CREATE TABLE IF NOT EXISTS memory_profile_summaries (
+        scope_key TEXT PRIMARY KEY,
+        fingerprint TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `);
+  }
+
+  getSummary(scopeKey: string, fingerprint: string): string | undefined {
+    const row = this.db.prepare(`
+      SELECT fingerprint, summary FROM memory_profile_summaries WHERE scope_key = ?
+    `).get(scopeKey) as SummaryRow | undefined;
+    return row && row.fingerprint === fingerprint ? row.summary : undefined;
+  }
+
+  setSummary(scopeKey: string, fingerprint: string, summary: string): void {
+    this.db.prepare(`
+      INSERT INTO memory_profile_summaries(scope_key, fingerprint, summary, created_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(scope_key) DO UPDATE SET fingerprint = excluded.fingerprint, summary = excluded.summary, created_at = excluded.created_at
+    `).run(scopeKey, fingerprint, summary, new Date().toISOString());
   }
 
   getOrCreate(sessionId: string, scopeKey: string, items: MemoryInjectionItem[]): { version: 1; baseFingerprint: string; baseItems: MemoryInjectionItem[] } {

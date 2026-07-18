@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import type { Translation } from "../i18n";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
+  import { clipboardImageFiles } from "./clipboardFiles";
   export let copy: Translation;
   export let value = "";
   export let sending = false;
@@ -11,6 +12,7 @@
   export let onSend: () => void;
   export let onStop: (() => void) | undefined = undefined;
   export let onKeydown: (event: KeyboardEvent) => void;
+  export let onPasteFiles: (files: File[]) => void;
 
   let textarea: HTMLTextAreaElement;
   let highlight: HTMLDivElement | null = null;
@@ -39,6 +41,14 @@
     if (highlight && textarea) highlight.scrollTop = textarea.scrollTop;
   }
 
+  function handlePaste(event: ClipboardEvent): void {
+    if (sending || disabled) return;
+    const files = clipboardImageFiles(event.clipboardData?.items ?? []);
+    if (files.length === 0) return;
+    event.preventDefault();
+    onPasteFiles(files);
+  }
+
   $: value, tick().then(resizeTextarea);
 </script>
 
@@ -49,7 +59,7 @@
     {#if invocation}
       <div class="composer-highlight" bind:this={highlight} aria-hidden="true"><span class="composer-token" data-kind={invocation.kind}>{tokenText}</span>{restText}</div>
     {/if}
-    <textarea bind:this={textarea} bind:value rows="2" {placeholder} {disabled} onkeydown={onKeydown} oninput={resizeTextarea} onscroll={syncScroll}></textarea>
+    <textarea bind:this={textarea} bind:value rows="2" {placeholder} {disabled} onkeydown={onKeydown} onpaste={handlePaste} oninput={resizeTextarea} onscroll={syncScroll}></textarea>
   </div>
   <div class="composer-bar">
     <slot name="tools"><div class="composer-tools"></div></slot>

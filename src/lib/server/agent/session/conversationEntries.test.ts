@@ -29,3 +29,60 @@ test("conversation projection entries stay stable and edit truncation rebuilds c
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("shared automation archives project messages by run id and preserve legacy sessions", () => {
+  const dir = mkdtempSync(join(tmpdir(), "molibot-conversation-run-entries-"));
+  try {
+    const store = new MomRuntimeStore(dir);
+    const chatId = "web:default:web-anonymous";
+    const archiveId = store.beginTaskArchiveSession(chatId, "daily-report");
+    store.appendContextMessage(chatId, message("user", "first prompt"), archiveId, { runId: "run-1" });
+    store.appendContextMessage(chatId, message("assistant", "first answer"), archiveId, { runId: "run-1" });
+    store.appendContextMessage(chatId, message("user", "second prompt"), archiveId, { runId: "run-2" });
+    store.appendContextMessage(chatId, message("assistant", "second answer"), archiveId, { runId: "run-2" });
+
+    assert.deepEqual(
+      store.loadContextForRun(chatId, archiveId, "run-2").map((item) => item.role === "assistant" ? "assistant" : "user"),
+      ["user", "assistant"]
+    );
+    assert.match(JSON.stringify(store.loadContextForRun(chatId, archiveId, "run-2")), /second answer/);
+    assert.doesNotMatch(JSON.stringify(store.loadContextForRun(chatId, archiveId, "run-2")), /first answer/);
+    assert.deepEqual(store.loadContextForRun(chatId, archiveId, "missing-run"), []);
+
+    const legacyId = store.beginTaskSession(chatId);
+    store.appendContextMessage(chatId, message("user", "legacy prompt"), legacyId);
+    store.appendContextMessage(chatId, message("assistant", "legacy answer"), legacyId);
+    assert.match(JSON.stringify(store.loadContextForRun(chatId, legacyId, "legacy-run")), /legacy answer/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("shared automation approval rewrite replaces only the owning run", () => {
+  const dir = mkdtempSync(join(tmpdir(), "molibot-conversation-run-rewrite-"));
+  try {
+    const store = new MomRuntimeStore(dir);
+    const chatId = "web:default:web-anonymous";
+    const archiveId = store.beginTaskArchiveSession(chatId, "daily-report");
+    store.appendContextMessage(chatId, message("user", "first prompt"), archiveId, { runId: "run-1" });
+    store.appendContextMessage(chatId, message("assistant", "first answer"), archiveId, { runId: "run-1" });
+    store.appendContextMessage(chatId, message("user", "second prompt"), archiveId, { runId: "run-2" });
+    store.appendContextMessage(chatId, message("assistant", "waiting approval"), archiveId, { runId: "run-2" });
+
+    store.replaceContextForRun(chatId, archiveId, "run-2", [
+      message("user", "second prompt"),
+      message("assistant", "approved output")
+    ]);
+
+    assert.match(JSON.stringify(store.loadContextForRun(chatId, archiveId, "run-1")), /first answer/);
+    assert.doesNotMatch(JSON.stringify(store.loadContextForRun(chatId, archiveId, "run-1")), /approved output/);
+    assert.match(JSON.stringify(store.loadContextForRun(chatId, archiveId, "run-2")), /approved output/);
+    assert.doesNotMatch(JSON.stringify(store.loadContextForRun(chatId, archiveId, "run-2")), /waiting approval/);
+    assert.deepEqual(
+      store.listSessionMessageEntries(chatId, archiveId).map((entry) => entry.runId),
+      ["run-1", "run-1", "run-2", "run-2"]
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

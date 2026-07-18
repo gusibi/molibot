@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DesktopMemoryCandidate, DesktopMemoryItem } from "@molibot/desktop-contract";
-import { compactMemoryText, memoryTopicFor, projectMemoryCenter } from "./memoryCenter";
+import { compactMemoryText, memoryTopicFor, projectMemoryCenter, splitPendingCandidates } from "./memoryCenter";
 
 function memory(overrides: Partial<DesktopMemoryItem> & Pick<DesktopMemoryItem, "id" | "content">): DesktopMemoryItem {
   return {
@@ -73,4 +73,14 @@ test("overview projection keeps lifestyle records out of stable preferences and 
 test("compactMemoryText removes markup and bounds long raw memory content", () => {
   assert.equal(compactMemoryText("## Title\n-   A stored **fact**", 40), "Title A stored fact");
   assert.equal(compactMemoryText("1234567890", 6), "12345…");
+});
+
+test("splitPendingCandidates keeps owner/project candidates first and separates agent learnings", () => {
+  const owner = candidate("owner-pref", "2026-07-15T00:00:00.000Z");
+  const project = { ...candidate("project-task", "2026-07-14T00:00:00.000Z"), domain: "project" as const };
+  const agent = { ...candidate("agent-lesson", "2026-07-16T00:00:00.000Z"), domain: "agent_self" as const };
+  const content = { ...candidate("content-note", "2026-07-13T00:00:00.000Z"), domain: "content" as const };
+  const groups = splitPendingCandidates([agent, owner, project, content]);
+  assert.deepEqual(groups.aboutOwner.map((entry) => entry.id), ["owner-pref", "project-task"]);
+  assert.deepEqual(groups.agentLearnings.map((entry) => entry.id), ["agent-lesson", "content-note"]);
 });

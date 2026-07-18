@@ -191,6 +191,22 @@ export class TurnOrchestrator {
       }
     }
 
+    // Approval continuation intentionally reuses its original run id. Move
+    // the suspended row back under the normal heartbeat/commit lifecycle.
+    const resumed = db.prepare(`
+      UPDATE runs
+      SET status = 'running', last_heartbeat = ?, finished_at = NULL, error = NULL
+      WHERE id = ? AND session_id = ? AND status = 'waiting_for_approval'
+    `).run(new Date(startedAt).toISOString(), runId, input.sessionId);
+    if (Number(resumed.changes ?? 0) > 0) {
+      return {
+        runId,
+        sessionId: input.sessionId,
+        workspaceId,
+        startedAt
+      };
+    }
+
     // Security/Auth Boundary: Channel runtimes are responsible for authenticating and
     // authorizing external users/actors before invoking the shared turn orchestrator pipeline.
     // The TurnOrchestrator trusts the incoming message and persists the normalized userId

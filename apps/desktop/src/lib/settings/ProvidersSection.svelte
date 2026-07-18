@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { fly } from "svelte/transition";
   import type { DesktopProviderItem, DesktopProvidersSummary, DesktopProviderUpdateRequest } from "@molibot/desktop-contract";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
@@ -9,6 +8,8 @@
   import SettingRow from "../components/ui/SettingRow.svelte";
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
   import StatusBadge from "../components/ui/StatusBadge.svelte";
+  import Dialog from "../components/ui/Dialog.svelte";
+  import AlertDialog from "../components/ui/AlertDialog.svelte";
   import { humanizeProviderName } from "../presentation";
   import { session } from "../stores/session.svelte";
   import {
@@ -23,7 +24,6 @@
     defaultProviderPath,
     discoverProviderModels,
     loadProviders,
-    onProviderOverlayKeydown,
     removeProvider,
     removeProviderModel,
     saveProviderEdit,
@@ -59,14 +59,9 @@
   let providerSortActive = $state(true);
   let selectedProviderId = $state("");
   let pendingDeleteProviderId = $state("");
-  let providerDeleteDialog = $state<HTMLElement | null>(null);
   type ProviderBrowserItem =
     | { kind: "builtin"; provider: DesktopProvidersSummary["builtinProviders"][number]; index: number }
     | { kind: "custom"; provider: DesktopProviderItem; index: number };
-
-  $effect(() => {
-    if (pendingDeleteProviderId) queueMicrotask(() => providerDeleteDialog?.focus());
-  });
 
   function providerProtocolLabel(protocol: string): string {
     return protocol === "openai-compatible" ? session.text.protocolOpenaiCompatible : protocol;
@@ -336,10 +331,10 @@
             {/if}
           </SettingGroup>
           {#if providersStore.providerEdit}
-            <div class="modal-overlay provider-modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={providersStore.providerEdit.isNew ? session.text.providerCreateTitle : session.text.providerEditTitle} onclick={(event) => { if (event.target === event.currentTarget && !providersStore.saving) closeProviderEdit(); }} onkeydown={onProviderOverlayKeydown}>
-            <form id="desktop-provider-edit-form" class="modal-card provider-modal-card" out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveProviderEdit(); }}>
+            <Dialog open={Boolean(providersStore.providerEdit)} busy={providersStore.saving} contentClass="provider-modal-card" labelledBy="provider-edit-title" describedBy="provider-edit-hint" onOpenChange={(next) => { if (!next) closeProviderEdit(); }}>
+            <form id="desktop-provider-edit-form" class="provider-modal-card" onsubmit={(event) => { event.preventDefault(); void saveProviderEdit(); }}>
               <header class="modal-head provider-modal-head">
-                <div><strong>{providersStore.providerEdit.isNew ? session.text.providerCreateTitle : session.text.providerEditTitle}</strong><p>{session.text.providerSelfHostedHint}</p></div>
+                <div><strong id="provider-edit-title">{providersStore.providerEdit.isNew ? session.text.providerCreateTitle : session.text.providerEditTitle}</strong><p id="provider-edit-hint">{session.text.providerSelfHostedHint}</p></div>
                 <button class="modal-close" type="button" aria-label={session.text.cancel} disabled={providersStore.saving} onclick={closeProviderEdit}><i class="ph ph-x"></i></button>
               </header>
               <div class="modal-body provider-modal-body">
@@ -460,7 +455,7 @@
                 <button class="primary-button" type="submit" disabled={providersStore.saving || !providersStore.providerEdit.id.trim() || !providersStore.providerEdit.name.trim() || !providersStore.providerEdit.baseUrl.trim() || (providersStore.providerEdit.isNew && !providersStore.editApiKey.trim())}>{providersStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button>
               </footer>
             </form>
-            </div>
+            </Dialog>
           {/if}
           {#if providersStore.actionMessage && !providersStore.providerEdit}
             <p class:run-history-failed={providersStore.actionFailed} class="settings-action-message">{providersStore.actionMessage}</p>
@@ -468,16 +463,14 @@
         {/if}
 
 {#if pendingDeleteProviderId}
-  <div class="modal-overlay confirm-overlay" role="presentation" tabindex="-1" bind:this={providerDeleteDialog} onclick={(event) => { if (event.target === event.currentTarget && !providersStore.saving) pendingDeleteProviderId = ""; }} onkeydown={(event) => { if (event.key === "Escape" && !providersStore.saving) pendingDeleteProviderId = ""; }}>
-    <div class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="provider-delete-title" aria-describedby="provider-delete-description">
-      <h3 id="provider-delete-title">{session.text.providerDelete}</h3>
-      <p id="provider-delete-description">{session.text.providerDeleteConfirm}</p>
-      <div class="confirm-dialog-actions">
-        <button class="secondary-button" type="button" disabled={providersStore.saving} onclick={() => (pendingDeleteProviderId = "")}>{session.text.cancel}</button>
-        <button class="primary-button danger-button" type="button" disabled={providersStore.saving} onclick={async () => { const providerId = pendingDeleteProviderId; await removeProvider(providerId); pendingDeleteProviderId = ""; }}>{session.text.providerDelete}</button>
-      </div>
+  <AlertDialog open={Boolean(pendingDeleteProviderId)} busy={providersStore.saving} contentClass="confirm-dialog" labelledBy="provider-delete-title" describedBy="provider-delete-description" onOpenChange={(next) => { if (!next) pendingDeleteProviderId = ""; }}>
+    <h3 id="provider-delete-title">{session.text.providerDelete}</h3>
+    <p id="provider-delete-description">{session.text.providerDeleteConfirm}</p>
+    <div class="confirm-dialog-actions">
+      <button class="secondary-button" type="button" disabled={providersStore.saving} onclick={() => (pendingDeleteProviderId = "")}>{session.text.cancel}</button>
+      <button class="primary-button danger-button" type="button" disabled={providersStore.saving} onclick={async () => { const providerId = pendingDeleteProviderId; await removeProvider(providerId); pendingDeleteProviderId = ""; }}>{session.text.providerDelete}</button>
     </div>
-  </div>
+  </AlertDialog>
 {/if}
 
 {#if providersStore.globalsDirty}

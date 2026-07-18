@@ -101,11 +101,12 @@ export function sanitizeHostBashPendingAction(input: unknown): HostBashPendingAc
   const kind = sanitizeString(source.kind);
   if (kind !== "run_approved_host_bash" && kind !== "run_one_time_host_script") return undefined;
   const originalCommand = sanitizeString(source.originalCommand).slice(0, 4000);
+  const runId = sanitizeOptionalString(source.runId, 240);
   const args = kind === "run_approved_host_bash" ? sanitizeArgList(source.args) : undefined;
   const stdin = sanitizeOptionalString(source.stdin, 20000);
   const timeoutRaw = Number(source.timeout);
   const timeout = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? Math.min(Math.round(timeoutRaw), 600) : undefined;
-  return { kind, originalCommand, args, stdin, timeout };
+  return { kind, originalCommand, runId, args, stdin, timeout };
 }
 
 export function parseHostBashShellCommand(input: string): {

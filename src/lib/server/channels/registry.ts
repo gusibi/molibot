@@ -18,6 +18,7 @@ export interface ChannelManager {
   snapshotRuns?(): Array<{ chatId: string; sessionId: string }>;
   abortRun?(chatId: string, sessionId: string, reason?: string): { aborted: boolean };
   triggerTask?(event: unknown, filename: string): Promise<void>;
+  sendInternalNotice?(chatId: string, text: string, metadata: { kind: string; filename: string }): Promise<void>;
 }
 
 export interface ChannelRuntimeDeps {

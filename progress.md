@@ -1007,3 +1007,132 @@
 - Final evidence: mory 186/186; combined Server memory/Session/prompt/scheduler suite 93/93; Desktop Chat/API 206/206; Desktop Svelte 0/0; Server production build passed.
 
 ---
+
+# Native desktop experience implementation log (2026-07-17)
+
+## Delivery update
+- Independently rebuilt `Molibot Native QA.app` with a temporary compile-time identifier and isolated `DATA_DIR`; standard `.app` launch registered it as foreground, resolved bundled resources, and started a managed sidecar at `http://127.0.0.1:3001` (PID 47755). A second launch retained one QA process while the user-owned debug host (PID 55692) and port-3000 service remained untouched.
+- Retested after process enumeration became available: System Events can list app processes but rejects UI scripting against `Molibot Native QA` (`osascript 不允许辅助访问`, `-1728`/`-1719`), and screen capture remains denied. A follow-up QA rebuild with the distinct `com.eztoolab.molibot.nativeqa` identity again left the user debug host/port-3000 service untouched, but targeted QA accessibility reads still returned `-1728` and `screencapture` remained unavailable. The menu/tray/dialog/VoiceOver/window-visual/notification-action/Force-Touch interaction matrix remains accurately recorded as blocked by OS permissions or hardware, not represented as passed verification.
+- Final Desktop regression: native/unit 45/45, UI/HTTP 74/74, Rust 19/19, `svelte-check` 0 errors/0 warnings, Vite production build, `cargo check`, release finalizer 4/4, and `git diff --check` all pass. Vite only reports the pre-existing dynamic-import/chunk-size advisories.
+- Command execution now returns a typed safe failure result if a native host operation rejects; root feedback emits generic localized copy only and never forwards raw host errors.
+- Completed NATIVE-09 palette ordering: empty ⌘K queries deterministically prioritize successful local history, the active workspace, and catalog recommendations. Typed queries remain relevance-first. The versioned local store accepts only stable command IDs, successful-run counts, and local timestamps, rejects malformed/unknown/expired entries, caps retention at 20 commands / 90 days, and never stores query text, labels, context, parameters, session/Profile data, errors, or user content. Focused command tests, UI contracts, and `svelte-check` pass before final full regression.
+- Task/service command feedback is deduplicated and privacy-safe. Native permission is requested only when the user enables notifications; notification actions restore and focus the Chat window.
+- Package build now falls back from the observed Finder AppleEvent timeout (`-1712`) to a functional no-custom-layout DMG only after Tauri has completed the `.app`; target-aware finalization prevents accidental selection/renaming of obsolete cross-target DMGs.
+
+## Automated and package verification
+| Check | Result |
+| --- | --- |
+| Desktop native/unit tests | 45/45 passing |
+| Desktop UI/HTTP contracts | 74/74 passing |
+| Rust tests | 19/19 passing |
+| `svelte-check` | 0 errors, 0 warnings |
+| Vite production build / `cargo check` / `git diff --check` | passing |
+| `corepack pnpm --dir apps/desktop run tauri:build` | passing |
+| Apple Silicon DMG | `Molibot_0.5.5_aarch64.dmg`, SHA-256 and `hdiutil verify` passing; mount contains `Molibot.app` and `Applications` alias |
+
+## Manual host-verification limit
+- An existing debug `molibot-desktop` process owns the production single-instance channel. It remains untouched. An `Info.plist`-only temporary copy still forwarded to that process because Tauri embeds the single-instance identifier at compile time; the replacement QA path is a temporary config-overlay rebuild with a distinct identifier, launched with an isolated `DATA_DIR`.
+- `security find-identity -v -p codesigning` reports zero valid identities, so this local artifact is not Developer ID signed/notarized and Gatekeeper verification is unavailable.
+
+---
+# Unified memory task notifications progress (2026-07-18)
+
+## Phase 1: plan and evidence boundary
+- **Status:** complete
+- Loaded the runtime-review, file-planning, and complete `DESIGN.md` instructions.
+- Preserved the heavily modified shared worktree and appended planning records instead of replacing prior history.
+- Confirmed the implementation assumption: reflection and daily materials share the existing selected Telegram/Feishu destination; completion delivery is direct and non-context-backed.
+- Defined red/green gates that keep user-created reminder persistence unchanged.
+
+## Test results
+| Check | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Existing scheduler/task-session/direct-event baseline | Current behavior reproducible | 22/22 passed during diagnosis; pollution artifact check failed as expected | baseline captured |
+| Internal-notice regression | New context-free delivery exports exist | Module export error for `deliverMemoryTaskNotification` | expected red |
+| Focused internal-notice green | Shared target, aggregation, context isolation, reminder compatibility | 24/24 passed | passed |
+
+## Phases 2–3: delivery interface and memory task routing
+- **Status:** complete
+- Added `ChannelManager.sendInternalNotice` and native Telegram/Feishu implementations that only send/log the human notice.
+- Replaced the internal scheduler's `triggerTask` completion path with the dedicated interface.
+- Reused the authorized Telegram/Feishu target resolver for both memory tasks.
+- Removed per-source-Bot daily-material notice fan-out and send one deduplicated aggregate after the owner run.
+- Preserved direct one-shot reminder persistence and source-Session routing.
+
+## Phase 4: Settings and focused verification
+- **Status:** complete
+- Renamed the target as the shared memory-task notification destination in Chinese and English.
+- Updated daily-material copy to state that it sends one aggregate to the shared target.
+- Kept the selector enabled whenever either reflection or daily-material notifications are enabled.
+- Focused verification: Server settings/runtime 33/33, Desktop UI 72/72, Svelte 0 errors/0 warnings.
+
+---
+### 2026-07-18 build verification
+
+- `pnpm run build` at the repository root passed.
+- `pnpm run build` under `apps/desktop` could not start with the default Homebrew Node: macOS denied the Homebrew ICU library because of its code signature. Logged as an environment-specific blocker; retrying with the bundled workspace runtime.
+- Desktop Vite production build passed with the bundled Codex Node runtime.
+- Final focused regression passed: Server/runtime/settings/session tests 33/33; Desktop UI contracts 72/72; Svelte 0 errors/0 warnings; root and Desktop production builds passed; `git diff --check` passed.
+
+## Phase 6: adversarial review
+- **Status:** complete
+- Confirmed internal memory completion notices call only the channel-native sender and structured logger; they do not enter the Runner, queue, active Session, or Agent Context.
+- Confirmed one-shot reminders still use the original direct-event persistence path and return to their execution-linked source Session.
+- Confirmed the shared target allowlist contains only enabled, authorized Telegram/Feishu chats; stale selections safely fall back to the first still-authorized target, and no available target produces no notification.
+- Confirmed owner daily-material output is aggregated once and duplicate output paths are removed. Existing legacy targeted events remain executable but no newly generated memory event stores a per-source notification chat.
+- Preserved the live polluted Session artifact unchanged; repairing historical user data requires separate explicit approval.
+
+---
+# Fresh automation shared archive progress (2026-07-18)
+
+## Phase 1: planning and runtime boundary
+- **Status:** in progress
+- Loaded the runtime-review and file-planning workflows and preserved the existing dirty worktree.
+- Confirmed the approved product behavior: one stable archive Session per task, fresh model context per execution, and run-scoped execution detail.
+- Identified the required separation between execution runtime identity and transcript persistence identity; no Channel-specific queue/session behavior will be added.
+
+## Phase 2: red tests and first implementation
+- **Status:** complete
+- Added temporary-store regressions for stable per-task archives, legacy no-task-id fallback, run-scoped transcript reads, and fresh Runner state isolation.
+- Initial red run failed on the missing archive APIs as expected. The first green attempt passed Store tests but exposed two test-double mismatches: the current profile snapshot method and an Assistant event not mirrored into fake Agent state.
+- Implemented deterministic task archive resolution, optional message `runId`, run-filtered history loading, direct-text run tagging, execution-scoped Memory/tool identity, and fresh Runner start/end clearing.
+- Adversarial review found that Host Bash delayed approval previously rewrote the whole active Session. The pending action now preserves `runId`; approval rewrites and resumes only that run, reactivates the waiting Turn, and restores the prior chat Session after completion.
+
+## Phase 3: verification and delivery
+- **Status:** complete
+- Focused Session/Runner/task-detail/Host Bash/Turn suite passed 86/86; scheduler/lease/shared-command/approval regression passed 81/81.
+- Root `pnpm run build` passed. `git diff --check` passed.
+- `npx tsc --noEmit` remains red on broad pre-existing dependency, vendored-package, Svelte export, unrelated channel, and test typing errors; the production build and touched-path runtime suites are green.
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `readme.md` with the delivered behavior and compatibility boundary.
+
+## Adversarial review
+- **Archive accidentally becoming model context:** blocked in both Runner construction and every fresh run start/end; approval continuation loads only `contextRunId`.
+- **Approval overwriting sibling executions:** fixed with `runId` on the pending action and `replaceContextForRun`; regression proves run-1 survives a run-2 rewrite.
+- **Automation archive remaining the user's active Session:** completed/error/aborted runs restore the prior Session; waiting approval persists the return target and restores it after continuation.
+- **Archive-level Session Host Bash bypass leaking into later schedules:** independent fresh runs ignore that Session fallback while the approval card remains discoverable through the archive identity.
+- **Legacy history becoming unreadable:** events without stable `taskId` retain per-run Sessions, and untagged legacy Session details still fall back to their complete context.
+
+---
+
+# Desktop settings switch unification progress (2026-07-18)
+
+## Phase 1: Reproduction and mapping
+- **Status:** complete
+- Confirmed the screenshot symptom against source: the named pages use an unstyled legacy `.switch` button while the General page uses the shared `IosSwitch`.
+- Historical rule confirmed in the archived changelog: settings toggles must use `IosSwitch`.
+- Added a focused structural regression and observed it fail first on Skills before implementation.
+
+## Phase 2: Implementation and verification
+- **Status:** complete
+- Migrated every toggle in Skills, Search, Image, Video, Voice, Host Bash, Web Profile, Sandbox, and Plugins to `IosSwitch`; existing callbacks now consume the component's checked value directly.
+- Focused regression passes; full Desktop UI suite passes 73/73; Svelte diagnostics report 0 errors/0 warnings; production Vite build and `git diff --check` pass.
+- Cold preview at 860×620 confirms the shared switch is 38×22px/full-radius with no horizontal overflow. General → Search → Skills navigation and disconnected-service states render without console errors; populated page inspection is limited because the browser preview lacks the Tauri service-status bridge.
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `readme.md`.
+
+## Adversarial review
+- **Visual drift returning:** blocked by importing one shared component and a regression that rejects legacy `.switch` on every scoped page.
+- **Toggle behavior inverting or using stale values:** callbacks now receive the native checkbox's authoritative checked value instead of negating captured state.
+- **Disabled controls becoming clickable:** Host Bash, Web Profile, and Skills preserve disabled state on the shared native input.
+- **Save/API behavior changing:** existing dirty markers, store update helpers, and fine-grained save paths are unchanged.
+- **Theme/locale/compact regressions:** no page-local labels or colors were introduced; the verified shared component owns focus, theme, and compact geometry.
+- The planning skill's completion helper was run via `sh` but is incompatible with this repository's append-only multi-task plan format; it reported unrelated historical headings rather than this task's explicit completed phases. Product verification remained green.

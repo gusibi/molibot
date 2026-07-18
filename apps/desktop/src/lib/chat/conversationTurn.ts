@@ -10,6 +10,7 @@ import type { DesktopApprovalPrompt, DesktopThinkingLevel } from "@molibot/deskt
 import { classifyComposerSuggestion } from "./composerSuggestionCatalog";
 
 export interface ConversationTurnHandlers {
+  onUploadComplete?: () => void;
   onToken?: (delta: string) => void;
   onReplace?: (text: string) => void;
   onThinking?: (delta: string) => void;
@@ -31,7 +32,7 @@ export async function runDesktopConversationTurn(input: {
   signal?: AbortSignal;
 }, handlers: ConversationTurnHandlers = {}): Promise<void> {
   const invocation = classifyComposerSuggestion(input.message);
-  if (input.files?.length || invocation?.kind === "command") {
+  if (invocation?.kind === "command") {
     await sendDesktopChatWithFiles(input.endpoint, {
       profileId: input.profileId,
       sessionId: input.sessionId,
@@ -51,7 +52,8 @@ export async function runDesktopConversationTurn(input: {
     message: input.message,
     thinkingLevel: input.thinkingLevel,
     projectId: input.projectId,
-    modelKey: input.modelKey
+    modelKey: input.modelKey,
+    files: input.files
   }, async (event, data) => {
     if (event === "token") handlers.onToken?.(String(data.delta ?? ""));
     if (event === "replace") handlers.onReplace?.(String(data.text ?? ""));
@@ -75,5 +77,5 @@ export async function runDesktopConversationTurn(input: {
       });
     }
     if (event === "error") throw new Error(String(data.error ?? "Stream failed"));
-  }, input.signal);
+  }, input.signal, input.files?.length ? handlers.onUploadComplete : undefined);
 }

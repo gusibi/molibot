@@ -29,10 +29,17 @@
   import SelectControl from "./lib/components/ui/SelectControl.svelte";
   import SettingGroup from "./lib/components/ui/SettingGroup.svelte";
   import SettingRow from "./lib/components/ui/SettingRow.svelte";
+  import IosSwitch from "./lib/components/ui/IosSwitch.svelte";
   import StatusBadge from "./lib/components/ui/StatusBadge.svelte";
   import { humanizeModelOption } from "./lib/presentation";
   import { session } from "./lib/stores/session.svelte";
+  import { setTaskFeedbackPublisher } from "./lib/stores/tasks.svelte";
   import { initialLocale, normalizeLocale, translator, type Locale } from "./lib/i18n";
+  import { initialStartupState, reduceStartup, type StartupState } from "./lib/native/startupCoordinator";
+  import { ActivityScheduler, desktopStatusPolicy } from "./lib/native/activityScheduler";
+  import { FeedbackCoordinator, browserFeedbackAdapter, createTauriFeedbackAdapter, requestFeedbackPermission, type FeedbackAdapter } from "./lib/native/feedbackCoordinator";
+  import { HapticCoordinator, browserHapticAdapter, createTauriHapticAdapter, type HapticAdapter } from "./lib/native/hapticCoordinator";
+  import { createTauriWindowState, createWindowState, type WindowStateAdapter, type WindowStateSnapshot } from "./lib/native/windowState";
   import {
     buildDiagnosticsSummary,
     loadDesktopBootstrap,
@@ -45,6 +52,10 @@
   } from "./lib/api";
 
   type Ownership = "managed" | "external";
+  type CloseBehavior = "background" | "quit";
+  type NotificationPreference = "off" | "enabled";
+  type HapticPreference = "off" | "system";
+
   type DesktopStatus = {
     service: {
       endpoint: string | null;
@@ -53,12 +64,29 @@
       version: string | null;
     };
     launchAtLogin: boolean;
+    closeBehavior: CloseBehavior;
+    notificationPreference: NotificationPreference;
+    hapticPreference: HapticPreference;
   };
 
   type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "skills" | "memory" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "sandbox" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
+  let startup: StartupState = initialStartupState;
+  let statusScheduler: ActivityScheduler | null = null;
+  let windowStateAdapter: WindowStateAdapter | null = null;
+  let windowStateUnsubscribe: (() => void) | null = null;
+  let windowState: WindowStateSnapshot | null = null;
+  let feedbackAdapter: FeedbackAdapter = browserFeedbackAdapter;
+  let feedbackCoordinator: FeedbackCoordinator | null = null;
+  let feedbackActionCleanup: (() => void) | null = null;
+  let feedbackAnnouncement = "";
+  let serviceTransitionGeneration = 0;
+  let serviceFetchFailed = false;
+  let hapticAdapter: HapticAdapter = browserHapticAdapter;
+  let hapticCoordinator: HapticCoordinator | null = null;
+  let startupDelayTimer: number | null = null;
   let busy = false;
   let error = "";
   let ownershipText = "";
@@ -81,6 +109,46 @@
     ? previewPane as "automations" | "skills" | "agents"
     : "chat";
   let settingsScrolled = false;
+
+  function applyWindowState(snapshot: WindowStateSnapshot): void {
+    windowState = snapshot;
+    const root = document.documentElement;
+    root.dataset.windowActive = snapshot.active ? "true" : "false";
+    root.dataset.nativeTheme = snapshot.theme;
+    root.dataset.scale = String(snapshot.scaleFactor);
+    root.dataset.reducedTransparency = snapshot.reducedTransparency ? "true" : "false";
+    root.dataset.increasedContrast = snapshot.increasedContrast ? "true" : "false";
+  }
+
+  async function startWindowState(): Promise<void> {
+    windowStateAdapter = runningInTauri ? await createTauriWindowState() : createWindowState();
+    applyWindowState(windowStateAdapter.snapshot);
+    windowStateUnsubscribe = windowStateAdapter.subscribe(applyWindowState);
+    await windowStateAdapter.start();
+  }
+
+  async function startFeedback(): Promise<void> {
+    feedbackAdapter = runningInTauri ? await createTauriFeedbackAdapter() : browserFeedbackAdapter;
+    feedbackCoordinator = new FeedbackCoordinator(
+      feedbackAdapter,
+      () => windowState?.active ?? document.hasFocus(),
+      () => status?.notificationPreference ?? "off",
+      (message) => { feedbackAnnouncement = message; }
+    );
+    setTaskFeedbackPublisher((event) => publishFeedback(event));
+    feedbackActionCleanup = await feedbackAdapter.onAction?.(() => {
+      void invoke("show_main_window");
+    }) ?? null;
+  }
+
+  async function startHaptics(): Promise<void> {
+    hapticAdapter = runningInTauri ? await createTauriHapticAdapter() : browserHapticAdapter;
+    hapticCoordinator = new HapticCoordinator(hapticAdapter, () => status?.hapticPreference ?? "system");
+  }
+
+  function commitHaptic(gestureId: string): void {
+    void hapticCoordinator?.commit(gestureId);
+  }
 
   function applyTheme(value: DesktopTheme): void {
     const root = document.documentElement;
@@ -330,6 +398,40 @@
       : text.external;
   $: serviceEndpointText = status?.service.endpoint ?? (status ? text.unavailable : text.serviceStarting);
 
+  function publishFeedback(event: Parameters<FeedbackCoordinator["publish"]>[0]): void {
+    void feedbackCoordinator?.publish(event);
+  }
+
+  function publishCommandResult(result: { id: string; status: "executed" | "disabled" | "failed" | "unknown" }): void {
+    publishFeedback({
+      id: `command:${result.id}:${result.status}`,
+      kind: "command",
+      terminal: true,
+      title: text.appName,
+      body: result.status === "executed" ? text.commandCompleted : text.commandFailed
+    });
+  }
+
+  function publishServiceTransition(previous: DesktopStatus | null, next: DesktopStatus): void {
+    if (!previous || previous.service.state === next.service.state) return;
+    const recovered = next.service.state === "ready" && Boolean(next.service.endpoint);
+    publishFeedback({
+      id: `service:${++serviceTransitionGeneration}`,
+      kind: "service",
+      terminal: true,
+      title: text.appName,
+      body: recovered ? text.serviceRecovered : text.serviceUnavailable
+    });
+  }
+
+  function applyStartupStatus(next: DesktopStatus): void {
+    startup = reduceStartup(startup, {
+      type: "status",
+      ready: next.service.state === "ready" && Boolean(next.service.endpoint),
+      recoverable: next.service.state !== "incompatible" && next.service.state !== "error"
+    });
+  }
+
   async function refreshStatus(): Promise<void> {
     error = "";
     if (!runningInTauri) {
@@ -341,13 +443,22 @@
           state: previewEnabled ? "ready" : "disconnected",
           version: previewEnabled ? "preview" : null
         },
-        launchAtLogin: false
+        launchAtLogin: false,
+        closeBehavior: "background",
+        notificationPreference: "off",
+        hapticPreference: "system"
       };
+      applyStartupStatus(status);
       return;
     }
     try {
-      status = await invoke<DesktopStatus>("desktop_status");
-      const endpoint = status.service.endpoint;
+      const previous = status;
+      const nextStatus = await invoke<DesktopStatus>("desktop_status");
+      status = nextStatus;
+      serviceFetchFailed = false;
+      applyStartupStatus(nextStatus);
+      publishServiceTransition(previous, nextStatus);
+      const endpoint = nextStatus.service.endpoint;
       if (endpoint && status.service.state === "ready" && servicePortLoadedFrom !== endpoint) {
         const response = await tauriFetch(`${endpoint}/api/settings/system`);
         const payload = await response.json();
@@ -358,7 +469,30 @@
       }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
+      startup = reduceStartup(startup, { type: "failed", error });
+      if (serviceFetchFailed) return;
+      serviceFetchFailed = true;
+      publishFeedback({
+        id: `service:${++serviceTransitionGeneration}`,
+        kind: "service",
+        terminal: true,
+        title: text.appName,
+        body: text.serviceUnavailable
+      });
     }
+  }
+
+  function retryStartup(): void {
+    startup = reduceStartup(startup, { type: "retry" });
+    statusScheduler?.wake("retry");
+  }
+
+  function openStartupDiagnostics(): void {
+    openSettings("diagnostics");
+  }
+
+  function openStartupLogs(): void {
+    if (runningInTauri) void invoke("open_desktop_log");
   }
 
   async function saveServicePort(): Promise<void> {
@@ -417,6 +551,92 @@
     }
   }
 
+  async function setCloseBehavior(closeBehavior: CloseBehavior): Promise<CloseBehavior> {
+    if (!status) throw new Error("Desktop status is unavailable");
+    if (busy) return status.closeBehavior;
+    if (!runningInTauri) {
+      status = { ...status, closeBehavior };
+      return closeBehavior;
+    }
+    busy = true;
+    error = "";
+    try {
+      const actual = await invoke<CloseBehavior>("set_close_behavior", { closeBehavior });
+      status = { ...status, closeBehavior: actual };
+      return actual;
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+      throw cause;
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function setNotificationPreference(enabled: boolean): Promise<void> {
+    if (!status || busy) return;
+    if (!enabled) {
+      await saveNotificationPreference("off");
+      return;
+    }
+    const permission = await requestFeedbackPermission(feedbackAdapter);
+    if (permission !== "granted") {
+      feedbackAnnouncement = text.nativeNotificationsPermissionDenied;
+      return;
+    }
+    await saveNotificationPreference("enabled");
+  }
+
+  async function saveNotificationPreference(notificationPreference: NotificationPreference): Promise<void> {
+    if (!status) throw new Error("Desktop status is unavailable");
+    if (!runningInTauri) {
+      status = { ...status, notificationPreference };
+      return;
+    }
+    busy = true;
+    error = "";
+    try {
+      const actual = await invoke<NotificationPreference>("set_notification_preference", { notificationPreference });
+      status = { ...status, notificationPreference: actual };
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+      throw cause;
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function saveHapticPreference(hapticPreference: HapticPreference): Promise<void> {
+    if (!status) throw new Error("Desktop status is unavailable");
+    if (!runningInTauri) {
+      status = { ...status, hapticPreference };
+      return;
+    }
+    busy = true;
+    error = "";
+    try {
+      const actual = await invoke<HapticPreference>("set_haptic_preference", { hapticPreference });
+      status = { ...status, hapticPreference: actual };
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+      throw cause;
+    } finally {
+      busy = false;
+    }
+  }
+
+  function toggleHapticPreference(enabled: boolean): void {
+    void saveHapticPreference(enabled ? "system" : "off").catch(() => {});
+  }
+
+  function toggleNotificationPreference(enabled: boolean): void {
+    void setNotificationPreference(enabled).catch(() => {});
+  }
+
+  function toggleCloseBehavior(): void {
+    if (!status || busy) return;
+    void setCloseBehavior(status.closeBehavior === "background" ? "quit" : "background").catch(() => {});
+  }
+
   function toggleLoginStart(): void {
     if (!status || busy) return;
     void setLoginStart(!status.launchAtLogin).catch(() => {});
@@ -444,10 +664,29 @@
   onMount(() => {
     applyTheme(theme);
     applyPerformanceMode(lowPerformance);
+    void startWindowState();
+    void startFeedback();
+    void startHaptics();
     window.addEventListener("storage", onThemeStorage);
     void loadAppVersion();
-    void refreshStatus();
-    const timer = window.setInterval(() => void refreshStatus(), 1000);
+    startupDelayTimer = window.setTimeout(() => {
+      startup = reduceStartup(startup, { type: "delayed" });
+    }, 8_000);
+    statusScheduler = new ActivityScheduler(
+      desktopStatusPolicy,
+      refreshStatus,
+      {
+        hidden: () => document.hidden,
+        subscribe(listener) {
+          const onVisibilityChange = () => {
+            if (!document.hidden) listener();
+          };
+          document.addEventListener("visibilitychange", onVisibilityChange);
+          return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+        }
+      }
+    );
+    statusScheduler.start();
     if (isSettings) {
       const pendingSection = localStorage.getItem("molibot-desktop-settings-section");
       if (pendingSection) {
@@ -456,7 +695,20 @@
       }
     }
     return () => {
-      window.clearInterval(timer);
+      if (startupDelayTimer) window.clearTimeout(startupDelayTimer);
+      startupDelayTimer = null;
+      statusScheduler?.dispose();
+      statusScheduler = null;
+      windowStateUnsubscribe?.();
+      windowStateUnsubscribe = null;
+      windowStateAdapter?.dispose();
+      windowStateAdapter = null;
+      windowState = null;
+      feedbackActionCleanup?.();
+      feedbackActionCleanup = null;
+      feedbackCoordinator = null;
+      hapticCoordinator = null;
+      setTaskFeedbackPublisher(null);
       window.removeEventListener("storage", onThemeStorage);
     };
   });
@@ -465,6 +717,10 @@
 <svelte:head>
   <title>{isSettings ? text.settings : text.appName}</title>
 </svelte:head>
+
+{#if feedbackAnnouncement}
+  <p class="sr-only" role="status" aria-live="polite">{feedbackAnnouncement}</p>
+{/if}
 
 {#if isSettings}
   <main class="settings-layout">
@@ -508,31 +764,39 @@
             <SelectControl value={locale} ariaLabel={text.uiLanguage} options={[{ value: "zh-CN", label: "简体中文" }, { value: "en", label: "English" }]} onChange={changeLocale} />
           </SettingRow>
           <SettingRow title={text.launchAtLogin} description={text.launchAtLoginDescription}>
-            <button
-              class:active={status?.launchAtLogin}
-              class="switch"
-              type="button"
-              role="switch"
-              aria-label={text.launchAtLogin}
-              aria-checked={status?.launchAtLogin ?? false}
+            <IosSwitch
+              checked={status?.launchAtLogin ?? false}
+              ariaLabel={text.launchAtLogin}
               disabled={!status || busy}
-              onclick={toggleLoginStart}
-            >
-              <span></span>
-            </button>
+              onCheckedChange={setLoginStart}
+            />
+          </SettingRow>
+          <SettingRow title={text.closeToMenuBar} description={text.closeToMenuBarDescription}>
+            <IosSwitch
+              checked={status?.closeBehavior === "background"}
+              ariaLabel={text.closeToMenuBar}
+              disabled={!status || busy}
+              onCheckedChange={toggleCloseBehavior}
+            />
+          </SettingRow>
+          <SettingRow title={text.nativeNotifications} description={text.nativeNotificationsDescription}>
+            <IosSwitch
+              checked={status?.notificationPreference === "enabled"}
+              ariaLabel={text.nativeNotifications}
+              disabled={!status || busy}
+              onCheckedChange={toggleNotificationPreference}
+            />
+          </SettingRow>
+          <SettingRow title={text.hapticFeedback} description={text.hapticFeedbackDescription}>
+            <IosSwitch
+              checked={status?.hapticPreference === "system"}
+              ariaLabel={text.hapticFeedback}
+              disabled={!status || busy}
+              onCheckedChange={toggleHapticPreference}
+            />
           </SettingRow>
           <SettingRow title={text.lowPerformanceMode} description={text.lowPerformanceModeDescription}>
-            <button
-              class:active={lowPerformance}
-              class="switch"
-              type="button"
-              role="switch"
-              aria-label={text.lowPerformanceMode}
-              aria-checked={lowPerformance}
-              onclick={() => changePerformanceMode(!lowPerformance)}
-            >
-              <span></span>
-            </button>
+            <IosSwitch checked={lowPerformance} ariaLabel={text.lowPerformanceMode} onCheckedChange={changePerformanceMode} />
           </SettingRow>
         </SettingGroup>
 
@@ -663,11 +927,20 @@
 {:else}
   <ChatView
     copy={text}
+    {locale}
+    startupPhase={startup.phase}
+    startupError={startup.error}
+    {retryStartup}
+    {openStartupDiagnostics}
+    {openStartupLogs}
     serviceEndpoint={status?.service.endpoint ?? null}
     serviceState={status?.service.state ?? "disconnected"}
+    serviceOwnership={status?.service.ownership ?? null}
     launchAtLogin={status?.launchAtLogin ?? false}
     launchAtLoginBusy={busy}
     setLaunchAtLogin={setLoginStart}
+    onHapticCommit={commitHaptic}
+    onCommandResult={publishCommandResult}
     {openSettings}
     requestedWorkspacePane={requestedChatPane}
   />

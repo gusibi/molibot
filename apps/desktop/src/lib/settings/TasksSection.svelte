@@ -10,7 +10,11 @@
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import SearchField from "../components/ui/SearchField.svelte";
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
+  import Dialog from "../components/ui/Dialog.svelte";
+  import AlertDialog from "../components/ui/AlertDialog.svelte";
   import { formatNaturalDateTime, formatNaturalSchedule } from "../presentation";
+  import { DirectManipulation, type ManipulationSnapshot } from "../native/directManipulation";
+  import { ActivityScheduler, documentActivityVisibility, interactiveActivityPolicy } from "../native/activityScheduler";
   import {
     tasksStore,
     beginTaskCreate,
@@ -20,7 +24,6 @@
     isTaskStarting,
     isTaskUpdating,
     loadTaskHistoryPage,
-    loadTasks,
     markOneShotTasksRead,
     refreshTasks,
     openTaskSession,
@@ -42,80 +45,99 @@
 
   let selectedTaskId = $state("");
   let activeTaskView = $state<"user" | "one-shot" | "system">("user");
-  let detailDragStartX = $state(0);
   let detailDragOffset = $state(0);
-  let detailDragging = $state(false);
-  let taskDialogElement = $state<HTMLElement | null>(null);
+  let detailGesturePhase = $state<ManipulationSnapshot["phase"]>("idle");
+  let detailGestureFrame = 0;
+  let detailGestureFrameAt = 0;
+  const detailManipulation = new DirectManipulation({
+    min: 0,
+    max: 640,
+    reducedMotion: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    onUpdate(snapshot) {
+      detailDragOffset = snapshot.position;
+      detailGesturePhase = snapshot.phase;
+    },
+    onSettled(target) {
+      detailGesturePhase = "idle";
+      detailDragOffset = 0;
+      if (target > 0) selectedTaskId = "";
+    }
+  });
   let oneShotReadAttemptKey = $state("");
 
-  $effect(() => {
-    const dialogOpen = Boolean(tasksStore.taskCreate || tasksStore.historyTaskId || tasksStore.taskEdit || tasksStore.taskSession || tasksStore.pendingDeleteIds);
-    if (dialogOpen) queueMicrotask(() => taskDialogElement?.focus());
-  });
+  function stepDetailGesture(timestamp: number): void {
+    const elapsed = detailGestureFrameAt ? timestamp - detailGestureFrameAt : 16;
+    detailGestureFrameAt = timestamp;
+    if (detailManipulation.step(elapsed)) {
+      detailGestureFrame = requestAnimationFrame(stepDetailGesture);
+    } else {
+      detailGestureFrame = 0;
+      detailGestureFrameAt = 0;
+    }
+  }
+
+  function settleDetailGesture(): void {
+    if (detailGestureFrame) cancelAnimationFrame(detailGestureFrame);
+    detailGestureFrame = requestAnimationFrame(stepDetailGesture);
+  }
 
   function beginDetailDrag(event: PointerEvent): void {
-    detailDragging = true;
-    detailDragStartX = event.clientX;
-    detailDragOffset = 0;
-    event.currentTarget instanceof HTMLElement && event.currentTarget.setPointerCapture(event.pointerId);
+    if (!(event.currentTarget instanceof HTMLElement)) return;
+    if (detailGestureFrame) cancelAnimationFrame(detailGestureFrame);
+    detailGestureFrame = 0;
+    detailGestureFrameAt = 0;
+    if (detailManipulation.current().phase === "settling") {
+      detailManipulation.interrupt(event.pointerId, event.clientX, event.timeStamp);
+    } else {
+      detailManipulation.begin(event.pointerId, event.clientX, event.timeStamp);
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function moveDetailDrag(event: PointerEvent): void {
-    if (detailDragging) detailDragOffset = Math.max(0, event.clientX - detailDragStartX);
+    detailManipulation.move(event.pointerId, event.clientX, event.timeStamp);
   }
 
-  function endDetailDrag(): void {
-    if (!detailDragging) return;
-    detailDragging = false;
-    if (detailDragOffset > 96) selectedTaskId = "";
-    detailDragOffset = 0;
+  function endDetailDrag(event: PointerEvent): void {
+    if (event.currentTarget instanceof HTMLElement && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (detailManipulation.end(event.pointerId, event.timeStamp) !== null) settleDetailGesture();
+  }
+
+  function cancelDetailDrag(): void {
+    if (detailGesturePhase === "idle") return;
+    detailManipulation.cancel();
+    settleDetailGesture();
   }
 
   function isSystemTask(id: string): boolean {
     return tasksStore.tasks?.items.some((task) => task.id === id && task.category === "system") === true;
   }
 
+  let taskScheduler: ActivityScheduler | null = null;
+
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== tasksStore.endpoint) {
-      void loadTasks(session.endpoint);
+      taskScheduler?.wake("manual");
     }
   });
 
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
-
-  function onVisibilityChange(): void {
-    if (!document.hidden && session.serviceReady && session.endpoint) {
-      void refreshTasks();
-    }
-  }
-
-  function startTaskPolling(): void {
-    stopTaskPolling();
-    pollTimer = setInterval(() => {
-      if (!document.hidden && session.serviceReady && session.endpoint) {
-        void refreshTasks();
-      }
-    }, 3_000);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-  }
-
-  function stopTaskPolling(): void {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-    document.removeEventListener("visibilitychange", onVisibilityChange);
-  }
-
   onMount(() => {
-    if (session.serviceReady && session.endpoint && tasksStore.endpoint) {
-      void refreshTasks();
-    }
-    startTaskPolling();
+    taskScheduler = new ActivityScheduler(
+      interactiveActivityPolicy,
+      async () => {
+        if (session.serviceReady && session.endpoint) await refreshTasks();
+      },
+      documentActivityVisibility
+    );
+    taskScheduler.start();
   });
 
   onDestroy(() => {
-    stopTaskPolling();
+    taskScheduler?.dispose();
+    taskScheduler = null;
+    if (detailGestureFrame) cancelAnimationFrame(detailGestureFrame);
   });
 
 
@@ -258,14 +280,14 @@
   }
 </script>
 
-<svelte:window onkeydown={(event) => { if (event.key === "Escape" && selectedTask && innerWidth < 1100) selectedTaskId = ""; }} />
+<svelte:window onkeydown={(event) => { if (event.key === "Escape" && selectedTask) selectedTaskId = ""; }} onblur={cancelDetailDrag} />
 
 {#if !session.serviceReady}
   <div class="settings-card"><EmptyState title={session.text.tasksUnavailable} icon="clock-countdown" /></div>
 {:else if tasksStore.loading}
   <div class="settings-card"><SkeletonRows count={5} label={session.text.loading} /></div>
 {:else if tasksStore.error && !tasksStore.tasks}
-  <div class="settings-card" role="alert"><div class="settings-row"><div><p>{session.text.workspaceLoadFailed}</p><small>{tasksStore.error}</small></div><button class="secondary-button" type="button" onclick={() => session.endpoint && void loadTasks(session.endpoint)}>{session.text.retryLoading}</button></div></div>
+  <div class="settings-card" role="alert"><div class="settings-row"><div><p>{session.text.workspaceLoadFailed}</p><small>{tasksStore.error}</small></div><button class="secondary-button" type="button" onclick={() => taskScheduler?.wake("retry")}>{session.text.retryLoading}</button></div></div>
 {:else if !tasksStore.tasks}
   <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
 {:else}
@@ -330,8 +352,8 @@
             {/each}
           </div>
           {#if selectedTask}
-            <article class:dragging={detailDragging} class="automation-task-detail" style={`--detail-drag:${detailDragOffset}px`} aria-labelledby={`automation-task-${selectedTask.id}`}>
-              <button class="automation-detail-drag-handle" type="button" aria-label={session.text.tasksSwipeClose} onpointerdown={beginDetailDrag} onpointermove={moveDetailDrag} onpointerup={endDetailDrag} onpointercancel={endDetailDrag}><span aria-hidden="true"></span></button>
+            <article class:dragging={detailGesturePhase === "dragging"} class:settling={detailGesturePhase === "settling"} class="automation-task-detail" style={`--detail-drag:${detailDragOffset}px`} aria-labelledby={`automation-task-${selectedTask.id}`}>
+              <button class="automation-detail-drag-handle" type="button" aria-label={session.text.tasksSwipeClose} onpointerdown={beginDetailDrag} onpointermove={moveDetailDrag} onpointerup={endDetailDrag} onpointercancel={cancelDetailDrag}><span aria-hidden="true"></span></button>
               <button class="automation-detail-close" type="button" title={session.text.tasksCloseDetails} aria-label={session.text.tasksCloseDetails} onclick={() => (selectedTaskId = "")}><i class="ph ph-x" aria-hidden="true"></i></button>
               <header class="automation-task-detail-head">
                 <div class="automation-task-detail-topbar">
@@ -467,10 +489,9 @@
   {/if}
   {/if}
   {#if tasksStore.taskCreate}
-    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" bind:this={taskDialogElement} aria-label={session.text.tasksCreate} onclick={() => (tasksStore.taskCreate = null)} onkeydown={(event) => { if (event.key === "Escape") tasksStore.taskCreate = null; }}>
-      <div class="modal-card task-editor-modal" role="presentation" onclick={(event) => event.stopPropagation()}>
+    <Dialog open={Boolean(tasksStore.taskCreate)} busy={tasksStore.busy === "create"} contentClass="task-editor-modal" labelledBy="task-create-title" describedBy="task-create-hint" onOpenChange={(next) => { if (!next) tasksStore.taskCreate = null; }}>
       <form id="desktop-task-create-form" onsubmit={(event) => { event.preventDefault(); void saveTaskCreate(); }}>
-        <header class="modal-head"><div><strong>{session.text.tasksCreate}</strong><p>{session.text.tasksCreateHint}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.taskCreate = null)}><i class="ph ph-x"></i></button></header>
+        <header class="modal-head"><div><strong id="task-create-title">{session.text.tasksCreate}</strong><p id="task-create-hint">{session.text.tasksCreateHint}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.taskCreate = null)}><i class="ph ph-x"></i></button></header>
         <div class="modal-body task-editor-body">
           <div class="task-target-picker">
             <label class="settings-field"><span>{session.text.tasksTargetBot}</span><select value={selectedTaskTargetGroup} onchange={(event) => selectTaskTargetGroup(event.currentTarget.value)}>{#each taskTargetGroups as group (group.key)}<option value={group.key}>{group.label}</option>{/each}</select></label>
@@ -483,85 +504,76 @@
         </div>
         <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={() => (tasksStore.taskCreate = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskCreate.text.trim() || tasksStore.taskCreate.schedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy === "create" ? session.text.onboardingProviderSaving : session.text.tasksCreate}</button></footer>
       </form>
-      </div>
-    </div>
+    </Dialog>
   {/if}
   {#if tasksStore.historyTaskId}
     {@const historyTask = tasksStore.tasks.items.find((item) => item.id === tasksStore.historyTaskId)}
     {@const history = tasksStore.histories[tasksStore.historyTaskId]}
-    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" bind:this={taskDialogElement} aria-label={session.text.tasksExecutions} onclick={() => (tasksStore.historyTaskId = "")} onkeydown={(event) => { if (event.key === "Escape") tasksStore.historyTaskId = ""; }}>
-      <div class="modal-card task-history-modal" role="presentation" onclick={(event) => event.stopPropagation()}>
-        <header class="modal-head task-history-modal-head"><div><span>{session.text.tasksExecutions}</span><strong>{historyTask?.text.split(/\r?\n/)[0] || session.text.tasks}</strong></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.historyTaskId = "")}><i class="ph ph-x"></i></button></header>
-        <div class="modal-body task-history-modal-body">
-          {#if !history}<p class="task-history-loading">{session.text.loading}</p>{:else if history.items.length === 0}<p class="task-history-loading">{session.text.tasksNoExecutions}</p>{:else}
-            <div class="task-history-table-head"><span>{session.text.tasksByStatus}</span><span>{session.text.tasksLastTriggered}</span><span>{session.text.tasksSession}</span></div>
-            {#each history.items as execution (execution.id)}
-              <div class="task-execution-row history-row"><span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span><span>{formatTaskTime(execution.startedAt)}</span><button class="task-session-link" type="button" title={execution.sessionId} disabled={!execution.sessionId || Boolean(tasksStore.busy)} onclick={() => void openTaskSession(tasksStore.historyTaskId, execution.id)}>{execution.sessionId ? (isSystemTask(tasksStore.historyTaskId) ? session.text.tasksOpenExecution : session.text.tasksOpenSession) : session.text.tasksSessionCleaned}</button></div>
-            {/each}
-          {/if}
-        </div>
-        {#if history}<footer class="task-history-modal-foot"><span>{pageSummary(history.page, history.pageSize, history.total)}</span><div><button class="secondary-button" type="button" disabled={history.page <= 1 || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page - 1)}><i class="ph ph-arrow-left"></i>{session.text.tasksPreviousPage}</button><button class="secondary-button" type="button" disabled={history.page * history.pageSize >= history.total || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page + 1)}>{session.text.tasksNextPage}<i class="ph ph-arrow-right"></i></button></div></footer>{/if}
+    <Dialog open={Boolean(tasksStore.historyTaskId)} busy={Boolean(tasksStore.busy)} contentClass="task-history-modal" labelledBy="task-history-title" onOpenChange={(next) => { if (!next) tasksStore.historyTaskId = ""; }}>
+      <header class="modal-head task-history-modal-head"><div><span id="task-history-title">{session.text.tasksExecutions}</span><strong>{historyTask?.text.split(/\r?\n/)[0] || session.text.tasks}</strong></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.historyTaskId = "")}><i class="ph ph-x"></i></button></header>
+      <div class="modal-body task-history-modal-body">
+        {#if !history}<p class="task-history-loading">{session.text.loading}</p>{:else if history.items.length === 0}<p class="task-history-loading">{session.text.tasksNoExecutions}</p>{:else}
+          <div class="task-history-table-head"><span>{session.text.tasksByStatus}</span><span>{session.text.tasksLastTriggered}</span><span>{session.text.tasksSession}</span></div>
+          {#each history.items as execution (execution.id)}
+            <div class="task-execution-row history-row"><span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span><span>{formatTaskTime(execution.startedAt)}</span><button class="task-session-link" type="button" title={execution.sessionId} disabled={!execution.sessionId || Boolean(tasksStore.busy)} onclick={() => void openTaskSession(tasksStore.historyTaskId, execution.id)}>{execution.sessionId ? (isSystemTask(tasksStore.historyTaskId) ? session.text.tasksOpenExecution : session.text.tasksOpenSession) : session.text.tasksSessionCleaned}</button></div>
+          {/each}
+        {/if}
       </div>
-    </div>
+      {#if history}<footer class="task-history-modal-foot"><span>{pageSummary(history.page, history.pageSize, history.total)}</span><div><button class="secondary-button" type="button" disabled={history.page <= 1 || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page - 1)}><i class="ph ph-arrow-left"></i>{session.text.tasksPreviousPage}</button><button class="secondary-button" type="button" disabled={history.page * history.pageSize >= history.total || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page + 1)}>{session.text.tasksNextPage}<i class="ph ph-arrow-right"></i></button></div></footer>{/if}
+    </Dialog>
   {/if}
   {#if tasksStore.taskEdit}
-    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" bind:this={taskDialogElement} aria-label={session.text.channelEdit} onclick={() => (tasksStore.taskEdit = null)} onkeydown={(event) => { if (event.key === "Escape") tasksStore.taskEdit = null; }}>
-      <div class="modal-card task-editor-modal" role="presentation" onclick={(event) => event.stopPropagation()}>
-        <form id="desktop-task-form" aria-label={session.text.channelEdit} onsubmit={(event) => { event.preventDefault(); void saveTaskEditor(); }}>
-          <header class="modal-head"><div><strong>{session.text.channelEdit}</strong><p>{tasksStore.taskEdit.channel} / {tasksStore.taskEdit.botId}{tasksStore.taskEdit.chatId ? ` / ${tasksStore.taskEdit.chatId}` : ""}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}><i class="ph ph-x"></i></button></header>
-          <div class="modal-body task-editor-body"><label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskEdit.draftText}></textarea></label><TaskScheduleBuilder bind:schedule={tasksStore.taskEdit.draftSchedule} /><div class="settings-form task-advanced-settings"><label class="settings-field"><span>{session.text.tasksTimezone}</span><select bind:value={tasksStore.taskEdit.draftTimezone}>{#if tasksStore.taskEdit.draftTimezone && !timezoneOptions().includes(tasksStore.taskEdit.draftTimezone)}<option value={tasksStore.taskEdit.draftTimezone}>{tasksStore.taskEdit.draftTimezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><select bind:value={tasksStore.taskEdit.draftDelivery}><option value="agent">{session.text.tasksDeliveryAgent}</option><option value="text">{session.text.tasksDeliveryText}</option></select></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><select bind:value={tasksStore.taskEdit.draftSessionMode}><option value="fresh">{session.text.tasksSessionFresh}</option><option value="chat">{session.text.tasksSessionChat}</option></select></label></div></div>
-          <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskEdit.draftText.trim() || tasksStore.taskEdit.draftSchedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
-        </form>
-      </div>
-    </div>
+    <Dialog open={Boolean(tasksStore.taskEdit)} busy={Boolean(tasksStore.busy)} contentClass="task-editor-modal" labelledBy="task-edit-title" onOpenChange={(next) => { if (!next) tasksStore.taskEdit = null; }}>
+      <form id="desktop-task-form" aria-label={session.text.channelEdit} onsubmit={(event) => { event.preventDefault(); void saveTaskEditor(); }}>
+        <header class="modal-head"><div><strong id="task-edit-title">{session.text.channelEdit}</strong><p>{tasksStore.taskEdit.channel} / {tasksStore.taskEdit.botId}{tasksStore.taskEdit.chatId ? ` / ${tasksStore.taskEdit.chatId}` : ""}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}><i class="ph ph-x"></i></button></header>
+        <div class="modal-body task-editor-body"><label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskEdit.draftText}></textarea></label><TaskScheduleBuilder bind:schedule={tasksStore.taskEdit.draftSchedule} /><div class="settings-form task-advanced-settings"><label class="settings-field"><span>{session.text.tasksTimezone}</span><select bind:value={tasksStore.taskEdit.draftTimezone}>{#if tasksStore.taskEdit.draftTimezone && !timezoneOptions().includes(tasksStore.taskEdit.draftTimezone)}<option value={tasksStore.taskEdit.draftTimezone}>{tasksStore.taskEdit.draftTimezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><select bind:value={tasksStore.taskEdit.draftDelivery}><option value="agent">{session.text.tasksDeliveryAgent}</option><option value="text">{session.text.tasksDeliveryText}</option></select></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><select bind:value={tasksStore.taskEdit.draftSessionMode}><option value="fresh">{session.text.tasksSessionFresh}</option><option value="chat">{session.text.tasksSessionChat}</option></select></label></div></div>
+        <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskEdit.draftText.trim() || tasksStore.taskEdit.draftSchedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
+      </form>
+    </Dialog>
   {/if}
   {#if tasksStore.actionMessage}
     <div class="settings-action-toast" role="status"><span>{tasksStore.actionMessage}</span>{#if tasksStore.undoEnabledChange}<button type="button" onclick={() => void undoTaskEnabledChange()}>{session.text.undo}</button>{/if}</div>
   {/if}
   {#if tasksStore.taskSession}
-    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" bind:this={taskDialogElement} aria-label={tasksStore.taskSession.execution ? session.text.tasksExecutionDetail : session.text.tasksSession} onclick={() => (tasksStore.taskSession = null)} onkeydown={(event) => { if (event.key === "Escape") tasksStore.taskSession = null; }}>
-      <div class="modal-card task-session-modal" tabindex="-1" role="presentation" onclick={(event) => event.stopPropagation()}>
-        <header class="modal-head">
-          <strong>{tasksStore.taskSession.execution ? session.text.tasksExecutionDetail : session.text.tasksSession}</strong>
-          <button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.taskSession = null)}><i class="ph ph-x"></i></button>
-        </header>
-        <div class="modal-body messages task-session-detail" aria-live="polite">
-          <details class="technical-detail task-session-technical"><summary>{session.text.technicalDetails}</summary><code>{tasksStore.taskSession.sessionId}</code></details>
-          {#if tasksStore.taskSession.execution}
-            {@const execution = tasksStore.taskSession.execution}
-            <dl class="automation-task-facts">
-              <div><dt>{session.text.tasksByStatus}</dt><dd><span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span></dd></div>
-              <div><dt>{session.text.tasksExecutionStarted}</dt><dd>{formatTaskTime(execution.startedAt)}</dd></div>
-              <div><dt>{session.text.tasksExecutionFinished}</dt><dd>{formatTaskTime(execution.finishedAt ?? "")}</dd></div>
-              <div><dt>{session.text.tasksExecutionAttempt}</dt><dd>{execution.attempt} / {execution.maxAttempts}</dd></div>
-              {#if execution.lastError}<div><dt>{session.text.tasksFailed}</dt><dd>{execution.lastError}</dd></div>{/if}
-              {#if execution.result}
-                <div><dt>{session.text.tasksExecutionTargets}</dt><dd>{execution.result.completedTargets}</dd></div>
-                <div><dt>{session.text.tasksExecutionScannedConversations}</dt><dd>{execution.result.scannedConversations}</dd></div>
-                <div><dt>{session.text.tasksExecutionScannedMessages}</dt><dd>{execution.result.scannedMessages}</dd></div>
-                {#if execution.result.kind === "memory-reflection"}
-                  <div><dt>{session.text.tasksExecutionCreatedCandidates}</dt><dd>{execution.result.createdCandidates}</dd></div>
-                {:else}
-                  <div><dt>{session.text.tasksExecutionCreatedFiles}</dt><dd>{execution.result.createdFiles.length > 0 ? execution.result.createdFiles.join("、") : session.text.tasksExecutionNoFiles}</dd></div>
-                {/if}
+    <Dialog open={Boolean(tasksStore.taskSession)} contentClass="task-session-modal" labelledBy="task-session-title" onOpenChange={(next) => { if (!next) tasksStore.taskSession = null; }}>
+      <header class="modal-head">
+        <strong id="task-session-title">{tasksStore.taskSession.execution ? session.text.tasksExecutionDetail : session.text.tasksSession}</strong>
+        <button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.taskSession = null)}><i class="ph ph-x"></i></button>
+      </header>
+      <div class="modal-body messages task-session-detail" aria-live="polite">
+        <details class="technical-detail task-session-technical"><summary>{session.text.technicalDetails}</summary><code>{tasksStore.taskSession.sessionId}</code></details>
+        {#if tasksStore.taskSession.execution}
+          {@const execution = tasksStore.taskSession.execution}
+          <dl class="automation-task-facts">
+            <div><dt>{session.text.tasksByStatus}</dt><dd><span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span></dd></div>
+            <div><dt>{session.text.tasksExecutionStarted}</dt><dd>{formatTaskTime(execution.startedAt)}</dd></div>
+            <div><dt>{session.text.tasksExecutionFinished}</dt><dd>{formatTaskTime(execution.finishedAt ?? "")}</dd></div>
+            <div><dt>{session.text.tasksExecutionAttempt}</dt><dd>{execution.attempt} / {execution.maxAttempts}</dd></div>
+            {#if execution.lastError}<div><dt>{session.text.tasksFailed}</dt><dd>{execution.lastError}</dd></div>{/if}
+            {#if execution.result}
+              <div><dt>{session.text.tasksExecutionTargets}</dt><dd>{execution.result.completedTargets}</dd></div>
+              <div><dt>{session.text.tasksExecutionScannedConversations}</dt><dd>{execution.result.scannedConversations}</dd></div>
+              <div><dt>{session.text.tasksExecutionScannedMessages}</dt><dd>{execution.result.scannedMessages}</dd></div>
+              {#if execution.result.kind === "memory-reflection"}
+                <div><dt>{session.text.tasksExecutionCreatedCandidates}</dt><dd>{execution.result.createdCandidates}</dd></div>
+              {:else}
+                <div><dt>{session.text.tasksExecutionCreatedFiles}</dt><dd>{execution.result.createdFiles.length > 0 ? execution.result.createdFiles.join("、") : session.text.tasksExecutionNoFiles}</dd></div>
               {/if}
-            </dl>
-            {#if !execution.detailAvailable}<p>{session.text.tasksExecutionLegacy}</p>{/if}
-          {:else if tasksStore.taskSession.messages.length === 0}
-            <p>{session.text.tasksSessionCleaned}</p>
-          {:else}
-            <ConversationTranscript messages={tasksStore.taskSession.messages} copy={session.text} formatTime={formatSessionTime} />
-          {/if}
-        </div>
+            {/if}
+          </dl>
+          {#if !execution.detailAvailable}<p>{session.text.tasksExecutionLegacy}</p>{/if}
+        {:else if tasksStore.taskSession.messages.length === 0}
+          <p>{session.text.tasksSessionCleaned}</p>
+        {:else}
+          <ConversationTranscript messages={tasksStore.taskSession.messages} copy={session.text} formatTime={formatSessionTime} />
+        {/if}
       </div>
-    </div>
+    </Dialog>
   {/if}
   {#if tasksStore.pendingDeleteIds}
-    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" bind:this={taskDialogElement} aria-label={session.text.confirmDelete} onclick={cancelDeleteTask} onkeydown={(event) => { if (event.key === "Escape") cancelDeleteTask(); }}>
-      <div class="modal-card task-delete-confirm-modal" role="presentation" onclick={(event) => event.stopPropagation()}>
-        <header class="modal-head"><div><strong>{session.text.confirmDelete}</strong><p>{session.text.tasksDeleteConfirm.replace("{count}", String(tasksStore.pendingDeleteIds.length))}</p></div></header>
-        <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={cancelDeleteTask}>{session.text.cancel}</button><button class="primary-button danger-action" type="button" onclick={() => void confirmDeleteTask()}>{session.text.confirmDelete}</button></footer>
-      </div>
-    </div>
+    <AlertDialog open={Boolean(tasksStore.pendingDeleteIds)} busy={Boolean(tasksStore.busy)} contentClass="task-delete-confirm-modal" labelledBy="task-delete-title" describedBy="task-delete-description" onOpenChange={(next) => { if (!next) cancelDeleteTask(); }}>
+      <header class="modal-head"><div><strong id="task-delete-title">{session.text.confirmDelete}</strong><p id="task-delete-description">{session.text.tasksDeleteConfirm.replace("{count}", String(tasksStore.pendingDeleteIds.length))}</p></div></header>
+      <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={cancelDeleteTask}>{session.text.cancel}</button><button class="primary-button danger-action" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => void confirmDeleteTask()}>{session.text.confirmDelete}</button></footer>
+    </AlertDialog>
   {/if}
 {/if}

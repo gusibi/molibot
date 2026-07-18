@@ -78,7 +78,7 @@ test("selecting a project session repins the Project Chat transcript", async () 
   projectChatStore.init({
     endpoint: () => projectsStore.endpoint,
     modelReady: () => true,
-    labels: () => ({ working: "Working", uploading: "Uploading", stopped: "Stopped", idle: "Idle", resuming: "Resuming" }),
+    labels: () => ({ working: "Working", uploading: "Uploading", recognizingImage: "Recognizing image", stopped: "Stopped", idle: "Idle", resuming: "Resuming" }),
     resolveModel: () => "model",
     resolveThinking: () => "medium"
   });
@@ -127,7 +127,7 @@ test("a successful project transcript load hydrates the Project Chat runtime", a
   projectChatStore.init({
     endpoint: () => projectsStore.endpoint,
     modelReady: () => true,
-    labels: () => ({ working: "Working", uploading: "Uploading", stopped: "Stopped", idle: "Idle", resuming: "Resuming" }),
+    labels: () => ({ working: "Working", uploading: "Uploading", recognizingImage: "Recognizing image", stopped: "Stopped", idle: "Idle", resuming: "Resuming" }),
     resolveModel: () => "model",
     resolveThinking: () => "medium"
   });

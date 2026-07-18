@@ -66,6 +66,8 @@ export interface HostBashPermissions {
 export interface HostBashPendingAction {
   kind: "run_approved_host_bash" | "run_one_time_host_script";
   originalCommand: string;
+  /** Fresh automation execution that owns this suspended tool call. */
+  runId?: string;
   args?: string[];
   stdin?: string;
   timeout?: number;

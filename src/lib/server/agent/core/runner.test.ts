@@ -56,6 +56,7 @@ test("resolveSessionWorkingDir uses project root only for project runs", () => {
 function createRunnerTestMemory() {
   return {
     syncExternalMemories: async () => {},
+    createProfileTurnSnapshot: async () => ({ fingerprint: "profile", items: [] }),
     createPromptSnapshot: async () => ({
       createdAt: new Date().toISOString(),
       fingerprint: "test",
@@ -545,6 +546,7 @@ test("host bash approval is forwarded to runner event sink but does not abort ex
     { record: () => {} } as any,
     {
       syncExternalMemories: async () => {},
+      createProfileTurnSnapshot: async () => ({ fingerprint: "profile", items: [] }),
       createPromptSnapshot: async () => ({
         createdAt: new Date().toISOString(),
         fingerprint: "test",
@@ -809,6 +811,112 @@ test("runner persists user and assistant error when a run throws before output",
     ((runner as any).agent.state.messages as any[]).map((message) => message.role),
     ["user"]
   );
+});
+
+test("fresh automation run starts and ends without archived model messages", async () => {
+  const settings = createRunnerTestSettings();
+  const oldMessage = { role: "assistant", content: [{ type: "text", text: "old run" }], timestamp: Date.now() };
+  const appendedMessages: any[] = [oldMessage];
+  const appendOptions: any[] = [];
+  const memorySessionIds: string[] = [];
+  const resumedRunMessages = [
+    { role: "user", content: [{ type: "text", text: "approval prompt" }], timestamp: Date.now() }
+  ];
+  const store = {
+    getWorkspaceDir: () => process.cwd(),
+    getScratchDir: () => process.cwd(),
+    getSessionEntriesPath: () => "entries.jsonl",
+    appendContextMessage: (_chatId: string, message: any, _sessionId: string, options?: any) => {
+      appendedMessages.push(message);
+      appendOptions.push(options);
+      return `entry-${appendedMessages.length}`;
+    },
+    appendRunSummary: () => {},
+    appendRunDetail: () => {},
+    appendRuntimeEvent: () => {},
+    loadContext: () => appendedMessages,
+    loadContextForRun: (_chatId: string, _sessionId: string, runId: string) => {
+      assert.equal(runId, "automation-run-2");
+      return resumedRunMessages;
+    },
+    getSessionSandboxOverride: () => null
+  };
+  const runner = new MomRunner(
+    "telegram",
+    "chat-1",
+    "task-archive-1234567890abcdef",
+    store as any,
+    () => settings,
+    () => settings,
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    {
+      syncExternalMemories: async () => {},
+      createPromptSnapshot: async () => ({
+          createdAt: new Date().toISOString(), fingerprint: "test", query: "hello", promptText: "",
+          selected: [], longTerm: [], daily: []
+      }),
+      createProfileTurnSnapshot: async (sessionId: string) => {
+        memorySessionIds.push(sessionId);
+        return { fingerprint: "profile", items: [] };
+      }
+    } as any
+  );
+
+  let subscriber: ((event: any) => void) | undefined;
+  let messagesAtPrompt: any[] = [];
+  (runner as any).agent = {
+    state: {
+      messages: [oldMessage], tools: [], systemPrompt: "test",
+      model: resolveModelSelection(settings, "text").model,
+      thinkingLevel: settings.defaultThinkingLevel
+    },
+    sessionId: "test",
+    transport: "responses",
+    subscribe: (fn: (event: any) => void) => { subscriber = fn; return () => {}; },
+    abort: () => {},
+    followUp: () => {},
+    prompt: async () => {
+      messagesAtPrompt = [...(runner as any).agent.state.messages];
+      const assistantMessage = {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "text", text: "new answer" }],
+        timestamp: Date.now()
+      };
+      (runner as any).agent.state.messages.push(assistantMessage);
+      subscriber?.({
+        type: "message_end",
+        message: assistantMessage
+      });
+    }
+  };
+
+  const ctx = createRunnerContext("fresh prompt");
+  ctx.message.isEvent = true;
+  ctx.message.sessionMode = "fresh";
+  ctx.message.runId = "automation-run-2";
+  ctx.message.workspaceId = "workspace-test";
+  const result = await runner.run(ctx);
+
+  assert.equal(result.stopReason, "stop");
+  assert.deepEqual(messagesAtPrompt, []);
+  assert.deepEqual((runner as any).agent.state.messages, []);
+  assert.deepEqual(memorySessionIds, ["automation-run-2"]);
+  assert.ok(appendOptions.length >= 2);
+  assert.ok(appendOptions.every((options) => options?.runId === "automation-run-2"));
+
+  const resumeCtx = createRunnerContext("");
+  resumeCtx.message.isEvent = true;
+  resumeCtx.message.runId = "automation-run-2";
+  resumeCtx.message.contextRunId = "automation-run-2";
+  resumeCtx.message.workspaceId = "workspace-test";
+  const resumed = await runner.run(resumeCtx);
+
+  assert.equal(resumed.stopReason, "stop");
+  assert.equal((messagesAtPrompt[0] as any)?.content?.[0]?.text, "approval prompt");
+  assert.deepEqual((runner as any).agent.state.messages, []);
+  assert.deepEqual(memorySessionIds, ["automation-run-2", "automation-run-2"]);
 });
 
 test("runner hook bridge emits tool blocked when gate denies tool execution", async () => {

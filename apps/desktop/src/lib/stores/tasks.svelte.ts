@@ -2,6 +2,36 @@
 import { loadDesktopTaskHistory, loadDesktopTasks, loadDesktopTaskSession, runDesktopTaskAction, stopDesktopActiveRun } from "../api";
 import type { DesktopTaskExecutionPage, DesktopTaskSession, DesktopTaskSummary, DesktopTaskTarget } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
+import type { FeedbackEvent } from "../native/feedbackCoordinator";
+
+type TerminalTaskStatus = "completed" | "error" | "skipped";
+
+let taskFeedbackPublisher: ((event: FeedbackEvent) => void) | null = null;
+let observedTaskStatuses = new Map<string, DesktopTaskSummary["items"][number]["status"]>();
+let tasksRequestGeneration = 0;
+
+export function setTaskFeedbackPublisher(publisher: ((event: FeedbackEvent) => void) | null): void {
+  taskFeedbackPublisher = publisher;
+}
+
+function observeTasks(summary: DesktopTaskSummary, announceTransitions: boolean): void {
+  const nextStatuses = new Map(summary.items.map((task) => [task.id, task.status]));
+  if (announceTransitions) {
+    for (const task of summary.items) {
+      const previous = observedTaskStatuses.get(task.id);
+      const terminal = task.status === "completed" || task.status === "error" || task.status === "skipped";
+      if (!previous || !terminal || previous === task.status) continue;
+      taskFeedbackPublisher?.({
+        id: `${task.id}:${task.status}`,
+        kind: "task",
+        terminal: true,
+        title: session.text.tasks,
+        body: taskStatusLabel(task.status as TerminalTaskStatus, session.text)
+      });
+    }
+  }
+  observedTaskStatuses = nextStatuses;
+}
 
 export type TaskEditor = DesktopTaskSummary["items"][number] & {
   draftText: string;
@@ -65,28 +95,42 @@ export function taskStatusLabel(status: "pending" | "running" | "completed" | "s
 }
 
 export async function loadTasks(endpoint: string): Promise<void> {
+  const generation = ++tasksRequestGeneration;
   tasksStore.endpoint = endpoint;
   tasksStore.loading = true;
   tasksStore.error = "";
   session.error = "";
   try {
-    tasksStore.tasks = await loadDesktopTasks(endpoint);
+    const summary = await loadDesktopTasks(endpoint);
+    if (generation !== tasksRequestGeneration || endpoint !== session.endpoint) return;
+    tasksStore.tasks = summary;
+    observeTasks(summary, false);
   } catch (cause) {
+    if (generation !== tasksRequestGeneration || endpoint !== session.endpoint) return;
     setError(cause);
     tasksStore.error = session.error;
   } finally {
-    tasksStore.loading = false;
+    if (generation === tasksRequestGeneration) tasksStore.loading = false;
   }
 }
 
 export async function refreshTasks(): Promise<void> {
   const endpoint = session.endpoint;
   if (!endpoint || tasksStore.loading) return;
+  if (tasksStore.endpoint !== endpoint) {
+    await loadTasks(endpoint);
+    return;
+  }
+  const generation = ++tasksRequestGeneration;
   tasksStore.error = "";
   session.error = "";
   try {
-    tasksStore.tasks = await loadDesktopTasks(endpoint);
+    const summary = await loadDesktopTasks(endpoint);
+    if (generation !== tasksRequestGeneration || endpoint !== session.endpoint) return;
+    tasksStore.tasks = summary;
+    observeTasks(summary, true);
   } catch (cause) {
+    if (generation !== tasksRequestGeneration || endpoint !== session.endpoint) return;
     setError(cause);
     tasksStore.error = session.error;
   }

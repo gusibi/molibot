@@ -5,7 +5,72 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-18
+
+### Fix: User bubbles no longer force-wrap every message; assistant copy action sits in flow
+- Every user message wrapped ~12% short of its natural width ("hi" rendered as two one-character lines): `.user-message-shell` is a non-stretched grid item (`justify-items: end` on `.message-row`), so it shrank to the bubble's max-content width, and the bubble's `max-width: 88%` then resolved against that shrunken shell — clamping below natural width and forcing a wrap on every message. The shell now spans the full reading column (`width: 100%`), restoring 88%-of-column semantics.
+- The assistant meta row's copy action was pushed to the far right by `margin-left: auto`; it now stays in flow directly after time · model · memory-trace, per expected left-to-right reading order.
+- Root-cause class: percentage `max-width` resolved against a fit-content wrapper (CSS intrinsic-sizing circularity). Probed the live stylesheet: "hi" bubble = 1 line at 41px in a 720px shell; copy action at x≈232 immediately after the memory-trace chip. Verified Svelte diagnostics 0/0 and Vite build.
+
+### Fix: Streaming replies no longer repaint the whole transcript per token; chat surfaces gain entrance motion
+- Streaming felt like the page kept refreshing: every SSE token wrote directly to the reactive `streamingText`, re-running `{@html renderMarkdown(...)}` and replacing the streaming bubble's entire innerHTML per token, with `renderMarkdown` re-parsing the full reply and re-highlighting every code block (unlabeled blocks via `highlightAuto` across all 9 registered languages) on each write. `ConversationController` now buffers token/thinking deltas in plain fields and flushes them to reactive state at most once per animation frame (`setTimeout 16ms` fallback for node tests); buffers are cancelled/reset on replace, done, turn start, turn end, and `clearTurn()` so no stale delta can land on a later session. `renderMarkdown` gains a `{ streaming: true }` mode that skips highlight.js entirely during the stream (full highlighting on the final render) and a 300-entry LRU cache for completed messages.
+- Entrance motion pass on chat (plans/001–002, tokens `--duration-fast/normal` + `--ease-standard/spring`, `@starting-style`, opacity/transform only): message rows crossfade in (opacity-only, 160ms — masks the end-of-turn streaming→persisted row swap), queued-messages bar and pending file chips fade/rise in, the approval card enters with the modal's spatial language, and `details` bodies (thinking card, run activity) fade in on open. Entrances are gated behind a `.messages.settled` class set by the new `settleEntrances` action two frames after mount/session-switch/load, so opening a session never replays every row's entrance. Deliberately not animated: slash-suggestion menu and conversation browser (keyboard-frequency), stickToBottom scrolling, file-panel grid. The existing global `prefers-reduced-motion` block disables all of it.
+- Machine guard: the shared-composer regression in `chat-ui.test.mjs` now asserts tokens go through the buffered `pendingStreamText` + `scheduleStreamFlush()` path and fails if `onToken` ever writes `streamingText` directly again.
+- Verified Svelte diagnostics 0 errors / 0 warnings, Vite build, tsx suites 46/46, Desktop UI/node suites 76/76 (cargo untouched). Live streaming feel-check pending a running service.
+
+### Fix: Automation task cards fill the workspace and the detail pane stops covering the list
+- Task cards in the automation workspace capped at 480px per grid track, leaving the right side of the pane empty; the list grid now stretches tracks to fill the full workspace width (`minmax(min(100%, 360px), 1fr)`).
+- The detail pane switched to an absolute overlay via a `@media (max-width: 1099px)` viewport breakpoint, but the sidebar consumes ~220px, so common window sizes (~1000pt) triggered the overlay even though the content area fit side-by-side. `.automation-workspace` is now an inline-size container and the overlay applies via `@container (max-width: 679px)`, with the side-by-side grid relaxed to `minmax(250px, 320px) minmax(0, 1fr)`; Escape now closes the detail pane in both modes.
+- Verified Svelte diagnostics 0 errors / 0 warnings, Vite build, Desktop UI tests 73/73, and probed the live stylesheet at 852px workspace width (side-by-side, detail `position: relative`) and 552px (overlay, `position: absolute`).
+
+### Fix: Restore macOS-style switches across Desktop Settings
+- Replaced the unstyled legacy `.switch` buttons on Skills, Search, Image, Video, Voice, Host Bash, Web Profile, Sandbox, and Plugins with the same shared `IosSwitch` used by General Settings, preserving existing toggle and save behavior.
+- Added a structural regression covering every affected page. Verified Desktop UI 73/73, Svelte diagnostics 0/0, the production build, and the shared 38×22px full-radius rendering at the 860×620 minimum window.
+
+### Fix: Tray "Open Web" / "Restart Service" stayed permanently disabled
+- The tray/menu enablement context in `ChatView` was derived via `$: commandContext = commandContextSnapshot()` — a no-arg helper whose internal reads of `serviceEndpoint` / `serviceOwnership` are not tracked by legacy `$:` (Recurring Pitfall #2), so the context computed once at init (service not yet started) and `sync_native_command_menu` disabled both items forever. Inlined the context object into the reactive statement so its dependencies (`locale`, workspace pane, service endpoint/ownership) are referenced directly and the native menu re-syncs when the managed service comes up.
+- Machine guard (this is a repeat of the pitfall-#2 root-cause class): new `src/reactive-statement-guard.test.mjs` in the desktop test suite fails on any `$: x = helper()` no-arg derivation in a Svelte file (escape hatch: `// reactive-guard-ok` for genuinely static helpers); confirmed it matches the original defective line.
+- Verified Svelte diagnostics 0 errors / 0 warnings, Vite build, native command tests 13/13, Desktop UI tests 73/73, new guard test 1/1.
+
+### Docs: codify development-process rules distilled from rework analysis
+- Analyzed ~3 weeks of CHANGELOG entries (~140, roughly half fixes) plus session history and distilled the recurring rework patterns into standing rules: search prior fixes before debugging, close every fix with a root-cause-class / machine-guard / pitfall triage ("Fix 收尾三问"), no band-aid-then-root-fix two-step, cold-start smoke walk for UI changes, mandatory settings round-trip regressions, and spec-first batched cross-pane UI concepts.
+- Added `AGENTS.md` §开发流程沉淀规则 (six long-term process rules), extended CLAUDE.md Quick Rules and Recurring Pitfalls (new §9 cold-start smoke walk, §10 settings round-trip). Documentation-only change; no code touched.
+
+### Changed: Reuse one archive Session without carrying fresh automation context
+- Fresh recurring automations now reuse one hidden transcript archive per stable task while every execution still starts with empty model context. Persisted messages carry their `runId`, so each execution detail remains isolated and legacy per-run Sessions stay readable.
+- Completed fresh runs restore the prior active chat Session, shared archives avoid aggregate snapshot rewrites, and execution-scoped Memory/tool/Subagent identity prevents prior runs from becoming implicit runtime context.
+- Delayed Host Bash approval now keeps the owning `runId`, rewrites and resumes only that execution inside the shared archive, restores the suspended Turn lifecycle, and returns the chat to its prior active Session after completion.
+
+### Fix: Keep memory task completion notices out of Chat Sessions
+- Memory reflection and daily materials now share one authorized Telegram/Feishu Bot chat destination while retaining independent notification switches.
+- Added a dedicated channel internal-notice path that sends human-facing completion text without running an Agent, appending Agent Context, or changing the active Session. User-created one-shot reminders keep their source-Session behavior.
+- Daily materials now sends one owner-level aggregate after all Bot scopes finish and deduplicates repeated project-relative output paths instead of notifying every source Bot's first allowed chat.
+- Updated bilingual Desktop settings copy and target availability. Verified focused Server/settings tests 33/33, Desktop UI 72/72, and Svelte diagnostics 0/0.
+
+### Feature: Memory learns faster from repetition, review, and synthesis
+- Daily reflection now reinforces an existing active memory (confidence +0.02, capped at 0.99, freshness refreshed) when the same durable fact is mentioned again, instead of silently dropping the repetition; utility remains owned by trace feedback, and a failed reinforcement never blocks sibling candidates or the watermark.
+- The pending-review queue groups owner/project candidates first under "About you" and collapses agent_self/content candidates into an expandable "Agent learnings" section with a count badge, so runtime lessons stop drowning out profile signals.
+- The digital-profile summary is now LLM-synthesized into flowing second-person prose, cached per profile fingerprint in `memory_profile_summaries` (re-synthesized only when the underlying records change), with the concatenated summary as automatic fallback on failure.
+- Verified memory server tests 22/22 (new reinforcement, cache, fallback, and grouping cases), Desktop UI 46/46 + HTTP 74/74, Svelte diagnostics 0/0, the production Desktop build, and clean `tsc` on touched files.
+
+### Polish: Clarify memory candidate action labels
+- Renamed the pending-candidate buttons from “确认记忆 / 不准确” to “保存记忆 / 不保存” (EN: “Save memory / Don't save”) so the destructive semantics are explicit — the second action discards the candidate (`status: ignored`) rather than adjusting any score.
+- Verified Svelte diagnostics 0 errors / 0 warnings.
+
+---
 ## 2026-07-17
+
+### Feature: Desktop native behavior layer
+- Unified application menus, tray actions, and the command palette behind one localized typed command catalog. Empty command-palette searches now prioritize successful local recent commands, the active workspace, and catalog recommendations; text searches retain relevance-first ordering. The versioned local history stores only stable command IDs, successful-run counts, and local timestamps (20 entries, 90 days), never query text, labels, parameters, session/profile data, errors, or user content. Added recoverable startup, persisted close behavior, shared dialog semantics, direct manipulation, native window-state chrome, activity scheduling, and focused feedback/haptics coordinators without adding channel-specific orchestration.
+- Native notifications request permission only from the explicit setting, deduplicate terminal events, keep foreground updates in an accessible live region, and restore the main Chat window when acted on. Haptics remain restricted to completed user pointer gestures.
+- Desktop release builds now recover from a Finder AppleEvent timeout by producing a functional non-custom-layout DMG, and target-aware finalization no longer selects an obsolete DMG from a different target directory.
+- Verified native/unit 45/45, Desktop UI/HTTP 74/74, Rust 19/19, Svelte diagnostics 0/0, Vite build, `cargo check`, whitespace check, and a complete Apple Silicon DMG build with checksum, `hdiutil` validation, and mount inspection. A separately compiled, isolated QA bundle also launched as a foreground native app, resolved its resources, started a managed sidecar on port 3001, and retained its own single-instance process without modifying the user debug host or port-3000 service. macOS denied accessibility automation and display capture, so menu/tray interaction, VoiceOver/focus, window visuals, notification actions, and Force-Touch behavior remain accurately unverified; the local keychain also has no Developer ID signing identity.
+
+### Fix: Paste screenshots into Desktop Chat and keep image turns live
+- Desktop Chat and Project Chat now turn pasted clipboard images into pending attachments while preserving ordinary text paste behavior. Multiple clipboard formats for the same screenshot are collapsed to the first valid image, preventing duplicate attachments.
+- Attachment turns use multipart SSE instead of the non-streaming Chat fallback, so the UI progresses from Uploading to Recognizing image and then updates the Assistant response token by token.
+- The shared stream endpoint remains backward compatible with JSON-only turns and now persists uploaded files and forwards image contents through the existing Agent runtime.
+- Verified Desktop API 76/76, multipart stream parsing 2/2, Desktop UI 63/63, and clean Svelte diagnostics.
 
 ### Polish: Give Desktop Settings a secondary canvas and quieter cards
 - Kept the Settings navigation on its existing sidebar surface while moving the right-side Header and content onto the Geist secondary canvas, with primary-surface setting cards above it.

@@ -128,6 +128,8 @@ export function createMomTools(options: {
   workspaceDir: string;
   chatId: string;
   sessionId: string;
+  executionSessionId?: string;
+  isolateSessionHostApproval?: boolean;
   runId?: string;
   workspaceId?: string;
   timezone: string;
@@ -263,7 +265,7 @@ export function createMomTools(options: {
   ): ToolExecutionContext => {
     return {
       runId: options.runId ?? "default-run",
-      sessionId: options.sessionId,
+      sessionId: options.executionSessionId ?? options.sessionId,
       workspaceId: options.workspaceId ?? "personal",
       actorId: options.chatId,
       cwd: options.cwd,
@@ -455,7 +457,9 @@ export function createMomTools(options: {
       chatId: options.chatId,
       scopeId: options.chatId,
       sessionId: options.sessionId,
-      store: options.store
+      runId: options.runId,
+      store: options.store,
+      ignoreSessionApprovalMode: options.isolateSessionHostApproval
     }
   });
   registry.register(bashToolDef);
@@ -636,7 +640,7 @@ export function createMomTools(options: {
       cwd: options.cwd,
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
-      sessionId: options.sessionId,
+      sessionId: options.executionSessionId ?? options.sessionId,
       store: options.store,
       artifactDir,
       getSettings: options.getSettings,

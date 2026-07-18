@@ -32,6 +32,7 @@ const sections = {
   usage: read("./lib/settings/UsageSection.svelte"),
   trace: read("./lib/settings/TraceSection.svelte"),
   image: read("./lib/settings/ImageGenerateSection.svelte"),
+  video: read("./lib/settings/VideoGenerateSection.svelte"),
   tts: read("./lib/settings/TtsGenerateSection.svelte")
 };
 const charts = read("./lib/settings/charts.ts");
@@ -68,6 +69,181 @@ const queuedMessagesBar = read("./lib/chat/QueuedMessagesBar.svelte");
 const logsSection = read("./lib/settings/LogsSection.svelte");
 const activeRunsRoute = read("../../../src/routes/api/desktop/active-runs/+server.ts");
 const streamStopRoute = read("../../../src/routes/api/stream/stop/+server.ts");
+const commandSystem = read("./lib/native/commandSystem.ts");
+const commandHost = read("./lib/native/commandHost.ts");
+const windowState = read("./lib/native/windowState.ts");
+const feedbackCoordinator = read("./lib/native/feedbackCoordinator.ts");
+const hapticCoordinator = read("./lib/native/hapticCoordinator.ts");
+const nativeAppMenu = read("../src-tauri/src/app_menu.rs");
+
+test("native close behavior is a localized narrow preference using IosSwitch", () => {
+  assert.match(app, /type CloseBehavior = "background" \| "quit"/);
+  assert.match(app, /invoke<CloseBehavior>\("set_close_behavior", \{ closeBehavior \}\)/);
+  assert.match(app, /title=\{text\.closeToMenuBar\}[\s\S]*<IosSwitch/);
+  assert.match(app, /onCheckedChange=\{toggleCloseBehavior\}/);
+  assert.match(app, /<IosSwitch[\s\S]*onCheckedChange=\{setLoginStart\}/);
+  assert.match(styles, /\.ios-switch \{/);
+  assert.doesNotMatch(app, /class="switch"/);
+});
+
+test("reported Desktop settings pages use the shared macOS-style IosSwitch", () => {
+  const affectedSettingsSections = [
+    "SkillsSection",
+    "ImageGenerateSection",
+    "VideoGenerateSection",
+    "TtsGenerateSection",
+    "HostBashSection",
+    "ProfilesSection",
+    "WebSearchSection",
+    "SandboxSection",
+    "PluginsSection"
+  ];
+
+  for (const sectionName of affectedSettingsSections) {
+    const source = read(`./lib/settings/${sectionName}.svelte`);
+    assert.match(source, /import IosSwitch from "\.\.\/components\/ui\/IosSwitch\.svelte"/, `${sectionName} should import IosSwitch`);
+    assert.match(source, /<IosSwitch/, `${sectionName} should render IosSwitch`);
+    assert.doesNotMatch(source, /class="switch"/, `${sectionName} should not render the legacy switch button`);
+  }
+});
+
+test("native feedback requests permission only on explicit enablement and observes terminal task transitions", () => {
+  assert.match(feedbackCoordinator, /export class FeedbackCoordinator/);
+  assert.match(feedbackCoordinator, /if \(!event\.terminal \|\| this\.preference\(\) !== "enabled"\)/);
+  assert.match(feedbackCoordinator, /passivePermission: NotificationPermission = "default"/);
+  assert.match(app, /requestFeedbackPermission\(feedbackAdapter\)/);
+  assert.match(app, /invoke<NotificationPreference>\("set_notification_preference"/);
+  assert.match(app, /<IosSwitch[\s\S]*ariaLabel=\{text\.nativeNotifications\}/);
+  assert.match(app, /setTaskFeedbackPublisher\(\(event\) => publishFeedback\(event\)\)/);
+  assert.match(app, /feedbackAdapter\.onAction/);
+  assert.match(app, /invoke\("show_main_window"/);
+  assert.match(app, /publishServiceTransition/);
+  assert.match(app, /onCommandResult=\{publishCommandResult\}/);
+  assert.match(view, /const result = await commandSystem\.execute\(id, commandContext\);/);
+  assert.match(view, /onCommandResult\(result\)/);
+  assert.match(feedbackCoordinator, /onAction\?\(listener/);
+  assert.match(feedbackCoordinator, /onAction\(listener\)/);
+  assert.match(taskStore, /function observeTasks\(/);
+  assert.match(taskStore, /observeTasks\(summary, false\)/);
+  assert.match(taskStore, /observeTasks\(summary, true\)/);
+});
+
+test("native haptics are opt-in system feedback only at committed gestures", () => {
+  assert.match(hapticCoordinator, /export class HapticCoordinator/);
+  assert.match(hapticCoordinator, /this\.committedGesture === gestureId/);
+  assert.match(hapticCoordinator, /invoke\("perform_haptic_feedback"/);
+  assert.match(app, /invoke<HapticPreference>\("set_haptic_preference"/);
+  assert.match(app, /onHapticCommit=\{commitHaptic\}/);
+  assert.match(view, /onCommitted\(\)[\s\S]*onHapticCommit\(sidebarGestureId\)/);
+  assert.match(taskStore, /taskFeedbackPublisher/);
+  assert.doesNotMatch(taskStore, /Haptic/);
+});
+
+test("ActivityScheduler owns polling and preserves only recording display clocks", () => {
+  const tasksSection = read("./lib/settings/TasksSection.svelte");
+  const traceSection = read("./lib/settings/TraceSection.svelte");
+  const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
+  const tools = read("./lib/stores/tools.svelte.ts");
+
+  assert.match(tasksSection, /new ActivityScheduler\(/);
+  assert.match(traceSection, /new ActivityScheduler\(/);
+  assert.match(agentStudio, /new ActivityScheduler\(/);
+  assert.match(tools, /const mediaSchedulers = new Map/);
+  assert.match(view, /backgroundActivityPolicy/);
+  assert.match(view, /reconnectActivityPolicy/);
+  assert.doesNotMatch(tasksSection, /setInterval\(/);
+  assert.doesNotMatch(traceSection, /setInterval\(/);
+  assert.doesNotMatch(agentStudio, /setInterval\(/);
+  assert.doesNotMatch(tools, /setInterval\(/);
+});
+
+test("WindowState owns native lifecycle projection and chrome-only material tokens", () => {
+  assert.match(windowState, /createTauriWindowState/);
+  assert.match(windowState, /onFocusChanged/);
+  assert.match(windowState, /onThemeChanged/);
+  assert.match(windowState, /onScaleChanged/);
+  assert.match(windowState, /prefers-reduced-transparency/);
+  assert.match(windowState, /prefers-contrast: more/);
+  assert.match(app, /void startWindowState\(\);/);
+  assert.match(app, /root\.dataset\.windowActive/);
+  assert.match(app, /windowStateAdapter\?\.dispose\(\);/);
+  assert.match(styles, /html\[data-window-active="false"\]/);
+  assert.match(styles, /--chrome-sidebar-bg/);
+  assert.match(styles, /--chrome-header-bg/);
+  assert.match(styles, /--chrome-footbar-bg/);
+  assert.match(styles, /--chrome-popover-bg/);
+  assert.match(styles, /\.chat-header[^\n]*var\(--chrome-header-bg\)/);
+  assert.match(styles, /\.settings-footbar[^\n]*var\(--chrome-footbar-bg\)/);
+  assert.match(styles, /\.command-palette[^\n]*var\(--chrome-popover-bg\)/);
+});
+
+test("sidebar resizing uses shared pointer manipulation and writes only on completion", () => {
+  assert.match(view, /new DirectManipulation\(\{[\s\S]*mode: "continuous"/);
+  assert.match(view, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(view, /onpointercancel=\{cancelSidebarResize\}/);
+  assert.match(view, /onlostpointercapture=\{cancelSidebarResize\}/);
+  assert.match(view, /localStorage\.setItem\(SIDEBAR_WIDTH_KEY, String\(sidebarWidth\)\)/);
+  assert.doesNotMatch(view, /addEventListener\("mousemove"/);
+});
+
+test("Memory Trace drawer shares direct manipulation for interruption and cancellation", () => {
+  const memoryTraceDrawer = read("./lib/chat/MemoryTraceDrawer.svelte");
+
+  assert.match(memoryTraceDrawer, /import \{ DirectManipulation \}/);
+  assert.match(memoryTraceDrawer, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(memoryTraceDrawer, /onpointercancel=\{cancelDrawerDrag\}/);
+  assert.match(memoryTraceDrawer, /onlostpointercapture=\{cancelDrawerDrag\}/);
+  assert.match(memoryTraceDrawer, /onCommitted\(\)[\s\S]*onHapticCommit\(drawerGestureId\)/);
+  assert.match(view, /<MemoryTraceDrawer[\s\S]*\{onHapticCommit\}/);
+  assert.match(styles, /\.memory-trace-drag-handle \{/);
+});
+
+test("Project workflows use shared Dialog and AlertDialog primitives", () => {
+  const projectList = read("./lib/projects/ProjectList.svelte");
+  const projectTree = read("./lib/projects/ProjectTree.svelte");
+  const projectChat = read("./lib/projects/ProjectChat.svelte");
+
+  assert.match(projectList, /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
+  assert.match(projectList, /<Dialog[\s\S]*contentClass="project-dialog project-create-dialog"/);
+  assert.match(projectTree, /import AlertDialog from "\.\.\/components\/ui\/AlertDialog\.svelte"/);
+  assert.match(projectTree, /<Dialog[\s\S]*project-create-dialog/);
+  assert.match(projectTree, /<Dialog[\s\S]*project-rename-title/);
+  assert.match(projectTree, /<AlertDialog[\s\S]*project-delete-title/);
+  assert.match(projectSettingsDialog, /<Dialog[\s\S]*project-settings-title/);
+  assert.match(projectChat, /<Dialog[\s\S]*project-preview-title/);
+  assert.doesNotMatch(projectTree, /project-dialog-backdrop/);
+  assert.doesNotMatch(projectSettingsDialog, /project-settings-overlay/);
+  assert.doesNotMatch(projectChat, /preview-overlay/);
+});
+
+test("native commands use one catalog and one host event route", () => {
+  assert.match(commandSystem, /export class CommandSystem/);
+  assert.match(commandSystem, /snapshot\(context: CommandContext\)/);
+  assert.match(commandSystem, /async execute\(id: string, context: CommandContext\)/);
+  assert.match(commandHost, /export class MemoryCommandHostAdapter/);
+  assert.match(commandHost, /export class CallbackCommandHostAdapter/);
+  assert.match(view, /commandSystem\.snapshot\(commandContext\)/);
+  assert.match(view, /workspace: projectPaneActive \? "project" : workspacePane/);
+  assert.match(view, /rankCommands\(commandSnapshot, commandQuery, commandUsage\)/);
+  assert.match(view, /commandUsage = loadCommandUsage\(localStorage, commandSnapshot\)/);
+  assert.match(view, /if \(result\.status === "executed"\)[\s\S]*recordCommandSuccess\(commandUsage, result\.id, commandSnapshot\)/);
+  assert.match(view, /saveCommandUsage\(localStorage, commandUsage\)/);
+  assert.match(view, /commandInputElement\?\.focus\(\)/);
+  assert.match(view, /commandReturnFocus\?\.focus\(\)/);
+  assert.match(view, /event\.key === "Enter"[\s\S]*runCommand\(command\.id\)/);
+  assert.match(view, /disabled=\{!command\.enabled\}/);
+  assert.match(commandSystem, /recommendedRank: number/);
+  assert.match(view, /commandSystem\.execute\(id, commandContext\)/);
+  assert.match(view, /void runSystemCommand\(event\.payload\)/);
+  assert.match(view, /nativeCommandUnlisten\?\.\(\)/);
+  assert.doesNotMatch(view, /runCommand\(\(\) => openWorkspacePane/);
+  assert.match(nativeAppMenu, /pub const COMMAND_EVENT: &str = "native-command"/);
+  assert.match(nativeAppMenu, /app\.on_menu_event\(/);
+  assert.match(nativeAppMenu, /"app\.open-chat"/);
+  assert.match(nativeAppMenu, /"service\.restart"/);
+  assert.doesNotMatch(nativeAppMenu, /"open_web"/);
+});
+
 
 test("workspace navigation waits for bootstrap and can retry failed loads", () => {
   assert.match(view, /let connectionReady = false/);
@@ -145,8 +321,11 @@ test("issue 13 automation uses a fixed list-detail template with separated statu
   assert.match(sections.tasks, /formatNaturalSchedule\(task\.scheduleText, session\.locale\)/);
   assert.match(sections.tasks, /stopTaskRun\(selectedTask\.id/);
   assert.match(chatWorkspace, /<TasksSection presentation="workspace"/);
-  assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*320px minmax\(420px, 1fr\)/s);
-  assert.match(styles, /@media \(max-width: 1099px\)[\s\S]*\.automation-task-detail\s*\{[^}]*position:\s*absolute/s);
+  assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*minmax\(250px, 320px\) minmax\(0, 1fr\)/s);
+  // The detail pane overlays the list only when the workspace CONTAINER (not
+  // the viewport — the sidebar eats ~220px) is too narrow for side-by-side.
+  assert.match(styles, /\.automation-workspace\s*\{[^}]*container-type:\s*inline-size/s);
+  assert.match(styles, /@container \(max-width: 679px\)[\s\S]*\.automation-task-detail\s*\{[^}]*position:\s*absolute/s);
 });
 
 test("issue 13 Chat renders an Agent message unit and a compact 720px composer", () => {
@@ -169,14 +348,14 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
 });
 
 test("Desktop Chat keeps structural sidebars separate from one unified workspace surface", () => {
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--chrome-sidebar-bg\)/s);
   assert.match(styles, /\.file-panel\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
   assert.match(styles, /\.chat-content\s*\{[^}]*background:\s*var\(--header-bg\)/s);
-  assert.match(styles, /\.chat-header\s*\{[^}]*background:\s*var\(--header-bg\)/s);
+  assert.match(styles, /\.chat-header\s*\{[^}]*background:\s*var\(--chrome-header-bg\)/s);
 });
 
 test("Desktop Settings uses a secondary canvas with quiet primary-surface cards", () => {
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--chrome-sidebar-bg\)/s);
   assert.match(styles, /\.settings-content\s*\{[^}]*background:\s*var\(--gray-100\)/s);
   assert.match(styles, /\.settings-card\s*\{[^}]*border:\s*1px solid var\(--hairline\)[^}]*background:\s*var\(--card-bg\)/s);
   assert.match(styles, /\.settings-card \.settings-row \+ \.settings-row\s*\{[^}]*border-top:\s*0\.5px solid var\(--gray-alpha-100\)/s);
@@ -195,6 +374,12 @@ test("shared composer provides keyboard slash suggestions and transcript invocat
 test("issue 8 chat polish stays wired across shared Chat and Project surfaces", () => {
   assert.match(view, /openWorkspacePaneState\(pane\)/);
   assert.match(view, /service-starting-spinner/);
+  assert.match(view, /startup-recovery-actions/);
+  assert.match(view, /aria-live="polite"/);
+  assert.match(app, /startupPhase=\{startup\.phase\}/);
+  assert.match(app, /startupError=\{startup\.error\}/);
+  assert.match(app, /statusScheduler\?\.wake\("retry"\)/);
+  assert.doesNotMatch(app, /setInterval\(\(\) => void refreshStatus\(\), 1000\)/);
   assert.match(transcript, /class="message-meta"/);
   assert.match(transcript, /message\.model/);
   assert.match(transcript, /split\(\/\\r\?\\n\/\)\.length > 20/);
@@ -205,7 +390,10 @@ test("issue 8 chat polish stays wired across shared Chat and Project surfaces", 
   assert.match(projectChat, /event\.key === "Enter" && \(event\.shiftKey \|\| event\.metaKey \|\| event\.ctrlKey\)/);
   assert.match(view, /event\.key === ","[\s\S]*openSettings\(\)/);
   assert.match(view, /event\.key\.toLowerCase\(\) === "k"[\s\S]*toggleCommandPalette/);
-  assert.match(view, /class="command-palette"[\s\S]*copy\.newChat/);
+  assert.match(view, /class="command-palette"[\s\S]*commandResults as command, index/);
+  assert.match(view, /command-palette-input/);
+  assert.match(view, /role="listbox"/);
+  assert.match(view, /rankCommands\(commandSnapshot, commandQuery, commandUsage\)/);
   assert.match(overflowMenu, /event\.key !== "ArrowDown" && event\.key !== "ArrowUp"/);
   assert.match(overflowMenu, /event\.key === "Escape"/);
   assert.match(logsSection, /desktop_logs/);
@@ -275,7 +463,8 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /id: "default"/);
   assert.match(agentStudio, /loadDesktopAgents\(endpoint\)/);
   assert.match(agentStudio, /loadDesktopAgentActivity\(endpoint\)/);
-  assert.match(agentStudio, /setInterval\(\(\) => void refresh\(\), 2500\)/);
+  assert.match(agentStudio, /new ActivityScheduler\(agentActivityPolicy, refresh, documentActivityVisibility\)/);
+  assert.doesNotMatch(agentStudio, /setInterval\(/);
   assert.match(agentStudio, /generation !== refreshGeneration/);
   assert.match(agentStudio, /SLOT_STORAGE_KEY = "molibot-agent-city-slots-v1"/);
   assert.match(agentStudio, /projectAgentCity/);
@@ -286,7 +475,8 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /floor\.activity\.taskPreview/);
   assert.match(agentStudio, /floor\.subagents\.visible/);
   assert.match(agentStudio, /projection\.hiddenAgentCount/);
-  assert.match(agentStudio, /visibilitychange/);
+  assert.match(agentStudio, /documentActivityVisibility/);
+  assert.doesNotMatch(agentStudio, /visibilitychange/);
   assert.match(agentCityFallback, /agent-city-fallback-building/);
   assert.match(agentCityFallback, /floor\.activity\.botName/);
   assert.match(agentCityFallback, /floor\.activity\.channel/);
@@ -357,8 +547,9 @@ test("chat header is single-line and service status lives on the sidebar logo", 
 test("chat shell does not stay click-blocked during startup or sidebar resize", () => {
   assert.doesNotMatch(view, /await selectDefaultSession\(generation\)/);
   assert.match(view, /loading = false;[\s\S]*void selectDefaultSession\(generation\)/);
-  assert.match(view, /window\.addEventListener\("blur", stopSidebarResize\)/);
-  assert.match(view, /document\.addEventListener\("mouseleave", stopSidebarResize\)/);
+  assert.match(view, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(view, /onpointercancel=\{cancelSidebarResize\}/);
+  assert.match(view, /onlostpointercapture=\{cancelSidebarResize\}/);
   assert.match(view, /onDestroy\(\(\) => \{[\s\S]*stopSidebarResize\(\)/);
 });
 
@@ -408,7 +599,8 @@ test("automation session detail renders a chat-style transcript", () => {
 test("automation management uses a command deck and opens full history in a modal", () => {
   assert.match(sections.tasks, /class="automation-command-deck"/);
   assert.match(sections.tasks, /class="automation-card" data-status=/);
-  assert.match(sections.tasks, /class="modal-card task-history-modal"/);
+  assert.match(sections.tasks, /<Dialog[\s\S]*contentClass="task-history-modal"/);
+  assert.match(sections.tasks, /<AlertDialog[\s\S]*contentClass="task-delete-confirm-modal"/);
   assert.match(sections.tasks, /openTaskHistory\(task\.id\)/);
   assert.doesNotMatch(sections.tasks, /class="task-history-panel"/);
   assert.match(styles, /\.task-history-modal\s*\{[^}]*width:\s*min\(820px/s);
@@ -421,7 +613,8 @@ test("automation workspace keeps each task in a bounded card while retaining tas
   assert.match(sections.tasks, /class="automation-workspace-layout"/);
   assert.match(sections.tasks, /class="automation-task-row"/);
   assert.match(sections.tasks, /class="automation-task-detail"/);
-  assert.match(styles, /\.automation-workspace-list\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\([^;]+480px\)\)/s);
+  // Cards stretch to fill the full workspace row instead of capping at 480px.
+  assert.match(styles, /\.automation-workspace-list\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(min\(100%, 360px\), 1fr\)\)/s);
   assert.match(styles, /\.automation-task-row\s*\{[^}]*border:\s*1px solid var\(--separator\)[^}]*border-radius:\s*var\(--rounded-md\)[^}]*background:\s*var\(--card-bg\)/s);
 });
 
@@ -523,6 +716,20 @@ test("structured runner events do not leak into the live answer status", () => {
   assert.doesNotMatch(conversationTurn, /event === "status" \|\| event === "runner_event"/);
 });
 
+test("shared composer turns pasted clipboard images into attachments", () => {
+  assert.match(chatComposerShell, /onpaste=\{handlePaste\}/);
+  assert.match(chatComposerShell, /clipboardImageFiles\(event\.clipboardData\?\.items \?\? \[\]\)/);
+  assert.match(chatInputArea, /\{onPasteFiles\}/);
+  assert.match(view, /onPasteFiles=\{addPastedFiles\}/);
+  assert.match(projectChat, /onPasteFiles=\{addPastedFiles\}/);
+  assert.match(conversationController, /onUploadComplete: hasFiles \? \(\) => \(this\.activity = labels\.recognizingImage\)/);
+  // Tokens must be buffered and flushed per animation frame, never written to
+  // the reactive field directly (per-token writes rebuild the whole {@html}
+  // bubble and make streaming look like a page refresh).
+  assert.match(conversationController, /onToken: \(delta\) => \{\s*this\.activity = "";\s*this\.pendingStreamText \+= delta;\s*this\.scheduleStreamFlush\(\);/);
+  assert.doesNotMatch(conversationController, /onToken:[^}]*this\.streamingText \+= delta/);
+});
+
 test("local Chat and Project Chat share the live conversation, composer, and turn controller", () => {
   // Both surfaces render the shared presentation and drive the shared turn
   // engine (ConversationController) rather than re-implementing send/stream.
@@ -573,6 +780,7 @@ test("settings uses the flat Geist layout", () => {
   assert.match(sections.plugins, /memoryDailyMaterials\.promptPath/);
   assert.match(sections.plugins, /memoryReflectionNotificationTarget/);
   assert.match(sections.plugins, /reflectionNotificationTargets/);
+  assert.match(sections.plugins, /disabled=\{!pluginsStore\.pluginsEdit\.memoryReflectionNotifications && !pluginsStore\.pluginsEdit\.memoryDailyMaterials\.notifications\}/);
 });
 
 test("project creation asks for a name before offering managed or existing directories", () => {
@@ -729,19 +937,26 @@ test("Desktop Trace exposes live, stuck, and orphan run controls", () => {
   assert.match(traceSection, /stopDesktopActiveRun/);
   assert.match(traceSection, /traceRunStuck/);
   assert.match(traceSection, /traceClearOrphan/);
-  assert.match(traceSection, /setInterval\(\(\) => void refreshActiveRuns\(\), 3000\)/);
+  assert.match(traceSection, /new ActivityScheduler\(/);
+  assert.match(traceSection, /interactiveActivityPolicy/);
+  assert.doesNotMatch(traceSection, /setInterval\(/);
   assert.doesNotMatch(traceSection, /onMount\(\(\) => \{\s*void refreshActiveRuns\(\)/);
   assert.match(activeRunsRoute, /snapshotAllRuntimeRuns\(\)/);
   assert.match(activeRunsRoute, /abortRuntimeRun/);
 });
 
-test("Desktop Trace delete opens an in-app confirmation before submitting", () => {
+test("Desktop Trace delete uses the shared alert dialog before submitting", () => {
   const traceSection = read("./lib/settings/TraceSection.svelte");
   assert.match(traceSection, /let pendingActiveRun = \$state<DesktopActiveRunItem \| null>\(null\)/);
   assert.match(traceSection, /pendingActiveRun = item/);
-  assert.match(traceSection, /role="dialog"/);
-  assert.match(traceSection, /activeRunDialog\?\.focus\(\)/);
+  assert.match(traceSection, /<AlertDialog/);
+  assert.match(sections.tasks, /DirectManipulation/);
+  assert.match(sections.tasks, /onpointercancel=\{cancelDetailDrag\}/);
+  assert.doesNotMatch(sections.tasks, /detailDragStartX/);
+  assert.doesNotMatch(sections.tasks, /detailDragOffset > 96/);
+  assert.match(traceSection, /busy=\{Boolean\(activeRunBusy\)\}/);
   assert.match(traceSection, /stopDesktopActiveRun\(session\.endpoint, selected\.runId\)/);
+  assert.doesNotMatch(traceSection, /activeRunDialog/);
   assert.doesNotMatch(traceSection, /window\.confirm\(/);
 });
 
@@ -781,6 +996,16 @@ test("settings navigation keeps the current product taxonomy and entity editors 
   assert.match(app, /\{text\[preview\.labelKey\]\}/);
 });
 
+test("image and video task details use the shared Dialog primitive", () => {
+  for (const section of [sections.image, sections.video]) {
+    assert.match(section, /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
+    assert.match(section, /<Dialog[\s\S]*contentClass="modal-card"/);
+    assert.match(section, /onOpenChange=\{\(next\) => \{ if \(!next\) closeMediaTaskDetail\(\); \}\}/);
+    assert.doesNotMatch(section, /onMediaTaskOverlayKeydown/);
+    assert.doesNotMatch(section, /<div class="modal-overlay" role="dialog"/);
+  }
+});
+
 test("Memory Center keeps overview, topics, and all memories as separate product tabs", () => {
   assert.match(sections.memory, /type MemoryCenterTab = "overview" \| "topics" \| "all"/);
   assert.match(sections.memory, /data-memory-view="overview"/);
@@ -789,15 +1014,25 @@ test("Memory Center keeps overview, topics, and all memories as separate product
   assert.match(sections.memory, /session\.text\.memoryUnderstandingTitle/);
   assert.match(sections.memory, /class="memory-topic-workspace"/);
   assert.match(sections.memory, /class="memory-all-view"/);
+  assert.match(sections.memory, /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
+  assert.match(sections.memory, /import IosSwitch from "\.\.\/components\/ui\/IosSwitch\.svelte"/);
+  assert.match(sections.memory, /<Dialog[\s\S]*labelledBy="memory-candidate-edit-title"/);
+  assert.match(sections.memory, /<Dialog[\s\S]*labelledBy="memory-edit-title"/);
+  assert.match(sections.memory, /<Dialog[\s\S]*labelledBy="memory-source-preview-title"/);
+  assert.match(sections.memory, /<Dialog[\s\S]*labelledBy="memory-advanced-title"/);
+  assert.match(sections.memory, /busy=\{Boolean\(memoryStore\.busyAction\)\}/);
+  assert.doesNotMatch(sections.memory, /modal-overlay|aria-modal="true"|onWindowKeydown|class="switch"/);
   assert.doesNotMatch(sections.memory, /activeTab === "advanced"/);
 });
 
 test("AI provider editing uses a dedicated modal and separates provider and model concepts", () => {
-  assert.match(sections.providers, /class="modal-overlay provider-modal-overlay"/);
-  assert.match(sections.providers, /class="modal-card provider-modal-card"/);
+  assert.match(sections.providers, /<Dialog[\s\S]*contentClass="provider-modal-card"/);
+  assert.match(sections.providers, /<AlertDialog[\s\S]*contentClass="confirm-dialog"/);
+  assert.doesNotMatch(sections.providers, /provider-modal-overlay/);
+  assert.doesNotMatch(sections.providers, /class="modal-card provider-modal-card"/);
   assert.match(sections.providers, /session\.text\.providerSelfHostedTitle/);
   assert.match(sections.providers, /session\.text\.providerCustomModelsTitle/);
-  assert.match(styles, /\.modal-card\.provider-modal-card\s*\{[^}]*width:\s*min\(920px,\s*100%\)/s);
+  assert.match(styles, /\.desktop-dialog-content\.provider-modal-card\s*\{[^}]*width:\s*min\(920px,\s*calc\(100vw - 48px\)\)/s);
   // The save footbar belongs to the provider globals (mode/default) and is gated
   // by its own dirty flag — a separate concern from the provider edit modal.
   assert.match(sections.providers, /\{#if providersStore\.globalsDirty\}[\s\S]{0,200}class="settings-footbar"/);

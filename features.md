@@ -5,7 +5,61 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
-## 2026-07-17
+## 2026-07-18
+
+### 用户气泡强制换行 + 助手复制按钮位置修复（已完成）
+- 用户消息无论多短都换行（"hi" 变成两行单字）：`.user-message-shell` 作为未拉伸的 grid item 收缩到气泡的 max-content 宽度，气泡的 `max-width: 88%` 又按这个收缩后的 shell 解析，导致每条消息都被压到自然宽度的 88% 以下强制折行。现 shell 显式 `width: 100%` 撑满阅读列，88% 恢复为相对整列的语义。
+- 助手 meta 行的复制按钮原被 `margin-left: auto` 推到最右侧,现移除,按 时间 · 模型 · 记忆引用 · 复制 从左到右顺排。
+- 根因类别:百分比 `max-width` 对着 fit-content 包装层解析的 CSS 内在尺寸循环。真实样式表探测:720px shell 中 "hi" 气泡 41px 单行;复制按钮紧跟记忆 chip(x≈232)。Svelte 0/0、Vite build 通过。
+
+### Chat 流式渲染平滑化 + 入场动效（已完成）
+- 修复"消息更新像整页刷新"：`ConversationController` 把 token/thinking 增量先缓冲在非响应式字段，每动画帧最多 flush 一次到 `streamingText`（node 测试环境回退 16ms 定时器）；replace/done/回合开始结束/`clearTurn` 均会清空缓冲，杜绝迟到增量落到后续会话。`renderMarkdown` 新增流式模式（流式期间跳过 highlight.js，完成后的最终渲染才做完整高亮）并为已完成消息加 300 条 LRU 缓存，历史消息不再随转录更新反复解析。
+- 动效补齐（plans/001–002，全部只动 opacity/transform，复用 `--duration-fast/normal`、`--ease-standard/spring` token，`@starting-style` 实现）：消息行 160ms 纯淡入（同时掩盖回合结束时流式行→持久行的 DOM 替换闪烁）、排队消息条与待发附件 chip 淡入、审批卡片按 modal 空间语言入场、thinking/run-activity 展开内容淡入。入场由新 `settleEntrances` action 的 `.messages.settled` 类门控——挂载/切会话/加载完成后延两帧才启用，会话切换不会整屏重放入场。刻意不加动效：slash 建议菜单、会话浏览对话框（键盘高频）、stickToBottom 滚动、文件面板栅格。全局 `prefers-reduced-motion` 规则自动禁用以上全部。
+- 机器守卫：`chat-ui.test.mjs` 断言 `onToken` 必须走 `pendingStreamText + scheduleStreamFlush()` 缓冲路径，直接写 `streamingText` 会挂测试。
+- 验证：Svelte 0 错误 0 警告、Vite build、tsx 46/46、node UI 套件 76/76；真机流式手感待服务运行后走查。
+
+### 自动任务页布局：卡片占满工作区、详情面板不再遮挡列表（已完成）
+- 自动任务工作区的任务卡片网格原来每列上限 480px，宽窗口下右侧大片留白；现改为 `minmax(min(100%, 360px), 1fr)`，卡片按可用宽度自动分列并撑满整行。
+- 详情面板原用 `@media (max-width: 1099px)` 视口断点切换为绝对定位浮层，但侧边栏占掉约 220px，常见窗口宽度（~1000pt）下即使内容区足够并排也会触发浮层遮挡列表。现将 `.automation-workspace` 设为 inline-size 容器，浮层改由 `@container (max-width: 679px)` 按工作区实际宽度触发；并排网格放宽为 `minmax(250px, 320px) minmax(0, 1fr)`，Escape 在两种模式下均可关闭详情。
+- 验证：Svelte 0 错误 0 警告、Vite build、Desktop UI 73/73；对真实样式表探测 852px 工作区宽度为并排（detail `relative`）、552px 为浮层（`absolute`）。
+
+### Desktop 设置开关统一为 macOS 系统样式（已完成）
+- Skills、搜索、图像、视频、语音、Host Bash、Web Profile、沙箱和插件页不再使用已失去样式的旧 `.switch` 按钮，全部复用 General 页同一 `IosSwitch` 组件。
+- 原有启停、禁用态、dirty 标记、细粒度保存/API 路径保持不变；共享组件统一提供 38×22px 胶囊轨道、强调色选中态、键盘焦点和原生 checkbox 可访问语义，并自动适配中英、明暗主题与 860×620 窗口。
+- 新增结构回归，禁止这些页面重新引入旧开关。验证：Desktop UI 73/73、Svelte 0 错误 0 警告、production build 通过；860×620 冷启动页面无横向溢出，真实计算样式为 38×22px / full-radius。
+
+### Fresh 自动任务共享归档 Session（已完成）
+- 每个带稳定 `taskId` 的 fresh 定时任务不再为每次执行创建新的 `task-*` Session，而是复用一个隐藏的任务归档 Session；缺少稳定任务 ID 的历史 Event 继续使用原有逐次 Session，避免误合并不同任务。
+- Runner 每轮开始与结束都清空归档消息，只把本轮 prompt/Assistant/工具结果追加到 JSONL；Memory profile、Agent provider session、通用工具审批和 Subagent 使用执行级 `runId` 作用域，历史 Session 级 Host Bash 旁路不会自动带入下一次 fresh 执行。
+- 归档消息持久化 `runId`，自动任务执行详情按 `runId` 精确读取；旧的一次一 Session 执行记录继续回退读取完整旧 Session。归档追加不再重建聚合模型快照，任务完成后恢复先前 Active Session。
+- Host Bash 等待审批会把原 `runId` 写入待处理动作；批准后只改写并加载该次运行的消息，Turn 状态从等待恢复为运行，完成后回到此前 Active Session，不会覆盖同一归档里的其他执行。
+- 验证：Session/Runner/任务详情/Host Bash/Turn 聚焦测试 86/86、调度/租约/命令回归 81/81、root production build 与 `git diff --check` 通过。
+
+### 记忆反思与每日素材统一完成通知（已完成）
+- 记忆反思和每日素材共用一个已授权的 Telegram/飞书 Bot + Chat 通知目标；目标选择沿用已有结构化设置与安全回退，不接受 QQ、微信、Web 或未授权会话伪造值。
+- 新增 Channel 级 `sendInternalNotice` 投递边界：内部完成通知只发送面向人的文本和结构化日志，不进入 Agent Runner、不追加 Agent Context、不创建或替换 active Session，也不污染后续模型上下文。
+- 每日素材不再按源 Bot 向各自首个允许聊天逐条通知；Owner 任务完成后合并为一条摘要，并对重复的 Project 相对输出路径去重。用户创建的一次性提醒仍按原契约回到来源 Session。
+- Desktop 中英文设置明确展示共享通知目标；只要反思或每日素材任一通知开关开启，目标选择器就保持可用。
+- 验证：运行时/设置聚焦测试 33/33、Desktop UI 72/72、Svelte 0 错误 0 警告。
+
+### 记忆"越用越熟"三项闭环（已完成）
+- 重复提及强化：每日反思提取到与既有活跃记忆等价的内容时，不再静默丢弃，而是对该记忆做一次强化（confidence +0.02，上限 0.99，同时刷新 updatedAt），使画像稳定性排序真实反映"被反复提到"的信号；utility 仍由 trace 反馈独占，强化失败不阻塞兄弟候选与 watermark。
+- 待确认队列按域分组：owner/project 候选作为"关于你"置顶展示（保留查看全部/收起），agent_self/content 候选折叠为"Agent 运行经验"分组（默认收起、计数徽标、点击展开），分组逻辑在共享投影层 `splitPendingCandidates`，两组复用同一候选行 snippet。
+- 数字画像 LLM 合成：`buildProfile` 支持注入合成器，将稳定偏好 + 用户事实 + 当前主线合成为第二人称连贯画像；按 profile fingerprint 缓存于 `memory_profile_summaries`（每个 scope 一条，指纹变化才重新调用 LLM），合成失败或返回空时回退到原拼接摘要。Runtime 用 AssistantService 注入合成器，Desktop 记忆页与画像接口自动生效。
+- 验证：memory 服务端测试 22/22（含新增强化、缓存、降级、分组用例）、Desktop UI 46/46 + HTTP 74/74、Svelte 0 错误 0 警告、Desktop production build 通过；`tsc` 对触碰文件无错误。
+
+### Desktop 原生体验行为层（实现与隔离 packaged-host 运行验证完成；受权限限制的交互矩阵待补）
+- App Menu、Tray、⌘K 统一到同一 typed command catalog；⌘K 空查询按本地成功记录、当前 workspace 和推荐级别确定排序，检索时仍以文本相关性优先。历史仅保存稳定命令 ID、成功次数和本地时间，限制为 20 项、90 天；不保存查询、会话、参数、标签、错误或任何用户内容。启动恢复、关闭行为、共享 Dialog/AlertDialog、直接操控、WindowState、可访问前台反馈、权限控制的后台通知、用户手势触觉和窗口感知活动调度均已落到 Desktop/host 共享上层，Channel 未增加平台分支。
+- Dialog 调用方不再各自维护遮罩、Escape、焦点或关闭 timer；轮询面板迁入 `ActivityScheduler`，隐藏窗口暂停并在可见时唤醒，旧响应不会覆盖当前 owner。
+- 打包：Apple Silicon `Molibot_0.5.5_aarch64.dmg` 已生成，SHA-256、`hdiutil verify` 及挂载内容通过。Finder AppleEvent 超时会自动改走无 Finder 图标定位的可用 DMG fallback；release finalizer 按实际 build target 取产物，不会误选旧 DMG。
+- 隔离宿主：临时 config-overlay 构建的 `Molibot Native QA.app` 使用独立编译期 identifier 与临时 `DATA_DIR`，以标准 `.app` 方式前台启动并解析 bundled resources；managed sidecar 在 `http://127.0.0.1:3001` 就绪，二次启动仍只保留一个 QA host，原有 debug host 与 3000 service 未被触碰。
+- 验证：Desktop native/unit 45/45、UI/HTTP 74/74、Rust 19/19、Svelte 0 错误 0 警告、Vite build、`cargo check`、`git diff --check` 和完整 `tauri:build` 通过。当前 macOS 拒绝辅助功能自动化及屏幕捕获，因此菜单/Tray 实际点击、快捷键/焦点/VoiceOver、窗口视觉状态、通知动作与 Force Touch 不能误报为已人工通过；通知权限也未在非显式设置操作中请求。
+
+### Desktop 剪贴板图片附件与实时识别状态（已完成）
+- 普通 Chat 与 Project Chat 的共享输入框支持直接粘贴系统截图工具复制的图片，自动生成稳定文件名并加入待发送附件；同一截图的 PNG/TIFF 等多格式表示只取第一个有效图片，避免一次粘贴产生重复附件。非图片文件项不会被误收，普通文本粘贴不受影响。
+- 带附件的会话不再切换到非流式请求；共享 `/api/stream` 现在接收 multipart 文件、持久化附件并向 Agent 传递图片内容，同时持续回传识别后的状态、思考、工具活动和 AI Token。
+- 界面阶段明确拆为“正在上传… → 正在识别图片… → AI 流式响应”，普通 Chat 与 Project Chat 共用同一实现和中英文文案。
+- 验证：Desktop API 76/76、stream multipart 2/2、Desktop UI 63/63，Svelte 0 错误 0 警告。
 
 ### Desktop 设置页浅灰画布与白色卡片层级（已完成）
 - Desktop 设置左侧导航保持原有侧栏表面，右侧 Header 与滚动内容统一使用 Geist `--gray-100` 次级画布；设置卡片继续使用 `--card-bg` 主表面。

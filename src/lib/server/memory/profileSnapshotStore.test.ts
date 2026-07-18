@@ -26,3 +26,23 @@ test("profile base snapshot stays byte-stable after store reconstruction and ign
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("profile summary cache returns text only for a matching fingerprint and survives restarts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "molibot-profile-summary-"));
+  const file = join(dir, "settings.sqlite");
+  try {
+    const store = new MemoryProfileSnapshotStore(file);
+    assert.equal(store.getSummary("scope-1", "fp-1"), undefined);
+    store.setSummary("scope-1", "fp-1", "你偏好简洁直接的回答。");
+    assert.equal(store.getSummary("scope-1", "fp-1"), "你偏好简洁直接的回答。");
+    assert.equal(store.getSummary("scope-1", "fp-2"), undefined);
+    store.setSummary("scope-1", "fp-2", "你最近在推进 Molibot 桌面端。");
+    assert.equal(store.getSummary("scope-1", "fp-1"), undefined);
+    store.close();
+    const restarted = new MemoryProfileSnapshotStore(file);
+    assert.equal(restarted.getSummary("scope-1", "fp-2"), "你最近在推进 Molibot 桌面端。");
+    restarted.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

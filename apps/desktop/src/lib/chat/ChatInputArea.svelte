@@ -41,6 +41,7 @@
   export let onSend: () => void;
   export let onStop: () => void;
   export let onKeydown: (event: KeyboardEvent) => void;
+  export let onPasteFiles: (files: File[]) => void;
   export let onPickFiles: () => void;
   export let onToggleRecording: () => void;
   export let onFinishRecording: (send: boolean) => void;
@@ -136,6 +137,7 @@
     {placeholder}
     {onSend}
     {onStop}
+    {onPasteFiles}
     onKeydown={handleComposerKeydown}
   >
     {#if filteredSuggestions.length > 0}

@@ -9,7 +9,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { randomInt } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
@@ -82,6 +82,8 @@ export interface SessionOriginMetadata {
   origin?: "automation" | "chat";
   taskId?: string;
   runId?: string;
+  archiveMode?: "shared";
+  returnSessionId?: string;
   createdAt?: string;
 }
 
@@ -523,6 +525,44 @@ export class MomRuntimeStore {
   }
 
   /**
+   * Reuses one hidden transcript archive for all fresh executions of a stable
+   * task. Events without a task id retain the legacy per-run Session behavior
+   * so unrelated legacy tasks cannot collapse into the same archive.
+   */
+  beginTaskArchiveSession(chatId: string, taskId: string, retentionMs?: number): string {
+    const stableTaskId = String(taskId ?? "").trim();
+    if (!stableTaskId) return this.beginTaskSession(chatId, retentionMs);
+
+    const digest = createHash("sha256").update(stableTaskId).digest("hex").slice(0, 16);
+    const id = `task-archive-${digest}`;
+    this.ensureSessionContextFile(chatId, id);
+    this.ensureSessionEntriesFile(chatId, id);
+    if (!this.readSessionOrigin(chatId, id)) {
+      this.markSessionOrigin(chatId, id, {
+        origin: "automation",
+        taskId: stableTaskId,
+        archiveMode: "shared"
+      });
+    }
+    this.setActiveSession(chatId, id);
+    if (retentionMs !== undefined && retentionMs > 0) {
+      this.pruneTaskSessions(chatId, retentionMs);
+    }
+    return id;
+  }
+
+  /** Remember where the chat should return after a shared archive run completes. */
+  setTaskArchiveReturnSession(chatId: string, sessionId: string, returnSessionId?: string): void {
+    const id = this.sanitizeSessionId(sessionId);
+    const current = this.readSessionOrigin(chatId, id);
+    if (current?.archiveMode !== "shared") return;
+    this.markSessionOrigin(chatId, id, {
+      ...current,
+      returnSessionId: returnSessionId ? this.sanitizeSessionId(returnSessionId) : undefined
+    });
+  }
+
+  /**
    * Deletes `task-` sessions whose latest activity (entries-file mtime) is
    * older than retentionMs. The active session and non-task sessions are
    * never touched.
@@ -735,6 +775,60 @@ export class MomRuntimeStore {
     }
   }
 
+  /** Read only one execution from a shared task archive; legacy Sessions fall back to their full context. */
+  loadContextForRun(chatId: string, sessionId: string, runId: string): AgentMessage[] {
+    const id = this.sanitizeSessionId(sessionId);
+    const run = String(runId ?? "").trim();
+    const messages = this.readSessionFileEntries(chatId, id)
+      .filter((entry): entry is SessionMessageEntry => entry.type === "message" && entry.runId === run)
+      .map((entry) => entry.message);
+    if (messages.length > 0 || this.readSessionOrigin(chatId, id)?.archiveMode === "shared") {
+      return messages;
+    }
+    return this.loadContext(chatId, id);
+  }
+
+  /** Replace one execution transcript without touching sibling runs in a shared archive. */
+  replaceContextForRun(chatId: string, sessionId: string, runId: string, messages: AgentMessage[]): void {
+    const id = this.sanitizeSessionId(sessionId);
+    const run = String(runId ?? "").trim();
+    if (!run || this.readSessionOrigin(chatId, id)?.archiveMode !== "shared") {
+      this.saveContext(chatId, messages, id);
+      return;
+    }
+
+    const entries = this.readSessionFileEntries(chatId, id);
+    const firstOwnedIndex = entries.findIndex(
+      (entry) => entry.type === "message" && entry.runId === run
+    );
+    const insertionIndex = firstOwnedIndex >= 0 ? firstOwnedIndex : entries.length;
+    const kept = entries.filter(
+      (entry) => entry.type !== "message" || entry.runId !== run
+    );
+    const removedBeforeInsertion = entries
+      .slice(0, insertionIndex)
+      .filter((entry) => entry.type === "message" && entry.runId === run)
+      .length;
+    const targetIndex = insertionIndex - removedBeforeInsertion;
+    const replacements: SessionMessageEntry[] = messages.map((message) => ({
+      type: "message",
+      id: createEntryId(),
+      parentId: null,
+      timestamp: new Date(
+        typeof (message as { timestamp?: number }).timestamp === "number"
+          ? (message as { timestamp: number }).timestamp
+          : Date.now()
+      ).toISOString(),
+      runId: run,
+      message
+    }));
+    this.writeSessionFileEntries(chatId, id, [
+      ...kept.slice(0, targetIndex),
+      ...replacements,
+      ...kept.slice(targetIndex)
+    ]);
+  }
+
   /** Raw append-only message entries used by the UI projection; compaction does not erase them. */
   listSessionMessageEntries(chatId: string, sessionId?: string): SessionMessageEntry[] {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
@@ -816,7 +910,12 @@ export class MomRuntimeStore {
     this.writeSessionFileEntries(chatId, id, entries);
   }
 
-  appendContextMessage(chatId: string, message: AgentMessage, sessionId?: string): string {
+  appendContextMessage(
+    chatId: string,
+    message: AgentMessage,
+    sessionId?: string,
+    options?: { runId?: string }
+  ): string {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     const entryId = createEntryId();
     this.appendSessionEntry(chatId, id, {
@@ -828,8 +927,12 @@ export class MomRuntimeStore {
           ? (message as { timestamp: number }).timestamp
           : Date.now()
       ).toISOString(),
+      runId: String(options?.runId ?? "").trim() || undefined,
       message
     });
+    if (this.readSessionOrigin(chatId, id)?.archiveMode === "shared") {
+      return entryId;
+    }
     const snapshot = this.loadContext(chatId, id);
     writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
     return entryId;
