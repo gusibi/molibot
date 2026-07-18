@@ -2220,6 +2220,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
+name = "mac-notification-sys"
+version = "0.6.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd604973958ddcc11b561193c0fb96ba146506ef2f231ef2e7c35fd2cbc9beca"
+dependencies = [
+ "cc",
+ "log",
+ "objc2",
+ "objc2-foundation",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2289,7 +2303,7 @@ dependencies = [
 
 [[package]]
 name = "molibot-desktop"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -2297,6 +2311,7 @@ dependencies = [
  "hound",
  "libc",
  "objc2",
+ "objc2-app-kit",
  "objc2-av-foundation",
  "serde",
  "serde_json",
@@ -2304,6 +2319,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-autostart",
  "tauri-plugin-http",
+ "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "uuid",
@@ -2400,6 +2416,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "notify-rust"
+version = "4.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5b4c1b4f2aa9f25f63a7a49d3dd0ed567b3670da15330a66b29434be899b891"
+dependencies = [
+ "futures-lite",
+ "log",
+ "mac-notification-sys",
+ "serde",
+ "tauri-winrt-notification",
+ "zbus",
+]
+
+[[package]]
 name = "num-conv"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2465,9 +2495,17 @@ checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
 dependencies = [
  "bitflags 2.13.0",
  "block2",
+ "libc",
  "objc2",
+ "objc2-cloud-kit",
+ "objc2-core-data",
  "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-core-image",
+ "objc2-core-text",
+ "objc2-core-video",
  "objc2-foundation",
+ "objc2-quartz-core",
 ]
 
 [[package]]
@@ -2541,6 +2579,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b402a653efbb5e82ce4df10683b6b28027616a2715e90009947d50b8dd298fa"
 dependencies = [
+ "bitflags 2.13.0",
  "objc2",
  "objc2-foundation",
 ]
@@ -4231,6 +4270,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-notification"
+version = "2.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01fc2c5ff41105bd1f7242d8201fdf3efd70749b82fa013a17f2126357d194cc"
+dependencies = [
+ "log",
+ "notify-rust",
+ "rand",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
+ "time",
+ "url",
+]
+
+[[package]]
 name = "tauri-plugin-opener"
 version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4365,6 +4423,17 @@ dependencies = [
  "dunce",
  "embed-resource",
  "toml 1.1.2+spec-1.1.0",
+]
+
+[[package]]
+name = "tauri-winrt-notification"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ed071c670382e85fc2f48ae706492d8c338f4f89bf72520d32f8abfe880aade"
+dependencies = [
+ "thiserror 2.0.18",
+ "windows 0.61.3",
+ "windows-version",
 ]
 
 [[package]]

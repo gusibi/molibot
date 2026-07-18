@@ -1,6 +1,6 @@
 [package]
 name = "molibot-desktop"
-version = "0.5.5"
+version = "0.5.6"
 description = "Molibot macOS desktop host"
 authors = ["EZTOOLAB"]
 edition = "2021"
@@ -25,11 +25,13 @@ tauri-plugin-http = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 uuid = { version = "1", features = ["v4"] }
+tauri-plugin-notification = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
 objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat"] }
+objc2-app-kit = { version = "0.3", features = ["NSHapticFeedback"] }
 
 [profile.release]
 codegen-units = 1
