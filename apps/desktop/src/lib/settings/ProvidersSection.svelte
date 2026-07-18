@@ -10,6 +10,7 @@
   import StatusBadge from "../components/ui/StatusBadge.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
+  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { humanizeProviderName } from "../presentation";
   import { session } from "../stores/session.svelte";
   import {
@@ -18,6 +19,7 @@
     PROVIDER_MODEL_TAGS,
     PROVIDER_THINKING_FORMATS,
     addProviderModel,
+    beginBuiltinProviderEdit,
     beginNewProvider,
     beginProviderEdit,
     closeProviderEdit,
@@ -63,6 +65,8 @@
     | { kind: "builtin"; provider: DesktopProvidersSummary["builtinProviders"][number]; index: number }
     | { kind: "custom"; provider: DesktopProviderItem; index: number };
 
+  let builtinProviderIds = $derived(new Set(providersStore.providers?.builtinProviders.map((provider) => provider.id) ?? []));
+
   function providerProtocolLabel(protocol: string): string {
     return protocol === "openai-compatible" ? session.text.protocolOpenaiCompatible : protocol;
   }
@@ -71,7 +75,7 @@
     if (!providersStore.providers) return [];
     let list: ProviderBrowserItem[] = providerTab === "builtin"
       ? providersStore.providers.builtinProviders.map((provider, index) => ({ kind: "builtin" as const, provider, index }))
-      : providersStore.providers.customProviders.map((provider, index) => ({ kind: "custom" as const, provider, index }));
+      : providersStore.providers.customProviders.filter((provider) => !builtinProviderIds.has(provider.id)).map((provider, index) => ({ kind: "custom" as const, provider, index }));
 
     // 2. Filter by search query
     const query = providerSearch.trim().toLowerCase();
@@ -82,8 +86,8 @@
     // 3. Sort active first if toggled
     if (providerSortActive) {
       list = [...list].sort((a, b) => {
-        const aVal = a.kind === "builtin" || a.provider.enabled ? 1 : 0;
-        const bVal = b.kind === "builtin" || b.provider.enabled ? 1 : 0;
+        const aVal = providerEnabled(a) ? 1 : 0;
+        const bVal = providerEnabled(b) ? 1 : 0;
         if (aVal !== bVal) return bVal - aVal;
         return a.index - b.index;
       });
@@ -114,7 +118,8 @@
   }
 
   function providerEnabled(item: (typeof visibleProvidersList)[number]): boolean {
-    return item.kind === "builtin" || item.provider.enabled;
+    if (item.kind === "custom") return item.provider.enabled;
+    return providersStore.providers?.customProviders.find((provider) => provider.id === item.provider.id)?.enabled === true;
   }
 
   let modelSearch = $state("");
@@ -284,7 +289,7 @@
                         <small>{providerModelCount(item)} {session.text.providerModels}</small>
                       </span>
                       <StatusBadge
-                        label={item.kind === "builtin" ? session.text.providerBuiltinTitle : providerEnabled(item) ? session.text.providerEnabled : session.text.providerDisabled}
+                        label={providerEnabled(item) ? session.text.providerEnabled : session.text.providerDisabled}
                         state={providerEnabled(item) ? "ready" : "disconnected"}
                       />
                     </button>
@@ -293,16 +298,19 @@
 
                 {#if selectedProvider?.kind === "builtin"}
                   {@const provider = selectedProvider.provider}
+                  {@const savedProvider = providersStore.providers.customProviders.find((item) => item.id === provider.id)}
                   <section class="provider-browser-detail" aria-label={providerLabel(provider.name, provider.id)}>
                     <header class="provider-detail-head">
                       <div>
                         <h4>{providerLabel(provider.name, provider.id)}</h4>
-                        <StatusBadge label={provider.id === providersStore.globals.piProvider ? session.text.providersDefault : session.text.providerBuiltinTitle} state="ready" />
+                        <StatusBadge label={savedProvider?.enabled ? session.text.providerEnabled : session.text.providerDisabled} state={savedProvider?.enabled ? "ready" : "disconnected"} />
                       </div>
+                      <button class="secondary-button" type="button" disabled={providersStore.providerEdit !== null} onclick={() => beginBuiltinProviderEdit(provider)}>{session.text.providerEdit}</button>
                     </header>
                     <dl class="provider-summary">
                       <div><dt>{session.text.providerModels}</dt><dd>{provider.models.length}</dd></div>
                       <div><dt>{session.text.providerDefaultModel}</dt><dd>{provider.models[0] ? humanizeProviderName(provider.models[0].split("/").at(-1) ?? provider.models[0], provider.models[0]).label : "—"}</dd></div>
+                      <div><dt>{session.text.providerApiKey}</dt><dd>{savedProvider?.hasApiKey ? session.text.providerApiKeyConfigured : session.text.providerApiKeyMissing}</dd></div>
                     </dl>
                     <details class="provider-technical-details technical-detail">
                       <summary>{session.text.technicalDetails}</summary>
@@ -332,38 +340,71 @@
           </SettingGroup>
           {#if providersStore.providerEdit}
             <Dialog open={Boolean(providersStore.providerEdit)} busy={providersStore.saving} contentClass="provider-modal-card" labelledBy="provider-edit-title" describedBy="provider-edit-hint" onOpenChange={(next) => { if (!next) closeProviderEdit(); }}>
-            <form id="desktop-provider-edit-form" class="provider-modal-card" onsubmit={(event) => { event.preventDefault(); void saveProviderEdit(); }}>
+            <form id="desktop-provider-edit-form" class="provider-modal-form" onsubmit={(event) => { event.preventDefault(); void saveProviderEdit(); }}>
               <header class="modal-head provider-modal-head">
-                <div><strong id="provider-edit-title">{providersStore.providerEdit.isNew ? session.text.providerCreateTitle : session.text.providerEditTitle}</strong><p id="provider-edit-hint">{session.text.providerSelfHostedHint}</p></div>
+                <div><strong id="provider-edit-title">{providersStore.providerEdit.isBuiltin ? session.text.providerBuiltinEditTitle : providersStore.providerEdit.isNew ? session.text.providerCreateTitle : session.text.providerEditTitle}</strong><p id="provider-edit-hint">{providersStore.providerEdit.isBuiltin ? session.text.providerBuiltinEditHint : session.text.providerSelfHostedHint}</p></div>
                 <button class="modal-close" type="button" aria-label={session.text.cancel} disabled={providersStore.saving} onclick={closeProviderEdit}><i class="ph ph-x"></i></button>
               </header>
               <div class="modal-body provider-modal-body">
+              {#if providersStore.providerEdit.isBuiltin}
+                <div class="builtin-provider-editor">
+                  <label class="settings-field settings-field-wide">
+                    <span>{session.text.providerApiKey}</span>
+                    <input type="password" bind:value={providersStore.editApiKey} placeholder={hasEditApiKey ? session.text.channelSecretConfigured : session.text.providerApiKeyMissing} autocomplete="new-password" />
+                    {#if !providersStore.providerEdit.isNew}<label class="inline-check"><input type="checkbox" bind:checked={providersStore.editClearApiKey} /> {session.text.providerClearApiKey}</label>{/if}
+                  </label>
+                  <div class="builtin-provider-option-row">
+                    <div><strong>{session.text.providerEnabledLabel}</strong><small>{providerLabel(providersStore.providerEdit.name, providersStore.providerEdit.id)}</small></div>
+                    <IosSwitch checked={providersStore.providerEdit.enabled} ariaLabel={session.text.providerEnabledLabel} onCheckedChange={(checked) => updateProviderEdit((draft) => ({ ...draft, enabled: checked }))} />
+                  </div>
+                  <label class="settings-field settings-field-wide"><span>{session.text.providerDefaultModel}</span><select value={providersStore.providerEdit.defaultModel} onchange={(event) => updateProviderEdit((draft) => ({ ...draft, defaultModel: (event.currentTarget as HTMLSelectElement).value }))}><option value="">—</option>{#each providersStore.providerEdit.models as model, i (`${i}:${model.id}`)}<option value={model.id}>{model.id || session.text.providerModelId}</option>{/each}</select></label>
+                  <div class="builtin-provider-model-head">
+                    <div><strong>{session.text.providerModels}</strong><p>{session.text.providerBuiltinModelsHint}</p></div>
+                    <button class="secondary-button" type="button" onclick={() => addProviderModel()}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.providerAddModel}</button>
+                  </div>
+                  <div class="builtin-provider-model-list">
+                    {#each providersStore.providerEdit.models as model, index (`${index}:${model.id}`)}
+                      <div class="builtin-provider-model-row">
+                        <input class="row-input" value={model.id} placeholder={session.text.providerModelId} oninput={(event) => updateProviderModel(index, { id: (event.currentTarget as HTMLInputElement).value })} />
+                        <IosSwitch checked={model.enabled} ariaLabel={`${session.text.providerModelEnabled}: ${model.id}`} onCheckedChange={(checked) => updateProviderModel(index, { enabled: checked })} />
+                        <button class="row-icon-btn danger-action" type="button" title={session.text.providerModelRemove} aria-label={`${session.text.providerModelRemove}: ${model.id}`} onclick={() => removeProviderModel(index)}><i class="ph ph-trash" aria-hidden="true"></i></button>
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {:else}
               <div class="settings-form provider-editor-grid">
-                <label class="settings-field"><span>{session.text.providerId}</span><input value={providersStore.providerEdit.id} disabled={!providersStore.providerEdit.isNew} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
+                <label class="settings-field"><span>{session.text.providerId}</span><input value={providersStore.providerEdit.id} disabled={!providersStore.providerEdit.isNew || providersStore.providerEdit.isBuiltin} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
                 <label class="settings-field"><span>{session.text.onboardingProviderName}</span><input value={providersStore.providerEdit.name} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} /></label>
+                {#if !providersStore.providerEdit.isBuiltin}
                 <label class="settings-field"><span>{session.text.onboardingProviderProtocol}</span><select value={providersStore.providerEdit.protocol} onchange={(event) => updateProviderEdit((draft) => { const protocol = (event.currentTarget as HTMLSelectElement).value === "anthropic" ? "anthropic" : "openai-compatible"; const oldDefaultPath = defaultProviderPath(draft.protocol); return { ...draft, protocol, path: !draft.path.trim() || draft.path === oldDefaultPath ? defaultProviderPath(protocol) : draft.path }; })}><option value="openai-compatible">{session.text.protocolOpenaiCompatible}</option><option value="anthropic">{session.text.protocolAnthropic}</option></select></label>
                 <label class="settings-field"><span>{session.text.onboardingProviderBaseUrl}</span><input value={providersStore.providerEdit.baseUrl} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, baseUrl: (event.currentTarget as HTMLInputElement).value }))} /></label>
                 <label class="settings-field"><span>{session.text.providerPath}</span><input value={providersStore.providerEdit.path} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, path: (event.currentTarget as HTMLInputElement).value }))} /></label>
-                <label class="settings-field"><span>{providersStore.providerEdit.isNew ? session.text.onboardingProviderApiKey : session.text.providerReplaceApiKey}</span><input type="password" bind:value={providersStore.editApiKey} autocomplete="new-password" />{#if providersStore.providerEdit.isNew}<small>{session.text.providerCreateKeyHint}</small>{/if}</label>
+                {/if}
+                <label class="settings-field"><span>{providersStore.providerEdit.isNew ? session.text.onboardingProviderApiKey : session.text.providerReplaceApiKey}</span><input type="password" bind:value={providersStore.editApiKey} autocomplete="new-password" />{#if providersStore.providerEdit.isNew && !providersStore.providerEdit.isBuiltin}<small>{session.text.providerCreateKeyHint}</small>{/if}</label>
                 <label class="settings-field"><span>{session.text.providerDefaultModel}</span><select value={providersStore.providerEdit.defaultModel} onchange={(event) => updateProviderEdit((draft) => ({ ...draft, defaultModel: (event.currentTarget as HTMLSelectElement).value }))}><option value="">—</option>{#each providersStore.providerEdit.models as model, i (`${i}:${model.id}`)}<option value={model.id}>{model.id || session.text.providerModelId}</option>{/each}</select></label>
+                {#if !providersStore.providerEdit.isBuiltin}
                 <label class="settings-field"><span>{session.text.providerThinkingSupport}</span><select value={providersStore.providerEdit.supportsThinking === null ? "auto" : providersStore.providerEdit.supportsThinking ? "enabled" : "disabled"} onchange={(event) => { const value = (event.currentTarget as HTMLSelectElement).value; updateProviderEdit((draft) => ({ ...draft, supportsThinking: value === "auto" ? null : value === "enabled" })); }}><option value="auto">{session.text.providerThinkingAuto}</option><option value="enabled">{session.text.providerThinkingEnabled}</option><option value="disabled">{session.text.providerThinkingDisabled}</option></select></label>
                 <label class="settings-field"><span>{session.text.providerThinkingFormat}</span><select value={providersStore.providerEdit.thinkingFormat ?? ""} onchange={(event) => updateProviderEdit((draft) => ({ ...draft, thinkingFormat: ((event.currentTarget as HTMLSelectElement).value || null) as DesktopProviderUpdateRequest["thinkingFormat"] }))}><option value="">{session.text.providerThinkingAuto}</option>{#each PROVIDER_THINKING_FORMATS as format (format)}<option value={format}>{format}</option>{/each}</select></label>
+                {/if}
               </div>
               <div class="provider-inline-options">
                 <div class="inline-switch-row"><span>{session.text.providerEnabledLabel}</span><button class:active={providersStore.providerEdit.enabled} class="switch" type="button" role="switch" aria-label={session.text.providerEnabledLabel} aria-checked={providersStore.providerEdit.enabled} onclick={() => updateProviderEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div>
                 {#if !providersStore.providerEdit.isNew}<label><input type="checkbox" bind:checked={providersStore.editClearApiKey} /> {session.text.providerClearApiKey}</label>{/if}
               </div>
-              <p class="settings-group-title provider-subtitle">{session.text.providerReasoningMap}</p>
-              <div class="settings-form provider-reasoning-grid">
-                <label class="settings-field"><span>{session.text.providerReasoningLow}</span><input value={providersStore.providerEdit.reasoningEffortMap.low ?? ""} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, reasoningEffortMap: { ...draft.reasoningEffortMap, low: (event.currentTarget as HTMLInputElement).value } }))} /></label>
-                <label class="settings-field"><span>{session.text.providerReasoningMedium}</span><input value={providersStore.providerEdit.reasoningEffortMap.medium ?? ""} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, reasoningEffortMap: { ...draft.reasoningEffortMap, medium: (event.currentTarget as HTMLInputElement).value } }))} /></label>
-                <label class="settings-field"><span>{session.text.providerReasoningHigh}</span><input value={providersStore.providerEdit.reasoningEffortMap.high ?? ""} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, reasoningEffortMap: { ...draft.reasoningEffortMap, high: (event.currentTarget as HTMLInputElement).value } }))} /></label>
-              </div>
+              {#if !providersStore.providerEdit.isBuiltin}
+                <p class="settings-group-title provider-subtitle">{session.text.providerReasoningMap}</p>
+                <div class="settings-form provider-reasoning-grid">
+                  <label class="settings-field"><span>{session.text.providerReasoningLow}</span><input value={providersStore.providerEdit.reasoningEffortMap.low ?? ""} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, reasoningEffortMap: { ...draft.reasoningEffortMap, low: (event.currentTarget as HTMLInputElement).value } }))} /></label>
+                  <label class="settings-field"><span>{session.text.providerReasoningMedium}</span><input value={providersStore.providerEdit.reasoningEffortMap.medium ?? ""} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, reasoningEffortMap: { ...draft.reasoningEffortMap, medium: (event.currentTarget as HTMLInputElement).value } }))} /></label>
+                  <label class="settings-field"><span>{session.text.providerReasoningHigh}</span><input value={providersStore.providerEdit.reasoningEffortMap.high ?? ""} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, reasoningEffortMap: { ...draft.reasoningEffortMap, high: (event.currentTarget as HTMLInputElement).value } }))} /></label>
+                </div>
+              {/if}
               <div class="provider-editor-toolbar provider-model-toolbar">
                 <div><strong>{session.text.providerCustomModelsTitle}</strong><p>{session.text.providerCustomModelsHint}</p></div>
                 <div class="settings-row-actions">
                   <button class="secondary-button" type="button" onclick={() => addProviderModel()}>{session.text.providerAddModel}</button>
-                  <button class="secondary-button" type="button" disabled={!canDiscoverModels} onclick={() => void discoverProviderModels()}>{providersStore.discovering ? session.text.loading : session.text.providerPullModels}</button>
+                  {#if !providersStore.providerEdit.isBuiltin}<button class="secondary-button" type="button" disabled={!canDiscoverModels} onclick={() => void discoverProviderModels()}>{providersStore.discovering ? session.text.loading : session.text.providerPullModels}</button>{/if}
                 </div>
               </div>
               {#if providersStore.discoveredModels.length > 0}
@@ -442,17 +483,18 @@
                       </div>
                     </div>
                     <div class="provider-model-actions">
-                      <button class="secondary-button" type="button" disabled={providersStore.providerEdit.isNew || !model.id.trim() || providersStore.testingId !== null} title={providersStore.providerEdit.isNew ? session.text.providerSaveBeforeRemote : undefined} onclick={() => void verifyProviderModel(index)}>{providersStore.testingId === `${providersStore.providerEdit.id}:${model.id}` ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button>
+                      {#if !providersStore.providerEdit.isBuiltin}<button class="secondary-button" type="button" disabled={providersStore.providerEdit.isNew || !model.id.trim() || providersStore.testingId !== null} title={providersStore.providerEdit.isNew ? session.text.providerSaveBeforeRemote : undefined} onclick={() => void verifyProviderModel(index)}>{providersStore.testingId === `${providersStore.providerEdit.id}:${model.id}` ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button>{/if}
                       <button class="secondary-button danger-action" type="button" onclick={() => removeProviderModel(index)}>{session.text.providerModelRemove}</button>
                     </div>
                   </div>
                 {/each}
               </div>
+              {/if}
               {#if providersStore.actionMessage}<p class:run-history-failed={providersStore.actionFailed} class="settings-action-message provider-modal-message">{providersStore.actionMessage}</p>{/if}
               </div>
               <footer class="provider-modal-foot">
                 <button class="secondary-button" type="button" disabled={providersStore.saving} onclick={closeProviderEdit}>{session.text.cancel}</button>
-                <button class="primary-button" type="submit" disabled={providersStore.saving || !providersStore.providerEdit.id.trim() || !providersStore.providerEdit.name.trim() || !providersStore.providerEdit.baseUrl.trim() || (providersStore.providerEdit.isNew && !providersStore.editApiKey.trim())}>{providersStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button>
+                <button class="primary-button" type="submit" disabled={providersStore.saving || !providersStore.providerEdit.id.trim() || !providersStore.providerEdit.name.trim() || (!providersStore.providerEdit.isBuiltin && (!providersStore.providerEdit.baseUrl.trim() || (providersStore.providerEdit.isNew && !providersStore.editApiKey.trim())))}>{providersStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button>
               </footer>
             </form>
             </Dialog>

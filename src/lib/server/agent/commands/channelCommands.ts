@@ -17,7 +17,6 @@ import {
 } from "$lib/server/settings/modelSwitch.js";
 import { applyAgentModelRoutingOverride } from "$lib/server/agent/routing/modelRouting.js";
 import type { AgentModelRouting } from "$lib/server/settings/schema.js";
-import { listOAuthProviderIds, removeStoredAuth, resolveAuthFilePath, startOAuthLogin, submitOAuthLoginCode } from "$lib/server/agent/identity/auth.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import {
   findSkillBySelector,
@@ -833,71 +832,6 @@ export class SharedRuntimeCommandService<TTarget> {
       } catch (error) {
         await this.options.sendText(input.target, error instanceof Error ? error.message : String(error));
       }
-      return true;
-    }
-
-    if (cmd === "/login") {
-      const [provider = "", ...rest] = rawArg.split(/\s+/).filter(Boolean);
-      const codeOrUrl = rest.join(" ").trim();
-      const scopeKey = this.options.getAuthScopeKey?.(input) ?? `${this.options.authScopePrefix}:${input.scopeId}`;
-      if (!provider) {
-        await this.options.sendText(
-          input.target,
-          [
-            this.renderMarkdownBulletList(this.text("OAuth login", "OAuth 登录"), [
-              { label: this.text("Auth file", "认证文件"), value: this.code(resolveAuthFilePath()) },
-              { label: this.text("OAuth providers", "OAuth 提供方"), value: listOAuthProviderIds().map((id) => this.code(id)).join(", ") }
-            ]),
-            this.renderMarkdownCommandList(this.text("Usage", "用法"), [
-              "/login <provider>",
-              "/login <provider> <code-or-redirect-url>"
-            ])
-          ].join("\n\n")
-        );
-        return true;
-      }
-
-      try {
-        if (codeOrUrl) {
-          await submitOAuthLoginCode(scopeKey, provider, codeOrUrl);
-          await this.options.sendText(
-            input.target,
-            this.text(`Login completed for '${provider}'. Credentials stored in ${resolveAuthFilePath()}.`, `'${provider}' 登录完成。认证信息已保存到 ${resolveAuthFilePath()}。`)
-          );
-          return true;
-        }
-
-        const pending = await startOAuthLogin(scopeKey, provider, {});
-        const lines = [
-          this.renderMarkdownBulletList(this.text("Login started", "登录已开始"), [
-            { label: this.text("Provider", "提供方"), value: this.code(provider) },
-            { label: this.text("Auth file", "认证文件"), value: this.code(resolveAuthFilePath()) }
-          ])
-        ];
-        if (pending.authUrl) lines.push(this.renderMarkdownBulletList(this.text("Next step", "下一步"), [{ label: this.text("Open", "打开"), value: pending.authUrl }]));
-        if (pending.instructions) lines.push(pending.instructions);
-        if (pending.promptMessage) lines.push(pending.promptMessage);
-        lines.push(this.renderMarkdownCommandList(this.text("Finish with", "完成登录"), [`/login ${provider} <code-or-redirect-url>`]));
-        await this.options.sendText(input.target, lines.join("\n\n"));
-      } catch (error) {
-        await this.options.sendText(input.target, error instanceof Error ? error.message : String(error));
-      }
-      return true;
-    }
-
-    if (cmd === "/logout") {
-      const provider = rawArg.split(/\s+/)[0] || "";
-      if (!provider) {
-        await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Logout usage", "登出用法"), ["/logout <provider>"]));
-        return true;
-      }
-      const removed = removeStoredAuth(provider);
-      await this.options.sendText(
-        input.target,
-        removed
-          ? this.text(`Removed stored auth for '${provider}'.`, `已删除 '${provider}' 的认证信息。`)
-          : this.text(`No stored auth found for '${provider}'.`, `未找到 '${provider}' 的已保存认证信息。`)
-      );
       return true;
     }
 

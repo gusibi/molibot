@@ -3,9 +3,10 @@
   export let showAvatar = true;
   export let title: string;
   export let subtitle = "";
+  export let searching = false;
 </script>
 
-<header class="chat-header" data-tauri-drag-region>
+<header class:searching class="chat-header" data-tauri-drag-region>
   <div class="chat-title-block" data-tauri-drag-region>
     {#if showAvatar}<div class="chat-header-avatar" data-tauri-drag-region aria-hidden="true">{avatar}</div>{/if}
     <div class="chat-title-text" data-tauri-drag-region>

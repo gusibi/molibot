@@ -17,7 +17,6 @@ import {
   desktopFileContentUrl,
   filterDesktopFiles,
   filterSessionsByTitle,
-  findTranscriptMatches,
   formatDurationMs,
   formatLongDurationMs,
   formatTokenCount,
@@ -498,16 +497,6 @@ test("filterSessionsByTitle matches case-insensitively and returns all when empt
     "Build plan",
     "Bug triage"
   ]);
-});
-
-test("findTranscriptMatches returns matching message ids in order, empty for blank query", () => {
-  const messages = [
-    { id: "m1", content: "Let's deploy the API" },
-    { id: "m2", content: "no relevant text" },
-    { id: "m3", content: "API rate limits" }
-  ];
-  assert.deepEqual(findTranscriptMatches(messages, "api"), ["m1", "m3"]);
-  assert.deepEqual(findTranscriptMatches(messages, ""), []);
 });
 
 test("addToFollowUpQueue trims and ignores blank follow-ups", () => {

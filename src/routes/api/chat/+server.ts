@@ -10,13 +10,6 @@ import {
   formatSkillsSummaryText,
   loadSkillsFromWorkspace
 } from "$lib/server/agent/skills/skills";
-import {
-  listOAuthProviderIds,
-  removeStoredAuth,
-  resolveAuthFilePath,
-  startOAuthLogin,
-  submitOAuthLoginCode
-} from "$lib/server/agent/identity/auth";
 import type { ChannelInboundMessage, FileAttachment } from "$lib/server/agent/core/types";
 import {
   buildModelOptions,
@@ -133,9 +126,6 @@ function buildModelsText(profileId: string, route: ModelRoute): string {
   lines.push(`/skills`);
   lines.push(`/skills-detail`);
   lines.push(`/compact [instructions]`);
-  lines.push(`/login <provider>`);
-  lines.push(`/login <provider> <code-or-redirect-url>`);
-  lines.push(`/logout <provider>`);
   lines.push(`/help`);
   lines.push(`profile: ${profileId}`);
   return lines.join("\n");
@@ -179,10 +169,6 @@ function buildSkillsText(profileId: string, rawArg = "", detailMode = false, pro
     ],
     locale
   });
-}
-
-function buildLoginScope(profileId: string, externalUserId?: string): string {
-  return `web:${profileId}:${externalUserId || "anonymous"}`;
 }
 
 export async function _handleWebHostToolsCommand(
@@ -488,59 +474,6 @@ async function tryHandleWebCommand(
           `kept_messages=${result.keptMessages}`
         ].join("\n")
         : webCommandText("Nothing to compact yet.", "当前没有需要压缩的内容。")
-    };
-  }
-
-  if (cmd === "/login") {
-    const [provider = "", ...rest] = rawArg.split(/\s+/).filter(Boolean);
-    const codeOrUrl = rest.join(" ").trim();
-    const scopeKey = buildLoginScope(profileId, externalUserId);
-    if (!provider) {
-      return {
-        ok: true,
-        response: [
-          `Auth file: ${resolveAuthFilePath()}`,
-          `OAuth providers: ${listOAuthProviderIds().join(", ")}`,
-          "Usage:",
-          "/login <provider>",
-          "/login <provider> <code-or-redirect-url>"
-        ].join("\n")
-      };
-    }
-
-    if (codeOrUrl) {
-      await submitOAuthLoginCode(scopeKey, provider, codeOrUrl);
-      return {
-        ok: true,
-        response: `Login completed for '${provider}'. Credentials stored in ${resolveAuthFilePath()}.`
-      };
-    }
-
-    const pending = await startOAuthLogin(scopeKey, provider, {});
-    const lines = [
-      `Login started for '${provider}'.`,
-      `Auth file: ${resolveAuthFilePath()}`
-    ];
-    if (pending.authUrl) lines.push(`Open: ${pending.authUrl}`);
-    if (pending.instructions) lines.push(pending.instructions);
-    if (pending.promptMessage) lines.push(pending.promptMessage);
-    lines.push(`Finish with: /login ${provider} <code-or-redirect-url>`);
-    return { ok: true, response: lines.join("\n") };
-  }
-
-  if (cmd === "/logout") {
-    if (!rawArg) {
-      return {
-        ok: true,
-        response: "Usage: /logout <provider>"
-      };
-    }
-    const removed = removeStoredAuth(rawArg.split(/\s+/)[0] || "");
-    return {
-      ok: true,
-      response: removed
-        ? `Removed stored auth for '${rawArg.split(/\s+/)[0]}'.`
-        : `No stored auth found for '${rawArg.split(/\s+/)[0]}'.`
     };
   }
 

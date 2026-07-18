@@ -1,6 +1,21 @@
-import type { CustomProviderConfig } from "$lib/server/settings/schema";
+import { isKnownProvider, type CustomProviderConfig } from "$lib/server/settings/schema";
 import type { DesktopProviderCreateRequest } from "$lib/shared/desktop";
 import { buildUpdatedDesktopProvider } from "$lib/server/app/desktopProviderManage";
+
+export function desktopProviderCreatePolicy(providerId: string): {
+  builtin: boolean;
+  requiresEndpointCredentials: boolean;
+  activateAsDefault: boolean;
+  switchToCustomMode: boolean;
+} {
+  const builtin = isKnownProvider(String(providerId ?? "").trim());
+  return {
+    builtin,
+    requiresEndpointCredentials: !builtin,
+    activateAsDefault: !builtin,
+    switchToCustomMode: !builtin
+  };
+}
 
 /**
  * Builds a minimal custom provider config from an onboarding submit request.

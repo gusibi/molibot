@@ -1849,21 +1849,6 @@ export function nextFollowUp(queue: string[]): { next: string | null; rest: stri
   return { next, rest };
 }
 
-/**
- * Returns the ids of messages whose content matches the query (case-insensitive),
- * preserving transcript order so prev/next navigation steps through results.
- */
-export function findTranscriptMatches(
-  messages: Array<{ id: string; content: string }>,
-  query: string
-): string[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return [];
-  return messages
-    .filter((message) => message.content.toLowerCase().includes(needle))
-    .map((message) => message.id);
-}
-
 export type DesktopActivityEntry = DesktopConversationActivity;
 
 function extractDiagnosticField(diagnostic: string, prefix: string): string {

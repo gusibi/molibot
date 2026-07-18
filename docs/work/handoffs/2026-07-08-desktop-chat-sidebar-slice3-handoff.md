@@ -1,7 +1,7 @@
 # Desktop Chat 侧栏与多会话改造 — Slice 3 重接交接说明
 
 日期：2026-07-08
-对应方案：`docs/designs/2026-07-07-desktop-chat-sidebar-multi-session-plan.md`
+对应方案：`docs/work/plans/2026-07-07-desktop-chat-sidebar-multi-session-plan.md`
 
 本文档供**新会话**接手 Slice 3（`ChatView.svelte` 重接 + 拆分）使用。Slice 1、Slice 2 已完成并验证，Slice 3 的全部新组件已建好且 `svelte-check` 干净；剩余工作是把这些组件和 registry 接进 `ChatView.svelte`，并顺带把这个 2117 行的 legacy 文件拆成合理的小文件。
 

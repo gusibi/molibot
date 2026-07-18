@@ -1,41 +1,56 @@
 # Molibot Docs
 
-This directory is organized by document purpose first, then by topic.
+This directory is organized by document purpose first, then by topic. Start with [the feature overview](features/) when you want to understand what Molibot can do today.
 
-`docs/agent-dev-series/` and `docs/superpowers/` are maintained as standalone collections and are intentionally left in their original structure.
+`docs/agent-dev-series/` and `docs/superpowers/` are maintained as standalone collections and keep their existing internal structure.
 
-## Directory Map
+## Directory map
 
 | Directory | Use for |
-|-----------|---------|
-| `requirements/` | Product requirements, MVP boundaries, and acceptance-oriented scope notes |
-| `designs/` | Architecture, technical designs, implementation options, and system proposals |
-| `reviews/` | Technical reviews, post-analysis reports, and optimization reviews |
-| `research/` | External research, competitor notes, and background investigation |
-| `guides/` | Operator or developer guides for using and extending Molibot |
-| `reference/` | Raw provider docs, prompt captures, API examples, and other reference material |
-| `articles/` | Long-form publishable articles and drafts |
-| `images/` | Shared diagrams and image assets |
-| `agent-dev-series/` | Agent development article series. Do not reorganize with the main docs taxonomy. |
-| `superpowers/` | Superpowers planning/spec/review documents. Do not reorganize with the main docs taxonomy. |
+| --- | --- |
+| `features/` | User-facing capability explanations, starting points, and current boundaries. |
+| `guides/` | Operator and developer guides for using, configuring, deploying, and extending Molibot. |
+| `requirements/` | Planned product scope, MVP boundaries, and acceptance-oriented requirements. |
+| `designs/` | Durable architecture, technical designs, and system proposals. |
+| `research/` | External research, market notes, competitor analysis, and background investigation. |
+| `reviews/` | Durable technical review conclusions and post-analysis reports. |
+| `work/` | Time-bound implementation plans, handoffs, progress trackers, implementation-linked reviews, and audit evidence. Not a stable product-documentation entrypoint. |
+| `reference/` | Raw provider documentation, prompt captures, API examples, and other source material. |
+| `articles/` | Long-form publishable articles and drafts. |
+| `images/` | Shared diagrams and image assets. |
+| `archive/` | Historical changelog, feature, and PRD records. |
+| `agent-dev-series/` | Agent development article series. |
+| `superpowers/` | Superpowers planning, specification, and review documents. |
 
-## Common Entrypoints
+## Common entrypoints
 
-- Requirements: `requirements/acp-multi-provider-mvp.md`
-- Memory Center and per-turn memory disclosure PRD: `requirements/memory-trace-and-memory-center-prd.md`
-- Architecture: `designs/architecture/v1-architecture.md`
-- Agent redesign: `designs/architecture/agent-redesign-v2.2.md`
-- Prompt designs: `designs/prompt/`
-- Sandbox research and designs: `research/sandbox/`, `designs/sandbox/`
-- Plugin guides and manifest design: `guides/plugins/`, `designs/plugins/plugin-manifest.md`
-- Deferred tool guide: `guides/tools/deferred-tool-authoring.md`
-- Trace design: `designs/trace/`
-- Operations / remote control: `designs/operations/control-daemon.md`
+### Features
 
-## Filing Rules
+- [Personal Agent and Memory](features/personal-agent-and-memory.md)
+- [Channels and Surfaces](features/channels-and-surfaces.md)
+- [Tools, Skills, and MCP](features/tools-skills-and-mcp.md)
+- [Automation, Approvals, and Sandbox](features/automation-approvals-and-sandbox.md)
+- [Desktop Project Workspace](features/desktop-project-workspace.md)
 
-- Put new work in the directory that matches the document's current purpose, not only the feature area.
+### Architecture and operation
+
+- [V1 architecture](designs/architecture/v1-architecture.md)
+- [Agent redesign](designs/architecture/agent-redesign-v2.2.md)
+- [Prompt designs](designs/prompt/)
+- [Sandbox research](research/sandbox/)
+- [Sandbox designs](designs/sandbox/)
+- [Plugin guides](guides/plugins/)
+- [Plugin manifest design](designs/plugins/plugin-manifest.md)
+- [Deferred tool guide](guides/tools/deferred-tool-authoring.md)
+- [Trace design](designs/trace/)
+- [Operations / remote control](designs/operations/control-daemon.md)
+
+## Filing rules
+
+- Put new stable documentation in the directory that matches its current purpose, not only its feature area.
+- Put explanations of shipped, user-visible behavior in `features/`; link from those pages to relevant guides and durable designs.
+- Put time-bound execution plans, handoffs, progress trackers, screenshot audits, and implementation-linked review material in `work/`.
+- If a process document becomes a durable decision, extract or move the durable conclusion to `requirements/`, `designs/`, `reviews/`, or `features.md`; do not make `work/` a dependency for normal use.
 - If a document changes purpose, move it instead of duplicating it.
 - Keep raw API examples and copied prompt/provider material under `reference/`.
-- Do not keep temporary execution checklists, migration status trackers, or progress logs under `docs/`; preserve durable decisions in `requirements/`, `designs/`, `reviews/`, or `features.md` instead.
 - Keep publishable prose under `articles/`.

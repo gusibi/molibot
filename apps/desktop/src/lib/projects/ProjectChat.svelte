@@ -29,6 +29,8 @@
   import { projectsStore, refreshProjectSessionList } from "../stores/projects.svelte";
 
   export let copy: Translation;
+  export let searchMatchIds: string[] = [];
+  export let activeMatchId = "";
   let message = "";
   let pendingFiles: File[] = [];
   let fileInput: HTMLInputElement;
@@ -654,6 +656,8 @@
     emptyHint={copy.projectEmptyChatHint}
     messageActions={messageActions}
     attachmentActions={transcriptAttachmentActions}
+    {searchMatchIds}
+    {activeMatchId}
   >
     {#if pendingApproval}
       <ApprovalCard

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "corepack pnpm exec tsx --test src/lib/chat/agentCityProjection.test.ts src/lib/chat/agentCityScene.test.ts src/lib/settings/memoryCenter.test.ts src/lib/native/commandSystem.test.ts src/lib/native/startupCoordinator.test.ts src/lib/native/directManipulation.test.ts src/lib/native/commandPalette.test.ts src/lib/native/windowState.test.ts src/lib/native/feedbackCoordinator.test.ts src/lib/native/hapticCoordinator.test.ts && node --test src/chat-ui.test.mjs src/http-scope.test.mjs src/reactive-statement-guard.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "corepack pnpm exec tsx --test src/lib/chat/agentCityProjection.test.ts src/lib/chat/agentCityScene.test.ts src/lib/chat/transcript.test.ts src/lib/settings/memoryCenter.test.ts src/lib/native/commandSystem.test.ts src/lib/native/startupCoordinator.test.ts src/lib/native/directManipulation.test.ts src/lib/native/commandPalette.test.ts src/lib/native/windowState.test.ts src/lib/native/feedbackCoordinator.test.ts src/lib/native/hapticCoordinator.test.ts && node --test src/chat-ui.test.mjs src/http-scope.test.mjs src/reactive-statement-guard.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
     "sync:version": "node ../../scripts/sync-desktop-version.mjs",
     "prepare:runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "tauri": "tauri",

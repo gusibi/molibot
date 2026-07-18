@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { buildDesktopProvidersSummary } from "$lib/server/app/desktopProviders";
-import { buildNewCustomProvider } from "$lib/server/app/desktopProviderSubmit";
+import { buildNewCustomProvider, desktopProviderCreatePolicy } from "$lib/server/app/desktopProviderSubmit";
 import { buildProviderGlobalsPatch, buildProviderUpdatePatch } from "$lib/server/app/desktopProviderManage";
 import {
   deleteCustomProvider,
@@ -41,10 +41,14 @@ export const POST: RequestHandler = async ({ request }) => {
   const name = String(body.name ?? "").trim();
   const baseUrl = String(body.baseUrl ?? "").trim();
   const apiKey = String(body.apiKey ?? "").trim();
+  const createPolicy = desktopProviderCreatePolicy(id);
 
-  if (!id || !name || !baseUrl || !apiKey) {
+  if (!id || !name || (createPolicy.requiresEndpointCredentials && (!baseUrl || !apiKey))) {
     return json(
-      { ok: false, error: "id, name, baseUrl and apiKey are required" } satisfies DesktopProviderSubmitResponse,
+      {
+        ok: false,
+        error: createPolicy.builtin ? "id and name are required" : "id, name, baseUrl and apiKey are required"
+      } satisfies DesktopProviderSubmitResponse,
       { status: 400 }
     );
   }
@@ -68,7 +72,10 @@ export const POST: RequestHandler = async ({ request }) => {
       thinkingFormat: body.thinkingFormat,
       reasoningEffortMap: body.reasoningEffortMap ?? {}
     });
-    const { saved } = upsertCustomProvider(runtime, newProvider, { activateAsDefault: true, switchToCustomMode: true });
+    const { saved } = upsertCustomProvider(runtime, newProvider, {
+      activateAsDefault: createPolicy.activateAsDefault,
+      switchToCustomMode: createPolicy.switchToCustomMode
+    });
     const response: DesktopProviderSubmitResponse = { ok: true, providerId: saved.id };
     return json(response, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

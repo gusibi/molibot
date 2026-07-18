@@ -11,6 +11,8 @@ const listSvelteSources = (dir = new URL("./", import.meta.url)) => readdirSync(
 const view = read("./ChatView.svelte");
 const app = read("./App.svelte");
 const styles = read("./styles.css");
+const design = read("../../../DESIGN.md");
+const tauriConfig = JSON.parse(read("../src-tauri/tauri.conf.json"));
 const svelteStyleSources = listSvelteSources().flatMap((source) => [...source.matchAll(/<style(?:\s[^>]*)?>([\s\S]*?)<\/style>/g)].map((match) => match[1]));
 const allStyleSources = [styles, ...svelteStyleSources];
 const infoPlist = read("../src-tauri/Info.plist");
@@ -51,8 +53,10 @@ const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
 const slashSuggestionMenu = read("./lib/chat/SlashSuggestionMenu.svelte");
 const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
+const projectDetail = read("./lib/projects/ProjectDetail.svelte");
 const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
 const chatHeader = read("./lib/chat/ChatHeader.svelte");
+const transcriptSearch = read("./lib/chat/TranscriptSearch.svelte");
 const pageHeader = read("./lib/components/ui/PageHeader.svelte");
 const overflowMenu = read("./lib/components/ui/OverflowMenu.svelte");
 const settingGroup = read("./lib/components/ui/SettingGroup.svelte");
@@ -177,9 +181,39 @@ test("WindowState owns native lifecycle projection and chrome-only material toke
   assert.match(styles, /\.command-palette[^\n]*var\(--chrome-popover-bg\)/);
 });
 
+test("Settings and Chat share the accessible inset sidebar material", () => {
+  assert.match(design, /Settings and Chat use the same inset sidebar material/);
+  assert.match(styles, /--floating-sidebar-inset: 10px/);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: var\(--floating-sidebar-inset\)[\s\S]*border-radius: var\(--radius-panel\)[\s\S]*backdrop-filter: blur\(24px\)/);
+  assert.match(styles, /html\[data-reduced-transparency="true"\] \.chat-sidebar[\s\S]*backdrop-filter: none/);
+  assert.match(styles, /:root\[data-performance="low"\][\s\S]*--floating-sidebar-shadow: none/);
+  assert.match(styles, /left: calc\(var\(--sidebar-w, 260px\) - var\(--floating-sidebar-inset\)\)/);
+});
+
+test("Chat floats its sidebar on the transcript canvas and hidden project actions do not steal title width", () => {
+  assert.match(styles, /\.chat-layout\s*\{[^}]*background:\s*var\(--header-bg\)/s);
+  assert.match(styles, /\.conv-group-action,\s*\.conv-caret-button\s*\{[^}]*width:\s*0/s);
+  assert.match(styles, /\.conv-group-head:hover \.conv-group-action,[\s\S]*\.conv-group-head:focus-within \.conv-caret-button\s*\{[^}]*width:\s*26px/s);
+});
+
+test("floating sidebars keep their full depth at rest without hover changes or a standalone divider", () => {
+  const sharedSidebarRule = styles.match(/\.chat-sidebar, \.settings-sidebar\s*\{[^}]*\}/s)?.[0] ?? "";
+  assert.match(sharedSidebarRule, /box-shadow:[^;]*var\(--floating-sidebar-shadow\)/);
+  assert.match(sharedSidebarRule, /border:[^;]*var\(--floating-sidebar-border\)/);
+  assert.doesNotMatch(styles, /--floating-sidebar-(?:border|shadow)-hover/);
+  assert.doesNotMatch(styles, /\.chat-sidebar:hover,[\s\S]*\.settings-sidebar:focus-within/);
+  assert.doesNotMatch(styles, /\.sidebar-resizer::after/);
+});
+
+test("empty local Chat starts an editable draft instead of disabling the composer", () => {
+  assert.match(view, /const target = lastItem \?\? webItems\[0\] \?\? null;[\s\S]*if \(target\)[\s\S]*else \{\s*chatStore\.newConversationDraft\(defaultBot\(\)\);\s*loadDraftIn\(\);\s*\}/);
+  assert.match(view, /if \(remaining\[0\]\) openSession\(remaining\[0\]\);\s*else \{\s*chatStore\.newConversationDraft\(defaultBot\(\)\);\s*loadDraftIn\(\);\s*\}/);
+});
+
 test("sidebar resizing uses shared pointer manipulation and writes only on completion", () => {
   assert.match(view, /new DirectManipulation\(\{[\s\S]*mode: "continuous"/);
   assert.match(view, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(view, /sidebarManipulation\.begin\(event\.pointerId, event\.clientX, event\.timeStamp, sidebarWidth\)/);
   assert.match(view, /onpointercancel=\{cancelSidebarResize\}/);
   assert.match(view, /onlostpointercapture=\{cancelSidebarResize\}/);
   assert.match(view, /localStorage\.setItem\(SIDEBAR_WIDTH_KEY, String\(sidebarWidth\)\)/);
@@ -274,6 +308,24 @@ test("chat composer keeps keyboard guidance in the textarea placeholder", () => 
   assert.doesNotMatch(view, /class="composer-hint"/);
 });
 
+test("Chat Header search stays in normal flow and keeps its active result index valid", () => {
+  assert.match(view, /<div class="header-actions">[\s\S]*<TranscriptSearch[\s\S]*<\/div>\s*<\/header>/);
+  assert.match(transcriptSearch, /class:open class="search-bar"/);
+  assert.match(transcriptSearch, /aria-live="polite"/);
+  assert.match(transcriptSearch, /event\.key !== "Enter"/);
+  assert.match(styles, /\.search-bar\s*\{[^}]*position:\s*relative/s);
+  assert.doesNotMatch(styles, /\.search-bar\s*\{[^}]*position:\s*absolute/s);
+  assert.doesNotMatch(styles, /\.search-bar[^}]*transform:\s*scaleX/s);
+  assert.match(view, /boundedSearchIndex = clampTranscriptSearchIndex\(searchIndex, searchMatchIds\.length\)/);
+  assert.match(view, /if \(searchMatchIds\.length !== previousSearchMatchCount\)[\s\S]*searchIndex = clampTranscriptSearchIndex\(searchIndex, searchMatchIds\.length\)/);
+  assert.match(view, /activeMatchId = searchMatchIds\[boundedSearchIndex\]/);
+  assert.match(projectDetail, /import TranscriptSearch from "\.\.\/chat\/TranscriptSearch\.svelte"/);
+  assert.match(projectDetail, /<TranscriptSearch[\s\S]*matchCount=\{searchMatchIds\.length\}/);
+  assert.match(projectDetail, /if \(matchCount === previousSearchMatchCount\) return;[\s\S]*searchIndex = clampTranscriptSearchIndex\(searchIndex, matchCount\)/);
+  assert.match(projectChat, /export let searchMatchIds: string\[\] = \[\]/);
+  assert.match(projectChat, /<ChatMessagesPane[\s\S]*\{searchMatchIds\}[\s\S]*\{activeMatchId\}/);
+});
+
 test("issue 13 macOS product tokens and accessibility preferences are shared", () => {
   assert.match(styles, /font-family:\s*-apple-system, BlinkMacSystemFont/);
   assert.match(styles, /--font-ui:/);
@@ -343,19 +395,19 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   assert.match(styles, /\.composer textarea\s*\{[^}]*min-height:\s*42px;[^}]*max-height:\s*180px/s);
   assert.match(transcript, /humanizeModelOption\(message\.model, message\.model\)\.label/);
   assert.match(view, /activeAgentName[\s\S]*copy\.agentStudioGlobalName/);
-  assert.match(view, /class:open=\{searchOpen\} class="search-bar"/);
+  assert.match(view, /<TranscriptSearch[\s\S]*open=\{searchOpen\}/);
   assert.match(styles, /\.composer\s*\{[^}]*flex-direction:\s*column/s);
 });
 
 test("Desktop Chat keeps structural sidebars separate from one unified workspace surface", () => {
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--chrome-sidebar-bg\)/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--floating-sidebar-bg\)/s);
   assert.match(styles, /\.file-panel\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
   assert.match(styles, /\.chat-content\s*\{[^}]*background:\s*var\(--header-bg\)/s);
   assert.match(styles, /\.chat-header\s*\{[^}]*background:\s*var\(--chrome-header-bg\)/s);
 });
 
 test("Desktop Settings uses a secondary canvas with quiet primary-surface cards", () => {
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--chrome-sidebar-bg\)/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--floating-sidebar-bg\)/s);
   assert.match(styles, /\.settings-content\s*\{[^}]*background:\s*var\(--gray-100\)/s);
   assert.match(styles, /\.settings-card\s*\{[^}]*border:\s*1px solid var\(--hairline\)[^}]*background:\s*var\(--card-bg\)/s);
   assert.match(styles, /\.settings-card \.settings-row \+ \.settings-row\s*\{[^}]*border-top:\s*0\.5px solid var\(--gray-alpha-100\)/s);
@@ -443,9 +495,13 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(row, /\.row-time\s*\{[^}]*flex:\s*0 0 auto/s);
   assert.match(row, /right: 10px/);
   assert.doesNotMatch(view, /const firstBot = externalNav/);
-  // Project and Chat share the same collapsible group rhythm and 40px Session row.
+  // Project and Chat share the same collapsible group rhythm and DESIGN's compact 32px Session row.
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
-  assert.match(row, /\.conversation-row\s*\{[^}]*min-height:\s*40px/s);
+  assert.match(design, /label-12:\s*[\s\S]*?fontSize:\s*12px[\s\S]*?lineHeight:\s*16px/);
+  assert.match(design, /button-small:\s*[\s\S]*?height:\s*32px/);
+  assert.match(row, /\.conversation-row\s*\{[^}]*min-height:\s*32px[^}]*padding:\s*4px 8px/s);
+  assert.match(row, /\.row-title\s*\{[^}]*font-size:\s*12px[^}]*line-height:\s*16px/s);
+  assert.match(row, /\.row-time\s*\{[^}]*font-size:\s*12px[^}]*line-height:\s*16px/s);
 });
 
 test("Agent Studio projects real activity into an accessible Three.js city", () => {
@@ -570,6 +626,12 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.match(workspacePane, /class="workspace-page-title" data-tauri-drag-region/);
   assert.match(styles, /\.header-actions\s*\{[^}]*z-index:\s*31;/s);
   assert.doesNotMatch(view, /<button[\s\S]{0,160}data-tauri-drag-region/);
+});
+
+test("Chat and Settings move native macOS traffic lights below the inset sidebar border", () => {
+  const windows = Object.fromEntries(tauriConfig.app.windows.map((window) => [window.label, window]));
+  assert.deepEqual(windows.chat.trafficLightPosition, { x: 18, y: 24 });
+  assert.deepEqual(windows.settings.trafficLightPosition, { x: 18, y: 24 });
 });
 
 test("external channel groups use icons that exist in the bundled icon font", () => {
@@ -772,7 +834,7 @@ test("settings uses the flat Geist layout", () => {
   assert.match(styles, /\.settings-card\s*\{[^}]*box-shadow:\s*none/s);
   assert.match(styles, /\.settings-card\s*\{[^}]*background:\s*var\(--card-bg\)/s);
   assert.match(styles, /\.settings-card \+ \.settings-card\s*\{[^}]*margin-top:\s*16px/s);
-  assert.match(styles, /\.settings-footbar\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0/s);
+  assert.match(styles, /\.settings-content \.settings-footbar\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*0/s);
   assert.match(sections.tts, /open=\{provider\.id === toolsStore\.ttsGenerateEdit\.defaultProvider\}/);
   assert.match(sections.image, /<option value="1024x1024">1024 × 1024<\/option>/);
   assert.match(sections.plugins, /memoryDailyMaterials\.enabled/);
@@ -1036,6 +1098,19 @@ test("AI provider editing uses a dedicated modal and separates provider and mode
   // The save footbar belongs to the provider globals (mode/default) and is gated
   // by its own dirty flag — a separate concern from the provider edit modal.
   assert.match(sections.providers, /\{#if providersStore\.globalsDirty\}[\s\S]{0,200}class="settings-footbar"/);
+});
+
+test("built-in provider configuration reuses saved Web settings without polluting the custom tab", () => {
+  assert.match(sections.providers, /beginBuiltinProviderEdit/);
+  assert.match(sections.providers, /builtinProviderIds/);
+  assert.match(sections.providers, /customProviders\.filter\(\(provider\) => !builtinProviderIds\.has\(provider\.id\)\)/);
+  assert.doesNotMatch(sections.providers, /return item\.kind === "builtin" \|\| item\.provider\.enabled/);
+  assert.match(sections.providers, /class="builtin-provider-editor"/);
+  assert.match(sections.providers, /class="builtin-provider-model-list"/);
+  assert.match(styles, /\.provider-modal-form\s*\{[^}]*display:\s*flex;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+  assert.match(styles, /\.provider-modal-body\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);
+  assert.match(styles, /\.settings-content \.settings-footbar\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s);
+  assert.match(styles, /\.settings-content \.settings-scroll:has\(\.settings-footbar\)\s*\{[^}]*padding-bottom:/s);
 });
 
 test("Sandbox settings expose presets, full policy editing, diagnostics, and a fixed save footer", () => {

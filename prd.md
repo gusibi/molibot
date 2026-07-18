@@ -5,6 +5,36 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.91 Desktop Compact Expanded Session Rows (2026-07-18)
+- **Priority**: P1
+- **Status**: Done
+- **Scope**: Reduce the visual density of expanded Chat sidebar Session rows through the shared `ConversationRow`, using only the compact sizes already defined by `DESIGN.md`.
+- **Acceptance**: Every channel and Project Session row uses the 32px compact-control height, 4px grid padding, and `label-12` 12px/16px typography; selection, timestamps, status, rename/delete, read-only behavior, themes, and narrow layouts remain intact; a structural test ties the values back to `DESIGN.md`.
+
+## 2.90 Desktop Settings Reopen and Provider Configuration Parity (2026-07-18)
+- **Priority**: P0
+- **Status**: Done
+- **Scope**: Keep the native Settings window reusable after close; give built-in providers a compact API-key/enablement/default-model/model-ID editor backed by the same persisted structure as Web while retaining the full separate self-hosted editor; show saved enablement instead of catalog membership as provider availability; pin save bars to the content-pane bottom; remove the retired `/login` and `/logout` command paths.
+- **Acceptance**: Settings opens after repeated close/reopen cycles; a many-model built-in editor scrolls only its body and keeps actions visible; built-in list badges match saved enabled/disabled state and expose credential presence in details; built-in saves do not require a custom Base URL or switch provider mode; page save actions remain at the bottom edge without covering scroll content; custom providers still validate endpoint credentials; removed commands are absent from suggestions, documentation, Telegram registration, and shared handlers.
+
+## 2.89 Desktop Shared Transcript Header Search (2026-07-18)
+- [Done, P0] 普通 Chat 与 Project Chat 必须复用同一个 Header 搜索组件；展开态留在 Header action row 的正常 flex 流内，不得以 absolute/transform 覆盖标题或相邻操作。
+- [Done, P0] 搜索结果必须以消息实际渲染文本为准，包含本地化 Assistant 错误回退并排除不可导航的无 ID 消息；Session、消息或查询变化后当前结果索引必须始终有效。
+- [Done, P1] 组件提供实时结果计数、上一条/下一条、Enter/Shift+Enter、关闭焦点恢复，并让普通 Chat 与 Project Chat 都能高亮、滚动到匹配消息。
+- [Done] 保持中英、明暗主题、860×620 最低窗口和键盘可访问性；结构与纯函数回归进入 Desktop 默认测试链路。
+
+## 2.88 Desktop Inset Floating Sidebars (2026-07-18)
+- [Done, P1] Desktop Settings 与 Chat 左侧导航必须共用同一 inset sidebar surface：10px 外部留白、12px panel 圆角与低对比细边/高光；elevation 按各自底层 canvas 选择，不得维护两套材质样式。
+- [Done, P1] Chat 与 Settings 的 macOS 原生交通灯必须使用同一窗口级安全偏移，按钮不得与 inset sidebar 顶部圆角边框重叠，且不得通过页面私有 CSS 分别补偿。
+- [Done, P1] Chat 侧栏外露画布必须与 Header/消息区使用同一主表面；Settings 单独保持次级画布。共享材质不等于强制两个应用模板使用同一底层 canvas。
+- [Done, P1] Chat 与 Settings 悬浮侧栏使用紧贴面板的双层阴影表达深度；默认态持续使用完整强度的边框与阴影，hover/键盘焦点不得改变整块面板 elevation，也不得位移、缩放或形成宽灰带。
+- [Done, P1] Chat resize handle 保留可用热区但不得绘制独立竖线；宽度拖拽只通过光标表达，避免与悬浮卡片边框竞争。
+- [Done, P1] 隐藏的项目组操作按钮不得继续占用标题宽度；标题平时使用完整可用行宽，hover/键盘焦点显示操作时再为按钮让位。
+- [Done, P0] 本地 Chat 没有已选 Session 时必须自动成为默认 Bot 的新会话草稿，输入框保持可聚焦、可输入；首次发送再创建 Session，删除最后一个 Session 后也遵循同一规则。
+- [Done, P1] Chat resize handle 必须与面板可见右边缘对齐，并从当前宽度开始追踪；键盘调整、220–420px 范围、窄窗口与文件面板开启时的既有行为保持不变。
+- [Done, P0] 材质必须适配浅色、深色、窗口失焦、increased contrast、reduced transparency 与低性能模式；reduced transparency/低性能下不得继续使用 blur，低性能下同时关闭环境阴影。
+- [Done] DESIGN 规范和 Desktop UI 机器守卫已落地；真实渲染覆盖 1200×800、860×620、浅色/深色、低性能降级、冷打开 Settings/Chat 与键盘 resize，无横向溢出。
+
 ## 2.87 Desktop Settings macOS Switch Consistency (2026-07-18)
 - [Done, P0] Skills、搜索、图像、视频、语音、Host Bash、Web Profile、沙箱和插件页的布尔开关必须复用 General 页同一 `IosSwitch`，不得保留无样式的 `.switch` 按钮或新增页面私有开关。
 - [Done, P0] 迁移不得改变原有状态更新、禁用态、dirty 标记、细粒度保存/API 与持久化行为；共享组件继续负责 checked/unchecked、键盘焦点、明暗主题、中英和紧凑窗口表现。
@@ -48,7 +78,7 @@
 - [Done] 页面只消费 DESIGN/theme 语义 token，不新增硬编码色值，并保持中英、明暗主题与窄宽度布局兼容。
 
 ## 2.80 Desktop Native Experience Behavior Layer (2026-07-16)
-- 状态：**实现、自动化、DMG 产物与隔离 packaged-host 运行验证完成；受当前 macOS 权限/硬件限制的最终交互矩阵待补。** 完整技术看板、依赖和验收见 [`docs/designs/2026-07-16-native-experience-developer-board.md`](docs/designs/2026-07-16-native-experience-developer-board.md)。
+- 状态：**实现、自动化、DMG 产物与隔离 packaged-host 运行验证完成；受当前 macOS 权限/硬件限制的最终交互矩阵待补。** 完整技术看板、依赖和验收见 [`docs/work/plans/2026-07-16-native-experience-developer-board.md`](docs/work/plans/2026-07-16-native-experience-developer-board.md)。
 - [Implemented, P0] 深 Module 已提供 production/in-memory Adapter：`CommandSystem`、`StartupCoordinator`、`Dialog`/`AlertDialog`、`WindowState`、`DirectManipulation`、`FeedbackCoordinator`、`ActivityScheduler`；未创建万能 `NativeHost`，Channel 未承载平台编排。
 - [Implemented, P0] App Menu、Tray 与 ⌘K 使用同一稳定命令 ID/标签/快捷键/可用状态；⌘K 空查询按本地成功历史、当前 workspace 和 catalog 推荐级别显示动作，检索保持文本相关性优先。版本化本地历史只保留命令 ID、成功次数和本地时间，最多 20 项、保留 90 天，不记录查询、用户内容、会话/Profile、参数、标签或错误；启动超过 8 秒进入可恢复状态；关闭 Chat 的菜单栏驻留/退出行为由用户偏好控制并走 orderly service shutdown。
 - [Implemented, P0] Chat、Project、Settings modal 已迁移到 Desktop 本地 primitive，统一 focus trap、inert、Escape、焦点恢复和退出生命周期，并保留中英、明暗、860×620 与无障碍契约。

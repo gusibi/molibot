@@ -187,25 +187,35 @@ fn open_desktop_log(app: AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+fn close_to_hide_window_labels() -> [&'static str; 2] {
+    ["chat", "settings"]
+}
+
 fn configure_window_close_behavior(app: &tauri::App) {
-    let Some(window) = app.get_webview_window("chat") else {
-        return;
-    };
-    let app_handle = app.handle().clone();
-    let window_handle = window.clone();
-    window.on_window_event(move |window_event| {
-        if let WindowEvent::CloseRequested { api, .. } = window_event {
-            api.prevent_close();
-            let behavior = desktop_preferences_path(&app_handle)
-                .map(|path| desktop_preferences::load_close_behavior(&path))
-                .unwrap_or(desktop_preferences::CloseBehavior::Background);
-            if behavior == desktop_preferences::CloseBehavior::Background {
-                let _ = window_handle.hide();
-            } else {
-                app_handle.exit(0);
+    for label in close_to_hide_window_labels() {
+        let Some(window) = app.get_webview_window(label) else {
+            continue;
+        };
+        let app_handle = app.handle().clone();
+        let window_handle = window.clone();
+        window.on_window_event(move |window_event| {
+            if let WindowEvent::CloseRequested { api, .. } = window_event {
+                api.prevent_close();
+                if label == "settings" {
+                    let _ = window_handle.hide();
+                    return;
+                }
+                let behavior = desktop_preferences_path(&app_handle)
+                    .map(|path| desktop_preferences::load_close_behavior(&path))
+                    .unwrap_or(desktop_preferences::CloseBehavior::Background);
+                if behavior == desktop_preferences::CloseBehavior::Background {
+                    let _ = window_handle.hide();
+                } else {
+                    app_handle.exit(0);
+                }
             }
-        }
-    });
+        });
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -283,4 +293,14 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod window_close_tests {
+    use super::close_to_hide_window_labels;
+
+    #[test]
+    fn close_to_hide_covers_chat_and_settings_windows() {
+        assert_eq!(close_to_hide_window_labels(), ["chat", "settings"]);
+    }
 }

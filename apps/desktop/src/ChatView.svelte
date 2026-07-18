@@ -29,7 +29,6 @@
     fetchDesktopFileBlob,
     deleteDesktopConversation,
     filterDesktopFiles,
-    findTranscriptMatches,
     listDesktopConversations,
     renameDesktopConversation,
     listDesktopSessionFiles,
@@ -68,11 +67,18 @@
   } from "./lib/api";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
-  import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./lib/chat/transcript";
+  import {
+    clampTranscriptSearchIndex,
+    findTranscriptMatches,
+    type TranscriptAttachmentActions,
+    type TranscriptMessage,
+    type TranscriptMessageActions
+  } from "./lib/chat/transcript";
   import ApprovalCard from "./lib/chat/ApprovalCard.svelte";
   import ChatInputArea from "./lib/chat/ChatInputArea.svelte";
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
+  import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
   import ProjectFilePanel from "./lib/projects/ProjectFilePanel.svelte";
   import { projectsStore } from "./lib/stores/projects.svelte";
@@ -298,7 +304,7 @@
     event.preventDefault();
     sidebarGestureId = `sidebar:${event.pointerId}:${event.timeStamp}`;
     sidebarResizer?.setPointerCapture(event.pointerId);
-    sidebarManipulation.interrupt(event.pointerId, event.clientX, event.timeStamp);
+    sidebarManipulation.begin(event.pointerId, event.clientX, event.timeStamp, sidebarWidth);
   }
   function onSidebarResize(event: PointerEvent): void {
     sidebarManipulation.move(event.pointerId, event.clientX, event.timeStamp);
@@ -346,7 +352,8 @@
   let nativeCommandUnlisten: UnlistenFn | null = null;
   let searchQuery = "";
   let searchIndex = 0;
-  let searchInputElement: HTMLInputElement;
+  let previousSearchMatchCount = 0;
+  let searchReturnFocus: HTMLElement | null = null;
   let messagesElement: HTMLDivElement;
   let sessionFiles: DesktopSessionFile[] = [];
   let fileFilter: DesktopFileFilter = "all";
@@ -504,8 +511,13 @@
     : copy.chat;
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
   $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
-  $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "");
-  $: activeMatchId = searchMatchIds[Math.min(searchIndex, Math.max(searchMatchIds.length - 1, 0))] ?? "";
+  $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "", copy.chatAssistantError);
+  $: if (searchMatchIds.length !== previousSearchMatchCount) {
+    previousSearchMatchCount = searchMatchIds.length;
+    searchIndex = clampTranscriptSearchIndex(searchIndex, searchMatchIds.length);
+  }
+  $: boundedSearchIndex = clampTranscriptSearchIndex(searchIndex, searchMatchIds.length);
+  $: activeMatchId = searchMatchIds[boundedSearchIndex] ?? "";
   $: approvalOptions = pendingApproval?.options.map((option) => ({
     id: option.id,
     label: approvalOptionLabel(option)
@@ -761,7 +773,10 @@
       chatStore.selectSession(target.botId, target.sessionId);
       loadDraftIn();
       void refreshFiles(target.botId, target.sessionId);
-    } else chatStore.clearSelection();
+    } else {
+      chatStore.newConversationDraft(defaultBot());
+      loadDraftIn();
+    }
   }
 
   async function loadChannel(channel: DesktopConversationChannel): Promise<void> {
@@ -859,7 +874,10 @@
       channelItems = { ...channelItems, [item.channel]: remaining };
       if (viewMode === "local" && item.sessionId === activeSessionId) {
         if (remaining[0]) openSession(remaining[0]);
-        else chatStore.clearSelection();
+        else {
+          chatStore.newConversationDraft(defaultBot());
+          loadDraftIn();
+        }
       }
       await loadChannel(item.channel);
     } catch (cause) {
@@ -1458,14 +1476,17 @@
   }
 
   async function toggleSearch(): Promise<void> {
-    searchOpen = !searchOpen;
-    if (!searchOpen) {
+    if (searchOpen) {
+      searchOpen = false;
       searchQuery = "";
       searchIndex = 0;
-    } else {
       await tick();
-      searchInputElement?.focus();
+      searchReturnFocus?.focus();
+      searchReturnFocus = null;
+      return;
     }
+    searchReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    searchOpen = true;
   }
 
   async function executeCommand(id: CommandId): Promise<void> {
@@ -1623,14 +1644,14 @@
 
   function gotoMatch(delta: number): void {
     if (searchMatchIds.length === 0) return;
-    searchIndex = (searchIndex + delta + searchMatchIds.length) % searchMatchIds.length;
+    searchIndex = (boundedSearchIndex + delta + searchMatchIds.length) % searchMatchIds.length;
     void scrollToMatch();
   }
 
   async function scrollToMatch(): Promise<void> {
     await tick();
     if (!activeMatchId) return;
-    const target = messagesElement?.querySelector(`[data-message-id="${activeMatchId}"]`);
+    const target = messagesElement?.querySelector(`[data-message-id="${CSS.escape(activeMatchId)}"]`);
     target?.scrollIntoView({ block: "center", behavior: "auto" });
   }
 
@@ -1966,7 +1987,6 @@
   {#if projectPaneActive}
     <ProjectDetail
       {copy}
-      onSearch={() => { searchOpen = !searchOpen; }}
       onOpenFiles={() => { filePanelOpen = !filePanelOpen; }}
     />
   {:else}
@@ -1983,7 +2003,7 @@
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
       />
     {:else}
-    <header class="chat-header" data-tauri-drag-region>
+    <header class:searching={searchOpen} class="chat-header" data-tauri-drag-region>
       <div class="chat-title-block" data-tauri-drag-region>
         <div class="chat-header-avatar" data-tauri-drag-region aria-hidden="true">{activeHeaderAvatar}</div>
         <div class="chat-title-text" data-tauri-drag-region>
@@ -1992,16 +2012,32 @@
       </div>
       <div class="header-actions">
         {#if serviceState === "ready" && profiles.length > 0}
-          <button
-            class="icon-button"
-            type="button"
-            aria-pressed={searchOpen}
-            aria-label={copy.search}
-            title={copy.search}
-            onclick={toggleSearch}
-          >
-            <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-          </button>
+          <TranscriptSearch
+            bind:value={searchQuery}
+            open={searchOpen}
+            matchCount={searchMatchIds.length}
+            activeIndex={boundedSearchIndex}
+            placeholder={copy.searchPlaceholder}
+            noMatchesLabel={copy.noMatches}
+            previousLabel={copy.prevMatch}
+            nextLabel={copy.nextMatch}
+            closeLabel={copy.closeSearch}
+            onInput={onSearchInput}
+            onPrevious={() => gotoMatch(-1)}
+            onNext={() => gotoMatch(1)}
+            onClose={toggleSearch}
+          />
+          {#if !searchOpen}
+            <button
+              class="icon-button"
+              type="button"
+              aria-label={copy.search}
+              title={copy.search}
+              onclick={toggleSearch}
+            >
+              <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+            </button>
+          {/if}
           <button
             class="icon-button"
             type="button"
@@ -2016,25 +2052,6 @@
         {/if}
       </div>
     </header>
-
-    {#if serviceState === "ready" && profiles.length > 0}
-      <div class:open={searchOpen} class="search-bar" aria-hidden={!searchOpen} inert={!searchOpen}>
-        <input
-          bind:this={searchInputElement}
-          type="search"
-          bind:value={searchQuery}
-          placeholder={copy.searchPlaceholder}
-          aria-label={copy.searchPlaceholder}
-          oninput={onSearchInput}
-        />
-        <span class="search-count">
-          {searchQuery.trim() ? (searchMatchIds.length ? `${searchIndex + 1}/${searchMatchIds.length}` : copy.noMatches) : ""}
-        </span>
-        <button type="button" aria-label={copy.prevMatch} disabled={searchMatchIds.length === 0} onclick={() => gotoMatch(-1)}>‹</button>
-        <button type="button" aria-label={copy.nextMatch} disabled={searchMatchIds.length === 0} onclick={() => gotoMatch(1)}>›</button>
-        <button type="button" aria-label={copy.closeSearch} onclick={toggleSearch}>×</button>
-      </div>
-    {/if}
 
     {#if serviceState !== "ready"}
       <div class="empty-state" aria-live="polite">

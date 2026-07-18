@@ -757,7 +757,7 @@ export interface DesktopProvidersResponse {
   summary: DesktopProvidersSummary;
 }
 
-/** Creates a complete custom provider and sets providerMode=custom. */
+/** Creates a persisted provider config; custom IDs activate custom mode while built-in IDs remain on Pi routing. */
 export interface DesktopProviderCreateRequest extends DesktopProviderUpdateRequest {
   apiKey: string;
 }

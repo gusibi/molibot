@@ -86,6 +86,27 @@ function createTestHostBashStore(
   };
 }
 
+test("retired OAuth slash commands fall through as ordinary messages", async () => {
+  const sent: string[] = [];
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => { sent.push(text); }
+  });
+
+  const input = { chatId: "chat-1", scopeId: "chat-1", target: "target-1" };
+  assert.equal(await service.handle({ ...input, text: "/login openai-codex" }), false);
+  assert.equal(await service.handle({ ...input, text: "/logout openai-codex" }), false);
+  assert.deepEqual(sent, []);
+});
+
 test("status command includes current session token stats", async () => {
   const sent: string[] = [];
   const store = {

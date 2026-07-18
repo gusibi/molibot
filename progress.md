@@ -44,7 +44,7 @@
   - Adversarially checked for a NativeHost god object, visual-effect overreach, infrastructure-only cards, duplicate listeners/timers, and false confidence from non-packaged tests.
   - Split the over-broad Settings dialog rollout into Tasks, Provider/media/entity-editor, and Memory cards before approval handoff.
 - Files modified:
-  - `docs/designs/2026-07-16-native-experience-developer-board.md`
+  - `docs/work/plans/2026-07-16-native-experience-developer-board.md`
   - `prd.md`
   - `task_plan.md`
   - `findings.md`
@@ -729,7 +729,7 @@
 - Inspected Models, Providers, Automations, Trace, transcript, live-message, and composer
   implementations. Recorded the smallest page seams and shared projection need before
   adding tests or editing production behavior.
-- Added `docs/designs/issue-13-completion-plan.md`, listing every known missing or weakly
+- Added `docs/work/plans/issue-13-completion-plan.md`, listing every known missing or weakly
   verified acceptance item under G0–G9.
 - Established a green migration baseline: Desktop structural UI/HTTP 53/53, API 70/70,
   Svelte diagnostics 0 errors and 0 warnings, and clean diff whitespace checks.

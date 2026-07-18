@@ -17,9 +17,7 @@ export const WEB_COMMAND_DEFINITIONS: readonly CommandDefinition[] = [
   { name: "skills", description: { en: "List loaded Skills", zh: "查看已加载的 Skill" }, argumentHint: "[skill]", submitOnSelect: true },
   { name: "skills-detail", description: { en: "Show complete Skill details", zh: "查看全部 Skill 详情" }, submitOnSelect: true },
   { name: "compact", description: { en: "Compact older conversation context", zh: "压缩较早的对话上下文" }, argumentHint: "[instructions]" },
-  { name: "hosttools", description: { en: "Review Host Bash approvals", zh: "查看 Host Bash 审批" }, aliases: ["host-tools"], argumentHint: "[action] [id]", submitOnSelect: true },
-  { name: "login", description: { en: "Sign in to an OAuth provider", zh: "登录 OAuth Provider" }, argumentHint: "<provider> [code]" },
-  { name: "logout", description: { en: "Remove stored provider login", zh: "移除 Provider 登录" }, argumentHint: "<provider>" }
+  { name: "hosttools", description: { en: "Review Host Bash approvals", zh: "查看 Host Bash 审批" }, aliases: ["host-tools"], argumentHint: "[action] [id]", submitOnSelect: true }
 ] as const;
 
 export function buildComposerSuggestions(

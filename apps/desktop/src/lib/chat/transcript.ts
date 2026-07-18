@@ -71,3 +71,25 @@ export function transcriptDisplayContent(message: TranscriptMessage, assistantEr
   }
   return content;
 }
+
+/** Returns navigable message ids whose rendered text matches the query. */
+export function findTranscriptMatches(
+  messages: TranscriptMessage[],
+  query: string,
+  assistantErrorText = ""
+): string[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return [];
+  return messages.flatMap((message) => {
+    const id = message.id?.trim();
+    if (!id) return [];
+    const visibleText = transcriptDisplayContent(message, assistantErrorText).toLocaleLowerCase();
+    return visibleText.includes(needle) ? [id] : [];
+  });
+}
+
+/** Keeps the active result valid when the query, transcript, or Session changes. */
+export function clampTranscriptSearchIndex(index: number, matchCount: number): number {
+  if (matchCount <= 0 || !Number.isFinite(index)) return 0;
+  return Math.min(Math.max(0, Math.trunc(index)), matchCount - 1);
+}

@@ -10,6 +10,8 @@ test("composer suggestions merge registered commands with enabled Skills", () =>
   assert.ok(suggestions.some((item) => item.label === "/models" && item.kind === "command"));
   assert.ok(suggestions.some((item) => item.label === "/web-search" && item.kind === "skill"));
   assert.equal(suggestions.some((item) => item.label === "/disabled"), false);
+  assert.equal(suggestions.some((item) => item.label === "/login"), false);
+  assert.equal(suggestions.some((item) => item.label === "/logout"), false);
 });
 
 test("invocation classification only recognizes catalog entries", () => {

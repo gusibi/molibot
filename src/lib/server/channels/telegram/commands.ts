@@ -16,8 +16,6 @@ export const TELEGRAM_SHARED_COMMANDS = [
   "start",
   "skills",
   "compact",
-  "login",
-  "logout",
   "models",
   "status",
   "state",

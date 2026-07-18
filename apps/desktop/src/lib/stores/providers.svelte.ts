@@ -25,7 +25,7 @@ export const PROVIDER_MODEL_ROLES: DesktopProviderModelRole[] = ["system", "user
 export const PROVIDER_THINKING_FORMATS = ["openai", "openrouter", "anthropic", "deepseek", "zai", "qwen", "qwen-chat-template"] as const;
 export const PROVIDERS_CHANGED_EVENT = "molibot:providers-changed";
 
-export type ProviderEditor = DesktopProviderUpdateRequest & { isNew: boolean };
+export type ProviderEditor = DesktopProviderUpdateRequest & { isNew: boolean; isBuiltin: boolean };
 
 export const providersStore = $state({
   providers: null as DesktopProvidersSummary | null,
@@ -82,6 +82,7 @@ export async function loadProviders(endpoint: string): Promise<void> {
 export function beginNewProvider(): void {
   providersStore.providerEdit = {
     isNew: true,
+    isBuiltin: false,
     id: createProviderId(),
     name: "",
     enabled: true,
@@ -123,7 +124,38 @@ export async function verifyProvider(providerId: string): Promise<void> {
 export function beginProviderEdit(providerId: string): void {
   const provider = providersStore.providers?.customProviders.find((item) => item.id === providerId);
   if (!provider) return;
-  providersStore.providerEdit = { ...providerItemToUpdateRequest(provider), isNew: false };
+  providersStore.providerEdit = { ...providerItemToUpdateRequest(provider), isNew: false, isBuiltin: false };
+  providersStore.editApiKey = "";
+  providersStore.editClearApiKey = false;
+  providersStore.discoveredModels = [];
+  providersStore.actionMessage = "";
+}
+
+export function beginBuiltinProviderEdit(provider: { id: string; name: string; models: string[] }): void {
+  const saved = providersStore.providers?.customProviders.find((item) => item.id === provider.id);
+  providersStore.providerEdit = saved
+    ? { ...providerItemToUpdateRequest(saved), isNew: false, isBuiltin: true }
+    : {
+        isNew: true,
+        isBuiltin: true,
+        id: provider.id,
+        name: provider.name,
+        enabled: false,
+        protocol: "openai-compatible",
+        baseUrl: "",
+        models: provider.models.map((id) => ({
+          id,
+          tags: ["text"],
+          supportedRoles: ["system", "user", "assistant", "tool"],
+          enabled: true,
+          verification: {}
+        })),
+        defaultModel: provider.models[0] ?? "",
+        path: "/v1/chat/completions",
+        supportsThinking: null,
+        thinkingFormat: null,
+        reasoningEffortMap: {}
+      };
   providersStore.editApiKey = "";
   providersStore.editClearApiKey = false;
   providersStore.discoveredModels = [];
@@ -198,7 +230,7 @@ export async function saveProviderEdit(): Promise<void> {
   providersStore.actionMessage = "";
   providersStore.actionFailed = false;
   try {
-    const { isNew, ...draft } = providersStore.providerEdit;
+    const { isNew, isBuiltin: _isBuiltin, ...draft } = providersStore.providerEdit;
     if (isNew) {
       const request: DesktopProviderCreateRequest = {
         ...draft,

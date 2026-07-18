@@ -7,6 +7,28 @@
 ---
 ## 2026-07-18
 
+### Polish: Expanded Desktop Session lists are one density step smaller
+- All expanded channel and Project Session rows now share the `DESIGN.md` compact-control height (32px), 4px spacing grid, and `label-12` typography (12px/16px), fitting more history in the sidebar without changing selection or management behavior.
+
+### Fix: Desktop Settings can reopen and configure built-in AI providers
+- Closing the Settings window now hides the reusable native window instead of destroying it, so subsequent Settings actions reopen the same window reliably.
+- Desktop AI Providers now gives built-ins a compact API-key, enablement, default-model, and model-ID editor instead of reusing the full self-hosted capability form. The modal body scrolls independently while its actions remain visible, and page save bars stay fixed to the content-pane bottom.
+- Built-in status badges now reflect the saved Web-compatible enablement configuration instead of marking every catalog entry green merely because it is built in; configured API-key state is also visible in the detail summary. Self-hosted provider creation remains separate and keeps its endpoint requirements.
+- Retired the unused `/login` and `/logout` slash commands from shared suggestions, Telegram registration, Web handling, and shared channel execution.
+
+### Fix: Chat Header search stays aligned and returns visible transcript matches
+- Rebuilt transcript search as one shared Header control for regular Chat and Project Chat. It now expands inside the action row's normal flex layout instead of absolutely covering the title or adjacent buttons, with compact light/dark styling and focus restoration on close.
+- Matching follows the text users actually see, including localized Assistant error fallbacks, while omitting messages without navigable IDs. Result indexes are clamped whenever the transcript changes, and both chat surfaces scroll/highlight the selected match safely.
+- Added live result counts, previous/next controls, Enter/Shift+Enter navigation, and machine guards for normal-flow layout, shared Project wiring, rendered-text matching, and changing result counts. Svelte diagnostics pass with 0 errors / 0 warnings.
+
+### Polish: Settings and Chat sidebars now float as a native macOS inset material
+- Settings and Chat now share one DESIGN-defined sidebar surface with 10px outer breathing room, a 12px panel radius, a quiet hairline/highlight, restrained ambient depth, and adaptive translucent material. Navigation, scrolling, footer status, and content behavior are unchanged.
+- Chat and Settings now also share an explicit native traffic-light inset: the macOS close/minimize/zoom controls sit 6px lower, clearing the rounded sidebar's top border without changing their horizontal alignment.
+- Follow-up: Chat's exposed canvas now matches the Header/transcript primary surface instead of inheriting Settings' gray canvas, while Settings retains its secondary card canvas. Hidden project-row actions collapse to zero width and expand only on hover/focus, returning the previously reserved 78px to project names.
+- Second follow-up: replaced the broad Chat shadow with compact depth shared by Chat and Settings. The former hover-strength border and shadow now remain visible at rest, and hover/focus no longer changes the panel elevation. The standalone resize divider is gone while its invisible drag/keyboard hit area remains. Empty local Chat states now enter the existing default-Bot draft flow, so the composer is editable before any Web/Project Session is selected and the Session is created only on first send.
+- Chat's resize handle follows the visible panel edge and pointer tracking starts from the current width instead of an uninitialized manipulation position. Keyboard resizing, narrow-window rules, and the file-panel collapse path remain intact.
+- Reduced-transparency mode uses an opaque sidebar without blur; low-performance mode also removes the ambient shadow. Verified live at 1200×800 and the supported 860×620 minimum in light/dark and low-performance states with no horizontal overflow; Svelte diagnostics and production build pass.
+
 ### Fix: User bubbles no longer force-wrap every message; assistant copy action sits in flow
 - Every user message wrapped ~12% short of its natural width ("hi" rendered as two one-character lines): `.user-message-shell` is a non-stretched grid item (`justify-items: end` on `.message-row`), so it shrank to the bubble's max-content width, and the bubble's `max-width: 88%` then resolved against that shrunken shell — clamping below natural width and forcing a wrap on every message. The shell now spans the full reading column (`width: 100%`), restoring 88%-of-column semantics.
 - The assistant meta row's copy action was pushed to the far right by `margin-left: auto`; it now stays in flow directly after time · model · memory-trace, per expected left-to-right reading order.

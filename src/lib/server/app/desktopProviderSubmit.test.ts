@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DesktopProviderCreateRequest } from "$lib/shared/desktop";
-import { buildNewCustomProvider } from "./desktopProviderSubmit";
+import { buildNewCustomProvider, desktopProviderCreatePolicy } from "./desktopProviderSubmit";
 
 function request(overrides: Partial<DesktopProviderCreateRequest> = {}): DesktopProviderCreateRequest {
   return {
@@ -20,6 +20,24 @@ function request(overrides: Partial<DesktopProviderCreateRequest> = {}): Desktop
     ...overrides
   };
 }
+
+test("built-in provider creation keeps Pi routing and does not require a custom endpoint", () => {
+  assert.deepEqual(desktopProviderCreatePolicy("openai"), {
+    builtin: true,
+    requiresEndpointCredentials: false,
+    activateAsDefault: false,
+    switchToCustomMode: false
+  });
+});
+
+test("self-hosted provider creation still requires endpoint credentials and activates custom mode", () => {
+  assert.deepEqual(desktopProviderCreatePolicy("my-provider"), {
+    builtin: false,
+    requiresEndpointCredentials: true,
+    activateAsDefault: true,
+    switchToCustomMode: true
+  });
+});
 
 test("buildNewCustomProvider builds a valid provider config with all required fields", () => {
   const provider = buildNewCustomProvider(request());

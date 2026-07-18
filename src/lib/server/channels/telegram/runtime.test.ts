@@ -50,6 +50,8 @@ class TestTelegramManager extends TelegramManager {
 
 test("telegram registers shared live-control, queue, and host-tool commands", () => {
   const registered = new Set<string>(TELEGRAM_SHARED_COMMANDS);
+  assert.equal(registered.has("login"), false);
+  assert.equal(registered.has("logout"), false);
   for (const command of ["steer", "followup", "follow_up", "queue", "hosttools", "host-tools"]) {
     assert.ok(
       registered.has(command),

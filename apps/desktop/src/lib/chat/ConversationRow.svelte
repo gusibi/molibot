@@ -229,8 +229,8 @@
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    min-height: 40px;
-    padding: 6px 8px;
+    min-height: 32px;
+    padding: 4px 8px;
     border: none;
     background: transparent;
     border-radius: var(--rounded-sm, 6px);
@@ -268,8 +268,8 @@
   .row-title {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: 13px;
-    line-height: 1.35;
+    font-size: 12px;
+    line-height: 16px;
     color: var(--label-primary, #171717);
     white-space: nowrap;
     overflow: hidden;
@@ -277,7 +277,8 @@
   }
   .row-time {
     flex: 0 0 auto;
-    font-size: 11px;
+    font-size: 12px;
+    line-height: 16px;
     color: var(--label-tertiary, #8f8f8f);
     white-space: nowrap;
   }

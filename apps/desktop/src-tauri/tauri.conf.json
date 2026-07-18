@@ -22,6 +22,7 @@
         "minHeight": 520,
         "center": true,
         "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 18, "y": 24 },
         "hiddenTitle": true
       },
       {
@@ -35,6 +36,7 @@
         "center": true,
         "visible": false,
         "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 18, "y": 24 },
         "hiddenTitle": true
       }
     ],

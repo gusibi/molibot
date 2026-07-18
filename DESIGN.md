@@ -429,6 +429,18 @@ overrides the generic Geist guidance below whenever the two conflict.
 
 - Settings use a stable sidebar, one shared PageHeader with title and description,
   centered SettingGroups, and a fixed `.settings-footbar` whenever changes can be saved.
+- Settings and Chat use the same inset sidebar material: 10px outer breathing room,
+  a 12px panel radius, a quiet hairline/highlight, and a compact two-stage shadow.
+  The material may be translucent in normal mode, but becomes opaque when reduced
+  transparency or low-performance mode is active. Sidebar resize handles align to
+  the visible panel edge rather than the underlying grid track, but remain visually
+  transparent: do not draw a standalone divider. Chat's exposed canvas follows the
+  transcript surface; the compact shadow must read as panel depth rather than a broad
+  secondary-color strip. The full panel border and shadow remain equally visible at rest,
+  hover, and keyboard focus; pointer movement must not change the panel elevation. Settings keeps
+  its secondary canvas. Hidden sidebar actions
+  collapse out of layout and consume title width only on hover or keyboard focus. An empty
+  local Chat is an editable new-conversation draft; its Session is created on first send.
 - Data pages use the same shell with a wider content column, compact metric cards,
   semantic charts, and human-readable labels before technical identifiers.
 - List/detail workspaces use Global Sidebar → 300–320px list pane → flexible detail
@@ -442,6 +454,11 @@ overrides the generic Geist guidance below whenever the two conflict.
 - Reuse shared semantic components for PageHeader, SettingGroup, search, select,
   switch, badge, cards, overflow menus, empty states, MessageItem, and composer.
   Page-local copies of these controls are not permitted.
+- Transcript search belongs inside the Header action row and must remain in normal
+  flex flow; it may replace the search trigger while open, but must not use absolute
+  positioning that overlaps the title or neighboring actions. Chat and Project Chat
+  share the same search control, rendered-text matching, result count, previous/next
+  navigation, Enter/Shift+Enter shortcuts, focus restoration, and narrow-width rules.
 - Primary actions remain visible. Rare and destructive actions belong in an overflow
   menu and require confirmation when irreversible. A persistent outlined button is
   not a substitute for a switch, segmented control, or disclosure menu.
