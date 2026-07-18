@@ -436,9 +436,10 @@ overrides the generic Geist guidance below whenever the two conflict.
   the visible panel edge rather than the underlying grid track, but remain visually
   transparent: do not draw a standalone divider. Chat's exposed canvas follows the
   transcript surface; the compact shadow must read as panel depth rather than a broad
-  secondary-color strip. The full panel border and shadow remain equally visible at rest,
-  hover, and keyboard focus; pointer movement must not change the panel elevation. Settings keeps
-  its secondary canvas. Hidden sidebar actions
+  secondary-color strip. The full panel shadow remains equally visible at rest, hover,
+  and keyboard focus; pointer movement must not change the panel elevation. Hover/focus may
+  add only a restrained accent-tinted border glow with short diffusion—never a broad halo.
+  Settings keeps its secondary canvas. Hidden sidebar actions
   collapse out of layout and consume title width only on hover or keyboard focus. An empty
   local Chat is an editable new-conversation draft; its Session is created on first send.
 - Data pages use the same shell with a wider content column, compact metric cards,

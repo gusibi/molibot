@@ -5,7 +5,7 @@
     createAgentCityScene,
     selectAgentCityQuality,
     supportsAgentCityWebGL2,
-    type AgentCityAnchor,
+    type AgentCityHover,
     type AgentCityQuality,
     type AgentCitySceneController,
     type AgentCityTheme
@@ -13,44 +13,39 @@
 
   export let projection: AgentCityProjection;
   export let theme: AgentCityTheme;
-  export let onAnchors: (anchors: Record<string, AgentCityAnchor>) => void;
   export let onQuality: (quality: AgentCityQuality) => void;
   export let onFallback: () => void;
+  export let onHover: (hover: AgentCityHover | null) => void;
 
   let canvas: HTMLCanvasElement;
   let container: HTMLDivElement;
   let controller: AgentCitySceneController | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let intersectionObserver: IntersectionObserver | null = null;
-  let anchorFrame = 0;
   let reducedMotion = false;
   let quality: AgentCityQuality = "fallback";
   let mounted = false;
   let visible = true;
+  let hoveredKey: string | null = null;
 
-  function stopAnchorUpdates(): void {
-    if (!anchorFrame) return;
-    cancelAnimationFrame(anchorFrame);
-    anchorFrame = 0;
+  function updateHover(event: PointerEvent): void {
+    const hover = controller?.hitTest(event.clientX, event.clientY) ?? null;
+    if (hover?.key === hoveredKey) {
+      if (hover) onHover(hover);
+      return;
+    }
+    hoveredKey = hover?.key ?? null;
+    onHover(hover);
   }
 
-  function updateAnchors(): void {
-    anchorFrame = 0;
-    if (!controller || !visible || document.hidden) return;
-    onAnchors(controller.getAnchors());
-    anchorFrame = requestAnimationFrame(updateAnchors);
-  }
-
-  function startAnchorUpdates(): void {
-    if (anchorFrame || !controller || !visible || document.hidden) return;
-    anchorFrame = requestAnimationFrame(updateAnchors);
+  function clearHover(): void {
+    if (!hoveredKey) return;
+    hoveredKey = null;
+    onHover(null);
   }
 
   function handleVisibility(): void {
-    const sceneVisible = visible && !document.hidden;
-    controller?.setVisible(sceneVisible);
-    if (sceneVisible) startAnchorUpdates();
-    else stopAnchorUpdates();
+    controller?.setVisible(visible && !document.hidden);
   }
 
   function initialize(): void {
@@ -104,7 +99,6 @@
     }, { threshold: 0.02 });
     intersectionObserver.observe(container);
     document.addEventListener("visibilitychange", handleVisibility);
-    startAnchorUpdates();
 
     cleanupMotion = () => motionQuery.removeEventListener("change", handleMotion);
   }
@@ -116,21 +110,27 @@
     initialize();
   });
 
-  $: if (mounted && controller) controller.update(projection);
-  $: if (mounted && controller) controller.setTheme(theme);
+  $: if (mounted && controller) {
+    controller.update(projection);
+    clearHover();
+  }
+  $: if (mounted && controller) {
+    controller.setTheme(theme);
+    clearHover();
+  }
 
   onDestroy(() => {
     mounted = false;
-    stopAnchorUpdates();
     cleanupMotion();
     resizeObserver?.disconnect();
     intersectionObserver?.disconnect();
     document.removeEventListener("visibilitychange", handleVisibility);
+    clearHover();
     controller?.dispose();
     controller = null;
   });
 </script>
 
 <div class="agent-city-canvas" bind:this={container} aria-hidden="true">
-  <canvas bind:this={canvas}></canvas>
+  <canvas bind:this={canvas} onpointermove={updateHover} onpointerleave={clearHover}></canvas>
 </div>

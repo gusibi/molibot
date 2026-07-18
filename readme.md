@@ -1,7 +1,7 @@
 # Molibot
 
 <p align="center">
-  <img src="./Voldemomo_compressed.jpg" alt="Molibot logo" width="168" />
+  <img src="./apps/desktop/public/molibot-icon.png" alt="Molibot logo" width="168" />
 </p>
 
 <h2 align="center">A memory-first personal AI Agent that grows with your work.</h2>
@@ -11,14 +11,22 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/gusibi/molibot/releases/latest">
+    <img src="https://img.shields.io/github/v/release/gusibi/molibot?label=Download&color=blue" alt="Download latest release">
+  </a>
   <a href="https://deepwiki.com/gusibi/molibot">
     <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
   </a>
 </p>
 
-Molibot is a local-first personal AI Agent for people who want more than a new chat window. It helps you keep the context that matters—your preferences, projects, conversations, tools, and working habits—under your control and available over time.
+<p align="center">
+  <img src="./assets/screenshots/chat.png" alt="Molibot desktop chat" width="800" />
+</p>
 
-It is designed for a personal Agent that can be shaped, reviewed, and improved as your work changes.
+Molibot is a local-first personal AI Agent for people who want more than a new chat window. It is built around two promises:
+
+- **Easy to start.** Download the macOS app, pick a model provider, and start chatting — one runtime serves the Desktop app, Web, Telegram, Feishu, Weixin, QQ, and the CLI.
+- **Grows with you.** Governed long-term memory, daily memory reflection, and reviewable automations mean the Agent learns your preferences, projects, and habits over time — and you always see and control what it remembers.
 
 ## Why Molibot?
 
@@ -30,6 +38,65 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Keep execution in your hands.** Tasks, approvals, sandbox policy, and run records make automation visible rather than opaque.
 - **Keep the data local.** Your runtime, configuration, conversations, and operational state stay on infrastructure you control.
 
+## Quick start
+
+### Option A · Download the macOS app (recommended)
+
+1. Download the latest `Molibot_*.dmg` from [Releases](https://github.com/gusibi/molibot/releases/latest) (Apple Silicon).
+2. Open the app. Molibot starts its local runtime automatically — no terminal setup required.
+3. In **Settings → AI Providers**, add a model provider and API key.
+4. Start chatting. The app can also live in the menu bar and keep running in the background.
+
+### Option B · Run from source
+
+```bash
+corepack enable
+pnpm install
+pnpm link --global
+
+cp .env.example .env
+molibot init
+molibot
+```
+
+Then open `http://localhost:3000`, configure an AI provider, and create or confirm an Agent before starting a chat.
+
+For provider configuration, channels, deployment, and environment variables, see the [documentation](#documentation).
+
+## A look inside
+
+### One workspace for all your Agents
+
+Every Agent gets a place in Agent City — see at a glance who is on duty and working, then point at a floor to inspect that Agent's live details.
+
+<p align="center">
+  <img src="./assets/screenshots/agents.png" alt="Agents — Task Dispatch Center" width="800" />
+</p>
+
+### An Agent that learns you, on a schedule
+
+System tasks like **Daily Memory Reflection** review recent conversations and distill durable memories — so the Agent gets more useful the more you use it. Your own automations and one-time tasks live alongside them, with full run history.
+
+<p align="center">
+  <img src="./assets/screenshots/auto-tasks.png" alt="Auto tasks — automations and system tasks" width="800" />
+</p>
+
+### Settings that stay understandable
+
+Language, startup behavior, menu-bar mode, notifications, and appearance — all in plain terms, with each page explaining its own sharing scope.
+
+<p align="center">
+  <img src="./assets/screenshots/setting-general.png" alt="Settings — General" width="800" />
+</p>
+
+### Know exactly what your Agent costs
+
+A local usage dashboard tracks requests, token trends, cache hit ratio, and token distribution — aggregate counts only, no credentials ever leave your machine.
+
+<p align="center">
+  <img src="./assets/screenshots/setting-usage.png" alt="Settings — Usage dashboard" width="800" />
+</p>
+
 ## What you can do today
 
 | Capability | What it gives you |
@@ -38,52 +105,34 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 | [Channels and Surfaces](docs/features/channels-and-surfaces.md) | One local runtime across browser, macOS Desktop, chat channels, and the terminal. |
 | [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior and controlled access to reusable workflows and external tools. |
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
-| [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, automations, and Settings in one local workspace. |
+| [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with stable inset sidebars and a restrained interactive edge glow. |
 
-## A personal Agent can grow with you
+## How Molibot grows with you
 
 Momo is Molibot's example of the experience this project is building toward: a personal Agent that learns your working context, remembers the projects you return to, and becomes more useful through review and feedback.
 
-The current runtime already supports durable sessions, memory governance, configurable Agent profiles, tools, tasks, and human control. The next growth-plan experiments build on that foundation with daily conversation reflection, a visible Agent growth log, and human-reviewed content candidates. Those experiments are not automatic publishing features, and they are not required to use Molibot.
+Concretely, the loop works like this:
 
-## Quick start
+1. **You just chat and work** — across Desktop, Web, or any connected channel, in shared or isolated contexts.
+2. **Molibot reflects daily** — system tasks review recent conversations and propose durable memories about your preferences, projects, and habits.
+3. **You stay in control** — memory is governed: you can inspect, edit, and delete what is saved, and see what gets injected into each conversation.
+4. **The Agent gets sharper** — future conversations start with the context that matters, instead of from zero.
 
-### 1. Install
-
-```bash
-corepack enable
-pnpm install
-pnpm link --global
-```
-
-### 2. Initialize your local runtime
-
-```bash
-cp .env.example .env
-molibot init
-```
-
-### 3. Start Molibot
-
-```bash
-molibot
-```
-
-Open `http://localhost:3000`, configure an AI provider, and create or confirm an Agent before starting a chat.
-
-For provider configuration, channels, deployment, and environment variables, see the [documentation](#documentation).
+The current runtime already supports durable sessions, memory governance, configurable Agent profiles, tools, tasks, and human control. The next growth-plan experiments build on that foundation with a visible Agent growth log and human-reviewed content candidates. Those experiments are not automatic publishing features, and they are not required to use Molibot.
 
 ## Available surfaces
 
 | Surface | Use it for |
 | --- | --- |
-| Web | Browser chat, Settings, and session access. |
 | macOS Desktop | Native chat, project workspaces, files, automations, and Settings with shared inset window chrome. |
+| Web | Browser chat, Settings, and session access. |
 | Telegram | Personal chat access, runtime controls, and file delivery. |
 | Feishu | Personal chat access with channel-native media and interaction support. |
 | Weixin | Local personal conversations and media delivery. |
 | QQ | Local chat access with rich message and media support. |
 | CLI | Terminal-based local conversations. |
+
+Conversations follow you: a chat started on the Web can continue on Desktop, and channel sessions share the same local runtime and memory.
 
 ## Documentation
 
@@ -108,10 +157,12 @@ For provider configuration, channels, deployment, and environment variables, see
 - [Current feature record](features.md)
 - [Product roadmap](prd.md)
 - [Release notes](CHANGELOG.md)
+- [UI Design Guidelines](DESIGN.md) & [Dark Theme Spec](design.dark.md)
 - [Collaboration and contribution rules](AGENTS.md)
 
 ## Current boundaries
 
+- The desktop app currently ships for macOS on Apple Silicon; other platforms can run from source.
 - Molibot is designed for local, single-owner deployments. Configure your own model provider and credentials.
 - Channel behavior depends on the credentials and integrations you enable locally.
 - Treat destructive, credential-bearing, and public actions as reviewed workflows until you have validated them in your own environment.

@@ -196,12 +196,15 @@ test("Chat floats its sidebar on the transcript canvas and hidden project action
   assert.match(styles, /\.conv-group-head:hover \.conv-group-action,[\s\S]*\.conv-group-head:focus-within \.conv-caret-button\s*\{[^}]*width:\s*26px/s);
 });
 
-test("floating sidebars keep their full depth at rest without hover changes or a standalone divider", () => {
+test("floating sidebars keep stable depth and add only a restrained edge glow on hover", () => {
   const sharedSidebarRule = styles.match(/\.chat-sidebar, \.settings-sidebar\s*\{[^}]*\}/s)?.[0] ?? "";
   assert.match(sharedSidebarRule, /box-shadow:[^;]*var\(--floating-sidebar-shadow\)/);
   assert.match(sharedSidebarRule, /border:[^;]*var\(--floating-sidebar-border\)/);
+  assert.match(sharedSidebarRule, /transition:[^;]*border-color[^;]*box-shadow/);
   assert.doesNotMatch(styles, /--floating-sidebar-(?:border|shadow)-hover/);
-  assert.doesNotMatch(styles, /\.chat-sidebar:hover,[\s\S]*\.settings-sidebar:focus-within/);
+  assert.match(styles, /--floating-sidebar-glow:/);
+  assert.match(styles, /\.chat-sidebar:hover,[\s\S]*\.settings-sidebar:focus-within\s*\{[^}]*border-color:\s*var\(--floating-sidebar-border-glow\)[^}]*box-shadow:[^}]*var\(--floating-sidebar-glow\)[^}]*var\(--floating-sidebar-shadow\)/s);
+  assert.match(styles, /:root\[data-performance="low"\][^}]*--floating-sidebar-glow:\s*transparent/s);
   assert.doesNotMatch(styles, /\.sidebar-resizer::after/);
 });
 
@@ -525,11 +528,15 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /SLOT_STORAGE_KEY = "molibot-agent-city-slots-v1"/);
   assert.match(agentStudio, /projectAgentCity/);
   assert.match(agentStudio, /<AgentCityCanvas/);
+  assert.match(agentStudio, /onHover=\{handleHover\}/);
+  assert.match(agentStudio, /let hoveredFloorKey: string \| null = null/);
+  assert.match(agentStudio, /hoveredFloorKey \? cityFloors\.find/);
+  assert.match(agentStudio, /\{#if hoveredFloor\}/);
+  assert.match(agentStudio, /class="agent-city-hover-card"/);
+  assert.doesNotMatch(agentStudio, /agent-city-label-layer|agent-city-agent-label|agent-city-status-dot|agent-city-tooltip|agent-city-working-frame/);
+  assert.match(agentStudio, /hoveredFloor\.activity\.taskPreview/);
+  assert.match(agentStudio, /hoveredFloor\.subagents\.visible/);
   assert.match(agentStudio, /<AgentCityFallback/);
-  assert.match(agentStudio, /class="agent-city-agent-label"/);
-  assert.match(agentStudio, /role="tooltip"/);
-  assert.match(agentStudio, /floor\.activity\.taskPreview/);
-  assert.match(agentStudio, /floor\.subagents\.visible/);
   assert.match(agentStudio, /projection\.hiddenAgentCount/);
   assert.match(agentStudio, /documentActivityVisibility/);
   assert.doesNotMatch(agentStudio, /visibilitychange/);
@@ -540,21 +547,39 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentCityFallback, /floor\.activity\.taskPreview/);
   assert.match(agentCityFallback, /floor\.agent\.modelOverrides/);
   assert.match(agentCityFallback, /floor\.subagents\.visible/);
+  assert.doesNotMatch(agentCityFallback, /agent-city-fallback-working-frame/);
   assert.match(agentCityFallback, /role="tooltip"/);
   assert.match(agentCityFallback, /aria-describedby/);
+  assert.match(styles, /\.agent-city-hover-card\s*\{[^}]*pointer-events:\s*none/s);
+  assert.doesNotMatch(styles, /agent-city-agent-label|agent-city-status-dot|agent-city-tooltip|agent-city-working-frame|agent-city-working-marquee/);
 });
 
 test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () => {
   assert.match(agentCityCanvas, /supportsAgentCityWebGL2\(\)/);
   assert.match(agentCityCanvas, /new ResizeObserver/);
   assert.match(agentCityCanvas, /new IntersectionObserver/);
-  assert.match(agentCityCanvas, /function stopAnchorUpdates/);
-  assert.match(agentCityCanvas, /!controller \|\| !visible \|\| document\.hidden/);
+  assert.match(agentCityCanvas, /function updateHover\(event: PointerEvent\)/);
+  assert.match(agentCityCanvas, /onpointermove=\{updateHover\}/);
+  assert.match(agentCityCanvas, /onpointerleave=\{clearHover\}/);
+  assert.match(agentCityCanvas, /clearHover\(\);/);
   assert.match(agentCityCanvas, /prefers-reduced-motion: reduce/);
   assert.match(agentCityCanvas, /controller\?\.setQuality\("low"\)/);
   assert.match(agentCityCanvas, /controller\?\.dispose\(\)/);
   assert.match(agentCityScene, /new THREE\.OrthographicCamera/);
-  assert.match(agentCityScene, /setQuality\(quality: Exclude<AgentCityQuality, "fallback">\)/);
+  assert.match(agentCityScene, /new THREE\.Raycaster\(\)/);
+  assert.match(agentCityScene, /function addFloorTarget/);
+  assert.match(agentCityScene, /target\.userData\.floorKey = floor\.key/);
+  assert.match(agentCityScene, /raycaster\.intersectObjects\(floorTargets, false\)/);
+  assert.match(agentCityScene, /hitTest\(clientX, clientY\)/);
+  assert.match(agentCityScene, /new THREE\.LineSegments/);
+  assert.match(agentCityScene, /new THREE\.LineDashedMaterial/);
+  assert.match(agentCityScene, /marqueeLine\.computeLineDistances\(\)/);
+  assert.match(agentCityScene, /function moveMarquee/);
+  assert.match(agentCityScene, /moveMarquee\(perimeter, -\(\(time \* 0\.006/);
+  assert.match(agentCityScene, /moveMarquee\(perimeter, 0\)/);
+  assert.match(agentCityScene, /blending: THREE\.AdditiveBlending/);
+  assert.match(agentCityScene, /depthWrite: false/);
+  assert.match(agentCityScene, /toneMapped: false/);
   assert.match(agentCityScene, /if \(delta > 0\) frameSamples\.push\(delta\)/);
   assert.match(agentCityScene, /webglcontextlost/);
   assert.match(agentCityScene, /renderer\.renderLists\.dispose\(\)/);

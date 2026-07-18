@@ -8,14 +8,12 @@
   import AgentCityFallback from "./AgentCityFallback.svelte";
   import {
     agentCityViewportHeight,
-    type AgentCityAnchor,
     type AgentCityQuality,
     type AgentCityTheme
   } from "./agentCityScene";
   import {
     projectAgentCity,
     reconcileAgentCitySlots,
-    type AgentCityFloor,
     type AgentCityProjection,
     type AgentCityStatus
   } from "./agentCityProjection";
@@ -29,7 +27,6 @@
   let agents: DesktopAgentItem[] = [];
   let activities: DesktopAgentActivityItem[] = [];
   let slotMap: Record<string, number> = readStoredSlots();
-  let anchors: Record<string, AgentCityAnchor> = {};
   let loading = false;
   let error = "";
   let refreshScheduler: ActivityScheduler | null = null;
@@ -41,6 +38,8 @@
   let shellObserver: ResizeObserver | null = null;
   let themeObserver: MutationObserver | null = null;
   let theme: AgentCityTheme = currentTheme();
+  let hoveredFloorKey: string | null = null;
+  let hoveredFloorAnchor: { x: number; y: number } | null = null;
 
   function readStoredSlots(): Record<string, number> {
     try {
@@ -69,6 +68,12 @@
   } satisfies DesktopAgentItem;
   $: visibleAgents = agents.some((agent) => agent.id === "default") ? agents : [globalAgent, ...agents];
   $: projection = projectAgentCity({ agents: visibleAgents, activities, slots: slotMap });
+  $: cityFloors = [projection.globalFloor, ...projection.buildings.flatMap((building) => building.floors)];
+  $: hoveredFloor = hoveredFloorKey ? cityFloors.find((floor) => floor.key === hoveredFloorKey) ?? null : null;
+  $: if (hoveredFloorKey && !cityFloors.some((floor) => floor.key === hoveredFloorKey)) {
+    hoveredFloorKey = null;
+    hoveredFloorAnchor = null;
+  }
   $: enabledCount = visibleAgents.filter((agent) => agent.enabled).length;
   $: cityHeight = agentCityViewportHeight(projection.sceneFloors, cityWidth);
 
@@ -99,6 +104,31 @@
     }
   }
 
+  function statusLabel(status: AgentCityStatus): string {
+    if (status === "working") return copy.agentStudioWorking;
+    if (status === "completed") return copy.agentStudioCompleted;
+    if (status === "error") return copy.agentStudioFailed;
+    if (status === "disabled") return copy.agentStudioOffDuty;
+    return copy.agentStudioAvailable;
+  }
+
+  function handleFallback(): void {
+    hoveredFloorKey = null;
+    hoveredFloorAnchor = null;
+    fallback = true;
+    quality = "fallback";
+  }
+
+  function handleHover(hover: { key: string; x: number; y: number } | null): void {
+    hoveredFloorKey = hover?.key ?? null;
+    hoveredFloorAnchor = hover ? { x: hover.x, y: hover.y } : null;
+  }
+
+  function hoverCardStyle(): string {
+    if (!hoveredFloorAnchor) return "display:none";
+    return `left:${hoveredFloorAnchor.x}px;top:${hoveredFloorAnchor.y}px`;
+  }
+
   function shortBotName(name: string): string {
     const value = name.trim();
     return value.length > 16 ? `${value.slice(0, 15)}…` : value;
@@ -116,33 +146,6 @@
   function activityTime(value: string): string {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
-  }
-
-  function statusLabel(status: AgentCityStatus): string {
-    if (status === "working") return copy.agentStudioWorking;
-    if (status === "completed") return copy.agentStudioCompleted;
-    if (status === "error") return copy.agentStudioFailed;
-    if (status === "disabled") return copy.agentStudioOffDuty;
-    return copy.agentStudioAvailable;
-  }
-
-  function floorLabel(floor: AgentCityFloor): string {
-    return copy.agentCityFloorLabel.replace("{floor}", String(floor.floorIndex + 1));
-  }
-
-  function anchorStyle(key: string): string {
-    const anchor = anchors[key];
-    if (!anchor?.visible) return "display:none";
-    return `left:${anchor.x}px;top:${anchor.y}px`;
-  }
-
-  function allFloors(city: AgentCityProjection): AgentCityFloor[] {
-    return [city.globalFloor, ...city.buildings.flatMap((building) => building.floors)];
-  }
-
-  function handleFallback(): void {
-    fallback = true;
-    quality = "fallback";
   }
 
   onMount(() => {
@@ -195,37 +198,33 @@
       {#if fallback}
         <AgentCityFallback {projection} {copy} {statusLabel} {onOpenAgentSettings} />
       {:else}
-        <AgentCityCanvas {projection} {theme} onAnchors={(value) => { anchors = value; }} onQuality={(value) => { quality = value; }} onFallback={handleFallback} />
-        <div class="agent-city-label-layer">
-          <div class="agent-city-landmark-label" style={anchorStyle("owner")}>
-            <strong>{copy.agentStudioOwner}</strong><span>{projection.owner.active ? copy.agentStudioCollaborating : copy.agentStudioOwnerIdle}</span>
+        <AgentCityCanvas {projection} {theme} onQuality={(value) => { quality = value; }} onFallback={handleFallback} onHover={handleHover} />
+        {#if hoveredFloor}
+          <div class="agent-city-hover-card" style={hoverCardStyle()}>
+            <strong>{hoveredFloor.agent.name}</strong>
+            <span>{statusLabel(hoveredFloor.state)}</span>
+            <p>{hoveredFloor.agent.description || copy.agentStudioNoDescription}</p>
+            {#if hoveredFloor.activity}
+              <small>{shortBotName(hoveredFloor.activity.botName)} · {channelLabel(hoveredFloor.activity.channel)} · {activityTime(hoveredFloor.activity.startedAt)}</small>
+              <p>{hoveredFloor.activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
+            {/if}
+            <em>{hoveredFloor.agent.modelOverrides > 0 ? `${hoveredFloor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
+            {#if hoveredFloor.subagents.visible.length || hoveredFloor.subagents.overflowCount}
+              <small>{hoveredFloor.subagents.visible.map((subagent) => `${subagent.name} · ${statusLabel(subagent.status)}`).join(" · ")}{hoveredFloor.subagents.overflowCount ? ` · +${hoveredFloor.subagents.overflowCount}` : ""}</small>
+            {/if}
           </div>
-          {#each allFloors(projection) as floor (floor.key)}
-            <button class="agent-city-agent-label" data-status={floor.state} style={anchorStyle(floor.key)} type="button" aria-label={`${floor.agent.name}, ${statusLabel(floor.state)}`}>
-              <span class="agent-city-status-dot" aria-hidden="true"></span>
-              <span class="agent-city-agent-copy"><strong>{floor.agent.name}</strong><small>{floor.kind === "global" ? copy.agentCityHeadquarters : `${floorLabel(floor)} · ${statusLabel(floor.state)}`}</small></span>
-              <span class="agent-city-tooltip" role="tooltip">
-                <span class="agent-city-tooltip-head"><strong>{floor.agent.name}</strong><em>{statusLabel(floor.state)}</em></span>
-                <p>{floor.agent.description || copy.agentStudioNoDescription}</p>
-                {#if floor.activity}
-                  <dl>
-                    <div><dt>{copy.agentStudioWorkingFor}</dt><dd>{shortBotName(floor.activity.botName)}</dd></div>
-                    <div><dt>{copy.agentStudioChannel}</dt><dd>{channelLabel(floor.activity.channel)}</dd></div>
-                    <div><dt>{copy.agentStudioStartedAt}</dt><dd>{activityTime(floor.activity.startedAt)}</dd></div>
-                  </dl>
-                  <span>{copy.agentStudioCurrentTask}</span><p>{floor.activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
-                {/if}
-                <small>{floor.agent.modelOverrides > 0 ? `${floor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</small>
-                {#if floor.subagents.visible.length || floor.subagents.overflowCount}
-                  <div class="agent-city-subagents">
-                    <span>{copy.agentCityTeamStudio}</span>
-                    {#each floor.subagents.visible as subagent (subagent.id)}<b>{subagent.name} · {statusLabel(subagent.status)}</b>{/each}
-                    {#if floor.subagents.overflowCount}<b>+{floor.subagents.overflowCount}</b>{/if}
-                  </div>
-                {/if}
-              </span>
-            </button>
-          {/each}
+        {/if}
+        <div class="sr-only">
+          <p>{copy.agentStudioSummary}</p>
+          <p>{projection.workingCount} {copy.agentStudioWorkingCount}</p>
+          <ul>
+            <li>{projection.globalFloor.agent.name}: {statusLabel(projection.globalFloor.state)}</li>
+            {#each projection.buildings as building (building.index)}
+              {#each building.floors as floor (floor.key)}
+                <li>{floor.agent.name}: {statusLabel(floor.state)}</li>
+              {/each}
+            {/each}
+          </ul>
         </div>
       {/if}
 

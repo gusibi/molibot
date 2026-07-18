@@ -7,6 +7,16 @@
 ---
 ## 2026-07-18
 
+### Style: Dark theme OKLCH color palette update
+- Replaced the high-contrast Vercel dark theme with a new custom OKLCH color scheme, resolving contrast issues under the dark theme.
+- Updated the `.dark` class block in `src/styles/theme.css` to use the new OKLCH colors and shadows, while keeping the light theme unchanged.
+- Created `design.dark.md` to document the new dark theme OKLCH color values and shadow configurations, ensuring design consistency and preventing future styling regressions.
+
+### Polish: Agent City floor details no longer obstruct the city
+- Three.js Agent City no longer renders permanent floor circles, text, or panels. Pointing at the actual Global HQ or a floor raycasts that building and presents one static Agent, task, channel, routing, and Sub-agent detail card; moving away hides it.
+- Working activity is rendered on the building itself: its floor-wall, roof, and base retain a dim blue outline while one long bright dashed segment continuously travels around that shell in Three.js. Reduced motion preserves a static bright segment, while the accessible 2D fallback keeps keyboard detail and static state contrast.
+- Verified Agent City projection/scene tests 9/9, Desktop UI tests 80/80, Svelte diagnostics 0 errors / 0 warnings, and the Desktop production build. A cold native walkthrough remains pending because this environment cannot drive or capture the macOS window.
+
 ### Polish: Expanded Desktop Session lists are one density step smaller
 - All expanded channel and Project Session rows now share the `DESIGN.md` compact-control height (32px), 4px spacing grid, and `label-12` typography (12px/16px), fitting more history in the sidebar without changing selection or management behavior.
 
@@ -25,7 +35,7 @@
 - Settings and Chat now share one DESIGN-defined sidebar surface with 10px outer breathing room, a 12px panel radius, a quiet hairline/highlight, restrained ambient depth, and adaptive translucent material. Navigation, scrolling, footer status, and content behavior are unchanged.
 - Chat and Settings now also share an explicit native traffic-light inset: the macOS close/minimize/zoom controls sit 6px lower, clearing the rounded sidebar's top border without changing their horizontal alignment.
 - Follow-up: Chat's exposed canvas now matches the Header/transcript primary surface instead of inheriting Settings' gray canvas, while Settings retains its secondary card canvas. Hidden project-row actions collapse to zero width and expand only on hover/focus, returning the previously reserved 78px to project names.
-- Second follow-up: replaced the broad Chat shadow with compact depth shared by Chat and Settings. The former hover-strength border and shadow now remain visible at rest, and hover/focus no longer changes the panel elevation. The standalone resize divider is gone while its invisible drag/keyboard hit area remains. Empty local Chat states now enter the existing default-Bot draft flow, so the composer is editable before any Web/Project Session is selected and the Session is created only on first send.
+- Second follow-up: replaced the broad Chat shadow with compact depth shared by Chat and Settings. The full-strength shadow remains visible at rest; hover/focus keeps that elevation unchanged and adds only a low-opacity accent edge with short diffusion. Low-performance mode disables the glow. The standalone resize divider is gone while its invisible drag/keyboard hit area remains. Empty local Chat states now enter the existing default-Bot draft flow, so the composer is editable before any Web/Project Session is selected and the Session is created only on first send.
 - Chat's resize handle follows the visible panel edge and pointer tracking starts from the current width instead of an uninitialized manipulation position. Keyboard resizing, narrow-window rules, and the file-panel collapse path remain intact.
 - Reduced-transparency mode uses an opaque sidebar without blur; low-performance mode also removes the ambient shadow. Verified live at 1200×800 and the supported 860×620 minimum in light/dark and low-performance states with no horizontal overflow; Svelte diagnostics and production build pass.
 

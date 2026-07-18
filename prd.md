@@ -5,6 +5,12 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.92 Dark Theme OKLCH Color Palette Update (2026-07-18)
+- **Priority**: P1
+- **Status**: Done
+- **Scope**: Replace the high-contrast dark theme colors in the application with a new custom OKLCH color palette, while leaving the light theme colors unchanged. Also, document the new dark theme values in design.dark.md.
+- **Acceptance**: The `.dark` block in `src/styles/theme.css` is updated with the new OKLCH colors and flat shadow variables; the design document `design.dark.md` is created/updated to define these tokens for future reference; light theme remains unmodified.
+
 ## 2.91 Desktop Compact Expanded Session Rows (2026-07-18)
 - **Priority**: P1
 - **Status**: Done
@@ -27,7 +33,7 @@
 - [Done, P1] Desktop Settings 与 Chat 左侧导航必须共用同一 inset sidebar surface：10px 外部留白、12px panel 圆角与低对比细边/高光；elevation 按各自底层 canvas 选择，不得维护两套材质样式。
 - [Done, P1] Chat 与 Settings 的 macOS 原生交通灯必须使用同一窗口级安全偏移，按钮不得与 inset sidebar 顶部圆角边框重叠，且不得通过页面私有 CSS 分别补偿。
 - [Done, P1] Chat 侧栏外露画布必须与 Header/消息区使用同一主表面；Settings 单独保持次级画布。共享材质不等于强制两个应用模板使用同一底层 canvas。
-- [Done, P1] Chat 与 Settings 悬浮侧栏使用紧贴面板的双层阴影表达深度；默认态持续使用完整强度的边框与阴影，hover/键盘焦点不得改变整块面板 elevation，也不得位移、缩放或形成宽灰带。
+- [Done, P1] Chat 与 Settings 悬浮侧栏使用紧贴面板的双层阴影表达深度；默认态持续使用完整强度，hover/键盘焦点不得改变整块面板 elevation，只可增加克制的强调色边框微光和短扩散，不得位移、缩放或形成宽光晕。
 - [Done, P1] Chat resize handle 保留可用热区但不得绘制独立竖线；宽度拖拽只通过光标表达，避免与悬浮卡片边框竞争。
 - [Done, P1] 隐藏的项目组操作按钮不得继续占用标题宽度；标题平时使用完整可用行宽，hover/键盘焦点显示操作时再为按钮让位。
 - [Done, P0] 本地 Chat 没有已选 Session 时必须自动成为默认 Bot 的新会话草稿，输入框保持可聚焦、可输入；首次发送再创建 Session，删除最后一个 Session 后也遵循同一规则。
@@ -211,6 +217,7 @@
 - [Done, P1] 每层对应一个 Agent，并以玩偶屋剖面展示巴哥犬的真实 disabled/idle/working/completed/error 状态；任务路线抵达准确楼层，Sub-agent 在父 Agent 楼层的临时协作舱中展示。
 - [Done, P1] Three.js 只负责场景、角色、灯光和动画，现有 Svelte/Agent Activity 继续负责数据、悬浮详情、国际化与无障碍；共享 Agent City 投影是唯一新业务 seam，Channel 无改动，也不根据任务文本伪造工具动作。
 - [Done, P1] 第一阶段使用程序化城市与代理角色验证 0/1/10/11/40/41/100/101 Agent 布局、稳定槽位、明暗主题、低动效、完整/低画质 3D 和信息等价 2D 降级。
+- [Done, P1] 三维城市不常驻渲染楼层圆点、文字或面板；鼠标命中 Global 总部或任意实际楼层时，只展示该楼层的一张 Agent/任务详情卡。`working` 状态完全绘制在对应楼层的墙体、屋顶和底座轮廓上；减少动态时保留静态亮边而不显示 DOM 跑马灯。
 - [Planned, P2] 后续以 Blender GLB 整体替换代理模型、骨骼、动画与材质；不得把仅替换材质视为正式角色资产完成。
 
 ## 2.59 Owner-Level Memory Automations (2026-07-13)

@@ -11,10 +11,10 @@ export interface AgentCityCapabilities {
   devicePixelRatio: number;
 }
 
-export interface AgentCityAnchor {
+export interface AgentCityHover {
+  key: string;
   x: number;
   y: number;
-  visible: boolean;
 }
 
 export interface AgentCitySceneOptions {
@@ -34,7 +34,7 @@ export interface AgentCitySceneController {
   setTheme(theme: AgentCityTheme): void;
   setReducedMotion(reducedMotion: boolean): void;
   setQuality(quality: Exclude<AgentCityQuality, "fallback">): void;
-  getAnchors(): Record<string, AgentCityAnchor>;
+  hitTest(clientX: number, clientY: number): AgentCityHover | null;
   dispose(): void;
 }
 
@@ -50,6 +50,24 @@ interface AnimatedRoute {
   curve: THREE.CatmullRomCurve3;
   phase: "outbound" | "returning" | "failed";
   offset: number;
+}
+
+interface AnimatedFloorPerimeter {
+  material: THREE.LineBasicMaterial;
+  marquee: THREE.LineDashedMaterial;
+  distances: THREE.BufferAttribute;
+  baseDistances: Float32Array;
+  emissive: THREE.MeshStandardMaterial;
+  phase: number;
+  length: number;
+}
+
+function moveMarquee(perimeter: AnimatedFloorPerimeter, offset: number): void {
+  const distances = perimeter.distances.array as Float32Array;
+  for (let index = 0; index < distances.length; index += 1) {
+    distances[index] = perimeter.baseDistances[index] + offset;
+  }
+  perimeter.distances.needsUpdate = true;
 }
 
 const FLOOR_HEIGHT = 2.5;
@@ -186,7 +204,82 @@ function floorPalette(index: number, dark: boolean): { wall: number; trim: numbe
   return palettes[index % palettes.length];
 }
 
-function createDollhouseFloor(floor: AgentCityFloor, variant: number, dark: boolean, animatedPugs: AnimatedPug[]): THREE.Group {
+function addWorkingFloorPerimeter(
+  parent: THREE.Object3D,
+  size: [number, number, number],
+  height: number,
+  emissive: THREE.MeshStandardMaterial,
+  phase: number,
+  animatedPerimeters: AnimatedFloorPerimeter[]
+): void {
+  const [width, , depth] = size;
+  const halfWidth = width / 2 + 0.045;
+  const halfDepth = depth / 2 + 0.045;
+  const baseY = 0.13;
+  const topY = height + 0.05;
+  const points = new Float32Array([
+    -halfWidth, baseY, -halfDepth, halfWidth, baseY, -halfDepth,
+    halfWidth, baseY, -halfDepth, halfWidth, baseY, halfDepth,
+    halfWidth, baseY, halfDepth, -halfWidth, baseY, halfDepth,
+    -halfWidth, baseY, halfDepth, -halfWidth, baseY, -halfDepth,
+    -halfWidth, topY, -halfDepth, halfWidth, topY, -halfDepth,
+    halfWidth, topY, -halfDepth, halfWidth, topY, halfDepth,
+    halfWidth, topY, halfDepth, -halfWidth, topY, halfDepth,
+    -halfWidth, topY, halfDepth, -halfWidth, topY, -halfDepth,
+    -halfWidth, baseY, -halfDepth, -halfWidth, topY, -halfDepth,
+    halfWidth, baseY, -halfDepth, halfWidth, topY, -halfDepth,
+    halfWidth, baseY, halfDepth, halfWidth, topY, halfDepth,
+    -halfWidth, baseY, halfDepth, -halfWidth, topY, halfDepth
+  ]);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(points, 3));
+  const perimeterMaterial = new THREE.LineBasicMaterial({
+    color: STATUS_COLORS.working,
+    transparent: true,
+    opacity: 0.42,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false
+  });
+  parent.add(new THREE.LineSegments(geometry, perimeterMaterial));
+
+  const marqueePoints = new Float32Array([
+    -halfWidth, baseY, -halfDepth,
+    halfWidth, baseY, -halfDepth,
+    halfWidth, topY, -halfDepth,
+    halfWidth, topY, halfDepth,
+    -halfWidth, topY, halfDepth,
+    -halfWidth, baseY, halfDepth,
+    -halfWidth, baseY, -halfDepth
+  ]);
+  const marqueeGeometry = new THREE.BufferGeometry();
+  marqueeGeometry.setAttribute("position", new THREE.BufferAttribute(marqueePoints, 3));
+  const marqueeLength = width * 2 + depth * 2 + (topY - baseY) * 2;
+  const marquee = new THREE.LineDashedMaterial({
+    color: 0xd8f0ff,
+    dashSize: marqueeLength * 0.24,
+    gapSize: marqueeLength * 0.76,
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const marqueeLine = new THREE.Line(marqueeGeometry, marquee);
+  marqueeLine.computeLineDistances();
+  const distances = marqueeGeometry.getAttribute("lineDistance") as THREE.BufferAttribute;
+  const baseDistances = new Float32Array(distances.array as Float32Array);
+  parent.add(marqueeLine);
+  animatedPerimeters.push({ material: perimeterMaterial, marquee, distances, baseDistances, emissive, phase, length: marqueeLength });
+}
+
+function createDollhouseFloor(
+  floor: AgentCityFloor,
+  variant: number,
+  dark: boolean,
+  animatedPugs: AnimatedPug[],
+  animatedPerimeters: AnimatedFloorPerimeter[]
+): THREE.Group {
   const group = new THREE.Group();
   const palette = floorPalette(variant, dark);
   const statusColor = STATUS_COLORS[floor.state];
@@ -198,6 +291,9 @@ function createDollhouseFloor(floor: AgentCityFloor, variant: number, dark: bool
 
   const statusStripMaterial = new THREE.MeshStandardMaterial({ color: statusColor, emissive: statusColor, emissiveIntensity: floor.state === "idle" || floor.state === "disabled" ? 0.05 : 0.48, roughness: 0.55 });
   group.add(mesh(new THREE.BoxGeometry(2.8, 0.055, 0.08), statusStripMaterial, 0, 0.1, 1.16));
+  if (floor.animation === "working") {
+    addWorkingFloorPerimeter(group, [3.85, 0.12, 2.4], 2.04, statusStripMaterial, floor.floorIndex * 0.71 + variant, animatedPerimeters);
+  }
   addWorkstation(group, floor.state === "working", palette.accent);
 
   const pug = createPug(floor.state === "disabled" ? 0x9b9388 : 0xcaa678);
@@ -246,7 +342,12 @@ function createOwnerCenter(dark: boolean): THREE.Group {
   return group;
 }
 
-function createGlobalHeadquarters(floor: AgentCityFloor, dark: boolean, animatedPugs: AnimatedPug[]): THREE.Group {
+function createGlobalHeadquarters(
+  floor: AgentCityFloor,
+  dark: boolean,
+  animatedPugs: AnimatedPug[],
+  animatedPerimeters: AnimatedFloorPerimeter[]
+): THREE.Group {
   const group = new THREE.Group();
   const base = dark ? 0x27323d : 0xe9edf0;
   addBox(group, [6.2, 0.28, 3.9], dark ? 0x3d4d58 : 0xcad3d8, [0, 0.1, 0]);
@@ -256,6 +357,9 @@ function createGlobalHeadquarters(floor: AgentCityFloor, dark: boolean, animated
   addBox(group, [5.7, 0.18, 3.9], dark ? 0x3d4d58 : 0xcad3d8, [0, 3, 0]);
   const coreMaterial = new THREE.MeshStandardMaterial({ color: STATUS_COLORS[floor.state], emissive: STATUS_COLORS[floor.state], emissiveIntensity: floor.state === "working" ? 0.7 : 0.18, roughness: 0.4 });
   group.add(mesh(new THREE.CylinderGeometry(0.42, 0.62, 1.45, 20), coreMaterial, 0, 0.88, -0.52));
+  if (floor.animation === "working") {
+    addWorkingFloorPerimeter(group, [5.7, 0.18, 3.9], 3.08, coreMaterial, 2.4, animatedPerimeters);
+  }
   addWorkstation(group, floor.state === "working", 0x006bff);
   const pug = createPug(floor.state === "disabled" ? 0x9b9388 : 0xcaa678);
   pug.scale.setScalar(1.08);
@@ -310,7 +414,12 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   let frameSamples: number[] = [];
   let animatedPugs: AnimatedPug[] = [];
   let animatedRoutes: AnimatedRoute[] = [];
-  const anchorObjects = new Map<string, THREE.Object3D>();
+  let animatedPerimeters: AnimatedFloorPerimeter[] = [];
+  const floorTargets: THREE.Mesh[] = [];
+  const floorAnchors = new Map<string, THREE.Object3D>();
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  const anchorWorldPosition = new THREE.Vector3();
 
   const ambient = new THREE.HemisphereLight(0xffffff, 0x56616a, theme === "dark" ? 1.45 : 1.8);
   scene.add(ambient);
@@ -355,12 +464,30 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     animatedRoutes.push({ capsule, curve, phase: floor.route.phase, offset: floor.floorIndex * 0.13 + (typeof floor.buildingIndex === "number" ? floor.buildingIndex * 0.07 : 0) });
   }
 
+  function addFloorTarget(parent: THREE.Object3D, floor: AgentCityFloor, size: [number, number, number], anchorY: number): void {
+    const target = new THREE.Mesh(
+      new THREE.BoxGeometry(...size),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, colorWrite: false, depthWrite: false })
+    );
+    target.position.set(0, size[1] / 2, 0);
+    target.userData.floorKey = floor.key;
+    parent.add(target);
+    floorTargets.push(target);
+
+    const anchor = new THREE.Object3D();
+    anchor.position.set(0, anchorY, 0.92);
+    parent.add(anchor);
+    floorAnchors.set(floor.key, anchor);
+  }
+
   function rebuild(): void {
     disposeObject(cityRoot);
     cityRoot.clear();
-    anchorObjects.clear();
     animatedPugs = [];
     animatedRoutes = [];
+    animatedPerimeters = [];
+    floorTargets.length = 0;
+    floorAnchors.clear();
 
     const groundColor = theme === "dark" ? 0x1d282f : 0xdfe7e5;
     const ground = mesh(new THREE.BoxGeometry(34, 0.28, 22), material(groundColor), 0, -0.2, 0);
@@ -372,29 +499,19 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const owner = createOwnerCenter(theme === "dark");
     owner.position.set(projection.owner.position.x, projection.owner.position.y, projection.owner.position.z);
     cityRoot.add(owner);
-    const ownerAnchor = new THREE.Object3D();
-    ownerAnchor.position.set(0, 1.9, 0.8);
-    owner.add(ownerAnchor);
-    anchorObjects.set("owner", ownerAnchor);
 
-    const headquarters = createGlobalHeadquarters(projection.globalFloor, theme === "dark", animatedPugs);
+    const headquarters = createGlobalHeadquarters(projection.globalFloor, theme === "dark", animatedPugs, animatedPerimeters);
     headquarters.position.set(projection.globalFloor.position.x, 0, projection.globalFloor.position.z);
+    addFloorTarget(headquarters, projection.globalFloor, [5.7, 3.08, 3.9], 3.34);
     cityRoot.add(headquarters);
-    const globalAnchor = new THREE.Object3D();
-    globalAnchor.position.set(0, 3.65, 0.8);
-    headquarters.add(globalAnchor);
-    anchorObjects.set("global", globalAnchor);
     addRoute(projection.globalFloor);
 
     for (const building of projection.buildings) {
       for (const floor of building.floors) {
-        const room = createDollhouseFloor(floor, building.variant, theme === "dark", animatedPugs);
+        const room = createDollhouseFloor(floor, building.variant, theme === "dark", animatedPugs, animatedPerimeters);
         room.position.set(building.position.x, floor.floorIndex * FLOOR_HEIGHT, building.position.z);
+        addFloorTarget(room, floor, [3.85, 2.04, 2.4], 2.32);
         cityRoot.add(room);
-        const anchor = new THREE.Object3D();
-        anchor.position.set(0, 2.32, 0.92);
-        room.add(anchor);
-        anchorObjects.set(floor.key, anchor);
         addRoute(floor);
       }
     }
@@ -403,6 +520,28 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     camera.position.set(24, 19 + maxHeight * 0.65, 28);
     camera.lookAt(0, maxHeight * 0.42, 0);
     applyTheme();
+  }
+
+  function hoverAt(clientX: number, clientY: number): AgentCityHover | null {
+    if (disposed || width <= 1 || height <= 1) return null;
+    const bounds = options.canvas.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return null;
+    pointer.set(
+      ((clientX - bounds.left) / bounds.width) * 2 - 1,
+      -((clientY - bounds.top) / bounds.height) * 2 + 1
+    );
+    raycaster.setFromCamera(pointer, camera);
+    const target = raycaster.intersectObjects(floorTargets, false)[0]?.object;
+    const key = typeof target?.userData.floorKey === "string" ? target.userData.floorKey : null;
+    const anchor = key ? floorAnchors.get(key) : null;
+    if (!key || !anchor) return null;
+    const projected = anchor.getWorldPosition(anchorWorldPosition).project(camera);
+    if (projected.z < -1 || projected.z > 1) return null;
+    return {
+      key,
+      x: (projected.x * 0.5 + 0.5) * width,
+      y: (-projected.y * 0.5 + 0.5) * height
+    };
   }
 
   function updateCamera(): void {
@@ -435,7 +574,19 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       for (const route of animatedRoutes) {
         const direction = route.phase === "returning" ? -1 : 1;
         const progress = ((time * 0.00018 * direction + route.offset) % 1 + 1) % 1;
-        route.capsule.position.copy(route.curve.getPoint(progress));
+        route.curve.getPoint(progress, route.capsule.position);
+      }
+      for (const perimeter of animatedPerimeters) {
+        const pulse = 0.7 + Math.sin(time * 0.006 + perimeter.phase) * 0.16;
+        perimeter.material.opacity = 0.38 + pulse * 0.16;
+        moveMarquee(perimeter, -((time * 0.006 + perimeter.phase) % perimeter.length));
+        perimeter.emissive.emissiveIntensity = 0.72 + pulse * 0.28;
+      }
+    } else {
+      for (const perimeter of animatedPerimeters) {
+        perimeter.material.opacity = 0.62;
+        moveMarquee(perimeter, 0);
+        perimeter.emissive.emissiveIntensity = 0.96;
       }
     }
 
@@ -491,6 +642,13 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     },
     setReducedMotion(nextReducedMotion) {
       reducedMotion = nextReducedMotion;
+      if (reducedMotion) {
+        for (const perimeter of animatedPerimeters) {
+          perimeter.material.opacity = 0.62;
+          moveMarquee(perimeter, 0);
+          perimeter.emissive.emissiveIntensity = 0.96;
+        }
+      }
     },
     setQuality(nextQuality) {
       if (quality === nextQuality) return;
@@ -499,19 +657,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       applyQuality();
       renderer.render(scene, camera);
     },
-    getAnchors() {
-      const anchors: Record<string, AgentCityAnchor> = {};
-      const point = new THREE.Vector3();
-      for (const [key, object] of anchorObjects) {
-        object.getWorldPosition(point);
-        point.project(camera);
-        anchors[key] = {
-          x: (point.x * 0.5 + 0.5) * width,
-          y: (-point.y * 0.5 + 0.5) * height,
-          visible: point.z >= -1 && point.z <= 1
-        };
-      }
-      return anchors;
+    hitTest(clientX, clientY) {
+      return hoverAt(clientX, clientY);
     },
     dispose() {
       if (disposed) return;
