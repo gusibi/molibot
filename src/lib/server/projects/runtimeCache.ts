@@ -26,8 +26,12 @@ export function sanitizeProjectDirPart(value: string): string {
   return safe || "project";
 }
 
+export function projectWorkspaceDir(projectId: string): string {
+  return path.join(storagePaths.projectsDir, sanitizeProjectDirPart(projectId));
+}
+
 export function projectRuntimeWorkspaceDir(projectId: string): string {
-  return path.join(storagePaths.projectsDir, sanitizeProjectDirPart(projectId), "runtime");
+  return path.join(projectWorkspaceDir(projectId), "runtime");
 }
 
 export function getOrCreateProjectRuntimeHandle(

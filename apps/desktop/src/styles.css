@@ -70,8 +70,8 @@
   --floating-sidebar-bg: color-mix(in srgb, var(--chrome-sidebar-bg) 90%, transparent);
   --floating-sidebar-canvas: color-mix(in srgb, var(--content-bg) 88%, var(--gray-500));
   --floating-sidebar-border: color-mix(in srgb, var(--control-border-strong) 72%, var(--label-primary) 12%);
-  --floating-sidebar-border-glow: color-mix(in srgb, var(--accent) 18%, var(--floating-sidebar-border));
-  --floating-sidebar-glow: color-mix(in srgb, var(--accent) 22%, transparent);
+  --floating-sidebar-border-glow: color-mix(in srgb, var(--gray-600) 18%, var(--floating-sidebar-border));
+  --floating-sidebar-glow: color-mix(in srgb, var(--gray-600) 18%, transparent);
   --floating-sidebar-highlight: color-mix(in srgb, var(--panel-bg) 72%, transparent);
   --floating-sidebar-shadow: 0 2px 4px rgba(0,0,0,0.10), 0 10px 22px -8px rgba(0,0,0,0.24);
 
@@ -2329,6 +2329,8 @@ a:focus-visible {
   --drawer-shadow: -8px 0 24px -8px rgba(0,0,0,0.4);
   --modal-scrim: rgba(0,0,0,0.5);
   --glass-inset: 0 0 #0000;
+  --floating-sidebar-border-glow: color-mix(in srgb, var(--accent) 18%, var(--floating-sidebar-border));
+  --floating-sidebar-glow: color-mix(in srgb, var(--accent) 22%, transparent);
   --floating-sidebar-shadow: 0 2px 5px rgba(0,0,0,0.42), 0 12px 24px -8px rgba(0,0,0,0.62);
 
   --control-bg: #0a0a0a; --control-bg-hover: #161616;
@@ -2580,6 +2582,8 @@ a:focus-visible {
     --glass-shadow: 0 1px 1px rgba(0,0,0,0.2), 0 8px 16px -4px rgba(0,0,0,0.4), 0 24px 32px -8px rgba(0,0,0,0.5);
     --drawer-shadow: -8px 0 24px -8px rgba(0,0,0,0.4); --modal-scrim: rgba(0,0,0,0.5);
     --glass-inset: 0 0 #0000;
+    --floating-sidebar-border-glow: color-mix(in srgb, var(--accent) 18%, var(--floating-sidebar-border));
+    --floating-sidebar-glow: color-mix(in srgb, var(--accent) 22%, transparent);
     --floating-sidebar-shadow: 0 2px 5px rgba(0,0,0,0.42), 0 12px 24px -8px rgba(0,0,0,0.62);
     --control-bg: #0a0a0a; --control-bg-hover: #161616;
     --control-border: rgba(255,255,255,0.16); --control-border-strong: rgba(255,255,255,0.28); --control-shadow: none;

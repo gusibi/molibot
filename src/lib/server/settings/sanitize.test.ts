@@ -38,7 +38,26 @@ test("sanitizeSettings backfills default agent and links default Web profile", (
 
   assert.equal(sanitized.agents.length, 1);
   assert.equal(sanitized.agents[0]?.id, "default");
+  assert.equal(sanitized.agents[0]?.name, "Momo");
   assert.equal(sanitized.channels.web.instances[0]?.agentId, "default");
+});
+
+test("sanitizeSettings renames only the legacy Default placeholder to Momo", () => {
+  const legacy = sanitizeSettings({
+    agents: [{
+      id: "default",
+      name: "Default",
+      description: "Default assistant used by Web and new channel profiles.",
+      enabled: true
+    }]
+  }, defaultRuntimeSettings);
+  assert.equal(legacy.agents[0]?.name, "Momo");
+
+  const customized = sanitizeSettings({
+    agents: [{ id: "default", name: "My Assistant", description: "Custom", enabled: true }]
+  }, defaultRuntimeSettings);
+  assert.equal(customized.agents[0]?.name, "My Assistant");
+  assert.equal(customized.agents[0]?.description, "Custom");
 });
 
 test("sanitizeSettings backfills DuckDuckGo web search defaults for incomplete legacy settings", () => {

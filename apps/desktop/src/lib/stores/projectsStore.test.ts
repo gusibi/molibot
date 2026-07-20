@@ -161,3 +161,74 @@ test("a successful project transcript load hydrates the Project Chat runtime", a
     projectChatStore.disposeAll();
   }
 });
+
+test("an overlapping Project transcript hydration does not duplicate the live assistant row", async () => {
+  (globalThis as any).$state = <T>(value: T): T => value;
+  const { projectsStore, selectProjectSession } = await import("./projects.svelte.js");
+  const { projectChatStore } = await import("../projects/projectChatStore.svelte.js");
+  projectChatStore.disposeAll();
+  projectChatStore.init({
+    endpoint: () => projectsStore.endpoint,
+    modelReady: () => true,
+    labels: () => ({ working: "Working", uploading: "Uploading", recognizingImage: "Recognizing image", stopped: "Stopped", idle: "Idle", resuming: "Resuming" }),
+    resolveModel: () => "model",
+    resolveThinking: () => "medium"
+  });
+  Object.assign(projectsStore, {
+    endpoint: "http://desktop.test",
+    selectedProjectId: "project",
+    selectedSessionId: "session-a",
+    messages: [],
+    messagesLoading: false,
+    error: ""
+  });
+
+  const existing = [{
+    id: "user-current",
+    conversationId: "session-a",
+    role: "user" as const,
+    content: "[$dbs-diagnosis] 先检查",
+    createdAt: "2026-07-19T08:56:51.045Z"
+  }];
+  projectChatStore.selectSession("session-a", "project", existing);
+  const entry = projectChatStore.registry.active!;
+  entry.controller.sending = true;
+
+  const transcript = deferredResponse();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (!url.endsWith("/projects/project/sessions/session-a")) {
+      throw new Error(`Unexpected request: ${url}`);
+    }
+    return transcript.promise;
+  }) as typeof fetch;
+
+  try {
+    const selecting = selectProjectSession("session-a", "project");
+    transcript.resolve(jsonResponse({
+      ok: true,
+      messages: [
+        ...existing,
+        {
+          id: "assistant-tool-use",
+          conversationId: "session-a",
+          role: "assistant",
+          content: "",
+          thinking: "先读取 skill",
+          createdAt: "2026-07-19T08:56:51.088Z"
+        }
+      ]
+    }));
+    await selecting;
+
+    const assistantRows = entry.messages.filter((message) => message.role === "assistant").length
+      + Number(entry.controller.sending);
+    assert.equal(assistantRows, 1);
+    assert.deepEqual(entry.messages.map((message) => message.id), ["user-current"]);
+  } finally {
+    entry.controller.sending = false;
+    globalThis.fetch = originalFetch;
+    projectChatStore.disposeAll();
+  }
+});

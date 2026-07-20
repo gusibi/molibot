@@ -86,6 +86,8 @@ export interface ConversationHost {
  */
 export class ConversationController {
   sending = $state(false);
+  /** Monotonic ownership token used to reject transcript loads that overlap a newer turn. */
+  turnSequence = $state(0);
   streamingText = $state("");
   streamingThinking = $state("");
   activity = $state("");
@@ -250,6 +252,7 @@ export class ConversationController {
     this.turnContext = context;
 
     const labels = this.host.labels();
+    this.turnSequence += 1;
     this.sending = true;
     this.turnSessionId = sessionId;
     this.host.clearError();

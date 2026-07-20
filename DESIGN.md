@@ -438,7 +438,8 @@ overrides the generic Geist guidance below whenever the two conflict.
   transcript surface; the compact shadow must read as panel depth rather than a broad
   secondary-color strip. The full panel shadow remains equally visible at rest, hover,
   and keyboard focus; pointer movement must not change the panel elevation. Hover/focus may
-  add only a restrained accent-tinted border glow with short diffusion—never a broad halo.
+  add only a restrained border glow with short diffusion—neutral silver-gray in the light
+  theme and accent blue in the dark theme—never a broad halo.
   Settings keeps its secondary canvas. Hidden sidebar actions
   collapse out of layout and consume title width only on hover or keyboard focus. An empty
   local Chat is an editable new-conversation draft; its Session is created on first send.

@@ -5,6 +5,19 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-19
+
+### Fix: Project Chat keeps one live assistant reply during transcript refreshes
+- Project Chat no longer shows a persisted thinking/tool placeholder beside the live activity row when a Session transcript request overlaps an active turn. Shared per-session hydration leases now reject responses that began during, commit during, or were overtaken by a newer turn, while controller-owned final/stop/approval reloads remain authoritative.
+- Added the captured `2 live rows -> 1 final row` Project regression plus shared guards for late stale responses and owner final reloads. Verified Desktop Chat/API 212/212, Desktop UI 80/80, Svelte diagnostics 0/0, and the production Desktop build.
+
+### Feature: Workplace English Coach, Momo first-use default, and Project prompt previews
+- Added a built-in Workplace English Coach Agent template for Chinese software engineers, covering natural-language intent routing, optional command triggers, sentence correction, meeting preparation/review, role-play, active recall, CEFR assessment, and privacy-safe learning progress.
+- New installations now present Momo as the first-use default Agent while keeping the stable internal `default` id; legacy untouched `Default` placeholders migrate to Momo without renaming user-customized Agents.
+- Project runs now write the final post-hook `SYSTEM_PROMPT.preview.md` at the Project workspace root, with only the sources actually applied: Project mode retains `USER.md` context while excluding Bot/Agent `BOT.md`, `IDENTITY.md`, `SOUL.md`, and `SONG.md`. Project `AGENTS.md`, `AGENT.md`, or `CLAUDE.md` changes participate in the prompt refresh key, so both runtime behavior and the preview refresh without a service restart.
+- Verified 69 focused Runner/Project/template/prompt/settings/store assertions, the SvelteKit production build, a real `momo-agent` Project render, and clean diff whitespace.
+
+---
 ## 2026-07-18
 
 ### Style: Dark theme OKLCH color palette update
@@ -35,7 +48,7 @@
 - Settings and Chat now share one DESIGN-defined sidebar surface with 10px outer breathing room, a 12px panel radius, a quiet hairline/highlight, restrained ambient depth, and adaptive translucent material. Navigation, scrolling, footer status, and content behavior are unchanged.
 - Chat and Settings now also share an explicit native traffic-light inset: the macOS close/minimize/zoom controls sit 6px lower, clearing the rounded sidebar's top border without changing their horizontal alignment.
 - Follow-up: Chat's exposed canvas now matches the Header/transcript primary surface instead of inheriting Settings' gray canvas, while Settings retains its secondary card canvas. Hidden project-row actions collapse to zero width and expand only on hover/focus, returning the previously reserved 78px to project names.
-- Second follow-up: replaced the broad Chat shadow with compact depth shared by Chat and Settings. The full-strength shadow remains visible at rest; hover/focus keeps that elevation unchanged and adds only a low-opacity accent edge with short diffusion. Low-performance mode disables the glow. The standalone resize divider is gone while its invisible drag/keyboard hit area remains. Empty local Chat states now enter the existing default-Bot draft flow, so the composer is editable before any Web/Project Session is selected and the Session is created only on first send.
+- Second follow-up: replaced the broad Chat shadow with compact depth shared by Chat and Settings. The full-strength shadow remains visible at rest; hover/focus keeps that elevation unchanged and adds only a low-opacity edge with short diffusion—neutral silver-gray in light mode and accent blue in dark mode. Low-performance mode disables the glow. The standalone resize divider is gone while its invisible drag/keyboard hit area remains. Empty local Chat states now enter the existing default-Bot draft flow, so the composer is editable before any Web/Project Session is selected and the Session is created only on first send.
 - Chat's resize handle follows the visible panel edge and pointer tracking starts from the current width instead of an uninitialized manipulation position. Keyboard resizing, narrow-window rules, and the file-panel collapse path remain intact.
 - Reduced-transparency mode uses an opaque sidebar without blur; low-performance mode also removes the ambient shadow. Verified live at 1200×800 and the supported 860×620 minimum in light/dark and low-performance states with no horizontal overflow; Svelte diagnostics and production build pass.
 

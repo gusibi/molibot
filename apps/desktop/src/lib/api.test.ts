@@ -5,6 +5,8 @@ import type { DesktopAgentItem, DesktopSessionFile, DesktopExternalSessionsSumma
 import { normalizeLocale } from "./i18n";
 import { runDesktopConversationTurn } from "./chat/conversationTurn";
 import { clipboardImageFiles } from "./chat/clipboardFiles";
+import { SessionRuntimeRegistry } from "./chat/sessionRuntimeRegistry.svelte";
+import { SessionDraftStore } from "./chat/sessionDraftStore";
 import {
   addToFollowUpQueue,
   applyDesktopSandboxPreset,
@@ -371,6 +373,61 @@ test("shared conversation turn streams a project response through the same Chat 
     assert.deepEqual(observed, { token: "hello", status: "working", done: "hello world" });
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+test("session runtime rejects overlapping transcript hydration but commits its owning turn reload", async () => {
+  (globalThis as any).$state = <T>(value: T): T => value;
+  const finalMessages = [{
+    id: "assistant-final",
+    conversationId: "session-1",
+    role: "assistant" as const,
+    content: "final answer",
+    createdAt: "2026-07-19T08:57:58.642Z"
+  }];
+  const registry = new SessionRuntimeRegistry(new SessionDraftStore());
+  registry.init({
+    endpoint: () => "http://127.0.0.1:3210",
+    modelReady: () => true,
+    labels: () => ({ working: "Working", uploading: "Uploading", recognizingImage: "Recognizing", stopped: "Stopped", idle: "Idle", resuming: "Resuming" }),
+    loadTranscript: async () => finalMessages
+  });
+  const entry = registry.getOrCreate("personal", "session-1");
+  entry.replaceMessages([{
+    id: "user-current",
+    conversationId: "session-1",
+    role: "user",
+    content: "check this",
+    createdAt: "2026-07-19T08:56:51.045Z"
+  }]);
+
+  entry.controller.sending = true;
+  const liveHydration = entry.beginTranscriptHydration();
+  entry.controller.sending = false;
+  assert.equal(liveHydration.commit([{
+    id: "assistant-tool-use",
+    conversationId: "session-1",
+    role: "assistant",
+    content: "",
+    createdAt: "2026-07-19T08:56:51.088Z"
+  }]), false);
+
+  const staleHydration = entry.beginTranscriptHydration();
+  entry.controller.turnSequence += 1;
+  assert.equal(staleHydration.commit(finalMessages), false);
+  assert.deepEqual(entry.messages.map((message) => message.id), ["user-current"]);
+
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    const body = 'event: done\ndata: {"response":"final answer","thinkingText":""}\n\n';
+    return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  }) as typeof globalThis.fetch;
+  try {
+    await entry.controller.send({ message: "finish the turn" });
+    assert.deepEqual(entry.messages.map((message) => message.id), ["assistant-final"]);
+  } finally {
+    globalThis.fetch = original;
+    registry.disposeAll();
   }
 });
 

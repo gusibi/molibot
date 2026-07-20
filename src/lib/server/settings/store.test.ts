@@ -198,3 +198,34 @@ test("memory reflection and daily materials survive a settings store restart", (
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("legacy Default Agent migrates to Momo across a settings restart without renaming custom Agents", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-default-agent-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      agents: [
+        {
+          id: "default",
+          name: "Default",
+          description: "Default assistant used by Web and new channel profiles.",
+          enabled: true
+        },
+        { id: "custom", name: "My Coach", description: "Keep this name", enabled: true }
+      ]
+    });
+
+    const restarted = new SettingsStore().load();
+    assert.equal(restarted.agents.find((agent) => agent.id === "default")?.name, "Momo");
+    assert.equal(restarted.agents.find((agent) => agent.id === "custom")?.name, "My Coach");
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

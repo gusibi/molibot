@@ -62,12 +62,18 @@ export interface SessionRuntimeEntry {
   readonly lastRunId: string | undefined;
   readonly isActive: boolean;
   readonly statusDot: SessionStatusDot | null;
+  beginTranscriptHydration(): TranscriptHydration;
   appendUser(content: string, files: File[]): void;
   replaceMessages(messages: UiMessage[]): void;
   reloadFromServer(): Promise<void>;
   setError(message: string): void;
   clearError(): void;
   dispose(): void;
+}
+
+export interface TranscriptHydration {
+  /** Installs a fetched transcript only when no turn started during its request. */
+  commit(messages: UiMessage[]): boolean;
 }
 
 function inferAttachmentKind(file: File): DesktopMessageAttachment["mediaType"] {
@@ -123,7 +129,7 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
       labels: () => deps.labels(),
       getMessages: () => self.messages,
       appendUserMessage: (content, files) => self.appendUser(content, files),
-      reload: () => self.reloadFromServer(),
+      reload: () => self.reloadFromServerForTurn(),
       refreshSessions: () => deps.refreshSessions?.() ?? Promise.resolve(),
       clearComposer: () => draftStore.clear(sessionDraftKey(profileId, sessionId)),
       afterMutate: () => deps.afterMutate?.(profileId, sessionId),
@@ -175,14 +181,36 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
     ];
   }
 
+  beginTranscriptHydration(): TranscriptHydration {
+    const turnSequence = this.controller.turnSequence;
+    const startedWhileSending = this.controller.sending;
+    return {
+      commit: (messages) => {
+        if (startedWhileSending || this.controller.sending || turnSequence !== this.controller.turnSequence) return false;
+        this.messages = messages;
+        return true;
+      }
+    };
+  }
+
   replaceMessages(messages: UiMessage[]): void {
-    this.messages = messages;
+    this.beginTranscriptHydration().commit(messages);
   }
 
   async reloadFromServer(): Promise<void> {
+    const hydration = this.beginTranscriptHydration();
     try {
       const messages = await this.deps.loadTranscript(this.profileId, this.sessionId);
-      this.messages = messages;
+      hydration.commit(messages);
+    } catch {
+      // Leave the existing transcript in place on reload failure.
+    }
+  }
+
+  /** The owning controller may commit its final or stopped transcript while `sending` is still true. */
+  private async reloadFromServerForTurn(): Promise<void> {
+    try {
+      this.messages = await this.deps.loadTranscript(this.profileId, this.sessionId);
     } catch {
       // Leave the existing transcript in place on reload failure.
     }

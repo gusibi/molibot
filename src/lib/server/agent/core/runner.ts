@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { streamSimple, type Model } from "@mariozechner/pi-ai";
@@ -7,7 +7,8 @@ import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { NOOP_HOOK_MANAGER, type HookContext, type HookManager } from "$lib/server/agent/hooks/index.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
-import { buildSystemPrompt } from "$lib/server/agent/prompts/prompt.js";
+import { buildSystemPrompt, getProjectPromptRefreshKey } from "$lib/server/agent/prompts/prompt.js";
+import { writeProjectSystemPromptPreview } from "$lib/server/agent/prompts/projectPromptPreview.js";
 import { buildRunReflection, buildSubagentTaskRecord, formatRunClosingNote, type RunSummary } from "$lib/server/agent/session/runSummary.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import { saveSkillDraft, shouldSuggestSkillDraft } from "$lib/server/agent/skills/skillDraft.js";
@@ -829,7 +830,7 @@ export class MomRunner implements RunnerLike {
     // provider prefix caching stays valid across turns.
     const runPromptKey = JSON.stringify({
       base: nextPromptKey,
-      project: ctx.project ? [ctx.project.id, ctx.project.rootPath, ctx.project.instructions ?? ""] : null
+      project: ctx.project ? getProjectPromptRefreshKey(ctx.project) : null
     });
     if (!this.systemPromptReady || this.promptRefreshKey !== runPromptKey) {
       let systemPrompt = buildSystemPrompt(
@@ -852,6 +853,34 @@ export class MomRunner implements RunnerLike {
         });
         if (typeof transformed.systemPrompt === "string" && transformed.systemPrompt.trim()) {
           systemPrompt = transformed.systemPrompt;
+        }
+      }
+      if (ctx.project) {
+        try {
+          const filePath = writeProjectSystemPromptPreview({
+            targetDir: dirname(this.store.getWorkspaceDir()),
+            runtimeWorkspaceDir: this.store.getWorkspaceDir(),
+            channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            settings,
+            project: ctx.project,
+            prompt: systemPrompt
+          });
+          momLog("runner", "system_prompt_preview_written", {
+            botId: `project:${ctx.project.id}`,
+            projectId: ctx.project.id,
+            filePath,
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            promptLength: systemPrompt.length
+          });
+        } catch (error) {
+          momWarn("runner", "project_prompt_preview_write_failed", {
+            runId,
+            projectId: ctx.project.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
       }
       this.agent.state.systemPrompt = systemPrompt;

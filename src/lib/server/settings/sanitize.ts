@@ -2,6 +2,7 @@ import {
   type AgentSettings,
   DEFAULT_AGENT_ID,
   defaultAgentSettings,
+  normalizeDefaultAgentSettings,
   defaultRuntimeSettings,
   isKnownProvider,
   sanitizeAgentModelRouting,
@@ -505,14 +506,14 @@ export function sanitizeSingleAgent(input: unknown): AgentSettings {
   const item = input as Record<string, unknown>;
   const id = String(item.id ?? "").trim();
   if (!id) throw new Error("agent.id is required");
-  return {
+  return normalizeDefaultAgentSettings({
     id,
     name: String(item.name ?? "").trim() || id,
     description: String(item.description ?? "").trim(),
     enabled: item.enabled === undefined ? true : Boolean(item.enabled),
     sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
     modelRouting: sanitizeAgentModelRouting(item.modelRouting)
-  };
+  });
 }
 
 export function sanitizeAgents(input: unknown): AgentSettings[] {

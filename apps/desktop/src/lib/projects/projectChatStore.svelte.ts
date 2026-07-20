@@ -2,7 +2,8 @@ import { toStore } from "svelte/store";
 import {
   SessionRuntimeRegistry,
   type SessionRuntimeDeps,
-  type SessionRuntimeEntry
+  type SessionRuntimeEntry,
+  type TranscriptHydration
 } from "../chat/sessionRuntimeRegistry.svelte";
 import { SessionDraftStore } from "../chat/sessionDraftStore";
 import type { ConversationLabels, UiMessage } from "../chat/conversationController.svelte";
@@ -149,16 +150,19 @@ export class ProjectChatStore {
   });
 
   /** Opens a project session: pins its working directory, ensures its
-   *  controller, and marks it active. Callers may provide an already-loaded
-   *  transcript so selection has one request authority; otherwise the runtime
-   *  reloads it. Switching never touches another entry's in-flight turn. */
-  selectSession(sessionId: string, projectId: string, messages?: UiMessage[]): void {
-    if (!sessionId || !this.deps) return;
+   *  controller, and marks it active. The returned hydration lease lets a
+   *  caller finish its one authoritative request without overwriting a turn
+   *  that started in the meantime. Switching never touches another entry's
+   *  in-flight turn. */
+  selectSession(sessionId: string, projectId: string, messages?: UiMessage[]): TranscriptHydration | null {
+    if (!sessionId || !this.deps) return null;
     this.sessionProjectIds.set(sessionId, projectId);
     const entry = this.registry.getOrCreate(PROJECT_PROFILE_ID, sessionId);
     this.registry.setActive(PROJECT_PROFILE_ID, sessionId);
-    if (messages) entry.replaceMessages(messages);
+    const hydration = entry.beginTranscriptHydration();
+    if (messages) hydration.commit(messages);
     else void entry.reloadFromServer();
+    return hydration;
   }
 
   /** Sends a turn on a specific session through its pinned controller. */

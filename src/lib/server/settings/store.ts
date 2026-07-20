@@ -5,6 +5,7 @@ import {
   type ChannelSettingsMap,
   defaultRuntimeSettings,
   defaultAgentSettings,
+  normalizeDefaultAgentSettings,
   sanitizeAgentModelRouting,
   type ModelCapabilityTag,
   type ModelCapabilityVerification,
@@ -756,14 +757,14 @@ function sanitizeAgents(input: unknown): AgentSettings[] {
     const id = String(item.id ?? "").trim();
     if (!id || dedup.has(id)) continue;
     dedup.add(id);
-    out.push({
+    out.push(normalizeDefaultAgentSettings({
       id,
       name: String(item.name ?? "").trim() || id,
       description: String(item.description ?? "").trim(),
       enabled: item.enabled === undefined ? true : Boolean(item.enabled),
       sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
       modelRouting: sanitizeAgentModelRouting(item.modelRouting)
-    });
+    }));
   }
 
   return out;

@@ -202,7 +202,9 @@ test("floating sidebars keep stable depth and add only a restrained edge glow on
   assert.match(sharedSidebarRule, /border:[^;]*var\(--floating-sidebar-border\)/);
   assert.match(sharedSidebarRule, /transition:[^;]*border-color[^;]*box-shadow/);
   assert.doesNotMatch(styles, /--floating-sidebar-(?:border|shadow)-hover/);
-  assert.match(styles, /--floating-sidebar-glow:/);
+  assert.match(styles, /--floating-sidebar-glow:\s*color-mix\(in srgb, var\(--gray-600\) 18%, transparent\)/);
+  assert.match(styles, /:root\[data-theme="dark"\]\s*\{[^}]*--floating-sidebar-glow:\s*color-mix\(in srgb, var\(--accent\) 22%, transparent\)/s);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\)\s*\{[^}]*--floating-sidebar-glow:\s*color-mix\(in srgb, var\(--accent\) 22%, transparent\)/s);
   assert.match(styles, /\.chat-sidebar:hover,[\s\S]*\.settings-sidebar:focus-within\s*\{[^}]*border-color:\s*var\(--floating-sidebar-border-glow\)[^}]*box-shadow:[^}]*var\(--floating-sidebar-glow\)[^}]*var\(--floating-sidebar-shadow\)/s);
   assert.match(styles, /:root\[data-performance="low"\][^}]*--floating-sidebar-glow:\s*transparent/s);
   assert.doesNotMatch(styles, /\.sidebar-resizer::after/);

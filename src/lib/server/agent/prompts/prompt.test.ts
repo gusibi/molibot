@@ -4,7 +4,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { buildSystemPromptPreview } from "$lib/server/agent/prompts/prompt.js";
+import {
+  buildSystemPromptPreview,
+  getProjectPromptRefreshKey,
+  getSystemPromptSources
+} from "$lib/server/agent/prompts/prompt.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 
@@ -144,6 +148,103 @@ test("project prompt discovers priority instructions and replaces Workspace dire
     assert.doesNotMatch(prompt, /CLAUDE-MARKER/);
   } finally {
     rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("project prompt sources and refresh key follow Project instruction files", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-workspace-project-sources-"));
+  const projectDir = mkdtempSync(join(tmpdir(), "molibot-project-sources-"));
+  const project = {
+    id: "wiki",
+    name: "Wiki",
+    rootPath: projectDir,
+    scratchDir: join(workspaceDir, "scratch")
+  };
+  try {
+    writeFileSync(join(workspaceDir, "AGENTS.md"), "WORKSPACE-MARKER", "utf8");
+    writeFileSync(join(projectDir, "AGENT.md"), "PROJECT-MARKER-ONE", "utf8");
+    const firstKey = getProjectPromptRefreshKey(project);
+    const sources = getSystemPromptSources(workspaceDir, { project });
+    assert.deepEqual(sources.projectContext, [join(projectDir, "AGENT.md")]);
+
+    writeFileSync(join(projectDir, "AGENT.md"), "PROJECT-MARKER-TWO", "utf8");
+    assert.notEqual(getProjectPromptRefreshKey(project), firstKey);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("project prompts retain only USER.md from runtime profiles", () => {
+  const dataRoot = mkdtempSync(join(tmpdir(), "molibot-project-runtime-profiles-"));
+  const workspaceDir = join(dataRoot, "moli-w", "bots", "bot-1");
+  const projectDir = mkdtempSync(join(tmpdir(), "molibot-project-runtime-source-"));
+  const agentDir = join(dataRoot, "agents", "agent-1");
+  const originalDataDir = storagePaths.dataDir;
+  const originalAgentsDir = storagePaths.agentsDir;
+  try {
+    storagePaths.dataDir = dataRoot;
+    storagePaths.agentsDir = join(dataRoot, "agents");
+    mkdirSync(workspaceDir, { recursive: true });
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(workspaceDir, "USER.md"), "BOT-USER-MARKER", "utf8");
+    writeFileSync(join(workspaceDir, "BOT.md"), "BOT-MARKER", "utf8");
+    writeFileSync(join(workspaceDir, "IDENTITY.md"), "BOT-IDENTITY-MARKER", "utf8");
+    writeFileSync(join(workspaceDir, "SOUL.md"), "BOT-SOUL-MARKER", "utf8");
+    writeFileSync(join(agentDir, "AGENTS.md"), "AGENT-MARKER", "utf8");
+    writeFileSync(join(agentDir, "IDENTITY.md"), "AGENT-IDENTITY-MARKER", "utf8");
+    writeFileSync(join(dataRoot, "USER.md"), "GLOBAL-USER-MARKER", "utf8");
+    writeFileSync(join(dataRoot, "IDENTITY.md"), "GLOBAL-IDENTITY-MARKER", "utf8");
+    writeFileSync(join(projectDir, "AGENTS.md"), "PROJECT-AGENTS-MARKER", "utf8");
+
+    const settings = {
+      ...defaultRuntimeSettings,
+      channels: {
+        ...defaultRuntimeSettings.channels,
+        web: {
+          instances: [{
+            id: "bot-1",
+            name: "Bot 1",
+            enabled: true,
+            agentId: "agent-1",
+            credentials: {},
+            allowedChatIds: []
+          }]
+        }
+      }
+    };
+    const project = {
+      id: "wiki",
+      name: "Wiki",
+      rootPath: projectDir,
+      scratchDir: join(workspaceDir, "scratch")
+    };
+    const prompt = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      timezone: "UTC",
+      channel: "web",
+      settings,
+      project
+    });
+    const sources = getSystemPromptSources(workspaceDir, { channel: "web", settings, project });
+
+    assert.match(prompt, /BOT-USER-MARKER/);
+    assert.match(prompt, /PROJECT-AGENTS-MARKER/);
+    assert.doesNotMatch(prompt, /BOT-MARKER/);
+    assert.doesNotMatch(prompt, /BOT-IDENTITY-MARKER/);
+    assert.doesNotMatch(prompt, /BOT-SOUL-MARKER/);
+    assert.doesNotMatch(prompt, /AGENT-MARKER/);
+    assert.doesNotMatch(prompt, /AGENT-IDENTITY-MARKER/);
+    assert.doesNotMatch(prompt, /GLOBAL-USER-MARKER/);
+    assert.doesNotMatch(prompt, /GLOBAL-IDENTITY-MARKER/);
+    assert.deepEqual(sources.global, []);
+    assert.deepEqual(sources.agent, []);
+    assert.deepEqual(sources.bot, [join(workspaceDir, "USER.md")]);
+    assert.deepEqual(sources.identity, []);
+  } finally {
+    storagePaths.dataDir = originalDataDir;
+    storagePaths.agentsDir = originalAgentsDir;
+    rmSync(dataRoot, { recursive: true, force: true });
     rmSync(projectDir, { recursive: true, force: true });
   }
 });

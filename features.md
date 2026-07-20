@@ -5,6 +5,21 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-19
+
+### Project Chat 运行中回复单行归并（已完成）
+- Project Session 的 transcript 请求与正在执行的 turn 重叠时，不再把只有思考/工具调用的中间 assistant 投影插到 live 活动行上方；运行期间始终由缓存 transcript + 一个 live assistant 行展示。
+- 共享 Session Runtime 使用 hydration lease 记录请求开始时的 turn 序号和运行状态，拒绝运行中或被新 turn 超越的旧响应；最终完成、停止和审批恢复仍由 controller 自己的 reload 提交权威 transcript。
+- 回归覆盖截图对应的“运行中两条、完成后一条”、迟到响应不得回退最终内容，以及 owner reload 在 `sending=true` 时仍能提交。验证 Desktop Chat/API 212/212、Desktop UI 80/80、Svelte 0 错误 0 警告和 production build。
+
+### 工作英语教练、Momo 默认 Agent 与 Project 系统提示词预览（已完成）
+- 新增内置“工作英语教练”模板，以 `AGENTS.md`、`SOUL.md`、`IDENTITY.md` 分层描述面向中国软件工程师的身份、教学气质和完整工作流；支持自然语言自动识别、可选命令触发、润色/中译英、会议前准备、会议后复盘、角色扮演、主动回忆、错误复习、CEFR 评估和隐私安全的学习进度。
+- 首次安装的默认 Agent 显示为 Momo，内部继续使用兼容的 `default` ID；已有且未自定义的旧 `Default` 占位自动迁移，自定义名称与描述保持不变。
+- Project Runner 在最终 prompt hook 完成后，把本次真实系统提示词写入 Project 工作区根目录的 `SYSTEM_PROMPT.preview.md`；Project 模式只保留有效的 `USER.md` 运行时上下文，明确排除 Bot/Agent 的 `BOT.md`、`IDENTITY.md`、`SOUL.md`、`SONG.md`，预览也只列出实际生效的来源。
+- Project 顶层按 `AGENTS.md → AGENT.md → CLAUDE.md` 选择工作规则；命中文件内容进入 prompt 刷新指纹，修改后下一轮会真实重建系统提示词和预览。预览写入失败只记录运行错误，不阻断正常 Agent 回合。
+- 验证：Runner/Project router/模板/prompt/preview/settings/store 69/69、SvelteKit production build、真实 `momo-agent` Project 指令命中与预览输出、`git diff --check` 均通过。
+
+---
 ## 2026-07-18
 
 ### 深色主题 OKLCH 配色系统更新（已完成）
@@ -34,7 +49,7 @@
 - 设置页与 Chat 左侧导航统一为 macOS inset material：四周 10px 留白、12px 圆角、克制细边/内高光，并按底层画布选择 elevation；侧栏作为独立材质浮在窗口画布之上，内容、导航、底栏与既有业务行为不变。
 - Chat 与 Settings 两个原生窗口共用明确的交通灯安全偏移：关闭、最小化、缩放按钮整体下移 6px，避开侧栏顶部圆角边框，横向位置保持不变。
 - Chat 暴露在悬浮侧栏周围的底层画布与 Header/消息区使用同一主表面，不再出现左灰右白的割裂；Settings 继续保留适合卡片层级的次级灰色画布。
-- 最终 elevation 使用紧贴面板的双层阴影：默认态直接保持完整强度，鼠标经过或键盘聚焦不改变整块侧栏层级，只在边框叠加低透明强调色微光与短扩散；不会形成宽光晕、明暗跳变、位移或缩放，低性能模式自动关闭微光。
+- 最终 elevation 使用紧贴面板的双层阴影：默认态直接保持完整强度，鼠标经过或键盘聚焦不改变整块侧栏层级，只在边框叠加低透明微光与短扩散；亮色主题使用中性银灰，暗色主题保留蓝色强调光，不会形成宽光晕、明暗跳变、位移或缩放，低性能模式自动关闭微光。
 - Chat 侧栏右侧的独立竖线已移除；不可见的 resize 热区继续与面板边缘对齐，拖拽和键盘调整宽度保持可用。
 - 项目组标题右侧的新会话、更多和展开按钮在隐藏时不再永久占用 78px；标题平时使用完整行宽，只有 hover/键盘焦点显示操作时才让出按钮空间。
 - 没有任何 Web/项目 Session、或删除最后一个本地 Session 后，Chat 会直接进入默认 Bot 的可编辑草稿；输入框可立即聚焦和输入，首次发送时才创建 Session。

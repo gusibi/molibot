@@ -45,7 +45,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 1. Download the latest `Molibot_*.dmg` from [Releases](https://github.com/gusibi/molibot/releases/latest) (Apple Silicon).
 2. Open the app. Molibot starts its local runtime automatically — no terminal setup required.
 3. In **Settings → AI Providers**, add a model provider and API key.
-4. Start chatting. The app can also live in the menu bar and keep running in the background.
+4. Start chatting with Momo, the first-use default Agent. The app can also live in the menu bar and keep running in the background.
 
 ### Option B · Run from source
 
@@ -101,11 +101,13 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 
 | Capability | What it gives you |
 | --- | --- |
-| [Personal Agent and Memory](docs/features/personal-agent-and-memory.md) | Persistent conversations, governed long-term memory, and isolated project or Agent context. |
+| [Personal Agent and Memory](docs/features/personal-agent-and-memory.md) | Momo as the first-use default, built-in Agent templates including Workplace English Coach, governed long-term memory, and isolated project or Agent context. |
 | [Channels and Surfaces](docs/features/channels-and-surfaces.md) | One local runtime across browser, macOS Desktop, chat channels, and the terminal. |
 | [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior and controlled access to reusable workflows and external tools. |
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
-| [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with stable inset sidebars and a restrained interactive edge glow. |
+| [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with one stable live reply per Project turn and consistent inset-sidebar materials. |
+
+Project runs generate `SYSTEM_PROMPT.preview.md` in the Project's Molibot workspace. Its header lists only effective prompt sources: Project rules come from `AGENTS.md`, `AGENT.md`, or `CLAUDE.md`; runtime context retains `USER.md` but excludes Bot/Agent identity and persona profiles.
 
 ## How Molibot grows with you
 

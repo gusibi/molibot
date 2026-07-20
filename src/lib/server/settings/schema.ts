@@ -147,9 +147,22 @@ export const DEFAULT_AGENT_ID = "default";
 export function defaultAgentSettings(): AgentSettings {
   return {
     id: DEFAULT_AGENT_ID,
-    name: "Default",
-    description: "Default assistant used by Web and new channel profiles.",
+    name: "Momo",
+    description: "Momo, the default assistant used by Web and new channel profiles.",
     enabled: true
+  };
+}
+
+export function normalizeDefaultAgentSettings(agent: AgentSettings): AgentSettings {
+  const isLegacyPlaceholder = agent.id === DEFAULT_AGENT_ID
+    && agent.name === "Default"
+    && (!agent.description || agent.description === "Default assistant used by Web and new channel profiles.");
+  if (!isLegacyPlaceholder) return agent;
+  const defaults = defaultAgentSettings();
+  return {
+    ...agent,
+    name: defaults.name,
+    description: defaults.description
   };
 }
 

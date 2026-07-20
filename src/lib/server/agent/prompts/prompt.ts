@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import defaultAgentsTemplate from "./templates/AGENTS.template.md?raw";
@@ -38,6 +39,7 @@ const OPERATOR_DIRECTIVE_FILES = [
 // context/config.
 const SUPPORTING_INSTRUCTION_FILES = ["TOOLS.md", "BOOTSTRAP.md"] as const;
 const IDENTITY_INSTRUCTION_FILES = ["SOUL.md", "IDENTITY.md"] as const;
+const PROJECT_RUNTIME_PROFILE_FILES = ["USER.md"] as const;
 const PROJECT_CONTEXT_PRIORITY = ["AGENTS.md", "AGENT.md", "CLAUDE.md"] as const;
 const CONTEXT_FILE_MAX_CHARS = 20_000;
 const SKILLS_CACHE_TTL_MS = 10_000;
@@ -504,6 +506,20 @@ export interface ProjectPromptContext {
   scratchDir: string;
 }
 
+export function getProjectPromptRefreshKey(project: ProjectPromptContext): string {
+  const projectContext = discoverProjectContext(project.rootPath);
+  const projectTools = readInstructionFile(project.rootPath, "TOOLS.md");
+  return createHash("sha256")
+    .update(JSON.stringify({
+      project,
+      projectContext: projectContext
+        ? [projectContext.path, projectContext.fileName, projectContext.content]
+        : null,
+      projectTools
+    }))
+    .digest("hex");
+}
+
 function buildBaseSystemPromptWithOptions(
   vars: PromptRenderVars,
   options?: PromptBuildOptions,
@@ -813,7 +829,7 @@ export function buildSystemPrompt(
 
   // Operator-intent directives go ABOVE the default system prompt and override it.
   const operatorOrder = options?.project
-    ? OPERATOR_DIRECTIVE_FILES.filter((fileName) => fileName !== "AGENTS.md")
+    ? [...PROJECT_RUNTIME_PROFILE_FILES]
     : [...OPERATOR_DIRECTIVE_FILES];
   const operatorSections = mergePromptSectionsByOrder(
     operatorOrder,
@@ -894,16 +910,18 @@ export function buildSystemPromptPreview(
   return buildSystemPrompt(workspaceDir, chatId, sessionId, memory, options);
 }
 
-export function getSystemPromptSources(
-  workspaceDir: string,
-  options?: PromptBuildOptions
-): {
+export interface SystemPromptSources {
   global: string[];
   agent: string[];
   bot: string[];
   identity: string[];
   projectContext: string[];
-} {
+}
+
+export function getSystemPromptSources(
+  workspaceDir: string,
+  options?: PromptBuildOptions
+): SystemPromptSources {
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const collect = (baseDir: string, files?: readonly string[]): string[] => {
     const out: string[] = [];
@@ -915,7 +933,9 @@ export function getSystemPromptSources(
     return out;
   };
   const agentId = resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel);
-  const projectContext = discoverProjectContext(workspaceDir);
+  const projectContext = options?.project
+    ? discoverProjectContext(options.project.rootPath)
+    : discoverProjectContext(workspaceDir);
   const identity: string[] = [];
   const pushIdentity = (baseDir: string) => {
     for (const fileName of IDENTITY_INSTRUCTION_FILES) {
@@ -924,13 +944,31 @@ export function getSystemPromptSources(
       if (filePath) identity.push(filePath);
     }
   };
-  if (dataRoot !== workspaceDir) pushIdentity(workspaceDir);
-  if (agentId) pushIdentity(getAgentDir(agentId));
-  pushIdentity(dataRoot);
+  if (!options?.project) {
+    if (dataRoot !== workspaceDir) pushIdentity(workspaceDir);
+    if (agentId) pushIdentity(getAgentDir(agentId));
+    pushIdentity(dataRoot);
+  }
+  const globalFiles = options?.project ? PROJECT_RUNTIME_PROFILE_FILES : undefined;
+  const agentFiles = options?.project ? [] : AGENT_PROFILE_FILES;
+  const botFiles = options?.project ? PROJECT_RUNTIME_PROFILE_FILES : BOT_PROFILE_FILES;
+  const globalSources = collect(dataRoot, globalFiles);
+  const agentSources = agentId ? collect(getAgentDir(agentId), agentFiles) : [];
+  const botSources = dataRoot === workspaceDir ? [] : collect(workspaceDir, botFiles);
+  if (options?.project) {
+    const effectiveUserSource = botSources[0] ?? globalSources[0];
+    return {
+      global: effectiveUserSource === globalSources[0] ? globalSources : [],
+      agent: [],
+      bot: effectiveUserSource === botSources[0] ? botSources : [],
+      identity: [],
+      projectContext: projectContext ? [projectContext.path] : []
+    };
+  }
   return {
-    global: collect(dataRoot),
-    agent: agentId ? collect(getAgentDir(agentId), AGENT_PROFILE_FILES) : [],
-    bot: dataRoot === workspaceDir ? [] : collect(workspaceDir, BOT_PROFILE_FILES),
+    global: globalSources,
+    agent: agentSources,
+    bot: botSources,
     identity,
     projectContext: projectContext ? [projectContext.path] : []
   };

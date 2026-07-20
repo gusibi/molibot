@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { installBuiltInAgentTemplate, listBuiltInAgentTemplates } from "./builtInAgentTemplates";
+import { installBuiltInAgentTemplate, listBuiltInAgentTemplates, resolveBuiltInAgentTemplatesRoot } from "./builtInAgentTemplates";
 
 function writeTemplate(root: string, id: string, metadata: { name?: string; description?: string; category?: string } = {}): void {
   const dir = path.join(root, id);
@@ -66,10 +66,20 @@ test("real template directory exposes the curated templates from YAML metadata",
   try {
     const templates = listBuiltInAgentTemplates({ agentsRoot });
     const ids = templates.map((template) => template.id);
-    for (const id of ["product-manager", "business-strategist", "value-investment-researcher"]) {
+    for (const id of ["product-manager", "business-strategist", "value-investment-researcher", "workplace-english-coach"]) {
       assert.ok(ids.includes(id), `missing ${id}`);
     }
-    assert.ok(templates.length >= 13);
+    const coach = templates.find((template) => template.id === "workplace-english-coach");
+    assert.equal(coach?.name, "工作英语教练");
+    assert.equal(coach?.category, "学习与沟通");
+    const coachDir = path.join(resolveBuiltInAgentTemplatesRoot(), "workplace-english-coach");
+    const agents = readFileSync(path.join(coachDir, "AGENTS.md"), "utf8");
+    assert.match(agents, /自然语言自动识别/);
+    assert.match(agents, /会议前准备/);
+    assert.match(agents, /会议后复盘/);
+    assert.match(agents, /\/polish/);
+    assert.match(agents, /Mastered/);
+    assert.ok(templates.length >= 14);
   } finally {
     rmSync(agentsRoot, { recursive: true, force: true });
   }
