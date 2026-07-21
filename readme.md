@@ -83,7 +83,7 @@ System tasks like **Daily Memory Reflection** review recent conversations and di
 
 ### Settings that stay understandable
 
-Language, startup behavior, menu-bar mode, notifications, and appearance — all in plain terms, with each page explaining its own sharing scope.
+Language, startup behavior, menu-bar mode, notifications, and appearance — all in plain terms, with each page explaining its own sharing scope. Form controls use one standard size, and time fields open the host-native picker when available. Memory Reflection and Daily Materials share one authorized Telegram/Feishu completion destination, configurable from either plugin card while keeping separate notification switches.
 
 <p align="center">
   <img src="./assets/screenshots/setting-general.png" alt="Settings — General" width="800" />
@@ -91,7 +91,7 @@ Language, startup behavior, menu-bar mode, notifications, and appearance — all
 
 ### Know exactly what your Agent costs
 
-A local usage dashboard tracks requests, token trends, cache hit ratio, and token distribution — aggregate counts only, no credentials ever leave your machine.
+A local usage dashboard tracks requests, token trends, cache hit ratio, and token distribution — aggregate counts only, no credentials ever leave your machine. Range/model/Bot/channel controls keep their own compact filter row, while Trace puts exact diagnostic IDs behind a low-emphasis optional “More filters” disclosure.
 
 <p align="center">
   <img src="./assets/screenshots/setting-usage.png" alt="Settings — Usage dashboard" width="800" />

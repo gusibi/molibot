@@ -165,6 +165,7 @@
   const outcomeSegments = $derived(donutSegments(outcomeItems));
   const durationMax = $derived(trace ? Math.max(1, trace.totals.avgToolDurationMs, trace.totals.avgModelDurationMs) : 1);
   const totalPages = $derived(trace ? Math.max(1, Math.ceil(trace.facts.total / trace.facts.pageSize)) : 1);
+  const advancedFilterCount = $derived([chatId, sessionId, runId].filter((value) => value.trim()).length + (sourceLimit === "5000" ? 0 : 1));
   const rankingTabs = $derived([
     { id: "tools" as const, label: session.text.traceRankTools },
     { id: "skills" as const, label: session.text.traceRankSkills },
@@ -184,21 +185,31 @@
   <div class="settings-card"><EmptyState title={session.text.traceEmpty} icon="chart-line" /></div>
 {:else}
   <div class="settings-card observatory-filter-card">
-    <div class="observatory-filter-head">
-      <div><strong>{session.text.traceFilters}</strong><p>{trace.window.startDate} → {trace.window.endDate} · {trace.timezone}</p></div>
-      <div class="observatory-filter-actions"><button class="secondary-button" type="button" onclick={clearFilters}>{session.text.traceResetFilters}</button><button class="primary-button" type="button" disabled={traceStore.refreshing} onclick={applyFilters}>{traceStore.refreshing ? session.text.traceRefreshing : session.text.traceApplyFilters}</button></div>
+    <div class="observatory-filter-toolbar" role="group" aria-label={session.text.traceFilters}>
+      <div class="observatory-filter-headline">
+        <div class="observatory-filter-title"><strong>{session.text.traceFilters}</strong><p>{trace.window.startDate} → {trace.window.endDate} · {trace.timezone}</p></div>
+        <div class="observatory-filter-actions">
+          <button class="tertiary-button observatory-reset-button" type="button" onclick={clearFilters}>{session.text.traceResetFilters}</button>
+          <button class="icon-button observatory-refresh-button" type="button" aria-label={session.text.traceRefresh} title={session.text.traceRefresh} disabled={traceStore.refreshing} onclick={() => session.endpoint && loadTrace(session.endpoint)}><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
+          <button class="primary-button" type="button" disabled={traceStore.refreshing} onclick={applyFilters}>{traceStore.refreshing ? session.text.traceRefreshing : session.text.traceApplyFilters}</button>
+        </div>
+      </div>
+      <div class="observatory-filter-fields trace-filter-fields">
+        <label class="observatory-field"><span>{session.text.traceRange}</span><SelectControl value={traceStore.query.range} ariaLabel={session.text.traceRange} options={TRACE_RANGES.map((range) => ({ value: range, label: traceRangeLabel(range, session.text) }))} onChange={(value) => updateTraceQuery({ range: value as DesktopTraceRange })} /></label>
+        <label class="observatory-field"><span>{session.text.traceFactType}</span><SelectControl value={factType} ariaLabel={session.text.traceFactType} options={TRACE_FACT_TYPES.map((value) => ({ value, label: factTypeLabel(value) }))} onChange={(value) => factType = value as DesktopTraceFactType} /></label>
+        <label class="observatory-field"><span>{session.text.usageBot}</span><input bind:value={botId} list="trace-bots" placeholder={session.text.usageAllBots} /><datalist id="trace-bots">{#each trace.options.bots as value}<option value={value}></option>{/each}</datalist></label>
+        <label class="observatory-field"><span>{session.text.usageChannel}</span><input bind:value={channel} list="trace-channels" placeholder={session.text.usageAllChannels} /><datalist id="trace-channels">{#each trace.options.channels as value}<option value={value}></option>{/each}</datalist></label>
+      </div>
     </div>
-    <div class="observatory-filter-grid trace-filter-grid">
-      <label class="observatory-field"><span>{session.text.traceRange}</span><SelectControl value={traceStore.query.range} ariaLabel={session.text.traceRange} options={TRACE_RANGES.map((range) => ({ value: range, label: traceRangeLabel(range, session.text) }))} onChange={(value) => updateTraceQuery({ range: value as DesktopTraceRange })} /></label>
-      <label class="observatory-field"><span>{session.text.traceFactType}</span><SelectControl value={factType} ariaLabel={session.text.traceFactType} options={TRACE_FACT_TYPES.map((value) => ({ value, label: factTypeLabel(value) }))} onChange={(value) => factType = value as DesktopTraceFactType} /></label>
-      <label class="observatory-field"><span>{session.text.usageBot}</span><input bind:value={botId} list="trace-bots" placeholder={session.text.usageAllBots} /><datalist id="trace-bots">{#each trace.options.bots as value}<option value={value}></option>{/each}</datalist></label>
-      <label class="observatory-field"><span>{session.text.usageChannel}</span><input bind:value={channel} list="trace-channels" placeholder={session.text.usageAllChannels} /><datalist id="trace-channels">{#each trace.options.channels as value}<option value={value}></option>{/each}</datalist></label>
-      <label class="observatory-field"><span>{session.text.traceChatId}</span><input bind:value={chatId} placeholder={session.text.traceChatId} /></label>
-      <label class="observatory-field"><span>{session.text.traceSessionId}</span><input bind:value={sessionId} placeholder={session.text.traceSessionId} /></label>
-      <label class="observatory-field"><span>{session.text.traceRunId}</span><input bind:value={runId} placeholder={session.text.traceRunId} /></label>
-      <label class="observatory-field"><span>{session.text.traceSourceLimit}</span><SelectControl value={sourceLimit} ariaLabel={session.text.traceSourceLimit} options={[1000, 5000, 10000].map((value) => ({ value: String(value), label: formatTokenCount(value) }))} onChange={(value) => sourceLimit = value} /></label>
-    </div>
-    <div class="observatory-filter-foot"><span>{session.text.usageUpdatedAt} {formatNaturalDateTime(trace.generatedAt, session.locale)}</span><button class="secondary-button" type="button" disabled={traceStore.refreshing} onclick={() => session.endpoint && loadTrace(session.endpoint)}>{traceStore.refreshing ? session.text.traceRefreshing : session.text.traceRefresh}</button></div>
+    <details class="observatory-advanced-filters">
+      <summary><span class="observatory-disclosure-label"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>{session.text.traceMoreFilters}{#if advancedFilterCount > 0}<em>{advancedFilterCount}</em>{/if}<i class="ph ph-caret-down observatory-disclosure-icon" aria-hidden="true"></i></span><span class="observatory-filter-updated">{session.text.usageUpdatedAt} {formatNaturalDateTime(trace.generatedAt, session.locale)}</span></summary>
+      <div class="observatory-filter-fields trace-advanced-filter-fields">
+        <label class="observatory-field"><span>{session.text.traceChatId}</span><input bind:value={chatId} placeholder={session.text.traceChatId} /></label>
+        <label class="observatory-field"><span>{session.text.traceSessionId}</span><input bind:value={sessionId} placeholder={session.text.traceSessionId} /></label>
+        <label class="observatory-field"><span>{session.text.traceRunId}</span><input bind:value={runId} placeholder={session.text.traceRunId} /></label>
+        <label class="observatory-field"><span>{session.text.traceSourceLimit}</span><SelectControl value={sourceLimit} ariaLabel={session.text.traceSourceLimit} options={[1000, 5000, 10000].map((value) => ({ value: String(value), label: formatTokenCount(value) }))} onChange={(value) => sourceLimit = value} /></label>
+      </div>
+    </details>
   </div>
 
   <div class="chart-kpi-grid">

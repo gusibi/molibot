@@ -5,6 +5,23 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-20
+
+### Fix: Standardize Desktop Settings controls and open the native time picker
+- Desktop Settings form text, number, time, and select controls now use the existing DESIGN default input token at 40px instead of intrinsic per-type sizing. The memory-reflection notification row no longer combines conflicting field/row layout classes, removing the oversized time box.
+- Added one shared native `input[type=time]` component across Memory Reflection, Daily Materials, and Automation schedules. Pointer activation requests the host system picker through `showPicker()` when supported while retaining normal keyboard/manual entry as fallback.
+- Added machine guards for the shared height, native picker wiring, and all three call sites. Verified Desktop UI 81/81, focused settings/restart tests 13/13, Svelte diagnostics 0/0, production build, and 860×620 cold navigation without horizontal overflow.
+
+### Polish: Compact Usage and Trace filters
+- Reworked both Desktop observability pages around one compact filter toolbar. Usage keeps range, model, Bot, and channel visible; Trace keeps its four common dimensions visible and moves exact Chat/Session/Run IDs plus the source limit into a native “More filters” disclosure with an active-condition count.
+- Corrected the connected-state composition so the four controls own their full 720px row instead of competing with text actions. Reset is now tertiary, refresh is an icon utility, only Trace Apply remains primary, and the disclosure stays transparent rather than reading as a selected gray table row.
+- Preserved immediate Usage updates and explicit Trace apply behavior, compressed date/update context into a metadata strip, and added 24px separation before KPI results. Added bilingual copy, a shared DESIGN rule, and structural guards; verified Desktop UI 80/80, Svelte diagnostics 0/0, production build, and 860×620 navigation without horizontal overflow.
+
+### Polish: Configure the shared memory notification target from Daily Materials
+- The expanded Daily Materials plugin card now exposes the same authorized Telegram/Feishu notification-target selector as Memory Backend Settings, so users can configure delivery without switching accordion cards. Both selectors edit the existing shared target and retain the independent completion-notification switches.
+- Updated bilingual helper copy and added a structural regression that requires the shared selector in both cards. Verified Desktop UI 80/80, focused authorization/settings/restart tests 27/27, Svelte diagnostics 0/0, and the Desktop production build.
+
+---
 ## 2026-07-19
 
 ### Fix: Project Chat keeps one live assistant reply during transcript refreshes

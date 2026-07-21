@@ -1,5 +1,6 @@
 <script lang="ts">
   import { session } from "../stores/session.svelte";
+  import NativeTimeInput from "../components/ui/NativeTimeInput.svelte";
   import { isTaskScheduleValid, parseTaskSchedule, taskScheduleToCron, type TaskScheduleMode } from "./taskSchedule";
 
   let { schedule = $bindable() }: { schedule: string } = $props();
@@ -79,7 +80,7 @@
     {:else}
       <label class="settings-field">
         <span>{session.text.tasksRunTime}</span>
-        <input type="time" bind:value={draft.time} onchange={commit} />
+        <NativeTimeInput bind:value={draft.time} onchange={commit} />
       </label>
     {/if}
   </div>

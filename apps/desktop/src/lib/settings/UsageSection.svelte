@@ -76,20 +76,21 @@
   <div class="settings-card"><EmptyState title={session.text.usageEmpty} icon="chart-line" /></div>
 {:else}
   <div class="settings-card observatory-filter-card">
-    <div class="observatory-filter-head">
-      <div><strong>{session.text.usageFilters}</strong><p>{usage.window.startDate} → {usage.window.endDate} · {usage.timezone}</p></div>
-      <div class="observatory-filter-actions">
-        <button class="secondary-button" type="button" onclick={resetUsageFilters}>{session.text.usageClearFilters}</button>
-        <button class="secondary-button" type="button" disabled={usageStore.refreshing} onclick={() => session.endpoint && loadUsage(session.endpoint)}>{usageStore.refreshing ? session.text.usageRefreshing : session.text.usageRefresh}</button>
+    <div class="observatory-filter-toolbar" role="group" aria-label={session.text.usageFilters}>
+      <div class="observatory-filter-headline">
+        <div class="observatory-filter-title"><strong>{session.text.usageFilters}</strong><p>{usage.window.startDate} → {usage.window.endDate} · {usage.timezone} · {session.text.usageUpdatedAt} {formatDate(usage.generatedAt)}</p></div>
+        <div class="observatory-filter-actions">
+          <button class="tertiary-button observatory-reset-button" type="button" onclick={resetUsageFilters}>{session.text.usageClearFilters}</button>
+          <button class="icon-button observatory-refresh-button" type="button" aria-label={session.text.usageRefresh} title={session.text.usageRefresh} disabled={usageStore.refreshing} onclick={() => session.endpoint && loadUsage(session.endpoint)}><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div class="observatory-filter-fields usage-filter-fields">
+        <label class="observatory-field"><span>{session.text.traceRange}</span><SelectControl value={usageStore.query.range} ariaLabel={session.text.traceRange} options={USAGE_RANGES.map((range) => ({ value: range, label: usageWindowLabel(range, session.text) }))} onChange={(value) => updateUsageQuery({ range: value as DesktopUsageRange })} /></label>
+        <label class="observatory-field"><span>{session.text.usageModel}</span><SelectControl value={usageStore.query.modelId} ariaLabel={session.text.usageModel} options={[{ value: "all", label: session.text.usageAllModels }, ...usage.options.models.map((item) => ({ value: item.id, label: humanizeModelOption(item.label, item.id).label }))]} onChange={(modelId) => updateUsageQuery({ modelId })} /></label>
+        <label class="observatory-field"><span>{session.text.usageBot}</span><SelectControl value={usageStore.query.botId} ariaLabel={session.text.usageBot} options={[{ value: "all", label: session.text.usageAllBots }, ...usage.options.bots.map((bot) => ({ value: bot, label: bot }))]} onChange={(botId) => updateUsageQuery({ botId })} /></label>
+        <label class="observatory-field"><span>{session.text.usageChannel}</span><SelectControl value={usageStore.query.channel} ariaLabel={session.text.usageChannel} options={[{ value: "all", label: session.text.usageAllChannels }, ...usage.options.channels.map((channel) => ({ value: channel, label: channel }))]} onChange={(channel) => updateUsageQuery({ channel })} /></label>
       </div>
     </div>
-    <div class="observatory-filter-grid usage-filter-grid">
-      <label class="observatory-field"><span>{session.text.traceRange}</span><SelectControl value={usageStore.query.range} ariaLabel={session.text.traceRange} options={USAGE_RANGES.map((range) => ({ value: range, label: usageWindowLabel(range, session.text) }))} onChange={(value) => updateUsageQuery({ range: value as DesktopUsageRange })} /></label>
-      <label class="observatory-field"><span>{session.text.usageModel}</span><SelectControl value={usageStore.query.modelId} ariaLabel={session.text.usageModel} options={[{ value: "all", label: session.text.usageAllModels }, ...usage.options.models.map((item) => ({ value: item.id, label: humanizeModelOption(item.label, item.id).label }))]} onChange={(modelId) => updateUsageQuery({ modelId })} /></label>
-      <label class="observatory-field"><span>{session.text.usageBot}</span><SelectControl value={usageStore.query.botId} ariaLabel={session.text.usageBot} options={[{ value: "all", label: session.text.usageAllBots }, ...usage.options.bots.map((bot) => ({ value: bot, label: bot }))]} onChange={(botId) => updateUsageQuery({ botId })} /></label>
-      <label class="observatory-field"><span>{session.text.usageChannel}</span><SelectControl value={usageStore.query.channel} ariaLabel={session.text.usageChannel} options={[{ value: "all", label: session.text.usageAllChannels }, ...usage.options.channels.map((channel) => ({ value: channel, label: channel }))]} onChange={(channel) => updateUsageQuery({ channel })} /></label>
-    </div>
-    <p class="observatory-updated">{session.text.usageUpdatedAt} {formatDate(usage.generatedAt)}</p>
   </div>
 
   <div class="chart-kpi-grid">

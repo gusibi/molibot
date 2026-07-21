@@ -53,6 +53,8 @@ const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
 const slashSuggestionMenu = read("./lib/chat/SlashSuggestionMenu.svelte");
 const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
+const taskScheduleBuilder = read("./lib/settings/TaskScheduleBuilder.svelte");
+const nativeTimeInput = read("./lib/components/ui/NativeTimeInput.svelte");
 const projectDetail = read("./lib/projects/ProjectDetail.svelte");
 const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
 const chatHeader = read("./lib/chat/ChatHeader.svelte");
@@ -869,7 +871,23 @@ test("settings uses the flat Geist layout", () => {
   assert.match(sections.plugins, /memoryDailyMaterials\.promptPath/);
   assert.match(sections.plugins, /memoryReflectionNotificationTarget/);
   assert.match(sections.plugins, /reflectionNotificationTargets/);
+  assert.equal(
+    sections.plugins.match(/bind:value=\{pluginsStore\.pluginsEdit\.memoryReflectionNotificationTarget\}/g)?.length,
+    2,
+    "the shared memory notification target must be editable from both memory and daily-material cards"
+  );
   assert.match(sections.plugins, /disabled=\{!pluginsStore\.pluginsEdit\.memoryReflectionNotifications && !pluginsStore\.pluginsEdit\.memoryDailyMaterials\.notifications\}/);
+});
+
+test("settings form controls share the DESIGN input height and time fields use the native picker", () => {
+  assert.match(design, /input:\s*[\s\S]*?height:\s*40px/);
+  assert.match(styles, /\.settings-field input\s*\{[^}]*height:\s*40px[^}]*padding:\s*0 12px/s);
+  assert.match(styles, /\.settings-field select\s*\{[^}]*height:\s*40px[^}]*padding:\s*0 30px 0 12px/s);
+  assert.equal(sections.plugins.match(/<NativeTimeInput/g)?.length, 2);
+  assert.equal(taskScheduleBuilder.match(/<NativeTimeInput/g)?.length, 1);
+  assert.match(nativeTimeInput, /<input type="time"[^>]*onpointerdown=\{openNativePicker\}/);
+  assert.match(nativeTimeInput, /input\.showPicker\(\)/);
+  assert.doesNotMatch(sections.plugins, /class="settings-row settings-field"/);
 });
 
 test("project creation asks for a name before offering managed or existing directories", () => {
@@ -1000,7 +1018,12 @@ test("usage and trace pages provide full observability dashboards", () => {
   assert.match(sections.trace, /untrack\(\(\) => \{[\s\S]*endpoint !== traceStore\.endpoint[\s\S]*loadTrace\(endpoint\)/);
   assert.doesNotMatch(sections.usage, /session\.endpoint !== usageStore\.endpoint/);
   assert.doesNotMatch(sections.trace, /session\.endpoint !== traceStore\.endpoint/);
-  assert.match(sections.usage, /class="observatory-filter-grid usage-filter-grid"/);
+  assert.match(sections.usage, /class="observatory-filter-toolbar"/);
+  assert.match(sections.usage, /class="observatory-filter-headline"/);
+  assert.match(sections.usage, /class="observatory-filter-fields usage-filter-fields"/);
+  assert.match(sections.usage, /class="icon-button observatory-refresh-button"/);
+  assert.match(sections.usage, /class="tertiary-button observatory-reset-button"/);
+  assert.doesNotMatch(sections.usage, /class="observatory-filter-head"/);
   assert.match(sections.usage, /usageStore\.query\.modelId/);
   assert.match(sections.usage, /usage\.rankings\[rankingView\]/);
   assert.match(sections.usage, /class="observatory-table"/);
@@ -1008,7 +1031,12 @@ test("usage and trace pages provide full observability dashboards", () => {
   assert.match(sections.usage, /class="trend-line trend-line-token" d=\{tokenLine\}/);
   assert.match(sections.usage, /class="donut-seg"/);
   assert.match(sections.usage, /class="window-bar-track"/);
-  assert.match(sections.trace, /class="observatory-filter-grid trace-filter-grid"/);
+  assert.match(sections.trace, /class="observatory-filter-toolbar"/);
+  assert.match(sections.trace, /class="observatory-filter-headline"/);
+  assert.match(sections.trace, /<details class="observatory-advanced-filters">/);
+  assert.match(sections.trace, /class="observatory-filter-fields trace-advanced-filter-fields"/);
+  assert.match(sections.trace, /advancedFilterCount/);
+  assert.doesNotMatch(sections.trace, /class="observatory-filter-head"/);
   assert.match(sections.trace, /trace\.rankings\[rankingView\]/);
   assert.match(sections.trace, /trace\.facts\.items/);
   assert.match(sections.trace, /class="hbar-fill"[\s\S]*percentOf\(item\.value, activityMax\)/);
@@ -1018,6 +1046,9 @@ test("usage and trace pages provide full observability dashboards", () => {
   assert.match(styles, /--chart-blue:/);
   assert.match(styles, /\.observatory-table\s*\{/);
   assert.match(styles, /\.observatory-mobile-list\s*\{/);
+  assert.match(styles, /\.observatory-filter-card\s*\{[^}]*margin-bottom:\s*24px/);
+  assert.match(styles, /\.observatory-filter-headline\s*\{/);
+  assert.match(styles, /\.observatory-advanced-filters\s*>\s*summary\s*\{[^}]*background:\s*transparent/);
 });
 
 test("Desktop Trace exposes live, stuck, and orphan run controls", () => {

@@ -11,6 +11,46 @@
 
 ---
 
+# 2026-07-19 — Project Chat duplicate live reply fix
+
+## Phase 1: Reproduction and planning
+- **Status:** complete
+- Reproduced the exact captured state with an agent-entry projection harness: two assistant rows while live, one after final projection/reload.
+- Inspected the matching real Project session: one final assistant metadata row; intermediate thinking/tool-call Agent entry explains the temporary transcript row.
+- Loaded the bug-diagnosis and file-planning procedures and appended isolated task sections without overwriting existing work.
+- Red result: the Project hydration regression failed with `Expected 1, actual 2`, matching the screenshot exactly.
+
+## Phase 2: Shared ownership implementation
+- **Status:** complete
+- Added a monotonic controller turn sequence and a shared transcript hydration lease.
+- Project selection now carries one lease across the request instead of re-activating/replacing the runtime after the response.
+- External hydration is rejected if it overlaps a live/newer turn; controller-owned reloads remain authoritative during finalization, stop, and approval recovery.
+- Green results: exact Project regression 1/1; shared stale-hydration/final-reload regression 1/1.
+- Error: the first broad implementation patch matched the host callback in the wrong order and applied nothing; smaller exact patches succeeded.
+
+## Phase 3: Verification
+- **Status:** complete
+- Desktop Chat/API default suite: 212/212 pass.
+- Desktop UI contract suite: 80/80 pass.
+- Full Desktop API file: 76/76 pass.
+- Exact Project regression: pass; the other two current session hydration tests also pass.
+- Full `projectsStore.test.ts`: 3/4 pass; its first stale test expected automatic first-Session selection and already failed before this fix, so it was preserved as unrelated.
+- Svelte diagnostics: 0 errors / 0 warnings.
+- Desktop production build: pass; existing dynamic-import and chunk-size advisories remain.
+- `git diff --check`: pass; no `[DEBUG-*]` instrumentation remains.
+- Cold-path browser limitation: browser bootstrap failed on a macOS code-signature rejection for the plugin's native LevelDB binary, before a browser runtime could be created. No visual pass is claimed.
+
+## Phase 4: Documentation and adversarial review
+- **Status:** complete
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `readme.md` with the delivered single-live-reply ownership behavior and verification.
+- Root-cause class: stale async transcript hydration / competing presentation ownership.
+- Machine guard: exact Project `2 -> 1` regression plus shared late-response and owner-reload regression in the default 212-test Desktop chain.
+- Existing `CLAUDE.md` Recurring Pitfall 3 already covers stale async owner validation, so no duplicate long-term rule was added.
+- Adversarially verified: late-after-finish responses cannot roll back the final transcript; final/stop/approval owner reloads are not blocked; background Session re-selection retains cached messages; shared Main Chat receives the same protection; no Channel-specific logic was introduced.
+- The planning skill's completion helper was run once but cannot parse this repository's append-only numbered-phase format, reporting zero completed phases despite the explicit completed phase list; it was not repeated.
+
+---
+
 # 2026-07-16 — Native experience developer board
 
 ## Phase 1: Tracker and seam discovery
@@ -1136,3 +1176,188 @@
 - **Save/API behavior changing:** existing dirty markers, store update helpers, and fine-grained save paths are unchanged.
 - **Theme/locale/compact regressions:** no page-local labels or colors were introduced; the verified shared component owns focus, theme, and compact geometry.
 - The planning skill's completion helper was run via `sh` but is incompatible with this repository's append-only multi-task plan format; it reported unrelated historical headings rather than this task's explicit completed phases. Product verification remained green.
+# 2026-07-19 — Workplace English Coach / Momo default / Project prompt preview
+
+## Phase 1: Discovery
+- **Status:** complete
+- Actions taken:
+  - Loaded the Agent runtime review and file-based planning procedures.
+  - Confirmed the worktree already contains user-owned changes; no product code has been edited.
+  - Appended task-specific planning, requirements, assumptions, and verification gates without replacing prior planning history.
+  - Traced Project-mode routing through the shared Project runtime workspace and confirmed the actual model prompt is built in `MomRunner` with `ctx.project`.
+  - Identified two observability gaps: source discovery ignores `options.project`, and no Project-local preview is written after final hook transformation.
+  - Identified a refresh gap: Project instruction-file changes are absent from the Runner prompt cache key.
+- Files modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+## Phase 2: Focused regressions
+- **Status:** complete
+- Planned checks:
+  - Curated template discovery exposes the Workplace English Coach contract.
+  - First-use settings expose Momo while retaining the stable internal `default` id.
+  - Project prompt source discovery and refresh fingerprints follow the Project root.
+  - Project preview output lands at the Project workspace root and contains the final rendered prompt plus source metadata.
+- Red test result:
+  - Missing `workplace-english-coach` template.
+  - Missing `projectPromptPreview` module and `getProjectPromptRefreshKey` export.
+  - Default Agent still reports `Default` instead of `Momo`.
+  - 11 existing focused assertions remained green; failures match only the new contracts.
+- Implementation result so far:
+  - Added the three-file Workplace English Coach template.
+  - Added Momo first-use metadata plus legacy-placeholder-only migration.
+  - Added Project instruction fingerprints, correct Project source discovery, and final-prompt preview output.
+  - 41 focused prompt/template/settings/store assertions pass; `git diff --check` passes.
+- Error:
+  - A read-only local API port probe used zsh's reserved `status` variable; the retry will use a task-specific name.
+
+## Phase 3: Implementation
+- **Status:** complete
+- Files created:
+  - `src/lib/server/agent/prompts/templates/workplace-english-coach/{AGENTS.md,SOUL.md,IDENTITY.md}`
+  - `src/lib/server/agent/prompts/projectPromptPreview.ts`
+  - `src/lib/server/agent/prompts/projectPromptPreview.test.ts`
+- Files updated:
+  - Prompt rendering/source discovery and Project refresh fingerprint.
+  - Shared Runner Project preview generation after prompt hooks.
+  - Project workspace path helper.
+  - Default Agent metadata and legacy `Default` placeholder migration.
+  - Focused template, prompt, preview, and settings tests.
+- Live result:
+  - Generated `<data-dir>/projects/momo-agent/SYSTEM_PROMPT.preview.md` through the product renderer/writer.
+  - Confirmed the registered Project root's `AGENTS.md` appears as the effective Project instruction source and its heading is present in the rendered prompt.
+
+## Phase 4: Verification and adversarial review
+- **Status:** complete
+- Completed:
+  - Prompt/template/settings/store suite: 41/41 pass.
+  - `git diff --check`: pass.
+- Repository-wide TypeScript check:
+  - Blocked by the existing repo baseline (missing `undici-types`/`openclaw` declarations and numerous unrelated package/UI/test type errors).
+  - No diagnostic references the changed Runner, Project preview, prompt source, runtime cache, schema normalization, or coach template files.
+  - Next verification uses the repository's actual SvelteKit build and focused executable tests rather than modifying unrelated baseline failures.
+- Final verification:
+  - Runner/Project router/template/prompt/preview/settings/store suite: 69/69 pass.
+  - Legacy default-Agent `save → new SettingsStore → load` round trip uses a temporary database and preserves custom Agent names while migrating only the untouched placeholder.
+  - SvelteKit production build: pass; only existing dynamic/static import advisories remain.
+  - Real Project preview: generated; selected `AGENTS.md` source and rendered heading confirmed.
+  - `git diff --check`: pass.
+
+## Phase 5: Documentation and delivery
+- **Status:** complete
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `readme.md` with the delivered behavior, acceptance contract, release summary, and user entry point.
+- Adversarial review findings and fixes:
+  1. A global storage-derived preview target could make injected test stores write live data; Runner now derives the Project workspace from its injected runtime store, with a source guard.
+  2. Renaming every `default` Agent could overwrite a user choice; migration now matches only the exact legacy placeholder name/description and has both sanitizer and restart round-trip guards.
+  3. A preview written before prompt hooks could lie; Runner writes only after `prompt.build.after`, and a regression locks ordering.
+  4. Project instruction edits could remain stale behind the prompt cache; the refresh key now hashes the same selected/sanitized Project context and `TOOLS.md` used by rendering.
+  5. Preview I/O could fail on a read-only workspace; failure is caught and logged without failing the Agent turn.
+- Fix closeout:
+  - Root-cause classes: observability drift, prompt-cache invalidation, and default-setting migration.
+  - Machine guards: focused template/source/fingerprint/ordering/output/sanitizer/restart tests plus production build.
+  - No new long-term pitfall entry is needed: existing prompt-rendering and temporary-store rules already cover these classes.
+
+---
+
+# 2026-07-20 — Daily Materials notification target
+
+- Traced the shared target through Desktop summary/editor, authorization validation, settings sanitizer/store, scheduler resolution, and context-free runtime delivery.
+- Added a red Desktop structural assertion requiring two shared target bindings; it failed 1 vs 2 as expected.
+- Added the authorized target selector to the Daily Materials card, reusing the same editor value/options/disabled rule as Memory Backend Settings.
+- Updated Chinese and English helper copy to avoid accordion-relative wording.
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`.
+- Final verification: Desktop UI 80/80; authorization/scheduler/Desktop settings/temporary-store restart suite 27/27; Svelte diagnostics 0 errors / 0 warnings; Desktop production build and `git diff --check` pass.
+- Cold-path review: a fresh local preview opened Settings → Plugins at 860×620 with no horizontal overflow (`scrollWidth === clientWidth === 860`). Browser preview cannot receive the Tauri service endpoint, so populated plugin-card interaction remains covered by the structural UI regression and successful compiled build rather than being misreported as a connected native walkthrough.
+- Adversarial review:
+  1. A separate Daily Materials destination would diverge from the shipped shared-target runtime; no schema/API/runtime field was added.
+  2. Accordion layout previously hid the only selector; both mutually exclusive cards now render the same binding.
+  3. Directional “above” copy would become false in one card; both locales now use position-independent wording.
+  4. Target authorization or invalid fallback could regress if UI bypassed the existing save path; the new selector uses the unchanged editor request, and focused settings/scheduler tests pass.
+  5. Two selectors could drift if bound to copies; the machine guard requires two bindings to the exact shared editor property.
+- Fix closeout: root-cause class is UI capability leakage across accordion panels. The structural regression is the machine guard; no new long-term CLAUDE/AGENTS pitfall is needed because the existing cross-panel UI and settings persistence rules already cover this class.
+
+---
+
+# 2026-07-20 — Plugin control sizing and native time picker
+
+- Started diagnosis from the two supplied screenshots.
+- Selected existing DESIGN tokens/shared semantic styles as the only allowed sizing source; no third-party picker or new visual system will be introduced.
+- Current phase: constructing a deterministic regression that catches both unequal control sizing and missing whole-field native time-picker activation.
+- Historical/root-style scan found the previous dropdown fix regressed because `.settings-field select { height: auto }` and inputs have no explicit height; the reflection row additionally combines mutually conflicting layout classes.
+- Added a deterministic Desktop UI regression for DESIGN's 40px input token, shared native time-input adoption, `showPicker()` wiring, and removal of the conflicting class pair; it failed on the old CSS as expected.
+- Implemented `NativeTimeInput` and migrated all three Desktop time fields (memory reflection, Daily Materials, task schedule) in one design slice.
+- Shared settings form inputs/selects now use the existing 40px DESIGN token; UI regression passes 81/81 and Svelte diagnostics report 0 errors / 0 warnings.
+- A proposed read-only inline sizing fixture was rejected by Browser URL policy; it was not retried or routed through another browser. Exact 40px equality remains machine-guarded against the real shared stylesheet, while the real localhost app will cover cold startup and compact overflow.
+- Final verification: Desktop UI 81/81; focused Desktop plugin/settings temporary-store restart tests 13/13; Svelte diagnostics 0 errors / 0 warnings; Desktop production build and `git diff --check` pass.
+- Cold path: fresh local build opened Settings → Plugins at 860×620 with `scrollWidth === clientWidth === 860`. Browser preview cannot receive the Tauri service endpoint, so the populated native card and OS time popover are covered by compiled markup/style guards rather than misreported as a connected native click-through.
+- Adversarial review and fixes:
+  1. A Plugins-only height override would leave the same intrinsic mismatch elsewhere; sizing was corrected once in shared `.settings-field` CSS.
+  2. Keeping `settings-row settings-field` would let cascade order stretch the reflection control again; the conflicting class was removed and guarded.
+  3. Replacing time with a custom component could lose native semantics; `NativeTimeInput` renders a real `input[type=time]` and only delegates picker opening.
+  4. `showPicker()` may be unavailable or rejected in older WebViews; the call is capability-checked/caught and manual/keyboard input remains intact.
+  5. Applying the picker only in Plugins would create cross-panel drift; all three Desktop time call sites migrated in the same design slice.
+- Fix closeout: root-cause classes are intrinsic-control sizing and CSS layout-class collision. Machine guards now lock the DESIGN 40px rule, native picker component, every call site, and removal of the conflicting class. This is the second occurrence of form-control size drift, so the explicit shared regression is mandatory; the stable rule is also recorded in `DESIGN.md` rather than duplicated in AGENTS/CLAUDE.
+
+---
+
+# 2026-07-20 — Usage and Trace compact filters
+
+## Phase 1: audit
+- **Status:** in progress
+- Read the required frontend design and file-planning procedures plus the project `DESIGN.md` contract.
+- Inspected the supplied Usage/Trace screenshots, current component markup, shared observatory CSS seams, i18n keys, and structural test locations.
+- Chosen structure: one compact always-visible toolbar on both pages; Trace-only advanced disclosure for exact IDs and source limit.
+- Added and ran a focused red structural regression; it failed on the legacy tall header/grid markup as expected.
+- Implemented the compact shared layout and recorded the cross-page pattern in `DESIGN.md`.
+- First green run exposed the global 11px typography floor on the filter-count badge; corrected the badge to 11px before further verification.
+
+## Phase 4: verification
+- **Status:** complete with bounded visual limitation
+- Desktop UI structural suite: 80/80 pass.
+- Svelte diagnostics: 0 errors / 0 warnings.
+- Desktop production build: pass; only the existing chunk/import advisories remain.
+- Local cold navigation: Usage and Trace open from the sidebar; at 860×620 the document width equals the viewport (no page-level horizontal overflow).
+- Limitation: the browser-hosted preview cannot call the Tauri service bridge, so it shows the disconnected state rather than populated filters. No real settings or runtime process was stopped to manufacture a connected preview.
+
+## Phase 5: documentation and review
+- **Status:** complete
+- Updated `DESIGN.md`, `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` with the shared compact-filter contract and delivered behavior.
+- Adversarial review tightened the ≤1120px layout to two filter columns (the viewport includes the sidebar, so waiting until 720px would make the content pane too cramped) and added an explicit keyboard focus ring to Trace's compact refresh action.
+- Final adversarial checks:
+  1. Filtering power loss: rejected; every prior Usage and Trace dimension remains present.
+  2. Apply-semantics drift: rejected; Usage remains immediate and Trace remains explicitly applied.
+  3. Hidden active conditions: mitigated; advanced Trace values show a count badge while collapsed.
+  4. Compact-window crowding: mitigated; the toolbar separates actions and switches to two columns at 1120px, then one at 520px.
+  5. Keyboard/theme regression: mitigated with native `details`, explicit focus treatments, and theme tokens only.
+- Final verification: Desktop UI 80/80, Svelte diagnostics 0/0, production build, `git diff --check`, and 860×620 cold navigation/overflow check all pass.
+
+---
+
+# 2026-07-20 — Usage and Trace filter visual correction
+
+## Phase 1: visual diagnosis
+- **Status:** complete
+- Accepted the connected Trace screenshot as evidence that the prior layout was not production quality despite functional checks passing.
+- Root cause: actions and four flexible controls were packed into the same 720px row; the disclosure fill then added a second heavy visual band.
+- Selected direction: refined native utility panel with a shallow headline/action row, a dedicated field row, and a transparent low-emphasis disclosure.
+
+## Phases 2–3: regression and implementation
+- **Status:** complete
+- Added a focused red structural regression for the headline layer, icon refresh, tertiary reset, and transparent disclosure; it failed on the previous composition as expected.
+- Rebuilt Usage and Trace with a dedicated full-width four-field row, shallow title/metadata line, low-emphasis utilities, and one retained primary Trace Apply action.
+- Removed the separate metadata band and the filled disclosure state; advanced Trace fields and active-count behavior remain intact.
+- Verification so far: Desktop UI 80/80; Svelte diagnostics 0 errors / 0 warnings.
+
+## Phases 4–5: verification and closeout
+- **Status:** complete
+- Desktop production build and `git diff --check` pass; only existing Vite chunk/import advisories remain.
+- Cold navigation at 860×620 reports document width equal to viewport width, with no page-level horizontal overflow.
+- The browser preview still cannot render populated data without the Tauri service bridge; the user's connected screenshot is the visual baseline for the corrected composition.
+- Adversarial review:
+  1. Control collision: eliminated by giving all four primary fields a dedicated grid row with 12px gaps.
+  2. Action hierarchy: only Trace Apply remains primary; reset is tertiary and refresh is a 32px utility icon.
+  3. Disclosure weight: default surface is transparent with one hairline separator; no selected-row gray band remains.
+  4. Metadata pressure: the headline truncates quiet date text before compressing actions; narrow widths stack the headline and switch fields to two/one columns.
+  5. Accessibility/theme: refresh retains visible label via `aria-label`/`title`, disclosure remains native keyboard-operable, and all colors/radii use shared theme tokens.
+- Updated DESIGN, feature record, PRD, changelog, and README to match the corrected delivered composition.

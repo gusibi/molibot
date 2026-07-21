@@ -445,6 +445,14 @@ overrides the generic Geist guidance below whenever the two conflict.
   local Chat is an editable new-conversation draft; its Session is created on first send.
 - Data pages use the same shell with a wider content column, compact metric cards,
   semantic charts, and human-readable labels before technical identifiers.
+- Data-page filters use a compact toolbar: keep common dimensions visible in one row,
+  place diagnostic or exact-ID fields behind an accessible disclosure, and show the
+  effective time window as quiet metadata. On the 720px data column, actions occupy a
+  shallow headline row and never compete with the filter controls for width. Reset is
+  tertiary, refresh is an icon utility, and only an explicit commit action may use the
+  primary-button weight. Disclosures stay transparent at rest rather than becoming a
+  filled full-width band. Separate the filter surface from the first data summary by
+  24px so controls and results do not read as one crowded block.
 - List/detail workspaces use Global Sidebar → 300–320px list pane → flexible detail
   inspector. Below 1100px the inspector becomes a right-side overlay; the minimum
   supported desktop window is 860×620.
@@ -456,6 +464,10 @@ overrides the generic Geist guidance below whenever the two conflict.
 - Reuse shared semantic components for PageHeader, SettingGroup, search, select,
   switch, badge, cards, overflow menus, empty states, MessageItem, and composer.
   Page-local copies of these controls are not permitted.
+- Settings form text, number, time, and select controls use the default `input`
+  token at 40px; compact 32px controls are reserved for toolbars and dense lists.
+  Time fields remain native `input[type="time"]` controls and make the whole field
+  invoke the platform picker when the host WebView supports it.
 - Transcript search belongs inside the Header action row and must remain in normal
   flex flow; it may replace the search trigger while open, but must not use absolute
   positioning that overlaps the title or neighboring actions. Chat and Project Chat

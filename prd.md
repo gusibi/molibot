@@ -5,6 +5,37 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.97 Desktop Settings Standard Controls and Native Time Picker (2026-07-20)
+- **Priority**: P1
+- **Status**: Done
+- **Scope**: Restore the DESIGN-defined default input size across Desktop Settings and make every time field invoke the host-native time picker without adding a third-party component.
+- **Acceptance**:
+  - Settings form text, number, time, and select controls share the default 40px input height and existing theme/focus tokens.
+  - Memory Reflection does not mix field-grid and settings-row layout classes.
+  - Memory Reflection, Daily Materials, and Automation schedules reuse one native `input[type=time]` component; pointer activation calls `showPicker()` when supported and manual/keyboard entry remains available.
+  - Structural/style regressions lock the shared height, all call sites, and native picker wiring; light/dark and compact window layouts remain valid.
+
+## 2.96 Desktop Usage and Trace Compact Filters (2026-07-20)
+- **Priority**: P1
+- **Status**: Done
+- **Scope**: Reduce the default footprint of the Usage and Trace filter surfaces without removing any query dimension or changing their existing apply semantics.
+- **Acceptance**:
+  - Usage keeps range/model/Bot/channel visible in one compact toolbar, with the time presets rendered as a dropdown and selection continuing to refresh immediately.
+  - Trace keeps range/fact type/Bot/channel visible; Chat/Session/Run IDs and source limit remain available inside an accessible native disclosure, with an active advanced-filter count.
+  - The four primary controls own a dedicated row in the 720px data column. Clear is tertiary, refresh is an icon utility, only Trace Apply is primary, and the disclosure is transparent at rest.
+  - Effective date window, timezone, generated time, reset, refresh, and Trace apply actions remain reachable while the filter-to-KPI separation is 24px.
+  - Shared semantic CSS supports Chinese/English, light/dark themes, keyboard access, and 860×620 without page-level horizontal overflow.
+
+## 2.95 Daily Materials Notification Target Access (2026-07-20)
+- **Priority**: P1
+- **Status**: Done
+- **Scope**: Let users configure the existing shared memory-task notification destination directly from the expanded Daily Materials plugin card.
+- **Acceptance**:
+  - Memory Backend Settings and Daily Materials both expose the same authorized Telegram/Feishu target list and edit the same persisted structured setting.
+  - Reflection and Daily Materials retain independent notification switches; the shared selector is disabled only when both switches are off.
+  - Bilingual copy remains correct regardless of which accordion card is open, and the existing fixed save footer handles persistence.
+  - A structural regression prevents either card from losing access to the shared selector.
+
 ## 2.94 Project Chat Single Live Reply Ownership (2026-07-19)
 - **Priority**: P0
 - **Status**: Done

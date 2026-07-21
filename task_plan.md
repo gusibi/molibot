@@ -31,6 +31,38 @@ Complete
 
 ---
 
+# Project Chat duplicate live reply fix (2026-07-19)
+
+## Goal
+Keep exactly one assistant row visible while a Project turn is running, even when an overlapping transcript hydration returns a thinking/tool-only partial projection; preserve final reload, background-session switching, stop, and approval behavior.
+
+## Current phase
+Complete — implementation, documentation, automated verification, and bounded cold-path review finished
+
+## Phases
+1. Convert the captured `2 rows while live -> 1 row after done` sequence into a focused failing regression — complete
+2. Implement the smallest shared runtime ownership fix — complete
+3. Verify Project/Main Chat session switching, stop/approval reloads, Svelte checks, build, and cold path — complete with browser-tool limitation recorded
+4. Update product documentation and complete adversarial review — complete
+
+## Verification gates
+- A delayed or repeated transcript load during `controller.sending` cannot replace the live runtime transcript with an in-flight assistant projection.
+- The controller's own end-of-turn reload still installs the finalized assistant message before the live row is cleared.
+- Opening a background-running Project session continues to show its cached transcript plus its one live row.
+- Main Chat behavior remains correct because the ownership rule lives in the shared session runtime, not Project-specific UI gating.
+- No real settings, session, queue, trace, or runtime data is mutated by tests.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing planning files contain extensive user-owned task history | 1 | Preserve all prior content and append this isolated dated section only. |
+| First multi-file implementation patch used the wrong local ordering around the host `reload` callback | 1 | Inspect the exact live seams and apply smaller surgical patches; no partial product edit was applied by the failed patch. |
+| Full `projectsStore.test.ts` retains one pre-existing stale assertion that expects `selectProject()` to auto-select the first Session | 1 | Confirm it failed before this implementation and that the three current hydration/session tests pass; do not change unrelated selection behavior. |
+| In-app browser bootstrap failed because macOS rejected the plugin's `classic-level.node` signature; troubleshooting could not initialize because bootstrap never created the runtime | 1 | Do not substitute an unsupported browser driver or claim a visual pass; rely on the deterministic lifecycle regressions, full Desktop suites, Svelte diagnostics, and production build, and report the bounded cold-path limitation. |
+| Planning completion helper reports zero completed phases in this repository's append-only numbered-phase format | 1 | Do not rerun the incompatible parser; use this task section's explicit `Current phase: Complete` and four completed numbered phases as the authoritative completion record. |
+
+---
+
 # Apple-like native experience audit (2026-07-16)
 
 ## Goal
@@ -1756,3 +1788,160 @@ Complete — implementation, documentation, automated verification, and bounded 
 | First four-file component patch assumed Sandbox's import order | 1 | The atomic patch changed nothing; inspect the live file heads and apply smaller exact patches. |
 | Browser preview cannot use the Tauri status bridge, so data-backed settings stayed disconnected | 1 | Validate cold startup, compact layout, shared switch computed styles, page switching, and disconnected/reconnect affordance in preview; rely on Svelte/build/structural tests for connected-page markup without stopping the user's running Desktop host. |
 | Planning completion helper was not executable directly and then reported the append-only aggregate plan incomplete | 1 | Run it through `sh`; its template-specific parser counts unrelated historical `### Phase` headings but cannot read this repository's aggregate plan format, so use the explicit completed phase list and verification evidence above. |
+# Workplace English Coach template, Momo default, and Project prompt preview (2026-07-19)
+
+## Goal
+Add a production-ready Workplace English Coach Agent template, make Momo the true first-use default Agent, and generate a Project-local final system-prompt preview that proves whether Project instructions are effective.
+
+## Current phase
+Complete
+
+## Phases
+1. Inspect the supplied coach briefs, current template contract, default-agent resolution, Project prompt merge, and Bot preview implementation — complete
+2. Add focused regressions that prove the requested behavior — complete
+3. Implement the smallest shared-layer changes and template files — complete
+4. Verify focused tests, type/build checks, an isolated Project round trip, and the real Project cold path — complete
+5. Update required product docs and complete adversarial review — complete
+
+## Verification gates
+- The new coach template preserves the two supplied briefs and follows the repository's existing Agent template format.
+- A clean/first-use configuration resolves Momo without overriding an explicit existing user selection.
+- Project preview is generated through the same final renderer used at runtime, not a stale parallel template.
+- Project-local `AGENT.md`/`AGENTS.md` participation is observable in the preview, with source/effect evidence.
+- Tests use temporary/injectable state and never write the real user settings database.
+- Existing dirty worktree changes are preserved and every touched product line traces to this request.
+
+## Assumptions to verify
+- “默认 Agent 改成 Momo” means the fallback for users with no saved default changes; existing explicit defaults remain untouched.
+- The preview belongs under the Project workspace and may be generated/updated when the Project system prompt is rendered.
+- The repository's canonical instruction filename determines whether `AGENT.md`, `AGENTS.md`, or both should be supported; do not guess before tracing the loader.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing planning files contain prior task history | 1 | Preserve all history and append a dated task section. |
+| Focused regression suite failed on the four intentionally missing contracts | 1 | Expected red state: add coach files, Momo metadata, Project fingerprint/source fix, preview writer, and Runner integration. |
+| Local API probe reused zsh's read-only `status` parameter | 1 | Rename the loop variable before probing; no project or runtime state changed. |
+| Repository-wide `npx tsc --noEmit` is red on pre-existing dependency/package/UI/test errors | 1 | Preserve the unrelated failures; use the project's SvelteKit production build plus focused executable tests to verify this slice. No reported error points to the changed prompt/default/Project preview files. |
+
+---
+
+# Daily Materials notification-target access (2026-07-20)
+
+## Goal
+Expose the existing shared memory-task notification destination inside the Daily Materials plugin card without creating a second setting or changing runtime delivery.
+
+## Current phase
+Complete — implementation, documentation, automated verification, and bounded cold-path review finished
+
+## Phases
+1. Trace existing target UI, persistence, authorization, and runtime delivery — complete
+2. Add a red structural regression — complete
+3. Add the shared selector to Daily Materials and localize position-independent copy — complete
+4. Run focused UI, Svelte, persistence, build, and diff verification — complete
+5. Update required product docs and close out the fix — complete
+
+## Verification gates
+- Both accordion cards edit the same `memoryReflectionNotificationTarget` value.
+- Independent notification switches and existing authorization validation remain unchanged.
+- Existing temporary-store round-trip continues to cover the shared target.
+- No unrelated dirty planning-file history is replaced.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Structural regression initially found only one target selector | 1 | Expected red state; add the same shared binding inside the Daily Materials card. |
+
+---
+
+# Desktop plugin form control sizing and native time picker (2026-07-20)
+
+## Goal
+Make Plugin settings text, number, select, and time controls use the existing standard size, and make both memory-task time fields open the system-native time picker from the whole control.
+
+## Current phase
+Complete — root fix, regression guards, documentation, and bounded cold-path review finished
+
+## Phases
+1. Capture the exact size/picker regressions and historical precedent — complete
+2. Rank and test root-cause hypotheses — complete
+3. Add the smallest shared-style/native-input fix — complete
+4. Verify responsive, bilingual, light/dark, persistence, build, and cold paths — complete
+5. Update required product docs and adversarially review — complete
+
+## Verification gates
+- Plugin form `text`, `number`, `select`, and `time` controls resolve to one DESIGN-defined control height.
+- The time field is still a native `input[type=time]`, opens its native picker from pointer activation when supported, and remains keyboard-accessible.
+- No third-party picker, page-local size constant, or custom time serialization is introduced.
+- Existing fine-grained save and temporary-store restart behavior remains unchanged.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| New structural/style regression failed on the missing 40px input rule | 1 | Expected red state; replace intrinsic input/select sizing with the existing DESIGN input token and adopt the shared native time input. |
+| Combined documentation patch used a stale 2026-07-20 CHANGELOG anchor | 1 | The atomic patch changed nothing; re-read the current document heads and apply smaller exact-context patches without touching concurrent entries. |
+| Browser security policy rejected an inline `data:` sizing fixture | 1 | Do not retry or bypass the policy; use the real localhost app for cold-path/overflow checks and the compiled CSS structural guard for exact 40px equality. |
+
+---
+
+# Usage and Trace compact filters (2026-07-20)
+
+## Goal
+Reduce the default height of the Usage and Trace filter surfaces while preserving all existing filtering power, making the time range a compact dropdown, and creating clearer separation before the data summary.
+
+## Current phase
+Complete — implementation, documentation, automated verification, and bounded cold-path review finished
+
+## Phases
+1. Audit the current shared observatory markup, responsive rules, i18n, and structural tests — complete
+2. Add focused structural regressions for compact and expandable filtering — complete
+3. Implement the shared compact filter pattern in Usage, Trace, and semantic CSS — complete
+4. Verify Chinese/English, light/dark, compact width, interaction, diagnostics, and build — complete with populated-browser limitation recorded
+5. Update required product docs and complete adversarial review — complete
+
+## Verification gates
+- Usage defaults to one compact filter row with range/model/Bot/channel and refresh/reset actions.
+- Trace defaults to one compact primary row; Chat/Session/Run IDs and source limit remain available behind an accessible disclosure.
+- The active date window and latest update remain readable without creating a separate tall header/footer stack.
+- Filter-to-KPI spacing is visibly larger than spacing inside the filter surface.
+- Existing query/store/API behavior is unchanged, including explicit Trace apply semantics.
+- Chinese/English, light/dark, keyboard disclosure, and 860×620 layout remain usable.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Root planning files already contain other task history | 1 | Preserve all history and append this dated task section. |
+| First structural run failed the global 11px functional-type floor | 1 | Raise the advanced-filter count badge from 10px to 11px; retain the existing accessibility guard. |
+| A second Desktop dev server could not start because port 1420 was already in use | 1 | Reuse the already-running local preview instead of terminating or replacing the user's process. |
+| Browser preview cannot access the Tauri service-status bridge | 1 | Verify cold navigation and 860×620 shell overflow in preview; rely on connected-state structural tests, Svelte diagnostics, and production build for the populated filter markup, and report the visual limitation honestly. |
+
+---
+
+# Usage and Trace filter visual correction (2026-07-20)
+
+## Goal
+Correct the visually crowded compact-filter implementation shown in the real connected Trace screenshot while preserving the reduced footprint and every existing filter behavior.
+
+## Current phase
+Complete — connected-state visual regression corrected and verified
+
+## Phases
+1. Compare the connected screenshot against the 720px data-column and DESIGN control hierarchy — complete
+2. Add structural guards for the corrected headline / field-row / low-emphasis action composition — complete
+3. Recompose Usage and Trace with shared semantic CSS — complete
+4. Verify diagnostics, build, responsive behavior, themes, and keyboard affordances — complete with populated-browser limitation recorded
+5. Update product records and complete adversarial review — complete
+
+## Verification gates
+- Four primary fields never share their 720px row with action buttons.
+- Clear and refresh are visually subordinate; only Trace Apply remains primary.
+- Trace disclosure has no full-width gray fill and remains keyboard accessible.
+- Controls have visible independent boundaries, consistent 12px spacing, and no overlap.
+- Existing Usage immediate-apply and Trace staged-apply behavior remains unchanged.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Previous compact composition passed structural tests but looked crowded in the connected app | 1 | Treat the supplied screenshot as the authoritative visual regression; correct the 720px composition and strengthen structural guards around hierarchy rather than only class presence. |
+
+---

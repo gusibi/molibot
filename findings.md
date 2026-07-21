@@ -19,6 +19,23 @@
 
 ---
 
+# Project Chat duplicate live reply fix (2026-07-19)
+
+- Captured session evidence proves there was one final assistant metadata row, not two persisted replies.
+- The intermediate Agent entry had `thinking + toolCall` and empty text; `projectConversationMessages()` intentionally projects thinking-only assistant entries.
+- `ConversationLiveView` always renders the persisted transcript and one separate live assistant row while `sending`.
+- An overlapping `selectProjectSession()` hydration can install the partial projection into the same runtime entry while its controller is sending, producing transcript assistant + live assistant simultaneously.
+- End-of-turn `ConversationController.send()` reloads the finalized transcript, then clears streaming state; projection collapses the tool loop into one assistant row, explaining the visible `2 -> 1` transition.
+- The correct fix seam is shared `SessionRuntimeEntry.reloadFromServer`, but it must distinguish external/background hydration from the controller-owned final reload; a blanket `if (sending) return` would break stop/final/approval recovery reloads.
+- The implemented shared hydration lease captures both whether a request began during `sending` and the controller's monotonic `turnSequence`; it rejects responses that began during a turn, are committing during a turn, or were overtaken by a newer turn.
+- Controller-owned final/stop/approval reloads use a separate private commit path, so they may install the authoritative transcript before `sending` is cleared.
+- Focused regression evidence: the exact Project test failed red with `2 !== 1`, then passed after the ownership fix; a shared runtime test also proves stale hydration rejection and successful owner reload.
+- `CLAUDE.md` already codifies this repeated root-cause class as Recurring Pitfall 3 (stale async responses need generation + owner validation), so no duplicate long-term rule is needed; the new turn-sequence/lease tests are the missing machine guard.
+- Adversarial review checked five failure modes: response returns during a turn, response returns after a newer turn finishes, background Session is reselected while running, owner final reload occurs before `sending=false`, and stop/approval reuse that owner path. The lease + private owner reload cover all five without Project/UI or Channel gating.
+- The in-app browser cold-path tool could not initialize because macOS rejected the plugin's native LevelDB binary signature. This blocks manual DOM/window evidence only; it does not affect the product test/build results.
+
+---
+
 # 2026-07-16 — Native experience developer board
 
 ## Tracker context
@@ -1422,5 +1439,89 @@ Use two identities for fresh automation runs: an execution-unique runtime Sessio
 - The third screenshot is the Search page, so `WebSearchSection` is included alongside the text-listed Web Profile page.
 - Final target scan finds no legacy `.switch` in the nine affected sections; all render `IosSwitch` and retain their prior update/store functions.
 - At 860×620 the shared control computes to 38×22px with a 999px track radius and no document-level horizontal overflow. The local browser preview cannot call Tauri's service-status bridge, so populated data-backed pages could only be verified structurally; stopping the user's live Desktop host to force a packaged cold start was intentionally avoided.
+
+---
+# 2026-07-19 — Workplace English Coach / Momo default / Project prompt preview
+
+## Requirements
+- Add a Workplace English Coach Agent template under `src/lib/server/agent/prompts/templates`, using both supplied briefs.
+- Change the true first-use default Agent from the current global/default choice to Momo without trampling an explicit saved choice.
+- Give Projects the same kind of inspectable system-prompt preview that Bots already generate.
+- Place the preview in the Project workspace (the user's example Project is `.molibot/projects/momo-agent`) and make it show whether Project-level Agent instructions took effect.
+
+## Runtime-review constraints
+- Trace prompt construction from entry through final renderer and persistence/preview output before editing.
+- Keep Project prompt preview coupled to the final runtime renderer so it cannot drift from the prompt the model actually receives.
+- Keep the change in the shared Agent/Project layer, not any Channel adapter.
+- Temporary controls, human notices, and debug/prompt observability must remain separate planes.
+
+## Worktree constraint
+- The repository already has user-owned modifications in release/design/Desktop/docs files. Preserve them and avoid unrelated formatting or cleanup.
+
+## Initial discoveries
+- Built-in templates are structured as a directory with `AGENTS.md`, `SOUL.md`, and `IDENTITY.md`, registered by `builtInAgentTemplates.ts`; the coach must follow that contract rather than adding one loose file.
+- Prompt loading already recognizes Project context files in priority order `AGENTS.md`, `AGENT.md`, then `CLAUDE.md`, so both spellings named by the user can be observable if the final runtime path passes a Project context.
+- The shared Bot runtime currently writes `SYSTEM_PROMPT.preview.md` through `buildSystemPromptPreview()` plus `getSystemPromptSources()` in `channels/shared/baseRuntime.ts`.
+- Runtime identity already falls back to the Momo Agent persona inside the base system prompt, but settings still use the sentinel Agent id `default`; the requested first-use behavior must distinguish display/selection default from runtime fallback identity.
+- Existing prompt tests already cover Project instruction inclusion, injection filtering/truncation, cache isolation by Project root, and profile precedence. New work should extend these seams instead of creating a second renderer.
+- The supplied coach brief defines ten auto-detected modes and a dual interaction model: natural-language intent recognition by default, explicit commands for sustained training states. It prioritizes practical, speakable B1–B2 workplace English, reusable patterns, and active recall.
+- Built-in installation requires exactly `AGENTS.md`, `SOUL.md`, and `IDENTITY.md`; metadata is parsed from `AGENTS.md` frontmatter and the installer copies those files (plus optional `SONG.md`) into the Agent directory.
+- The coach source is substantial (1,108-line behavior brief plus a 632-line interaction guide). The template should preserve the operating contract while splitting stable identity into `IDENTITY.md`, teaching voice into `SOUL.md`, and workflows/modes into `AGENTS.md`.
+- Settings sanitization currently backfills an empty Agent list with `defaultAgentSettings()` and binds the first Web instance to `DEFAULT_AGENT_ID`. A real default change therefore needs a consistent schema/default/sanitizer migration and a regression proving explicit selections are retained.
+- The default Agent record is currently `{ id: "default", name: "Default", description: "Default assistant used by Web and new channel profiles." }`; the default Web channel points to that ID.
+- Project records already carry `rootPath` and optional Project instructions, and the prompt preview API accepts a `project` object with id/name/root/scratch path.
+- Existing Bot preview generation in `BaseRuntime.writePromptPreview()` calls the shared renderer without a Project context, then writes only to the Bot workspace. This explains why a bound Project can affect a run yet still have no Project-local preview artifact.
+- Real Web and channel executions already pass `{ id, name, rootPath, instructions, scratchDir }` into the Runner, and the Runner passes `ctx.project` into `buildSystemPrompt()`. Runtime Project instructions therefore have a valid shared rendering path.
+- `getSystemPromptSources()` currently discovers Project context from the Bot workspace even when `options.project` is supplied; this would make a Project preview's source audit inaccurate. It should discover from `options.project.rootPath`, matching `buildSystemPrompt()`.
+- The smallest safe default-Agent interpretation is to keep the stable internal id `default` for compatibility and change its first-use display identity to Momo. Renaming the id would require migrating every stored channel binding and is not necessary for the requested user-visible behavior.
+- The Runner rebuilds the prompt only when its prompt-refresh key changes. Its current Project key includes only Project id/root/database instructions, not the Project's instruction-file contents or metadata; editing `AGENTS.md` during an existing session can therefore leave both runtime and preview stale until another refresh trigger occurs.
+- The correct Project preview point is after the optional `prompt.build.after` hook, because that transformed string is what the Agent actually receives. Writing before hook transformation would create false observability.
+- The coach brief additionally requires meeting-before preparation, meeting-after review, spaced/delayed review states (`New → Recognized → Recalled → Applied → Mastered`), privacy-safe learning memory, and command aliases such as `/polish`, `/quiz`, `/roleplay`, `/pre-meeting`, and `/post-meeting`—while making commands optional.
+- Long/high-effort modes (formal assessment, extended role-play, strict correction, listening drills, 20+ questions) must require active user intent; obvious sentence correction, translation, and meeting-context preparation/review may auto-route.
+- The user-named `<data-dir>/projects/momo-agent` path is a Project runtime workspace (sessions, runtime summaries, skill drafts), not a source-code root. Therefore the preview artifact belongs at the parent of `store.getWorkspaceDir()` for a Project-scoped Runner; Project instruction sources still come from `ctx.project.rootPath`.
+- Project-scoped API/channel runs already resolve a Project-specific runtime store, so writing `SYSTEM_PROMPT.preview.md` beside that store's sessions places the file exactly in `.molibot/projects/<project-id>/` without hard-coding a machine path.
+- Live Project registration evidence: `momo-agent` is named “魔魔成长日记”; its source root is a separate repository and its runtime/inspection workspace is `<data-dir>/projects/momo-agent`.
+- The real Project root contains top-level `AGENTS.md` headed “魔魔内容 Project 工作规则”. The shared renderer selected that file, rendered its heading under `Project Instructions`, and reported it in `project_context_sources`.
+- No prompt hooks are enabled in the current local settings, so the manually generated live preview is the final current renderer output; future Runner refreshes write after any hook transformation if hooks are later enabled.
+- The real preview was generated at `<data-dir>/projects/momo-agent/SYSTEM_PROMPT.preview.md`; it is 30,568 characters and contains both the source metadata and the effective Project rule marker.
+
+---
+
+# 2026-07-20 — Daily Materials notification target
+
+- The runtime and settings layer already implement one shared structured `reflectionNotificationTarget` for memory reflection and Daily Materials, restricted to authorized enabled Telegram/Feishu chats.
+- The reported gap is presentation-only: the accordion permits one open card, while the target selector existed only in Memory Backend Settings.
+- Adding another selector bound to `memoryReflectionNotificationTarget` is the smallest fix; a new Daily Materials target field would violate the existing shared-target product contract.
+- The existing disabled condition is correct: the selector remains usable when either reflection or Daily Materials notifications are enabled.
+- Bilingual Daily Materials helper text referenced the target "above"; position-independent wording is required now that both cards expose it.
+
+---
+
+# 2026-07-20 — Plugin control sizing and native time picker
+
+- Screenshot evidence: Daily Materials `number` and `select` controls render with visibly different box heights; the Memory Backend reflection `time` control is stretched much taller than neighboring standard controls.
+- The user explicitly wants the repository's standard size, not a new page-local size, and a platform-native time chooser rather than a third-party or custom calendar/time component.
+- The correct time primitive remains `input[type="time"]`; the fix must preserve keyboard/manual entry while making native picker activation discoverable across the whole control.
+- Shared CSS currently gives popup selects a 30px height, then overrides `.settings-field select` back to `height: auto`; `.settings-field input` also has padding but no height. Intrinsic rendering therefore varies by element type and WebView implementation despite the old comment claiming alignment.
+- The oversized reflection time field uses the contradictory class pair `settings-row settings-field`: `.settings-row` is a horizontal flex row while `.settings-field` is a label-oriented grid. This makes field layout depend on cascade/order rather than one semantic component.
+- CHANGELOG already records a prior promise that form-grid selects match adjacent input height. The old guard did not lock an explicit shared height, so later/native intrinsic differences escaped it.
+- DESIGN's product layer requires shared semantic controls; CHANGELOG identifies 32px as the compact-control height already used across Desktop. A shared token/rule is preferable to a Plugins-only override.
+
+---
+
+# 2026-07-20 — Usage and Trace compact filters
+
+- Both pages already use `SelectControl` for time ranges; the screenshot's excess height comes from the card's separate header, labeled grid, and update/footer rows rather than missing dropdown behavior.
+- Usage has only four common dimensions, so collapsing it would add friction without meaningful space savings. It can remain fully visible in one compact toolbar.
+- Trace has four common dimensions plus three exact IDs and a source-limit control. The exact IDs/source limit are lower-frequency diagnostic filters and are the appropriate disclosure boundary.
+- Existing Trace behavior intentionally stages local filter values until “Apply filters”; Usage applies immediately. The redesign must preserve that behavioral difference.
+- Shared observatory CSS in `apps/desktop/src/styles.css` is the correct seam; no page-local style or new component system is needed.
+- The visual direction is refined/utilitarian density within the existing Geist system: 32px controls, quiet metadata, compact grouped fields, and a disclosure row instead of another nested card.
+
+## Connected-state visual correction
+- The real screenshot proves the first implementation over-constrained the 720px data column: four fields and two text buttons compete in one grid row, so control borders visually collide.
+- The full-width filled disclosure reads as a selected table row and creates a heavy three-band card; it should be transparent, separator-led, and lower emphasis.
+- The correct compactness boundary is not “everything on one line.” Actions belong in a shallow headline row; fields need their own full-width row.
+- Refresh is a utility action suited to the existing 32px `icon-button`; Clear is tertiary; Apply is the only primary action.
 
 ---
