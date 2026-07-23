@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
-import { getModels } from "@mariozechner/pi-ai";
+import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
 import type { RuntimeSettings, RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/index.js";
 import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashStore } from "$lib/server/hostBash/index.js";

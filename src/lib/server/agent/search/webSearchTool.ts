@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { WEB_SEARCH_PROVIDERS } from "$lib/server/agent/search/providers.js";
 import { inferWebSearchRoute, resolveWebSearchEngines } from "$lib/server/agent/search/router.js";
 import type {

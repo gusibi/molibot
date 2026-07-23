@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { cloudflareHtmlFeaturePlugin } from "$lib/server/plugins/cloudflareHtml/plugin.js";
 import type { BuiltInFeaturePlugin, FeaturePluginContext, InstalledPluginCatalogEntry } from "$lib/server/plugins/types.js";

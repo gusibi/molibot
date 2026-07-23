@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store.js";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";

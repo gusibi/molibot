@@ -56,6 +56,7 @@ function createEnvironment() {
 function createHost() {
   let focused = true;
   let theme: NativeTheme = "light";
+  let appliedTheme: NativeTheme | null = null;
   let scaleFactor = 2;
   let focusListener: ((value: boolean) => void) | null = null;
   let themeListener: ((value: NativeTheme) => void) | null = null;
@@ -66,6 +67,7 @@ function createHost() {
     host: {
       isFocused: async () => focused,
       theme: async () => theme,
+      setTheme: async (next: NativeTheme | null) => { appliedTheme = next; },
       scaleFactor: async () => scaleFactor,
       onFocusChanged: async (listener: (value: boolean) => void) => {
         focusListener = listener;
@@ -82,10 +84,24 @@ function createHost() {
     },
     emitFocus(value: boolean) { focused = value; focusListener?.(value); },
     emitTheme(value: NativeTheme) { theme = value; themeListener?.(value); },
+    appliedTheme: () => appliedTheme,
     emitScale(value: number) { scaleFactor = value; scaleListener?.(value); },
     unlistens: () => unlistens
   };
 }
+
+test("WindowState keeps the native sidebar material aligned with explicit and system themes", async () => {
+  const environment = createEnvironment();
+  const native = createHost();
+  const state = createWindowState(native.host, environment.environment);
+
+  await state.setTheme("light");
+  assert.equal(native.appliedTheme(), "light");
+  await state.setTheme("dark");
+  assert.equal(native.appliedTheme(), "dark");
+  await state.setTheme(null);
+  assert.equal(native.appliedTheme(), null);
+});
 
 test("WindowState projects native focus, theme, scale, and accessibility changes once", async () => {
   const environment = createEnvironment();

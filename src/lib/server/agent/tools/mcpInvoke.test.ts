@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Type } from "@sinclair/typebox";
 import { createMcpInvokeTool } from "$lib/server/agent/tools/mcpInvoke.js";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 
 function createFakeMcpTool(calls: Array<Record<string, unknown>>): AgentTool<any> {
   return {

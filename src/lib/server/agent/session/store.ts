@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { createHash, randomInt } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import { RUNTIME_THINKING_LEVELS, sanitizeRuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import type { FileAttachment, LoggedMessage } from "$lib/server/agent/core/types.js";

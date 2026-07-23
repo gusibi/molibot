@@ -1,5 +1,6 @@
-import { completeSimple, type AssistantMessage, type Model } from "@mariozechner/pi-ai";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { completeWithPiRuntime } from "$lib/server/providers/piRuntime.js";
 import type { CompactionSettings } from "$lib/server/settings/index.js";
 
 const SUMMARY_PREFIX = "[context summary]";
@@ -262,7 +263,7 @@ export async function compactContextMessages(options: {
 
   let summary = "";
   try {
-    const response = await completeSimple(
+    const response = await completeWithPiRuntime(
       options.model,
       {
         messages: [

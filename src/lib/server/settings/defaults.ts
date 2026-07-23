@@ -1,4 +1,4 @@
-import type { KnownProvider } from "@mariozechner/pi-ai";
+import type { KnownProvider } from "@earendil-works/pi-ai";
 import {
   type AgentSettings,
   DEFAULT_AGENT_ID,

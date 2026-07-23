@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { loadSkillsFromWorkspace, searchSkillsLocally, type LoadedSkill, type SkillSearchMatch } from "$lib/server/agent/skills/skills.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";

@@ -5,6 +5,46 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-23
+
+### pi 0.81 自定义模型系统提示词兼容修复（已完成）
+- 修复升级后所有 OpenAI-compatible 候选模型在真正发起 HTTP 请求前统一报 `Cannot read properties of undefined (reading 'length')`：不支持 `developer` role 时，旧兼容逻辑错误地把顶层 system prompt 塞进 Agent 消息数组，违反 pi 0.81 的消息结构。
+- system 指令现在始终保留在 `Context.systemPrompt`；真实存在的 unsupported `developer` 消息会合并进顶层提示词并从 transcript 移除。每个自定义模型保存的 `supportedRoles` 同时显式映射到 pi 的 `compat.supportsDeveloperRole`，只有该模型明确支持时才会向 OpenAI-compatible 上游发送 `developer`，否则发送 `system`。
+- 新增上下文结构、模型能力映射和最终请求序列化回归。验证：Runner/routing/helper 41/41、Desktop Svelte 0/0、production build、桌面受管服务重启与 health、真实自定义 Provider 文本能力探测均通过。
+
+### Desktop 亮色原生侧栏合成修复（已完成）
+- 真实原生截图确认上一版 22% 灰色 tint 被 WKWebView 透明底预乘为 `#616465`，与 Finder 参考侧栏约 `#ECEDEE` 相差 138 个色阶；改动前 `#FBFBFB` 样本同时证明原生亮色主题同步本身正常。
+- 亮色侧栏改为同一贴边平面上的 90% 白色厚材质遮罩，按失败截图反推的组合器底色预计合成为约 `#EDEDED`，并保留 10% 原生材质贡献。暗色/跟随系统暗色继续透明，没有新增第二层卡片、模糊、圆角或阴影。
+- 回归现在会拒绝低 Alpha 亮色填充并校验预测合成色；Desktop UI 82/82、原生主题 3/3、Svelte 0/0 和 production build 通过。
+
+---
+## 2026-07-22
+
+### Desktop macOS 系统语义配色（已完成）
+- 深色主工作区从 `#000000/#0A0A0A` 改为 AppKit 窗口色 `#1E1E1E`，分组画布、卡片/输入区和嵌套表面分别使用 `#242424`、`#282828`、`#303030`，恢复 macOS 窗口的安静层级。
+- 亮色、显式暗色和跟随系统暗色统一映射 primary/secondary/tertiary label、separator、非强调选中、control accent、状态色和图表色；液态玻璃侧栏继续由系统原生材质渲染。
+- `DESIGN.md` 已加入 AppKit 语义色角色表与结构表面禁用纯黑规则，`design.dark.md` 已移除旧 Geist/OKLCH 规范，结构回归同时锁定 explicit/system dark。
+- 验证：亮暗主题真实渲染和计算色检查无控制台错误，Desktop UI 82/82、原生主题 3/3、Svelte 0/0、production build、Rust check 与隔离 Tauri 冷启动均通过。
+
+### Desktop 左侧导航贴边液态玻璃（已完成）
+- Chat 与 Settings 改用 macOS 原生 `sidebar` window effect：Tauri 窗口、WebView 根层和布局保持透明，右侧内容区单独使用不透明工作面，消除侧栏背后的第二块应用画布。
+- 左侧导航移除 10px 外缩、圆角面板、CSS backdrop blur、双层投影和 hover/focus 光晕，不再呈现悬浮 3D 卡片；共享侧栏现在贴合窗口边缘，只用一条 0.5px 分隔线建立工作区层级。
+- 原生材质自动适配浅色、深色和窗口失焦；reduced transparency 与低性能模式使用不透明 CSS 覆盖，increased contrast 使用不透明覆盖和更强分隔线。该能力依赖 macOS private API，适用于当前 DMG 直发渠道，不用于 Mac App Store 提交。
+- resize 热区与 macOS 原生交通灯跟随真实侧栏边界重新对齐；共享 DESIGN 规范和结构回归已从旧 inset/floating 契约更新为 edge-to-edge liquid glass 契约。
+- 验证：Desktop UI 81/81、Svelte 0 错误 0 警告、production build、Rust/Tauri 配置编译，以及与安装版隔离的源码桌面端冷启动均通过。
+- 明暗主题补强：显式选择亮色/暗色时同步设置 Tauri 原生窗口外观，选择“跟随系统”时清除原生覆盖，避免 WebView 已变亮但 AppKit 侧栏仍沿用系统暗色材质；聚焦主题回归 3/3、Desktop UI 81/81、Svelte 0/0、production build、Rust 编译和隔离 Tauri 冷启动均通过。
+- 亮色材质校准：按 Finder 截图取样，将亮色侧栏目标稳定在约 `#ECEDEE`。真实原生窗口证明 WKWebView 会把低透明灰色预乘成 `#616465`，因此改为同一侧栏平面的 90% 白色厚材质遮罩并保留少量原生质感；暗色与跟随系统暗色仍使用透明原生材质，没有重新引入第二块面板、圆角、模糊或阴影。
+
+---
+## 2026-07-21
+
+### pi-mono 0.81 共享运行时升级（已完成）
+- 运行时依赖从已弃用的 `@mariozechner/*` 0.73.1 正式迁移到 `@earendil-works/*` 0.81.0，源码运行下限提升为 Node 22.19.0；Desktop 继续固定携带 Node 22.23.1。已确认未使用的 `pi-web-ui`、`mini-lit` 与前端预构建配置全部移除。
+- 新增共享 `PiRuntime`：内置模型目录、Provider 认证、流式请求、压缩补全和子 Agent `ModelRuntime` 由一个服务端边界提供。主 Runner、AssistantService、compaction、model routing 与 subagent 已迁移到 `Models`、必填 `streamFunction` 和 `modelRuntime`，保留自建端点、首 Token 超时、模型回退、角色修正、孤立工具结果清理和纯文本模型图片剥离。
+- `auth.json` 改由异步 `CredentialStore` 管理，采用原子替换、Provider 级进程内串行和跨进程文件锁；OAuth 刷新、登录、登出均走 0.81 Models。自定义模型的 thinking 映射迁到 `Model.thinkingLevelMap`，延迟工具加载结果写入 `addedToolNames`。
+- 验证：认证重启/并发/OAuth/登录登出/失败保留回归、Node 22.23.1 上 Runner/路由/压缩/子 Agent/工具扩展测试 96/96、Desktop Svelte 0/0、production build 与 Desktop runtime bundle 准备、独立临时数据目录真实冷启动、health 和模型目录请求均通过。
+
+---
 ## 2026-07-20
 
 ### Desktop 设置控件标准尺寸与原生时间选择（已完成）
@@ -65,7 +105,7 @@
 - 结果支持上一条/下一条、Enter/Shift+Enter、实时计数和关闭后的焦点恢复；普通与项目消息区均会高亮并滚动到正确消息，特殊字符消息 ID 也可安全定位。
 - 回归守卫覆盖共享组件接线、Header 正常流布局、渲染文本匹配和索引校正；Svelte diagnostics 0 错误 0 警告。
 
-### Desktop 设置与 Chat 原生悬浮侧栏（已完成）
+### Desktop 设置与 Chat 原生悬浮侧栏（历史实现，已由 2026-07-22 贴边液态玻璃替代）
 - 设置页与 Chat 左侧导航统一为 macOS inset material：四周 10px 留白、12px 圆角、克制细边/内高光，并按底层画布选择 elevation；侧栏作为独立材质浮在窗口画布之上，内容、导航、底栏与既有业务行为不变。
 - Chat 与 Settings 两个原生窗口共用明确的交通灯安全偏移：关闭、最小化、缩放按钮整体下移 6px，避开侧栏顶部圆角边框，横向位置保持不变。
 - Chat 暴露在悬浮侧栏周围的底层画布与 Header/消息区使用同一主表面，不再出现左灰右白的割裂；Settings 继续保留适合卡片层级的次级灰色画布。
@@ -958,7 +998,7 @@
 - 根应用与 `apps/desktop` 已从 npm 双锁文件迁移为统一 `pnpm-lock.yaml` 和 `pnpm-workspace.yaml`；`packageManager` 固定 pnpm 11.7.0，开发机上的不同 workspace/项目通过 pnpm 内容寻址 store 复用相同包内容，降低重复依赖的磁盘占用。
 - 根命令、Desktop/Tauri 命令、发布目录组装、Docker 构建、GitHub Desktop Release workflow、Makefile 和 agent 测试入口均改用 pnpm；CI 使用一次 frozen workspace install，不再分别安装根目录和 Desktop 依赖。
 - Makefile 及其调用的根/Desktop/Mory 嵌套脚本均通过 `corepack pnpm` 调用项目固定版本，不再依赖全局 `pnpm` 是否已加入 shell PATH；仍可用 `PNPM=/path/to/pnpm` 显式覆盖 Make 入口。
-- 保留现有 `@mariozechner/pi-web-ui` 的 URL 间接依赖兼容配置；npm 锁文件已移除，安装入口统一为 `corepack enable && pnpm install`。
+- 当时保留的 `@mariozechner/pi-web-ui` URL 间接依赖兼容配置已在 0.81 迁移中确认无源码使用并移除；安装入口继续统一为 `corepack enable && pnpm install`。
 
 
 ## Implemented Features
@@ -996,7 +1036,7 @@
 | ENG-293 | AI usage observatory redesign | Done | Rebuilt `/settings/ai/usage` into a denser Chinese usage dashboard with request/token summary cards, time-series charts, token-type distribution, API/model/bot/channel breakdowns, and raw usage event details sourced only from existing usage records |
 | ENG-294 | AI providers and errors settings polish | Done | Moved Providers save/default-model controls to the top of the editor, made newly added providers and models appear first, and redesigned Model Error Logs into a failure-radar console with summary cards, filters, provider ranking, and detailed failure records |
 | ENG-295 | Tool-budget partial answer preservation | Done | Runner now preserves streamed assistant text when a run fails after hitting the tool-call budget, appends the budget notice to the first answer, starts one no-tool continuation in a new message where supported, and tells the user to manually continue if more work is needed |
-| ENG-296 | Shared pi-mono subagent delegation | Done | Added a shared `subagent` tool backed by `@mariozechner/pi-coding-agent` isolated sessions, reusing the four upstream-style roles (`scout` / `planner` / `worker` / `reviewer`) with single/parallel/chain delegation modes so long codebase tasks can spill into independent tool budgets instead of exhausting the parent run; default pretty logs now show subagent start/end plus per-subagent task start/end so operators can tell when work is executing in a delegated child session |
+| ENG-296 | Shared pi-mono subagent delegation | Done | Added a shared `subagent` tool backed by isolated `@earendil-works/pi-coding-agent` 0.81 sessions through the shared `ModelRuntime`, reusing the four upstream-style roles (`scout` / `planner` / `worker` / `reviewer`) with single/parallel/chain delegation modes so long codebase tasks can spill into independent tool budgets instead of exhausting the parent run; default pretty logs show subagent start/end plus per-subagent task start/end so operators can tell when work is executing in a delegated child session |
 | ENG-297 | Shared `/stop` queue-backlog cancellation | Done | Shared channel `/stop` now aborts the active run and cancels same-scope pending queued tasks in Telegram/Feishu/QQ/Weixin, so queued follow-up prompts do not keep executing after a user explicitly stops the conversation |
 | ENG-298 | Shared live run control commands | Done | Added shared `/steer <text|queueId>` and `/followup <text|queueId>` commands above the channel layer, wired them into the live runner via `Agent.steer()` / `Agent.followUp()`, taught busy channels to reply with a queued task id for already-sent follow-up messages, and hardened `/stop` into a true hard-abort path that clears any still-queued live corrections before aborting |
 | ENG-299 | Molifin gold daily serial search hardening | Done | Hardened the Molifin gold daily scheduled workflow to run the four fixed searches through one `run_gold_daily_searches.py` wrapper with fixed 60-second per-engine timeout, strict serial execution, automatic engine fallback, and aligned V7 scheme/event/render defaults so the task no longer launches fragile 30-second parallel searches |
@@ -1066,10 +1106,10 @@
 | DOC-18 | Agent v2.1 simplification execution plan | Done | Created a short-term execution checklist for ACP removal, Workspace, TurnOrchestrator, ToolRuntime, approval scope, sandbox rules, and settings split; the process checklist has since been removed from the main docs tree |
 | ENG-348 | Minimum Workspace boundary | Done | Added a SQLite-backed `workspaces` registry with default `personal` bootstrap, workspace resolution fallback, and `workspaceId` propagation into new channel/Web messages and run summary/detail archives without moving existing session files |
 | ENG-02 | Telegram adapter implementation | Done | `src/adapters/telegram.ts` built with `grammY` |
-| ENG-03 | Web chat implementation | Done | SvelteKit chat page + API (`src/routes/+page.svelte`, `src/routes/api/chat/+server.ts`) with `pi-web-ui` |
+| ENG-03 | Web chat implementation | Done | SvelteKit chat page + API (`src/routes/+page.svelte`, `src/routes/api/chat/+server.ts`) using Molibot's shared chat/runtime boundary |
 | ENG-04 | CLI adapter implementation | Done | `src/adapters/cli.ts` interactive loop |
 | ENG-05 | SQLite session/message persistence | Done | `src/db/sqlite.ts` + `src/lib/server/sessions/store.ts` |
-| ENG-06 | pi-mono runtime integration | Done | `src/lib/server/providers/assistantService.ts` now calls `@mariozechner/pi-agent-core` + `@mariozechner/pi-ai` directly |
+| ENG-06 | pi-mono runtime integration | Done | Main Agent and `AssistantService` now use the shared `PiRuntime` over `@earendil-works/pi-agent-core` + `@earendil-works/pi-ai` 0.81 instead of maintaining separate global API paths |
 | ENG-07 | SQLite driver compatibility fix | Done | Replaced `better-sqlite3` with built-in `node:sqlite` for Node 25 compatibility |
 | ENG-08 | Web chat model selector scope control | Done | Chat page disables model selector dropdown and avoids showing unconfigured model catalog |
 | ENG-09 | Web chat uses backend runtime model settings | Done | Web `pi-web-ui` stream now proxies to `/api/chat`, so custom provider/model from Settings is applied |

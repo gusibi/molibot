@@ -1,4 +1,4 @@
-import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
+import type { AssistantMessageEventStream } from "@earendil-works/pi-ai";
 
 /**
  * Minimal async-iterable + result() surface that mirrors the part of

@@ -49,6 +49,8 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 
 ### Option B · Run from source
 
+Requires Node.js 22.19 or newer. The macOS Desktop release bundles the project's pinned Node 22.23.1 runtime automatically.
+
 ```bash
 corepack enable
 pnpm install
@@ -60,6 +62,8 @@ molibot
 ```
 
 Then open `http://localhost:3000`, configure an AI provider, and create or confirm an Agent before starting a chat.
+
+Molibot uses pi-mono 0.81 through one shared server runtime: built-in model catalogs, API-key/OAuth resolution, main and sub-Agent streaming, and compaction share the same credential and Provider boundary. Custom OpenAI-compatible and Anthropic-compatible endpoints remain isolated to their saved Bot/settings snapshot, while system instructions stay in pi's top-level context instead of being serialized as transcript messages. OpenAI-compatible requests choose `system` or `developer` from the selected custom model's saved `supportedRoles`, not from SDK URL heuristics.
 
 For provider configuration, channels, deployment, and environment variables, see the [documentation](#documentation).
 
@@ -105,7 +109,7 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 | [Channels and Surfaces](docs/features/channels-and-surfaces.md) | One local runtime across browser, macOS Desktop, chat channels, and the terminal. |
 | [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior and controlled access to reusable workflows and external tools. |
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
-| [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with one stable live reply per Project turn and consistent inset-sidebar materials. |
+| [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with one stable live reply per Project turn and Finder-style native sidebar materials. |
 
 Project runs generate `SYSTEM_PROMPT.preview.md` in the Project's Molibot workspace. Its header lists only effective prompt sources: Project rules come from `AGENTS.md`, `AGENT.md`, or `CLAUDE.md`; runtime context retains `USER.md` but excludes Bot/Agent identity and persona profiles.
 
@@ -126,7 +130,7 @@ The current runtime already supports durable sessions, memory governance, config
 
 | Surface | Use it for |
 | --- | --- |
-| macOS Desktop | Native chat, project workspaces, files, automations, and Settings with shared inset window chrome. |
+| macOS Desktop | Native chat, project workspaces, files, automations, and Settings with WKWebView-safe, Finder-calibrated Light sidebar material plus AppKit-derived semantic colors across Light, Dark, and System appearances. |
 | Web | Browser chat, Settings, and session access. |
 | Telegram | Personal chat access, runtime controls, and file delivery. |
 | Feishu | Personal chat access with channel-native media and interaction support. |

@@ -19,6 +19,87 @@
 
 ---
 
+# 2026-07-21 — pi-mono 0.81 implementation findings
+
+## Scope decision
+- The implementation follows the P1 recommendation in `docs/analysis/pi-mono-0.73-to-0.81-assessment.md`.
+- SQLite session storage, expanded Usage dimensions, and new thinking-level UI remain intentionally deferred so this upgrade has one independently verifiable purpose.
+- The upgrade must converge main Agent, AssistantService, compaction, and subagent model/auth behavior behind shared server-level code; no Channel-level migration logic is permitted.
+
+## Initial workspace state
+- Only the completed assessment artifacts are modified/untracked: `task_plan.md`, `findings.md`, `progress.md`, and `docs/analysis/`.
+- No pre-existing product-code edits need to be merged around.
+
+## Confirmed 0.81 runtime shape
+- `Models` owns synchronous catalog lookup plus async auth, refresh, stream, and completion; `MutableModels` permits provider upsert/delete.
+- `ModelRuntime` implements `Models`, accepts an injected `CredentialStore`, can register native providers, and exposes runtime-key injection for coding-agent sessions.
+- `addedToolNames` is a first-class tool-result/message field consumed by Anthropic, OpenAI Responses, and OpenAI Completions serializers; Molibot can add it to its existing tool-search result without provider-specific code.
+- The source inventory command referenced a non-existent top-level `tests/` directory. Product tests live alongside source, so subsequent searches will omit that path.
+
+## Molibot behavior that the runtime boundary must preserve
+- `MomRunner` preprocesses every model context (Anthropic system placement, unsupported developer-role mapping, orphan tool-result removal, text-only image stripping), logs request metadata, and wraps streams with an aborting first-token timeout.
+- Compaction currently performs a direct `completeSimple` with an explicitly resolved key; it needs the same provider-aware runtime as ordinary turns.
+- Subagents build an ordered built-in/custom fallback list and place per-provider keys in an in-memory auth registry before creating an SDK session.
+- `hasConfiguredAuth` is currently synchronous and participates in preflight validation; the new async `Models.checkAuth()` cannot be substituted blindly without either migrating that preflight chain or retaining a safe synchronous snapshot check.
+- The existing tool search dynamically mutates the active tool set; its successful selection result is the correct place to attach `addedToolNames`.
+
+## Verification surface
+- Root scripts have no monolithic test command; relevant tests are colocated Node tests plus `desktop:check`, `desktop:test`, root `build`, and desktop/runtime preparation/build paths.
+
+## API migration decisions
+- `AgentOptions.streamFunction` is mandatory in 0.81. Both Molibot Agent constructors must supply it; retaining `getApiKey` alone is insufficient.
+- `createAgentSession` now takes `modelRuntime`; the old `{ authStorage, modelRegistry }` pair must be replaced together.
+- `createProvider` can wrap Molibot custom models with explicit auth and API stream implementations, while `MutableModels`/`ModelRuntime.registerNativeProvider` can install those providers without changing Channel code.
+- Built-in catalog-only callers should use the generated provider catalog helpers rather than the removed global registry compatibility shim.
+- There are no dedicated auth persistence tests today, so the new credential store requires new temporary-file round-trip and concurrent-modify coverage.
+- 0.81 exports provider-specific low-level APIs from stable `api/*` entrypoints, so custom providers can retain their existing Anthropic/OpenAI protocol behavior while built-ins use `Models` auth and dispatch.
+- Main-run validation and fallback already await at the run boundary; credential readiness can be made async there without changing Channel contracts.
+- The coding-agent runtime keeps a synchronous configured-auth snapshot after refresh/runtime-key mutation, matching the subagent session's needs.
+
+## Additional investigation correction
+- The first search guessed a non-existent `agent-session-options.ts`; the actual 0.81 session option contract is in `packages/coding-agent/src/core/sdk.ts`.
+
+## Concrete integration shape
+- Keep catalog lookup synchronous through `getBuiltinModels`; use one shared `Models` collection only for request/auth ownership.
+- A selected model matching the built-in provider/id/api/base URL is dispatched through shared `Models`; Molibot-constructed custom endpoint models use the stable Anthropic/OpenAI low-level streams with their explicit key.
+- Main-run auth validation can distinguish "provider configured" from "an API-key string exists", avoiding false failures for OAuth/header/ambient providers.
+- The tool-search success response already has the exact `loaded` list; adding `addedToolNames: loaded` is a one-line protocol enhancement with no tool registry mutation change.
+
+## Implemented runtime foundation
+- Root dependencies now target the maintained 0.81 scope, the Node floor is 22.19, and unused pi web UI dependencies/externalization entries are removed.
+- Added a file-backed `CredentialStore` with atomic replacement, provider-scoped in-process serialization, cross-process lock directories, stale-lock recovery, and temporary-file tests for round-trip plus concurrent modification.
+- Added a shared request dispatcher: exact built-in catalog models go through `Models`; Molibot custom endpoint models go through stable protocol-specific stream entrypoints.
+- Main Agent, AssistantService, compaction, deferred-tool metadata, and subagents are migrated to their new contracts; one `ModelRuntime` is reused across each subagent fallback sequence.
+
+## Subagent migration detail
+- `ProviderConfigInput` supports base URL, API kind, runtime/custom key, model metadata, compatibility flags, and a custom `streamSimple`; this preserves Molibot's current custom subagent model construction.
+- One `ModelRuntime` should be created per delegated run and shared across its ordered fallback attempts. That keeps fallback keys/providers coherent without leaking Bot settings globally.
+
+## First verification checkpoint
+- The 0.81 dependency graph installed successfully on the conservative retry: 17 packages added and 105 obsolete packages removed.
+- Credential round-trip/concurrency tests and existing compaction tests pass (11/11) even under the older shell Node.
+- Root `svelte-check` is not installed; this repository exposes `desktop:check` as its supported Svelte/type validation entrypoint.
+- Desktop Svelte diagnostics pass with 0 errors/0 warnings, and the root production build succeeds. Only the repository's pre-existing Vite dynamic/static import advisories remain.
+- The broad root TypeScript config includes known-unresolved packages and historical fixture errors, but it usefully identified upgrade deltas: optional API keys, strict generated-catalog provider typing, and moved custom thinking-level mapping.
+- The desktop runtime preparer already pins Node 22.23.1, which satisfies 0.81 without introducing a second runtime policy.
+- In 0.81, provider-specific reasoning mappings moved from `OpenAICompletionsCompat.reasoningEffortMap` to `Model.thinkingLevelMap`; Molibot must project the same settings onto the model object.
+- Seven catalog callers can share `getPiCatalogModels(providerId)` from the runtime instead of casting generated static-provider helpers; this also handles dynamic provider IDs consistently.
+- Focused runtime/tool tests pass 21/21 after the delta fixes, and targeted TypeScript filtering reports no errors in the migrated auth/runtime/routing/subagent/AssistantService/tool-search files.
+- OAuth concurrency plus login/logout persistence are now exercised through the actual 0.81 `Models` implementation; 23 focused tests pass before the final failure-preservation addition.
+- `desktop:prepare` rebuilt the release bundle and successfully prepared the pinned Node 22.23.1 aarch64 sidecar, satisfying the new engine floor on the actual deployment runtime.
+- Relevant regression files cover runner helpers/retries, routing, compaction, subagent runtime, deferred tools, provider endpoints, and model switching; these form the next expanded gate.
+- The expanded pi/runtime suite passes 96/96 under the deployment Node 22.23.1 binary, including runner failure persistence, model routing/fallback, subagent budgets, compaction, OAuth locking, and deferred tools.
+- Cold-start smoke will use a dedicated temporary data directory and disabled live channels, so no real settings/database/channel process is touched.
+- Real cold start passed on Node 22.23.1: `/health` returned OK and `/api/settings/ai-meta` returned 23 product-visible providers plus 14 Anthropic models from the shared catalog. The service stopped cleanly and released its port.
+- The exact smoke directory was moved to system trash after shutdown; no temporary runtime state remains at the test path.
+- Adversarial code read found and corrected two boundary issues before closeout: preserve `thinkingLevelMap` in subagent provider registration, and lazy-load coding-agent from `PiRuntime` so catalog/status endpoints do not eagerly load the SDK session stack.
+- Client optimize-dependency configuration no longer lists any pi server package; this keeps the new coding-agent runtime out of frontend prebundling.
+- Final adversarial scan confirmed all active catalog callers route through `PiRuntime`, all streaming/completion dispatch is centralized there, and no deprecated pi SDK scope remains in active source or direct dependencies. The remaining `@mariozechner/clipboard` lockfile entries are the 0.81 coding-agent's platform clipboard dependency, not the retired pi SDK.
+- Final gates passed on Node 22.23.1: focused post-review subagent tests 27/27, service-bootstrap tests 6/6, Desktop structural tests 84/84, Rust tests 20/20, root production build, and `git diff --check`. The build reports only the repository's existing static/dynamic chunk advisories.
+- Most likely upgrade failure modes were checked explicitly: OAuth refresh double-write, failed-refresh credential loss, custom endpoint misdispatch, fallback runtime/key drift, lost thinking mappings, and frontend bundling of server SDK code. Each is covered by the shared boundary, a focused test, or both.
+
+---
+
 # Project Chat duplicate live reply fix (2026-07-19)
 
 - Captured session evidence proves there was one final assistant metadata row, not two persisted replies.
@@ -1523,5 +1604,141 @@ Use two identities for fresh automation runs: an execution-unique runtime Sessio
 - The full-width filled disclosure reads as a selected table row and creates a heavy three-band card; it should be transparent, separator-led, and lower emphasis.
 - The correct compactness boundary is not “everything on one line.” Actions belong in a shallow headline row; fields need their own full-width row.
 - Refresh is a utility action suited to the existing 32px `icon-button`; Clear is tertiary; Apply is the only primary action.
+
+---
+
+# 2026-07-21 — pi-mono upgrade integration assessment
+
+- Scope is analysis only: compare Molibot's actual pi consumption with the downloaded `example/pi-mono` source and its release history.
+- The repository contains root `package.json`/`pnpm-lock.yaml` plus pi-mono package changelogs for `ai`, `agent`, `coding-agent`, `server`, `tui`, and storage.
+- Existing root planning files contain prior task history and must be appended to, not replaced.
+
+## Baseline evidence
+- Molibot `package.json` declares `@mariozechner/pi-ai`, `pi-agent-core`, and `pi-coding-agent` at `^0.73.1`, plus `pi-web-ui` at `^0.73.1`; `pnpm-lock.yaml` resolves all four to exactly `0.73.1`.
+- Downloaded `example/pi-mono` is clean on `main`, tracks `https://github.com/badlogic/pi-mono.git`, and is at commit `4b91ec66` on 2026-07-21, immediately after release commit `9c480b6a` for v0.81.0.
+- The local upstream source manifests report `0.81.0`, so the relevant upgrade span is 0.73.1 → 0.81.0 (eight minor release lines), plus a few unreleased commits after 0.81.0.
+- Current upstream package scope is `@earendil-works/*`, while Molibot consumes `@mariozechner/*`; package rename/migration compatibility must be verified rather than treating this as a routine semver bump.
+- Upstream has added a publishable SQLite storage package and continues post-0.81 provider/model fixes; both may be relevant to Molibot's persistent runtime and fast-moving provider compatibility.
+
+## Release-history shape
+- The changelogs contain 0.74.0/0.74.1, 0.75.0–0.75.5, 0.76.0, 0.77.0, 0.78.0/0.78.1, 0.79.0–0.79.10, 0.80.0–0.80.10, and 0.81.0. This is not merely eight isolated releases: there are many patch releases, especially in provider and coding-agent behavior.
+- The clone is full (`--is-shallow-repository=false`) but its git tags only extend to the older v0.52.x series; for the 0.73→0.81 comparison, package changelogs and release commits are more reliable local evidence than tags.
+- `pi-server` changelog begins only at 0.80.3; `pi-storage-sqlite-node` first releases at 0.81.0.
+
+## Initial applicability signals
+- Molibot imports pi types/runtime throughout the shared Agent layer (runner, turn orchestration, session/compaction, tool policy, auth/model routing), uses `pi-coding-agent` for subagents, and retains a `pi-web-ui` build dependency. The upgrade therefore has a broad compile-time surface even if runtime behavior remains mostly behind shared seams.
+- 0.75 raises the minimum Node.js version to 22.19.0; Molibot's deployment/runtime Node floor must be checked before any bump.
+- High-value upstream fixes for Molibot include: abort-safe sibling tool-call preflight; stale late tool-progress suppression; serialized split-turn compaction; truncated tool-call failure handling; context-aware output limits; retry classification; stream timeout fixes; replay/tool-call-ID correctness; updated context/model/cost metadata.
+- High-value new capabilities include: branch-scoped tool registries and `tools_update`; deferred/cache-friendly tool loading via `addedToolNames`; `max` thinking; usage metadata on tool results/compaction/branch summaries; reasoning-token usage; provider-scoped auth and dynamic provider/model catalogs.
+- The largest breaking areas are not ordinary model catalog updates: 0.80 provider-scoped `Models`/auth APIs and 0.81 required `streamFunction` plus changed `SessionStorage` contract. Molibot currently constructs `Agent` and calls free `streamSimple`, so this seam needs source-level comparison.
+- Existing history shows a prior 0.62 OAuth import-entry break and a browser-bundling failure when Node-only pi packages crossed into client builds; the eventual migration must have explicit build and client-boundary guards.
+
+## Molibot seam details
+- Main runner already injects a custom `streamFn` around free `streamSimple()` to apply role normalization, orphan-tool-result cleanup, payload transforms, abort propagation, and first-token timeout/fallback. Upstream 0.81 renames/requires this option as `streamFunction`; preserving this wrapper is mandatory.
+- A second simpler `Agent` construction exists in `assistantService.ts` without a stream override; 0.81 will require it to supply a stream function (or migrate onto a shared model facade).
+- Molibot's OAuth layer directly uses legacy `getOAuthProvider(s)`, `getOAuthApiKey`, provider `.login()`, and compatibility callbacks from `pi-ai/oauth`. Upstream 0.80.8 explicitly removes these runtime APIs in favor of provider-owned `Models.checkAuth/getAuth/login/logout` and `AuthInteraction`; this is a real rewrite, not an import rename.
+- Subagent integration directly constructs `AuthStorage`, `ModelRegistry`, `SessionManager`, `DefaultResourceLoader`, and `createAgentSession`; coding-agent changes are therefore at least as important as agent-core changes.
+- Molibot's current local Node is v22.15.1, below upstream's required >=22.19.0. Docker uses a floating `node:22-bookworm-slim`, CI requests generic Node 22, and the root engines constraint needs exact inspection. An explicit >=22.19.0 floor should precede the pi bump.
+- The new root/entrypoint shape is substantially different (`pi-ai` adds broad providers/API subpaths and compat; agent adds `/node`; coding-agent drops `/hooks` in favor of `/rpc-entry`). Molibot's current imports are root/oauth only, but build externalization/client-boundary configuration must be rechecked.
+
+## Upstream migration evidence
+- 0.74.0 is the explicit npm-scope migration from `@mariozechner/*` to `@earendil-works/*`; staying on the old scope means Molibot is on the pre-migration distribution line even though its version range uses a caret.
+- Upstream documents the old global `getModels` / `streamSimple` API as available through `pi-ai/compat`, with the target architecture being `createModels()` plus explicit provider factories. Compat is temporary and planned for removal.
+- `pi-coding-agent` 0.80.8 replaces SDK `authStorage` + `modelRegistry` inputs with async `modelRuntime`; these exact options are used by Molibot's subagent implementation, so subagents require a focused migration.
+- Molibot root engines currently allow Node >=22.5.0, while upstream requires >=22.19.0. The local developer Node v22.15.1 satisfies Molibot today but cannot run 0.81.
+- Coding-agent features with direct Molibot relevance: messages queued during compaction retain steering/follow-up semantics; `agent_settled`/idle waiting; provider header hooks; selective tools; streaming behavior classification; session disposal aborts all in-flight work; dynamic tools preserve cache prefixes; expanded tool/compaction/branch usage accounting.
+- Coding-agent CLI/TUI-only features—llama.cpp download UI, copy shortcuts, theme/rendering, package self-update UI—should not drive Molibot's dependency upgrade because Molibot embeds the SDK and owns its own Desktop/Web/channel UX.
+
+## Registry and package-line conclusion
+- npm confirms all four `@mariozechner` packages used by Molibot are deprecated, pinned at latest 0.73.1, and explicitly direct users to `@earendil-works/*`.
+- npm currently publishes `@earendil-works/pi-ai`, `pi-agent-core`, and `pi-coding-agent` at 0.81.0 with Node >=22.19.0. It also publishes `pi-storage-sqlite-node` 0.81.0.
+- `@earendil-works/pi-web-ui` is only 0.75.3, not 0.81.0. Molibot source has no active import of pi-web-ui—only package/build externalization references—so this dependency should be audited for removal or isolated upgrade rather than forced into a fictitious lockstep version.
+- Upstream's 0.81 Agent documentation requires `streamFunction: models.streamSimple.bind(models)`. The new coding-agent SDK accepts `ModelRuntime` and internally routes `createAgentSession` streams through it.
+
+## Architecture fit
+- The new `CredentialStore` is a clean shared seam for Molibot: async `read/list/modify/delete`, one credential per provider, serialized mutation, and OAuth refresh inside `modify` to prevent concurrent double refresh. Molibot currently does synchronous whole-file read/write with no provider lock, so adopting this contract would remove an auth race and unify main/subagent credentials.
+- `Models` centralizes providers, model lookup/refresh, availability, auth, login/logout, and stream/complete. One long-lived Molibot-owned instance can replace repeated global `getModels`, manual `resolveProviderApiKey`, and separate subagent `AuthStorage` wiring.
+- Molibot already owns a richer shared runtime than coding-agent: persistent cross-channel queues, steer/follow-up commands, compaction, session projections, usage records, traces, budgets, approvals, and channel delivery. These should remain Molibot-owned; replacing them with upstream `SessionStorage`/harness would be a risky regression and violates the project's shared-layer boundary.
+- Upstream Agent's queue primitives and session harness are useful as implementation/reference behavior, not as wholesale replacements. The most valuable direct adoption is lower-level correctness in agent-core/pi-ai plus selected metadata/events.
+- Molibot already tracks input/output/cache tokens and subagent assistant usage. New reasoning-token and tool/compaction/branch-summary usage can enrich the existing tracker, but must be merged into Molibot's schema rather than creating a parallel usage store.
+- No active Web chat source imports `pi-web-ui` or `mini-lit`; only package.json/vite externalization retain them. This strongly supports removing both after a build verification, rather than migrating an unused UI package.
+
+## Concrete breaking-change map
+- 0.80 moves global `getModels`, `streamSimple`, `completeSimple`, and `getEnvApiKey` from root to temporary `/compat`; Molibot imports every one of these. Directly renaming the package scope will fail compilation unless imports are moved or the new Models runtime is introduced.
+- 0.80 repurposes the `Provider` type name and removes old raw API subpaths; Molibot primarily uses `KnownProvider` and root types, but its custom-provider compatibility builder must be type-checked against the new `Model.compat` shapes.
+- 0.78 requires explicit API keys for raw provider streams; a Models-owned stream resolves auth automatically, which is preferable to keeping Molibot's request-time manual key path.
+- 0.75.5 changed interactive OAuth callbacks; 0.80.8 then removes the legacy runtime OAuth surface entirely. Molibot needs a provider-neutral prompt/notify adapter capable of text, secret, select, manual-code, auth URL, device-code, progress, and cancellation.
+- The root agent package still exports Molibot's core types (`Agent`, `AgentTool`, messages, execution contexts). The main constructor change is `streamFn` → required `streamFunction`.
+- Coding-agent no longer exports `AuthStorage`; `ModelRegistry` remains but is now built around `ModelRuntime`. Molibot's subagent candidate resolution should create/reuse one `ModelRuntime`, set runtime keys through it, and pass `modelRuntime` to `createAgentSession`.
+- Molibot's own `reasoningEffortMap` is a product setting translated into model compatibility metadata, not the removed upstream `compat.reasoningEffortMap` field directly. It may remain as UX/storage vocabulary if the adapter emits current `thinkingLevelMap`/provider config correctly.
+
+## Deferred tools and cache value
+- Molibot already has a product-level `toolSearch` and deferred-tool registry/stub system. It dynamically loads full tool definitions, but on 0.73.1 it cannot annotate the transcript point where definitions become active.
+- Upstream 0.80.7 adds exactly the missing protocol: `AgentToolResult.addedToolNames` → `ToolResultMessage.addedToolNames`; Anthropic/OpenAI Responses can then keep late-loaded tools out of the stable cached prefix. This is a high-priority integration because it upgrades Molibot's existing feature instead of adding a parallel one.
+- Expected benefit: lower repeated prompt input/cache-write cost and fewer cache invalidations in long tool-rich sessions, while preserving Molibot's current search UX and shared tool policy. Verification should compare payload tool lists and cache-read/write usage before/after loading a deferred tool.
+- Do not adopt upstream harness `tools_update`/branch persistence wholesale unless Molibot later needs branch-specific tool sets; today the simple Agent state plus Molibot session store is the correct ownership boundary.
+
+## SQLite session backend assessment
+- Upstream 0.81's new SQLite storage is specifically an implementation of pi-agent harness `SessionRepo`/`SessionStorage`, with branches, compaction paths, cursor reads, migrations, and materialized session views.
+- Molibot already has its own JSON/JSONL Agent transcript plus separate UI session metadata, run details, usage, queue, settings, trace, projects, and memory stores. It also depends on exact cross-channel/session semantics and checkpoint rollback for model fallback.
+- Therefore `pi-storage-sqlite-node` should not be integrated in the first upgrade. It would duplicate rather than replace storage unless Molibot first designs one canonical session model and a migration for all existing artifacts.
+- Longer-term value is real for very large histories (indexed/cursor reads, branch/fork queries, atomic materialized views), but this is a separate storage project, not part of the dependency bump. A future evaluation should benchmark current JSONL cold open/search and define migration/rollback before adoption.
+
+## Provider catalog and thinking controls
+- Molibot's hard-coded `KNOWN_PROVIDER_LIST` exposes only a subset of even the 0.73.1 catalog and includes casted legacy Google variants. The new runtime contains additional providers including Together AI, Ant Ling, NVIDIA NIM, Qwen Token Plan/China, Radius, and Z.AI Coding China, plus rapidly refreshed Kimi/Claude/GPT catalogs.
+- A Models-backed provider/model endpoint would eliminate static-list drift and let UI availability reflect configured credentials. Product policy can still hide providers intentionally, but the source of truth should be the runtime registry rather than a duplicated union/list.
+- Chinese/ecosystem relevance is particularly strong: Kimi K3, Qwen Token Plan regional endpoints, Ant Ling, MiniMax M3, Xiaomi regional plans, and Z.AI coding updates can become available without bespoke Molibot protocol code.
+- Molibot currently supports only `off/low/medium/high`. Upstream now supports `xhigh` and opt-in `max` on capable models and exposes supported levels. Add these only after the core migration, with capability-driven choices and clear latency/cost warnings; do not blindly show `max` for every model.
+- Molibot's usage schema lacks reasoning tokens and tool/compaction/branch-summary usage. Adding optional fields and preserving old-record compatibility would improve cost diagnosis and explain expensive reasoning runs.
+- A provider-model-count command failed because the generated catalog is a TypeScript artifact rather than local JSON files. Provider additions were verified from `providers/all.ts` and changelog entries instead; exact aggregate count is not needed for the recommendation.
+
+## Reliability benefit and preservation requirements
+- The strongest reason to upgrade is accumulated correctness, not headline features: early/truncated streams become retryable instead of false success; provider retry/429 behavior is more accurate; WebSocket/SSE waits and connection rotation are bounded; context-overflow phrases and output-token caps are corrected; replay preserves reasoning and unique tool IDs; malformed/null content is normalized.
+- These directly reinforce Molibot's model fallback, compaction, cross-provider routing, long-running Agent, custom providers, and tool-heavy sessions. Better upstream error classification means Molibot's existing fallback policy receives more accurate stop/error signals.
+- Molibot recently fixed its own prompt-cache stability, exact/CJK-aware compaction triggers, tool-call identity/progress forwarding, and shared runner/session routing. The upgrade must preserve these local guards; upstream does not make them obsolete.
+- `xhigh` already exists in pi 0.73 types but Molibot intentionally exposes only through `high`; 0.81 adds `max`. A capability-driven UI should likely add both `xhigh` and `max` together rather than only the newest label.
+- Existing project history confirms two migration risks: pi OAuth entrypoint changes have already broken production builds once, and client imports of Node-heavy pi packages have already broken Vite/Rollup. Compile, Web production build, Desktop production build, and client-boundary tests are mandatory gates.
+
+## Final recommendation
+- Upgrade to the maintained `@earendil-works` 0.81.0 line, but only through a Molibot-owned shared runtime boundary; do not leave `/compat` as the final architecture.
+- Stage the work as: (A) create the stable shared boundary/remove unused UI dependencies, (B) scope/API/auth/subagent migration, (C) deferred-tool caching, registry-driven UI, richer usage, and capability-driven xhigh/max.
+- The runtime must support settings-generation invalidation: active turns retain a stable provider snapshot, while subsequent turns see atomically updated provider configuration.
+- File-backed credentials require atomic replacement and provider-level cross-process locking, not only in-process serialization.
+- Adversarial review found six main risks: auth migration, custom-provider fidelity, retry amplification, client bundle leakage, local runner guard loss, and network catalog refresh affecting cold start. The report specifies a machine or cold-path guard for each.
+
+---
+
+# 2026-07-22 — macOS semantic color findings
+
+- Focused regression reproduced the reported issue: dark structural tokens mapped `panel/header/card/window` to `#0A0A0A` and `sidebar/content` to `#000000`.
+- Apple HIG requires semantic colors that adapt by appearance and warns against redefining semantic roles; macOS desktop tinting also favors neutral surfaces with appropriate transparency.
+- Current AppKit colors resolved locally under Aqua/Dark Aqua:
+  - window/control/text background: `#FFFFFF` / `#1E1E1E`
+  - dark under-page reference: `#282828`
+  - separator: black/white 9.8%
+  - primary label: black/white 84.7%
+  - secondary label: black 49.8% / white 54.9%
+  - tertiary label: black 25.9% / white 24.7%
+  - unemphasized selection: `#DCDCDC` / `#464646`
+  - control accent: `#007AFF` in both appearances
+  - system green/red/orange: `#34C759/#FF383C/#FF8D28` light and `#30D158/#FF4245/#FF9230` dark
+- Selected mapping: window `#1E1E1E`, grouped `#242424`, elevated `#282828`, nested `#303030`; pure black remains reserved for intentional code/media canvases.
+- Root-cause class: semantic layer collapse. The previous theme used visual gray values rather than AppKit roles, allowing several structural surfaces to converge on black.
+- Light Finder sidebar follow-up: the supplied reference measures approximately `#ECEDEE` in blank sidebar regions. The first native result after adding a 22% gray tint measured `#616465`, while the pre-tint native sidebar measured `#FBFBFB`. This proves the native Light effect/theme was correct and the regression came from WKWebView premultiplying a low-alpha CSS fill against its transparent backing before native composition.
+- The failed native screenshot lets us infer the clear-compositor base at roughly `(71,73,74)`. A 90% white material veil composes that base to approximately `(237,237,237)`, within four channel levels of the Finder reference, while retaining 10% native material contribution. Tauri's effect `color` field cannot solve this on macOS because the local 2.11 API exposes it for Windows only.
+- Root-cause class: transparent-window alpha composition. Ordinary browser alpha math was incorrectly assumed to match WKWebView + native material composition.
+
+---
+
+# 2026-07-23 — pi 0.81 custom-model prompt-role regression
+
+- Six candidates across four independent OpenAI-compatible endpoints failed in 61ms with zero tokens, proving the failure occurred before network dispatch rather than at a provider.
+- Provider Test and direct pi streaming succeeded before the unrelated network path later became unavailable; the exact saved history and all 19 real Runner tool schemas also streamed successfully when passed directly.
+- The failing Runner log uniquely reported `hasSystemPrompt=false` and one extra message. `mapUnsupportedDeveloperRole` had moved the top-level prompt into `messages` as `{ role: "system" }` whenever the selected custom model omitted `developer` support.
+- pi 0.81 token estimation treats Agent transcript messages as user/assistant/toolResult. The injected system row reached the assistant-block estimator and dereferenced a missing tool-call `name.length`; a local mock stream reproduced the exact stack before receiving any HTTP request.
+- Root-cause class: protocol-shape incompatibility during SDK migration. The previous test settings declared `developer` support, so the incompatible normalization branch was never exercised.
+- The machine guard now covers both no-developer-message contexts and real unsupported developer messages; the latter are folded into `Context.systemPrompt` and removed from the transcript.
+- A follow-up upstream 400 exposed the second half of the same protocol boundary: pi 0.81 chooses the top-level OpenAI message role from `model.compat.supportsDeveloperRole`, while Molibot's custom-model resolver had left it undefined even though `supportedRoles` was saved per model. The SDK therefore guessed from URL/model traits and emitted `developer` to an endpoint that accepts only `system`, `assistant`, `user`, and `tool`.
+- The resolver now explicitly maps the selected configured model's `supportedRoles` into compat. Machine guards cover both boolean branches and call pi's final message serializer to assert the exact outgoing role.
 
 ---

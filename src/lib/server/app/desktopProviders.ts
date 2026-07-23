@@ -1,5 +1,5 @@
 import { KNOWN_PROVIDER_LIST, type CustomProviderConfig, type RuntimeSettings } from "$lib/server/settings/schema";
-import { getModels } from "@mariozechner/pi-ai";
+import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
 import type {
   DesktopProviderModel,
   DesktopProviderModelRole,

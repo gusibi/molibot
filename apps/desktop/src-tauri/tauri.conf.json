@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Molibot",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "identifier": "com.eztoolab.molibot",
   "build": {
     "beforeDevCommand": "corepack pnpm run dev",
@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "macOSPrivateApi": false,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "chat",
@@ -21,10 +21,18 @@
         "minWidth": 720,
         "minHeight": 520,
         "center": true,
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "followsWindowActiveState",
+          "radius": 0
+        },
         "titleBarStyle": "Overlay",
         "trafficLightPosition": {
           "x": 18,
-          "y": 24
+          "y": 18
         },
         "hiddenTitle": true
       },
@@ -38,10 +46,18 @@
         "minHeight": 480,
         "center": true,
         "visible": false,
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "followsWindowActiveState",
+          "radius": 0
+        },
         "titleBarStyle": "Overlay",
         "trafficLightPosition": {
           "x": 18,
-          "y": 24
+          "y": 18
         },
         "hiddenTitle": true
       }

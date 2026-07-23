@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { getModels } from "@mariozechner/pi-ai";
+import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
 import { KNOWN_PROVIDER_LIST, type CustomProviderConfig } from "$lib/server/settings";
 
 export const GET: RequestHandler = async () => {

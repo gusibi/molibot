@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionMessageEntry } from "$lib/server/agent/session/session.js";
 import type { ConversationMessage } from "$lib/shared/types/message.js";
 import type { UiMessageMetadata } from "$lib/server/sessions/store.js";

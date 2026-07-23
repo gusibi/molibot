@@ -1,6 +1,6 @@
 import { createDecipheriv } from "node:crypto";
 import { extname } from "node:path";
-import type { ImageContent } from "@mariozechner/pi-ai";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { MessageItemType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
 import type { IncomingMessage } from "$lib/server/channels/weixin/client.js";
 import type { FileAttachment } from "$lib/server/agent/core/types.js";

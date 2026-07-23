@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyDirectReasoningParams,
-  buildCustomProviderCompat
+  buildCustomProviderCompat,
+  buildCustomProviderThinkingLevelMap
 } from "$lib/server/providers/customThinking.js";
 import { resolveCustomProviderThinkingFormat } from "$lib/server/settings/thinking.js";
 
@@ -26,12 +27,12 @@ test("deepseek format uses upstream-compatible thinking parameters", () => {
     }
   );
   assert.deepEqual(buildCustomProviderCompat(provider), {
-    thinkingFormat: "deepseek",
-    reasoningEffortMap: {
-      low: "high",
-      medium: "high",
-      high: "high"
-    }
+    thinkingFormat: "deepseek"
+  });
+  assert.deepEqual(buildCustomProviderThinkingLevelMap(provider), {
+    low: "high",
+    medium: "high",
+    high: "high"
   });
 });
 
@@ -51,12 +52,12 @@ test("deepseek format defaults low and medium effort to high", () => {
     }
   );
   assert.deepEqual(buildCustomProviderCompat(provider), {
-    thinkingFormat: "deepseek",
-    reasoningEffortMap: {
-      low: "high",
-      medium: "high",
-      high: "high"
-    }
+    thinkingFormat: "deepseek"
+  });
+  assert.deepEqual(buildCustomProviderThinkingLevelMap(provider), {
+    low: "high",
+    medium: "high",
+    high: "high"
   });
 });
 
@@ -78,6 +79,7 @@ test("unset thinking format does not infer vendor-specific request params", () =
     }
   );
   assert.equal(buildCustomProviderCompat(provider), undefined);
+  assert.equal(buildCustomProviderThinkingLevelMap(provider), undefined);
 });
 
 test("known provider presets map old thinking-type value to deepseek format", () => {

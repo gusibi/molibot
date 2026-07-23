@@ -1,91 +1,42 @@
 ---
-version: alpha
-name: Geist Dark
-description: Geist design system, Dark theme (the Light theme is documented at /DESIGN.md).
+version: beta
+name: macOS Semantic Dark
+description: Dark appearance references for the Molibot macOS product layer. DESIGN.md is authoritative.
 colors:
-  background: "oklch(0.1448 0 0)"
-  foreground: "oklch(0.9851 0 0)"
-  card: "oklch(0.2134 0 0)"
-  card-foreground: "oklch(0.9851 0 0)"
-  popover: "oklch(0.2686 0 0)"
-  popover-foreground: "oklch(0.9851 0 0)"
-  primary: "oklch(0.5555 0 0)"
-  primary-foreground: "oklch(0.9851 0 0)"
-  secondary: "oklch(0.2686 0 0)"
-  secondary-foreground: "oklch(0.9851 0 0)"
-  muted: "oklch(0.2686 0 0)"
-  muted-foreground: "oklch(0.7090 0 0)"
-  accent: "oklch(0.3715 0 0)"
-  accent-foreground: "oklch(0.9851 0 0)"
-  destructive: "oklch(0.7022 0.1892 22.2279)"
-  destructive-foreground: "oklch(0.2686 0 0)"
-  border: "oklch(0.3407 0 0)"
-  input: "oklch(0.4386 0 0)"
-  ring: "oklch(0.5555 0 0)"
-  chart-1: "oklch(0.5555 0 0)"
-  chart-2: "oklch(0.5555 0 0)"
-  chart-3: "oklch(0.5555 0 0)"
-  chart-4: "oklch(0.5555 0 0)"
-  chart-5: "oklch(0.5555 0 0)"
-  sidebar: "oklch(0.2046 0 0)"
-  sidebar-foreground: "oklch(0.9851 0 0)"
-  sidebar-primary: "oklch(0.9851 0 0)"
-  sidebar-primary-foreground: "oklch(0.2046 0 0)"
-  sidebar-accent: "oklch(0.2686 0 0)"
-  sidebar-accent-foreground: "oklch(0.9851 0 0)"
-  sidebar-border: "oklch(1.0000 0 0)"
-  sidebar-ring: "oklch(0.4386 0 0)"
-typography:
-  font-sans: "Geist Mono, monospace"
-  font-serif: "Geist Mono, monospace"
-  font-mono: "Geist Mono, monospace"
-  radius: "0rem"
+  window: "#1E1E1E"
+  grouped: "#242424"
+  elevated: "#282828"
+  surface-secondary: "#303030"
+  foreground: "rgb(255 255 255 / 84.7%)"
+  muted-foreground: "rgb(255 255 255 / 54.9%)"
+  tertiary-foreground: "rgb(255 255 255 / 24.7%)"
+  separator: "rgb(255 255 255 / 9.8%)"
+  unemphasized-selection: "#464646"
+  accent: "#007AFF"
+  success: "#30D158"
+  destructive: "#FF4245"
+  warning: "#FF9230"
 ---
 
-# Geist Dark Design Tokens
+# macOS Semantic Dark References
 
-This file documents the Dark theme variables for the Molibot application.
+This file is a compact companion to the authoritative macOS product rules in
+`DESIGN.md`. Values mirror resolved AppKit semantic roles instead of the superseded
+Geist/OKLCH dark palette.
 
-## Colors (OKLCH)
+| Product token family | Value | AppKit meaning |
+| --- | --- | --- |
+| `--mac-window-background` | `#1E1E1E` | Main window/workspace background |
+| `--mac-grouped-background` | `#242424` | Quiet grouped canvas |
+| `--mac-elevated-background` | `#282828` | Cards, popovers, composer, raised neutral controls |
+| `--surface-secondary` | `#303030` | Nested neutral content only |
+| `--mac-label` | white 84.7% | Primary label |
+| `--mac-secondary-label` | white 54.9% | Secondary label |
+| `--mac-tertiary-label` | white 24.7% | Tertiary label |
+| `--mac-separator` | white 9.8% | Structural separators |
+| `--mac-unemphasized-selection` | `#464646` | Inactive/unemphasized selection |
+| `--accent` | `#007AFF` | macOS control accent reference |
 
-| Token | OKLCH Value | Description |
-|---|---|---|
-| `background` | `oklch(0.1448 0 0)` | Primary page background |
-| `foreground` | `oklch(0.9851 0 0)` | Primary text color |
-| `card` | `oklch(0.2134 0 0)` | Card background |
-| `card-foreground` | `oklch(0.9851 0 0)` | Card text |
-| `popover` | `oklch(0.2686 0 0)` | Popover background |
-| `popover-foreground` | `oklch(0.9851 0 0)` | Popover text |
-| `primary` | `oklch(0.5555 0 0)` | Primary interactive color |
-| `primary-foreground` | `oklch(0.9851 0 0)` | Text on primary background |
-| `secondary` | `oklch(0.2686 0 0)` | Secondary buttons/actions background |
-| `secondary-foreground` | `oklch(0.9851 0 0)` | Text on secondary actions |
-| `muted` | `oklch(0.2686 0 0)` | Muted background elements |
-| `muted-foreground` | `oklch(0.7090 0 0)` | Muted text |
-| `accent` | `oklch(0.3715 0 0)` | Active state or highlighted items |
-| `accent-foreground` | `oklch(0.9851 0 0)` | Accent text color |
-| `destructive` | `oklch(0.7022 0.1892 22.2279)` | Danger/error background |
-| `destructive-foreground` | `oklch(0.2686 0 0)` | Text on destructive items |
-| `border` | `oklch(0.3407 0 0)` | Borders and dividers |
-| `input` | `oklch(0.4386 0 0)` | Input border/background |
-| `ring` | `oklch(0.5555 0 0)` | Keyboard focus ring |
-
-## Sidebar (OKLCH)
-
-| Token | OKLCH Value |
-|---|---|
-| `sidebar` | `oklch(0.2046 0 0)` |
-| `sidebar-foreground` | `oklch(0.9851 0 0)` |
-| `sidebar-primary` | `oklch(0.9851 0 0)` |
-| `sidebar-primary-foreground` | `oklch(0.2046 0 0)` |
-| `sidebar-accent` | `oklch(0.2686 0 0)` |
-| `sidebar-accent-foreground` | `oklch(0.9851 0 0)` |
-| `sidebar-border` | `oklch(1.0000 0 0)` |
-| `sidebar-ring` | `oklch(0.4386 0 0)` |
-
-## Typography & Theme Values
-
-- **Sans-serif Font:** `Geist Mono, monospace`
-- **Serif Font:** `Geist Mono, monospace`
-- **Monospace Font:** `Geist Mono, monospace`
-- **Radius:** `0rem` (Sharp edges)
+Never use `#000000` or `#0A0A0A` for structural Desktop surfaces. Pure black is
+allowed only for intentional media or code canvases. Keep the window, grouped, and
+elevated roles distinct so the dark interface retains macOS depth without shadows.

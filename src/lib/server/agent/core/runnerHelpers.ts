@@ -1,6 +1,6 @@
 import { basename } from "node:path";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { Model } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Model } from "@earendil-works/pi-ai";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import { stripTransientRuntimeNoticesFromMessages } from "$lib/server/agent/core/runtimeNotices.js";
 import { type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
@@ -9,7 +9,7 @@ import {
   getCustomProviderById,
   getCustomModelRoles
 } from "$lib/server/agent/routing/modelRouting.js";
-import { hasConfiguredAuth } from "$lib/server/agent/identity/auth.js";
+import { hasPiProviderAuth } from "$lib/server/providers/piRuntime.js";
 
 export function envVarForProvider(provider: string): string | null {
   switch (provider) {
@@ -338,7 +338,7 @@ export function buildPromptRefreshKey(
   });
 }
 
-export function validateRuntimeSettings(settings: RuntimeSettings): string | null {
+export async function validateRuntimeSettings(settings: RuntimeSettings): Promise<string | null> {
   const selection = resolveModelSelection(settings, "text");
   if (selection.source === "custom") {
     const selected = getCustomProviderById(settings, selection.providerId);
@@ -352,7 +352,7 @@ export function validateRuntimeSettings(settings: RuntimeSettings): string | nul
   }
 
   const configuredBuiltInProvider = settings.customProviders.find((provider) => provider.id === selection.model.provider);
-  if (!hasConfiguredAuth(selection.model.provider, () => configuredBuiltInProvider?.apiKey?.trim() || undefined)) {
+  if (!await hasPiProviderAuth(selection.model.provider, configuredBuiltInProvider?.apiKey)) {
     const envVar = envVarForProvider(selection.model.provider);
     const hint = envVar ? `${envVar} or auth.json` : "auth.json";
     return `AI settings error: missing credentials for provider '${selection.model.provider}'. Configure ${hint}.`;
@@ -409,23 +409,21 @@ export function mapUnsupportedDeveloperRole(
     !Array.isArray(context.messages)
   )
     return context;
-  const mappedMessages = context.messages.map((msg: any) => {
-    if (!msg || typeof msg !== "object") return msg;
-    if (msg.role !== "developer") return msg;
-    return { ...msg, role: "system" };
+  const developerInstructions: string[] = [];
+  const mappedMessages = context.messages.filter((msg: any) => {
+    if (!msg || typeof msg !== "object" || msg.role !== "developer") return true;
+    const instruction = extractPlainTextContent(msg.content);
+    if (instruction) developerInstructions.push(instruction);
+    return false;
   });
+  if (developerInstructions.length === 0) return context;
 
-  const prompt =
-    typeof context.systemPrompt === "string" ? context.systemPrompt.trim() : "";
-  if (!prompt) {
-    return { ...context, messages: mappedMessages };
-  }
+  const systemPrompt = [
+    typeof context.systemPrompt === "string" ? context.systemPrompt.trim() : "",
+    ...developerInstructions
+  ].filter(Boolean).join("\n\n");
 
-  return {
-    ...context,
-    systemPrompt: "",
-    messages: [{ role: "system", content: prompt }, ...mappedMessages],
-  };
+  return { ...context, systemPrompt, messages: mappedMessages };
 }
 
 export function extractPlainTextContent(content: unknown): string {

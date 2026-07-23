@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "2.6.3",
+  "version": "2.6.4",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
@@ -35,9 +35,9 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.26",
     "@larksuiteoapi/node-sdk": "^1.66.0",
-    "@mariozechner/pi-agent-core": "^0.73.1",
-    "@mariozechner/pi-ai": "^0.73.1",
-    "@mariozechner/pi-coding-agent": "^0.73.1",
+    "@earendil-works/pi-agent-core": "^0.81.0",
+    "@earendil-works/pi-ai": "^0.81.0",
+    "@earendil-works/pi-coding-agent": "^0.81.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@sinclair/typebox": "^0.34.49",
     "@sveltejs/kit": "^2.48.1",
@@ -61,8 +61,6 @@
   "devDependencies": {
     "@internationalized/date": "^3.12.1",
     "@lucide/svelte": "^1.14.0",
-    "@mariozechner/mini-lit": "^0.2.0",
-    "@mariozechner/pi-web-ui": "^0.73.1",
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.3",
@@ -83,6 +81,6 @@
     "vite": "^7.1.6"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.19.0"
   }
 }

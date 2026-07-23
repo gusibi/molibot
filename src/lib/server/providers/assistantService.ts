@@ -1,5 +1,5 @@
-import { Agent } from "@mariozechner/pi-agent-core";
-import { getModels } from "@mariozechner/pi-ai";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { getPiCatalogModels as getModels, streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
 import { isKnownProvider, type CustomProviderConfig, type RuntimeSettings } from "$lib/server/settings/index.js";
 import type { ConversationMessage } from "$lib/shared/types/message.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
@@ -207,7 +207,8 @@ async function callPiMono(
       model
     },
     transport: resolvePreferredTransport(model),
-    maxRetryDelayMs: DEFAULT_AGENT_MAX_RETRY_DELAY_MS
+    maxRetryDelayMs: DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
+    streamFunction: streamWithPiRuntime
   });
 
   let streamed = "";

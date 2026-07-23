@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { basename } from "node:path";
 import { VIDEO_GENERATE_PROVIDERS, submitVideoTask, queryVideoTaskStatus } from "./providers.js";
 import type { VideoGenerateEngine, VideoGenerateInput } from "./types.js";

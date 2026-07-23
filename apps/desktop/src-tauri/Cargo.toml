@@ -1,6 +1,6 @@
 [package]
 name = "molibot-desktop"
-version = "0.6.0"
+version = "0.6.1"
 description = "Molibot macOS desktop host"
 authors = ["EZTOOLAB"]
 edition = "2021"
@@ -19,7 +19,7 @@ libc = "0.2"
 cpal = "0.15"
 hound = "3"
 base64 = "0.22"
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-http = "2"
 tauri-plugin-opener = "2"

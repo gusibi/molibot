@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ConversationMessage } from "$lib/shared/types/message";
 import { attachContextThinking } from "./conversationThinking.js";
 

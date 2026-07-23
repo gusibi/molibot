@@ -1,8 +1,10 @@
-import { getModels, type Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
+import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
 import { isKnownProvider, type RuntimeSettings, type CustomProviderConfig } from "$lib/server/settings/index.js";
 import { resolveBuiltInProviderDefaultModel } from "$lib/server/settings/modelSwitch.js";
 import {
   buildCustomProviderCompat,
+  buildCustomProviderThinkingLevelMap,
   resolveCustomProviderReasoningSupport,
   resolveThinkingLevel
 } from "$lib/server/providers/customThinking.js";
@@ -154,6 +156,7 @@ export function resolveCustomModel(selected: CustomProviderConfig, modelId: stri
     ? buildAnthropicBaseUrl(selected.baseUrl, selected.path)
     : buildOpenAIBaseUrl(selected.baseUrl, selected.path);
   const configuredModel = selected.models.find((m) => m.id === modelId);
+  const customCompat = buildCustomProviderCompat(selected);
   const supportsVerifiedVision = Boolean(
     configuredModel?.tags?.includes("vision") &&
     configuredModel?.verification?.vision === "passed"
@@ -165,6 +168,7 @@ export function resolveCustomModel(selected: CustomProviderConfig, modelId: stri
     provider: selected.id || "custom-provider",
     baseUrl: computedBaseUrl,
     reasoning: resolveCustomProviderReasoningSupport(selected),
+    thinkingLevelMap: buildCustomProviderThinkingLevelMap(selected),
     input: supportsVerifiedVision ? ["text", "image"] : ["text"],
     cost: {
       input: 0,
@@ -174,7 +178,12 @@ export function resolveCustomModel(selected: CustomProviderConfig, modelId: stri
     },
     contextWindow: configuredModel?.contextWindow || 200000,
     maxTokens: 8192,
-    compat: protocol === "anthropic" ? undefined : buildCustomProviderCompat(selected)
+    compat: protocol === "anthropic"
+      ? undefined
+      : {
+          ...customCompat,
+          supportsDeveloperRole: configuredModel?.supportedRoles?.includes("developer") === true
+        }
   };
 }
 

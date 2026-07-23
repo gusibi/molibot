@@ -5,6 +5,47 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-23
+
+### Fix: Custom models keep system prompts in the pi 0.81 top-level context
+- Fixed every OpenAI-compatible Runner candidate failing before the HTTP request with `Cannot read properties of undefined (reading 'length')` after the pi 0.81 upgrade. Unsupported `developer` handling had moved the top-level system prompt into the Agent message transcript as an SDK-invalid `system` message.
+- System instructions now stay in `Context.systemPrompt`; any actual unsupported `developer` messages are folded into that top-level prompt and removed from the transcript. Each custom model's saved `supportedRoles` is also projected into pi's `compat.supportsDeveloperRole`, so the final OpenAI-compatible request uses `system` unless that exact model explicitly declares `developer` support.
+- Added focused context-shape, model-capability, and final serialization regressions. Verified the combined Runner/routing/helper suite 41/41, Desktop Svelte diagnostics 0/0, production build, managed service restart/health, and a real custom-provider text capability probe.
+
+### Fix: Light native sidebar no longer composites as dark gray
+- Corrected the Light-only material veil after a real native screenshot showed the prior 22% gray CSS tint as `#616465`, versus Finder's sampled `#ECEDEE`. WKWebView was premultiplying the low-alpha fill against its transparent backing before the native `sidebar` effect was composed.
+- The Light sidebar now uses a calculated 90% white veil on the same edge-to-edge plane, predicting approximately `#EDEDED` in the captured compositor. Dark/System Dark remain transparent, and no nested panel, blur, radius, or shadow was introduced.
+- Strengthened the regression to reject low-alpha Light fills and validate the predicted native composite against the Finder reference. Desktop UI 82/82, native theme 3/3, Svelte diagnostics 0/0, and the production build pass.
+
+---
+## 2026-07-22
+
+### Polish: Desktop colors follow macOS semantic roles
+- Replaced the pure-black Geist dark workspace with an AppKit-derived hierarchy: window surfaces use `#1E1E1E`, grouped canvases `#242424`, elevated cards/composers `#282828`, and nested neutral surfaces `#303030`. Chat and Settings no longer collapse into one black plane.
+- Remapped Light, explicit Dark, and System Dark label ranks, separators, inactive selection, controls, accent/status colors, and chart colors to resolved macOS semantic references. The native liquid-glass sidebar remains system-rendered and theme-synchronized.
+- Added the authoritative semantic-role table and no-pure-black structural rule to `DESIGN.md`, replaced the obsolete Geist/OKLCH dark reference, and added a machine guard covering both explicit and system dark themes.
+- Verified rendered Light and Dark computed surfaces with no console errors, Desktop UI 82/82, native theme tests 3/3, Svelte diagnostics 0/0, production build, Rust check, and an isolated Tauri cold start.
+
+### Polish: Desktop sidebars use edge-to-edge macOS liquid glass
+- Replaced the WebView-composited translucent sidebar with the native macOS `sidebar` window effect used for Finder-style structural navigation. Chat and Settings now use transparent Tauri windows; their WebView root/layout stay transparent while the right content pane remains opaque, removing the visible second app canvas behind the sidebar.
+- Removed the 10px inset, rounded panel silhouette, CSS backdrop blur, two-stage shadow, and hover/focus glow from the shared Chat and Settings sidebar. Both navigation surfaces now sit flush with the window and use only the native material plus one quiet workspace divider.
+- Realigned the Chat resize hit area and native macOS traffic lights to the true sidebar edge. Reduced-transparency and low-performance modes remain opaque without blur; increased-contrast mode uses a near-opaque tint and stronger divider.
+- Updated the shared DESIGN rule and Desktop structural regressions so the floating 3D treatment cannot return accidentally.
+- Native translucency requires Tauri's macOS private API and is intended for Molibot's direct DMG distribution rather than Mac App Store submission.
+- Verified Desktop UI regressions 81/81, Svelte diagnostics 0/0, the production build, Rust/Tauri configuration compilation, and an isolated source-build cold start alongside the installed app.
+- Follow-up: explicit Light/Dark appearance now updates the native Tauri window theme as well as WebView tokens, and System clears the native override. This prevents the AppKit sidebar material from staying dark when the app is switched to Light. Verified with the focused native-theme regression 3/3, Desktop UI 81/81, Svelte diagnostics 0/0, production build, Rust compilation, and an isolated Tauri cold start.
+- Light-material calibration: sampled Finder's Light sidebar at approximately `#ECEDEE` and corrected WKWebView transparent-window premultiplication. The Light sidebar now uses a thick 90% white material veil on the existing edge-to-edge plane; the previous low-alpha gray tint composed as `#616465` in the real native window. Dark/System Dark remain native-material transparent; no inset, nested surface, blur, radius, or shadow was reintroduced.
+
+---
+## 2026-07-21
+
+### Changed: Upgrade the shared pi runtime to 0.81
+- Migrated active SDK dependencies from deprecated `@mariozechner/*` 0.73.1 packages to `@earendil-works/*` 0.81.0 and raised the source-runtime floor to Node 22.19.0; the Desktop bundle continues to pin Node 22.23.1. Removed unused `pi-web-ui` and `mini-lit` packages plus their frontend prebundle entries.
+- Added one shared server-side pi runtime for built-in model lookup, auth-aware streaming/completion, and coding-agent `ModelRuntime` creation. Main Agent, AssistantService, compaction, routing, and subagents now use the 0.81 `Models`, required `streamFunction`, and `modelRuntime` contracts while preserving custom endpoints, first-token timeout, fallback, role normalization, orphan-tool repair, and text-only image handling.
+- Replaced synchronous auth-file mutation with an async atomic `CredentialStore` using serialized provider writes and a cross-process lock. OAuth device/login events now use the provider-owned Models flow; deferred tool activation emits `addedToolNames`, improving provider-side deferred-tool serialization and prompt-cache stability.
+- Verified credential restart/concurrency/OAuth/login/logout/failure preservation, expanded runner/routing/compaction/subagent/tool suites 96/96 on Node 22.23.1, Desktop Svelte diagnostics 0/0, the production build and Desktop runtime-bundle preparation, and an isolated real cold start with health plus model-catalog requests.
+
+---
 ## 2026-07-20
 
 ### Fix: Standardize Desktop Settings controls and open the native time picker

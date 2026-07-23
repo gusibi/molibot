@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { momLog } from "$lib/server/agent/common/log.js";
 
 export interface DeferredToolEntry {
@@ -263,6 +263,7 @@ export function createToolSearchTool(options: {
 
       return {
         content: [{ type: "text", text: lines.join("\n") }],
+        addedToolNames: loaded,
         details: {
           matches: matches.map((entry) => ({
             name: entry.name,

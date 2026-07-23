@@ -31,7 +31,7 @@ import { getProjectStore } from "$lib/server/projects/store.js";
 import { ProjectAwareRunnerPool } from "$lib/server/channels/shared/projectRunnerRouter.js";
 
 import type { HookManager } from "$lib/server/agent/hooks/index.js";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 interface BaseChannelRuntimeInit {
   channel: PromptChannel;

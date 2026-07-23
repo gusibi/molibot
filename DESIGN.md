@@ -425,21 +425,61 @@ overrides the generic Geist guidance below whenever the two conflict.
 - Status never relies on color alone. Pair color with readable text and, where useful,
   a dot, icon, or shape. Reserve red for terminal failure or destructive actions.
 
+### macOS semantic color roles
+
+Desktop colors follow AppKit roles rather than a generic neutral palette. The native
+sidebar material remains system-rendered; WebView values below are sRGB references
+resolved from the corresponding macOS semantic colors and must be applied by role.
+
+| Product role | AppKit reference | Light | Dark |
+| --- | --- | --- | --- |
+| Window/workspace | `windowBackgroundColor` | `#FFFFFF` | `#1E1E1E` |
+| Grouped canvas | derived quiet window surface | `#F5F5F5` | `#242424` |
+| Native sidebar tint | Finder-style material veil | `rgb(253 255 255 / 90%)` | transparent |
+| Elevated/card surface | `controlBackgroundColor` / raised neutral surface | `#FFFFFF` | `#282828` |
+| Primary label | `labelColor` | black 84.7% | white 84.7% |
+| Secondary label | `secondaryLabelColor` | black 49.8% | white 54.9% |
+| Tertiary label | `tertiaryLabelColor` | black 25.9% | white 24.7% |
+| Separator | `separatorColor` | black 9.8% | white 9.8% |
+| Unemphasized selection | `unemphasizedSelectedContentBackgroundColor` | `#DCDCDC` | `#464646` |
+| Accent | `controlAccentColor` | `#007AFF` | `#007AFF` |
+| Success / danger / warning | macOS system green/red/orange | `#34C759` / `#FF383C` / `#FF8D28` | `#30D158` / `#FF4245` / `#FF9230` |
+
+- Structural dark surfaces must never use `#000000` or near-black `#0A0A0A`.
+  Pure black is reserved for media/code content that intentionally needs it.
+- Chat's transcript workspace and headers use the window role. Settings uses the
+  grouped role behind elevated cards. Cards, popovers, composers, and neutral controls
+  use elevated/control roles; do not flatten all three layers to one color.
+- Use label and separator alpha roles as defined. Do not turn separator colors into
+  text colors or replace semantic status colors with arbitrary brand shades.
+- Explicit Light/Dark and System appearances must update both WebView tokens and the
+  native window appearance. Increased Contrast may strengthen alpha differences, but
+  must preserve the same semantic mapping.
+
 ## Application templates
 
 - Settings use a stable sidebar, one shared PageHeader with title and description,
   centered SettingGroups, and a fixed `.settings-footbar` whenever changes can be saved.
-- Settings and Chat use the same inset sidebar material: 10px outer breathing room,
-  a 12px panel radius, a quiet hairline/highlight, and a compact two-stage shadow.
-  The material may be translucent in normal mode, but becomes opaque when reduced
-  transparency or low-performance mode is active. Sidebar resize handles align to
-  the visible panel edge rather than the underlying grid track, but remain visually
-  transparent: do not draw a standalone divider. Chat's exposed canvas follows the
-  transcript surface; the compact shadow must read as panel depth rather than a broad
-  secondary-color strip. The full panel shadow remains equally visible at rest, hover,
-  and keyboard focus; pointer movement must not change the panel elevation. Hover/focus may
-  add only a restrained border glow with short diffusion—neutral silver-gray in the light
-  theme and accent blue in the dark theme—never a broad halo.
+- Settings and Chat use the native macOS sidebar material, not a WebView imitation.
+  Both windows are transparent and apply the system `sidebar` window effect; the WebView
+  root and layout stay transparent while the right content pane remains opaque. In Light
+  appearance only, the sidebar plane applies one uniform `rgb(253 255 255 / 90%)` thick
+  material veil so WKWebView's transparent backing composes near Finder's `#ECEDEE`
+  reference instead of premultiplying a low-alpha tint into dark gray. Dark and System
+  Dark keep this tint transparent because
+  the native material already provides the correct depth there. This tint belongs directly
+  to the edge-to-edge sidebar plane: never implement it as a nested panel, pseudo-element,
+  extra blur layer, or opaque card.
+  Explicit Light/Dark choices must also set the native Tauri window theme, while System
+  clears the override, so AppKit material and WebView tokens always share one appearance.
+  This produces one window composition layer like Finder instead of a translucent card
+  over an app canvas. The sidebar stays flush with the window edges; do not add outer
+  breathing room, panel corner radius, CSS backdrop blur, elevation shadow, hover glow,
+  perspective, or parallax. Reduced-transparency and low-performance modes cover the
+  native material with the opaque sidebar token; increased contrast also uses that cover
+  with a stronger divider. Sidebar resize handles align to the divider at the grid
+  track edge and remain visually transparent: do not draw a second divider.
+  Chat's exposed canvas follows the transcript surface.
   Settings keeps its secondary canvas. Hidden sidebar actions
   collapse out of layout and consume title width only on hover or keyboard focus. An empty
   local Chat is an editable new-conversation draft; its Session is created on first send.

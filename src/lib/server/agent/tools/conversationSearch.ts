@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { decodeExternalSessionId, listExternalSessionsFromContexts, readExternalTranscriptFromContexts } from "$lib/server/app/externalSessionsFromContexts.js";
 import { listAuthorizedConversationSources, isAuthorizedConversationSource, type ConversationAuthorizationScope } from "$lib/server/sessions/conversationAuthorization.js";
 import type { ConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";

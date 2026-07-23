@@ -1,6 +1,6 @@
 import { basename, resolve } from "node:path";
-import type { ToolExecutionMode } from "@mariozechner/pi-agent-core";
-import type { BeforeToolCallContext } from "@mariozechner/pi-agent-core";
+import type { ToolExecutionMode } from "@earendil-works/pi-agent-core";
+import type { BeforeToolCallContext } from "@earendil-works/pi-agent-core";
 import { config } from "$lib/server/app/env.js";
 import { resolveAuthFilePath } from "$lib/server/agent/identity/auth.js";
 import { resolveToolPath } from "$lib/server/agent/tools/path.js";

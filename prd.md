@@ -5,6 +5,57 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.02 pi 0.81 Custom-Model Prompt Role Compatibility (2026-07-23)
+
+- **Priority / Status**: P0 / Delivered.
+- **Scope**: Keep system instructions at the pi `Context.systemPrompt` boundary for every custom model; unsupported `developer` messages may be normalized only into that top-level prompt and must never become `system` entries inside the Agent transcript. Project each custom model's declared `supportedRoles` into the pi request serializer rather than relying on URL-based role detection.
+- **Acceptance**: OpenAI-compatible candidates reach request dispatch without synchronous token-estimation errors; transcript roles remain limited to the pi Agent message contract; the serialized top-level prompt uses `developer` only when the selected model explicitly declares it and otherwise uses `system`; focused tests cover both capability branches and actual unsupported developer content.
+
+## 3.01 Desktop Light Sidebar Native-Composite Correction (2026-07-23)
+- **Priority**: P0
+- **Status**: Done
+- **Scope**: Correct the Light sidebar color in the real transparent WKWebView/native-material composition without changing the edge-to-edge geometry or the accepted Dark material.
+- **Acceptance**:
+  - The Light material predicts within four channel levels of the supplied Finder `#ECEDEE` reference under the captured native compositor; low-alpha fills that premultiply into dark gray are rejected by regression.
+  - Dark and System Dark keep the WebView sidebar plane transparent and continue using the native `sidebar` effect.
+  - The correction remains on the existing sidebar plane and cannot add a nested panel, pseudo-element, blur, radius, shadow, inset, or second divider.
+
+## 3.00 Desktop macOS Semantic Color System (2026-07-22)
+- **Priority**: P1
+- **Status**: Done
+- **Scope**: Replace pure-black and mixed Geist Desktop colors with one AppKit-derived semantic palette across Light, Dark, and System appearances.
+- **Acceptance**:
+  - Dark window/workspace, grouped, elevated, and nested surfaces use distinct semantic roles and never use `#000000` or `#0A0A0A` for structural UI.
+  - Primary/secondary/tertiary labels, separators, inactive selection, controls, accent/status colors, and charts map consistently in Light, explicit Dark, and System Dark.
+  - Native sidebar material remains system-rendered and shares the selected window appearance.
+  - `DESIGN.md` is authoritative; the dark-theme companion and structural regression prevent the superseded Geist/pure-black palette from returning.
+
+## 2.99 Desktop Edge-to-Edge Liquid-Glass Sidebars (2026-07-22)
+- **Priority**: P1
+- **Status**: Done
+- **Scope**: Supersede the inset/floating visual treatment from 2.88 with one edge-to-edge macOS liquid-glass material for the shared Chat and Settings navigation sidebar.
+- **Acceptance**:
+  - Shared sidebars have no outer inset, panel radius, elevation shadow, hover glow, perspective, or parallax; they sit flush with the window and use one workspace divider.
+  - Normal mode uses the native macOS `sidebar` window effect. The Tauri window and WebView root/layout are transparent, while the right content pane is opaque, so there is no second app canvas behind the sidebar.
+  - Light appearance applies one uniform thick white material veil directly to the edge-to-edge sidebar plane so WKWebView's transparent backing composes near Finder's `#ECEDEE` reference instead of premultiplying a low-alpha tint into dark gray; Dark and System Dark keep the tint transparent. The veil must not be implemented as a nested panel, pseudo-element, extra blur layer, or card.
+  - Explicit Light/Dark appearance synchronizes the native window theme with WebView tokens; System clears that override and follows macOS.
+  - Reduced transparency and low-performance mode use an opaque no-blur fallback; increased contrast uses a near-opaque tint and stronger divider.
+  - Chat resize affordance and both native macOS traffic-light groups align with the true edge-to-edge geometry.
+  - `DESIGN.md` and Desktop structural tests prevent the superseded floating material from returning.
+  - The macOS private API requirement is accepted for direct DMG distribution; Mac App Store submission is out of scope for this material path.
+
+## 2.98 pi-mono 0.81 Shared Runtime Upgrade (2026-07-21)
+- **Priority**: P1
+- **Status**: Done
+- **Scope**: Return Molibot to pi-mono's maintained package scope and converge model lookup, authentication, request dispatch, compaction, and subagent sessions behind one shared server runtime without changing Channel responsibilities or replacing Molibot's session storage.
+- **Acceptance**:
+  - Active dependencies use `@earendil-works/pi-ai`, `pi-agent-core`, and `pi-coding-agent` 0.81 with Node >=22.19; deprecated scope packages and unused pi Web UI dependencies are absent.
+  - Main Agent and AssistantService supply `streamFunction`; compaction uses the same auth-aware dispatcher; custom endpoints retain protocol/base URL/thinking mappings and existing timeout/fallback/context repair behavior.
+  - API-key/OAuth persistence implements the async `CredentialStore` contract with atomic, serialized, cross-process-safe updates and temporary-data round-trip/concurrency/login/logout/failure tests.
+  - Subagents receive one `ModelRuntime` across ordered fallback attempts, backed by the same credential file and catalog boundary as the parent runtime.
+  - Deferred tool activation returns `addedToolNames`; Node 22.23.1 runtime tests, Desktop diagnostics, builds, and isolated cold-start/model-catalog smoke pass.
+- **Deferred follow-ups**: Provider/model UI generated fully from the Models registry, reasoning/tool/compaction/subagent Usage dimensions, `xhigh`/`max` UI, dynamic Radius/extension catalogs, and SQLite session-backend evaluation remain separate P2/P3 slices.
+
 ## 2.97 Desktop Settings Standard Controls and Native Time Picker (2026-07-20)
 - **Priority**: P1
 - **Status**: Done
@@ -81,7 +132,7 @@
 - [Done, P1] 组件提供实时结果计数、上一条/下一条、Enter/Shift+Enter、关闭焦点恢复，并让普通 Chat 与 Project Chat 都能高亮、滚动到匹配消息。
 - [Done] 保持中英、明暗主题、860×620 最低窗口和键盘可访问性；结构与纯函数回归进入 Desktop 默认测试链路。
 
-## 2.88 Desktop Inset Floating Sidebars (2026-07-18)
+## 2.88 Desktop Inset Floating Sidebars (2026-07-18, superseded by 2.99)
 - [Done, P1] Desktop Settings 与 Chat 左侧导航必须共用同一 inset sidebar surface：10px 外部留白、12px panel 圆角与低对比细边/高光；elevation 按各自底层 canvas 选择，不得维护两套材质样式。
 - [Done, P1] Chat 与 Settings 的 macOS 原生交通灯必须使用同一窗口级安全偏移，按钮不得与 inset sidebar 顶部圆角边框重叠，且不得通过页面私有 CSS 分别补偿。
 - [Done, P1] Chat 侧栏外露画布必须与 Header/消息区使用同一主表面；Settings 单独保持次级画布。共享材质不等于强制两个应用模板使用同一底层 canvas。
@@ -695,7 +746,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-167 | Agent edit diff readability | P1 | Delivered (2026-04-25) | The `edit` tool should return context-aware line diffs for insertions/deletions instead of naive same-index comparisons, while preserving existing workspace path guardrails |
 | P1-168 | AI usage observability redesign | P1 | Delivered (2026-04-25) | `/settings/ai/usage` should present a reference-quality usage dashboard from existing tracker data only, including request/token summary cards, trends, token-type distribution, API/model/bot/channel breakdowns, and recent events, while omitting modules for unrecorded fields such as cost, latency, success rate, and auth index |
 | P1-169 | AI providers and model-error console polish | P1 | Delivered (2026-04-25) | `/settings/ai/providers` should keep save/default-model controls visible near the top of the provider editor, insert newly added providers and models first, and `/settings/ai/errors` should present failure logs as a concise operational console with summary cards, filters, provider ranking, and detailed records |
-| P1-170 | Shared subagent delegation via pi-mono SDK | P1 | Delivered (2026-04-26) | The runtime should expose one shared `subagent` tool backed by isolated `@mariozechner/pi-coding-agent` sessions so complex codebase tasks can delegate to `scout`, `planner`, `worker`, and `reviewer` roles with their own tool budgets instead of exhausting the parent run; default runtime logs must make delegated execution visibly distinct from parent-run execution |
+| P1-170 | Shared subagent delegation via pi-mono SDK | P1 | Delivered (2026-04-26; upgraded 2026-07-21) | The runtime exposes one shared `subagent` tool backed by isolated `@earendil-works/pi-coding-agent` 0.81 sessions using the canonical `ModelRuntime`, so complex codebase tasks can delegate to `scout`, `planner`, `worker`, and `reviewer` roles with their own tool budgets instead of exhausting the parent run; default runtime logs make delegated execution visibly distinct from parent-run execution |
 | P1-171 | Stop command clears pending queue backlog | P1 | Delivered (2026-04-26) | Shared channel `/stop` should abort the current running task and also cancel same-scope pending queued requests, so users can actually stop a backlog instead of watching queued follow-up prompts continue after the current run aborts |
 | P1-172 | Shared live run controls (`abort` / `steer` / `followUp`) | P1 | Delivered (2026-04-26) | Shared agent/runtime layer should expose three distinct live controls for active work: hard-abort current run, inject a correction into the current run, and queue a follow-up turn to execute immediately after the current run finishes, without re-implementing this behavior inside each channel adapter. If a second message is already sitting in the inbound queue, operators should be able to promote it by `queueId` instead of retyping the message text. |
 | P1-173 | Gold daily task fixed serial search path | P1 | Delivered (2026-04-26) | The Molifin gold daily scheduled workflow should stop launching four ad-hoc parallel 30-second searches and instead use one fixed wrapper that runs the four required queries serially, gives each engine a fixed 60-second budget, falls back across the documented web-search engine order on failure, and keeps the event prompt/scheme version aligned with that execution path |

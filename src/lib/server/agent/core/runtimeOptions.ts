@@ -1,4 +1,4 @@
-import type { Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 
 export const DEFAULT_AGENT_MAX_RETRY_DELAY_MS = 15_000;
 

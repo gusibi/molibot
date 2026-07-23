@@ -1,23 +1,17 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { getEnvApiKey } from "@mariozechner/pi-ai";
-import {
-  getOAuthApiKey,
-  getOAuthProvider,
-  getOAuthProviders,
-  type OAuthCredentials,
-  type OAuthProviderId
-} from "@mariozechner/pi-ai/oauth";
-import { config } from "$lib/server/app/env.js";
+import type {
+  ApiKeyCredential,
+  AuthEvent,
+  AuthPrompt,
+  OAuthCredential
+} from "@earendil-works/pi-ai";
+import { getPiModels } from "$lib/server/providers/piRuntime.js";
+import { FileCredentialStore, type CredentialData } from "$lib/server/agent/identity/credentialStore.js";
+import { resolveAuthFilePath } from "$lib/server/agent/identity/authPath.js";
 
-export interface ApiKeyCredential {
-  type: "api_key";
-  key: string;
-}
+export { resolveAuthFilePath } from "$lib/server/agent/identity/authPath.js";
 
-export type OAuthCredential = { type: "oauth" } & OAuthCredentials;
 export type AuthCredential = ApiKeyCredential | OAuthCredential;
-export type AuthData = Record<string, AuthCredential>;
+export type AuthData = CredentialData;
 
 interface LoginStartOptions {
   onAuth?: (info: { url: string; instructions?: string }) => void;
@@ -26,7 +20,7 @@ interface LoginStartOptions {
 }
 
 interface PendingLogin {
-  providerId: OAuthProviderId;
+  providerId: string;
   startedAt: number;
   authUrl?: string;
   instructions?: string;
@@ -35,29 +29,6 @@ interface PendingLogin {
   resolveCode?: (value: string) => void;
   rejectCode?: (error: Error) => void;
   completion: Promise<void>;
-}
-
-function ensureParentDir(file: string): void {
-  const dir = dirname(file);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-  }
-}
-
-function normalizeAuthInfo(args: unknown[]): { url: string; instructions?: string } {
-  const first = args[0];
-  if (first && typeof first === "object") {
-    const row = first as { url?: unknown; instructions?: unknown };
-    return {
-      url: String(row.url ?? "").trim(),
-      instructions: String(row.instructions ?? "").trim() || undefined
-    };
-  }
-
-  return {
-    url: String(first ?? "").trim(),
-    instructions: String(args[1] ?? "").trim() || undefined
-  };
 }
 
 function normalizePromptMessage(input: unknown): string {
@@ -70,90 +41,28 @@ function normalizePromptMessage(input: unknown): string {
   return "Paste the authorization code or redirect URL.";
 }
 
-export function resolveAuthFilePath(): string {
-  const explicit = String(process.env.PI_AI_AUTH_FILE ?? "").trim();
-  return explicit || join(config.dataDir, "auth.json");
-}
-
-export function loadAuthData(authFilePath: string = resolveAuthFilePath()): AuthData {
-  if (!existsSync(authFilePath)) return {};
-  try {
-    const raw = JSON.parse(readFileSync(authFilePath, "utf8"));
-    return raw && typeof raw === "object" ? (raw as AuthData) : {};
-  } catch {
-    return {};
-  }
-}
-
-export function saveAuthData(data: AuthData, authFilePath: string = resolveAuthFilePath()): void {
-  ensureParentDir(authFilePath);
-  writeFileSync(authFilePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-  try {
-    chmodSync(authFilePath, 0o600);
-  } catch {
-    // ignore chmod failures on unsupported filesystems
-  }
-}
-
 export function listOAuthProviderIds(): string[] {
-  return getOAuthProviders()
-    .map((provider) => String((provider as { id?: unknown }).id ?? "").trim())
-    .filter(Boolean)
+  return getPiModels().getProviders()
+    .filter((provider) => Boolean(provider.auth.oauth))
+    .map((provider) => provider.id)
     .sort();
-}
-
-export function hasConfiguredAuth(provider: string, fallback?: () => string | undefined): boolean {
-  const auth = loadAuthData();
-  const stored = auth[provider];
-  if (stored?.type === "api_key" && stored.key.trim()) return true;
-  if (stored?.type === "oauth") return true;
-  if (getEnvApiKey(provider)) return true;
-  return Boolean(fallback?.()?.trim());
 }
 
 export async function resolveProviderApiKey(
   provider: string,
   fallback?: () => string | undefined
 ): Promise<string | undefined> {
-  const auth = loadAuthData();
-  const stored = auth[provider];
-
-  if (stored?.type === "api_key") {
-    const key = stored.key.trim();
-    if (key) return key;
-  }
-
-  if (stored?.type === "oauth") {
-    const oauthProvider = getOAuthProvider(provider as OAuthProviderId);
-    if (oauthProvider) {
-      const oauthCreds: Record<string, OAuthCredentials> = {};
-      for (const [providerId, credential] of Object.entries(auth)) {
-        if (credential?.type === "oauth") {
-          oauthCreds[providerId] = credential;
-        }
-      }
-
-      const result = await getOAuthApiKey(provider as OAuthProviderId, oauthCreds);
-      if (result) {
-        auth[provider] = { type: "oauth", ...result.newCredentials };
-        saveAuthData(auth);
-        return result.apiKey;
-      }
-    }
-  }
-
-  const envKey = getEnvApiKey(provider);
-  if (envKey) return envKey;
-
   const fallbackKey = fallback?.()?.trim();
-  return fallbackKey || undefined;
+  const resolved = await getPiModels().getAuth(provider, {
+    apiKey: fallbackKey || undefined
+  });
+  return (resolved?.auth.apiKey ?? fallbackKey) || undefined;
 }
 
-export function removeStoredAuth(provider: string): boolean {
-  const auth = loadAuthData();
-  if (!(provider in auth)) return false;
-  delete auth[provider];
-  saveAuthData(auth);
+export async function removeStoredAuth(provider: string): Promise<boolean> {
+  const store = new FileCredentialStore(resolveAuthFilePath());
+  if (!await store.read(provider)) return false;
+  await store.delete(provider);
   return true;
 }
 
@@ -168,9 +77,9 @@ export async function startOAuthLogin(
   providerId: string,
   options?: LoginStartOptions
 ): Promise<PendingLogin> {
-  const normalized = providerId.trim() as OAuthProviderId;
-  const provider = getOAuthProvider(normalized);
-  if (!provider) {
+  const normalized = providerId.trim();
+  const provider = getPiModels().getProvider(normalized);
+  if (!provider?.auth.oauth) {
     throw new Error(
       `Unsupported login provider '${providerId}'. Available: ${listOAuthProviderIds().join(", ")}`
     );
@@ -198,15 +107,24 @@ export async function startOAuthLogin(
 
   pending.completion = (async () => {
     try {
-      const credentials = await provider.login({
-        onAuth: (...args: unknown[]) => {
-          const info = normalizeAuthInfo(args);
-          pending.authUrl = info.url;
-          pending.instructions = info.instructions;
-          options?.onAuth?.(info);
-          readyResolve?.();
+      await getPiModels().login(normalized, "oauth", {
+        notify: (event: AuthEvent) => {
+          if (event.type === "auth_url") {
+            pending.authUrl = event.url;
+            pending.instructions = event.instructions;
+            options?.onAuth?.({ url: event.url, instructions: event.instructions });
+            readyResolve?.();
+          } else if (event.type === "device_code") {
+            pending.authUrl = event.verificationUri;
+            pending.instructions = `Enter code: ${event.userCode}`;
+            options?.onAuth?.({ url: event.verificationUri, instructions: pending.instructions });
+            readyResolve?.();
+          } else if (event.type === "progress" || event.type === "info") {
+            const text = event.message.trim();
+            if (text) options?.onProgress?.(text);
+          }
         },
-        onPrompt: async (prompt: unknown) => {
+        prompt: async (prompt: AuthPrompt) => {
           pending.promptMessage = normalizePromptMessage(prompt);
           options?.onPrompt?.(pending.promptMessage);
           readyResolve?.();
@@ -219,16 +137,8 @@ export async function startOAuthLogin(
             pending.resolveCode = resolve;
             pending.rejectCode = reject;
           });
-        },
-        onProgress: (message: unknown) => {
-          const text = String(message ?? "").trim();
-          if (text) options?.onProgress?.(text);
         }
-      } as never);
-
-      const auth = loadAuthData();
-      auth[normalized] = { type: "oauth", ...credentials };
-      saveAuthData(auth);
+      });
     } finally {
       pendingLogins.delete(scopeKey);
     }

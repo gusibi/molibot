@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync
 import { randomBytes } from "node:crypto";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { config } from "$lib/server/app/env.js";
 import type { ToolSandboxSettings } from "$lib/server/settings/index.js";
 import type {

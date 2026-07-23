@@ -1,4 +1,4 @@
-import type { AssistantMessageEvent, ImageContent } from "@mariozechner/pi-ai";
+import type { AssistantMessageEvent, ImageContent } from "@earendil-works/pi-ai";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js";

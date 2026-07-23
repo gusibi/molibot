@@ -1,7 +1,7 @@
 import { basename, dirname } from "node:path";
-import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { streamSimple, type Model } from "@mariozechner/pi-ai";
+import { Agent, type AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Model } from "@earendil-works/pi-ai";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { NOOP_HOOK_MANAGER, type HookContext, type HookManager } from "$lib/server/agent/hooks/index.js";
@@ -31,6 +31,7 @@ import { resolvePlannedBashDisplayName, resolveToolDisplayName } from "$lib/serv
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { resolveThinkingLevel } from "$lib/server/providers/customThinking.js";
+import { hasPiProviderAuth, streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
 import {
   DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
   resolvePreferredTransport
@@ -65,7 +66,7 @@ import {
   type ModelAttemptFailure,
   getCustomModelRoles
 } from "$lib/server/agent/routing/modelRouting.js";
-import { hasConfiguredAuth, resolveProviderApiKey } from "$lib/server/agent/identity/auth.js";
+import { resolveProviderApiKey } from "$lib/server/agent/identity/auth.js";
 import {
   buildAnthropicBaseUrl,
   buildOpenAIBaseUrl,
@@ -381,7 +382,7 @@ export class MomRunner implements RunnerLike {
         }
         return undefined;
       },
-      streamFn: (selectedModel, context, opts) => {
+      streamFunction: (selectedModel, context, opts) => {
         const settingsNow = this.getSettings();
         const rolePatchedContext = selectedModel.api === "anthropic-messages"
           ? moveAnthropicSystemMessagesToTopLevel(context)
@@ -420,7 +421,7 @@ export class MomRunner implements RunnerLike {
         // falls back to the next model (or surfaces an error once exhausted).
         const firstTokenTimeoutMs = settingsNow.modelFallback?.firstTokenTimeoutMs ?? 0;
         if (!(firstTokenTimeoutMs > 0)) {
-          return streamSimple(selectedModel as any, patchedContext as any, opts as any);
+          return streamWithPiRuntime(selectedModel as any, patchedContext as any, opts as any);
         }
 
         const upstreamSignal = (opts as { signal?: AbortSignal } | undefined)?.signal;
@@ -437,7 +438,7 @@ export class MomRunner implements RunnerLike {
           }
         }
 
-        const stream = streamSimple(
+        const stream = streamWithPiRuntime(
           selectedModel as any,
           patchedContext as any,
           { ...(opts as any), signal: firstTokenController.signal },
@@ -745,7 +746,7 @@ export class MomRunner implements RunnerLike {
     };
 
     const settings = applyTurnModelOverride(this.getSettings(), ctx.modelKeyOverride);
-    const settingsError = validateRuntimeSettings(settings);
+    const settingsError = await validateRuntimeSettings(settings);
     if (settingsError) {
       stopReason = "error";
       errorMessage = settingsError;
@@ -1460,7 +1461,10 @@ export class MomRunner implements RunnerLike {
         }
         const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
         const resolvedKey = await resolveApiKeyForModel(selectedModel, settings);
-        if (!resolvedKey) {
+        const hasModelAuth = selection.source === "custom"
+          ? Boolean(resolvedKey)
+          : await hasPiProviderAuth(selectedModel.provider, selectedCustom?.apiKey);
+        if (!hasModelAuth) {
           if (!promptUserPersisted) {
             appendRunContextMessage(createPersistedUserMessage(promptInput.persistedMessage, ctx.message.ts));
             promptUserPersisted = true;

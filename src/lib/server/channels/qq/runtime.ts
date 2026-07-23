@@ -1,7 +1,7 @@
 import { extname } from "node:path";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
-import type { ImageContent } from "@mariozechner/pi-ai";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildNonInteractiveHostBashApprovalText } from "$lib/server/hostBash/index.js";
 import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";

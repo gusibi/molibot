@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Type } from "@sinclair/typebox";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { FeaturePluginContext } from "$lib/server/plugins/types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";

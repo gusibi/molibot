@@ -1,20 +1,27 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
-import { getModels, type AssistantMessage, type Model } from "@mariozechner/pi-ai";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import {
-  AuthStorage,
+  createPiModelRuntime,
+  getPiCatalogModels as getModels
+} from "$lib/server/providers/piRuntime.js";
+import {
   createAgentSession,
   DefaultResourceLoader,
   defineTool,
-  ModelRegistry,
   SessionManager,
   SettingsManager,
+  type ModelRuntime,
   type ToolDefinition
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { buildCustomProviderCompat, resolveCustomProviderReasoningSupport } from "$lib/server/providers/customThinking.js";
+import {
+  buildCustomProviderCompat,
+  buildCustomProviderThinkingLevelMap,
+  resolveCustomProviderReasoningSupport
+} from "$lib/server/providers/customThinking.js";
 import {
   buildAnthropicBaseUrl,
   buildOpenAIBaseUrl,
@@ -399,16 +406,16 @@ function hasShellControlOperator(command: string): boolean {
 async function buildModelFromRoute(
   settings: RuntimeSettings,
   route: SubagentModelRoute,
-  authStorage: AuthStorage
+  modelRuntime: ModelRuntime
 ): Promise<Model<any> | null> {
   if (route.mode === "pi" || isKnownProvider(route.provider)) {
     const providerId = route.provider;
-    const found = getModels(providerId as any).find((row) => row.id === route.model);
+    const found = getModels(providerId).find((row) => row.id === route.model);
     if (found) {
       const configured = settings.customProviders.find((provider) => provider.id === providerId);
-      const apiKey = await resolveProviderApiKey(providerId, () => configured?.apiKey?.trim() || undefined);
+      const apiKey = configured?.apiKey?.trim();
       if (apiKey) {
-        authStorage.setRuntimeApiKey(providerId, apiKey);
+        await modelRuntime.setRuntimeApiKey(providerId, apiKey, { allowNetwork: false });
       }
       return found;
     }
@@ -417,12 +424,9 @@ async function buildModelFromRoute(
   const customProvider = settings.customProviders.find((provider) => provider.id === route.provider);
   if (customProvider && customProvider.enabled !== false && customProvider.baseUrl.trim() && route.model) {
     const apiKey = await resolveProviderApiKey(customProvider.id, () => customProvider.apiKey.trim());
-    if (apiKey) {
-      authStorage.setRuntimeApiKey(customProvider.id, apiKey);
-    }
     const configuredModel = customProvider.models.find((row) => row.id === route.model);
     const protocol = resolveCustomProviderProtocol(customProvider.protocol);
-    return {
+    const model: Model<any> = {
       id: route.model,
       name: customProvider.name || route.model,
       api: protocol === "anthropic" ? "anthropic-messages" : "openai-completions",
@@ -431,12 +435,35 @@ async function buildModelFromRoute(
         ? buildAnthropicBaseUrl(customProvider.baseUrl, customProvider.path)
         : buildOpenAIBaseUrl(customProvider.baseUrl, customProvider.path),
       reasoning: resolveCustomProviderReasoningSupport(customProvider),
+      thinkingLevelMap: buildCustomProviderThinkingLevelMap(customProvider),
       input: configuredModel?.tags?.includes("vision") ? ["text", "image"] : ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: configuredModel?.contextWindow || 200000,
       maxTokens: 8192,
       compat: protocol === "anthropic" ? undefined : buildCustomProviderCompat(customProvider)
     };
+    modelRuntime.registerProvider(customProvider.id, {
+      name: customProvider.name || customProvider.id,
+      baseUrl: model.baseUrl,
+      api: model.api,
+      models: [{
+        id: model.id,
+        name: model.name,
+        api: model.api,
+        baseUrl: model.baseUrl,
+        reasoning: model.reasoning,
+        thinkingLevelMap: model.thinkingLevelMap,
+        input: model.input,
+        cost: model.cost,
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+        compat: model.compat
+      }]
+    });
+    if (apiKey) {
+      await modelRuntime.setRuntimeApiKey(customProvider.id, apiKey, { allowNetwork: false });
+    }
+    return modelRuntime.getModel(customProvider.id, model.id) ?? model;
   }
 
   return null;
@@ -444,15 +471,15 @@ async function buildModelFromRoute(
 
 async function buildSubagentFallbackModel(
   settings: RuntimeSettings,
-  authStorage: AuthStorage
+  modelRuntime: ModelRuntime
 ): Promise<Model<any> | null> {
   const fallbackProvider = settings.piModelProvider;
   const fallbackModel = getModels(fallbackProvider).find((row) => row.id === settings.piModelName) ?? getModels(fallbackProvider)[0];
   if (!fallbackModel) return null;
   const fallbackConfigured = settings.customProviders.find((provider) => provider.id === fallbackProvider);
-  const apiKey = await resolveProviderApiKey(fallbackProvider, () => fallbackConfigured?.apiKey?.trim() || undefined);
+  const apiKey = fallbackConfigured?.apiKey?.trim();
   if (apiKey) {
-    authStorage.setRuntimeApiKey(fallbackProvider, apiKey);
+    await modelRuntime.setRuntimeApiKey(fallbackProvider, apiKey, { allowNetwork: false });
   }
   return fallbackModel;
 }
@@ -460,15 +487,14 @@ async function buildSubagentFallbackModel(
 /**
  * Resolve the ordered list of usable subagent models from the candidate routes,
  * de-duplicated by provider+id, with the host pi model appended as the ultimate
- * fallback. A shared in-memory AuthStorage carries each model's runtime key so a
+ * fallback. A shared ModelRuntime carries each model's runtime key so a
  * later candidate can be tried without rebuilding auth.
  */
 async function resolveSubagentModelCandidates(
   settings: RuntimeSettings,
   modelHint?: string
-): Promise<{ models: Model<any>[]; authStorage: AuthStorage; modelRegistry: ModelRegistry }> {
-  const authStorage = AuthStorage.inMemory();
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
+): Promise<{ models: Model<any>[]; modelRuntime: ModelRuntime }> {
+  const modelRuntime = await createPiModelRuntime();
   const models: Model<any>[] = [];
   const seen = new Set<string>();
   const pushModel = (model: Model<any> | null): void => {
@@ -480,14 +506,14 @@ async function resolveSubagentModelCandidates(
   };
 
   for (const route of buildSubagentModelCandidates(settings, modelHint)) {
-    pushModel(await buildModelFromRoute(settings, route, authStorage));
+    pushModel(await buildModelFromRoute(settings, route, modelRuntime));
   }
-  pushModel(await buildSubagentFallbackModel(settings, authStorage));
+  pushModel(await buildSubagentFallbackModel(settings, modelRuntime));
 
   if (models.length === 0) {
     throw new Error(`No subagent model available for provider '${settings.piModelProvider}'.`);
   }
-  return { models, authStorage, modelRegistry };
+  return { models, modelRuntime };
 }
 
 type SubagentModelRoute = { mode: "pi" | "custom"; provider: string; model: string };
@@ -759,8 +785,7 @@ interface RunSingleSubagentOptions {
 
 interface SubagentAttemptRuntime {
   model: Model<any>;
-  authStorage: AuthStorage;
-  modelRegistry: ModelRegistry;
+  modelRuntime: ModelRuntime;
   guard: SubagentExecutionGuard;
   startedAt: number;
 }
@@ -776,7 +801,7 @@ async function runSubagentOnce(
   options: RunSingleSubagentOptions,
   runtime: SubagentAttemptRuntime
 ): Promise<SubagentRunResult> {
-  const { model, authStorage, modelRegistry, guard, startedAt } = runtime;
+  const { model, modelRuntime, guard, startedAt } = runtime;
   momLog("runner", "subagent_model_resolved", {
     chatId: options.chatId,
     agent: agent.name,
@@ -831,8 +856,7 @@ async function runSubagentOnce(
     agentDir: options.cwd,
     model,
     thinkingLevel: MODEL_REASONING_HINTS[agent.name],
-    authStorage,
-    modelRegistry,
+    modelRuntime,
     resourceLoader,
     sessionManager,
     settingsManager,
@@ -1025,7 +1049,7 @@ async function runSingleSubagent(
   task: string,
   options: RunSingleSubagentOptions
 ): Promise<SubagentRunResult> {
-  const { models, authStorage, modelRegistry } = await resolveSubagentModelCandidates(
+  const { models, modelRuntime } = await resolveSubagentModelCandidates(
     options.settings,
     agent.modelHint
   );
@@ -1042,8 +1066,7 @@ async function runSingleSubagent(
     try {
       const result = await runSubagentOnce(agent, task, options, {
         model,
-        authStorage,
-        modelRegistry,
+        modelRuntime,
         guard,
         startedAt
       });

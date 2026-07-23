@@ -194,7 +194,7 @@ export async function execCommand(command: string, opts: ExecOptions): Promise<E
   });
 }
 
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { promises as fsPromises } from "node:fs";
 

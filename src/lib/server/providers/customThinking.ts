@@ -1,4 +1,4 @@
-import type { Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import type {
   CustomProviderConfig,
   RuntimeReasoningEffortLevel,
@@ -50,9 +50,17 @@ export function buildCustomProviderCompat(
   if (!provider.thinkingFormat && !reasoningEffortMap) return undefined;
 
   return {
-    thinkingFormat: provider.thinkingFormat,
-    reasoningEffortMap
+    thinkingFormat: provider.thinkingFormat
   };
+}
+
+export function buildCustomProviderThinkingLevelMap(
+  provider: Pick<CustomProviderConfig, "thinkingFormat" | "reasoningEffortMap">
+): Model<any>["thinkingLevelMap"] {
+  const configuredMap = cleanReasoningEffortMap(provider.reasoningEffortMap);
+  return provider.thinkingFormat === "deepseek"
+    ? { ...DEEPSEEK_REASONING_EFFORT_MAP, ...configuredMap }
+    : configuredMap;
 }
 
 export function applyDirectReasoningParams(

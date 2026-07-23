@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { convertMessages } from "@earendil-works/pi-ai/api/openai-completions";
 import { defaultRuntimeSettings, type RuntimeSettings } from "$lib/server/settings/index.js";
 import { resolveSttTarget } from "$lib/server/agent/routing/stt.js";
 import { resolveVisionFallbackTarget } from "$lib/server/agent/routing/vision-fallback.js";
-import { applyAgentModelRoutingOverride, applyTurnModelOverride } from "$lib/server/agent/routing/modelRouting.js";
+import {
+  applyAgentModelRoutingOverride,
+  applyTurnModelOverride,
+  resolveCustomModel
+} from "$lib/server/agent/routing/modelRouting.js";
 
 function settingsWithProviders(patch: Partial<RuntimeSettings>): RuntimeSettings {
   return {
@@ -120,4 +125,83 @@ test("agent override is a pass-through when bot is unmapped or agent has no over
   const mapped = settingsWithBoundAgent({ textModelKey: "custom|p1|agent-text" });
   // unknown botId -> no agent resolved -> same reference back
   assert.equal(applyAgentModelRoutingOverride(mapped, "telegram", "unknown-bot"), mapped);
+});
+
+test("custom model compat disables developer messages when the model role definition omits developer", () => {
+  const provider: RuntimeSettings["customProviders"][number] = {
+    id: "openai-compatible",
+    name: "OpenAI compatible",
+    enabled: true,
+    baseUrl: "https://example.test/v1",
+    apiKey: "test-key",
+    path: "/chat/completions",
+    defaultModel: "system-only",
+    supportsThinking: true,
+    models: [
+      {
+        id: "system-only",
+        enabled: true,
+        tags: ["text"],
+        supportedRoles: ["system", "user", "assistant", "tool"]
+      }
+    ]
+  };
+
+  assert.equal(resolveCustomModel(provider, "system-only").compat?.supportsDeveloperRole, false);
+});
+
+test("custom model compat enables developer messages only when the model role definition includes developer", () => {
+  const provider: RuntimeSettings["customProviders"][number] = {
+    id: "openai-compatible",
+    name: "OpenAI compatible",
+    enabled: true,
+    baseUrl: "https://example.test/v1",
+    apiKey: "test-key",
+    path: "/chat/completions",
+    defaultModel: "developer-capable",
+    supportsThinking: true,
+    models: [
+      {
+        id: "developer-capable",
+        enabled: true,
+        tags: ["text"],
+        supportedRoles: ["system", "user", "assistant", "tool", "developer"]
+      }
+    ]
+  };
+
+  assert.equal(resolveCustomModel(provider, "developer-capable").compat?.supportsDeveloperRole, true);
+});
+
+test("pi serializes the top-level prompt with the role declared by each custom model", () => {
+  const provider: RuntimeSettings["customProviders"][number] = {
+    id: "openai-compatible",
+    name: "OpenAI compatible",
+    enabled: true,
+    baseUrl: "https://example.test/v1",
+    apiKey: "test-key",
+    path: "/chat/completions",
+    defaultModel: "system-only",
+    supportsThinking: true,
+    models: [
+      {
+        id: "system-only",
+        enabled: true,
+        tags: ["text"],
+        supportedRoles: ["system", "user", "assistant", "tool"]
+      },
+      {
+        id: "developer-capable",
+        enabled: true,
+        tags: ["text"],
+        supportedRoles: ["system", "user", "assistant", "tool", "developer"]
+      }
+    ]
+  };
+  const context = { systemPrompt: "Follow the instructions.", messages: [] };
+  const systemModel = resolveCustomModel(provider, "system-only");
+  const developerModel = resolveCustomModel(provider, "developer-capable");
+
+  assert.equal(convertMessages(systemModel, context, systemModel.compat as any)[0]?.role, "system");
+  assert.equal(convertMessages(developerModel, context, developerModel.compat as any)[0]?.role, "developer");
 });

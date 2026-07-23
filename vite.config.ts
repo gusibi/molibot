@@ -59,10 +59,6 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: [
-      "@mariozechner/pi-web-ui",
-      "@mariozechner/pi-agent-core",
-      "@mariozechner/pi-ai",
-      "@mariozechner/mini-lit",
       "lit"
     ]
   }

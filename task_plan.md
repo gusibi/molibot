@@ -31,6 +31,110 @@ Complete
 
 ---
 
+# pi-mono 0.81 implementation (2026-07-21)
+
+## Goal
+Upgrade Molibot's active pi SDK integration from deprecated `@mariozechner/*` 0.73.1 packages to `@earendil-works/*` 0.81, adopt the new Models/CredentialStore/streamFunction/ModelRuntime contracts in shared runtime code, and preserve Molibot's custom routing, queue, timeout, image, and tool-search behavior.
+
+## Assumptions and scope
+- Implement the assessment's P1 scope now: package scope/version migration, Node floor, shared model/auth runtime boundary, main and AssistantService Agent migration, compaction, subagent ModelRuntime, `addedToolNames`, and removal of unused web UI packages.
+- Do not add the optional SQLite session backend, Usage schema expansion, or `xhigh`/`max` UI in this slice; those are separate product/architecture changes.
+- Keep custom-provider and Bot-scoped routing semantics unchanged; provider registry modernization must not overwrite Molibot settings.
+
+## Current phase
+Complete — implementation, product records, Node 22.23.1 verification, cold-start smoke, and adversarial review finished
+
+## Phases
+1. Confirm implementation baseline and verification matrix — complete
+2. Add shared pi runtime/auth boundary with focused contract tests — complete
+3. Upgrade dependencies and migrate main Agent, AssistantService, compaction, auth, and subagents — complete
+4. Integrate deferred-tool activation metadata and remove unused web UI dependencies — complete
+5. Run targeted/full verification, cold-path smoke, and adversarial review — complete
+6. Update product records and final upgrade report — complete
+
+## Verification gates
+- No active source or manifest dependency remains on deprecated `@mariozechner/*` packages.
+- Node engine and desktop sidecar/runtime requirements are at least 22.19.0.
+- Both Agent constructors provide the required `streamFunction`; Molibot's normalization, orphan-tool repair, text-only image stripping, first-token timeout, abort, and logging remain covered.
+- OAuth/API-key credentials use one async, serialized storage contract and are visible to main Agents, compaction, and subagents.
+- Custom provider/model selection remains isolated by Bot/settings snapshot and cannot leak stale runtime configuration.
+- Deferred tools report newly activated tool names through `addedToolNames` without changing the existing tool-search UX contract.
+- Focused tests, relevant server/runtime suites, Svelte diagnostics, production builds, `git diff --check`, and bounded cold-start paths pass.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Root planning files already contain other task history | 1 | Preserve history and append a new implementation section. |
+| Initial source inventory included a non-existent top-level `tests/` directory | 1 | Use colocated `*.test.ts` files under `src/` and `apps/` for subsequent searches. |
+| Guessed the upstream session-options filename incorrectly | 1 | Locate `CreateAgentSessionOptions` by symbol; its source is `core/sdk.ts`. |
+| A bulk import patch ended with an accidental empty file hunk | 1 | Remove the empty hunk and reapply the same scoped replacements; no partial edit was made. |
+| A second bulk type-import patch repeated the same empty-hunk formatting mistake | 1 | Split subsequent replacements into smaller patches and validate each patch terminator. |
+| First `pnpm install` timed out downloading `@earendil-works/pi-coding-agent` after registry retries | 1 | Retry with a larger fetch timeout and low network concurrency; dependency resolution itself succeeded. |
+| Local shell Node is 22.15.1, below the new 22.19 engine floor | 1 | Keep the manifest guard and locate/use the project's newer desktop runtime for verification. |
+| Root `pnpm exec svelte-check` is unavailable because `svelte-check` is not a root dependency | 1 | Use the repository's supported `desktop:check` script plus production builds instead of adding an unrelated dependency. |
+| Bare root `tsc --noEmit` reports extensive pre-existing workspace/type-fixture debt | 1 | Use it as an upgrade-delta detector only; fix errors caused by 0.81 and rely on supported checks/builds for the repository gate. |
+| Used invalid zsh syntax `command -v -a node` while locating runtimes | 1 | Use the documented desktop runtime preparer, which pins Node 22.23.1, then invoke that binary explicitly. |
+| Direct recursive deletion of the isolated smoke directory was rejected by the command safety layer | 1 | Move the exact validated temporary directory to system trash when available; do not weaken the safety boundary. |
+| Product-doc bulk patch assumed a shorter assessment title | 1 | Read the exact heading and split the documentation updates; the failed patch was atomic. |
+| Desktop's first combined test command was SIGKILLed during the concurrent tsx group on Node 22.23.1 | 1 | Re-run the same files serially, then run structural Node tests and Cargo separately to distinguish resource pressure from a deterministic failure. |
+
+---
+
+# macOS semantic color calibration (2026-07-22)
+
+## Goal
+Replace pure-black Desktop dark surfaces and the mixed Geist palette with one AppKit-derived semantic color system across Light, Dark, and System appearances, then record the contract in DESIGN documentation.
+
+## Current phase
+Complete — implementation, documentation, rendered light/dark inspection, full checks, native cold start, and adversarial review finished.
+
+## Phases
+1. Reproduce pure-black structural surfaces with a focused regression — complete
+2. Research Apple semantic color guidance and resolve current AppKit colors — complete
+3. Remap shared Desktop surface, label, separator, selection, accent, and status tokens — complete
+4. Update DESIGN and product records — complete
+5. Run theme/build/native cold-path verification and adversarial review — complete
+
+## Verification gates
+- Chat and Settings structural dark surfaces contain neither `#000000` nor `#0A0A0A`.
+- Window, grouped, elevated, and nested surfaces remain distinguishable without decorative shadows.
+- Explicit Dark and System Dark use the same semantic mapping; Light retains matching semantic roles.
+- `DESIGN.md` is authoritative and `design.dark.md` no longer advertises the superseded Geist/OKLCH palette.
+- Desktop UI tests, Svelte diagnostics, production build, Rust check, and isolated native cold start pass.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing planning files contain unrelated user-owned task history | 1 | Preserve all history and append this dated section only. |
+| Isolated Tauri cold start printed `IMKCFRunLoopWakeUpReliable` mach-port noise | 1 | Treat as a macOS input-method diagnostic unrelated to rendering; the app stayed running without product/runtime errors and the temporary process was stopped normally. |
+
+## Light Finder sidebar follow-up (2026-07-22)
+
+1. Add a focused regression for a Light-only sidebar material tint — complete
+2. Sample the supplied Finder screenshot and calibrate the tint — complete
+3. Preserve transparent native material in Dark/System Dark and all edge-to-edge geometry — complete
+4. Update DESIGN and product records — complete
+5. Run full UI, diagnostics, build, and diff verification — complete
+
+### Native-compositor correction (2026-07-23)
+
+1. Differentially sample the Finder reference, pre-tint Molibot, and failed native screenshot — complete
+2. Prove native theme sync is healthy and isolate WKWebView low-alpha premultiplication — complete
+3. Add a red regression that rejects the captured dark-gray composition — complete
+4. Replace the low-alpha gray with a calculated 90% white material veil; keep Dark/System Dark transparent — complete
+5. Update design/product records and run the full Desktop verification chain — complete
+
+## pi 0.81 custom-model prompt-role fix (2026-07-23)
+
+1. Check prior Runner/pi migration history and capture the failing session shape without exposing content — complete
+2. Isolate provider, history, tools, Agent wrapper, and Node-version hypotheses with read-only/local harnesses — complete
+3. Reproduce the exact `undefined.length` stack before network dispatch — complete
+4. Keep system instructions at the top-level context and add red-first role-shape regressions — complete
+5. Run focused Runner verification, deterministic local streaming smoke, build, and documentation closeout — complete
+6. Project per-model `supportedRoles` into pi request compatibility and verify final `system`/`developer` serialization — complete
+
+---
+
 # Project Chat duplicate live reply fix (2026-07-19)
 
 ## Goal
@@ -1943,5 +2047,39 @@ Complete — connected-state visual regression corrected and verified
 | Error | Attempt | Resolution |
 | --- | --- | --- |
 | Previous compact composition passed structural tests but looked crowded in the connected app | 1 | Treat the supplied screenshot as the authoritative visual regression; correct the 720px composition and strengthen structural guards around hierarchy rather than only class presence. |
+
+---
+
+# pi-mono upgrade integration assessment (2026-07-21)
+
+## Goal
+Determine which pi-mono upgrades Molibot should adopt, based on exact local versions, upstream change history, and Molibot's current architecture; produce prioritized recommendations with benefits, risks, and verification criteria. Analysis only—no product-code changes.
+
+## Current phase
+Complete — evidence-backed report and adversarial review finished
+
+## Phases
+1. Establish Molibot and local pi-mono version/dependency baseline — complete
+2. Extract meaningful upstream changes since Molibot's current baseline — complete
+3. Map changes to Molibot's runtime, providers, tools, sessions, queues, and UI — complete
+4. Prioritize adopt / evaluate later / skip, with migration scope and benefits — complete
+5. Adversarial review and evidence-backed final report — complete
+
+## Verification gates
+- Version comparison is tied to package manifests, lockfiles, git refs/tags, or upstream changelogs.
+- Every recommended integration names the current Molibot seam it affects.
+- Recommendations distinguish dependency bump, selective backport, and architectural adoption.
+- Breaking changes, regressions, and test/cold-start requirements are explicit.
+- No product files are changed during this analysis.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Root planning files already contain other task history | 1 | Preserve all history and append this dated task section. |
+| First append patch used a progress-file line as task-plan context | 1 | Inspect each file's exact tail and apply separate matching contexts. |
+| Shell import-search command had unmatched quoting | 1 | Record the error and retry with a simpler literal pattern instead of nested quote alternation. |
+| Assumed generated provider catalogs existed as `src/providers/data/*.json` | 1 | Use `providers/all.ts` and changelog evidence; avoid an unnecessary aggregate model count. |
+| Planning skill completion script was not executable directly | 1 | Invoke it explicitly with `bash`; this is a local permission-bit issue, not a task failure. |
+| Completion script reported false incomplete on the accumulated root plan | 1 | The script only recognizes `### Phase` plus `**Status:** complete`, while this repository's shared plan uses numbered phase lists and contains older unrelated headings. Preserve prior history; verify this task from its explicit five completed phase rows and gates instead of rewriting old task records. |
 
 ---

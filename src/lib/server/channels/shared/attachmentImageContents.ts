@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { extname, isAbsolute, join } from "node:path";
-import type { ImageContent } from "@mariozechner/pi-ai";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type { FileAttachment } from "$lib/server/agent/core/types.js";
 
 function inferImageMime(pathname: string): string | null {

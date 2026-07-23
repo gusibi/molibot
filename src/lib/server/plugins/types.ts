@@ -1,5 +1,5 @@
 import type { ChannelPlugin } from "$lib/server/channels/registry.js";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 export type InstalledPluginKind = "channel" | "provider" | "feature" | "memory-backend";

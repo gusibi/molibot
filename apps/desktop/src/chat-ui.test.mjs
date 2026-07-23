@@ -13,6 +13,7 @@ const app = read("./App.svelte");
 const styles = read("./styles.css");
 const design = read("../../../DESIGN.md");
 const tauriConfig = JSON.parse(read("../src-tauri/tauri.conf.json"));
+const tauriCargo = read("../src-tauri/Cargo.toml");
 const svelteStyleSources = listSvelteSources().flatMap((source) => [...source.matchAll(/<style(?:\s[^>]*)?>([\s\S]*?)<\/style>/g)].map((match) => match[1]));
 const allStyleSources = [styles, ...svelteStyleSources];
 const infoPlist = read("../src-tauri/Info.plist");
@@ -173,6 +174,8 @@ test("WindowState owns native lifecycle projection and chrome-only material toke
   assert.match(app, /void startWindowState\(\);/);
   assert.match(app, /root\.dataset\.windowActive/);
   assert.match(app, /windowStateAdapter\?\.dispose\(\);/);
+  assert.match(app, /await windowStateAdapter\.setTheme\(theme === "system" \? null : theme\)/);
+  assert.match(app, /windowStateAdapter\?\.setTheme\(value === "system" \? null : value\)/);
   assert.match(styles, /html\[data-window-active="false"\]/);
   assert.match(styles, /--chrome-sidebar-bg/);
   assert.match(styles, /--chrome-header-bg/);
@@ -183,32 +186,73 @@ test("WindowState owns native lifecycle projection and chrome-only material toke
   assert.match(styles, /\.command-palette[^\n]*var\(--chrome-popover-bg\)/);
 });
 
-test("Settings and Chat share the accessible inset sidebar material", () => {
-  assert.match(design, /Settings and Chat use the same inset sidebar material/);
-  assert.match(styles, /--floating-sidebar-inset: 10px/);
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: var\(--floating-sidebar-inset\)[\s\S]*border-radius: var\(--radius-panel\)[\s\S]*backdrop-filter: blur\(24px\)/);
-  assert.match(styles, /html\[data-reduced-transparency="true"\] \.chat-sidebar[\s\S]*backdrop-filter: none/);
-  assert.match(styles, /:root\[data-performance="low"\][\s\S]*--floating-sidebar-shadow: none/);
-  assert.match(styles, /left: calc\(var\(--sidebar-w, 260px\) - var\(--floating-sidebar-inset\)\)/);
+test("Settings and Chat expose one edge-to-edge native macOS sidebar material", () => {
+  const lightTheme = styles.match(/^:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const explicitDark = styles.match(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const systemDark = styles.match(/:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+  assert.match(design, /native macOS sidebar material/);
+  assert.equal(tauriConfig.app.macOSPrivateApi, true);
+  assert.match(tauriCargo, /tauri\s*=\s*\{[^\n]*features\s*=\s*\[[^\]]*"macos-private-api"/);
+  for (const window of tauriConfig.app.windows) {
+    assert.equal(window.transparent, true);
+    assert.deepEqual(window.windowEffects, {
+      effects: ["sidebar"],
+      state: "followsWindowActiveState",
+      radius: 0
+    });
+  }
+  assert.match(styles, /html, body, #app \{[^}]*background:\s*transparent/s);
+  const lightTint = lightTheme.match(/--sidebar-material-tint:\s*rgb\((\d+) (\d+) (\d+) \/ (\d+)%\)/);
+  assert.ok(lightTint, "Light sidebar material must define an explicit RGBA tint");
+  const [, red, green, blue, alphaPercent] = lightTint.map(Number);
+  assert.deepEqual([red, green, blue], [253, 255, 255]);
+  assert.ok(alphaPercent >= 88, "transparent WebViews require a thick Light material tint to avoid premultiplying against a dark clear surface");
+  const compositorBase = [71, 73, 74];
+  const composed = compositorBase.map((channel, index) => Math.round(channel * (1 - alphaPercent / 100) + [red, green, blue][index] * alphaPercent / 100));
+  assert.ok(composed.every((channel, index) => Math.abs(channel - [235, 237, 238][index]) <= 4), `Light sidebar ${composed.join(",")} must stay close to Finder's 235,237,238 reference`);
+  assert.match(explicitDark, /--sidebar-material-tint:\s*transparent/);
+  assert.match(systemDark, /--sidebar-material-tint:\s*transparent/);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: 0[\s\S]*border-radius: 0[\s\S]*background: var\(--sidebar-material-tint\)[\s\S]*backdrop-filter: none/);
+  assert.match(styles, /html\[data-reduced-transparency="true"\][^}]*--sidebar-material-bg:\s*var\(--chrome-sidebar-bg\)/s);
+  assert.match(styles, /left: var\(--sidebar-w, 260px\)/);
 });
 
-test("Chat floats its sidebar on the transcript canvas and hidden project actions do not steal title width", () => {
-  assert.match(styles, /\.chat-layout\s*\{[^}]*background:\s*var\(--header-bg\)/s);
+test("macOS semantic palette keeps dark workspace surfaces distinct from pure black", () => {
+  const lightTheme = styles.match(/^:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const explicitDark = styles.match(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const systemDark = styles.match(/:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+  assert.match(lightTheme, /--mac-window-background:\s*#ffffff/i);
+  assert.match(lightTheme, /--mac-label:\s*rgb\(0 0 0 \/ 84\.7%\)/i);
+  for (const themeRule of [explicitDark, systemDark]) {
+    assert.match(themeRule, /--mac-window-background:\s*#1e1e1e/i);
+    assert.match(themeRule, /--mac-elevated-background:\s*#282828/i);
+    assert.match(themeRule, /--mac-separator:\s*rgb\(255 255 255 \/ 9\.8%\)/i);
+  }
+  const structuralTokens = ["panel-bg", "sidebar-bg", "content-bg", "header-bg", "card-bg", "surface-secondary", "window-bg"];
+  for (const themeRule of [explicitDark, systemDark]) {
+    for (const token of structuralTokens) {
+      const value = themeRule.match(new RegExp(`--${token}:\\s*([^;]+)`))?.[1]?.trim() ?? "";
+      assert.ok(value, `missing --${token}`);
+      assert.doesNotMatch(value, /^#(?:000|000000|0a0a0a)$/i, `--${token} must not flatten the macOS dark hierarchy`);
+    }
+  }
+  assert.match(design, /macOS semantic color roles/);
+});
+
+test("Chat keeps native sidebar material outside the opaque transcript canvas and hidden project actions do not steal title width", () => {
+  assert.match(styles, /\.chat-layout\s*\{[^}]*background:\s*transparent/s);
+  assert.match(styles, /\.chat-content\s*\{[^}]*background:\s*var\(--header-bg\)/s);
   assert.match(styles, /\.conv-group-action,\s*\.conv-caret-button\s*\{[^}]*width:\s*0/s);
   assert.match(styles, /\.conv-group-head:hover \.conv-group-action,[\s\S]*\.conv-group-head:focus-within \.conv-caret-button\s*\{[^}]*width:\s*26px/s);
 });
 
-test("floating sidebars keep stable depth and add only a restrained edge glow on hover", () => {
+test("sidebars remove floating depth and keep a stable glass divider", () => {
   const sharedSidebarRule = styles.match(/\.chat-sidebar, \.settings-sidebar\s*\{[^}]*\}/s)?.[0] ?? "";
-  assert.match(sharedSidebarRule, /box-shadow:[^;]*var\(--floating-sidebar-shadow\)/);
-  assert.match(sharedSidebarRule, /border:[^;]*var\(--floating-sidebar-border\)/);
-  assert.match(sharedSidebarRule, /transition:[^;]*border-color[^;]*box-shadow/);
-  assert.doesNotMatch(styles, /--floating-sidebar-(?:border|shadow)-hover/);
-  assert.match(styles, /--floating-sidebar-glow:\s*color-mix\(in srgb, var\(--gray-600\) 18%, transparent\)/);
-  assert.match(styles, /:root\[data-theme="dark"\]\s*\{[^}]*--floating-sidebar-glow:\s*color-mix\(in srgb, var\(--accent\) 22%, transparent\)/s);
-  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\)\s*\{[^}]*--floating-sidebar-glow:\s*color-mix\(in srgb, var\(--accent\) 22%, transparent\)/s);
-  assert.match(styles, /\.chat-sidebar:hover,[\s\S]*\.settings-sidebar:focus-within\s*\{[^}]*border-color:\s*var\(--floating-sidebar-border-glow\)[^}]*box-shadow:[^}]*var\(--floating-sidebar-glow\)[^}]*var\(--floating-sidebar-shadow\)/s);
-  assert.match(styles, /:root\[data-performance="low"\][^}]*--floating-sidebar-glow:\s*transparent/s);
+  assert.match(sharedSidebarRule, /border:\s*0/);
+  assert.match(sharedSidebarRule, /border-right:\s*0\.5px solid var\(--sidebar-material-border\)/);
+  assert.match(sharedSidebarRule, /box-shadow:\s*none/);
+  assert.doesNotMatch(styles, /--floating-sidebar-/);
+  assert.doesNotMatch(styles, /\.chat-sidebar:hover,[\s\S]*\.settings-sidebar:focus-within\s*\{/);
   assert.doesNotMatch(styles, /\.sidebar-resizer::after/);
 });
 
@@ -407,14 +451,16 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
 });
 
 test("Desktop Chat keeps structural sidebars separate from one unified workspace surface", () => {
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--floating-sidebar-bg\)/s);
+  assert.match(styles, /\.chat-layout\s*\{[^}]*background:\s*transparent/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--sidebar-material-tint\)/s);
   assert.match(styles, /\.file-panel\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
   assert.match(styles, /\.chat-content\s*\{[^}]*background:\s*var\(--header-bg\)/s);
   assert.match(styles, /\.chat-header\s*\{[^}]*background:\s*var\(--chrome-header-bg\)/s);
 });
 
 test("Desktop Settings uses a secondary canvas with quiet primary-surface cards", () => {
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--floating-sidebar-bg\)/s);
+  assert.match(styles, /\.settings-layout\s*\{[^}]*background:\s*transparent/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--sidebar-material-tint\)/s);
   assert.match(styles, /\.settings-content\s*\{[^}]*background:\s*var\(--gray-100\)/s);
   assert.match(styles, /\.settings-card\s*\{[^}]*border:\s*1px solid var\(--hairline\)[^}]*background:\s*var\(--card-bg\)/s);
   assert.match(styles, /\.settings-card \.settings-row \+ \.settings-row\s*\{[^}]*border-top:\s*0\.5px solid var\(--gray-alpha-100\)/s);
@@ -657,10 +703,10 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.doesNotMatch(view, /<button[\s\S]{0,160}data-tauri-drag-region/);
 });
 
-test("Chat and Settings move native macOS traffic lights below the inset sidebar border", () => {
+test("Chat and Settings align native macOS traffic lights with the edge-to-edge sidebar", () => {
   const windows = Object.fromEntries(tauriConfig.app.windows.map((window) => [window.label, window]));
-  assert.deepEqual(windows.chat.trafficLightPosition, { x: 18, y: 24 });
-  assert.deepEqual(windows.settings.trafficLightPosition, { x: 18, y: 24 });
+  assert.deepEqual(windows.chat.trafficLightPosition, { x: 18, y: 18 });
+  assert.deepEqual(windows.settings.trafficLightPosition, { x: 18, y: 18 });
 });
 
 test("external channel groups use icons that exist in the bundled icon font", () => {

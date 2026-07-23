@@ -122,6 +122,7 @@
 
   async function startWindowState(): Promise<void> {
     windowStateAdapter = runningInTauri ? await createTauriWindowState() : createWindowState();
+    await windowStateAdapter.setTheme(theme === "system" ? null : theme);
     applyWindowState(windowStateAdapter.snapshot);
     windowStateUnsubscribe = windowStateAdapter.subscribe(applyWindowState);
     await windowStateAdapter.start();
@@ -154,6 +155,7 @@
     const root = document.documentElement;
     if (value === "system") root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", value);
+    void windowStateAdapter?.setTheme(value === "system" ? null : value);
   }
 
   function changeTheme(value: DesktopTheme): void {

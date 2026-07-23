@@ -13,6 +13,7 @@ type Unlisten = () => void;
 type WindowStateHost = {
   isFocused(): Promise<boolean>;
   theme(): Promise<NativeTheme | null>;
+  setTheme(theme: NativeTheme | null): Promise<void>;
   scaleFactor(): Promise<number>;
   onFocusChanged(listener: (focused: boolean) => void): Promise<Unlisten>;
   onThemeChanged(listener: (theme: NativeTheme) => void): Promise<Unlisten>;
@@ -37,6 +38,7 @@ type WindowStateEnvironment = {
 export type WindowStateAdapter = {
   snapshot: WindowStateSnapshot;
   subscribe(listener: (snapshot: WindowStateSnapshot) => void): Unlisten;
+  setTheme(theme: NativeTheme | null): Promise<void>;
   start(): Promise<void>;
   dispose(): void;
 };
@@ -128,6 +130,9 @@ export function createWindowState(
       return snapshot;
     },
     subscribe,
+    setTheme(theme) {
+      return host?.setTheme(theme) ?? Promise.resolve();
+    },
     start,
     dispose() {
       if (disposed) return;
@@ -144,6 +149,7 @@ export async function createTauriWindowState(): Promise<WindowStateAdapter> {
   return createWindowState({
     isFocused: () => window.isFocused(),
     theme: () => window.theme(),
+    setTheme: (theme) => window.setTheme(theme),
     scaleFactor: () => window.scaleFactor(),
     onFocusChanged(listener) {
       return window.onFocusChanged(({ payload }) => listener(payload));

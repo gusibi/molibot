@@ -18,7 +18,7 @@ function createDeferredEntry(): DeferredToolEntry {
       label: "imageGenerate",
       description: "Generate high-quality images based on text descriptions.",
       parameters: Type.Object({ prompt: Type.String() }),
-      execute: async () => ({ content: [{ type: "text", text: "ok" }] })
+      execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} })
     }
   };
 }
@@ -34,7 +34,7 @@ function createTtsDeferredEntry(): DeferredToolEntry {
       label: "ttsGenerate",
       description: "Convert text into speech audio.",
       parameters: Type.Object({ text: Type.String() }),
-      execute: async () => ({ content: [{ type: "text", text: "ok" }] })
+      execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} })
     }
   };
 }
@@ -56,6 +56,7 @@ test("toolSearch loads imageGenerate by direct deferred-tool selection", async (
   const text = result.content.map((item: any) => String(item.text ?? "")).join("\n");
 
   assert.deepEqual(loadedNames, ["imageGenerate"]);
+  assert.deepEqual(result.addedToolNames, ["imageGenerate"]);
   assert.match(text, /Loaded deferred tools: imageGenerate/);
   assert.match(text, /"name":"imageGenerate"/);
 });
@@ -75,6 +76,7 @@ test("toolSearch loads ttsGenerate by direct deferred-tool selection", async () 
   const text = result.content.map((item: any) => String(item.text ?? "")).join("\n");
 
   assert.deepEqual(loadedNames, ["ttsGenerate"]);
+  assert.deepEqual(result.addedToolNames, ["ttsGenerate"]);
   assert.match(text, /Loaded deferred tools: ttsGenerate/);
   assert.match(text, /"name":"ttsGenerate"/);
 });

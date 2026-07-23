@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { MemoryScope } from "$lib/server/memory/types.js";
 
