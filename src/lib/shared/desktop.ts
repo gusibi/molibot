@@ -674,6 +674,17 @@ export interface DesktopSessionDetail extends DesktopSessionSummary {
   messages: DesktopConversationMessage[];
 }
 
+/** Per-session text-model override (routing key). Empty string = follow global default. */
+export interface DesktopSessionModelResponse {
+  ok: true;
+  modelKey: string;
+}
+
+export interface DesktopSessionModelUpdateRequest {
+  conversationId: string;
+  modelKey: string;
+}
+
 export interface DesktopSessionFile {
   id: string;
   original: string;

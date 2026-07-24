@@ -52,7 +52,8 @@
     summarizeDesktopReadiness,
     summarizeOnboardingChannels,
     summarizeOnboardingDiagnostics,
-    switchDesktopModel,
+    loadDesktopSessionModel,
+    saveDesktopSessionModel,
     submitDesktopMemoryTraceFeedback,
     testDesktopProvider,
     truncateDesktopMessages,
@@ -147,6 +148,19 @@
   let profiles: DesktopProfileSummary[] = [];
   let modelOptions: DesktopModelOption[] = [];
   let activeModelKey = "";
+  // Global default text model (Settings → 模型). The inline chat selector is now
+  // per-session: `activeModelKey` reflects the current session's model, falling
+  // back to `globalModelKey` when the session has no override.
+  let globalModelKey = "";
+  // Local write-through cache of each session's persisted model (non-empty only;
+  // empty = "follow global"). Mirrors the ProjectChat mechanism.
+  const sessionModelOverrides = new Map<string, string>();
+  const hydratedModelSessions = new Set<string>();
+  let modelHydrationSeq = 0;
+  let appliedModelSessionId = "";
+  // Model chosen while composing a not-yet-persisted new conversation. Seeded onto
+  // the real session the moment it's created (before the first turn snapshots it).
+  let draftModelKey = "";
   let changingModel = false;
   let connectedEndpoint = "";
   let connectionReady = false;
@@ -483,6 +497,15 @@
     name: profile.agentName || copy.agentStudioGlobalName,
     subtitle: profile.name
   }));
+  // Per-session model: when the active web session changes, show its model
+  // (persisted override → global default) and hydrate the override cache once.
+  // Gated on loaded options so the selector reflects a valid key.
+  $: if (viewMode === "local" && activeSessionId && activeSessionId !== appliedModelSessionId && modelOptions.length > 0) {
+    appliedModelSessionId = activeSessionId;
+    const override = sessionModelOverrides.get(activeSessionId);
+    activeModelKey = override && modelOptions.some((option) => option.key === override) ? override : globalModelKey;
+    void hydrateSessionModel(activeSessionId);
+  }
   $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
   // The pill only shows the bare model name (last "/"-segment); the provider
   // prefix like "[Custom] CliProxyAPI /" is kept for the dropdown + tooltip.
@@ -655,7 +678,8 @@
       
       profiles = nextProfiles;
       modelOptions = modelState.options;
-      activeModelKey = modelState.currentKey;
+      globalModelKey = modelState.currentKey;
+      activeModelKey = sessionModelOverrides.get(activeSessionId) || modelState.currentKey;
       onboardingProfiles = nextWebProfiles;
       if (nextAgents) onboardingAgents = nextAgents.items;
       if (nextChannels) {
@@ -693,7 +717,8 @@
       if (generation !== connectionGeneration) return;
       profiles = nextProfiles;
       modelOptions = modelState.options;
-      activeModelKey = modelState.currentKey;
+      globalModelKey = modelState.currentKey;
+      activeModelKey = sessionModelOverrides.get(activeSessionId) || modelState.currentKey;
       const rememberedProfile = localStorage.getItem(PROFILE_STORAGE_KEY) ?? "";
       onboardingProfiles = nextWebProfiles;
       onboardingAgents = nextAgents.items;
@@ -721,6 +746,19 @@
         labels: () => conversationLabels(),
         loadTranscript,
         refreshSidebar: () => loadChannel("web"),
+        resolveModel: (_profileId, sessionId) => sessionModelOverrides.get(sessionId),
+        onDraftSessionCreated: async (_profileId, sessionId) => {
+          // Carry the draft's model onto the freshly-created session so its first
+          // turn runs on it; persist so it survives restarts.
+          if (!draftModelKey) return;
+          const key = draftModelKey;
+          await saveDesktopSessionModel(connectedEndpoint, sessionId, key);
+          draftModelKey = "";
+          sessionModelOverrides.set(sessionId, key);
+          hydratedModelSessions.add(sessionId);
+          appliedModelSessionId = sessionId;
+          activeModelKey = key;
+        },
         onSessionCreated: (profileId, sessionId) => {
           localStorage.setItem(LAST_BOT_KEY, profileId);
           void loadChannel("web");
@@ -823,6 +861,11 @@
     syncDraftOut();
     chatStore.newConversationDraft(defaultBot());
     loadDraftIn();
+    // A fresh draft starts on the global default; a pick here is held in
+    // draftModelKey until the session is created.
+    draftModelKey = "";
+    appliedModelSessionId = "";
+    activeModelKey = globalModelKey;
     void refreshFiles("", "");
   }
 
@@ -988,7 +1031,8 @@
       providerSubmittedId = result.providerId ?? "";
       const modelState = await loadDesktopModels(connectedEndpoint, "text");
       modelOptions = modelState.options;
-      activeModelKey = modelState.currentKey;
+      globalModelKey = modelState.currentKey;
+      activeModelKey = sessionModelOverrides.get(activeSessionId) || modelState.currentKey;
     } catch (cause) {
       providerSubmitError = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -1381,7 +1425,13 @@
       messageInput = "";
       pendingFiles = [];
     }
-    await chatStore.send(text, files);
+    try {
+      await chatStore.send(text, files);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+      messageInput = text;
+      pendingFiles = files;
+    }
   }
 
   async function copyMessageContent(message: TranscriptMessage): Promise<void> {
@@ -1439,19 +1489,50 @@
     void resolveApproval(decision as DesktopApprovalDecision);
   }
 
+  // Fetch a session's persisted model once and hydrate the composer + cache.
+  // Guarded against stale responses (pitfall #3): a late reply for a session the
+  // user already left must not overwrite the visible selector.
+  async function hydrateSessionModel(sessionId: string): Promise<void> {
+    if (!connectedEndpoint || !sessionId) return;
+    if (sessionModelOverrides.has(sessionId) || hydratedModelSessions.has(sessionId)) return;
+    const seq = ++modelHydrationSeq;
+    try {
+      const key = await loadDesktopSessionModel(connectedEndpoint, sessionId);
+      if (seq !== modelHydrationSeq || activeSessionId !== sessionId) return;
+      hydratedModelSessions.add(sessionId);
+      if (key && modelOptions.some((option) => option.key === key)) {
+        sessionModelOverrides.set(sessionId, key);
+        activeModelKey = key;
+      }
+    } catch {
+      // network hiccup: leave the composer on its default; a later switch retries
+    }
+  }
+
+  // The chat model selector is per-session: it persists onto the active
+  // conversation (or the draft, applied on creation) and never touches the
+  // global routing that other channels share.
   async function changeModel(event: Event): Promise<void> {
-    if (!connectedEndpoint || sending || changingModel) return;
+    if (!connectedEndpoint || changingModel) return;
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    const sessionId = activeSessionId;
     changingModel = true;
     error = "";
     try {
-      const state = await switchDesktopModel(
-        connectedEndpoint,
-        (event.currentTarget as HTMLSelectElement).value
-      );
-      modelOptions = state.options;
-      activeModelKey = state.currentKey;
+      if (draftMode || !sessionId) {
+        activeModelKey = value;
+        draftModelKey = value;
+      } else {
+        await saveDesktopSessionModel(connectedEndpoint, sessionId, value);
+        sessionModelOverrides.set(sessionId, value);
+        hydratedModelSessions.add(sessionId);
+        if (activeSessionId === sessionId) activeModelKey = value;
+      }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
+      if (activeSessionId === sessionId) {
+        activeModelKey = sessionModelOverrides.get(sessionId) || globalModelKey;
+      }
     } finally {
       changingModel = false;
     }

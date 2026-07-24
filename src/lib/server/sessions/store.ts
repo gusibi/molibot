@@ -737,6 +737,40 @@ export class SessionStore {
     return located.file.conversation;
   }
 
+  /**
+   * Persist a conversation's per-session text-model override. `modelKey` is a
+   * routing key (e.g. `custom|CliProxyAPI|gpt-5.4-mini`); an empty string clears
+   * the override so the session falls back to the global default. Located by
+   * conversation id alone (web + project), mirroring {@link renameConversation}.
+   * Returns the updated conversation, or null when it can't be located.
+   */
+  /** Reads a conversation's persisted per-session model override (web + project),
+   *  located by id alone. Returns "" when unset or the session can't be found. */
+  getConversationModelKey(conversationId: string): string {
+    const located = this.resolveSessionStorage(conversationId);
+    return String(located?.file.conversation.modelKey ?? "").trim();
+  }
+
+  setConversationModelKey(conversationId: string, modelKey: string): Conversation | null {
+    const located = this.resolveSessionStorage(conversationId);
+    if (!located) return null;
+
+    const trimmed = String(modelKey ?? "").trim();
+    if (trimmed) located.file.conversation.modelKey = trimmed;
+    else delete located.file.conversation.modelKey;
+    located.file.conversation.updatedAt = new Date().toISOString();
+
+    if (located.type === "web") {
+      writeWebSession(located.externalUserId, located.file);
+    } else if (located.type === "project") {
+      writeProjectSession(located.projectId, located.file);
+    } else {
+      writeLegacySession(located.file);
+    }
+
+    return located.file.conversation;
+  }
+
   deleteConversation(
     conversationId: string,
     channel: Channel,

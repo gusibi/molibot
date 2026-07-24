@@ -20,6 +20,7 @@ test("stream request accepts image attachments as multipart form data", async ()
   assert.equal(parsed.files.length, 1);
   assert.equal(parsed.files[0]?.name, "shot.png");
   assert.equal(parsed.files[0]?.type, "image/png");
+  assert.equal(parsed.modelKey, undefined);
 });
 
 test("stream request keeps JSON turns backward compatible", async () => {

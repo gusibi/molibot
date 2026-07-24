@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Molibot",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "identifier": "com.eztoolab.molibot",
   "build": {
     "beforeDevCommand": "corepack pnpm run dev",
@@ -21,31 +21,6 @@
         "minWidth": 720,
         "minHeight": 520,
         "center": true,
-        "transparent": true,
-        "windowEffects": {
-          "effects": [
-            "sidebar"
-          ],
-          "state": "followsWindowActiveState",
-          "radius": 0
-        },
-        "titleBarStyle": "Overlay",
-        "trafficLightPosition": {
-          "x": 18,
-          "y": 18
-        },
-        "hiddenTitle": true
-      },
-      {
-        "label": "settings",
-        "title": "Molibot Settings",
-        "url": "index.html?window=settings",
-        "width": 860,
-        "height": 650,
-        "minWidth": 620,
-        "minHeight": 480,
-        "center": true,
-        "visible": false,
         "transparent": true,
         "windowEffects": {
           "effects": [

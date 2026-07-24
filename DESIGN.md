@@ -431,12 +431,21 @@ Desktop colors follow AppKit roles rather than a generic neutral palette. The na
 sidebar material remains system-rendered; WebView values below are sRGB references
 resolved from the corresponding macOS semantic colors and must be applied by role.
 
+All values are resolved from AppKit semantic colors on the current macOS release
+(sampled via Digital Color Meter / `NSColor.usingColorSpace(.sRGB)`). The dark
+neutrals form a monotonic ramp anchored on real system grays: the base is
+`underPageBackgroundColor` (`#282828`) and the top raised surface is
+`windowBackgroundColor` (`#323232`). Never fall back to `#1E1E1E` for the window
+base — that is macOS `controlBackgroundColor` (a recessed field color), and using
+it as the workspace reads as "too black" next to native windows.
+
 | Product role | AppKit reference | Light | Dark |
 | --- | --- | --- | --- |
-| Window/workspace | `windowBackgroundColor` | `#FFFFFF` | `#1E1E1E` |
-| Grouped canvas | derived quiet window surface | `#F5F5F5` | `#242424` |
-| Native sidebar tint | Finder-style material veil | `rgb(253 255 255 / 90%)` | transparent |
-| Elevated/card surface | `controlBackgroundColor` / raised neutral surface | `#FFFFFF` | `#282828` |
+| Window/workspace | `windowBackgroundColor` (Light) / `underPageBackgroundColor` (Dark base) | `#F6F6F6` | `#282828` |
+| Grouped canvas | derived quiet window surface | `#ECECEC` | `#2E2E2E` |
+| Native sidebar tint | Finder-style material veil | `rgb(253 255 255 / 75%)` | transparent |
+| Elevated/card surface | `controlBackgroundColor` (Light) / raised neutral surface = `windowBackgroundColor` (Dark) | `#FFFFFF` | `#323232` |
+| Nested secondary surface | recessed neutral content | `#F5F5F5` | `#3A3A3A` |
 | Primary label | `labelColor` | black 84.7% | white 84.7% |
 | Secondary label | `secondaryLabelColor` | black 49.8% | white 54.9% |
 | Tertiary label | `tertiaryLabelColor` | black 25.9% | white 24.7% |
@@ -463,9 +472,10 @@ resolved from the corresponding macOS semantic colors and must be applied by rol
 - Settings and Chat use the native macOS sidebar material, not a WebView imitation.
   Both windows are transparent and apply the system `sidebar` window effect; the WebView
   root and layout stay transparent while the right content pane remains opaque. In Light
-  appearance only, the sidebar plane applies one uniform `rgb(253 255 255 / 90%)` thick
+  appearance only, the sidebar plane applies one uniform `rgb(253 255 255 / 75%)` thick
   material veil so WKWebView's transparent backing composes near Finder's `#ECEDEE`
-  reference instead of premultiplying a low-alpha tint into dark gray. Dark and System
+  reference while still letting the native material's translucency read through
+  instead of premultiplying a low-alpha tint into dark gray. Dark and System
   Dark keep this tint transparent because
   the native material already provides the correct depth there. This tint belongs directly
   to the edge-to-edge sidebar plane: never implement it as a nested panel, pseudo-element,

@@ -64,11 +64,6 @@ fn show_main_window(app: AppHandle) {
 }
 
 #[tauri::command]
-fn open_settings(app: AppHandle) {
-    show_window(&app, "settings");
-}
-
-#[tauri::command]
 async fn pick_project_directory() -> Result<Option<String>, String> {
     let output = std::process::Command::new("/usr/bin/osascript")
         .args(["-e", "POSIX path of (choose folder)"])
@@ -187,8 +182,8 @@ fn open_desktop_log(app: AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn close_to_hide_window_labels() -> [&'static str; 2] {
-    ["chat", "settings"]
+fn close_to_hide_window_labels() -> [&'static str; 1] {
+    ["chat"]
 }
 
 fn configure_window_close_behavior(app: &tauri::App) {
@@ -201,10 +196,6 @@ fn configure_window_close_behavior(app: &tauri::App) {
         window.on_window_event(move |window_event| {
             if let WindowEvent::CloseRequested { api, .. } = window_event {
                 api.prevent_close();
-                if label == "settings" {
-                    let _ = window_handle.hide();
-                    return;
-                }
                 let behavior = desktop_preferences_path(&app_handle)
                     .map(|path| desktop_preferences::load_close_behavior(&path))
                     .unwrap_or(desktop_preferences::CloseBehavior::Background);
@@ -237,7 +228,6 @@ pub fn run() {
             execute_native_command,
             sync_native_command_menu,
             show_main_window,
-            open_settings,
             pick_project_directory,
             desktop_status,
             set_login_start,
@@ -300,7 +290,7 @@ mod window_close_tests {
     use super::close_to_hide_window_labels;
 
     #[test]
-    fn close_to_hide_covers_chat_and_settings_windows() {
-        assert_eq!(close_to_hide_window_labels(), ["chat", "settings"]);
+    fn close_to_hide_covers_chat_window() {
+        assert_eq!(close_to_hide_window_labels(), ["chat"]);
     }
 }

@@ -41,6 +41,18 @@ function textOptions(settings: RuntimeSettings) {
   }));
 }
 
+/**
+ * Validates a per-session text-model override key. An empty string is valid and
+ * means "clear the override / follow the global default". A non-empty key must
+ * match a currently-listed text option — this rejects stale/unresolvable keys up
+ * front instead of letting the runner silently fall back to another model.
+ */
+export function isValidSessionTextModelKey(settings: RuntimeSettings, key: string): boolean {
+  const trimmed = String(key ?? "").trim();
+  if (!trimmed) return true;
+  return textOptions(settings).some((option) => option.key === trimmed);
+}
+
 export function buildDesktopModelRoutingSettings(settings: RuntimeSettings): DesktopModelRoutingSettings {
   return {
     compactionModelKey: settings.modelRouting.compactionModelKey ?? "",

@@ -73,6 +73,7 @@ import type {
   DesktopModelRoutingResponse,
   DesktopModelRoutingSettings,
   DesktopModelRoutingUpdateRequest,
+  DesktopSessionModelResponse,
   DesktopProfileSummary,
   DesktopProvidersResponse,
   DesktopProvidersSummary,
@@ -319,6 +320,29 @@ export async function switchDesktopModel(
     }
   );
   return payload.model;
+}
+
+/** Reads a session's persisted per-session text-model override (empty = follow global). */
+export async function loadDesktopSessionModel(endpoint: string, conversationId: string): Promise<string> {
+  const payload = await requestJson<DesktopSessionModelResponse>(
+    endpoint,
+    `/api/desktop/session-model?conversationId=${encodeURIComponent(conversationId)}`
+  );
+  return payload.modelKey;
+}
+
+/** Persists a session's per-session text-model override (empty string clears it). */
+export async function saveDesktopSessionModel(
+  endpoint: string,
+  conversationId: string,
+  modelKey: string
+): Promise<string> {
+  const payload = await requestJson<DesktopSessionModelResponse>(endpoint, "/api/desktop/session-model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversationId, modelKey })
+  });
+  return payload.modelKey;
 }
 
 export async function loadDesktopModelRouting(endpoint: string): Promise<DesktopModelRoutingSettings> {

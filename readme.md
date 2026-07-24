@@ -34,6 +34,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 
 - **Remember what matters.** Governed memory keeps useful preferences and project context available, while giving you visibility and control over what is saved and injected.
 - **Shape your own Agent.** Profiles, Skills, tools, and model routes let you define how an Agent should work instead of relying on one fixed assistant.
+- **Keep each conversation on its chosen model.** Chat model selection is Session-scoped and restart-persistent, while Settings remains the explicit place for changing global defaults.
 - **Work where you already are.** Use one local runtime from Web, macOS Desktop, Telegram, Feishu, Weixin, QQ, or the CLI.
 - **Keep execution in your hands.** Tasks, approvals, sandbox policy, and run records make automation visible rather than opaque.
 - **Keep the data local.** Your runtime, configuration, conversations, and operational state stay on infrastructure you control.

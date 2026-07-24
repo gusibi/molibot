@@ -24,7 +24,7 @@ export async function parseStreamRequest(request: Request): Promise<ParsedStream
     profileId: String(form.get("profileId") ?? ""),
     thinkingLevel: String(form.get("thinkingLevel") ?? ""),
     projectId: String(form.get("projectId") ?? ""),
-    modelKey: String(form.get("modelKey") ?? ""),
+    modelKey: String(form.get("modelKey") ?? "").trim() || undefined,
     files: form.getAll("files").filter((entry): entry is File => entry instanceof File && entry.size > 0)
   };
 }

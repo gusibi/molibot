@@ -5,6 +5,17 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.03 Desktop Single-Window Settings and Per-Session Model Reliability (2026-07-24)
+
+- **Priority / Status**: P0 / Delivered.
+- **Scope**: Keep Settings in the live Chat window without nested-dialog Escape leakage; make text-model selection conversation-scoped and restart-persistent through a narrow Session API; keep draft first-send, multipart attachments, failed saves, and late Session switches consistent.
+- **Acceptance**:
+  - Escape closes only the topmost shared Dialog; it closes Settings only when no nested Dialog consumed/owns the event.
+  - A missing multipart model selector falls through to the persisted conversation model, then Project/global defaults.
+  - Existing and draft Session model caches become authoritative only after persistence succeeds; failures remain visible and preserve the composer for retry.
+  - Late save/hydration responses cannot overwrite another currently viewed Session.
+  - UI/API/persistence regressions, Svelte diagnostics, Root/Desktop builds, and Rust tests pass before release.
+
 ## 3.02 pi 0.81 Custom-Model Prompt Role Compatibility (2026-07-23)
 
 - **Priority / Status**: P0 / Delivered.
@@ -13,7 +24,7 @@
 
 ## 3.01 Desktop Light Sidebar Native-Composite Correction (2026-07-23)
 - **Priority**: P0
-- **Status**: Done
+- **Status**: Done; palette values superseded by the 2026-07-24 semantic-surface calibration recorded in 3.03/`DESIGN.md`.
 - **Scope**: Correct the Light sidebar color in the real transparent WKWebView/native-material composition without changing the edge-to-edge geometry or the accepted Dark material.
 - **Acceptance**:
   - The Light material predicts within four channel levels of the supplied Finder `#ECEDEE` reference under the captured native compositor; low-alpha fills that premultiply into dark gray are rejected by regression.

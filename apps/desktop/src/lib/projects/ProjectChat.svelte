@@ -18,6 +18,8 @@
     listDesktopSessionFiles,
     loadDesktopModels,
     loadDesktopModelRouting,
+    loadDesktopSessionModel,
+    saveDesktopSessionModel,
     summarizeDesktopReadiness,
     truncateDesktopMessages
   } from "../api";
@@ -49,7 +51,15 @@
   let globalThinkingLevel: DesktopThinkingLevel = "medium";
   let changingModel = false;
   let appliedSessionId = "";
+  // Per-session model lives on the server (persisted on the conversation record);
+  // this Map is a local write-through cache. It only ever holds non-empty
+  // overrides — an empty persisted value means "follow the default" and is left
+  // absent so `resolveSessionModel` falls through to project/global.
   const sessionModelOverrides = new Map<string, string>();
+  // Sessions whose persisted model we've already fetched, so we don't re-hydrate
+  // (an empty persisted value is a valid "known: follow default").
+  const hydratedModelSessions = new Set<string>();
+  let modelHydrationSeq = 0;
   const sessionThinkingOverrides = new Map<string, DesktopThinkingLevel>();
 
   const formatTime = (value: string) => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
@@ -82,6 +92,7 @@
     const requestedModel = sessionModelOverrides.get(appliedSessionId) ?? currentProject?.modelKey ?? globalModelKey;
     activeModelKey = modelOptions.some((option) => option.key === requestedModel) ? requestedModel : globalModelKey;
     thinkingLevel = sessionThinkingOverrides.get(appliedSessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
+    void hydrateSessionModel(appliedSessionId);
   }
   $: if (appliedSessionId && projectsStore.selectedSessionId === appliedSessionId) sessionThinkingOverrides.set(appliedSessionId, thinkingLevel);
   async function loadModelOptions(endpoint: string): Promise<void> {
@@ -96,15 +107,42 @@
     }
   }
 
+  // Fetch a session's persisted model once and hydrate the composer + cache.
+  // Guarded against stale responses (pitfall #3): a late reply for a session the
+  // user already navigated away from must not overwrite the visible selector.
+  async function hydrateSessionModel(sessionId: string): Promise<void> {
+    if (!projectsStore.endpoint || !sessionId) return;
+    if (sessionModelOverrides.has(sessionId) || hydratedModelSessions.has(sessionId)) return;
+    const seq = ++modelHydrationSeq;
+    try {
+      const key = await loadDesktopSessionModel(projectsStore.endpoint, sessionId);
+      if (seq !== modelHydrationSeq || projectsStore.selectedSessionId !== sessionId) return;
+      hydratedModelSessions.add(sessionId);
+      if (key && modelOptions.some((option) => option.key === key)) {
+        sessionModelOverrides.set(sessionId, key);
+        activeModelKey = key;
+      }
+    } catch {
+      // network hiccup: leave the composer on its default; a later switch retries
+    }
+  }
+
   async function changeModel(event: Event): Promise<void> {
     if (!projectsStore.endpoint || changingModel) return;
+    const sessionId = projectsStore.selectedSessionId;
+    const value = (event.currentTarget as HTMLSelectElement).value;
     changingModel = true;
     projectsStore.error = "";
     try {
-      activeModelKey = (event.currentTarget as HTMLSelectElement).value;
-      if (projectsStore.selectedSessionId) sessionModelOverrides.set(projectsStore.selectedSessionId, activeModelKey);
+      if (sessionId) {
+        await saveDesktopSessionModel(projectsStore.endpoint, sessionId, value);
+        sessionModelOverrides.set(sessionId, value);
+        hydratedModelSessions.add(sessionId);
+        if (projectsStore.selectedSessionId === sessionId) activeModelKey = value;
+      }
     } catch (cause) {
       projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+      if (projectsStore.selectedSessionId === sessionId) activeModelKey = resolveSessionModel(sessionId);
     } finally {
       changingModel = false;
     }

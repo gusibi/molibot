@@ -5,7 +5,27 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-24
+
+### Polish: Desktop semantic surfaces use the current AppKit neutral ramp
+- Recalibrated Light workspace/grouped surfaces to `#F6F6F6` / `#ECECEC` and Dark workspace/grouped/elevated/nested surfaces to `#282828` / `#2E2E2E` / `#323232` / `#3A3A3A`. Explicit Dark under a Light OS receives a protective dark material veil; native Dark/System Dark remains transparent.
+- The Light sidebar veil now keeps 25% native-material contribution while preserving the single edge-to-edge plane. `DESIGN.md`, `design.dark.md`, and the structural theme guards describe the same current palette.
+
+### Change: Chat model selection is now per-session and persistent
+- The model dropdown in both the Web chat (`ChatView`) and Project chat (`ProjectChat`) no longer touches global routing. Each conversation remembers its own text model and keeps it across session switches and restarts — Session A on Gemini and Session B on GPT‑5 stay independent. The Web chat previously wrote `settings.modelRouting.textModelKey` via `switchDesktopModel`, which leaked the choice to every channel (Telegram/Feishu/QQ/WeChat); that global switch now lives only in Settings → 模型 and serves as the default for new sessions and other channels.
+- Persistence hangs off the session record: added `Conversation.modelKey` and `SessionStore.setConversationModelKey` / `getConversationModelKey` (web + project writers, located by conversation id). `/api/stream` resolves `modelKey` as per-turn selection → `conversation.modelKey` → project default → global, so a Web or Project session runs on its own model even on the first turn after a restart.
+- New `POST/GET /api/desktop/session-model` reads/writes a session's model and validates the key against the current text options (empty clears it) — an unresolvable pick is rejected up front instead of silently falling back. Both surfaces share the existing `SessionRuntimeRegistry` per-session `modelKey` resolver; the Web chat store gained an optional `resolveModel`/`onDraftSessionCreated` so a model picked in a not-yet-saved draft is applied to its first message. Scope is text route only (vision/stt/subagent stay global).
+- Release hardening: multipart turns now preserve an absent model selector so persisted Session routing still wins; both chat surfaces commit their local cache only after the narrow save API succeeds; a draft model is persisted before first-send activation, and failures restore the composer for retry. Late saves may update only their originating Session and cannot overwrite the currently viewed Session's selector.
+- Verified: Svelte diagnostics 0/0, Root and Desktop production builds, Desktop UI 84/84, Desktop logic 51/51, affected API/model tests 83/83, Session model round-trip 1/1, and Rust 20/20.
+
+---
 ## 2026-07-23
+
+### Change: Settings move into the chat window as an overlay
+- Settings no longer open a separate Tauri window; they render as a full-window overlay above the live chat window, so `ChatView` stays mounted (no reconnect, no dropped stream/draft) while settings are open. Close with the sidebar Back button or Escape. The overlay stays transparent and the chat host is hidden (not unmounted) underneath, so the settings sidebar keeps the native macOS `sidebar` liquid-glass material instead of being covered by an opaque fill.
+- Escape now respects the shared top-layer Dialog: dismissing a Provider, Task, Memory, or confirmation modal cannot also close and unmount the Settings overlay beneath it.
+- This removes the root cause of "a newly added provider model doesn't appear in the chat model dropdown until restart": the refresh signal was a `BroadcastChannel` message, which does not cross separate Tauri webview windows, so the chat window never received it. With one window the chat surface reloads models on its own; the native-menu/tray "Open Settings" and "Diagnostics" now focus the chat window and emit the existing `native-command` event (already handled by `ChatView`) instead of showing the deleted window.
+- Removed the `settings` window from `tauri.conf.json`, the `open_settings` command, and its close-behavior special-casing/labels. Verified: Desktop UI 84/84, Svelte diagnostics 0/0, Desktop production build, and Rust tests 20/20.
 
 ### Fix: Custom models keep system prompts in the pi 0.81 top-level context
 - Fixed every OpenAI-compatible Runner candidate failing before the HTTP request with `Cannot read properties of undefined (reading 'length')` after the pi 0.81 upgrade. Unsupported `developer` handling had moved the top-level system prompt into the Agent message transcript as an SDK-invalid `system` message.

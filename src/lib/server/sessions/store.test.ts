@@ -392,3 +392,45 @@ test("SessionStore incrementally indexes and tombstones truncated or deleted mes
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("per-session model override round-trips through disk and clears on empty", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-session-model-"));
+  const original = { ...storagePaths };
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+
+    const externalUserId = "web:personal:web-anonymous";
+    const store = new SessionStore();
+    const session = store.createWebConversation(externalUserId);
+
+    // Unset by default.
+    assert.equal(store.getConversationModelKey(session.id), "");
+
+    // Set and read back from a freshly-constructed store (simulates a restart).
+    const updated = store.setConversationModelKey(session.id, "custom|CliProxyAPI|gpt-5.4-mini");
+    assert.equal(updated?.modelKey, "custom|CliProxyAPI|gpt-5.4-mini");
+    const reloaded = new SessionStore();
+    assert.equal(reloaded.getConversationModelKey(session.id), "custom|CliProxyAPI|gpt-5.4-mini");
+    assert.equal(
+      reloaded.getConversationById(session.id, "web", externalUserId)?.modelKey,
+      "custom|CliProxyAPI|gpt-5.4-mini"
+    );
+
+    // Empty string clears the override (falls back to global).
+    reloaded.setConversationModelKey(session.id, "");
+    assert.equal(new SessionStore().getConversationModelKey(session.id), "");
+    assert.equal(
+      new SessionStore().getConversationById(session.id, "web", externalUserId)?.modelKey,
+      undefined
+    );
+
+    // Unknown conversation id returns null / empty rather than throwing.
+    assert.equal(store.setConversationModelKey("does-not-exist", "custom|x|y"), null);
+    assert.equal(store.getConversationModelKey("does-not-exist"), "");
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});

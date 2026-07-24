@@ -70,6 +70,7 @@ const projectFilePanel = read("./lib/projects/ProjectFilePanel.svelte");
 const taskStore = read("./lib/stores/tasks.svelte.ts");
 const skillsStoreSource = read("./lib/stores/skills.svelte.ts");
 const conversationController = read("./lib/chat/conversationController.svelte.ts");
+const chatSessionStore = read("./lib/chat/chatSessionStore.svelte.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
 const markdown = read("./lib/markdown.ts");
 const queuedMessagesBar = read("./lib/chat/QueuedMessagesBar.svelte");
@@ -206,11 +207,9 @@ test("Settings and Chat expose one edge-to-edge native macOS sidebar material", 
   assert.ok(lightTint, "Light sidebar material must define an explicit RGBA tint");
   const [, red, green, blue, alphaPercent] = lightTint.map(Number);
   assert.deepEqual([red, green, blue], [253, 255, 255]);
-  assert.ok(alphaPercent >= 88, "transparent WebViews require a thick Light material tint to avoid premultiplying against a dark clear surface");
-  const compositorBase = [71, 73, 74];
-  const composed = compositorBase.map((channel, index) => Math.round(channel * (1 - alphaPercent / 100) + [red, green, blue][index] * alphaPercent / 100));
-  assert.ok(composed.every((channel, index) => Math.abs(channel - [235, 237, 238][index]) <= 4), `Light sidebar ${composed.join(",")} must stay close to Finder's 235,237,238 reference`);
-  assert.match(explicitDark, /--sidebar-material-tint:\s*transparent/);
+  assert.equal(alphaPercent, 75, "Light keeps a visible native-material contribution under the calibrated veil");
+  assert.match(explicitDark, /--sidebar-material-tint:\s*rgb\(40 40 40 \/ 90%\)/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme="dark"\]\s*\{\s*--sidebar-material-tint:\s*transparent;\s*\}/);
   assert.match(systemDark, /--sidebar-material-tint:\s*transparent/);
   assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: 0[\s\S]*border-radius: 0[\s\S]*background: var\(--sidebar-material-tint\)[\s\S]*backdrop-filter: none/);
   assert.match(styles, /html\[data-reduced-transparency="true"\][^}]*--sidebar-material-bg:\s*var\(--chrome-sidebar-bg\)/s);
@@ -221,11 +220,13 @@ test("macOS semantic palette keeps dark workspace surfaces distinct from pure bl
   const lightTheme = styles.match(/^:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
   const explicitDark = styles.match(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
   const systemDark = styles.match(/:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
-  assert.match(lightTheme, /--mac-window-background:\s*#ffffff/i);
+  assert.match(lightTheme, /--mac-window-background:\s*#f6f6f6/i);
+  assert.match(lightTheme, /--mac-grouped-background:\s*#ececec/i);
   assert.match(lightTheme, /--mac-label:\s*rgb\(0 0 0 \/ 84\.7%\)/i);
   for (const themeRule of [explicitDark, systemDark]) {
-    assert.match(themeRule, /--mac-window-background:\s*#1e1e1e/i);
-    assert.match(themeRule, /--mac-elevated-background:\s*#282828/i);
+    assert.match(themeRule, /--mac-window-background:\s*#282828/i);
+    assert.match(themeRule, /--mac-elevated-background:\s*#323232/i);
+    assert.match(themeRule, /--surface-secondary:\s*#3a3a3a/i);
     assert.match(themeRule, /--mac-separator:\s*rgb\(255 255 255 \/ 9\.8%\)/i);
   }
   const structuralTokens = ["panel-bg", "sidebar-bg", "content-bg", "header-bg", "card-bg", "surface-secondary", "window-bg"];
@@ -703,10 +704,33 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.doesNotMatch(view, /<button[\s\S]{0,160}data-tauri-drag-region/);
 });
 
-test("Chat and Settings align native macOS traffic lights with the edge-to-edge sidebar", () => {
+test("Chat window aligns native macOS traffic lights with the edge-to-edge sidebar", () => {
   const windows = Object.fromEntries(tauriConfig.app.windows.map((window) => [window.label, window]));
   assert.deepEqual(windows.chat.trafficLightPosition, { x: 18, y: 18 });
-  assert.deepEqual(windows.settings.trafficLightPosition, { x: 18, y: 18 });
+  // Settings render as an in-window overlay, so there is only one native window.
+  assert.equal(windows.settings, undefined);
+});
+
+test("Settings Escape respects a nested shared Dialog before closing the overlay", () => {
+  assert.match(app, /event\.defaultPrevented/);
+  assert.match(app, /event\.composedPath\(\)[\s\S]*desktop-dialog-content/);
+  assert.match(app, /if \(event\.key === "Escape"[\s\S]*!nestedDialog[\s\S]*closeSettings\(\)/);
+});
+
+test("per-session model persistence commits caches only after the server save succeeds", () => {
+  assert.match(
+    view,
+    /await saveDesktopSessionModel\(connectedEndpoint, sessionId, value\);\s*sessionModelOverrides\.set\(sessionId, value\);\s*hydratedModelSessions\.add\(sessionId\);/
+  );
+  assert.match(
+    projectChat,
+    /await saveDesktopSessionModel\(projectsStore\.endpoint, sessionId, value\);\s*sessionModelOverrides\.set\(sessionId, value\);\s*hydratedModelSessions\.add\(sessionId\);/
+  );
+  assert.doesNotMatch(view, /saveDesktopSessionModel\([^\n]+\)\.catch\(\(\) => \{\}\)/);
+  assert.match(chatSessionStore, /await deps\.onDraftSessionCreated\?\.\(profileId, created\.id\)/);
+  assert.match(view, /await chatStore\.send\(text, files\);[\s\S]*catch \(cause\)[\s\S]*messageInput = text;[\s\S]*pendingFiles = files;/);
+  assert.match(view, /if \(activeSessionId === sessionId\) activeModelKey = value/);
+  assert.match(projectChat, /if \(projectsStore\.selectedSessionId === sessionId\) activeModelKey = value/);
 });
 
 test("external channel groups use icons that exist in the bundled icon font", () => {

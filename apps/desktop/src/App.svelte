@@ -317,7 +317,10 @@
     locale = normalizeLocale(value);
     localStorage.setItem(LOCALE_STORAGE_KEY, locale);
   }
-  const isSettings = new URLSearchParams(window.location.search).get("window") === "settings";
+  // Settings render as an in-window overlay on top of the live chat window
+  // (ChatView stays mounted), so opening settings never tears down the
+  // conversation. There is no longer a dedicated settings window.
+  let settingsOpen = false;
 
   function serviceStateLabel(state: "disconnected" | "ready" | "incompatible" | "error" | undefined, copy: typeof text): string {
     if (state === "ready") return copy.diagStateReady;
@@ -337,7 +340,7 @@
   $: session.locale = locale;
   $: session.text = text;
   $: document.documentElement.lang = locale;
-  $: if (isSettings && activeSection === "general" && serviceReady && status?.service.endpoint
+  $: if (settingsOpen && activeSection === "general" && serviceReady && status?.service.endpoint
     && status.service.endpoint !== loadedReadinessEndpoint) {
     void loadReadiness(status.service.endpoint);
   }
@@ -645,12 +648,19 @@
   }
 
   function openSettings(section?: string): void {
-    if (section) localStorage.setItem("molibot-desktop-settings-section", section);
-    if (runningInTauri) {
-      void invoke("open_settings");
-      return;
-    }
-    window.location.search = "?window=settings";
+    if (section) activeSection = section as SettingsSection;
+    settingsOpen = true;
+  }
+
+  function closeSettings(): void {
+    settingsOpen = false;
+  }
+
+  function onWindowKeydown(event: KeyboardEvent): void {
+    const nestedDialog = event.composedPath().some(
+      (target) => target instanceof HTMLElement && target.classList.contains("desktop-dialog-content")
+    );
+    if (event.key === "Escape" && settingsOpen && !event.defaultPrevented && !nestedDialog) closeSettings();
   }
 
   function onThemeStorage(event: StorageEvent): void {
@@ -689,13 +699,6 @@
       }
     );
     statusScheduler.start();
-    if (isSettings) {
-      const pendingSection = localStorage.getItem("molibot-desktop-settings-section");
-      if (pendingSection) {
-        localStorage.removeItem("molibot-desktop-settings-section");
-        activeSection = pendingSection as SettingsSection;
-      }
-    }
     return () => {
       if (startupDelayTimer) window.clearTimeout(startupDelayTimer);
       startupDelayTimer = null;
@@ -717,18 +720,47 @@
 </script>
 
 <svelte:head>
-  <title>{isSettings ? text.settings : text.appName}</title>
+  <title>{settingsOpen ? text.settings : text.appName}</title>
 </svelte:head>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 {#if feedbackAnnouncement}
   <p class="sr-only" role="status" aria-live="polite">{feedbackAnnouncement}</p>
 {/if}
 
-{#if isSettings}
+<div class="chat-host" class:is-hidden={settingsOpen}>
+  <ChatView
+    copy={text}
+    {locale}
+    startupPhase={startup.phase}
+    startupError={startup.error}
+    {retryStartup}
+    {openStartupDiagnostics}
+    {openStartupLogs}
+    serviceEndpoint={status?.service.endpoint ?? null}
+    serviceState={status?.service.state ?? "disconnected"}
+    serviceOwnership={status?.service.ownership ?? null}
+    launchAtLogin={status?.launchAtLogin ?? false}
+    launchAtLoginBusy={busy}
+    setLaunchAtLogin={setLoginStart}
+    onHapticCommit={commitHaptic}
+    onCommandResult={publishCommandResult}
+    {openSettings}
+    requestedWorkspacePane={requestedChatPane}
+  />
+</div>
+
+{#if settingsOpen}
+  <div class="settings-overlay" role="dialog" aria-modal="true" aria-label={text.settings}>
   <main class="settings-layout">
     <WindowDragMask />
     <aside class="settings-sidebar">
       <div class="settings-titlebar-space" data-tauri-drag-region aria-hidden="true"></div>
+      <button class="settings-back" type="button" onclick={closeSettings}>
+        <i class="ph ph-arrow-left" aria-hidden="true"></i>
+        <span>{text.back}</span>
+      </button>
       <div class="settings-search">
         <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
         <input bind:value={settingsFilter} aria-label={text.settingsSearch} placeholder={text.settingsSearch} />
@@ -926,24 +958,5 @@
       </div>
     </section>
   </main>
-{:else}
-  <ChatView
-    copy={text}
-    {locale}
-    startupPhase={startup.phase}
-    startupError={startup.error}
-    {retryStartup}
-    {openStartupDiagnostics}
-    {openStartupLogs}
-    serviceEndpoint={status?.service.endpoint ?? null}
-    serviceState={status?.service.state ?? "disconnected"}
-    serviceOwnership={status?.service.ownership ?? null}
-    launchAtLogin={status?.launchAtLogin ?? false}
-    launchAtLoginBusy={busy}
-    setLaunchAtLogin={setLoginStart}
-    onHapticCommit={commitHaptic}
-    onCommandResult={publishCommandResult}
-    {openSettings}
-    requestedWorkspacePane={requestedChatPane}
-  />
+  </div>
 {/if}

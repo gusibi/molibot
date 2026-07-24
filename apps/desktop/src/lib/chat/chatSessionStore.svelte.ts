@@ -55,6 +55,14 @@ export interface ChatSessionStoreDeps {
   /** Notifies the host that a brand-new session was just created (so it can
    * refresh the sidebar / write the last-bot preference). */
   onSessionCreated?(profileId: string, sessionId: string): void;
+  /** Fires the instant a draft session gets its id, BEFORE the first turn snapshots
+   * its context. The host uses this to seed the new session's model so the very
+   * first message runs on the model picked while still in draft mode. */
+  onDraftSessionCreated?(profileId: string, sessionId: string): void | Promise<void>;
+  /** Per-session text-model routing key a turn on this session should run with
+   * (persisted per conversation → global default). Undefined leaves the runtime
+   * on the global routing. */
+  resolveModel?(profileId: string, sessionId: string): string | undefined;
 }
 
 export interface ChatSessionState {
@@ -102,7 +110,8 @@ export class ChatSessionStore {
       labels: () => deps.labels(),
       loadTranscript: (profileId, sessionId) => deps.loadTranscript(profileId, sessionId),
       refreshSessions: () => deps.refreshSidebar?.() ?? Promise.resolve(),
-      afterMutate: (profileId, sessionId) => deps.afterMutate?.(profileId, sessionId)
+      afterMutate: (profileId, sessionId) => deps.afterMutate?.(profileId, sessionId),
+      modelKey: deps.resolveModel ? (profileId, sessionId) => deps.resolveModel!(profileId, sessionId) : undefined
     };
     this.registry.init(registryDeps);
   }
@@ -177,6 +186,10 @@ export class ChatSessionStore {
       if (!profileId) return;
       const created = await createDesktopSession(endpoint, profileId);
       const entry = this.registry.getOrCreate(profileId, created.id);
+      // Persist draft-scoped routing before activating/sending. If this fails,
+      // the caller keeps the draft text and can retry instead of creating a
+      // conversation that only appears to remember its selected model.
+      await deps.onDraftSessionCreated?.(profileId, created.id);
       this.registry.setActive(profileId, created.id);
       this.draftMode = false;
       this.draftStore.clear(NEW_CONVERSATION_KEY);

@@ -196,7 +196,13 @@ pub fn execute(app: &AppHandle, menu_id: &str) -> Result<(), String> {
     };
     match command {
         "app.open-chat" => show_window(app, "chat"),
-        "app.open-settings" => show_window(app, "settings"),
+        "app.open-settings" => {
+            // Settings now live inside the chat window as an overlay, so focus
+            // that window and let the front-end open the panel.
+            show_window(app, "chat");
+            app.emit_to("chat", COMMAND_EVENT, command)
+                .map_err(|error| error.to_string())?;
+        }
         "app.open-web" => {
             let endpoint = app
                 .state::<Mutex<DesktopState>>()
@@ -229,7 +235,7 @@ pub fn execute(app: &AppHandle, menu_id: &str) -> Result<(), String> {
                 show_window(app, "chat");
             }
             if command == "diagnostics.open" {
-                show_window(app, "settings");
+                show_window(app, "chat");
             }
             app.emit_to("chat", COMMAND_EVENT, command)
                 .map_err(|error| error.to_string())?;

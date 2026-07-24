@@ -5,7 +5,27 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-24
+
+### Desktop 当前 AppKit 语义表面层级（已完成）
+- 亮色工作区/分组面改为 `#F6F6F6` / `#ECECEC`；暗色工作区、分组、抬升和嵌套表面形成 `#282828` → `#2E2E2E` → `#323232` → `#3A3A3A` 的单调层级。显式暗色运行在亮色 OS 下时用暗色保护 veil，原生暗色/跟随系统暗色继续透明。
+- 亮色侧栏保留 25% 原生材质贡献；`DESIGN.md`、`design.dark.md` 和结构回归已同步为同一套当前规范。
+
+### Chat 模型选择改为逐会话、持久化（已完成）
+- Web 聊天（`ChatView`）与项目 Chat（`ProjectChat`）的模型下拉不再改动全局路由。每个会话记住自己的文本模型，并在切换会话和重启后保留——Session A 用 Gemini、Session B 用 GPT‑5，互不影响，切回 A 仍是 Gemini。此前 Web 聊天通过 `switchDesktopModel` 写全局 `settings.modelRouting.textModelKey`，会把选择连带改到 Telegram/飞书/QQ/微信 等所有渠道；该全局开关现在只保留在 设置 → 模型，作为**新会话默认值**与其他渠道的路由。
+- 持久化挂在会话记录上：新增 `Conversation.modelKey` 与 `SessionStore.setConversationModelKey` / `getConversationModelKey`（web + project 两条写路径，按 conversationId 定位）。`/api/stream` 的 `modelKey` 解析顺序改为 逐轮选择 → `conversation.modelKey` → 项目默认 → 全局，因此 Web 或 Project 会话即便重启后首轮也使用自己的模型。
+- 新增 `POST/GET /api/desktop/session-model` 读写会话模型，并用当前文本模型选项集合校验 key（空串=清除）——非法/不可解析的选择在入口即拒绝，不再"选了却静默回退"。两套界面共用既有 `SessionRuntimeRegistry` 的按会话 `modelKey` 解析器；Web 聊天 store 新增可选 `resolveModel` / `onDraftSessionCreated`，让在"新会话草稿"里选的模型也能应用到首条消息。范围仅限 text 路由（vision/stt/subagent 仍走全局）。
+- 发布加固：multipart 缺失的模型 key 不再被伪装成显式空串；两套 Chat 只在细粒度保存 API 成功后提交本地缓存；草稿模型在首发激活前完成持久化，失败会恢复输入供重试；晚到的保存结果只能更新发起它的 Session，不能覆盖用户后来切到的 Session。
+- 验证：Svelte 0/0、Root/Desktop production build、Desktop UI 84/84、Desktop 逻辑 51/51、受影响 API/模型 83/83、Session 模型往返 1/1、Rust 20/20。
+
+---
 ## 2026-07-23
+
+### 设置页改为聊天窗口内覆盖层（已完成）
+- 设置不再打开独立 Tauri 窗口，而是作为覆盖层渲染在聊天主窗口之上；打开设置时 `ChatView` 保持挂载，不再触发重连、不丢失流式回复与草稿。通过侧栏"返回"按钮或 Escape 关闭。覆盖层本身保持透明、底层聊天宿主隐藏（非卸载），因此设置侧栏保留原生 macOS `sidebar` 液态玻璃材质，而不是被不透明底糊死。
+- Escape 遵守共享顶层 Dialog：关闭 Provider、Task、Memory 或确认弹窗时，不会再连带关闭并卸载其下方的 Settings 覆盖层。
+- 顺带根治了"AI 供应商新加的模型必须重启才在 Chat 下拉里出现"：原刷新信号走 `BroadcastChannel`，而它无法跨 Tauri 的两个独立 webview 窗口传递，chat 窗口永远收不到。单窗口后聊天侧自行重载模型；原生菜单/托盘的"Open Settings"与"Diagnostics"改为聚焦 chat 窗口并 emit 既有的 `native-command` 事件（`ChatView` 已处理），不再打开已删除的窗口。
+- 从 `tauri.conf.json` 移除 `settings` 窗口、删除 `open_settings` 命令及其关闭行为特判/label 列表。验证：Desktop UI 84/84、Svelte 0/0、production build、Rust 20/20 通过。
 
 ### pi 0.81 自定义模型系统提示词兼容修复（已完成）
 - 修复升级后所有 OpenAI-compatible 候选模型在真正发起 HTTP 请求前统一报 `Cannot read properties of undefined (reading 'length')`：不支持 `developer` role 时，旧兼容逻辑错误地把顶层 system prompt 塞进 Agent 消息数组，违反 pi 0.81 的消息结构。

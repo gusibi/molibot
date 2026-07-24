@@ -197,7 +197,12 @@ export const POST: RequestHandler = async ({ request }) => {
             workspaceDir: store.getWorkspaceDir(),
             chatDir: store.getChatDir(runnerChatId),
             thinkingLevelOverride: thinkingLevel,
-            modelKeyOverride: String(body.modelKey ?? project?.modelKey ?? "").trim() || undefined,
+            // Per-session model resolution: an explicit per-turn `modelKey` (the
+            // live composer selection) wins; otherwise fall back to the session's
+            // persisted `conversation.modelKey`, then the project default, then
+            // global. This keeps each session on its own model even after a
+            // restart or when the turn originates from a channel bot.
+            modelKeyOverride: String(body.modelKey ?? conversation.modelKey ?? project?.modelKey ?? "").trim() || undefined,
             project: project ? {
               id: project.id,
               name: project.name,

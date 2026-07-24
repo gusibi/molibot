@@ -70,4 +70,8 @@ export interface Conversation {
   projectId?: string;
   origin?: string;
   external?: ExternalSessionMetadata;
+  /** Per-session text-model override (routing key, e.g. `custom|CliProxyAPI|gpt-5.4-mini`).
+   *  Empty/undefined means "follow the global default". Persisted with the session so
+   *  each conversation keeps its own model across restarts. */
+  modelKey?: string;
 }
