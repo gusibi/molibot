@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import { resolveDataRootFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
@@ -240,10 +240,21 @@ function resolveExplicitInvocationMatches(skills: LoadedSkill[], inputText: stri
 }
 
 function findSkillFiles(rootDir: string, out: string[]): void {
-  const entries = readdirSync(rootDir, { withFileTypes: true });
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(rootDir, { withFileTypes: true });
+  } catch {
+    // An unreadable directory must not take down the whole scan: skill loading
+    // walks four scope roots and a single permission error used to throw out of
+    // loadSkillsFromWorkspace, losing every other scope's skills too.
+    return;
+  }
+
   for (const entry of entries) {
     const fullPath = join(rootDir, entry.name);
     if (entry.isDirectory()) {
+      // Nobody keeps skills inside dependencies, and walking them can be huge.
+      if (entry.name === "node_modules") continue;
       findSkillFiles(fullPath, out);
       continue;
     }

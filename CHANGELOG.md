@@ -5,7 +5,74 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-25
+
+### Docs: Record why custom providers bypass pi's `Models`
+- Evaluated and **rejected** registering custom providers into pi-ai `Models` with `MutableModels.setProvider`/`createProvider`. Custom providers live in runtime settings and are added, edited and deleted through the settings UI, so registration would put a cache-invalidation surface on the hot path of every model call — and it buys nothing, because `resolveCustomModel` already attaches auth, headers, `compat`, `reasoning` and `thinkingLevelMap` to the model it builds.
+- The concern that motivated this — "custom providers only support two APIs, a third throws" — was a misreading. `CustomProviderProtocol` is `"openai-compatible" | "anthropic"` and `resolveCustomProviderProtocol` always returns one of them, so `streamWithPiRuntime`'s final throw is unreachable and purely defensive. Supporting a third protocol such as `openai-responses` is a settings-schema addition plus one branch, not a registration refactor.
+- The rationale is now a comment on `streamWithPiRuntime` so the dispatch is not "tidied" into registration later. No behavior change.
+
+### Fixed: Skill discovery survives an unreadable directory
+- `findSkillFiles` called `readdirSync` unguarded, so one unreadable directory threw out of `loadSkillsFromWorkspace` and lost **every** scope's skills, not just that subtree. It now skips the directory it cannot read. `node_modules` is also skipped, since skills are never kept inside dependencies and walking them can be large.
+- Evaluated and **rejected** replacing this with pi's `loadSkillsFromDir`. On a fixture containing a lowercase `skill.md`, an uppercase `SKILL.md`, and a nested skill below another skill, pi returns **2 of 4 with zero diagnostics**: it matches `SKILL.md` case-sensitively (`entry.name !== "SKILL.md"`) and stops at the first `SKILL.md` per directory instead of recursing past it. Both would silently drop skills users already have. pi's loader also returns no raw file content, so this project's `mcpServers`/`aliases`/`signals` frontmatter would require re-reading every file anyway. The robustness pi does have that was worth taking is folded into the local walker instead.
+- Verified: skills suite 13/13, including a new test confirmed to fail without the fix, plus coverage locking in case-insensitive and arbitrary-depth discovery.
+
+### Changed: Compaction uses pi's summarization kernel, keeping the CJK-aware trigger
+- Summary generation now goes through pi's `generateSummaryWithUsage` instead of a hand-rolled prompt and serializer. pi's `streamFn` parameter is wired to `streamWithPiRuntime`, because pi's default completion path resolves models through its builtin registry and would fail on this project's custom providers.
+- **A prior summary is now merged rather than re-summarized.** Previously each compaction fed the older `[context summary]` message back in as ordinary conversation text, so successive compactions degraded what earlier ones had preserved. The newest prior summary is now extracted and passed as pi's `previousSummary`, which selects its update prompt; that message is also excluded from the conversation body so it is not counted twice.
+- **Compaction now retries transient provider failures** (two backoff attempts, gated on the existing `isRetryableModelError`). This was the worst place to give up on a flaky network: a failed compaction leaves the context oversized, so the next turn overflows. Non-retryable errors still fail fast to the mechanical fallback summary.
+- Deliberately **not** adopted: pi's `shouldCompact` ignores `thresholdPercent` (it only checks `reserveTokens`), and pi's `findCutPoint` operates on pi `SessionEntry` values rather than `AgentMessage`. Molibot keeps its own trigger and cut point, including the CJK-weighted estimator and provider-usage preference — pi's `estimateTokens` is a plain chars/4 heuristic that undercounts Chinese by 3-4x.
+- The 120k-char cap on the summarization request is preserved. pi serializes internally, so the input is now bounded by binary-searching the oldest messages to drop, measured with pi's own `serializeConversation`.
+- pi derives the summary's `maxTokens` as `0.8 * reserveTokens`; a dedicated budget is passed so the summary length matches what this project has always used, rather than the much larger compaction reserve (8192).
+- Removed `completeWithPiRuntime` from `piRuntime.ts`, which this was its only caller.
+- Verified: compaction suite 14/14 (new coverage for model-summary success, previous-summary merging, retry-on-transient, no-retry-on-permanent, and bounded request size), full agent suite 274/274.
+
+### Fixed: `read` downscales oversized images instead of refusing them
+- An image over the 5 MB limit was a hard error telling the model to go shell out to `sips`/`ffmpeg` via bash. `read` now downscales it with pi's `resizeImage` and appends `formatDimensionNote`, so the model knows how the returned coordinates map back to the original. Only images that genuinely cannot be decoded or brought under the limit still fail.
+- Measured on a 7.33 MB 1600×1600 noise PNG: returned as a 3.40 MB JPEG in ~680 ms (Photon WASM worker loads correctly under the project's tsx/vite runtime).
+- The previous "oversized image" test wrote 6 MB of zeros, which is not a decodable PNG — it was actually covering the undecodable path. Split into two tests: undecodable-still-fails, and a real oversized PNG that must come back resized and under the limit.
+
+### Fixed: Concurrent `edit`/`write` on one file no longer drop each other
+- `edit` is a read-modify-write cycle with an `await` between the read and the write, and nothing serialized it. Two concurrent edits to the same file — main agent and a subagent, or two parallel subagents, which all share these same tool implementations via `subagent.ts` — both read the pre-edit content, and whichever wrote second silently discarded the other's change. A concurrent `write` could likewise land in the middle of an `edit` and be reverted by the edit's stale content.
+- Both tools now wrap their mutation in pi's `withFileMutationQueue`. It keys on `realpath`, so symlinks and case-insensitive filesystems collapse to the same lock, and mutations to *different* files still run in parallel. pi's own `edit`/`write` already use this queue, so the whole process now shares one lock per file.
+- Added regression coverage that was confirmed to fail without the queue and pass with it: concurrent edit+edit, concurrent edit+write, and a check that edits to different files stay concurrent.
+
+### Fixed: `edit` diffs no longer dump the whole file
+- The local `buildDiff` only skipped context around a *single* change, so a file with two edits far apart was emitted in full into the tool result. Replaced with pi's `generateDiffString`, which produces byte-identical output for the common cases (verified against the previous implementation) and correctly collapses the untouched middle to `...`.
+- Dropped the now-unused `diff` package from `dependencies`.
+
+### Added: `grep` / `find` / `ls` tools, reused from pi
+- The agent had **no structured search tools at all** — every content or filename search had to go through `bash`, which meant unstructured output, no shared truncation, needless bash-approval prompts for read-only work, and BSD-vs-GNU flag differences between macOS and the Linux container. pi already ships all three, so `grep`, `find` and `ls` are now registered from `createGrepTool` / `createFindTool` / `createLsTool` instead of being written from scratch.
+- All three are bound to the workspace by `createPathGuard`, the same guard `read`/`write`/`edit` use, so memory paths and global profile files stay reserved for their gateway tools. The guard is applied to the tool's `path` argument (and the argument is rewritten to the validated absolute path) rather than through pi's injectable operations, because the ripgrep and fd code paths bypass those operations. Classification defaults to `risk: "low", source: "builtin"`, and the tools flow through the existing `ToolRuntime` policy/hook chain like any other tool.
+- `grep` shells out to ripgrep and `find` to fd. pi otherwise **downloads those binaries from GitHub at first use**; `PI_OFFLINE` now defaults to `1` in `env.ts` so a missing binary surfaces as a tool error instead, and the Dockerfile installs `ripgrep` + `fd-find` (pi accepts Debian's `fdfind` name). Set `PI_OFFLINE=0` to opt back into downloads. **Desktop (Tauri) packaging still needs a decision** — the bundle does not ship rg/fd, so `grep`/`find` will report the missing binary there until it does; `ls` is pure `fs` and works everywhere.
+- Verified: new `fileSearch` suite 7/7 (grep/find cases skip when the binary is absent), full agent suite 264/264, `tsc` clean on touched files.
+
+### Fixed: Skill frontmatter is parsed as real YAML
+- `parseSkillFrontmatter` was a hand-rolled YAML subset (quoted scalars plus `|`/`>` block scalars). It silently mis-parsed anything structural: block sequences and nested maps collapsed to an empty string, so `mcpServers:`/`signals:` written in ordinary YAML list form were dropped. Parsing now goes through pi's `parseFrontmatter`, which uses a real YAML parser. Non-scalar values are serialized as JSON, which the existing `parseStringList` already accepts.
+- Fixing the parser exposed that **the project's own emitters were writing invalid YAML**: `skillManage` and the auto-draft generator wrote `description: Reusable workflow draft for: <user message>` unquoted, which a real parser rejects as a nested mapping. Added `formatYamlScalar`/`formatYamlList` (quoting only ambiguous values, so files stay readable) and applied them to all three emission sites, including the draft-merge rewrite path.
+- Skill files already on disk keep working: an invalid-YAML frontmatter falls back to the previous line-based reader instead of making the skill disappear.
+- Verified: new `skillFrontmatter` suite 10/10 covering block sequences, nested maps, block scalars, the legacy fallback and an emit→parse round-trip; skills/self-evolution suites pass.
+
+### Changed: Tool-output truncation is re-exported from pi
+- `tools/truncate.ts` had drifted into a line-for-line duplicate of pi's implementation (identical constants, identical `TruncationResult` fields, identical `truncateHead`/`truncateTail`/`formatSize`). It now re-exports them from pi and keeps only `truncateMiddle`, which pi has no equivalent for (bash output keeps head and tail, elides the middle). ~200 lines removed.
+- One behavior change comes with it: pi drops the phantom trailing-newline line when counting, so `totalLines`/`outputLines` are one lower for content ending in `\n` — more accurate than the previous count.
+
+### Redesign: AI provider editor + top-level page (macOS-consistent)
+- **Removed the meaningless 内置/自建 model toggle** from the self-hosted provider editor. The tabs filtered models by "is this ID in the matching *built-in* provider's list," but a custom provider has no built-in list — so the 内置 tab was always empty and 自建 always showed everything. The custom editor now shows one flat model list.
+- **Fixed two unstyled toggles.** The "启用服务商" switch and each model's enable switch used `class="switch"`, for which **no CSS existed** — they rendered as bare broken buttons. Both now use `IosSwitch` (per the project rule), as a labeled enable row and inline in each model card.
+- **拉取模型 is now a searchable combobox.** Instead of dumping every discovered model as a wall of `+id` chips, there's an "添加模型" field with a filterable dropdown: type to filter discovered models, ↑/↓ + Enter or click to add, already-added models are hidden, and any typed ID can be added manually as a fallback. The 拉取 button refreshes discovery with a spinner.
+- **Advanced fields collapsed.** Thinking support/format, reasoning-effort mapping, and the clear-saved-key checkbox moved into a collapsible 「高级」 section; each model card's `roles` + verify moved into a per-card 「更多设置」 disclosure. The main editor now leads with the core fields (ID / 名称 / 协议 / Base URL / 路径 / Key / 默认模型) + the model list.
+- **Top-level page.** 服务商来源 is now a segmented control, and the built-in (pi provider/model) vs. custom (default provider) rows show conditionally by mode instead of all four at once.
+- New i18n strings added for both `zh-CN` and `en`. Verified: svelte-check 0 errors / 0 warnings, desktop `vite build` succeeds. (Live in-app screenshot pending — port 1420 was serving a different app at verification time.)
+
+---
 ## 2026-07-24
+
+### Polish: Sidebar and content share one macOS canvas (no seam)
+- Unified the desktop nav and content surfaces the way macOS opaque System Settings does: `--sidebar-bg` now points at `--mac-window-background` instead of the elevated card color, so in the non-glass fallback the nav and content are one plane (Light `#F6F6F6`, Dark `#1E1E1E`) with a single thin separator — matching the reference the seam complaint was about.
+- Recalibrated the Dark neutral ramp to the tone System Settings shows with reduced transparency: window/sidebar base `#282828 → #1E1E1E`, grouped `#2E2E2E → #282828`, elevated card `#323232 → #2C2C2E`, nested `#3A3A3A → #343436` (paired `--gray-100/200` and the explicit-dark-under-light-OS material veil moved with them). The glass path is untouched — the native Dark sidebar tint stays transparent, so nothing changes for the liquid-glass appearance.
+- Brightened settings sidebar labels from secondary (`white 54.9%`) to primary (`white 84.7%`) so nav items read near-white like macOS instead of muted gray; section headers stay secondary.
+- `DESIGN.md` and `design.dark.md` updated to the unified two-step ramp. Verified in the running desktop UI (dev server): computed `--sidebar-bg` = `--content-bg` = `#1E1E1E` (Dark) / `#F6F6F6` (Light), card `#2C2C2E` / `#FFFFFF`, nav label `rgba(255,255,255,0.847)`, sidebar background still transparent (glass preserved), 0 console errors.
 
 ### Polish: Desktop semantic surfaces use the current AppKit neutral ramp
 - Recalibrated Light workspace/grouped surfaces to `#F6F6F6` / `#ECECEC` and Dark workspace/grouped/elevated/nested surfaces to `#282828` / `#2E2E2E` / `#323232` / `#3A3A3A`. Explicit Dark under a Light OS receives a protective dark material veil; native Dark/System Dark remains transparent.

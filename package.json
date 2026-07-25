@@ -42,7 +42,6 @@
     "@sinclair/typebox": "^0.34.49",
     "@sveltejs/kit": "^2.48.1",
     "clsx": "^2.1.1",
-    "diff": "^8.0.2",
     "dotenv": "^16.5.0",
     "grammy": "^1.44.0",
     "ignore": "^7.0.5",

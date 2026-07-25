@@ -158,3 +158,143 @@ test("shouldCompactContext disabled returns false", () => {
 
   assert.equal(shouldCompactContext(hugeMessages, 200000, settings), false);
 });
+
+/** Minimal StreamFn stub: records the request and replies with fixed text. */
+function stubStream(options: {
+  reply?: string;
+  failures?: number;
+  failureMessage?: string;
+}) {
+  const calls: Array<{ promptText: string }> = [];
+  let remainingFailures = options.failures ?? 0;
+
+  const streamFn = (async (_model: any, context: any) => {
+    const promptText = context.messages
+      .flatMap((message: any) => (Array.isArray(message.content) ? message.content : []))
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    calls.push({ promptText });
+
+    if (remainingFailures > 0) {
+      remainingFailures -= 1;
+      throw new Error(options.failureMessage ?? "503 temporarily unavailable");
+    }
+
+    return {
+      result: async () => ({
+        role: "assistant",
+        content: [{ type: "text", text: options.reply ?? "## Summary\n- done" }],
+        stopReason: "stop",
+        usage: { input: 10, output: 5 },
+        timestamp: Date.now()
+      })
+    };
+  }) as any;
+
+  return { streamFn, calls };
+}
+
+const longHistory = (): AgentMessage[] => [
+  textMessage("user", "A".repeat(12000)),
+  textMessage("assistant", "B".repeat(12000)),
+  textMessage("user", "C".repeat(12000)),
+  textMessage("assistant", "D".repeat(12000))
+];
+
+test("compaction uses the model summary when the provider succeeds", async () => {
+  const { streamFn, calls } = stubStream({ reply: "## Summary\n- refactored the parser" });
+
+  const result = await compactContextMessages({
+    messages: longHistory(),
+    model: { provider: "test", id: "test-model" } as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 200000 },
+    reason: "manual",
+    streamFn
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(result.summary, "## Summary\n- refactored the parser");
+  const summaryMessage = result.messages[0] as unknown as { content: string };
+  assert.match(summaryMessage.content, /^\[context summary\]/);
+});
+
+test("a prior summary is merged rather than re-summarized as raw text", async () => {
+  const { streamFn, calls } = stubStream({});
+  const messages: AgentMessage[] = [
+    { role: "user", content: "[context summary]\n## Summary\n- earlier work", timestamp: Date.now() } as AgentMessage,
+    ...longHistory()
+  ];
+
+  await compactContextMessages({
+    messages,
+    model: { provider: "test", id: "test-model" } as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 200000 },
+    reason: "manual",
+    streamFn
+  });
+
+  assert.equal(calls.length, 1);
+  const prompt = calls[0].promptText;
+  assert.match(prompt, /<previous-summary>/, "the prior summary must be passed as a summary to update");
+  assert.match(prompt, /- earlier work/);
+  assert.doesNotMatch(
+    prompt.split("<previous-summary>")[0],
+    /\[context summary\]/,
+    "the prior summary must not also appear inside the conversation body"
+  );
+});
+
+test("a transient summarization failure is retried", async () => {
+  const { streamFn, calls } = stubStream({ failures: 1, reply: "## Summary\n- second attempt" });
+
+  const result = await compactContextMessages({
+    messages: longHistory(),
+    model: { provider: "test", id: "test-model" } as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 200000 },
+    reason: "manual",
+    streamFn
+  });
+
+  assert.equal(calls.length, 2, "the retryable failure must be retried");
+  assert.equal(result.summary, "## Summary\n- second attempt");
+});
+
+test("a permanent summarization failure is not retried and falls back", async () => {
+  const { streamFn, calls } = stubStream({ failures: 99, failureMessage: "400 invalid request" });
+
+  const result = await compactContextMessages({
+    messages: longHistory(),
+    model: { provider: "test", id: "test-model" } as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 200000 },
+    reason: "manual",
+    streamFn
+  });
+
+  assert.equal(calls.length, 1, "a non-retryable error must not be retried");
+  assert.equal(result.changed, true);
+  assert.match(result.summary, /Summary/, "compaction must still produce a fallback summary");
+});
+
+test("the summarization request stays bounded for very long histories", async () => {
+  const { streamFn, calls } = stubStream({});
+  const huge: AgentMessage[] = [];
+  for (let i = 0; i < 60; i += 1) {
+    huge.push(textMessage(i % 2 === 0 ? "user" : "assistant", `${i}:`.padEnd(8000, "x")));
+  }
+  huge.push(textMessage("user", "tail"));
+
+  await compactContextMessages({
+    messages: huge,
+    model: { provider: "test", id: "test-model" } as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 1000 },
+    reason: "manual",
+    streamFn
+  });
+
+  assert.equal(calls.length, 1);
+  assert.ok(
+    calls[0].promptText.length < 200000,
+    `summarization prompt must stay bounded, got ${calls[0].promptText.length} chars`
+  );
+});

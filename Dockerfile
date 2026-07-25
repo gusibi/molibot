@@ -17,6 +17,13 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATA_DIR=/data
 
+# ripgrep/fd back the agent's `grep` and `find` tools. Installed here so pi
+# resolves them from PATH (it accepts Debian's `fdfind` name) rather than
+# downloading binaries at runtime, which PI_OFFLINE forbids.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ripgrep fd-find \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json

@@ -10,7 +10,8 @@ import {
   type LoadedSkill
 } from "$lib/server/agent/skills/skills.js";
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 function createSkill(name: string, scope: LoadedSkill["scope"], filePath: string, aliases?: string[]): LoadedSkill {
@@ -203,6 +204,85 @@ test("Project Skills load first, override same-name Bot Skills, and stay out of 
     const ordinaryResult = loadSkillsFromWorkspace(workspaceDir);
     assert.equal(ordinaryResult.skills[0]?.scope, "bot");
     assert.equal(ordinaryResult.skills[0]?.description, "bot version");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unreadable skill directory does not abort the whole scan", () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-skills-perm-"));
+  const workspace = join(root, "moli-t");
+  const skillsDir = join(workspace, "skills");
+  const blocked = join(skillsDir, "blocked");
+  mkdirSync(join(skillsDir, "ok"), { recursive: true });
+  mkdirSync(blocked, { recursive: true });
+  writeFileSync(
+    join(skillsDir, "ok", "SKILL.md"),
+    "---\nname: reachable\ndescription: must still load\n---\n\nbody\n"
+  );
+  writeFileSync(
+    join(blocked, "SKILL.md"),
+    "---\nname: unreachable\ndescription: inside an unreadable dir\n---\n\nbody\n"
+  );
+  chmodSync(blocked, 0o000);
+
+  try {
+    const result = loadSkillsFromWorkspace(workspace);
+    assert.deepEqual(result.skills.map((skill) => skill.name), ["reachable"]);
+  } finally {
+    chmodSync(blocked, 0o755);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("node_modules is not scanned for skills", () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-skills-nm-"));
+  const workspace = join(root, "moli-t");
+  const skillsDir = join(workspace, "skills");
+  mkdirSync(join(skillsDir, "ok"), { recursive: true });
+  mkdirSync(join(skillsDir, "node_modules", "pkg"), { recursive: true });
+  writeFileSync(
+    join(skillsDir, "ok", "SKILL.md"),
+    "---\nname: real-skill\ndescription: a genuine skill\n---\n\nbody\n"
+  );
+  writeFileSync(
+    join(skillsDir, "node_modules", "pkg", "SKILL.md"),
+    "---\nname: vendored\ndescription: must be ignored\n---\n\nbody\n"
+  );
+
+  try {
+    const result = loadSkillsFromWorkspace(workspace);
+    assert.deepEqual(result.skills.map((skill) => skill.name), ["real-skill"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("skill files are discovered case-insensitively and at any depth", () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-skills-depth-"));
+  const workspace = join(root, "moli-t");
+  const skillsDir = join(workspace, "skills");
+  mkdirSync(join(skillsDir, "lower"), { recursive: true });
+  mkdirSync(join(skillsDir, "nested", "inner"), { recursive: true });
+  writeFileSync(
+    join(skillsDir, "lower", "skill.md"),
+    "---\nname: lower-case\ndescription: written as skill.md\n---\n\nbody\n"
+  );
+  writeFileSync(
+    join(skillsDir, "nested", "SKILL.md"),
+    "---\nname: outer\ndescription: outer skill\n---\n\nbody\n"
+  );
+  writeFileSync(
+    join(skillsDir, "nested", "inner", "SKILL.md"),
+    "---\nname: inner\ndescription: nested below another skill\n---\n\nbody\n"
+  );
+
+  try {
+    const result = loadSkillsFromWorkspace(workspace);
+    assert.deepEqual(
+      result.skills.map((skill) => skill.name).sort(),
+      ["inner", "lower-case", "outer"]
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

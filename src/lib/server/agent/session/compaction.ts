@@ -1,11 +1,23 @@
-import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { completeWithPiRuntime } from "$lib/server/providers/piRuntime.js";
+import type { Model } from "@earendil-works/pi-ai";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import { convertToLlm, generateSummaryWithUsage, serializeConversation } from "@earendil-works/pi-coding-agent";
+import { streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
+import { isRetryableModelError } from "$lib/server/agent/core/runnerRetryState.js";
 import type { CompactionSettings } from "$lib/server/settings/index.js";
 
 const SUMMARY_PREFIX = "[context summary]";
 const MAX_SERIALIZED_CHARS = 120000;
 const MAX_SUMMARY_TOKENS = 1600;
+
+/**
+ * pi derives the summary's `maxTokens` as `0.8 * reserveTokens`. Pass a budget
+ * that reproduces the summary length this project has always used, rather than
+ * the (much larger) compaction reserve, which is a threshold setting and not a
+ * statement about how long a summary should be.
+ */
+const SUMMARY_RESERVE_TOKENS = Math.ceil(MAX_SUMMARY_TOKENS / 0.8);
+
+const SUMMARY_RETRY_DELAYS_MS = [500, 2000];
 
 export interface ContextCompactionResult {
   changed: boolean;
@@ -166,23 +178,49 @@ function findManualFirstKeptIndex(messages: AgentMessage[], keepRecentTokens: nu
   return findFirstKeptIndex(messages, Math.max(1, Math.floor(totalTokens / 2)));
 }
 
-function serializeMessage(message: AgentMessage, index: number): string {
-  const msg = message as unknown as Record<string, unknown>;
-  const role = String(msg.role ?? "unknown");
-  if (role === "toolResult") {
-    return [
-      `[#${index + 1}] [tool:${String(msg.toolName ?? "")}]`,
-      textFromBlocks(msg.content)
-    ].join("\n");
-  }
-  return [
-    `[#${index + 1}] [${role}]`,
-    textFromBlocks(msg.content)
-  ].join("\n");
+function serializedLength(messages: AgentMessage[]): number {
+  return serializeConversation(convertToLlm(messages)).length;
 }
 
-function buildFallbackSummary(serialized: string): string {
-  const trimmed = serialized.trim();
+/**
+ * Bound the summarization request.
+ *
+ * pi serializes the conversation itself, so the input is capped by dropping the
+ * oldest messages until pi's own serialization fits — otherwise a very long
+ * history could produce a summarization request larger than the model's context.
+ */
+function limitMessagesToSummarize(messages: AgentMessage[]): { messages: AgentMessage[]; truncated: boolean } {
+  if (messages.length === 0 || serializedLength(messages) <= MAX_SERIALIZED_CHARS) {
+    return { messages, truncated: false };
+  }
+
+  let low = 0;
+  let high = messages.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (serializedLength(messages.slice(middle)) <= MAX_SERIALIZED_CHARS) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
+  }
+
+  return { messages: messages.slice(low), truncated: low > 0 };
+}
+
+/** The newest prior summary, so pi can merge into it instead of re-summarizing its text. */
+function extractPreviousSummary(messages: AgentMessage[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i] as AgentMessage;
+    if (!isCompactionSummaryMessage(message)) continue;
+    const text = textFromBlocks((message as unknown as { content?: unknown }).content);
+    return text.slice(SUMMARY_PREFIX.length).trim() || undefined;
+  }
+  return undefined;
+}
+
+function buildFallbackSummary(messages: AgentMessage[]): string {
+  const trimmed = serializeConversation(convertToLlm(messages)).trim();
   if (!trimmed) {
     return [
       "## Summary",
@@ -202,12 +240,58 @@ function buildFallbackSummary(serialized: string): string {
   ].join("\n");
 }
 
-function extractAssistantText(message: AssistantMessage): string {
-  return message.content
-    .filter((part): part is Extract<AssistantMessage["content"][number], { type: "text" }> => part.type === "text")
-    .map((part) => part.text)
-    .join("\n")
-    .trim();
+const delay = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+
+/**
+ * Summarize with pi, retrying transient provider failures.
+ *
+ * Compaction is the worst place to give up on a flaky network: failing here
+ * leaves the context oversized, so the next turn overflows. Returns an empty
+ * string once the retries are exhausted, and the caller falls back to a
+ * mechanical summary.
+ */
+async function generateSummaryWithRetry(options: {
+  messages: AgentMessage[];
+  model: Model<any>;
+  apiKey?: string;
+  customInstructions?: string;
+  previousSummary?: string;
+  signal?: AbortSignal;
+  streamFn?: StreamFn;
+}): Promise<string> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const { text } = await generateSummaryWithUsage(
+        options.messages,
+        options.model,
+        SUMMARY_RESERVE_TOKENS,
+        options.apiKey,
+        undefined,
+        options.signal,
+        options.customInstructions,
+        options.previousSummary,
+        undefined,
+        // Custom providers are not in pi's builtin registry, so pi's default
+        // completion path would fail on them; route through the shared runtime.
+        options.streamFn ?? streamWithPiRuntime
+      );
+      return text.trim();
+    } catch (error) {
+      if (options.signal?.aborted) return "";
+      const message = error instanceof Error ? error.message : String(error);
+      const retryDelay = SUMMARY_RETRY_DELAYS_MS[attempt];
+      if (retryDelay === undefined || !isRetryableModelError(message)) return "";
+      await delay(retryDelay, options.signal);
+      if (options.signal?.aborted) return "";
+    }
+  }
 }
 
 export async function compactContextMessages(options: {
@@ -218,6 +302,8 @@ export async function compactContextMessages(options: {
   reason: "threshold" | "manual";
   customInstructions?: string;
   signal?: AbortSignal;
+  /** Overrides the shared pi runtime stream; used by tests. */
+  streamFn?: StreamFn;
 }): Promise<ContextCompactionResult> {
   const beforeTokens = estimateContextTokens(options.messages);
   const firstKeptIndex = options.reason === "manual"
@@ -239,54 +325,24 @@ export async function compactContextMessages(options: {
     };
   }
 
-  let serialized = messagesToSummarize.map(serializeMessage).join("\n\n");
-  if (serialized.length > MAX_SERIALIZED_CHARS) {
-    serialized = [
-      "[truncated summarized history]",
-      serialized.slice(-MAX_SERIALIZED_CHARS)
-    ].join("\n\n");
-  }
+  // A prior summary is merged by pi rather than being re-summarized as raw
+  // text, so successive compactions no longer degrade what earlier ones kept.
+  const previousSummary = extractPreviousSummary(messagesToSummarize);
+  const summarizable = messagesToSummarize.filter((message) => !isCompactionSummaryMessage(message));
+  const limited = limitMessagesToSummarize(summarizable);
 
-  const instructionBlock = options.customInstructions?.trim()
-    ? `\nAdditional focus instructions:\n${options.customInstructions.trim()}\n`
-    : "";
-
-  const prompt = [
-    "Summarize the older part of this conversation for future continuation.",
-    "Return concise markdown with these sections when relevant: Goal, Progress, Decisions, Open items, Important context.",
-    "Preserve concrete technical facts, file paths, commands, bugs, constraints, and pending work.",
-    "Do not invent details.",
-    instructionBlock,
-    "Conversation to summarize:",
-    serialized
-  ].join("\n\n");
-
-  let summary = "";
-  try {
-    const response = await completeWithPiRuntime(
-      options.model,
-      {
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-            timestamp: Date.now()
-          }
-        ]
-      },
-      {
-        apiKey: options.apiKey,
-        maxTokens: MAX_SUMMARY_TOKENS,
-        signal: options.signal
-      }
-    );
-    summary = extractAssistantText(response);
-  } catch {
-    summary = "";
-  }
+  let summary = await generateSummaryWithRetry({
+    messages: limited.messages,
+    model: options.model,
+    apiKey: options.apiKey,
+    customInstructions: options.customInstructions,
+    previousSummary,
+    signal: options.signal,
+    streamFn: options.streamFn
+  });
 
   if (!summary) {
-    summary = buildFallbackSummary(serialized);
+    summary = buildFallbackSummary(limited.messages);
   }
 
   const summaryMessage: AgentMessage = {

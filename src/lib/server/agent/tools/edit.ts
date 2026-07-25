@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import * as Diff from "diff";
+import { generateDiffString, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
@@ -16,77 +16,17 @@ const editSchema = Type.Object({
   }))
 });
 
+/**
+ * Line-numbered diff for tool output.
+ *
+ * Delegates to pi, which produces the same format the local implementation did
+ * but correctly elides unchanged regions between distant edits — the local
+ * version only skipped context around a single change, so a file with two far
+ * apart edits was emitted in full.
+ */
 export function buildDiff(oldText: string, newText: string, contextLines = 4): string {
   if (oldText === newText) return "(no changes)";
-
-  const parts = Diff.diffLines(oldText, newText);
-  const oldLines = oldText.split("\n");
-  const newLines = newText.split("\n");
-  const width = String(Math.max(oldLines.length, newLines.length)).length;
-  const out: string[] = [];
-
-  let oldLine = 1;
-  let newLine = 1;
-  let lastWasChange = false;
-
-  for (let i = 0; i < parts.length; i += 1) {
-    const part = parts[i];
-    const rawLines = part.value.split("\n");
-    if (rawLines[rawLines.length - 1] === "") rawLines.pop();
-
-    if (part.added || part.removed) {
-      for (const line of rawLines) {
-        if (part.added) {
-          out.push(`+${String(newLine).padStart(width, " ")} ${line}`);
-          newLine += 1;
-        } else {
-          out.push(`-${String(oldLine).padStart(width, " ")} ${line}`);
-          oldLine += 1;
-        }
-      }
-      lastWasChange = true;
-      continue;
-    }
-
-    const nextPart = parts[i + 1];
-    const nextPartIsChange = Boolean(nextPart?.added || nextPart?.removed);
-
-    if (lastWasChange || nextPartIsChange) {
-      let linesToShow = rawLines;
-      let skipStart = 0;
-      let skipEnd = 0;
-
-      if (!lastWasChange) {
-        skipStart = Math.max(0, rawLines.length - contextLines);
-        linesToShow = rawLines.slice(skipStart);
-      }
-
-      if (!nextPartIsChange && linesToShow.length > contextLines) {
-        skipEnd = linesToShow.length - contextLines;
-        linesToShow = linesToShow.slice(0, contextLines);
-      }
-
-      if (skipStart > 0) out.push(` ${"".padStart(width, " ")} ...`);
-
-      for (const line of linesToShow) {
-        out.push(` ${String(oldLine).padStart(width, " ")} ${line}`);
-        oldLine += 1;
-        newLine += 1;
-      }
-
-      if (skipEnd > 0) out.push(` ${"".padStart(width, " ")} ...`);
-
-      oldLine += skipStart + skipEnd;
-      newLine += skipStart + skipEnd;
-    } else {
-      oldLine += rawLines.length;
-      newLine += rawLines.length;
-    }
-
-    lastWasChange = false;
-  }
-
-  return out.join("\n");
+  return generateDiffString(oldText, newText, contextLines).diff;
 }
 
 export function getEditToolDefinition(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout }): ToolDefinition {
@@ -107,52 +47,59 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
         return { ok: false, error: "No changes to make: oldText and newText are exactly the same" };
       }
 
-      const rawContent = await ctx.fs.readText(filePath);
+      // Read-modify-write must be atomic per file: two concurrent edits (main
+      // agent and a subagent, or two parallel subagents) would otherwise both
+      // read the pre-edit content and the second write would drop the first
+      // edit. pi's queue keys on realpath, so symlinks and case-insensitive
+      // filesystems collapse to the same lock.
+      return withFileMutationQueue(filePath, async () => {
+        const rawContent = await ctx.fs.readText(filePath);
 
-      // Match against LF-normalized content so CRLF files are editable; restore
-      // the file's original line endings on write.
-      const usesCrlf = rawContent.includes("\r\n");
-      const content = usesCrlf ? rawContent.replaceAll("\r\n", "\n") : rawContent;
-      const oldText = params.oldText.replaceAll("\r\n", "\n");
-      const newText = params.newText.replaceAll("\r\n", "\n");
-      const replaceAll = params.replaceAll === true;
+        // Match against LF-normalized content so CRLF files are editable; restore
+        // the file's original line endings on write.
+        const usesCrlf = rawContent.includes("\r\n");
+        const content = usesCrlf ? rawContent.replaceAll("\r\n", "\n") : rawContent;
+        const oldText = params.oldText.replaceAll("\r\n", "\n");
+        const newText = params.newText.replaceAll("\r\n", "\n");
+        const replaceAll = params.replaceAll === true;
 
-      const matches = content.split(oldText).length - 1;
-      if (matches === 0) {
-        return { ok: false, error: "oldText not found in file" };
-      }
-      if (matches > 1 && !replaceAll) {
-        return {
-          ok: false,
-          error: `Found ${matches} matches of oldText. Provide a larger unique snippet, or set replaceAll to true to replace all occurrences.`
-        };
-      }
-
-      // Use a replacer function so `$` sequences in newText are inserted literally.
-      const replaced = replaceAll
-        ? content.replaceAll(oldText, () => newText)
-        : content.replace(oldText, () => newText);
-      if (content === replaced) {
-        return { ok: false, error: `No changes made to ${params.path}; replacement produced identical content` };
-      }
-
-      await ctx.fs.writeText(filePath, usesCrlf ? replaced.replaceAll("\n", "\r\n") : replaced);
-
-      return {
-        ok: true,
-        content: [{
-          type: "text",
-          text: replaceAll && matches > 1
-            ? `Updated ${params.path} (replaced ${matches} occurrences)`
-            : `Updated ${params.path}`
-        }],
-        details: {
-          diff: buildDiff(content, replaced),
-          ...(options.outputLayout
-            ? describeFileToolResult(options.outputLayout, filePath, "modified", params.path, Buffer.byteLength(replaced, "utf8"))
-            : {})
+        const matches = content.split(oldText).length - 1;
+        if (matches === 0) {
+          return { ok: false, error: "oldText not found in file" };
         }
-      };
+        if (matches > 1 && !replaceAll) {
+          return {
+            ok: false,
+            error: `Found ${matches} matches of oldText. Provide a larger unique snippet, or set replaceAll to true to replace all occurrences.`
+          };
+        }
+
+        // Use a replacer function so `$` sequences in newText are inserted literally.
+        const replaced = replaceAll
+          ? content.replaceAll(oldText, () => newText)
+          : content.replace(oldText, () => newText);
+        if (content === replaced) {
+          return { ok: false, error: `No changes made to ${params.path}; replacement produced identical content` };
+        }
+
+        await ctx.fs.writeText(filePath, usesCrlf ? replaced.replaceAll("\n", "\r\n") : replaced);
+
+        return {
+          ok: true,
+          content: [{
+            type: "text",
+            text: replaceAll && matches > 1
+              ? `Updated ${params.path} (replaced ${matches} occurrences)`
+              : `Updated ${params.path}`
+          }],
+          details: {
+            diff: buildDiff(content, replaced),
+            ...(options.outputLayout
+              ? describeFileToolResult(options.outputLayout, filePath, "modified", params.path, Buffer.byteLength(replaced, "utf8"))
+              : {})
+          }
+        };
+      });
     }
   };
 }

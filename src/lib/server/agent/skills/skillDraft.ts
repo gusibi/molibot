@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync,
 import { dirname, join, resolve } from "node:path";
 import type { SkillScope } from "$lib/server/agent/skills/skills.js";
 import { buildSkillDraftMetadata, slugifySkillName, type SkillDraftMetadata } from "$lib/server/agent/skills/skillDraftMetadata.js";
-import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
+import { formatYamlList, formatYamlScalar, parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import { resolveDataRootFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
 
 export interface SkillDraftContext {
@@ -336,12 +336,18 @@ function mergeLineGroups(existing: string[], incoming: string[], maxItems = 8): 
   return out;
 }
 
+/** Fields already carrying YAML structure (a flow sequence, a bool, a number). */
+const RAW_FRONTMATTER_KEYS = new Set(["aliases", "draft", "merge_count"]);
+
 function renderFrontmatter(fields: Record<string, string>): string {
   const orderedKeys = ["name", "description", "aliases", "draft", "source", "template_skill_path", "merge_count", "updated_at"];
   const keys = [...orderedKeys.filter((key) => key in fields), ...Object.keys(fields).filter((key) => !orderedKeys.includes(key))];
   return [
     "---",
-    ...keys.map((key) => `${key}: ${fields[key]}`),
+    ...keys.map((key) => {
+      const value = fields[key] ?? "";
+      return `${key}: ${RAW_FRONTMATTER_KEYS.has(key) ? value : formatYamlScalar(value)}`;
+    }),
     "---",
     ""
   ].join("\n");
@@ -414,7 +420,7 @@ export function mergeSkillDraftMarkdown(
     ...existing.frontmatter,
     name: existing.frontmatter.name ?? incoming.frontmatter.name ?? "workflow",
     description: mergeDescriptions(existing.frontmatter.description ?? "", incoming.frontmatter.description ?? ""),
-    aliases: `[${aliases.join(", ")}]`,
+    aliases: formatYamlList(aliases),
     merge_count: String(mergeCount),
     updated_at: new Date().toISOString()
   };
@@ -481,14 +487,14 @@ export function buildSkillDraftMarkdown(context: SkillDraftContext): { name: str
   const body = buildTemplateDrivenBody(templateContent, context) || defaultBody;
   const lines = [
     "---",
-    `name: ${name}`,
-    `description: ${metadata.description}`,
-    `aliases: [${aliases.join(", ")}]`,
+    `name: ${formatYamlScalar(name)}`,
+    `description: ${formatYamlScalar(metadata.description)}`,
+    `aliases: ${formatYamlList(aliases)}`,
     "draft: true",
     "source: auto-run-summary",
     "merge_count: 1",
     `updated_at: ${new Date().toISOString()}`,
-    ...(templateSkillPath ? [`template_skill_path: ${templateSkillPath}`] : []),
+    ...(templateSkillPath ? [`template_skill_path: ${formatYamlScalar(templateSkillPath)}`] : []),
     "---",
     "",
     body

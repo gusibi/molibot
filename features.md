@@ -5,7 +5,71 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
-## 2026-07-24
+## 2026-07-25
+
+### 记录自定义服务商为何绕过 pi 的 `Models`（已完成）
+- 评估后**否决**了用 `MutableModels.setProvider` / `createProvider` 把自定义服务商注册进 pi-ai `Models`。自定义服务商存放在运行时设置里，会通过设置页新增、编辑和删除，注册意味着在**每一次模型调用的热路径**上引入一层缓存失效面；而且没有实际收益——`resolveCustomModel` 本来就已经把认证、请求头、`compat`、`reasoning`、`thinkingLevelMap` 都挂到它构造的 model 上了。
+- 当初推动这项的理由（「自定义服务商只支持两种 API，第三种直接抛错」）是误读。`CustomProviderProtocol` 只有 `"openai-compatible" | "anthropic"` 两个取值，且 `resolveCustomProviderProtocol` 必然返回其中之一，因此 `streamWithPiRuntime` 末尾那个 throw 是不可达的纯防御分支。要支持第三种协议（比如 `openai-responses`），做法是给设置 schema 加一个取值再加一个分支，与是否注册服务商无关。
+- 该结论已写成 `streamWithPiRuntime` 上的注释，避免日后被当成"待整理的 if/else"改成注册式。无行为变更。
+
+### Skill 扫描不再因单个目录不可读而整体失败（已完成）
+- `findSkillFiles` 直接调用 `readdirSync` 没有兜底，因此只要有一个目录读不了（权限问题），异常会一路抛出 `loadSkillsFromWorkspace`，导致**全部四个 scope 的技能**都加载不到，而不只是那一棵子树。现在读不了的目录直接跳过。同时跳过 `node_modules`——技能不会放在依赖里，而遍历它可能很大。
+- 评估后**否决**了改用 pi 的 `loadSkillsFromDir`。用一个同时包含小写 `skill.md`、大写 `SKILL.md`、以及嵌套在另一个技能下层的技能的样本目录实测，pi 只返回 **4 个里的 2 个，且没有任何 diagnostics**：它按大小写敏感匹配 `SKILL.md`（`entry.name !== "SKILL.md"`），并且每个目录命中第一个 `SKILL.md` 后就不再向下递归。这两点都会**静默丢掉**用户已有的技能。另外 pi 的 loader 不返回文件原文，本项目的 `mcpServers`/`aliases`/`signals` 这些自有 frontmatter 字段仍需把每个文件再读一遍。pi 那边确实值得借鉴的健壮性已经并入本地遍历实现。
+- 验证：skills 套件 13/13，其中新增用例已确认「去掉修复则失败」，另补充了大小写不敏感与任意深度发现的锁定性测试。
+
+### 上下文压缩改用 pi 的摘要内核，保留 CJK 触发逻辑（已完成）
+- 摘要生成改走 pi 的 `generateSummaryWithUsage`，不再自己拼 prompt 和序列化。pi 的 `streamFn` 参数接到了 `streamWithPiRuntime`——因为 pi 默认的补全路径是按内置 registry 解析模型的，对本项目的自定义服务商会直接失败。
+- **上一版摘要现在是「合并」而不是「重新摘要」。** 此前每次压缩都会把旧的 `[context summary]` 消息当作普通对话文本再喂一遍，导致连续多次压缩会不断稀释更早保留下来的信息。现在会提取最近一份旧摘要作为 pi 的 `previousSummary`（pi 据此切换到 update 提示词），同时把该消息从对话正文里排除，避免重复计入。
+- **压缩现在会重试瞬时失败**（两次退避，复用既有的 `isRetryableModelError`）。这是最不该放弃重试的地方：压缩失败意味着上下文降不下来，下一轮直接溢出。非重试类错误仍然快速失败并回退到机械摘要。
+- 有意**不采用**的部分：pi 的 `shouldCompact` 忽略 `thresholdPercent`（只看 `reserveTokens`），而 pi 的 `findCutPoint` 处理的是 pi `SessionEntry` 而非 `AgentMessage`。因此触发条件和切分点仍由 Molibot 自己负责，包括 CJK 加权估算与优先采用 Provider 真实 usage——pi 的 `estimateTokens` 是裸 chars/4，对中文会低估 3~4 倍。
+- 摘要请求的 12 万字符上限予以保留。由于 pi 内部自己做序列化，现在改为用 pi 自己的 `serializeConversation` 做度量、二分查找需要丢弃的最旧消息数量来限长。
+- pi 用 `0.8 * reserveTokens` 推导摘要的 `maxTokens`；这里传入一个专用预算，让摘要长度与本项目一贯的取值一致，而不是直接用大得多的压缩 reserve（8192）。
+- 顺带从 `piRuntime.ts` 移除了 `completeWithPiRuntime`——本处是它唯一的调用点。
+- 验证：压缩套件 14/14（新增覆盖：模型摘要成功、旧摘要合并、瞬时失败重试、永久失败不重试、请求长度受限），Agent 全量 274/274。
+
+### `read` 对超限图片改为自动缩放（已完成）
+- 超过 5 MB 的图片此前是硬报错，让模型自己去 bash 里调 `sips`/`ffmpeg`。现在改为用 pi 的 `resizeImage` 缩放，并附带 `formatDimensionNote`，让模型知道返回图的坐标如何映射回原图。只有确实无法解码、或压不到限制以下的图片才仍然失败。
+- 实测：7.33 MB 的 1600×1600 噪声 PNG → 3.40 MB JPEG，耗时约 680 ms（Photon WASM worker 在本项目的 tsx/vite 运行时下可正常加载）。
+- 原来的「超限图片」测试写的是 6 MB 全零字节，并不是合法 PNG，实际覆盖的是「无法解码」分支。已拆成两个用例：无法解码仍然失败、以及真实超限 PNG 必须返回缩放后且在限制内的图。
+
+### 并发 `edit`/`write` 不再互相覆盖（已完成）
+- `edit` 是「读 → 改 → 写」，读和写之间有 `await`，而此前没有任何串行化。同一文件的两个并发 edit（主 Agent 与子 Agent，或两个并行子 Agent——它们通过 `subagent.ts` 共用同一套工具实现）会各自读到修改前的内容，后写的那个静默丢掉前一个的改动；并发的 `write` 也可能落在 `edit` 中间，再被 edit 用旧内容覆盖回去。
+- 两个工具现在都用 pi 的 `withFileMutationQueue` 包住写入段。该队列按 `realpath` 建 key，因此软链和大小写不敏感文件系统会归并到同一把锁，而**不同文件**之间仍然并行。pi 自带的 `edit`/`write` 本来就用这个队列，因此现在整个进程共享同一套按文件粒度的锁。
+- 新增回归覆盖，并已实际验证「去掉队列则失败、加上队列则通过」：并发 edit+edit、并发 edit+write，以及「不同文件仍然并发」。
+
+### `edit` 的 diff 不再整文件输出（已完成）
+- 本地 `buildDiff` 只会在**单个**改动周围裁剪上下文，因此当一个文件有两处相距较远的改动时，整个文件都会被塞进工具结果。改用 pi 的 `generateDiffString`：常见场景下与原实现输出逐字节一致（已实测比对），且能正确把中间未改动的部分折叠成 `...`。
+- 顺带从 `dependencies` 移除了已无人使用的 `diff` 包。
+
+### 复用 pi 的 `grep` / `find` / `ls` 工具（已完成）
+- Agent 此前**完全没有结构化搜索工具**，任何内容/文件名搜索都得走 `bash`：输出无结构、不走统一截断、只读操作也要触发 bash 审批、且 macOS 的 BSD grep 与容器里的 GNU grep 行为不一致。pi 本身就带这三个工具，因此改为直接注册 `createGrepTool` / `createFindTool` / `createLsTool`，而不是自己再写一遍。
+- 三者都用 `createPathGuard`（与 `read`/`write`/`edit` 同一个守卫）限制在工作区内，memory 路径与全局 profile 文件仍然只能走各自的 gateway 工具。守卫作用在工具的 `path` 参数上（并把参数改写为校验过的绝对路径），而不是通过 pi 的可注入 operations——因为 ripgrep 和 fd 的代码路径会绕过 operations。风险分类走默认的 `risk: "low", source: "builtin"`，执行同样经过既有 `ToolRuntime` 的策略与 hook 链。
+- `grep` 依赖 ripgrep、`find` 依赖 fd。pi 在找不到时**会从 GitHub 下载二进制并执行**；现在 `env.ts` 将 `PI_OFFLINE` 默认设为 `1`，缺失时改为明确报错，Dockerfile 相应安装 `ripgrep` + `fd-find`（pi 认 Debian 的 `fdfind` 名字）。需要恢复下载可显式设 `PI_OFFLINE=0`。**桌面端（Tauri）打包方式待定**——bundle 目前不含 rg/fd，在桌面端 `grep`/`find` 会提示二进制缺失；`ls` 是纯 `fs` 实现，各端都可用。
+- 验证：新增 `fileSearch` 套件 7/7（无对应二进制时 grep/find 用例自动跳过）、Agent 全量 264/264、改动文件 `tsc` 无错误。
+
+### Skill frontmatter 改用真正的 YAML 解析（已完成）
+- `parseSkillFrontmatter` 原本是手写的 YAML 子集（带引号标量 + `|`/`>` 块标量），凡是结构化写法都会被静默解析错：块序列和嵌套 map 会塌成空字符串，因此用普通 YAML 列表写法的 `mcpServers:` / `signals:` 直接被丢掉。现改为经 pi 的 `parseFrontmatter`（真 YAML 解析器）。非标量值序列化为 JSON，既有的 `parseStringList` 本来就接受这种形式。
+- 换掉解析器后暴露出**项目自己的写入端一直在产出非法 YAML**：`skillManage` 与自动草稿生成器写的是不带引号的 `description: Reusable workflow draft for: <用户消息>`，真解析器会判为嵌套 map 而报错。新增 `formatYamlScalar` / `formatYamlList`（只对有歧义的值加引号，文件保持可读），并应用到全部三处写入点，包括草稿合并时的重写路径。
+- 磁盘上已有的 skill 文件不受影响：frontmatter 非法 YAML 时回退到原先的逐行解析器，而不是让这个 skill 直接消失。
+- 验证：新增 `skillFrontmatter` 套件 10/10，覆盖块序列、嵌套 map、块标量、旧格式回退与「生成→解析」往返；skills / self-evolution 套件通过。
+
+### 工具输出截断改为复用 pi（已完成）
+- `tools/truncate.ts` 已经漂移成 pi 实现的逐行拷贝（常量、`TruncationResult` 字段、`truncateHead`/`truncateTail`/`formatSize` 完全一致）。现改为从 pi 重导出，只保留 pi 没有对应实现的 `truncateMiddle`（bash 输出保留首尾、省略中间），删除约 200 行。
+- 随之有一处行为变化：pi 在计数时会丢掉结尾换行造成的幻影行，因此以 `\n` 结尾的内容 `totalLines`/`outputLines` 会少 1——比原先的计数更准确。
+
+### AI 服务商 编辑器与顶层页面重构（已完成）
+- **移除自建服务商编辑器里的 内置/自建 模型切换**：该切换按「模型 ID 是否属于同名内置服务商」过滤，而自建服务商没有内置列表，导致「内置」永远为空、「自建」永远是全部——纯废控件。改为单一扁平模型列表。
+- **修复两个无样式开关**：「启用服务商」与每个模型的启用开关原本用 `class="switch"`，而这个类**没有任何 CSS**，渲染成裸按钮。现全部改用 `IosSwitch`（符合项目规范）。
+- **拉取模型改为可搜索下拉（combobox）**：不再把发现的模型堆成一片 `+id` chip。新增「添加模型」输入框 + 可过滤下拉：输入过滤、↑/↓+Enter 或点击添加、已添加的自动隐藏、也可直接输入模型 ID 手动添加；拉取按钮带 spinner。
+- **进阶字段折叠**：Thinking 支持/格式、推理力度映射、清空已保存 Key 收进可展开的「高级」区；每个模型卡片的 roles + 验证收进卡内「更多设置」。主区只保留核心字段（ID/名称/协议/Base URL/路径/Key/默认模型）+ 模型列表。
+- **顶层页面**：服务商来源改为分段控件；内置（pi 服务商/模型）与自建（默认服务商）行按当前模式条件显示，而非四行全列。
+- zh-CN 与 en 均补充了对应文案。验证：svelte-check 0 error / 0 warning、桌面 `vite build` 通过。（真机截图待补——验证时 1420 端口被另一应用占用。）
+
+### Desktop 侧栏与内容统一为一块 macOS 画布（已完成）
+- 参照 macOS 非液态玻璃（降低透明度）下的系统设置：`--sidebar-bg` 改为指向 `--mac-window-background`（不再用抬升卡片色），因此在非玻璃回退下 nav 与内容是同一块面（亮色 `#F6F6F6`、暗色 `#1E1E1E`），只留一条细分隔线，消除左右割裂的接缝。
+- 暗色中性层级重校为系统设置降低透明度时的色调：窗口/侧栏基底 `#282828 → #1E1E1E`、分组 `#2E2E2E → #282828`、抬升卡片 `#323232 → #2C2C2E`、嵌套 `#3A3A3A → #343436`（配套的 `--gray-100/200` 及"亮色 OS 下显式暗色"的材质 veil 一并跟随）。玻璃路径不动——原生暗色侧栏 tint 仍透明，液态玻璃观感不变。
+- 设置侧栏文字从次级（`white 54.9%`）提亮为主色（`white 84.7%`），nav 项接近纯白（贴合 macOS），分组标题保持次级灰。
+- `DESIGN.md`、`design.dark.md` 同步为"基底 + 卡片"两级层级。已在运行中的桌面 UI（dev server）核验：计算值 `--sidebar-bg` = `--content-bg` = `#1E1E1E`（暗）/ `#F6F6F6`（亮），卡片 `#2C2C2E` / `#FFFFFF`，nav 文字 `rgba(255,255,255,0.847)`，侧栏背景仍透明（玻璃保留），控制台 0 报错。
 
 ### Desktop 当前 AppKit 语义表面层级（已完成）
 - 亮色工作区/分组面改为 `#F6F6F6` / `#ECECEC`；暗色工作区、分组、抬升和嵌套表面形成 `#282828` → `#2E2E2E` → `#323232` → `#3A3A3A` 的单调层级。显式暗色运行在亮色 OS 下时用暗色保护 veil，原生暗色/跟随系统暗色继续透明。

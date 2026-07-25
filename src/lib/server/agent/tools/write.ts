@@ -2,6 +2,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import fs from "node:fs";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
@@ -86,9 +87,13 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
         }
       }
 
+      // Share the edit tool's per-file lock so a write cannot land in the middle
+      // of a concurrent edit's read-modify-write cycle.
       const dir = dirname(filePath);
-      await fs.promises.mkdir(dir, { recursive: true });
-      await ctx.fs.writeText(filePath, params.content);
+      await withFileMutationQueue(filePath, async () => {
+        await fs.promises.mkdir(dir, { recursive: true });
+        await ctx.fs.writeText(filePath, params.content);
+      });
 
       const writtenBytes = Buffer.byteLength(params.content, "utf-8");
       return {

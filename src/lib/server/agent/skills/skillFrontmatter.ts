@@ -1,3 +1,68 @@
+import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+
+/**
+ * Skill frontmatter parsing and emission.
+ *
+ * Parsing used to be a hand-rolled YAML subset (quoted scalars plus `|`/`>`
+ * block scalars) which silently mis-parsed lists, nested maps and anchors. It
+ * now goes through pi, which uses a real YAML parser.
+ *
+ * The `Record<string, string> | null` shape is kept deliberately: every caller
+ * reads flat string fields, and `null` means "no frontmatter block". Non-scalar
+ * values are serialized as JSON so `parseStringList` in skills.ts — which
+ * already accepts a JSON array literal — keeps working for `mcpServers`,
+ * `aliases` and the `signals_*` fields.
+ */
+const FRONTMATTER_BLOCK = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/;
+
+/** Values YAML would read back as a bool/null rather than a string. */
+const YAML_RESERVED_WORDS = /^(y|n|yes|no|true|false|on|off|null|~)$/i;
+
+/**
+ * Quote a value for use as a YAML scalar.
+ *
+ * Only quotes when the raw text would be ambiguous, so ordinary values stay
+ * readable. This matters because skill descriptions routinely contain `": "`
+ * (e.g. `Reusable workflow draft for: <user message>`), which a real YAML
+ * parser rejects as a nested mapping.
+ */
+export function formatYamlScalar(value: string): string {
+  const text = String(value ?? "");
+  if (text === "") return '""';
+
+  const ambiguous =
+    /:\s/.test(text) ||
+    text.endsWith(":") ||
+    /\s#/.test(text) ||
+    /^[-?:,[\]{}#&*!|>'"%@`]/.test(text) ||
+    /^\s|\s$/.test(text) ||
+    /[\n\r\t]/.test(text) ||
+    YAML_RESERVED_WORDS.test(text) ||
+    // Anything numeric-looking would come back as a number.
+    (text.trim() !== "" && !Number.isNaN(Number(text)));
+
+  // JSON string syntax is a valid YAML double-quoted scalar.
+  return ambiguous ? JSON.stringify(text) : text;
+}
+
+/** Render a YAML flow sequence, quoting entries only where needed. */
+export function formatYamlList(values: readonly string[]): string {
+  const items = values.map((value) => {
+    const text = String(value ?? "");
+    // Commas and brackets additionally terminate a value inside flow context.
+    return /[,[\]{}]/.test(text) ? JSON.stringify(text) : formatYamlScalar(text);
+  });
+  return `[${items.join(", ")}]`;
+}
+
+function coerceScalar(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value instanceof Date) return value.toISOString();
+  return JSON.stringify(value) ?? "";
+}
+
 function stripQuotes(value: string): string {
   const trimmed = value.trim();
   if (
@@ -32,14 +97,10 @@ function foldYamlBlock(lines: string[]): string {
   return paragraphs.join("\n\n").trim();
 }
 
-function preserveYamlBlock(lines: string[]): string {
-  return lines.join("\n").trim();
-}
-
 function parseBlockScalar(
   lines: string[],
   start: number,
-  style: "folded" | "literal",
+  style: "folded" | "literal"
 ): { value: string; nextIndex: number } {
   const block: string[] = [];
   let index = start;
@@ -55,13 +116,21 @@ function parseBlockScalar(
     block.push(candidate.replace(/^\s+/, ""));
   }
   return {
-    value: style === "literal" ? preserveYamlBlock(block) : foldYamlBlock(block),
-    nextIndex: index,
+    value: style === "literal" ? block.join("\n").trim() : foldYamlBlock(block),
+    nextIndex: index
   };
 }
 
-export function parseSkillFrontmatter(content: string): Record<string, string> | null {
-  const match = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
+/**
+ * Line-based reader for frontmatter that is not valid YAML.
+ *
+ * Skill files written before the emitters started quoting scalars are still on
+ * disk (and users hand-write skills too), so a parse failure must not make an
+ * existing skill disappear. This is the previous parser, kept as a fallback
+ * only — new files are emitted as valid YAML.
+ */
+function parseLegacyFrontmatter(content: string): Record<string, string> | null {
+  const match = content.match(FRONTMATTER_BLOCK);
   if (!match) return null;
 
   const data: Record<string, string> = {};
@@ -88,5 +157,22 @@ export function parseSkillFrontmatter(content: string): Record<string, string> |
     data[key] = stripQuotes(rawValue);
   }
 
+  return data;
+}
+
+export function parseSkillFrontmatter(content: string): Record<string, string> | null {
+  if (!FRONTMATTER_BLOCK.test(content)) return null;
+
+  let frontmatter: Record<string, unknown>;
+  try {
+    ({ frontmatter } = parseFrontmatter<Record<string, unknown>>(content));
+  } catch {
+    return parseLegacyFrontmatter(content);
+  }
+
+  const data: Record<string, string> = {};
+  for (const [key, value] of Object.entries(frontmatter)) {
+    data[key] = coerceScalar(value);
+  }
   return data;
 }

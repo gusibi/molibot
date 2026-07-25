@@ -2,6 +2,7 @@ import { extname } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import { formatDimensionNote, resizeImage } from "@earendil-works/pi-coding-agent";
 import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
@@ -51,17 +52,37 @@ export function getReadToolDefinition(options: { cwd: string; workspaceDir: stri
       const mimeType = IMAGE_MIME_TYPES[extname(filePath).toLowerCase()];
       if (mimeType) {
         const bytes = await ctx.fs.readBuffer(filePath);
-        if (bytes.length > MAX_IMAGE_BYTES) {
+        if (bytes.length <= MAX_IMAGE_BYTES) {
           return {
-            ok: false,
-            error: `Image is too large to read (${formatSize(bytes.length)}, max ${formatSize(MAX_IMAGE_BYTES)}). Resize or compress it first (e.g. with sips or ffmpeg via bash).`
+            ok: true,
+            content: [
+              { type: "text", text: `Read image file [${mimeType}]` },
+              { type: "image", mimeType, data: bytes.toString("base64") }
+            ],
+            details: undefined
           };
         }
+
+        // An oversized image used to be a hard error telling the model to shell
+        // out to sips/ffmpeg. Downscale it instead; the dimension note tells the
+        // model how the resized coordinates map back to the original.
+        const resized = await resizeImage(bytes, mimeType, { maxBytes: MAX_IMAGE_BYTES });
+        if (!resized) {
+          return {
+            ok: false,
+            error: `Image is too large to read (${formatSize(bytes.length)}, max ${formatSize(MAX_IMAGE_BYTES)}) and could not be resized below that limit.`
+          };
+        }
+
+        const dimensionNote = formatDimensionNote(resized);
         return {
           ok: true,
           content: [
-            { type: "text", text: `Read image file [${mimeType}]` },
-            { type: "image", mimeType, data: bytes.toString("base64") }
+            {
+              type: "text",
+              text: `Read image file [${resized.mimeType}]${dimensionNote ? ` ${dimensionNote}` : ""}`
+            },
+            { type: "image", mimeType: resized.mimeType, data: resized.data }
           ],
           details: undefined
         };

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { SkillScope } from "$lib/server/agent/skills/skills.js";
+import { formatYamlList, formatYamlScalar } from "$lib/server/agent/skills/skillFrontmatter.js";
 import {
   mergeSkillDraftMarkdown,
   promoteDraftToLiveSkill,
@@ -45,8 +46,7 @@ function buildManualSkillMarkdown(params: {
   triggers?: string[];
 }): string {
   const aliases = [params.name, params.name.replace(/-/g, ""), params.name.replace(/-/g, "_")]
-    .filter(Boolean)
-    .join(", ");
+    .filter(Boolean);
   const steps = Array.isArray(params.steps) && params.steps.length > 0
     ? params.steps.map((step, index) => `${index + 1}. ${step}`)
     : ["1. Fill in the actual workflow steps."];
@@ -56,9 +56,9 @@ function buildManualSkillMarkdown(params: {
 
   return [
     "---",
-    `name: ${params.name}`,
-    `description: ${params.description}`,
-    `aliases: [${aliases}]`,
+    `name: ${formatYamlScalar(params.name)}`,
+    `description: ${formatYamlScalar(params.description)}`,
+    `aliases: ${formatYamlList(aliases)}`,
     "---",
     "",
     "# When To Use",

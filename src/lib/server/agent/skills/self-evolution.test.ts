@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { assessMemoryWrite } from "$lib/server/memory/classifier.js";
 import { parseMemoryGovernanceLine } from "$lib/server/memory/governanceLog.js";
 import { parseRunHistoryLine, parseSkillDraftItem } from "$lib/server/agent/session/reviewData.js";
+import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import {
   areSkillDraftsSimilar,
   buildSkillDraftMarkdown,
@@ -302,8 +303,12 @@ test("skill draft metadata follows skill-creator naming rules", () => {
     });
 
     assert.equal(built.name, "yesterday-data-review");
-    assert.match(built.content, /name: yesterday-data-review/);
-    assert.match(built.content, /description: Use when the user needs this reusable workflow:/);
+    // Assert on the parsed frontmatter rather than the raw text: descriptions
+    // contain ": " and are therefore emitted as quoted YAML scalars.
+    const frontmatter = parseSkillFrontmatter(built.content);
+    assert.ok(frontmatter);
+    assert.equal(frontmatter.name, "yesterday-data-review");
+    assert.match(frontmatter.description, /^Use when the user needs this reusable workflow:/);
     assert.doesNotMatch(built.content, /name: 为什么没有/);
   });
 });

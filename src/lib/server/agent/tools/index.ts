@@ -7,6 +7,7 @@ import { createAttachTool } from "$lib/server/agent/tools/attach.js";
 import { getBashToolDefinition } from "$lib/server/agent/tools/bash.js";
 import { decideBashToolPolicy } from "$lib/server/agent/tools/bashPolicy.js";
 import { getEditToolDefinition } from "$lib/server/agent/tools/edit.js";
+import { createFileSearchTools } from "$lib/server/agent/tools/fileSearch.js";
 import { createEventTool } from "$lib/server/agent/tools/event.js";
 import { createMcpInvokeTool } from "$lib/server/agent/tools/mcpInvoke.js";
 import { createLoadMcpTool } from "$lib/server/agent/tools/loadMcp.js";
@@ -635,6 +636,7 @@ export function createMomTools(options: {
     toAgentTool(bashToolDef),
     toAgentTool(editToolDef),
     toAgentTool(writeToolDef),
+    ...createFileSearchTools({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createSubagentTool({
       channel: options.channel,
       cwd: options.cwd,
