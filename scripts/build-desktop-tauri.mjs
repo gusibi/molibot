@@ -31,10 +31,14 @@ const baseConfigPath = path.join(repositoryRoot, "apps/desktop/src-tauri/tauri.b
 const generatedConfigPath = path.join(repositoryRoot, "apps/desktop/src-tauri/tauri.bundle.generated.conf.json");
 const bundleConfig = JSON.parse(readFileSync(baseConfigPath, "utf8"));
 const resources = { ...(bundleConfig.bundle?.resources ?? {}) };
+// The checked-in config names one target's binaries; rewrite every per-target
+// entry so a build for the other arch ships its own Node, rg and fd.
 for (const key of Object.keys(resources)) {
-  if (key.startsWith("binaries/molibot-node-")) delete resources[key];
+  if (/^binaries\/molibot-(node|rg|fd)-/.test(key)) delete resources[key];
 }
 resources[`binaries/molibot-node-${binarySuffix}`] = "molibot-node";
+resources[`binaries/molibot-rg-${binarySuffix}`] = "molibot-tools/rg";
+resources[`binaries/molibot-fd-${binarySuffix}`] = "molibot-tools/fd";
 bundleConfig.bundle = { ...(bundleConfig.bundle ?? {}), resources };
 writeFileSync(generatedConfigPath, `${JSON.stringify(bundleConfig, null, 2)}\n`, "utf8");
 

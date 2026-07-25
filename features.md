@@ -44,8 +44,16 @@
 ### 复用 pi 的 `grep` / `find` / `ls` 工具（已完成）
 - Agent 此前**完全没有结构化搜索工具**，任何内容/文件名搜索都得走 `bash`：输出无结构、不走统一截断、只读操作也要触发 bash 审批、且 macOS 的 BSD grep 与容器里的 GNU grep 行为不一致。pi 本身就带这三个工具，因此改为直接注册 `createGrepTool` / `createFindTool` / `createLsTool`，而不是自己再写一遍。
 - 三者都用 `createPathGuard`（与 `read`/`write`/`edit` 同一个守卫）限制在工作区内，memory 路径与全局 profile 文件仍然只能走各自的 gateway 工具。守卫作用在工具的 `path` 参数上（并把参数改写为校验过的绝对路径），而不是通过 pi 的可注入 operations——因为 ripgrep 和 fd 的代码路径会绕过 operations。风险分类走默认的 `risk: "low", source: "builtin"`，执行同样经过既有 `ToolRuntime` 的策略与 hook 链。
-- `grep` 依赖 ripgrep、`find` 依赖 fd。pi 在找不到时**会从 GitHub 下载二进制并执行**；现在 `env.ts` 将 `PI_OFFLINE` 默认设为 `1`，缺失时改为明确报错，Dockerfile 相应安装 `ripgrep` + `fd-find`（pi 认 Debian 的 `fdfind` 名字）。需要恢复下载可显式设 `PI_OFFLINE=0`。**桌面端（Tauri）打包方式待定**——bundle 目前不含 rg/fd，在桌面端 `grep`/`find` 会提示二进制缺失；`ls` 是纯 `fs` 实现，各端都可用。
+- `grep` 依赖 ripgrep、`find` 依赖 fd。pi 在找不到时**会从 GitHub 下载二进制并执行**；现在 `env.ts` 将 `PI_OFFLINE` 默认设为 `1`，缺失时改为明确报错，Dockerfile 相应安装 `ripgrep` + `fd-find`（pi 认 Debian 的 `fdfind` 名字）。需要恢复下载可显式设 `PI_OFFLINE=0`。桌面端（Tauri）的打包方式见下方「桌面端在构建期打包 ripgrep / fd」。`ls` 是纯 `fs` 实现，各端都可用。
 - 验证：新增 `fileSearch` 套件 7/7（无对应二进制时 grep/find 用例自动跳过）、Agent 全量 264/264、改动文件 `tsc` 无错误。
+
+### 桌面端在构建期打包 ripgrep / fd（已完成）
+- 承接上一条遗留的待定项。打包后的 macOS 应用既没有系统包管理器，也不该在运行时联网取二进制，因此 `grep`/`find` 在桌面端一直报「二进制缺失」。现在 rg/fd 与既有的 Node 运行时**走完全相同的构建期链路**：`scripts/prepare-desktop-runtime.mjs` 按固定版本 + 固定 sha256 下载校验（校验不过直接让构建失败，而不是把可疑产物打进包里），解出的二进制落到 `binaries/molibot-{rg,fd}-<target>`；`tauri.bundle.conf.json` 把它们映射到 bundle 内的 `molibot-tools/{rg,fd}`；`build-desktop-tauri.mjs` 的按目标重写逻辑一并扩展到 rg/fd，因此 x86_64 构建装的是自己那份。版本：ripgrep 14.1.1、fd 10.3.0（10.3.0 是 fd 最后一个提供 `x86_64-apple-darwin` 产物的版本，pi 自己的下载器对该目标也钉在这个版本）。
+- 运行期只做一件事：`supervisor.rs` 在拉起 Node 运行时前，把 `molibot-tools/` **前插**到子进程的 `PATH`。pi 的 `getToolPath` 本来就会探测 `PATH`，所以不需要任何 pi 侧改动。前插而非追加，保证用的是随包锁定的版本而不是宿主上随机一份；同时保留 `PATH` 其余部分，`bash` 工具不受影响；重复重启也不会把同一个目录累加进 `PATH`。
+- 只有 rg 和 fd **同时存在且带可执行位**时才会挂上 `PATH`。半个包的情况下宁可维持「二进制缺失」这个 `PI_OFFLINE=1` 下的既有报错，也不要留到 exec 阶段才炸出一个难懂的错误。有意**不去 chmod** bundle 内的文件——那会破坏 .app 的签名封印，而 Tauri 本来就保留了权限位（现有的 `molibot-node` 就是同样的方式在跑）。
+- 开发态（非 bundle 布局）`search_tools_dir` 为 `None`，`PATH` 原样继承，用开发者自己装的 rg/fd。
+- 评估后**否决**的两个方案：一是桌面端单独设 `PI_OFFLINE=0` 让 pi 首次使用时自己下载——这正好推翻了当初设 `PI_OFFLINE=1` 的理由（不在运行时下载并执行外部二进制），只是把同一个行为换了个地方开启；二是启动时探测 + 提示用户用 Homebrew 自行安装——把打包问题转嫁给用户，且桌面用户未必有 Homebrew。注意 pi 的 `getToolPath` 会**先查它自己的 `TOOLS_DIR`**再查 `PATH`，因此用户此前手动下载过的副本仍然优先，本方案不会覆盖这一行为。
+- 验证：`prepare:runtime` 实跑通过，两个二进制以 0755 落位并确认为 arm64、`--version` 分别报 `ripgrep 14.1.1` / `fd 10.3.0`；Rust 套件 22/22（新增 2 条：二进制缺失/缺可执行位时不挂 `PATH`、`PATH` 前插且重启不重复）。
 
 ### Skill frontmatter 改用真正的 YAML 解析（已完成）
 - `parseSkillFrontmatter` 原本是手写的 YAML 子集（带引号标量 + `|`/`>` 块标量），凡是结构化写法都会被静默解析错：块序列和嵌套 map 会塌成空字符串，因此用普通 YAML 列表写法的 `mcpServers:` / `signals:` 直接被丢掉。现改为经 pi 的 `parseFrontmatter`（真 YAML 解析器）。非标量值序列化为 JSON，既有的 `parseStringList` 本来就接受这种形式。

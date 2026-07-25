@@ -3,9 +3,11 @@ use crate::service::{
 };
 use serde::Deserialize;
 use std::env;
-use std::fs::{create_dir_all, read_to_string, remove_dir_all, rename, File, OpenOptions};
+use std::ffi::OsString;
+use std::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, rename, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -31,6 +33,10 @@ pub enum ServiceCommand {
 struct RuntimeLayout {
     node_binary: PathBuf,
     runtime_root: PathBuf,
+    /// Directory holding the bundled `rg`/`fd` that back the agent's `grep` and
+    /// `find` tools, prepended to the spawned runtime's PATH. `None` outside a
+    /// bundle, where the developer's own installation is used instead.
+    search_tools_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -236,6 +242,36 @@ fn materialize_bundled_runtime(resource_dir: &Path, data_dir: &Path) -> Result<P
     Ok(runtime_cache)
 }
 
+fn is_executable_file(path: &Path) -> bool {
+    metadata(path)
+        .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+/// `molibot-tools/` is staged by `scripts/prepare-desktop-runtime.mjs` and
+/// bundled by `tauri.bundle.conf.json`. Both binaries must be present and
+/// executable before the directory is worth putting on PATH — a partial bundle
+/// should leave `grep`/`find` reporting a missing binary, which is what pi does
+/// under `PI_OFFLINE=1`, rather than failing later with an exec error.
+fn bundled_search_tools_dir(resource_dir: &Path) -> Option<PathBuf> {
+    let tools_dir = resource_dir.join("molibot-tools");
+    if is_executable_file(&tools_dir.join("rg")) && is_executable_file(&tools_dir.join("fd")) {
+        return Some(tools_dir);
+    }
+    None
+}
+
+/// Prepends `tools_dir` to `inherited`, dropping any existing copy so repeated
+/// restarts cannot grow PATH. Returns `None` if the entries cannot be joined
+/// (a path containing `:`), in which case the caller leaves PATH untouched.
+fn search_tools_path(tools_dir: &Path, inherited: Option<OsString>) -> Option<OsString> {
+    let mut entries = vec![tools_dir.to_path_buf()];
+    if let Some(inherited) = inherited.as_ref() {
+        entries.extend(env::split_paths(inherited).filter(|entry| entry != tools_dir));
+    }
+    env::join_paths(entries).ok()
+}
+
 fn runtime_layout(app: &AppHandle, data_dir: &Path) -> Result<RuntimeLayout, String> {
     let resource_dir = app
         .path()
@@ -243,6 +279,7 @@ fn runtime_layout(app: &AppHandle, data_dir: &Path) -> Result<RuntimeLayout, Str
         .map_err(|error| error.to_string())?;
     let bundled_runtime = resource_dir.join("molibot-runtime");
     let bundled_node = resource_dir.join("molibot-node");
+    let search_tools_dir = bundled_search_tools_dir(&resource_dir);
     if resource_dir.join("molibot-runtime.tar.gz").is_file()
         && resource_dir.join("molibot-runtime.version").is_file()
         && bundled_node.is_file()
@@ -250,12 +287,14 @@ fn runtime_layout(app: &AppHandle, data_dir: &Path) -> Result<RuntimeLayout, Str
         return Ok(RuntimeLayout {
             node_binary: bundled_node,
             runtime_root: materialize_bundled_runtime(&resource_dir, data_dir)?,
+            search_tools_dir,
         });
     }
     if bundled_runtime.join("scripts/start-server.mjs").is_file() && bundled_node.is_file() {
         return Ok(RuntimeLayout {
             node_binary: bundled_node,
             runtime_root: bundled_runtime,
+            search_tools_dir,
         });
     }
 
@@ -264,9 +303,12 @@ fn runtime_layout(app: &AppHandle, data_dir: &Path) -> Result<RuntimeLayout, Str
         .or_else(|| env::var_os("NODE"))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("node"));
+    // Dev runs use whatever rg/fd the developer has installed, so PATH is left
+    // exactly as inherited.
     Ok(RuntimeLayout {
         node_binary,
         runtime_root,
+        search_tools_dir: None,
     })
 }
 
@@ -353,7 +395,8 @@ fn spawn_child(layout: &RuntimeLayout, data_dir: &Path, port: u16) -> Result<Chi
     let log = open_log(data_dir)?;
     let stderr = log.try_clone().map_err(|error| error.to_string())?;
     let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-    Command::new(&layout.node_binary)
+    let mut command = Command::new(&layout.node_binary);
+    command
         .arg(layout.runtime_root.join("scripts/start-server.mjs"))
         .current_dir(&layout.runtime_root)
         .env("DATA_DIR", data_dir)
@@ -361,7 +404,23 @@ fn spawn_child(layout: &RuntimeLayout, data_dir: &Path, port: u16) -> Result<Chi
         .env("PORT", port.to_string())
         .env("NODE_ENV", "production")
         .env("MOLIBOT_DESKTOP_MANAGED", "1")
-        .env("MOLIBOT_DESKTOP_TOKEN", token)
+        .env("MOLIBOT_DESKTOP_TOKEN", token);
+    // pi's `getToolPath` probes PATH for `rg`/`fd`, so exposing the bundled
+    // directory is all the agent's `grep`/`find` tools need. Prepending keeps
+    // the bundled, version-pinned binaries ahead of any host installation while
+    // leaving the rest of PATH intact for the `bash` tool.
+    if let Some(tools_dir) = layout.search_tools_dir.as_ref() {
+        match search_tools_path(tools_dir, env::var_os("PATH")) {
+            Some(path) => {
+                command.env("PATH", path);
+            }
+            None => eprintln!(
+                "molibot: could not add {} to PATH; grep/find will report a missing binary",
+                tools_dir.display()
+            ),
+        }
+    }
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(stderr))
@@ -774,6 +833,70 @@ mod tests {
         stop_child(&mut child);
         assert_eq!(read_to_string(&marker).expect("SIGTERM marker"), "term");
         remove_dir_all(temp_dir).expect("remove temp dir");
+    }
+
+    fn write_tool(dir: &Path, name: &str, mode: u32) {
+        let path = dir.join(name);
+        write(&path, "#!/bin/sh\n").expect("write tool fixture");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
+            .expect("set tool mode");
+    }
+
+    #[test]
+    fn bundled_search_tools_require_both_binaries_to_be_executable() {
+        let temp_dir = env::temp_dir().join(format!("molibot-tools-{}", Uuid::new_v4()));
+        let tools_dir = temp_dir.join("molibot-tools");
+        create_dir_all(&tools_dir).expect("create tools fixture");
+
+        // Nothing staged yet.
+        assert_eq!(bundled_search_tools_dir(&temp_dir), None);
+
+        // Only rg present: still unusable, `find` would fail at exec time.
+        write_tool(&tools_dir, "rg", 0o755);
+        assert_eq!(bundled_search_tools_dir(&temp_dir), None);
+
+        // Both present but fd lost its executable bit in packaging.
+        write_tool(&tools_dir, "fd", 0o644);
+        assert_eq!(bundled_search_tools_dir(&temp_dir), None);
+
+        write_tool(&tools_dir, "fd", 0o755);
+        assert_eq!(bundled_search_tools_dir(&temp_dir), Some(tools_dir));
+
+        remove_dir_all(temp_dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn search_tools_path_prepends_without_dropping_or_duplicating_entries() {
+        let tools_dir = PathBuf::from("/Applications/Molibot.app/Contents/Resources/molibot-tools");
+
+        let composed = search_tools_path(&tools_dir, Some(OsString::from("/usr/bin:/bin")))
+            .expect("compose PATH");
+        assert_eq!(
+            env::split_paths(&composed).collect::<Vec<_>>(),
+            vec![
+                tools_dir.clone(),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+            ]
+        );
+
+        // A restart must not grow PATH with a second copy of the tools dir.
+        let repeated = search_tools_path(&tools_dir, Some(composed)).expect("recompose PATH");
+        assert_eq!(
+            env::split_paths(&repeated).collect::<Vec<_>>(),
+            vec![
+                tools_dir.clone(),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+            ]
+        );
+
+        // No inherited PATH at all still yields a usable single-entry PATH.
+        let bare = search_tools_path(&tools_dir, None).expect("compose bare PATH");
+        assert_eq!(
+            env::split_paths(&bare).collect::<Vec<_>>(),
+            vec![tools_dir]
+        );
     }
 
     #[test]

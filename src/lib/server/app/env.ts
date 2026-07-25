@@ -31,8 +31,10 @@ dotenv.config({ path: path.join(resolvedDataDir, ".env") });
 // those binaries from GitHub on first use if they are not on PATH. Fetching and
 // executing an external binary at runtime is not something this service should
 // do on its own, so default to pi's offline mode: a missing binary surfaces as
-// a tool error instead. Install ripgrep and fd with the image/host (the
-// Dockerfile does). Set PI_OFFLINE=0 explicitly to opt back into downloads.
+// a tool error instead. Both binaries are instead provisioned at build time:
+// the Dockerfile apt-installs them for the server image, and the Desktop app
+// bundles pinned, checksummed copies that `supervisor.rs` puts on this
+// process's PATH. Set PI_OFFLINE=0 explicitly to opt back into downloads.
 process.env.PI_OFFLINE = process.env.PI_OFFLINE ?? "1";
 
 const resolvedDatabaseDir = expandHomePath(process.env.DB_DIR ?? path.join(resolvedDataDir, "db"));
