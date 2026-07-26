@@ -849,6 +849,97 @@ export class SessionStore {
     return removed;
   }
 
+  /**
+   * Creates a visible child conversation containing the prefix before the
+   * selected message. The source is never mutated and inherited rows are not
+   * re-enqueued into search: they remain provenance, not newly authored child
+   * history.
+   */
+  forkConversationBeforeMessage(
+    conversationId: string,
+    fromMessageId: string,
+    childConversationId: string
+  ): Conversation {
+    const childId = String(childConversationId ?? "").trim();
+    if (!/^[a-zA-Z0-9._-]+$/.test(childId)) {
+      const error = new Error("Invalid child Session ID");
+      (error as Error & { code?: string }).code = "INVALID_SESSION_ID";
+      throw error;
+    }
+    if (this.resolveSessionStorage(childId)) {
+      const error = new Error("Child Session already exists");
+      (error as Error & { code?: string }).code = "SESSION_EXISTS";
+      throw error;
+    }
+
+    const located = this.resolveSessionStorage(conversationId);
+    if (!located) {
+      const error = new Error("Session not found");
+      (error as Error & { code?: string }).code = "SESSION_NOT_FOUND";
+      throw error;
+    }
+    if (located.type !== "web" && located.type !== "project") {
+      const error = new Error("Only Web and Project Sessions can be forked");
+      (error as Error & { code?: string }).code = "SESSION_NOT_FORKABLE";
+      throw error;
+    }
+
+    const index = located.file.messageMetadata.findIndex((message) => message.id === fromMessageId);
+    if (index < 0) {
+      const error = new Error(`Message not found (session has ${located.file.messageMetadata.length} messages)`);
+      (error as Error & { code?: string }).code = "MESSAGE_NOT_FOUND";
+      throw error;
+    }
+    if (located.file.messageMetadata[index]?.role !== "user") {
+      const error = new Error("A Session fork must start from a user message");
+      (error as Error & { code?: string }).code = "INVALID_FORK_POINT";
+      throw error;
+    }
+
+    const now = new Date().toISOString();
+    const conversation: Conversation = {
+      ...located.file.conversation,
+      id: childId,
+      createdAt: now,
+      updatedAt: now,
+      parentSessionId: located.file.conversation.id,
+      forkedFromMessageId: fromMessageId
+    };
+    const childFile: SessionFile = {
+      conversation,
+      messageMetadata: located.file.messageMetadata.slice(0, index).map((message) => ({
+        ...message,
+        conversationId: childId
+      })),
+      messageCount: index
+    };
+
+    if (located.type === "web") {
+      const webIndex = readWebIndex();
+      writeWebSession(located.externalUserId, childFile);
+      try {
+        ensureWebIndexEntry(webIndex, located.externalUserId, childId);
+        writeWebIndex(webIndex);
+      } catch (error) {
+        fs.rmSync(webSessionFilePath(located.externalUserId, childId), { force: true });
+        throw error;
+      }
+      return conversation;
+    }
+
+    const projectIndex = readProjectIndex(located.projectId);
+    writeProjectSession(located.projectId, childFile);
+    try {
+      projectIndex.order = [...projectIndex.order.filter((id) => id !== childId), childId];
+      projectIndex.byConversationId[childId] = { origin: conversation.origin ?? conversation.externalUserId };
+      writeProjectIndex(located.projectId, projectIndex);
+    } catch (error) {
+      fs.rmSync(projectSessionFilePath(located.projectId, childId), { force: true });
+      throw error;
+    }
+    return conversation;
+  }
+
   listMessages(conversationId: string, limit?: number): ConversationMessage[] {
     if (this.messageProjector) {
       const projected = this.messageProjector(conversationId);

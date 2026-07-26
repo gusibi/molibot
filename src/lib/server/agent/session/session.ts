@@ -9,12 +9,18 @@ export interface SessionPreferences {
   runLogNoticeOverride?: boolean | null;
 }
 
+export interface SessionLineage {
+  parentSessionId: string;
+  forkedFromEntryId: string;
+}
+
 export interface SessionHeaderEntry {
   type: "session";
   version: 1;
   id: string;
   timestamp: string;
   preferences?: SessionPreferences;
+  lineage?: SessionLineage;
 }
 
 export interface SessionEntryBase {
@@ -59,12 +65,13 @@ export interface SessionBuildResult {
 export const CURRENT_SESSION_VERSION = 1;
 export const COMPACTION_SUMMARY_PREFIX = "[context summary]";
 
-export function createSessionHeader(sessionId: string): SessionHeaderEntry {
+export function createSessionHeader(sessionId: string, lineage?: SessionLineage): SessionHeaderEntry {
   return {
     type: "session",
     version: CURRENT_SESSION_VERSION,
     id: sessionId,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    lineage
   };
 }
 

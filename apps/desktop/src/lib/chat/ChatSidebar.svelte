@@ -82,7 +82,8 @@
     delete: copy.deleteConversation,
     renamePlaceholder: copy.renamePlaceholder,
     deletePrompt: copy.deleteConversationPrompt,
-    cancel: copy.cancelAction
+    cancel: copy.cancelAction,
+    forkedConversation: copy.forkedConversation
   });
 </script>
 

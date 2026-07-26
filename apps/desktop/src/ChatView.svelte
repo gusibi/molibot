@@ -29,6 +29,7 @@
     fetchDesktopFileBlob,
     deleteDesktopConversation,
     filterDesktopFiles,
+    forkDesktopSession,
     listDesktopConversations,
     renameDesktopConversation,
     listDesktopSessionFiles,
@@ -56,7 +57,6 @@
     saveDesktopSessionModel,
     submitDesktopMemoryTraceFeedback,
     testDesktopProvider,
-    truncateDesktopMessages,
     type OnboardingChannelsView,
     type OnboardingDiagnostics,
     type DesktopFileFilter,
@@ -176,12 +176,12 @@
   let fileInput: HTMLInputElement;
   let thinkingLevel: DesktopThinkingLevel = "medium";
 
-  // Edit-and-resend state. `editingMessageId` is set when the user clicked the
-  // pencil on one of their own messages; the composer then shows an "editing"
-  // banner and `sendMessage` truncates the server transcript at that message
-  // before re-running the turn so the history stays coherent.
+  // Edit-and-resend state. `editingMessageId` is set when the user clicks the
+  // pencil on one of their own messages; sending creates a child Session at
+  // that point, preserving the original transcript.
   let editingMessageId = "";
   let editingSessionId = "";
+  let editingForkRequestId = "";
   let copiedMessageId = "";
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let memoryTraceId = "";
@@ -1335,6 +1335,7 @@
   $: if (editingMessageId && editingSessionId && activeSessionId !== editingSessionId) {
     editingMessageId = "";
     editingSessionId = "";
+    editingForkRequestId = "";
   }
   let messageMediaSession = "";
   $: {
@@ -1389,11 +1390,12 @@
     const files = pendingFiles;
     const editingId = editingMessageId;
     const editingSession = editingSessionId;
+    const forkRequestId = editingForkRequestId;
     if (editingId) {
-      // Edit-and-resend: drop the original user message and everything that
-      // followed it on the server before re-running the turn. If truncate fails,
-      // restore the composer so the user can retry instead of losing the edit.
-      if (!connectedEndpoint || !activeProfileId || !activeSessionId) {
+      // Edit-and-resend is non-destructive: create a child at the selected
+      // message, switch to it, then append the edited turn. The parent remains
+      // unchanged and the stable request id makes an ambiguous retry safe.
+      if (!connectedEndpoint || !activeProfileId || !activeSessionId || editingSession !== activeSessionId || !forkRequestId) {
         error = copy.editMessageUnavailable;
         return;
       }
@@ -1401,8 +1403,19 @@
       pendingFiles = [];
       editingMessageId = "";
       editingSessionId = "";
+      editingForkRequestId = "";
+      let childSessionId = "";
       try {
-        await truncateDesktopMessages(connectedEndpoint, activeProfileId, activeSessionId, editingId);
+        const child = await forkDesktopSession(
+          connectedEndpoint,
+          activeProfileId,
+          editingSession,
+          editingId,
+          forkRequestId
+        );
+        childSessionId = child.id;
+        const inheritedModel = sessionModelOverrides.get(editingSession);
+        if (inheritedModel) sessionModelOverrides.set(child.id, inheritedModel);
       } catch (cause) {
         const status = (cause as Error & { status?: number }).status;
         if (status === 422) {
@@ -1419,8 +1432,16 @@
         pendingFiles = files;
         editingMessageId = editingId;
         editingSessionId = editingSession;
+        editingForkRequestId = forkRequestId;
         return;
       }
+      // The server fork is already durable. Transcript/sidebar refresh failures
+      // must not restore editing against the now-unchanged parent or create a
+      // second sibling on retry; the child can accept the edited turn directly.
+      await Promise.allSettled([
+        chatStore.selectSession(activeProfileId, childSessionId),
+        loadChannel("web")
+      ]);
     } else {
       messageInput = "";
       pendingFiles = [];
@@ -1452,6 +1473,7 @@
     if (sending) return;
     editingMessageId = message.id;
     editingSessionId = activeSessionId;
+    editingForkRequestId = globalThis.crypto.randomUUID();
     messageInput = message.content ?? "";
     pendingFiles = [];
     void tick().then(() => {
@@ -1467,6 +1489,7 @@
   function cancelEditMessage(): void {
     editingMessageId = "";
     editingSessionId = "";
+    editingForkRequestId = "";
   }
 
   async function stopRun(): Promise<void> {

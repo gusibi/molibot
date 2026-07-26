@@ -53,6 +53,15 @@ const chatWorkspace = read("./lib/chat/ChatWorkspacePane.svelte");
 const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
 const slashSuggestionMenu = read("./lib/chat/SlashSuggestionMenu.svelte");
+
+test("editing a Web message creates a visible child Session without truncating its parent", () => {
+  assert.match(view, /forkDesktopSession/);
+  assert.match(view, /chatStore\.selectSession\(activeProfileId, childSessionId\)/);
+  assert.match(view, /Promise\.allSettled/);
+  assert.doesNotMatch(view, /await truncateDesktopMessages\(connectedEndpoint/);
+  assert.match(row, /class:forked=\{Boolean\(item\.parentSessionId\)\}/);
+  assert.match(row, /row-branch/);
+});
 const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
 const taskScheduleBuilder = read("./lib/settings/TaskScheduleBuilder.svelte");
 const nativeTimeInput = read("./lib/components/ui/NativeTimeInput.svelte");

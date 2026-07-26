@@ -4,7 +4,7 @@
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
 
-  type ConversationRowItem = Pick<DesktopConversationItem, "title" | "updatedAt" | "readOnly" | "botId" | "botName" | "botDeleted">;
+  type ConversationRowItem = Pick<DesktopConversationItem, "title" | "updatedAt" | "readOnly" | "botId" | "botName" | "botDeleted" | "parentSessionId">;
 
   let {
     item,
@@ -31,6 +31,7 @@
       placeholder?: string;
       deletePrompt?: string;
       cancel?: string;
+      forkedConversation?: string;
     };
     onSelect: () => void;
     onRename?: (title: string) => void;
@@ -143,6 +144,7 @@
   class="conversation-row"
   class:active
   class:menu-open={menuOpen}
+  class:forked={Boolean(item.parentSessionId)}
   data-read-only={item.readOnly}
   role="button"
   tabindex="0"
@@ -157,6 +159,9 @@
   }}
 >
   <span class="row-avatar">
+    {#if item.parentSessionId}
+      <span class="row-branch" aria-label={labels.forkedConversation} title={labels.forkedConversation}>↳</span>
+    {/if}
     <BotAvatar botId={item.botId} name={item.botDeleted ? "" : item.botName} size={24} readOnly={item.readOnly} />
     {#if statusDot}
       <span
@@ -238,6 +243,14 @@
     text-align: left;
     color: inherit;
     transition: background var(--duration-instant) var(--ease-standard);
+  }
+  .conversation-row.forked { padding-left: 16px; }
+  .row-branch {
+    position: absolute;
+    left: 3px;
+    color: var(--label-tertiary, #8f8f8f);
+    font-size: 11px;
+    line-height: 1;
   }
   .conversation-row:hover,
   .conversation-row:focus-visible,

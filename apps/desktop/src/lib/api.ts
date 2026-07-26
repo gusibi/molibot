@@ -1590,17 +1590,9 @@ export async function deleteDesktopConversation(endpoint: string, sessionId: str
   );
 }
 
-/**
- * Edit-and-resend: truncate a session's transcript at `fromMessageId`,
- * dropping that message and everything after it so the caller can append a
- * fresh, edited user message and re-run the turn. Web-only; project sessions
- * share the same endpoint because they live in the same sessions store.
- *
- * Errors carry a `status` field so callers can distinguish a structurally
- * valid request that referenced a stale message id (HTTP 422) from a missing
- * session (404) or a running session (409) - the client reloads the session
- * and asks the user to retry on 422.
- */
+/** Legacy destructive transcript edit used by Project chat until its tree
+ * navigation migrates to Session forks. New Web edits use
+ * `forkDesktopSession` below. */
 export async function truncateDesktopMessages(
   endpoint: string,
   profileId: string,
@@ -1629,6 +1621,32 @@ export async function truncateDesktopMessages(
     throw err;
   }
   return { removed: payload.removed ?? 0 };
+}
+
+/** Creates (or reuses) a visible child Session whose transcript ends just
+ * before `fromMessageId`. The request id makes an ambiguous client retry
+ * idempotent, so it cannot create duplicate sibling Sessions. */
+export async function forkDesktopSession(
+  endpoint: string,
+  profileId: string,
+  sessionId: string,
+  fromMessageId: string,
+  requestId: string
+): Promise<DesktopSessionSummary & { reused: boolean }> {
+  const payload = await requestJson<{
+    ok: true;
+    reused: boolean;
+    session: DesktopSessionSummary;
+  }>(
+    endpoint,
+    `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId, fromMessageId, requestId })
+    }
+  );
+  return { ...payload.session, reused: payload.reused };
 }
 
 export async function listDesktopConversationGroups(

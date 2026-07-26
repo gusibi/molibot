@@ -95,7 +95,7 @@ export function buildBotNameResolver(settings: RuntimeSettings): BotNameResolver
 }
 
 export function buildWebItems(
-  entries: ReadonlyArray<{ conversation: { id: string; title: string; updatedAt: string; projectId?: string; origin?: string }; externalUserId: string; lastMessageText: string }>,
+  entries: ReadonlyArray<{ conversation: { id: string; title: string; updatedAt: string; projectId?: string; origin?: string; parentSessionId?: string }; externalUserId: string; lastMessageText: string }>,
   resolver: BotNameResolver
 ): DesktopConversationItem[] {
   return entries.map((entry) => {
@@ -112,7 +112,10 @@ export function buildWebItems(
       channel: "web",
       purpose,
       readOnly: false,
-      latestMessagePreview: entry.lastMessageText || undefined
+      latestMessagePreview: entry.lastMessageText || undefined,
+      ...(entry.conversation.parentSessionId
+        ? { parentSessionId: entry.conversation.parentSessionId }
+        : {})
     };
   });
 }

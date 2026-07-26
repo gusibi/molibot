@@ -12,6 +12,8 @@ interface SessionSummary {
   createdAt: string;
   updatedAt: string;
   title: string;
+  parentSessionId?: string;
+  forkedFromMessageId?: string;
 }
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -25,7 +27,9 @@ export const GET: RequestHandler = async ({ url }) => {
     id: s.id,
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
-    title: s.title || "New Session"
+    title: s.title || "New Session",
+    parentSessionId: s.parentSessionId,
+    forkedFromMessageId: s.forkedFromMessageId
   }));
 
   return json({ ok: true, sessions: list });

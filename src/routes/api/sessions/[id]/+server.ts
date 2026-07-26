@@ -32,6 +32,8 @@ export const GET: RequestHandler = async ({ params, url }) => {
       title: conversation.title,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      parentSessionId: conversation.parentSessionId,
+      forkedFromMessageId: conversation.forkedFromMessageId,
       messages
     }
   });

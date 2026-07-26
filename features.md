@@ -7,6 +7,12 @@
 ---
 ## 2026-07-26
 
+### 编辑历史消息会创建可追溯的 Web Session 分支（已完成）
+- 主 Chat 的“编辑并重发”不再删除原消息及其后续内容，而是在所选用户消息之前创建一个可见子 Session，再把修改后的消息发送到子分支；父 Session 保持原样。
+- UI 会话与 Agent 日志分别记录父 Session 和切点，重启后仍可恢复；同一请求重复提交只复用同一个子 Session，运行中的父 Session 拒绝分叉，跨存储失败会回收半成品。
+- 子分支继承模型、thinking 和 sandbox 偏好，但不会继承 Session 级 Host Bash 授权、待审批、队列、运行状态或 controller；继承历史也不会被搜索/记忆当成新消息重复计数。
+- Desktop 侧栏用缩进与分支符号标识子 Session，并补齐中英文、明暗主题兼容的语义样式。Project Chat 分叉与同 Session 多叶导航留在后续 P1-B。
+
 ### Review 收尾：OAuth / 溢出 / 压缩元数据 / Host Bash 权限边界（已完成）
 - OAuth 取消后不再立即启动 Session 清理倒计时；即使 Provider 忽略 abort，也要等登录 promise 真正 settled 才释放 Provider 锁并进入保留期，杜绝旧登录与替代登录并发写凭据。
 - Provider Auth HTTP 的未知异常统一经 `safeErrorMessage`，补齐 `api_key`、`client_secret` 和常见 `sk-`/`rk-` 形态脱敏；凭据不能从错误响应泄露到前端。

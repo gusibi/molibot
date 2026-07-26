@@ -74,4 +74,8 @@ export interface Conversation {
    *  Empty/undefined means "follow the global default". Persisted with the session so
    *  each conversation keeps its own model across restarts. */
   modelKey?: string;
+  /** Lineage for a non-destructive edit/resend fork. Parent deletion never
+   * deletes the child; these ids are provenance, not ownership. */
+  parentSessionId?: string;
+  forkedFromMessageId?: string;
 }

@@ -1655,3 +1655,20 @@
   - `23ef8db6 feat(settings): add provider OAuth quick connect`
   - `7df28027 fix(host-bash): bound approval waits and grants`
   - `0246c8b5 fix(desktop): align dark semantic surfaces`
+
+### Phase 4: non-destructive Web Session fork
+- Added parent/fork lineage to visible Conversation and Agent Session headers, plus prefix-copy operations in both temporary-testable stores.
+- Added the shared cross-store coordinator with active-run rejection, deterministic idempotency, compensation, and restart-safe partial-write repair.
+- Added the narrow Session fork API and Desktop client method; main Chat now switches to the child and sends the edited turn without truncating its parent.
+- Added a bilingual sidebar branch marker and propagated lineage through shared Desktop session/conversation contracts.
+- Corrected the legacy truncate endpoint's Web runner lookup so its running guard checks the actual owner key.
+- Focused persistence/API/UI suite passed 111/111 plus Desktop UI 85/85; Desktop Svelte diagnostics passed 0/0.
+- Noticed an unrelated untracked `docs/realtime-avatar-conversation-plan.md` appear during implementation. It was not opened, changed, staged, or included in this slice.
+
+### Phase 5: final verification and adversarial review
+- Agent full suite passed 516/516 on the bundled Node 22.23.1 runtime; Desktop API passed 216/216; Desktop logic passed 51/51; Desktop UI/HTTP/reactivity passed 88/88; Rust passed 23/23; Svelte diagnostics passed 0/0.
+- Root and Desktop production builds passed. Their existing dynamic-import/chunk-size advisories are unchanged.
+- The final adversarial pass fixed client post-fork refresh failure handling and a cross-process `SESSION_EXISTS` compensation race. Focused fork tests then passed 8/8.
+- An isolated production cold start created and listed a Session, stopped, restarted from the same temporary data directory, and listed the same Session again. The smoke directory was moved to Trash afterward.
+- A combined isolated `store.test.ts` rerun reproduced the known Node SQLite FTS `bm25` context failure (18/19); the authoritative full Desktop API run in this same final cycle passed 216/216, and the fork-specific store assertion passed separately. No fork code touches the FTS query.
+- `git diff --check` passed. The planning checker reported its known accumulated-plan false negative (one recognized completion across six mixed historical formats); this task's five explicit phases are all complete. Final staged scope excludes the unrelated realtime-avatar plan.

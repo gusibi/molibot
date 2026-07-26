@@ -598,6 +598,8 @@ export interface DesktopSessionSummary {
   title: string;
   createdAt: string;
   updatedAt: string;
+  parentSessionId?: string;
+  forkedFromMessageId?: string;
 }
 
 export type DesktopFileMediaType = "image" | "audio" | "video" | "file";
@@ -1531,6 +1533,7 @@ export interface DesktopConversationItem {
   purpose: DesktopConversationPurpose;
   readOnly: boolean;
   latestMessagePreview?: string;
+  parentSessionId?: string;
 }
 
 export interface DesktopConversationsResponse {

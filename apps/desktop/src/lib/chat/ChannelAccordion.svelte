@@ -52,6 +52,7 @@
       renamePlaceholder: string;
       deletePrompt: string;
       cancel: string;
+      forkedConversation: string;
     };
     formatTime: (iso: string) => string;
     onToggle: () => void;
@@ -98,7 +99,7 @@
                 active={item.sessionId === activeSessionId}
                 statusDot={dotFor(item)}
                 {formatTime}
-                labels={{ running: labels.running, waitingApproval: labels.waitingApproval, completed: labels.completed, failed: labels.failed, menu: labels.menu, rename: labels.rename, delete: labels.delete, placeholder: labels.renamePlaceholder, deletePrompt: labels.deletePrompt, cancel: labels.cancel }}
+                labels={{ running: labels.running, waitingApproval: labels.waitingApproval, completed: labels.completed, failed: labels.failed, menu: labels.menu, rename: labels.rename, delete: labels.delete, placeholder: labels.renamePlaceholder, deletePrompt: labels.deletePrompt, cancel: labels.cancel, forkedConversation: labels.forkedConversation }}
                 onSelect={() => onSelect(item)}
                 onRename={(title) => onRenameItem(item, title)}
                 onDelete={() => onDeleteItem(item)}

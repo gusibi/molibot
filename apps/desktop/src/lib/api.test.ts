@@ -18,6 +18,7 @@ import {
   consumeDesktopSse,
   desktopFileContentUrl,
   filterDesktopFiles,
+  forkDesktopSession,
   filterSessionsByTitle,
   formatDurationMs,
   formatLongDurationMs,
@@ -1520,6 +1521,50 @@ test("truncateDesktopMessages DELETEs the session's transcript tail with profile
     const init = capturedInit as RequestInit;
     assert.equal(init.method, "DELETE");
     assert.equal(init.body, JSON.stringify({ profileId: "personal" }));
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("forkDesktopSession POSTs an idempotent non-destructive edit request", async () => {
+  const original = globalThis.fetch;
+  let capturedUrl: unknown = null;
+  let capturedInit: RequestInit | undefined;
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    capturedUrl = url;
+    capturedInit = init;
+    return new Response(JSON.stringify({
+      ok: true,
+      reused: false,
+      session: {
+        id: "fork-1",
+        title: "Session",
+        createdAt: "2026-07-26T00:00:00.000Z",
+        updatedAt: "2026-07-26T00:00:00.000Z",
+        parentSessionId: "session-1",
+        forkedFromMessageId: "msg-1"
+      }
+    }), { headers: { "content-type": "application/json" } });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const result = await forkDesktopSession(
+      "http://127.0.0.1:3210",
+      "personal",
+      "session-1",
+      "msg-1",
+      "request-1"
+    );
+    assert.equal(capturedUrl, "http://127.0.0.1:3210/api/sessions/session-1/fork");
+    const init = capturedInit as RequestInit;
+    assert.equal(init.method, "POST");
+    assert.equal(init.body, JSON.stringify({
+      profileId: "personal",
+      fromMessageId: "msg-1",
+      requestId: "request-1"
+    }));
+    assert.equal(result.parentSessionId, "session-1");
+    assert.equal(result.reused, false);
   } finally {
     globalThis.fetch = original;
   }

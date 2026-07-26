@@ -837,6 +837,86 @@ export class MomRuntimeStore {
       .map((entry) => ({ ...entry }));
   }
 
+  readSessionLineage(chatId: string, sessionId: string): SessionHeaderEntry["lineage"] {
+    return this.readSessionHeader(chatId, this.sanitizeSessionId(sessionId)).lineage;
+  }
+
+  /**
+   * Copies the source entry prefix into a new child Session without activating
+   * it. User preferences follow the branch, except session-scoped Host Bash
+   * approval, which is a trust decision for the source Session only.
+   */
+  forkSessionBeforeEntry(
+    chatId: string,
+    sourceSessionId: string,
+    fromEntryId: string,
+    childSessionId: string
+  ): string {
+    const sourceId = this.sanitizeSessionId(sourceSessionId);
+    const childId = this.sanitizeSessionId(childSessionId);
+    if (childId !== String(childSessionId ?? "").trim()) {
+      throw new Error("Invalid child Session ID");
+    }
+    if (!this.listSessions(chatId).includes(sourceId)) {
+      throw new Error(`Session '${sourceId}' does not exist.`);
+    }
+    const childContextFile = this.getSessionContextFile(chatId, childId);
+    const childEntriesFile = this.getSessionEntriesFile(chatId, childId);
+    const childContextExists = existsSync(childContextFile);
+    const childEntriesExist = existsSync(childEntriesFile);
+    if (childEntriesExist) {
+      const existingEntries = this.readSessionFileEntries(chatId, childId);
+      const existingHeader = existingEntries.find((entry): entry is SessionHeaderEntry => entry.type === "session");
+      const lineage = existingHeader?.lineage;
+      if (lineage?.parentSessionId !== sourceId || lineage.forkedFromEntryId !== fromEntryId) {
+        throw new Error(`Session '${childId}' already exists.`);
+      }
+      // A process can stop after the append-only log is durable but before its
+      // model snapshot is written. Deterministic fork retries repair that safe
+      // partial state instead of creating another child.
+      if (!childContextExists) {
+        const snapshot = buildMessagesFromSessionEntries(existingEntries).messages;
+        writeFileSync(childContextFile, JSON.stringify(snapshot, null, 2), "utf8");
+      }
+      return childId;
+    }
+    if (childContextExists) {
+      throw new Error(`Session '${childId}' already exists.`);
+    }
+
+    const sourceEntries = this.readSessionFileEntries(chatId, sourceId);
+    const sourceHeader = sourceEntries.find((entry): entry is SessionHeaderEntry => entry.type === "session")
+      ?? createSessionHeader(sourceId);
+    const body = sourceEntries.filter((entry): entry is SessionEntry => entry.type !== "session");
+    const index = body.findIndex((entry) => entry.type === "message" && entry.id === fromEntryId);
+    if (index < 0) throw new Error("Fork entry not found");
+    const forkPoint = body[index];
+    if (forkPoint.type !== "message" || forkPoint.message.role !== "user") {
+      throw new Error("A Session fork must start from a user message");
+    }
+
+    const preferences = { ...(sourceHeader.preferences ?? {}) };
+    delete preferences.hostApprovalMode;
+    const header: SessionHeaderEntry = {
+      ...createSessionHeader(childId, {
+        parentSessionId: sourceId,
+        forkedFromEntryId: fromEntryId
+      }),
+      preferences: Object.keys(preferences).length > 0 ? preferences : undefined
+    };
+    const childEntries: SessionFileEntry[] = [header, ...body.slice(0, index)];
+    const snapshot = buildMessagesFromSessionEntries(childEntries).messages;
+
+    try {
+      this.writeSessionFileEntries(chatId, childId, childEntries);
+      writeFileSync(childContextFile, JSON.stringify(snapshot, null, 2), "utf8");
+    } catch (error) {
+      this.deleteSessionArtifacts(chatId, childId);
+      throw error;
+    }
+    return childId;
+  }
+
   /**
    * Edit-and-resend counterpart for Agent entries. Drops the selected raw
    * message entry and every later log entry, then rebuilds the model snapshot.

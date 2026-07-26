@@ -7,6 +7,12 @@
 ---
 ## 2026-07-26
 
+### Added: Non-destructive Web Session forks
+- Editing and resending an earlier user turn in main Chat now creates a visible child Session before that turn instead of truncating the original transcript.
+- Child lineage and prefix survive restart across both UI and Agent stores. Stable request IDs prevent duplicate siblings, active runs are rejected, and partial cross-store writes are compensated or safely repaired.
+- Forks inherit model/thinking/sandbox preferences but never inherit Session approvals, queues, pending runs, or controller state. Desktop marks forked Sessions in the sidebar.
+- Project Chat forks and full in-Session branch navigation/summaries remain the next P1 sub-slice.
+
 ### Fixed: Review hardening for OAuth, silent overflow, compaction metadata, and Host Bash grants
 - Cancelled OAuth sessions now remain provider-locked until the provider login promise actually settles. Terminal retention starts afterward, so an abort-ignoring provider cannot outlive its visible Session and race a replacement login.
 - Unexpected provider-auth API failures now pass through the shared credential redactor; API-key query parameters, client secrets, bearer tokens, and common `sk-`/`rk-` token shapes cannot cross into an HTTP response.

@@ -145,12 +145,12 @@ export class ChatSessionStore {
   /** Opens an existing session: ensures its pinned controller, marks it active
    * (clearing any background terminal unread dot for it), and reloads its
    * transcript. Switching never touches any other entry's in-flight turn. */
-  selectSession(profileId: string, sessionId: string): void {
+  async selectSession(profileId: string, sessionId: string): Promise<void> {
     if (!profileId || !sessionId) return;
     this.draftMode = false;
     const entry = this.registry.getOrCreate(profileId, sessionId);
     this.registry.setActive(profileId, sessionId);
-    void entry.reloadFromServer();
+    await entry.reloadFromServer();
   }
 
   /** Enters the not-yet-persisted new-conversation draft (plan §6.1). */
@@ -215,10 +215,8 @@ export class ChatSessionStore {
     await this.registry.active?.controller.stop();
   }
 
-  /** Re-fetches the active session transcript; used to recover after a
-   *  state-divergent operation (e.g. edit-truncate reported the message id
-   *  wasn't on the server, usually because the local transcript still held
-   *  an optimistic `pending-...` id from a failed reload). */
+  /** Re-fetches the active session transcript; used after a Session fork or
+   * to recover when an optimistic message id was not present on the server. */
   async reloadActive(): Promise<void> {
     await this.registry.active?.reloadFromServer();
   }

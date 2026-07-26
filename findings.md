@@ -1947,4 +1947,13 @@ Use two identities for fresh automation runs: an execution-unique runtime Sessio
 - The Web auth modal now owns initial focus, Tab containment, Escape, and focus restoration. The Web component tree has no shared Dialog primitive to reuse; this keeps the change local to the newly added modal while the production build guards compilation.
 - Final baseline gates passed under bundled Node 22.23.1: Agent 514/514, Desktop API 214/214, Desktop UI 87/87, Rust 23/23, Desktop Svelte 0/0, Root build, Desktop build, and `git diff --check`.
 
+## Session fork implementation findings
+- A separate visible child Session is the smallest safe product cut: it leaves the existing linear Runner context intact while making edit/resend non-destructive.
+- The UI store and Agent store have no shared transaction. The coordinator therefore writes Agent state first, compensates it if the visible write fails, and uses a deterministic child id. Agent log creation is lineage-idempotent so a retry repairs a process exit between log and context-snapshot writes.
+- Inherited UI metadata keeps `sourceEntryId`; inherited prefix rows are deliberately not re-enqueued into search because they are provenance, not newly authored child history.
+- Session-scoped Host Bash approval is explicitly removed from inherited preferences. Runtime controllers, queues, pending approvals, and runs are keyed by Session id and are not copied; the new child pool entry is reset before use.
+- Main Chat now awaits child hydration before sending the edited turn. Making `ChatSessionStore.selectSession` awaitable avoids the former double-reload race while preserving synchronous active-session selection for existing callers.
+- Project storage can already persist lineage, but its authorization and navigation use project-scoped routes. Project Chat remains on the legacy edit path until a focused P1-B can wire and verify that boundary.
+- Cross-process idempotency needs a second existence check after a `SESSION_EXISTS` race. A matching visible child is success; compensating its shared Agent artifacts would corrupt the winner. The coordinator now distinguishes that case from a genuine visible-store failure.
+
 ---

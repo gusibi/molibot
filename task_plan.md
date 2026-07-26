@@ -2200,14 +2200,14 @@ Complete — evidence-backed continuation plan and adversarial review finished
 Review the full current dirty worktree for correctness and release-blocking bugs, fix and verify any findings, commit the green work in logical slices on a `codex/` branch, then implement the first production Session-fork slice as a new visible child Session.
 
 ## Current phase
-Phase 4 — reviewed baseline committed; beginning the tested Session-fork slice
+Complete — Session-fork slice implemented, verified, and ready to commit
 
 ## Phases
 1. Review current diffs, prior pitfalls, and run focused/full verification — complete
 2. Fix confirmed findings and rerun affected cold paths — complete
 3. Create a `codex/` branch and commit the reviewed baseline in logical slices — complete
-4. Implement tested cross-store Session fork, narrow API, and Desktop interaction — in progress
-5. Run full verification, cold-path review, documentation updates, adversarial review, and commit the Session slice — pending
+4. Implement tested cross-store Session fork, narrow API, and Desktop interaction — complete
+5. Run full verification, cold-path review, documentation updates, adversarial review, and commit the Session slice — complete
 
 ## Verification gates
 - No current modified or untracked product file is omitted from review or accidentally overwritten.

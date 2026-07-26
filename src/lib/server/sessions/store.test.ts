@@ -365,6 +365,43 @@ test("truncateMessagesFrom drops the picked message and everything after it", ()
   }
 });
 
+test("forkConversationBeforeMessage preserves the parent and round-trips child lineage and prefix", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-fork-conversation-"));
+  const original = { ...storagePaths };
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+
+    const owner = "web:personal:web-anonymous";
+    const store = new SessionStore();
+    const parent = store.createWebConversation(owner);
+    store.setConversationModelKey(parent.id, "custom|provider|model");
+    const firstUser = store.appendMessage(parent.id, "user", "first turn", { sourceEntryId: "entry-1" });
+    const firstAssistant = store.appendMessage(parent.id, "assistant", "first answer", { sourceEntryId: "entry-2" });
+    const secondUser = store.appendMessage(parent.id, "user", "second turn", { sourceEntryId: "entry-3" });
+    store.appendMessage(parent.id, "assistant", "second answer", { sourceEntryId: "entry-4" });
+
+    const child = store.forkConversationBeforeMessage(parent.id, secondUser.id, "fork-child");
+
+    assert.equal(store.listMessages(parent.id).length, 4);
+    assert.deepEqual(store.listMessageMetadata(child.id).map((message) => message.id), [firstUser.id, firstAssistant.id]);
+    assert.deepEqual(store.listMessageMetadata(child.id).map((message) => message.conversationId), [child.id, child.id]);
+    assert.deepEqual(store.listMessageMetadata(child.id).map((message) => message.sourceEntryId), ["entry-1", "entry-2"]);
+    assert.equal(child.parentSessionId, parent.id);
+    assert.equal(child.forkedFromMessageId, secondUser.id);
+    assert.equal(child.modelKey, "custom|provider|model");
+
+    const reloaded = new SessionStore().getConversationById(child.id, "web", owner);
+    assert.equal(reloaded?.parentSessionId, parent.id);
+    assert.equal(reloaded?.forkedFromMessageId, secondUser.id);
+    assert.equal(new SessionStore().listMessages(child.id).length, 2);
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("SessionStore incrementally indexes and tombstones truncated or deleted messages", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-session-search-lifecycle-"));
   const original = { webWorkspaceDir: storagePaths.webWorkspaceDir, sessionsDir: storagePaths.sessionsDir, sessionsIndexFile: storagePaths.sessionsIndexFile };

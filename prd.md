@@ -5,6 +5,17 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.07 Non-destructive Web Session forks (2026-07-26)
+
+- **Priority / Status**: P1-A / Delivered.
+- **Scope**: Editing and resending a historical user message in the main Web/Desktop Chat creates a new visible child Session immediately before that turn. The parent transcript remains unchanged; the child records `parentSessionId` and the UI/Agent fork points.
+- **Acceptance**:
+  - The UI metadata store and Agent entry store both survive restart with the same child lineage and prefix; inherited messages keep their source-entry mapping without being indexed as newly authored history.
+  - A deterministic request id makes retries idempotent; an active source returns 409; a visible-store failure compensates the Agent child; a crash after the Agent log write can be repaired by the same request.
+  - Model, thinking, and sandbox preferences inherit by policy. Session Host Bash approval, pending approvals, queues, run/controller state, and leases do not cross into the child.
+  - Desktop switches to the child before sending the edited turn and marks forked Sessions in the sidebar; Chinese/English, light/dark, minimum-size, API, persistence, and build gates remain green.
+- **Deferred P1-B**: Project Chat still uses the legacy destructive edit endpoint until project-scoped fork authorization and child selection are wired. Full in-Session leaf navigation and generated branch summaries remain a separate slice after that.
+
 ## 3.06 Exact reusable approval for compound Host Bash commands (2026-07-26)
 
 - **Priority / Status**: P2 / Deferred.

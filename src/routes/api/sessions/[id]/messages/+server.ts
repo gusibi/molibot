@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { sanitizeWebProfileId } from "$lib/server/web/identity";
+import { sanitizeWebProfileId, toWebExternalUserId } from "$lib/server/web/identity";
 import {
   getRuntimeContextForConversation,
   resolveRunnerChatId
@@ -39,7 +39,8 @@ export const DELETE: RequestHandler = async ({ params, url, request }) => {
 
   const { sessions } = getRuntime();
   const { pool } = getRuntimeContextForConversation(profileId, id);
-  const runner = pool.get(resolveRunnerChatId(id, ""), id);
+  const fallbackOwner = sessions.getWebConversationOwner(id) ?? toWebExternalUserId("", profileId);
+  const runner = pool.get(resolveRunnerChatId(id, fallbackOwner), id);
   if (runner.isRunning()) {
     return json({ ok: false, error: "Cannot edit a session while it is running" }, { status: 409 });
   }

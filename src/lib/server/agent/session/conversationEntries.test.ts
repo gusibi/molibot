@@ -30,6 +30,42 @@ test("conversation projection entries stay stable and edit truncation rebuilds c
   }
 });
 
+test("forkSessionBeforeEntry copies only the prefix and inherits preferences without session approval", () => {
+  const dir = mkdtempSync(join(tmpdir(), "molibot-agent-session-fork-"));
+  try {
+    const store = new MomRuntimeStore(dir);
+    const chatId = "web:default:web-anonymous";
+    const parentId = "parent";
+    store.appendContextMessage(chatId, message("user", "first"), parentId);
+    store.appendContextMessage(chatId, message("assistant", "answer"), parentId);
+    store.appendContextMessage(chatId, message("user", "second"), parentId);
+    store.appendContextMessage(chatId, message("assistant", "second answer"), parentId);
+    store.setSessionThinkingLevelOverride(chatId, parentId, "high");
+    store.setSessionSandboxOverride(chatId, parentId, true);
+    store.setSessionHostApprovalMode(chatId, parentId, "session");
+    const entries = store.listSessionMessageEntries(chatId, parentId);
+
+    const childId = store.forkSessionBeforeEntry(chatId, parentId, entries[2]!.id, "fork-child");
+
+    assert.equal(childId, "fork-child");
+    assert.deepEqual(store.loadContext(chatId, parentId).map((item) => item.role), ["user", "assistant", "user", "assistant"]);
+    assert.deepEqual(store.loadContext(chatId, childId).map((item) => item.role), ["user", "assistant"]);
+    assert.deepEqual(store.listSessionMessageEntries(chatId, childId).map((entry) => entry.id), entries.slice(0, 2).map((entry) => entry.id));
+    assert.equal(store.getSessionThinkingLevelOverride(chatId, childId), "high");
+    assert.equal(store.getSessionSandboxOverride(chatId, childId), true);
+    assert.equal(store.getSessionHostApprovalMode(chatId, childId), "default");
+
+    const reloaded = new MomRuntimeStore(dir);
+    assert.deepEqual(reloaded.loadContext(chatId, childId).map((item) => item.role), ["user", "assistant"]);
+    assert.equal(reloaded.readSessionLineage(chatId, childId)?.parentSessionId, parentId);
+    assert.equal(reloaded.readSessionLineage(chatId, childId)?.forkedFromEntryId, entries[2]!.id);
+    assert.equal(reloaded.forkSessionBeforeEntry(chatId, parentId, entries[2]!.id, childId), childId);
+    assert.equal(reloaded.listSessionMessageEntries(chatId, childId).length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("shared automation archives project messages by run id and preserve legacy sessions", () => {
   const dir = mkdtempSync(join(tmpdir(), "molibot-conversation-run-entries-"));
   try {
