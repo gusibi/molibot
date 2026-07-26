@@ -33,15 +33,24 @@ export type TranscriptAttachmentActions = {
 
 /**
  * Hover actions for a transcript message. `onCopy` is always available; the
- * edit button is only surfaced for the user's own messages on surfaces that
- * opt in (the main chat and project chat - never on the read-only external
- * transcript view). `copiedId` lets the button flash a check mark.
+ * edit and fork buttons are only surfaced for the user's own messages on
+ * surfaces that opt in (never on the read-only external transcript view).
+ * `copiedId` lets the copy button flash a check mark.
+ *
+ * Edit and fork are deliberately distinct: `onEditUser` rewrites the current
+ * Session in place (the original message and everything after it is dropped),
+ * while `onForkUser` leaves it untouched and branches into a child Session.
+ * Project chat opts into edit only - forking project Sessions is not supported
+ * server-side yet. `forkingId` marks an in-flight fork so its button can show
+ * progress and reject a second click.
  */
 export type TranscriptMessageActions = {
   copiedId: string;
   onCopy: (message: TranscriptMessage) => void;
   onEditUser?: (message: TranscriptMessage) => void;
   editingId?: string;
+  onForkUser?: (message: TranscriptMessage) => void;
+  forkingId?: string;
   onOpenMemoryTrace?: (traceId: string) => void;
 };
 

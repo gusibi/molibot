@@ -7,6 +7,14 @@
 ---
 ## 2026-07-26
 
+### Changed: Edit and branch are now two separate message actions
+- Edit-and-resend in main Chat goes back to rewriting the current Session in place: the picked user message and everything after it is dropped before the edited turn re-runs. Making the edit silently spawn a Session was a change to a familiar action nobody asked for.
+- Branching is now its own explicit control — a branch button next to copy/edit on user messages. It creates the child Session before that message, switches to it, and preloads the composer with the original text so the next turn can be a variation. The parent is untouched.
+- The button guards its own in-flight request, so a double-click cannot produce two siblings; a running source Session (409) and a stale message id (422) get their own localized messages. The child inherits the parent's model override and is remembered as the last-opened Session.
+- Project Chat keeps the destructive edit and shows no branch button: `forkWebSession` still resolves conversations as `web`, so project Sessions cannot be forked server-side yet (P1-B).
+- `truncateDesktopMessages` and `DELETE /api/sessions/:id/messages` therefore remain in use by both chat surfaces; the earlier plan to retire them is withdrawn.
+- Verified: `svelte-check` 0 errors/0 warnings, `vite build`, desktop UI tests (88 pass), desktop-chat suite 216/216, agent suite 0 failures.
+
 ### Added: Non-destructive Web Session forks
 - Editing and resending an earlier user turn in main Chat now creates a visible child Session before that turn instead of truncating the original transcript.
 - Child lineage and prefix survive restart across both UI and Agent stores. Stable request IDs prevent duplicate siblings, active runs are rejected, and partial cross-store writes are compensated or safely repaired.

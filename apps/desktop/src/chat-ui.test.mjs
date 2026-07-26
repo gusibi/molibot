@@ -54,14 +54,6 @@ const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
 const slashSuggestionMenu = read("./lib/chat/SlashSuggestionMenu.svelte");
 
-test("editing a Web message creates a visible child Session without truncating its parent", () => {
-  assert.match(view, /forkDesktopSession/);
-  assert.match(view, /chatStore\.selectSession\(activeProfileId, childSessionId\)/);
-  assert.match(view, /Promise\.allSettled/);
-  assert.doesNotMatch(view, /await truncateDesktopMessages\(connectedEndpoint/);
-  assert.match(row, /class:forked=\{Boolean\(item\.parentSessionId\)\}/);
-  assert.match(row, /row-branch/);
-});
 const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
 const taskScheduleBuilder = read("./lib/settings/TaskScheduleBuilder.svelte");
 const nativeTimeInput = read("./lib/components/ui/NativeTimeInput.svelte");
@@ -92,6 +84,26 @@ const windowState = read("./lib/native/windowState.ts");
 const feedbackCoordinator = read("./lib/native/feedbackCoordinator.ts");
 const hapticCoordinator = read("./lib/native/hapticCoordinator.ts");
 const nativeAppMenu = read("../src-tauri/src/app_menu.rs");
+
+test("editing rewrites the current Session and branching is a separate explicit action", () => {
+  // Edit-and-resend stays destructive: it truncates the active Session in place.
+  assert.match(view, /await truncateDesktopMessages\(connectedEndpoint, activeProfileId, activeSessionId, editingId\)/);
+  assert.doesNotMatch(view, /forkDesktopSession\(\s*connectedEndpoint,\s*activeProfileId,\s*editingSession/);
+  // The branch button forks, switches to the child, and primes its composer.
+  assert.match(view, /async function forkFromUserMessage/);
+  assert.match(view, /chatStore\.selectSession\(activeProfileId, child\.id\)/);
+  assert.match(view, /Promise\.allSettled/);
+  assert.match(view, /forkingMessageId/);
+  assert.match(transcript, /messageActions\.onForkUser!\(message\)/);
+  assert.match(transcript, /ph-git-branch/);
+  assert.match(transcriptHelpers, /onForkUser\?: \(message: TranscriptMessage\) => void/);
+  // Project chat keeps the destructive edit and opts out of branching until
+  // project-scoped forks exist server-side.
+  assert.match(projectChat, /truncateDesktopMessages/);
+  assert.doesNotMatch(projectChat, /onForkUser/);
+  assert.match(row, /class:forked=\{Boolean\(item\.parentSessionId\)\}/);
+  assert.match(row, /row-branch/);
+});
 
 test("native close behavior is a localized narrow preference using IosSwitch", () => {
   assert.match(app, /type CloseBehavior = "background" \| "quit"/);

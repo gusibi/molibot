@@ -7,6 +7,14 @@
 ---
 ## 2026-07-26
 
+### 编辑与分叉拆成两个独立操作（已完成）
+- 主 Chat 的"编辑并重发"恢复原有语义：仍然截断当前 Session（删除所选用户消息及其之后的内容）再重跑该轮。编辑是就地改写，不应该悄悄变成新建 Session。
+- 新增独立的"分叉"按钮，位于用户消息的复制/编辑旁边：在该消息之前创建子 Session、切换过去，并把原文预填进输入框，便于写成变体后发送；父 Session 完全不动。
+- 分叉请求在途时按钮禁用（带 spinner），双击不会产生两个兄弟 Session；父 Session 运行中（409）与消息 id 失效（422）各有独立中英文提示。子 Session 继承父级模型覆盖，并写入"上次打开的会话"。
+- Project Chat 保持截断式编辑且不显示分叉按钮：`forkWebSession` 目前按 `web` 渠道解析会话，project Session 服务端还不支持分叉（留在 P1-B）。
+- 因此 `truncateDesktopMessages` 与 `DELETE /api/sessions/:id/messages` 仍被两个聊天面板使用，此前"清理孤儿代码"的计划撤销。
+- 验证：`svelte-check` 0 error / 0 warning、`vite build`、Desktop UI 测试 88 通过、desktop-chat 216/216、Agent 全量 0 失败。
+
 ### 编辑历史消息会创建可追溯的 Web Session 分支（已完成）
 - 主 Chat 的“编辑并重发”不再删除原消息及其后续内容，而是在所选用户消息之前创建一个可见子 Session，再把修改后的消息发送到子分支；父 Session 保持原样。
 - UI 会话与 Agent 日志分别记录父 Session 和切点，重启后仍可恢复；同一请求重复提交只复用同一个子 Session，运行中的父 Session 拒绝分叉，跨存储失败会回收半成品。

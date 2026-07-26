@@ -1590,9 +1590,18 @@ export async function deleteDesktopConversation(endpoint: string, sessionId: str
   );
 }
 
-/** Legacy destructive transcript edit used by Project chat until its tree
- * navigation migrates to Session forks. New Web edits use
- * `forkDesktopSession` below. */
+/**
+ * Edit-and-resend: truncate a session's transcript at `fromMessageId`,
+ * dropping that message and everything after it so the caller can append a
+ * fresh, edited user message and re-run the turn. Used by both main chat and
+ * project chat; branching off a message without rewriting history is a
+ * separate action - see `forkDesktopSession` below.
+ *
+ * Errors carry a `status` field so callers can distinguish a structurally
+ * valid request that referenced a stale message id (HTTP 422) from a missing
+ * session (404) or a running session (409) - the client reloads the session
+ * and asks the user to retry on 422.
+ */
 export async function truncateDesktopMessages(
   endpoint: string,
   profileId: string,

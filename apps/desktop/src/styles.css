@@ -1117,6 +1117,9 @@ a:focus-visible {
 .message-action:hover { background: var(--fill); color: var(--label-primary); }
 .message-action:disabled { cursor: default; opacity: .45; }
 .message-action[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.message-action-spin { animation: message-action-spin 1s linear infinite; }
+@keyframes message-action-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .message-action-spin { animation: none; } }
 .composer-edit-banner {
   display: flex;
   align-items: center;
