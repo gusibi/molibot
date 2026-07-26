@@ -48,6 +48,8 @@ test("classifies cd and echo wrappers around agent-browser as safe helpers", () 
 test("does not treat dynamic cd path as safe helper", () => {
   const result = classifyHostBashCommand('cd "$HOME" && agent-browser close');
 
+  // `cd` is helper-only: it may never fall through to a capability, or the
+  // argument check that rejects a dynamic path would stop being the gate.
   assert.equal(result.kind, "one-time-script");
   assert.match(result.reason, /cd/i);
 });
@@ -85,8 +87,56 @@ test("degrades file output redirection to one-time script", () => {
 test("does not treat helper file arguments as safe", () => {
   const result = classifyHostBashCommand("longbridge quote FIG.US | head /etc/passwd");
 
+  // `head` reading an arbitrary file must not ride along on the longbridge
+  // grant. It stops being a safe helper and has to earn its own capability —
+  // which is a real gate, unlike the one-time script this used to produce
+  // (one-time grants nothing yet still executes once approved).
+  assert.equal(result.kind, "compound-capabilities");
+  assert.deepEqual(result.capabilities.map((item) => item.toolId), ["longbridge", "head"]);
+  assert.equal(result.safeHelpers.length, 0);
+});
+
+test("a strict helper outside its restricted form becomes its own capability, not a one-time script", () => {
+  // Regression: these were `unsupported`, so the whole command degraded to a
+  // one-time script that could never graduate to a reusable grant — while
+  // `rm -rf build` sailed through as a persistent capability.
+  for (const command of ["grep -rn foo src", "echo 'a long status message'", "sort -u names.txt"]) {
+    const result = classifyHostBashCommand(command);
+    assert.equal(result.kind, "persistent-capability", command);
+    assert.equal(result.capability.toolId, command.split(" ")[0], command);
+  }
+});
+
+test("a parameterised URL keeps its capability whether or not the model quoted it", () => {
+  const quoted = classifyHostBashCommand("curl -s 'https://api.test/v1?page=2'");
+  const bare = classifyHostBashCommand("curl -s https://api.test/v1?page=2");
+
+  assert.equal(quoted.kind, "persistent-capability");
+  assert.equal(bare.kind, "persistent-capability");
+  assert.equal(bare.capability.toolId, "curl");
+  // Identity is the executable, so differing arguments reuse one grant.
+  assert.equal(bare.capability.toolId, quoted.capability.toolId);
+});
+
+test("a real path glob is still a one-time script", () => {
+  const result = classifyHostBashCommand("ls src/*.ts");
+
   assert.equal(result.kind, "one-time-script");
-  assert.match(result.reason, /head/i);
+  assert.match(result.reason, /glob/i);
+});
+
+test("command substitution inside double quotes is rejected like the bare form", () => {
+  for (const command of [
+    'curl -s "https://api.test/?q=$(whoami)"',
+    'curl -s "https://api.test/?q=`whoami`"'
+  ]) {
+    const result = classifyHostBashCommand(command);
+    assert.equal(result.kind, "one-time-script", command);
+    assert.match(result.reason, /command substitution/i);
+  }
+
+  // Single quotes are literal in bash, so they carry no substitution risk.
+  assert.equal(classifyHostBashCommand("curl -s 'https://api.test/?q=$(whoami)'").kind, "persistent-capability");
 });
 
 test("degrades env assignment prefix to one-time script", () => {

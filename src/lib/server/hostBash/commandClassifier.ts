@@ -31,6 +31,13 @@ type LexToken = LexWordToken | LexOperatorToken;
 const FORBIDDEN_COMMANDS = new Set(["bash", "sh", "zsh", "fish", "node", "python", "python3", "ruby", "perl"]);
 const STRICT_HELPER_NAMES = new Set(["cd", "echo", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "jq", "grep", "rg", "sed", "sleep", "true", "false"]);
 const UNSAFE_HELPER_COMMANDS = new Set(["tee", "xargs"]);
+/**
+ * Helper names that must never fall through to a capability. These affect the
+ * shell itself rather than doing work of their own, so a persistent `bash:cd`
+ * grant would authorize nothing meaningful while retiring the argument check
+ * that is the actual gate (`cd "$HOME"` must stay unapprovable).
+ */
+const HELPER_ONLY_NAMES = new Set(["cd", "true", "false"]);
 const SAFE_GLUE_REASONS: Record<HostBashSafeGlue["token"], string> = {
   "|": "pipeline",
   "&&": "success chaining",
@@ -50,6 +57,17 @@ function sanitizeToolId(input: string): string {
 
 function baseCommandName(executable: string): string {
   return basename(executable).toLowerCase();
+}
+
+/**
+ * Pathname expansion applies to words that are candidate paths. A URI is not
+ * one: the `?` that opens a query string and the `[]` around an IPv6 host are
+ * ordinary syntax there, and treating them as globs was demoting every request
+ * to a parameterised URL into an unapprovable one-time script — so `curl
+ * 'https://x/v1?page=2'` was reusable but the same command unquoted was not.
+ */
+function isUriWord(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }
 
 function isEnvAssignment(value: string): boolean {
@@ -210,8 +228,15 @@ function lexShell(input: string): { ok: true; tokens: LexToken[] } | { ok: false
       const next = input[index + 1] ?? "";
       if (!quote && !escaping && /\s/.test(current)) break;
       if (!quote && !escaping && ["|", ";", "&", "<", ">", "(", ")", "{", "}"].includes(current)) break;
-      if (!quote && !escaping && current === "$" && next === "(") {
+      // Double quotes do not suppress command substitution in bash, and the
+      // approved command is later handed to a real shell — so `"$(...)"` and
+      // "`...`" would execute under whatever grant the primary executable holds.
+      // Single quotes are literal, so they stay exempt.
+      if (quote !== "'" && !escaping && current === "$" && next === "(") {
         return { ok: false, reason: "Command substitution is not allowed.", token: "$(" };
+      }
+      if (quote !== "'" && !escaping && current === "`") {
+        return { ok: false, reason: "Command substitution is not allowed.", token: "`" };
       }
       original += current;
       index += 1;
@@ -246,7 +271,14 @@ function lexShell(input: string): { ok: true; tokens: LexToken[] } | { ok: false
     if (escaping || quote) {
       return { ok: false, reason: "Unmatched quotes or escapes.", token: input.slice(start, index) };
     }
-    tokens.push({ type: "word", value, original: input.slice(start, index), start, end: index, hasUnquotedGlob });
+    tokens.push({
+      type: "word",
+      value,
+      original: input.slice(start, index),
+      start,
+      end: index,
+      hasUnquotedGlob: hasUnquotedGlob && !isUriWord(value)
+    });
   }
 
   return { ok: true, tokens };
@@ -314,7 +346,14 @@ function classifyCommandNode(node: Extract<ShellPlanNode, { type: "command" }>):
     };
   }
 
-  if (STRICT_HELPER_NAMES.has(baseCommandName(executable))) {
+  // A strict-helper name outside its restricted form is NOT forbidden — it just
+  // stops being a free rider on the primary command's grant and has to earn its
+  // own capability, like any other executable. Returning `unsupported` here
+  // instead was an inversion: it made the whole command a one-time script, which
+  // grants nothing and re-prompts forever while still executing once approved.
+  // The result was that `rm -rf build` could be approved persistently but
+  // `grep -rn foo src` and `echo "a long message"` could not.
+  if (HELPER_ONLY_NAMES.has(baseCommandName(executable))) {
     return {
       type: "unsupported",
       reason: `${baseCommandName(executable)} is only allowed as a safe helper in restricted forms.`,
