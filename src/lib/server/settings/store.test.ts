@@ -153,6 +153,87 @@ test("settings serialization keeps full plugins block (reflection, daily materia
   assert.deepEqual(raw.plugins.myFeature, { apiKey: "k", mode: "fast" });
 });
 
+test("pi extension enable state and per-bot exclusions survive a settings store restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-pi-extension-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        piExtensions: {
+          enabled: true,
+          entries: {
+            "hello-ext": { enabled: false, disabledBots: ["momo", "work-bot"], flags: { verbose: true } },
+            "other-ext": { enabled: true, disabledBots: [] }
+          }
+        }
+      }
+    });
+
+    const restarted = new SettingsStore().load();
+    assert.equal(restarted.plugins.piExtensions.enabled, true);
+    assert.equal(restarted.plugins.piExtensions.entries["hello-ext"].enabled, false);
+    assert.deepEqual(restarted.plugins.piExtensions.entries["hello-ext"].disabledBots, ["momo", "work-bot"]);
+    assert.deepEqual(restarted.plugins.piExtensions.entries["hello-ext"].flags, { verbose: true });
+    assert.equal(restarted.plugins.piExtensions.entries["other-ext"].enabled, true);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("parent and subagent runtime budgets survive a settings store restart independently", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-agent-budget-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      budget: { maxToolCalls: 40, maxToolFailures: 4, maxModelAttempts: 5 },
+      subagentRuntime: {
+        maxToolCalls: 140,
+        maxToolFailures: 10,
+        maxModelTurns: 24,
+        deadlineMs: 3_600_000,
+        maxTasks: 7,
+        maxConcurrency: 3,
+        compactionEnabled: true,
+        persistSessions: true
+      }
+    });
+
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(restarted.budget, {
+      maxToolCalls: 40,
+      maxToolFailures: 4,
+      maxModelAttempts: 5
+    });
+    assert.deepEqual(restarted.subagentRuntime, {
+      maxToolCalls: 140,
+      maxToolFailures: 10,
+      maxModelTurns: 24,
+      deadlineMs: 3_600_000,
+      maxTasks: 7,
+      maxConcurrency: 3,
+      compactionEnabled: true,
+      persistSessions: true
+    });
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("memory reflection and daily materials survive a settings store restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-plugin-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;

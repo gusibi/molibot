@@ -1485,11 +1485,12 @@
   }
 
   /**
-   * Branch off a historical user message without touching the parent: create a
-   * visible child Session whose transcript ends just before that message, switch
-   * to it, and preload the composer with the original text so the next turn can
-   * be a variation of it. This is the non-destructive counterpart to
-   * `startEditUserMessage`, which still rewrites the current Session in place.
+   * Copy the Session as it stood at this message into a visible child and switch
+   * to it: the child's transcript ends *at* the picked message, so forking at the
+   * last one duplicates the conversation outright. The parent is untouched and
+   * the two then diverge. The composer is deliberately left alone — this is
+   * "continue from here in a copy", not "re-ask this differently", which is what
+   * `startEditUserMessage` still does in place.
    */
   async function forkFromUserMessage(message: TranscriptMessage): Promise<void> {
     const fromMessageId = message.id;
@@ -1537,10 +1538,10 @@
       chatStore.selectSession(activeProfileId, child.id),
       loadChannel("web")
     ]);
-    // Deliberately not `loadDraftIn()`: the child's composer is primed with the
-    // forked message instead of whatever draft it may have carried.
+    // The child is a copy that already contains the picked message, so priming
+    // the composer with it would duplicate the turn. Start the child clean.
     persistSelected(activeProfileId, child.id);
-    messageInput = message.content ?? "";
+    messageInput = "";
     pendingFiles = [];
     forkingMessageId = "";
     void refreshFiles(activeProfileId, child.id);

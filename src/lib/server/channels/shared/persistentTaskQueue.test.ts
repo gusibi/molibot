@@ -183,3 +183,68 @@ test("PersistentTaskQueue removes failed tasks from sqlite automatically", async
   assert.equal(countRows(dbFile), 0);
   cleanup();
 });
+
+test("PersistentTaskQueue quarantines interrupted running work until an explicit retry", async () => {
+  const { dbFile, cleanup } = createTempQueueDb();
+  const bootstrap = new PersistentTaskQueue<{ text: string }>({
+    channel: "test",
+    instanceId: "bot-recovery",
+    dbFile,
+    process: async () => {}
+  });
+  bootstrap.close();
+
+  const db = new DatabaseSync(dbFile);
+  const now = new Date().toISOString();
+  const inserted = db.prepare(`
+    INSERT INTO inbound_tasks (
+      channel, instance_id, scope_id, status, queue_order, preview_text,
+      payload_json, error_text, created_at, updated_at, started_at,
+      finished_at, lease_id, checkpoint_json, recovery_reason
+    ) VALUES (?, ?, ?, 'running', 1, ?, ?, NULL, ?, ?, ?, NULL, ?, ?, NULL)
+  `).run(
+    "test",
+    "bot-recovery",
+    "chat-1",
+    "interrupted task",
+    JSON.stringify({ text: "resume me" }),
+    now,
+    now,
+    now,
+    "old-lease",
+    JSON.stringify({ phase: "agent_running", toolCalls: 3 })
+  );
+  const id = Number(inserted.lastInsertRowid);
+  db.close();
+
+  let processCalls = 0;
+  let resolveDone: (() => void) | null = null;
+  const done = new Promise<void>((resolve) => { resolveDone = resolve; });
+  const restarted = new PersistentTaskQueue<{ text: string }>({
+    channel: "test",
+    instanceId: "bot-recovery",
+    dbFile,
+    process: async (_payload, record) => {
+      processCalls += 1;
+      record.checkpoint({ phase: "explicit_retry_running" });
+      resolveDone?.();
+    }
+  });
+
+  assert.deepEqual(restarted.peek("chat-1", id), {
+    status: "recovery_required",
+    preview: "interrupted task"
+  });
+  assert.equal(restarted.list("chat-1")[0]?.recoveryReason, "interrupted_while_running");
+  await restarted.resumeAll();
+  assert.equal(processCalls, 0, "startup recovery must not blindly replay side effects");
+
+  assert.equal(restarted.retryRecovery("chat-1", id), "retried");
+  await done;
+  await delay(10);
+  assert.equal(processCalls, 1);
+  assert.equal(countRows(dbFile), 0);
+
+  restarted.close();
+  cleanup();
+});

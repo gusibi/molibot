@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
 import {
   buildSubagentModelCandidates,
+  buildSubagentPiSettings,
+  createSubagentSessionManager,
   createSubagentTool,
   isSafeReadOnlySubagentCommand,
   listBuiltInSubagents,
@@ -12,6 +17,51 @@ import {
   summarizeSubagentStopReason,
   summarizeSubagentResultsForParent
 } from "$lib/server/agent/tools/subagent.js";
+
+test("Subagent pi settings inherit bounded compaction values from runtime settings", () => {
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.compaction.reserveTokens = 20_000;
+  settings.compaction.keepRecentTokens = 30_000;
+  settings.subagentRuntime.compactionEnabled = true;
+
+  assert.deepEqual(buildSubagentPiSettings(settings), {
+    compaction: {
+      enabled: true,
+      reserveTokens: 20_000,
+      keepRecentTokens: 30_000
+    }
+  });
+});
+
+test("Subagent session manager persists under the workspace only when enabled", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-subagent-session-"));
+  try {
+    const persistedSettings = structuredClone(defaultRuntimeSettings);
+    persistedSettings.subagentRuntime.persistSessions = true;
+    const persisted = createSubagentSessionManager({
+      cwd: workspaceDir,
+      workspaceDir,
+      settings: persistedSettings,
+      sessionId: "run-1-worker"
+    });
+    assert.equal(persisted.isPersisted(), true);
+    assert.equal(persisted.getSessionId(), "run-1-worker");
+    assert.equal(persisted.getSessionDir(), join(workspaceDir, "subagent-sessions"));
+
+    const memorySettings = structuredClone(defaultRuntimeSettings);
+    memorySettings.subagentRuntime.persistSessions = false;
+    const memory = createSubagentSessionManager({
+      cwd: workspaceDir,
+      workspaceDir,
+      settings: memorySettings,
+      sessionId: "run-2-scout"
+    });
+    assert.equal(memory.isPersisted(), false);
+    assert.equal(memory.getSessionId(), "run-2-scout");
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
 
 test("read-only subagent bash rejects shell control operators", () => {
   assert.equal(isSafeReadOnlySubagentCommand("git diff -- src/lib/server/agent/runner.ts"), true);
@@ -199,6 +249,70 @@ test("parallel mode runs every task even when one is budget-stopped", async () =
 
   assert.deepEqual([...seen].sort(), ["a", "b", "c"]);
   assert.equal((result as any).details.results.length, 3);
+});
+
+test("parallel mode rejects task fan-out above the configured maximum before starting work", async () => {
+  let started = 0;
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.subagentRuntime.maxTasks = 2;
+  const tool = createSubagentTool({
+    cwd: process.cwd(),
+    workspaceDir: process.cwd(),
+    chatId: "chat-1",
+    getSettings: () => settings,
+    runSubagent: async (agent: { name: string }, task: string) => {
+      started += 1;
+      return completed(agent.name, task);
+    }
+  } as any);
+
+  await assert.rejects(
+    tool.execute("tool-1", {
+      tasks: [
+        { agent: "scout", task: "a" },
+        { agent: "scout", task: "b" },
+        { agent: "scout", task: "c" }
+      ]
+    }, undefined, undefined),
+    /task limit exceeded.*requested 3.*maximum 2/i
+  );
+  assert.equal(started, 0);
+});
+
+test("parallel mode caps requested concurrency at the configured maximum", async () => {
+  let active = 0;
+  let peak = 0;
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.subagentRuntime = {
+    ...settings.subagentRuntime,
+    maxTasks: 4,
+    maxConcurrency: 2
+  };
+  const tool = createSubagentTool({
+    cwd: process.cwd(),
+    workspaceDir: process.cwd(),
+    chatId: "chat-1",
+    getSettings: () => settings,
+    runSubagent: async (agent: { name: string }, task: string) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return completed(agent.name, task);
+    }
+  } as any);
+
+  await tool.execute("tool-1", {
+    tasks: [
+      { agent: "scout", task: "a" },
+      { agent: "scout", task: "b" },
+      { agent: "scout", task: "c" },
+      { agent: "scout", task: "d" }
+    ],
+    maxConcurrency: 4
+  }, undefined, undefined);
+
+  assert.equal(peak, 2);
 });
 
 test("chain mode stops after a budget-stopped step instead of running the rest", async () => {

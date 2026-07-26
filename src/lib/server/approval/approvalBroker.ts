@@ -203,3 +203,11 @@ export function getApprovalBroker(): ApprovalBroker {
   return approvalBroker;
 }
 
+/**
+ * Test seam: drops the singleton so the next call opens a fresh store. Needed
+ * because the broker binds its SQLite path at construction time.
+ */
+export function resetApprovalBrokerForTests(): void {
+  approvalBroker = null;
+}
+

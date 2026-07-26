@@ -64,6 +64,11 @@ const KEY_LOG_EVENTS = new Set<string>([
   "skill_search_local_result",
   "skill_search_api_result",
   "skill_search_end",
+  // third-party pi extensions (startup visibility: what actually loaded)
+  "pi_extensions_loaded",
+  "pi_extensions_reloaded",
+  "pi_extension_installed",
+  "pi_extension_uninstalled",
 ]);
 
 const EVENT_EMOJIS: Record<string, string> = {

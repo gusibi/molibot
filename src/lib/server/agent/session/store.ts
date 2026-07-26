@@ -890,10 +890,11 @@ export class MomRuntimeStore {
     const body = sourceEntries.filter((entry): entry is SessionEntry => entry.type !== "session");
     const index = body.findIndex((entry) => entry.type === "message" && entry.id === fromEntryId);
     if (index < 0) throw new Error("Fork entry not found");
-    const forkPoint = body[index];
-    if (forkPoint.type !== "message" || forkPoint.message.role !== "user") {
-      throw new Error("A Session fork must start from a user message");
-    }
+    // Any message may be a fork point. Restricting this to user messages made
+    // the headline case impossible: a conversation almost always ends on an
+    // assistant reply, so "duplicate this Session as it stands" had no legal
+    // node to fork at.
+    if (body[index]?.type !== "message") throw new Error("Fork entry not found");
 
     const preferences = { ...(sourceHeader.preferences ?? {}) };
     delete preferences.hostApprovalMode;
@@ -904,7 +905,9 @@ export class MomRuntimeStore {
       }),
       preferences: Object.keys(preferences).length > 0 ? preferences : undefined
     };
-    const childEntries: SessionFileEntry[] = [header, ...body.slice(0, index)];
+    // Inclusive: the child carries the fork point itself, so forking at the tip
+    // yields a transcript identical to the parent's and the two then diverge.
+    const childEntries: SessionFileEntry[] = [header, ...body.slice(0, index + 1)];
     const snapshot = buildMessagesFromSessionEntries(childEntries).messages;
 
     try {
@@ -1058,6 +1061,28 @@ export class MomRuntimeStore {
     const snapshot = buildMessagesFromSessionEntries(kept).messages;
     writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
     return body.length - checkpoint.bodyEntryCount;
+  }
+
+  /**
+   * Remove only the latest persisted assistant message while retaining earlier
+   * tool-call and tool-result entries. Used by post-tool overflow recovery: the
+   * failed terminal assistant must be dropped, but rolling back the whole model
+   * attempt would lose completed side effects and invite re-execution.
+   */
+  discardLatestContextAssistant(chatId: string, sessionId?: string): boolean {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const entries = this.readSessionFileEntries(chatId, id);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (entry?.type !== "message") continue;
+      if (entry.message.role !== "assistant") return false;
+      entries.splice(index, 1);
+      this.writeSessionFileEntries(chatId, id, entries);
+      const snapshot = buildMessagesFromSessionEntries(entries).messages;
+      writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+      return true;
+    }
+    return false;
   }
 
   getSessionThinkingLevelOverride(chatId: string, sessionId?: string): RuntimeThinkingLevel | null {

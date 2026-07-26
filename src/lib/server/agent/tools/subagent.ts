@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
@@ -42,12 +43,12 @@ import { createEditTool } from "$lib/server/agent/tools/edit.js";
 import { createReadTool } from "$lib/server/agent/tools/read.js";
 import { createWriteTool } from "$lib/server/agent/tools/write.js";
 import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
+import { settleWithCooperativeTimeout } from "$lib/server/agent/core/cooperativeTimeout.js";
 import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js";
 import {
-  armSubagentDeadline,
-  DEFAULT_SUBAGENT_DEADLINE_MS,
   evaluateSubagentEvent,
   resolveSubagentBudgetLimits,
+  resolveSubagentExecutionLimits,
   shouldFallbackToNextModel,
   SubagentExecutionGuard,
   type SubagentStopKind
@@ -66,8 +67,8 @@ const taskItemSchema = Type.Object({
 const subagentSchema = Type.Object({
   agent: Type.Optional(Type.String()),
   task: Type.Optional(Type.String()),
-  tasks: Type.Optional(Type.Array(taskItemSchema)),
-  chain: Type.Optional(Type.Array(taskItemSchema)),
+  tasks: Type.Optional(Type.Array(taskItemSchema, { maxItems: 16 })),
+  chain: Type.Optional(Type.Array(taskItemSchema, { maxItems: 16 })),
   maxConcurrency: Type.Optional(Type.Number({ minimum: 1, maximum: 4 }))
 });
 
@@ -105,6 +106,7 @@ export interface SubagentRunResult {
   budget?: RunBudgetSnapshot;
   runtimeStopKind?: SubagentStopKind;
   durationMs?: number;
+  sessionId?: string;
 }
 
 interface SubagentToolDetails {
@@ -193,7 +195,10 @@ export function summarizeSubagentStopReason(
   return "stop";
 }
 
-function parseSubagentMode(input: SubagentInput): {
+function parseSubagentMode(
+  input: SubagentInput,
+  limits: { maxTasks: number; maxConcurrency: number }
+): {
   mode: "single" | "parallel" | "chain";
   tasks: SingleTaskInput[];
   maxConcurrency: number;
@@ -205,6 +210,13 @@ function parseSubagentMode(input: SubagentInput): {
 
   if (modeCount !== 1) {
     throw new Error("Provide exactly one subagent mode: {agent, task}, {tasks}, or {chain}.");
+  }
+
+  const requestedTasks = hasSingle ? 1 : hasParallel ? input.tasks!.length : input.chain!.length;
+  if (requestedTasks > limits.maxTasks) {
+    throw new Error(
+      `Subagent task limit exceeded: requested ${requestedTasks}, configured maximum ${limits.maxTasks}.`
+    );
   }
 
   if (hasSingle) {
@@ -222,7 +234,10 @@ function parseSubagentMode(input: SubagentInput): {
         agent: String(item.agent ?? "").trim(),
         task: String(item.task ?? "").trim()
       })),
-      maxConcurrency: Math.max(1, Math.min(4, Math.floor(input.maxConcurrency ?? 2)))
+      maxConcurrency: Math.max(
+        1,
+        Math.min(limits.maxConcurrency, Math.floor(input.maxConcurrency ?? limits.maxConcurrency))
+      )
     };
   }
 
@@ -781,6 +796,46 @@ interface RunSingleSubagentOptions {
   hostApproval?: BashToolHostApprovalOptions;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
   signal?: AbortSignal;
+  subagentSessionId?: string;
+}
+
+export function buildSubagentPiSettings(settings: RuntimeSettings): {
+  compaction: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
+} {
+  return {
+    compaction: {
+      enabled: settings.subagentRuntime.compactionEnabled,
+      reserveTokens: settings.compaction.reserveTokens,
+      keepRecentTokens: settings.compaction.keepRecentTokens
+    }
+  };
+}
+
+function normalizeSubagentSessionId(value: string | undefined): string {
+  const normalized = String(value ?? "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "")
+    .slice(0, 160)
+    .replace(/[^A-Za-z0-9]+$/g, "");
+  return normalized || `subagent-${randomUUID()}`;
+}
+
+export function createSubagentSessionManager(options: {
+  cwd: string;
+  workspaceDir: string;
+  settings: RuntimeSettings;
+  sessionId?: string;
+}): SessionManager {
+  if (!options.settings.subagentRuntime.persistSessions) {
+    return SessionManager.inMemory(options.cwd, {
+      id: normalizeSubagentSessionId(options.sessionId)
+    });
+  }
+  return SessionManager.create(
+    options.cwd,
+    join(options.workspaceDir, "subagent-sessions"),
+    { id: normalizeSubagentSessionId(options.sessionId) }
+  );
 }
 
 interface SubagentAttemptRuntime {
@@ -810,9 +865,7 @@ async function runSubagentOnce(
     api: model.api
   });
 
-  const settingsManager = SettingsManager.inMemory({
-    compaction: { enabled: false }
-  });
+  const settingsManager = SettingsManager.inMemory(buildSubagentPiSettings(options.settings));
   const artifactPrompt = options.artifactDir
     ? [
       `Default generated artifact directory: ${options.artifactDir}`,
@@ -850,7 +903,12 @@ async function runSubagentOnce(
     toolNames: agent.tools && agent.tools.length > 0 ? agent.tools : ["read", "bash", "edit", "write"]
   });
 
-  const sessionManager = SessionManager.inMemory(options.cwd);
+  const sessionManager = createSubagentSessionManager({
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir,
+    settings: options.settings,
+    sessionId: options.subagentSessionId
+  });
   const { session } = await createAgentSession({
     cwd: options.cwd,
     agentDir: options.cwd,
@@ -951,20 +1009,8 @@ async function runSubagentOnce(
     void session.abort();
   });
 
-  // Independent deadline timer: the event-driven guard check only runs when the
-  // session emits events, so a stalled/idle session.prompt would never hit the
-  // deadline. This timer aborts such hangs and records the timeout stop reason.
-  const clearDeadline = armSubagentDeadline(guard, () => {
-    if (!guard.checkDeadline().ok) {
-      momWarn("runner", "subagent_deadline_timeout", {
-        chatId: options.chatId,
-        agent: agent.name,
-        modelId: model.id,
-        budget: guard.snapshot()
-      });
-      void session.abort();
-    }
-  });
+  let promptPromise: Promise<void> | undefined;
+  let hardTimedOut = false;
 
   try {
     momLog("runner", "subagent_prompt_start", {
@@ -972,7 +1018,42 @@ async function runSubagentOnce(
       agent: agent.name,
       taskPreview: previewTask(task, 200)
     });
-    await session.prompt(task);
+    promptPromise = session.prompt(task);
+    const promptOutcome = await settleWithCooperativeTimeout(promptPromise, {
+      timeoutMs: guard.remainingMs() ?? resolveSubagentExecutionLimits(options.settings).deadlineMs,
+      onTimeout: () => {
+        guard.checkDeadline();
+        momWarn("runner", "subagent_deadline_timeout", {
+          chatId: options.chatId,
+          agent: agent.name,
+          modelId: model.id,
+          budget: guard.snapshot()
+        });
+        return session.abort();
+      }
+    });
+    if (promptOutcome.status === "timeout") {
+      hardTimedOut = true;
+      const messages = session.state.messages;
+      const lastAssistant = getLastAssistant(messages);
+      const guardStop = guard.getStopReason() ?? {
+        kind: "timeout" as const,
+        reason: `Subagent exceeded its time budget (${resolveSubagentExecutionLimits(options.settings).deadlineMs}ms).`
+      };
+      return {
+        agent: agent.name,
+        task,
+        output: getAssistantText(lastAssistant),
+        stopReason: "error",
+        errorMessage: guardStop.reason,
+        usage: buildUsage(messages),
+        model: session.model?.id,
+        budget: guard.snapshot(),
+        runtimeStopKind: "timeout",
+        durationMs: Date.now() - startedAt,
+        sessionId: session.sessionId
+      };
+    }
     momLog("runner", "subagent_prompt_end", {
       chatId: options.chatId,
       agent: agent.name,
@@ -999,7 +1080,8 @@ async function runSubagentOnce(
       model: session.model?.id,
       budget: guard.snapshot(),
       runtimeStopKind: guardStop?.kind,
-      durationMs: Date.now() - startedAt
+      durationMs: Date.now() - startedAt,
+      sessionId: session.sessionId
     };
   } catch (error) {
     momLog("runner", "subagent_prompt_error", {
@@ -1020,21 +1102,46 @@ async function runSubagentOnce(
         usage: buildUsage(messages),
         model: session.model?.id,
         budget: guard.snapshot(),
-        durationMs: Date.now() - startedAt
+        durationMs: Date.now() - startedAt,
+        sessionId: session.sessionId
+      };
+    }
+    const guardStop = guard.getStopReason();
+    if (guardStop) {
+      const messages = session.state.messages;
+      const lastAssistant = getLastAssistant(messages);
+      return {
+        agent: agent.name,
+        task,
+        output: getAssistantText(lastAssistant),
+        stopReason: guardStop.kind === "aborted" ? "aborted" : "error",
+        errorMessage: guardStop.reason,
+        usage: buildUsage(messages),
+        model: session.model?.id,
+        budget: guard.snapshot(),
+        runtimeStopKind: guardStop.kind,
+        durationMs: Date.now() - startedAt,
+        sessionId: session.sessionId
       };
     }
     throw error;
   } finally {
-    clearDeadline();
-    options.signal?.removeEventListener("abort", onAbort);
-    unsubscribe();
-    session.dispose();
-    momLog("runner", "subagent_session_disposed", {
-      chatId: options.chatId,
-      agent: agent.name,
-      llmCalls: subagentLlmCallCount,
-      toolCalls: subagentToolCallCount
-    });
+    const cleanup = () => {
+      options.signal?.removeEventListener("abort", onAbort);
+      unsubscribe();
+      session.dispose();
+      momLog("runner", "subagent_session_disposed", {
+        chatId: options.chatId,
+        agent: agent.name,
+        llmCalls: subagentLlmCallCount,
+        toolCalls: subagentToolCallCount
+      });
+    };
+    if (hardTimedOut && promptPromise) {
+      void promptPromise.then(cleanup, cleanup);
+    } else {
+      cleanup();
+    }
   }
 }
 
@@ -1055,7 +1162,7 @@ async function runSingleSubagent(
   );
   const guard = new SubagentExecutionGuard({
     limits: resolveSubagentBudgetLimits(options.settings),
-    deadlineMs: DEFAULT_SUBAGENT_DEADLINE_MS
+    deadlineMs: resolveSubagentExecutionLimits(options.settings).deadlineMs
   });
   const startedAt = Date.now();
 
@@ -1196,8 +1303,11 @@ export function createSubagentTool(options: {
       "Delegate codebase-heavy work to an isolated pi-mono subagent. Use roles `scout`, `planner`, `worker`, or `reviewer`. Supports one task, parallel tasks, or a chain with `{previous}` placeholder.",
     parameters: subagentSchema,
     execute: async (_toolCallId, params, signal, onUpdate): Promise<AgentToolResult<SubagentToolDetails>> => {
-      const parsed = parseSubagentMode(params as SubagentInput);
       const settings = options.getSettings();
+      const parsed = parseSubagentMode(
+        params as SubagentInput,
+        resolveSubagentExecutionLimits(settings)
+      );
       let endEventSent = false;
       momLog("runner", "subagent_start", {
         chatId: options.chatId,
@@ -1293,7 +1403,8 @@ export function createSubagentTool(options: {
             artifactDir: options.artifactDir,
             hostApproval,
             emitRunnerEvent: options.emitRunnerEvent,
-            signal
+            signal,
+            subagentSessionId: `${options.runId ?? options.chatId}-${index + 1}-${agent.name}`
           });
           momLog("runner", "subagent_task_end", {
             chatId: options.chatId,
@@ -1319,7 +1430,8 @@ export function createSubagentTool(options: {
             stopReason: normalizeSubagentStopReason(result.stopReason),
             errorMessage: result.errorMessage,
             budget: result.budget,
-            model: result.model
+            model: result.model,
+            sessionId: result.sessionId
           });
           return result;
         } catch (error) {

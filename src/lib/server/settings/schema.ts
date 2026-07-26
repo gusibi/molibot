@@ -243,10 +243,29 @@ export interface HookPluginEntry {
   options?: Record<string, unknown>;
 }
 
+/**
+ * Per-extension state for third-party pi extensions installed under
+ * `${DATA_DIR}/extensions`. Keyed by extension id (the install directory name).
+ */
+export interface PiExtensionEntrySettings {
+  enabled: boolean;
+  /** Bot ids (workspace dir names) this extension is switched off for. */
+  disabledBots: string[];
+  /** Values for flags the extension declared via `registerFlag`. */
+  flags?: Record<string, boolean | string>;
+}
+
+export interface PiExtensionsSettings {
+  /** Master switch: false disables every installed extension. */
+  enabled: boolean;
+  entries: Record<string, PiExtensionEntrySettings>;
+}
+
 export interface PluginSettings {
   memory: MemoryBackendSettings;
   cloudflareHtml: CloudflareHtmlPluginSettings;
   hooks: HookPluginEntry[];
+  piExtensions: PiExtensionsSettings;
 }
 
 
@@ -519,6 +538,23 @@ export interface RunBudgetLimits {
   maxModelAttempts: number;
 }
 
+export interface SubagentRuntimeSettings {
+  maxToolCalls: number;
+  maxToolFailures: number;
+  /** Model turns inside one delegated task, independent from parent model attempts. */
+  maxModelTurns: number;
+  /** Wall-clock deadline for one delegated task. */
+  deadlineMs: number;
+  /** Maximum tasks accepted by one parallel or chain invocation. */
+  maxTasks: number;
+  /** Maximum tasks executed concurrently by one parallel invocation. */
+  maxConcurrency: number;
+  /** Use pi AgentSession auto-compaction inside delegated tasks. */
+  compactionEnabled: boolean;
+  /** Persist delegated pi session transcripts under the bot workspace. */
+  persistSessions: boolean;
+}
+
 export type RuntimeLocale = "zh-CN" | "en-US";
 
 export interface RuntimeSettings {
@@ -554,6 +590,7 @@ export interface RuntimeSettings {
   telegramBotToken: string;
   telegramAllowedChatIds: string[];
   budget: RunBudgetLimits;
+  subagentRuntime: SubagentRuntimeSettings;
   events: EventExecutionSettings;
   browserAutomation: BrowserAutomationSettings;
   display?: GlobalDisplaySettings;

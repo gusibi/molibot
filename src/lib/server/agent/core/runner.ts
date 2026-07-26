@@ -19,6 +19,7 @@ import { applyAssistantStreamEvent } from "$lib/server/agent/core/assistantStrea
 import { withFirstTokenTimeout } from "$lib/server/agent/core/firstTokenStreamTimeout.js";
 import { buildPromptInputEnvelope } from "$lib/server/agent/prompts/promptInput.js";
 import { createMomTools } from "$lib/server/agent/tools/index.js";
+import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
 import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
@@ -41,6 +42,7 @@ import {
   validateToolCallPreflight
 } from "$lib/server/agent/tools/toolPolicy.js";
 import {
+  POST_TOOL_OVERFLOW_CONTINUATION_NOTICE,
   SUBAGENT_DELEGATION_RUNTIME_NOTICE,
   stripTransientRuntimeNoticesFromMessages,
   TOOL_BUDGET_RUNTIME_NOTICE
@@ -298,7 +300,12 @@ export class MomRunner implements RunnerLike {
             toolCallId: context.toolCall.id,
             displayName,
             label,
-            argsPreview: JSON.stringify(context.args ?? {}).slice(0, 500)
+            argsPreview: JSON.stringify(context.args ?? {}).slice(0, 500),
+            // The live arguments object, by reference: gate hooks (pi extension
+            // `tool_call` handlers) patch tool arguments by mutating it in
+            // place, exactly as they do inside pi. The trace recorder collapses
+            // nested objects, so this does not enlarge stored traces.
+            args: context.args
           });
           if (decision.type === "deny") {
             this.hookManager.emit("tool.call.blocked", hookContext, {
@@ -365,7 +372,12 @@ export class MomRunner implements RunnerLike {
               toolCallId: context.toolCall.id,
               displayName,
               isError: context.isError,
-              resultPreview: extractTextFromResult(context.result).slice(0, 1000)
+              resultPreview: extractTextFromResult(context.result).slice(0, 1000),
+              // Full args/result for hooks that need more than the preview
+              // (pi extension `tool_result` handlers). Observe-only: nothing
+              // downstream reads back a mutation here.
+              args: context.args,
+              result: context.result
             }
           );
         }
@@ -993,6 +1005,10 @@ export class MomRunner implements RunnerLike {
       emittedHostBashApprovalIds.add(approval.requestId);
       return true;
     };
+    // Extension tools are collected synchronously inside createMomTools, so the
+    // host must be loaded first: on a cold start the very first turn would
+    // otherwise silently run without any extension-provided tools.
+    await getPiExtensionHost().load().catch(() => undefined);
     localTools = createMomTools({
       channel: ctx.channel,
       cwd: this.currentWorkingDir(),
@@ -1647,6 +1663,7 @@ export class MomRunner implements RunnerLike {
         let attemptCount = 0;
         let candidateFinalText = "";
         let overflowRetryUsed = false;
+        let continueAfterPostToolOverflow = false;
         let toolBudgetContinuationUsed = false;
 
         /**
@@ -1655,7 +1672,11 @@ export class MomRunner implements RunnerLike {
          * when this returns true; a compaction that changes nothing means the
          * context cannot shrink further and the failure has to stand.
          */
-        const compactForOverflow = async (source: string, detail: string): Promise<boolean> => {
+        const compactForOverflow = async (
+          source: string,
+          detail: string,
+          reason: "threshold" | "manual" = "threshold"
+        ): Promise<boolean> => {
           overflowRetryUsed = true;
           momWarn("runner", "context_overflow_detected", {
             runId,
@@ -1668,7 +1689,7 @@ export class MomRunner implements RunnerLike {
           });
           try {
             const compacted = await this.compact({
-              reason: "threshold",
+              reason,
               notify: async (text) => {
                 await respondInThread(text);
               }
@@ -1742,12 +1763,29 @@ export class MomRunner implements RunnerLike {
             };
             this.activeModelCallContext = undefined;
 
-            await this.agent.prompt(
-              userMessage,
-              visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0
-                ? ctx.message.imageContents
-                : undefined,
-            );
+            if (continueAfterPostToolOverflow) {
+              continueAfterPostToolOverflow = false;
+              const currentMessages = this.agent.state.messages as AgentMessage[];
+              const lastRole = (currentMessages[currentMessages.length - 1] as { role?: string } | undefined)?.role;
+              if (lastRole === "assistant") {
+                this.agent.state.messages = [
+                  ...currentMessages,
+                  {
+                    role: "user",
+                    content: [{ type: "text", text: POST_TOOL_OVERFLOW_CONTINUATION_NOTICE }],
+                    timestamp: Date.now()
+                  } as AgentMessage
+                ];
+              }
+              await this.agent.continue();
+            } else {
+              await this.agent.prompt(
+                userMessage,
+                visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0
+                  ? ctx.message.imageContents
+                  : undefined,
+              );
+            }
             if (this.abortRequested) {
               stopReason = "aborted";
             }
@@ -1949,6 +1987,50 @@ export class MomRunner implements RunnerLike {
               break;
             }
 
+            // A context overflow after tools ran must resume from their results,
+            // not replay the original prompt. Remove only the failed terminal
+            // assistant, make the retained tool results the new checkpoint,
+            // force one compaction, then continue from that transcript.
+            if (!overflowRetryUsed && attemptExecutedTools) {
+              const reportedOverflow =
+                (decision.kind === "retryable_error" || decision.kind === "terminal_error") &&
+                isContextOverflowError(decision.message);
+              const silentOverflow =
+                !reportedOverflow &&
+                isContextOverflowResponse(
+                  lastAssistant,
+                  selectedModel.contextWindow || settings.compaction.defaultContextWindow
+                );
+              if (reportedOverflow || silentOverflow) {
+                const lastAssistantIndex = lastAssistant
+                  ? messages.lastIndexOf(lastAssistant)
+                  : -1;
+                const persistedDiscarded = lastAssistantIndex >= 0 &&
+                  this.store.discardLatestContextAssistant(this.chatId, this.sessionId);
+                if (persistedDiscarded) {
+                  this.agent.state.messages = messages.filter((_, index) => index !== lastAssistantIndex);
+                  assistantMessagePersisted = false;
+                  const detail = reportedOverflow
+                    ? (decision as { message: string }).message
+                    : "provider overflowed after completed tool results without reporting an error";
+                  if (await compactForOverflow(
+                    reportedOverflow ? "post_tool_error_response" : "post_tool_silent_usage",
+                    detail,
+                    "manual"
+                  )) {
+                    continueAfterPostToolOverflow = true;
+                    attemptCount += 1;
+                    continue;
+                  }
+                  // Even if compaction cannot shrink further, keep completed
+                  // tool results as the terminal baseline instead of rolling
+                  // them back with the failed model response.
+                  beforeAttempt = [...(this.agent.state.messages as AgentMessage[])];
+                  attemptCheckpoint = this.store.createContextCheckpoint?.(this.chatId, this.sessionId);
+                }
+              }
+            }
+
             // Overflow does not always arrive as a thrown request error. It can
             // come back as an ordinary error response, or not be reported at all
             // — z.ai answers normally past the window, MiMo truncates the input
@@ -2013,11 +2095,15 @@ export class MomRunner implements RunnerLike {
 
             if (candidateFinalText) {
               const sessionContextFile = this.store.getSessionEntriesPath(this.chatId, this.sessionId);
-              const finalMessages = rewritePromptUserMessage(
-                this.agent.state.messages as AgentMessage[],
-                beforeAttempt.length,
-                promptInput.persistedMessage
-              );
+              const currentMessages = this.agent.state.messages as AgentMessage[];
+              const boundaryMessage = currentMessages[beforeAttempt.length];
+              const finalMessages = boundaryMessage && getMessageText(boundaryMessage).trim() === userMessage.trim()
+                ? rewritePromptUserMessage(
+                    currentMessages,
+                    beforeAttempt.length,
+                    promptInput.persistedMessage
+                  )
+                : prepareMessagesForModelContext(currentMessages);
               this.agent.state.messages = finalMessages;
               momLog("runner", "context_saved", {
                 runId,

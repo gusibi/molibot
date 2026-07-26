@@ -37,7 +37,9 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Keep each conversation on its chosen model.** Chat model selection is Session-scoped and restart-persistent, while Settings remains the explicit place for changing global defaults.
 - **Explore without destroying history.** Editing and resending an earlier turn in main Chat creates a visible child Session, leaving the original conversation intact.
 - **Work where you already are.** Use one local runtime from Web, macOS Desktop, Telegram, Feishu, Weixin, QQ, or the CLI.
+- **Diagnose media failures at the shared boundary.** Voice-transcription errors carry safe provider/model, audio, timing, and upstream trace details across every channel without logging credentials or cookies.
 - **Keep execution in your hands.** Tasks, approvals, sandbox policy, and run records make automation visible rather than opaque.
+- **Let long work fail safely.** Parent and delegated budgets are separate, completed tool results survive context recovery, and interrupted inbound tasks wait for an explicit retry instead of disappearing or replaying side effects automatically.
 - **Keep the data local.** Your runtime, configuration, conversations, and operational state stay on infrastructure you control.
 
 ## Quick start

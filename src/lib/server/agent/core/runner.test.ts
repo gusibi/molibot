@@ -893,6 +893,132 @@ test("runner compacts and retries a successful-looking response whose usage exce
   assert.equal(compactCalls, 2);
 });
 
+test("runner preserves completed tool results, compacts, and continues after a post-tool context overflow", async () => {
+  const settings = createRunnerTestSettings();
+  const appendedMessages: any[] = [];
+  const store = {
+    getWorkspaceDir: () => process.cwd(),
+    getScratchDir: () => process.cwd(),
+    getSessionEntriesPath: () => "entries.jsonl",
+    appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
+    appendRunSummary: () => {},
+    appendRunDetail: () => {},
+    appendRuntimeEvent: () => {},
+    loadContext: () => appendedMessages,
+    getSessionSandboxOverride: () => null,
+    discardLatestContextAssistant: () => {
+      const latest = appendedMessages.at(-1);
+      if (latest?.role !== "assistant") return false;
+      appendedMessages.pop();
+      return true;
+    }
+  };
+  const runner = new MomRunner(
+    "telegram",
+    "chat-1",
+    `session-post-tool-overflow-${Date.now()}-${Math.random()}`,
+    store as any,
+    () => settings,
+    () => settings,
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any
+  );
+
+  let compactCalls = 0;
+  (runner as any).compact = async () => {
+    compactCalls += 1;
+    if (compactCalls === 2) {
+      const roles = (runner as any).agent.state.messages.map((message: any) => message.role);
+      assert.deepEqual(roles.slice(-2), ["assistant", "toolResult"]);
+      assert.doesNotMatch(JSON.stringify((runner as any).agent.state.messages), /context length exceeded/i);
+    }
+    return {
+      changed: compactCalls === 2,
+      beforeTokens: 999_999,
+      afterTokens: 1_000,
+      summarizedMessages: 1,
+      keptMessages: 2
+    };
+  };
+
+  let subscriber: ((event: any) => void) | undefined;
+  let promptCalls = 0;
+  let continueCalls = 0;
+  let toolExecutions = 0;
+  const agentState = {
+    messages: [] as any[],
+    tools: [],
+    systemPrompt: "test",
+    model: resolveModelSelection(settings, "text").model,
+    thinkingLevel: settings.defaultThinkingLevel
+  };
+  (runner as any).agent = {
+    state: agentState,
+    sessionId: "test",
+    transport: "responses",
+    subscribe: (fn: (event: any) => void) => { subscriber = fn; return () => {}; },
+    abort: () => {},
+    followUp: () => {},
+    prompt: async (text: string) => {
+      promptCalls += 1;
+      agentState.messages.push({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() });
+      const toolCall = {
+        role: "assistant",
+        stopReason: "toolUse",
+        content: [{ type: "toolCall", id: "call-1", name: "write", arguments: { path: "out.txt" } }],
+        timestamp: Date.now()
+      };
+      const toolResult = {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "write",
+        content: [{ type: "text", text: "wrote out.txt" }],
+        isError: false,
+        timestamp: Date.now()
+      };
+      const overflow = {
+        role: "assistant",
+        stopReason: "error",
+        errorMessage: "context length exceeded",
+        content: [],
+        timestamp: Date.now()
+      };
+      toolExecutions += 1;
+      for (const message of [toolCall, toolResult, overflow]) {
+        agentState.messages.push(message);
+        subscriber?.({ type: "message_end", message });
+      }
+    },
+    continue: async () => {
+      continueCalls += 1;
+      const answer = {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "text", text: "continued from preserved tool result" }],
+        usage: { input: 1_000, output: 5, cacheRead: 0, cacheWrite: 0 },
+        timestamp: Date.now()
+      };
+      agentState.messages.push(answer);
+      subscriber?.({ type: "message_end", message: answer });
+    }
+  };
+
+  const replacements: string[] = [];
+  const context = createRunnerContext("do the work");
+  context.replaceMessage = async (text: string) => { replacements.push(text); };
+  const result = await runner.run(context);
+
+  assert.equal(result.stopReason, "stop");
+  assert.deepEqual(replacements, ["continued from preserved tool result"]);
+  assert.equal(promptCalls, 1);
+  assert.equal(continueCalls, 1);
+  assert.equal(toolExecutions, 1);
+  assert.equal(compactCalls, 2);
+  assert.equal(appendedMessages.some((message) => message.role === "toolResult"), true);
+  assert.equal(appendedMessages.some((message) => message.errorMessage === "context length exceeded"), false);
+});
+
 test("runner never reuses a previous turn's assistant message when the current attempt is empty", async () => {
   const settings = createRunnerTestSettings();
   const oldAssistant = {

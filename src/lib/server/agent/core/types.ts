@@ -117,6 +117,7 @@ export type RunnerUiEvent =
       errorMessage?: string;
       budget?: RunBudgetSnapshot;
       model?: string;
+      sessionId?: string;
     };
 
 export interface MomContext {

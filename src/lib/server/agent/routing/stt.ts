@@ -27,6 +27,49 @@ interface SttOptions {
   retryDelayMs?: number;
 }
 
+const STT_DIAGNOSTIC_RESPONSE_HEADERS = new Set([
+  "cf-ray",
+  "content-length",
+  "content-type",
+  "request-id",
+  "retry-after",
+  "server",
+  "trace-id",
+  "x-request-id",
+  "x-ratelimit-limit-requests",
+  "x-ratelimit-limit-tokens",
+  "x-ratelimit-remaining-requests",
+  "x-ratelimit-remaining-tokens",
+  "x-ratelimit-reset-requests",
+  "x-ratelimit-reset-tokens",
+  "x-siliconcloud-trace-id"
+]);
+
+function redactDiagnosticText(value: string, secrets: string[]): string {
+  let text = value.trim().replace(/\s+/g, " ");
+  for (const secret of secrets) {
+    if (secret) text = text.split(secret).join("<redacted>");
+  }
+  return text
+    .replace(/Bearer\s+[^\s"']+/gi, "Bearer <redacted>")
+    .replace(/([?&](?:api_?key|client_secret|token|access_token|refresh_token)=)[^&#\s]+/gi, "$1<redacted>")
+    .replace(/("(?:api_?key|client_secret|access_token|refresh_token|token)"\s*:\s*")[^"]+("?)/gi, "$1<redacted>$2")
+    .replace(/\b(?:sk|rk)-[A-Za-z0-9_-]{8,}\b/g, "<redacted-token>")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "<redacted-token>")
+    .slice(0, 400);
+}
+
+function collectDiagnosticResponseHeaders(headers: Headers, secrets: string[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [name, value] of headers.entries()) {
+    const normalizedName = name.toLowerCase();
+    if (STT_DIAGNOSTIC_RESPONSE_HEADERS.has(normalizedName)) {
+      result[normalizedName] = redactDiagnosticText(value, secrets);
+    }
+  }
+  return result;
+}
+
 function normalizeApiPath(path: string | undefined, fallback: string): string {
   const raw = String(path ?? fallback).trim() || fallback;
   return raw.startsWith("/") ? raw : `/${raw}`;
@@ -112,13 +155,21 @@ export async function transcribeAudioViaConfiguredProvider({
   }
 
   const url = buildApiUrl(target.baseUrl, target.path, "/v1/audio/transcriptions");
+  const safeUrl = redactDiagnosticText(url, [target.apiKey]);
+  const effectiveMimeType = mimeType || "audio/ogg";
+  const safeFilename = redactDiagnosticText(filename, [target.apiKey]) || "<empty>";
+  const safeMimeType = redactDiagnosticText(effectiveMimeType, [target.apiKey]) || "<unknown>";
   let lastErrorMessage: string | null = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     momLog(channel, "voice_transcription_target", {
-      url,
+      url: safeUrl,
+      providerId: target.providerId,
       model: target.model,
       hasApiKey: Boolean(target.apiKey),
+      filename: safeFilename,
+      mimeType: safeMimeType,
+      audioBytes: data.byteLength,
       attempt,
       maxAttempts
     });
@@ -133,10 +184,11 @@ export async function transcribeAudioViaConfiguredProvider({
     }
     form.append(
       "file",
-      new Blob([new Uint8Array(data)], { type: mimeType || "audio/ogg" }),
+      new Blob([new Uint8Array(data)], { type: effectiveMimeType }),
       filename
     );
 
+    const requestStartedAt = Date.now();
     try {
       const resp = await fetch(url, {
         method: "POST",
@@ -147,16 +199,25 @@ export async function transcribeAudioViaConfiguredProvider({
       });
 
       if (!resp.ok) {
-        const body = await resp.text();
+        const rawBody = await resp.text();
+        const responseBody = redactDiagnosticText(rawBody, [target.apiKey]) || "<empty>";
         const hint = resp.status === 404
           ? "端点可能不正确，请检查 provider baseUrl/path（例如是否缺少 /v1）。"
           : "请检查 API Key、模型名、以及 provider 路径配置。";
         lastErrorMessage = `语音转写失败（HTTP ${resp.status} ${resp.statusText}）。${hint}`;
         momWarn(channel, "voice_transcription_http_error", {
-          url,
+          url: safeUrl,
+          providerId: target.providerId,
+          model: target.model,
+          filename: safeFilename,
+          mimeType: safeMimeType,
+          audioBytes: data.byteLength,
+          requestDurationMs: Date.now() - requestStartedAt,
           status: resp.status,
           statusText: resp.statusText,
-          body: body.slice(0, 240),
+          responseBody,
+          responseBodyEmpty: rawBody.trim().length === 0,
+          responseHeaders: collectDiagnosticResponseHeaders(resp.headers, [target.apiKey]),
           attempt,
           maxAttempts
         });
@@ -183,7 +244,12 @@ export async function transcribeAudioViaConfiguredProvider({
       }
 
       momLog(channel, "voice_transcription_success", {
+        providerId: target.providerId,
         model: target.model,
+        filename: safeFilename,
+        mimeType: safeMimeType,
+        audioBytes: data.byteLength,
+        requestDurationMs: Date.now() - requestStartedAt,
         transcriptLength: text.length,
         attempt,
         maxAttempts
@@ -191,9 +257,17 @@ export async function transcribeAudioViaConfiguredProvider({
       return { text, errorMessage: null };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      lastErrorMessage = `语音转写请求异常：${message}`;
+      const safeMessage = redactDiagnosticText(message, [target.apiKey]) || "unknown error";
+      lastErrorMessage = `语音转写请求异常：${safeMessage}`;
       momWarn(channel, "voice_transcription_failed", {
-        error: message,
+        url: safeUrl,
+        providerId: target.providerId,
+        model: target.model,
+        filename: safeFilename,
+        mimeType: safeMimeType,
+        audioBytes: data.byteLength,
+        requestDurationMs: Date.now() - requestStartedAt,
+        error: safeMessage,
         attempt,
         maxAttempts
       });

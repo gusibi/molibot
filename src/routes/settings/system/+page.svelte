@@ -16,6 +16,17 @@
     maxModelAttempts: number;
   }
 
+  interface SubagentRuntimeSettings {
+    maxToolCalls: number;
+    maxToolFailures: number;
+    maxModelTurns: number;
+    deadlineMs: number;
+    maxTasks: number;
+    maxConcurrency: number;
+    compactionEnabled: boolean;
+    persistSessions: boolean;
+  }
+
   interface BrowserAutomationSettings {
     defaultTimeoutMs: number;
   }
@@ -35,6 +46,7 @@
     serverPort: number;
     timezone: string;
     budget: RunBudgetLimits;
+    subagentRuntime: SubagentRuntimeSettings;
     browserAutomation: BrowserAutomationSettings;
     display?: GlobalDisplaySettings;
     toolSandbox?: ToolSandboxSettings;
@@ -73,6 +85,18 @@
       maxToolCalls: "最大工具调用次数",
       maxToolFailures: "最大允许工具失败次数",
       maxModelAttempts: "最大模型尝试（思考）次数",
+      subagentBudgetTitle: "Subagent 长任务预算",
+      subagentBudgetSubtitle: "独立控制每个委派任务的工具、模型轮次、执行时限和并行 fan-out；不会消耗或改写父 Agent 的运行预算。",
+      subagentMaxToolCalls: "每个任务最大工具调用次数",
+      subagentMaxToolFailures: "每个任务最大工具失败次数",
+      subagentMaxModelTurns: "每个任务最大模型轮次",
+      subagentDeadlineMinutes: "每个任务最长执行时间（分钟）",
+      subagentMaxTasks: "每次委派最多任务数",
+      subagentMaxConcurrency: "并行委派最大并发数",
+      subagentCompactionEnabled: "启用 Subagent 自动压缩",
+      subagentCompactionHint: "接近模型上下文上限时，由 pi 保留最近工具边界并生成摘要后继续。",
+      subagentPersistSessions: "持久化 Subagent 会话",
+      subagentPersistSessionsHint: "把子任务 transcript 写入 Bot 工作区，便于中断后的审计和排障；不会自动重放任务。",
       saveBudget: "保存预算限制",
       savingBudget: "保存预算中...",
       browserTitle: "浏览器自动化",
@@ -143,6 +167,18 @@
       maxToolCalls: "Max tool calls per session",
       maxToolFailures: "Max allowed tool failures",
       maxModelAttempts: "Max model attempts (reasoning cycles)",
+      subagentBudgetTitle: "Subagent Long-task Budget",
+      subagentBudgetSubtitle: "Independently bound tools, model turns, wall-clock time, and parallel fan-out for each delegation without consuming or changing the parent Agent budget.",
+      subagentMaxToolCalls: "Max tool calls per task",
+      subagentMaxToolFailures: "Max tool failures per task",
+      subagentMaxModelTurns: "Max model turns per task",
+      subagentDeadlineMinutes: "Task deadline (minutes)",
+      subagentMaxTasks: "Max tasks per delegation",
+      subagentMaxConcurrency: "Max parallel concurrency",
+      subagentCompactionEnabled: "Enable Subagent auto-compaction",
+      subagentCompactionHint: "Let pi preserve recent tool boundaries, summarize older context, and continue near the model limit.",
+      subagentPersistSessions: "Persist Subagent sessions",
+      subagentPersistSessionsHint: "Write child transcripts under the bot workspace for interruption audit and diagnosis; tasks are not replayed automatically.",
       saveBudget: "Save budget limits",
       savingBudget: "Saving budget limits...",
       browserTitle: "Browser Automation",
@@ -209,6 +245,15 @@
   let maxToolCalls = 24;
   let maxToolFailures = 6;
   let maxModelAttempts = 6;
+
+  let subagentMaxToolCalls = 100;
+  let subagentMaxToolFailures = 6;
+  let subagentMaxModelTurns = 12;
+  let subagentDeadlineMinutes = 30;
+  let subagentMaxTasks = 4;
+  let subagentMaxConcurrency = 2;
+  let subagentCompactionEnabled = true;
+  let subagentPersistSessions = true;
 
   let browserTimeoutMs = 60000;
 
@@ -281,6 +326,16 @@
         maxToolFailures = settings.budget.maxToolFailures ?? maxToolFailures;
         maxModelAttempts = settings.budget.maxModelAttempts ?? maxModelAttempts;
       }
+      if (settings.subagentRuntime) {
+        subagentMaxToolCalls = settings.subagentRuntime.maxToolCalls ?? subagentMaxToolCalls;
+        subagentMaxToolFailures = settings.subagentRuntime.maxToolFailures ?? subagentMaxToolFailures;
+        subagentMaxModelTurns = settings.subagentRuntime.maxModelTurns ?? subagentMaxModelTurns;
+        subagentDeadlineMinutes = Math.max(1, Math.round((settings.subagentRuntime.deadlineMs ?? 1_800_000) / 60_000));
+        subagentMaxTasks = settings.subagentRuntime.maxTasks ?? subagentMaxTasks;
+        subagentMaxConcurrency = settings.subagentRuntime.maxConcurrency ?? subagentMaxConcurrency;
+        subagentCompactionEnabled = settings.subagentRuntime.compactionEnabled ?? subagentCompactionEnabled;
+        subagentPersistSessions = settings.subagentRuntime.persistSessions ?? subagentPersistSessions;
+      }
       if (settings.browserAutomation) {
         browserTimeoutMs = settings.browserAutomation.defaultTimeoutMs ?? browserTimeoutMs;
       }
@@ -327,6 +382,16 @@
             maxToolCalls: Number(maxToolCalls),
             maxToolFailures: Number(maxToolFailures),
             maxModelAttempts: Number(maxModelAttempts)
+          },
+          subagentRuntime: {
+            maxToolCalls: Number(subagentMaxToolCalls),
+            maxToolFailures: Number(subagentMaxToolFailures),
+            maxModelTurns: Number(subagentMaxModelTurns),
+            deadlineMs: Number(subagentDeadlineMinutes) * 60_000,
+            maxTasks: Number(subagentMaxTasks),
+            maxConcurrency: Number(subagentMaxConcurrency),
+            compactionEnabled: subagentCompactionEnabled,
+            persistSessions: subagentPersistSessions
           },
           browserAutomation: {
             defaultTimeoutMs: Number(browserTimeoutMs)
@@ -482,6 +547,61 @@
               disabled={loading || restarting}
             />
             <p class="channel-hint">{copy.serverPortHint}</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.subagentBudgetTitle}</h2>
+            <p class="channel-card-desc">{copy.subagentBudgetSubtitle}</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-field-row">
+            <div class="channel-field">
+              <Label for="subagent-max-tool-calls">{copy.subagentMaxToolCalls}</Label>
+              <Input id="subagent-max-tool-calls" type="number" min="1" max="500" bind:value={subagentMaxToolCalls} disabled={loading} />
+            </div>
+            <div class="channel-field">
+              <Label for="subagent-max-tool-failures">{copy.subagentMaxToolFailures}</Label>
+              <Input id="subagent-max-tool-failures" type="number" min="1" max="100" bind:value={subagentMaxToolFailures} disabled={loading} />
+            </div>
+          </div>
+          <div class="channel-field-row pt-2">
+            <div class="channel-field">
+              <Label for="subagent-max-model-turns">{copy.subagentMaxModelTurns}</Label>
+              <Input id="subagent-max-model-turns" type="number" min="1" max="100" bind:value={subagentMaxModelTurns} disabled={loading} />
+            </div>
+            <div class="channel-field">
+              <Label for="subagent-deadline-minutes">{copy.subagentDeadlineMinutes}</Label>
+              <Input id="subagent-deadline-minutes" type="number" min="1" max="1440" bind:value={subagentDeadlineMinutes} disabled={loading} />
+            </div>
+          </div>
+          <div class="channel-field-row pt-2">
+            <div class="channel-field">
+              <Label for="subagent-max-tasks">{copy.subagentMaxTasks}</Label>
+              <Input id="subagent-max-tasks" type="number" min="1" max="16" bind:value={subagentMaxTasks} disabled={loading} />
+            </div>
+            <div class="channel-field">
+              <Label for="subagent-max-concurrency">{copy.subagentMaxConcurrency}</Label>
+              <Input id="subagent-max-concurrency" type="number" min="1" max="4" bind:value={subagentMaxConcurrency} disabled={loading} />
+            </div>
+          </div>
+          <div class="channel-toggle-row pt-2">
+            <div class="channel-toggle-label">
+              <Label for="subagent-compaction-enabled">{copy.subagentCompactionEnabled}</Label>
+              <p>{copy.subagentCompactionHint}</p>
+            </div>
+            <IosSwitch id="subagent-compaction-enabled" bind:checked={subagentCompactionEnabled} disabled={loading} />
+          </div>
+          <div class="channel-toggle-row pt-2">
+            <div class="channel-toggle-label">
+              <Label for="subagent-persist-sessions">{copy.subagentPersistSessions}</Label>
+              <p>{copy.subagentPersistSessionsHint}</p>
+            </div>
+            <IosSwitch id="subagent-persist-sessions" bind:checked={subagentPersistSessions} disabled={loading} />
           </div>
         </div>
       </div>

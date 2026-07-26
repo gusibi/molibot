@@ -1,7 +1,8 @@
 import { createServer } from "node:net";
 import {
   sanitizeBudgetSettings,
-  sanitizeEventExecutionSettings
+  sanitizeEventExecutionSettings,
+  sanitizeSubagentRuntimeSettings
 } from "../sanitize.js";
 import { sanitizeToolSandboxSettings } from "../toolSandbox.js";
 import { defaultRuntimeSettings } from "../defaults.js";
@@ -15,6 +16,7 @@ export interface SystemConfig {
   serverPort: RuntimeSettings["serverPort"];
   timezone: RuntimeSettings["timezone"];
   budget: RuntimeSettings["budget"];
+  subagentRuntime: RuntimeSettings["subagentRuntime"];
   browserAutomation: RuntimeSettings["browserAutomation"];
   display: RuntimeSettings["display"];
   toolSandbox: RuntimeSettings["toolSandbox"];
@@ -28,6 +30,7 @@ export function readSystemConfig(runtime: SettingsAccessor): SystemConfig {
     serverPort: s.serverPort,
     timezone: s.timezone,
     budget: s.budget,
+    subagentRuntime: s.subagentRuntime,
     browserAutomation: s.browserAutomation,
     display: s.display,
     toolSandbox: s.toolSandbox,
@@ -40,6 +43,7 @@ type SystemPatch = {
   serverPort?: unknown;
   timezone?: unknown;
   budget?: unknown;
+  subagentRuntime?: unknown;
   browserAutomation?: unknown;
   display?: unknown;
   toolSandbox?: unknown;
@@ -94,6 +98,12 @@ export async function updateSystemConfig(runtime: SettingsAccessor, patch: Syste
   if (patch.serverPort !== undefined) settingsPatch.serverPort = Number(patch.serverPort);
   if (patch.timezone !== undefined) settingsPatch.timezone = String(patch.timezone ?? "").trim();
   if (patch.budget !== undefined) settingsPatch.budget = sanitizeBudgetSettings(patch.budget, current.budget);
+  if (patch.subagentRuntime !== undefined) {
+    settingsPatch.subagentRuntime = sanitizeSubagentRuntimeSettings(
+      patch.subagentRuntime,
+      current.subagentRuntime
+    );
+  }
   if (patch.browserAutomation !== undefined) settingsPatch.browserAutomation = sanitizeBrowserAutomation(patch.browserAutomation, current.browserAutomation);
   if (patch.display !== undefined) settingsPatch.display = sanitizeDisplay(patch.display, current.display ?? defaultRuntimeSettings.display);
   if (patch.toolSandbox !== undefined) settingsPatch.toolSandbox = sanitizeToolSandboxSettings(patch.toolSandbox, current.toolSandbox);
@@ -113,6 +123,7 @@ export async function updateSystemConfig(runtime: SettingsAccessor, patch: Syste
     serverPort: updated.serverPort,
     timezone: updated.timezone,
     budget: updated.budget,
+    subagentRuntime: updated.subagentRuntime,
     browserAutomation: updated.browserAutomation,
     display: updated.display,
     toolSandbox: updated.toolSandbox,

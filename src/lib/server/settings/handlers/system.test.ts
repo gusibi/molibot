@@ -26,3 +26,57 @@ test("system config reads, validates, and persists serverPort", async () => {
     else process.env.PORT = previousPort;
   }
 });
+
+test("system config persists a dedicated subagent runtime budget without changing the parent budget", async () => {
+  let settings = structuredClone(defaultRuntimeSettings);
+  const originalParentBudget = structuredClone(settings.budget);
+  const runtime = {
+    getSettings: () => settings,
+    updateSettings: (patch: Partial<RuntimeSettings>) => {
+      settings = { ...settings, ...patch };
+      return settings;
+    }
+  };
+
+  const updated = await updateSystemConfig(runtime, {
+    subagentRuntime: {
+      maxToolCalls: 120,
+      maxToolFailures: 8,
+      maxModelTurns: 20,
+      deadlineMs: 2_400_000,
+      maxTasks: 8,
+      maxConcurrency: 3,
+      compactionEnabled: true,
+      persistSessions: true
+    }
+  });
+
+  assert.deepEqual(updated.subagentRuntime, {
+    maxToolCalls: 120,
+    maxToolFailures: 8,
+    maxModelTurns: 20,
+    deadlineMs: 2_400_000,
+    maxTasks: 8,
+    maxConcurrency: 3,
+    compactionEnabled: true,
+    persistSessions: true
+  });
+  assert.deepEqual(settings.budget, originalParentBudget);
+
+  const sanitized = await updateSystemConfig(runtime, {
+    subagentRuntime: {
+      maxToolCalls: 120.6,
+      maxToolFailures: 8,
+      maxModelTurns: 20,
+      deadlineMs: 2_400_000,
+      maxTasks: 2,
+      maxConcurrency: 4,
+      compactionEnabled: "false",
+      persistSessions: "false"
+    }
+  });
+  assert.equal(sanitized.subagentRuntime.maxToolCalls, 121);
+  assert.equal(sanitized.subagentRuntime.maxConcurrency, 2);
+  assert.equal(sanitized.subagentRuntime.compactionEnabled, false);
+  assert.equal(sanitized.subagentRuntime.persistSessions, false);
+});

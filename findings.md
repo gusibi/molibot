@@ -19,6 +19,108 @@
 
 ---
 
+# Long-task runtime audit (2026-07-26)
+
+## Baseline findings
+- The active packages are `@earendil-works/pi-agent-core` and `@earendil-works/pi-coding-agent` 0.82; Molibot already uses pi's Agent/session stack but wraps it with its own Runner, budgets, persistence, queueing, and Subagent tool.
+- Project history explicitly records a 24-tool parent hard limit and an early-delegation strategy (`P1-179`) intended to avoid exhausting it. That mitigation depends on the model deciding to delegate early enough and therefore cannot by itself guarantee long-task completion.
+- Existing long-task support includes context compaction/overflow retry, append-only Session entries, cumulative file tracking across compactions, queue/lease recovery, and isolated Subagent sessions. Source-level limits and end-to-end failure semantics still need inspection.
+
+## Parent-run budget and continuation findings
+- Defaults are hard per-run ceilings: 24 started tool calls, 6 tool failures, and 6 model attempts. Persisted settings sanitize them to maxima 500/100/100; environment defaults are `MOLIBOT_MAX_TOOL_CALLS`, `MOLIBOT_MAX_TOOL_FAILURES`, and `MOLIBOT_MAX_MODEL_ATTEMPTS`.
+- The 24th accepted tool call is the last one; the next model-emitted call is blocked, all Agent tools are removed, and at most one extra no-tool model attempt is used to produce a best-effort final answer. This avoids a blank failure but does not resume or finish the remaining task.
+- `beforeToolCall` charges the tool-call budget before deciding the final preflight block. A malformed/unsafe/repeated-video call that never executes can still consume a parent tool slot. Parallel calls consume one slot each.
+- There is no overall wall-clock deadline visible in the parent Runner. Its turn lock uses a heartbeat lease, so a healthy but very long run can remain alive; the main network guard only bounds time-to-first-token when configured, not a tool that hangs forever or a stream that stalls after its first token.
+- Parent `maxModelAttempts` is charged per outer model candidate (plus the special no-tool continuation), not for every internal assistant/tool turn inside `agent.prompt()`. Its value of 6 mainly limits fallback/retry breadth; it is not a true six-LLM-call ceiling for the parent.
+- Partial assistant output and error messages are persisted, overflow can compact-and-retry once when tools were not executed, and successful completion reloads the append-only Session context. These are useful failure-preservation features, but there is no automatic new run that continues the unfinished plan after budget exhaustion.
+
+## Subagent preliminary findings
+- Subagents have an independent `RunBudget` and wall-clock deadline shared across model fallbacks. They are in-memory pi coding-agent sessions; their `SettingsManager` explicitly sets `compaction.enabled=false`.
+- Parent delegation therefore expands effective tool capacity (one parent tool call can run delegated work), but each delegated task has its own hard budget/deadline and no context compaction or durable mid-task checkpoint. A large Subagent task can fail on its own context/deadline even while the parent remains healthy.
+- Exact Subagent limits default to the same 24/6/6 budget as the parent plus a fixed, non-configurable 10-minute wall-clock deadline. The deadline timer aborts a stalled prompt, and budget/timeout stops do not try a fallback model.
+- **The shared setting has different semantics in Subagents:** `maxModelAttempts` is charged on every assistant `message_start`. With the effective value 6, a Subagent is aborted when it tries to begin its seventh model turn, often well before its 100-tool or 10-minute ceilings. This is currently the most likely Subagent long-task blocker.
+- Parallel mode gives each task a separate 24/6/6 and 10-minute guard, while chain steps also each create a fresh guard. This can multiply capacity, but parallel failure uses `Promise.all` semantics: one thrown task rejects the tool call even though sibling work may already have changed shared files and is not transactionally rolled back.
+- Delegated outputs are compressed for the parent; delegated execution state itself is disposed after return. The parent receives results, not a durable resumable child run.
+- The `tasks` and `chain` schemas have no `maxItems`; only parallel concurrency is capped at four. One parent tool call can therefore enqueue an effectively unbounded number of independently budgeted 10-minute tasks. This bypasses the parent's tool-call ceiling as a cost/time guard.
+- Each result is compressed to about 6,000 characters only when returned to the parent, but chain mode feeds the prior result's full uncompressed output into `{previous}`. Large or numerous results can still inflate tool details/context, and parallel tasks share the same filesystem without transactional isolation.
+
+## Queue, restart, and scheduled-task findings
+- The cross-channel inbound SQLite queue durably preserves `pending` rows, but constructor startup calls `resetRunningTasks()` and **deletes every `running` row** for that channel/instance. A process crash or restart during the active task therefore loses the queue record instead of requeueing/resuming it. The Runner may have persisted prompt/partial transcript state, but no automatic continuation is scheduled.
+- Queue processing deletes a row on both success and failure; there is no retry count, retry delay, dead-letter state, or durable failure row despite the status type including `failed`. Pending tasks behind it do continue.
+- Session turn locks are heartbeat leases (30-second refresh, stale after 2 minutes), so they correctly avoid a fixed 10-minute ceiling for healthy interactive runs and release a crashed owner. This protects concurrency but does not resume the interrupted work.
+- Scheduled watched-event executions are a separate, stronger control plane with a default 10-minute attempt timeout, three attempts, retry-wait leases, and startup recovery. These semantics do not apply to ordinary interactive/channel tasks.
+
+## Upstream pi 0.82 long-task capability comparison
+- `pi-agent-core` supplies the stateful model/tool loop, parallel or sequential tool execution, `continue()` from existing context, abort, streaming events, `shouldStopAfterTurn`, and in-memory steering/follow-up queues. It does **not** by itself guarantee crash recovery or unlimited work; those require a session/runtime policy around it.
+- `pi-coding-agent` adds the stronger long-session layer: auto-saved JSONL sessions, resume/import/export, tree-shaped entries with in-place branches, fork/clone, automatic and manual compaction, overflow recovery, iterative summaries, split-turn-safe cut points, and cumulative read/modified-file tracking.
+- Molibot's parent Runner constructs `pi-agent-core.Agent` directly and reimplements storage, compaction, retry/fallback, queues, approval, and run tracking. It retains parallel tools, abort, steering/follow-up, append-only transcript context, proactive/overflow compaction, split-turn handling, and cumulative file tracking.
+- Molibot does not use pi-coding-agent's durable tree SessionManager for parent runs. The current shipped model is effectively linear runnable context plus a separate visible Session fork slice; it lacks pi's in-place multi-branch tree navigation and branch summarization. Those are usability/context recovery gaps, not the main active-run blocker.
+- Molibot's Subagent path does use `createAgentSession`, but deliberately combines it with `SessionManager.inMemory()` and `compaction.enabled=false`, disabling the two pi-coding-agent features most relevant when a delegated task itself becomes long.
+- Upstream pi's resume support is session/context recovery, not transparent continuation of an interrupted tool side effect. It should not be described as exactly-once crash recovery; Molibot still needs its own durable work-unit/checkpoint semantics for that guarantee.
+
+## Live steering, timeout, and approval findings
+- Molibot does expose pi's in-memory `steer` and `followUp`; the latter is also used to inject the Subagent recommendation at 12 parent tool calls. These messages are transient Agent queues, not durable queue entries. A process restart drops them.
+- The delegation warning arrives halfway through the default budget and only if no Subagent was used. It is advisory prompt text, not an orchestrator policy; the model can ignore it, delegate an oversized task, or delegate after too much parent budget has already been consumed.
+- Default model time-to-first-token is 60 seconds and can be configured up to 10 minutes or disabled with zero. Once the first event/token arrives, there is no parent-level idle deadline for the remaining model stream.
+- Tool timeouts are inconsistent rather than governed by one run deadline: web/skill/browser tools have local settings; Bash accepts an optional per-call timeout and can otherwise rely on lower-level defaults; arbitrary MCP/tool implementations mainly receive an abort signal and may ignore it.
+- General approval polling waits up to 5 minutes. A long task can appear stalled while waiting, then spend a failure slot when approval expires. Host Bash has a separate suspend/resume flow, so approval behavior is not uniform across tools.
+- Scheduled-event timeout handling calls `onTimeout`, but then awaits the original run promise before returning the timeout result. If abort cannot settle a non-cooperative tool/provider, the nominal event timeout does not actually bound wall-clock duration and retry cannot begin.
+
+## Configuration risk ranking (preliminary)
+- **Hard completion blockers:** `budget.maxToolCalls=24`, Subagent fixed 10-minute deadline, event `executionTimeoutMs=600000`, and compaction disabled in Subagents.
+- **Failure amplification:** `maxToolFailures=6`, `maxModelAttempts=6`, 60-second first-token timeout against slow models, and parallel Subagent tasks sharing the same filesystem without rollback.
+- **Durability blockers:** deleting active inbound queue rows on startup, in-memory pi steering/follow-up queues, and in-memory Subagent SessionManagers.
+- **Context blockers when misconfigured:** disabling compaction, an inaccurate `defaultContextWindow`, a late 95% threshold, or `keepRecentTokens`/reserve values that leave no legal useful compaction span.
+
+## Critical post-tool recovery finding
+- **[P1] Molibot parent compaction runs before entering `agent.prompt()` and its overflow repair treats the whole prompt attempt as the retry unit.** If that attempt already executed tools, overflow repair is suppressed because rolling the whole attempt back and replaying it could repeat side effects.
+- Pi-coding-agent's `AgentSession` also checks compaction after an Agent loop settles rather than after every tool. The important difference is its recovery unit: on overflow it removes only the terminal assistant error, compacts the current branch that still contains completed tool results, and calls `agent.continue()` from that state. It can continue without re-executing completed tools.
+- Molibot therefore lacks pi's **preserve completed tool state -> compact -> continue** loop. A single autonomous run that crosses the context window after tools becomes terminal and requires a new user “继续” turn even when `compaction.enabled=true`.
+- The same safety rule suppresses automatic model retry/fallback after any attempt that already produced a tool result. This is correct for non-idempotent tools, but it means a transient provider error late in a tool-heavy run cannot recover automatically.
+- Scheduled-task timeout abort is effective only when the active Runner/tool honors abort. The event watcher otherwise awaits the original run promise, so the timeout is cooperative rather than a hard isolation boundary.
+
+## Effective local configuration (secret-free read-only check)
+- The local persisted settings currently use `maxToolCalls=100`, `maxToolFailures=6`, and `maxModelAttempts=6`; the corresponding environment overrides are unset. The practical parent/Subagent tool ceiling is therefore 100, not the default 24.
+- Events remain at 600,000ms / 3 attempts / 5,000ms retry delay. Model first-token timeout is 60,000ms with `any-enabled` fallback.
+- Compaction is enabled at 75%, reserving 16,128 tokens and keeping 40,960 recent tokens, with a 200,024 fallback context window. These are broadly long-session-friendly, but they do not fix missing mid-loop compaction.
+- Browser automation default action timeout is 60,000ms.
+
+## Verification evidence
+- Focused runtime suite passed 92/92 under the bundled Node 22.23.1 runtime: Runner, retry-state, compaction, Subagent guard, inbound queue, event watcher, and event-lease tests.
+- Existing tests explicitly guard Subagent budget/deadline stops, terminal-after-tools retry behavior, partial persistence, overflow recovery without executed tools, event lease recovery, and queue row removal on success/failure.
+- There is no regression for recovering a `running` inbound queue row after restart, no parent post-tool compact-and-continue regression, and no durable Subagent resume regression. These absences align with the source gaps rather than weakening them.
+- A direct `SettingsStore.load()` read confirmed the effective non-secret limits; the earlier JSON projection was not relying on defaults alone.
+
+## Adversarial review conclusions
+- Raising the parent tool limit alone is not the answer: it is already 100, while Subagent model turns remain capped at 6 and the fixed deadline/disabled compaction remain unchanged.
+- Requeueing every interrupted inbound task would be unsafe because completed non-idempotent side effects may be duplicated. Recovery needs leases, idempotency keys, and a durable checkpoint/continuation state rather than a blind `running -> pending` update.
+- Replacing all custom persistence with pi's SessionManager is not required for the first fix. The narrowest high-value parity is pi's post-agent preserve-tool-results/compact/`continue()` loop; tree navigation can remain a later product slice.
+- Higher timeouts improve legitimate slow tasks but cannot bound non-cooperative tools. Timeout, cancellation, and restart recovery must be treated as separate controls.
+- Final assessment: strong long-lived conversation support, moderate single-process autonomous-run support, and weak crash-safe/unattended long-task support.
+
+---
+
+# Long-task runtime hardening implementation (2026-07-26)
+
+## Baseline
+- Implementation is authorized in audited priority order. The first vertical slice will keep parent budget behavior stable and introduce a separate Subagent runtime contract before changing recovery semantics.
+
+## P0 implementation findings
+- Parent and delegated-task budgets now have separate persisted settings; Subagent defaults are 100 tool calls, 6 failures, 12 model turns, 30 minutes, 4 tasks, concurrency 2.
+- Post-tool context overflow can be recovered safely by discarding only the failed terminal assistant, retaining tool results, forcing compaction, and continuing without replaying the original prompt.
+- Inbound startup recovery now quarantines interrupted rows as `recovery_required`; replay is an explicit operator decision. Per-claim lease ids protect a retried row from stale completion and records expose a checkpoint writer.
+- Root `tsc --noEmit` is not a clean project gate: it currently fails on existing dependency declarations, QQ/OpenClaw types, Svelte wildcard exports, and many unrelated source/test errors. Task-focused tests and production build remain required.
+
+## Final adversarial review and residual boundaries
+- The implemented recovery substantially improves a single live run, but the parent `maxToolCalls` ceiling is still intentionally terminal. Molibot does not yet persist an executable plan and automatically launch a fresh run to finish arbitrary remaining steps.
+- A persisted Subagent session is an audit/diagnostic transcript, not transparent crash resume. Replaying a child prompt after restart could duplicate file or external side effects, so no automatic replay was added.
+- `recovery_required` queue rows are never auto-replayed for the same reason. `/queue retry <id>` is explicit and warns that prior side effects may already exist; claim leases only prevent stale completion from corrupting the newer retry.
+- The shared timeout bounds the caller after a cancellation grace period, but JavaScript cannot forcibly terminate an arbitrary in-process provider/tool that ignores abort. Such work may retain resources or finish side effects in the background; true hard-stop semantics require worker/process isolation.
+- Parent streams still chiefly use time-to-first-token protection; a stream that emits once and then stalls is not governed by the new Subagent/event deadline. General MCP/tool implementations may also ignore abort. These are the next runtime-isolation slice, not claims of this delivery.
+- Persisted child transcripts currently have no retention policy. Operators can disable them, but automatic age/size cleanup should be added before high-volume unattended delegation.
+
+
+
 # 2026-07-25 — Provider OAuth quick-connect findings
 
 - Molibot currently locks `@earendil-works/pi-ai` and `pi-coding-agent` at 0.81.0. The active `FileCredentialStore` reads from disk on each lookup and writes atomically with `0600` file / `0700` parent permissions.
@@ -1957,3 +2059,171 @@ Use two identities for fresh automation runs: an execution-unique runtime Sessio
 - Cross-process idempotency needs a second existence check after a `SESSION_EXISTS` race. A matching visible child is success; compensating its shared Agent artifacts would corrupt the winner. The coordinator now distinguishes that case from a genuine visible-store failure.
 
 ---
+# Unified media preprocessing regression diagnosis (2026-07-26)
+
+## Requirements
+- Diagnose loss of configured speech-to-text preprocessing for voice/audio messages across Telegram, Feishu, Weixin, QQ, Web, and Desktop.
+- Diagnose the analogous image-recognition-to-text path before the session continues.
+- Determine why the path broke; do not modify runtime behavior during this review-only turn.
+
+## Initial evidence
+- Historical product records say STT ownership moved from channel code into `src/lib/server/agent/stt.ts`; Telegram/Feishu should emit raw audio attachments and `runner.ts` should transcribe and inject the transcript.
+- Historical records say image routing became verification-aware: native vision is used only when the selected text model or dedicated vision route has declared and verification-passed `vision` capability.
+- Historical records say Telegram, Feishu, QQ, and Weixin later moved inbound tasks to a shared durable SQLite queue with image/audio attachment restoration.
+- The worktree already contains broad user-owned edits, including `inboundCoordinator.ts`, queue/runtime/session files, and planning/product docs; diagnosis must separate dirty-worktree behavior from committed baseline.
+
+## Leading boundary to test first
+Attachment metadata (`mediaType`, `mimeType`, local path/content) may be dropped or changed between channel/Web/Desktop intake, durable queue serialization/restoration, and `runner.ts`, causing both STT and vision dispatch to see no eligible media.
+
+## Source/test inventory discovered
+- Current media ownership is split into focused shared modules: `agent/routing/stt.ts`, `agent/routing/vision-fallback.ts`, `agent/routing/mediaFallback.ts`, `agent/core/runnerInputEnricher.ts`, and `channels/shared/attachmentImageContents.ts`.
+- Existing seams include `agent/routing/vision-fallback.test.ts`, `channels/shared/attachmentImageContents.test.ts`, `channels/shared/inboundCoordinator.test.ts`, queue tests, Feishu intake tests, Weixin media tests, and Web attachment/stream request tests.
+- Desktop records audio with a typed `File` and uses the same attachment contract (`mediaType`, optional `mimeType`); its provider tag vocabulary includes both `audio_input` and `stt`, while the configured route remains `sttModelKey`.
+- Historical changelog entries explicitly mention queued attachment rehydration and image fallback request-body regressions, so a present cross-media failure implies either those guards no longer cover the live entry seam or routing now exits before those tested helpers.
+
+## Refined first hypothesis
+The shared Runner enrichment seam is now the highest-value feedback-loop target: it should accept normalized image/audio attachments from every entry path, transcribe audio, derive image content/fallback text, and return the enriched user input before session execution. A helper-only test would be too shallow if the Runner no longer calls it.
+
+## Runner wiring and guard gap
+- `runner.ts` still calls `prepareEnrichedInput(...)` for every `run()` after applying the per-turn text override; the turn override preserves vision/STT routes.
+- Audio detection is solely `ctx.message.attachments.some(item => item.isAudio)`; image detection is solely non-empty `ctx.message.imageContents`. The two modalities therefore have different required metadata at the Runner boundary.
+- Audio enrichment reads each local attachment from `join(ctx.workspaceDir, attachment.local)` and then calls the configured STT endpoint; a missing/mis-rooted local path produces the user-facing transcription failure.
+- Image fallback requires both an `isImage` attachment and `imageContents`; native vision requires `imageContents`. Losing either normalized image content or audio attachment flags/paths before `run()` disables recognition.
+- Existing test inventory has request-body tests for the vision fallback and queued image rehydration, plus routing-decision tests, but no named regression that exercises `prepareEnrichedInput` or audio transcription end to end. This is likely why a shared live-path regression could escape while helper tests remain green.
+
+## Dirty-worktree isolation
+- Current user-owned diffs in `runner.ts` concern tool hooks and post-tool overflow continuation, not media preparation.
+- Current queue/coordinator diffs add leases, recovery quarantine, checkpoints, and manual retry; they do not alter queued payload serialization or attachment fields.
+- `runnerInputEnricher.ts`, STT/media routing modules, queued image rehydration, and the Web stream ingress have no current dirty diff. The media failure is therefore not explained by the visible in-progress long-task changes.
+
+## Live-runtime evidence source
+- A Desktop development runtime is currently active; the standalone service is stopped. The live log is under the active runtime directory resolved from the tail process cwd, not the repository root.
+- Runtime defaults use one shared data root and SQLite settings store. Inspecting the active Desktop log plus a secret-redacted settings projection can distinguish payload loss from routing/configuration loss without mutating user data.
+- The live settings database uses normalized tables (`settings_dynamic`, `settings_custom_providers`, `settings_custom_provider_models`, `settings_agents`, and channel instances), allowing route/capability inspection without selecting provider API-key columns.
+
+## First live-log/config observations
+- Live Runner logs show non-empty global route keys for both media paths: STT routes to `custom|siliconflow-stt|TeleAI/TeleSpeechASR`, and vision routes to `custom|custom-qiniu|doubao-seed-2.0-lite`.
+- Ordinary text turns correctly log `no_audio` / `no_images`; these do not reproduce the bug by themselves, but they prove route settings are present in the running process and rule out a wholly blank global routing object.
+- Channel instances are enabled across Feishu, QQ, Telegram, Web, and Weixin, while Agent rows currently have no per-Agent model-routing JSON, so the same global STT/vision routes should apply across those channels.
+- The first broad log/provider query was too noisy and truncated; subsequent probes must filter to media-positive events and the two selected providers only.
+
+## Media-positive history and selected provider state
+- The log proves the full STT path previously worked on the same configured route: Telegram media-positive runs reached the transcription endpoint and injected non-empty transcripts; Web also reached the endpoint, though one older recording returned empty text after three attempts.
+- Both selected providers are currently enabled and have non-empty endpoint/key configuration in normalized storage. The STT model is tagged `stt`; the selected vision model is tagged `vision`.
+- Both selected model rows currently have no persisted verification JSON. In current routing code this still allows STT and vision fallback attempts (`missing` is treated as declared-unverified), but it prevents custom vision from being sent natively. Therefore missing verification alone does not explain “no recognition”; the fallback request should still run whenever image contents arrive.
+- A broad dynamic-value query surfaced a legacy provider blob with credentials in tool output. Investigation immediately stopped using raw dynamic values; no secret value is recorded here or will be repeated.
+
+## Confirmed voice root cause
+- Two current-day real voice runs reproduce the user's exact symptom across independent channels: Telegram at 18:00 and Feishu at 19:30 both arrived at Runner with `hasAudioInput=true` and one attachment.
+- Both runs selected the configured STT route and made three requests to the configured transcription endpoint.
+- Every request returned `HTTP 403 Forbidden` with an empty response body; Runner then reported one transcription error and no transcript. The Channel/queue/Runner/session path is intact for audio; the selected STT provider is refusing the request (credential authorization, account/quota, model entitlement, or network policy at the provider side).
+- A deterministic captured-trace loop is available with the focused `rg ... | tail` command already run against the live sidecar log; it asserts the exact positive-audio -> three 403 responses -> no transcript sequence without modifying runtime state.
+
+## Ranked image hypotheses before falsification
+1. Image attachments are not converted/rebuilt into `ctx.message.imageContents` before Runner. Prediction: every relevant entry path will show an attachment but an empty/missing `imageContents`, or omit the shared rebuild helper.
+2. Durable queue/context restoration preserves attachment metadata but resolves the wrong workspace root. Prediction: direct intake works while queued/recovered input cannot read the local image and yields no rebuilt content.
+3. Images reach the vision fallback but the selected provider rejects the request. Prediction: a media-positive Runner trace will show `hasImages=true`, `mode=vision`, then `analysisErrors>0`.
+4. Channel-specific parsers independently fail. Prediction: Web/Desktop and direct Feishu/Telegram paths will fail at different adapter seams rather than one shared boundary.
+
+## Current image signal
+- The 31 MB live sidecar log contains no `image_fallback_decision ... hasImages=true`, no `run_start ... images>0`, and no `prompt_start ... rawImageCount>0` in the focused scan. This is consistent with hypothesis 1 but is not yet a red-capable image repro because the log may simply lack a recent submitted image.
+
+## Image contract traced so far
+- Runner does not infer images from generic attachments; it requires `ChannelInboundMessage.imageContents` to be populated before context construction.
+- The shared rebuild helper correctly reads relative attachment paths against `workspaceDir` and creates base64 `ImageContent` objects.
+- QQ and Weixin direct media extractors both save the local attachment and construct `imageContents` from downloaded bytes. Weixin's queued payload intentionally omits in-memory `imageContents`, so its processing path must call the rebuild helper before Runner.
+- The shared context builder is a pass-through: it does not rebuild media. Any runtime that omits rebuild passes empty images unchanged into Runner.
+
+## Image hypothesis 1 source check
+- Telegram, Feishu, QQ, and Weixin each explicitly call the shared rebuild helper for queued events. QQ/Weixin also construct `imageContents` directly from fresh download bytes; Web/Desktop multipart ingress constructs it directly from uploaded bytes.
+- This falsifies the broad form of hypothesis 1 (“all entry paths omit image conversion”) and makes a shared source-code omission unlikely.
+- The remaining likely branches are: (a) no actual image-positive sample has hit this sidecar, (b) platform media download/extraction fails before queuing on the tested channel, or (c) the configured vision provider rejects the fallback request once exercised.
+- Web/Desktop share `/api/chat` multipart ingress, so their source path is currently wired for image content. An isolated direct vision-fallback probe can test branch (c) without changing sessions or queues.
+
+## Direct vision probe design
+- The repository already ships a deterministic vision smoke fixture and the exact fallback helper accepts an in-memory `ImageContent` plus loaded runtime settings.
+- A direct probe through `describeImageViaConfiguredProvider` will exercise the real selected provider/model/path and response parser while avoiding channel queues, session writes, and user conversation pollution.
+- Expected discriminating result: success falsifies provider failure and points back to input/sample availability; HTTP/provider failure confirms a second upstream configuration/access problem analogous to STT.
+
+## Saved-provider vision smoke result
+- The live product's saved-provider test endpoint was invoked against the configured vision route with the bundled smoke image; it made no session/queue/settings write.
+- Text connectivity passed, but the same model's vision capability probe failed. This confirms the selected endpoint/model is reachable for text yet rejects or cannot process the image payload.
+- The endpoint's top-level `status=400` is the separate developer-role probe status, not necessarily the hidden vision-probe status. A direct request using the same normalized provider row is needed to capture the exact image error without ambiguity.
+
+## Confirmed vision smoke-fixture defect
+- A direct read-only request to the configured vision model returned `400 invalid_request_error`: image dimensions are too small; minimum is 14 px while the bundled fixture is 1×1.
+- `sips` independently confirms `assets/test-images/vision-smoke.png` is exactly 1×1.
+- Therefore the saved-provider test's `vision:failed` result is a deterministic false negative caused by the test fixture, not proof that the selected model lacks vision support.
+- This defect can disable the live path if its failed verification state is saved, because `decideImageFallbackRouting` explicitly refuses a target with `verification.vision === "failed"`. The current normalized row is still unset, so this particular live database has not persisted that block yet.
+
+## Valid-size vision control
+- Repeating the exact provider request with an existing 32×32 PNG returned HTTP 200 and non-empty image analysis. The configured vision endpoint/model is healthy for real-sized images.
+- Therefore the image-side product defect found is specifically the 1×1 verification fixture/false-negative path; no evidence currently shows the shared real-image preprocessing path is broken.
+
+## STT credential vs endpoint discrimination
+- The selected STT provider row was last updated at `2026-07-26T11:44:04Z` (19:44 Asia/Shanghai), after the 18:00 Telegram and 19:30 Feishu failures. This does not cause those earlier failures, but it means the persisted configuration changed during/after troubleshooting.
+- Using the current saved credential, the provider's `/v1/models` request returns HTTP 200 and lists `TeleAI/TeleSpeechASR`. The credential is valid and the model exists/appears visible to the account.
+- Since authentication/model discovery works but `/v1/audio/transcriptions` returns 403 for independent Telegram and Feishu files, the rejection is specific to the transcription request/entitlement/policy rather than a dead key or missing model id.
+
+## Official STT contract check
+- SiliconFlow's current official transcription reference still specifies `POST https://api.siliconflow.cn/v1/audio/transcriptions`, Bearer auth, multipart `file`, and `model`; it explicitly lists `TeleAI/TeleSpeechASR` as an available option.
+- The runtime request matches that contract. Official docs map 401 to invalid token and 403 to `Forbidden`, while rate limiting is 429 and overload is 503. This supports an authorization/entitlement/policy rejection rather than wrong endpoint syntax, invalid token, quota-rate limit, or overloaded service.
+- Documented file limits are at most one hour and 50 MB. Inspecting the two captured attachment sizes/types can rule out malformed/oversized input, although those conditions would normally be request validation rather than a cross-channel 403.
+
+## Captured attachment validation
+- The failing Telegram file is a valid 18,839-byte Ogg/Opus mono 48 kHz recording.
+- The failing Feishu file is a valid 4,840-byte Ogg/Opus mono 16 kHz recording.
+- Both are far below official limits and come from independent platform encoders. File corruption/size is falsified as the shared cause; the remaining discriminant is model-specific access/service behavior.
+
+## Root-cause control experiment
+- With the same current valid credential, same endpoint, same Telegram Ogg file, and same multipart request shape, changing only the model from `TeleAI/TeleSpeechASR` to the official alternative `FunAudioLLM/SenseVoiceSmall` returned HTTP 200 with a non-empty transcript.
+- This single-variable control confirms the voice root cause is model-specific access/service behavior for `TeleAI/TeleSpeechASR`, not Molibot's shared media pipeline, API key, endpoint, file, channel, or session continuation.
+- The narrow operational recovery is to route STT to a model currently permitted for the account (the control proves `FunAudioLLM/SenseVoiceSmall` works) or have SiliconFlow restore `TeleAI/TeleSpeechASR` entitlement/service access.
+
+## Guard analysis
+- Provider capability testing exercises text and vision, but declared `stt` is left `untested`; therefore Settings can show a configured STT model without detecting this real 403 before a user sends voice.
+- Runner logs the aggregate event name `voice_transcription_success` even when `transcriptionErrors=1` and `hasTranscripts=false`, which is observability debt and can mislead incident triage.
+- No focused test currently exercises `prepareEnrichedInput` with both a real local audio attachment + mocked transcription response and a real local image + mocked vision response. Existing helper tests cannot prove the live pre-session contract end to end.
+- The vision test's 1×1 fixture is below at least this provider's minimum and creates a deterministic false-negative guard; the fixture should be replaced with a meaningful, valid-size image whose expected visible content is asserted.
+
+## Adversarial review and final conclusion
+- **Could a newly saved credential invalidate the model-control inference?** The Provider row changed at 19:44, so the current credential was re-tested against the original `TeleAI/TeleSpeechASR`; it still returns 403, while only the model variable changed to `FunAudioLLM/SenseVoiceSmall` returns 200.
+- **Could malformed audio cause the 403?** Two independent Ogg/Opus files are valid and tiny; the exact Telegram file succeeds under the alternative model.
+- **Could a shared Channel/queue regression cause voice loss?** Current Telegram and Feishu runs both reach Runner with positive audio, select the route, and make all three endpoint attempts. The break is after Molibot dispatches correctly.
+- **Could the entire vision provider be broken?** The 1×1 fixture fails on documented dimension validation, while a 32×32 image returns 200 and non-empty analysis.
+- **Could current dirty work explain the regression?** Relevant media preprocessing/routing/rehydration files have no user diff; current dirty queue/Runner work is outside media payload handling, and focused existing tests remain green.
+
+Final conclusion: the voice path is operational inside Molibot and fails because `TeleAI/TeleSpeechASR` is currently forbidden for the configured account/service state. The configured vision path works on a valid image; its settings capability test is faulty because the bundled image is only 1×1. No runtime source fix was applied in this diagnosis-only turn.
+
+---
+# STT forbidden-response diagnostics and live replay (2026-07-26)
+
+## Starting evidence
+- Current Telegram and Feishu voice turns reach the shared STT function but `TeleAI/TeleSpeechASR` returns an empty-body HTTP 403 on all retries.
+- The same current credential/endpoint/file succeeds with `FunAudioLLM/SenseVoiceSmall`, while the original model still returns 403 after the latest Provider save.
+- Current logging records status and the first body bytes but omits request/trace headers, timing, input metadata, and an explicit marker for an empty body.
+- The aggregate Runner event is misleadingly named `voice_transcription_success` even when errors exist; this task remains scoped to provider-response diagnostics unless a surgical status correction is directly covered.
+
+---
+# STT forbidden-response diagnostics and live replay (2026-07-26)
+
+## Implementation findings
+
+- The STT request already logs the status and the first part of the response body, but an empty 403 body produces no actionable upstream identifier.
+- The missing fields at the HTTP boundary are provider/model identity, elapsed time, input audio metadata, an explicit empty-body marker, and a small allowlist of tracing/rate-limit response headers.
+- Diagnostics must not log authorization values, cookies, or arbitrary upstream headers; response text also needs defensive redaction in case an upstream echoes credentials.
+- The change can remain local to the shared STT routing layer, so every channel benefits without adding channel-specific behavior.
+- Existing provider-tool tests capture console output and assert that response detail is present while credentials are absent; the STT regression can follow the same real-call seam instead of testing only a detached helper.
+- Existing redaction code elsewhere covers bearer tokens, API-key-like JSON/query fields, `sk-`/`rk-` tokens, and JWTs; the STT response summary should apply equivalent defensive patterns.
+
+## Root cause and adversarial review
+
+- **Root-cause class:** observability omission at the shared upstream HTTP boundary. The media pipeline and channel normalization are intact; the configured TeleAI/TeleSpeechASR request is being refused by the provider.
+- The current replay proves only what the upstream returned: empty-body HTTP 403 plus trace `ti_0x3fhjgb94ikn3n4vy`. The trace enables provider-side lookup, but the local runtime must not invent a more specific upstream policy reason.
+- A production-function control replay using the newly saved `FunAudioLLM/SenseVoiceSmall` succeeds on the identical 18,839-byte Ogg with the same provider, credential, and endpoint (473 ms, 16-character transcript). This falsifies shared routing, file validity, endpoint, and general credential failure; the refusal is specific to the TeleAI/TeleSpeechASR request or its provider-side entitlement/policy.
+- Likely failure point 1 — credential leakage through response text, URL, filename, allowed header values, or network exception text: all now pass through defensive redaction; authorization/cookie and arbitrary headers are excluded structurally.
+- Likely failure point 2 — empty response remains visually indistinguishable from missing logging: guarded by `responseBodyEmpty=true` plus `<empty>`.
+- Likely failure point 3 — diagnostics differ by channel: avoided by changing only `routing/stt.ts`, the shared preprocessing seam used by every inbound channel.
+- Likely failure point 4 — retry/success behavior changes while adding logs: routing, request form, retry count, and user-facing HTTP failure behavior remain unchanged; focused route tests and the production build are green.
+- Likely failure point 5 — the same class silently regresses: two real-call tests now guard required 403 fields, trace allowlisting, cookie exclusion, and credential redaction.
+- This is the first recorded recurrence of this specific root-cause class, so a machine guard is sufficient; no new long-term `AGENTS.md` pitfall is warranted.

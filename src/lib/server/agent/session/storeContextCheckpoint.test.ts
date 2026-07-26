@@ -76,3 +76,37 @@ test("restoreContextCheckpoint refuses to cross a session boundary", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("discardLatestContextAssistant preserves completed tool results", () => {
+  const { store, dir } = makeStore();
+  try {
+    store.appendContextMessage(CHAT, {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "call-1", name: "write", arguments: { path: "out.txt" } }],
+      stopReason: "toolUse",
+      timestamp: Date.now()
+    } as any, SID);
+    store.appendContextMessage(CHAT, {
+      role: "toolResult",
+      toolCallId: "call-1",
+      toolName: "write",
+      content: [{ type: "text", text: "wrote out.txt" }],
+      isError: false,
+      timestamp: Date.now()
+    } as any, SID);
+    store.appendContextMessage(CHAT, {
+      role: "assistant",
+      content: [],
+      stopReason: "error",
+      errorMessage: "context length exceeded",
+      timestamp: Date.now()
+    } as any, SID);
+
+    assert.equal(store.discardLatestContextAssistant(CHAT, SID), true);
+    const context = store.loadContext(CHAT, SID);
+    assert.deepEqual(context.map((message) => message.role), ["assistant", "toolResult"]);
+    assert.equal(JSON.stringify(context).includes("context length exceeded"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

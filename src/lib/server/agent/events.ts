@@ -5,6 +5,7 @@ import {
   type EventExecutionLease,
   type EventExecutionLeaseStore
 } from "$lib/server/agent/eventsLeaseStore.js";
+import { settleWithCooperativeTimeout } from "$lib/server/agent/core/cooperativeTimeout.js";
 
 export interface EventStatus {
   state: "pending" | "running" | "completed" | "skipped" | "error";
@@ -264,6 +265,7 @@ export interface EventsWatcherOptions {
   getExecutionSettings?: () => EventExecutionSettings;
   onTimeout?: (context: EventDispatchTimeoutContext) => Promise<void> | void;
   leaseStore?: EventExecutionLeaseStore;
+  timeoutSettleGraceMs?: number;
 }
 
 export class EventsWatcher {
@@ -588,38 +590,17 @@ export class EventsWatcher {
     filename: string,
     lease: EventExecutionLease
   ): Promise<{ status: "success"; result?: unknown } | { status: "timeout" } | { status: "error"; error: unknown }> {
-    let timeout: NodeJS.Timeout | null = null;
-    let settled = false;
     const runPromise = Promise.resolve()
       .then(() => this.onEvent(event, filename))
       .then((result) => result === undefined ? { status: "success" as const } : { status: "success" as const, result })
       .catch((error) => ({ status: "error" as const, error }));
 
-    const timeoutPromise = new Promise<{ status: "timeout" }>((resolve) => {
-      timeout = setTimeout(() => {
-        if (settled) return;
-        void Promise.resolve(this.options.onTimeout?.({ event, filename, runId: lease.runId, lease }))
-          .catch(() => undefined)
-          .finally(() => {
-            resolve({ status: "timeout" });
-          });
-      }, lease.timeoutMs);
+    const result = await settleWithCooperativeTimeout(runPromise, {
+      timeoutMs: lease.timeoutMs,
+      settleGraceMs: this.options.timeoutSettleGraceMs,
+      onTimeout: () => this.options.onTimeout?.({ event, filename, runId: lease.runId, lease })
     });
-
-    const result = await Promise.race([runPromise, timeoutPromise]);
-    settled = true;
-    if (timeout) clearTimeout(timeout);
-
-    if (result.status === "timeout") {
-      // The timeout fired first, but the run may still complete. Await it so
-      // we can suppress duplicate retries when the run actually succeeded, or
-      // surface a more specific error when it failed after the timeout.
-      const finalResult = await runPromise;
-      if (finalResult.status === "success" || finalResult.status === "error") {
-        return finalResult;
-      }
-    }
-    return result;
+    return result.status === "settled" ? result.value : { status: "timeout" };
   }
 
   private resumeRecoveredLease(filename: string, event: MomEvent): boolean {

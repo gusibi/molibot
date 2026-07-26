@@ -19,6 +19,7 @@ import { createSkillManageTool } from "$lib/server/agent/tools/skillManage.js";
 import { createSkillSearchTool } from "$lib/server/agent/tools/skillSearch.js";
 import { createSubagentTool } from "$lib/server/agent/tools/subagent.js";
 import { createSwitchModelTool } from "$lib/server/agent/tools/switchModel.js";
+import { createExtensionManageTool } from "$lib/server/agent/tools/extensionManage.js";
 import { createToolSearchTool, type DeferredToolEntry } from "$lib/server/agent/tools/toolSearch.js";
 import { getWriteToolDefinition } from "$lib/server/agent/tools/write.js";
 import { createWebSearchTool } from "$lib/server/agent/search/webSearchTool.js";
@@ -26,6 +27,8 @@ import { createImageGenerateTool } from "$lib/server/agent/imageGenerate/imageGe
 import { createVideoGenerateTool } from "$lib/server/agent/videoGenerate/videoGenerateTool.js";
 import { createTtsGenerateTool } from "$lib/server/agent/ttsGenerate/ttsGenerateTool.js";
 import { createFeaturePluginTools } from "$lib/server/plugins/feature-registry.js";
+import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
+import { createPiExtensionTools } from "$lib/server/plugins/piExtensions/toolBridge.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import { resolveScratchArtifactDir } from "$lib/server/agent/session/scratchArtifacts.js";
@@ -184,6 +187,10 @@ export function createMomTools(options: {
     getSettings: options.getSettings,
     updateSettings: options.updateSettings
   }));
+  const extensionManageRuntimeTool = wrapSerializedTool(createExtensionManageTool({
+    getSettings: options.getSettings,
+    updateSettings: options.updateSettings
+  }));
   const skillManageRuntimeTool = wrapSerializedTool(createSkillManageTool({
     workspaceDir: options.workspaceDir,
     chatId: options.chatId
@@ -231,6 +238,10 @@ export function createMomTools(options: {
 
   let tools: AgentTool<any>[] = [];
   let deferredTools: DeferredToolEntry[] = [];
+  // Tools contributed by third-party pi extensions, filled in once the built-in
+  // tool names are known (built-ins always win a name collision).
+  let piExtensionTools: AgentTool<any>[] = [];
+  const piExtensionToolNames = new Set<string>();
 
   const registry = new ToolRegistry();
   const decidePolicy: ToolPolicyDecider = (tool, input, ctx) => {
@@ -362,7 +373,9 @@ export function createMomTools(options: {
 
   const wrapWithToolRuntime = (originalTool: AgentTool<any>): AgentTool<any> => {
     if (!registry.get(originalTool.name)) {
-      const { risk, source } = getRuntimeToolClassification(originalTool.name);
+      const { risk, source } = getRuntimeToolClassification(originalTool.name, {
+        isExtensionTool: piExtensionToolNames.has(originalTool.name)
+      });
       const toolDef: ToolDefinition = {
         id: originalTool.name,
         name: originalTool.label ?? originalTool.name,
@@ -471,7 +484,8 @@ export function createMomTools(options: {
         .filter((entry) => loadedDeferredToolNames.has(entry.name))
         .map((entry) => entry.tool),
       ...tools.filter((tool) => !loadedDeferredToolNames.has(tool.name)),
-      ...featureTools
+      ...featureTools,
+      ...piExtensionTools
     ];
     return rawTools.map(tool => wrapWithToolRuntime(tool));
   };
@@ -526,6 +540,25 @@ export function createMomTools(options: {
       description: "List configured runtime model options or safely switch the active model route.",
       keywords: ["switch", "model", "models", "route", "routing", "provider", "settings"],
       tool: switchModelRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "extensionManage",
+      description: "List, inspect, install, uninstall, enable or disable third-party pi extensions (plugins). Installing requires owner approval.",
+      keywords: [
+        "extension",
+        "extensions",
+        "plugin",
+        "plugins",
+        "install",
+        "uninstall",
+        "pi",
+        "npm",
+        "插件",
+        "扩展",
+        "安装"
+      ],
+      tool: extensionManageRuntimeTool,
       loadDeferredTools
     }),
     createDeferredToolEntry({
@@ -663,6 +696,22 @@ export function createMomTools(options: {
       getLoadedMcpTools: options.getLoadedMcpTools
     })));
   }
+
+  const piHost = getPiExtensionHost();
+  const piResult = createPiExtensionTools(
+    piHost.getActiveExtensions(options.getSettings(), botId),
+    {
+      cwd: options.cwd,
+      reservedToolNames: new Set([
+        ...tools.map((tool) => tool.name),
+        ...deferredTools.map((entry) => entry.name),
+        ...featureTools.map((tool) => tool.name)
+      ])
+    }
+  );
+  piHost.recordToolConflicts(piResult.conflicts);
+  piExtensionTools = piResult.tools.map((tool) => wrapSerializedTool(tool));
+  for (const tool of piExtensionTools) piExtensionToolNames.add(tool.name);
 
   const resultTools = getActiveTools();
   (resultTools as any).wrapTool = wrapWithToolRuntime;

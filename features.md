@@ -7,6 +7,40 @@
 ---
 ## 2026-07-26
 
+### 语音识别 403 具备可追踪且不泄密的诊断日志（已完成）
+- Telegram、飞书、微信、QQ、Web 与 App 共用的 STT 层会记录实际 provider/model、音频文件名/MIME/字节数、请求耗时，并把空响应正文明确显示为 `<empty>`，不再只剩一个无法追查的 403。
+- 上游响应头仅保留 content、trace/request ID、rate-limit、retry、server/CF 等诊断白名单；Authorization、Cookie 和任意其它响应头不会进入日志。响应正文及 URL 还会对当前 API Key、Bearer、JSON/query 凭据、`sk-`/`rk-` token 与 JWT 二次脱敏。
+- 新增真实调用边界回归：空正文 403 必须留下 trace 与音频元数据；上游即使回显凭据也不得写入日志。用当前 Telegram Ogg 经生产转写函数重放，`TeleAI/TeleSpeechASR` 仍是上游空正文 403 并取得可提交给服务商的 trace ID；不持久化设置、临时改用新保存的 `FunAudioLLM/SenseVoiceSmall` 后，同一 provider/key/endpoint/音频成功转写。
+
+### 接入 pi 扩展系统：第三方插件可安装、可运行（已完成）
+- **为什么**：此前"外部插件"只能被发现、不能被执行（旧 `plugin-authoring.md` §2.2 明说），任何新能力都必须改仓库代码 + 注册进内置 registry。pi 生态已经有一批现成扩展（npm 上以 `pi-package` / `pi-extension` 为关键词），Molibot 应该能直接用。
+- **复用 pi 的加载器，不用 pi 的运行器**：`discoverAndLoadExtensions` 只依赖 paths/cwd/eventBus，可直接复用（jiti 加载 TS 扩展、pi 的三种发现规则）；而 `ExtensionRunner` 的构造函数强依赖 pi 的 `SessionManager` + `ModelRegistry`，Molibot 两个都没有，因此运行器自己写（`plugins/piExtensions/`）。生产构建里 pi 是外部依赖（`import '@earendil-works/pi-coding-agent'`），dev 与 build 走同一条解析路径，无需改 vite 配置。
+- **安装（两条路）**：
+  - **设置页一个输入框**：`/settings/plugins` 的 pi 扩展卡片只有一个框，来源自动识别 —— npm 包名 / `npmjs.com/package/...`（含 `/v/版本`）/ GitHub 仓库 / **GitHub·GitLab monorepo 子目录链接**（`/tree/<分支>/<路径>`，很多 pi 扩展就是这种形态，只取该子目录）/ `git@` SSH / `file://` 本地仓库（自己开发扩展用）。原先要手选 npm/git 并且贴 npm 网页链接或 monorepo 链接都会失败，现在识别不了的链接**在下载前**就带修正提示拒绝，而不是丢一句 git 报错。
+  - **在聊天里让 Agent 装**：新增 `extensionManage` 工具（deferred，靠 toolSearch 唤出），支持 list / inspect（只解析不安装）/ install / uninstall / enable / disable。
+- **安装流程**：先装到 staging 目录 → `npm install --omit=dev`（monorepo 时在子包自己的 manifest 处装，不装整个 workspace）→ **实际加载校验**（必须能 load 且注册出工具/事件/命令）→ 才移入 `${DATA_DIR}/extensions/<id>`；失败不留半装状态。仅检查 `index.js` 是否存在是不够的：几乎所有 npm 包都有 `index.js`（`is-odd` 能通过文件检查），所以校验一定要真的执行 factory。
+- **Agent 安装必须审批**：`extensionManage` 归类为 `critical`，一律经过 ApprovalBroker 弹审批卡片。理由不是不信任 owner，而是"帮我装这个插件"这句话可能出现在 Agent 读到的网页或文档里，只有 owner 能确认这是他本人的要求。
+  - 顺带补了一个真实缺口：此前只有飞书有解析 broker 审批的卡片回调（`resolveGenericApprovalAction`），Telegram/QQ/微信/桌面的审批按钮只认 `hostBashStore`，一个 broker 请求在这些渠道**根本无法批准**，只会 5 分钟后超时。现在 `SharedRuntimeCommandService` 的 approve/reject/approve-session 以及纯文本"同意/拒绝"回复都会在 Host Bash 无匹配时回落到 broker（多条待审时列出 id 而不是猜一个），修在共享层，所有渠道一起生效。
+- **已支持的扩展能力**：`registerTool`（并入 `createMomTools`，内置工具名永远优先，冲突项跳过并在设置页说明）、`registerCommand`（接在 `SharedRuntimeCommandService` 内置命令之后，`/help` 单列一节）、`registerFlag`，以及 `agent_start`/`agent_end`/`tool_call`/`tool_result`/`input`/`before_agent_start`/`session_start` 七个事件。`tool_call` 拿到的是**真实 args 引用**，因此 pi 扩展惯用的"原地改写 `event.input`"能真正改到执行参数；返回 `block` 走 Molibot 的 gate deny。
+- **明确不支持并在设置页标注**：终端类能力（`registerShortcut`、消息/条目渲染器、所有 `ctx.ui` 对话框与 widget）、pi 专属对象（`ctx.sessionManager`/`ctx.modelRegistry`，访问时抛出点名扩展的可读错误而不是 undefined）、会话树事件、`user_bash`、`message_update`、`before_provider_*`、`resources_discover`、`model_select`（pi 的载荷要求真正的 pi `Model` 对象）。
+- **作用域**：`plugins.piExtensions` = 总开关 + 每扩展开关 + `disabledBots` 按 bot 排除 + flag 值，全部走 save → 重启 → load 回归。
+- **冷启动**：扩展加载刻意放在 `liveServicesDisabled` 分支之外，并在 `Runner.run` 里 `await host.load()` 兜底 —— 否则冷启动第一轮会静默地少掉所有扩展工具。启动日志新增 `pi_extensions_loaded`（含 id 列表与失败数）。
+- 验证：33 个新单测（发现规则/工具桥/事件桥/命令桥/安装校验/设置回归）+ `vite build` + 真实服务冷启动走查（装载 → 开关 → 重启后状态保持 → UI 点击写回 settings.json）。
+
+### 长任务运行时分级防护与安全恢复（已完成）
+- 父 Agent 与 Subagent 不再共用一套含义不同的预算：系统设置新增独立的 Subagent 工具次数、失败次数、模型轮次、总时长、任务数和并发上限，并完整支持保存、重启加载、中英切换、明暗主题和窄屏布局。
+- Subagent 默认启用 pi 自动压缩，并可把隔离会话持久化到当前工作区；任务记录会保存子会话 id，便于定位长委派的完整轨迹。父 Agent 仍只接收压缩后的结果，不会被子任务全文撑爆上下文。
+- 工具执行后的上下文溢出不再直接终止：Runner 只移除最后一条失败 Assistant，保留已经完成的工具结果，压缩当前上下文后从原状态 `continue()`；原 prompt 和有副作用的工具都不会重放。
+- 渠道入站队列启动时不再删除中断中的任务。它们进入 `recovery_required`，由用户通过 `/queue retry <id>` 明确重试或 `/queue delete <id>` 放弃；claim lease 阻止旧执行者删除已重试任务，checkpoint 为后续细粒度续跑保留状态入口。
+- 事件任务和 Subagent 共用“两阶段超时”：到期先请求协作式取消，再只等待固定宽限期；即使底层忽略取消，调度调用方也会有界返回，不再无限卡在原 promise 上。
+
+### 分叉改为"从该节点完整复制一份"（已完成）
+- 原先分叉复制的是所选消息**之前**的记录，且只能从用户消息开始。两条规则都去掉了：子分支现在**包含**分叉点，且任意消息都可作为分叉点。
+- 这正是改动的目的：在最后一条消息上分叉，得到的子分支与父分支完全一致，也就是"复制一份再各走各的"。原来"只能选用户消息"的限制让这件事根本无法表达——会话几乎总是以 assistant 回复结尾。
+- Desktop 不再把原消息预填进输入框：子分支里已经有这条消息了，预填会导致这一轮重复。"换个说法重问"仍由编辑并重发负责。
+- 两个存储同步改动（`SessionStore.forkConversationBeforeMessage` 与 `MomRuntimeStore.forkSessionBeforeEntry`）；新增断言要求可见记录与模型上下文对"子分支从哪开始"的判断一致，否则两者会静默错位。
+- **分支模型已定档**：分支保持为并列的独立 Session。评估并否决了 pi 的会话内树形（`SessionManager.branch()`/`getTree()`/`generateBranchSummary`）——它的 `branch_summary` 之所以存在，是因为切到另一个叶子会**抛弃**一条模型再也看不到的路径；而 Molibot 的父分支始终可独立浏览，没有任何东西被抛弃，也就没有需要总结的内容。已记入 `prd.md` §3.07，避免重复提案。
+
 ### 编辑与分叉拆成两个独立操作（两个聊天面板，已完成）
 - "编辑并重发"保持原有语义：截断当前 Session（删除所选用户消息及其之后的内容）再重跑该轮。编辑是就地改写，不应该悄悄变成新建 Session。
 - 新增独立的"分叉"按钮，位于用户消息的复制/编辑旁边，主 Chat 与 Project Chat 都有：在该消息之前创建子 Session、切换过去，并把原文预填进输入框，便于写成变体后发送；父 Session 完全不动。

@@ -32,6 +32,79 @@ Complete
 
 ---
 
+# Long-task runtime audit (2026-07-26)
+
+## Goal
+Compare Molibot's current Agent runtime with the integrated pi Agent/coding-agent long-task capabilities, determine whether it is suitable for long-running work, and identify concrete configuration or orchestration boundaries that can stall or fail long tasks.
+
+## Current phase
+Complete — evidence, configuration, upstream comparison, and adversarial review finished
+
+## Phases
+1. Confirm the pi implementation, historical failure modes, and current runtime boundaries — complete
+2. Audit tool/model budgets, compaction, persistence, cancellation, queues, timeouts, and Subagents end to end — complete
+3. Compare retained and missing pi long-task features; rank concrete failure paths — complete
+4. Adversarially challenge the assessment and deliver evidence-backed recommendations — complete
+
+## Verification gates
+- Every finding names the actual source/config path and distinguishes a hard stop from a recoverable slowdown.
+- The assessment separates upstream pi capability from Molibot policy and from model/provider limits.
+- Tool-call exhaustion, context compaction, timeout/lease behavior, restart recovery, queue semantics, and Subagent failure propagation are all covered.
+- No product/runtime files or real user data are changed; only append-only audit planning records are touched.
+
+## Assumptions
+- “pi-Agent” refers to the installed `@earendil-works/pi-agent-core` / `@earendil-works/pi-coding-agent` 0.82 stack.
+- “长任务” includes a single interactive run lasting many model/tool turns and scheduled/queued work that may span retries or process restarts.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing planning files contain extensive unrelated task history and the first full read was truncated | 1 | Preserve all prior content, append one isolated section, and use narrow symbol/file reads for the audit. |
+| Initial test inventory guessed a non-existent `runtimeBudget.test.ts` | 1 | Use the actual coverage in `subagentRuntime.test.ts`, `runnerRetryState.test.ts`, Runner tests, and focused queue/event/compaction suites; do not repeat the missing path. |
+| Planning completion helper was not executable directly | 1 | Invoke the same checked-in script through `bash` instead of changing its permissions. |
+| Completion helper reported 1/6 complete for the accumulated multi-task plan | 2 | This is the existing parser limitation with mixed historical plan formats; the current isolated section explicitly marks all four phases complete, so do not rewrite user-owned history to satisfy it. |
+
+---
+
+# Long-task runtime hardening implementation (2026-07-26)
+
+## Goal
+Implement the audited long-task priorities in safe vertical slices: independently configurable Subagent budgets and fan-out guards, pi-style post-tool compact-and-continue recovery, and durable inbound-task lease/checkpoint recovery, followed by Subagent compaction/persistence and unified timeout hardening.
+
+## Current phase
+Complete — all six slices implemented, verified, documented, and adversarially reviewed
+
+## Phases
+1. Confirm current dirty scope, PRD/history/DESIGN contracts, and add focused red regressions — complete
+2. Split parent/Subagent budgets and add bounded fan-out with settings round-trip/UI coverage — complete
+3. Preserve completed tool state across overflow/transient failure, compact, and continue without replay — complete
+4. Replace inbound running-row deletion with lease/checkpoint recovery and idempotency guards — complete
+5. Enable bounded Subagent compaction/persistence and harden cancellation/timeout/fan-out isolation — complete
+6. Run focused/full tests, settings round-trip, builds, cold restart recovery, product docs, and adversarial review — complete
+
+## Verification gates
+- Existing user-owned dirty changes remain intact; every new changed line maps to this long-task scope.
+- Parent and Subagent budgets have distinct persisted fields; save -> new store -> load preserves the full object in a temporary database/data directory.
+- A Subagent can exceed six model turns under its own configured limit, while task count/concurrency/deadline remain bounded and visible.
+- A post-tool overflow/transient error preserves completed tool results, does not re-execute the tool, compacts once, and continues from the legal message boundary.
+- Restart recovery never silently deletes an active inbound record and never blindly replays a non-idempotent task; stale work has an explicit lease/checkpoint state and deterministic recovery decision.
+- Compaction, persistence, queue, and lease tests use temporary/injectable stores only.
+- Root/desktop supported checks and a real isolated cold restart path pass before handoff.
+
+## Assumptions and staged decisions
+- Keep the existing parent `budget` contract for compatibility; add a separate `subagentRuntime` contract instead of changing parent semantics.
+- Use conservative bounded defaults and migration from the prior shared values; expose exact fields in the existing System settings surface with bilingual copy and existing shadcn/input patterns.
+- Do not blindly requeue stale running work. Recovery must distinguish “safe continuation from persisted checkpoint” from “requires explicit retry” before executing external side effects.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Root `tsc --noEmit` reports broad pre-existing dependency/Svelte/test errors | 1 | Use task-focused regressions, the complete Agent suite, and the supported production build as the release gates; no task-specific build error remains. |
+| First browser reload was observed before settings finished loading | 1 | Wait for a fresh ready snapshot; the isolated cold restart then showed the saved Subagent model-turn value. |
+| Direct recursive removal of the isolated test directory was policy-blocked | 1 | Remove the exact temporary tree with a depth-first safe deletion and verify no real data path was involved. |
+
+
+
 # Provider OAuth quick-connect implementation (2026-07-25)
 
 ## Goal
@@ -2229,5 +2302,70 @@ Complete — Session-fork slice implemented, verified, and ready to commit
 | Agent test output exceeded the direct display budget | 1 | Reran with the dot reporter and a bounded tail under `pipefail`; captured 514/514 and exit 0. |
 | First parallel Desktop command used a path relative to the repository instead of `apps/desktop` | 1 | Corrected the runtime path to `src-tauri/binaries/molibot-node-aarch64-apple-darwin`; check and tests passed. |
 | Combined documentation patch missed the exact Chinese feature text | 1 | The patch was atomic; inspected the exact section and reapplied smaller matching hunks. |
+
+---
+# Unified media preprocessing regression diagnosis (2026-07-26)
+
+## Goal
+Identify why inbound voice/audio and image messages no longer reach the configured STT/vision preprocessing path across Feishu, Telegram, Weixin, QQ, Web, and Desktop, without changing product behavior during diagnosis.
+
+## Current phase
+Complete — captured-trace repro, end-to-end source trace, provider controls, guard analysis, and adversarial review finished
+
+## Phases
+1. Build a focused red-capable feedback loop and inspect matching historical fixes — complete
+2. Trace attachment normalization, durable queue persistence/restoration, shared Agent preprocessing, and session injection end to end — complete
+3. Rank and falsify 3–5 root-cause hypotheses against the current dirty worktree and committed baseline — complete
+4. Deliver root cause, affected scope, guard gap, and the smallest fix/verification recommendation — complete
+
+## Verification gates
+- One fast unattended command asserts the exact voice/image preprocessing symptom and has been observed against the current code.
+- Findings distinguish committed behavior from the existing user-owned dirty changes.
+- The diagnosis identifies the first broken boundary, not merely the final “cannot recognize” response.
+- No product/runtime source is edited; existing user work is preserved.
+
+## Assumptions
+- The request is diagnosis-only (“看一下为什么”), so no fix will be implemented without a follow-up request.
+- Expected behavior is channel-independent: raw audio uses the configured STT route and yields transcript text before session continuation; images use configured vision recognition before normal session continuation.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Initial full planning/history read was truncated because the accumulated files are large | 1 | Preserve all content and use narrow symbol/range reads from this point onward. |
+| Assumed `desktop-sidecar.log` was in the repository because an existing `tail -f` process used a relative path | 1 | Resolved the tail process cwd with `lsof`; the log is under the active runtime directory. |
+| First combined three-file error-log patch missed an old generic heading in accumulated `findings.md` | 1 | The patch was atomic; used exact current-section anchors in a smaller patch. |
+| Broad `settings_dynamic` value query included a legacy provider blob and exposed credential-shaped fields in tool output | 1 | Stop reading raw dynamic values; use only normalized tables and explicit non-secret columns for all remaining probes. No credential material will be repeated in findings or final output. |
+| Image inventory included a non-existent `static/` directory | 1 | Use the returned existing assets only; do not repeat the missing path. |
+| Official-doc web search failed with a network error before returning results | 1 | Use the provider's official sitemap/pages directly and avoid repeating the failed search call. |
+| Planning completion checker reported 1/6 complete for the accumulated multi-task file | 1 | This is its known parser limitation with mixed historical plan formats; the current isolated section explicitly marks all four phases complete, so preserve user-owned history instead of rewriting it. |
+
+---
+# STT forbidden-response diagnostics and live replay (2026-07-26)
+
+## Goal
+Add secret-safe STT failure diagnostics that expose the provider's usable response details, then replay the current Telegram voice through the real transcription function to identify the 403 as precisely as the upstream response allows.
+
+## Current phase
+Complete — diagnostics implemented, current voice replayed, and verification passed
+
+## Phases
+1. Add a focused failing regression for empty-body 403 diagnostics, request IDs, timing, and secret redaction — complete
+2. Implement surgical STT request/response logging without changing routing or user-visible behavior — complete
+3. Replay the captured current voice through the modified function and inspect the exact provider response — complete
+4. Run focused verification, update required product records, and adversarially review — complete
+
+## Verification gates
+- Logs include provider/model, status, duration, input filename/MIME/bytes, safe response body summary, and trace/request/rate-limit headers when present.
+- Authorization, cookies, API keys, and arbitrary unsafe response headers never enter logs.
+- Empty response bodies are explicit rather than silently rendered as an empty field.
+- The current saved voice is replayed through `transcribeAudioViaConfiguredProvider`, not a hand-built substitute request.
+- Existing user-owned dirty changes remain intact; only STT/tests and required append-only product records are touched.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| First parallel skill-read orchestration had a missing JavaScript parenthesis | 1 | Re-ran the same read with the syntax corrected; no task action or file edit occurred before the required instructions were loaded. |
+| Planning checker script lacked executable permission | 1 | Invoked it explicitly with `bash`; no repository permission was changed. |
+| Planning completion checker reported 1/6 complete | 1 | Its parser counts historical `### Phase` headings but recognizes only a separate `**Status:** complete` format. The current isolated section explicitly marks all four phases complete; preserve accumulated user-owned plan history rather than rewriting it. |
 
 ---

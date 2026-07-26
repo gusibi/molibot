@@ -12,10 +12,11 @@ Important: this guide describes the current real behavior, not the future ideal 
 
 ## 1. Current support matrix
 
-Molibot currently has three practical plugin directions:
+Molibot has four practical plugin directions:
 
 | Type | What it is for | Can it run today? | How it is added today? |
 |---|---|---|---|
+| pi extension | Third-party extension from the pi ecosystem: agent tools, runtime event handlers, slash commands | **Yes, installed at runtime** | Install from npm or git in `/settings/plugins`, or drop a directory into `${DATA_DIR}/extensions/` |
 | Channel plugin | New inbound/outbound chat channels such as Telegram, Feishu, QQ, Weixin | Yes, if built into the codebase | Add code and register it in the built-in channel registry |
 | Feature plugin | New product capability for the agent, settings, and prompt, such as HTML publishing | Yes, if built into the codebase | Add code and register it in the built-in feature registry |
 | Provider plugin | New model/provider integration | Built-in only | External manifests can be discovered, but external provider execution is not wired into runtime yet |
@@ -25,17 +26,76 @@ There is also a separate external plugin manifest scan:
 - `${DATA_DIR}/plugins/channels/*/plugin.json`
 - `${DATA_DIR}/plugins/providers/*/plugin.json`
 
-That external scan is useful today for discovery and catalog display only.
-
-It does **not** mean arbitrary external plugin code will automatically execute.
+That external scan is useful today for discovery and catalog display only: those
+manifests are **not** executed. The runtime-executed external path is pi
+extensions, described next.
 
 ## 2. The most important distinction
 
-If someone asks “how do I install a plugin into Molibot?”, there are really two answers:
+If someone asks “how do I install a plugin into Molibot?”, there are three answers:
 
-### 2.1 Truly usable plugin today
+### 2.1 Third-party pi extension (the runtime-installable path)
 
-If the plugin needs to actually work at runtime today, the safe path is:
+Molibot reuses **pi's extension loader**, so an existing pi extension can be
+installed and used without touching this repository. There are two ways in.
+
+**From the settings page:** open `/settings/plugins` → **pi extensions**, paste
+whatever link you have into the single field, press Install. The extension is
+staged, validated (it must load and register something), then moved into
+`${DATA_DIR}/extensions/<id>/` and loaded — no restart.
+
+The field accepts any of these; the source is detected, not chosen:
+
+| Input | Result |
+|---|---|
+| `pi-subagents`, `@scope/name`, `name@1.2.3` | npm install |
+| `https://www.npmjs.com/package/<name>` (with or without `/v/<version>`) | npm install |
+| `https://github.com/owner/repo` (`.git` optional) | git clone |
+| `https://github.com/owner/repo/tree/<branch>/<path>` | git clone of that branch, then only that subdirectory — the common shape for pi extensions living in a monorepo |
+| `https://gitlab.com/group/repo/-/tree/<branch>/<path>` | same |
+| `git@host:owner/repo.git` | git clone over SSH |
+| `file:///path/to/repo` | local clone, for an extension you are writing yourself |
+
+A link that cannot be understood is refused up front with a hint, instead of
+failing later as a raw `git clone` error.
+
+**From a chat:** ask the agent — "install this plugin: `<link>`". That runs the
+`extensionManage` tool, which can also `list` what is installed, `inspect` a link
+without installing it, `uninstall`, and `enable`/`disable`. Installing downloads
+and executes third-party code, so it is classified critical risk and **always
+raises an approval card first**; approve it the same way as a Host Bash request
+(button, or a plain `同意` / `approve` reply on channels without buttons). That
+gate is not about distrusting the owner: "install this plugin" is a sentence that
+can appear in a page or document the agent happened to read, and only the owner
+can confirm they actually asked for it.
+
+Discovery follows pi's own rules, so a manually placed directory works too:
+
+- `${DATA_DIR}/extensions/<name>/index.ts` or `index.js`
+- `${DATA_DIR}/extensions/<name>/package.json` with a `pi.extensions` entry list
+- `${DATA_DIR}/extensions/<name>.ts` (single file)
+
+**What works:** `registerTool`, `registerCommand`, `registerFlag`, and event
+handlers for `agent_start`, `agent_end`, `tool_call` (including blocking a call
+and patching arguments in place), `tool_result`, `input`, `before_agent_start`
+and `session_start`.
+
+**What does not work,** because Molibot is a multi-channel server with no
+terminal: `registerShortcut`, `registerMessageRenderer` / `registerEntryRenderer`,
+every `ctx.ui` dialog and widget method, `ctx.sessionManager` and
+`ctx.modelRegistry` (pi-specific objects Molibot does not have), the session-tree
+events (`session_before_fork` / `switch` / `compact` / `tree`), `user_bash`,
+`message_update`, `before_provider_request` / `before_provider_headers`,
+`resources_discover` and `model_select`. Dialog calls return "no answer" instead
+of blocking; the settings page flags an extension that registered anything from
+this list.
+
+Scope: a master switch plus a per-extension switch, and each extension can be
+turned off for individual bots.
+
+### 2.2 Built-in plugin (channels, features, providers)
+
+If the capability belongs to Molibot itself rather than to a third party:
 
 1. add plugin code into this repository
 2. register it in a built-in registry
@@ -45,7 +105,7 @@ If the plugin needs to actually work at runtime today, the safe path is:
 
 This is the path used by the current Cloudflare HTML publish plugin.
 
-### 2.2 External plugin package today
+### 2.3 External channel/provider manifest
 
 If someone creates a folder under `${DATA_DIR}/plugins/...` with a `plugin.json`, Molibot can currently:
 
@@ -53,9 +113,8 @@ If someone creates a folder under `${DATA_DIR}/plugins/...` with a `plugin.json`
 - validate the manifest
 - show it in `/settings/plugins`
 
-But Molibot will **not** execute that external plugin module yet.
-
-So if the goal is “I want this plugin to really run now”, do not rely on external plugin manifests yet.
+But Molibot will **not** execute that external plugin module. For a third-party
+capability that must actually run, use a pi extension (§2.1).
 
 ## 3. Plugin types in plain English
 

@@ -11,6 +11,53 @@
 
 ---
 
+# Long-task runtime audit (2026-07-26)
+
+### Phase 1: baseline discovery
+- **Status:** in progress
+- Loaded the Agent runtime review and file-planning procedures.
+- Preserved the existing dirty worktree and append-only planning history; no product source was edited.
+- Confirmed the installed pi 0.82 packages and located the historical 24-tool hard-limit / early-Subagent mitigation.
+- Next: inspect exact runtime budget defaults, Runner stop paths, compaction/retry behavior, persistence, queue leases, and Subagent execution guards.
+- Confirmed parent defaults 24/6/6, a single no-tool continuation after tool exhaustion, configurable ceilings, partial/error persistence, and no automatic continuation run.
+- Confirmed Subagents use independent guards but disable pi session compaction and currently run from in-memory Session state.
+- Confirmed exact Subagent guard: shared 24/6/6 defaults plus fixed 10-minute deadline; parallel/chain multiply isolated capacity but do not create durable resumable child runs.
+- Confirmed ordinary inbound queue restart behavior deletes active `running` work and has no retry/dead-letter history, while watched events separately implement timeout/retry leases.
+- Compared the installed 0.82 package docs with the upstream primary docs: Molibot keeps most core loop/compaction behavior but bypasses pi-coding-agent's durable tree SessionManager in the parent and disables Session persistence/compaction in Subagents.
+- Audited live queues and timeout seams: steering/follow-up are process-memory only; timeout policy is fragmented; event timeout still waits for the original run to settle after attempting abort.
+- Found the highest-impact context gap: Molibot retries at whole-attempt granularity, while pi-coding-agent preserves completed tool results and compact-continues from them; Molibot's overflow after side effects is intentionally terminal.
+- Adversarial source review corrected the earlier shorthand that pi compacts “between internal turns”; it checks after Agent settlement, but resumes from preserved tool state instead of replaying the attempt.
+- Read only the active non-secret runtime limits: tool budget is already raised to 100; compaction is enabled at 75%; Subagent/event 10-minute ceilings and 6 model/failure budgets remain the more likely blockers.
+- Focused runtime verification passed 92/92. Logged and corrected one guessed missing test filename; no tests or product data wrote to real user stores.
+- Directly loaded sanitized effective settings and confirmed the same 100/6/6, 10-minute event, 60-second first-token, and enabled-compaction values.
+- Completed adversarial review: corrected pi compaction semantics, identified the parent/Subagent `maxModelAttempts` semantic mismatch, and rejected blind queue requeue or blanket budget increases as unsafe fixes.
+- **Status:** complete; only append-only audit planning records changed.
+- The planning helper was run as required through `bash`; it returned the known accumulated-plan false negative (1/6) because this shared file contains many historical formats, while this audit's four phases are explicitly complete.
+
+---
+
+# Long-task runtime hardening implementation (2026-07-26)
+
+### Phase 1: baseline and red regressions
+- **Status:** complete
+- Reloaded the Agent runtime review and file-planning procedures.
+- Defined six implementation phases and explicit safety/restart/settings gates.
+- Added dedicated Subagent runtime settings with independent save/load round-trip and System settings UI.
+- Added hard `maxTasks` validation and configured concurrency cap for parallel Subagents.
+- Added post-tool overflow recovery that preserves tool results, compacts once, and continues without tool replay.
+- Added inbound queue recovery quarantine, explicit retry/delete workflow, claim leases, and checkpoints.
+- Focused verification passed: settings/runtime/Subagent tests (39), overflow/store tests (9), queue/coordinator tests (7), queue command recovery test (1).
+- Root TypeScript check was attempted but remains blocked by broad pre-existing dependency and unrelated project errors; no new task-specific error appeared in its output.
+- Enabled Subagent pi compaction and optional workspace-local SessionManager persistence; child session ids now flow into parent run summaries.
+- Replaced unbounded timeout settlement in watched events and Subagents with a shared deadline -> cooperative abort -> five-second settlement grace path; synchronous abort-hook failures are contained.
+- Hardened API/env sanitization so string `false`, decimal counts, oversized task fan-out, and concurrency greater than task count cannot bypass the persisted limits.
+- Verification complete: combined focused runtime/settings/queue suite 117/117; final settings/Subagent edge suite 44/44; complete Agent suite 528/528 under bundled Node 22.23.1; production Svelte/Vite build passed.
+- Real isolated settings smoke passed in Chinese/English, light/dark, and 390px width (no horizontal overflow, fixed footbar); save -> page reload -> service stop/start -> reload preserved a changed Subagent model-turn value. Temporary data was removed afterward.
+- Adversarial review fixed three concrete failure paths before handoff: string-boolean inversion, env fan-out bound bypass, and a synchronous timeout-hook exception escaping its timer callback.
+- **Status:** complete. Remaining architectural boundaries are recorded in findings/PRD rather than hidden as implementation claims.
+
+
+
 # 2026-07-25 — Provider OAuth quick-connect implementation
 
 ## Phase 1: baseline and contract audit
@@ -1672,3 +1719,99 @@
 - An isolated production cold start created and listed a Session, stopped, restarted from the same temporary data directory, and listed the same Session again. The smoke directory was moved to Trash afterward.
 - A combined isolated `store.test.ts` rerun reproduced the known Node SQLite FTS `bm25` context failure (18/19); the authoritative full Desktop API run in this same final cycle passed 216/216, and the fork-specific store assertion passed separately. No fork code touches the FTS query.
 - `git diff --check` passed. The planning checker reported its known accumulated-plan false negative (one recognized completion across six mixed historical formats); this task's five explicit phases are all complete. Final staged scope excludes the unrelated realtime-avatar plan.
+# Unified media preprocessing regression diagnosis (2026-07-26)
+
+## Phase 1 — feedback loop and historical contract
+- **Status:** complete
+- Actions taken:
+  - Read the diagnosing-bugs, agent-runtime-debug-review, and planning-with-files instructions.
+  - Confirmed an extensively dirty worktree and preserved it as user-owned.
+  - Found historical contracts for Agent-owned STT, verification-aware vision routing, and durable queue attachment restoration.
+  - Inventoried current shared media modules and existing tests; identified Runner input enrichment as the correct integration seam to exercise first.
+  - Confirmed `runner.run()` still invokes the shared enricher, and documented the modality-specific metadata required at that boundary.
+  - Compared relevant files with `HEAD`; active user changes do not touch media payloads or routing, so investigation can use the current committed media code safely.
+  - Located the active Desktop dev runtime and its sidecar log; standalone Molibot service is stopped.
+  - Corrected the guessed log location via `lsof` and inspected the normalized settings schema without reading secrets.
+  - Confirmed the live runtime sees configured STT and vision route keys and no Agent-specific route overrides; narrowed next log probes to actual media-positive turns.
+  - Verified historical media-positive STT success and current selected-provider capability state; replaced an over-broad settings query with explicit non-secret normalized columns.
+  - Replayed two live current-day failures: Telegram and Feishu both reach STT correctly, but the provider returns 403 on all retries; recorded this as the confirmed voice root cause.
+  - Ranked four falsifiable image hypotheses and established that current logs contain no image-positive Runner turn.
+  - Traced the normalized image contract through shared types/context building and confirmed that image reconstruction must occur before the context builder.
+  - Audited all five channel/Web entry paths; each has explicit fresh or queued image construction, so there is no single missing-call regression across all surfaces.
+  - Selected the existing bundled smoke fixture plus direct vision-fallback helper as the smallest non-persistent provider probe.
+  - Ran the live saved-provider smoke: text passed, vision failed for the selected model; queued/session state was untouched.
+  - Captured the exact direct-provider error and independently verified the bundled smoke fixture is 1×1, below the provider's 14×14 minimum.
+  - Proved the configured vision model succeeds with a valid-size image.
+  - Proved the STT credential is valid and the selected model is listed, narrowing 403 to the transcription endpoint/request entitlement or policy.
+  - Official documentation search failed at the search transport; switched to direct official-doc discovery without changing the diagnosis.
+  - Verified the live request endpoint/model/body shape against SiliconFlow's current official transcription contract and error mapping.
+  - Validated both failing channel attachments as small, well-formed Ogg/Opus files.
+  - Ran a one-variable STT control: the same key/endpoint/file succeeds with `FunAudioLLM/SenseVoiceSmall`, confirming `TeleAI/TeleSpeechASR`-specific refusal.
+  - Identified missing STT capability probing, misleading aggregate success logging, absent Runner enrichment integration coverage, and the invalid-size vision smoke fixture as guard gaps.
+  - Re-tested the original STT model after the 19:44 Provider save; it remains 403, closing the credential-timing ambiguity.
+  - Ran focused media/routing/queue/Web tests and adversarially falsified alternative causes.
+  - Ran the planning completion checker; recorded its known accumulated-file false negative without rewriting prior task history.
+- Files modified:
+  - `task_plan.md`, `findings.md`, and `progress.md` only (append-only diagnosis records required by the planning skill).
+
+## Test results
+| Test | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Feedback-loop command | Assert the exact current voice failure from the captured live trace | `audio_positive=2`, `forbidden_retries=6`, `no_transcript=2` | pass (red repro captured) |
+| Voice captured-trace replay | Positive audio reaches configured STT and reproduces no transcript | Three 403 responses on Telegram and Feishu; no transcript | fail reproduced |
+| Image live-log scan | Find image-positive Runner attempt or exact failed turn | No image-positive Runner record in current log | insufficient sample |
+| Current selected STT direct replay | Original model works after Provider resave | HTTP 403, no transcript | fail reproduced |
+| Alternative STT control | Same key/endpoint/file succeeds when only model changes | HTTP 200, non-empty transcript | pass |
+| Vision 1×1 smoke | Capability probe accepts bundled fixture | HTTP 400, provider minimum is 14×14 | fail reproduced |
+| Vision valid-size control | Configured model analyzes a real-size image | HTTP 200, non-empty analysis | pass |
+| Focused media suite | Routing, fallback, rehydration, coordinator, and Web multipart remain green | 16/16 passed | pass |
+| Diff hygiene | No whitespace errors introduced | `git diff --check` passed | pass |
+
+---
+# STT forbidden-response diagnostics and live replay (2026-07-26)
+
+## Phase 1 — diagnostic regression
+- **Status:** in_progress
+- Actions taken:
+  - Reloaded the diagnosis/runtime/planning skill instructions for the implementation turn.
+  - Preserved the existing dirty worktree and defined the secret-safe diagnostic fields.
+  - Recorded and recovered from one orchestration syntax error before any source change.
+- Files modified:
+  - Planning records only so far.
+
+---
+# STT forbidden-response diagnostics and live replay (2026-07-26)
+
+## Phase 1 — regression guard (complete)
+
+- Confirmed the existing shared STT HTTP error log is the correct seam.
+- Defined the safe diagnostic contract: request duration and audio metadata, explicit empty response marker, and allowlisted trace/rate-limit headers only.
+- Next: add the failing diagnostic regression test before implementation.
+- Reviewed the repository's existing failed-provider logging tests and credential-redaction conventions.
+- Red confirmed: the new two-test suite fails against the old implementation because the 403 log omits provider/model/audio/duration/trace fields, represents an empty body as a blank value, and can expose a credential echoed in the response body.
+- Green confirmed: the new STT tests plus the existing model-routing tests pass (12/12).
+
+## Phase 2 — shared STT diagnostics (complete)
+
+- Added safe provider/model, audio filename/MIME/byte count, request duration, explicit empty-body state, and allowlisted upstream response headers to the shared STT logs.
+- Added defensive redaction for the configured API key, bearer/query/JSON credentials, token-shaped strings, and JWTs.
+- Kept the implementation in the shared routing layer so Telegram, Feishu, Weixin, QQ, Web, and app inputs use the same diagnostics.
+
+## Phase 3 — live replay (complete)
+
+- Preparing a read-only settings lookup and a one-request replay of the current Telegram Ogg through the modified production function.
+- Replayed the current 18,839-byte Telegram Ogg through `transcribeAudioViaConfiguredProvider` with the saved route and provider, without persisting any settings change.
+- Result: `403 Forbidden` after 260 ms, response body empty, provider trace `ti_0x3fhjgb94ikn3n4vy`. This localizes the failure to the upstream TeleAI/TeleSpeechASR request rather than channel attachment parsing or the shared STT dispatch path.
+
+## Phase 4 — verification and handoff (complete)
+
+- Focused STT/model-routing tests pass 12/12.
+- Production `vite build` passes; only existing dynamic/static import warnings and the shell Node-version warning appeared.
+- `git diff --check` passes for the scoped tracked files.
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `readme.md` as required by the repository workflow.
+- Next: inspect the exact scoped diff and complete the adversarial failure review.
+- Adversarial review tightened redaction for filename, allowlisted header values, and network exception text, then required the focused tests/build to be rerun.
+- Root-cause class and machine guard are documented in `findings.md`; no channel-specific condition or prompt workaround was introduced.
+- At the user's request, replayed the same current voice through the newly saved `FunAudioLLM/SenseVoiceSmall` without persisting a route change: success in 473 ms with a 16-character transcript. Focused tests remained 12/12 green.
+- Final production build after the adversarial redaction tightening passes. Scoped whitespace/diff checks pass.
+- The planning checker remains a known false negative on this accumulated multi-task file (1/6 by its rigid historical-heading parser); the current isolated plan section has all four phases marked complete.

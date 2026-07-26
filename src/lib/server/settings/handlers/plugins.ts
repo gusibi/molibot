@@ -1,6 +1,8 @@
 import {
+  RESERVED_PLUGIN_KEYS,
   sanitizeCloudflareHtmlPluginSettings,
-  sanitizeHookPluginEntries
+  sanitizeHookPluginEntries,
+  sanitizePiExtensionSettings
 } from "../sanitize.js";
 import { defaultRuntimeSettings } from "../defaults.js";
 import type { RuntimeSettings } from "../schema.js";
@@ -51,9 +53,15 @@ export function updatePluginsConfig(
   if (pluginsPatch.hooks !== undefined) {
     merged.hooks = sanitizeHookPluginEntries(pluginsPatch.hooks);
   }
+  if (pluginsPatch.piExtensions !== undefined) {
+    merged.piExtensions = sanitizePiExtensionSettings(
+      pluginsPatch.piExtensions,
+      current.plugins.piExtensions ?? defaultRuntimeSettings.plugins.piExtensions
+    );
+  }
 
   for (const [key, value] of Object.entries(pluginsPatch)) {
-    if (key === "memory" || key === "cloudflareHtml" || key === "hooks") continue;
+    if (RESERVED_PLUGIN_KEYS.includes(key)) continue;
     if (value && typeof value === "object" && !Array.isArray(value)) {
       merged[key] = { ...((current.plugins as Record<string, unknown>)[key] as Record<string, unknown> | undefined) ?? {}, ...value as Record<string, unknown> };
     }

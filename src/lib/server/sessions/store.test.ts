@@ -380,14 +380,15 @@ test("forkConversationBeforeMessage preserves the parent and round-trips child l
     const firstUser = store.appendMessage(parent.id, "user", "first turn", { sourceEntryId: "entry-1" });
     const firstAssistant = store.appendMessage(parent.id, "assistant", "first answer", { sourceEntryId: "entry-2" });
     const secondUser = store.appendMessage(parent.id, "user", "second turn", { sourceEntryId: "entry-3" });
-    store.appendMessage(parent.id, "assistant", "second answer", { sourceEntryId: "entry-4" });
+    const secondAssistant = store.appendMessage(parent.id, "assistant", "second answer", { sourceEntryId: "entry-4" });
 
     const child = store.forkConversationBeforeMessage(parent.id, secondUser.id, "fork-child");
 
     assert.equal(store.listMessages(parent.id).length, 4);
-    assert.deepEqual(store.listMessageMetadata(child.id).map((message) => message.id), [firstUser.id, firstAssistant.id]);
-    assert.deepEqual(store.listMessageMetadata(child.id).map((message) => message.conversationId), [child.id, child.id]);
-    assert.deepEqual(store.listMessageMetadata(child.id).map((message) => message.sourceEntryId), ["entry-1", "entry-2"]);
+    // Inclusive of the fork point: the child is the parent as it stood there.
+    assert.deepEqual(store.listMessageMetadata(child.id).map((message) => message.id), [firstUser.id, firstAssistant.id, secondUser.id]);
+    assert.deepEqual(store.listMessageMetadata(child.id).map((message) => message.conversationId), [child.id, child.id, child.id]);
+    assert.deepEqual(store.listMessageMetadata(child.id).map((message) => message.sourceEntryId), ["entry-1", "entry-2", "entry-3"]);
     assert.equal(child.parentSessionId, parent.id);
     assert.equal(child.forkedFromMessageId, secondUser.id);
     assert.equal(child.modelKey, "custom|provider|model");
@@ -395,7 +396,15 @@ test("forkConversationBeforeMessage preserves the parent and round-trips child l
     const reloaded = new SessionStore().getConversationById(child.id, "web", owner);
     assert.equal(reloaded?.parentSessionId, parent.id);
     assert.equal(reloaded?.forkedFromMessageId, secondUser.id);
-    assert.equal(new SessionStore().listMessages(child.id).length, 2);
+    assert.equal(new SessionStore().listMessages(child.id).length, 3);
+
+    // Forking at the final assistant reply duplicates the Session outright —
+    // the case that a user-message-only rule made impossible to express.
+    const twin = store.forkConversationBeforeMessage(parent.id, secondAssistant.id, "fork-twin");
+    assert.deepEqual(
+      store.listMessageMetadata(twin.id).map((message) => message.id),
+      store.listMessageMetadata(parent.id).map((message) => message.id)
+    );
   } finally {
     Object.assign(storagePaths, original);
     rmSync(root, { recursive: true, force: true });
@@ -461,7 +470,7 @@ test("forkConversationBeforeMessage forks a Project Session into the same projec
     assert.equal(reloaded.getConversationProjectId(child.id), "proj-a");
     assert.deepEqual(
       reloaded.listMessageMetadata(child.id).map((message) => message.id),
-      [firstUser.id, firstAssistant.id]
+      [firstUser.id, firstAssistant.id, secondUser.id]
     );
     assert.equal(reloaded.listProjectConversations("proj-a").some((item) => item.id === child.id), true);
   } finally {

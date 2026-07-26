@@ -19,6 +19,7 @@ export interface RunSummarySubagentTask {
   durationMs?: number;
   budget?: RunBudgetSnapshot;
   model?: string;
+  sessionId?: string;
 }
 
 export interface SubagentTaskEvent {
@@ -31,6 +32,7 @@ export interface SubagentTaskEvent {
   errorMessage?: string;
   budget?: RunBudgetSnapshot;
   model?: string;
+  sessionId?: string;
 }
 
 /**
@@ -54,7 +56,8 @@ export function buildSubagentTaskRecord(
     errorMessage: event.errorMessage,
     durationMs,
     budget: event.budget,
-    model: event.model
+    model: event.model,
+    sessionId: event.sessionId
   };
 }
 

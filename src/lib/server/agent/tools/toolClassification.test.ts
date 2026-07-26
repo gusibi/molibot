@@ -38,16 +38,28 @@ test("getRuntimeToolClassification: non-MCP normal tool => low risk, builtin sou
   assert.equal(result.source, "builtin");
 });
 
-// Lock test guarding the removal of the channelCommands broker bridge:
-// the ApprovalBroker (System A) only gates tools whose risk is high/critical.
-// `bash` is the sole high-risk classification, and `bash` opts out of the broker
-// inside decideBashToolPolicy (always returns `allow`). So with the default
-// policy NO built-in tool ever creates a broker request, which is why a Host Bash
-// approval never has a co-pending broker request to reconcile. If a future
-// non-bash high-risk tool is added, this test fails — a signal to wire that
-// tool's approval explicitly rather than relying on the (now removed) bridge.
-test("bash is the only high-risk built-in classification, so no built-in tool triggers the broker approval path", () => {
+// Lock test for which tools reach an approval gate at all: the ApprovalBroker
+// only gates risk high/critical.
+//
+// `bash` is high risk but opts out of the broker inside decideBashToolPolicy
+// (always returns `allow`), answering through the Host Bash store instead.
+// `extensionManage` is critical and *does* create a broker request, because
+// installing an extension downloads and executes third-party code.
+//
+// That second case is why `SharedRuntimeCommandService` resolves broker requests
+// as well as Host Bash records: a broker request that no channel can answer
+// would just time out. Adding another high/critical tool means checking that
+// same path still works — do not simply add it to the list below.
+test("only bash and extensionManage carry an approval-triggering risk level", () => {
   assert.equal(getRuntimeToolClassification("bash").risk, "high");
+  assert.equal(getRuntimeToolClassification("extensionManage").risk, "critical");
+  // Extension-provided tools are medium: honest about not being built-in,
+  // without prompting on every call.
+  assert.deepEqual(
+    getRuntimeToolClassification("someExtensionTool", { isExtensionTool: true }),
+    { risk: "medium", source: "plugin" }
+  );
+
   for (const name of [
     "read", "write", "edit", "webSearch", "subagent", "attach", "event",
     "memory", "skillSearch", "skillManage", "switchModel", "imageGenerate",

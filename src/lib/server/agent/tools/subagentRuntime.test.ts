@@ -3,9 +3,9 @@ import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import {
   armSubagentDeadline,
-  DEFAULT_SUBAGENT_DEADLINE_MS,
   evaluateSubagentEvent,
   resolveSubagentBudgetLimits,
+  resolveSubagentExecutionLimits,
   shouldFallbackToNextModel,
   SubagentExecutionGuard
 } from "$lib/server/agent/tools/subagentRuntime.js";
@@ -164,10 +164,37 @@ test("armSubagentDeadline is a no-op when the guard has no deadline", () => {
   clear(); // must not throw
 });
 
-test("resolveSubagentBudgetLimits falls back to defaults and applies the subagent deadline default", () => {
-  const limits = resolveSubagentBudgetLimits(defaultRuntimeSettings);
-  assert.ok(limits.maxToolCalls > 0);
-  assert.ok(limits.maxToolFailures > 0);
-  assert.ok(limits.maxModelAttempts > 0);
-  assert.ok(DEFAULT_SUBAGENT_DEADLINE_MS > 0);
+test("resolveSubagentBudgetLimits uses the dedicated subagent budget instead of the parent run budget", () => {
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.budget = { maxToolCalls: 1, maxToolFailures: 1, maxModelAttempts: 1 };
+  settings.subagentRuntime = {
+    ...settings.subagentRuntime,
+    maxToolCalls: 80,
+    maxToolFailures: 9,
+    maxModelTurns: 14
+  };
+
+  assert.deepEqual(resolveSubagentBudgetLimits(settings), {
+    maxToolCalls: 80,
+    maxToolFailures: 9,
+    maxModelAttempts: 14
+  });
+});
+
+test("resolveSubagentExecutionLimits exposes bounded fan-out and deadline settings", () => {
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.subagentRuntime = {
+    ...settings.subagentRuntime,
+    deadlineMs: 1_800_000,
+    maxTasks: 6,
+    maxConcurrency: 3
+  };
+
+  assert.deepEqual(resolveSubagentExecutionLimits(settings), {
+    deadlineMs: 1_800_000,
+    maxTasks: 6,
+    maxConcurrency: 3,
+    compactionEnabled: true,
+    persistSessions: true
+  });
 });

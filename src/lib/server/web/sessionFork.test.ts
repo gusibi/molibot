@@ -45,8 +45,10 @@ test("forkSessionWith creates one restart-safe child and preserves the parent", 
 
     assert.equal(result.status, "created");
     assert.equal(sessions.listMessages(parent.id).length, 4);
-    assert.deepEqual(new SessionStore().listMessages(childId).map((item) => item.content), ["", ""]);
-    assert.deepEqual(new MomRuntimeStore(join(root, "agent")).loadContext(owner, childId).map((item) => item.role), ["user", "assistant"]);
+    // Inclusive of the fork point across BOTH stores, or the visible transcript
+    // and the model context would disagree about where the child starts.
+    assert.deepEqual(new SessionStore().listMessages(childId).map((item) => item.content), ["", "", ""]);
+    assert.deepEqual(new MomRuntimeStore(join(root, "agent")).loadContext(owner, childId).map((item) => item.role), ["user", "assistant", "user"]);
     assert.equal(new SessionStore().getConversationById(childId, "web", owner)?.parentSessionId, parent.id);
 
     const repeated = forkSessionWith(
@@ -59,7 +61,7 @@ test("forkSessionWith creates one restart-safe child and preserves the parent", 
     assert.equal(sessions.deleteConversation(parent.id, "web", owner), true);
     assert.equal(agent.deleteSessionArtifacts(owner, parent.id), true);
     assert.equal(new SessionStore().getConversationById(childId, "web", owner)?.parentSessionId, parent.id);
-    assert.deepEqual(new MomRuntimeStore(join(root, "agent")).loadContext(owner, childId).map((item) => item.role), ["user", "assistant"]);
+    assert.deepEqual(new MomRuntimeStore(join(root, "agent")).loadContext(owner, childId).map((item) => item.role), ["user", "assistant", "user"]);
   } finally {
     Object.assign(storagePaths, original);
     rmSync(root, { recursive: true, force: true });

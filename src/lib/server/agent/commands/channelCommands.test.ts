@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { ApprovedHostBashEntry, HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
+import { getApprovalBroker, resetApprovalBrokerForTests } from "$lib/server/approval/approvalBroker.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 
 function minimalStore() {
   return {
@@ -1502,9 +1504,11 @@ test("queue commands list, front insert, and delete pending tasks", async () => 
     stopRun: () => ({ aborted: false }),
     listQueue: async () => [
       { id: 11, status: "running", preview: "current task", createdAt: "2026-04-22T00:00:00.000Z" },
-      { id: 12, status: "pending", preview: "queued task", createdAt: "2026-04-22T00:01:00.000Z" }
+      { id: 12, status: "pending", preview: "queued task", createdAt: "2026-04-22T00:01:00.000Z" },
+      { id: 13, status: "recovery_required", preview: "interrupted task", createdAt: "2026-04-22T00:02:00.000Z" }
     ],
     deleteQueued: async (_scopeId, id) => (id === 12 ? "deleted" : "not_found"),
+    retryQueued: async (_scopeId, id) => (id === 13 ? "retried" : "not_found"),
     enqueueFront: async () => 99,
     sendText: async (_target, text) => {
       sent.push(text);
@@ -1529,10 +1533,97 @@ test("queue commands list, front insert, and delete pending tasks", async () => 
     text: "/queue delete 12",
     target: "target-1"
   });
+  await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/queue retry 13",
+    target: "target-1"
+  });
 
   assert.match(sent[0] ?? "", /\*\*Queue\*\*/);
   assert.match(sent[0] ?? "", /\| #11 running \| current task \|/);
   assert.match(sent[0] ?? "", /\| #12 pending \| queued task \|/);
+  assert.match(sent[0] ?? "", /\| #13 recovery_required \| interrupted task \|/);
   assert.match(sent[1] ?? "", /Inserted at front of queue\. Queue ID: 99/);
   assert.match(sent[2] ?? "", /Deleted queued task 12\./);
+  assert.match(sent[3] ?? "", /explicitly re-queued/);
+});
+
+/**
+ * Approval-requiring tools that are not Host Bash (currently `extensionManage`,
+ * which downloads and executes third-party code) create an ApprovalBroker
+ * request. Only Feishu has its own card-action path for those, so the shared
+ * command service must resolve them too — otherwise the request cannot be
+ * answered on Telegram/QQ/WeChat/Desktop and just times out after 5 minutes.
+ */
+test("a broker approval can be answered by button and by plain text on any channel", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-broker-approval-"));
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsDbFile = join(root, "settings.sqlite");
+
+  try {
+    const broker = getApprovalBroker();
+    const baseRequest = {
+      runId: "run-1",
+      sessionId: "session-1",
+      workspaceId: "personal",
+      actorId: "chat-1",
+      capability: "plugin:extensionManage",
+      riskLevel: "critical" as const,
+      action: { type: "mcp_tool" as const, toolName: "extensionManage" },
+      reason: "Install pi extension pi-fixture",
+      status: "pending" as const,
+      requestedBy: { agentId: "moli", depth: 0 },
+      scopeOptions: ["once" as const],
+      createdAt: new Date().toISOString()
+    };
+
+    const sent: string[] = [];
+    const service = new SharedRuntimeCommandService<string>({
+      channel: "telegram",
+      instanceId: "bot-test",
+      workspaceDir: process.cwd(),
+      authScopePrefix: "telegram",
+      store: minimalStore() as any,
+      runners: {} as any,
+      getSettings: () => defaultRuntimeSettings,
+      isRunning: () => false,
+      stopRun: () => ({ aborted: false }),
+      hostBashStore: createTestHostBashStore([]) as any,
+      sendText: async (_target, text) => { sent.push(text); }
+    });
+    const input = { chatId: "chat-1", scopeId: "chat-1", target: "target-1", text: "" };
+
+    // Button path: Telegram calls approveHostTool with the request id.
+    broker.createRequest({ ...baseRequest, id: "req-button" });
+    const approved = await service.approveHostTool(input, "req-button", "once");
+    assert.equal(approved.ok, true, approved.message);
+    assert.match(approved.message, /extensionManage/);
+    assert.equal(broker.getRequest("req-button")?.status, "approved");
+
+    // Text path: QQ and WeChat have no buttons at all.
+    broker.createRequest({ ...baseRequest, id: "req-text" });
+    assert.equal(await service.handle({ ...input, text: "同意" }), true);
+    assert.equal(broker.getRequest("req-text")?.status, "approved");
+
+    // Rejection by text.
+    broker.createRequest({ ...baseRequest, id: "req-reject" });
+    assert.equal(await service.handle({ ...input, text: "拒绝" }), true);
+    assert.equal(broker.getRequest("req-reject")?.status, "rejected");
+
+    // Ambiguity is never guessed: with two pending requests a bare "同意" lists
+    // them instead of approving one at random.
+    broker.createRequest({ ...baseRequest, id: "req-a" });
+    broker.createRequest({ ...baseRequest, id: "req-b" });
+    sent.length = 0;
+    assert.equal(await service.handle({ ...input, text: "同意" }), true);
+    assert.equal(broker.getRequest("req-a")?.status, "pending");
+    assert.equal(broker.getRequest("req-b")?.status, "pending");
+    assert.match(sent.join("\n"), /req-a/);
+    assert.match(sent.join("\n"), /req-b/);
+  } finally {
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+    resetApprovalBrokerForTests();
+  }
 });

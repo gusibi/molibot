@@ -16,6 +16,13 @@ export const SUBAGENT_DELEGATION_RUNTIME_NOTICE = [
   "[/runtime notice]"
 ].join("\n");
 
+export const POST_TOOL_OVERFLOW_CONTINUATION_NOTICE = [
+  "[runtime notice]",
+  "The previous model response overflowed after tools had already completed.",
+  "Continue from the preserved tool results. Do not repeat completed tool calls unless their results explicitly require a retry.",
+  "[/runtime notice]"
+].join("\n");
+
 const LEGACY_SUBAGENT_DELEGATION_RUNTIME_NOTICE = [
   "[runtime notice]",
   "This run has already used many parent-run tool calls.",
@@ -27,6 +34,7 @@ const LEGACY_SUBAGENT_DELEGATION_RUNTIME_NOTICE = [
 const TRANSIENT_RUNTIME_NOTICES = new Set([
   TOOL_BUDGET_RUNTIME_NOTICE,
   SUBAGENT_DELEGATION_RUNTIME_NOTICE,
+  POST_TOOL_OVERFLOW_CONTINUATION_NOTICE,
   LEGACY_SUBAGENT_DELEGATION_RUNTIME_NOTICE
 ]);
 

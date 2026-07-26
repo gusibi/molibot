@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
@@ -7,6 +7,8 @@ import type { RuntimeSettings, RuntimeThinkingLevel } from "$lib/server/settings
 import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/index.js";
 import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashStore } from "$lib/server/hostBash/index.js";
 import { getHostBashStore } from "$lib/server/hostBash/index.js";
+import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
+import type { ApprovalRequest, ApprovalScope } from "$lib/server/approval/approvalTypes.js";
 import {
   buildModelOptions,
   currentModelKey,
@@ -32,6 +34,8 @@ import { resolveGlobalSkillsDirFromWorkspacePath } from "$lib/server/agent/sessi
 import { formatRunLogText } from "$lib/server/agent/session/runDetail.js";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 import type { ProjectRecord } from "$lib/server/projects/store.js";
+import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
+import { listPiExtensionCommands, runPiExtensionCommand } from "$lib/server/plugins/piExtensions/commandBridge.js";
 
 const ACP_DISABLED_MESSAGE = "ACP has been removed from the active runtime path. Use the normal Agent workflow instead.";
 
@@ -68,10 +72,11 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   getQueueSize?: (scopeId: string) => number;
   listQueue?: (scopeId: string) => Promise<Array<{ id: number; status: string; preview: string; createdAt: string }>>;
   deleteQueued?: (scopeId: string, id: number) => Promise<"deleted" | "running" | "not_found">;
+  retryQueued?: (scopeId: string, id: number) => Promise<"retried" | "running" | "not_found">;
   getQueuedPreview?: (
     scopeId: string,
     id: number
-  ) => Promise<{ status: "pending" | "running" | "not_found"; preview?: string }>;
+  ) => Promise<{ status: "pending" | "running" | "recovery_required" | "not_found"; preview?: string }>;
   cancelQueuedPending?: (scopeId: string) => Promise<number>;
   enqueueFront?: (input: SharedRuntimeCommandContext<TTarget>, text: string) => Promise<number | null>;
   getStatusExtras?: (scopeId: string, target: TTarget) => string[];
@@ -230,6 +235,61 @@ export class SharedRuntimeCommandService<TTarget> {
     }, 3000).unref?.();
   }
 
+  /**
+   * Pending ApprovalBroker requests for this scope's active session.
+   *
+   * Host Bash approvals live in `hostBashStore`; every other approval-requiring
+   * tool (currently `extensionManage`) goes through the ApprovalBroker instead.
+   * Both arrive at the user as the same approval card, so the shared command
+   * service has to be able to resolve either one — otherwise a broker request
+   * can only be answered on Feishu, which has its own card-action path, and
+   * silently times out everywhere else.
+   */
+  private listPendingBrokerRequests(scopeId: string): ApprovalRequest[] {
+    const sessionId = this.options.store.getActiveSession(scopeId);
+    return getApprovalBroker()
+      .listPendingRequests()
+      .filter((request) => request.sessionId === sessionId);
+  }
+
+  private resolveBrokerApproval(
+    scopeId: string,
+    requestId: string | undefined,
+    status: "approved" | "rejected",
+    selectedScope?: ApprovalScope
+  ): { ok: boolean; message: string } | null {
+    const pending = this.listPendingBrokerRequests(scopeId);
+    // Without an id (a plain text reply) only an unambiguous single pending
+    // request may be resolved; guessing between two would approve the wrong one.
+    const target = requestId
+      ? pending.find((request) => request.id === requestId)
+      : pending.length === 1 ? pending[0] : undefined;
+    if (!target) return null;
+
+    const result = getApprovalBroker().resolveRequest({
+      requestId: target.id,
+      status,
+      ...(status === "approved" ? { selectedScope: selectedScope ?? "once" } : {})
+    });
+    if (!result.request) return null;
+
+    const toolName = result.request.action.toolName || result.request.capability;
+    const rows: CommandTableRow[] = [
+      { label: this.text("Tool", "工具"), value: this.code(toolName) },
+      { label: this.text("Request ID", "请求 ID"), value: this.code(result.request.id) },
+      { label: this.text("Reason", "原因"), value: result.request.reason }
+    ];
+    return {
+      ok: true,
+      message: this.renderMarkdownBulletList(
+        status === "approved"
+          ? this.text("Approved tool request", "已批准工具请求")
+          : this.text("Rejected tool request", "已拒绝工具请求"),
+        rows
+      )
+    };
+  }
+
   async approveHostTool(
     input: SharedRuntimeCommandContext<TTarget>,
     approvalId?: string,
@@ -244,7 +304,16 @@ export class SharedRuntimeCommandService<TTarget> {
     if (!approved) {
       const resolved = this.describeResolvedApproval(approvalId);
       if (resolved) return { ok: true, message: resolved };
-      return { ok: false, message: this.text("No matching pending Host Bash approval found.", "未找到匹配的待处理 Host Bash 审批。") };
+      // Not a Host Bash approval: it may be a broker request from another
+      // approval-requiring tool.
+      const broker = this.resolveBrokerApproval(
+        input.scopeId,
+        approvalId,
+        "approved",
+        scope === "persistent" ? "persistent" : "once"
+      );
+      if (broker) return broker;
+      return { ok: false, message: this.text("No matching pending approval found.", "未找到匹配的待处理审批。") };
     }
     const registered = approved.approved;
     const registeredEntries = approved.approvedEntries ?? (registered ? [registered] : []);
@@ -291,7 +360,9 @@ export class SharedRuntimeCommandService<TTarget> {
     if (!approved) {
       const resolved = this.describeResolvedApproval(approvalId);
       if (resolved) return { ok: true, message: resolved };
-      return { ok: false, message: this.text("No matching pending Host Bash approval found.", "未找到匹配的待处理 Host Bash 审批。") };
+      const broker = this.resolveBrokerApproval(input.scopeId, approvalId, "approved", "session");
+      if (broker) return broker;
+      return { ok: false, message: this.text("No matching pending approval found.", "未找到匹配的待处理审批。") };
     }
     this.options.store.setSessionHostApprovalMode(input.scopeId, sessionId, "session");
     this.options.store.appendRuntimeEvent(input.scopeId, {
@@ -343,7 +414,9 @@ export class SharedRuntimeCommandService<TTarget> {
     if (!request) {
       const resolved = this.describeResolvedApproval(approvalId);
       if (resolved) return { ok: true, message: resolved };
-      return { ok: false, message: this.text("No matching pending Host Bash approval found.", "未找到匹配的待处理 Host Bash 审批。") };
+      const broker = this.resolveBrokerApproval(input.scopeId, approvalId, "rejected");
+      if (broker) return broker;
+      return { ok: false, message: this.text("No matching pending approval found.", "未找到匹配的待处理审批。") };
     }
     return {
       ok: true,
@@ -493,11 +566,37 @@ export class SharedRuntimeCommandService<TTarget> {
         return true;
       }
 
+      if (subcommand === "retry") {
+        if (!this.options.retryQueued) {
+          await this.options.sendText(input.target, this.text("Queue recovery is unavailable in current runtime.", "当前运行时不支持队列恢复。"));
+          return true;
+        }
+        const id = Number.parseInt(queueArg, 10);
+        if (!Number.isFinite(id) || id <= 0) {
+          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Queue retry usage", "队列重试用法"), ["/queue retry <queueId>"]));
+          return true;
+        }
+        const result = await this.options.retryQueued(input.scopeId, id);
+        await this.options.sendText(
+          input.target,
+          result === "retried"
+            ? this.text(
+                `Recovery task ${id} was explicitly re-queued. Completed side effects from its interrupted attempt may already exist.`,
+                `恢复任务 ${id} 已由你明确重新入队；中断前已完成的副作用可能仍然存在。`
+              )
+            : result === "running"
+              ? this.text(`Task ${id} is currently running.`, `任务 ${id} 正在运行。`)
+              : this.text(`Recovery task ${id} was not found.`, `未找到待恢复任务 ${id}。`)
+        );
+        return true;
+      }
+
       await this.options.sendText(
         input.target,
         this.renderMarkdownCommandList(this.text("Queue usage", "队列命令用法"), [
           "/queue",
           "/queue front <text>",
+          "/queue retry <queueId>",
           "/queue delete <queueId>"
         ])
       );
@@ -1347,7 +1446,56 @@ export class SharedRuntimeCommandService<TTarget> {
       return true;
     }
 
+    // Last resort: commands registered by installed pi extensions. Runs only
+    // after every built-in command missed, so an extension can never shadow a
+    // core command.
+    if (await this.tryHandleExtensionCommand(input, cmd, rawArg)) return true;
+
     return false;
+  }
+
+  /** Active pi extensions for this bot; empty until the host finished loading. */
+  private activeExtensions() {
+    return getPiExtensionHost().getActiveExtensions(
+      this.options.getSettings(),
+      basename(this.options.workspaceDir) || undefined
+    );
+  }
+
+  private async tryHandleExtensionCommand(
+    input: SharedRuntimeCommandContext<TTarget>,
+    cmd: string,
+    rawArg: string
+  ): Promise<boolean> {
+    const extensions = this.activeExtensions();
+    if (extensions.length === 0) return false;
+
+    const result = await runPiExtensionCommand(cmd, rawArg, {
+      extensions,
+      cwd: this.options.workspaceDir
+    });
+    if (!result.handled) return false;
+
+    if (result.error) {
+      await this.options.sendText(
+        input.target,
+        this.text(`Extension command failed: ${result.error}`, `扩展命令执行失败：${result.error}`)
+      );
+      return true;
+    }
+
+    await this.options.sendText(
+      input.target,
+      result.output
+        ?? this.text(`Command ${cmd} finished.`, `命令 ${cmd} 已执行完成。`)
+    );
+    return true;
+  }
+
+  /** Extension-contributed commands, appended to `/help`. */
+  private extensionHelpLines(): string[] {
+    return listPiExtensionCommands(this.activeExtensions())
+      .map((command) => `/${command.name} - ${command.description ?? command.extensionId}`);
   }
 
   private isApprovalText(text: string): boolean {
@@ -1379,7 +1527,41 @@ export class SharedRuntimeCommandService<TTarget> {
       || this.isOnceApprovalText(text)
       || this.isPersistentApprovalText(text);
     if (!isApprovalReply) return false;
-    if (pending.length === 0) return false;
+    if (pending.length === 0) {
+      // No Host Bash approval pending, but a broker request from another
+      // approval-requiring tool may be. Text replies are the only way to answer
+      // on channels without interactive buttons (QQ, WeChat).
+      const brokerPending = this.listPendingBrokerRequests(input.scopeId);
+      if (brokerPending.length === 0) return false;
+      if (brokerPending.length > 1) {
+        await this.options.sendText(
+          input.target,
+          this.renderMarkdownCommandList(
+            this.text("Multiple approvals pending", "存在多条待处理审批"),
+            brokerPending.flatMap((item) => [
+              `/hosttools approve ${item.id}`,
+              `/hosttools reject ${item.id}`
+            ]),
+            brokerPending.map((item) => `${this.code(item.id)}: ${item.action.toolName ?? item.capability}`)
+          )
+        );
+        return true;
+      }
+      const only = brokerPending[0];
+      const resolvedByText = this.isRejectText(text)
+        ? this.resolveBrokerApproval(input.scopeId, only.id, "rejected")
+        : this.resolveBrokerApproval(
+            input.scopeId,
+            only.id,
+            "approved",
+            this.isSessionApprovalText(text)
+              ? "session"
+              : this.isPersistentApprovalText(text) ? "persistent" : "once"
+          );
+      if (!resolvedByText) return false;
+      await this.options.sendText(input.target, resolvedByText.message);
+      return true;
+    }
 
     if (pending.length > 1) {
       await this.options.sendText(
@@ -2116,9 +2298,23 @@ export class SharedRuntimeCommandService<TTarget> {
       })
     ];
 
+    // Commands contributed by installed pi extensions get their own section so
+    // it is obvious which commands are not part of the core surface.
+    const extensionRows: CommandTableRow[] = this.extensionHelpLines().map((line) => {
+      const separator = line.indexOf(" - ");
+      if (separator < 0) return { label: line, value: "" };
+      return {
+        label: line.slice(0, separator).trim(),
+        value: line.slice(separator + 3).trim()
+      };
+    });
+
     return this.renderTwoColumnSectionsAsMarkdown([
       { title: this.text("Common commands", "常用命令"), rows: essentialRows },
-      { title: this.text("Advanced commands", "高级命令"), rows: advancedRows }
+      { title: this.text("Advanced commands", "高级命令"), rows: advancedRows },
+      ...(extensionRows.length > 0
+        ? [{ title: this.text("Extension commands", "扩展命令"), rows: extensionRows }]
+        : [])
     ]);
   }
 

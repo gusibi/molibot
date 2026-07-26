@@ -77,7 +77,8 @@ export function forkSessionWith(
 
   const message = projection.messages.find((item) => item.id === input.fromMessageId);
   if (!message) return { status: "message_not_found" };
-  if (message.role !== "user") return { status: "invalid_fork_point" };
+  // No role restriction — see `forkConversationBeforeMessage`. `invalid_fork_point`
+  // stays in the result union for the stores' own INVALID_FORK_POINT code.
   const fromEntryId = projection.sourceEntryByMessageId.get(message.id);
   if (!fromEntryId) return { status: "message_not_found" };
 

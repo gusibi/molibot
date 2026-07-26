@@ -31,9 +31,11 @@ import {
 import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import {
+  RESERVED_PLUGIN_KEYS,
   sanitizeChannelInstanceDisplaySettings,
   sanitizeHookPluginEntries,
   sanitizeMemoryPluginSettings,
+  sanitizePiExtensionSettings,
   sanitizeTtsGenerateSettings
 } from "$lib/server/settings/sanitize.js";
 import {
@@ -124,6 +126,7 @@ interface RawSettings {
       secretAccessKey?: string;
       objectPrefix?: string;
     };
+    piExtensions?: unknown;
   };
   telegramBots?: unknown;
   agents?: unknown;
@@ -151,6 +154,16 @@ interface RawSettings {
     maxToolCalls?: number | string;
     maxToolFailures?: number | string;
     maxModelAttempts?: number | string;
+  };
+  subagentRuntime?: {
+    maxToolCalls?: number | string;
+    maxToolFailures?: number | string;
+    maxModelTurns?: number | string;
+    deadlineMs?: number | string;
+    maxTasks?: number | string;
+    maxConcurrency?: number | string;
+    compactionEnabled?: boolean | string;
+    persistSessions?: boolean | string;
   };
   events?: {
     executionTimeoutMs?: number | string;
@@ -415,6 +428,34 @@ function sanitizeBudgetSettings(input: unknown): RuntimeSettings["budget"] {
     maxToolCalls,
     maxToolFailures,
     maxModelAttempts
+  };
+}
+
+function sanitizeSubagentRuntimeSettings(input: unknown): RuntimeSettings["subagentRuntime"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const clamp = (key: string, fallback: number, min: number, max: number): number => {
+    const raw = Number(source[key] ?? fallback);
+    return Number.isFinite(raw) ? Math.max(min, Math.min(max, Math.round(raw))) : fallback;
+  };
+  const maxTasks = clamp("maxTasks", defaultRuntimeSettings.subagentRuntime.maxTasks, 1, 16);
+  return {
+    maxToolCalls: clamp("maxToolCalls", defaultRuntimeSettings.subagentRuntime.maxToolCalls, 1, 500),
+    maxToolFailures: clamp("maxToolFailures", defaultRuntimeSettings.subagentRuntime.maxToolFailures, 1, 100),
+    maxModelTurns: clamp("maxModelTurns", defaultRuntimeSettings.subagentRuntime.maxModelTurns, 1, 100),
+    deadlineMs: clamp("deadlineMs", defaultRuntimeSettings.subagentRuntime.deadlineMs, 1000, 24 * 60 * 60 * 1000),
+    maxTasks,
+    maxConcurrency: Math.min(
+      maxTasks,
+      clamp("maxConcurrency", defaultRuntimeSettings.subagentRuntime.maxConcurrency, 1, 4)
+    ),
+    compactionEnabled: source.compactionEnabled === undefined
+      ? defaultRuntimeSettings.subagentRuntime.compactionEnabled
+      : String(source.compactionEnabled).toLowerCase() !== "false",
+    persistSessions: source.persistSessions === undefined
+      ? defaultRuntimeSettings.subagentRuntime.persistSessions
+      : String(source.persistSessions).toLowerCase() !== "false"
   };
 }
 
@@ -1067,11 +1108,15 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   );
   const cloudflareHtml = sanitizeCloudflareHtmlPluginSettings(raw.plugins?.cloudflareHtml);
   const hookPlugins = sanitizeHookPluginEntries(raw.plugins?.hooks);
+  const piExtensions = sanitizePiExtensionSettings(
+    raw.plugins?.piExtensions,
+    defaultRuntimeSettings.plugins.piExtensions
+  );
   // Feature-plugin settings blobs (keyed by settingsKey) round-trip untouched.
   const pluginExtras = raw.plugins && typeof raw.plugins === "object"
     ? Object.fromEntries(
         Object.entries(raw.plugins as Record<string, unknown>)
-          .filter(([key, value]) => !["memory", "cloudflareHtml", "hooks"].includes(key) && value && typeof value === "object")
+          .filter(([key, value]) => !RESERVED_PLUGIN_KEYS.includes(key) && value && typeof value === "object")
       )
     : {};
 
@@ -1116,6 +1161,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const hostTools = sanitizeHostToolSettings(raw.hostTools ?? defaultRuntimeSettings.hostTools);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
   const budget = sanitizeBudgetSettings(raw.budget);
+  const subagentRuntime = sanitizeSubagentRuntimeSettings(raw.subagentRuntime);
   const events = sanitizeEventExecutionSettings(raw.events);
   const browserAutomation = sanitizeBrowserAutomationSettings(raw.browserAutomation);
   const displayInput = raw.display ?? defaultRuntimeSettings.display;
@@ -1205,7 +1251,8 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       ...pluginExtras,
       memory: memoryPlugin,
       cloudflareHtml,
-      hooks: hookPlugins
+      hooks: hookPlugins,
+      piExtensions
     } as RuntimeSettings["plugins"],
     timezone: normalizeTimeZone(
       String(raw.timezone ?? ""),
@@ -1215,6 +1262,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     telegramAllowedChatIds: primaryBot?.allowedChatIds ?? [],
     feishuBots: effectiveFeishuBots,
     budget,
+    subagentRuntime,
     events,
     browserAutomation,
     display
@@ -1940,6 +1988,16 @@ export class SettingsStore {
         maxToolCalls: settings.budget.maxToolCalls,
         maxToolFailures: settings.budget.maxToolFailures,
         maxModelAttempts: settings.budget.maxModelAttempts
+      },
+      subagentRuntime: {
+        maxToolCalls: settings.subagentRuntime.maxToolCalls,
+        maxToolFailures: settings.subagentRuntime.maxToolFailures,
+        maxModelTurns: settings.subagentRuntime.maxModelTurns,
+        deadlineMs: settings.subagentRuntime.deadlineMs,
+        maxTasks: settings.subagentRuntime.maxTasks,
+        maxConcurrency: settings.subagentRuntime.maxConcurrency,
+        compactionEnabled: settings.subagentRuntime.compactionEnabled,
+        persistSessions: settings.subagentRuntime.persistSessions
       },
       events: {
         executionTimeoutMs: settings.events.executionTimeoutMs,

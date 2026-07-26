@@ -42,8 +42,12 @@ export function logPluginCatalog(state: { pluginCatalog: any }): void {
     .map((backend: any) => `${backend.key}:${colorStatus(backend.status)}`)
     .join(", ");
 
+  const extensionSummary = (state.pluginCatalog.extensions ?? [])
+    .map((extension: any) => `${extension.key}:${colorStatus(extension.status)}`)
+    .join(", ");
+
   console.log(
-    `${runtimeLabel("runtime")} plugin_catalog channels=[${channelSummary || "(none)"}] providers=[${providerSummary || "(none)"}] features=[${featureSummary || "(none)"}] memory_backends=[${memoryBackendSummary || "(none)"}]`
+    `${runtimeLabel("runtime")} plugin_catalog channels=[${channelSummary || "(none)"}] providers=[${providerSummary || "(none)"}] features=[${featureSummary || "(none)"}] memory_backends=[${memoryBackendSummary || "(none)"}] extensions=[${extensionSummary || "(none)"}]`
   );
 }
 

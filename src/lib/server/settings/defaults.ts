@@ -37,6 +37,12 @@ function listFromEnv(name: string): string[] {
     .filter(Boolean);
 }
 
+function boundedIntegerFromEnv(name: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(process.env[name] ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
+}
+
 function providerFromEnv(name: string, fallback: KnownProvider): KnownProvider {
   const raw = (process.env[name] ?? "").trim();
   if (!raw) return fallback;
@@ -506,7 +512,11 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     cloudflareHtml: {
       ...defaultCloudflareHtmlPluginSettings
     },
-    hooks: []
+    hooks: [],
+    piExtensions: {
+      enabled: String(process.env.PI_EXTENSIONS_ENABLED ?? "true").toLowerCase() !== "false",
+      entries: {}
+    }
   },
   telegramBotToken: defaultTelegramBotToken,
   telegramAllowedChatIds: defaultTelegramAllowedChatIds,
@@ -515,6 +525,16 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     maxToolCalls: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_CALLS ?? 24) || 24),
     maxToolFailures: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_FAILURES ?? 6) || 6),
     maxModelAttempts: Math.max(1, Number(process.env.MOLIBOT_MAX_MODEL_ATTEMPTS ?? 6) || 6)
+  },
+  subagentRuntime: {
+    maxToolCalls: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_TOOL_CALLS", 100, 1, 500),
+    maxToolFailures: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_TOOL_FAILURES", 6, 1, 100),
+    maxModelTurns: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_MODEL_TURNS", 12, 1, 100),
+    deadlineMs: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_DEADLINE_MS", 1_800_000, 1000, 24 * 60 * 60 * 1000),
+    maxTasks: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_TASKS", 4, 1, 16),
+    maxConcurrency: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_CONCURRENCY", 2, 1, 4),
+    compactionEnabled: String(process.env.MOLIBOT_SUBAGENT_COMPACTION_ENABLED ?? "true").toLowerCase() !== "false",
+    persistSessions: String(process.env.MOLIBOT_SUBAGENT_PERSIST_SESSIONS ?? "true").toLowerCase() !== "false"
   },
   events: {
     executionTimeoutMs: Math.max(1000, Number(process.env.MOLIBOT_EVENT_EXECUTION_TIMEOUT_MS ?? 600_000) || 600_000),

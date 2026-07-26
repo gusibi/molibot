@@ -54,18 +54,23 @@ export class InboundTaskCoordinator<TPayload, TTarget> {
     return this.queue.cancelPending(scopeId);
   }
 
+  retryRecovery(scopeId: string, id: number): "retried" | "running" | "not_found" {
+    return this.queue.retryRecovery(scopeId, id);
+  }
+
   close(): void {
     this.queue.close();
   }
 
   toCommandOptions(): Pick<
     SharedRuntimeCommandOptions<TTarget>,
-    "getQueueSize" | "listQueue" | "deleteQueued" | "getQueuedPreview" | "enqueueFront" | "cancelQueuedPending"
+    "getQueueSize" | "listQueue" | "deleteQueued" | "retryQueued" | "getQueuedPreview" | "enqueueFront" | "cancelQueuedPending"
   > {
     return {
       getQueueSize: (scopeId) => this.size(scopeId),
       listQueue: async (scopeId) => this.list(scopeId),
       deleteQueued: async (scopeId, id) => this.delete(scopeId, id),
+      retryQueued: async (scopeId, id) => this.retryRecovery(scopeId, id),
       getQueuedPreview: async (scopeId, id) => this.peek(scopeId, id),
       cancelQueuedPending: async (scopeId) => this.cancelPending(scopeId),
       enqueueFront: this.enqueueFrontFromCommandFn

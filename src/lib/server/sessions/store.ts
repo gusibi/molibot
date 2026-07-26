@@ -877,10 +877,13 @@ export class SessionStore {
   }
 
   /**
-   * Creates a visible child conversation containing the prefix before the
-   * selected message. The source is never mutated and inherited rows are not
-   * re-enqueued into search: they remain provenance, not newly authored child
-   * history.
+   * Creates a visible child conversation containing everything up to and
+   * including the selected message — a copy of the Session as it stood at that
+   * point, which the two branches then diverge from. Forking at the last
+   * message yields a child identical to the parent.
+   *
+   * The source is never mutated and inherited rows are not re-enqueued into
+   * search: they remain provenance, not newly authored child history.
    */
   forkConversationBeforeMessage(
     conversationId: string,
@@ -917,11 +920,9 @@ export class SessionStore {
       (error as Error & { code?: string }).code = "MESSAGE_NOT_FOUND";
       throw error;
     }
-    if (located.file.messageMetadata[index]?.role !== "user") {
-      const error = new Error("A Session fork must start from a user message");
-      (error as Error & { code?: string }).code = "INVALID_FORK_POINT";
-      throw error;
-    }
+    // Deliberately no role restriction: a conversation almost always ends on an
+    // assistant reply, so requiring a user message made "duplicate this Session
+    // as it stands" impossible to express.
 
     const now = new Date().toISOString();
     const conversation: Conversation = {
@@ -934,11 +935,13 @@ export class SessionStore {
     };
     const childFile: SessionFile = {
       conversation,
-      messageMetadata: located.file.messageMetadata.slice(0, index).map((message) => ({
+      // Inclusive of the fork point, so forking at the last message produces a
+      // child whose transcript equals the parent's.
+      messageMetadata: located.file.messageMetadata.slice(0, index + 1).map((message) => ({
         ...message,
         conversationId: childId
       })),
-      messageCount: index
+      messageCount: index + 1
     };
 
     if (located.type === "web") {

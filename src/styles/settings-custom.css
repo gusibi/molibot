@@ -3685,3 +3685,90 @@
 .trace-live-copy > span, .trace-live-copy > p { margin: 0; color: var(--muted-foreground); font-size: 12px; }
 .trace-live-copy > p { max-width: 760px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 640px) { .trace-live-row { align-items: stretch; flex-direction: column; }.trace-live-row > button { width: 100%; } }
+
+/* Third-party pi extensions (settings/plugins) */
+.ext-install-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+@media (max-width: 768px) {
+  .ext-install-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ext-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ext-row {
+  border: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.875rem 0.875rem;
+  background: color-mix(in oklab, var(--card) 70%, var(--background));
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ext-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ext-row-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.ext-row-name {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.ext-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.ext-meta {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+.ext-meta-mono {
+  font-family: var(--font-mono, monospace);
+  word-break: break-all;
+}
+
+/* No warning token exists in theme.css; derive one from existing tokens rather
+   than referencing an undefined var (which fails silently). */
+.ext-warning {
+  font-size: 0.75rem;
+  color: color-mix(in oklab, var(--destructive) 62%, var(--foreground));
+  margin: 0;
+}
+
+.ext-error {
+  font-size: 0.75rem;
+  color: var(--destructive);
+  margin: 0;
+}
+
+.ext-empty {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  margin: 0;
+}

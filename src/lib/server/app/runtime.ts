@@ -1,6 +1,7 @@
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import { sanitizeSettings } from "$lib/server/settings/sanitize.js";
 import { applyChannelPlugins } from "$lib/server/plugins/loader.js";
+import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { getToolSandboxEnvStartupReport } from "$lib/server/agent/tools/sandbox.js";
 import { config, liveServicesDisabled } from "$lib/server/app/env.js";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
@@ -131,7 +132,13 @@ export function getRuntime(): RuntimeState {
 
     const settingsStore = new SettingsStore();
     const settings = settingsStore.load();
-    const hookManager = createDefaultHookManager({ settings });
+    // Live settings holder: hooks and services must read the current snapshot,
+    // not the one captured at boot (settings patches replace `state.settings`).
+    const currentSettings = { value: settings };
+    const hookManager = createDefaultHookManager({
+      settings,
+      getSettings: () => currentSettings.value
+    });
     const hostBashStore = getHostBashStore();
     hostBashStore.migrateLegacySettings(settings.hostTools);
     if (
@@ -144,7 +151,6 @@ export function getRuntime(): RuntimeState {
 
     const sessions = new SessionStore();
     sessions.setConversationSearchIndex(getConversationSearchIndex(storagePaths.moryDbFile), "web");
-    const currentSettings = { value: settings };
     const usageTracker = new AiUsageTracker();
     const modelErrorTracker = new ModelErrorTracker();
     const memory = new MemoryGateway(
@@ -360,7 +366,7 @@ export function getRuntime(): RuntimeState {
       sessions,
       router,
       channelManagers: new Map<string, Map<string, ChannelManager>>(),
-      pluginCatalog: { channels: [], providers: [], features: [], memoryBackends: [] },
+      pluginCatalog: { channels: [], providers: [], features: [], memoryBackends: [], extensions: [] },
       providerPlugins: [],
       memory,
       memorySyncTimer: null,
@@ -416,6 +422,15 @@ export function getRuntime(): RuntimeState {
       applyChannelPlugins(state, applySettingsPatch);
       state.taskScheduler.start(state.channelManagers, state.settings);
     }
+
+    // Third-party pi extensions load off the critical path: a slow or broken
+    // extension must not delay startup. Deliberately outside the
+    // liveServicesDisabled branch — extensions are not a network service, and a
+    // turn that starts before this finishes would otherwise silently run
+    // without their tools (the runner awaits the same promise as a backstop).
+    void getPiExtensionHost().load()
+      .then(() => getPiExtensionHost().applyFlagValues(currentSettings.value))
+      .catch(() => undefined);
 
     globalThis.__molibotRuntime = state;
     configureConversationProjectionRuntime(() => state);

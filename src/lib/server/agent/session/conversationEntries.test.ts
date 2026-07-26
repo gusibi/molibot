@@ -38,7 +38,7 @@ test("conversation projection entries stay stable across appends", () => {
   }
 });
 
-test("forkSessionBeforeEntry copies only the prefix and inherits preferences without session approval", () => {
+test("forkSessionBeforeEntry copies through the fork point and inherits preferences without session approval", () => {
   const dir = mkdtempSync(join(tmpdir(), "molibot-agent-session-fork-"));
   try {
     const store = new MomRuntimeStore(dir);
@@ -57,18 +57,28 @@ test("forkSessionBeforeEntry copies only the prefix and inherits preferences wit
 
     assert.equal(childId, "fork-child");
     assert.deepEqual(store.loadContext(chatId, parentId).map((item) => item.role), ["user", "assistant", "user", "assistant"]);
-    assert.deepEqual(store.loadContext(chatId, childId).map((item) => item.role), ["user", "assistant"]);
-    assert.deepEqual(store.listSessionMessageEntries(chatId, childId).map((entry) => entry.id), entries.slice(0, 2).map((entry) => entry.id));
+    // Inclusive of entries[2] (the second user turn), so the child is the
+    // parent as it stood at that point.
+    assert.deepEqual(store.loadContext(chatId, childId).map((item) => item.role), ["user", "assistant", "user"]);
+    assert.deepEqual(store.listSessionMessageEntries(chatId, childId).map((entry) => entry.id), entries.slice(0, 3).map((entry) => entry.id));
     assert.equal(store.getSessionThinkingLevelOverride(chatId, childId), "high");
     assert.equal(store.getSessionSandboxOverride(chatId, childId), true);
     assert.equal(store.getSessionHostApprovalMode(chatId, childId), "default");
 
     const reloaded = new MomRuntimeStore(dir);
-    assert.deepEqual(reloaded.loadContext(chatId, childId).map((item) => item.role), ["user", "assistant"]);
+    assert.deepEqual(reloaded.loadContext(chatId, childId).map((item) => item.role), ["user", "assistant", "user"]);
     assert.equal(reloaded.readSessionLineage(chatId, childId)?.parentSessionId, parentId);
     assert.equal(reloaded.readSessionLineage(chatId, childId)?.forkedFromEntryId, entries[2]!.id);
     assert.equal(reloaded.forkSessionBeforeEntry(chatId, parentId, entries[2]!.id, childId), childId);
-    assert.equal(reloaded.listSessionMessageEntries(chatId, childId).length, 2);
+    assert.equal(reloaded.listSessionMessageEntries(chatId, childId).length, 3);
+
+    // The headline case: forking at the last entry duplicates the Session.
+    const twin = reloaded.forkSessionBeforeEntry(chatId, parentId, entries[3]!.id, "fork-twin");
+    assert.deepEqual(
+      reloaded.loadContext(chatId, twin).map((item) => item.role),
+      reloaded.loadContext(chatId, parentId).map((item) => item.role)
+    );
+    assert.equal(reloaded.listSessionMessageEntries(chatId, twin).length, entries.length);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

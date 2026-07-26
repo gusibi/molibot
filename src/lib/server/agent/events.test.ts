@@ -136,6 +136,28 @@ test("late successful event completion suppresses timeout retry outcome", async 
   }
 });
 
+test("event timeout returns after grace when the run ignores cancellation", async () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-hard-timeout-"));
+  const watcher = new EventsWatcher(
+    eventsDir,
+    async () => await new Promise<void>(() => {}),
+    { leaseStore: store, timeoutSettleGraceMs: 5 }
+  );
+  const lease = { ...createLease(store, 5), timeoutMs: 5 };
+
+  try {
+    const runAttemptWithTimeout = (watcher as any).runAttemptWithTimeout.bind(watcher);
+    const startedAt = Date.now();
+    const result = await runAttemptWithTimeout(createPeriodicEvent(), "event.json", lease);
+    assert.deepEqual(result, { status: "timeout" });
+    assert.ok(Date.now() - startedAt < 100);
+  } finally {
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});
+
 test("disabled periodic events never enter the scheduler dispatch loop", async () => {
   const store = new EventExecutionLeaseStore(":memory:");
   const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-paused-"));

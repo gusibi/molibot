@@ -71,7 +71,28 @@
       jsonFileLabel: "json-file (内置后端)",
       moryLabel: "mory (SDK 驱动后端)",
       manifestLabel: "清单:",
-      entryLabel: "入口:"
+      entryLabel: "入口:",
+      extTitle: "pi 扩展（第三方插件）",
+      extDesc: "安装 pi 生态的第三方扩展。扩展可以提供工具、监听运行时事件、注册斜杠命令；终端 UI 类能力（快捷键、消息渲染器、对话框）在这里不会生效。",
+      extMaster: "启用 pi 扩展",
+      extMasterDesc: "总开关。关闭后所有已安装扩展都不生效。",
+      extSpecLabel: "包名或链接",
+      extSpecPlaceholder: "npm 包名、npm 链接、GitHub 仓库或子目录链接",
+      extSpecHint: "支持：pi-subagents ｜ https://www.npmjs.com/package/... ｜ https://github.com/用户/仓库 ｜ https://github.com/用户/仓库/tree/main/packages/扩展名",
+      extInstall: "安装",
+      extInstalling: "安装中...",
+      extReload: "重新加载",
+      extUninstall: "卸载",
+      extEmpty: "还没有安装任何扩展。",
+      extTools: "工具:",
+      extEvents: "事件:",
+      extCommands: "命令:",
+      extRootLabel: "安装目录:",
+      extUnsupported: "该扩展使用了 Molibot 不支持的终端 UI 能力，相关功能不会生效：",
+      extInstalled: "扩展安装完成。",
+      extUninstalled: "扩展已卸载。",
+      extReloaded: "扩展已重新加载。",
+      extConfirmUninstall: "确定要卸载这个扩展吗？"
     },
     "en-US": {
       eyebrow: "Runtime Extensions",
@@ -105,7 +126,28 @@
       jsonFileLabel: "json-file (built-in backend)",
       moryLabel: "mory (SDK-backed backend)",
       manifestLabel: "Manifest:",
-      entryLabel: "Entry:"
+      entryLabel: "Entry:",
+      extTitle: "pi Extensions (third-party plugins)",
+      extDesc: "Install third-party extensions from the pi ecosystem. Extensions can provide tools, listen to runtime events and register slash commands; terminal-only capabilities (shortcuts, message renderers, dialogs) do not apply here.",
+      extMaster: "Enable pi extensions",
+      extMasterDesc: "Master switch. When off, no installed extension runs.",
+      extSpecLabel: "Package or link",
+      extSpecPlaceholder: "npm package, npm link, GitHub repo or subdirectory link",
+      extSpecHint: "Accepts: pi-subagents | https://www.npmjs.com/package/... | https://github.com/owner/repo | https://github.com/owner/repo/tree/main/packages/name",
+      extInstall: "Install",
+      extInstalling: "Installing...",
+      extReload: "Reload",
+      extUninstall: "Uninstall",
+      extEmpty: "No extensions installed yet.",
+      extTools: "Tools:",
+      extEvents: "Events:",
+      extCommands: "Commands:",
+      extRootLabel: "Install directory:",
+      extUnsupported: "This extension uses terminal-only capabilities Molibot does not provide; those parts will not work:",
+      extInstalled: "Extension installed.",
+      extUninstalled: "Extension uninstalled.",
+      extReloaded: "Extensions reloaded.",
+      extConfirmUninstall: "Uninstall this extension?"
     }
   } as const;
 
@@ -120,6 +162,29 @@
   let memoryEnabled = false;
   let memoryBackend = "json-file";
   let featurePluginValues: Record<string, Record<string, PluginFieldValue>> = {};
+
+  // pi extensions live behind their own endpoint: installing runs npm/git and
+  // reloads the host, so it does not belong in the settings save round-trip.
+  interface ExtensionEntry {
+    id: string;
+    name: string;
+    version: string;
+    description?: string;
+    entryPath: string;
+    enabled: boolean;
+    disabledBots: string[];
+    toolNames: string[];
+    eventNames: string[];
+    commandNames: string[];
+    unsupported: string[];
+    error?: string;
+  }
+
+  let extensions: ExtensionEntry[] = [];
+  let extensionsRoot = "";
+  let extensionsMaster = true;
+  let extensionSpec = "";
+  let extensionBusy = false;
 
   $: copy = COPY[$locale] ?? COPY["en-US"];
 
@@ -230,7 +295,64 @@
     }
   }
 
-  onMount(loadSettings);
+  async function loadExtensions(): Promise<void> {
+    try {
+      const res = await fetch("/api/settings/plugins/extensions");
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || copy.failedLoad);
+      extensions = Array.isArray(data.extensions) ? data.extensions : [];
+      extensionsRoot = String(data.root ?? "");
+      extensionsMaster = data.masterEnabled !== false;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function extensionAction(
+    body: Record<string, unknown>,
+    successMessage?: string
+  ): Promise<void> {
+    extensionBusy = true;
+    message = "";
+    error = "";
+    try {
+      const res = await fetch("/api/settings/plugins/extensions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      // `hint` is the actionable half of a rejected link ("use the repo root, or
+      // a /tree/<branch>/<path> link"), so it must reach the user too.
+      if (!data.ok) throw new Error([data.error, data.hint, data.log].filter(Boolean).join("\n"));
+      if (Array.isArray(data.extensions)) extensions = data.extensions;
+      if (typeof data.masterEnabled === "boolean") extensionsMaster = data.masterEnabled;
+      if (successMessage) message = successMessage;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      extensionBusy = false;
+    }
+  }
+
+  async function installExtension(): Promise<void> {
+    const input = extensionSpec.trim();
+    if (!input) return;
+    // The server resolves the input: package name, npm URL, repository URL, or a
+    // monorepo subdirectory link all arrive here as one string.
+    await extensionAction({ action: "install", input }, copy.extInstalled);
+    if (!error) extensionSpec = "";
+  }
+
+  async function uninstallExtension(id: string): Promise<void> {
+    if (!confirm(copy.extConfirmUninstall)) return;
+    await extensionAction({ action: "uninstall", id }, copy.extUninstalled);
+  }
+
+  onMount(async () => {
+    await loadSettings();
+    await loadExtensions();
+  });
 </script>
 
 <div class="channel-page">
@@ -378,6 +500,109 @@
           </div>
         </div>
       {/each}
+
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.extTitle}</h2>
+            <p class="channel-card-desc">{copy.extDesc}</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-toggle-row">
+            <div class="channel-toggle-label">
+              <Label for="ext-master">{copy.extMaster}</Label>
+              <p>{copy.extMasterDesc}</p>
+            </div>
+            <IosSwitch
+              id="ext-master"
+              checked={extensionsMaster}
+              onCheckedChange={(value) => extensionAction({ action: "setMaster", enabled: value })}
+            />
+          </div>
+
+          <div class="ext-install-row">
+            <div class="channel-field">
+              <Label for="ext-spec">{copy.extSpecLabel}</Label>
+              <Input id="ext-spec" bind:value={extensionSpec} placeholder={copy.extSpecPlaceholder} />
+            </div>
+            <div class="ext-row-actions">
+              <Button type="button" size="sm" onclick={installExtension} disabled={extensionBusy || !extensionSpec.trim()}>
+                {extensionBusy ? copy.extInstalling : copy.extInstall}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onclick={() => extensionAction({ action: "reload" }, copy.extReloaded)}
+                disabled={extensionBusy}
+              >
+                {copy.extReload}
+              </Button>
+            </div>
+          </div>
+
+          <p class="ext-meta">{copy.extSpecHint}</p>
+
+          {#if extensionsRoot}
+            <p class="ext-meta ext-meta-mono">{copy.extRootLabel} {extensionsRoot}</p>
+          {/if}
+
+          <div class="ext-list">
+            {#if extensions.length === 0}
+              <p class="ext-empty">{copy.extEmpty}</p>
+            {/if}
+            {#each extensions as extension (extension.id)}
+              <div class="ext-row">
+                <div class="ext-row-head">
+                  <div class="ext-row-title">
+                    <span class="ext-row-name">{extension.name}</span>
+                    <Badge variant="secondary">{extension.id}</Badge>
+                    <Badge variant="secondary">v{extension.version}</Badge>
+                    {#if extension.error}
+                      <Badge variant="destructive">{copy.statusError}</Badge>
+                    {/if}
+                  </div>
+                  <div class="ext-row-actions">
+                    <IosSwitch
+                      checked={extension.enabled}
+                      onCheckedChange={(value) => extensionAction({ action: "toggle", id: extension.id, enabled: value })}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onclick={() => uninstallExtension(extension.id)}
+                      disabled={extensionBusy}
+                    >
+                      {copy.extUninstall}
+                    </Button>
+                  </div>
+                </div>
+
+                {#if extension.description}
+                  <p class="ext-meta">{extension.description}</p>
+                {/if}
+                {#if extension.toolNames.length > 0}
+                  <p class="ext-meta">{copy.extTools} {extension.toolNames.join(", ")}</p>
+                {/if}
+                {#if extension.eventNames.length > 0}
+                  <p class="ext-meta">{copy.extEvents} {extension.eventNames.join(", ")}</p>
+                {/if}
+                {#if extension.commandNames.length > 0}
+                  <p class="ext-meta">{copy.extCommands} {extension.commandNames.map((name) => `/${name}`).join(", ")}</p>
+                {/if}
+                {#if extension.unsupported.length > 0}
+                  <p class="ext-warning">{copy.extUnsupported} {extension.unsupported.join(", ")}</p>
+                {/if}
+                {#if extension.error}
+                  <p class="ext-error">{extension.error}</p>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        </div>
+      </div>
 
       <div class="channel-card">
         <div class="channel-card-header">

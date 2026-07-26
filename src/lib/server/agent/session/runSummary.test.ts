@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildSubagentTaskRecord } from "$lib/server/agent/session/runSummary.js";
 
-test("buildSubagentTaskRecord carries budget, model and a normalized task preview", () => {
+test("buildSubagentTaskRecord carries budget, model, session and a normalized task preview", () => {
   const record = buildSubagentTaskRecord(
     {
       mode: "single",
@@ -13,7 +13,8 @@ test("buildSubagentTaskRecord carries budget, model and a normalized task previe
       stopReason: "error",
       errorMessage: "budget exceeded",
       budget: { toolCalls: 24, toolFailures: 1, modelAttempts: 2 },
-      model: "claude-sonnet-4-6"
+      model: "claude-sonnet-4-6",
+      sessionId: "run-1-1-worker"
     },
     1234
   );
@@ -28,6 +29,7 @@ test("buildSubagentTaskRecord carries budget, model and a normalized task previe
   assert.equal(record.durationMs, 1234);
   assert.equal(record.budget?.toolCalls, 24);
   assert.equal(record.model, "claude-sonnet-4-6");
+  assert.equal(record.sessionId, "run-1-1-worker");
 });
 
 test("buildSubagentTaskRecord omits budget/model when the event lacks them", () => {
@@ -37,6 +39,7 @@ test("buildSubagentTaskRecord omits budget/model when the event lacks them", () 
   );
   assert.equal(record.budget, undefined);
   assert.equal(record.model, undefined);
+  assert.equal(record.sessionId, undefined);
   assert.equal(record.durationMs, undefined);
   assert.equal(record.taskPreview, undefined);
 });

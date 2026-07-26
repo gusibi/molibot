@@ -41,6 +41,13 @@ import {
 } from "$lib/server/settings/index.js";
 import { isAbsolute } from "node:path";
 
+/**
+ * Keys of `settings.plugins` that have a dedicated sanitizer. Everything else
+ * on that object is a feature plugin's own settings blob (keyed by its
+ * settingsKey) and must round-trip untouched.
+ */
+export const RESERVED_PLUGIN_KEYS = ["memory", "cloudflareHtml", "hooks", "piExtensions"];
+
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
@@ -329,6 +336,59 @@ export function sanitizeHookPluginEntries(input: unknown): RuntimeSettings["plug
     });
   }
   return entries;
+}
+
+/**
+ * Sanitizes the plugins.piExtensions block (master switch + per-extension
+ * enable / per-bot exclusions / flag values). Shared by sanitizeSettings and
+ * the SettingsStore load path so installed extensions survive a restart.
+ */
+export function sanitizePiExtensionSettings(
+  input: unknown,
+  current: RuntimeSettings["plugins"]["piExtensions"]
+): RuntimeSettings["plugins"]["piExtensions"] {
+  const source = input && typeof input === "object" && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {};
+  const enabled = source.enabled === undefined ? current.enabled : Boolean(source.enabled);
+
+  const rawEntries = source.entries && typeof source.entries === "object" && !Array.isArray(source.entries)
+    ? source.entries as Record<string, unknown>
+    : {};
+  const entries: RuntimeSettings["plugins"]["piExtensions"]["entries"] = {};
+
+  for (const [rawId, rawEntry] of Object.entries(rawEntries)) {
+    const id = rawId.trim();
+    if (!id || !rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) continue;
+    const entry = rawEntry as Record<string, unknown>;
+
+    const disabledBots = Array.isArray(entry.disabledBots)
+      ? Array.from(new Set(
+          entry.disabledBots
+            .map((bot) => String(bot ?? "").trim())
+            .filter((bot) => bot.length > 0)
+        ))
+      : [];
+
+    const flagSource = entry.flags && typeof entry.flags === "object" && !Array.isArray(entry.flags)
+      ? entry.flags as Record<string, unknown>
+      : undefined;
+    const flags = flagSource
+      ? Object.fromEntries(
+          Object.entries(flagSource)
+            .filter(([, value]) => typeof value === "boolean" || typeof value === "string")
+            .map(([key, value]) => [key, value as boolean | string])
+        )
+      : undefined;
+
+    entries[id] = {
+      enabled: entry.enabled === undefined ? true : Boolean(entry.enabled),
+      disabledBots,
+      ...(flags && Object.keys(flags).length > 0 ? { flags } : {})
+    };
+  }
+
+  return { enabled, entries };
 }
 
 /**
@@ -786,6 +846,36 @@ export function sanitizeBudgetSettings(
   };
 }
 
+export function sanitizeSubagentRuntimeSettings(
+  input: unknown,
+  fallback: RuntimeSettings["subagentRuntime"]
+): RuntimeSettings["subagentRuntime"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const integer = (value: unknown, defaultValue: number, min: number, max: number): number =>
+    Math.round(clampNumber(value, defaultValue, min, max));
+  const boolean = (value: unknown, defaultValue: boolean): boolean => {
+    if (value === undefined) return defaultValue;
+    if (typeof value === "string") return value.trim().toLowerCase() !== "false";
+    return Boolean(value);
+  };
+  const maxTasks = integer(source.maxTasks, fallback.maxTasks, 1, 16);
+  return {
+    maxToolCalls: integer(source.maxToolCalls, fallback.maxToolCalls, 1, 500),
+    maxToolFailures: integer(source.maxToolFailures, fallback.maxToolFailures, 1, 100),
+    maxModelTurns: integer(source.maxModelTurns, fallback.maxModelTurns, 1, 100),
+    deadlineMs: integer(source.deadlineMs, fallback.deadlineMs, 1000, 24 * 60 * 60 * 1000),
+    maxTasks,
+    maxConcurrency: Math.min(
+      maxTasks,
+      integer(source.maxConcurrency, fallback.maxConcurrency, 1, 4)
+    ),
+    compactionEnabled: boolean(source.compactionEnabled, fallback.compactionEnabled),
+    persistSessions: boolean(source.persistSessions, fallback.persistSessions)
+  };
+}
+
 export function sanitizeEventExecutionSettings(
   input: unknown,
   fallback: RuntimeSettings["events"]
@@ -1132,12 +1222,12 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   // each plugin's settingsKey); carry them through so a save never drops them.
   const currentPluginExtras = Object.fromEntries(
     Object.entries(current.plugins as unknown as Record<string, unknown>)
-      .filter(([key]) => !["memory", "cloudflareHtml", "hooks"].includes(key))
+      .filter(([key]) => !RESERVED_PLUGIN_KEYS.includes(key))
   );
   const nextPluginExtras = next.plugins
     ? Object.fromEntries(
         Object.entries(next.plugins as unknown as Record<string, unknown>)
-          .filter(([key]) => !["memory", "cloudflareHtml", "hooks"].includes(key))
+          .filter(([key]) => !RESERVED_PLUGIN_KEYS.includes(key))
       )
     : {};
   next.plugins = {
@@ -1148,10 +1238,18 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
       next.plugins?.cloudflareHtml ?? current.plugins.cloudflareHtml,
       current.plugins.cloudflareHtml
     ),
-    hooks: sanitizeHookPluginEntries(next.plugins?.hooks ?? current.plugins.hooks)
+    hooks: sanitizeHookPluginEntries(next.plugins?.hooks ?? current.plugins.hooks),
+    piExtensions: sanitizePiExtensionSettings(
+      next.plugins?.piExtensions ?? current.plugins.piExtensions,
+      current.plugins.piExtensions ?? defaultRuntimeSettings.plugins.piExtensions
+    )
   } as RuntimeSettings["plugins"];
 
   next.budget = sanitizeBudgetSettings(next.budget ?? current.budget, current.budget);
+  next.subagentRuntime = sanitizeSubagentRuntimeSettings(
+    next.subagentRuntime ?? current.subagentRuntime,
+    current.subagentRuntime
+  );
   next.events = sanitizeEventExecutionSettings(next.events ?? current.events, current.events);
 
   const browserInput = next.browserAutomation ?? current.browserAutomation;

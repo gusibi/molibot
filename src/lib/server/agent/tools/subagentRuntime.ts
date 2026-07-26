@@ -7,8 +7,6 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
  * from hanging indefinitely (e.g. a model that stalls mid-stream) without a
  * structured stop reason bubbling back to the parent.
  */
-export const DEFAULT_SUBAGENT_DEADLINE_MS = 10 * 60 * 1000;
-
 export type SubagentStopKind = "budget_exceeded" | "timeout";
 
 export interface SubagentStopReason {
@@ -22,16 +20,31 @@ export interface SubagentGuardResult {
 }
 
 /**
- * Resolve the per-subagent budget limits. Subagents reuse the same RunBudget
- * limits as the parent turn so operators only configure one budget; falls back
- * to DEFAULT_RUN_BUDGET when settings omit it.
+ * Resolve the delegated-task budget independently from the parent run budget.
  */
 export function resolveSubagentBudgetLimits(settings: RuntimeSettings): RunBudgetLimits {
-  const configured = settings.budget;
+  const configured = settings.subagentRuntime;
   return {
     maxToolCalls: configured?.maxToolCalls ?? DEFAULT_RUN_BUDGET.maxToolCalls,
     maxToolFailures: configured?.maxToolFailures ?? DEFAULT_RUN_BUDGET.maxToolFailures,
-    maxModelAttempts: configured?.maxModelAttempts ?? DEFAULT_RUN_BUDGET.maxModelAttempts
+    maxModelAttempts: configured?.maxModelTurns ?? DEFAULT_RUN_BUDGET.maxModelAttempts
+  };
+}
+
+export function resolveSubagentExecutionLimits(settings: RuntimeSettings): {
+  deadlineMs: number;
+  maxTasks: number;
+  maxConcurrency: number;
+  compactionEnabled: boolean;
+  persistSessions: boolean;
+} {
+  const configured = settings.subagentRuntime;
+  return {
+    deadlineMs: configured.deadlineMs,
+    maxTasks: configured.maxTasks,
+    maxConcurrency: configured.maxConcurrency,
+    compactionEnabled: configured.compactionEnabled,
+    persistSessions: configured.persistSessions
   };
 }
 

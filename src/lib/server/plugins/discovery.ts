@@ -5,6 +5,7 @@ import { defaultRuntimeSettings, KNOWN_PROVIDER_LIST, type RuntimeSettings } fro
 import { builtInChannelPlugins } from "$lib/server/channels/registry.js";
 import { builtInMemoryBackends } from "$lib/server/memory/registry.js";
 import { builtInFeaturePlugins, createFeaturePluginCatalog } from "$lib/server/plugins/feature-registry.js";
+import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import type {
   ExternalPluginLoadResult,
   InstalledPluginCatalogEntry,
@@ -127,6 +128,25 @@ function buildBuiltInMemoryBackendCatalog(): InstalledPluginCatalogEntry[] {
   }));
 }
 
+/**
+ * Third-party pi extensions, projected into the shared catalog shape. Rows only
+ * appear once the async host load finished; a still-loading host yields none.
+ */
+function buildPiExtensionCatalog(settings: RuntimeSettings): InstalledPluginCatalogEntry[] {
+  return getPiExtensionHost().listCatalog(settings).map((entry) => ({
+    kind: "extension" as const,
+    key: entry.id,
+    name: entry.name,
+    version: entry.version,
+    description: entry.description,
+    source: "external" as const,
+    status: entry.error ? "error" : entry.enabled ? "active" : "discovered",
+    enabled: entry.enabled,
+    entryPath: entry.entryPath,
+    error: entry.error
+  }));
+}
+
 export function discoverPlugins(settings: RuntimeSettings = defaultRuntimeSettings): ExternalPluginLoadResult {
   const channels = [
     ...buildBuiltInChannelCatalog(),
@@ -141,7 +161,9 @@ export function discoverPlugins(settings: RuntimeSettings = defaultRuntimeSettin
   const features = createFeaturePluginCatalog(settings);
   const memoryBackends = buildBuiltInMemoryBackendCatalog();
 
-  const catalog: PluginCatalog = { channels, providers, features, memoryBackends };
+  const extensions = buildPiExtensionCatalog(settings);
+
+  const catalog: PluginCatalog = { channels, providers, features, memoryBackends, extensions };
 
   const providerPlugins: ProviderPlugin[] = providers.map((provider) => ({
     key: provider.key,
