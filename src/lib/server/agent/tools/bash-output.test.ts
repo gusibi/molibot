@@ -796,3 +796,47 @@ test("bash falls back to host bash after sandbox denial when session approval mo
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("approving a multi-capability pipeline stays one-time and grants no global tools", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
+  const dbStore = getHostBashStore() as any;
+  dbStore.db.exec("DELETE FROM approvals");
+  try {
+    const tool = createBashTool(cwd, {
+      hostApproval: {
+        channel: "telegram",
+        chatId: "chat-pipe",
+        scopeId: "chat-pipe",
+        sessionId: "session-1",
+        store: hostApprovalStore(),
+        approvalWaitTimeoutMs: 1,
+        getSettings: () => settings,
+        updateSettings: (patch: any) => {
+          settings = { ...settings, ...patch } as RuntimeSettings;
+          return settings;
+        }
+      } as any
+    });
+
+    await tool.execute("tool-1", {
+      label: "bash",
+      // Two real capabilities joined by a pipe. `curl … | jq …` would not
+      // exercise this path: `jq` is a safe helper, so that command already
+      // classifies as a single capability.
+      command: "mkdir -p ./out | mv ./a ./out",
+      hostApproval: { reason: "Call the API." }
+    });
+
+    const pending = getHostBashStore().listPending("chat-pipe");
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0]?.approvalMode, "ephemeral");
+
+    getHostBashStore().approve("chat-pipe", pending[0]!.id);
+
+    assert.equal(Boolean(getHostBashStore().getApprovedEntry("mkdir")?.enabled), false);
+    assert.equal(Boolean(getHostBashStore().getApprovedEntry("mv")?.enabled), false);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

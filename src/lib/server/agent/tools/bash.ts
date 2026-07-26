@@ -387,14 +387,26 @@ function requestApprovalFromBash(
   };
 }
 
-const HOST_APPROVAL_WAIT_TIMEOUT_MS = 10 * 60 * 1000;
+/**
+ * How long a run stays blocked waiting for approval before handing off.
+ *
+ * This is a short handshake window, not an approval deadline. Blocking here
+ * holds the caller's connection open while emitting nothing — the web channel's
+ * SSE stream goes completely silent for the duration — so a long window did not
+ * "give the user more time to approve"; it got the connection dropped by the
+ * browser or an intermediary, and an approval arriving afterwards landed on a
+ * stream nobody was reading. It was 10 minutes, which is why approving late
+ * looked like a hang and approving in time still looked disconnected.
+ *
+ * The window only exists to keep the common case smooth: a user watching the
+ * screen clicks approve within seconds, the command runs inline, and its real
+ * output becomes the tool result with no extra model turn. Past that, the run
+ * ends cleanly with `waiting_for_approval` and the asynchronous
+ * approve -> execute -> resume path takes over — the user can then take as long
+ * as they like, which is the behaviour that was wanted in the first place.
+ */
+const HOST_APPROVAL_INLINE_WINDOW_MS = 10 * 1000;
 const HOST_APPROVAL_POLL_INTERVAL_MS = 500;
-
-// Approval is a mandatory gate, so the bash tool call blocks inside the run:
-// the channel shows the approval card, the run keeps streaming "waiting", and
-// once the user approves, the host command executes inline and its real output
-// becomes the tool result. Only if the wait times out do we fall back to the
-// asynchronous approve -> execute -> resume flow.
 async function waitForHostBashApprovalAndExecute(input: {
   store: HostBashStore;
   prompt: HostBashApprovalPrompt;
@@ -427,7 +439,7 @@ async function waitForHostBashApprovalAndExecute(input: {
   } as any);
 
   return pollUntilResolved<ToolResult>({
-    timeoutMs: input.waitTimeoutMs ?? HOST_APPROVAL_WAIT_TIMEOUT_MS,
+    timeoutMs: input.waitTimeoutMs ?? HOST_APPROVAL_INLINE_WINDOW_MS,
     pollMs: HOST_APPROVAL_POLL_INTERVAL_MS,
     signal: ctx.signal,
     onAbort: () => ({ ok: false, error: "Tool execution aborted while waiting for user approval." }),
