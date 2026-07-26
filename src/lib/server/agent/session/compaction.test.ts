@@ -5,6 +5,7 @@ import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import {
   compactContextMessages,
   estimateContextTokens,
+  planCompactionSpan,
   resolveContextTokens,
   shouldCompactContext
 } from "$lib/server/agent/session/compaction.js";
@@ -297,4 +298,155 @@ test("the summarization request stays bounded for very long histories", async ()
     calls[0].promptText.length < 200000,
     `summarization prompt must stay bounded, got ${calls[0].promptText.length} chars`
   );
+});
+
+function toolCallMessage(id: string): AgentMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "toolCall", id, name: "bash", arguments: { command: "ls" } }],
+    timestamp: Date.now()
+  } as unknown as AgentMessage;
+}
+
+function toolResultMessage(id: string, text: string): AgentMessage {
+  return {
+    role: "toolResult",
+    toolCallId: id,
+    content: [{ type: "text", text }],
+    timestamp: Date.now()
+  } as unknown as AgentMessage;
+}
+
+test("the kept slice never starts on a tool result, so no orphan survives compaction", async () => {
+  // The budget boundary is engineered to land on the tool result: everything
+  // before it is large, and the tool result plus the trailing turn fit the
+  // keep-recent window while the assistant tool call that produced it does not.
+  const messages = [
+    textMessage("user", "A".repeat(40000)),
+    textMessage("assistant", "B".repeat(40000)),
+    toolCallMessage("call-1"),
+    toolResultMessage("call-1", "C".repeat(3000)),
+    textMessage("assistant", "D".repeat(1000)),
+    textMessage("user", "E".repeat(500))
+  ];
+
+  const result = await compactContextMessages({
+    messages,
+    model: { provider: "test", id: "test-model" } as any,
+    settings: {
+      ...defaultRuntimeSettings.compaction,
+      keepRecentTokens: 1200
+    },
+    reason: "threshold",
+    streamFn: (async () => {
+      throw new Error("summarization is not under test here");
+    }) as any
+  });
+
+  assert.equal(result.changed, true);
+  const firstKept = result.messages[1] as { role?: string };
+  assert.notEqual(firstKept.role, "toolResult");
+
+  // Every retained tool result still has its tool call in front of it.
+  const retainedCallIds = new Set<string>();
+  for (const message of result.messages) {
+    const row = message as { role?: string; toolCallId?: string; content?: Array<{ type?: string; id?: string }> };
+    if (row.role === "assistant" && Array.isArray(row.content)) {
+      for (const part of row.content) {
+        if (part?.type === "toolCall" && part.id) retainedCallIds.add(part.id);
+      }
+    }
+    if (row.role === "toolResult") {
+      assert.equal(retainedCallIds.has(String(row.toolCallId)), true);
+    }
+  }
+});
+
+test("a cut on a turn boundary is not treated as a split turn", () => {
+  const messages = [
+    textMessage("user", "one"),
+    textMessage("assistant", "reply"),
+    textMessage("user", "two"),
+    textMessage("assistant", "reply")
+  ];
+
+  const span = planCompactionSpan(messages, 2);
+
+  assert.equal(span.isSplitTurn, false);
+  assert.equal(span.historyEnd, 2);
+});
+
+test("a cut inside an oversized turn separates that turn's prefix from the older history", () => {
+  const messages = [
+    textMessage("user", "old turn"),
+    textMessage("assistant", "old reply"),
+    textMessage("user", "huge turn"),
+    toolCallMessage("call-1"),
+    toolResultMessage("call-1", "output"),
+    textMessage("assistant", "still working")
+  ];
+
+  // Budget lands mid-turn, on the trailing assistant message.
+  const span = planCompactionSpan(messages, 5);
+
+  assert.equal(span.isSplitTurn, true);
+  assert.equal(span.turnStartIndex, 2);
+  // Older complete turns stop before the split turn begins.
+  assert.equal(span.historyEnd, 2);
+});
+
+test("history beginning mid-turn does not report a split turn it cannot bound", () => {
+  const messages = [toolCallMessage("call-1"), toolResultMessage("call-1", "out"), textMessage("assistant", "x")];
+
+  const span = planCompactionSpan(messages, 2);
+
+  assert.equal(span.isSplitTurn, false);
+  assert.equal(span.historyEnd, 2);
+});
+
+test("a split turn produces one merged summary carrying both halves", async () => {
+  const messages = [
+    textMessage("user", "A".repeat(40000)),
+    textMessage("assistant", "B".repeat(40000)),
+    textMessage("user", "C".repeat(9000)),
+    toolCallMessage("call-1"),
+    toolResultMessage("call-1", "D".repeat(3000)),
+    textMessage("assistant", "E".repeat(400)),
+    textMessage("assistant", "F".repeat(200))
+  ];
+
+  const calls: string[] = [];
+  const streamFn = (async (_model: any, context: any) => {
+    const promptText = context.messages
+      .flatMap((message: any) => (Array.isArray(message.content) ? message.content : []))
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    const isPrefixPass = promptText.includes("PREFIX of a turn");
+    calls.push(isPrefixPass ? "prefix" : "history");
+    return {
+      result: async () => ({
+        role: "assistant",
+        content: [{ type: "text", text: isPrefixPass ? "PREFIX-SUMMARY" : "HISTORY-SUMMARY" }],
+        stopReason: "stop",
+        usage: { input: 10, output: 5 },
+        timestamp: Date.now()
+      })
+    };
+  }) as any;
+
+  const result = await compactContextMessages({
+    messages,
+    model: { provider: "test", id: "test-model", maxTokens: 4096 } as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 400 },
+    reason: "threshold",
+    streamFn
+  });
+
+  assert.equal(result.changed, true);
+  // Two passes: the older complete turns, then the oversized turn's prefix.
+  assert.deepEqual(calls, ["history", "prefix"]);
+  assert.match(result.summary, /HISTORY-SUMMARY/);
+  assert.match(result.summary, /Turn Context \(split turn\)/);
+  assert.match(result.summary, /PREFIX-SUMMARY/);
 });

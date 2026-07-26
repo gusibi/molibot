@@ -34,10 +34,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.26",
+    "@earendil-works/pi-agent-core": "^0.82.0",
+    "@earendil-works/pi-ai": "^0.82.0",
+    "@earendil-works/pi-coding-agent": "^0.82.0",
     "@larksuiteoapi/node-sdk": "^1.66.0",
-    "@earendil-works/pi-agent-core": "^0.81.0",
-    "@earendil-works/pi-ai": "^0.81.0",
-    "@earendil-works/pi-coding-agent": "^0.81.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@sinclair/typebox": "^0.34.49",
     "@sveltejs/kit": "^2.48.1",

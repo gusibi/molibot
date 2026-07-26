@@ -1,19 +1,56 @@
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { isRetryableAssistantError } from "@earendil-works/pi-ai";
+
+/**
+ * Wrap a bare error string as the failed assistant message pi's classifiers
+ * expect. Both `isRetryableAssistantError` and `isContextOverflow` only read
+ * `stopReason`/`errorMessage`/`usage` on the error path, but the usage block is
+ * filled in so the silent-overflow branch cannot read `undefined`.
+ */
+export function assistantErrorFromText(message: string): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [],
+    stopReason: "error",
+    errorMessage: message,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  } as unknown as AssistantMessage;
+}
+
+/**
+ * Account-level exhaustion, checked before anything else.
+ *
+ * These arrive as 429s and used to match the bare `quota` substring below, so a
+ * drained subscription burned the whole retry budget (and, through
+ * `generateSummaryWithRetry`, delayed compaction) before failing anyway. pi
+ * carries the same exclusion list in `isRetryableAssistantError`, but it cannot
+ * be reused directly: pi returns a plain `false` for both "not transient" and
+ * "never retry", and only the latter must also suppress model fallback.
+ */
+const NON_RETRYABLE_PATTERN =
+  /insufficient_quota|quota exceeded|out of budget|billing|usage limit reached|available balance/i;
+
+/**
+ * Transient signals pi's pattern list does not carry, kept from the original
+ * hand-rolled matcher: `ECONNRESET`, bare "connection reset", the generic
+ * "temporarily unavailable" wording, and any bare 5xx status in the text.
+ */
+const EXTRA_RETRYABLE_PATTERN = /econnreset|connection reset|temporarily unavailable|\b5\d\d\b/i;
+
+/**
+ * Classify a provider error string for retry.
+ *
+ * The transient half is delegated to pi's `isRetryableAssistantError`, which
+ * tracks provider-specific transport wording (`upstream connect`, `fetch
+ * failed`, `stream ended before message_stop`, WebSocket closes, gRPC
+ * `ResourceExhausted`, …) that this project would otherwise have to chase on
+ * its own.
+ */
 export function isRetryableModelError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    /\b429\b/.test(lower) ||
-    lower.includes("rate limit") ||
-    lower.includes("too many requests") ||
-    lower.includes("quota") ||
-    lower.includes("temporarily unavailable") ||
-    lower.includes("timeout") ||
-    lower.includes("timed out") ||
-    lower.includes("econnreset") ||
-    lower.includes("socket hang up") ||
-    lower.includes("connection reset") ||
-    lower.includes("network error") ||
-    /\b5\d\d\b/.test(lower)
-  );
+  if (!message) return false;
+  if (NON_RETRYABLE_PATTERN.test(message)) return false;
+  if (isRetryableAssistantError(assistantErrorFromText(message))) return true;
+  return EXTRA_RETRYABLE_PATTERN.test(message);
 }
 
 export type PromptAttemptDecision =

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,6 +17,10 @@ test("FileCredentialStore round-trips credentials without using runtime data", a
   assert.deepEqual(await reloaded.read("anthropic"), { type: "api_key", key: "test-key" });
   assert.deepEqual(await reloaded.list(), [{ providerId: "anthropic", type: "api_key" }]);
   assert.equal(JSON.parse(await readFile(authPath, "utf8")).anthropic.key, "test-key");
+  if (process.platform !== "win32") {
+    assert.equal((await stat(authPath)).mode & 0o777, 0o600);
+    assert.equal((await stat(directory)).mode & 0o777, 0o700);
+  }
 
   await reloaded.delete("anthropic");
   assert.equal(await reloaded.read("anthropic"), undefined);

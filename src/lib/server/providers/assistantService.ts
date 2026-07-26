@@ -208,7 +208,9 @@ async function callPiMono(
     },
     transport: resolvePreferredTransport(model),
     maxRetryDelayMs: DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
-    streamFunction: streamWithPiRuntime
+    // See runner.ts: pi 0.82 renamed this option to `streamFn`; the old name is
+    // silently ignored and falls back to pi's built-in stream.
+    streamFn: streamWithPiRuntime
   });
 
   let streamed = "";

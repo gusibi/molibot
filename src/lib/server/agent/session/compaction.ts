@@ -1,9 +1,16 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import { convertToLlm, generateSummaryWithUsage, serializeConversation } from "@earendil-works/pi-coding-agent";
 import { streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
 import { isRetryableModelError } from "$lib/server/agent/core/runnerRetryState.js";
 import type { CompactionSettings } from "$lib/server/settings/index.js";
+import {
+  appendFileOperations,
+  createFileOps,
+  extractFileOps,
+  extractFileOpsFromSummary,
+  mergeFileOps
+} from "$lib/server/agent/session/compactionFileOps.js";
 
 const SUMMARY_PREFIX = "[context summary]";
 const MAX_SERIALIZED_CHARS = 120000;
@@ -18,6 +25,12 @@ const MAX_SUMMARY_TOKENS = 1600;
 const SUMMARY_RESERVE_TOKENS = Math.ceil(MAX_SUMMARY_TOKENS / 0.8);
 
 const SUMMARY_RETRY_DELAYS_MS = [500, 2000];
+
+/** Half the summary budget: the prefix bridges into the suffix, it is not a history. */
+const TURN_PREFIX_MAX_TOKENS = Math.ceil(MAX_SUMMARY_TOKENS / 2);
+/** pi's summarization system prompt, so the model does not continue the conversation. */
+const SUMMARIZATION_SYSTEM_PROMPT =
+  "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";
 
 export interface ContextCompactionResult {
   changed: boolean;
@@ -152,6 +165,44 @@ export function shouldCompactContext(
   return resolveContextTokens(messages).tokens >= threshold;
 }
 
+/**
+ * Whether the kept slice may start at this message.
+ *
+ * Mirrors pi's cut-point rule (`findCutPoint` in
+ * `pi-coding-agent/src/core/compaction/compaction.ts`): a `toolResult` must stay
+ * with the assistant `toolCall` that produced it. Cutting between the two leaves
+ * an orphan tool result at the head of the context, which Anthropic rejects
+ * outright ("tool_result without tool_use") and OpenAI-compatible endpoints
+ * handle inconsistently.
+ *
+ * pi's `findCutPoint` is not called directly because it walks the budget with
+ * pi's chars/4 estimator, which undercounts CJK by 3-4x — the exact regression
+ * `countTextTokens` above exists to avoid. Only the role rule is shared.
+ */
+function isValidCutPoint(message: AgentMessage): boolean {
+  const role = String((message as unknown as { role?: unknown }).role ?? "");
+  return role !== "toolResult";
+}
+
+/**
+ * Move a token-budget index forward to the nearest legal cut point.
+ *
+ * Forward, not backward, so the kept slice never grows past the budget. When no
+ * legal cut point exists at or after the index (a trailing run of tool results),
+ * fall back to the earliest legal one, which keeps everything and makes this
+ * compaction a no-op rather than corrupting the context — the same conservative
+ * default pi uses.
+ */
+function snapToCutPoint(messages: AgentMessage[], index: number): number {
+  for (let i = index; i < messages.length; i += 1) {
+    if (isValidCutPoint(messages[i] as AgentMessage)) return i;
+  }
+  for (let i = 0; i < messages.length; i += 1) {
+    if (isValidCutPoint(messages[i] as AgentMessage)) return i;
+  }
+  return 0;
+}
+
 function findFirstKeptIndex(messages: AgentMessage[], keepRecentTokens: number): number {
   if (messages.length <= 1) return 0;
 
@@ -165,7 +216,7 @@ function findFirstKeptIndex(messages: AgentMessage[], keepRecentTokens: number):
     firstKeptIndex = i;
   }
 
-  return firstKeptIndex;
+  return snapToCutPoint(messages, firstKeptIndex);
 }
 
 function findManualFirstKeptIndex(messages: AgentMessage[], keepRecentTokens: number): number {
@@ -294,6 +345,116 @@ async function generateSummaryWithRetry(options: {
   }
 }
 
+/**
+ * Index of the message that opens the turn containing `index`.
+ *
+ * A turn starts at a user-visible message; every assistant reply and tool result
+ * after it belongs to that turn. Returns -1 when no turn start precedes the
+ * index (the history begins mid-turn, e.g. right after an earlier compaction).
+ */
+export function findTurnStartIndex(messages: AgentMessage[], index: number): number {
+  for (let i = Math.min(index, messages.length - 1); i >= 0; i -= 1) {
+    if (String((messages[i] as unknown as { role?: unknown }).role ?? "") === "user") return i;
+  }
+  return -1;
+}
+
+/**
+ * Split the history at the cut point, separating a partially-kept turn.
+ *
+ * Normally compaction cuts on a turn boundary and there is nothing special to
+ * do. But when one turn is larger than the whole keep-recent budget — a long
+ * tool-heavy turn — the cut lands inside it, and the retained suffix then
+ * references work whose beginning was summarized away together with dozens of
+ * unrelated older turns. pi calls this a split turn and summarizes the turn's
+ * prefix separately, with a prompt aimed at "what does the kept suffix need to
+ * make sense", so that context is not diluted by the rest of the history.
+ */
+export function planCompactionSpan(
+  messages: AgentMessage[],
+  firstKeptIndex: number
+): { historyEnd: number; turnStartIndex: number; isSplitTurn: boolean } {
+  const turnStartIndex = findTurnStartIndex(messages, firstKeptIndex);
+  const startsTurn = String((messages[firstKeptIndex] as unknown as { role?: unknown })?.role ?? "") === "user";
+  const isSplitTurn = !startsTurn && turnStartIndex >= 0 && turnStartIndex < firstKeptIndex;
+  return {
+    historyEnd: isSplitTurn ? turnStartIndex : firstKeptIndex,
+    turnStartIndex,
+    isSplitTurn
+  };
+}
+
+/**
+ * pi's turn-prefix prompt, kept verbatim so summaries read the same whichever
+ * harness produced them. Sent with half the summary budget: the prefix only has
+ * to bridge into the retained suffix, not stand alone as a history.
+ */
+const TURN_PREFIX_PROMPT = `This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
+
+Summarize the prefix to provide context for the retained suffix:
+
+## Original Request
+[What did the user ask for in this turn?]
+
+## Early Progress
+- [Key decisions and work done in the prefix]
+
+## Context for Suffix
+- [Information needed to understand the retained recent work]
+
+Be concise. Focus on what's needed to understand the kept suffix.`;
+
+
+/**
+ * Summarize a split turn's prefix.
+ *
+ * Uses the shared runtime stream directly rather than pi's
+ * `generateTurnPrefixSummary`, which the package does not export. Failure is
+ * not fatal: the caller falls back to the history summary alone, which is
+ * strictly better than losing the compaction entirely.
+ */
+async function generateTurnPrefixSummary(options: {
+  messages: AgentMessage[];
+  model: Model<any>;
+  apiKey?: string;
+  signal?: AbortSignal;
+  streamFn?: StreamFn;
+}): Promise<string> {
+  if (options.messages.length === 0) return "";
+  const conversation = serializeConversation(convertToLlm(options.messages));
+  const context = {
+    systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
+    messages: [{
+      role: "user",
+      content: [{ type: "text", text: `<conversation>\n${conversation}\n</conversation>\n\n${TURN_PREFIX_PROMPT}` }]
+    }],
+    tools: []
+  };
+
+  try {
+    // `await` covers both shapes: the real runtime returns an event stream
+    // synchronously, while injected stubs may hand back a promise for one.
+    const stream = await (options.streamFn ?? streamWithPiRuntime)(
+      options.model,
+      context as never,
+      { maxTokens: TURN_PREFIX_MAX_TOKENS, apiKey: options.apiKey, signal: options.signal } as never
+    );
+    // Same accessor pi's own summarization uses: take the settled assistant
+    // message rather than reassembling deltas.
+    const message = await (stream as unknown as { result: () => Promise<AssistantMessage> }).result();
+    if (message?.stopReason === "error") return "";
+    const text = (Array.isArray(message?.content) ? message.content : [])
+      .filter((part): part is { type: "text"; text: string } =>
+        Boolean(part) && (part as { type?: unknown }).type === "text"
+      )
+      .map((part) => part.text)
+      .join("");
+    return text.trim();
+  } catch {
+    return "";
+  }
+}
+
 export async function compactContextMessages(options: {
   messages: AgentMessage[];
   model: Model<any>;
@@ -309,10 +470,14 @@ export async function compactContextMessages(options: {
   const firstKeptIndex = options.reason === "manual"
     ? findManualFirstKeptIndex(options.messages, options.settings.keepRecentTokens)
     : findFirstKeptIndex(options.messages, options.settings.keepRecentTokens);
-  const messagesToSummarize = options.messages.slice(0, firstKeptIndex);
+  const span = planCompactionSpan(options.messages, firstKeptIndex);
+  const messagesToSummarize = options.messages.slice(0, span.historyEnd);
+  const turnPrefixMessages = span.isSplitTurn
+    ? options.messages.slice(span.turnStartIndex, firstKeptIndex)
+    : [];
   const keptMessages = options.messages.slice(firstKeptIndex);
 
-  if (messagesToSummarize.length === 0 || keptMessages.length === 0) {
+  if ((messagesToSummarize.length === 0 && turnPrefixMessages.length === 0) || keptMessages.length === 0) {
     return {
       changed: false,
       reason: options.reason,
@@ -328,22 +493,61 @@ export async function compactContextMessages(options: {
   // A prior summary is merged by pi rather than being re-summarized as raw
   // text, so successive compactions no longer degrade what earlier ones kept.
   const previousSummary = extractPreviousSummary(messagesToSummarize);
+
+  // Carry the file list forward. The prose is what the model should update; the
+  // blocks are rebuilt from tool calls so the list stays exact instead of
+  // depending on the model to copy paths across every compaction.
+  const fileOps = createFileOps();
+  if (previousSummary) mergeFileOps(fileOps, extractFileOpsFromSummary(previousSummary).ops);
+  extractFileOps(messagesToSummarize, fileOps);
+  extractFileOps(turnPrefixMessages, fileOps);
+  const previousSummaryText = previousSummary
+    ? extractFileOpsFromSummary(previousSummary).text || undefined
+    : undefined;
   const summarizable = messagesToSummarize.filter((message) => !isCompactionSummaryMessage(message));
   const limited = limitMessagesToSummarize(summarizable);
 
-  let summary = await generateSummaryWithRetry({
-    messages: limited.messages,
-    model: options.model,
-    apiKey: options.apiKey,
-    customInstructions: options.customInstructions,
-    previousSummary,
-    signal: options.signal,
-    streamFn: options.streamFn
-  });
+  let summary = limited.messages.length > 0
+    ? await generateSummaryWithRetry({
+        messages: limited.messages,
+        model: options.model,
+        apiKey: options.apiKey,
+        customInstructions: options.customInstructions,
+        previousSummary: previousSummaryText,
+        signal: options.signal,
+        streamFn: options.streamFn
+      })
+    : "";
+
+  if (!summary && limited.messages.length > 0) {
+    summary = buildFallbackSummary(limited.messages);
+  }
+
+  if (span.isSplitTurn && turnPrefixMessages.length > 0) {
+    const prefixSummary = await generateTurnPrefixSummary({
+      messages: turnPrefixMessages,
+      model: options.model,
+      apiKey: options.apiKey,
+      signal: options.signal,
+      streamFn: options.streamFn
+    });
+    if (prefixSummary) {
+      // Same shape pi produces, so a split summary reads identically in either
+      // harness. "No prior history." matters: the kept suffix must not be left
+      // to infer whether earlier turns existed at all.
+      summary = `${summary || "No prior history."}\n\n---\n\n**Turn Context (split turn):**\n\n${prefixSummary}`;
+    } else if (!summary) {
+      summary = buildFallbackSummary(turnPrefixMessages);
+    }
+  }
 
   if (!summary) {
     summary = buildFallbackSummary(limited.messages);
   }
+
+  // The model may also have emitted its own file blocks; `appendFileOperations`
+  // strips those and writes one authoritative set.
+  summary = appendFileOperations(summary, fileOps);
 
   const summaryMessage: AgentMessage = {
     role: "user",
@@ -357,7 +561,7 @@ export async function compactContextMessages(options: {
     summary,
     beforeTokens,
     afterTokens: estimateContextTokens(compactedMessages),
-    summarizedMessages: messagesToSummarize.length,
+    summarizedMessages: messagesToSummarize.length + turnPrefixMessages.length,
     keptMessages: keptMessages.length,
     messages: compactedMessages
   };

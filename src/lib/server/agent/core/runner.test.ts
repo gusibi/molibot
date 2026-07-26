@@ -813,6 +813,145 @@ test("runner persists user and assistant error when a run throws before output",
   );
 });
 
+test("runner compacts and retries a successful-looking response whose usage exceeds the context window", async () => {
+  const settings = createRunnerTestSettings();
+  const appendedMessages: any[] = [];
+  const store = {
+    getWorkspaceDir: () => process.cwd(),
+    getScratchDir: () => process.cwd(),
+    getSessionEntriesPath: () => "entries.jsonl",
+    appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
+    appendRunSummary: () => {},
+    appendRunDetail: () => {},
+    appendRuntimeEvent: () => {},
+    loadContext: () => appendedMessages,
+    getSessionSandboxOverride: () => null
+  };
+  const runner = new MomRunner(
+    "telegram",
+    "chat-1",
+    `session-silent-overflow-${Date.now()}-${Math.random()}`,
+    store as any,
+    () => settings,
+    () => settings,
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any
+  );
+
+  let compactCalls = 0;
+  (runner as any).compact = async () => {
+    compactCalls += 1;
+    return {
+      changed: compactCalls > 1,
+      beforeTokens: 999_999,
+      afterTokens: 1_000,
+      summarizedMessages: 1,
+      keptMessages: 1
+    };
+  };
+
+  let subscriber: ((event: any) => void) | undefined;
+  let promptCalls = 0;
+  (runner as any).agent = {
+    state: {
+      messages: [],
+      tools: [],
+      systemPrompt: "test",
+      model: resolveModelSelection(settings, "text").model,
+      thinkingLevel: settings.defaultThinkingLevel
+    },
+    sessionId: "test",
+    transport: "responses",
+    subscribe: (fn: (event: any) => void) => { subscriber = fn; return () => {}; },
+    abort: () => {},
+    followUp: () => {},
+    prompt: async () => {
+      promptCalls += 1;
+      const assistantMessage = {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "text", text: promptCalls === 1 ? "suspect answer" : "answer after compaction" }],
+        usage: promptCalls === 1
+          ? { input: 999_999, output: 2, cacheRead: 0, cacheWrite: 0 }
+          : { input: 1_000, output: 3, cacheRead: 0, cacheWrite: 0 },
+        timestamp: Date.now()
+      };
+      (runner as any).agent.state.messages.push(assistantMessage);
+      subscriber?.({ type: "message_end", message: assistantMessage });
+    }
+  };
+
+  const replacements: string[] = [];
+  const context = createRunnerContext("hello");
+  context.replaceMessage = async (text: string) => { replacements.push(text); };
+  const result = await runner.run(context);
+
+  assert.equal(result.stopReason, "stop");
+  assert.deepEqual(replacements, ["answer after compaction"]);
+  assert.equal(promptCalls, 2);
+  assert.equal(compactCalls, 2);
+});
+
+test("runner never reuses a previous turn's assistant message when the current attempt is empty", async () => {
+  const settings = createRunnerTestSettings();
+  const oldAssistant = {
+    role: "assistant",
+    stopReason: "stop",
+    content: [{ type: "text", text: "answer from the previous turn" }],
+    timestamp: Date.now() - 1_000
+  };
+  const appendedMessages: any[] = [oldAssistant];
+  const store = {
+    getWorkspaceDir: () => process.cwd(),
+    getScratchDir: () => process.cwd(),
+    getSessionEntriesPath: () => "entries.jsonl",
+    appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
+    appendRunSummary: () => {},
+    appendRunDetail: () => {},
+    appendRuntimeEvent: () => {},
+    loadContext: () => appendedMessages,
+    getSessionSandboxOverride: () => null
+  };
+  const runner = new MomRunner(
+    "telegram",
+    "chat-1",
+    `session-empty-attempt-${Date.now()}-${Math.random()}`,
+    store as any,
+    () => settings,
+    () => settings,
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any
+  );
+
+  let promptCalls = 0;
+  (runner as any).agent = {
+    state: {
+      messages: [oldAssistant],
+      tools: [],
+      systemPrompt: "test",
+      model: resolveModelSelection(settings, "text").model,
+      thinkingLevel: settings.defaultThinkingLevel
+    },
+    sessionId: "test",
+    transport: "responses",
+    subscribe: () => () => {},
+    abort: () => {},
+    followUp: () => {},
+    prompt: async () => { promptCalls += 1; }
+  };
+
+  const replacements: string[] = [];
+  const context = createRunnerContext("new question");
+  context.replaceMessage = async (text: string) => { replacements.push(text); };
+  const result = await runner.run(context);
+
+  assert.equal(result.stopReason, "error");
+  assert.equal(promptCalls > 1, true);
+  assert.equal(replacements.includes("answer from the previous turn"), false);
+});
+
 test("fresh automation run starts and ends without archived model messages", async () => {
   const settings = createRunnerTestSettings();
   const oldMessage = { role: "assistant", content: [{ type: "text", text: "old run" }], timestamp: Date.now() };

@@ -1,6 +1,8 @@
 import { basename } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
+import { isContextOverflow } from "@earendil-works/pi-ai";
+import { assistantErrorFromText } from "$lib/server/agent/core/runnerRetryState.js";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import { stripTransientRuntimeNoticesFromMessages } from "$lib/server/agent/core/runtimeNotices.js";
 import { type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
@@ -360,18 +362,39 @@ export async function validateRuntimeSettings(settings: RuntimeSettings): Promis
   return null;
 }
 
+/**
+ * Whether a provider error string means "the context no longer fits".
+ *
+ * Delegates to pi's `isContextOverflow`, which carries per-provider wording for
+ * ~25 endpoints (DashScope's "Range of input length should be [1, X]", Kimi's
+ * "exceeded model token limit", Groq's "reduce the length of the messages",
+ * Cerebras' bodiless 400/413, …) plus an exclusion list so Bedrock throttling
+ * ("Too many tokens, please wait") is not mistaken for overflow. The previous
+ * hand-rolled substring list matched neither the provider-specific wording nor
+ * that exclusion, and custom OpenAI-compatible endpoints are exactly where the
+ * unusual wording shows up.
+ */
 export function isContextOverflowError(message: string): boolean {
-  const text = message.toLowerCase();
-  return [
-    "context length",
-    "context window",
-    "maximum context length",
-    "prompt is too long",
-    "too many tokens",
-    "token limit",
-    "maximum tokens",
-    "input is too long"
-  ].some((needle) => text.includes(needle));
+  return isContextOverflow(assistantErrorFromText(message));
+}
+
+/**
+ * Whether a completed assistant response indicates a *silent* overflow.
+ *
+ * Some endpoints never report the error: z.ai answers normally with
+ * `usage.input` above the context window, and Xiaomi MiMo truncates the input to
+ * fill the window and returns `stopReason: "length"` with zero output tokens.
+ * Both surface as "the model suddenly answered something unrelated" rather than
+ * a failure, so they need the usage-based check pi provides.
+ */
+export function isContextOverflowResponse(
+  message: AgentMessage | undefined,
+  contextWindow: number | undefined
+): boolean {
+  if (!message || !contextWindow) return false;
+  if ((message as { role?: unknown }).role !== "assistant") return false;
+  if (!(message as { usage?: unknown }).usage) return false;
+  return isContextOverflow(message as unknown as AssistantMessage, contextWindow);
 }
 
 export function extractTextFromResult(result: unknown): string {

@@ -589,7 +589,11 @@ export const KNOWN_PROVIDER_LIST: KnownProvider[] = [
   "minimax-cn",
   "huggingface",
   "opencode",
-  "kimi-coding"
+  "kimi-coding",
+  // pi exposes an OAuth flow for Radius, and the Settings quick sign-in card is
+  // only rendered for providers present in this list. Leaving it out made the
+  // provider reachable through the login API but not through either UI.
+  "radius" as KnownProvider
 ];
 
 const KNOWN_PROVIDERS: ReadonlySet<KnownProvider> = new Set(KNOWN_PROVIDER_LIST);

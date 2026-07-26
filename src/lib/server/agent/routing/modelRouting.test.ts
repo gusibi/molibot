@@ -205,3 +205,48 @@ test("pi serializes the top-level prompt with the role declared by each custom m
   assert.equal(convertMessages(systemModel, context, systemModel.compat as any)[0]?.role, "system");
   assert.equal(convertMessages(developerModel, context, developerModel.compat as any)[0]?.role, "developer");
 });
+
+test("a built-in provider's settings row cannot override pi's own transport", () => {
+  // Shape that Settings actually saves for a built-in provider: the OpenAI
+  // defaults, with the baseUrl/path the UI says will be ignored.
+  const model = resolveCustomModel(
+    {
+      id: "kimi-coding",
+      name: "[Built-in] kimi-coding",
+      enabled: true,
+      protocol: "openai-compatible",
+      baseUrl: "",
+      apiKey: "",
+      path: "/v1/chat/completions",
+      defaultModel: "kimi-for-coding",
+      models: [{ id: "kimi-for-coding", tags: ["text"], enabled: true, supportedRoles: [] }]
+    } as any,
+    "kimi-for-coding"
+  );
+
+  // Assembling from the row produced api "openai-completions" and baseUrl "/v1",
+  // which failed isBuiltinModel and bypassed the credential-resolving path.
+  assert.equal(model.api, "anthropic-messages");
+  assert.equal(model.baseUrl, "https://api.kimi.com/coding");
+  assert.equal(model.provider, "kimi-coding");
+});
+
+test("an unknown model on a built-in provider still falls back to the configured shape", () => {
+  const model = resolveCustomModel(
+    {
+      id: "kimi-coding",
+      name: "kimi",
+      enabled: true,
+      protocol: "openai-compatible",
+      baseUrl: "https://example.test",
+      apiKey: "k",
+      path: "/v1/chat/completions",
+      defaultModel: "not-in-catalog",
+      models: [{ id: "not-in-catalog", tags: ["text"], enabled: true, supportedRoles: [] }]
+    } as any,
+    "not-in-catalog"
+  );
+
+  assert.equal(model.api, "openai-completions");
+  assert.equal(model.id, "not-in-catalog");
+});

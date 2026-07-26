@@ -92,6 +92,7 @@ import {
   buildPromptRefreshKey,
   validateRuntimeSettings,
   isContextOverflowError,
+  isContextOverflowResponse,
   extractTextFromResult,
   extractHostBashApprovalPrompt,
   mapUnsupportedDeveloperRole,
@@ -382,7 +383,17 @@ export class MomRunner implements RunnerLike {
         }
         return undefined;
       },
-      streamFunction: (selectedModel, context, opts) => {
+      // `streamFn`, not `streamFunction`: pi 0.82 renamed this constructor
+      // option (the Agent's own field is still called `streamFunction`). Passing
+      // the old name left `streamFn` undefined, and pi silently fell back to its
+      // built-in stream — so every request bypassed `streamWithPiRuntime` and
+      // with it the builtin/custom split, the Anthropic system-message hoist,
+      // the developer-role mapping, orphan tool-result stripping, image
+      // stripping for text-only models and the first-token timeout. Providers
+      // with an API key kept working, which hid the regression; OAuth providers
+      // carry their credential in a header that only this path injects, so they
+      // failed with "No API key for provider: …".
+      streamFn: (selectedModel, context, opts) => {
         const settingsNow = this.getSettings();
         const rolePatchedContext = selectedModel.api === "anthropic-messages"
           ? moveAnthropicSystemMessagesToTopLevel(context)
@@ -1604,18 +1615,18 @@ export class MomRunner implements RunnerLike {
           candidateCount: modelCandidates.length
         });
 
-        const beforeAttempt = [...(this.agent.state.messages as AgentMessage[])];
+        let beforeAttempt = [...(this.agent.state.messages as AgentMessage[])];
         // Snapshot the persisted session log alongside the in-memory context so a
         // failed attempt can be rolled back in lockstep. Without this, message_end
         // has already appended this attempt's assistant/toolResult steps to the
         // store; resetting only in-memory state leaves those duplicates behind,
         // and the finally block reloads them into the next turn's context.
-        const attemptCheckpoint = this.store.createContextCheckpoint?.(this.chatId, this.sessionId);
+        let attemptCheckpoint = this.store.createContextCheckpoint?.(this.chatId, this.sessionId);
         // Roll both the in-memory context and the persisted log back to the start
         // of this attempt. Used on every retry/give-up path so a dead attempt
         // leaves no residue in either place.
         const rollbackAttempt = () => {
-          this.agent.state.messages = beforeAttempt;
+          this.agent.state.messages = [...beforeAttempt];
           if (!attemptCheckpoint) return;
           try {
             const dropped = this.store.restoreContextCheckpoint?.(
@@ -1637,6 +1648,63 @@ export class MomRunner implements RunnerLike {
         let candidateFinalText = "";
         let overflowRetryUsed = false;
         let toolBudgetContinuationUsed = false;
+
+        /**
+         * Compact once, so an overflowed attempt can be retried against a context
+         * that now fits. Callers roll the dead attempt back first and only retry
+         * when this returns true; a compaction that changes nothing means the
+         * context cannot shrink further and the failure has to stand.
+         */
+        const compactForOverflow = async (source: string, detail: string): Promise<boolean> => {
+          overflowRetryUsed = true;
+          momWarn("runner", "context_overflow_detected", {
+            runId,
+            chatId: this.chatId,
+            provider: selectedModel.provider,
+            model: selectedModel.id,
+            candidateIndex,
+            source,
+            error: detail
+          });
+          try {
+            const compacted = await this.compact({
+              reason: "threshold",
+              notify: async (text) => {
+                await respondInThread(text);
+              }
+            });
+            if (!compacted.changed) return false;
+            // Compaction replaces the attempt baseline in both memory and the
+            // append-only session log. Every retry after this point must measure
+            // and roll back against that compacted baseline; retaining the old
+            // array length/checkpoint can hide the new assistant response and can
+            // later truncate away the compaction entry itself.
+            beforeAttempt = [...(this.agent.state.messages as AgentMessage[])];
+            attemptCheckpoint = this.store.createContextCheckpoint?.(this.chatId, this.sessionId);
+            momLog("runner", "context_overflow_retrying_after_compact", {
+              runId,
+              chatId: this.chatId,
+              provider: selectedModel.provider,
+              model: selectedModel.id,
+              candidateIndex,
+              source,
+              beforeTokens: compacted.beforeTokens,
+              afterTokens: compacted.afterTokens
+            });
+            return true;
+          } catch (compactError) {
+            momWarn("runner", "context_overflow_compaction_failed", {
+              runId,
+              chatId: this.chatId,
+              provider: selectedModel.provider,
+              model: selectedModel.id,
+              candidateIndex,
+              source,
+              error: compactError instanceof Error ? compactError.message : String(compactError)
+            });
+            return false;
+          }
+        };
 
         let candidateHadAttemptError = false;
         try {
@@ -1719,7 +1787,7 @@ export class MomRunner implements RunnerLike {
                 message,
                 text: getMessageText(message).trim()
               }));
-            const lastAssistant = [...messages]
+            const lastAssistant = [...attemptMessages]
               .reverse()
               .find((item) => (item as { role?: string }).role === "assistant") as AgentMessage | undefined;
 
@@ -1867,7 +1935,7 @@ export class MomRunner implements RunnerLike {
             const attemptExecutedTools = attemptMessages.some(
               (item) => (item as { role?: string }).role === "toolResult"
             );
-            const decision = resolvePromptAttemptDecision({
+            let decision = resolvePromptAttemptDecision({
               stopReason,
               errorMessage,
               finalText: candidateFinalText,
@@ -1877,9 +1945,45 @@ export class MomRunner implements RunnerLike {
             });
             if (decision.kind === "aborted") {
               runAborted = true;
-              this.agent.state.messages = beforeAttempt;
+              this.agent.state.messages = [...beforeAttempt];
               break;
             }
+
+            // Overflow does not always arrive as a thrown request error. It can
+            // come back as an ordinary error response, or not be reported at all
+            // — z.ai answers normally past the window, MiMo truncates the input
+            // and stops on "length" with zero output. Both leave an oversized
+            // context that every following attempt inherits, so they get the same
+            // compact-and-retry as the thrown case. Attempts that already ran
+            // tools are excluded: retrying re-executes them.
+            if (!overflowRetryUsed && !attemptExecutedTools) {
+              const reportedOverflow =
+                (decision.kind === "retryable_error" || decision.kind === "terminal_error") &&
+                isContextOverflowError(decision.message);
+              const silentOverflow =
+                !reportedOverflow &&
+                isContextOverflowResponse(
+                  lastAssistant,
+                  selectedModel.contextWindow || settings.compaction.defaultContextWindow
+                );
+              if (reportedOverflow || silentOverflow) {
+                rollbackAttempt();
+                const detail = reportedOverflow
+                  ? (decision as { message: string }).message
+                  : "provider truncated or ignored the oversized context without reporting an error";
+                if (await compactForOverflow(reportedOverflow ? "error_response" : "silent_usage", detail)) {
+                  attemptCount += 1;
+                  continue;
+                }
+                if (silentOverflow && decision.kind === "success") {
+                  decision = {
+                    kind: "terminal_error",
+                    message: "Provider returned an invalid response whose input usage exceeded the model context window."
+                  };
+                }
+              }
+            }
+
             if (decision.kind === "retryable_error" || decision.kind === "terminal_error") {
               candidateHadAttemptError = true;
               const failure = toModelAttemptFailure(selection, decision.message, "request_error");
@@ -1930,45 +2034,8 @@ export class MomRunner implements RunnerLike {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (!overflowRetryUsed && isContextOverflowError(message)) {
-            overflowRetryUsed = true;
-            momWarn("runner", "context_overflow_detected", {
-              runId,
-              chatId: this.chatId,
-              provider: selectedModel.provider,
-              model: selectedModel.id,
-              candidateIndex,
-              error: message
-            });
             rollbackAttempt();
-            try {
-              const compacted = await this.compact({
-                reason: "threshold",
-                notify: async (text) => {
-                  await respondInThread(text);
-                }
-              });
-              if (compacted.changed) {
-                momLog("runner", "context_overflow_retrying_after_compact", {
-                  runId,
-                  chatId: this.chatId,
-                  provider: selectedModel.provider,
-                  model: selectedModel.id,
-                  candidateIndex,
-                  beforeTokens: compacted.beforeTokens,
-                  afterTokens: compacted.afterTokens
-                });
-                continue;
-              }
-            } catch (compactError) {
-              momWarn("runner", "context_overflow_compaction_failed", {
-                runId,
-                chatId: this.chatId,
-                provider: selectedModel.provider,
-                model: selectedModel.id,
-                candidateIndex,
-                error: compactError instanceof Error ? compactError.message : String(compactError)
-              });
-            }
+            if (await compactForOverflow("thrown_error", message)) continue;
           }
           const failure = toModelAttemptFailure(selection, message, "request_error");
           modelFailures.push(failure);

@@ -37,6 +37,21 @@ dotenv.config({ path: path.join(resolvedDataDir, ".env") });
 // process's PATH. Set PI_OFFLINE=0 explicitly to opt back into downloads.
 process.env.PI_OFFLINE = process.env.PI_OFFLINE ?? "1";
 
+// Keep every pi-owned user path inside DATA_DIR instead of `~/.pi`.
+//
+// pi derives its whole user tree — `bin/` (downloaded rg/fd), `sessions/`,
+// `themes/`, `prompts/`, `models.json`, `settings.json`, `auth.json`, its debug
+// log — from `getAgentDir()`, which falls back to `~/.pi/agent` unless
+// PI_CODING_AGENT_DIR is set. This service owns one data directory and must not
+// scatter state into a second home-level folder that users neither chose nor
+// know to back up. `~/.pi/agent/bin/rg` had already appeared here that way.
+//
+// Set before anything imports pi: `tools-manager.ts` evaluates
+// `const TOOLS_DIR = getBinDir()` at module load, so a later assignment would
+// not be seen. This is also why it lives in env.ts rather than at a call site.
+process.env.PI_CODING_AGENT_DIR =
+  process.env.PI_CODING_AGENT_DIR ?? path.join(resolvedDataDir, "pi");
+
 const resolvedDatabaseDir = expandHomePath(process.env.DB_DIR ?? path.join(resolvedDataDir, "db"));
 
 // True when the runtime must not start live network services (channel

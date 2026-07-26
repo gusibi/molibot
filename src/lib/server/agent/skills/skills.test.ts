@@ -5,8 +5,11 @@ import {
   findSkillBySelector,
   formatSkillDetailText,
   formatSkillsDetailText,
+  formatSkillsForPrompt,
   formatSkillsSummaryText,
   loadSkillsFromWorkspace,
+  modelDiscoverableSkills,
+  searchSkillsLocally,
   type LoadedSkill
 } from "$lib/server/agent/skills/skills.js";
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
@@ -286,4 +289,31 @@ test("skill files are discovered case-insensitively and at any depth", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("disable-model-invocation keeps a skill loadable but hides it from every model-facing surface", () => {
+  const skills = [
+    {
+      name: "visible", description: "shown", filePath: "/w/visible/SKILL.md", baseDir: "/w/visible",
+      scope: "workspace", mcpServers: [], aliases: [], signals: { cli: [], mcp: [], tools: [] },
+      allowedTools: [], disableModelInvocation: false
+    },
+    {
+      name: "hidden", description: "draft only", filePath: "/w/hidden/SKILL.md", baseDir: "/w/hidden",
+      scope: "workspace", mcpServers: [], aliases: [], signals: { cli: [], mcp: [], tools: [] },
+      allowedTools: [], disableModelInvocation: true
+    }
+  ] as any[];
+
+  const prompt = formatSkillsForPrompt(skills);
+  assert.match(prompt, /visible/);
+  assert.equal(prompt.includes("hidden"), false);
+
+  // Hiding it from the prompt but leaving it in search would just move the
+  // discovery one tool call later.
+  const found = searchSkillsLocally(skills, "draft only");
+  assert.equal(found.some((match) => match.skill.name === "hidden"), false);
+
+  // Explicit invocation must still resolve it — that is the flag's entire point.
+  assert.equal(modelDiscoverableSkills(skills).length, 1);
 });

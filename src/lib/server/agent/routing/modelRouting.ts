@@ -151,6 +151,17 @@ export function sameModelSelection(a: ResolvedModelSelection, b: ResolvedModelSe
 }
 
 export function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Model<any> {
+  // A built-in provider keeps a settings row so it can be enabled and given a
+  // model list, but its transport belongs to pi. Assembling a model from that
+  // row's `protocol`/`baseUrl`/`path` produced a wrong endpoint that also failed
+  // `isBuiltinModel`, which routed the request past `Models` — the only place
+  // that injects an OAuth credential. Settings even tells the user those fields
+  // are ignored for built-ins; this is where that becomes true.
+  if (isKnownProvider(selected.id)) {
+    const builtin = resolvePiModelByKey(selected.id, modelId);
+    if (builtin) return builtin;
+  }
+
   const protocol = resolveCustomProviderProtocol(selected.protocol);
   const computedBaseUrl = protocol === "anthropic"
     ? buildAnthropicBaseUrl(selected.baseUrl, selected.path)

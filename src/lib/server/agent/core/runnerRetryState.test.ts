@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  isRetryableModelError,
   resolveFinalErrorAction,
   resolvePromptAttemptDecision,
   shouldCountToolResultAsFailure,
@@ -108,4 +109,29 @@ test("resolveFinalErrorAction preserves a streamed partial answer instead of wip
   assert.equal(resolveFinalErrorAction({ errorMessage: "boom", finalText: "", streamedPartial: "已经写了一半" }).kind, "preserve_partial");
   // Error with nothing shown at all → the generic fallback message is acceptable.
   assert.equal(resolveFinalErrorAction({ errorMessage: "boom", finalText: "", streamedPartial: "" }).kind, "generic");
+});
+
+test("account-level exhaustion is never retried, unlike a transient 429", () => {
+  // These arrive as 429s and used to match the bare `quota` substring, so a
+  // drained subscription burned every retry before failing anyway.
+  assert.equal(isRetryableModelError("429 insufficient_quota: You exceeded your current quota"), false);
+  assert.equal(isRetryableModelError("Monthly usage limit reached; enable available balance"), false);
+  assert.equal(isRetryableModelError("billing hard limit reached"), false);
+
+  assert.equal(isRetryableModelError("Chat upstream returned 429"), true);
+  assert.equal(isRetryableModelError("rate limit exceeded, please retry"), true);
+});
+
+test("transport failures pi tracks are retryable without this project listing them", () => {
+  assert.equal(isRetryableModelError("upstream connect error or disconnect/reset before headers"), true);
+  assert.equal(isRetryableModelError("fetch failed"), true);
+  assert.equal(isRetryableModelError("Anthropic stream ended before message_stop"), true);
+  assert.equal(isRetryableModelError("WebSocket closed unexpectedly"), true);
+
+  // Still covered by the patterns kept from the original matcher.
+  assert.equal(isRetryableModelError("read ECONNRESET"), true);
+  assert.equal(isRetryableModelError("Service temporarily unavailable"), true);
+
+  assert.equal(isRetryableModelError("invalid_request_error: unknown model"), false);
+  assert.equal(isRetryableModelError(""), false);
 });

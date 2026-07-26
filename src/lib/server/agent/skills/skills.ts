@@ -21,6 +21,17 @@ export interface LoadedSkill {
   mcpServers: string[];
   aliases: string[];
   signals: SkillSignals;
+  /**
+   * Tools this skill pre-approves, from the `allowed-tools` frontmatter field
+   * (space or comma delimited, as in the Agent Skills standard).
+   */
+  allowedTools: string[];
+  /**
+   * `disable-model-invocation: true` — keep the skill out of the system prompt
+   * so it runs only when invoked explicitly. Drafts and rarely-used skills
+   * otherwise spend prompt budget on every single turn.
+   */
+  disableModelInvocation: boolean;
 }
 
 export interface SkillLoadResult {
@@ -58,6 +69,16 @@ function scopeWeight(scope: SkillScope): number {
   if (scope === "chat") return 3;
   if (scope === "bot") return 2;
   return 1;
+}
+
+/**
+ * YAML booleans as the frontmatter reader hands them over: it emits scalars as
+ * strings, so `true` arrives as "true" and must be compared, not coerced —
+ * every non-empty string is otherwise truthy.
+ */
+function parseBooleanFlag(raw: string | undefined): boolean {
+  const value = String(raw ?? "").trim().toLowerCase();
+  return value === "true" || value === "yes" || value === "on" || value === "1";
 }
 
 function parseStringList(raw: string | undefined): string[] {
@@ -341,7 +362,11 @@ export function loadSkillsFromWorkspace(
         ...buildSkillAliases(name, filePath),
         ...buildFrontmatterAliases(fm.aliases)
       ])).sort((a, b) => a.localeCompare(b)),
-      signals: parseSkillSignals(raw, fm)
+      signals: parseSkillSignals(raw, fm),
+      allowedTools: parseStringList(fm["allowed-tools"] ?? fm.allowedTools ?? fm.allowed_tools),
+      disableModelInvocation: parseBooleanFlag(
+        fm["disable-model-invocation"] ?? fm.disableModelInvocation ?? fm.disable_model_invocation
+      )
     });
   }
 
@@ -382,10 +407,23 @@ function compactSkillDescription(input: string, maxChars: number): string {
   return `${candidate.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
+/**
+ * Skills the model is allowed to discover on its own.
+ *
+ * `disable-model-invocation` skills stay loaded — explicit `/skill:name` and
+ * alias invocation still resolve them — but they are withheld from anything the
+ * model reads, which is the whole point of the flag: a draft or a rarely-wanted
+ * skill should not spend system-prompt budget (or get auto-selected) every turn.
+ */
+export function modelDiscoverableSkills(skills: LoadedSkill[]): LoadedSkill[] {
+  return skills.filter((skill) => !skill.disableModelInvocation);
+}
+
 export function formatSkillsForPrompt(
   skills: LoadedSkill[],
   options?: { compact?: boolean; maxDescriptionChars?: number; mode?: "full" | "names_only" }
 ): string {
+  skills = modelDiscoverableSkills(skills);
   if (skills.length === 0) return "(no skills installed yet)";
   const mode = options?.mode ?? "full";
   if (mode === "names_only") {
@@ -544,6 +582,10 @@ export function searchSkillsLocally(
   intent: string,
   maxResults = 5
 ): SkillSearchMatch[] {
+  // Search is a model-facing surface, so it honours the same flag the system
+  // prompt does; otherwise hiding a skill from the prompt would only push the
+  // model to find it one tool call later.
+  skills = modelDiscoverableSkills(skills);
   const normalizedIntent = normalizeSearchText(intent);
   const tokens = tokenizeSearchInput(intent);
   if (!normalizedIntent && tokens.length === 0) return [];
