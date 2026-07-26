@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { forkWebSession } from "$lib/server/web/sessionFork.js";
+import { forkSession } from "$lib/server/web/sessionFork.js";
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const sourceSessionId = String(params.id ?? "").trim();
@@ -19,7 +19,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
 
   try {
-    const result = forkWebSession({ profileId, userId, sourceSessionId, fromMessageId, requestId });
+    const result = forkSession({ profileId, userId, sourceSessionId, fromMessageId, requestId });
     if (result.status === "not_found") {
       return json({ ok: false, error: "Session not found" }, { status: 404 });
     }

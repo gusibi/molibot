@@ -1590,39 +1590,6 @@ export async function deleteDesktopConversation(endpoint: string, sessionId: str
   );
 }
 
-/** Legacy destructive transcript edit used by Project chat until its tree
- * navigation migrates to Session forks. New Web edits use
- * `forkDesktopSession` below. */
-export async function truncateDesktopMessages(
-  endpoint: string,
-  profileId: string,
-  sessionId: string,
-  fromMessageId: string
-): Promise<{ removed: number }> {
-  const search = new URLSearchParams({ fromMessageId });
-  const response = await fetchFromDesktop(
-    serviceUrl(endpoint, `/api/sessions/${encodeURIComponent(sessionId)}/messages?${search.toString()}`),
-    {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profileId })
-    }
-  );
-  let payload: { ok?: boolean; removed?: number; error?: string } = {};
-  try {
-    payload = response.status === 204 ? {} : await response.json();
-  } catch {
-    payload = {};
-  }
-  if (!response.ok || payload.ok === false) {
-    const message = String(payload.error ?? `Request failed (${response.status})`);
-    const err = new Error(message) as Error & { status?: number };
-    err.status = response.status;
-    throw err;
-  }
-  return { removed: payload.removed ?? 0 };
-}
-
 /** Creates (or reuses) a visible child Session whose transcript ends just
  * before `fromMessageId`. The request id makes an ambiguous client retry
  * idempotent, so it cannot create duplicate sibling Sessions. */

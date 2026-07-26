@@ -7,6 +7,26 @@
 ---
 ## 2026-07-26
 
+### Added: Project Chat edits fork instead of deleting history (P1-B a)
+- Project Chat was the last surface still calling the destructive edit endpoint, which drops the edited message and everything after it. It now creates a visible child Session exactly like main Chat, so the original branch survives.
+- Almost all of the fork path was already project-capable — `forkConversationBeforeMessage` has a full project-storage branch, `getRuntimeContextForConversation` picks the project runner pool, and `resolveRunnerChatId` keys off the conversation's own `externalUserId`. The single blocker was the source lookup: `getConversationById(id, "web", owner)` cannot see project storage, so every project fork returned `not_found`.
+- Added `SessionStore.getForkableConversation`, which resolves by id across both storage types and keeps the two ownership models honest: a Web Session stays gated on its `externalUserId`, while a Project Session is owner-shared by design (any surface may continue it by id — the same rule `getOrCreateConversation` and the destructive endpoint already followed). Legacy channel Sessions resolve to null instead of half-forking a transcript the writer would reject.
+- `forkWebSession`/`forkWebSessionWith` are renamed to `forkSession`/`forkSessionWith`; the "web" in the name had become misleading.
+- Desktop: the fork request id is minted when editing starts, not when sending, so an ambiguous retry resolves to the same child rather than a second sibling. The edited turn is sent to the child, never to the still-selected parent.
+- Still open (unchanged): in-Session leaf navigation and generated branch summaries.
+
+### Removed: the destructive transcript-edit path
+- With Project Chat migrated, nothing called it any more. Deleted end to end: the `DELETE /api/sessions/[id]/messages` route, `truncateConversationProjection`, `SessionStore.truncateMessagesFrom`, `MomRuntimeStore.truncateSessionFromEntry`, and the `truncateDesktopMessages` client helper, plus their dedicated tests.
+- No editing capability is lost — forks replace it, and the parent transcript now survives an edit instead of being cut.
+- Per-message search tombstoning is unaffected: it stays reachable through `ConversationSearchIndex.reconcile` and is still covered by `conversationSearch.test.ts`. The store-level lifecycle test now asserts conversation deletion only, because the store no longer removes individual messages.
+
+### Fixed: Host Bash approval identity is the executable, not the argument list
+- Two classifier bugs made ordinary commands unapprovable — they degraded to `one-time-script`, which grants nothing and re-prompts forever while still executing once approved. Net effect was pure noise, not protection: `rm -rf build` could be approved persistently while `echo "a long status message"`, `grep -rn foo src`, `sort -u names.txt`, and `jq '.a' data.json` could not.
+  - **Strict-helper inversion.** A name on the safe-helper list (`grep`, `echo`, `head`, `sort`, `jq`, `sed`, `cut`, `tr`, `uniq`, `wc`, `rg`, `sleep`) used outside its narrow restricted form was treated as forbidden. The restricted forms exist so a helper can ride along in a pipeline *without* its own grant; failing them should mean "then earn your own capability", not "poison the whole command". It now falls through to a capability. `cd`, `true`, and `false` stay helper-only — they act on the shell itself, so a `bash:cd` grant would authorize nothing while retiring the dynamic-path check that is the real gate.
+  - **URL query strings read as globs.** An unquoted `?` or `[` set the glob flag, so `curl -s https://api.test/v1?page=2` was one-time while the same command in quotes was reusable. Pathname expansion applies to candidate paths; a word matching a URI scheme is not one. Real path globs (`ls src/*.ts`) still degrade.
+- **Security fix surfaced by the above:** `$(...)` and backticks were only rejected when unquoted, but bash performs command substitution inside double quotes too, and the approved command is later handed to a real shell. `curl -s "https://api.test/?q=$(whoami)"` would therefore execute `whoami` under whatever grant `curl` held. Both forms are now rejected inside double quotes; single quotes stay exempt because they are literal in bash.
+- Grant lookup already matched on `toolId` alone (the executable) and never on argv, so this only removes false negatives from classification — it does not widen what an existing grant covers.
+
 ### Added: Non-destructive Web Session forks
 - Editing and resending an earlier user turn in main Chat now creates a visible child Session before that turn instead of truncating the original transcript.
 - Child lineage and prefix survive restart across both UI and Agent stores. Stable request IDs prevent duplicate siblings, active runs are rejected, and partial cross-store writes are compensated or safely repaired.

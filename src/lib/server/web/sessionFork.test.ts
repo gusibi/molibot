@@ -7,13 +7,13 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
-import { forkWebSessionWith, sessionForkId } from "$lib/server/web/sessionFork.js";
+import { forkSessionWith, sessionForkId } from "$lib/server/web/sessionFork.js";
 
 function message(role: "user" | "assistant", text: string): AgentMessage {
   return { role, content: [{ type: "text", text }], timestamp: Date.now() } as AgentMessage;
 }
 
-test("forkWebSessionWith creates one restart-safe child and preserves the parent", () => {
+test("forkSessionWith creates one restart-safe child and preserves the parent", () => {
   const root = mkdtempSync(join(tmpdir(), "molibot-session-fork-"));
   const original = { ...storagePaths };
   try {
@@ -38,7 +38,7 @@ test("forkWebSessionWith creates one restart-safe child and preserves the parent
       reset: () => {}
     };
 
-    const result = forkWebSessionWith(
+    const result = forkSessionWith(
       { sessions, store: agent, pool },
       { owner, chatId: owner, sourceSessionId: parent.id, fromMessageId: secondUser.id, childSessionId: childId }
     );
@@ -49,7 +49,7 @@ test("forkWebSessionWith creates one restart-safe child and preserves the parent
     assert.deepEqual(new MomRuntimeStore(join(root, "agent")).loadContext(owner, childId).map((item) => item.role), ["user", "assistant"]);
     assert.equal(new SessionStore().getConversationById(childId, "web", owner)?.parentSessionId, parent.id);
 
-    const repeated = forkWebSessionWith(
+    const repeated = forkSessionWith(
       { sessions: new SessionStore(), store: new MomRuntimeStore(join(root, "agent")), pool },
       { owner, chatId: owner, sourceSessionId: parent.id, fromMessageId: secondUser.id, childSessionId: childId }
     );
@@ -66,13 +66,16 @@ test("forkWebSessionWith creates one restart-safe child and preserves the parent
   }
 });
 
-test("forkWebSessionWith rejects running sources and compensates a visible-store failure", () => {
+test("forkSessionWith rejects running sources and compensates a visible-store failure", () => {
   let agentForks = 0;
   let agentDeletes = 0;
   const base = {
     sessions: {
-      getConversationById: (id: string) => id === "source" ? {
-        id, channel: "web", externalUserId: "owner", title: "Source", createdAt: "now", updatedAt: "now"
+      getForkableConversation: (id: string) => id === "source" ? {
+        conversation: {
+          id, channel: "web", externalUserId: "owner", title: "Source", createdAt: "now", updatedAt: "now"
+        },
+        kind: "web"
       } : null,
       listMessageMetadata: () => [{
         id: "message",
@@ -99,7 +102,7 @@ test("forkWebSessionWith rejects running sources and compensates a visible-store
     }
   } as any;
 
-  const running = forkWebSessionWith(
+  const running = forkSessionWith(
     { ...base, pool: { get: () => ({ isRunning: () => true }), reset: () => {} } },
     { owner: "owner", chatId: "owner", sourceSessionId: "source", fromMessageId: "message", childSessionId: "child" }
   );
@@ -108,7 +111,7 @@ test("forkWebSessionWith rejects running sources and compensates a visible-store
   assert.equal(agentDeletes, 0);
 
   assert.throws(
-    () => forkWebSessionWith(
+    () => forkSessionWith(
       { ...base, pool: { get: () => ({ isRunning: () => false }), reset: () => {} } },
       { owner: "owner", chatId: "owner", sourceSessionId: "source", fromMessageId: "message", childSessionId: "child" }
     ),
@@ -118,7 +121,7 @@ test("forkWebSessionWith rejects running sources and compensates a visible-store
   assert.equal(agentDeletes, 1);
 });
 
-test("forkWebSessionWith treats a concurrent matching visible child as idempotent success", () => {
+test("forkSessionWith treats a concurrent matching visible child as idempotent success", () => {
   let visibleChild = false;
   let agentDeletes = 0;
   const child = {
@@ -132,9 +135,11 @@ test("forkWebSessionWith treats a concurrent matching visible child as idempoten
     forkedFromMessageId: "message"
   };
   const sessions = {
-    getConversationById: (id: string) => {
-      if (id === "source") return { ...child, id: "source", parentSessionId: undefined, forkedFromMessageId: undefined };
-      return id === "child" && visibleChild ? child : null;
+    getForkableConversation: (id: string) => {
+      if (id === "source") {
+        return { conversation: { ...child, id: "source", parentSessionId: undefined, forkedFromMessageId: undefined }, kind: "web" };
+      }
+      return id === "child" && visibleChild ? { conversation: child, kind: "web" } : null;
     },
     listMessageMetadata: () => [{
       id: "message",
@@ -165,7 +170,7 @@ test("forkWebSessionWith treats a concurrent matching visible child as idempoten
     deleteSessionArtifacts: () => { agentDeletes += 1; return true; }
   } as any;
 
-  const result = forkWebSessionWith(
+  const result = forkSessionWith(
     { sessions, store, pool: { get: () => ({ isRunning: () => false }), reset: () => {} } },
     { owner: "owner", chatId: "owner", sourceSessionId: "source", fromMessageId: "message", childSessionId: "child" }
   );

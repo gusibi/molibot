@@ -18,7 +18,7 @@ interface ForkPool {
 
 interface SessionForkDependencies {
   sessions: Pick<SessionStore,
-    | "getConversationById"
+    | "getForkableConversation"
     | "listMessageMetadata"
     | "markMessagesContextBacked"
     | "recordMessageSourceEntries"
@@ -42,7 +42,7 @@ export function sessionForkId(sourceSessionId: string, fromMessageId: string, re
 
 /** Shared cross-store coordinator. Agent state is written first; if the visible
  * Session write fails, its artifacts are compensated immediately. */
-export function forkWebSessionWith(
+export function forkSessionWith(
   dependencies: SessionForkDependencies,
   input: {
     owner: string;
@@ -52,10 +52,10 @@ export function forkWebSessionWith(
     childSessionId: string;
   }
 ): SessionForkResult {
-  const source = dependencies.sessions.getConversationById(input.sourceSessionId, "web", input.owner);
+  const source = dependencies.sessions.getForkableConversation(input.sourceSessionId, input.owner);
   if (!source) return { status: "not_found" };
 
-  const existing = dependencies.sessions.getConversationById(input.childSessionId, "web", input.owner);
+  const existing = dependencies.sessions.getForkableConversation(input.childSessionId, input.owner)?.conversation;
   if (existing) {
     return existing.parentSessionId === input.sourceSessionId && existing.forkedFromMessageId === input.fromMessageId
       ? { status: "existing", conversation: existing }
@@ -100,7 +100,7 @@ export function forkWebSessionWith(
     // initial existence check. That is idempotent success; deleting the shared
     // Agent child here would corrupt the now-visible Session.
     if ((error as Error & { code?: string }).code === "SESSION_EXISTS") {
-      const existing = dependencies.sessions.getConversationById(input.childSessionId, "web", input.owner);
+      const existing = dependencies.sessions.getForkableConversation(input.childSessionId, input.owner)?.conversation;
       if (existing?.parentSessionId === input.sourceSessionId && existing.forkedFromMessageId === input.fromMessageId) {
         dependencies.pool.reset(input.chatId, input.childSessionId);
         return { status: "existing", conversation: existing };
@@ -111,7 +111,14 @@ export function forkWebSessionWith(
   }
 }
 
-export function forkWebSession(input: {
+/**
+ * Forks a Web *or* Project Session. The runtime lookups below were already
+ * project-aware (`getRuntimeContextForConversation` picks the project pool and
+ * `resolveRunnerChatId` keys off the conversation's own externalUserId); only
+ * the source lookup was Web-only, which is why Project Chat had to keep using
+ * the destructive edit endpoint.
+ */
+export function forkSession(input: {
   profileId: string;
   userId?: string;
   sourceSessionId: string;
@@ -122,7 +129,7 @@ export function forkWebSession(input: {
   const userId = sanitizeWebUserId(input.userId);
   const owner = toWebExternalUserId(userId, profileId);
   const { store, pool } = getRuntimeContextForConversation(profileId, input.sourceSessionId);
-  return forkWebSessionWith(
+  return forkSessionWith(
     { sessions: getRuntime().sessions, store, pool },
     {
       owner,

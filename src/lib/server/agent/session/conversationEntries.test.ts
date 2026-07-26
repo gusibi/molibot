@@ -10,7 +10,7 @@ function message(role: "user" | "assistant", text: string): AgentMessage {
   return { role, content: [{ type: "text", text }], timestamp: Date.now() } as AgentMessage;
 }
 
-test("conversation projection entries stay stable and edit truncation rebuilds context", () => {
+test("conversation projection entries stay stable across appends", () => {
   const dir = mkdtempSync(join(tmpdir(), "molibot-conversation-entries-"));
   try {
     const store = new MomRuntimeStore(dir);
@@ -22,9 +22,17 @@ test("conversation projection entries stay stable and edit truncation rebuilds c
     store.appendContextMessage(chatId, message("assistant", "second answer"), sessionId);
     const entries = store.listSessionMessageEntries(chatId, sessionId);
     assert.equal(entries.length, 4);
-    assert.equal(store.truncateSessionFromEntry(chatId, sessionId, entries[2]!.id), 2);
-    assert.deepEqual(store.loadContext(chatId, sessionId).map((item) => item.role), ["user", "assistant"]);
-    assert.deepEqual(store.listSessionMessageEntries(chatId, sessionId).map((item) => item.id), entries.slice(0, 2).map((item) => item.id));
+    // Entry ids are the fork points the visible transcript maps onto, so they
+    // must stay stable and ordered as the log grows.
+    assert.deepEqual(new Set(entries.map((item) => item.id)).size, 4);
+    assert.deepEqual(
+      store.listSessionMessageEntries(chatId, sessionId).map((item) => item.id),
+      entries.map((item) => item.id)
+    );
+    assert.deepEqual(
+      store.loadContext(chatId, sessionId).map((item) => item.role),
+      ["user", "assistant", "user", "assistant"]
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

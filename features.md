@@ -7,6 +7,26 @@
 ---
 ## 2026-07-26
 
+### Project Chat 编辑也走分叉，不再删除历史（P1-B a，已完成）
+- Project Chat 是最后一个仍在调用破坏性编辑接口的界面（该接口会删掉被编辑消息及其之后的全部内容）。现在与主 Chat 一致：创建可见子 Session，父分支完整保留。
+- 分叉链路其实早已支持 Project——`forkConversationBeforeMessage` 有完整的 project 存储分支，`getRuntimeContextForConversation` 会选中项目 runner 池，`resolveRunnerChatId` 按会话自身的 `externalUserId` 取键。唯一的拦路点是来源查找：`getConversationById(id, "web", owner)` 看不到项目存储，因此所有项目分叉一律返回 `not_found`。
+- 新增 `SessionStore.getForkableConversation`：按 id 跨两种存储解析，并保持两套归属模型各自成立——Web Session 仍按 `externalUserId` 门禁；Project Session 按设计是 owner 共享的（任何界面都可按 id 续聊，这也是 `getOrCreateConversation` 和原破坏性接口一直遵循的规则）。旧版渠道 Session 返回 null，避免半途分叉一个写入层本就会拒绝的记录。
+- `forkWebSession`/`forkWebSessionWith` 改名为 `forkSession`/`forkSessionWith`，名字里的 "web" 已不再准确。
+- Desktop：分叉请求 id 在**开始编辑**时生成而非发送时，重复重试落到同一个子 Session 而不是第二个兄弟分支；编辑后的消息发往子分支，绝不会落回仍被选中的父分支。
+- 仍未做（未变）：同 Session 内多叶导航与自动生成的分支摘要。
+
+### 删除破坏性编辑链路（已完成）
+- Project Chat 迁移完成后，这条链路已无任何调用方，整条删除：`DELETE /api/sessions/[id]/messages` 路由、`truncateConversationProjection`、`SessionStore.truncateMessagesFrom`、`MomRuntimeStore.truncateSessionFromEntry`、客户端 `truncateDesktopMessages`，以及各自的专项测试。
+- 没有丢失任何编辑能力——分叉取代了它，而且编辑之后父分支得以保留，不再被截断。
+- 按消息粒度的搜索墓碑不受影响：它仍可通过 `ConversationSearchIndex.reconcile` 到达，并由 `conversationSearch.test.ts` 覆盖。store 层的生命周期测试改为只断言整会话删除，因为 store 不再删除单条消息。
+
+### Host Bash 审批的身份是可执行文件，不是参数（已完成）
+- 两个分类器缺陷让大量普通命令无法授权——它们被降级成 `one-time-script`，而一次性审批**不写任何授权记录**，于是永远重复询问，可批准之后照样执行。也就是说这层降级没有提供任何保护，只有噪音：`rm -rf build` 可以长期授权，而 `echo "一段较长的状态信息"`、`grep -rn foo src`、`sort -u names.txt`、`jq '.a' data.json` 都不行。
+  - **strict-helper 反转**：安全助手名单里的名字（`grep`/`echo`/`head`/`sort`/`jq`/`sed`/`cut`/`tr`/`uniq`/`wc`/`rg`/`sleep`）一旦用在受限形式之外，就被当成"禁止命令"。受限形式的本意是让助手在管道里**免于**单独授权；不满足时的正确结果是"那就自己挣一个能力"，而不是让整条命令报废。现在改为回落成 capability。`cd`/`true`/`false` 保持仅助手——它们作用于 shell 自身，`bash:cd` 授权不了任何实质动作，却会让真正的门禁（动态路径检查）失效。
+  - **URL 查询串被当成通配符**：未加引号的 `?` 或 `[` 会置位 glob 标志，于是 `curl -s https://api.test/v1?page=2` 是一次性，而同一条加了引号却可复用。路径展开只作用于候选路径，符合 URI scheme 的词不是路径。真正的路径通配（`ls src/*.ts`）仍然降级。
+- **顺带修掉的安全漏洞**：`$(...)` 和反引号原先只在未加引号时被拒，但 bash 在**双引号内同样执行命令替换**，而批准后的命令最终是交给真实 shell 的。也就是说 `curl -s "https://api.test/?q=$(whoami)"` 会在 `curl` 的授权下执行 `whoami`。现在双引号内的两种形式都会被拒；单引号在 bash 中是字面量，因此保持豁免。
+- 授权查找本来就只按 `toolId`（可执行文件）匹配、从不看 argv，所以这次改动只是消除分类的漏判，并没有扩大既有授权的覆盖范围。
+
 ### 编辑历史消息会创建可追溯的 Web Session 分支（已完成）
 - 主 Chat 的“编辑并重发”不再删除原消息及其后续内容，而是在所选用户消息之前创建一个可见子 Session，再把修改后的消息发送到子分支；父 Session 保持原样。
 - UI 会话与 Agent 日志分别记录父 Session 和切点，重启后仍可恢复；同一请求重复提交只复用同一个子 Session，运行中的父 Session 拒绝分叉，跨存储失败会回收半成品。

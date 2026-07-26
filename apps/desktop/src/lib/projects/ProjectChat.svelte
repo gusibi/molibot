@@ -15,20 +15,20 @@
   import { projectChatStore } from "./projectChatStore.svelte";
   import {
     fetchDesktopFileBlob,
+    forkDesktopSession,
     listDesktopSessionFiles,
     loadDesktopModels,
     loadDesktopModelRouting,
     loadDesktopSessionModel,
     saveDesktopSessionModel,
-    summarizeDesktopReadiness,
-    truncateDesktopMessages
+    summarizeDesktopReadiness
   } from "../api";
   import type {
     TranscriptAttachmentActions,
     TranscriptMessage,
     TranscriptMessageActions
   } from "../chat/transcript";
-  import { projectsStore, refreshProjectSessionList } from "../stores/projects.svelte";
+  import { projectsStore, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
 
   export let copy: Translation;
   export let searchMatchIds: string[] = [];
@@ -43,6 +43,7 @@
   // message before re-running the turn.
   let editingMessageId = "";
   let editingSessionId = "";
+  let editingForkRequestId = "";
   let copiedMessageId = "";
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let modelOptions: DesktopModelOption[] = [];
@@ -253,8 +254,15 @@
     const files = pendingFiles;
     const editingId = editingMessageId;
     const editingSession = editingSessionId;
+    const forkRequestId = editingForkRequestId;
+    let targetSessionId = projectsStore.selectedSessionId;
     if (editingId) {
-      if (!projectsStore.endpoint || !projectsStore.selectedSessionId) {
+      if (
+        !projectsStore.endpoint
+        || !projectsStore.selectedSessionId
+        || editingSession !== projectsStore.selectedSessionId
+        || !forkRequestId
+      ) {
         projectsStore.error = copy.editMessageUnavailable;
         return;
       }
@@ -262,13 +270,18 @@
       pendingFiles = [];
       editingMessageId = "";
       editingSessionId = "";
+      editingForkRequestId = "";
       try {
-        await truncateDesktopMessages(
+        // Non-destructive: the parent transcript is untouched and the edited
+        // turn opens a visible child Session, matching main Chat.
+        const child = await forkDesktopSession(
           projectsStore.endpoint,
           "personal",
-          projectsStore.selectedSessionId,
-          editingId
+          editingSession,
+          editingId,
+          forkRequestId
         );
+        targetSessionId = child.id;
       } catch (cause) {
         const status = (cause as Error & { status?: number }).status;
         if (status === 422) {
@@ -281,13 +294,21 @@
         pendingFiles = files;
         editingMessageId = editingId;
         editingSessionId = editingSession;
+        editingForkRequestId = forkRequestId;
         return;
       }
+      // The fork is already durable server-side. A failed refresh must not
+      // restore editing against the unchanged parent or mint a second sibling
+      // on retry — the child can take the edited turn directly.
+      await Promise.allSettled([
+        selectProjectSession(targetSessionId, projectsStore.selectedProjectId),
+        refreshProjectSessionList(projectsStore.selectedProjectId)
+      ]);
     } else {
       message = "";
       pendingFiles = [];
     }
-    void projectChatStore.send(projectsStore.selectedSessionId, text, files);
+    void projectChatStore.send(targetSessionId, text, files);
   }
 
   async function copyMessageContent(msg: TranscriptMessage): Promise<void> {
@@ -307,6 +328,9 @@
     if (!msg.id || !projectsStore.selectedSessionId || sending) return;
     editingMessageId = msg.id;
     editingSessionId = projectsStore.selectedSessionId;
+    // Minted when editing starts, not when sending: an ambiguous retry of the
+    // same edit must resolve to the same child instead of a second sibling.
+    editingForkRequestId = globalThis.crypto.randomUUID();
     message = msg.content ?? "";
     pendingFiles = [];
     void tick().then(() => {
@@ -322,6 +346,7 @@
   function cancelEditMessage(): void {
     editingMessageId = "";
     editingSessionId = "";
+    editingForkRequestId = "";
   }
 
   function stopRun(): void {

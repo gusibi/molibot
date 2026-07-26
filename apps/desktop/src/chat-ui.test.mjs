@@ -62,6 +62,18 @@ test("editing a Web message creates a visible child Session without truncating i
   assert.match(row, /class:forked=\{Boolean\(item\.parentSessionId\)\}/);
   assert.match(row, /row-branch/);
 });
+
+test("editing a Project message forks instead of truncating, like main Chat", () => {
+  const projectChatSource = read("./lib/projects/ProjectChat.svelte");
+  assert.match(projectChatSource, /forkDesktopSession/);
+  // The destructive endpoint must not come back: it deletes the parent's tail.
+  assert.doesNotMatch(projectChatSource, /truncateDesktopMessages/);
+  // The edited turn has to go to the child, never the still-selected parent.
+  assert.match(projectChatSource, /projectChatStore\.send\(targetSessionId/);
+  assert.match(projectChatSource, /selectProjectSession\(targetSessionId/);
+  // A retried edit must resolve to the same child rather than a second sibling.
+  assert.match(projectChatSource, /editingForkRequestId = globalThis\.crypto\.randomUUID\(\)/);
+});
 const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
 const taskScheduleBuilder = read("./lib/settings/TaskScheduleBuilder.svelte");
 const nativeTimeInput = read("./lib/components/ui/NativeTimeInput.svelte");
