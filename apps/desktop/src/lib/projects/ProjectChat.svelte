@@ -16,6 +16,7 @@
   import {
     fetchDesktopFileBlob,
     forkDesktopSession,
+    truncateDesktopMessages,
     listDesktopSessionFiles,
     loadDesktopModels,
     loadDesktopModelRouting,
@@ -43,7 +44,9 @@
   // message before re-running the turn.
   let editingMessageId = "";
   let editingSessionId = "";
-  let editingForkRequestId = "";
+  // Set while a fork request is in flight, so a double-click on the branch
+  // button cannot create two sibling Sessions from the same point.
+  let forkingMessageId = "";
   let copiedMessageId = "";
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let modelOptions: DesktopModelOption[] = [];
@@ -254,15 +257,12 @@
     const files = pendingFiles;
     const editingId = editingMessageId;
     const editingSession = editingSessionId;
-    const forkRequestId = editingForkRequestId;
-    let targetSessionId = projectsStore.selectedSessionId;
     if (editingId) {
-      if (
-        !projectsStore.endpoint
-        || !projectsStore.selectedSessionId
-        || editingSession !== projectsStore.selectedSessionId
-        || !forkRequestId
-      ) {
+      // Edit-and-resend rewrites this Session in place: drop the original
+      // message and everything after it before the edited turn re-runs.
+      // Branching without rewriting is a separate action - see
+      // `forkFromUserMessage`.
+      if (!projectsStore.endpoint || !projectsStore.selectedSessionId) {
         projectsStore.error = copy.editMessageUnavailable;
         return;
       }
@@ -270,18 +270,13 @@
       pendingFiles = [];
       editingMessageId = "";
       editingSessionId = "";
-      editingForkRequestId = "";
       try {
-        // Non-destructive: the parent transcript is untouched and the edited
-        // turn opens a visible child Session, matching main Chat.
-        const child = await forkDesktopSession(
+        await truncateDesktopMessages(
           projectsStore.endpoint,
           "personal",
-          editingSession,
-          editingId,
-          forkRequestId
+          projectsStore.selectedSessionId,
+          editingId
         );
-        targetSessionId = child.id;
       } catch (cause) {
         const status = (cause as Error & { status?: number }).status;
         if (status === 422) {
@@ -294,21 +289,13 @@
         pendingFiles = files;
         editingMessageId = editingId;
         editingSessionId = editingSession;
-        editingForkRequestId = forkRequestId;
         return;
       }
-      // The fork is already durable server-side. A failed refresh must not
-      // restore editing against the unchanged parent or mint a second sibling
-      // on retry — the child can take the edited turn directly.
-      await Promise.allSettled([
-        selectProjectSession(targetSessionId, projectsStore.selectedProjectId),
-        refreshProjectSessionList(projectsStore.selectedProjectId)
-      ]);
     } else {
       message = "";
       pendingFiles = [];
     }
-    void projectChatStore.send(targetSessionId, text, files);
+    void projectChatStore.send(projectsStore.selectedSessionId, text, files);
   }
 
   async function copyMessageContent(msg: TranscriptMessage): Promise<void> {
@@ -324,15 +311,7 @@
     } catch { /* clipboard unavailable */ }
   }
 
-  function startEditUserMessage(msg: TranscriptMessage): void {
-    if (!msg.id || !projectsStore.selectedSessionId || sending) return;
-    editingMessageId = msg.id;
-    editingSessionId = projectsStore.selectedSessionId;
-    // Minted when editing starts, not when sending: an ambiguous retry of the
-    // same edit must resolve to the same child instead of a second sibling.
-    editingForkRequestId = globalThis.crypto.randomUUID();
-    message = msg.content ?? "";
-    pendingFiles = [];
+  function focusComposerAtEnd(): void {
     void tick().then(() => {
       const textarea = document.querySelector<HTMLTextAreaElement>(".project-chat textarea");
       textarea?.focus();
@@ -343,10 +322,71 @@
     });
   }
 
+  function startEditUserMessage(msg: TranscriptMessage): void {
+    if (!msg.id || !projectsStore.selectedSessionId || sending) return;
+    editingMessageId = msg.id;
+    editingSessionId = projectsStore.selectedSessionId;
+    message = msg.content ?? "";
+    pendingFiles = [];
+    focusComposerAtEnd();
+  }
+
+  /**
+   * Branch off a historical user message without touching the parent, mirroring
+   * main Chat: create the child Session before that message, switch to it, and
+   * preload the composer with the original text. Project Sessions became
+   * forkable once the server resolved fork sources through
+   * `getForkableConversation` rather than as Web-only.
+   */
+  async function forkFromUserMessage(msg: TranscriptMessage): Promise<void> {
+    const fromMessageId = msg.id;
+    const sourceSessionId = projectsStore.selectedSessionId;
+    if (!fromMessageId || fromMessageId.startsWith("pending-") || !sourceSessionId) return;
+    if (!projectsStore.endpoint || sending || forkingMessageId) {
+      if (!projectsStore.endpoint) projectsStore.error = copy.forkMessageUnavailable;
+      return;
+    }
+    forkingMessageId = fromMessageId;
+    let childSessionId = "";
+    try {
+      const child = await forkDesktopSession(
+        projectsStore.endpoint,
+        "personal",
+        sourceSessionId,
+        fromMessageId,
+        globalThis.crypto.randomUUID()
+      );
+      childSessionId = child.id;
+    } catch (cause) {
+      const status = (cause as Error & { status?: number }).status;
+      if (status === 422) {
+        await projectChatStore.reloadActive();
+        projectsStore.error = copy.forkMessageStale;
+      } else if (status === 409) {
+        projectsStore.error = copy.forkMessageRunning;
+      } else {
+        projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+      }
+      forkingMessageId = "";
+      return;
+    }
+    // The fork is durable server-side, so a failed refresh must not leave the
+    // composer primed against the parent or mint a second sibling on retry.
+    editingMessageId = "";
+    editingSessionId = "";
+    await Promise.allSettled([
+      selectProjectSession(childSessionId, projectsStore.selectedProjectId),
+      refreshProjectSessionList(projectsStore.selectedProjectId)
+    ]);
+    message = msg.content ?? "";
+    pendingFiles = [];
+    forkingMessageId = "";
+    focusComposerAtEnd();
+  }
+
   function cancelEditMessage(): void {
     editingMessageId = "";
     editingSessionId = "";
-    editingForkRequestId = "";
   }
 
   function stopRun(): void {
@@ -398,7 +438,9 @@
         copiedId: copiedMessageId,
         onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
         onEditUser: sending ? undefined : (m: TranscriptMessage) => startEditUserMessage(m),
-        editingId: editingMessageId
+        onForkUser: sending ? undefined : (m: TranscriptMessage) => void forkFromUserMessage(m),
+        editingId: editingMessageId,
+        forkingId: forkingMessageId
       } satisfies TranscriptMessageActions;
   $: if (editingMessageId && editingSessionId && projectsStore.selectedSessionId !== editingSessionId) {
     editingMessageId = "";

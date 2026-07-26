@@ -845,6 +845,37 @@ export class SessionStore {
    * id isn't part of the transcript, so the API layer can map them to distinct
    * HTTP statuses instead of a generic 404.
    */
+  truncateMessagesFrom(conversationId: string, fromMessageId: string): number {
+    const located = this.resolveSessionStorage(conversationId);
+    if (!located) {
+      const err = new Error("Session not found");
+      (err as Error & { code?: string }).code = "SESSION_NOT_FOUND";
+      throw err;
+    }
+    const messages = located.file.messageMetadata;
+    const index = messages.findIndex((message) => message.id === fromMessageId);
+    if (index < 0) {
+      const err = new Error(`Message not found (session has ${messages.length} message${messages.length === 1 ? "" : "s"})`);
+      (err as Error & { code?: string }).code = "MESSAGE_NOT_FOUND";
+      throw err;
+    }
+    const removedMessages = messages.slice(index);
+    const removed = removedMessages.length;
+    messages.length = index;
+    located.file.messageCount = messages.length;
+    located.file.conversation.updatedAt = new Date().toISOString();
+    if (located.type === "web") writeWebSession(located.externalUserId, located.file);
+    else if (located.type === "project") writeProjectSession(located.projectId, located.file);
+    else writeLegacySession(located.file);
+    const source = this.searchSource(located.file.conversation);
+    if (source) {
+      for (const message of removedMessages) {
+        this.enqueueSearchDelete((index) => index.enqueueDeleteMessage(source.sourceKey, conversationId, message.id));
+      }
+    }
+    return removed;
+  }
+
   /**
    * Creates a visible child conversation containing the prefix before the
    * selected message. The source is never mutated and inherited rows are not

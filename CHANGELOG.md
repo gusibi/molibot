@@ -7,18 +7,19 @@
 ---
 ## 2026-07-26
 
-### Added: Project Chat edits fork instead of deleting history (P1-B a)
-- Project Chat was the last surface still calling the destructive edit endpoint, which drops the edited message and everything after it. It now creates a visible child Session exactly like main Chat, so the original branch survives.
+### Changed: Edit and branch are two separate message actions, on both chat surfaces
+- Edit-and-resend rewrites the current Session in place, as it always did: the picked user message and everything after it is dropped before the edited turn re-runs. Making a familiar action silently spawn a Session was not the intent.
+- Branching is its own explicit control — a branch button next to copy/edit on user messages, in main Chat *and* Project Chat. It creates the child Session before that message, switches to it, and preloads the composer with the original text so the next turn can be a variation. The parent is untouched.
+- The button guards its own in-flight request, so a double-click cannot produce two siblings; a running source Session (409) and a stale message id (422) get their own localized messages. Main Chat's child also inherits the parent's model override and becomes the remembered last-opened Session.
+- `truncateDesktopMessages`, `DELETE /api/sessions/[id]/messages`, `truncateConversationProjection`, `SessionStore.truncateMessagesFrom`, and `MomRuntimeStore.truncateSessionFromEntry` all stay: edit-and-resend is still their caller on both surfaces. The plan to retire the destructive path is withdrawn.
+- Verified: `svelte-check` 0 errors/0 warnings, `vite build`, desktop UI tests, desktop-chat suite, agent suite.
+
+### Added: Project Sessions became forkable (P1-B a)
 - Almost all of the fork path was already project-capable — `forkConversationBeforeMessage` has a full project-storage branch, `getRuntimeContextForConversation` picks the project runner pool, and `resolveRunnerChatId` keys off the conversation's own `externalUserId`. The single blocker was the source lookup: `getConversationById(id, "web", owner)` cannot see project storage, so every project fork returned `not_found`.
 - Added `SessionStore.getForkableConversation`, which resolves by id across both storage types and keeps the two ownership models honest: a Web Session stays gated on its `externalUserId`, while a Project Session is owner-shared by design (any surface may continue it by id — the same rule `getOrCreateConversation` and the destructive endpoint already followed). Legacy channel Sessions resolve to null instead of half-forking a transcript the writer would reject.
 - `forkWebSession`/`forkWebSessionWith` are renamed to `forkSession`/`forkSessionWith`; the "web" in the name had become misleading.
-- Desktop: the fork request id is minted when editing starts, not when sending, so an ambiguous retry resolves to the same child rather than a second sibling. The edited turn is sent to the child, never to the still-selected parent.
+- This capability is what lets Project Chat carry a branch button; it is wired to that button rather than to edit-and-resend.
 - Still open (unchanged): in-Session leaf navigation and generated branch summaries.
-
-### Removed: the destructive transcript-edit path
-- With Project Chat migrated, nothing called it any more. Deleted end to end: the `DELETE /api/sessions/[id]/messages` route, `truncateConversationProjection`, `SessionStore.truncateMessagesFrom`, `MomRuntimeStore.truncateSessionFromEntry`, and the `truncateDesktopMessages` client helper, plus their dedicated tests.
-- No editing capability is lost — forks replace it, and the parent transcript now survives an edit instead of being cut.
-- Per-message search tombstoning is unaffected: it stays reachable through `ConversationSearchIndex.reconcile` and is still covered by `conversationSearch.test.ts`. The store-level lifecycle test now asserts conversation deletion only, because the store no longer removes individual messages.
 
 ### Fixed: Host Bash approval identity is the executable, not the argument list
 - Two classifier bugs made ordinary commands unapprovable — they degraded to `one-time-script`, which grants nothing and re-prompts forever while still executing once approved. Net effect was pure noise, not protection: `rm -rf build` could be approved persistently while `echo "a long status message"`, `grep -rn foo src`, `sort -u names.txt`, and `jq '.a' data.json` could not.

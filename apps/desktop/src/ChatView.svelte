@@ -18,6 +18,7 @@
     DesktopProviderModel,
     DesktopProviderModelTag,
     DesktopSessionFile,
+    DesktopSessionSummary,
     DesktopThinkingLevel,
     DesktopWebProfile
   } from "@molibot/desktop-contract";
@@ -30,6 +31,7 @@
     deleteDesktopConversation,
     filterDesktopFiles,
     forkDesktopSession,
+    truncateDesktopMessages,
     listDesktopConversations,
     renameDesktopConversation,
     listDesktopSessionFiles,
@@ -176,12 +178,17 @@
   let fileInput: HTMLInputElement;
   let thinkingLevel: DesktopThinkingLevel = "medium";
 
-  // Edit-and-resend state. `editingMessageId` is set when the user clicks the
-  // pencil on one of their own messages; sending creates a child Session at
-  // that point, preserving the original transcript.
+  // Edit-and-resend state. `editingMessageId` is set when the user clicked the
+  // pencil on one of their own messages; the composer then shows an "editing"
+  // banner and `sendMessage` truncates the server transcript at that message
+  // before re-running the turn so the history stays coherent. Branching off a
+  // message without rewriting it is a separate, explicit action - see
+  // `forkFromUserMessage`.
   let editingMessageId = "";
   let editingSessionId = "";
-  let editingForkRequestId = "";
+  // Set while a fork request is in flight, so a double-click on the branch
+  // button cannot create two sibling Sessions from the same point.
+  let forkingMessageId = "";
   let copiedMessageId = "";
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let memoryTraceId = "";
@@ -1318,7 +1325,11 @@
         onEditUser: viewMode === "external" || sending
           ? undefined
           : (m: TranscriptMessage) => startEditUserMessage(m),
+        onForkUser: viewMode === "external" || sending
+          ? undefined
+          : (m: TranscriptMessage) => void forkFromUserMessage(m),
         editingId: editingMessageId,
+        forkingId: forkingMessageId,
         onOpenMemoryTrace: (traceId: string) => void openMemoryTrace(traceId)
       } satisfies TranscriptMessageActions;
   // Read-only external transcript supports copy-only (no edit); bind its own
@@ -1335,7 +1346,6 @@
   $: if (editingMessageId && editingSessionId && activeSessionId !== editingSessionId) {
     editingMessageId = "";
     editingSessionId = "";
-    editingForkRequestId = "";
   }
   let messageMediaSession = "";
   $: {
@@ -1390,12 +1400,11 @@
     const files = pendingFiles;
     const editingId = editingMessageId;
     const editingSession = editingSessionId;
-    const forkRequestId = editingForkRequestId;
     if (editingId) {
-      // Edit-and-resend is non-destructive: create a child at the selected
-      // message, switch to it, then append the edited turn. The parent remains
-      // unchanged and the stable request id makes an ambiguous retry safe.
-      if (!connectedEndpoint || !activeProfileId || !activeSessionId || editingSession !== activeSessionId || !forkRequestId) {
+      // Edit-and-resend: drop the original user message and everything that
+      // followed it on the server before re-running the turn. If truncate fails,
+      // restore the composer so the user can retry instead of losing the edit.
+      if (!connectedEndpoint || !activeProfileId || !activeSessionId) {
         error = copy.editMessageUnavailable;
         return;
       }
@@ -1403,19 +1412,8 @@
       pendingFiles = [];
       editingMessageId = "";
       editingSessionId = "";
-      editingForkRequestId = "";
-      let childSessionId = "";
       try {
-        const child = await forkDesktopSession(
-          connectedEndpoint,
-          activeProfileId,
-          editingSession,
-          editingId,
-          forkRequestId
-        );
-        childSessionId = child.id;
-        const inheritedModel = sessionModelOverrides.get(editingSession);
-        if (inheritedModel) sessionModelOverrides.set(child.id, inheritedModel);
+        await truncateDesktopMessages(connectedEndpoint, activeProfileId, activeSessionId, editingId);
       } catch (cause) {
         const status = (cause as Error & { status?: number }).status;
         if (status === 422) {
@@ -1432,16 +1430,8 @@
         pendingFiles = files;
         editingMessageId = editingId;
         editingSessionId = editingSession;
-        editingForkRequestId = forkRequestId;
         return;
       }
-      // The server fork is already durable. Transcript/sidebar refresh failures
-      // must not restore editing against the now-unchanged parent or create a
-      // second sibling on retry; the child can accept the edited turn directly.
-      await Promise.allSettled([
-        chatStore.selectSession(activeProfileId, childSessionId),
-        loadChannel("web")
-      ]);
     } else {
       messageInput = "";
       pendingFiles = [];
@@ -1468,14 +1458,7 @@
     } catch { /* clipboard unavailable */ }
   }
 
-  function startEditUserMessage(message: TranscriptMessage): void {
-    if (!message.id || !activeSessionId) return;
-    if (sending) return;
-    editingMessageId = message.id;
-    editingSessionId = activeSessionId;
-    editingForkRequestId = globalThis.crypto.randomUUID();
-    messageInput = message.content ?? "";
-    pendingFiles = [];
+  function focusComposerAtEnd(): void {
     void tick().then(() => {
       const textarea = messagesElement?.closest(".chat-content")?.querySelector("textarea");
       textarea?.focus();
@@ -1486,10 +1469,82 @@
     });
   }
 
+  function startEditUserMessage(message: TranscriptMessage): void {
+    if (!message.id || !activeSessionId) return;
+    if (sending) return;
+    editingMessageId = message.id;
+    editingSessionId = activeSessionId;
+    messageInput = message.content ?? "";
+    pendingFiles = [];
+    focusComposerAtEnd();
+  }
+
   function cancelEditMessage(): void {
     editingMessageId = "";
     editingSessionId = "";
-    editingForkRequestId = "";
+  }
+
+  /**
+   * Branch off a historical user message without touching the parent: create a
+   * visible child Session whose transcript ends just before that message, switch
+   * to it, and preload the composer with the original text so the next turn can
+   * be a variation of it. This is the non-destructive counterpart to
+   * `startEditUserMessage`, which still rewrites the current Session in place.
+   */
+  async function forkFromUserMessage(message: TranscriptMessage): Promise<void> {
+    const fromMessageId = message.id;
+    const sourceSessionId = activeSessionId;
+    if (!fromMessageId || fromMessageId.startsWith("pending-") || !sourceSessionId) return;
+    if (!connectedEndpoint || !activeProfileId || sending || forkingMessageId) {
+      if (!connectedEndpoint || !activeProfileId) error = copy.forkMessageUnavailable;
+      return;
+    }
+    forkingMessageId = fromMessageId;
+    let child: DesktopSessionSummary;
+    try {
+      child = await forkDesktopSession(
+        connectedEndpoint,
+        activeProfileId,
+        sourceSessionId,
+        fromMessageId,
+        globalThis.crypto.randomUUID()
+      );
+    } catch (cause) {
+      const status = (cause as Error & { status?: number }).status;
+      if (status === 422) {
+        // The server didn't find that message id in this session - the local
+        // transcript is stale (typically an optimistic `pending-...` id left
+        // over from a failed reload). Refresh and ask for a fresh pick.
+        await chatStore.reloadActive();
+        error = copy.forkMessageStale;
+      } else if (status === 409) {
+        error = copy.forkMessageRunning;
+      } else {
+        error = cause instanceof Error ? cause.message : String(cause);
+      }
+      forkingMessageId = "";
+      return;
+    }
+    // The fork is durable server-side. A failed transcript/sidebar refresh must
+    // not leave the composer primed against the parent, so clear any in-progress
+    // edit and prime the child regardless of how the refresh goes.
+    const inheritedModel = sessionModelOverrides.get(sourceSessionId);
+    if (inheritedModel) sessionModelOverrides.set(child.id, inheritedModel);
+    editingMessageId = "";
+    editingSessionId = "";
+    syncDraftOut();
+    await Promise.allSettled([
+      chatStore.selectSession(activeProfileId, child.id),
+      loadChannel("web")
+    ]);
+    // Deliberately not `loadDraftIn()`: the child's composer is primed with the
+    // forked message instead of whatever draft it may have carried.
+    persistSelected(activeProfileId, child.id);
+    messageInput = message.content ?? "";
+    pendingFiles = [];
+    forkingMessageId = "";
+    void refreshFiles(activeProfileId, child.id);
+    focusComposerAtEnd();
   }
 
   async function stopRun(): Promise<void> {

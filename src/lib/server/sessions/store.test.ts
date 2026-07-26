@@ -315,6 +315,56 @@ test("empty conversations are reused once per Web profile and project", () => {
   }
 });
 
+test("truncateMessagesFrom drops the picked message and everything after it", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-truncate-"));
+  const original = {
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile
+  };
+
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+
+    const store = new SessionStore();
+    const externalUserId = "web:personal:web-anonymous";
+    const session = store.createWebConversation(externalUserId);
+    const user1 = store.appendMessage(session.id, "user", "first turn").id;
+    const assistant1 = store.appendMessage(session.id, "assistant", "first answer").id;
+    const user2 = store.appendMessage(session.id, "user", "second turn").id;
+    const assistant2 = store.appendMessage(session.id, "assistant", "second answer").id;
+    assert.equal(store.listMessages(session.id).length, 4);
+
+    const removed = store.truncateMessagesFrom(session.id, user2);
+    assert.equal(removed, 2);
+    const remaining = store.listMessages(session.id);
+    assert.deepEqual(remaining.map((m) => m.id), [user1, assistant1]);
+
+    // Unknown message id: throws MESSAGE_NOT_FOUND with a hint about the
+    // current message count so the client can show a useful error.
+    assert.throws(
+      () => store.truncateMessagesFrom(session.id, "does-not-exist"),
+      /Message not found \(session has 2 messages\)/
+    );
+    assert.equal(store.listMessages(session.id).length, 2);
+
+    // Re-truncating at the head drops everything.
+    assert.equal(store.truncateMessagesFrom(session.id, user1), 2);
+    assert.deepEqual(store.listMessages(session.id), []);
+
+    // No-op on a session that was never persisted: throws SESSION_NOT_FOUND.
+    assert.throws(
+      () => store.truncateMessagesFrom("never-existed", user1),
+      /Session not found/
+    );
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("forkConversationBeforeMessage preserves the parent and round-trips child lineage and prefix", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-fork-conversation-"));
   const original = { ...storagePaths };
@@ -420,7 +470,7 @@ test("forkConversationBeforeMessage forks a Project Session into the same projec
   }
 });
 
-test("SessionStore incrementally indexes and tombstones deleted conversations", () => {
+test("SessionStore incrementally indexes and tombstones truncated or deleted messages", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-session-search-lifecycle-"));
   const original = { webWorkspaceDir: storagePaths.webWorkspaceDir, sessionsDir: storagePaths.sessionsDir, sessionsIndexFile: storagePaths.sessionsIndexFile };
   const index = new ConversationSearchIndex(":memory:");
@@ -433,16 +483,13 @@ test("SessionStore incrementally indexes and tombstones deleted conversations", 
     const externalUserId = "web:personal:web-anonymous";
     const conversation = store.createWebConversation(externalUserId);
     store.appendMessage(conversation.id, "user", "上个月讨论过火星旅行计划");
-    store.appendMessage(conversation.id, "assistant", "旧分支包含木星会议安排");
+    const removed = store.appendMessage(conversation.id, "assistant", "旧分支包含木星会议安排");
     const authorizedSources = listAuthorizedConversationSources({ botId: "web", channel: "web", chatId: externalUserId });
     assert.equal(index.search({ query: "火星旅行", authorizedSources }).length, 1);
     assert.equal(index.search({ query: "木星会议", authorizedSources }).length, 1);
-    // Per-message tombstoning is still exercised where it is still reachable:
-    // `ConversationSearchIndex.reconcile` (see conversationSearch.test.ts). The
-    // store no longer removes individual messages now that edits fork instead
-    // of truncating.
-    assert.equal(store.deleteConversation(conversation.id, "web", externalUserId), true);
+    store.truncateMessagesFrom(conversation.id, removed.id);
     assert.equal(index.search({ query: "木星会议", authorizedSources }).length, 0);
+    assert.equal(store.deleteConversation(conversation.id, "web", externalUserId), true);
     assert.equal(index.search({ query: "火星旅行", authorizedSources }).length, 0);
   } finally {
     index.close();

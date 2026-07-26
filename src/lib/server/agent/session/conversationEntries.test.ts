@@ -130,3 +130,29 @@ test("shared automation approval rewrite replaces only the owning run", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("truncateSessionFromEntry drops the entry and its successors, then rebuilds context", () => {
+  const dir = mkdtempSync(join(tmpdir(), "molibot-conversation-entries-truncate-"));
+  try {
+    const store = new MomRuntimeStore(dir);
+    const chatId = "web:default:web-anonymous";
+    const sessionId = "session";
+    store.appendContextMessage(chatId, message("user", "first turn"), sessionId);
+    store.appendContextMessage(chatId, message("assistant", "first answer"), sessionId);
+    store.appendContextMessage(chatId, message("user", "second turn"), sessionId);
+    store.appendContextMessage(chatId, message("assistant", "second answer"), sessionId);
+    const entries = store.listSessionMessageEntries(chatId, sessionId);
+    assert.equal(entries.length, 4);
+
+    // Edit-and-resend truncates in place, so the Agent log and the rebuilt
+    // model snapshot must both stop before the picked entry.
+    assert.equal(store.truncateSessionFromEntry(chatId, sessionId, entries[2]!.id), 2);
+    assert.deepEqual(store.loadContext(chatId, sessionId).map((item) => item.role), ["user", "assistant"]);
+    assert.deepEqual(
+      store.listSessionMessageEntries(chatId, sessionId).map((item) => item.id),
+      entries.slice(0, 2).map((item) => item.id)
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

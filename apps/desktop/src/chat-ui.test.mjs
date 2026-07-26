@@ -54,26 +54,6 @@ const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
 const slashSuggestionMenu = read("./lib/chat/SlashSuggestionMenu.svelte");
 
-test("editing a Web message creates a visible child Session without truncating its parent", () => {
-  assert.match(view, /forkDesktopSession/);
-  assert.match(view, /chatStore\.selectSession\(activeProfileId, childSessionId\)/);
-  assert.match(view, /Promise\.allSettled/);
-  assert.doesNotMatch(view, /await truncateDesktopMessages\(connectedEndpoint/);
-  assert.match(row, /class:forked=\{Boolean\(item\.parentSessionId\)\}/);
-  assert.match(row, /row-branch/);
-});
-
-test("editing a Project message forks instead of truncating, like main Chat", () => {
-  const projectChatSource = read("./lib/projects/ProjectChat.svelte");
-  assert.match(projectChatSource, /forkDesktopSession/);
-  // The destructive endpoint must not come back: it deletes the parent's tail.
-  assert.doesNotMatch(projectChatSource, /truncateDesktopMessages/);
-  // The edited turn has to go to the child, never the still-selected parent.
-  assert.match(projectChatSource, /projectChatStore\.send\(targetSessionId/);
-  assert.match(projectChatSource, /selectProjectSession\(targetSessionId/);
-  // A retried edit must resolve to the same child rather than a second sibling.
-  assert.match(projectChatSource, /editingForkRequestId = globalThis\.crypto\.randomUUID\(\)/);
-});
 const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
 const taskScheduleBuilder = read("./lib/settings/TaskScheduleBuilder.svelte");
 const nativeTimeInput = read("./lib/components/ui/NativeTimeInput.svelte");
@@ -104,6 +84,29 @@ const windowState = read("./lib/native/windowState.ts");
 const feedbackCoordinator = read("./lib/native/feedbackCoordinator.ts");
 const hapticCoordinator = read("./lib/native/hapticCoordinator.ts");
 const nativeAppMenu = read("../src-tauri/src/app_menu.rs");
+
+test("editing rewrites the current Session and branching is a separate explicit action", () => {
+  // Edit-and-resend stays destructive: it truncates the active Session in place.
+  assert.match(view, /await truncateDesktopMessages\(connectedEndpoint, activeProfileId, activeSessionId, editingId\)/);
+  assert.doesNotMatch(view, /forkDesktopSession\(\s*connectedEndpoint,\s*activeProfileId,\s*editingSession/);
+  // The branch button forks, switches to the child, and primes its composer.
+  assert.match(view, /async function forkFromUserMessage/);
+  assert.match(view, /chatStore\.selectSession\(activeProfileId, child\.id\)/);
+  assert.match(view, /Promise\.allSettled/);
+  assert.match(view, /forkingMessageId/);
+  assert.match(transcript, /messageActions\.onForkUser!\(message\)/);
+  assert.match(transcript, /ph-git-branch/);
+  assert.match(transcriptHelpers, /onForkUser\?: \(message: TranscriptMessage\) => void/);
+  // Project chat mirrors the split: destructive edit, plus its own branch
+  // button now that fork sources resolve for Project Sessions too.
+  assert.match(projectChat, /await truncateDesktopMessages\(/);
+  assert.match(projectChat, /async function forkFromUserMessage/);
+  assert.match(projectChat, /onForkUser/);
+  assert.match(projectChat, /selectProjectSession\(childSessionId/);
+  assert.doesNotMatch(projectChat, /editingForkRequestId/);
+  assert.match(row, /class:forked=\{Boolean\(item\.parentSessionId\)\}/);
+  assert.match(row, /row-branch/);
+});
 
 test("native close behavior is a localized narrow preference using IosSwitch", () => {
   assert.match(app, /type CloseBehavior = "background" \| "quit"/);

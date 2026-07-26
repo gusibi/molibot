@@ -7,18 +7,19 @@
 ---
 ## 2026-07-26
 
-### Project Chat 编辑也走分叉，不再删除历史（P1-B a，已完成）
-- Project Chat 是最后一个仍在调用破坏性编辑接口的界面（该接口会删掉被编辑消息及其之后的全部内容）。现在与主 Chat 一致：创建可见子 Session，父分支完整保留。
-- 分叉链路其实早已支持 Project——`forkConversationBeforeMessage` 有完整的 project 存储分支，`getRuntimeContextForConversation` 会选中项目 runner 池，`resolveRunnerChatId` 按会话自身的 `externalUserId` 取键。唯一的拦路点是来源查找：`getConversationById(id, "web", owner)` 看不到项目存储，因此所有项目分叉一律返回 `not_found`。
-- 新增 `SessionStore.getForkableConversation`：按 id 跨两种存储解析，并保持两套归属模型各自成立——Web Session 仍按 `externalUserId` 门禁；Project Session 按设计是 owner 共享的（任何界面都可按 id 续聊，这也是 `getOrCreateConversation` 和原破坏性接口一直遵循的规则）。旧版渠道 Session 返回 null，避免半途分叉一个写入层本就会拒绝的记录。
-- `forkWebSession`/`forkWebSessionWith` 改名为 `forkSession`/`forkSessionWith`，名字里的 "web" 已不再准确。
-- Desktop：分叉请求 id 在**开始编辑**时生成而非发送时，重复重试落到同一个子 Session 而不是第二个兄弟分支；编辑后的消息发往子分支，绝不会落回仍被选中的父分支。
-- 仍未做（未变）：同 Session 内多叶导航与自动生成的分支摘要。
+### 编辑与分叉拆成两个独立操作（两个聊天面板，已完成）
+- "编辑并重发"保持原有语义：截断当前 Session（删除所选用户消息及其之后的内容）再重跑该轮。编辑是就地改写，不应该悄悄变成新建 Session。
+- 新增独立的"分叉"按钮，位于用户消息的复制/编辑旁边，主 Chat 与 Project Chat 都有：在该消息之前创建子 Session、切换过去，并把原文预填进输入框，便于写成变体后发送；父 Session 完全不动。
+- 分叉请求在途时按钮禁用（带 spinner），双击不会产生两个兄弟 Session；父 Session 运行中（409）与消息 id 失效（422）各有独立中英文提示。主 Chat 的子会话还会继承父级模型覆盖并写入"上次打开的会话"。
+- `truncateDesktopMessages`、`DELETE /api/sessions/[id]/messages`、`truncateConversationProjection`、`SessionStore.truncateMessagesFrom`、`MomRuntimeStore.truncateSessionFromEntry` 全部保留：两个面板的编辑重发仍在调用它们。此前"删除破坏性链路"的计划撤销。
+- 验证：`svelte-check` 0 error / 0 warning、`vite build`、Desktop UI 测试、desktop-chat 全量、Agent 全量。
 
-### 删除破坏性编辑链路（已完成）
-- Project Chat 迁移完成后，这条链路已无任何调用方，整条删除：`DELETE /api/sessions/[id]/messages` 路由、`truncateConversationProjection`、`SessionStore.truncateMessagesFrom`、`MomRuntimeStore.truncateSessionFromEntry`、客户端 `truncateDesktopMessages`，以及各自的专项测试。
-- 没有丢失任何编辑能力——分叉取代了它，而且编辑之后父分支得以保留，不再被截断。
-- 按消息粒度的搜索墓碑不受影响：它仍可通过 `ConversationSearchIndex.reconcile` 到达，并由 `conversationSearch.test.ts` 覆盖。store 层的生命周期测试改为只断言整会话删除，因为 store 不再删除单条消息。
+### Project Session 现在可以分叉（P1-B a，已完成）
+- 分叉链路其实早已支持 Project——`forkConversationBeforeMessage` 有完整的 project 存储分支，`getRuntimeContextForConversation` 会选中项目 runner 池，`resolveRunnerChatId` 按会话自身的 `externalUserId` 取键。唯一的拦路点是来源查找：`getConversationById(id, "web", owner)` 看不到项目存储，因此所有项目分叉一律返回 `not_found`。
+- 新增 `SessionStore.getForkableConversation`：按 id 跨两种存储解析，并保持两套归属模型各自成立——Web Session 仍按 `externalUserId` 门禁；Project Session 按设计是 owner 共享的（任何界面都可按 id 续聊，这也是 `getOrCreateConversation` 和破坏性接口一直遵循的规则）。旧版渠道 Session 返回 null，避免半途分叉一个写入层本就会拒绝的记录。
+- `forkWebSession`/`forkWebSessionWith` 改名为 `forkSession`/`forkSessionWith`，名字里的 "web" 已不再准确。
+- 这个能力正是 Project Chat 能挂上分叉按钮的前提；它接的是按钮，不是编辑重发。
+- 仍未做（未变）：同 Session 内多叶导航与自动生成的分支摘要。
 
 ### Host Bash 审批的身份是可执行文件，不是参数（已完成）
 - 两个分类器缺陷让大量普通命令无法授权——它们被降级成 `one-time-script`，而一次性审批**不写任何授权记录**，于是永远重复询问，可批准之后照样执行。也就是说这层降级没有提供任何保护，只有噪音：`rm -rf build` 可以长期授权，而 `echo "一段较长的状态信息"`、`grep -rn foo src`、`sort -u names.txt`、`jq '.a' data.json` 都不行。

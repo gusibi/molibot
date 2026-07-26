@@ -93,3 +93,27 @@ export function loadStoredConversationMessages(conversationId: string): Projecte
   });
 }
 
+/** Truncates both the Agent entry log and its UI metadata projection. */
+export function truncateConversationProjection(input: {
+  profileId: string;
+  userId?: string;
+  conversationId: string;
+  fromMessageId: string;
+}): number {
+  const context = projectionContext(input);
+  const projection = loadConversationProjection(input);
+  const index = projection.messages.findIndex((message) => message.id === input.fromMessageId);
+  if (index < 0) {
+    const error = new Error(`Message not found (session has ${projection.messages.length} message${projection.messages.length === 1 ? "" : "s"})`);
+    (error as Error & { code?: string }).code = "MESSAGE_NOT_FOUND";
+    throw error;
+  }
+  const sourceEntryId = projection.messages
+    .slice(index)
+    .map((message) => projection.sourceEntryByMessageId.get(message.id))
+    .find(Boolean);
+  if (sourceEntryId) {
+    context.store.truncateSessionFromEntry(context.chatId, input.conversationId, sourceEntryId);
+  }
+  return context.runtime.sessions.truncateMessagesFrom(input.conversationId, input.fromMessageId);
+}

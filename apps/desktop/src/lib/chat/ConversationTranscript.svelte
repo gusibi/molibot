@@ -49,6 +49,7 @@
   {@const canShowActions = Boolean(messageActions && (displayContent || message.attachments?.length))}
   {@const isCopied = Boolean(message.id && messageActions?.copiedId === message.id)}
   {@const isEditing = Boolean(message.id && messageActions?.editingId === message.id)}
+  {@const isForking = Boolean(message.id && messageActions?.forkingId === message.id)}
   {@const key = messageKey(message, index)}
   {@const isLongUserMessage = message.role === "user" && (displayContent.split(/\r?\n/).length > 20 || displayContent.length > 1000)}
   {@const isExpanded = expandedMessages.has(key)}
@@ -99,6 +100,16 @@
                   disabled={isEditing}
                   onclick={() => messageActions.onEditUser!(message)}
                 ><i class="ph ph-pencil-simple-line" aria-hidden="true"></i></button>
+              {/if}
+              {#if messageActions.onForkUser && !(message.id?.startsWith("pending-"))}
+                <button
+                  type="button"
+                  class="message-action"
+                  aria-label={copy.forkMessage}
+                  title={copy.forkMessage}
+                  disabled={isForking}
+                  onclick={() => messageActions.onForkUser!(message)}
+                ><i class={`ph ${isForking ? "ph-circle-notch message-action-spin" : "ph-git-branch"}`} aria-hidden="true"></i></button>
               {/if}
             </div>
           {/if}

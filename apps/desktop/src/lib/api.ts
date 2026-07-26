@@ -1590,6 +1590,48 @@ export async function deleteDesktopConversation(endpoint: string, sessionId: str
   );
 }
 
+/**
+ * Edit-and-resend: truncate a session's transcript at `fromMessageId`,
+ * dropping that message and everything after it so the caller can append a
+ * fresh, edited user message and re-run the turn. Used by both main chat and
+ * project chat; branching off a message without rewriting history is a
+ * separate action - see `forkDesktopSession` below.
+ *
+ * Errors carry a `status` field so callers can distinguish a structurally
+ * valid request that referenced a stale message id (HTTP 422) from a missing
+ * session (404) or a running session (409) - the client reloads the session
+ * and asks the user to retry on 422.
+ */
+export async function truncateDesktopMessages(
+  endpoint: string,
+  profileId: string,
+  sessionId: string,
+  fromMessageId: string
+): Promise<{ removed: number }> {
+  const search = new URLSearchParams({ fromMessageId });
+  const response = await fetchFromDesktop(
+    serviceUrl(endpoint, `/api/sessions/${encodeURIComponent(sessionId)}/messages?${search.toString()}`),
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId })
+    }
+  );
+  let payload: { ok?: boolean; removed?: number; error?: string } = {};
+  try {
+    payload = response.status === 204 ? {} : await response.json();
+  } catch {
+    payload = {};
+  }
+  if (!response.ok || payload.ok === false) {
+    const message = String(payload.error ?? `Request failed (${response.status})`);
+    const err = new Error(message) as Error & { status?: number };
+    err.status = response.status;
+    throw err;
+  }
+  return { removed: payload.removed ?? 0 };
+}
+
 /** Creates (or reuses) a visible child Session whose transcript ends just
  * before `fromMessageId`. The request id makes an ambiguous client retry
  * idempotent, so it cannot create duplicate sibling Sessions. */
