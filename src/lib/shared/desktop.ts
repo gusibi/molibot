@@ -827,6 +827,121 @@ export interface DesktopProviderTestResponse {
   verification?: Partial<Record<DesktopProviderModelTag, "untested" | "passed" | "failed">>;
 }
 
+export type DesktopProviderAuthState =
+  | "pending"
+  | "awaiting_input"
+  | "waiting_external"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+export interface DesktopProviderAuthPromptOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface DesktopProviderAuthPrompt {
+  id: string;
+  type: "text" | "secret" | "select" | "manual_code";
+  message: string;
+  placeholder?: string;
+  options?: DesktopProviderAuthPromptOption[];
+}
+
+export interface DesktopProviderAuthMessage {
+  id: number;
+  type: "info" | "progress";
+  message: string;
+  links?: Array<{ url: string; label?: string }>;
+}
+
+export interface DesktopProviderAuthSession {
+  id: string;
+  providerId: string;
+  state: DesktopProviderAuthState;
+  revision: number;
+  startedAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  prompt: DesktopProviderAuthPrompt | null;
+  authUrl?: { url: string; instructions?: string };
+  deviceCode?: {
+    userCode: string;
+    verificationUri: string;
+    intervalSeconds?: number;
+    expiresAt?: number;
+  };
+  messages: DesktopProviderAuthMessage[];
+  error?: string;
+}
+
+export interface DesktopProviderAuthItem {
+  id: string;
+  name: string;
+  loginLabel: string;
+  credential?: {
+    type: "api_key" | "oauth";
+    expiresAt?: number;
+  };
+  effectiveAuth?: {
+    type: "api_key" | "oauth";
+    source?: string;
+  };
+  /**
+   * A saved API-key override for this provider takes precedence over the stored
+   * credential, so an OAuth login here has no effect until the key is cleared.
+   */
+  apiKeyOverride?: boolean;
+}
+
+export interface DesktopProviderAuthOverviewResponse {
+  ok: true;
+  providers: DesktopProviderAuthItem[];
+}
+
+export interface DesktopProviderAuthSessionResponse {
+  ok: true;
+  session: DesktopProviderAuthSession;
+}
+
+export interface DesktopProviderAuthStartRequest {
+  providerId: string;
+}
+
+export interface DesktopProviderAuthAnswerRequest {
+  promptId: string;
+  value: string;
+}
+
+export interface DesktopProviderAuthVerifyRequest {
+  providerId: string;
+  /** Optional model to probe; defaults to the provider's first catalog entry. */
+  model?: string;
+}
+
+/**
+ * Result of a real request sent through the runner's own stream path, so a pass
+ * means the credential works — not merely that one is stored.
+ */
+export interface DesktopProviderAuthVerifyResponse {
+  ok: true;
+  result: {
+    ok: boolean;
+    providerId: string;
+    modelId: string;
+    elapsedMs: number;
+    reply?: string;
+    error?: string;
+  };
+}
+
+export interface DesktopProviderAuthLogoutResponse {
+  ok: true;
+  removed: boolean;
+}
+
 export interface DesktopAgentItem {
   id: string;
   name: string;

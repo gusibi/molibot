@@ -48,6 +48,12 @@ import {
   loadDesktopUsage,
   loadDesktopMemoryRejections,
   loadDesktopMemoryTrace,
+  loadDesktopProviderAuth,
+  startDesktopProviderAuth,
+  loadDesktopProviderAuthSession,
+  answerDesktopProviderAuth,
+  cancelDesktopProviderAuth,
+  logoutDesktopProviderAuth,
   submitDesktopMemoryTraceFeedback,
   loadDesktopTasks,
   loadDesktopTaskUnreadCount,
@@ -85,6 +91,49 @@ import {
   updateDesktopProviderGlobals,
   ONBOARDING_STEPS
 } from "./api";
+
+test("desktop provider OAuth uses narrow encoded session and credential routes", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; method: string; body?: unknown }> = [];
+  const session = {
+    id: "session/one",
+    providerId: "kimi-coding",
+    state: "awaiting_input",
+    revision: 1,
+    startedAt: 1,
+    updatedAt: 1,
+    expiresAt: 2,
+    prompt: { id: "prompt-1", type: "text", message: "Domain" },
+    messages: []
+  };
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (url.endsWith("/credentials/kimi-coding")) return new Response(JSON.stringify({ ok: true, removed: true }));
+    if (url.endsWith("/provider-auth") && !init?.method) return new Response(JSON.stringify({ ok: true, providers: [{ id: "kimi-coding", name: "Kimi Coding", loginLabel: "Kimi" }] }));
+    return new Response(JSON.stringify({ ok: true, session }));
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal((await loadDesktopProviderAuth("http://localhost:3000"))[0].id, "kimi-coding");
+    await startDesktopProviderAuth("http://localhost:3000", "kimi-coding");
+    await loadDesktopProviderAuthSession("http://localhost:3000", "session/one");
+    await answerDesktopProviderAuth("http://localhost:3000", "session/one", { promptId: "prompt-1", value: "" });
+    await cancelDesktopProviderAuth("http://localhost:3000", "session/one");
+    assert.equal(await logoutDesktopProviderAuth("http://localhost:3000", "kimi-coding"), true);
+    assert.deepEqual(calls.map((call) => [call.method, new URL(call.url).pathname]), [
+      ["GET", "/api/desktop/provider-auth"],
+      ["POST", "/api/desktop/provider-auth"],
+      ["GET", "/api/desktop/provider-auth/sessions/session%2Fone"],
+      ["POST", "/api/desktop/provider-auth/sessions/session%2Fone/answer"],
+      ["DELETE", "/api/desktop/provider-auth/sessions/session%2Fone"],
+      ["DELETE", "/api/desktop/provider-auth/credentials/kimi-coding"]
+    ]);
+    assert.deepEqual(calls[1].body, { providerId: "kimi-coding" });
+    assert.deepEqual(calls[3].body, { promptId: "prompt-1", value: "" });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 
 test("Desktop observability queries encode filters and clamp pagination", async () => {
   const original = globalThis.fetch;

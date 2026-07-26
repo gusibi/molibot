@@ -6,6 +6,12 @@
     import { Label } from "$lib/components/ui/label";
     import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
     import { Textarea } from "$lib/components/ui/textarea";
+    import type {
+        DesktopProviderAuthItem,
+        DesktopProviderAuthOverviewResponse,
+        DesktopProviderAuthSession,
+        DesktopProviderAuthSessionResponse,
+    } from "$lib/shared/desktop";
     import { locale } from "$lib/ui/i18n";
 
     type ProviderMode = "pi" | "custom";
@@ -143,7 +149,30 @@
             authMethodLabel: "认证方式：",
             loginCmdLabel: "登录命令：",
             envVarLabel: "环境变量：",
-            oauthNotice: "OAuth 服务商：静态 API Key 输入已隐藏。请使用上述命令，并在 DATA_DIR（或通过 PI_AI_AUTH_FILE）下保留 auth.json。",
+            providerAuthTitle: "快捷登录",
+            providerAuthHint: "直接在这里完成账号授权；凭据会安全保存在服务端，并由运行时自动刷新。",
+            providerAuthConnected: "已登录",
+            providerAuthNotConnected: "未登录",
+            providerAuthEffective: "当前认证来源：{source}",
+            providerAuthSignIn: "立即登录",
+            providerAuthSignOut: "退出登录",
+            providerAuthDialogHint: "按提示打开链接、输入设备码，或粘贴回调地址。远程部署时请优先使用设备码或手动粘贴。",
+            providerAuthWaiting: "等待授权完成…",
+            providerAuthOpenBrowser: "打开授权页面",
+            providerAuthDeviceCode: "设备码",
+            providerAuthCopyCode: "复制设备码",
+            providerAuthCodeCopied: "已复制",
+            providerAuthContinue: "继续",
+            providerAuthAnswerPlaceholder: "输入答案或粘贴回调 URL",
+            providerAuthDone: "登录成功，凭据已保存。",
+            providerAuthFailed: "登录失败",
+            providerAuthCancelled: "登录已取消",
+            providerAuthExpired: "登录会话已过期，请重新开始。",
+            providerAuthOverrideWarning: "下方保存的「API Key 覆盖」优先于 OAuth 凭据：清空它之后，这里的登录才会真正生效。",
+            providerAuthVerify: "测试连通性",
+            providerAuthVerifying: "测试中…",
+            providerAuthVerifyOk: "连通正常（{model}，{ms}ms）",
+            providerAuthVerifyFailed: "连通失败（{model}）",
             apiKeyOverrideLabel: "API Key 覆盖（可选）",
             apiKeyOverridePlaceholder: "留空则使用环境变量/OAuth 凭据",
             protocolLabel: "协议",
@@ -288,7 +317,30 @@
             authMethodLabel: "Auth method:",
             loginCmdLabel: "Login command:",
             envVarLabel: "Env variable:",
-            oauthNotice: "OAuth provider: static API key input is hidden by design. Use the command above, then keep auth.json under DATA_DIR (or set PI_AI_AUTH_FILE).",
+            providerAuthTitle: "Quick sign-in",
+            providerAuthHint: "Authorize your account here. Credentials are stored on the server and refreshed automatically by the runtime.",
+            providerAuthConnected: "Signed in",
+            providerAuthNotConnected: "Not signed in",
+            providerAuthEffective: "Current auth source: {source}",
+            providerAuthSignIn: "Sign in now",
+            providerAuthSignOut: "Sign out",
+            providerAuthDialogHint: "Open the link, enter a device code, or paste the callback URL when prompted. For remote deployments, prefer device code or manual paste.",
+            providerAuthWaiting: "Waiting for authorization…",
+            providerAuthOpenBrowser: "Open authorization page",
+            providerAuthDeviceCode: "Device code",
+            providerAuthCopyCode: "Copy code",
+            providerAuthCodeCopied: "Copied",
+            providerAuthContinue: "Continue",
+            providerAuthAnswerPlaceholder: "Enter an answer or paste the callback URL",
+            providerAuthDone: "Signed in. Credentials have been saved.",
+            providerAuthFailed: "Sign-in failed",
+            providerAuthCancelled: "Sign-in cancelled",
+            providerAuthExpired: "This sign-in session expired. Start again.",
+            providerAuthOverrideWarning: "The saved API key override below takes precedence over the OAuth credential. Clear it before this sign-in takes effect.",
+            providerAuthVerify: "Test connection",
+            providerAuthVerifying: "Testing…",
+            providerAuthVerifyOk: "Reachable ({model}, {ms}ms)",
+            providerAuthVerifyFailed: "Unreachable ({model})",
             apiKeyOverrideLabel: "API Key Override (Optional)",
             apiKeyOverridePlaceholder: "Leave empty to use env/OAuth source",
             protocolLabel: "Protocol",
@@ -412,6 +464,15 @@
     let providerSearch = "";
     let error = "";
     let message = "";
+    let providerAuthProviders: DesktopProviderAuthItem[] = [];
+    let providerAuthSession: DesktopProviderAuthSession | null = null;
+    let providerAuthAnswer = "";
+    let providerAuthBusy = "";
+    let providerAuthError = "";
+    let providerAuthPollGeneration = 0;
+    let providerAuthCopiedCode = "";
+    let providerAuthVerifying = "";
+    let providerAuthVerified: Record<string, { ok: boolean; modelId: string; elapsedMs: number; error?: string }> = {};
 
     /* ── Add Model Modal ── */
     let showAddModelModal = false;
@@ -439,13 +500,6 @@
         "medium",
         "high",
     ];
-    const oauthBuiltinProviderIds = new Set([
-        "openai-codex",
-        "google-gemini-cli",
-        "google-antigravity",
-        "github-copilot",
-    ]);
-
     $: copy = COPY[$locale] ?? COPY["en-US"];
 
     // Reactive derivations. The helper functions read activeProviderTab /
@@ -463,6 +517,10 @@
         activeProviderTab,
         providerSearch,
         getSelectedProviderInActiveTab());
+    $: selectedProviderQuickAuth =
+        (providerAuthProviders,
+        selectedProviderDetail,
+        providerAuthProviders.find((provider) => provider.id === selectedProviderDetail?.id));
     let modelSearch = "";
     let modelTab: "builtin" | "custom" = "builtin";
     let sortActiveFirst = true;
@@ -510,6 +568,9 @@
             case "minimax":
             case "minimax-cn":
                 return "MINIMAX_API_KEY";
+            case "moonshotai":
+            case "moonshotai-cn":
+                return "MOONSHOT_API_KEY";
             case "huggingface":
                 return "HUGGINGFACE_API_KEY";
             default:
@@ -517,8 +578,21 @@
         }
     }
 
-    function builtinAuthGuide(providerId: string): BuiltinAuthGuide {
+    function providerAuthIsTerminal(state: DesktopProviderAuthSession["state"]): boolean {
+        return ["done", "failed", "cancelled", "expired"].includes(state);
+    }
+
+    function builtinAuthGuide(providerId: string, interactiveAuth?: DesktopProviderAuthItem): BuiltinAuthGuide {
         const guides = copy.authGuides;
+        if (interactiveAuth) {
+            return {
+                mode: "oauth",
+                modeLabel: copy.providerAuthTitle,
+                summary: copy.providerAuthHint,
+                tokenHint: copy.providerAuthDialogHint,
+                steps: [],
+            };
+        }
         const guideTemplate = providerId === "openai-codex" ? guides["openai-codex"]
             : providerId === "google-gemini-cli" ? guides["google-gemini-cli"]
             : providerId === "google-antigravity" ? guides["google-antigravity"]
@@ -1045,13 +1119,6 @@
         return builtinProviders.some((row) => row.id === provider.id);
     }
 
-    function isOauthBuiltinProvider(provider: CustomProviderForm): boolean {
-        return (
-            isBuiltinProvider(provider) &&
-            oauthBuiltinProviderIds.has(provider.id)
-        );
-    }
-
     function getVisibleModelsList(
         provider: CustomProviderForm,
         tab: "builtin" | "custom",
@@ -1432,6 +1499,209 @@
         }
     }
 
+    async function providerAuthRequest<T extends { ok: true }>(path: string, init?: RequestInit): Promise<T> {
+        const response = await fetch(path, {
+            ...init,
+            headers: init?.body
+                ? { "Content-Type": "application/json", ...(init.headers ?? {}) }
+                : init?.headers,
+        });
+        const data = await response.json() as T | { ok: false; error?: string };
+        if (!response.ok || data.ok !== true) {
+            throw new Error("error" in data && data.error ? data.error : `Provider authentication failed (${response.status})`);
+        }
+        return data;
+    }
+
+    async function loadProviderAuth(): Promise<void> {
+        try {
+            const data = await providerAuthRequest<DesktopProviderAuthOverviewResponse>("/api/desktop/provider-auth");
+            providerAuthProviders = data.providers;
+        } catch (cause) {
+            providerAuthError = cause instanceof Error ? cause.message : String(cause);
+        }
+    }
+
+    async function startProviderAuth(providerId: string): Promise<void> {
+        if (providerAuthBusy) return;
+        const generation = ++providerAuthPollGeneration;
+        providerAuthBusy = providerId;
+        providerAuthError = "";
+        providerAuthAnswer = "";
+        providerAuthCopiedCode = "";
+        try {
+            const data = await providerAuthRequest<DesktopProviderAuthSessionResponse>("/api/desktop/provider-auth", {
+                method: "POST",
+                body: JSON.stringify({ providerId }),
+            });
+            providerAuthSession = data.session;
+            void pollProviderAuth(data.session.id, generation);
+        } catch (cause) {
+            providerAuthError = cause instanceof Error ? cause.message : String(cause);
+            error = providerAuthError;
+        } finally {
+            providerAuthBusy = "";
+        }
+    }
+
+    async function pollProviderAuth(sessionId: string, generation: number): Promise<void> {
+        while (generation === providerAuthPollGeneration && providerAuthSession?.id === sessionId) {
+            if (providerAuthIsTerminal(providerAuthSession.state)) {
+                await loadProviderAuth();
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            if (generation !== providerAuthPollGeneration || providerAuthSession?.id !== sessionId) return;
+            try {
+                const data = await providerAuthRequest<DesktopProviderAuthSessionResponse>(`/api/desktop/provider-auth/sessions/${encodeURIComponent(sessionId)}`);
+                providerAuthSession = data.session;
+            } catch (cause) {
+                if (generation !== providerAuthPollGeneration) return;
+                providerAuthError = cause instanceof Error ? cause.message : String(cause);
+                return;
+            }
+        }
+    }
+
+    async function answerProviderAuth(value = providerAuthAnswer): Promise<void> {
+        const active = providerAuthSession;
+        if (!active?.prompt || providerAuthBusy) return;
+        providerAuthBusy = active.providerId;
+        providerAuthError = "";
+        try {
+            const data = await providerAuthRequest<DesktopProviderAuthSessionResponse>(`/api/desktop/provider-auth/sessions/${encodeURIComponent(active.id)}/answer`, {
+                method: "POST",
+                body: JSON.stringify({ promptId: active.prompt.id, value }),
+            });
+            providerAuthSession = data.session;
+            providerAuthAnswer = "";
+        } catch (cause) {
+            providerAuthError = cause instanceof Error ? cause.message : String(cause);
+        } finally {
+            providerAuthBusy = "";
+        }
+    }
+
+    /**
+     * Send one real request through the stored credential. "Signed in" only
+     * means a credential exists; this is what proves it reaches the model.
+     */
+    async function verifyProviderAuth(providerId: string): Promise<void> {
+        if (providerAuthVerifying) return;
+        providerAuthVerifying = providerId;
+        providerAuthError = "";
+        try {
+            const data = await providerAuthRequest<{ ok: true; result: { ok: boolean; providerId: string; modelId: string; elapsedMs: number; reply?: string; error?: string } }>(
+                "/api/desktop/provider-auth/verify",
+                { method: "POST", body: JSON.stringify({ providerId }) },
+            );
+            providerAuthVerified = { ...providerAuthVerified, [providerId]: data.result };
+        } catch (cause) {
+            providerAuthError = cause instanceof Error ? cause.message : String(cause);
+        } finally {
+            providerAuthVerifying = "";
+        }
+    }
+
+    async function closeProviderAuth(): Promise<void> {
+        const active = providerAuthSession;
+        ++providerAuthPollGeneration;
+        providerAuthSession = null;
+        providerAuthAnswer = "";
+        providerAuthError = "";
+        if (!active || providerAuthIsTerminal(active.state)) return;
+        try {
+            await providerAuthRequest<DesktopProviderAuthSessionResponse>(`/api/desktop/provider-auth/sessions/${encodeURIComponent(active.id)}`, { method: "DELETE" });
+        } catch {
+            // Closing the dialog is still complete if the session expired or the service stopped.
+        }
+    }
+
+    function providerAuthFocusTrap(node: HTMLElement): { destroy: () => void } {
+        const previousFocus = document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        const focusableSelector = [
+            "a[href]",
+            "button:not([disabled])",
+            "input:not([disabled])",
+            "select:not([disabled])",
+            "textarea:not([disabled])",
+            '[tabindex]:not([tabindex="-1"])',
+        ].join(",");
+        const focusFirst = () => {
+            const first = node.querySelector<HTMLElement>(focusableSelector);
+            (first ?? node).focus();
+        };
+        const handleKeydown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                void closeProviderAuth();
+                return;
+            }
+            if (event.key !== "Tab") return;
+            const focusable = [...node.querySelectorAll<HTMLElement>(focusableSelector)]
+                .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+            if (focusable.length === 0) {
+                event.preventDefault();
+                node.focus();
+                return;
+            }
+            const first = focusable[0]!;
+            const last = focusable[focusable.length - 1]!;
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+
+        queueMicrotask(focusFirst);
+        node.addEventListener("keydown", handleKeydown);
+        return {
+            destroy: () => {
+                node.removeEventListener("keydown", handleKeydown);
+                if (previousFocus?.isConnected) previousFocus.focus();
+            },
+        };
+    }
+
+    async function logoutProviderAuth(providerId: string): Promise<void> {
+        if (providerAuthBusy) return;
+        providerAuthBusy = providerId;
+        providerAuthError = "";
+        try {
+            await providerAuthRequest<{ ok: true; removed: boolean }>(`/api/desktop/provider-auth/credentials/${encodeURIComponent(providerId)}`, { method: "DELETE" });
+            await loadProviderAuth();
+        } catch (cause) {
+            providerAuthError = cause instanceof Error ? cause.message : String(cause);
+            error = providerAuthError;
+        } finally {
+            providerAuthBusy = "";
+        }
+    }
+
+    function openProviderAuthUrl(rawUrl: string): void {
+        try {
+            const parsed = new URL(rawUrl);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Unsupported authorization URL");
+            window.open(parsed.href, "_blank", "noopener,noreferrer");
+        } catch (cause) {
+            providerAuthError = cause instanceof Error ? cause.message : String(cause);
+        }
+    }
+
+    async function copyProviderAuthCode(code: string): Promise<void> {
+        try {
+            await navigator.clipboard.writeText(code);
+            providerAuthCopiedCode = code;
+        } catch (cause) {
+            providerAuthError = cause instanceof Error ? cause.message : String(cause);
+        }
+    }
+
     async function loadAll(): Promise<void> {
         loading = true;
         error = "";
@@ -1659,7 +1929,13 @@
         }
     }
 
-    onMount(loadAll);
+    onMount(() => {
+        void loadAll();
+        void loadProviderAuth();
+        return () => {
+            ++providerAuthPollGeneration;
+        };
+    });
 </script>
 
 
@@ -1758,7 +2034,8 @@
                                 <Input bind:value={cp.name} />
                             </label>
                             {#if isBuiltinProvider(cp)}
-                                {@const authGuide = builtinAuthGuide(cp.id)}
+                                {@const interactiveAuth = selectedProviderQuickAuth?.id === cp.id ? selectedProviderQuickAuth : undefined}
+                                {@const authGuide = builtinAuthGuide(cp.id, interactiveAuth)}
                                 <div class="providers-detail-notice md:col-span-2">
                                     {copy.builtinNotice}
                                 </div>
@@ -1768,6 +2045,34 @@
                                         <span class="providers-detail-auth-badge">{authGuide.modeLabel}</span>
                                     </div>
                                     <p class="providers-detail-auth-summary">{authGuide.summary}</p>
+                                    {#if interactiveAuth}
+                                        <div class="providers-auth-connect">
+                                            <div class="providers-auth-connect-copy">
+                                                <span class:providers-auth-connected={Boolean(interactiveAuth.credential)}>{interactiveAuth.credential ? copy.providerAuthConnected : copy.providerAuthNotConnected}</span>
+                                                <small>{interactiveAuth.effectiveAuth?.source ? copy.providerAuthEffective.replace("{source}", interactiveAuth.effectiveAuth.source) : copy.providerAuthHint}</small>
+                                            </div>
+                                            <div class="providers-auth-connect-actions">
+                                                {#if interactiveAuth.credential}
+                                                    <button type="button" class="providers-btn-outline" disabled={Boolean(providerAuthBusy)} onclick={() => void logoutProviderAuth(cp.id)}>{copy.providerAuthSignOut}</button>
+                                                {/if}
+                                                {#if interactiveAuth.credential}
+                                                    <button type="button" class="providers-btn-outline" disabled={Boolean(providerAuthVerifying)} onclick={() => void verifyProviderAuth(cp.id)}>{providerAuthVerifying === cp.id ? copy.providerAuthVerifying : copy.providerAuthVerify}</button>
+                                                {/if}
+                                                <button type="button" class="providers-btn-primary-sm" disabled={Boolean(providerAuthBusy)} onclick={() => void startProviderAuth(cp.id)}>{providerAuthBusy === cp.id ? copy.loading : copy.providerAuthSignIn}</button>
+                                            </div>
+                                        </div>
+                                        {#if providerAuthVerified[cp.id]}
+                                            {@const verdict = providerAuthVerified[cp.id]}
+                                            <p class="providers-auth-verdict" class:providers-auth-verdict-ok={verdict.ok}>
+                                                {verdict.ok
+                                                    ? copy.providerAuthVerifyOk.replace("{model}", verdict.modelId).replace("{ms}", String(verdict.elapsedMs))
+                                                    : `${copy.providerAuthVerifyFailed.replace("{model}", verdict.modelId)} — ${verdict.error ?? ""}`}
+                                            </p>
+                                        {/if}
+                                        {#if interactiveAuth.apiKeyOverride}
+                                            <p class="providers-auth-shadow-warning">{copy.providerAuthOverrideWarning}</p>
+                                        {/if}
+                                    {/if}
                                     {#if authGuide.command}
                                         <p class="providers-detail-auth-text">
                                             {copy.loginCmdLabel} <code class="providers-detail-auth-code">{authGuide.command}</code>
@@ -1781,11 +2086,13 @@
                                             {copy.envVarLabel} <code class="providers-detail-auth-code">{authGuide.envVar}</code>
                                         </p>
                                     {/if}
-                                    <ol class="providers-detail-auth-steps">
-                                        {#each authGuide.steps as step}
-                                            <li>{step}</li>
-                                        {/each}
-                                    </ol>
+                                    {#if authGuide.steps.length > 0}
+                                        <ol class="providers-detail-auth-steps">
+                                            {#each authGuide.steps as step}
+                                                <li>{step}</li>
+                                            {/each}
+                                        </ol>
+                                    {/if}
                                     {#if authGuide.links && authGuide.links.length > 0}
                                         <div class="providers-detail-auth-links">
                                             {#each authGuide.links as link}
@@ -1794,26 +2101,26 @@
                                         </div>
                                     {/if}
                                 </div>
-                                {#if isOauthBuiltinProvider(cp)}
-                                    <div class="providers-detail-oauth-notice md:col-span-2">
-                                        {copy.oauthNotice}
+                                <!--
+                                    The API-key override stays visible for OAuth providers too. Hiding it
+                                    did not disable it: a key saved earlier still wins over the stored
+                                    credential inside pi, so hiding the field only made that precedence
+                                    invisible. The quick sign-in card warns when both are present.
+                                -->
+                                <label class="providers-detail-form-label md:col-span-2">
+                                    <span class="providers-detail-form-label-text">{copy.apiKeyOverrideLabel}</span>
+                                    <div class="providers-key-row">
+                                        <Input
+                                            class="providers-key-input"
+                                            bind:value={cp.apiKey}
+                                            type={showApiKey ? "text" : "password"}
+                                            placeholder={copy.apiKeyOverridePlaceholder}
+                                        />
+                                        <button type="button" class="providers-key-eye" onclick={() => showApiKey = !showApiKey} title={showApiKey ? "Hide" : "Show"}>
+                                            {showApiKey ? "🙈" : "👁"}
+                                        </button>
                                     </div>
-                                {:else}
-                                    <label class="providers-detail-form-label md:col-span-2">
-                                        <span class="providers-detail-form-label-text">{copy.apiKeyOverrideLabel}</span>
-                                        <div class="providers-key-row">
-                                            <Input
-                                                class="providers-key-input"
-                                                bind:value={cp.apiKey}
-                                                type={showApiKey ? "text" : "password"}
-                                                placeholder={copy.apiKeyOverridePlaceholder}
-                                            />
-                                            <button type="button" class="providers-key-eye" onclick={() => showApiKey = !showApiKey} title={showApiKey ? "Hide" : "Show"}>
-                                                {showApiKey ? "🙈" : "👁"}
-                                            </button>
-                                        </div>
-                                    </label>
-                                {/if}
+                                </label>
                             {:else}
                                 <label
                                     class="providers-detail-form-label md:col-span-2 xl:col-span-1"
@@ -2188,6 +2495,82 @@
                 </div>
             </section>
         </form>
+    {/if}
+
+    {#if providerAuthSession}
+        {@const authSession = providerAuthSession}
+        <div class="providers-modal-backdrop" onclick={(event) => { if (event.target === event.currentTarget) void closeProviderAuth(); }} role="presentation">
+            <div use:providerAuthFocusTrap class="providers-modal-card providers-auth-modal" role="dialog" aria-modal="true" aria-labelledby="provider-auth-modal-title" aria-describedby="provider-auth-modal-description" tabindex="-1">
+                <div class="providers-auth-modal-head">
+                    <div>
+                        <h3 id="provider-auth-modal-title" class="providers-modal-title">{providerAuthProviders.find((provider) => provider.id === authSession.providerId)?.loginLabel ?? copy.providerAuthTitle}</h3>
+                        <p id="provider-auth-modal-description">{copy.providerAuthDialogHint}</p>
+                    </div>
+                    <button type="button" class="providers-auth-close" aria-label={copy.closeBtn} onclick={() => void closeProviderAuth()}>×</button>
+                </div>
+
+                {#if authSession.state === "done"}
+                    <div class="providers-auth-terminal providers-auth-terminal--success"><span aria-hidden="true">✓</span><strong>{copy.providerAuthDone}</strong></div>
+                {:else if authSession.state === "failed"}
+                    <div class="providers-auth-terminal providers-auth-terminal--danger"><span aria-hidden="true">!</span><strong>{copy.providerAuthFailed}</strong><small>{authSession.error ?? providerAuthError}</small></div>
+                {:else if authSession.state === "cancelled"}
+                    <div class="providers-auth-terminal"><span aria-hidden="true">×</span><strong>{copy.providerAuthCancelled}</strong></div>
+                {:else if authSession.state === "expired"}
+                    <div class="providers-auth-terminal providers-auth-terminal--danger"><span aria-hidden="true">!</span><strong>{copy.providerAuthExpired}</strong></div>
+                {:else}
+                    <div class="providers-auth-waiting"><span aria-hidden="true"></span>{copy.providerAuthWaiting}</div>
+
+                    {#if authSession.authUrl}
+                        <section class="providers-auth-step">
+                            <p>{authSession.authUrl.instructions ?? copy.providerAuthOpenBrowser}</p>
+                            <button type="button" class="providers-btn-primary-sm" onclick={() => openProviderAuthUrl(authSession.authUrl!.url)}>{copy.providerAuthOpenBrowser} ↗</button>
+                        </section>
+                    {/if}
+
+                    {#if authSession.deviceCode}
+                        <section class="providers-auth-device">
+                            <span>{copy.providerAuthDeviceCode}</span>
+                            <code>{authSession.deviceCode.userCode}</code>
+                            <div>
+                                <button type="button" class="providers-btn-outline" onclick={() => void copyProviderAuthCode(authSession.deviceCode!.userCode)}>{providerAuthCopiedCode === authSession.deviceCode.userCode ? copy.providerAuthCodeCopied : copy.providerAuthCopyCode}</button>
+                                <button type="button" class="providers-btn-primary-sm" onclick={() => openProviderAuthUrl(authSession.deviceCode!.verificationUri)}>{copy.providerAuthOpenBrowser} ↗</button>
+                            </div>
+                        </section>
+                    {/if}
+
+                    {#if authSession.prompt}
+                        <section class="providers-auth-prompt">
+                            <strong>{authSession.prompt.message}</strong>
+                            {#if authSession.prompt.type === "select"}
+                                <div class="providers-auth-options">
+                                    {#each authSession.prompt.options ?? [] as option (option.id)}
+                                        <button type="button" class="providers-auth-option" disabled={Boolean(providerAuthBusy)} onclick={() => void answerProviderAuth(option.id)}><span>{option.label}</span>{#if option.description}<small>{option.description}</small>{/if}<b aria-hidden="true">›</b></button>
+                                    {/each}
+                                </div>
+                            {:else}
+                                <form class="providers-auth-answer" onsubmit={(event) => { event.preventDefault(); void answerProviderAuth(); }}>
+                                    <Input type={authSession.prompt.type === "secret" ? "password" : "text"} bind:value={providerAuthAnswer} placeholder={authSession.prompt.placeholder ?? copy.providerAuthAnswerPlaceholder} autocomplete="off" />
+                                    <button type="submit" class="providers-btn-primary-sm" disabled={Boolean(providerAuthBusy) || (authSession.prompt.type !== "text" && !providerAuthAnswer.trim())}>{copy.providerAuthContinue}</button>
+                                </form>
+                            {/if}
+                        </section>
+                    {/if}
+
+                    {#if authSession.messages.length > 0}
+                        <div class="providers-auth-messages">
+                            {#each authSession.messages.slice(-4) as authMessage (authMessage.id)}
+                                <p>{authMessage.message}</p>
+                            {/each}
+                        </div>
+                    {/if}
+                {/if}
+
+                {#if providerAuthError}<p class="providers-auth-error">{providerAuthError}</p>{/if}
+                <div class="providers-modal-actions">
+                    <button type="button" class="providers-btn-outline" onclick={() => void closeProviderAuth()}>{providerAuthIsTerminal(authSession.state) ? copy.closeBtn : copy.cancelBtn}</button>
+                </div>
+            </div>
+        </div>
     {/if}
 
     <!-- ── Add Model Modal ── -->

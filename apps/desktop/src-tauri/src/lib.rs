@@ -10,7 +10,7 @@ use service::{ServiceOwnership, ServiceStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, Url, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -182,6 +182,22 @@ fn open_desktop_log(app: AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+fn validated_external_url(value: &str) -> Result<&str, String> {
+    let parsed = Url::parse(value).map_err(|_| "Invalid external URL".to_string())?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(value),
+        _ => Err("Only HTTP and HTTPS links can be opened".into()),
+    }
+}
+
+#[tauri::command]
+fn open_external_url(app: AppHandle, url: String) -> Result<(), String> {
+    let safe_url = validated_external_url(&url)?;
+    app.opener()
+        .open_url(safe_url, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
 fn close_to_hide_window_labels() -> [&'static str; 1] {
     ["chat"]
 }
@@ -239,6 +255,7 @@ pub fn run() {
             desktop_logs,
             desktop_log_path,
             open_desktop_log,
+            open_external_url,
             audio::start_recording,
             audio::stop_recording,
             audio::cancel_recording
@@ -287,10 +304,18 @@ pub fn run() {
 
 #[cfg(test)]
 mod window_close_tests {
-    use super::close_to_hide_window_labels;
+    use super::{close_to_hide_window_labels, validated_external_url};
 
     #[test]
     fn close_to_hide_covers_chat_window() {
         assert_eq!(close_to_hide_window_labels(), ["chat"]);
+    }
+
+    #[test]
+    fn external_url_validation_allows_web_links_only() {
+        assert!(validated_external_url("https://example.com/oauth").is_ok());
+        assert!(validated_external_url("http://localhost:1455/auth/callback").is_ok());
+        assert!(validated_external_url("file:///tmp/secret").is_err());
+        assert!(validated_external_url("javascript:alert(1)").is_err());
     }
 }

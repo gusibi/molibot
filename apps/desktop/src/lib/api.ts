@@ -86,6 +86,12 @@ import type {
   DesktopProviderMutationResponse,
   DesktopProviderTestResponse,
   DesktopProviderUpdateRequest,
+  DesktopProviderAuthAnswerRequest,
+  DesktopProviderAuthLogoutResponse,
+  DesktopProviderAuthOverviewResponse,
+  DesktopProviderAuthSession,
+  DesktopProviderAuthSessionResponse,
+  DesktopProviderAuthVerifyResponse,
   DesktopRunHistoryItem,
   DesktopRunHistoryResponse,
   DesktopSandboxResponse,
@@ -748,6 +754,80 @@ export function normalizeDesktopTaskSession(session: {
 export async function loadDesktopProviders(endpoint: string): Promise<DesktopProvidersSummary> {
   const payload = await requestJson<DesktopProvidersResponse>(endpoint, "/api/desktop/providers");
   return payload.summary;
+}
+
+export async function loadDesktopProviderAuth(endpoint: string): Promise<DesktopProviderAuthOverviewResponse["providers"]> {
+  const payload = await requestJson<DesktopProviderAuthOverviewResponse>(endpoint, "/api/desktop/provider-auth");
+  return payload.providers;
+}
+
+export async function startDesktopProviderAuth(endpoint: string, providerId: string): Promise<DesktopProviderAuthSession> {
+  const payload = await requestJson<DesktopProviderAuthSessionResponse>(endpoint, "/api/desktop/provider-auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ providerId })
+  });
+  return payload.session;
+}
+
+export async function loadDesktopProviderAuthSession(endpoint: string, sessionId: string): Promise<DesktopProviderAuthSession> {
+  const payload = await requestJson<DesktopProviderAuthSessionResponse>(
+    endpoint,
+    `/api/desktop/provider-auth/sessions/${encodeURIComponent(sessionId)}`
+  );
+  return payload.session;
+}
+
+export async function answerDesktopProviderAuth(
+  endpoint: string,
+  sessionId: string,
+  answer: DesktopProviderAuthAnswerRequest
+): Promise<DesktopProviderAuthSession> {
+  const payload = await requestJson<DesktopProviderAuthSessionResponse>(
+    endpoint,
+    `/api/desktop/provider-auth/sessions/${encodeURIComponent(sessionId)}/answer`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(answer)
+    }
+  );
+  return payload.session;
+}
+
+export async function cancelDesktopProviderAuth(endpoint: string, sessionId: string): Promise<DesktopProviderAuthSession> {
+  const payload = await requestJson<DesktopProviderAuthSessionResponse>(
+    endpoint,
+    `/api/desktop/provider-auth/sessions/${encodeURIComponent(sessionId)}`,
+    { method: "DELETE" }
+  );
+  return payload.session;
+}
+
+export async function verifyDesktopProviderAuth(
+  endpoint: string,
+  providerId: string,
+  model?: string
+): Promise<DesktopProviderAuthVerifyResponse["result"]> {
+  const payload = await requestJson<DesktopProviderAuthVerifyResponse>(
+    endpoint,
+    "/api/desktop/provider-auth/verify",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ providerId, model })
+    }
+  );
+  return payload.result;
+}
+
+export async function logoutDesktopProviderAuth(endpoint: string, providerId: string): Promise<boolean> {
+  const payload = await requestJson<DesktopProviderAuthLogoutResponse>(
+    endpoint,
+    `/api/desktop/provider-auth/credentials/${encodeURIComponent(providerId)}`,
+    { method: "DELETE" }
+  );
+  return payload.removed;
 }
 
 export interface DesktopAgentTemplateSummary {
