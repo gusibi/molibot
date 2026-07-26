@@ -11,6 +11,116 @@
 
 ---
 
+# 2026-07-25 — Provider OAuth quick-connect implementation
+
+## Phase 1: baseline and contract audit
+- **Status:** complete
+- Read the required planning and frontend implementation skills plus the authoritative `DESIGN.md` settings rules.
+- Preserved the dirty worktree and appended task-specific records rather than replacing existing planning history.
+- Confirmed the 0.81 runtime/provider baseline and inspected the published 0.82 package artifact without changing project dependencies.
+- Confirmed Kimi Code and OpenRouter OAuth are new in 0.82 and that Kimi uses the already-planned device-code UI state.
+
+## Phase 2: pi 0.82 and shared login service
+- **Status:** complete
+- Upgraded `pi-agent-core`, `pi-ai`, and `pi-coding-agent` together to 0.82.
+- Replaced the dead string-only login helper with a provider-level session manager that preserves typed prompts/options, assigns opaque session/prompt IDs, honors login and per-prompt abort signals, bounds progress events, extends device-code expiry, retains terminal snapshots, rejects duplicate provider logins, and serializes logout against late completion.
+- Added safe provider credential/effective-auth metadata without returning stored credential contents.
+- Added focused regressions for select/text/manual/secret handling, blank Copilot domain input, stale answers, 15-minute device codes, callback-won prompt abort, cancellation, duplicate login, logout race, and secret-free status.
+
+## Phase 3: credential-safe HTTP and Desktop transport
+- **Status:** complete
+- Added shared response contracts plus narrow overview/start/poll/answer/cancel/logout routes with no-store responses and stable machine error mapping.
+- Added Desktop transport functions, a sequential one-second polling store, explicit nested-route HTTP capability entries, and an HTTP(S)-only native external-link command.
+
+## Phase 4: Web and Desktop settings UI
+- **Status:** complete
+- Added registry-driven sign-in cards and typed login dialogs to both surfaces. The UI supports auth URLs, RFC 8628 device codes, provider select options, blank text answers, secret/manual input, progress, terminal states, cancellation, and logout.
+- Added Chinese/English copy plus responsive light/dark semantic styles. Kimi Coding now has three current registry models and direct device-code login; Moonshot global/China show their `MOONSHOT_API_KEY` path.
+
+## Phase 5: verification and handoff
+- **Status:** complete
+- Passed focused OAuth/credential/provider-auth/Desktop transport tests (91/91), Desktop Svelte diagnostics (0 errors, 0 warnings), Root production build, Desktop production build, and Rust tests (23/23).
+- Isolated browser smoke proved the seven-provider secret-free overview, real Kimi device-code rendering, cancellation, immediate Chinese/English switching, 390px no-overflow layout, dark theme, and service restart recovery.
+- Updated PRD, feature record, changelog, README, and this task's planning records.
+
+## Test results
+| Test | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Active 0.81 OAuth registry probe | Five known OAuth providers | anthropic, github-copilot, openai-codex, radius, xai | pass |
+| Published 0.82 registry probe | Adds Kimi Code and OpenRouter OAuth | Seven providers, including kimi-coding and openrouter | pass |
+| OAuth session + credential regressions | Typed state machine and persistence stay correct | 12/12 pass on bundled Node 22.23.1 | pass |
+| OAuth + credential + Desktop transport suite | Narrow routes and client methods stay correct | 91/91 pass | pass |
+| Desktop Svelte diagnostics | No UI/type regressions | 0 errors / 0 warnings | pass |
+| Root/Desktop production builds | Both surfaces compile for release | pass / pass | pass |
+| Desktop Rust suite | Safe URL opener and existing native behavior | 23/23 pass | pass |
+| Isolated cold-path browser smoke | Kimi, cancel, i18n, dark, mobile, restart | all observed | pass |
+
+## Error log
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| pnpm reported Node 22.15.1 during install | 1 | The package change completed; all verification now invokes the repository's bundled Node 22.23.1 executable explicitly. |
+| Root workspace has no direct `svelte-check` binary | 1 | Used the Root production build for Web Svelte compilation and the Desktop package's dedicated checker; both passed. |
+| Initial smoke inherited configured channel environment | 1 | Stopped it immediately and reran from a fresh temporary HOME/DATA_DIR/DB_DIR under an empty environment; no configured channel started in the authoritative smoke. |
+| Broad Desktop/API run hit SQLite `bm25` context failure in `sessions/store.test.ts` | 2 | The same unrelated search-index test also fails in isolation and none of its files are changed by this slice; record it without expanding the Provider-auth scope. The other 237 broad tests passed. |
+
+---
+
+# 2026-07-24 — Review fixes and release
+
+## Phase 1: Baseline and regressions
+- **Status:** complete
+- Loaded the runtime-review, file-planning, and release workflows.
+- Preserved the existing dirty worktree and append-only planning history.
+- Confirmed the release includes the current uncommitted settings-overlay, palette, and per-session model work plus the requested fixes.
+- Confirmed version baseline `2.6.4` / `0.6.1`; selected `2.6.5` / `0.6.2` by the release decimal carry rule.
+- Added focused guards and observed the intended red failures for multipart normalization, nested Escape, and optimistic cache ordering/draft save swallowing.
+
+## Test results
+| Test | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Focused red regressions | Three accepted failures reproduced | All three failed on the intended old behavior | pass |
+| Focused green regressions | Multipart, Escape, model-save ordering/retry pass | 4/4 pass | pass |
+| Desktop Svelte diagnostics | 0 errors / 0 warnings | 0 / 0 | pass |
+| Desktop structural UI | All current guards pass | 84/84 | pass |
+
+## Phase 2: Surgical implementation
+- **Status:** complete
+- Nested Dialog Escape no longer reaches the Settings overlay close path.
+- Multipart omits absent `modelKey` instead of converting it to an explicit empty value.
+- Existing-session model caches commit only after persistence succeeds on both chat surfaces.
+- Draft-session model persistence is awaited before activation/first send; failures restore the composer for retry.
+- Updated the existing palette guards to match the current authoritative DESIGN values, removing the two known-red Desktop UI checks before release.
+
+## Error log
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing planning files contain extensive prior task history | 1 | Appended a dated task section; did not rewrite prior records. |
+| Desktop check could not find `../apps/desktop/src-tauri/...` from the Desktop workdir | 1 | Correct the command to the package-relative bundled Node path. |
+| Focused UI rerun again used the root-relative bundled Node path from Desktop workdir | 2 | Standardize remaining Desktop-local invocations on `src-tauri/binaries/...`; Svelte check in the same call still passed 0/0. |
+| Root build passed, then the Desktop build command could not resolve `src-tauri/binaries/...` from repository root | 1 | Preserve the successful root result and rerun only Desktop with `apps/desktop/src-tauri/...`. |
+
+## Phase 3: Verification and adversarial review
+- **Status:** complete
+- Passed affected API/model tests 83/83, Desktop logic tests 51/51, Rust tests 20/20, focused Session-model SQLite round-trip 1/1, HTTP/reactivity guards 3/3, root production build, and Desktop production build.
+- The adversarial pass added Session-ownership guards so an async model save cannot overwrite a different Session's visible selector.
+- Cold browser smoke verified Settings Escape returns to the mounted Chat shell and the 1280px document has no horizontal overflow. The preview lacks Tauri's service bridge, so nested data-backed Dialog behavior remains machine-guarded rather than claimed as live evidence.
+- Isolated backend smoke verified healthy startup, observable interruption, and healthy restart using `/tmp/molibot-release-2.6.5`.
+- Synchronized release versions to root `2.6.5` and Desktop/Tauri/Cargo `0.6.2`; updated README, PRD, features, and CHANGELOG records.
+
+## Phase 4: Publish
+- **Status:** in progress
+- Next: final diff/version/security audit, release commit, `v2.6.5` tag, push, GitHub Release, and remote verification.
+
+## Additional error log
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Settings-overlay locator lost focus while dispatching Escape | 1 | Refreshed state and used the unique settings search textbox; Escape closed only Settings and left Chat mounted. |
+| A sandboxed curl could not observe the escalated host-network service | 1 | Used the approved host-network health probe for all lifecycle assertions. |
+| Final version audit invoked unavailable system `node` | 1 | Re-run the same read-only audit with the bundled Desktop Node binary. |
+| `gh release create` could not run because `gh` is absent | 1 | Fall back to the authenticated GitHub Releases API using the configured Git credential helper. |
+
+---
+
 # 2026-07-21 — pi-mono 0.81 implementation
 
 ## Phase 1: baseline and scope
@@ -1478,3 +1588,70 @@
 - `git diff --check` passes. No product source, dependency manifest, lockfile, or product release record was changed.
 - Adversarial review added settings-snapshot invalidation plus atomic/cross-process credential locking requirements.
 - The planning skill's checker was invoked via `bash`; its simple global parser cannot interpret this repository's accumulated numbered phase lists and returned a false incomplete result. The current task section itself marks all five phases complete, and `git diff --check` passes.
+
+---
+
+## Session: 2026-07-26 — Remaining pi-agent parity analysis
+
+### Phase 1: Baseline and history
+- **Status:** complete
+- Actions taken:
+  - Read the agent-runtime review and file-based planning instructions.
+  - Confirmed the existing accumulated planning files and preserved their content.
+  - Inspected the worktree and current PRD/features/changelog references for the four residual items.
+  - Recovered from one atomic patch-context mismatch; no partial modification occurred.
+  - Traced session headers/entries, flat Web/Desktop session contracts, Runner skill tracking, and approval scope concepts.
+  - Confirmed the exact `python3 -m json.tool` downgrade path and checked current process/source references to the historical pi binaries without deleting them.
+  - Verified `git diff --check`, mapped multi-slice files, and identified that commit separation requires hunk-level staging rather than whole-file grouping.
+  - Compared pi's separate `SessionRepo.fork` and in-session `navigateTree`/`branch_summary` semantics with Molibot's linear context builder.
+  - Completed an adversarial review of persistence, race, search/memory duplication, security inheritance, deletion, attachments, and compaction risks.
+  - Defined the recommended commit recovery order, Session V1 cut, deferred `allowed-tools` guardrails, command-classifier decision rule, and cleanup boundary.
+  - Ran the planning checker; it returned its known false-incomplete result because the shared plan uses numbered phase rows. Recorded the limitation without rewriting prior task history.
+- Files created/modified:
+  - `task_plan.md` (appended analysis plan)
+  - `findings.md` (appended initial evidence)
+  - `progress.md` (appended session log)
+
+### Test results
+| Check | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Analysis scope | No product-code changes | Only planning records touched by this analysis so far | pass |
+| Worktree formatting | No whitespace errors | `git diff --check` passed | pass |
+| Product implementation | None requested in this turn | No product code changed by this analysis | pass |
+
+---
+
+## Session: 2026-07-26 — Review, commit, and Session fork implementation
+
+### Phases 1–3: Review, repair, verify, and commit baseline
+- **Status:** complete
+- Actions taken:
+  - Read the runtime-review and planning instructions.
+  - Defined the review, commit, and follow-on Session-fork gates.
+  - Inspected recurring pitfalls, the complete dirty-path inventory, diff health, and current Node/runtime mismatch.
+  - Located and pinned verification to bundled Node 22.23.1.
+  - Ran Desktop full tests: 87/87 JS/UI and 23/23 Rust passed.
+  - Reviewed OAuth manager/API/connectivity code and identified one concurrency release blocker involving pre-settlement retention.
+  - Reviewed Runner overflow/retry, compaction, and Host Bash pipeline changes; identified a silent-success control-flow miss and a persistent-grant security broadening.
+  - Confirmed Host Bash grants are global tool-level entries; reviewed file-op helpers and Provider-auth UI/API error paths, adding one security and two hardening/accessibility findings.
+- Files created/modified:
+  - `task_plan.md`, `findings.md`, `progress.md` (appended current task records)
+
+### Test results
+| Check | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Agent full suite | No runtime regressions | 514/514 passed | pass |
+| Desktop API suite | Shared app contracts remain compatible | 214/214 passed | pass |
+| Desktop UI / native | UI and native behavior remain green | 87/87 JS/UI and 23/23 Rust passed | pass |
+| Svelte diagnostics | No Desktop type/template diagnostics | 0 errors, 0 warnings | pass |
+| Production builds | Root and Desktop compile | Both passed | pass |
+| Diff hygiene | No whitespace errors | `git diff --check` passed | pass |
+
+### Review fixes and baseline commits
+- Added red/green regressions for OAuth cancellation retention, Provider-auth credential redaction, successful-looking silent overflow, compacted retry baselines, stale previous-answer reuse, file-list budget/injection, and multi-capability pipeline grants.
+- Added keyboard focus containment and restoration to the new Web Provider-auth modal.
+- Created `codex/pi-parity-review` and committed the reviewed baseline as four product slices:
+  - `eb39c344 feat(agent): align pi runtime and harden execution`
+  - `23ef8db6 feat(settings): add provider OAuth quick connect`
+  - `7df28027 fix(host-bash): bound approval waits and grants`
+  - `0246c8b5 fix(desktop): align dark semantic surfaces`

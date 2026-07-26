@@ -23,11 +23,90 @@ Complete
 ## Errors encountered
 | Error | Attempt | Resolution |
 | --- | --- | --- |
+| Parallel test poll queried sessions after both processes had already completed | 1 | Treat the captured complete Desktop output as final; rerun Agent with the dot reporter to obtain an untruncated exit/result summary instead of polling closed sessions again. |
 | “1 + 2” was initially interpreted as a single merged page | 1 | User clarified that Option 1 is Overview and Option 2 is Topics; implementation now treats them as independent tabs. |
 | `rg` treated a search pattern beginning with `--` as a command flag | 1 | Re-ran with `rg -e` and the same literal alternatives; source inspection completed. |
 | Root `node_modules/.bin` does not expose `svelte-check` | 1 | Run the package-scoped `pnpm exec svelte-check` command instead of repeating the missing root binary path. |
 | Existing dialog structure test required `aria-label` on the memory form itself | 1 | Restored the form label while keeping the enclosing semantic dialog; no product behavior changed. |
 | New projection regression test initially called the fixture helper by the wrong name | 1 | Replaced `item(...)` with the existing `memory(...)` fixture and reran the unchanged assertion; 4/4 projection tests pass. |
+
+---
+
+# Provider OAuth quick-connect implementation (2026-07-25)
+
+## Goal
+Let Molibot users connect every OAuth-capable pi provider—including Kimi Code and OpenRouter—directly from Web and Desktop settings, with typed multi-step prompts, safe credential persistence, cancellation, logout, and automatic token refresh.
+
+## Current phase
+Complete — implementation, cold-path verification, and documentation finished
+
+## Phases
+1. Audit current dependency/UI diffs, provider contracts, API conventions, and historical auth behavior — complete
+2. Upgrade aligned pi packages to 0.82 and implement a tested shared login-session service — complete
+3. Add credential-safe HTTP contracts and provider-auth routes — complete
+4. Add responsive bilingual Web and Desktop login/logout dialogs plus safe external-link opening — complete
+5. Run focused/full tests, production builds, real cold-path smoke, documentation updates, and adversarial review — complete
+
+## Verification gates
+- Provider capabilities come from the active pi registry, not a hand-maintained OAuth allowlist; 0.82 exposes anthropic, github-copilot, kimi-coding, openai-codex, openrouter, radius, and xai.
+- Typed `text`, `secret`, `select`, and `manual_code` prompts preserve options and use prompt IDs so stale answers cannot advance a later step.
+- Device codes, auth URLs, prompt answers, access tokens, and refresh tokens are never written to normal logs or returned outside their opaque login session.
+- Cancel, prompt abort, expiry, terminal retention, duplicate-provider login, and login/logout races have machine guards.
+- Web and Desktop support browser callbacks, device codes, and manual redirects with Chinese/English, light/dark, keyboard, narrow-width, and fixed settings-action behavior preserved.
+- Credential status never returns secret material; login/logout is visible to the next model request without process restart.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Upgrade pi-ai and pi-coding-agent together to 0.82 | Kimi Code and OpenRouter OAuth are provided by 0.82; aligned runtime packages reduce contract skew. |
+| Keep login orchestration in the shared server identity/app layer | OAuth is provider/runtime behavior shared by Web and Desktop, not a channel concern. |
+| Poll a bounded snapshot with opaque session and prompt IDs | Login flows are short; this is simpler than a new SSE path while preventing stale prompt answers and global event exposure. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing planning files contain extensive unrelated user-owned history | 1 | Preserve all content and append this isolated dated section only. |
+| Dependency install inherited shell Node 22.15.1 despite a PATH prefix | 1 | Install completed without contract errors; use the explicit bundled Node 22.23.1 binary for every verification command rather than repeating the ineffective PATH assumption. |
+| Root workspace does not install `svelte-check` directly | 1 | Root `vite build` performs Svelte compilation; run the dedicated Desktop `svelte-check` package separately. Both passed. |
+| First smoke process inherited configured channels before isolation was complete | 1 | Stopped it immediately, restarted with a fresh temporary HOME/DATA_DIR/DB_DIR and an empty environment, then removed both temporary trees through Trash after the smoke. |
+| Broad Desktop/API run exposed an unrelated SQLite `bm25` context error | 2 | Confirmed it reproduces in the unchanged Session search test alone; kept it visible as an existing suite issue while the 91 focused Provider-auth tests remain green. |
+
+---
+
+# 2026-07-24 — Review fixes and release
+
+## Goal
+Fix the three accepted review findings (nested Escape handling, multipart session-model fallback, and failed model-save rollback), verify the affected cold paths, then publish the next synchronized Molibot release.
+
+## Current phase
+Phase 5 — publish and verify the synchronized release
+
+## Phases
+1. Confirm release/version baseline and add focused failing regressions — complete
+2. Implement the three surgical fixes — complete
+3. Run focused and full required verification, including adversarial review — complete
+4. Update product/release records and synchronize versions — complete
+5. Commit, tag, push, create GitHub Release, and verify remote state — pending
+
+## Verification gates
+- Escape consumed by a nested Dialog cannot close/unmount Settings; Escape with no nested overlay still closes Settings.
+- Missing multipart `modelKey` falls through to the persisted conversation model.
+- Failed existing-session and draft-session saves do not remain cached as persisted; the user receives an error and retry remains possible.
+- Desktop UI/API tests, Svelte diagnostics, production build, Rust tests, and relevant persistence tests pass before tagging.
+- Root/Desktop/Tauri/Cargo versions are synchronized; release commit, tag, pushed refs, and GitHub Release all agree.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing planning files contain unrelated task history | 1 | Preserve history and append this dated release section only. |
+| First Desktop check used a workspace-root-relative Node path from inside `apps/desktop` | 1 | Use the package-relative `src-tauri/binaries/...` path; do not repeat the invalid path. |
+| Focused Desktop UI rerun repeated the same root-relative bundled-Node path from `apps/desktop` | 2 | Stop mixing workdirs: all remaining Desktop-local commands use `src-tauri/binaries/...` only. |
+| Combined planning update patch missed the exact `findings.md` context | 1 | The patch was atomic; inspect task-section lines and update each file with exact context. |
+| Combined root/Desktop build used a Desktop-relative Node path while still in the root workdir | 1 | Root build completed; rerun only the Desktop build with its root-relative bundled Node path. |
+| Settings-overlay Escape dispatch through the overlay locator lost its focused target | 1 | Took fresh state and dispatched Escape through the unique settings search textbox; Settings closed and the main chat remained mounted. |
+| Sandboxed curl could not reach the host-network smoke service | 1 | Re-ran the health probe in the same approved host network; startup, interruption, and restart recovery all behaved as expected. |
+| Final version audit invoked unavailable system `node` | 1 | Use the repository's bundled Desktop Node binary, as required by the release workflow. |
+| GitHub CLI is not installed on the release host | 1 | Use the configured Git credential helper with GitHub's Releases API; never print or persist the token. |
 
 ---
 
@@ -2081,5 +2160,74 @@ Complete — evidence-backed report and adversarial review finished
 | Assumed generated provider catalogs existed as `src/providers/data/*.json` | 1 | Use `providers/all.ts` and changelog evidence; avoid an unnecessary aggregate model count. |
 | Planning skill completion script was not executable directly | 1 | Invoke it explicitly with `bash`; this is a local permission-bit issue, not a task failure. |
 | Completion script reported false incomplete on the accumulated root plan | 1 | The script only recognizes `### Phase` plus `**Status:** complete`, while this repository's shared plan uses numbered phase lists and contains older unrelated headings. Preserve prior history; verify this task from its explicit five completed phase rows and gates instead of rewriting old task records. |
+
+---
+
+# Remaining pi-agent parity analysis (2026-07-26)
+
+## Goal
+Verify the supplied completed/deferred list against the current tree, identify the dependency order and risks of the remaining work, and recommend the smallest safe next slices without changing product code.
+
+## Current phase
+Complete — evidence-backed continuation plan and adversarial review finished
+
+## Phases
+1. Confirm the current diff, PRD state, and prior fixes — complete
+2. Trace session persistence, event ancestry, UI projections, skill routing, and approval classification — complete
+3. Define independently shippable slices and verification gates — complete
+4. Adversarially review the proposal and rank the next actions — complete
+5. Deliver an evidence-backed continuation plan — complete
+
+## Verification gates
+- Distinguish a product-level session fork from runtime-event parentage and from pi's own branch/session storage.
+- Do not recommend a storage migration until the canonical session owner, old-data behavior, and rollback path are explicit.
+- Treat `allowed-tools` as an approval/trust-boundary change, not a parser-only task.
+- Do not broaden command recognition from a hypothetical curl pipeline; require a concrete command or a conservative, testable capability rule.
+- Preserve the user's existing uncommitted changes; analysis changes only the three planning files.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Initial combined inspection output exceeded the tool display limit | 1 | Narrow subsequent reads to exact PRD sections and named source seams; record only evidence relevant to the four remaining items. |
+| First three-file append patch did not match the accumulated `findings.md` tail | 1 | The patch was atomic; inspect the three real tails and append to each file separately without replacing existing history. |
+| Planning completion checker reported 1/5 complete | 1 | Its parser only recognizes `### Phase` plus separate status lines, while this accumulated plan uses numbered phase rows. The current section explicitly marks all five phases complete; preserve the shared history instead of rewriting it for the checker. |
+
+---
+
+# Review, commit, and Session fork implementation (2026-07-26)
+
+## Goal
+Review the full current dirty worktree for correctness and release-blocking bugs, fix and verify any findings, commit the green work in logical slices on a `codex/` branch, then implement the first production Session-fork slice as a new visible child Session.
+
+## Current phase
+Phase 4 — reviewed baseline committed; beginning the tested Session-fork slice
+
+## Phases
+1. Review current diffs, prior pitfalls, and run focused/full verification — complete
+2. Fix confirmed findings and rerun affected cold paths — complete
+3. Create a `codex/` branch and commit the reviewed baseline in logical slices — complete
+4. Implement tested cross-store Session fork, narrow API, and Desktop interaction — in progress
+5. Run full verification, cold-path review, documentation updates, adversarial review, and commit the Session slice — pending
+
+## Verification gates
+- No current modified or untracked product file is omitted from review or accidentally overwritten.
+- OAuth secrets never enter responses/logs; auth cancellation/refresh and Desktop link opening stay bounded.
+- Compaction preserves legal tool boundaries, split-turn context, cumulative file operations, CJK budgeting, and overflow retry limits.
+- Approval changes never turn statement sequences or arbitrary interpreters into persistent capabilities.
+- Every persistence test uses temporary/injectable stores; no real user settings/session/approval data is touched.
+- Session fork rejects active sources, preserves the parent, creates exactly one child, survives restart, and does not inherit grants/queue/run state.
+- Settings/UI changes retain bilingual, light/dark, responsive, fixed-footbar, and cold-start behavior.
+
+## Assumptions
+- “继续后续改动” means proceed with the previously recommended P1-A: a fork is a new visible child Session created before a selected user message.
+- Full in-Session multi-leaf navigation and generated branch summaries remain a later slice.
+- Confirmed bugs found during review are authorized for surgical repair before committing.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Agent test output exceeded the direct display budget | 1 | Reran with the dot reporter and a bounded tail under `pipefail`; captured 514/514 and exit 0. |
+| First parallel Desktop command used a path relative to the repository instead of `apps/desktop` | 1 | Corrected the runtime path to `src-tauri/binaries/molibot-node-aarch64-apple-darwin`; check and tests passed. |
+| Combined documentation patch missed the exact Chinese feature text | 1 | The patch was atomic; inspected the exact section and reapplied smaller matching hunks. |
 
 ---

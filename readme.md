@@ -45,7 +45,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 
 1. Download the latest `Molibot_*.dmg` from [Releases](https://github.com/gusibi/molibot/releases/latest) (Apple Silicon).
 2. Open the app. Molibot starts its local runtime automatically — no terminal setup required.
-3. In **Settings → AI Providers**, add a model provider and API key.
+3. In **Settings → AI Providers**, use **Sign in now** for a supported account (including Kimi Coding, ChatGPT/Codex, Claude, Copilot, OpenRouter, Radius, and xAI), or add an API key.
 4. Start chatting with Momo, the first-use default Agent. The app can also live in the menu bar and keep running in the background.
 
 ### Option B · Run from source
@@ -64,7 +64,7 @@ molibot
 
 Then open `http://localhost:3000`, configure an AI provider, and create or confirm an Agent before starting a chat.
 
-Molibot uses pi-mono 0.81 through one shared server runtime: built-in model catalogs, API-key/OAuth resolution, main and sub-Agent streaming, and compaction share the same credential and Provider boundary. Custom OpenAI-compatible and Anthropic-compatible endpoints remain isolated to their saved Bot/settings snapshot, while system instructions stay in pi's top-level context instead of being serialized as transcript messages. OpenAI-compatible requests choose `system` or `developer` from the selected custom model's saved `supportedRoles`, not from SDK URL heuristics.
+Molibot uses pi-mono 0.82 through one shared server runtime: built-in model catalogs, API-key/OAuth resolution, main and sub-Agent streaming, and compaction share the same credential and Provider boundary. OAuth-capable providers can be connected from Web or Desktop Settings with browser, device-code, or manual-redirect flows; regular Moonshot global/China endpoints continue to use `MOONSHOT_API_KEY`, while Kimi subscription login uses `kimi-coding`. Custom OpenAI-compatible and Anthropic-compatible endpoints remain isolated to their saved Bot/settings snapshot, while system instructions stay in pi's top-level context instead of being serialized as transcript messages. OpenAI-compatible requests choose `system` or `developer` from the selected custom model's saved `supportedRoles`, not from SDK URL heuristics.
 
 For provider configuration, channels, deployment, and environment variables, see the [documentation](#documentation).
 

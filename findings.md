@@ -19,6 +19,50 @@
 
 ---
 
+# 2026-07-25 — Provider OAuth quick-connect findings
+
+- Molibot currently locks `@earendil-works/pi-ai` and `pi-coding-agent` at 0.81.0. The active `FileCredentialStore` reads from disk on each lookup and writes atomically with `0600` file / `0700` parent permissions.
+- The current `identity/auth.ts` erases typed prompt options, retains only one early event, has no abort/TTL/terminal state, and has no callers.
+- Installed pi 0.81 exposes five OAuth providers: anthropic, github-copilot, openai-codex, radius, and xai. Published pi 0.82 additionally exposes `kimi-coding` and `openrouter`; Kimi Code is a 15-minute RFC 8628 device-code flow with refresh support.
+- `moonshotai` and `moonshotai-cn` remain API-key providers. Only `kimi-coding` represents the Kimi Code subscription OAuth endpoint.
+- The Web page's static OAuth guide set currently includes two Google providers but omits anthropic/xai/radius; OAuth capability and provider setup guidance must be separate concepts.
+- Desktop's current HTTP capability already allows `/api/desktop/*`; a dedicated provider-auth allowlist row is not assumed necessary. Rust opener is initialized, but no WebView-safe URL command exists.
+- A serializable prompt DTO must omit `AbortSignal`, preserve select options, and carry a generated prompt ID. Both the login-level abort signal and per-prompt signal must reject pending deferred input.
+- Fixed ten-minute cleanup would prematurely cancel 15-minute device flows. Active expiry should honor provider `expiresInSeconds`; terminal snapshots should remain briefly pollable.
+- Radius browser login has no manual-code fallback in pi 0.81/0.82, so remote users must select device code. Manual paste is rendered only when pi emits `manual_code`.
+
+---
+
+# 2026-07-24 — Review fixes and release
+
+## Requirements
+- Fix only the three accepted review comments without broad adjacent refactors.
+- Add machine guards for each root-cause class.
+- Include the current dirty product worktree in a new synchronized release.
+
+## Initial findings
+- Settings owns a window-level Escape listener while nested settings workflows use shared portal Dialogs; parent close must respect an already-consumed event/top-layer state.
+- The streaming multipart parser turns an absent model key into `""`; the new `??` chain therefore skips the persisted session fallback.
+- Both chat surfaces optimistically mutate their model cache before persistence succeeds; draft creation additionally swallows the failure.
+- Release workflow requires decimal carry patch increments, desktop version synchronization, clean verification, one release commit, a root-version tag, push, and GitHub Release creation.
+- Release baseline is root `2.6.4`, Desktop `0.6.1`, cleanly aligned with tag/origin `v2.6.4`; next versions are `2.6.5` and `0.6.2`.
+- Focused red tests reproduced all three accepted findings: multipart returned `modelKey: ""`; Settings lacked nested-dialog Escape guards; both model surfaces cached before awaiting the server and the draft save was fire-and-forget.
+- Focused green results: multipart 2/2, accepted UI regressions 2/2, Svelte diagnostics 0/0, and the full Desktop structural UI suite 84/84.
+- Full release-candidate verification passes: affected API/model tests 83/83, Desktop logic 51/51, Rust 20/20, focused SQLite round-trip 1/1, reactive/HTTP guards 3/3, plus root and Desktop production builds.
+- Cold-path evidence at 1280×800 showed Settings Escape returns to the still-mounted Chat shell with no horizontal overflow. The browser preview cannot create data-backed nested dialogs because it lacks the Tauri service bridge, so the nested-Escape case is covered by the focused structural regression.
+- The isolated backend completed start → health → interruption → failed health → restart → healthy recovery against a temporary data directory.
+
+## Technical decisions
+| Decision | Rationale |
+| --- | --- |
+| Add focused regression guards before changing behavior | Each finding represents a reusable failure class and the repository requires machine guards for fixes. |
+| Keep model persistence failure handling in the chat surfaces | This is UI write-through state; the server API already returns actionable failures. |
+| Await the draft-model save before activating/sending the new Session | This makes persistence and the first turn atomic from the user's perspective; a failure leaves the draft intact for retry. |
+| Detect nested Dialog Escape from `composedPath()` as well as `defaultPrevented` | The original event path stays authoritative even if the nested Dialog starts closing during the same event. |
+| Guard async model writes with the initiating Session id | A completed request must not overwrite the visible selector after the user has switched to another Session. |
+
+---
+
 # 2026-07-21 — pi-mono 0.81 implementation findings
 
 ## Scope decision
@@ -1740,5 +1784,167 @@ Use two identities for fresh automation runs: an execution-unique runtime Sessio
 - The machine guard now covers both no-developer-message contexts and real unsupported developer messages; the latter are folded into `Context.systemPrompt` and removed from the transcript.
 - A follow-up upstream 400 exposed the second half of the same protocol boundary: pi 0.81 chooses the top-level OpenAI message role from `model.compat.supportsDeveloperRole`, while Molibot's custom-model resolver had left it undefined even though `supportedRoles` was saved per model. The SDK therefore guessed from URL/model traits and emitted `developer` to an endpoint that accepts only `system`, `assistant`, `user`, and `tool`.
 - The resolver now explicitly maps the selected configured model's `supportedRoles` into compat. Machine guards cover both boolean branches and call pi's final message serializer to assert the exact outgoing role.
+
+---
+
+# 2026-07-26 — Remaining pi-agent parity analysis
+
+## Requirements
+- Assess how to continue after the dark-palette regression guard and listed pi 0.82/runtime fixes are complete.
+- Validate four reported residuals: session tree/fork/branch summary, skill `allowed-tools`, an unidentified repeatedly prompted curl command, and historical `~/.pi` binaries.
+- Account for the current 40+ modified and 10 untracked files and recommend a safe commit/slicing strategy.
+- Analysis only: no product-code changes.
+
+## Initial findings
+- The worktree confirms a broad uncommitted change set spanning Provider OAuth, compaction, Host Bash approval, pi data-directory pinning, and Desktop color tokens.
+- `prd.md`, `features.md`, and `CHANGELOG.md` already record `allowed-tools` as deliberately parsed but not wired, the `curl | python3 -m json.tool` limitation, and the `PI_CODING_AGENT_DIR` pin.
+- Runtime-event ancestry is not sufficient evidence of product-level Session ancestry; the session-fork proposal needs an end-to-end trace before choosing a schema.
+- The supplied green counts differ from older narrative entries because follow-up fixes added tests; final recommendations must rely on the current tree and exact verification commands.
+- Existing planning files are shared accumulated history and already modified; this analysis appends an isolated section rather than replacing them.
+
+## Open evidence to collect
+- Canonical session metadata stores, creation/list/read APIs, and Desktop session selectors.
+- Exact meaning and consumers of event-level `parentId`.
+- `LoadedSkill.allowedTools` parsing and the approval request/grant lookup boundary.
+- Command-classifier behavior for recognized interpreters/helpers and whether any generic safe rule is possible.
+- Whether `~/.pi/agent/bin/{rg,fd}` is referenced by current config/processes; deletion remains a user-controlled cleanup action.
+
+## Session ownership findings
+- There are two persisted representations that a fork must keep consistent:
+  - `src/lib/server/sessions/store.ts` owns Web/Project `Conversation` metadata and user-visible messages.
+  - `MomRuntimeStore` under `src/lib/server/agent/session/store.ts` owns the Agent JSON/JSONL context used for model execution.
+- `SessionEntryBase.parentId` is an entry-level linked-list pointer inside one Agent session log. `appendSessionEntry` defaults it to the previous entry ID; it does not identify a parent Session.
+- `SessionHeaderEntry` is version 1 and contains only `id`, `timestamp`, and preferences. Session-level lineage is therefore absent from the Agent header.
+- Web API and Desktop contracts expose flat summaries (`id/title/createdAt/updatedAt`) and flat conversation items. There is no lineage, fork endpoint, or branch-summary field in the current public contract.
+- A session fork is consequently not a single schema edit: it requires a canonical lineage contract plus an atomic/coordinated copy or reference operation across the conversation store and Agent context store.
+- The existing JSONL entry ancestry could support truncation within one transcript, but reusing it as Session ancestry would overload two different identities and create deletion/compaction ambiguity.
+
+## Skill approval findings
+- `LoadedSkill.allowedTools` is parsed, while `MomRunner` already tracks both the active run's skill manifest and the sequence of skills actually loaded.
+- That makes the missing runtime scope narrower than “the runtime knows nothing about active skills”: the Runner knows it, but the Host Bash approval boundary does not receive a trustworthy skill-derived allowance.
+- Approval is security-sensitive and scoped by capability/action fingerprint, actor, workspace, Session, and run. Wiring `allowed-tools` must define whether it bypasses prompting, which tool identifiers it matches, and when the allowance expires.
+- The safest design is an ephemeral run-scoped policy projection from actually loaded/invoked skills into tool dispatch, not a persistent Host Bash grant and not a lookup of every discoverable skill.
+
+## Command-classification and historical-directory findings
+- `python`, `python3`, and other general interpreters are intentionally in `FORBIDDEN_COMMANDS`. In `curl … | python3 -m json.tool`, the classifier sees `curl` as a capability but returns the entire command as `one-time-script` as soon as it reaches the forbidden interpreter segment.
+- Broadly removing `python3` from the forbidden list would turn arbitrary code execution into a reusable capability and is not acceptable.
+- If the real repeated command is exactly JSON formatting, the narrow possible guard is an exact safe-helper recognizer for `python3 -m json.tool` with no additional arguments, files, redirections, environment prefixes, or code flags. This should only be considered after the actual command is captured; `jq` remains the simpler already-supported form.
+- Current source references to `~/.pi` are the new prevention comments/tests and the vendored `example/pi-mono` tree; active Molibot code pins pi state elsewhere.
+- No currently running process matched the historical `~/.pi/agent/bin/rg` or `fd` paths during inspection. The directory contains only those two executables (approximately 2.8 MiB and 3.8 MiB). This supports “probably orphaned,” but does not prove an independently installed pi CLI will never reuse them.
+- Cleanup is operational hygiene, not a product slice. It should remain a separate explicit user decision and must not be bundled into a code commit.
+
+## Dirty-worktree slicing findings
+- `git diff --check` passes, but the tracked diff alone is 43 files / roughly 3.6k insertions; five Provider-auth route files and several test/service files are additionally untracked.
+- Several files contain multiple logical slices:
+  - `runner.ts` mixes stream option migration, overflow handling, and retry-related integration.
+  - `apps/desktop/src/styles.css` mixes Provider-auth UI styles and dark palette work.
+  - `CHANGELOG.md`/`features.md` contain multiple dated slices.
+- Therefore file-level commits would be misleading. The safe commit plan requires hunk-level staging for shared files and a test run after each staged commit (or at minimum after reconstructing each commit in order).
+- Natural dependency order is:
+  1. pi 0.82 dependency/runtime contract and shared auth foundation;
+  2. Provider OAuth/connectivity UI and APIs;
+  3. compaction/overflow/retry correctness;
+  4. Host Bash handshake/pipeline approval;
+  5. pi data-directory pin and skill flags;
+  6. dark semantic palette and its corrected regression guard.
+- The three planning files are pre-existing accumulated working records and should not be blindly committed with any one product slice. Decide separately whether they are intentionally versioned project history or local working artifacts.
+- No `pi` executable is currently on `PATH`, which further lowers the likelihood that the two historical binaries are actively used by a separately installed CLI; it still does not authorize deletion.
+
+## Upstream parity interpretation
+- pi exposes two related but distinct mechanisms:
+  - `SessionRepo.fork(...)` creates a new Session, copies the selected path, and records parent-session metadata.
+  - `navigateTree(...)` changes the active leaf inside one Session and may generate a `branch_summary` for the branch being left.
+- Molibot currently has neither an active leaf nor branch-aware context materialization: although entries carry `parentId`, `buildMessagesFromSessionEntries` processes the linear file body/latest compaction rather than walking a selected branch.
+- Consequently “Session tree / fork / branch summary” has two valid product interpretations:
+  1. a tree of separate Sessions (simpler, maps well to the current Desktop sidebar and edit/resend flow);
+  2. multiple navigable leaves inside one Session (full pi tree semantics, materially larger).
+- Replacing Molibot's store with pi's JSONL/SQLite repo remains the wrong first move: Molibot also owns UI metadata, projects, search, memory/reflection, queues, approvals, trace, and cross-channel routing. Upstream is useful as the behavioral reference for fork boundaries and summary format, not as a drop-in canonical store.
+
+## Adversarial risks for the Session feature
+- Dual-write divergence: UI conversation metadata can be created while Agent context copy fails, or vice versa. A shared coordinator with compensating rollback/recovery is required.
+- Source mutation race: fork/truncate while a run is active can copy a half-written turn. The API must reject running sources and ensure the child runner starts cold.
+- Inherited-prefix duplication: copied messages can be indexed and reflected into memory twice. Fork provenance/stable source-entry identity must let search/memory distinguish inherited history from new child work.
+- Security inheritance: a child may inherit model/thinking/sandbox preferences by explicit policy, but must not inherit session-scoped approval grants, pending approvals, run state, queues, or leases.
+- Deletion semantics: deleting a parent must not silently delete descendants; the UI needs an orphan/root fallback and tests for parent deletion.
+- Attachment/file lifetime: copied prefix messages may reference files owned by the source Session. Fork either needs shared immutable file references with reference-safe deletion or an explicit file-copy policy.
+- Compaction boundary: forking before/through a compaction must materialize the intended historical path, not merely copy the current compacted context snapshot.
+
+## Recommended product cut
+- Recommended V1 is a **tree of separate Sessions**, surfaced by changing edit/resend from destructive truncation into “fork from this user turn” while keeping an explicit destructive edit only if still needed.
+- Store lineage on the user-visible `Conversation` (`parentSessionId`, fork point/source entry) and mirror only the minimum provenance needed in the Agent Session header; expose lineage in shared Desktop contracts.
+- Treat full in-session leaf navigation and generated `branch_summary` injection as the next sub-slice of the same P1 epic, not as an implicit side effect of V1. It requires active-leaf persistence and branch-aware context building.
+- This recommendation is contingent on the product decision that “fork” means a new visible Session. If the intended behavior is pi-style navigation inside one Session, implementation should start with storage/context semantics rather than Desktop UI.
+
+## Recommended execution order
+1. Freeze the current green work on a dedicated `codex/` branch and reconstruct logical commits with hunk-level staging; do not begin Session work in the existing 53-path dirty state on `master`.
+2. Start the P1 Session epic with contract tests for a new visible child Session forked **before a selected user message**, matching pi's default fork boundary.
+3. Add a shared app-layer fork coordinator that copies both Agent entries and UI metadata, records lineage, rejects active sources, and compensates on partial failure.
+4. Expose a narrow fork API and update Desktop edit/resend to preserve the original branch; add the bilingual tree presentation only after the persistence contract is green.
+5. Then decide whether full pi-style in-session navigation is actually required. If yes, add active-leaf persistence, branch-aware context materialization, and summary-on-navigation as a separate sub-slice.
+6. Keep `allowed-tools` P2 until a run-scoped skill policy reaches tool dispatch. It must be ephemeral, based on actually invoked/loaded skills, and covered against discoverable-only skills, run leakage, subagent leakage, and persistent-grant creation.
+7. Do not change interpreter classification without the exact repeated command. If it is precisely `python3 -m json.tool`, add only an exact formatter helper with negative tests for `-c`, files, extra args, redirection, and environment prefixes.
+8. Handle `~/.pi` cleanup outside Git. Current evidence supports moving it to Trash after explicit approval; do not recursively delete it as part of implementation.
+
+## Session V1 verification matrix
+- Temporary-store round trip: create parent → append turns → fork before a user turn → new `SessionStore`/`MomRuntimeStore` instances → load both parent and child unchanged.
+- Failure atomicity: inject failure in either backing store and assert no visible half-fork remains.
+- Race: active source returns 409; idle source forks exactly once under an idempotency key.
+- Projection: inherited message metadata retains valid Agent `sourceEntryId` mappings; new child output appends only to the child.
+- Search/memory: inherited prefix is not double-counted as newly authored child history.
+- Security: pending approvals, session grants, queues, run IDs, leases, and runtime controller state do not cross into the child.
+- Preferences: explicit product policy tests for model/thinking/sandbox inheritance.
+- Lifecycle: parent deletion leaves the child usable; attachment references remain valid.
+- UI: Chinese/English, light/dark, keyboard, mobile/minimum Desktop width, and cold restart/switch/recovery paths.
+
+---
+
+# 2026-07-26 — Review, commit, and Session fork implementation
+
+## Scope
+- Review all current tracked/untracked changes before committing.
+- Fix release-blocking findings, verify, and reconstruct logical commits.
+- Continue with the separate-child-Session P1-A after the baseline is committed.
+
+## Review checklist
+- Dependency/runtime contract and bundled runtime version.
+- Provider OAuth lifecycle, credential secrecy, concurrency, API authorization, and Desktop/Web UI.
+- Runner stream callback, overflow/compaction/retry correctness, and tool id/progress invariants.
+- Host Bash handshake, persistent capability classification, pipeline-vs-sequence safety, and approval resume.
+- Skill discovery flags and pi data-directory pin timing.
+- Dark semantic palette source/test/document agreement.
+- Documentation accuracy and commit boundaries.
+
+## Baseline findings
+- The worktree still contains 43 tracked modifications and 10 untracked paths; `git diff --check` passes.
+- Review history confirms the relevant recurring guards: exact/CJK-aware compaction, per-tool-call identity/progress, approval execution claims/session fallback, OAuth production import boundaries, and Desktop bilingual/theme/cold-path checks.
+- The interactive shell Node is 22.15.1, below the repository's new `>=22.19` engine floor. The previously referenced bundled runtime is not at the old `apps/desktop/src-tauri/binaries/node-*` glob, so verification must locate the current generated runtime path before running Node-sensitive gates.
+- No product code has been changed by the review yet.
+
+## Verification findings
+- Desktop full test completed green under Node 22.23.1: 87/87 JS/UI tests and 23/23 Rust tests.
+- The Agent full run produced a large all-green stream but its final summary was truncated before capture; rerun with the dot reporter is required for a clean exit/count record.
+- The generated bundled runtime binary is `apps/desktop/src-tauri/binaries/molibot-node-aarch64-apple-darwin` and reports Node 22.23.1.
+
+## Review findings in progress
+- **[P1] OAuth cancelled sessions can be evicted before the provider login actually settles.** `OAuthLoginManager.stop()` schedules terminal retention immediately, while `session.settled` and `activeByProvider` are only cleaned in `run()`'s `finally`. If a provider ignores/delays abort longer than retention, the Session map entry disappears; `start()` then sees a stale provider id with no Session object and permits a second concurrent login. This violates the duplicate-provider/race invariant and can allow the older attempt to write after the replacement. Narrow fix: schedule retention only after `run()` has settled, with a regression whose provider ignores abort past the retention window.
+- Provider APIs correctly use opaque Session/prompt ids and no-store responses; connectivity checks use the shared stream path and bound timeout. Error redaction and route authorization still need further review.
+- **[P1] The “silent overflow” integration excludes successful responses, contradicting the intended z.ai case.** The runner only enters `isContextOverflowResponse` when `decision.kind !== "success"`; a normal z.ai answer with `usage.input > contextWindow` is classified as success and bypasses compaction. The helper unit test is green but does not exercise runner control flow. Fix requires a runner-level regression and explicit handling when compaction cannot shrink the successful-but-invalid attempt.
+- **[P1/security] Syntactic `|` is not enough to grant every distinct command a persistent tool-level whitelist.** The new test intentionally treats `mkdir | mv` as a “single data pipeline”; approval then enables both tool ids globally. Because current grants are tool-level rather than exact compound-command fingerprints, `curl | osascript`, `producer | rm`, or other distinct capabilities can broaden trust far beyond the approved pipeline. The narrow safe choices are either keep multi-tool pipelines one-time, or add an exact compound capability/fingerprint grant; do not infer safety from pipe syntax alone.
+- Split-turn compaction and cut-point snapping follow the intended structure; cumulative file-op helper code still needs direct inspection because its new files are untracked and absent from ordinary `git diff` output.
+- Host Bash store inspection confirms the security concern: persistent approval inserts one global `bash:<toolId>` grant per distinct pipeline member; it does not bind the grant to the approved compound command or its arguments.
+- **[P1/security] Generic Provider-auth HTTP failures return raw error messages.** `providerAuthError` sanitizes only known `OAuthLoginError`s; errors from provider status/logout/checkAuth fall through as the original message, despite the credential-safe response contract. It must use the shared redactor, with a regression containing bearer/query/JSON credential material.
+- **[P2] File-op tracking's advertised 60-path cap is applied independently to read and modified lists, allowing up to 120 entries; paths after the modified cap can also reappear under read.** Use one deterministic total budget and sanitize embedded newlines/XML closing tags before persisting blocks.
+- **[P2/accessibility] The new Provider-auth dialogs are hand-built backdrops with no initial focus/focus trap; Escape depends on event bubbling from whichever element happens to hold focus.** This conflicts with the project's shared Dialog rule and makes keyboard behavior fragile. Replace/reuse the existing shared Dialog primitive in the UI slice rather than adding more modal CSS.
+
+## Review resolutions
+- OAuth terminal retention now starts only in `run()`'s settled `finally`; an abort-ignoring provider remains locked, with a timing regression across the former eviction window.
+- Provider-auth 500 responses use the shared redactor, which now also covers API-key/client-secret fields and common prefixed tokens.
+- Silent usage overflow is evaluated for successful-looking responses, and a failed compaction turns the suspect result into a terminal model failure rather than accepting rolled-back state.
+- The overflow retry baseline and persistence checkpoint are refreshed after compaction; rollback assigns a copy so a later Agent push cannot mutate the saved baseline array.
+- Runner output selection now searches only `attemptMessages`; an empty attempt can no longer reuse a previous turn's answer or usage record.
+- Multi-capability pipelines remain ephemeral and create no global member grants; one-capability pipelines with restricted helpers retain their existing persistent behavior. Exact reusable compound approval is recorded as P2 with a full-command fingerprint requirement.
+- File-operation blocks use one 60-path budget, exclude every modified path from read output, and neutralize line/block injection.
+- The Web auth modal now owns initial focus, Tab containment, Escape, and focus restoration. The Web component tree has no shared Dialog primitive to reuse; this keeps the change local to the newly added modal while the production build guards compilation.
+- Final baseline gates passed under bundled Node 22.23.1: Agent 514/514, Desktop API 214/214, Desktop UI 87/87, Rust 23/23, Desktop Svelte 0/0, Root build, Desktop build, and `git diff --check`.
 
 ---

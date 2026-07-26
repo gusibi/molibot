@@ -5,6 +5,31 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.06 Exact reusable approval for compound Host Bash commands (2026-07-26)
+
+- **Priority / Status**: P2 / Deferred.
+- **Context**: A pipeline can contain several distinct executables, but approving its current syntax does not imply that every executable should become a global reusable capability. `curl | jq` already persists safely because `jq` is a restricted helper and only `curl` is granted.
+- **Scope**: If repeated approval for a multi-capability pipeline is required, persist a normalized full-command fingerprint with the exact command shape, arguments, working-scope constraints, and approval provenance. Never implement this by granting every pipeline member globally.
+- **Acceptance**: an identical approved compound command can run again without prompting; changing any executable, argument, operator, redirection, or relevant scope prompts again; no compound approval creates an `approvedTools` entry for its individual members; temporary-database regressions cover collision resistance and restart round-trip.
+
+## 3.05 Skill `allowed-tools` needs a runtime "active skill" concept first (2026-07-26)
+
+- **Priority / Status**: P2 / Deferred, deliberately not implemented.
+- **Context**: `allowed-tools` is parsed off skill frontmatter and exposed on `LoadedSkill`, alongside `disable-model-invocation` which is fully wired. The pre-approval half is not.
+- **Why deferred**: The field means "while this skill is running, these tools skip approval". Molibot has no such state — skills are injected as prompt context, not entered as a session mode, so at the approval points (Host Bash approval, sandbox policy) nothing knows which skill is active. Wiring it to a guessed notion of "active skill" would create a security boundary that looks enforced and is not, which is worse than leaving it unimplemented. pi itself still marks the field experimental.
+- **Removal condition**: implement it only once a run carries an explicit active-skill state through to `hostBash`/sandbox approval — i.e. a skill invocation opens a scope that the approval path can read. At that point `LoadedSkill.allowedTools` is already available and only the approval lookup needs adding.
+
+## 3.04 Provider OAuth Quick Connect (2026-07-25)
+
+- **Priority / Status**: P0 / Delivered.
+- **Scope**: Let Web and Desktop users connect every OAuth-capable provider exposed by the active pi registry without using a terminal, while preserving API-key alternatives and remote-deployment fallback paths.
+- **Acceptance**:
+  - The server preserves typed `select`, `text`, `secret`, and `manual_code` prompts plus auth URL, device-code, progress, cancellation, expiry, and duplicate-login semantics.
+  - Web and Desktop discover OAuth capability from pi rather than a handwritten allowlist and support Anthropic, GitHub Copilot, Kimi Coding, OpenAI Codex, OpenRouter, Radius, and xAI under pi 0.82.
+  - Browser callbacks, device codes, and pasted redirect URLs work through one credential-safe polling API; status responses expose metadata only and never tokens or prompt answers.
+  - Credential files remain atomic, locked, and `0600`; logout prevents a late login completion from restoring a credential; the next model request reads the updated store without restart.
+  - Both settings surfaces are bilingual, responsive, light/dark compatible, and Desktop opens only validated HTTP(S) authorization URLs through a native command.
+
 ## 3.03 Desktop Single-Window Settings and Per-Session Model Reliability (2026-07-24)
 
 - **Priority / Status**: P0 / Delivered.

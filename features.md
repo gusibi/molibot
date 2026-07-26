@@ -5,7 +5,83 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-26
+
+### Review 收尾：OAuth / 溢出 / 压缩元数据 / Host Bash 权限边界（已完成）
+- OAuth 取消后不再立即启动 Session 清理倒计时；即使 Provider 忽略 abort，也要等登录 promise 真正 settled 才释放 Provider 锁并进入保留期，杜绝旧登录与替代登录并发写凭据。
+- Provider Auth HTTP 的未知异常统一经 `safeErrorMessage`，补齐 `api_key`、`client_secret` 和常见 `sk-`/`rk-` 形态脱敏；凭据不能从错误响应泄露到前端。
+- Runner 的 usage 静默溢出检测不再排除 `success`：超窗的“正常答案”会回滚、压缩并重试；压缩无效时拒绝可疑答案，而不是把已回滚状态当成功。
+- 压缩文件清单改为 read + modified 共用 60 条总预算，modified 在预算外也不会重新冒充 read；路径中的换行与文件块结束标签会被中和。
+- 多真实能力管道坚持一次性精确审批，不能只凭 `|` 就把每个成员升级为全局权限；未来若需要复用，必须按完整命令指纹授权（见 `prd.md` 3.06）。
+
+### 主机审批不再吊死连接，安全 helper 管道保留长期批准（已完成）
+- **审批等待此前会把调用方连接吊住 10 分钟且期间不发任何数据。** Web 渠道的 SSE 在整个窗口内完全静默，于是被浏览器或中间层掐断：超时未批表现为"卡死"，及时批准也因为流已无人读取而表现为"早就断开了"。现在改为 **10 秒握手窗口**——足够盯着屏幕的用户点下批准并获得内联执行（无额外模型轮次）——超过则本轮干净结束并返回 `waiting_for_approval`，交给既有的 approve → execute → resume 路径。那条路径本来就是通的（`/api/chat` → `rewriteApprovalToolResultInContext` → `retryApprovalAutoResume`），只是被这个窗口挡在前面。
+- `curl … | jq …` 这类“一个真实能力 + 受限 safe helper”仍按单一能力长期批准；多个真实能力的管道、语句序列和无法识别的解释器管道保持一次性，批准后不会把成员写入全局白名单。
+
+### 压缩支持 split turn，不再把超大轮次压平进历史（已完成）
+- 当单个轮次比整个 keep-recent 预算还大（典型是长工具轮），切点必然落在轮内。此前该轮的开头会和几十个无关的更早轮次一起被摘要，导致保留下来的后半段所引用的前提被稀释掉。
+- 现在先规划切分范围（`planCompactionSpan`）：更早的完整轮次在轮边界处截止，超大轮次的前缀用 pi 的 turn-prefix 提示词单独摘要——目标是"保留的后半段需要什么才能读懂"——并只给一半摘要预算。两段按 pi 的原样格式合并（`… --- **Turn Context (split turn):** …`），包括当只有这一个轮次时使用它的 `No prior history.` 占位。
+- pi 未导出 `generateTurnPrefixSummary`，因此第二次摘要直接走共享运行时 stream，并用 `result()` 取最终 assistant 消息——与 pi 自身摘要取值方式一致。前缀摘要失败时降级为仅使用历史摘要，而不是整次压缩失败。
+- 文件追踪同样覆盖前缀部分，`summarizedMessages` 计入两段。
+- 验证：Agent 全量 509/509，覆盖轮边界、轮内切分、历史从轮中间开始三种规划情形，以及两次调用的合并断言。
+
+### pi 状态目录收归 DATA_DIR，压缩累积文件追踪，`disable-model-invocation` 生效（已完成）
+- **不再产生 `~/.pi` 目录。** pi 的整棵用户目录树——下载的 `rg`/`fd`、sessions、themes、prompts、`models.json`、`settings.json`、`auth.json`、调试日志——都由 `getAgentDir()` 推导，缺省落到 `~/.pi/agent`，实际上已经有一个下载的 `rg` 躺在那里。现在在 `env.ts` 里把 `PI_CODING_AGENT_DIR` 固定为 `<DATA_DIR>/pi`，与既有的 `PI_OFFLINE` 并列且理由相同：`tools-manager.ts` 在模块加载时就求值 `getBinDir()`，晚设无效。
+- **重建了桌面 runtime 包。** 里面仍是 pi 0.81，其 `Agent` 读 `options.streamFunction` 且**没有兜底**；配合已改为传 `streamFn` 的源码，打出来的桌面包会在每次模型调用时抛错。重跑 `prepare-desktop-runtime.mjs` 后已升到 0.82。
+- **压缩现在累积追踪文件。** 此前摘要只有散文，长任务压缩后会丢失"已经读过/改过哪些文件"。现在从 `read`/`write`/`edit` 的工具调用参数提取路径，与上一份摘要中的列表合并，并以 pi 的 `<read-files>`/`<modified-files>` 块形式重新附加。这些块是确定性重建的，而不是指望模型在改写中原样保留；模型自己吐出的同名块会被替换而非重复累加。被修改过的文件不再同时列进"读过"。
+- **`disable-model-invocation` 生效。** 带该标记的技能仍可通过 `/skill:name` 和别名显式调用，但会同时从系统提示**和技能搜索**中排除——只排除其中之一，只会让模型晚一次工具调用才发现它。技能草稿尤其受益，否则每轮都在消耗提示词预算。
+- `allowed-tools` 已解析到 `LoadedSkill`，但**有意不接**审批链，移除条件见 `prd.md` §3.05。
+- 验证：Agent 全量 505/505，新增覆盖 pi 路径固定、文件累积（含模型自吐块与往返解析）以及技能标记。
+
+---
 ## 2026-07-25
+
+### 内置服务商连通性测试，且内置服务商不再继承自建传输配置（已完成）
+- **设置页现在可以证明凭据真的可用。** 既有的服务商测试要求已保存的 `baseUrl` + `apiKey`，内置服务商两者都没有，所以 OAuth 登录此前只能显示"存在凭据"。新增 `POST /api/desktop/provider-auth/verify`，通过 runner 同款的 `streamWithPiRuntime` 发一次最小请求，返回所用模型、耗时和回复首行——这才是证据，而不是对 `auth.json` 的复述。Web 与 Desktop 都在登录卡片旁提供入口。
+- 探测默认使用设置里配置的模型，而非 catalog 第一个：Kimi Coding 的第一个是 `k3`，低档订阅无权调用，按默认探测会把可用的凭据报成故障。指定的模型若已不在 catalog 中则回退而不是直接失败；探测自带超时，避免不可达端点把请求一直挂住。
+- 服务商错误原样透出但经共享的 `safeErrorMessage` 脱敏；`error` 事件的 `message` 字段装的是半成品 assistant 消息而非错误原因，已不再作为兜底（否则会把整个对象打到界面上）。
+- **`resolveCustomModel` 对内置服务商 id 直接返回 pi 自己的模型。** 内置服务商保留一条设置记录以便启用和维护模型列表，但用该记录的 `protocol`/`baseUrl`/`path` 拼装模型会得到错误端点（Kimi Coding 上是 `openai-completions` + `/v1`），并且过不了 `isBuiltinModel`——于是请求绕开 `Models`，而那是唯一注入 OAuth 凭据的地方。设置页本来就写着内置服务商会忽略这些字段，现在才真的忽略。
+- 验证：Agent 全量 499/499（含两条新增选路回归），Provider 应用层 10/10，Desktop UI 85/87、Svelte 0/0，Root 与 Desktop 生产构建通过。用真实 Kimi Coding 凭据实测：`kimi-for-coding` 约 730ms 返回 `PONG`，`k3` 返回可读的订阅错误。
+
+### 修复：pi 0.82 把 `streamFunction` 改名为 `streamFn`，导致请求全部绕过共享 stream（已完成）
+- `new Agent({ streamFunction })` 在 pi 0.82 下变成了空操作：该构造参数已改名为 `streamFn`，旧名字被忽略，pi 回落到 `getDefaultStreamFn()`。TypeScript 其实有报错（`runner.ts:386` 与 `assistantService.ts:211` 的 `TS2353`），只是淹没在项目既有的 tsc 噪音里。
+- 因此自升级起，`streamWithPiRuntime` 里的逻辑**全部是死代码**：内置/自定义模型分流、Anthropic system 消息上提、不支持的 `developer` 角色映射、孤儿 tool_result 清理、纯文本模型的图片剥离、首 token 超时。
+- 持有 API Key 的服务商照常可用（pi 默认 stream 同样接受 key），这掩盖了回归；而 **OAuth 服务商完全无法工作**：它们的凭据放在 `Authorization` 请求头里，只有 `Models.streamSimple()` 会注入，于是请求到达 `assertRequestAuth` 时既无 key 也无 header，报 `No API key for provider: <id>`。本次由一个真实的 Kimi Coding 登录定位：凭据全程有效，直接调用 `streamWithPiRuntime` 可正常返回。
+- runner 日志可直接看出：`api_key_resolve` 之后紧接 `assistant_error_message`，中间没有 `llm_stream_start` —— 该回调从未被调用。
+- 验证：Agent 全量 497/497，Root 生产构建通过，两条 `TS2353` 均已消除。
+
+### Provider 登录切片的 Review 收尾修复（已完成）
+- **已保存的 API Key 覆盖会静默压过刚完成的 OAuth 登录。** pi 的 `resolveProviderAuth` 在读凭据库之前就对 `overrides.apiKey` 返回，而这个切片又把 `openai-codex` / `github-copilot` 的 API Key 覆盖输入框从隐藏改成显示（隐藏从来不等于禁用）。表现是登录显示成功、请求却仍在用那个 key。现在 provider 状态会返回 `apiKeyOverride`，Web 与 Desktop 都会提示"清空覆盖后登录才生效"；响应里只有这个布尔标记，绝不含 key 本身。
+- **Radius 点不到。** 快捷登录卡片只渲染在 `KNOWN_PROVIDER_LIST` 里的 provider 上，而该列表缺 `radius`，于是登录 API 暴露 7 个、界面只能到 6 个。现已补上；注意它的网关目录没有本地模型，所以在配置目录刷新之前该行模型数为 0。
+- **用 registry 取代已漂移的手写 OAuth 白名单。** Web 页的 `oauthBuiltinProviderIds` 里有 pi 视为 API Key provider 的 `google-gemini-cli` / `google-antigravity`，又漏了 `anthropic`、`xai`、`kimi-coding`、`openrouter`、`radius`。它和它驱动的那段提示一起删除。
+- **Desktop 把已存的 api_key 凭据标成"未登录"，同时给出会把它删掉的"退出登录"按钮** —— 任何从 pi CLI 迁移过来的 `auth.json` 都会命中。状态现在按"凭据是否存在"判断，与 Web 一致。
+- **Desktop 状态请求失败会热重试。** `loadProviderAuth` 由 `$effect` 调用，而 runes 会追踪它读到的每个 store 字段；此前只在成功分支记录进度，因此 `loading` 一落回 false 就立刻重入。现在改为记录"已尝试的 endpoint"，仅在服务断开时重新武装。
+- 设备码的"已复制"状态改按码值判定，刷新出的新码不再继承；`.provider-auth-card-copy > span` 由 10px 调回 11px（此前打破了字号下限测试）；删除死键 `providerCustomModelsTitle`，并把守卫断言更新为现用的 `providerModelsSectionTitle`。
+- 验证：Agent 全量 497/497，Provider 应用层 18/18（新增覆盖：override 上报、状态仍不泄露 secret），Desktop UI 85/87，Desktop Svelte 0/0，Root 生产构建通过。剩余 2 条 Desktop UI 失败（`--sidebar-material-tint`、`--mac-window-background`）不属于本次改动：来自尚未提交的深色色阶调整（窗口底色按 `DESIGN.md` 改为 `#1E1E1E`）没有同步更新断言。
+
+### Provider OAuth 可在 Web / Desktop 设置中直接完成（已完成）
+- pi 运行时整体升级到 0.82；设置页列出 OAuth Provider：Anthropic、GitHub Copilot、Kimi Coding、OpenAI Codex、OpenRouter、xAI（Radius 首版实际点不到，见上方收尾修复；列表仍是 registry 与已知 provider 列表的交集）。`moonshotai` / `moonshotai-cn` 仍按 `MOONSHOT_API_KEY` 接入，Kimi 订阅登录对应 `kimi-coding`。
+- 新的共享登录会话保留 `select` / `text` / `secret` / `manual_code` 原始类型和选项，持续提供授权链接、设备码与进度；支持 1 秒轮询、10 分钟以上的 provider/device-code 有效期、取消、过期清理、同 Provider 并发拒绝和退出登录。
+- Web 与 Desktop 都新增「立即登录」卡片和同一套引导弹窗；本机可走回环自动完成，Docker/远程环境可使用设备码或粘贴完整回调 URL。Desktop 只通过原生命令打开经过校验的 HTTP(S) 链接。
+- 对外状态只有 credential 类型、过期时间与认证来源，不返回 access/refresh token 或输入内容。凭据继续使用原子写入、跨进程锁、`0700` 目录和 `0600` 文件，并由 Models 在下一次请求时读取/刷新。
+- 验证：OAuth/凭据/HTTP/Desktop API 91/91，Desktop Svelte 0/0，Root 与 Desktop 生产构建、Rust 23/23（当时未跑 Desktop UI 套件，见上方收尾修复）；隔离冷启动实测 Kimi device code、取消、中英切换、390px、深色主题和服务重启恢复。
+
+### 压缩切分点不再把工具调用与工具结果拆开（已完成）
+- `findFirstKeptIndex` 只按 token 预算回退，不看消息 role，因此保留段的第一条可能正好是一条 `toolResult`，而产生它的 assistant `toolCall` 刚好被划进了摘要区。由于 `removeOrphanToolResultsFromContext` 会在每次请求前把这种孤儿工具结果剔掉，问题不会报错，而是**静默**表现为：会话里持久化了一条模型永远看不到的消息，实际保留边界比日志显示的窄一条。现在预算索引会**向后**吸附到最近的合法切分点。
+- 规则取自 pi（`findCutPoint`：绝不在 tool result 处切），遍历仍是本地实现。仍然**不调用** pi 的 `findCutPoint`，理由与此前记录一致——它用 pi 的 chars/4 `estimateTokens` 走预算，对中文低估 3~4 倍。这次只共用 role 判定，CJK 加权估算完全不受影响。split turn 仍未采用。
+- 若预算索引之后不存在任何合法切分点，则回退到最早的合法点，让这次压缩变成 no-op 而不是破坏上下文——与 pi 的保守默认一致。
+- 验证：压缩套件 15/15，新增用例已确认「去掉吸附则失败」（断言保留段首条不是 `toolResult`，且每条保留下来的工具结果都还有对应的调用）。
+
+### 上下文溢出判定改由 pi 负责，并覆盖"不报错"的溢出（已完成）
+- `isContextOverflowError` 改为委托 pi-ai 的 `isContextOverflow`，后者带有约 25 个服务商的专有文案。此前的 8 条子串完全漏掉了 DashScope 的 `Range of input length should be [1, X]`、Kimi 的 `exceeded model token limit`、Groq 的 `reduce the length of the messages`、Cerebras 的无 body 400/413；同时会把 Bedrock 的限流文案 `Too many tokens` 误判为溢出，用一次无意义的压缩去回应限流。自定义 OpenAI 兼容端点恰恰是这些非常规文案的高发区。
+- **不抛异常的溢出现在也能处理。** 此前只有「抛出的请求错误」才能走到压缩重试；以普通错误响应形式返回的溢出会直接终结本次尝试，而**静默溢出**则完全不可见：z.ai 会在 `usage.input` 超窗的情况下正常作答，小米 MiMo 会把输入截断到刚好填满上下文窗口、以 `length` 结束且 output 为 0。这两种现在都由 `isContextOverflowResponse`（基于 usage）识别，并汇入同一条「压缩一次后重试」的路径。
+- 新增的两条路径都排除了「本次尝试已经执行过工具」的情况，与既有的可重试错误规则一致：重跑会让非幂等工具再执行一次。
+- 验证：新增覆盖服务商文案、限流排除、以及两种静默溢出形态。
+
+### 额度耗尽不再空转掉整个重试预算（已完成）
+- `isRetryableModelError` 把裸子串 `quota` 当作可重试，因此账号额度耗尽（以 429 形式返回）会被一路重试到耗尽；又因为压缩链路复用了同一个分类器，还会连带拖慢压缩。现在账号级耗尽（`insufficient_quota`、`quota exceeded`、`billing`、`usage limit reached`、`available balance`）一律判为终止。
+- 瞬时错误部分改为委托 pi-ai 的 `isRetryableAssistantError`，它维护着本项目原本要自己追的传输层文案：`upstream connect`、`fetch failed`、`stream ended before message_stop`、WebSocket 关闭、gRPC `ResourceExhausted`。`ECONNRESET`、裸 `connection reset`、`temporarily unavailable` 和裸 5xx 状态码文本仍保留在本地，因为 pi 那边没有。
+- 验证：Agent 全量 486/488（2 条失败是全部测试文件同进程并行时的既有 `database is locked` 争用，单独运行两个文件均通过），改动文件 tsc 无新增错误。
 
 ### 记录自定义服务商为何绕过 pi 的 `Models`（已完成）
 - 评估后**否决**了用 `MutableModels.setProvider` / `createProvider` 把自定义服务商注册进 pi-ai `Models`。自定义服务商存放在运行时设置里，会通过设置页新增、编辑和删除，注册意味着在**每一次模型调用的热路径**上引入一层缓存失效面；而且没有实际收益——`resolveCustomModel` 本来就已经把认证、请求头、`compat`、`reasoning`、`thinkingLevelMap` 都挂到它构造的 model 上了。
