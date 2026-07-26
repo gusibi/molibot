@@ -433,19 +433,20 @@ resolved from the corresponding macOS semantic colors and must be applied by rol
 
 All values are resolved from AppKit semantic colors on the current macOS release
 (sampled via Digital Color Meter / `NSColor.usingColorSpace(.sRGB)`). The dark
-neutrals form a monotonic ramp anchored on real system grays: the base is
-`underPageBackgroundColor` (`#282828`) and the top raised surface is
-`windowBackgroundColor` (`#323232`). Never fall back to `#1E1E1E` for the window
-base — that is macOS `controlBackgroundColor` (a recessed field color), and using
-it as the workspace reads as "too black" next to native windows.
+neutrals form a monotonic ramp anchored on the unified canvas System Settings
+shows with reduced transparency: the sidebar and content share one base
+(`#1E1E1E`), the grouped fill is `#282828`, and the only elevation step is the
+raised card (`#2C2C2E`). The nav is not tinted a different shade from content —
+depth comes from cards, exactly like macOS opaque System Settings. Do not push
+the base to pure black (`#000000`/`#0A0A0A`).
 
 | Product role | AppKit reference | Light | Dark |
 | --- | --- | --- | --- |
-| Window/workspace | `windowBackgroundColor` (Light) / `underPageBackgroundColor` (Dark base) | `#F6F6F6` | `#282828` |
-| Grouped canvas | derived quiet window surface | `#ECECEC` | `#2E2E2E` |
+| Window/workspace + sidebar | unified System Settings canvas | `#F6F6F6` | `#1E1E1E` |
+| Grouped canvas | derived quiet window surface | `#ECECEC` | `#282828` |
 | Native sidebar tint | Finder-style material veil | `rgb(253 255 255 / 75%)` | transparent |
-| Elevated/card surface | `controlBackgroundColor` (Light) / raised neutral surface = `windowBackgroundColor` (Dark) | `#FFFFFF` | `#323232` |
-| Nested secondary surface | recessed neutral content | `#F5F5F5` | `#3A3A3A` |
+| Elevated/card surface | `controlBackgroundColor` (Light) / raised neutral card (Dark) | `#FFFFFF` | `#2C2C2E` |
+| Nested secondary surface | recessed neutral content | `#F5F5F5` | `#343436` |
 | Primary label | `labelColor` | black 84.7% | white 84.7% |
 | Secondary label | `secondaryLabelColor` | black 49.8% | white 54.9% |
 | Tertiary label | `tertiaryLabelColor` | black 25.9% | white 24.7% |
@@ -456,9 +457,11 @@ it as the workspace reads as "too black" next to native windows.
 
 - Structural dark surfaces must never use `#000000` or near-black `#0A0A0A`.
   Pure black is reserved for media/code content that intentionally needs it.
-- Chat's transcript workspace and headers use the window role. Settings uses the
-  grouped role behind elevated cards. Cards, popovers, composers, and neutral controls
-  use elevated/control roles; do not flatten all three layers to one color.
+- Chat's transcript workspace and headers use the window role, and the sidebar
+  shares that same window base so nav and content read as one plane (no seam).
+  Settings groups sit as elevated cards on that base. Cards, popovers, composers,
+  and neutral controls use elevated/control roles; keep the base and the card layer
+  distinct (one elevation step), but do not tint the nav a third shade.
 - Use label and separator alpha roles as defined. Do not turn separator colors into
   text colors or replace semantic status colors with arbitrary brand shades.
 - Explicit Light/Dark and System appearances must update both WebView tokens and the

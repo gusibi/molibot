@@ -3,10 +3,10 @@ version: beta
 name: macOS Semantic Dark
 description: Dark appearance references for the Molibot macOS product layer. DESIGN.md is authoritative.
 colors:
-  window: "#282828"
-  grouped: "#2E2E2E"
-  elevated: "#323232"
-  surface-secondary: "#3A3A3A"
+  window: "#1E1E1E"
+  grouped: "#282828"
+  elevated: "#2C2C2E"
+  surface-secondary: "#343436"
   foreground: "rgb(255 255 255 / 84.7%)"
   muted-foreground: "rgb(255 255 255 / 54.9%)"
   tertiary-foreground: "rgb(255 255 255 / 24.7%)"
@@ -26,10 +26,10 @@ Geist/OKLCH dark palette.
 
 | Product token family | Value | AppKit meaning |
 | --- | --- | --- |
-| `--mac-window-background` | `#282828` | Main window/workspace background (`underPageBackgroundColor`) |
-| `--mac-grouped-background` | `#2E2E2E` | Quiet grouped canvas |
-| `--mac-elevated-background` | `#323232` | Cards, popovers, composer, raised neutral controls (`windowBackgroundColor`) |
-| `--surface-secondary` | `#3A3A3A` | Nested neutral content only |
+| `--mac-window-background` | `#1E1E1E` | Unified window/workspace **and** sidebar base (opaque System Settings canvas) |
+| `--mac-grouped-background` | `#282828` | Quiet grouped canvas |
+| `--mac-elevated-background` | `#2C2C2E` | Cards, popovers, composer, raised neutral controls |
+| `--surface-secondary` | `#343436` | Nested neutral content only |
 | `--mac-label` | white 84.7% | Primary label |
 | `--mac-secondary-label` | white 54.9% | Secondary label |
 | `--mac-tertiary-label` | white 24.7% | Tertiary label |
@@ -37,9 +37,10 @@ Geist/OKLCH dark palette.
 | `--mac-unemphasized-selection` | `#464646` | Inactive/unemphasized selection |
 | `--accent` | `#007AFF` | macOS control accent reference |
 
-Never use `#000000`, `#0A0A0A`, or `#1E1E1E` for structural Desktop surfaces. The
-window base is `underPageBackgroundColor` (`#282828`); `#1E1E1E` is macOS
-`controlBackgroundColor` (a recessed field color) and reads as too black for the
-workspace. Pure black is allowed only for intentional media or code canvases. Keep
-the window, grouped, and elevated roles distinct (a monotonic ramp from `#282828`
-to `#323232`) so the dark interface retains macOS depth without shadows.
+Never use `#000000` or `#0A0A0A` for structural Desktop surfaces. The window base
+and the sidebar share `#1E1E1E` — the tone macOS System Settings shows with
+reduced transparency — so nav and content read as one plane; the sidebar is never
+tinted a different shade. Pure black is allowed only for intentional media or code
+canvases. Keep only two structural steps distinct — the shared base (`#1E1E1E`) and
+the elevated card (`#2C2C2E`), with `#282828` as the quiet grouped fill — so the
+dark interface retains macOS depth without shadows.

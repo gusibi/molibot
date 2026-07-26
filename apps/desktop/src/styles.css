@@ -60,7 +60,10 @@
 
   /* Surfaces — settings use a secondary canvas; Chat uses one primary workspace */
   --panel-bg: var(--mac-window-background);
-  --sidebar-bg: var(--mac-grouped-background);
+  /* Sidebar shares the window canvas so nav and content read as one surface
+     (matches macOS opaque System Settings). Elevation comes from cards, not
+     from tinting the nav a different shade. */
+  --sidebar-bg: var(--mac-window-background);
   --sidebar-surface: rgba(0,0,0,0.045);
   --sidebar-surface-hover: rgba(0,0,0,0.07);
   --content-bg: var(--mac-window-background);
@@ -1483,7 +1486,7 @@ a:focus-visible {
 .settings-nav-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 10px 16px; }
 .settings-nav-group-label { margin: 16px 9px 5px; color: var(--label-secondary); font-size: 11px; font-weight: 600; letter-spacing: .04em; line-height: 14px; }
 .settings-nav-group-label:first-child { margin-top: 6px; }
-.settings-nav { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; margin: 2px 0; padding: 0 9px; text-align: left; background: transparent; border-radius: var(--rounded-sm); color: var(--label-secondary); }
+.settings-nav { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; margin: 2px 0; padding: 0 9px; text-align: left; background: transparent; border-radius: var(--rounded-sm); color: var(--label-primary); }
 .settings-nav:hover { background: var(--fill); color: var(--label-primary); }
 .settings-nav.active { background: var(--fill-hover); color: var(--label-primary); font-weight: 500; }
 .settings-nav.active .nav-tile { color: var(--label-primary); }
@@ -2050,6 +2053,50 @@ a:focus-visible {
 .provider-technical-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .provider-technical-details code { display: inline; max-width: none; white-space: normal; }
 .provider-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.provider-auth-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 16px; padding: 14px; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: color-mix(in srgb, var(--fill) 36%, var(--card-bg)); }
+.provider-auth-card-copy { display: grid; gap: 3px; min-width: 0; }
+.provider-auth-card-copy > span { color: var(--label-tertiary); font-size: 11px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+.provider-auth-card-copy > strong { font-size: 12px; font-weight: 600; }
+.provider-auth-card-copy > small { color: var(--label-secondary); font-size: 11px; line-height: 1.45; }
+.provider-auth-card-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 7px; }
+.provider-auth-card-verdict { grid-column: 1 / -1; display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin: 0; color: var(--label-secondary); font-size: 11px; line-height: 16px; }
+.provider-auth-card-verdict > i { color: var(--danger); }
+.provider-auth-card-verdict.ok > i { color: var(--online); }
+.provider-auth-card-verdict > span { color: var(--label-tertiary); }
+.provider-auth-card-warning { grid-column: 1 / -1; margin: 0; padding: 7px 9px; border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--warning) 10%, transparent); color: var(--label-secondary); font-size: 11px; line-height: 16px; }
+.provider-auth-dialog { width: min(600px, 100%); max-height: min(86vh, 760px); }
+.provider-auth-dialog-head > div { min-width: 0; }
+.provider-auth-dialog-head strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-auth-dialog-body { display: grid; align-content: start; gap: 12px; padding-top: 14px; }
+.provider-auth-dialog-foot { display: flex; justify-content: flex-end; padding: 12px 16px; border-top: 0.5px solid var(--separator); }
+.provider-auth-progress-head { display: flex; align-items: center; gap: 8px; color: var(--label-secondary); font-size: 12px; }
+.provider-auth-pulse { width: 7px; height: 7px; border-radius: var(--rounded-full); background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent); animation: provider-auth-pulse 1.4s ease-in-out infinite; }
+.provider-auth-step, .provider-auth-device, .provider-auth-prompt { display: grid; gap: 11px; padding: 13px; border: 0.5px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); }
+.provider-auth-step > div { display: flex; align-items: flex-start; gap: 8px; color: var(--label-secondary); font-size: 11px; line-height: 1.5; }
+.provider-auth-step > div > i { margin-top: 1px; color: var(--label-primary); font-size: 15px; }
+.provider-auth-step > button { justify-self: start; }
+.provider-auth-device > span { color: var(--label-secondary); font-size: 11px; }
+.provider-auth-device > code { width: fit-content; max-width: 100%; padding: 8px 12px; border-radius: var(--rounded-sm); background: var(--fill); font-size: 20px; font-weight: 700; letter-spacing: 0.12em; overflow-wrap: anywhere; }
+.provider-auth-device > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.provider-auth-prompt > strong { font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.provider-auth-options { display: grid; gap: 7px; }
+.provider-auth-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; width: 100%; padding: 10px 11px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: var(--label-primary); font: inherit; text-align: left; cursor: pointer; transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard); }
+.provider-auth-option:hover:not(:disabled) { border-color: var(--control-border-strong); background: var(--fill); }
+.provider-auth-option > span { font-size: 12px; font-weight: 600; }
+.provider-auth-option > small { grid-column: 1; color: var(--label-secondary); font-size: 11px; line-height: 1.4; }
+.provider-auth-option > i { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--label-tertiary); }
+.provider-auth-answer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.provider-auth-answer input { min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); outline: 0; background: var(--control-bg); color: var(--label-primary); font: inherit; font-size: 12px; }
+.provider-auth-answer input:focus { border-color: color-mix(in srgb, var(--accent) 42%, var(--control-border-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent); }
+.provider-auth-messages { display: grid; gap: 5px; padding: 10px 12px; border-left: 2px solid var(--separator); color: var(--label-secondary); }
+.provider-auth-messages p { margin: 0; font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.provider-auth-terminal { display: grid; justify-items: center; gap: 8px; padding: 28px 16px; color: var(--label-secondary); text-align: center; }
+.provider-auth-terminal > i { font-size: 30px; }
+.provider-auth-terminal > strong { color: var(--label-primary); font-size: 14px; }
+.provider-auth-terminal > span { max-width: 440px; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.provider-auth-terminal.success > i { color: var(--online); }
+.provider-auth-terminal.danger > i, .provider-auth-terminal.danger > span { color: var(--danger); }
+@keyframes provider-auth-pulse { 50% { opacity: .45; transform: scale(.78); } }
 .confirm-overlay { z-index: 90; }
 .confirm-dialog { width: min(360px, calc(100% - 32px)); padding: 18px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--glass-shadow); }
 .confirm-dialog h3 { margin: 0; font-size: 15px; }
@@ -2078,6 +2125,71 @@ a:focus-visible {
 .provider-model-toolbar { align-items: flex-start; }
 .provider-modal-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 0.5px solid var(--separator); background: var(--footbar-bg);}
 .provider-modal-message { margin-bottom: 14px !important; }
+
+/* ── AI provider editor refresh — segmented mode, searchable model combobox,
+   IosSwitch rows, and a collapsible Advanced section (macOS-consistent). ── */
+.segmented { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--rounded-sm); background: var(--fill); }
+.segmented-item { min-width: 76px; height: 28px; padding: 0 14px; border: 0; border-radius: calc(var(--rounded-sm) - 2px); background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; transition: background var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard), box-shadow var(--duration-instant) var(--ease-standard); }
+.segmented-item:hover { color: var(--label-primary); }
+.segmented-item.active { background: var(--card-bg); color: var(--label-primary); box-shadow: var(--soft-shadow); }
+
+.provider-modal-form .spin { animation: activity-spin 1.1s linear infinite; }
+
+.provider-enable-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 48px; margin: 0 16px; padding: 10px 0; border-top: 0.5px solid var(--separator); }
+.provider-enable-row > div { display: grid; gap: 3px; min-width: 0; }
+.provider-enable-row strong { font-size: 13px; font-weight: 500; }
+.provider-enable-row small { color: var(--label-secondary); font-size: 12px; }
+
+.provider-models-section { padding: 14px 16px 16px; border-top: 0.5px solid var(--separator); }
+.provider-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.provider-section-head > div { display: grid; gap: 3px; min-width: 0; }
+.provider-section-head strong { font-size: 14px; font-weight: 600; }
+.provider-section-head p { margin: 0; color: var(--label-secondary); font-size: 12px; }
+.provider-section-head .secondary-button { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+
+.model-combobox { position: relative; margin-bottom: 12px; }
+.model-combobox-field { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 8px 0 12px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.model-combobox-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
+.model-combobox-field > .ph { flex: none; color: var(--label-tertiary); font-size: 15px; }
+.model-combobox-field input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--label-primary); font: inherit; }
+.model-combobox-field input:focus-visible { outline: none; box-shadow: none; }
+.model-combobox-add { flex: none; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: var(--rounded-sm); background: var(--accent-soft); color: var(--accent); cursor: pointer; }
+.model-combobox-add:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.model-combobox-pop { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0; max-height: 248px; overflow-y: auto; padding: 4px; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--popover-shadow); }
+.model-combobox-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); font-size: 13px; text-align: left; cursor: pointer; }
+.model-combobox-option .ph { flex: none; color: var(--label-tertiary); font-size: 14px; }
+.model-combobox-option:hover, .model-combobox-option.active { background: var(--fill); }
+.model-combobox-option.create { color: var(--accent); }
+.model-combobox-option.create .ph { color: var(--accent); }
+.model-combobox-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; }
+.model-combobox-empty { margin: 0; padding: 12px 10px; color: var(--label-secondary); font-size: 12px; text-align: center; }
+
+.provider-models-section .provider-model-controls { padding: 0; margin: 0 0 12px; border: 0; }
+.provider-models-section .provider-model-list { padding: 0; }
+.provider-model-head { grid-template-columns: minmax(120px, 1fr) minmax(84px, 150px) auto auto; }
+
+.provider-model-advanced { border-top: 0.5px dashed var(--separator); padding-top: 8px; }
+.provider-model-advanced[open] { display: grid; gap: 10px; }
+.provider-model-advanced > summary { display: flex; align-items: center; gap: 5px; list-style: none; color: var(--label-secondary); font-size: 11px; font-weight: 500; cursor: pointer; }
+.provider-model-advanced > summary::-webkit-details-marker { display: none; }
+.provider-model-advanced > summary::before { content: "›"; transition: transform var(--duration-fast) var(--ease-standard); }
+.provider-model-advanced[open] > summary::before { transform: rotate(90deg); }
+.provider-model-advanced .provider-model-roles-row { display: grid; gap: 6px; }
+.provider-model-advanced .provider-model-roles-label { color: var(--label-secondary); font-size: 11px; }
+.provider-model-advanced .provider-model-roles { display: flex; flex-wrap: wrap; gap: 6px; }
+.provider-model-advanced .provider-model-actions { display: flex; justify-content: flex-end; }
+
+.provider-advanced { border-top: 0.5px solid var(--separator); }
+.provider-advanced > summary { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 16px; list-style: none; color: var(--label-primary); font-size: 13px; font-weight: 600; cursor: pointer; }
+.provider-advanced > summary::-webkit-details-marker { display: none; }
+.provider-advanced > summary > .ph-sliders-horizontal { color: var(--label-secondary); font-size: 15px; }
+.provider-advanced-caret { color: var(--label-secondary); font-size: 13px; transition: transform var(--duration-fast) var(--ease-standard); }
+.provider-advanced[open] .provider-advanced-caret { transform: rotate(90deg); }
+.provider-advanced-body { padding: 0 0 12px; }
+.provider-advanced-body .provider-editor-grid { padding-top: 0; }
+.provider-advanced-label { margin: 8px 16px 0; color: var(--label-secondary); font-size: 12px; font-weight: 600; }
+.provider-advanced-check { margin: 12px 16px 0; }
+
 .sandbox-form { display: grid; gap: 0; }
 .sandbox-section-head { align-items: flex-end; margin-top: 20px; }
 .sandbox-section-head .settings-group-title, .sandbox-section-head .settings-section-hint { margin: 0; }
@@ -2341,13 +2453,14 @@ a:focus-visible {
 :root[data-theme="dark"] {
   color: rgb(255 255 255 / 84.7%);
   color-scheme: dark;
-  /* macOS dark neutral ramp: base = underPageBackgroundColor (#282828),
-     raised surface = windowBackgroundColor (#323232). #1E1E1E is
-     controlBackgroundColor (a recessed field color) — too black for the base. */
-  --mac-window-background: #282828;
-  --mac-control-background: #282828;
-  --mac-grouped-background: #2e2e2e;
-  --mac-elevated-background: #323232;
+  /* macOS dark neutral ramp: unified window+sidebar canvas = #1e1e1e (the tone
+     System Settings shows with reduced transparency), grouped fill = #282828,
+     raised card = #2c2c2e. Nav and content share the base; cards supply the
+     only elevation step, matching macOS. */
+  --mac-window-background: #1e1e1e;
+  --mac-control-background: #1e1e1e;
+  --mac-grouped-background: #282828;
+  --mac-elevated-background: #2c2c2e;
   --mac-label: rgb(255 255 255 / 84.7%);
   --mac-secondary-label: rgb(255 255 255 / 54.9%);
   --mac-tertiary-label: rgb(255 255 255 / 24.7%);
@@ -2359,8 +2472,8 @@ a:focus-visible {
      itself is dark the native material is already dark, so the veil is dropped
      back to transparent (see the prefers-color-scheme: dark block below) to
      restore the translucent glass effect. */
-  --sidebar-material-tint: rgb(40 40 40 / 90%);
-  --gray-100: #282828; --gray-200: #323232; --gray-300: #3a3a3a; --gray-400: #424242;
+  --sidebar-material-tint: rgb(30 30 30 / 92%);
+  --gray-100: #1e1e1e; --gray-200: #2c2c2e; --gray-300: #3a3a3a; --gray-400: #424242;
   --gray-500: #464646; --gray-600: #5a5a5a; --gray-700: #777777; --gray-800: #999999;
   --gray-900: #b8b8b8; --gray-1000: #f2f2f2;
   --gray-alpha-100: rgba(255,255,255,0.06); --gray-alpha-200: rgba(255,255,255,0.09);
@@ -2379,13 +2492,13 @@ a:focus-visible {
   --fill: rgba(255,255,255,0.07); --fill-hover: rgba(255,255,255,0.11);
 
   --panel-bg: var(--mac-window-background);
-  --sidebar-bg: var(--mac-elevated-background);
+  --sidebar-bg: var(--mac-window-background);
   --sidebar-surface: rgba(255,255,255,0.06);
   --sidebar-surface-hover: rgba(255,255,255,0.10);
   --content-bg: var(--mac-window-background);
   --header-bg: var(--mac-window-background);
   --card-bg: var(--mac-elevated-background);
-  --surface-secondary: #3a3a3a;
+  --surface-secondary: #343436;
   --bubble-bg: var(--mac-elevated-background);
   --composer-bg: var(--mac-elevated-background);
   --footbar-bg: var(--mac-window-background);
@@ -2630,13 +2743,13 @@ a:focus-visible {
   :root:not([data-theme="light"]):not([data-theme="dark"]) {
     color: rgb(255 255 255 / 84.7%);
     color-scheme: dark;
-    --mac-window-background: #282828; --mac-control-background: #282828;
-    --mac-grouped-background: #2e2e2e; --mac-elevated-background: #323232;
+    --mac-window-background: #1e1e1e; --mac-control-background: #1e1e1e;
+    --mac-grouped-background: #282828; --mac-elevated-background: #2c2c2e;
     --mac-label: rgb(255 255 255 / 84.7%); --mac-secondary-label: rgb(255 255 255 / 54.9%);
     --mac-tertiary-label: rgb(255 255 255 / 24.7%); --mac-separator: rgb(255 255 255 / 9.8%);
     --mac-unemphasized-selection: #464646;
     --sidebar-material-tint: transparent;
-    --gray-100: #282828; --gray-200: #323232; --gray-300: #3a3a3a; --gray-400: #424242;
+    --gray-100: #1e1e1e; --gray-200: #2c2c2e; --gray-300: #3a3a3a; --gray-400: #424242;
     --gray-500: #464646; --gray-600: #5a5a5a; --gray-700: #777777; --gray-800: #999999;
     --gray-900: #b8b8b8; --gray-1000: #f2f2f2;
     --gray-alpha-100: rgba(255,255,255,0.06); --gray-alpha-200: rgba(255,255,255,0.09);
@@ -2648,9 +2761,9 @@ a:focus-visible {
     --separator: var(--mac-separator); --hairline: rgb(255 255 255 / 6%);
     --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 255 255 / 14%); --glass-border-light: rgb(255 255 255 / 18%);
     --fill: rgba(255,255,255,0.07); --fill-hover: rgba(255,255,255,0.11);
-    --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-elevated-background);
+    --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
     --sidebar-surface: rgba(255,255,255,0.06); --sidebar-surface-hover: rgba(255,255,255,0.10);
-    --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background); --card-bg: var(--mac-elevated-background); --surface-secondary: #3a3a3a;
+    --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background); --card-bg: var(--mac-elevated-background); --surface-secondary: #343436;
     --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background); --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
     --soft-shadow: 0 2px 2px rgba(0,0,0,0.3);
     --glass-shadow: 0 1px 1px rgba(0,0,0,0.2), 0 8px 16px -4px rgba(0,0,0,0.4), 0 24px 32px -8px rgba(0,0,0,0.5);
@@ -3107,6 +3220,11 @@ html[data-increased-contrast="true"] .settings-sidebar {
   .memory-topic-list > button { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
+  .provider-auth-card { grid-template-columns: 1fr; }
+  .provider-auth-card > .status-badge { justify-self: start; }
+  .provider-auth-card-actions { grid-column: 1; }
+  .provider-auth-answer { grid-template-columns: 1fr; }
+  .provider-auth-answer .primary-button { width: 100%; }
   .memory-center-shell { width: calc(100% - 36px); }
   .memory-center-toolbar { flex-wrap: wrap; }
   .memory-center-tabs { order: 1; width: 100%; grid-template-columns: repeat(3, 1fr); }

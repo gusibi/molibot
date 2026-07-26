@@ -208,7 +208,9 @@ test("Settings and Chat expose one edge-to-edge native macOS sidebar material", 
   const [, red, green, blue, alphaPercent] = lightTint.map(Number);
   assert.deepEqual([red, green, blue], [253, 255, 255]);
   assert.equal(alphaPercent, 75, "Light keeps a visible native-material contribution under the calibrated veil");
-  assert.match(explicitDark, /--sidebar-material-tint:\s*rgb\(40 40 40 \/ 90%\)/);
+  // The dark veil tracks the window base (#1e1e1e), not a separate sidebar shade:
+  // nav and content are one plane per design.dark.md.
+  assert.match(explicitDark, /--sidebar-material-tint:\s*rgb\(30 30 30 \/ 92%\)/);
   assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme="dark"\]\s*\{\s*--sidebar-material-tint:\s*transparent;\s*\}/);
   assert.match(systemDark, /--sidebar-material-tint:\s*transparent/);
   assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: 0[\s\S]*border-radius: 0[\s\S]*background: var\(--sidebar-material-tint\)[\s\S]*backdrop-filter: none/);
@@ -224,9 +226,10 @@ test("macOS semantic palette keeps dark workspace surfaces distinct from pure bl
   assert.match(lightTheme, /--mac-grouped-background:\s*#ececec/i);
   assert.match(lightTheme, /--mac-label:\s*rgb\(0 0 0 \/ 84\.7%\)/i);
   for (const themeRule of [explicitDark, systemDark]) {
-    assert.match(themeRule, /--mac-window-background:\s*#282828/i);
-    assert.match(themeRule, /--mac-elevated-background:\s*#323232/i);
-    assert.match(themeRule, /--surface-secondary:\s*#3a3a3a/i);
+    assert.match(themeRule, /--mac-window-background:\s*#1e1e1e/i);
+    assert.match(themeRule, /--mac-grouped-background:\s*#282828/i);
+    assert.match(themeRule, /--mac-elevated-background:\s*#2c2c2e/i);
+    assert.match(themeRule, /--surface-secondary:\s*#343436/i);
     assert.match(themeRule, /--mac-separator:\s*rgb\(255 255 255 \/ 9\.8%\)/i);
   }
   const structuralTokens = ["panel-bg", "sidebar-bg", "content-bg", "header-bg", "card-bg", "surface-secondary", "window-bg"];
@@ -1221,7 +1224,7 @@ test("AI provider editing uses a dedicated modal and separates provider and mode
   assert.doesNotMatch(sections.providers, /provider-modal-overlay/);
   assert.doesNotMatch(sections.providers, /class="modal-card provider-modal-card"/);
   assert.match(sections.providers, /session\.text\.providerSelfHostedTitle/);
-  assert.match(sections.providers, /session\.text\.providerCustomModelsTitle/);
+  assert.match(sections.providers, /session\.text\.providerModelsSectionTitle/);
   assert.match(styles, /\.desktop-dialog-content\.provider-modal-card\s*\{[^}]*width:\s*min\(920px,\s*calc\(100vw - 48px\)\)/s);
   // The save footbar belongs to the provider globals (mode/default) and is gated
   // by its own dirty flag — a separate concern from the provider edit modal.
