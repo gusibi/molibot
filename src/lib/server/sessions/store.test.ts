@@ -548,3 +548,41 @@ test("per-session model override round-trips through disk and clears on empty", 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("tool activity file paths survive a save → fresh store → load round trip", () => {
+  // Pitfall #10: a narrow serialization silently drops new fields, which here
+  // would empty the file panel's "changes from this session" view on restart.
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-activity-paths-"));
+  const original = {
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile
+  };
+
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+
+    const externalUserId = "web:personal:web-anonymous";
+    const session = new SessionStore().createWebConversation(externalUserId);
+    new SessionStore().appendMessage(session.id, "assistant", "done", {
+      activities: [
+        { key: "edit-1", kind: "tool", label: "Edit", state: "success", paths: ["src/a.ts"], mutates: true },
+        { key: "read-1", kind: "tool", label: "Read", state: "success", paths: ["src/b.ts"], mutates: false },
+        { key: "bash-1", kind: "tool", label: "Bash", state: "success" }
+      ]
+    });
+
+    const reloaded = new SessionStore().listMessages(session.id)[0]?.activities ?? [];
+    assert.deepEqual(reloaded[0], { key: "edit-1", kind: "tool", label: "Edit", state: "success", paths: ["src/a.ts"], mutates: true });
+    assert.deepEqual(reloaded[1]?.paths, ["src/b.ts"]);
+    assert.equal(reloaded[1]?.mutates, false);
+    assert.equal("paths" in (reloaded[2] ?? {}), false);
+  } finally {
+    storagePaths.webWorkspaceDir = original.webWorkspaceDir;
+    storagePaths.sessionsDir = original.sessionsDir;
+    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

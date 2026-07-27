@@ -15,6 +15,7 @@
   import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import { projectChatStore } from "./projectChatStore.svelte";
+  import { appendReference, composerInsertion } from "./composerBridge";
   import {
     fetchDesktopFileBlob,
     forkDesktopSession,
@@ -37,6 +38,9 @@
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
   let message = "";
+  // Last file reference consumed from the panel. Guards the reactive block
+  // below from re-appending the same reference when it re-runs for other reasons.
+  let appliedInsertionId = 0;
   let pendingFiles: File[] = [];
   let fileInput: HTMLInputElement;
   let thinkingLevel: DesktopThinkingLevel = "medium";
@@ -225,6 +229,15 @@
   $: pendingApproval = chatState.pendingApproval;
   $: queuedMessages = chatState.queue;
   $: turnError = chatState.error;
+
+  // File references requested from the Project file panel. The panel is a
+  // sibling under ChatView, so it reaches the composer through this store.
+  $: applyComposerInsertion($composerInsertion);
+  function applyComposerInsertion(request: { id: number; reference: string } | null): void {
+    if (!request || request.id === appliedInsertionId) return;
+    appliedInsertionId = request.id;
+    message = appendReference(message, request.reference);
+  }
 
   function inferAttachmentKind(file: File): "image" | "audio" | "video" | "file" {
     const type = file.type.toLowerCase();

@@ -96,6 +96,10 @@ export type RunnerUiEvent =
       toolName: string;
       displayName?: string;
       label: string;
+      /** Project-relative paths the call touches, when the tool takes a file path. */
+      paths?: string[];
+      /** True when those paths are written rather than read. */
+      mutates?: boolean;
     }
   | {
       type: "tool_execution_end";

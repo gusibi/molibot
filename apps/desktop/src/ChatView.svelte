@@ -94,6 +94,8 @@
   import BotMention from "./lib/chat/BotMention.svelte";
   import { ChatSessionStore } from "./lib/chat/chatSessionStore.svelte";
   import { projectChatStore } from "./lib/projects/projectChatStore.svelte";
+  // Files the active Project session has touched, projected for the file panel.
+  const sessionFileTouches = projectChatStore.sessionFiles;
   import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
   import { stickToBottom } from "./lib/chat/stickToBottom";
   import { openWorkspacePaneState, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
@@ -2506,6 +2508,7 @@
       endpoint={connectedEndpoint || serviceEndpoint || ""}
       projectId={projectsStore.selectedProjectId}
       sessionId={projectsStore.selectedSessionId}
+      touches={$sessionFileTouches}
       {copy}
       onClose={() => (filePanelOpen = false)}
     />

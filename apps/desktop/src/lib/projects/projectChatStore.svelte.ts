@@ -14,6 +14,11 @@ import type {
   DesktopThinkingLevel
 } from "@molibot/desktop-contract";
 import { loadDesktopProjectSession, type DesktopActivityEntry } from "../api";
+import {
+  collectSessionFileTouches,
+  EMPTY_SESSION_FILE_TOUCHES,
+  type SessionFileTouches
+} from "./sessionFileTouches";
 
 /**
  * Project chat's per-session runtime store (parity with `ChatSessionStore` for
@@ -147,6 +152,17 @@ export class ProjectChatStore {
       queue: controller?.queue ?? [],
       statusDots: buildDots(this.registry.list())
     };
+  });
+
+  /**
+   * Files the ACTIVE session has touched, for the Project file panel. Kept as a
+   * separate store from `state` so marking the tree does not re-run every
+   * transcript-bound derivation on each streaming token.
+   */
+  readonly sessionFiles = toStore<SessionFileTouches>(() => {
+    const entry = this.registry.active;
+    if (!entry) return EMPTY_SESSION_FILE_TOUCHES;
+    return collectSessionFileTouches(entry.messages ?? [], entry.controller?.activities ?? []);
   });
 
   /** Opens a project session: pins its working directory, ensures its

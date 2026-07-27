@@ -10,7 +10,9 @@
     depth = 0,
     copy,
     dirtyPaths,
+    touchedPaths,
     onCopyPath,
+    onMention,
     copiedPath
   }: {
     store: ProjectFilesStore;
@@ -18,7 +20,9 @@
     depth?: number;
     copy: Translation;
     dirtyPaths: Set<string>;
+    touchedPaths: Set<string>;
     onCopyPath: (path: string) => void;
+    onMention: (path: string) => void;
     copiedPath: string;
   } = $props();
 
@@ -31,7 +35,12 @@
     {#each level.entries as entry (entry.path)}
       {@const expanded = Boolean(store.expanded[entry.path])}
       <li class="file-tree-item">
-        <div class="file-tree-row" class:selected={activePath === entry.path} class:dirty={dirtyPaths.has(entry.path)}>
+        <div
+          class="file-tree-row"
+          class:selected={activePath === entry.path}
+          class:dirty={dirtyPaths.has(entry.path)}
+          class:touched={touchedPaths.has(entry.path)}
+        >
           <button
             type="button"
             class="file-tree-button"
@@ -55,9 +64,21 @@
               aria-hidden="true"
             ></i>
             <span class="file-tree-name">{entry.name}</span>
+            {#if touchedPaths.has(entry.path)}
+              <span class="file-tree-touched" title={copy.projectTouchedThisSession} aria-hidden="true"></span>
+            {/if}
             {#if entry.sizeBytes !== undefined}<small class="file-tree-size">{formatSize(entry.sizeBytes)}</small>{/if}
           </button>
           {#if entry.kind !== "symlink"}
+            <button
+              type="button"
+              class="file-tree-action"
+              aria-label={copy.projectMentionInChat}
+              title={copy.projectMentionInChat}
+              onclick={() => onMention(entry.path)}
+            >
+              <i class="ph ph-at" aria-hidden="true"></i>
+            </button>
             <button
               type="button"
               class="file-tree-action"
@@ -78,7 +99,9 @@
               depth={depth + 1}
               {copy}
               {dirtyPaths}
+              {touchedPaths}
               {onCopyPath}
+              {onMention}
               {copiedPath}
             />
           {:else}

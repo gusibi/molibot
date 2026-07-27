@@ -10,11 +10,15 @@
   import FileTreeNode from "./FileTreeNode.svelte";
   import { fileIconName, fileIconStyle, formatSize } from "./fileIcons";
   import { ProjectFilesStore } from "./projectFilesStore.svelte";
+  import { requestComposerInsertion } from "./composerBridge";
+  import type { SessionFileTouches } from "./sessionFileTouches";
 
-  let { endpoint, projectId, sessionId, copy, onClose }: {
+  let { endpoint, projectId, sessionId, touches, copy, onClose }: {
     endpoint: string;
     projectId: string;
     sessionId: string;
+    /** Files the active session touched, for marking and the session change scope. */
+    touches: SessionFileTouches;
     copy: Translation;
     onClose: () => void;
   } = $props();
@@ -39,10 +43,14 @@
 
   let diffLayout = $state<"line-by-line" | "side-by-side">("line-by-line");
 
+  /** Changes tab scope: everything Git reports, or only what this session wrote. */
+  let changeScope = $state<"session" | "all">("session");
+
   const activeTab = $derived(store.activeTab);
-  const dirtyPaths = $derived(
-    new Set(store.git?.status === "ok" ? store.git.entries.map((entry) => entry.path) : [])
-  );
+  const gitEntries = $derived(store.git?.status === "ok" ? store.git.entries : []);
+  const dirtyPaths = $derived(new Set(gitEntries.map((entry) => entry.path)));
+  const sessionEntries = $derived(gitEntries.filter((entry) => touches.written.has(entry.path)));
+  const visibleEntries = $derived(changeScope === "session" ? sessionEntries : gitEntries);
   const diffHtml = $derived(
     activeTab?.kind === "diff" && activeTab.diff?.status === "diff" && activeTab.diff.content
       ? renderDiffHtml(activeTab.diff.content, {
@@ -80,6 +88,10 @@
   function buildRawFileUrl(filePath: string): string {
     const query = new URLSearchParams({ path: filePath, raw: "true" });
     return `${endpoint}/api/settings/projects/${encodeURIComponent(projectId)}/inspection/file?${query.toString()}`;
+  }
+
+  function mentionInChat(path: string, line = 0): void {
+    requestComposerInsertion(path, line);
   }
 
   async function copyPath(path: string): Promise<void> {
@@ -246,7 +258,11 @@
       <button type="button" role="tab" aria-selected={tab === "files"} class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.projectFilesTab}</button>
       <button type="button" role="tab" aria-selected={tab === "changes"} class:active={tab === "changes"} onclick={() => (tab = "changes")}>
         {copy.projectChangesTab}
-        {#if dirtyPaths.size}<span class="project-tab-badge">{dirtyPaths.size}</span>{/if}
+        {#if sessionEntries.length}
+          <span class="project-tab-badge is-session">{sessionEntries.length}</span>
+        {:else if dirtyPaths.size}
+          <span class="project-tab-badge">{dirtyPaths.size}</span>
+        {/if}
       </button>
       <button type="button" role="tab" aria-selected={tab === "attachments"} class:active={tab === "attachments"} onclick={() => (tab = "attachments")}>{copy.projectAttachmentsTab}</button>
     </div>
@@ -262,30 +278,68 @@
           {#if store.dirs[""]?.error}
             <div class="project-panel-error" role="alert">{store.dirs[""].error}</div>
           {/if}
-          <FileTreeNode {store} dirPath="" {copy} {dirtyPaths} onCopyPath={(path) => void copyPath(path)} {copiedPath} />
+          <FileTreeNode
+            {store}
+            dirPath=""
+            {copy}
+            {dirtyPaths}
+            touchedPaths={touches.written}
+            onCopyPath={(path) => void copyPath(path)}
+            onMention={(path) => mentionInChat(path)}
+            {copiedPath}
+          />
         {:else if tab === "changes"}
           {#if store.gitError}
             <div class="project-panel-error" role="alert">{store.gitError}</div>
           {:else if store.git?.status === "unavailable"}
             <p class="file-empty"><i class="ph ph-git-branch" aria-hidden="true"></i><span>{copy.projectGitUnavailable}</span><small>{store.git.reason}</small></p>
-          {:else if store.git?.status === "ok" && store.git.entries.length}
-            <p class="project-panel-scope">{copy.projectChangesHint}</p>
-            {#if store.git.truncated}<p class="project-truncated-note">{copy.projectInspectionTruncated}</p>{/if}
-            <ul class="project-entry-list project-change-list">
-              {#each store.git.entries as entry (entry.path)}
-                <li class="project-entry">
-                  <button
-                    type="button"
-                    class="project-entry-button"
-                    class:selected={activeTab?.kind === "diff" && activeTab.path === entry.path}
-                    onclick={() => void store.openDiff(entry.path)}
-                  >
-                    <span class={`project-change-status status-${statusType(entry)}`}>{statusLabel(entry)}</span>
-                    <span title={entry.path}>{entry.path}</span>
-                  </button>
-                </li>
-              {/each}
-            </ul>
+          {:else if gitEntries.length}
+            <div class="project-change-scope" role="tablist" aria-label={copy.projectChangesTab}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={changeScope === "session"}
+                class:active={changeScope === "session"}
+                onclick={() => (changeScope = "session")}
+              >{copy.projectChangesThisSession} ({sessionEntries.length})</button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={changeScope === "all"}
+                class:active={changeScope === "all"}
+                onclick={() => (changeScope = "all")}
+              >{copy.projectChangesAll} ({gitEntries.length})</button>
+            </div>
+            <p class="project-panel-scope">
+              {changeScope === "session" ? copy.projectChangesSessionHint : copy.projectChangesHint}
+            </p>
+            {#if store.git?.status === "ok" && store.git.truncated}<p class="project-truncated-note">{copy.projectInspectionTruncated}</p>{/if}
+            {#if visibleEntries.length}
+              <ul class="project-entry-list project-change-list">
+                {#each visibleEntries as entry (entry.path)}
+                  <li class="project-entry">
+                    <button
+                      type="button"
+                      class="project-entry-button"
+                      class:selected={activeTab?.kind === "diff" && activeTab.path === entry.path}
+                      onclick={() => void store.openDiff(entry.path)}
+                    >
+                      <span class={`project-change-status status-${statusType(entry)}`}>{statusLabel(entry)}</span>
+                      <span title={entry.path}>{entry.path}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="project-entry-action"
+                      aria-label={copy.projectMentionInChat}
+                      title={copy.projectMentionInChat}
+                      onclick={() => mentionInChat(entry.path)}
+                    ><i class="ph ph-at" aria-hidden="true"></i></button>
+                  </li>
+                {/each}
+              </ul>
+            {:else}
+              <p class="file-empty"><i class="ph ph-git-diff" aria-hidden="true"></i><span>{copy.projectChangesSessionEmpty}</span></p>
+            {/if}
           {:else if !store.gitLoading}
             <p class="file-empty"><i class="ph ph-git-diff" aria-hidden="true"></i><span>{copy.projectChangesEmpty}</span></p>
           {/if}
@@ -385,6 +439,9 @@
                   onclick={() => (diffLayout = diffLayout === "side-by-side" ? "line-by-line" : "side-by-side")}
                 ><i class="ph ph-columns" aria-hidden="true"></i></button>
               {/if}
+              <button type="button" class="code-viewer-toggle" aria-label={copy.projectMentionInChat} title={copy.projectMentionInChat} onclick={() => mentionInChat(activeTab.path)}>
+                <i class="ph ph-at" aria-hidden="true"></i>
+              </button>
               <button type="button" class="code-viewer-toggle" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
                 <i class={`ph ph-${copiedPath === activeTab.path ? "check" : "copy"}`} aria-hidden="true"></i>
               </button>

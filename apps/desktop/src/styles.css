@@ -1061,6 +1061,20 @@ a:focus-visible {
 .file-search-line code { overflow: hidden; color: var(--label-primary); font: 12px/18px var(--font-mono); text-overflow: ellipsis; white-space: pre; }
 .file-search-line mark { border-radius: 2px; background: color-mix(in srgb, var(--accent) 34%, transparent); color: inherit; }
 
+/* P2: session-scoped changes, agent-touched marks, chat references */
+.project-tab-badge.is-session { background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning-text); }
+.project-change-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 0 12px 8px; padding: 4px; border-radius: var(--rounded-sm); background: var(--fill); }
+.project-change-scope button { min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
+.project-change-scope button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: var(--soft-shadow); }
+.file-tree-row.touched .file-tree-name { color: var(--label-primary); font-weight: 600; }
+.file-tree-touched { justify-self: end; width: 6px; height: 6px; border-radius: 50%; background: var(--warning-text); }
+.file-search-row { display: flex; align-items: center; gap: 2px; min-width: 0; border-radius: var(--rounded-sm); }
+.file-search-row:hover { background: var(--fill); }
+.file-search-row .file-search-hit, .file-search-row .file-search-line { flex: 1 1 auto; min-width: 0; }
+.file-search-row .file-tree-action { flex: none; }
+.file-search-row:hover .file-tree-action { opacity: 1; }
+.project-entry:hover .project-entry-action { opacity: 1; }
+
 .project-file-panel button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
 .project-file-panel .file-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .project-file-panel .file-empty .ph { font-size: 24px; color: var(--label-tertiary); }

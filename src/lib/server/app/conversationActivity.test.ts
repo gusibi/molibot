@@ -58,3 +58,41 @@ test("finalSnapshot closes still-running activities as errors", () => {
   assert.equal(final[1].state, "error");
   assert.ok(final[1].summary);
 });
+
+test("file tool activities carry the touched path across the start/end merge", () => {
+  const collector = new ConversationActivityCollector();
+  collector.record({
+    type: "tool_execution_start",
+    toolName: "edit",
+    displayName: "Edit",
+    label: "Edit: tighten the guard",
+    paths: ["src/lib/guard.ts"],
+    mutates: true
+  });
+  const ended = collector.record({
+    type: "tool_execution_end",
+    toolName: "edit",
+    displayName: "Edit",
+    isError: false,
+    summary: "Updated src/lib/guard.ts"
+  });
+
+  // `tool_execution_end` carries no arguments, so the paths recorded at start
+  // are the only copy; losing them here would empty the session change view.
+  assert.deepEqual(ended?.paths, ["src/lib/guard.ts"]);
+  assert.equal(ended?.mutates, true);
+});
+
+test("activities for tools without a file path stay free of path keys", () => {
+  const collector = new ConversationActivityCollector();
+  collector.record({ type: "tool_execution_start", toolName: "bash", displayName: "Bash", label: "ls" });
+  const ended = collector.record({
+    type: "tool_execution_end",
+    toolName: "bash",
+    displayName: "Bash",
+    isError: false,
+    summary: "ok"
+  });
+  assert.equal("paths" in (ended ?? {}), false);
+  assert.equal("mutates" in (ended ?? {}), false);
+});

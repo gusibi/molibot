@@ -34,6 +34,14 @@ export interface ConversationActivity {
   label: string;
   state: "running" | "success" | "error" | "info";
   summary?: string;
+  /**
+   * Project-relative paths this tool call touched, recorded from the tool's own
+   * arguments rather than parsed back out of `label`. Lets a surface answer
+   * "which files did this session change?" without re-deriving it from prose.
+   */
+  paths?: string[];
+  /** True when the tool writes to those paths (`write`/`edit`) rather than reading them. */
+  mutates?: boolean;
 }
 
 export interface InboundMessage {

@@ -18,6 +18,7 @@ import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { applyAssistantStreamEvent } from "$lib/server/agent/core/assistantStream.js";
 import { withFirstTokenTimeout } from "$lib/server/agent/core/firstTokenStreamTimeout.js";
 import { buildPromptInputEnvelope } from "$lib/server/agent/prompts/promptInput.js";
+import { resolveToolFileTarget } from "$lib/server/app/toolFilePaths.js";
 import { createMomTools } from "$lib/server/agent/tools/index.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
@@ -1223,12 +1224,15 @@ export class MomRunner implements RunnerLike {
           displayName,
           summary: label
         });
+        const fileTarget = resolveToolFileTarget(event.toolName, event.args);
         if (ctx.onRunnerEvent) {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_start",
             toolName: event.toolName,
             displayName,
-            label
+            label,
+            paths: fileTarget?.paths,
+            mutates: fileTarget?.mutates
           }));
         }
         enqueue(() => ctx.respond(`_→ ${label}_`, false));

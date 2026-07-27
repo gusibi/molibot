@@ -13,7 +13,10 @@ export class ConversationActivityCollector {
         key: `${event.toolName}-${++this.sequence}`,
         kind: "tool",
         label: event.label || event.displayName || event.toolName,
-        state: "running"
+        state: "running",
+        // Only present when the tool actually takes a file path, so activities
+        // for every other tool serialize exactly as they did before.
+        ...(event.paths?.length ? { paths: [...event.paths], mutates: event.mutates === true } : {})
       };
       this.activities.push(activity);
       return activity;
@@ -35,12 +38,16 @@ export class ConversationActivityCollector {
     }
 
     const summary = event.summary.trim();
+    // `tool_execution_end` has no arguments, so the file target recorded at
+    // start is the only place the paths exist — carry it across the merge.
+    const started = index >= 0 ? this.activities[index] : undefined;
     const activity: ConversationActivity = {
-      key: index >= 0 ? this.activities[index].key : `${event.toolName}-${++this.sequence}`,
+      key: started?.key ?? `${event.toolName}-${++this.sequence}`,
       kind: "tool",
       label: event.displayName || event.toolName,
       state: event.isError ? "error" : "success",
-      summary: summary ? summary.slice(0, MAX_SUMMARY_LENGTH) : undefined
+      summary: summary ? summary.slice(0, MAX_SUMMARY_LENGTH) : undefined,
+      ...(started?.paths?.length ? { paths: started.paths, mutates: started.mutates === true } : {})
     };
 
     if (index >= 0) this.activities[index] = activity;

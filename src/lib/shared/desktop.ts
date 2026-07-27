@@ -671,6 +671,10 @@ export interface DesktopConversationActivity {
   label: string;
   state: "running" | "success" | "error" | "info";
   summary?: string;
+  /** Project-relative paths the tool call touched (see `ConversationActivity`). */
+  paths?: string[];
+  /** True when the tool wrote to those paths rather than reading them. */
+  mutates?: boolean;
 }
 
 export interface DesktopSessionDetail extends DesktopSessionSummary {

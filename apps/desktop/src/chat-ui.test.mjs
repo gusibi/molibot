@@ -1118,6 +1118,41 @@ test("project file search covers names and contents and reveals the hit", () => 
   assert.match(styles, /\.file-search-results/);
 });
 
+test("project files can be referenced into the chat composer", () => {
+  const bridge = read("./lib/projects/composerBridge.ts");
+  const projectChat = read("./lib/projects/ProjectChat.svelte");
+  const searchPanel = read("./lib/projects/FileSearchPanel.svelte");
+  const treeNode = read("./lib/projects/FileTreeNode.svelte");
+  // The panel and the composer are siblings under ChatView, so the bridge must
+  // be a plain store: ProjectChat is a legacy `$:` surface and cannot track
+  // runes state owned by another module.
+  assert.match(bridge, /writable<ComposerInsertion \| null>/);
+  assert.match(projectChat, /\$: applyComposerInsertion\(\$composerInsertion\)/);
+  // A monotonic id keeps a re-run of the reactive block from re-appending.
+  assert.match(projectChat, /request\.id === appliedInsertionId/);
+  assert.match(treeNode, /onMention\(entry\.path\)/);
+  assert.match(searchPanel, /requestComposerInsertion\(group\.path, entry\.line\)/);
+  assert.match(projectFilePanel, /requestComposerInsertion\(path, line\)/);
+});
+
+test("agent-written files are marked in the tree and scope the Changes tab", () => {
+  const touches = read("./lib/projects/sessionFileTouches.ts");
+  const chatStore = read("./lib/projects/projectChatStore.svelte.ts");
+  const treeNode = read("./lib/projects/FileTreeNode.svelte");
+  // Touches come from structured activity paths, never from parsing the label.
+  assert.match(touches, /activity\.paths\?\.length/);
+  assert.match(touches, /if \(activity\.mutates\) written\.add\(path\)/);
+  // The running turn's activities count before they land in the transcript.
+  assert.match(touches, /liveActivities/);
+  assert.match(chatStore, /readonly sessionFiles = toStore<SessionFileTouches>/);
+  assert.match(view, /touches=\{\$sessionFileTouches\}/);
+  assert.match(treeNode, /class:touched=\{touchedPaths\.has\(entry\.path\)\}/);
+  assert.match(projectFilePanel, /touches\.written\.has\(entry\.path\)/);
+  assert.match(projectFilePanel, /changeScope === "session" \? sessionEntries : gitEntries/);
+  assert.match(styles, /\.project-change-scope/);
+  assert.match(styles, /\.file-tree-row\.touched/);
+});
+
 test("project file panel follows file changes live and stays resizable", () => {
   const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
   assert.match(filesStore, /watchDesktopProjectFiles/);

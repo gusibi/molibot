@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
   import { escapeHtml } from "./codeHighlight";
+  import { requestComposerInsertion } from "./composerBridge";
   import { fileIconName, fileIconStyle } from "./fileIcons";
   import type { ProjectFilesStore } from "./projectFilesStore.svelte";
 
@@ -118,12 +119,19 @@
     {:else if result?.mode === "name"}
       <ul class="file-search-list">
         {#each result.hits as hit, index (hit.path)}
-          <li>
+          <li class="file-search-row">
             <button type="button" class="file-search-hit" class:cursor={index === cursor} onclick={() => void choose(index)}>
               <i class={`ph ${fileIconName(hit.name, "file")}`} style={fileIconStyle(hit.name, "file")} aria-hidden="true"></i>
               <span class="file-search-hit-name">{hit.name}</span>
               <small class="file-search-hit-path">{hit.path}</small>
             </button>
+            <button
+              type="button"
+              class="file-tree-action"
+              aria-label={copy.projectMentionInChat}
+              title={copy.projectMentionInChat}
+              onclick={() => requestComposerInsertion(hit.path)}
+            ><i class="ph ph-at" aria-hidden="true"></i></button>
           </li>
         {/each}
       </ul>
@@ -136,15 +144,24 @@
               <span>{group.path}</span>
             </p>
             {#each group.lines as entry (entry.line)}
-              <button
-                type="button"
-                class="file-search-line"
-                class:cursor={entry.flatIndex === cursor}
-                onclick={() => void choose(entry.flatIndex)}
-              >
-                <span class="file-search-line-number">{entry.line}</span>
-                <code>{@html lineHtml(entry.text, entry.start, entry.end)}</code>
-              </button>
+              <div class="file-search-row">
+                <button
+                  type="button"
+                  class="file-search-line"
+                  class:cursor={entry.flatIndex === cursor}
+                  onclick={() => void choose(entry.flatIndex)}
+                >
+                  <span class="file-search-line-number">{entry.line}</span>
+                  <code>{@html lineHtml(entry.text, entry.start, entry.end)}</code>
+                </button>
+                <button
+                  type="button"
+                  class="file-tree-action"
+                  aria-label={copy.projectMentionInChat}
+                  title={copy.projectMentionInChat}
+                  onclick={() => requestComposerInsertion(group.path, entry.line)}
+                ><i class="ph ph-at" aria-hidden="true"></i></button>
+              </div>
             {/each}
             {#if group.truncated}<p class="file-search-hint">{copy.projectInspectionTruncated}</p>{/if}
           </li>
