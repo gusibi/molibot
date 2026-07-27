@@ -218,6 +218,36 @@ export type DesktopProjectGitDiff =
   | { status: "binary" | "oversized"; path: string; sizeBytes: number }
   | { status: "unavailable"; reason: string };
 
+export interface DesktopProjectSearchNameHit {
+  path: string;
+  name: string;
+  sizeBytes: number;
+  score: number;
+}
+
+export interface DesktopProjectSearchContentLine {
+  line: number;
+  text: string;
+  start: number;
+  end: number;
+}
+
+export interface DesktopProjectSearchContentHit {
+  path: string;
+  name: string;
+  lines: DesktopProjectSearchContentLine[];
+  truncated: boolean;
+}
+
+export type DesktopProjectSearchResult =
+  | { mode: "name"; query: string; hits: DesktopProjectSearchNameHit[]; scanned: number; truncated: boolean }
+  | { mode: "content"; query: string; hits: DesktopProjectSearchContentHit[]; scanned: number; truncated: boolean };
+
+export interface DesktopProjectChangeBatch {
+  paths: string[];
+  overflow: boolean;
+}
+
 export interface DesktopProjectMessage {
   id: string;
   conversationId: string;
@@ -295,6 +325,50 @@ export async function loadDesktopProjectGitStatus(endpoint: string, projectId: s
 export async function loadDesktopProjectGitDiff(endpoint: string, projectId: string, filePath: string): Promise<DesktopProjectGitDiff> {
   const query = new URLSearchParams({ path: filePath });
   return (await requestJson<{ ok: true; result: DesktopProjectGitDiff }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/diff?${query}`)).result;
+}
+
+export async function searchDesktopProjectFiles(
+  endpoint: string,
+  projectId: string,
+  input: { query: string; mode?: "name" | "content"; limit?: number; caseSensitive?: boolean },
+  signal?: AbortSignal
+): Promise<DesktopProjectSearchResult> {
+  const query = new URLSearchParams({ q: input.query, mode: input.mode ?? "name" });
+  if (input.limit) query.set("limit", String(input.limit));
+  if (input.caseSensitive) query.set("caseSensitive", "true");
+  const payload = await requestJson<{ ok: true; result: DesktopProjectSearchResult }>(
+    endpoint,
+    `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/search?${query}`,
+    signal ? { signal } : undefined
+  );
+  return payload.result;
+}
+
+/**
+ * Opens the Project file-change stream. Resolves once the stream ends; abort the
+ * signal to unsubscribe. Callers treat `onUnavailable` as "fall back to the
+ * manual refresh button" rather than as an error.
+ */
+export async function watchDesktopProjectFiles(
+  endpoint: string,
+  projectId: string,
+  handlers: {
+    onReady?: () => void;
+    onChange: (batch: DesktopProjectChangeBatch) => void;
+    onUnavailable?: (reason: string) => void;
+  },
+  signal: AbortSignal
+): Promise<void> {
+  const response = await fetchFromDesktop(
+    serviceUrl(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/watch`),
+    { signal }
+  );
+  if (!response.ok) throw new Error(`Watch failed (${response.status})`);
+  await consumeDesktopSse(response, (event, data) => {
+    if (event === "ready") handlers.onReady?.();
+    else if (event === "change") handlers.onChange(data as unknown as DesktopProjectChangeBatch);
+    else if (event === "unavailable") handlers.onUnavailable?.(String((data as { reason?: string })?.reason ?? ""));
+  });
 }
 
 export type DesktopModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";

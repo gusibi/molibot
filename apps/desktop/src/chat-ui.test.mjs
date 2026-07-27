@@ -71,6 +71,7 @@ const projectFilePanel = read("./lib/projects/ProjectFilePanel.svelte");
 const taskStore = read("./lib/stores/tasks.svelte.ts");
 const settingsSessionStore = read("./lib/stores/session.svelte.ts");
 const skillsStoreSource = read("./lib/stores/skills.svelte.ts");
+const providersStore = read("./lib/stores/providers.svelte.ts");
 const conversationController = read("./lib/chat/conversationController.svelte.ts");
 const chatSessionStore = read("./lib/chat/chatSessionStore.svelte.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
@@ -435,8 +436,11 @@ test("issue 13 target pages expose user-facing controls and secondary technical 
   assert.match(models, /technicalId=\{state\.currentKey\}/);
   assert.match(sections.providers, /humanizeProviderName/);
   assert.match(sections.providers, /aria-pressed=\{providerSortActive\}/);
-  assert.match(sections.providers, /class="provider-browser-list" role="listbox"/);
-  assert.match(sections.providers, /class="provider-technical-details technical-detail"/);
+  assert.match(sections.providers, /class="provider-rail-list" role="listbox"/);
+  // Technical identity stays secondary: the raw id is a muted <code> in the
+  // header and protocol/path live behind the Advanced disclosure.
+  assert.match(sections.providers, /<code>\{editor\.id\}<\/code>/);
+  assert.match(sections.providers, /<details class="provider-advanced">/);
   assert.doesNotMatch(read("./lib/stores/providers.svelte.ts"), /window\.confirm/);
   assert.match(sections.trace, /formatLongDurationMs\(item\.durationMs, session\.locale\)/);
   assert.match(sections.trace, /<OverflowMenu label=\{session\.text\.more\}>/);
@@ -1055,16 +1059,75 @@ test("project detail reuses the chat header chrome for a single visual language"
 });
 
 test("project file panel exposes live files, Git changes, and session attachments", () => {
+  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
   assert.match(view, /<ProjectFilePanel/);
-  assert.match(projectFilePanel, /selectTab\("files"\)/);
-  assert.match(projectFilePanel, /selectTab\("changes"\)/);
-  assert.match(projectFilePanel, /selectTab\("attachments"\)/);
-  assert.match(projectFilePanel, /loadDesktopProjectTree/);
-  assert.match(projectFilePanel, /loadDesktopProjectGitStatus/);
+  assert.match(projectFilePanel, /tab = "files"/);
+  assert.match(projectFilePanel, /tab = "changes"/);
+  assert.match(projectFilePanel, /tab = "attachments"/);
+  // Tree, Git and search now load through the shared store, not the component.
+  assert.match(filesStore, /loadDesktopProjectTree/);
+  assert.match(filesStore, /loadDesktopProjectGitStatus/);
   assert.match(projectFilePanel, /listDesktopSessionFiles\(endpoint, "personal", sessionId, projectId\)/);
   assert.match(projectFilePanel, /projectReadOnlyHint/);
   assert.match(styles, /\.project-file-tabs/);
   assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.chat-layout\.with-files \.file-panel/);
+});
+
+test("project file tree expands in place and keeps its expansion state", () => {
+  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
+  const treeNode = read("./lib/projects/FileTreeNode.svelte");
+  // Expansion is keyed per directory path so a reload cannot collapse the tree,
+  // and each level is fetched lazily and cached in `dirs`.
+  assert.match(filesStore, /expanded = \$state<Record<string, boolean>>/);
+  assert.match(filesStore, /dirs = \$state<Record<string, TreeLevel>>/);
+  assert.match(filesStore, /toggleDir\(path: string\)/);
+  assert.match(filesStore, /async revealPath\(path: string\)/);
+  // The node renders itself recursively rather than replacing the whole list.
+  assert.match(treeNode, /import FileTreeNode from "\.\/FileTreeNode\.svelte"/);
+  assert.match(treeNode, /<FileTreeNode[\s\S]*dirPath=\{entry\.path\}/);
+  assert.match(styles, /\.file-tree-level/);
+});
+
+test("project file panel opens several files as tabs with a highlighted viewer", () => {
+  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
+  const codeViewer = read("./lib/projects/CodeViewer.svelte");
+  assert.match(filesStore, /tabs = \$state<OpenTab\[\]>/);
+  assert.match(filesStore, /closeTab\(id: string\)/);
+  // Opening a file appends a tab; it must never replace the ones already open.
+  assert.match(filesStore, /const next = \[\.\.\.this\.tabs, tab\]/);
+  assert.match(projectFilePanel, /<CodeViewer/);
+  assert.match(codeViewer, /highlightLines/);
+  assert.match(codeViewer, /code-line-number/);
+  assert.match(codeViewer, /codeViewerWrap/);
+  assert.match(codeViewer, /codeViewerFind/);
+  assert.match(styles, /\.project-viewer-tab/);
+  assert.match(styles, /\.code-viewer-scroll\.wrap \.code-line-text/);
+});
+
+test("project file search covers names and contents and reveals the hit", () => {
+  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
+  const searchPanel = read("./lib/projects/FileSearchPanel.svelte");
+  assert.match(filesStore, /searchDesktopProjectFiles/);
+  assert.match(filesStore, /searchMode = \$state<SearchMode>/);
+  // Every search carries its own generation and abort so a slow response cannot
+  // replace the results of a newer query.
+  assert.match(filesStore, /searchGeneration !== this\.#searchGeneration/);
+  assert.match(filesStore, /#searchAbort/);
+  assert.match(searchPanel, /store\.revealPath\(hit\.path\)/);
+  assert.match(searchPanel, /openFile\(hit\.path, \{ revealLine: hit\.line \}\)/);
+  assert.match(styles, /\.file-search-results/);
+});
+
+test("project file panel follows file changes live and stays resizable", () => {
+  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
+  assert.match(filesStore, /watchDesktopProjectFiles/);
+  assert.match(filesStore, /applyChanges\(batch: DesktopProjectChangeBatch\)/);
+  // An overflow batch reloads wholesale instead of enumerating paths.
+  assert.match(filesStore, /if \(batch\.overflow\)/);
+  assert.match(view, /class="files-resizer"/);
+  assert.match(view, /molibot-desktop-files-width/);
+  assert.match(styles, /\.chat-layout\.with-files \{ grid-template-columns:[^}]*var\(--files-w/);
+  assert.match(styles, /\.files-resizer/);
 });
 
 test("selectProjectSession discards stale transcript responses when switching sessions", () => {
@@ -1259,36 +1322,55 @@ test("Memory Center keeps overview, topics, and all memories as separate product
   assert.doesNotMatch(sections.memory, /activeTab === "advanced"/);
 });
 
-test("AI provider editing uses a dedicated modal and separates provider and model concepts", () => {
-  assert.match(sections.providers, /<Dialog[\s\S]*contentClass="provider-modal-card"/);
+test("AI provider configuration is an inline workbench, not a modal, and separates provider and model concepts", () => {
+  // Provider identity, credentials, and models are edited in place next to the
+  // rail; only model-level editing and model discovery stay in dialogs.
+  assert.match(sections.providers, /class="provider-workbench"/);
+  assert.match(sections.providers, /<aside class="provider-rail">/);
+  assert.match(sections.providers, /<section class="provider-pane"/);
+  assert.doesNotMatch(sections.providers, /contentClass="provider-modal-card"/);
+  assert.doesNotMatch(sections.providers, /provider-modal-overlay/);
   assert.match(sections.providers, /<Dialog[\s\S]*labelledBy="provider-model-edit-title"/);
   assert.match(sections.providers, /<Dialog[\s\S]*labelledBy="provider-model-discovery-title"/);
   assert.match(sections.providers, /<AlertDialog[\s\S]*contentClass="confirm-dialog"/);
-  assert.doesNotMatch(sections.providers, /provider-modal-overlay/);
-  assert.doesNotMatch(sections.providers, /class="modal-card provider-modal-card"/);
   assert.match(sections.providers, /session\.text\.providerSelfHostedTitle/);
   assert.match(sections.providers, /session\.text\.providerModelsSectionTitle/);
-  assert.match(sections.providers, /class="provider-model-inventory"/);
-  assert.match(sections.providers, /class="provider-model-inventory-row"/);
+  assert.match(sections.providers, /class="provider-model-groups"/);
+  assert.match(sections.providers, /class="provider-model-row"/);
   assert.match(sections.providers, /providerEdit\.defaultModel === previousId[\s\S]*defaultModel: draft\.id/);
   assert.doesNotMatch(sections.providers, /thinkingLevelMap|model\.supportsThinking|DESKTOP_THINKING_LEVELS/);
-  assert.match(styles, /\.desktop-dialog-content\.provider-modal-card\s*\{[^}]*width:\s*min\(920px,\s*calc\(100vw - 48px\)\)/s);
-  // The save footbar belongs to the provider globals (mode/default) and is gated
-  // by its own dirty flag — a separate concern from the provider edit modal.
+  // The pane save bar tracks the provider draft; the settings footbar stays
+  // gated on the provider globals (mode/default) — two separate dirty flags.
+  assert.match(sections.providers, /\{#if editorIsDirty \|\| editor\.isNew\}[\s\S]{0,200}class="provider-pane-foot"/);
   assert.match(sections.providers, /\{#if providersStore\.globalsDirty\}[\s\S]{0,200}class="settings-footbar"/);
-  assert.match(styles, /\.provider-model-inventory\s*\{/);
-  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.provider-browser-layout\s*\{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.match(styles, /\.provider-workbench\s*\{[^}]*grid-template-columns:/s);
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.provider-workbench\s*\{[^}]*grid-template-columns:\s*1fr;/s);
+  // A long provider response must scroll inside the discovery dialog instead of
+  // compressing every row to fit one screen.
+  assert.match(styles, /\.provider-model-discovery-body\s*\{[^}]*display:\s*flex;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+  assert.match(styles, /\.provider-model-discovery-body > \.provider-model-groups\s*\{[^}]*overflow-y:\s*auto;/s);
+});
+
+test("switching providers never silently drops an unsaved draft", () => {
+  assert.match(providersStore, /export function providerEditDirty\(\)/);
+  assert.match(providersStore, /export function markProviderEditPristine\(\)/);
+  // Saving keeps the inline pane on the provider being edited instead of closing it.
+  assert.match(providersStore, /reopenProviderEdit\(draft\.id, isBuiltin\)/);
+  assert.match(sections.providers, /if \(editorIsDirty\) \{[\s\S]{0,120}pendingSwitchProviderId = id;/);
+  assert.match(sections.providers, /labelledBy="provider-switch-title"/);
+  assert.match(sections.providers, /session\.text\.providerSwitchUnsavedHint/);
 });
 
 test("built-in provider configuration reuses saved Web settings without polluting the custom tab", () => {
   assert.match(sections.providers, /beginBuiltinProviderEdit/);
   assert.match(sections.providers, /builtinProviderIds/);
-  assert.match(sections.providers, /customProviders\.filter\(\(provider\) => !builtinProviderIds\.has\(provider\.id\)\)/);
+  assert.match(sections.providers, /customProviders\s*\.filter\(\(provider\) => !builtinProviderIds\.has\(provider\.id\)\)/);
   assert.doesNotMatch(sections.providers, /return item\.kind === "builtin" \|\| item\.provider\.enabled/);
-  assert.match(sections.providers, /class="builtin-provider-editor"/);
-  assert.match(sections.providers, /class="builtin-provider-model-list"/);
-  assert.match(styles, /\.provider-modal-form\s*\{[^}]*display:\s*flex;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
-  assert.match(styles, /\.provider-modal-body\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);
+  // Built-in providers hide protocol/base-URL fields the built-in transport owns.
+  assert.match(sections.providers, /\{#if !editor\.isBuiltin\}[\s\S]{0,400}session\.text\.providerBaseUrlLabel/);
+  assert.match(sections.providers, /editor\.isBuiltin \? "Pi" : providerProtocolLabel\(editor\.protocol\)/);
+  assert.match(styles, /\.provider-pane\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;/s);
+  assert.match(styles, /\.provider-pane-body\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);
   assert.match(styles, /\.settings-content \.settings-footbar\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s);
   assert.match(styles, /\.settings-content \.settings-scroll:has\(\.settings-footbar\)\s*\{[^}]*padding-bottom:/s);
 });

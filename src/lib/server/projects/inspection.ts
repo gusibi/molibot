@@ -47,25 +47,34 @@ export type GitDiffResult =
   | { status: "binary" | "oversized"; path: string; sizeBytes: number }
   | { status: "unavailable"; reason: string };
 
-function relativePath(root: string, candidate: string): string {
+export function relativePath(root: string, candidate: string): string {
   return path.relative(root, candidate).replaceAll("\\", "/");
 }
 
-function isInside(root: string, candidate: string): boolean {
+export function isInside(root: string, candidate: string): boolean {
   const rel = path.relative(root, candidate);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
-async function loadRootGitignore(root: string): Promise<Ignore | null> {
+/**
+ * Loads the `.gitignore` that lives directly inside `directory`, if any. The
+ * tree listing only consults the Project root; the search walker composes one
+ * of these per directory it descends into so nested ignore files apply too.
+ */
+export async function loadGitignore(directory: string): Promise<Ignore | null> {
   try {
-    const content = await fs.readFile(path.join(root, ".gitignore"), "utf8");
+    const content = await fs.readFile(path.join(directory, ".gitignore"), "utf8");
     return ignore().add(content);
   } catch {
     return null;
   }
 }
 
-async function resolveProjectPath(project: ProjectRecord, input = "", allowSymlink = false, requireExists = true): Promise<{ root: string; target: string; relative: string }> {
+async function loadRootGitignore(root: string): Promise<Ignore | null> {
+  return await loadGitignore(root);
+}
+
+export async function resolveProjectPath(project: ProjectRecord, input = "", allowSymlink = false, requireExists = true): Promise<{ root: string; target: string; relative: string }> {
   const root = await fs.realpath(project.rootPath);
   const requested = String(input ?? "").replaceAll("\\", "/").replace(/^\/+/, "");
   const target = path.resolve(root, requested);
@@ -81,7 +90,7 @@ async function resolveProjectPath(project: ProjectRecord, input = "", allowSymli
   return { root, target, relative: relativePath(root, target) };
 }
 
-function looksBinary(buffer: Buffer): boolean {
+export function looksBinary(buffer: Buffer): boolean {
   const sample = buffer.subarray(0, Math.min(buffer.length, 8_192));
   return sample.includes(0);
 }

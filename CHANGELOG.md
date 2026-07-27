@@ -7,6 +7,29 @@
 ---
 ## 2026-07-27
 
+### Changed: the Desktop Project file panel is now a working code browser, not a read-only list
+- **Real tree.** Directories expand in place and keep their expansion state instead of replacing the whole list on every click. Each level is fetched lazily, cached per path, and paginated independently, so reloading one folder never collapses the rest.
+- **Multiple files at once.** Opening a file adds a tab to a viewer pane below the tree instead of closing whatever was open — up to 12 tabs, with per-tab close, close-all, and a drag-to-resize split between the browser and the viewer.
+- **Readable code.** The viewer highlights syntax (`highlight.js` common bundle, per-line splitting that re-opens spans crossing newlines), numbers every line, has a soft-wrap toggle, in-file find (`⌘F`) with match count and next/previous, and copies `path:line` from the gutter. Long files render in 2 000-line chunks.
+- **Search.** `⌘P` fuzzy-finds files by name; `⌘⇧F` searches their contents with line numbers and highlighted match offsets. Choosing a hit expands the tree to the file and scrolls the viewer to the line. Scoring is character-based so CJK path segments and Chinese content match — whitespace tokenization would have collapsed them into one token.
+- **Live file changes.** The panel subscribes to a change stream and refreshes only the directories and open tabs a change touched; a `git checkout`-sized batch overflows to a wholesale reload. A dot on the refresh button marks the stream as live, and the panel degrades to manual refresh when the platform cannot watch the directory.
+- **Resizable.** The panel has a persisted drag width (280–720 px) mirroring the sidebar's direct-manipulation resizer, replacing the fixed `27%` column.
+- The Changes tab now opens diffs as viewer tabs with a side-by-side toggle, and shows a dirty-file count badge; changed files are marked in the tree.
+- New backend: `src/lib/server/projects/search.ts` (bounded walker — 20 000 files, depth 16, 5 s budget — honouring root **and nested** `.gitignore` plus a vendor skip list, literal content matching, binary sniffing, no symlink escapes) and `watcher.ts` (recursive `fs.watch`, reference-counted per real root, 250 ms debounce, editor-noise filtering). Both are exposed under the existing `/api/settings/projects/*` Tauri HTTP scope, so no capability change was needed.
+- Kept read-only and kept `runGit`: no editor kernel, and the new walker does not shell out, so the hardened Git invocation for external directories is untouched.
+- Verified with `svelte-check` (0 errors / 0 warnings), both production builds, 94 Desktop UI guards (5 new ones covering tree expansion, tabs, search staleness, and the watcher), 16 project-server tests behind a new `test:projects` script, and a cold-start walk against a live server: tree, CJK and ASCII name search, CJK content search with offsets, the SSE change stream reacting to real writes, and the path-traversal guard still rejecting `../`.
+
+### Changed: Desktop AI Provider settings are now an inline workbench (Issue #20, completes the redesign)
+- The provider list and the provider editor are one persistent two-pane workbench instead of a read-only summary card that opened a full-screen modal to change anything. Selecting a provider loads its draft in place; API key, base URL, models, and enablement are all edited without leaving the page.
+- The rail now reads as a set of distinct providers: a deterministic per-id colour mark, name, model count, and an ON/OFF pill, with search, built-in/self-hosted tabs, an active-first sort toggle, and a pinned "add self-hosted provider" action. A brand-new provider appears in the rail as an unsaved draft row.
+- The API key is a single control — password field, reveal toggle, and an inline connectivity check. The base URL shows the exact request URL it will produce.
+- Models are grouped by family into collapsible sections with capability icons, context size, a per-model switch, and per-row edit/remove actions. The discovery dialog groups the provider's response the same way, filters by all / not-added / added, and can add a whole family at once.
+- OAuth-capable built-in providers lead with a centred sign-in block when disconnected and collapse to a compact connected row with test/sign-out once linked.
+- Saving keeps the pane on the provider being edited, and switching rows with unsaved edits asks before discarding instead of silently dropping them.
+- Fixed the discovery dialog collapsing a long provider response: the dialog now owns its height and the model list is its only scroller, so 51 models render at full row height and scroll instead of being squeezed into slivers on one screen. A guard covers the layout.
+- The workbench sits on the shared settings column (`--settings-col`), so it lines up edge-to-edge with every other settings card instead of running wider than the page.
+- Colours, tokens, and both themes are unchanged — the workbench is built entirely from the existing macOS semantic palette. Verified with `svelte-check` (0 errors / 0 warnings), the production `vite build`, 87 Desktop UI guards plus the reactivity and HTTP-scope guards, and a light/dark visual pass of the rendered workbench. Web `/settings/ai/providers` is unchanged in this pass.
+
 ### Fixed: newly saved Provider models appear in Chat without restart
 - Desktop settings mutations now emit a synchronous same-window invalidation event after the server save succeeds. Chat reloads its model options immediately instead of depending on a short-lived `BroadcastChannel` message inside the same WebView.
 - If Chat is still connecting or already refreshing, it retains and replays one pending refresh rather than dropping the notification. Failed Provider saves still publish nothing.

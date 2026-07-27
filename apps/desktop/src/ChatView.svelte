@@ -357,6 +357,69 @@
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
   }
 
+  const FILES_WIDTH_KEY = "molibot-desktop-files-width";
+  const FILES_MIN = 280;
+  const FILES_MAX = 720;
+  let filesWidth = clampFilesWidth(Number(localStorage.getItem(FILES_WIDTH_KEY) || 0) || 380);
+  let resizingFiles = false;
+  let filesGestureId = "";
+  let filesResizer: HTMLDivElement | null = null;
+  // The file panel is anchored to the right edge, so dragging LEFT must widen it.
+  // Feeding the manipulation negated clientX inverts the axis without forking it.
+  const filesManipulation = new DirectManipulation({
+    min: FILES_MIN,
+    max: FILES_MAX,
+    mode: "continuous",
+    onUpdate(snapshot) {
+      filesWidth = clampFilesWidth(snapshot.position);
+      resizingFiles = snapshot.phase === "tracking" || snapshot.phase === "dragging";
+    },
+    onSettled(target) {
+      filesWidth = clampFilesWidth(target);
+      resizingFiles = false;
+      localStorage.setItem(FILES_WIDTH_KEY, String(filesWidth));
+    },
+    onCommitted() {
+      if (filesGestureId) onHapticCommit(filesGestureId);
+    }
+  });
+  function clampFilesWidth(value: number): number {
+    return Math.min(FILES_MAX, Math.max(FILES_MIN, Math.round(value)));
+  }
+  function startFilesResize(event: PointerEvent): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    filesGestureId = `files:${event.pointerId}:${event.timeStamp}`;
+    filesResizer?.setPointerCapture(event.pointerId);
+    filesManipulation.begin(event.pointerId, -event.clientX, event.timeStamp, filesWidth);
+  }
+  function onFilesResize(event: PointerEvent): void {
+    filesManipulation.move(event.pointerId, -event.clientX, event.timeStamp);
+  }
+  function stopFilesResize(event?: PointerEvent): void {
+    if (event && filesResizer?.hasPointerCapture(event.pointerId)) {
+      filesResizer.releasePointerCapture(event.pointerId);
+    }
+    if (event) filesManipulation.end(event.pointerId, event.timeStamp);
+    else filesManipulation.cancel();
+  }
+  function cancelFilesResize(event?: PointerEvent): void {
+    if (filesManipulation.current().phase === "idle") return;
+    if (event && filesResizer?.hasPointerCapture(event.pointerId)) {
+      filesResizer.releasePointerCapture(event.pointerId);
+    }
+    filesManipulation.cancel();
+  }
+  function onFilesKeydown(event: KeyboardEvent): void {
+    let next = filesWidth;
+    if (event.key === "ArrowLeft") next += 16;
+    else if (event.key === "ArrowRight") next -= 16;
+    else return;
+    event.preventDefault();
+    filesWidth = clampFilesWidth(next);
+    localStorage.setItem(FILES_WIDTH_KEY, String(filesWidth));
+  }
+
   let searchOpen = false;
   let commandOpen = false;
   let commandElement: HTMLElement | null = null;
@@ -2081,8 +2144,8 @@
 <main
   class="chat-layout"
   class:with-files={filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0)}
-  class:resizing={resizingSidebar}
-  style={`--sidebar-w:${sidebarWidth}px`}
+  class:resizing={resizingSidebar || resizingFiles}
+  style={`--sidebar-w:${sidebarWidth}px; --files-w:${filesWidth}px`}
 >
   <WindowDragMask />
   {#if commandOpen}
@@ -2415,6 +2478,27 @@
     {/if}
     {/if}
   </section>
+  {/if}
+
+  {#if filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0)}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
+    <div
+      class="files-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={copy.projectResizePanel}
+      aria-valuenow={filesWidth}
+      aria-valuemin={FILES_MIN}
+      aria-valuemax={FILES_MAX}
+      tabindex="0"
+      bind:this={filesResizer}
+      onpointerdown={startFilesResize}
+      onpointermove={onFilesResize}
+      onpointerup={stopFilesResize}
+      onpointercancel={cancelFilesResize}
+      onlostpointercapture={cancelFilesResize}
+      onkeydown={onFilesKeydown}
+    ></div>
   {/if}
 
   {#if filePanelOpen && serviceState === "ready" && projectPaneActive && projectsStore.selectedProjectId}

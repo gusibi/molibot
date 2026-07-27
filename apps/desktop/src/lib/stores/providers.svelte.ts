@@ -41,8 +41,31 @@ export const providersStore = $state({
   discoveredModels: [] as string[],
   discovering: false,
   globals: { providerMode: "pi", piProvider: "", piModel: "", defaultCustomProviderId: "" } as DesktopProviderGlobalsRequest,
-  globalsDirty: false
+  globalsDirty: false,
+  /**
+   * Serialized draft as it was last loaded or saved. The provider editor is
+   * inline (not a modal), so switching rows must be able to tell an untouched
+   * draft from one with pending edits without a per-field dirty flag.
+   */
+  editSnapshot: ""
 });
+
+function serializeProviderEdit(): string {
+  return JSON.stringify({
+    edit: providersStore.providerEdit,
+    apiKey: providersStore.editApiKey,
+    clearApiKey: providersStore.editClearApiKey
+  });
+}
+
+export function markProviderEditPristine(): void {
+  providersStore.editSnapshot = serializeProviderEdit();
+}
+
+export function providerEditDirty(): boolean {
+  if (!providersStore.providerEdit) return false;
+  return serializeProviderEdit() !== providersStore.editSnapshot;
+}
 
 export function defaultProviderPath(protocol: "openai-compatible" | "anthropic"): string {
   return protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions";
@@ -97,6 +120,7 @@ export function beginNewProvider(): void {
   providersStore.editClearApiKey = false;
   providersStore.discoveredModels = [];
   providersStore.actionMessage = "";
+  markProviderEditPristine();
 }
 
 export async function verifyProvider(providerId: string): Promise<void> {
@@ -127,6 +151,7 @@ export function beginProviderEdit(providerId: string): void {
   providersStore.editClearApiKey = false;
   providersStore.discoveredModels = [];
   providersStore.actionMessage = "";
+  markProviderEditPristine();
 }
 
 export function beginBuiltinProviderEdit(provider: { id: string; name: string; models: string[] }): void {
@@ -156,6 +181,16 @@ export function beginBuiltinProviderEdit(provider: { id: string; name: string; m
   providersStore.editClearApiKey = false;
   providersStore.discoveredModels = [];
   providersStore.actionMessage = "";
+  markProviderEditPristine();
+}
+
+/** Reloads the draft from the freshly saved summary so the inline pane stays open. */
+export function reopenProviderEdit(providerId: string, isBuiltin: boolean): void {
+  const builtin = isBuiltin
+    ? providersStore.providers?.builtinProviders.find((item) => item.id === providerId)
+    : undefined;
+  if (builtin) beginBuiltinProviderEdit(builtin);
+  else beginProviderEdit(providerId);
 }
 
 export function closeProviderEdit(): void {
@@ -163,6 +198,7 @@ export function closeProviderEdit(): void {
   providersStore.editApiKey = "";
   providersStore.editClearApiKey = false;
   providersStore.discoveredModels = [];
+  providersStore.editSnapshot = "";
 }
 
 export function onProviderOverlayKeydown(event: KeyboardEvent): void {
@@ -226,7 +262,7 @@ export async function saveProviderEdit(): Promise<void> {
   providersStore.actionMessage = "";
   providersStore.actionFailed = false;
   try {
-    const { isNew, isBuiltin: _isBuiltin, ...draft } = providersStore.providerEdit;
+    const { isNew, isBuiltin, ...draft } = providersStore.providerEdit;
     if (isNew) {
       const request: DesktopProviderCreateRequest = {
         ...draft,
@@ -234,7 +270,6 @@ export async function saveProviderEdit(): Promise<void> {
       };
       const result = await createDesktopProvider(endpoint, request);
       if (!result.ok) throw new Error(result.error || "Provider save failed");
-      closeProviderEdit();
       providersStore.endpoint = "";
       await loadProviders(endpoint);
     } else {
@@ -244,8 +279,10 @@ export async function saveProviderEdit(): Promise<void> {
         clearApiKey: providersStore.editClearApiKey
       });
       providersStore.globals = { ...providersStore.globals, defaultCustomProviderId: providersStore.providers.defaultCustomProviderId };
-      closeProviderEdit();
     }
+    // The editor is inline: reload the saved record in place instead of closing,
+    // so the pane keeps showing the provider the user is working on.
+    reopenProviderEdit(draft.id, isBuiltin);
     notifyProvidersChanged();
     providersStore.actionMessage = session.text.providerSaved;
   } catch (cause) {
