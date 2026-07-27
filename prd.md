@@ -5,6 +5,12 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.13 Release v2.6.9 / Desktop v0.6.6 (2026-07-28)
+
+- **Priority / Status**: P3 / Done.
+- **Scope**: version bump and release publication only; no product-surface change.
+- **Acceptance**: root and desktop package versions stay synchronized with the git tag and release title.
+
 ## 3.12 Desktop Provider model live refresh (2026-07-27)
 
 - **Priority / Status**: P0 / Delivered.

@@ -5,6 +5,22 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-28
+
+### Release: v2.6.9 / Desktop v0.6.6
+- Synchronized the root and Desktop package versions for the new release.
+- This release entry documents the version bump and publication flow; no user-facing feature changes were included.
+
+
+### Added: the Project file panel now takes part in the conversation
+- **Reference a file into the composer.** An `@` action on every tree row, search hit, and open viewer tab appends `@path` (or `@path:line` from a content-search hit) to the Project chat composer, with exactly one space around it. The panel and the composer are siblings under `ChatView`, so they are connected by a plain Svelte store — `ProjectChat` is a legacy `$:` surface and cannot track runes state owned by another module.
+- **Agent-written files are marked.** Files the agent wrote during the session get a dot and a bolder name in the tree, live — the running turn's activities count before they reach the persisted transcript.
+- **Changes scoped to this session.** The Changes tab now defaults to "This session", listing only the files the agent wrote in the current conversation, with a one-click switch back to the full `git status`. The tab badge shows the session count when there is one.
+- Touched files are derived from a new structured `paths` / `mutates` field recorded on tool activities from the tool's **own arguments** (`src/lib/server/app/toolFilePaths.ts`), not parsed back out of the human-readable label — labels are localized, truncated and display-name-prefixed, so scraping them would break on any wording change. Absolute paths, `~`, and `..` escapes are dropped rather than recorded, since they could never match a `git status` entry.
+- Because the set comes from the transcript rather than a working-tree snapshot taken at session start, it survives a restart and stays correct when switching between sessions.
+- Verified with `svelte-check` (0 errors / 0 warnings), both production builds, 96 Desktop UI guards (2 new), 24 project/activity server tests, the 220-test desktop-chat suite, a new save → fresh store → load round-trip guard for the new activity fields (pitfall #10), and `tsc` on the touched server files — the repository's pre-existing error count is unchanged at 170, with none in the changed files.
+
+---
 ## 2026-07-27
 
 ### Changed: the Desktop Project file panel is now a working code browser, not a read-only list
