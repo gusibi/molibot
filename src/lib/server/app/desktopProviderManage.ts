@@ -9,11 +9,7 @@ import {
   normalizeProviderBaseUrl,
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol";
-import {
-  sanitizeOptionalThinkingFormat,
-  sanitizeOptionalThinkingSupport,
-  sanitizeReasoningEffortMap
-} from "$lib/server/settings/thinking";
+import { sanitizeOptionalThinkingFormat } from "$lib/server/settings/thinking";
 
 function normalizeModel(model: DesktopProviderModel): ProviderModelConfig | null {
   const id = String(model.id ?? "").trim();
@@ -55,9 +51,7 @@ export function buildUpdatedDesktopProvider(
     models,
     defaultModel,
     path: String(request.path ?? "").trim() || defaultPathForProtocol(protocol),
-    supportsThinking: sanitizeOptionalThinkingSupport(request.supportsThinking),
-    thinkingFormat: sanitizeOptionalThinkingFormat(request.thinkingFormat),
-    reasoningEffortMap: sanitizeReasoningEffortMap(request.reasoningEffortMap)
+    thinkingFormat: sanitizeOptionalThinkingFormat(request.thinkingFormat)
   };
 }
 

@@ -5,7 +5,26 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-27
+
+### Fixed: newly saved Provider models appear in Chat without restart
+- Desktop settings mutations now emit a synchronous same-window invalidation event after the server save succeeds. Chat reloads its model options immediately instead of depending on a short-lived `BroadcastChannel` message inside the same WebView.
+- If Chat is still connecting or already refreshing, it retains and replays one pending refresh rather than dropping the notification. Failed Provider saves still publish nothing.
+- Added a regression for the exact save → Chat selector seam; Desktop UI tests, Provider/model API tests, Svelte diagnostics, and the production build cover the fix.
+
+### Changed: AI Provider settings now use one provider-first workspace
+- Web and Desktop now keep the provider list, selected provider connection/authentication, and its model inventory in one coherent master/detail flow instead of splitting configuration across summaries and dense inline model forms.
+- Model rows are scan-first and open a focused editor; model fetching opens a searchable discovery dialog with already-added state. OAuth sign-in remains the primary action for supported providers, while API key, endpoint, testing, default, enablement, and save behavior are preserved.
+- Responsive Web layouts collapse the provider rail above the detail pane without horizontal overflow, keep the fixed save action reachable, and retain Molibot's existing bilingual light/dark theme system.
+
 ## 2026-07-26
+
+### Changed: thinking depth now follows each model's real pi 0.82 capability map
+- Molibot no longer compresses every reasoning model into the same three positive levels. Built-in models expose the exact levels declared by pi 0.82, from `off` through `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; unsupported selections are clamped with pi's own rules.
+- Custom Provider models and built-in models without a pi capability map expose all seven canonical levels. Custom selections are sent upstream unchanged, so Molibot does not guess a provider's support or silently replace a requested strength; an unsupported value remains an actionable provider error.
+- AI Provider settings no longer contain thinking-support or effort-mapping controls. Only the request-shape compatibility option remains, while strength choices live with the selected chat model.
+- Web, Desktop Chat, Project Chat, Project defaults, model routing, channel `/thinking`, main Agent, and Subagent paths share the expanded level type. Desktop's displayed selector now writes the draft state before the immediate request, fixing the case where the UI showed one level while sending the previous one.
+- Verified against pi 0.82's real `openai-codex/gpt-5.6-sol` seven-level metadata, 131 focused server/shared regressions, 85 Desktop UI guards, Desktop Svelte diagnostics, both production builds, and a cold-start `/api/desktop/models` request.
 
 ### Fixed: STT 403 failures now carry safe upstream diagnostics
 - Shared voice transcription logs now include the selected provider/model, audio filename/MIME/byte count, request duration, an explicit empty-response marker, and an allowlist of upstream trace/request/rate-limit headers.

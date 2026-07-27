@@ -12,6 +12,7 @@
 import { initialLocale, normalizeLocale, translator, type Locale, type Translation } from "../i18n";
 
 const LOCALE_STORAGE_KEY = "molibot-desktop-locale";
+export const SETTINGS_CHANGED_EVENT = "molibot:settings-changed";
 const storedLocale = typeof localStorage !== "undefined" ? localStorage.getItem(LOCALE_STORAGE_KEY) : null;
 const startLocale: Locale = storedLocale ? normalizeLocale(storedLocale) : initialLocale();
 
@@ -36,11 +37,5 @@ export function clearError(): void {
 }
 
 export function notifySettingsChanged(): void {
-  try {
-    const channel = new BroadcastChannel("molibot-settings-channel");
-    channel.postMessage({ type: "refresh-models" });
-    channel.close();
-  } catch (e) {
-    console.error("Failed to notify settings changed:", e);
-  }
+  window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
 }

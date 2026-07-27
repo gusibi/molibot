@@ -2056,6 +2056,18 @@ a:focus-visible {
 .provider-technical-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .provider-technical-details code { display: inline; max-width: none; white-space: normal; }
 .provider-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.provider-model-inventory { display: grid; gap: 8px; min-width: 0; }
+.provider-model-inventory > header { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.provider-model-inventory > header > div { display: grid; gap: 2px; min-width: 0; }
+.provider-model-inventory > header strong { font-size: 12px; font-weight: 600; }
+.provider-model-inventory > header small { color: var(--label-secondary); font-size: 11px; }
+.provider-model-inventory-list { display: grid; max-height: 264px; overflow-y: auto; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: var(--separator); gap: 1px; }
+.provider-model-inventory-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 14px; align-items: center; gap: 10px; min-height: 48px; padding: 7px 10px; border: 0; background: var(--card-bg); color: var(--label-primary); text-align: left; cursor: pointer; }
+.provider-model-inventory-row:hover { background: color-mix(in srgb, var(--fill) 58%, var(--card-bg)); }
+.provider-model-inventory-row > span { display: grid; min-width: 0; gap: 2px; }
+.provider-model-inventory-row strong { overflow: hidden; font-family: var(--font-mono); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.provider-model-inventory-row small { overflow: hidden; color: var(--label-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.provider-model-inventory-row > i { color: var(--label-tertiary); font-size: 12px; }
 .provider-auth-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 16px; padding: 14px; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: color-mix(in srgb, var(--fill) 36%, var(--card-bg)); }
 .provider-auth-card-copy { display: grid; gap: 3px; min-width: 0; }
 .provider-auth-card-copy > span { color: var(--label-tertiary); font-size: 11px; font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; }
@@ -2124,10 +2136,33 @@ a:focus-visible {
 .builtin-provider-model-head > div { display: grid; gap: 3px; min-width: 0; padding-top: 16px; }
 .builtin-provider-model-list { display: grid; gap: 1px; overflow: hidden; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: var(--separator); }
 .builtin-provider-model-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 28px; align-items: center; gap: 10px; min-height: 48px; padding: 7px 10px; background: var(--card-bg); }
-.builtin-provider-model-row .row-input { width: 100%; max-width: none; }
+.builtin-provider-model-edit { display: grid; min-width: 0; gap: 2px; padding: 0; border: 0; background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
+.builtin-provider-model-edit span { overflow: hidden; font-family: var(--font-mono); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.builtin-provider-model-edit small { overflow: hidden; color: var(--label-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .provider-model-toolbar { align-items: flex-start; }
 .provider-modal-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 0.5px solid var(--separator); background: var(--footbar-bg);}
 .provider-modal-message { margin-bottom: 14px !important; }
+.provider-section-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.provider-model-card-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 0; border: 0; background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
+.provider-model-card-main > span { display: grid; min-width: 0; gap: 3px; }
+.provider-model-card-main strong { overflow: hidden; font-family: var(--font-mono); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.provider-model-card-main small { color: var(--label-secondary); font-size: 11px; }
+.provider-model-card-main > i { flex: none; color: var(--label-tertiary); }
+.provider-model-edit-dialog { width: min(560px, calc(100vw - 40px)); max-height: min(84vh, 700px); }
+.provider-model-edit-form { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
+.provider-model-edit-body { display: grid; gap: 16px; overflow-y: auto; }
+.provider-model-edit-switch { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 48px; padding: 9px 0; border-top: 0.5px solid var(--separator); border-bottom: 0.5px solid var(--separator); }
+.provider-model-edit-switch > div { display: grid; gap: 3px; min-width: 0; }
+.provider-model-edit-switch strong { font-size: 12px; }
+.provider-model-edit-switch small { color: var(--label-secondary); font-size: 11px; }
+.provider-model-edit-options { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.provider-model-edit-options legend { margin-bottom: 8px; color: var(--label-secondary); font-size: 11px; font-weight: 600; }
+.provider-model-edit-options > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.provider-model-discovery-dialog { width: min(700px, calc(100vw - 40px)); max-height: min(86vh, 780px); }
+.provider-model-discovery-body { display: grid; align-content: start; gap: 12px; min-height: 300px; overflow: hidden; }
+.provider-model-discovery-list { display: grid; gap: 1px; min-height: 0; overflow-y: auto; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: var(--separator); }
+.provider-model-discovery-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 46px; padding: 7px 9px 7px 12px; background: var(--card-bg); }
+.provider-model-discovery-row > span { overflow: hidden; font-family: var(--font-mono); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── AI provider editor refresh — segmented mode, searchable model combobox,
    IosSwitch rows, and a collapsible Advanced section (macOS-consistent). ── */

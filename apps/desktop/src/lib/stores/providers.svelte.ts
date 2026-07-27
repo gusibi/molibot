@@ -91,9 +91,7 @@ export function beginNewProvider(): void {
     models: [],
     defaultModel: "",
     path: "/v1/chat/completions",
-    supportsThinking: null,
-    thinkingFormat: null,
-    reasoningEffortMap: {}
+    thinkingFormat: null
   };
   providersStore.editApiKey = "";
   providersStore.editClearApiKey = false;
@@ -152,9 +150,7 @@ export function beginBuiltinProviderEdit(provider: { id: string; name: string; m
         })),
         defaultModel: provider.models[0] ?? "",
         path: "/v1/chat/completions",
-        supportsThinking: null,
-        thinkingFormat: null,
-        reasoningEffortMap: {}
+        thinkingFormat: null
       };
   providersStore.editApiKey = "";
   providersStore.editClearApiKey = false;

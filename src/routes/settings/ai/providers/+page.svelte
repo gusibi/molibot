@@ -3,9 +3,8 @@
     import { Checkbox } from "$lib/components/ui/checkbox";
     import { Input } from "$lib/components/ui/input";
     import { IosSwitch } from "$lib/components/ui/ios-switch";
-    import { Label } from "$lib/components/ui/label";
     import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-    import { Textarea } from "$lib/components/ui/textarea";
+    import { Eye, EyeOff } from "@lucide/svelte";
     import type {
         DesktopProviderAuthItem,
         DesktopProviderAuthOverviewResponse,
@@ -17,7 +16,6 @@
     type ProviderMode = "pi" | "custom";
     type CustomProviderProtocol = "openai-compatible" | "anthropic";
     type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
-    type ThinkingSupportMode = "auto" | "enabled" | "disabled";
     type ThinkingFormat =
         | "auto"
         | "openai"
@@ -27,8 +25,6 @@
         | "zai"
         | "qwen"
         | "qwen-chat-template";
-    type ThinkingEffortLevel = "low" | "medium" | "high";
-    type ReasoningEffortMappingMode = "auto" | "custom";
     type ModelCapabilityTag =
         | "text"
         | "vision"
@@ -59,10 +55,7 @@
         models: ProviderModelForm[];
         defaultModel: string;
         path: string;
-        supportsThinking?: boolean;
-        thinkingSupportMode: ThinkingSupportMode;
         thinkingFormat: ThinkingFormat;
-        reasoningEffortMap: Partial<Record<ThinkingEffortLevel, string>>;
     }
 
     interface AIForm {
@@ -179,14 +172,7 @@
             apiKeyLabel: "API Key",
             apiBaseUrlLabel: "API 基准 URL",
             pathEndpointLabel: "接口路径 (Path Endpoint)",
-            thinkingSupportLabel: "Thinking (思考推理) 支持",
             thinkingFormatLabel: "Thinking 格式",
-            thinkingBehaviorTitle: "Thinking 行为表现",
-            reasoningEffortMappingLabel: "推理力度映射",
-            reasoningEffortMappingAuto: "自动 (推荐)",
-            reasoningEffortMappingCustom: "自定义覆盖",
-            reasoningEffortMappingDesc: "自动为 {format} 映射 low / medium / high: {levels}",
-            thinkingFormatNotice: "{format} 仅支持开启/关闭 thinking，因此不会为此格式发送 low / medium / high 映射参数。",
             modelRegistryTitle: "模型注册表",
             pullModelsBtn: "拉取模型",
             addModelBtn: "+ 添加模型",
@@ -201,11 +187,19 @@
             noProviderSelectedBuiltinDesc: "从侧边栏选择一个内置服务商，或在上方添加一个。",
             noProviderSelectedCustomDesc: "从侧边栏选择一个自定义服务商，或创建一个新的。",
             addModelModalTitle: "添加模型",
+            editModelModalTitle: "编辑模型",
             addModelIdLabel: "模型 ID",
             addModelCwLabel: "上下文窗口 (Tokens)",
+            modelEnabledLabel: "启用此模型",
             cancelBtn: "取消",
             confirmAddModelBtn: "添加模型",
+            saveModelBtn: "保存模型",
+            duplicateModelError: "该模型 ID 已存在。",
             pullModelsModalTitle: "从服务商拉取模型",
+            searchAvailableModels: "搜索可用模型…",
+            availableModelsCount: "{count} 个可用模型",
+            addedLabel: "已添加",
+            addLabel: "添加",
             fetchingModels: "正在获取模型列表...",
             noModelsReturned: "此服务商未返回任何模型。",
             closeBtn: "关闭",
@@ -347,14 +341,7 @@
             apiKeyLabel: "API Key",
             apiBaseUrlLabel: "API Base URL",
             pathEndpointLabel: "Path Endpoint",
-            thinkingSupportLabel: "Thinking Support",
             thinkingFormatLabel: "Thinking Format",
-            thinkingBehaviorTitle: "Thinking behavior",
-            reasoningEffortMappingLabel: "Reasoning Effort Mapping",
-            reasoningEffortMappingAuto: "Auto (recommended)",
-            reasoningEffortMappingCustom: "Custom override",
-            reasoningEffortMappingDesc: "Auto maps low / medium / high for {format}: {levels}",
-            thinkingFormatNotice: "{format} only toggles thinking on/off, so low / medium / high mapping is not sent for this format.",
             modelRegistryTitle: "Model Registry",
             pullModelsBtn: "Pull Models",
             addModelBtn: "+ Add Model",
@@ -369,11 +356,19 @@
             noProviderSelectedBuiltinDesc: "Choose a built-in provider from the sidebar or add one above.",
             noProviderSelectedCustomDesc: "Choose a custom provider from the sidebar or create a new one.",
             addModelModalTitle: "Add Model",
+            editModelModalTitle: "Edit Model",
             addModelIdLabel: "Model ID",
             addModelCwLabel: "Context Window (tokens)",
+            modelEnabledLabel: "Enable this model",
             cancelBtn: "Cancel",
             confirmAddModelBtn: "Add Model",
+            saveModelBtn: "Save Model",
+            duplicateModelError: "That model ID is already registered.",
             pullModelsModalTitle: "Pull Models from Provider",
+            searchAvailableModels: "Search available models…",
+            availableModelsCount: "{count} available models",
+            addedLabel: "Added",
+            addLabel: "Add",
             fetchingModels: "Fetching models...",
             noModelsReturned: "No models returned by this provider.",
             closeBtn: "Close",
@@ -474,18 +469,21 @@
     let providerAuthVerifying = "";
     let providerAuthVerified: Record<string, { ok: boolean; modelId: string; elapsedMs: number; error?: string }> = {};
 
-    /* ── Add Model Modal ── */
-    let showAddModelModal = false;
-    let addModelTargetProviderId = "";
-    let addModelId = "";
-    let addModelTags: ModelCapabilityTag[] = ["text"];
-    let addModelContextWindow: number | undefined = undefined;
+    /* ── Single Model Editor ── */
+    let showModelEditor = false;
+    let modelEditorTargetProviderId = "";
+    let modelEditorIndex: number | null = null;
+    let modelEditorId = "";
+    let modelEditorTags: ModelCapabilityTag[] = ["text"];
+    let modelEditorContextWindow: number | undefined = undefined;
+    let modelEditorEnabled = true;
 
     /* ── Pull Models Modal ── */
     let showPullModal = false;
     let pullTargetProviderId = "";
     let pullAddingModelId = "";
     let pullAddingTags: ModelCapabilityTag[] = ["text"];
+    let pullModelSearch = "";
     let modelTestResults: Record<string, ModelTestStatus> = {};
     let discoveredProviderModels: Record<string, string[]> = {};
     let discoveredSelectedModel: Record<string, string> = {};
@@ -495,11 +493,6 @@
     let builtinProviderModels: Record<string, string[]> = {};
     let expandedProviderModelIds = new Set<string>();
     const collapsedBuiltinModelLimit = 8;
-    const thinkingEffortLevels: ThinkingEffortLevel[] = [
-        "low",
-        "medium",
-        "high",
-    ];
     $: copy = COPY[$locale] ?? COPY["en-US"];
 
     // Reactive derivations. The helper functions read activeProviderTab /
@@ -541,6 +534,10 @@
     $: visibleModels = selectedProviderDetail
         ? getVisibleModelsList(selectedProviderDetail, modelTab, modelSearch, sortActiveFirst, expandedProviderModelIds)
         : [];
+    $: pullVisibleModels = (discoveredProviderModels, pullTargetProviderId, pullModelSearch,
+        discoveredModels(pullTargetProviderId).filter((modelId) =>
+            modelId.toLowerCase().includes(pullModelSearch.trim().toLowerCase()),
+        ));
 
     function providerEnvVar(provider: string): string | undefined {
         switch (provider) {
@@ -673,9 +670,7 @@
             models: [],
             defaultModel: "",
             path: "/v1/chat/completions",
-            thinkingSupportMode: "auto",
             thinkingFormat: "auto",
-            reasoningEffortMap: {},
         };
     }
 
@@ -683,7 +678,8 @@
         const models = (builtinProviderModels[providerId] ?? []).map((id) => ({
             id,
             tags: ["text"] as ModelCapabilityTag[],
-            supportedRoles: ["system", "user", "assistant", "tool"],
+            supportedRoles: ["system", "user", "assistant", "tool"] as ModelRole[],
+            enabled: true,
         }));
         return {
             id: providerId,
@@ -695,9 +691,7 @@
             models,
             defaultModel: models[0]?.id ?? "",
             path: "/v1/chat/completions",
-            thinkingSupportMode: "auto",
             thinkingFormat: "auto",
-            reasoningEffortMap: {},
         };
     }
 
@@ -741,7 +735,6 @@
                 protocol,
                 path,
                 thinkingFormat,
-                reasoningEffortMap: {},
             };
         });
     }
@@ -914,59 +907,80 @@
         ensureDefaultCustomProvider();
     }
 
-    function addModel(providerId: string): void {
-        updateProviderById(providerId, (provider) => ({
-            ...provider,
-            models: [
-                {
-                    id: "",
-                    tags: ["text"] as ModelCapabilityTag[],
-                    supportedRoles: ["system", "user", "assistant", "tool"],
-                    contextWindow: undefined,
-                    enabled: true,
-                },
-                ...provider.models,
-            ],
-        }));
-    }
-
     function openAddModelModal(providerId: string): void {
-        addModelTargetProviderId = providerId;
-        addModelId = "";
-        addModelTags = ["text"];
-        addModelContextWindow = undefined;
-        showAddModelModal = true;
+        modelEditorTargetProviderId = providerId;
+        modelEditorIndex = null;
+        modelEditorId = "";
+        modelEditorTags = ["text"];
+        modelEditorContextWindow = undefined;
+        modelEditorEnabled = true;
+        showModelEditor = true;
     }
 
-    function confirmAddModel(): void {
-        if (!addModelId.trim()) return;
-        updateProviderById(addModelTargetProviderId, (provider) => ({
-            ...provider,
-            models: [
-                ...provider.models,
-                {
-                    id: addModelId.trim(),
-                    tags: addModelTags.length > 0 ? [...addModelTags] : ["text"],
+    function openModelEditor(providerId: string, modelIndex: number): void {
+        const model = form.customProviders.find((provider) => provider.id === providerId)?.models[modelIndex];
+        if (!model) return;
+        modelEditorTargetProviderId = providerId;
+        modelEditorIndex = modelIndex;
+        modelEditorId = model.id;
+        modelEditorTags = [...model.tags];
+        modelEditorContextWindow = model.contextWindow;
+        modelEditorEnabled = model.enabled !== false;
+        showModelEditor = true;
+    }
+
+    function confirmModelEditor(): void {
+        const modelId = modelEditorId.trim();
+        if (!modelId) return;
+        const targetIndex = modelEditorIndex;
+        const provider = form.customProviders.find((row) => row.id === modelEditorTargetProviderId);
+        if (!provider) return;
+        if (provider.models.some((model, index) => model.id.trim() === modelId && index !== targetIndex)) {
+            error = copy.duplicateModelError;
+            return;
+        }
+        updateProviderById(modelEditorTargetProviderId, (current) => {
+            const nextModel: ProviderModelForm = targetIndex === null
+                ? {
+                    id: modelId,
+                    tags: [...modelEditorTags],
                     supportedRoles: ["system", "user", "assistant", "tool"],
-                    contextWindow: addModelContextWindow,
-                    enabled: true,
-                },
-            ],
-        }));
-        showAddModelModal = false;
+                    contextWindow: modelEditorContextWindow,
+                    enabled: modelEditorEnabled,
+                }
+                : {
+                    ...current.models[targetIndex],
+                    id: modelId,
+                    tags: [...modelEditorTags],
+                    contextWindow: modelEditorContextWindow,
+                    enabled: modelEditorEnabled,
+                };
+            const previousId = targetIndex === null ? "" : current.models[targetIndex]?.id ?? "";
+            const models = targetIndex === null
+                ? [...current.models, nextModel]
+                : current.models.map((model, index) => index === targetIndex ? nextModel : model);
+            return {
+                ...current,
+                models,
+                defaultModel: previousId && current.defaultModel === previousId ? modelId : current.defaultModel,
+            };
+        });
+        error = "";
+        showModelEditor = false;
     }
 
-    function toggleAddModelTag(tag: ModelCapabilityTag): void {
-        const set = new Set(addModelTags);
+    function toggleModelEditorTag(tag: ModelCapabilityTag): void {
+        const set = new Set(modelEditorTags);
         if (set.has(tag)) set.delete(tag); else set.add(tag);
-        addModelTags = Array.from(set) as ModelCapabilityTag[];
-        if (addModelTags.length === 0) addModelTags = ["text"];
+        modelEditorTags = Array.from(set) as ModelCapabilityTag[];
+        if (modelEditorTags.length === 0) modelEditorTags = ["text"];
     }
 
     function openPullModal(provider: CustomProviderForm): void {
         pullTargetProviderId = provider.id;
         pullAddingModelId = "";
         pullAddingTags = ["text"];
+        pullModelSearch = "";
         showPullModal = true;
         void fetchProviderModels(provider);
     }
@@ -996,30 +1010,6 @@
         if (!provider || isBuiltinProvider(provider)) return;
         form.defaultCustomProviderId = id;
         updateProviderById(id, (provider) => ({ ...provider, enabled: true }));
-    }
-
-    function toggleTag(
-        providerId: string,
-        modelIndex: number,
-        tag: ModelCapabilityTag,
-    ): void {
-        updateProviderById(providerId, (provider) => {
-            const models = provider.models.map((m, i) => {
-                if (i !== modelIndex) return m;
-                const set = new Set(m.tags);
-                if (set.has(tag)) set.delete(tag);
-                else set.add(tag);
-                const tags = Array.from(set) as ModelCapabilityTag[];
-                return {
-                    ...m,
-                    tags:
-                        tags.length > 0
-                            ? tags
-                            : (["text"] as ModelCapabilityTag[]),
-                };
-            });
-            return { ...provider, models };
-        });
     }
 
     function setProviderId(newId: string): void {
@@ -1185,124 +1175,6 @@
         if (next.has(providerId)) next.delete(providerId);
         else next.add(providerId);
         expandedProviderModelIds = next;
-    }
-
-    function thinkingFormatLabel(format: ThinkingFormat): string {
-        switch (format) {
-            case "openrouter":
-                return "OpenRouter reasoning.effort";
-            case "anthropic":
-                return "Anthropic adaptive thinking";
-            case "deepseek":
-                return "DeepSeek thinking.type + reasoning_effort";
-            case "zai":
-                return "z.ai enable_thinking";
-            case "qwen":
-                return "Qwen enable_thinking";
-            case "qwen-chat-template":
-                return "Qwen chat_template_kwargs.enable_thinking";
-            case "openai":
-                return "OpenAI reasoning_effort";
-            case "auto":
-            default:
-                return "OpenAI-style reasoning_effort fallback";
-        }
-    }
-
-    function thinkingFormatUsesEffortMap(format: ThinkingFormat): boolean {
-        return !["zai", "qwen", "qwen-chat-template"].includes(format);
-    }
-
-    function autoReasoningEffortValue(
-        format: ThinkingFormat,
-        level: ThinkingEffortLevel,
-    ): string {
-        if (format === "deepseek") return "high";
-        return level;
-    }
-
-    function reasoningEffortOptions(format: ThinkingFormat): string[] {
-        if (format === "deepseek") return ["high"];
-        if (format === "anthropic") return ["low", "medium", "high", "xhigh", "max"];
-        return ["low", "medium", "high"];
-    }
-
-    function reasoningEffortMappingMode(
-        provider: CustomProviderForm,
-    ): ReasoningEffortMappingMode {
-        return Object.values(provider.reasoningEffortMap ?? {}).some((value) =>
-            String(value ?? "").trim(),
-        )
-            ? "custom"
-            : "auto";
-    }
-
-    function defaultReasoningEffortMap(
-        format: ThinkingFormat,
-    ): Partial<Record<ThinkingEffortLevel, string>> {
-        return Object.fromEntries(
-            thinkingEffortLevels.map((level) => [
-                level,
-                autoReasoningEffortValue(format, level),
-            ]),
-        ) as Partial<Record<ThinkingEffortLevel, string>>;
-    }
-
-    function setReasoningEffortMappingMode(
-        providerId: string,
-        mode: ReasoningEffortMappingMode,
-    ): void {
-        updateProviderById(providerId, (provider) => ({
-            ...provider,
-            reasoningEffortMap:
-                mode === "custom"
-                    ? defaultReasoningEffortMap(provider.thinkingFormat)
-                    : {},
-        }));
-    }
-
-    function setReasoningEffortMapValue(
-        providerId: string,
-        level: ThinkingEffortLevel,
-        value: string,
-    ): void {
-        updateProviderById(providerId, (provider) => ({
-            ...provider,
-            reasoningEffortMap: {
-                ...(provider.reasoningEffortMap ?? {}),
-                [level]: value,
-            },
-        }));
-    }
-
-    function thinkingNotices(provider: CustomProviderForm): string[] {
-        if (isBuiltinProvider(provider)) return [];
-        if (provider.thinkingSupportMode === "auto") {
-            return copy.locale === "zh-CN"
-                ? ["未启用 / 未知，不会自动探测；当前运行时不会给这个 provider 发送 thinking 参数。"]
-                : ["Not enabled / unknown; runtime will not send thinking parameters to this provider."];
-        }
-        if (provider.thinkingSupportMode === "disabled") {
-            return copy.locale === "zh-CN"
-                ? ["Thinking 已明确关闭；全局或会话思索深度会被降为 off。"]
-                : ["Thinking is explicitly disabled; global or session reasoning effort falls back to off."];
-        }
-
-        const notices = copy.locale === "zh-CN"
-            ? [`Thinking 已启用；非 off 请求会按 ${thinkingFormatLabel(provider.thinkingFormat)} 发送参数。`]
-            : [`Thinking is enabled; non-off requests send parameters via ${thinkingFormatLabel(provider.thinkingFormat)}.`];
-        
-        if (provider.thinkingFormat === "auto") {
-            notices.push(copy.locale === "zh-CN"
-                ? "Format 保持 Auto 时实际会走 OpenAI-style reasoning_effort。若上游不是这种协议，建议明确选择格式或关闭。"
-                : "Format set to Auto defaults to OpenAI-style reasoning_effort. If the upstream provider uses a different protocol, please select it explicitly.");
-        }
-        if (provider.models.length > 1) {
-            notices.push(copy.locale === "zh-CN"
-                ? "这组 thinking 配置作用于该 provider 下所有模型；如果不同模型来自不同厂商或协议，建议拆成多个 provider。"
-                : "This thinking config applies to all models under this provider. If different models use different backends, split them into separate custom providers.");
-        }
-        return notices;
     }
 
     function switchProviderTab(tab: ProviderTab): void {
@@ -1770,7 +1642,8 @@
                                                     "user",
                                                     "assistant",
                                                     "tool",
-                                                ],
+                                                  ],
+                                      enabled: true,
                                   };
                               }
                               const tags = Array.isArray(m.tags)
@@ -1810,20 +1683,9 @@
                           })
                         : [],
                     defaultModel: cp.defaultModel ?? "",
-                    thinkingSupportMode:
-                        cp.supportsThinking === true
-                            ? "enabled"
-                            : cp.supportsThinking === false
-                              ? "disabled"
-                              : "auto",
                     thinkingFormat:
                         (cp.thinkingFormat as ThinkingFormat | undefined) ??
                         "auto",
-                    reasoningEffortMap:
-                        cp.reasoningEffortMap &&
-                        typeof cp.reasoningEffortMap === "object"
-                            ? cp.reasoningEffortMap
-                            : {},
                 })),
                 ),
                 modelRouting: {
@@ -1868,20 +1730,10 @@
                 const normalizedProvider = {
                     ...selected,
                     protocol: normalizeProviderProtocol(selected.protocol),
-                    supportsThinking:
-                        selected.thinkingSupportMode === "auto"
-                            ? undefined
-                            : selected.thinkingSupportMode === "enabled",
                     thinkingFormat:
                         selected.thinkingFormat === "auto"
                             ? undefined
                             : selected.thinkingFormat,
-                    reasoningEffortMap: Object.fromEntries(
-                        Object.entries(selected.reasoningEffortMap ?? {}).filter(
-                            ([, value]) =>
-                                String(value ?? "").trim().length > 0,
-                        ),
-                    ),
                     models: selected.models.map((model) => ({
                         id: model.id.trim(),
                         tags: [...model.tags],
@@ -2117,7 +1969,7 @@
                                             placeholder={copy.apiKeyOverridePlaceholder}
                                         />
                                         <button type="button" class="providers-key-eye" onclick={() => showApiKey = !showApiKey} title={showApiKey ? "Hide" : "Show"}>
-                                            {showApiKey ? "🙈" : "👁"}
+                                            {#if showApiKey}<EyeOff size={16} aria-hidden="true" />{:else}<Eye size={16} aria-hidden="true" />{/if}
                                         </button>
                                     </div>
                                 </label>
@@ -2161,7 +2013,7 @@
                                             placeholder="sk-..."
                                         />
                                         <button type="button" class="providers-key-eye" onclick={() => showApiKey = !showApiKey} title={showApiKey ? "Hide" : "Show"}>
-                                            {showApiKey ? "🙈" : "👁"}
+                                            {#if showApiKey}<EyeOff size={16} aria-hidden="true" />{:else}<Eye size={16} aria-hidden="true" />{/if}
                                         </button>
                                     </div>
                                 </label>
@@ -2185,25 +2037,6 @@
                                         bind:value={cp.path}
                                         placeholder={defaultPathForProtocol(cp.protocol)}
                                     />
-                                </label>
-
-                                <label
-                                    class="providers-detail-form-label md:col-span-2 xl:col-span-1"
-                                >
-                                    <span class="providers-detail-form-label-text"
-                                        >{copy.thinkingSupportLabel}</span
-                                    >
-                                    <NativeSelect  bind:value={cp.thinkingSupportMode}>
-                                        <NativeSelectOption value="auto">
-                                            Not enabled / unknown
-                                        </NativeSelectOption>
-                                        <NativeSelectOption value="enabled">
-                                            Enabled
-                                        </NativeSelectOption>
-                                        <NativeSelectOption value="disabled">
-                                            Disabled
-                                        </NativeSelectOption>
-                                    </NativeSelect>
                                 </label>
 
                                 <label
@@ -2240,93 +2073,6 @@
                                     </NativeSelect>
                                 </label>
 
-                                <div class="providers-thinking-section">
-                                    {#if thinkingNotices(cp).length > 0}
-                                        <div
-                                            class={`providers-thinking-notice ${
-                                                cp.thinkingSupportMode === "enabled"
-                                                    ? "providers-thinking-notice--enabled"
-                                                    : "providers-thinking-notice--default"
-                                            }`}
-                                        >
-                                            <div class="providers-thinking-notice-title">
-                                                {copy.thinkingBehaviorTitle}
-                                            </div>
-                                            <ul class="providers-thinking-notice-list">
-                                                {#each thinkingNotices(cp) as notice}
-                                                    <li>{notice}</li>
-                                                {/each}
-                                            </ul>
-                                        </div>
-                                    {/if}
-
-                                    {#if thinkingFormatUsesEffortMap(cp.thinkingFormat)}
-                                        <div class="providers-effort-mapping-label">
-                                                <span class="providers-detail-form-label-text"
-                                                    >{copy.reasoningEffortMappingLabel}</span
-                                                >
-                                                <NativeSelect
-                                                    value={reasoningEffortMappingMode(cp)}
-                                                    onchange={(event) =>
-                                                        setReasoningEffortMappingMode(
-                                                            cp.id,
-                                                            event.currentTarget
-                                                                .value as ReasoningEffortMappingMode,
-                                                        )}
-                                                >
-                                                    <NativeSelectOption value="auto">
-                                                        {copy.reasoningEffortMappingAuto}
-                                                    </NativeSelectOption>
-                                                    <NativeSelectOption value="custom">
-                                                        {copy.reasoningEffortMappingCustom}
-                                                    </NativeSelectOption>
-                                                </NativeSelect>
-                                            <p class="providers-effort-mapping-desc">
-                                                {copy.reasoningEffortMappingDesc
-                                                    .replace("{format}", thinkingFormatLabel(cp.thinkingFormat))
-                                                    .replace("{levels}", thinkingEffortLevels.map((level) => `${level} -> ${autoReasoningEffortValue(cp.thinkingFormat, level)}`).join(", "))}
-                                            </p>
-                                        </div>
-
-                                        {#if reasoningEffortMappingMode(cp) === "custom"}
-                                            <div class="providers-effort-levels">
-                                                {#each thinkingEffortLevels as level}
-                                                    <label
-                                                        class="providers-detail-form-label"
-                                                    >
-                                                        <span
-                                                            class="providers-effort-level-label"
-                                                            >{level}</span
-                                                        >
-                                                        <NativeSelect
-                                                            value={cp.reasoningEffortMap[level] ?? autoReasoningEffortValue(cp.thinkingFormat, level)}
-                                                            onchange={(event) =>
-                                                                setReasoningEffortMapValue(
-                                                                    cp.id,
-                                                                    level,
-                                                                    event
-                                                                        .currentTarget
-                                                                        .value,
-                                                                )}
-                                                        >
-                                                            {#each reasoningEffortOptions(cp.thinkingFormat) as option}
-                                                                <NativeSelectOption
-                                                                    value={option}
-                                                                >
-                                                                    {option}
-                                                                </NativeSelectOption>
-                                                            {/each}
-                                                        </NativeSelect>
-                                                    </label>
-                                                {/each}
-                                            </div>
-                                        {/if}
-                                    {:else}
-                                        <div class="providers-thinking-notice providers-thinking-notice--default">
-                                            {copy.thinkingFormatNotice.replace("{format}", thinkingFormatLabel(cp.thinkingFormat))}
-                                        </div>
-                                    {/if}
-                                </div>
                             {/if}
                         </div>
 
@@ -2398,70 +2144,30 @@
                                     {sortActiveFirst ? copy.modelSortActive : copy.modelSortDefault}
                                 </button>
                             </div>
-                            <div class="providers-table-wrap">
-                                <table class="providers-table">
-                                    <thead>
-                                        <tr>
-                                            <th>{copy.identifierCol}</th>
-                                            <th>{copy.capabilitiesCol}</th>
-                                            <th>{copy.contextCol}</th>
-                                            <th class="text-center">{copy.enabledCol}</th>
-                                            <th></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {#each visibleModels as row (row.index)}
-                                            {@const model = row.model}
-                                            {@const index = row.index}
-                                            <tr>
-                                                <td>
-                                                    <input
-                                                        class="providers-table-input"
-                                                        bind:value={model.id}
-                                                        placeholder="e.g. gpt-4o"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <div class="providers-table-caps">
-                                                        {#each capabilityTags as tag}
-                                                            <button
-                                                                type="button"
-                                                                class="providers-cap-badge"
-                                                                class:providers-cap-badge--on={model.tags.includes(tag)}
-                                                                onclick={() => toggleTag(cp.id, index, tag)}
-                                                            >
-                                                                {tag.slice(0, 3).toUpperCase()}
-                                                            </button>
-                                                        {/each}
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <input
-                                                        class="providers-table-input providers-table-input--narrow"
-                                                        type="number"
-                                                        min="0"
-                                                        step="1000"
-                                                        placeholder="200k"
-                                                        value={model.contextWindow ?? ""}
-                                                        oninput={(e) => {
-                                                            const v = Number((e.currentTarget as HTMLInputElement).value);
-                                                            model.contextWindow = v > 0 ? v : undefined;
-                                                        }}
-                                                    />
-                                                </td>
-                                                <td class="text-center">
-                                                    <IosSwitch
-                                                        checked={model.enabled !== false}
-                                                        onCheckedChange={(val) => { model.enabled = val; }}
-                                                    />
-                                                </td>
-                                                <td class="text-right">
-                                                    <button type="button" class="providers-remove-btn" onclick={() => removeModel(cp.id, index)}>×</button>
-                                                </td>
-                                            </tr>
-                                        {/each}
-                                    </tbody>
-                                </table>
+                            <div class="providers-model-list" role="list" aria-label={copy.modelRegistryTitle}>
+                                {#each visibleModels as row (row.index)}
+                                    {@const model = row.model}
+                                    {@const index = row.index}
+                                    <article class="providers-model-row" role="listitem">
+                                        <div class="providers-model-row-copy">
+                                            <strong>{model.id}</strong>
+                                            <small>{model.contextWindow ? `${model.contextWindow.toLocaleString()} tokens` : copy.addModelCwLabel}</small>
+                                        </div>
+                                        <div class="providers-model-row-caps" aria-label={copy.capabilitiesCol}>
+                                            {#each model.tags as tag}
+                                                <span class="providers-cap-badge providers-cap-badge--on">{tag}</span>
+                                            {/each}
+                                        </div>
+                                        <div class="providers-model-row-actions">
+                                            <IosSwitch
+                                                checked={model.enabled !== false}
+                                                onCheckedChange={(enabled) => updateProviderById(cp.id, (provider) => ({ ...provider, models: provider.models.map((item, modelIndex) => modelIndex === index ? { ...item, enabled } : item) }))}
+                                            />
+                                            <button type="button" class="providers-btn-outline-sm" onclick={() => openModelEditor(cp.id, index)}>{copy.editModelModalTitle}</button>
+                                            <button type="button" class="providers-remove-btn" aria-label={`${copy.deleteBtn}: ${model.id}`} onclick={() => removeModel(cp.id, index)}>×</button>
+                                        </div>
+                                    </article>
+                                {/each}
                             </div>
                         {/if}
 
@@ -2573,33 +2279,37 @@
         </div>
     {/if}
 
-    <!-- ── Add Model Modal ── -->
-    {#if showAddModelModal}
-        <div class="providers-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showAddModelModal = false; }} onkeydown={(e) => { if (e.key === 'Escape') showAddModelModal = false; }} role="dialog" aria-label="Add Model" tabindex="-1">
-            <div class="providers-modal-card">
-                <h3 class="providers-modal-title">{copy.addModelModalTitle}</h3>
+    <!-- ── Focused Model Editor ── -->
+    {#if showModelEditor}
+        <div class="providers-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showModelEditor = false; }} onkeydown={(e) => { if (e.key === 'Escape') showModelEditor = false; }} role="presentation">
+            <div class="providers-modal-card" role="dialog" aria-modal="true" aria-labelledby="providers-model-editor-title">
+                <h3 id="providers-model-editor-title" class="providers-modal-title">{modelEditorIndex === null ? copy.addModelModalTitle : copy.editModelModalTitle}</h3>
                 <label class="providers-detail-form-label">
                     <span class="providers-detail-form-label-text">{copy.addModelIdLabel}</span>
-                    <input class="providers-table-input" bind:value={addModelId} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
+                    <Input bind:value={modelEditorId} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
                 </label>
                 <label class="providers-detail-form-label">
                     <span class="providers-detail-form-label-text">{copy.addModelCwLabel}</span>
-                    <input class="providers-table-input" type="number" min="0" step="1000" placeholder="200000" value={addModelContextWindow ?? ""} oninput={(e) => { const v = Number((e.currentTarget as HTMLInputElement).value); addModelContextWindow = v > 0 ? v : undefined; }} />
+                    <Input type="number" min="0" step="1000" placeholder="200000" value={modelEditorContextWindow ?? ""} oninput={(e) => { const v = Number((e.currentTarget as HTMLInputElement).value); modelEditorContextWindow = v > 0 ? v : undefined; }} />
                 </label>
                 <div class="providers-modal-caps">
                     <span class="providers-detail-form-label-text">{copy.capabilitiesCol}</span>
                     <div class="providers-caps-grid">
                         {#each capabilityTags as tag}
                             <label class="providers-cap-check">
-                                <Checkbox checked={addModelTags.includes(tag)} onCheckedChange={() => toggleAddModelTag(tag)} />
+                                <Checkbox checked={modelEditorTags.includes(tag)} onCheckedChange={() => toggleModelEditorTag(tag)} />
                                 <span>{tag}</span>
                             </label>
                         {/each}
                     </div>
                 </div>
+                <label class="providers-model-enabled-row">
+                    <span>{copy.modelEnabledLabel}</span>
+                    <IosSwitch checked={modelEditorEnabled} onCheckedChange={(enabled) => (modelEditorEnabled = enabled)} />
+                </label>
                 <div class="providers-modal-actions">
-                    <button type="button" class="providers-btn-outline" onclick={() => (showAddModelModal = false)}>{copy.cancelBtn}</button>
-                    <button type="button" class="providers-btn-primary-sm" onclick={confirmAddModel} disabled={!addModelId.trim()}>{copy.confirmAddModelBtn}</button>
+                    <button type="button" class="providers-btn-outline" onclick={() => (showModelEditor = false)}>{copy.cancelBtn}</button>
+                    <button type="button" class="providers-btn-primary-sm" onclick={confirmModelEditor} disabled={!modelEditorId.trim()}>{modelEditorIndex === null ? copy.confirmAddModelBtn : copy.saveModelBtn}</button>
                 </div>
             </div>
         </div>
@@ -2607,16 +2317,19 @@
 
     <!-- ── Pull Models Modal ── -->
     {#if showPullModal}
-        <div class="providers-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showPullModal = false; }} onkeydown={(e) => { if (e.key === 'Escape') showPullModal = false; }} role="dialog" aria-label="Pull Models" tabindex="-1">
-            <div class="providers-modal-card providers-modal-card--wide">
-                <h3 class="providers-modal-title">{copy.pullModelsModalTitle}</h3>
+        <div class="providers-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showPullModal = false; }} onkeydown={(e) => { if (e.key === 'Escape') showPullModal = false; }} role="presentation">
+            <div class="providers-modal-card providers-modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="providers-model-discovery-title">
+                <div class="providers-discovery-head">
+                    <div><h3 id="providers-model-discovery-title" class="providers-modal-title">{copy.pullModelsModalTitle}</h3><p>{copy.availableModelsCount.replace("{count}", String(discoveredModels(pullTargetProviderId).length))}</p></div>
+                    <Input bind:value={pullModelSearch} placeholder={copy.searchAvailableModels} />
+                </div>
                 {#if loadingProviderModelsFor === pullTargetProviderId}
                     <p class="providers-modal-loading">{copy.fetchingModels}</p>
                 {:else if discoveredModels(pullTargetProviderId).length === 0}
                     <p class="providers-modal-loading">{copy.noModelsReturned}</p>
                 {:else}
                     <div class="providers-pull-list">
-                        {#each discoveredModels(pullTargetProviderId) as remoteModelId}
+                        {#each pullVisibleModels as remoteModelId}
                             {@const alreadyAdded = form.customProviders.find(p => p.id === pullTargetProviderId)?.models.some(m => m.id === remoteModelId) ?? false}
                             <div class="providers-pull-item">
                                 <span class="providers-pull-item-name">{remoteModelId}</span>
@@ -2628,11 +2341,11 @@
                                                 <span>{tag}</span>
                                             </label>
                                         {/each}
-                                        <button type="button" class="providers-btn-primary-sm" onclick={() => confirmPullAdd(remoteModelId)}>Confirm</button>
-                                        <button type="button" class="providers-btn-outline" onclick={() => { pullAddingModelId = ""; }}>Cancel</button>
+                                        <button type="button" class="providers-btn-primary-sm" onclick={() => confirmPullAdd(remoteModelId)}>{copy.confirmAddModelBtn}</button>
+                                        <button type="button" class="providers-btn-outline" onclick={() => { pullAddingModelId = ""; }}>{copy.cancelBtn}</button>
                                     </div>
                                 {:else}
-                                    <button type="button" class="providers-btn-outline" onclick={() => { pullAddingModelId = remoteModelId; pullAddingTags = ["text"]; }} disabled={alreadyAdded}>{alreadyAdded ? "Added" : "Add"}</button>
+                                    <button type="button" class="providers-btn-outline" onclick={() => { pullAddingModelId = remoteModelId; pullAddingTags = ["text"]; }} disabled={alreadyAdded}>{alreadyAdded ? copy.addedLabel : copy.addLabel}</button>
                                 {/if}
                             </div>
                         {/each}

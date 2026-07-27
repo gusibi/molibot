@@ -50,7 +50,6 @@ test("buildDesktopProviderItem drops apiKey but keeps identity, endpoint, and mo
   assert.equal(item.models.length, 2);
   assert.equal(item.models[0].id, "gpt-4o");
   assert.equal(item.path, "");
-  assert.equal(item.supportsThinking, null);
   assert.equal(item.thinkingFormat, null);
 
   const serialized = JSON.stringify(item);

@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import type {
-    DesktopApprovalDecision,
-    DesktopModelOption,
-    DesktopSessionFile,
-    DesktopThinkingLevel
+  import {
+    DESKTOP_THINKING_LEVELS,
+    clampDesktopThinkingLevel,
+    type DesktopThinkingLevel,
+    type DesktopApprovalDecision,
+    type DesktopModelOption,
+    type DesktopSessionFile
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import ApprovalCard from "../chat/ApprovalCard.svelte";
@@ -74,12 +76,17 @@
     const slash = activeModelFullLabel.lastIndexOf("/");
     return (slash >= 0 ? activeModelFullLabel.slice(slash + 1) : activeModelFullLabel).trim();
   })();
+  $: thinkingLevelOptions = modelOptions.find((model) => model.key === activeModelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
+  $: clampedThinkingLevel = clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
   $: thinkingLabel = {
     off: copy.thinkingOff,
+    minimal: copy.thinkingMinimal,
     low: copy.thinkingLow,
     medium: copy.thinkingMedium,
-    high: copy.thinkingHigh
-  }[thinkingLevel];
+    high: copy.thinkingHigh,
+    xhigh: copy.thinkingXHigh,
+    max: copy.thinkingMax
+  }[clampedThinkingLevel];
 
   // Load model options for the project composer so it matches the chat surface.
   // Re-loads whenever the endpoint changes (e.g. service restart).
@@ -98,7 +105,7 @@
     thinkingLevel = sessionThinkingOverrides.get(appliedSessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
     void hydrateSessionModel(appliedSessionId);
   }
-  $: if (appliedSessionId && projectsStore.selectedSessionId === appliedSessionId) sessionThinkingOverrides.set(appliedSessionId, thinkingLevel);
+  $: if (appliedSessionId && projectsStore.selectedSessionId === appliedSessionId) sessionThinkingOverrides.set(appliedSessionId, clampedThinkingLevel);
   async function loadModelOptions(endpoint: string): Promise<void> {
     try {
       const [state, routing] = await Promise.all([loadDesktopModels(endpoint), loadDesktopModelRouting(endpoint)]);
@@ -152,6 +159,15 @@
     }
   }
 
+  function changeThinking(event: Event): void {
+    thinkingLevel = clampDesktopThinkingLevel(
+      (event.currentTarget as HTMLSelectElement).value as DesktopThinkingLevel,
+      thinkingLevelOptions
+    );
+    const sessionId = projectsStore.selectedSessionId;
+    if (sessionId) sessionThinkingOverrides.set(sessionId, thinkingLevel);
+  }
+
   // Per-session resolvers the pinned controllers read at send time. Model /
   // thinking overrides plus project/global defaults live here; the store injects
   // these into each session's runtime so a background turn keeps its own model.
@@ -159,7 +175,10 @@
     return sessionModelOverrides.get(sessionId) ?? currentProject?.modelKey ?? globalModelKey;
   }
   function resolveSessionThinking(sessionId: string): DesktopThinkingLevel {
-    return sessionThinkingOverrides.get(sessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
+    const requested = sessionThinkingOverrides.get(sessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
+    const modelKey = resolveSessionModel(sessionId);
+    const levels = modelOptions.find((model) => model.key === modelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
+    return clampDesktopThinkingLevel(requested, levels);
   }
 
   // The project surface shares the main chat's per-session runtime registry
@@ -254,6 +273,8 @@
 
   async function sendMessage(): Promise<void> {
     const text = message;
+    thinkingLevel = clampedThinkingLevel;
+    if (projectsStore.selectedSessionId) sessionThinkingOverrides.set(projectsStore.selectedSessionId, thinkingLevel);
     const files = pendingFiles;
     const editingId = editingMessageId;
     const editingSession = editingSessionId;
@@ -780,7 +801,8 @@
   <input bind:this={fileInput} type="file" multiple hidden onchange={onFilesPicked} />
   <ChatInputArea
     bind:value={message}
-    bind:thinkingLevel
+    thinkingLevel={clampedThinkingLevel}
+    {thinkingLevelOptions}
     endpoint={projectsStore.endpoint}
     projectId={projectsStore.selectedProjectId}
     {copy}
@@ -818,6 +840,7 @@
     onDismissRecordingError={() => (recordingError = "")}
     onOpenSettings={() => undefined}
     onChangeModel={changeModel}
+    onChangeThinking={changeThinking}
   >
     {#if editingMessageId}
       <div class="composer-edit-banner" role="status">

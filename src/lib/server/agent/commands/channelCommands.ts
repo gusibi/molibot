@@ -17,7 +17,7 @@ import {
   switchModelSelection,
   type ModelRoute
 } from "$lib/server/settings/modelSwitch.js";
-import { applyAgentModelRoutingOverride } from "$lib/server/agent/routing/modelRouting.js";
+import { applyAgentModelRoutingOverride, resolveModel } from "$lib/server/agent/routing/modelRouting.js";
 import type { AgentModelRouting } from "$lib/server/settings/schema.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import {
@@ -29,7 +29,7 @@ import {
 } from "$lib/server/agent/skills/skills.js";
 import type { ChannelRunnerPoolLike } from "$lib/server/agent/core/runnerPool.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
-import { resolveThinkingLevel } from "$lib/server/providers/customThinking.js";
+import { getModelThinkingLevels, resolveModelThinkingLevel } from "$lib/server/providers/modelThinking.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
 import { formatRunLogText } from "$lib/server/agent/session/runDetail.js";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n.js";
@@ -1846,35 +1846,20 @@ export class SharedRuntimeCommandService<TTarget> {
     return { mode, provider: provider.trim(), model };
   }
 
-  private resolveTextRouteThinkingSupport(settings: RuntimeSettings): boolean {
-    const parsed = this.parseConfiguredModelKey(currentModelKey(settings, "text"));
-    if (!parsed) return false;
-
-    if (parsed.mode === "custom") {
-      return settings.customProviders.find((provider) => provider.id === parsed.provider)?.supportsThinking === true;
-    }
-
-    try {
-      const model = getModels(parsed.provider as any).find((row) => row.id === parsed.model);
-      return Boolean(model?.reasoning);
-    } catch {
-      return false;
-    }
-  }
-
   private buildSessionThinkingSummary(scopeId: string, sessionId?: string): string[] {
     const settings = this.options.getSettings();
     const activeSessionId = sessionId ?? this.options.store.getActiveSession(scopeId);
     const sessionOverride = this.options.store.getSessionThinkingLevelOverride(scopeId, activeSessionId);
     const requested = sessionOverride ?? settings.defaultThinkingLevel;
-    const reasoningSupported = this.resolveTextRouteThinkingSupport(this.effectiveModelSettings(settings));
-    const effective = resolveThinkingLevel({ defaultThinkingLevel: requested }, reasoningSupported);
+    const model = resolveModel(this.effectiveModelSettings(settings), "text");
+    const supportedLevels = getModelThinkingLevels(model);
+    const effective = resolveModelThinkingLevel(model, requested);
 
     return [
       this.text(`Global default: ${settings.defaultThinkingLevel}`, `全局默认：${settings.defaultThinkingLevel}`),
       this.text(`Session override: ${sessionOverride ?? "default"}`, `会话覆盖：${sessionOverride ?? "default"}`),
       this.text(`Next request target: ${requested}`, `下次请求目标：${requested}`),
-      this.text(`Current text model supports thinking: ${reasoningSupported ? "yes" : "no"}`, `当前文本模型支持思考：${reasoningSupported ? "是" : "否"}`),
+      this.text(`Current text model levels: ${supportedLevels.join(", ")}`, `当前文本模型档位：${supportedLevels.join("、")}`),
       this.text(`Effective next request: ${effective}`, `下次请求实际级别：${effective}`)
     ];
   }
@@ -2281,7 +2266,7 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/compact [instructions]", value: d("summarize older context of current session", "压缩当前会话的较早上下文") },
       { label: "/skills <id>", value: d("show details for one loaded skill", "查看单个技能详情") },
       { label: "/skills-detail", value: d("show full details for all loaded skills", "查看所有已加载技能的完整详情") },
-      { label: "/thinking [default|off|low|medium|high]", value: d("show or change thinking for current session only", "查看或仅修改当前会话的思考级别") },
+      { label: "/thinking [default|off|minimal|low|medium|high|xhigh|max]", value: d("show or change thinking for current session only", "查看或仅修改当前会话的思考级别") },
       { label: "/models <route> [index|key]", value: d("show or switch model for a route (text|vision|stt|tts|subagent); for text/vision/stt on an agent-bound bot it sets the agent's model — use /models <route> global to follow global", "查看或切换指定路由的模型（text|vision|stt|tts|subagent）；绑定 agent 的 bot 切 text/vision/stt 时写入该 agent，/models <route> global 可恢复跟随全局") },
       { label: "/sandbox [scope] [on|off|reset]", value: d("show or change sandbox override (session / bot / agent)", "查看或修改沙盒覆盖（会话 / 机器人 / Agent）") },
       { label: "/runlog [latest|<runId>|list]", value: d("show or list archived run logs", "查看或列出归档运行记录") },

@@ -69,6 +69,7 @@ const projectChat = read("./lib/projects/ProjectChat.svelte");
 const projectChatStoreSource = read("./lib/projects/projectChatStore.svelte.ts");
 const projectFilePanel = read("./lib/projects/ProjectFilePanel.svelte");
 const taskStore = read("./lib/stores/tasks.svelte.ts");
+const settingsSessionStore = read("./lib/stores/session.svelte.ts");
 const skillsStoreSource = read("./lib/stores/skills.svelte.ts");
 const conversationController = read("./lib/chat/conversationController.svelte.ts");
 const chatSessionStore = read("./lib/chat/chatSessionStore.svelte.ts");
@@ -846,6 +847,17 @@ test("provider, settings, and diagnostics regressions stay fixed", () => {
   assert.match(app, /appVersion/);
 });
 
+test("saving a provider refreshes Chat model options in the same window without restart", () => {
+  assert.match(settingsSessionStore, /export const SETTINGS_CHANGED_EVENT/);
+  assert.match(settingsSessionStore, /window\.dispatchEvent\(new Event\(SETTINGS_CHANGED_EVENT\)\)/);
+  assert.doesNotMatch(view, /new BroadcastChannel\("molibot-settings-channel"\)/);
+  assert.match(view, /window\.addEventListener\(SETTINGS_CHANGED_EVENT, requestSettingsRefresh\)/);
+  assert.match(view, /let pendingSettingsRefresh = false/);
+  assert.match(view, /if \(loading \|\| refreshingSettings\) \{[\s\S]{0,120}pendingSettingsRefresh = true;[\s\S]{0,120}return;/);
+  assert.match(view, /if \(pendingSettingsRefresh\) \{[\s\S]{0,160}refreshModelsAndProfiles\(\)/);
+  assert.match(view, /refreshEndpoint !== connectedEndpoint \|\| refreshGeneration !== connectionGeneration/);
+});
+
 test("direct one-shot delivery is persisted through the shared runtime for every channel", () => {
   const baseRuntime = read("../../../src/lib/server/channels/shared/baseRuntime.ts");
   for (const channel of ["web", "telegram", "feishu", "qq", "weixin"]) {
@@ -928,6 +940,11 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.match(chatMessagesPane, /<ConversationLiveView/);
   assert.match(chatInputArea, /<ChatComposerShell/);
   assert.match(chatInputArea, /thinkingLevelLabel/);
+  assert.match(chatInputArea, /thinkingLevelOptions/);
+  assert.match(chatInputArea, /\{#each thinkingLevelOptions as level/);
+  assert.match(view, /chatStore\.draftStore\.setThinking\(chatStore\.currentDraftKey\(\), thinkingLevel\)/);
+  assert.match(view, /onChangeThinking=\{changeThinking\}/);
+  assert.match(projectChat, /onChangeThinking=\{changeThinking\}/);
   assert.match(view, /thinkingLevelLabel=\{thinkingLabel\}/);
   assert.match(projectChat, /thinkingLevelLabel=\{thinkingLabel\}/);
   assert.match(projectChat, /activeModelTitle=\{activeModelFullLabel\}/);
@@ -1244,15 +1261,23 @@ test("Memory Center keeps overview, topics, and all memories as separate product
 
 test("AI provider editing uses a dedicated modal and separates provider and model concepts", () => {
   assert.match(sections.providers, /<Dialog[\s\S]*contentClass="provider-modal-card"/);
+  assert.match(sections.providers, /<Dialog[\s\S]*labelledBy="provider-model-edit-title"/);
+  assert.match(sections.providers, /<Dialog[\s\S]*labelledBy="provider-model-discovery-title"/);
   assert.match(sections.providers, /<AlertDialog[\s\S]*contentClass="confirm-dialog"/);
   assert.doesNotMatch(sections.providers, /provider-modal-overlay/);
   assert.doesNotMatch(sections.providers, /class="modal-card provider-modal-card"/);
   assert.match(sections.providers, /session\.text\.providerSelfHostedTitle/);
   assert.match(sections.providers, /session\.text\.providerModelsSectionTitle/);
+  assert.match(sections.providers, /class="provider-model-inventory"/);
+  assert.match(sections.providers, /class="provider-model-inventory-row"/);
+  assert.match(sections.providers, /providerEdit\.defaultModel === previousId[\s\S]*defaultModel: draft\.id/);
+  assert.doesNotMatch(sections.providers, /thinkingLevelMap|model\.supportsThinking|DESKTOP_THINKING_LEVELS/);
   assert.match(styles, /\.desktop-dialog-content\.provider-modal-card\s*\{[^}]*width:\s*min\(920px,\s*calc\(100vw - 48px\)\)/s);
   // The save footbar belongs to the provider globals (mode/default) and is gated
   // by its own dirty flag — a separate concern from the provider edit modal.
   assert.match(sections.providers, /\{#if providersStore\.globalsDirty\}[\s\S]{0,200}class="settings-footbar"/);
+  assert.match(styles, /\.provider-model-inventory\s*\{/);
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.provider-browser-layout\s*\{[^}]*grid-template-columns:\s*1fr;/s);
 });
 
 test("built-in provider configuration reuses saved Web settings without polluting the custom tab", () => {

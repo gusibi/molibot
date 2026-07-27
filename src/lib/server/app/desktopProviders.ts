@@ -9,11 +9,7 @@ import type {
   DesktopProviderProtocol,
   DesktopProvidersSummary
 } from "$lib/shared/desktop";
-import {
-  sanitizeOptionalThinkingFormat,
-  sanitizeOptionalThinkingSupport,
-  sanitizeReasoningEffortMap
-} from "$lib/server/settings/thinking";
+import { sanitizeOptionalThinkingFormat } from "$lib/server/settings/thinking";
 
 const MODEL_TAGS = new Set<DesktopProviderModelTag>(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const MODEL_ROLES = new Set<DesktopProviderModelRole>(["system", "user", "assistant", "tool", "developer"]);
@@ -36,9 +32,7 @@ function coerceProtocol(value: unknown): DesktopProviderProtocol {
 /**
  * Maps a custom provider config into a credential-safe Desktop view. The
  * `apiKey` (a provider secret) is dropped and replaced by the `hasApiKey`
- * boolean; per-model verification details and the reasoning-effort map are
- * omitted too — the Desktop providers list only needs identity, protocol,
- * endpoint, and aggregate model counts to let a user audit configuration.
+ * boolean. Per-model verification details stay credential-safe.
  */
 export function buildDesktopProviderItem(
   provider: CustomProviderConfig,
@@ -56,9 +50,7 @@ export function buildDesktopProviderItem(
     modelCount: models.length,
     defaultModel: provider.defaultModel ?? "",
     path: provider.path ?? "",
-    supportsThinking: sanitizeOptionalThinkingSupport(provider.supportsThinking) ?? null,
     thinkingFormat: sanitizeOptionalThinkingFormat(provider.thinkingFormat) ?? null,
-    reasoningEffortMap: sanitizeReasoningEffortMap(provider.reasoningEffortMap) ?? {},
     models: models.map(buildDesktopProviderModel)
   };
 }

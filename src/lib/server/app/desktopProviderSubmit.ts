@@ -48,8 +48,6 @@ export function buildNewCustomProvider(req: DesktopProviderCreateRequest): Custo
     models: req.models,
     defaultModel: req.defaultModel,
     path: req.path,
-    supportsThinking: req.supportsThinking,
-    thinkingFormat: req.thinkingFormat,
-    reasoningEffortMap: req.reasoningEffortMap
+    thinkingFormat: req.thinkingFormat
   });
 }

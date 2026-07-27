@@ -509,6 +509,13 @@ the base to pure black (`#000000`/`#0A0A0A`).
 - List/detail workspaces use Global Sidebar → 300–320px list pane → flexible detail
   inspector. Below 1100px the inspector becomes a right-side overlay; the minimum
   supported desktop window is 860×620.
+- AI Provider settings use one provider-first master/detail workspace on Web and
+  Desktop: the provider rail owns search, source filters, status, and creation;
+  the detail pane owns connection/authentication, defaults, and the model inventory.
+  Remote model discovery and single-model editing use focused dialogs instead of
+  exposing a wall of editable fields. Show model capability/status as compact
+  metadata, keep technical Provider/model identifiers secondary, and collapse the
+  rail above the detail when two columns no longer leave a usable model pane.
 - Chat uses a 260px default resizable sidebar, flat assistant messages with Agent
   identity, hover/focus actions, and one compact auto-growing composer.
 

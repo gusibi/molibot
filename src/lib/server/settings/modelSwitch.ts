@@ -1,6 +1,8 @@
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { isKnownProvider } from "$lib/server/settings/index.js";
 import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
+import { DEFAULT_THINKING_LEVEL_MAP, getModelThinkingLevels } from "$lib/server/providers/modelThinking.js";
+import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/thinking.js";
 
 export type ModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
 
@@ -8,6 +10,7 @@ export interface ModelOption {
   key: string;
   label: string;
   contextWindow?: number;
+  thinkingLevels: RuntimeSettings["defaultThinkingLevel"][];
   patch: Partial<RuntimeSettings>;
 }
 
@@ -110,15 +113,20 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
   const pushBuiltInOption = (providerId: string, modelId: string): void => {
     const key = `pi|${providerId}|${modelId}`;
     let contextWindow: number | undefined;
+    let thinkingLevels: RuntimeSettings["defaultThinkingLevel"][] = [...RUNTIME_THINKING_LEVELS];
     try {
       const models = getModels(providerId as any);
       const found = models.find((m) => m.id === modelId);
-      if (found) contextWindow = found.contextWindow;
+      if (found) {
+        contextWindow = found.contextWindow;
+        thinkingLevels = getModelThinkingLevels(found);
+      }
     } catch { /* ignore */ }
     pushOption({
       key,
       label: `[PI] ${providerId} / ${modelId}`,
       contextWindow,
+      thinkingLevels,
       patch: {
         piModelProvider: providerId as RuntimeSettings["piModelProvider"],
         piModelName: modelId,
@@ -155,6 +163,10 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
         key: `custom|${provider.id}|${modelId}`,
         label: `[Custom] ${provider.name} / ${modelId}`,
         contextWindow: model.contextWindow,
+        thinkingLevels: getModelThinkingLevels({
+          reasoning: true,
+          thinkingLevelMap: DEFAULT_THINKING_LEVEL_MAP
+        } as any),
         patch: {
           defaultCustomProviderId: route === "text" ? provider.id : settings.defaultCustomProviderId,
           customProviders: route === "text" ? updatedProviders : settings.customProviders,

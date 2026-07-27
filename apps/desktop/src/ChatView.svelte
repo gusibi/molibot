@@ -2,25 +2,27 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import type {
-    DesktopAgentItem,
-    DesktopChannelsSummary,
-    DesktopApprovalDecision,
-    DesktopConversationChannel,
-    DesktopConversationItem,
-    DesktopConversationMessage,
-    DesktopExternalTranscript,
-    DesktopMessageAttachment,
-    DesktopMemoryTraceResponse,
-    DesktopModelOption,
-    DesktopProfileSummary,
-    DesktopProviderCreateRequest,
-    DesktopProviderModel,
-    DesktopProviderModelTag,
-    DesktopSessionFile,
-    DesktopSessionSummary,
-    DesktopThinkingLevel,
-    DesktopWebProfile
+  import {
+    DESKTOP_THINKING_LEVELS,
+    clampDesktopThinkingLevel,
+    type DesktopThinkingLevel,
+    type DesktopModelOption,
+    type DesktopAgentItem,
+    type DesktopChannelsSummary,
+    type DesktopApprovalDecision,
+    type DesktopConversationChannel,
+    type DesktopConversationItem,
+    type DesktopConversationMessage,
+    type DesktopExternalTranscript,
+    type DesktopMessageAttachment,
+    type DesktopMemoryTraceResponse,
+    type DesktopProfileSummary,
+    type DesktopProviderCreateRequest,
+    type DesktopProviderModel,
+    type DesktopProviderModelTag,
+    type DesktopSessionFile,
+    type DesktopSessionSummary,
+    type DesktopWebProfile
   } from "@molibot/desktop-contract";
   import type { Translation } from "./lib/i18n";
   import {
@@ -85,6 +87,7 @@
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
   import ProjectFilePanel from "./lib/projects/ProjectFilePanel.svelte";
   import { projectsStore } from "./lib/stores/projects.svelte";
+  import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
   import ConversationBrowserDialog from "./lib/chat/ConversationBrowserDialog.svelte";
@@ -514,15 +517,20 @@
     void hydrateSessionModel(activeSessionId);
   }
   $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
+  $: thinkingLevelOptions = modelOptions.find((model) => model.key === activeModelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
+  $: clampedThinkingLevel = clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
   // The pill only shows the bare model name (last "/"-segment); the provider
   // prefix like "[Custom] CliProxyAPI /" is kept for the dropdown + tooltip.
   $: activeModelLabel = humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model;
   $: thinkingLabel = {
     off: copy.thinkingOff,
+    minimal: copy.thinkingMinimal,
     low: copy.thinkingLow,
     medium: copy.thinkingMedium,
-    high: copy.thinkingHigh
-  }[thinkingLevel];
+    high: copy.thinkingHigh,
+    xhigh: copy.thinkingXHigh,
+    max: copy.thinkingMax
+  }[clampedThinkingLevel];
   $: if (requestedWorkspacePane !== appliedRequestedWorkspacePane) {
     appliedRequestedWorkspacePane = requestedWorkspacePane;
     workspacePane = requestedWorkspacePane;
@@ -664,24 +672,36 @@
     pendingFiles = draft.files;
     thinkingLevel = draft.thinkingLevel;
   }
-  const settingsChannel = new BroadcastChannel("molibot-settings-channel");
-  settingsChannel.onmessage = (event) => {
-    if (event.data?.type === "refresh-models") {
-      void refreshModelsAndProfiles();
-    }
-  };
+  let pendingSettingsRefresh = false;
+  let refreshingSettings = false;
+
+  function requestSettingsRefresh(): void {
+    pendingSettingsRefresh = true;
+    void refreshModelsAndProfiles();
+  }
+
+  window.addEventListener(SETTINGS_CHANGED_EVENT, requestSettingsRefresh);
 
   async function refreshModelsAndProfiles(): Promise<void> {
-    if (!connectedEndpoint || loading) return;
+    if (!connectedEndpoint) return;
+    if (loading || refreshingSettings) {
+      pendingSettingsRefresh = true;
+      return;
+    }
+    pendingSettingsRefresh = false;
+    refreshingSettings = true;
+    const refreshEndpoint = connectedEndpoint;
+    const refreshGeneration = connectionGeneration;
     try {
       const [nextProfiles, modelState, nextWebProfiles, nextAgents, nextChannels, nextRuntimeEnv] = await Promise.all([
-        loadDesktopBootstrap(connectedEndpoint),
-        loadDesktopModels(connectedEndpoint),
-        loadDesktopWebProfiles(connectedEndpoint),
-        loadDesktopAgents(connectedEndpoint).catch(() => null),
-        loadDesktopChannels(connectedEndpoint).catch(() => null),
-        loadDesktopRuntimeEnv(connectedEndpoint).catch(() => null)
+        loadDesktopBootstrap(refreshEndpoint),
+        loadDesktopModels(refreshEndpoint),
+        loadDesktopWebProfiles(refreshEndpoint),
+        loadDesktopAgents(refreshEndpoint).catch(() => null),
+        loadDesktopChannels(refreshEndpoint).catch(() => null),
+        loadDesktopRuntimeEnv(refreshEndpoint).catch(() => null)
       ]);
+      if (refreshEndpoint !== connectedEndpoint || refreshGeneration !== connectionGeneration) return;
       
       profiles = nextProfiles;
       modelOptions = modelState.options;
@@ -703,6 +723,11 @@
       onboardingStep = resolveOnboardingStartStep(nextReadiness);
     } catch (e) {
       console.error("Failed to refresh models and profiles:", e);
+    } finally {
+      refreshingSettings = false;
+      if (pendingSettingsRefresh) {
+        void refreshModelsAndProfiles();
+      }
     }
   }
 
@@ -785,7 +810,10 @@
         error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
-      if (generation === connectionGeneration) loading = false;
+      if (generation === connectionGeneration) {
+        loading = false;
+        if (pendingSettingsRefresh) void refreshModelsAndProfiles();
+      }
     }
   }
 
@@ -1028,9 +1056,7 @@
         models,
         defaultModel: models[0]?.id ?? "",
         path: providerDraft.protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions",
-        supportsThinking: null,
-        thinkingFormat: null,
-        reasoningEffortMap: {}
+        thinkingFormat: null
       };
       const result = await createDesktopProvider(connectedEndpoint, request);
       if (!result.ok) throw new Error(result.error ?? "Unknown error");
@@ -1397,6 +1423,8 @@
 
   async function sendMessage(): Promise<void> {
     const text = messageInput;
+    thinkingLevel = clampedThinkingLevel;
+    chatStore.draftStore.setThinking(chatStore.currentDraftKey(), thinkingLevel);
     const files = pendingFiles;
     const editingId = editingMessageId;
     const editingSession = editingSessionId;
@@ -1615,6 +1643,12 @@
     } finally {
       changingModel = false;
     }
+  }
+
+  function changeThinking(event: Event): void {
+    const requested = (event.currentTarget as HTMLSelectElement).value as DesktopThinkingLevel;
+    thinkingLevel = clampDesktopThinkingLevel(requested, thinkingLevelOptions);
+    chatStore.draftStore.setThinking(chatStore.currentDraftKey(), thinkingLevel);
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
@@ -2038,7 +2072,7 @@
     pendingAudioTracked.clear();
     for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
     closePreview();
-    settingsChannel.close();
+    window.removeEventListener(SETTINGS_CHANGED_EVENT, requestSettingsRefresh);
   });
 </script>
 
@@ -2318,7 +2352,8 @@
       />
       <ChatInputArea
         bind:value={messageInput}
-        bind:thinkingLevel
+        thinkingLevel={clampedThinkingLevel}
+        {thinkingLevelOptions}
         endpoint={connectedEndpoint}
         {copy}
         {sending}
@@ -2356,6 +2391,7 @@
         onDismissRecordingError={() => (recordingError = "")}
         onOpenSettings={() => openSettings()}
         onChangeModel={changeModel}
+        onChangeThinking={changeThinking}
       >
         {#if profiles.length > 0 && (draftMode || activeSessionId)}
           <BotMention

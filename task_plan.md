@@ -32,6 +32,72 @@ Complete
 
 ---
 
+# Issue #20 — AI Provider UI optimization (2026-07-27)
+
+## Goal
+Rebuild the Web and Desktop AI Provider settings into a clear provider-first master/detail workflow, preserving the current theme and every existing provider/model/OAuth capability while making connection, discovery, model selection, and editing understandable.
+
+## Current phase
+Complete — implementation, real-page walkthrough, builds, records, and adversarial review finished
+
+## Phases
+1. Inspect Issue #20 references, DESIGN/PRD/history, current Web/Desktop flows, and dirty-worktree overlap — complete
+2. Define the shared provider/model interaction contract and add structural regressions — complete
+3. Implement the Web and Desktop master/detail UI with model discovery/edit and OAuth states — complete
+4. Verify bilingual copy, light/dark themes, responsive widths, settings persistence, tests, and builds — complete
+5. Run cold-start walkthrough, adversarial review, and update product records — complete
+
+## Verification gates
+- Provider navigation, connection status, credentials/OAuth action, models, discovery, add/edit/remove, enablement, and default selection remain functional in both Web and Desktop.
+- Web and Desktop use the same information architecture, with left provider list and right provider/model workspace; the existing theme tokens remain authoritative.
+- Existing user-owned dirty changes are preserved and every new line maps to Issue #20.
+- Chinese/English, light/dark, keyboard access, Web narrow widths, and Desktop 860×620 behavior are checked.
+- Focused UI/API regressions, Svelte diagnostics, production builds, and a real cold-start provider walkthrough pass.
+
+## Assumptions
+- The reference app supplies layout and interaction ideas, not a color or pixel-for-pixel clone.
+- The task is UI/interaction restructuring; provider persistence and runtime semantics should remain unchanged unless a UI regression exposes a required contract fix.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| GitHub connector and `gh` initially hit transient network failures | 1 | Retried the connector and fetched the complete structured Issue #20 successfully. |
+| GitHub attachment downloader rejected public `github.com/user-attachments` URLs | 1 | Use a bounded direct download/open path for the five public references; do not repeat the private-image-only tool call. |
+| First isolated Vite start inherited task-relevant environment credentials and briefly initialized configured channels | 1 | Stopped it immediately; all later cold/UI runs must use a clean environment allowlist, not only an isolated `DATA_DIR`. |
+
+---
+
+# Provider model live refresh bug (2026-07-27)
+
+## Goal
+After saving a newly added AI Provider model in the Desktop app, make the Chat model selector show it immediately without restarting, using the shared model state/cache boundary rather than a Chat-only workaround.
+
+## Current phase
+Phase 4 — automated verification complete; real cold UI walk awaits local-port approval
+
+## Phases
+1. Search prior model-refresh fixes and trace Provider save → model Store → Chat selector — complete
+2. Add a deterministic regression that reproduces the stale selector after Provider save — complete
+3. Fix the shared invalidation/refresh boundary and keep persistence semantics unchanged — complete
+4. Run focused tests, Desktop diagnostics/build, and a cold UI save → Chat walkthrough — in progress
+5. Complete adversarial review and update product records — complete
+
+## Verification gates
+- Adding and saving a Provider model updates the existing Chat model selector in the same app process.
+- The fix lives in shared Provider/model state; Chat does not poll or special-case Provider editing.
+- Failed Provider saves do not publish unsaved models into Chat.
+- Existing model selection, Provider credential safety, and fine-grained save behavior remain intact.
+- A machine regression fails before the fix and passes afterward.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| First combined patch targeted an outdated `refreshModelsAndProfiles()` tail context | 1 | Re-read the narrow function body and applied the same change in two surgical patches; no source change from the failed attempt was retained. |
+| Isolated backend and Desktop preview ports were denied by the managed sandbox | 1 | Requested the required localhost approvals instead of bypassing the sandbox. |
+| Approval review for the localhost cold walk disconnected and rejected both service startup and later temp cleanup | 2 | Stopped the UI walk; do not retry or work around the rejection. The exact leftover temp directory is recorded for explicit user-approved cleanup. |
+
+---
+
 # Long-task runtime audit (2026-07-26)
 
 ## Goal
@@ -2367,5 +2433,70 @@ Complete — diagnostics implemented, current voice replayed, and verification p
 | First parallel skill-read orchestration had a missing JavaScript parenthesis | 1 | Re-ran the same read with the syntax corrected; no task action or file edit occurred before the required instructions were loaded. |
 | Planning checker script lacked executable permission | 1 | Invoked it explicitly with `bash`; no repository permission was changed. |
 | Planning completion checker reported 1/6 complete | 1 | Its parser counts historical `### Phase` headings but recognizes only a separate `**Status:** complete` format. The current isolated section explicitly marks all four phases complete; preserve accumulated user-owned plan history rather than rewriting it. |
+
+---
+# Model-specific thinking levels (2026-07-26)
+
+## Goal
+Make thinking effort follow the selected model: use pi 0.82's real seven-level capability metadata for built-in models, allow custom models to override their own level map, and fall back to off + low/medium/high when a reasoning model's capability cannot be identified.
+
+## Current phase
+Complete — model-specific capability, persistence, UI, runtime, and cold-path verification passed
+
+## Phases
+1. Confirm UI/runtime contracts and preserve current dirty work — complete
+2. Add regressions for model capability resolution, settings round-trip, and Desktop selector-to-request propagation — complete
+3. Implement shared model-level capability resolution and custom-model overrides — complete
+4. Wire dynamic levels into Web/Desktop/Project/Channel settings and chat controls — complete
+5. Update required product records, run focused/full verification, cold-start smoke, and adversarial review — complete
+
+## Verification gates
+- Built-in model options match pi 0.82 `getSupportedThinkingLevels` for representative 3-, 5-, and 7-level models.
+- Requested thinking is clamped against the selected model before Agent state and provider payload construction.
+- A custom model's own map overrides its Provider fallback without affecting sibling models.
+- Unknown custom reasoning models expose off + low/medium/high, while non-reasoning models expose off only.
+- Custom model settings survive save → fresh temporary store → load unchanged.
+- Changing the Desktop thinking selector affects the immediately following request without switching sessions first.
+- Web/Desktop settings remain bilingual, theme-safe, responsive, and keep their existing fixed save footers.
+- Focused tests, type checks, Svelte checks, builds, and a real cold-path smoke pass.
+
+## Assumptions
+- “默认三个档位” means three positive strengths (`low`, `medium`, `high`); `off` remains available as a separate disabled state.
+- Provider-level thinking fields remain readable as a backwards-compatible default, but new customization is presented per model.
+- No model is guessed to support reasoning solely from an unknown model id; a custom model must inherit or declare thinking support.
+
+---
+# Seven-level default without custom-model mapping (2026-07-26)
+
+## Goal
+Revise the just-added thinking contract: custom models always expose the seven canonical choices without per-model capability/mapping settings; built-in pi models use an explicit model map when present and otherwise expose all seven.
+
+## Current phase
+Complete — corrected seven-level contract, UI/API cleanup, runtime pass-through, and verification all passed
+
+## Phases
+1. Remove custom-model thinking fields from schema, persistence, APIs, and Provider UIs — complete
+2. Simplify runtime resolution to built-in explicit-map-or-seven and custom always-seven — complete
+3. Update regressions for pass-through unsupported selections and remove obsolete round-trip coverage — complete
+4. Update product records and run focused checks/builds/adversarial review — complete
+
+## Verification gates
+- Custom Provider model editors contain no thinking-support, level, or wire-mapping controls.
+- Custom model options always expose all seven levels and carry no model-level thinking map.
+- Built-in models with an explicit pi map expose that subset; built-in models without a map expose all seven.
+- An unsupported custom selection is not clamped by a hidden Molibot map before the provider request.
+- No new custom-model thinking columns/fields are written by settings or Desktop APIs.
+
+## Assumptions
+- Provider `thinkingFormat` remains because it selects request shape, not model strength.
+- Existing SQLite Provider columns may remain physically present for database compatibility, but active schema/API/load/save paths ignore them.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| First focused run retained three expectations from the rejected contract: custom five-level option, removed mapping exports, and model-map SQLite round-trip | 1 | Treat as the intended red phase; rewrite those regressions to require seven raw custom levels, no custom mapping API, and absence of model-level persistence. |
+| First combined regression patch missed the exact temporary-store test text | 1 | The patch was atomic; re-read the narrow block and removed it with an exact smaller patch. |
+| Cold-smoke server did not exit after two interactive interrupts or `SIGTERM` | 1 | Verified the exact smoke PID and port, sent `SIGKILL` only to that isolated process, then moved its temporary data directory to Trash. |
+| Final stale-copy search used an unescaped backtick inside a double-quoted shell pattern | 1 | The preceding `git diff --check` and source-field search had already completed; reran the documentation search with single-quoted patterns. |
 
 ---

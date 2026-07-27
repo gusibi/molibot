@@ -19,6 +19,35 @@
 
 ---
 
+# Provider model live refresh bug (2026-07-27)
+
+## Historical evidence
+- This is a recurrence, not a new class. `CHANGELOG.md` already records three related guards: multi-window settings broadcasts, immediate model refresh after onboarding/provider mutations, and a later single-window fix for the exact symptom “newly added provider model does not appear until restart.”
+- The previous root cause was a `BroadcastChannel` signal that could not cross separate Tauri WebView windows. The product later consolidated Settings into the Chat window and expected the Chat surface to reload models locally after a Provider mutation.
+- The current regression means the local refresh guard is either no longer reached by the redesigned Provider save path, refreshes only the Provider store, or races/overwrites the models store. The next step is a red test at the actual Provider-save → Chat-model-state seam before selecting among those hypotheses.
+- `CLAUDE.md` already classifies stale Svelte state and duplicated async loads as recurring pitfalls. This fix must expose one explicit post-commit refresh path and cannot rely on a legacy reactive helper noticing another module's runes state.
+- The historical guard expected Provider mutations to notify `ChatView`, whose `refreshModelsAndProfiles()` reloads model options. Current code still has both a settings `BroadcastChannel` and the refresh function, so the critical question is whether the Provider save action still emits the notification after the recent component/store split.
+
+## Current data flow
+- `saveProviderEdit()` correctly waits for `createDesktopProvider()` / `updateDesktopProvider()` and only then calls `notifyProvidersChanged()`. This makes a pre-commit notification unlikely.
+- `notifyProvidersChanged()` dispatches `molibot:providers-changed` synchronously, but only `ModelsSection` listens to it. Chat does not consume the shared `modelsStore`; it owns local `modelOptions` and listens only to `molibot-settings-channel`.
+- `notifySettingsChanged()` constructs a new `BroadcastChannel`, posts once, and closes immediately. There is no same-document event, delivery acknowledgement, retry, or pending-refresh state. The exact Provider save can therefore succeed while Chat's local model list remains stale until its next full initialization.
+- `refreshModelsAndProfiles()` also drops a received refresh when Chat is currently `loading`; because the event is one-shot, that condition has no later replay. The fix should make the same-document signal deterministic and coalesce/replay refresh requests rather than silently return.
+
+## Root cause and adversarial review
+- **Confirmed hypotheses:** #1 and #2. The save path committed correctly, but freshness depended on an asynchronous cross-context primitive inside one WebView, and Chat discarded any notification received while connecting. No durable pending invalidation existed.
+- **Why the previous guard failed:** the July fix changed the window topology and assumed the existing `BroadcastChannel` would now refresh Chat “on its own,” but its tests only checked source structure/build behavior; none drove Provider save → same-window notification → Chat model reload. The UI redesign preserved the notifier, so the architectural hole survived until this exact recurrence.
+- **Root-cause class:** cache invalidation/event-delivery mismatch plus a lost-update async race.
+- **Machine guard:** Desktop UI test now requires the shared same-document event, Chat subscription, busy refresh replay, removal of the local BroadcastChannel dependency, and endpoint/generation ownership before applying async results. It failed before the fix and passes afterward.
+- Likely failure 1 — failed saves leak draft models: avoided because all Provider/Agent/Profile/model stores call the shared notifier only after their API mutation resolves successfully.
+- Likely failure 2 — several settings saves trigger overlapping model loads: refresh requests are coalesced behind `refreshingSettings` and one pending bit.
+- Likely failure 3 — a refresh received during first connection disappears: the pending bit is replayed after the owning connection settles.
+- Likely failure 4 — a stale response from an old service endpoint overwrites current Chat state: each refresh captures endpoint plus connection generation and validates both before mutation.
+- Likely failure 5 — this regresses again through another settings surface: the event lives in the shared session Store used by Provider, Agent, Profile, and model mutations, and the recurrence rule is now recorded in `CLAUDE.md`.
+- Because this is the second recorded occurrence, the machine guard and durable recurring-pitfall entry are mandatory and have both been added.
+
+---
+
 # Long-task runtime audit (2026-07-26)
 
 ## Baseline findings
@@ -2227,3 +2256,100 @@ Final conclusion: the voice path is operational inside Molibot and fails because
 - Likely failure point 4 — retry/success behavior changes while adding logs: routing, request form, retry count, and user-facing HTTP failure behavior remain unchanged; focused route tests and the production build are green.
 - Likely failure point 5 — the same class silently regresses: two real-call tests now guard required 403 fields, trace allowlisting, cookie exclusion, and credential redaction.
 - This is the first recorded recurrence of this specific root-cause class, so a machine guard is sufficient; no new long-term `AGENTS.md` pitfall is warranted.
+# Model-specific thinking levels (2026-07-26)
+
+## Starting evidence
+- Molibot currently narrows runtime thinking to `off | low | medium | high`, even though installed pi 0.82 supports `off | minimal | low | medium | high | xhigh | max` and stores capability maps per model.
+- Built-in routes already resolve pi catalog models and therefore already carry the correct `reasoning` and `thinkingLevelMap`; Molibot discards that precision in its own settings/UI type and only boolean-gates the requested level.
+- Custom Provider thinking configuration is Provider-wide, so sibling models cannot describe different supported levels.
+- Desktop Chat's selector is local state while the controller reads its draft store; changing the selector does not update that store before the next send, so the displayed value can differ from the request.
+- Existing tests cover draft setters and Provider mapping helpers separately, but do not assert selector → controller → request or model-specific clamping.
+
+## Chosen contract
+- Reuse pi 0.82's canonical levels and clamp semantics for every resolved `Model`.
+- Add a model-level custom override shaped like pi's `thinkingLevelMap`, including `null` for unsupported levels.
+- Treat Provider-wide settings as a legacy/default layer only; model override wins.
+- Synthesize `minimal/xhigh/max: null` for an explicitly reasoning-capable custom model whose detailed capability is unknown, producing the requested compatibility fallback of off + low/medium/high.
+
+## Implementation and adversarial review
+- pi 0.82 is installed locally. Its live catalog reports `openai-codex/gpt-5.6-sol` as `off, minimal, low, medium, high, xhigh, max`; the Desktop model-state regression compares Molibot output to pi's helper and also locks that exact result.
+- Built-in models do not need a Molibot model-id table: their `Model` objects already own the capability map. Custom models persist `supportsThinking` plus a partial seven-level map where `null` means unsupported and a string is the upstream wire value.
+- Provider-wide support and `reasoningEffortMap` are retained only as a migration/default seam. A model override wins in main routing, direct custom requests, model switching, and Subagent construction.
+- Root-cause class: capability narrowing plus UI/runtime state-layer mismatch. Molibot's four-value union discarded pi metadata, while Desktop changed a local selector without updating the draft store read by `ConversationController`.
+- Machine guards: real pi-catalog comparison; exact/clamped/all-disabled capability tests; sibling custom-model and direct-payload mapping tests; temporary SQLite restart round-trip; Project `max` persistence; and a Desktop UI source guard requiring selector callbacks and draft synchronization before send.
+- Likely failure 1 — an unsupported saved value reaches the provider: every resolved model is clamped through pi before Agent state, events, or payload construction.
+- Likely failure 2 — one custom model's map affects siblings: model config is passed explicitly at each custom routing seam and covered by a sibling-model regression.
+- Likely failure 3 — new fields silently disappear after restart: schema, sanitizer, SQLite columns/migration, Desktop API cloning, and fresh-store regression move together.
+- Likely failure 4 — UI shows a level the request did not use: the selector writes the session draft immediately and send snapshots the clamped value again.
+- Likely failure 5 — malformed configuration disables every choice: the UI refuses to turn off the last supported level, and the server degrades an all-null map to `off`.
+- Existing project rules already require settings round-trip tests and explicit Svelte reactive state, so this first occurrence does not justify another long-term `AGENTS.md` pitfall.
+
+---
+# Seven-level default without custom-model mapping (2026-07-26)
+
+## Corrected product contract
+- The seven canonical values are the default choice set, not a fallback of `off + low/medium/high`.
+- Custom Provider models must not expose model-level thinking support, level-selection, or wire-mapping configuration.
+- A built-in pi model may narrow the choices only when it carries an explicit model-level map. Without such a map, Molibot exposes all seven.
+- Molibot should not silently clamp or remap an unsupported custom-model selection; a real upstream validation error is acceptable and tells the user to choose another level.
+- `thinkingFormat` is orthogonal: it determines the provider payload shape and can remain, while the selected strength passes through unchanged.
+
+## pi behavior that affects the implementation
+- pi 0.82 does **not** expose seven levels for `reasoning: true` with no map; its own fallback is only `off / minimal / low / medium / high`, and it clamps `max` to `high`.
+- Therefore “no model-specific mapping, but default seven raw choices” requires one shared canonical identity capability map internally. This is not a user/provider mapping table: every level maps to its own name and no model ID is involved.
+- Built-in models with an explicit pi map remain authoritative. Every model without a map, including a catalog row whose boolean reasoning metadata is false, receives the shared seven-level identity capability; only a real map can narrow the choices.
+
+## Legacy Provider fields
+- Once custom strengths are seven-level pass-through, Provider `supportsThinking` and the old low/medium/high `reasoningEffortMap` have no legitimate runtime consumer.
+- Keeping them in Desktop/Web DTOs would leave a hidden configuration plane after removing the visible controls. They should be removed from active schema/API/load/save paths; existing SQLite columns may remain ignored for backward-compatible database opening.
+
+## Final adversarial review
+- **Root-cause class:** capability loss at a shared type boundary plus duplicated configuration ownership. Molibot's four-level union discarded pi's richer model metadata, while Provider/model mapping controls made users maintain guesses that should come from the built-in catalog or the upstream response.
+- Likely failure 1 — an unknown or boolean-nonreasoning built-in model shows only `off`: found during review and fixed by making “no explicit map” unconditionally mean the canonical seven; regressions lock both cases.
+- Likely failure 2 — custom `max` is silently reduced before the request: blocked by identity capability maps in main/Subagent routing and direct-payload tests for OpenAI, OpenRouter, and DeepSeek shapes.
+- Likely failure 3 — removed strength fields survive as a hidden API or persistence plane: blocked by deleting them from schema, sanitization, load/save, Desktop DTOs, route payloads, and both Provider editors; a Desktop source guard rejects their UI reintroduction.
+- Likely failure 4 — the visible Desktop choice and immediate request diverge: blocked by explicit selector callbacks plus a pre-send draft snapshot; the existing UI guard covers both seams.
+- Likely failure 5 — new pi models require Molibot model-ID edits: avoided by consulting each pi `Model.thinkingLevelMap`; the only Molibot fallback is one model-agnostic seven-value identity map.
+- Machine guards cover explicit three/five/seven pi maps, no-map reasoning models, unknown built-in models, custom seven-level exposure, raw pass-through, and invalid/non-reasoning safety. Existing durable project rules already cover shared-layer ownership and reactive-state correctness, so no new `AGENTS.md` pitfall is warranted.
+
+---
+
+# Issue #20 — AI Provider UI optimization (2026-07-27)
+
+## GitHub requirements
+- Current AI Provider configuration is difficult to understand and configure.
+- Reference information architecture: provider list on the left, selected provider and its model configuration on the right.
+- Fetching models should open a scannable available-model list; one model should have a focused edit interaction.
+- OAuth-capable providers need a clear connected/disconnected login presentation.
+- References guide layout and interaction only; Molibot's current color system must remain.
+
+## Initial scope boundary
+- Apply one coherent information architecture to Web and Desktop rather than polishing only one surface.
+- Preserve current provider, model, OAuth, verification, enablement, and default-model semantics.
+- Existing worktree changes include Provider UI and shared contracts from the immediately preceding thinking-level task; inspect and build on them without reverting or restyling unrelated code.
+
+## Reference retrieval note
+- The structured GitHub issue was fetched successfully after one transient connector failure.
+- The connector's attachment downloader accepts only private-user-images URLs, while this issue uses public user-attachments URLs; retrieve those through a bounded public download path.
+
+## Reference visual analysis
+- Molibot's current screen spends most of its space on global source/default controls and renders Provider rows separately from the selected Provider summary; configuration requires an additional edit flow and the model state is not visible at a glance.
+- The useful reference pattern is a true master/detail workspace: a searchable provider rail with status and add action; a selected-provider header, connection/endpoint section, and model inventory in the main pane.
+- Model discovery is a separate searchable modal grouped by family, with visible already-added state and compact capability markers. Molibot should reuse its existing discovered-model contract and tag vocabulary rather than copy unsupported grouping/pricing features.
+- Single-model edit belongs in a focused dialog/sheet with identity, display name, tags/capabilities, and save action. Molibot should not add speculative price, currency, grouping, or streaming fields absent from its current domain model.
+- OAuth is visually primary for login-capable Providers: clear provider identity plus connect/disconnect state. API-key/endpoint inputs can remain available where supported, but authentication status should not be buried in generic fields.
+- The reference is very wide; Molibot needs a responsive collapse at narrow Web widths and the 860×620 Desktop minimum, likely switching the provider rail into a compact full-width selector/list above the detail rather than preserving a cramped two-column split.
+
+## Implemented contract and adversarial review
+- Web and Desktop now use the same Provider-first hierarchy. Provider source/search/status/creation lives in the navigation rail; credentials or OAuth, default state, and model inventory live in the selected detail.
+- Normal model rows are read-oriented. Editing one model and discovering remote models are focused dialogs, so changing one ID no longer competes visually with every other model field.
+- Persistence and provider runtime contracts were intentionally left unchanged. Existing fine-grained Provider APIs, OAuth actions, testing, default repair, enablement, and fixed Web save footer remain the commit boundaries.
+- **Root-cause class:** information-hierarchy leakage. Provider identity, connection state, and model editing were technically present but spread across unrelated panels and always-editable rows, forcing users to reconstruct the active context.
+- Likely failure 1 — the reference layout becomes cramped inside Molibot's own navigation: guarded by real 1440/1280/820/390 browser measurements, wrapping model controls, a 960px master/detail collapse, and zero horizontal overflow at every checked width.
+- Likely failure 2 — editing the current default model's ID leaves a stale default pointer: Web and Desktop now rewrite the default model ID with the edited row; the focused UI guards cover the editor seam.
+- Likely failure 3 — model discovery adds duplicates or hides state: the dialog filters through the existing discovery contract, exposes search and an already-added state, and keeps the existing de-duplication path.
+- Likely failure 4 — OAuth becomes secondary to generic credential fields: Provider-specific connected/disconnected actions remain the primary authentication block in both products.
+- Likely failure 5 — a visual-only rewrite breaks stored settings: no schema or serializer changed; the 93 focused Provider/API tests verify the narrow persistence boundary, and both production builds pass.
+- This is a first occurrence of the information-hierarchy class. Structural UI regressions plus the new stable master/detail rule in `DESIGN.md` are sufficient; no new `AGENTS.md` pitfall is warranted.
+
+---

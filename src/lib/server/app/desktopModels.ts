@@ -28,7 +28,8 @@ export function buildDesktopModelState(
     options: buildModelOptions(settings, route).map((option) => ({
       key: option.key,
       label: option.label,
-      contextWindow: option.contextWindow
+      contextWindow: option.contextWindow,
+      thinkingLevels: option.thinkingLevels
     }))
   };
 }
@@ -37,7 +38,8 @@ function textOptions(settings: RuntimeSettings) {
   return buildModelOptions(settings, "text").map((option) => ({
     key: option.key,
     label: option.label,
-    contextWindow: option.contextWindow
+    contextWindow: option.contextWindow,
+    thinkingLevels: option.thinkingLevels
   }));
 }
 
@@ -92,7 +94,9 @@ export function buildDesktopModelRoutingPatch(
       mode: fallbackMode === "off" || fallbackMode === "any-enabled" ? fallbackMode : "same-provider",
       firstTokenTimeoutMs: Number(request.modelFallback?.firstTokenTimeoutMs)
     },
-    defaultThinkingLevel: thinking === "off" || thinking === "low" || thinking === "high" ? thinking : "medium",
+    defaultThinkingLevel: ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(thinking)
+      ? thinking
+      : "medium",
     compaction: {
       enabled: request.compaction?.enabled !== false,
       thresholdPercent: Number(request.compaction?.thresholdPercent),

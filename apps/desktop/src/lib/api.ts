@@ -2277,9 +2277,7 @@ export async function submitDesktopProvider(
     }],
     defaultModel: draft.model,
     path: draft.protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions",
-    supportsThinking: null,
-    thinkingFormat: null,
-    reasoningEffortMap: {}
+    thinkingFormat: null
   });
 }
 
@@ -2381,8 +2379,6 @@ export function providerItemToUpdateRequest(provider: DesktopProviderItem): Desk
     })),
     defaultModel: provider.defaultModel,
     path: provider.path,
-    supportsThinking: provider.supportsThinking,
-    thinkingFormat: provider.thinkingFormat,
-    reasoningEffortMap: { ...provider.reasoningEffortMap }
+    thinkingFormat: provider.thinkingFormat
   };
 }

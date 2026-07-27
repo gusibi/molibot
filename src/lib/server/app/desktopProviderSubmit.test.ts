@@ -14,9 +14,7 @@ function request(overrides: Partial<DesktopProviderCreateRequest> = {}): Desktop
     models: [{ id: "  gpt-4o  ", tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"], enabled: true, verification: {} }],
     defaultModel: "gpt-4o",
     path: "",
-    supportsThinking: null,
     thinkingFormat: null,
-    reasoningEffortMap: {},
     ...overrides
   };
 }

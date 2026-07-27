@@ -5,6 +5,40 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.12 Desktop Provider model live refresh (2026-07-27)
+
+- **Priority / Status**: P0 / Delivered.
+- **Problem**: adding and saving a model in Desktop AI Providers left Chat's local model-option cache stale until the app restarted.
+- **Decision**: successful settings mutations publish one shared same-document invalidation event. Chat refreshes its model/profile projection from the server and retains one pending refresh while connection or another refresh is active.
+- **Acceptance**:
+  - A newly saved Provider model appears in the existing Chat model selector without restart.
+  - Failed saves never expose draft models.
+  - Busy refreshes are coalesced and replayed, not silently dropped.
+  - A regression guards the Provider-save → same-window event → Chat refresh seam.
+
+## 3.11 AI Provider configuration workspace (2026-07-27)
+
+- **Priority / Status**: P1 / Delivered (GitHub Issue #20).
+- **Problem**: Provider connection, status, and model configuration were separated across summaries and dense inline forms, making it difficult to understand which Provider was active and what could be edited.
+- **Decision**: Web and Desktop share one Provider-first master/detail workflow. The provider rail owns search, source, status, and creation; the detail pane owns connection/authentication, defaults, and a scan-first model inventory. Model discovery and single-model editing use focused dialogs.
+- **Acceptance**:
+  - Provider enablement, availability, default, model count, credentials/OAuth state, and test actions remain visible without changing persistence or runtime semantics.
+  - Model discovery is searchable and distinguishes already-added models; normal inventory rows are read-oriented, with explicit edit/enable/remove actions.
+  - Web collapses safely at narrow widths with no horizontal overflow and retains the fixed save footer; Desktop remains usable at its supported minimum window.
+  - Chinese/English and light/dark themes use the existing semantic token system; the reference product supplies layout ideas only, not Molibot's colors.
+
+## 3.10 Model-specific thinking levels (2026-07-26)
+
+- **Priority / Status**: P1 / Delivered.
+- **Problem**: Molibot reduced all reasoning models to `low / medium / high`, although pi 0.82 carries a model-specific capability map with up to seven values. Provider-wide custom settings also asked users to maintain capability guesses that belong to neither the Provider nor Molibot.
+- **Decision**: built-in models use pi's explicit `reasoning` / `thinkingLevelMap` when available. Custom models have no thinking-capability or strength-mapping settings and expose the canonical seven values directly; the selected value is sent upstream unchanged.
+- **Fallback**: a built-in model without a recognizable pi map and every custom model expose `off / minimal / low / medium / high / xhigh / max`. Only an explicit pi map can narrow that set; an invalid all-disabled map resolves safely to `off`.
+- **Acceptance**:
+  - Chat, Project Chat, Project settings, AI Routing, channel commands, main Agent, direct custom protocol, and Subagent routes accept the seven canonical levels and show only the resolved model's supported subset.
+  - Model switching clamps an unsupported saved/session/default selection only for built-in models with an explicit pi map; custom-model values are never silently remapped.
+  - AI Provider settings contain no thinking-support or strength-mapping fields, and the Desktop/API contracts cannot reintroduce them accidentally.
+  - A regression compares the surfaced levels for a real pi 0.82 model with pi's metadata, and Desktop's selector-to-request path cannot retain a stale draft level.
+
 ## 3.09 Shared STT upstream diagnostics (2026-07-26)
 
 - **Priority / Status**: P0 / Delivered.
@@ -929,7 +963,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-117 | ACP settled-history progress display and ACP-first proxy routing | P1 | Delivered (2026-03-24) | ACP channel progress should preserve recent completed/failed history without persisting transient `pending` chatter, Telegram should keep a compact single edited progress message plus separate final summary, and active ACP sessions should proxy slash-style input to the remote agent unless the message is a reserved ACP control command |
 | P1-118 | Web chat visible thinking controls and traceability | P1 | Delivered (2026-03-24) | Web chat should expose a per-send thinking selector (`off` / `low` / `medium` / `high`), pass that choice into the runner request, and display enough request/payload/thinking trace information for operators to verify whether reasoning was requested and whether any thinking stream was actually returned |
 | P1-119 | Runner-level delta streaming parity for Web and Telegram | P1 | Delivered (2026-03-24) | The shared runner should consume assistant `message_update` deltas from the upgraded agent runtime so Web text chat can stream through the real runner path with a collapsible thinking panel above the answer, and Telegram can render incremental output with batched edits, no duplicate fallback sends, and observable thinking diagnostics instead of per-delta updates that trigger rate-limit stalls |
-| P1-120 | Telegram session status command and session-local thinking control | P1 | Delivered (2026-03-25) | Telegram should expose `/status` and `/state` for current session/runtime/model visibility, and `/thinking <default|off|low|medium|high>` must override thinking depth only for the active session so future new sessions still inherit the global default |
+| P1-120 | Telegram session status command and session-local thinking control | P1 | Delivered (2026-03-25; expanded 2026-07-26) | Telegram should expose `/status` and `/state` for current session/runtime/model visibility, and `/thinking <default|off|minimal|low|medium|high|xhigh|max>` must override thinking depth only for the active session so future new sessions still inherit the global default; built-ins with explicit pi maps clamp to supported levels, while custom models pass the selected canonical value through unchanged |
 | P1-121 | Shared public channel-command ownership | P1 | Delivered (2026-03-25) | Public text-channel commands and session-control behavior should be owned by agent core instead of being reimplemented in each channel runtime; Telegram/Feishu/QQ/Weixin must keep only channel-local parsing, attachment handling, and reply transport while shared command/session/model/thinking flows live in one reusable layer |
 | P1-122 | Skill-first prompt rules and slash skill alias resolution | P1 | Delivered (2026-03-25) | The runtime prompt should use generic skill-loading semantics instead of hardcoded skill names, treat slash skill forms as authoritative explicit invocation, and resolve them against both frontmatter `name` and runtime alias forms such as the skill directory name so the model receives the exact `skill_file` path rather than guessing |
 | P1-123 | Dedicated-tool-first execution and memory governance prompt policy | P1 | Delivered (2026-03-25) | Runtime/system prompt guidance should prefer dedicated runtime tools over bash when equivalent, require parallel execution for independent tool calls, and define practical memory governance (what to store, what not to store, stale-memory verification/update) so behavior stays predictable across long-lived sessions |

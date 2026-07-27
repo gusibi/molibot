@@ -31,7 +31,7 @@ import type { MomContext, RunResult, RunnerLike, ChannelInboundMessage } from "$
 import { resolvePlannedBashDisplayName, resolveToolDisplayName } from "$lib/server/agent/tools/toolDisplay.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
-import { resolveThinkingLevel } from "$lib/server/providers/customThinking.js";
+import { resolveModelThinkingLevel } from "$lib/server/providers/modelThinking.js";
 import { hasPiProviderAuth, streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
 import {
   DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
@@ -242,7 +242,7 @@ export class MomRunner implements RunnerLike {
       initialState: {
         systemPrompt: initialPrompt,
         model,
-        thinkingLevel: resolveThinkingLevel(settings, model.reasoning),
+        thinkingLevel: resolveModelThinkingLevel(model, settings.defaultThinkingLevel),
         tools: [],
       },
       sessionId: buildAgentSessionId(this.channel, this.chatId, this.sessionId, "text", resolveModelSelection(settings, "text")),
@@ -1545,10 +1545,7 @@ export class MomRunner implements RunnerLike {
 
         this.agent.state.model = selectedModel;
         const requestedThinkingLevel = ctx.thinkingLevelOverride ?? settings.defaultThinkingLevel;
-        const effectiveThinkingLevel = resolveThinkingLevel(
-          { defaultThinkingLevel: requestedThinkingLevel },
-          selectedModel.reasoning
-        );
+        const effectiveThinkingLevel = resolveModelThinkingLevel(selectedModel, requestedThinkingLevel);
         this.agent.state.thinkingLevel = effectiveThinkingLevel;
         this.activePayloadContext = {
           provider: selectedModel.provider,

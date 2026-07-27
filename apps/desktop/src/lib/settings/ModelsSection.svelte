@@ -1,5 +1,10 @@
 <script lang="ts">
-  import type { DesktopModelOption, DesktopModelRoutingSettings } from "@molibot/desktop-contract";
+  import {
+    DESKTOP_THINKING_LEVELS,
+    type DesktopModelOption,
+    type DesktopModelRoutingSettings,
+    type DesktopThinkingLevel
+  } from "@molibot/desktop-contract";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
@@ -23,6 +28,23 @@
   } from "../stores/models.svelte";
 
   let advancedOpen = $state(false);
+  const defaultThinkingOptions = $derived.by(() => {
+    const currentKey = modelsStore.modelStates.text?.currentKey ?? "";
+    const selected = modelsStore.routing?.textOptions.find((option) => option.key === currentKey);
+    return selected?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
+  });
+
+  function thinkingLabel(level: DesktopThinkingLevel): string {
+    return {
+      off: session.text.thinkingOff,
+      minimal: session.text.thinkingMinimal,
+      low: session.text.thinkingLow,
+      medium: session.text.thinkingMedium,
+      high: session.text.thinkingHigh,
+      xhigh: session.text.thinkingXHigh,
+      max: session.text.thinkingMax
+    }[level];
+  }
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== modelsStore.loadedEndpoint) {
@@ -117,7 +139,7 @@
           <SelectControl
             value={modelsStore.routing.defaultThinkingLevel}
             ariaLabel={session.text.modelDefaultThinking}
-            options={[{ value: "off", label: session.text.thinkingOff }, { value: "low", label: session.text.thinkingLow }, { value: "medium", label: session.text.thinkingMedium }, { value: "high", label: session.text.thinkingHigh }]}
+            options={defaultThinkingOptions.map((level) => ({ value: level, label: thinkingLabel(level) }))}
             onChange={(value) => updateAdvancedModelRouting((draft) => ({ ...draft, defaultThinkingLevel: value as DesktopModelRoutingSettings["defaultThinkingLevel"] }))}
           />
         </SettingRow>

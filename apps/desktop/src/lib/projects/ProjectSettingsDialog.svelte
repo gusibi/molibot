@@ -1,5 +1,9 @@
 <script lang="ts">
-  import type { DesktopModelOption, DesktopThinkingLevel } from "@molibot/desktop-contract";
+  import {
+    DESKTOP_THINKING_LEVELS,
+    type DesktopModelOption,
+    type DesktopThinkingLevel
+  } from "@molibot/desktop-contract";
   import type { DesktopProject } from "../api";
   import type { Translation } from "../i18n";
   import { saveProjectSettings, projectsStore } from "../stores/projects.svelte";
@@ -19,6 +23,21 @@
   let showReasoning = project.showReasoning ?? "";
   let runLogNotice = project.runLogNotice === undefined ? "" : project.runLogNotice ? "on" : "off";
   let saved = false;
+  $: thinkingLevelOptions = modelKey
+    ? modelOptions.find((model) => model.key === modelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS
+    : DESKTOP_THINKING_LEVELS;
+
+  function thinkingLabel(level: DesktopThinkingLevel): string {
+    return {
+      off: copy.thinkingOff,
+      minimal: copy.thinkingMinimal,
+      low: copy.thinkingLow,
+      medium: copy.thinkingMedium,
+      high: copy.thinkingHigh,
+      xhigh: copy.thinkingXHigh,
+      max: copy.thinkingMax
+    }[level];
+  }
 
   async function save(): Promise<void> {
     const ok = await saveProjectSettings(project.id, {
@@ -44,7 +63,7 @@
         <label class="settings-field"><span>{copy.projectPath}</span><input value={project.rootPath} readonly /></label>
         <label class="settings-field settings-field-wide"><span>{copy.projectInstructions}</span><textarea rows="5" bind:value={instructions} placeholder={copy.projectInstructionsHint}></textarea></label>
         <label class="settings-field"><span>{copy.projectDefaultModel}</span><select bind:value={modelKey}><option value="">{copy.projectFollowGlobal}</option>{#each modelOptions as model (model.key)}<option value={model.key}>{model.label}</option>{/each}</select></label>
-        <label class="settings-field"><span>{copy.projectDefaultThinking}</span><select bind:value={thinkingLevel}><option value="">{copy.projectFollowGlobal}</option><option value="off">{copy.thinkingOff}</option><option value="low">{copy.thinkingLow}</option><option value="medium">{copy.thinkingMedium}</option><option value="high">{copy.thinkingHigh}</option></select></label>
+        <label class="settings-field"><span>{copy.projectDefaultThinking}</span><select bind:value={thinkingLevel}><option value="">{copy.projectFollowGlobal}</option>{#each thinkingLevelOptions as level (level)}<option value={level}>{thinkingLabel(level)}</option>{/each}</select></label>
         <label class="settings-field"><span>{copy.projectSandbox}</span><select bind:value={sandboxEnabled}><option value="">{copy.projectFollowGlobal}</option><option value="on">{copy.profileSandboxOn}</option><option value="off">{copy.profileSandboxOff}</option></select><small>{copy.projectSandboxHint}</small></label>
         <label class="settings-field"><span>{copy.projectToolProgress}</span><select bind:value={toolProgress}><option value="">{copy.projectFollowGlobal}</option><option value="off">{copy.projectDisplayOff}</option><option value="new">{copy.projectDisplayNew}</option><option value="all">{copy.projectDisplayAll}</option><option value="verbose">{copy.projectDisplayVerbose}</option></select></label>
         <label class="settings-field"><span>{copy.projectReasoning}</span><select bind:value={showReasoning}><option value="">{copy.projectFollowGlobal}</option><option value="off">{copy.projectDisplayOff}</option><option value="on">{copy.projectDisplayOn}</option><option value="stream">{copy.projectDisplayStream}</option><option value="new">{copy.projectDisplayNew}</option></select></label>

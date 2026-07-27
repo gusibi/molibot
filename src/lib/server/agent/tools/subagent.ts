@@ -19,10 +19,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-  buildCustomProviderCompat,
-  buildCustomProviderThinkingLevelMap,
-  resolveCustomProviderReasoningSupport
+  buildCustomProviderCompat
 } from "$lib/server/providers/customThinking.js";
+import { DEFAULT_THINKING_LEVEL_MAP } from "$lib/server/providers/modelThinking.js";
 import {
   buildAnthropicBaseUrl,
   buildOpenAIBaseUrl,
@@ -449,8 +448,8 @@ async function buildModelFromRoute(
       baseUrl: protocol === "anthropic"
         ? buildAnthropicBaseUrl(customProvider.baseUrl, customProvider.path)
         : buildOpenAIBaseUrl(customProvider.baseUrl, customProvider.path),
-      reasoning: resolveCustomProviderReasoningSupport(customProvider),
-      thinkingLevelMap: buildCustomProviderThinkingLevelMap(customProvider),
+      reasoning: true,
+      thinkingLevelMap: DEFAULT_THINKING_LEVEL_MAP,
       input: configuredModel?.tags?.includes("vision") ? ["text", "image"] : ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: configuredModel?.contextWindow || 200000,

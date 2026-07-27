@@ -23,11 +23,11 @@ test("ProjectStore creates stable slugs, rejects duplicate roots, updates, and r
     assert.throws(() => store.create({ name: "Duplicate", rootPath: firstRoot }), /already registered/);
 
     assert.throws(() => store.update(first.id, { name: "Renamed", rootPath: secondRoot }), /already registered/);
-    const updated = store.update(first.id, { name: "Renamed", instructions: "Keep it small.", modelKey: "custom|p1|m1", thinkingLevel: "high", sandboxEnabled: false, toolProgress: "new", showReasoning: "off", runLogNotice: false });
+    const updated = store.update(first.id, { name: "Renamed", instructions: "Keep it small.", modelKey: "custom|p1|m1", thinkingLevel: "max", sandboxEnabled: false, toolProgress: "new", showReasoning: "off", runLogNotice: false });
     assert.equal(updated?.id, "my-wiki");
     assert.equal(updated?.name, "Renamed");
     assert.equal(store.get(first.id)?.modelKey, "custom|p1|m1");
-    assert.equal(store.get(first.id)?.thinkingLevel, "high");
+    assert.equal(store.get(first.id)?.thinkingLevel, "max");
     assert.equal(store.get(first.id)?.sandboxEnabled, false);
     assert.equal(store.get(first.id)?.toolProgress, "new");
     assert.equal(store.get(first.id)?.showReasoning, "off");

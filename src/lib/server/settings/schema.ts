@@ -1,7 +1,6 @@
 import type { KnownProvider } from "@earendil-works/pi-ai";
 import type {
   CustomProviderThinkingFormat,
-  ReasoningEffortMap,
   RuntimeThinkingLevel
 } from "$lib/server/settings/thinking.js";
 
@@ -71,9 +70,7 @@ export interface CustomProviderConfig {
   models: ProviderModelConfig[];
   defaultModel: string;
   path: string;
-  supportsThinking?: boolean;
   thinkingFormat?: CustomProviderThinkingFormat;
-  reasoningEffortMap?: ReasoningEffortMap;
 }
 
 export interface TelegramBotConfig {

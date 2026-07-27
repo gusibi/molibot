@@ -7,8 +7,6 @@ import {
   isKnownProvider,
   sanitizeAgentModelRouting,
   resolveCustomProviderThinkingFormat,
-  sanitizeOptionalThinkingSupport,
-  sanitizeReasoningEffortMap,
   sanitizeRuntimeThinkingLevel,
   type ProviderModelConfig,
   type ModelRole,
@@ -1084,12 +1082,10 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
       models,
       defaultModel,
       path: String(row.path ?? "").trim() || (protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions"),
-      supportsThinking: sanitizeOptionalThinkingSupport((row as { supportsThinking?: unknown }).supportsThinking),
       thinkingFormat: resolveCustomProviderThinkingFormat(
         (row as { thinkingFormat?: unknown }).thinkingFormat,
         { id, name, baseUrl }
-      ),
-      reasoningEffortMap: sanitizeReasoningEffortMap((row as { reasoningEffortMap?: unknown }).reasoningEffortMap)
+      )
     });
   }
   next.customProviders = customProviders;

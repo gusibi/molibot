@@ -36,9 +36,7 @@ function request(overrides: Partial<DesktopProviderUpdateRequest> = {}): Desktop
     ],
     defaultModel: "claude",
     path: "",
-    supportsThinking: true,
     thinkingFormat: "anthropic",
-    reasoningEffortMap: { low: "1024", high: "8192" },
     ...overrides
   };
 }
@@ -51,7 +49,6 @@ test("provider update preserves a saved key when no replacement is supplied", ()
   assert.equal(updated.path, "/v1/messages");
   assert.equal(updated.defaultModel, "claude");
   assert.equal(updated.models[0].contextWindow, 200000);
-  assert.deepEqual(updated.reasoningEffortMap, { low: "1024", high: "8192" });
 });
 
 test("provider update can replace or explicitly clear a key", () => {

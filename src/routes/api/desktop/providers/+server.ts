@@ -68,9 +68,7 @@ export const POST: RequestHandler = async ({ request }) => {
       models: Array.isArray(body.models) ? body.models : [],
       defaultModel: String(body.defaultModel ?? "").trim(),
       path: String(body.path ?? "").trim(),
-      supportsThinking: body.supportsThinking,
-      thinkingFormat: body.thinkingFormat,
-      reasoningEffortMap: body.reasoningEffortMap ?? {}
+      thinkingFormat: body.thinkingFormat
     });
     const { saved } = upsertCustomProvider(runtime, newProvider, {
       activateAsDefault: createPolicy.activateAsDefault,

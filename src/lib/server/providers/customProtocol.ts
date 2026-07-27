@@ -198,7 +198,7 @@ export async function callDirectCustomProvider(
     : settings.systemPrompt;
 
   if (protocol === "anthropic") {
-    const thinkingLevel = resolveThinkingLevel(settings, provider.supportsThinking === true);
+    const thinkingLevel = resolveThinkingLevel(settings);
     const requestBody = applyDirectReasoningParams(
       {
         model,
@@ -240,7 +240,7 @@ export async function callDirectCustomProvider(
     };
   }
 
-  const thinkingLevel = resolveThinkingLevel(settings, provider.supportsThinking === true);
+  const thinkingLevel = resolveThinkingLevel(settings);
   const requestBody = applyDirectReasoningParams(
     {
       model,

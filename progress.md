@@ -11,6 +11,30 @@
 
 ---
 
+# Provider model live refresh bug (2026-07-27)
+
+## Phase 1–2 — history, data flow, and red loop (complete)
+- Historical search found the exact prior symptom and guard: Provider mutations relied on a short-lived `BroadcastChannel` message to make Chat reload its local model options after Settings moved into the same window.
+- Current flow waits for the Provider save API before notifying, but the synchronous Provider DOM event is consumed only by `ModelsSection`; Chat still owns a separate local `modelOptions` array and only listens to the broadcast.
+- Added a focused Desktop UI regression requiring one shared same-window settings event plus queued replay when Chat is busy.
+- Red command: `node --test --test-name-pattern="saving a provider refreshes Chat model options" apps/desktop/src/chat-ui.test.mjs` fails deterministically because the shared same-window event contract is absent.
+
+## Phase 3 — shared live refresh (complete)
+- `notifySettingsChanged()` now emits a synchronous same-document event after a successful settings mutation. Chat listens to that shared event instead of relying on cross-context broadcast delivery inside the same WebView.
+- Chat coalesces refreshes: if initial connection or another settings refresh is active, it retains a pending flag and replays once the current load settles rather than dropping the one-shot invalidation.
+- The focused red command now passes.
+
+## Phase 4 — verification (in progress)
+- Desktop UI suite passes 86/86, including the new exact-symptom guard. Focused Provider/model/API tests pass 93/93. Desktop Svelte diagnostics report 0 errors/0 warnings and the production build passes with only existing Vite chunk/import warnings.
+- Adversarial review added endpoint + connection-generation ownership to the async refresh, preventing a stale response from a replaced service connection from overwriting current Chat state.
+- A fully isolated cold UI save → Chat walkthrough was prepared, but the managed approval reviewer disconnected while authorizing the required localhost ports. Per policy, the rejected action was not retried or bypassed.
+
+## Phase 5 — records and adversarial review (complete)
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, `readme.md`, and the recurring-pitfall rule in `CLAUDE.md`.
+- Final scoped whitespace check passes. The remaining external action is explicit approval for localhost cold-walk ports and deletion of `/tmp/molibot-model-refresh.2uq4mU`, which contains only this stopped test harness but may include a generated isolated environment file.
+
+---
+
 # Long-task runtime audit (2026-07-26)
 
 ### Phase 1: baseline discovery
@@ -1815,3 +1839,75 @@
 - At the user's request, replayed the same current voice through the newly saved `FunAudioLLM/SenseVoiceSmall` without persisting a route change: success in 473 ms with a 16-character transcript. Focused tests remained 12/12 green.
 - Final production build after the adversarial redaction tightening passes. Scoped whitespace/diff checks pass.
 - The planning checker remains a known false negative on this accumulated multi-task file (1/6 by its rigid historical-heading parser); the current isolated plan section has all four phases marked complete.
+# Model-specific thinking levels (2026-07-26)
+
+## Phase 1 — contract and baseline
+- **Status:** in_progress
+- Reloaded the runtime-review and file-planning skill instructions before task actions.
+- Read the full UI design contract and searched prior thinking/runtime changes and recurring pitfalls.
+- Confirmed the implementation target: model-specific pi-compatible capability maps, Provider fallback compatibility, and a regression for Desktop's stale thinking selection.
+- Preserved the existing user-owned dirty worktree; no source file has been overwritten.
+
+## Phase 2 — shared contract and persistence (complete)
+- Expanded the canonical runtime/shared types to all seven pi levels and centralized supported-level discovery/clamping on pi 0.82 helpers.
+- Added per-model `supportsThinking` and `thinkingLevelMap` to schema, sanitization, SQLite migration/load/save, Desktop credential-safe APIs, and model switching.
+- Kept Provider-level fields as legacy fallback and wired model overrides through normal routing, direct custom protocol requests, Runner, Subagent, channel command, and Project persistence paths.
+
+## Phase 3 — dynamic UI and request correctness (complete)
+- Web/Desktop Chat, Project Chat, Project defaults, and AI Routing now derive selector options from the active model rather than rendering a fixed three-strength menu.
+- Web and Desktop Provider editors configure supported levels per custom model; Desktop also exposes exact upstream wire mappings.
+- Fixed Desktop's selector → draft → immediate request gap by synchronizing the draft on change and immediately before send.
+
+## Phase 4 — verification and handoff (complete)
+- Focused shared/server suite: 132/132 passed. Desktop UI guards: 85/85 passed.
+- Desktop `svelte-check`: 0 errors, 0 warnings. Root and Desktop production builds passed (existing chunk/import warnings only; shell Node 22.15.1 is below the declared >=22.19 recommendation).
+- Temporary SQLite save → fresh store → load preserved a seven-level custom model map. A real pi 0.82 `gpt-5.6-sol` catalog test confirmed all seven levels.
+- Cold-started the built server and verified `/health` plus `/api/desktop/models?route=text`; the response exposed per-model subsets and the compatibility fallback.
+- Root-wide standalone TypeScript/Svelte diagnostics remain noisy from pre-existing workspace/dependency errors; narrowed diagnostics showed no new errors in the touched Web sections, while both production builds are green.
+- Completed the adversarial review in `findings.md`; existing durable project rules already cover the root-cause categories, so no `AGENTS.md` addition is needed.
+
+---
+# Seven-level default without custom-model mapping (2026-07-26)
+
+## Phase 1 — corrected contract
+- **Status:** complete
+- User rejected per-custom-model thinking configuration and the three-strength fallback.
+- New target is a smaller contract: custom models always offer seven raw strengths; only explicit built-in pi maps narrow the choices.
+- First focused run is red in exactly the three obsolete assertions from the superseded implementation; production code compilation reached the tests, so the next step is to replace those guards with the corrected contract.
+
+## Phase 2 — implementation and cleanup (complete)
+
+- Removed custom model and Provider strength capability/mapping fields from the active settings schema, sanitizers, save/load paths, Web/Desktop API contracts, stores, and Provider editors. Legacy SQLite columns remain ignored so existing databases still open without a destructive migration.
+- Added one shared seven-level identity map for custom models and every built-in model with no explicit pi map. Only explicit pi maps narrow the displayed levels; a boolean non-reasoning flag alone does not override the seven-level default.
+- Custom direct-provider requests now pass `minimal`, `xhigh`, and `max` through unchanged instead of silently mapping them into low/medium/high.
+- Web/Desktop Chat, Project Chat/defaults, AI Routing, shared channel commands, main Agent, and Subagent paths all consume the selected model's level options. Desktop selector changes are written into the request draft before immediate send.
+
+## Phase 3 — verification and adversarial review (complete)
+
+- Focused server/shared suite passes 131/131; Desktop UI guards pass 85/85; Desktop `svelte-check` reports 0 errors and 0 warnings.
+- Root and Desktop production builds pass. The only output is the existing dynamic-import/chunk-size warnings plus the local Node 22.15.1 versus declared >=22.19 warning.
+- A clean-data cold start passes `/health` and the first `/api/desktop/models?route=text` request; the default unmapped Anthropic model now returns all seven levels in the real API response. The isolated smoke directory was moved to Trash after stopping the exact process.
+- Adversarial review found and fixed one real gap: a configured built-in model absent from pi metadata initially fell back to `off`; it now exposes all seven and has a dedicated regression.
+- Required product records were corrected to remove the superseded custom-mapping/three-level description.
+
+---
+
+# Issue #20 — AI Provider UI optimization (2026-07-27)
+
+## Phase 1–2 — evidence and interaction contract (complete)
+- Retrieved the GitHub issue and five reference images, then compared them with the existing Web and Desktop Provider flows and the current design contract.
+- Added the stable Provider master/detail rule to `DESIGN.md` before applying the concept across both products.
+- Added structural regressions for provider navigation, scan-first model inventory, focused model editing/discovery, responsive collapse, and shared Desktop dialogs.
+
+## Phase 3 — Web and Desktop implementation (complete)
+- Web now keeps source/search/status in a provider rail and connection, authentication, defaults, and model inventory in the selected detail. Model edit and discovery use separate accessible dialogs.
+- Desktop mirrors that hierarchy in its existing settings shell, including visible model inventories for built-in and custom Providers, focused model editing, and a searchable discovery dialog.
+- Preserved existing OAuth, API-key/endpoint, test, default, enable/disable, add/remove, verification, and narrow save API semantics.
+
+## Phase 4–5 — verification and handoff (complete)
+- Web real-page cold walkthrough passed at 1440, 1280, 820, and 390 px with no horizontal overflow; the fixed save footer remained visible. Light and dark themes and the focused model editor were inspected in the browser.
+- UI guards pass 87/87; focused Provider/API regressions pass 93/93; Desktop Svelte diagnostics report 0 errors/0 warnings after the final default-model linkage fix.
+- Root and Desktop production builds pass with only existing Vite import/chunk warnings. Scoped `git diff --check` passes.
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `readme.md`, and recorded the adversarial review in `findings.md`.
+
+---

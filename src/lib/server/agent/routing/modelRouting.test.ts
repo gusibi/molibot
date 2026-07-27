@@ -136,7 +136,6 @@ test("custom model compat disables developer messages when the model role defini
     apiKey: "test-key",
     path: "/chat/completions",
     defaultModel: "system-only",
-    supportsThinking: true,
     models: [
       {
         id: "system-only",
@@ -159,7 +158,6 @@ test("custom model compat enables developer messages only when the model role de
     apiKey: "test-key",
     path: "/chat/completions",
     defaultModel: "developer-capable",
-    supportsThinking: true,
     models: [
       {
         id: "developer-capable",
@@ -182,7 +180,6 @@ test("pi serializes the top-level prompt with the role declared by each custom m
     apiKey: "test-key",
     path: "/chat/completions",
     defaultModel: "system-only",
-    supportsThinking: true,
     models: [
       {
         id: "system-only",

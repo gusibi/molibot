@@ -1,6 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { DesktopComposerSuggestion, DesktopModelOption, DesktopThinkingLevel } from "@molibot/desktop-contract";
+  import {
+    DESKTOP_THINKING_LEVELS,
+    type DesktopComposerSuggestion,
+    type DesktopModelOption,
+    type DesktopThinkingLevel
+  } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import { composerSuggestionsStore, ensureComposerSuggestions } from "./composerSuggestions.svelte";
   import ChatComposerShell from "./ChatComposerShell.svelte";
@@ -24,6 +29,7 @@
   export let activeModelTitle = "";
   export let changingModel = false;
   export let thinkingLevel: DesktopThinkingLevel = "medium";
+  export let thinkingLevelOptions: readonly DesktopThinkingLevel[] = DESKTOP_THINKING_LEVELS;
   export let thinkingLevelLabel = "";
   export let error = "";
   export let recordingError = "";
@@ -51,6 +57,7 @@
   export let onDismissRecordingError: () => void;
   export let onOpenSettings: () => void;
   export let onChangeModel: (event: Event) => void;
+  export let onChangeThinking: (event: Event) => void;
 
   $: modelPillLabel = activeModelLabel || copy.model;
   $: thinkingPillLabel = thinkingLevelLabel || copy.thinkingLevel;
@@ -93,6 +100,18 @@
     suggestionsDismissed = true;
     activeSuggestionIndex = 0;
     if (suggestion.submitOnSelect) void tick().then(onSend);
+  }
+
+  function thinkingOptionLabel(level: DesktopThinkingLevel): string {
+    return {
+      off: copy.thinkingOff,
+      minimal: copy.thinkingMinimal,
+      low: copy.thinkingLow,
+      medium: copy.thinkingMedium,
+      high: copy.thinkingHigh,
+      xhigh: copy.thinkingXHigh,
+      max: copy.thinkingMax
+    }[level];
   }
 </script>
 
@@ -180,11 +199,10 @@
       <label class="composer-pill">
         <i class="ph ph-brain" aria-hidden="true"></i>
         <span class="composer-pill-label">{thinkingPillLabel}</span>
-        <select bind:value={thinkingLevel} disabled={sending} aria-label={copy.thinkingLevel}>
-          <option value="off">{copy.thinkingOff}</option>
-          <option value="low">{copy.thinkingLow}</option>
-          <option value="medium">{copy.thinkingMedium}</option>
-          <option value="high">{copy.thinkingHigh}</option>
+        <select value={thinkingLevel} disabled={sending || thinkingLevelOptions.length <= 1} onchange={onChangeThinking} aria-label={copy.thinkingLevel}>
+          {#each thinkingLevelOptions as level (level)}
+            <option value={level}>{thinkingOptionLabel(level)}</option>
+          {/each}
         </select>
         <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
       </label>

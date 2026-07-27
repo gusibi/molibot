@@ -5,7 +5,26 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-27
+
+### App 新增 Provider 模型后立即刷新 Chat 下拉（已完成）
+- Provider、Agent、Profile 或模型设置保存成功后，通过同一 WebView 内的共享设置事件通知 Chat 刷新，不再依赖短生命周期 `BroadcastChannel` 或重启应用。
+- Chat 初始化中或已有刷新进行时不会丢掉通知，而是合并为一次待处理刷新，在当前请求结束后重新读取模型列表。
+- 保存失败不会发布刷新事件，未持久化的模型不会提前进入 Chat 下拉。
+
+### AI Provider 配置改为清晰的主从工作区（已完成，Issue #20）
+- Web 与 Desktop 统一为“服务商列表 → 当前服务商详情 → 模型清单”的 Provider-first 信息架构；列表直接展示启用、可用、默认和模型数量，连接信息、认证状态与模型管理集中在详情区。
+- 模型不再以整排可编辑输入框堆叠：清单优先展示 ID、上下文、能力与开关，单个模型通过聚焦弹窗编辑；拉取模型使用独立的可搜索发现弹窗，并标识已经添加的模型。
+- OAuth Provider 继续把登录/断开作为主要动作，自定义 API Key/Endpoint、测试、默认、启停、增删与保存语义保持不变。
+- Web 在中等和手机宽度自动把左侧列表折叠到详情上方，固定保存栏始终可达；中英文、明暗主题和 Desktop 最小窗口样式共用现有设计 token。
+
 ## 2026-07-26
+
+### 模型级真实思考档位（已完成）
+- 内置模型直接读取 pi 0.82 的逐模型 `thinkingLevelMap`，完整支持 `off / minimal / low / medium / high / xhigh / max`；例如 `openai-codex/gpt-5.6-sol` 会显示真实七档，而不是被压成固定三档。
+- 自定义模型不再配置“是否支持思考”或档位映射；它和没有 pi 映射的内置模型统一显示七档。自定义模型的选择值原样发给上游，不做静默降档，让不支持的值以明确的 Provider 错误反馈给用户。
+- AI Provider 设置移除了思考强度和三档映射，只保留与请求字段形状有关的兼容选项。Chat、Project Chat、Project 默认值、AI Routing、频道 `/thinking`、主 Agent 与 Subagent 共用同一套七档类型；有 pi 映射的内置模型只展示真实子集。
+- 修复 Desktop Chat 选择器只改显示状态、下一条请求仍读取旧 draft 档位的问题。
 
 ### 语音识别 403 具备可追踪且不泄密的诊断日志（已完成）
 - Telegram、飞书、微信、QQ、Web 与 App 共用的 STT 层会记录实际 provider/model、音频文件名/MIME/字节数、请求耗时，并把空响应正文明确显示为 `<empty>`，不再只剩一个无法追查的 403。

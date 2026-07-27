@@ -3,11 +3,9 @@ import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime
 import { isKnownProvider, type RuntimeSettings, type CustomProviderConfig } from "$lib/server/settings/index.js";
 import { resolveBuiltInProviderDefaultModel } from "$lib/server/settings/modelSwitch.js";
 import {
-  buildCustomProviderCompat,
-  buildCustomProviderThinkingLevelMap,
-  resolveCustomProviderReasoningSupport,
-  resolveThinkingLevel
+  buildCustomProviderCompat
 } from "$lib/server/providers/customThinking.js";
+import { DEFAULT_THINKING_LEVEL_MAP, withDefaultThinkingLevels } from "$lib/server/providers/modelThinking.js";
 import {
   buildAnthropicBaseUrl,
   buildOpenAIBaseUrl,
@@ -47,8 +45,8 @@ export function resolvePiModel(settings: RuntimeSettings): Model<any> {
     settings.piModelName
   );
   const found = models.find((m) => m.id === preferredModelId);
-  if (found) return found;
-  if (models[0]) return models[0];
+  if (found) return withDefaultThinkingLevels(found);
+  if (models[0]) return withDefaultThinkingLevels(models[0]);
   throw new Error(
     `No models available for provider '${settings.piModelProvider}'`,
   );
@@ -67,7 +65,7 @@ export function parseModelKey(key: string): { mode: "pi" | "custom"; provider: s
 export function resolvePiModelByKey(provider: string, modelId: string): Model<any> | null {
   const models = getModels(provider as any);
   const found = models.find((m) => m.id === modelId);
-  return found ?? null;
+  return found ? withDefaultThinkingLevels(found) : null;
 }
 
 export function isCustomProviderUsable(provider: CustomProviderConfig): boolean {
@@ -178,8 +176,8 @@ export function resolveCustomModel(selected: CustomProviderConfig, modelId: stri
     api: protocol === "anthropic" ? "anthropic-messages" : "openai-completions",
     provider: selected.id || "custom-provider",
     baseUrl: computedBaseUrl,
-    reasoning: resolveCustomProviderReasoningSupport(selected),
-    thinkingLevelMap: buildCustomProviderThinkingLevelMap(selected),
+    reasoning: true,
+    thinkingLevelMap: DEFAULT_THINKING_LEVEL_MAP,
     input: supportsVerifiedVision ? ["text", "image"] : ["text"],
     cost: {
       input: 0,

@@ -1,89 +1,39 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type {
   CustomProviderConfig,
-  RuntimeReasoningEffortLevel,
   RuntimeSettings,
   RuntimeThinkingLevel
 } from "$lib/server/settings/index.js";
 
-const DEEPSEEK_REASONING_EFFORT_MAP = {
-  low: "high",
-  medium: "high",
-  high: "high"
-} as const satisfies Partial<Record<RuntimeReasoningEffortLevel, string>>;
-
-function cleanReasoningEffortMap(
-  map: CustomProviderConfig["reasoningEffortMap"]
-): Partial<Record<RuntimeReasoningEffortLevel, string>> | undefined {
-  if (!map) return undefined;
-  const out: Partial<Record<RuntimeReasoningEffortLevel, string>> = {};
-  for (const level of ["low", "medium", "high"] as const) {
-    const value = String(map[level] ?? "").trim();
-    if (value) out[level] = value;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
-export function resolveCustomProviderReasoningSupport(
-  provider: Pick<CustomProviderConfig, "supportsThinking">
-): boolean {
-  return provider.supportsThinking === true;
-}
-
 export function resolveThinkingLevel(
-  settings: Pick<RuntimeSettings, "defaultThinkingLevel">,
-  supportsThinking: boolean
+  settings: Pick<RuntimeSettings, "defaultThinkingLevel">
 ): RuntimeThinkingLevel {
-  const requested = settings.defaultThinkingLevel ?? "off";
-  if (!supportsThinking) return "off";
-  return requested === "off" ? "off" : requested;
+  return settings.defaultThinkingLevel ?? "off";
 }
 
 export function buildCustomProviderCompat(
-  provider: Pick<CustomProviderConfig, "thinkingFormat" | "reasoningEffortMap">
+  provider: Pick<CustomProviderConfig, "thinkingFormat">
 ): Model<"openai-completions">["compat"] | undefined {
   if (provider.thinkingFormat === "anthropic") return undefined;
-  const configuredMap = cleanReasoningEffortMap(provider.reasoningEffortMap);
-  const reasoningEffortMap = provider.thinkingFormat === "deepseek"
-    ? { ...DEEPSEEK_REASONING_EFFORT_MAP, ...configuredMap }
-    : configuredMap;
-  if (!provider.thinkingFormat && !reasoningEffortMap) return undefined;
+  if (!provider.thinkingFormat) return undefined;
 
   return {
     thinkingFormat: provider.thinkingFormat
   };
 }
 
-export function buildCustomProviderThinkingLevelMap(
-  provider: Pick<CustomProviderConfig, "thinkingFormat" | "reasoningEffortMap">
-): Model<any>["thinkingLevelMap"] {
-  const configuredMap = cleanReasoningEffortMap(provider.reasoningEffortMap);
-  return provider.thinkingFormat === "deepseek"
-    ? { ...DEEPSEEK_REASONING_EFFORT_MAP, ...configuredMap }
-    : configuredMap;
-}
-
 export function applyDirectReasoningParams(
   payload: Record<string, unknown>,
-  provider: Pick<CustomProviderConfig, "supportsThinking" | "thinkingFormat" | "reasoningEffortMap">,
+  provider: Pick<CustomProviderConfig, "thinkingFormat">,
   thinkingLevel: RuntimeThinkingLevel
 ): Record<string, unknown> {
-  if (!resolveCustomProviderReasoningSupport(provider) || thinkingLevel === "off") {
-    return payload;
-  }
-
-  const configuredMap = cleanReasoningEffortMap(provider.reasoningEffortMap);
-  const reasoningEffortMap = provider.thinkingFormat === "deepseek"
-    ? { ...DEEPSEEK_REASONING_EFFORT_MAP, ...configuredMap }
-    : configuredMap;
-  const mappedEffort = reasoningEffortMap?.[thinkingLevel] ?? thinkingLevel;
+  if (thinkingLevel === "off") return payload;
 
   switch (provider.thinkingFormat) {
     case "deepseek": {
-      const deepseekEffort = reasoningEffortMap?.[thinkingLevel] ?? "high";
       return {
         ...payload,
-        reasoning_effort: deepseekEffort,
+        reasoning_effort: thinkingLevel,
         thinking: {
           type: "enabled"
         }
@@ -93,7 +43,7 @@ export function applyDirectReasoningParams(
       return {
         ...payload,
         reasoning: {
-          effort: mappedEffort
+          effort: thinkingLevel
         }
       };
     case "anthropic":
@@ -102,7 +52,7 @@ export function applyDirectReasoningParams(
         temperature: undefined,
         thinking: {
           type: "adaptive",
-          effort: mappedEffort
+          effort: thinkingLevel
         }
       };
     case "zai":
@@ -122,7 +72,7 @@ export function applyDirectReasoningParams(
     default:
       return {
         ...payload,
-        reasoning_effort: mappedEffort
+        reasoning_effort: thinkingLevel
       };
   }
 }

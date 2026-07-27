@@ -3,86 +3,44 @@ import test from "node:test";
 import {
   applyDirectReasoningParams,
   buildCustomProviderCompat,
-  buildCustomProviderThinkingLevelMap
+  resolveThinkingLevel
 } from "$lib/server/providers/customThinking.js";
 import { resolveCustomProviderThinkingFormat } from "$lib/server/settings/thinking.js";
 
-test("deepseek format uses upstream-compatible thinking parameters", () => {
-  const provider = {
-    supportsThinking: true,
-    thinkingFormat: "deepseek" as const,
-    reasoningEffortMap: {
-      low: "high",
-      medium: "high",
-      high: "high"
-    }
-  };
-
+test("custom provider strengths pass through unchanged without a mapping table", () => {
   assert.deepEqual(
-    applyDirectReasoningParams({ model: "deepseek-chat" }, provider, "low"),
-    {
-      model: "deepseek-chat",
-      reasoning_effort: "high",
-      thinking: { type: "enabled" }
-    }
+    applyDirectReasoningParams({ model: "reasoner" }, { thinkingFormat: "openai" }, "max"),
+    { model: "reasoner", reasoning_effort: "max" }
   );
-  assert.deepEqual(buildCustomProviderCompat(provider), {
+  assert.deepEqual(
+    applyDirectReasoningParams({ model: "reasoner" }, { thinkingFormat: "openrouter" }, "xhigh"),
+    { model: "reasoner", reasoning: { effort: "xhigh" } }
+  );
+  assert.deepEqual(
+    applyDirectReasoningParams({ model: "reasoner" }, { thinkingFormat: "deepseek" }, "minimal"),
+    { model: "reasoner", reasoning_effort: "minimal", thinking: { type: "enabled" } }
+  );
+});
+
+test("off adds no reasoning parameter", () => {
+  assert.deepEqual(
+    applyDirectReasoningParams({ model: "reasoner" }, { thinkingFormat: "openai" }, "off"),
+    { model: "reasoner" }
+  );
+});
+
+test("custom thinking selection is not clamped before the upstream request", () => {
+  assert.equal(resolveThinkingLevel({ defaultThinkingLevel: "max" }), "max");
+});
+
+test("custom compat keeps request shape without a strength mapping", () => {
+  assert.deepEqual(buildCustomProviderCompat({ thinkingFormat: "deepseek" }), {
     thinkingFormat: "deepseek"
   });
-  assert.deepEqual(buildCustomProviderThinkingLevelMap(provider), {
-    low: "high",
-    medium: "high",
-    high: "high"
-  });
+  assert.equal(buildCustomProviderCompat({ thinkingFormat: undefined }), undefined);
 });
 
-test("deepseek format defaults low and medium effort to high", () => {
-  const provider = {
-    supportsThinking: true,
-    thinkingFormat: "deepseek" as const,
-    reasoningEffortMap: undefined
-  };
-
-  assert.deepEqual(
-    applyDirectReasoningParams({ model: "deepseek-chat" }, provider, "medium"),
-    {
-      model: "deepseek-chat",
-      reasoning_effort: "high",
-      thinking: { type: "enabled" }
-    }
-  );
-  assert.deepEqual(buildCustomProviderCompat(provider), {
-    thinkingFormat: "deepseek"
-  });
-  assert.deepEqual(buildCustomProviderThinkingLevelMap(provider), {
-    low: "high",
-    medium: "high",
-    high: "high"
-  });
-});
-
-test("unset thinking format does not infer vendor-specific request params", () => {
-  const provider = {
-    id: "custom-deepseek",
-    name: "DeepSeek-compatible custom endpoint",
-    baseUrl: "https://api.deepseek.example",
-    supportsThinking: true,
-    thinkingFormat: undefined,
-    reasoningEffortMap: undefined
-  };
-
-  assert.deepEqual(
-    applyDirectReasoningParams({ model: "deepseek-chat" }, provider, "medium"),
-    {
-      model: "deepseek-chat",
-      reasoning_effort: "medium"
-    }
-  );
-  assert.equal(buildCustomProviderCompat(provider), undefined);
-  assert.equal(buildCustomProviderThinkingLevelMap(provider), undefined);
-});
-
-test("known provider presets map old thinking-type value to deepseek format", () => {
+test("known provider presets retain the old thinking-type format migration", () => {
   assert.equal(
     resolveCustomProviderThinkingFormat("thinking-type", {
       id: "custom-deepseek",
@@ -90,21 +48,5 @@ test("known provider presets map old thinking-type value to deepseek format", ()
       baseUrl: "https://api.deepseek.example"
     }),
     "deepseek"
-  );
-  assert.equal(
-    resolveCustomProviderThinkingFormat("", {
-      id: "custom-deepseek",
-      name: "DeepSeek",
-      baseUrl: "https://api.deepseek.example"
-    }),
-    "deepseek"
-  );
-  assert.equal(
-    resolveCustomProviderThinkingFormat("openai", {
-      id: "custom-deepseek",
-      name: "DeepSeek",
-      baseUrl: "https://api.deepseek.example"
-    }),
-    "openai"
   );
 });

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults";
 import type { RuntimeSettings } from "$lib/server/settings";
+import { getModelThinkingLevels } from "$lib/server/providers/modelThinking";
+import { getPiCatalogModels } from "$lib/server/providers/piRuntime";
 import {
   buildDesktopModelRoutingPatch,
   buildDesktopModelRoutingSettings,
@@ -9,6 +11,30 @@ import {
   desktopModelRoutes,
   sanitizeDesktopModelRoute
 } from "./desktopModels";
+
+test("desktop model state follows pi 0.82 three-, five-, and seven-level metadata", () => {
+  const cases = [
+    { provider: "deepseek", modelId: "deepseek-v4-flash", levels: ["off", "high", "max"] },
+    { provider: "openai", modelId: "gpt-5.5", levels: ["off", "low", "medium", "high", "xhigh"] },
+    { provider: "openai-codex", modelId: "gpt-5.6-sol", levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] }
+  ] as const;
+
+  for (const fixture of cases) {
+    const piModel = getPiCatalogModels(fixture.provider).find((model) => model.id === fixture.modelId);
+    assert.ok(piModel, `pi 0.82 should expose ${fixture.provider}/${fixture.modelId}`);
+    const settings: RuntimeSettings = {
+      ...defaultRuntimeSettings,
+      providerMode: "pi",
+      piModelProvider: fixture.provider,
+      piModelName: fixture.modelId
+    };
+    const option = buildDesktopModelState(settings).options.find(
+      (model) => model.key === `pi|${fixture.provider}|${fixture.modelId}`
+    );
+    assert.deepEqual(option?.thinkingLevels, getModelThinkingLevels(piModel));
+    assert.deepEqual(option?.thinkingLevels, fixture.levels);
+  }
+});
 
 test("desktop model state exposes labels and keys without provider credentials", () => {
   const settings: RuntimeSettings = {
@@ -36,6 +62,47 @@ test("desktop model state exposes labels and keys without provider credentials",
   assert.equal(state.options.some((option) => option.key === "custom|private-provider|private-model"), true);
   assert.equal(JSON.stringify(state).includes("must-not-leak"), false);
   assert.equal(JSON.stringify(state).includes("private.example"), false);
+  assert.deepEqual(
+    state.options.find((option) => option.key === "custom|private-provider|private-model")?.thinkingLevels,
+    ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+  );
+});
+
+test("a built-in model missing from pi metadata falls back to all seven levels", () => {
+  const settings: RuntimeSettings = {
+    ...defaultRuntimeSettings,
+    providerMode: "pi",
+    piModelProvider: "openai",
+    piModelName: "future-model",
+    customProviders: [{
+      id: "openai",
+      name: "OpenAI",
+      enabled: true,
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "",
+      path: "/chat/completions",
+      defaultModel: "future-model",
+      models: [{
+        id: "future-model",
+        enabled: true,
+        tags: ["text"],
+        supportedRoles: ["system", "user", "assistant", "tool"]
+      }]
+    }]
+  };
+
+  const option = buildDesktopModelState(settings).options.find(
+    (model) => model.key === "pi|openai|future-model"
+  );
+  assert.deepEqual(option?.thinkingLevels, [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ]);
 });
 
 test("sanitizeDesktopModelRoute accepts known routes and falls back to text", () => {

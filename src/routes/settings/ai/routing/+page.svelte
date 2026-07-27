@@ -9,13 +9,16 @@
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { locale } from "$lib/ui/i18n";
+  import {
+    DESKTOP_THINKING_LEVELS,
+    clampDesktopThinkingLevel,
+    type DesktopThinkingLevel
+  } from "$lib/shared/desktop";
 
   type ProviderMode = "pi" | "custom";
   type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
-  type ThinkingSupportMode = "auto" | "enabled" | "disabled";
   type ThinkingFormat = "auto" | "openai" | "openrouter" | "deepseek" | "zai" | "qwen" | "qwen-chat-template";
-  type ThinkingEffortLevel = "low" | "medium" | "high";
-  type DefaultThinkingLevel = "off" | "low" | "medium" | "high";
+  type DefaultThinkingLevel = DesktopThinkingLevel;
   type ModelCapabilityTag = "text" | "vision" | "audio_input" | "stt" | "tts" | "tool";
   type ModelFallbackMode = "off" | "same-provider" | "any-enabled";
   type ModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
@@ -26,8 +29,7 @@
   interface CustomProviderForm {
     id: string; name: string; enabled: boolean; baseUrl: string; apiKey: string;
     models: ProviderModelForm[]; defaultModel: string; path: string;
-    supportsThinking?: boolean; thinkingSupportMode: ThinkingSupportMode;
-    thinkingFormat: ThinkingFormat; reasoningEffortMap: Partial<Record<ThinkingEffortLevel, string>>;
+    thinkingFormat: ThinkingFormat;
   }
 
   interface AIForm {
@@ -46,7 +48,7 @@
   }
 
   interface MetaResponse { providers: Array<{ id: string; name: string }>; providerModels: Record<string, string[]>; capabilityTags: ModelCapabilityTag[]; }
-  interface ModelRouteOption { key: string; label: string; contextWindow?: number; }
+  interface ModelRouteOption { key: string; label: string; contextWindow?: number; thinkingLevels?: DefaultThinkingLevel[]; }
   interface ModelSwitchResponse { ok: boolean; error?: string; routes?: Record<"text" | "vision" | "stt" | "tts" | "subagent", { currentKey: string; options: ModelRouteOption[] }>; }
 
   const COPY = {
@@ -105,10 +107,13 @@
       firstTokenTimeoutHint: "流式模式下等待首个字符的最长时间，超时则切换到下一个模型；收到首字后不再计时。默认 60000（1 分钟），填 0 关闭。",
       defaultThinkingLabel: "默认推理力度",
       thinkingOff: "关闭",
+      thinkingMinimal: "极低 (Minimal)",
       thinkingLow: "低 (Low)",
       thinkingMedium: "中 (Medium)",
       thinkingHigh: "高 (High)",
-      thinkingHint: "仅在所选模型或自定义服务商明确支持 Thinking/Reasoning 时生效。",
+      thinkingXHigh: "极高 (XHigh)",
+      thinkingMax: "最大 (Max)",
+      thinkingHint: "内置模型按 pi 能力显示可用子集；自定义模型显示七档，并将所选值原样交给上游验证。",
       autoCompactionLabel: "自动上下文压缩",
       autoCompactionDesc: "当上下文紧张时，自动对较早的对话轮次进行摘要压缩。",
       compactionModelLabel: "压缩专用模型",
@@ -206,10 +211,13 @@
       firstTokenTimeoutHint: "Max time to wait for the first streamed token before switching to the next model; once the first token arrives the timer is cleared. Default 60000 (1 min), 0 disables.",
       defaultThinkingLabel: "Default thinking",
       thinkingOff: "Off",
+      thinkingMinimal: "Minimal",
       thinkingLow: "Low",
       thinkingMedium: "Medium",
       thinkingHigh: "High",
-      thinkingHint: "Applies only when the selected model or custom provider explicitly supports thinking.",
+      thinkingXHigh: "Extra high",
+      thinkingMax: "Max",
+      thinkingHint: "Built-ins follow pi's supported subset; custom models expose all seven values and let the upstream validate the selection.",
       autoCompactionLabel: "Automatic compaction",
       autoCompactionDesc: "Summarize older turns when context gets tight.",
       compactionModelLabel: "Compaction model",
@@ -291,6 +299,21 @@
   };
 
   $: copy = COPY[$locale] ?? COPY["en-US"];
+  $: textThinkingLevels = routeOptions.text.find((option) => option.key === form.modelRouting.textModelKey)?.thinkingLevels
+    ?? DESKTOP_THINKING_LEVELS;
+  $: effectiveDefaultThinkingLevel = clampDesktopThinkingLevel(form.defaultThinkingLevel, textThinkingLevels);
+
+  function defaultThinkingLabel(level: DefaultThinkingLevel): string {
+    return {
+      off: copy.thinkingOff,
+      minimal: copy.thinkingMinimal,
+      low: copy.thinkingLow,
+      medium: copy.thinkingMedium,
+      high: copy.thinkingHigh,
+      xhigh: copy.thinkingXHigh,
+      max: copy.thinkingMax
+    }[level];
+  }
 
   function onPiProviderChanged(): void {
     const models = providerModels[form.piModelProvider] ?? [];
@@ -487,9 +510,7 @@
           enabled: providers.some((p) => p.id === cp.id) ? cp.enabled === true : cp.enabled !== false,
           models: Array.isArray(cp.models) ? cp.models.map((m: any) => ({ id: String(m.id ?? m), tags: Array.isArray(m.tags) ? m.tags : ["text"], supportedRoles: Array.isArray(m.supportedRoles) ? m.supportedRoles : ["system", "user", "assistant", "tool"] })) : [],
           defaultModel: cp.defaultModel ?? "",
-          thinkingSupportMode: cp.supportsThinking === true ? "enabled" : cp.supportsThinking === false ? "disabled" : "auto",
           thinkingFormat: (cp.thinkingFormat as ThinkingFormat | undefined) ?? "auto",
-          reasoningEffortMap: cp.reasoningEffortMap && typeof cp.reasoningEffortMap === "object" ? cp.reasoningEffortMap : {},
         })),
         modelRouting: {
           textModelKey: s.modelRouting?.textModelKey ?? "", visionModelKey: s.modelRouting?.visionModelKey ?? "",
@@ -519,7 +540,7 @@
       ensureRoutingDefaults();
       const { customProviders: _providers, ...payload } = form;
       void _providers;
-      const res = await fetch("/api/settings/ai-routing", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res = await fetch("/api/settings/ai-routing", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, defaultThinkingLevel: effectiveDefaultThinkingLevel }) });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || copy.failedSave);
       message = copy.savedSuccess;
@@ -682,11 +703,10 @@
 
           <div class="routing-form-group">
             <Label for="rt-thinking">{copy.defaultThinkingLabel}</Label>
-            <NativeSelect id="rt-thinking" bind:value={form.defaultThinkingLevel}>
-              <NativeSelectOption value="off">{copy.thinkingOff}</NativeSelectOption>
-              <NativeSelectOption value="low">{copy.thinkingLow}</NativeSelectOption>
-              <NativeSelectOption value="medium">{copy.thinkingMedium}</NativeSelectOption>
-              <NativeSelectOption value="high">{copy.thinkingHigh}</NativeSelectOption>
+            <NativeSelect id="rt-thinking" value={effectiveDefaultThinkingLevel} onchange={(event) => (form.defaultThinkingLevel = event.currentTarget.value as DefaultThinkingLevel)}>
+              {#each textThinkingLevels as level (level)}
+                <NativeSelectOption value={level}>{defaultThinkingLabel(level)}</NativeSelectOption>
+              {/each}
             </NativeSelect>
             <p class="routing-form-hint">{copy.thinkingHint}</p>
           </div>

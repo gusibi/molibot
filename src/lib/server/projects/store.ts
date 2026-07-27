@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathCompareKey } from "$lib/server/agent/tools/path.js";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
+import { RUNTIME_THINKING_LEVELS, type RuntimeThinkingLevel } from "$lib/server/settings/thinking.js";
 
 export interface ProjectRecord {
   id: string;
@@ -11,7 +12,7 @@ export interface ProjectRecord {
   rootPath: string;
   instructions?: string;
   modelKey?: string;
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  thinkingLevel?: RuntimeThinkingLevel;
   sandboxEnabled?: boolean;
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
@@ -28,7 +29,7 @@ export interface CreateProjectInput {
   createDirectory?: boolean;
   instructions?: string;
   modelKey?: string;
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  thinkingLevel?: RuntimeThinkingLevel;
 }
 
 interface ProjectRow {
@@ -111,7 +112,9 @@ function rowToProject(row: ProjectRow): ProjectRecord {
     rootPath: row.root_path,
     instructions: row.instructions || undefined,
     modelKey: row.model_key || undefined,
-    thinkingLevel: (["off", "low", "medium", "high"] as const).includes(row.thinking_level as never) ? row.thinking_level as ProjectRecord["thinkingLevel"] : undefined,
+    thinkingLevel: RUNTIME_THINKING_LEVELS.includes(row.thinking_level as RuntimeThinkingLevel)
+      ? row.thinking_level as RuntimeThinkingLevel
+      : undefined,
     sandboxEnabled: row.sandbox_enabled === null ? undefined : row.sandbox_enabled === 1,
     toolProgress: (["off", "new", "all", "verbose"] as const).includes(row.tool_progress as never) ? row.tool_progress as ProjectRecord["toolProgress"] : undefined,
     showReasoning: (["off", "on", "stream", "new"] as const).includes(row.show_reasoning as never) ? row.show_reasoning as ProjectRecord["showReasoning"] : undefined,
@@ -297,7 +300,7 @@ export class ProjectStore {
     const toolProgress = patch.toolProgress === undefined ? existing.toolProgress : patch.toolProgress ?? undefined;
     const showReasoning = patch.showReasoning === undefined ? existing.showReasoning : patch.showReasoning ?? undefined;
     const runLogNotice = patch.runLogNotice === undefined ? existing.runLogNotice : patch.runLogNotice ?? undefined;
-    if (thinkingLevel && !["off", "low", "medium", "high"].includes(thinkingLevel)) throw new Error("Invalid Project thinking level.");
+    if (thinkingLevel && !RUNTIME_THINKING_LEVELS.includes(thinkingLevel)) throw new Error("Invalid Project thinking level.");
     if (toolProgress && !["off", "new", "all", "verbose"].includes(toolProgress)) throw new Error("Invalid Project tool progress setting.");
     if (showReasoning && !["off", "on", "stream", "new"].includes(showReasoning)) throw new Error("Invalid Project reasoning setting.");
     const db = this.openDb();

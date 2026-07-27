@@ -7,6 +7,13 @@
     isTextPreviewKind,
     type FilePreviewKind
   } from "$lib/shared/filePreview";
+  import {
+    DESKTOP_THINKING_LEVELS,
+    clampDesktopThinkingLevel,
+    type DesktopModelOption,
+    type DesktopModelState,
+    type DesktopThinkingLevel
+  } from "$lib/shared/desktop";
 
   interface RuntimeSettings {
     providerMode: "pi" | "custom";
@@ -80,7 +87,7 @@
     previewUrl?: string;
   }
 
-  type ThinkingLevel = "off" | "low" | "medium" | "high";
+  type ThinkingLevel = DesktopThinkingLevel;
 
   interface PromptSources {
     global: string[];
@@ -187,9 +194,12 @@
       currentThemeFile: "主题文件",
       thinkingMode: "思考档位",
       thinkingOff: "关闭",
+      thinkingMinimal: "极低",
       thinkingLow: "低",
       thinkingMedium: "中",
       thinkingHigh: "高",
+      thinkingXHigh: "极高",
+      thinkingMax: "最大",
       thinkingDetails: "思考与请求信息",
       requestTrace: "请求信息",
       thinkingProcess: "思考过程",
@@ -345,9 +355,12 @@
       currentThemeFile: "Theme file",
       thinkingMode: "Thinking",
       thinkingOff: "Off",
+      thinkingMinimal: "Minimal",
       thinkingLow: "Low",
       thinkingMedium: "Medium",
       thinkingHigh: "High",
+      thinkingXHigh: "Extra high",
+      thinkingMax: "Max",
       thinkingDetails: "Thinking Details",
       requestTrace: "Request Trace",
       thinkingProcess: "Thinking Process",
@@ -446,7 +459,7 @@
   let sessionSearch = "";
 
   let runtimeSettings: RuntimeSettings | null = null;
-  let modelOptions: Array<{ key: string; label: string }> = [];
+  let modelOptions: DesktopModelOption[] = [];
   let activeModelKey = "";
   let changingModel = false;
   let thinkingLevel: ThinkingLevel = "off";
@@ -508,17 +521,26 @@
 
   function thinkingLabel(level: ThinkingLevel): string {
     switch (level) {
+      case "minimal":
+        return t("thinkingMinimal");
       case "low":
         return t("thinkingLow");
       case "medium":
         return t("thinkingMedium");
       case "high":
         return t("thinkingHigh");
+      case "xhigh":
+        return t("thinkingXHigh");
+      case "max":
+        return t("thinkingMax");
       case "off":
       default:
         return t("thinkingOff");
     }
   }
+
+  $: thinkingLevelOptions = modelOptions.find((model) => model.key === activeModelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
+  $: clampedThinkingLevel = clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
 
   function resetStreamingState(): void {
     streamingAssistantText = "";
@@ -1188,38 +1210,11 @@
     } as unknown as RuntimeSettings;
   }
 
-  function buildModelOptions(settings: RuntimeSettings): Array<{ key: string; label: string }> {
-    const options: Array<{ key: string; label: string }> = [
-      {
-        key: `pi|${settings.piModelProvider}|${settings.piModelName}`,
-        label: `[PI] ${settings.piModelProvider} / ${settings.piModelName}`
-      }
-    ];
-
-    for (const provider of settings.customProviders.filter((p) => p.enabled)) {
-      for (const model of provider.models ?? []) {
-        const modelId = typeof model === "string" ? model : model.id;
-        if (!modelId) continue;
-        options.push({
-          key: `custom|${provider.id}|${modelId}`,
-          label: `[Custom] ${provider.name} / ${modelId}`
-        });
-      }
-    }
-    return options;
-  }
-
-  function computeActiveModelKey(settings: RuntimeSettings): string {
-    if (settings.providerMode === "custom") {
-      const enabledProviders = settings.customProviders.filter((p) => p.enabled);
-      const id = settings.defaultCustomProviderId || enabledProviders[0]?.id || "";
-      const provider = enabledProviders.find((p) => p.id === id) ?? enabledProviders[0];
-      const firstModel = provider?.models?.[0];
-      const firstModelId = typeof firstModel === "string" ? firstModel : firstModel?.id;
-      const model = provider?.defaultModel || firstModelId || "";
-      return id ? `custom|${id}|${model}` : `pi|${settings.piModelProvider}|${settings.piModelName}`;
-    }
-    return `pi|${settings.piModelProvider}|${settings.piModelName}`;
+  async function fetchModelState(): Promise<DesktopModelState> {
+    const response = await fetch("/api/desktop/models?route=text", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok || !payload?.ok) throw new Error(payload?.error || t("failedLoadSettings"));
+    return payload.model as DesktopModelState;
   }
 
   async function applyModelSelection(key: string): Promise<void> {
@@ -1237,8 +1232,9 @@
       }
       runtimeSettings = await fetchRuntimeSettings();
       applyWebProfilesFromSettings(runtimeSettings);
-      modelOptions = buildModelOptions(runtimeSettings);
-      activeModelKey = computeActiveModelKey(runtimeSettings);
+      const modelState = await fetchModelState();
+      modelOptions = modelState.options;
+      activeModelKey = modelState.currentKey;
       thinkingLevel = runtimeSettings.defaultThinkingLevel ?? thinkingLevel;
       status = "";
     } catch (error) {
@@ -1401,7 +1397,7 @@
         profileId: activeProfileId,
         conversationId: activeSessionId,
         message: text,
-        thinkingLevel
+        thinkingLevel: clampedThinkingLevel
       }),
       signal
     });
@@ -1483,7 +1479,7 @@
         form.append("profileId", activeProfileId);
         form.append("conversationId", activeSessionId);
         form.append("message", text);
-        form.append("thinkingLevel", thinkingLevel);
+        form.append("thinkingLevel", clampedThinkingLevel);
         for (const file of filesPayload) {
           form.append("files", file);
         }
@@ -1500,7 +1496,7 @@
             profileId: activeProfileId,
             conversationId: activeSessionId,
             message: text,
-            thinkingLevel
+            thinkingLevel: clampedThinkingLevel
           }),
           signal: requestController.signal
         });
@@ -1645,7 +1641,7 @@
       form.append("profileId", activeProfileId);
       form.append("conversationId", activeSessionId);
       form.append("message", "");
-      form.append("thinkingLevel", thinkingLevel);
+      form.append("thinkingLevel", clampedThinkingLevel);
       form.append("files", file);
 
       const response = await fetch("/api/chat", { method: "POST", body: form });
@@ -1816,10 +1812,11 @@
         activeProfileId = String(localStorage.getItem(LS_PROFILE) ?? "default") || "default";
         void loadVersionInfo();
 
-        runtimeSettings = await fetchRuntimeSettings();
+        const [nextSettings, modelState] = await Promise.all([fetchRuntimeSettings(), fetchModelState()]);
+        runtimeSettings = nextSettings;
         applyWebProfilesFromSettings(runtimeSettings);
-        modelOptions = buildModelOptions(runtimeSettings);
-        activeModelKey = computeActiveModelKey(runtimeSettings);
+        modelOptions = modelState.options;
+        activeModelKey = modelState.currentKey;
         thinkingLevel = runtimeSettings.defaultThinkingLevel ?? "off";
 
         await loadSessions();
@@ -2295,13 +2292,13 @@
               </select>
               <select
                 class="rounded-full border border-transparent bg-transparent px-2 py-1 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--muted)] focus:border-[var(--ring)]"
-                bind:value={thinkingLevel}
+                value={clampedThinkingLevel}
+                on:change={(event) => (thinkingLevel = (event.currentTarget as HTMLSelectElement).value as ThinkingLevel)}
                 aria-label={t("thinkingMode")}
               >
-                <option value="off">{t("thinkingMode")}: {t("thinkingOff")}</option>
-                <option value="low">{t("thinkingMode")}: {t("thinkingLow")}</option>
-                <option value="medium">{t("thinkingMode")}: {t("thinkingMedium")}</option>
-                <option value="high">{t("thinkingMode")}: {t("thinkingHigh")}</option>
+                {#each thinkingLevelOptions as level (level)}
+                  <option value={level}>{t("thinkingMode")}: {thinkingLabel(level)}</option>
+                {/each}
               </select>
             </div>
             <button

@@ -1208,7 +1208,7 @@ test("desktop provider management uses fine-grained methods without requesting a
   try {
     await updateDesktopProvider("http://127.0.0.1:3000", {
       id: "p1", name: "P1", enabled: true, protocol: "openai-compatible", baseUrl: "https://example.com",
-      models: [], defaultModel: "", path: "/v1/chat/completions", supportsThinking: null, thinkingFormat: null, reasoningEffortMap: {}
+      models: [], defaultModel: "", path: "/v1/chat/completions", thinkingFormat: null
     });
     await updateDesktopProviderGlobals("http://127.0.0.1:3000", {
       providerMode: "custom", piProvider: "anthropic", piModel: "claude", defaultCustomProviderId: "p1"
@@ -1306,7 +1306,7 @@ test("provider editor draft is detached from the credential-safe source item", (
   const source = {
     id: "p1", name: "Provider", enabled: true, isDefault: true, protocol: "openai-compatible" as const,
     baseUrl: "https://example.com", hasApiKey: true, modelCount: 1, defaultModel: "m1", path: "/v1/chat/completions",
-    supportsThinking: null, thinkingFormat: null, reasoningEffortMap: {},
+    thinkingFormat: null,
     models: [{ id: "m1", tags: ["text" as const], supportedRoles: ["system" as const], enabled: true, verification: {} }]
   };
   const draft = providerItemToUpdateRequest(source);

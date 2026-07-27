@@ -40,8 +40,6 @@ import {
 } from "$lib/server/settings/sanitize.js";
 import {
   resolveCustomProviderThinkingFormat,
-  sanitizeOptionalThinkingSupport,
-  sanitizeReasoningEffortMap,
   sanitizeRuntimeThinkingLevel
 } from "$lib/server/settings/thinking.js";
 import { ensureSqliteParentDir, readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
@@ -763,9 +761,7 @@ function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
       models,
       defaultModel,
       path: String(item.path ?? "").trim() || (protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions"),
-      supportsThinking: sanitizeOptionalThinkingSupport(item.supportsThinking),
-      thinkingFormat: resolveCustomProviderThinkingFormat(item.thinkingFormat, { id, name, baseUrl }),
-      reasoningEffortMap: sanitizeReasoningEffortMap(item.reasoningEffortMap)
+      thinkingFormat: resolveCustomProviderThinkingFormat(item.thinkingFormat, { id, name, baseUrl })
     });
   }
 
@@ -1696,13 +1692,11 @@ export class SettingsStore {
         models: modelsByProvider.get(row.id) ?? [],
         defaultModel: row.default_model,
         path: row.path,
-        supportsThinking: row.supports_thinking === null ? undefined : Boolean(row.supports_thinking),
         thinkingFormat: resolveCustomProviderThinkingFormat(row.thinking_format, {
           id: row.id,
           name: row.name || row.id,
           baseUrl: row.base_url
-        }),
-        reasoningEffortMap: sanitizeReasoningEffortMap(this.parseDynamicValue(row.reasoning_effort_map_json, {}))
+        })
       }));
 
       const webSearch = this.loadWebSearchSettings(db);
@@ -1861,8 +1855,8 @@ export class SettingsStore {
         db.exec("DELETE FROM settings_custom_providers");
         const insertProvider = db.prepare(`
           INSERT INTO settings_custom_providers
-            (id, name, enabled, base_url, api_key, protocol, default_model, path, supports_thinking, thinking_format, reasoning_effort_map_json, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, enabled, base_url, api_key, protocol, default_model, path, thinking_format, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const insertModel = db.prepare(`
           INSERT INTO settings_custom_provider_models
@@ -1879,9 +1873,7 @@ export class SettingsStore {
             provider.protocol ?? "openai-compatible",
             provider.defaultModel,
             provider.path,
-            provider.supportsThinking === undefined ? null : (provider.supportsThinking ? 1 : 0),
             provider.thinkingFormat ?? "",
-            JSON.stringify(provider.reasoningEffortMap ?? {}),
             now
           );
           const seenModelIds = new Set<string>();

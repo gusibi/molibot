@@ -539,6 +539,7 @@ export interface DesktopModelOption {
   key: string;
   label: string;
   contextWindow?: number;
+  thinkingLevels?: DesktopThinkingLevel[];
 }
 
 export interface DesktopModelState {
@@ -702,7 +703,35 @@ export interface DesktopSessionFilesResponse {
   files: DesktopSessionFile[];
 }
 
-export type DesktopThinkingLevel = "off" | "low" | "medium" | "high";
+export type DesktopThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export const DESKTOP_THINKING_LEVELS: readonly DesktopThinkingLevel[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max"
+];
+
+/** Mirrors pi's upward-first nearest-level clamp for UI state. */
+export function clampDesktopThinkingLevel(
+  requested: DesktopThinkingLevel,
+  available: readonly DesktopThinkingLevel[]
+): DesktopThinkingLevel {
+  if (available.includes(requested)) return requested;
+  const requestedIndex = DESKTOP_THINKING_LEVELS.indexOf(requested);
+  for (let index = requestedIndex + 1; index < DESKTOP_THINKING_LEVELS.length; index += 1) {
+    const candidate = DESKTOP_THINKING_LEVELS[index];
+    if (candidate && available.includes(candidate)) return candidate;
+  }
+  for (let index = requestedIndex - 1; index >= 0; index -= 1) {
+    const candidate = DESKTOP_THINKING_LEVELS[index];
+    if (candidate && available.includes(candidate)) return candidate;
+  }
+  return "off";
+}
 
 export type DesktopApprovalDecision =
   | "approve_once"
@@ -750,9 +779,7 @@ export interface DesktopProviderItem {
   modelCount: number;
   defaultModel: string;
   path: string;
-  supportsThinking: boolean | null;
   thinkingFormat: DesktopProviderThinkingFormat | null;
-  reasoningEffortMap: Partial<Record<"low" | "medium" | "high", string>>;
   models: DesktopProviderModel[];
 }
 
@@ -792,9 +819,7 @@ export interface DesktopProviderUpdateRequest {
   models: DesktopProviderModel[];
   defaultModel: string;
   path: string;
-  supportsThinking: boolean | null;
   thinkingFormat: DesktopProviderThinkingFormat | null;
-  reasoningEffortMap: Partial<Record<"low" | "medium" | "high", string>>;
 }
 
 export interface DesktopProviderGlobalsRequest {
