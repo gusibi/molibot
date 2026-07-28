@@ -61,6 +61,7 @@
     class:editing={isEditing}
     class="message-row"
     data-message-id={message.id}
+    data-navigation-id={message.role === "user" && message.id ? message.id : undefined}
   >
     {#if message.role === "user"}
       {#if displayContent}

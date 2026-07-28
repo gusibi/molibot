@@ -383,6 +383,8 @@ export interface DesktopHostBashWhitelistItem {
   approvalMode: "persistent" | "ephemeral" | "session";
   enabled: boolean;
   approvedAt: string;
+  /** Bot/project this grant covers. Absent on legacy install-wide grants. */
+  scope?: { kind: "bot" | "project"; label: string };
   permissions: {
     envAllowlist: number;
     filesystem: string;
@@ -749,12 +751,29 @@ export interface DesktopApprovalOption {
   style?: string;
 }
 
+/** Bot or project a "一直允许" grant would apply to. */
+export interface DesktopApprovalOwner {
+  kind: "bot" | "project";
+  id: string;
+  label: string;
+}
+
 export interface DesktopApprovalPrompt {
   requestId: string;
   command: string;
   reason?: string;
   displayName?: string;
+  owner?: DesktopApprovalOwner;
   options: DesktopApprovalOption[];
+}
+
+/** Outcome the server reports back when a pending approval is resolved. */
+export type DesktopApprovalOutcome = "executed" | "failed" | "rejected" | "approved" | "not_found";
+
+export interface DesktopApprovalResult {
+  response: string;
+  status?: DesktopApprovalOutcome;
+  error?: string;
 }
 
 export type DesktopProviderMode = "pi" | "custom";

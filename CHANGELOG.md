@@ -7,6 +7,27 @@
 ---
 ## 2026-07-28
 
+### Fixed: approving a Host Bash command ran it in the wrong directory, and the failure was invisible
+- **The click worked; the command did not.** Out-of-band approvals (`/api/chat` `_handleWebHostToolsCommand`, `baseRuntime`) executed the approved command with `store.getScratchDir(scopeId)` as its cwd, while the in-run path used the agent's real `ctx.cwd`. For a project conversation those are different directories, so `git push` on a project session died with `fatal: not a git repository` (exit 128). Both handlers now resolve cwd through the same `resolveSessionWorkingDir(project, scratch)` the runner uses.
+- **The failure reached nobody.** The server returned "Approved, but automatic execution failed: …" in a response body that `ConversationController.resolveApproval` discarded, and the failure branch neither rewrote the suspended tool result nor resumed the run — so the card vanished, the UI showed nothing, and the agent kept repeating that it was still waiting for approval. `resolveDesktopHostBash` now returns a structured `{ status, error }`, the controller surfaces `failed` / `not_found`, and a failed command is spliced back into the transcript as the tool's real result (with the cwd it ran in) so the agent can react.
+- **The resumed turn lost its project.** The approval auto-resume called `runner.run()` with no `project`, so the continuation ran project-less in the scratch dir under the global prompt. It now passes the project context and model. The four hand-built copies of that projection collapsed into one `buildRunnerProjectContext` helper.
+
+### Changed: "一直允许" is now scoped to a Bot or Project instead of the whole install
+- Persistent Host Bash grants were keyed `hbw-<toolId>` with no owner, so approving a tool in one bot silently allowed it in every other bot and project. Grants now carry an owner (`project:<id>` when the run has a project, otherwise `bot:<workspace>`) and are keyed `hbw-<owner>-<toolId>`; a grant covers every session of that one bot or project and nothing outside it.
+- The approval card names the scope it is granting ("本项目一直允许" / "本 Bot 一直允许") rather than the unqualified "永久允许此工具", which read as install-wide.
+- Existing unscoped grants are kept and still honoured for every owner — the lookup falls back to the legacy row — so no previously-approved tool stops working. The Host Bash settings list now shows each grant's scope, since one tool id can legitimately appear per bot/project.
+
+### Changed: the Desktop approval card reads as a permission dialog
+- Replaced the yellow warning banner and the row of identical blue buttons with a neutral elevated card: question, tool name, the command in a mono block, and a decision row that runs 拒绝 → 一直允许 → 本会话允许 → 仅此一次 left to right. Deny sits alone on the left; the safe default (仅此一次) is the filled button on the right where the eye lands last, so the destructive choice cannot be hit by muscle memory aimed at the default.
+- Number keys `1`–`4` pick an option, `⌘⏎` takes the default, `Esc` denies; digits typed into the composer are never stolen. Option order comes from the server, so the shortcut numbers and the rendered order cannot drift apart.
+- Verified with `svelte-check` (0 errors / 0 warnings), the production build, 97 Desktop UI guards (3 new), 224 desktop-chat tests, 14 Host Bash approval/store tests (4 new, covering owner-scoped grants and the legacy fallback), 24 project tests, and a browser check that all 16 new `.approval-*` rules load with every referenced token resolving (pitfall #4).
+
+### Added: Desktop Chat can navigate long conversations by user turn
+- Local Chat, Project Chat, and read-only external transcripts now share a quiet prompt navigator inside the message viewport. It appears from five stable user turns and packs its 2px markers into a centered stack with 10px gaps, while real transcript positions still keep the active state on the owning prompt throughout its assistant reply and drive jumps.
+- Pointer proximity produces continuous Dock-style marker magnification; hover and keyboard focus show a bounded bilingual plain-text preview with attachment labels and optional time. Assistant/tool/thinking/system entries never become navigation nodes.
+- A navigation jump explicitly pauses bottom following, scrolls and briefly highlights the target, and lets streaming continue without stealing history position. A committed new user turn restores following through the shared scroll owner without relying on DOM-shape heuristics or pending-message ID churn.
+- Verified with 9 focused behavior tests, 94 Desktop UI guards, Svelte diagnostics 0/0, the production Desktop build, dark/light and Chinese/English rendering, 860×620 plus a 600px effective Chat pane, keyboard tooltip bounds, history streaming delta 0, and settled new-send distance-to-bottom 0.
+
 ### Release: v2.6.9 / Desktop v0.6.6
 - Synchronized the root and Desktop package versions for the new release.
 - This release entry documents the version bump and publication flow; no user-facing feature changes were included.

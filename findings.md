@@ -2353,3 +2353,29 @@ Final conclusion: the voice path is operational inside Molibot and fails because
 - This is a first occurrence of the information-hierarchy class. Structural UI regressions plus the new stable master/detail rule in `DESIGN.md` are sufficient; no new `AGENTS.md` pitfall is warranted.
 
 ---
+# Chat conversation prompt navigator (2026-07-28)
+
+- The supplied specification defines one marker per stable-id user message, interval-based active-turn tracking, Gaussian Dock-style hover scaling, pure-text previews, real-position mapping with minimum spacing, and explicit browsing-history takeover from automatic bottom-follow.
+- Scope assumption: the requested App is the Desktop Svelte Chat implementation in `apps/desktop`; this will be validated against the actual viewport composition before editing.
+- The worktree already contains unrelated user changes in server bash/approval/project files; these must not be touched.
+- `ChatMessagesPane.svelte` is the shared transcript surface for both local Chat and Project Chat, so the navigator belongs there rather than in either page caller.
+- `stickToBottom.ts` already owns the follow-vs-history policy but exposes no imperative pause. A narrow custom event/helper can suspend following immediately before navigator jumps without creating a second scroll controller.
+- `ConversationTranscript.svelte` renders stable `data-message-id` anchors, and only needs an explicit user-role/navigation marker plus a transient target-highlight class.
+- The navigator must be a sibling overlay around the `.messages` scroller: placing it inside the scroll element would move it with transcript content. A wrapper can retain the existing flex contract while the internal `.messages` remains the bound scroll owner.
+- DESIGN requires the Desktop macOS semantic palette, 120–180ms control motion, `prefers-reduced-motion`, the shared 720px message column, and keyboard-visible focus. The navigator should use existing accent/card/label/separator tokens only.
+- Historical Chat search already scrolls and highlights transcript anchors; the navigator can reuse that DOM identity model but requires explicit follow suspension and interval-based active tracking.
+- Pure navigation helpers now cover stable user-only projection, Markdown-to-text previews with attachment labels, minimum-gap real-position layout, binary-search interval activation, and Gaussian Dock width.
+- The Svelte component observes transcript row sizes plus subtree mutations, throttles layout measurement to 140ms during streaming, and updates active state on scroll via animation frames.
+- A dedicated `molibot:suspend-scroll-follow` event keeps `stickToBottom` authoritative while allowing navigation clicks to pause following before smooth scrolling begins.
+- Real rendering exposed the project's documented Svelte pitfall in the first implementation: `markerWidth(item)` read focus/pointer state internally, so tooltip state updated but widths did not. Explicit helper arguments are required for reliable legacy-template tracking.
+- Follow-mode smoke proved history browsing is stable across assistant content growth. It also disproved DOM-shape detection as a reliable new-send signal; the robust contract is Session identity plus user-turn count after nested DOM commit.
+- Svelte action updates can run before the nested transcript component has committed its new rows. Bottom alignment therefore needs the same two-frame settlement pattern already used for transcript entrances, with cancellation when history navigation takes ownership.
+- A follow key based on latest message ID would also be semantically wrong: pending-to-persisted ID replacement during generation could yank a history reader back down. The stable send signal is a changed user-turn count, dispatched after nested DOM commit.
+- Adversarial review — likely failure 1, Svelte state does not animate: the first real fixture reproduced this; explicit focus/active/pointer helper arguments plus a structural guard now prevent the documented dependency-tracking class.
+- Likely failure 2, streaming steals history or new sends never return: the shared suspend/resume event boundary, user-turn-count contract, cancellable layout settlement, and live delta-0/distance-0 smoke cover both directions without Channel-specific gating.
+- Likely failure 3, marker geometry goes stale as content grows: `ResizeObserver` tracks the scroller and current rows, `MutationObserver` discovers replacement rows, and measurement is bounded to one 140ms timer plus an animation frame.
+- Likely failure 4, previews leak markup or overflow: projection strips Markdown/HTML, decodes common entities, truncates by Unicode code points, uses localized attachment labels, and clamps the tooltip inside the navigator; the 600px pane stayed overflow-free.
+- Likely failure 5, unstable DOM identity or unrelated entries create nodes: extraction and anchors require a non-empty stable user message id; assistant/tool/thinking/system entries are excluded and four pure regressions lock the rule.
+- Fix close-out: root classes are reactive dependency tracking and async layout/scroll ownership. Machine guards now cover both; the existing Svelte pitfall already describes the first class, while the second is localized to the shared `stickToBottom` contract and does not warrant another long-term AGENTS rule on its first occurrence.
+
+---

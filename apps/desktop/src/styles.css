@@ -1154,7 +1154,73 @@ a:focus-visible {
 .service-starting-spinner { position: relative; display: grid; place-items: center; width: 64px; height: 64px; margin: auto; }
 .service-starting-spinner img { width: 42px; height: 42px; border-radius: 50%; }
 .service-starting-spinner span { position: absolute; inset: 0; border: 2px solid var(--separator); border-top-color: var(--accent); border-radius: 50%; animation: activity-spin .9s linear infinite; }
-.messages { flex: 1; min-height: 0; overflow: auto; padding: 24px clamp(20px, 5vw, 56px); scroll-behavior: smooth; }
+.chat-messages-frame { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+.messages { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 24px clamp(20px, 5vw, 56px); scroll-behavior: smooth; }
+.chat-messages-frame.has-prompt-navigator .messages { padding-inline: clamp(56px, 6vw, 72px); }
+.conversation-prompt-navigator {
+  position: absolute;
+  z-index: 4;
+  top: 14px;
+  bottom: 14px;
+  left: max(8px, calc(50% - var(--message-content-width) / 2 - 58px));
+  width: 54px;
+  opacity: .38;
+  pointer-events: auto;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.chat-messages-frame:hover .conversation-prompt-navigator { opacity: .58; }
+.conversation-prompt-navigator:hover,
+.conversation-prompt-navigator:focus-within { opacity: 1; }
+.prompt-navigation-marker {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  width: 54px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+.prompt-navigation-line {
+  display: block;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--label-tertiary);
+  transition: width var(--duration-fast) var(--ease-standard), height var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
+}
+.prompt-navigation-marker.active .prompt-navigation-line { height: 3px; background: var(--accent); opacity: 1; }
+.prompt-navigation-marker:focus-visible { outline: none; }
+.prompt-navigation-marker:focus-visible .prompt-navigation-line { box-shadow: 0 0 0 2px var(--header-bg), 0 0 0 4px var(--accent); }
+.prompt-navigation-preview {
+  position: absolute;
+  left: 58px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 110px));
+  min-height: 32px;
+  padding: 7px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--card-bg);
+  color: var(--label-secondary);
+  box-shadow: var(--popover-shadow);
+  font-size: 12px;
+  line-height: 17px;
+  pointer-events: none;
+  transform: translateY(-50%);
+  animation: prompt-navigation-preview-in var(--duration-fast) var(--ease-standard) both;
+}
+.prompt-navigation-preview strong { flex: none; color: var(--label-primary); font-weight: 600; }
+.prompt-navigation-preview > span:last-of-type { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.prompt-navigation-preview time { flex: none; color: var(--label-tertiary); font-variant-numeric: tabular-nums; }
+@keyframes prompt-navigation-preview-in { from { opacity: 0; transform: translate(-4px, -50%); } }
+.message-row.navigation-target .message-bubble { animation: prompt-navigation-target 1s var(--ease-standard); }
+@keyframes prompt-navigation-target { 0%, 45% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent); } 100% { box-shadow: 0 0 0 3px transparent; } }
 .conversation-empty { max-width: 440px; margin: 16vh auto 0; color: var(--label-secondary); text-align: center; animation: conversation-empty-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .conversation-empty .empty-icon { width: 64px; height: 64px; }
 .conversation-empty h2 { margin: 20px 0 10px; color: var(--label-primary); font-size: 22px; font-weight: 600; letter-spacing: -0.04em; }
@@ -1382,15 +1448,19 @@ a:focus-visible {
 .markdown-body hr { height: 1px; margin: 14px 0; border: 0; background: var(--separator); }
 .markdown-body img { display: block; max-width: 100%; height: auto; border-radius: var(--rounded-md); }
 .streaming-message .message-bubble:empty::after { content: "…"; }
+/* Host Bash approval prompt. A neutral elevated card, not a warning banner —
+   the alarm colour was carrying meaning the buttons already carry, and it made
+   every routine approval look like an incident. */
 .approval-card {
-  max-width: min(86%, 560px);
+  width: min(100%, 720px);
   margin: 0 auto 20px;
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--separator);
   border-radius: var(--rounded-md);
-  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  background: var(--card-bg);
+  box-shadow: var(--soft-shadow);
   font-size: 13px;
   /* Rare, high-attention moment: enters with the modal's spatial language. */
   transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-spring);
@@ -1398,15 +1468,50 @@ a:focus-visible {
 @starting-style {
   .approval-card { opacity: 0; transform: translateY(8px) scale(.985); }
 }
-.approval-title { font-size: 14px; }
-.approval-field { display: grid; gap: 4px; }
-.approval-field > span { color: var(--label-secondary); font-size: 11px; font-weight: 600; }
-.approval-field code { padding: 7px 10px; border-radius: var(--rounded-sm); background: var(--code-bg); color: var(--code-text); font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; white-space: pre-wrap; }
-.approval-field p { margin: 0; line-height: 1.45; }
-.approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
-.approval-actions button { padding: 6px 12px; border: 0; border-radius: var(--rounded-sm); background: var(--accent); color: white; font-size: 12px; font-weight: 600; cursor: pointer; }
-.approval-actions button.danger-action { background: var(--danger); }
-.approval-actions button:disabled { cursor: default; opacity: .55; }
+.approval-head { display: grid; gap: 4px; }
+.approval-title { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.approval-subtitle { color: var(--label-secondary); font-size: 13px; }
+.approval-command {
+  display: block;
+  padding: 10px 12px;
+  border-radius: var(--rounded-sm);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.approval-reason { margin: 0; color: var(--label-secondary); font-size: 12px; line-height: 1.5; }
+.approval-reason-label { margin-right: 6px; color: var(--label-tertiary); font-weight: 600; }
+/* Deny sits alone on the left, the graduated allow options on the right, so the
+   destructive choice can never be hit by muscle memory aimed at the default. */
+.approval-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.approval-allow-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.approval-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: var(--fill);
+  color: var(--label-primary);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-instant) var(--ease-standard), opacity var(--duration-instant) var(--ease-standard);
+}
+.approval-action:hover:not(:disabled) { background: var(--fill-hover); }
+.approval-action-deny { background: transparent; color: var(--label-secondary); }
+.approval-action-deny:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.approval-action-default { background: var(--gray-1000); color: var(--panel-bg); }
+.approval-action-default:hover:not(:disabled) { background: var(--gray-1000); opacity: .86; }
+.approval-key { color: currentColor; font-size: 12px; opacity: .55; }
+.approval-action:disabled { cursor: default; opacity: .45; }
 @keyframes activity-spin { to { transform: rotate(360deg); } }
 .run-activity { width: min(100%, 620px); overflow: hidden; border: 0; background: transparent; color: var(--label-primary); }
 .run-activity-head { display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 2px 0; cursor: pointer; list-style: none; color: var(--label-tertiary); font-size: 12px; font-weight: 500; }
@@ -3151,7 +3256,7 @@ select.provider-input { padding-right: 6px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
-  .recording-indicator, .run-activity .spin, .transcript-media-loading .ph, .service-starting-spinner span, .message-status-pulse, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .row-menu { animation: none !important; }
+  .recording-indicator, .run-activity .spin, .transcript-media-loading .ph, .service-starting-spinner span, .message-status-pulse, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .row-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble { animation: none !important; }
   .agent-studio-spinner { animation: none !important; }
   .sandbox-preset-card:hover { transform: none; }
   .modal-card, .entity-editor, .provider-editor, .memory-detail-form, .memory-trace-drawer { transform: none !important; animation-duration: 150ms !important; animation-timing-function: linear !important; }

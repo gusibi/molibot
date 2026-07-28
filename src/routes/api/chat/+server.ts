@@ -42,7 +42,12 @@ import {
 import { getHostBashStore } from "$lib/server/hostBash";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n";
 import { saveWebResponseAttachment } from "$lib/server/web/attachments";
-import { resolveProjectContext } from "$lib/server/projects/context";
+import {
+  buildRunnerProjectContext,
+  getConversationProject,
+  resolveProjectContext
+} from "$lib/server/projects/context";
+import { resolveSessionWorkingDir } from "$lib/server/agent/core/runner";
 import { getProjectStore } from "$lib/server/projects/store";
 import { WEB_COMMAND_DEFINITIONS } from "$lib/server/app/composerSuggestions";
 
@@ -70,6 +75,15 @@ interface ParsedWebChatRequest {
 interface WebCommandResult {
   ok: true;
   response: string;
+  /**
+   * Outcome of an approval resolution, so a caller with a UI (Desktop's
+   * approval card) can surface a failed host command instead of silently
+   * dropping `response` and looking like the click did nothing.
+   */
+  approval?: {
+    status: "executed" | "failed" | "rejected" | "approved" | "not_found";
+    error?: string;
+  };
 }
 
 function webCommandText(english: string, chinese: string): string {
@@ -207,7 +221,8 @@ export async function _handleWebHostToolsCommand(
       ok: true,
       response: rejected
         ? `Rejected Host Bash approval ${rejected.id} (${rejected.displayName}).`
-        : "No matching pending Host Bash approval found."
+        : "No matching pending Host Bash approval found.",
+      approval: { status: rejected ? "rejected" : "not_found" }
     };
   }
 
@@ -230,7 +245,11 @@ export async function _handleWebHostToolsCommand(
     sessionId
   });
   if (!approved) {
-    return { ok: true, response: "No matching pending Host Bash approval found." };
+    return {
+      ok: true,
+      response: "No matching pending Host Bash approval found.",
+      approval: { status: "not_found" }
+    };
   }
   if (subcommand === "approve-session") {
     store.setSessionHostApprovalMode(scopeId, sessionId, "session");
@@ -261,18 +280,23 @@ export async function _handleWebHostToolsCommand(
   }
 
   if (approved.record.pendingAction) {
-    try {
-      const executed = await executeHostBashApproval({
-        record: approved.record,
-        approvedTool: approved.approved,
-        cwd: store.getScratchDir(scopeId)
-      });
-      hostBashStore.markExecution(approved.record.id, "executed");
-      lines.push("", "Approved and executed immediately.");
+    // The approved command must run where the agent's own turn was running: for
+    // a project conversation that is the project root, not the chat scratch dir.
+    // Getting this wrong made `git push` fail with "not a git repository" while
+    // the UI showed nothing at all.
+    const project = getConversationProject(getRuntime().sessions, sessionId);
+    const scratchDir = store.getScratchDir(scopeId);
+    const cwd = resolveSessionWorkingDir(buildRunnerProjectContext(project, scratchDir), scratchDir);
 
+    /**
+     * Splice the real command output back into the suspended tool result and
+     * resume the run. Runs for failures too — an agent told nothing at all just
+     * repeats "still waiting for your approval" forever.
+     */
+    const resumeWithToolResult = (rendered: string): void => {
       try {
         const messages = store.loadContext(scopeId, sessionId);
-        const rewritten = rewriteApprovalToolResultInContext(messages, approved.record.command, executed.rendered);
+        const rewritten = rewriteApprovalToolResultInContext(messages, approved.record.command, rendered);
 
         if (rewritten) {
           store.saveContext(scopeId, messages, sessionId);
@@ -291,6 +315,10 @@ export async function _handleWebHostToolsCommand(
                 channel: "web",
                 workspaceDir: store.getWorkspaceDir(),
                 chatDir: store.getChatDir(scopeId),
+                // Without this the resumed turn loses the project entirely and
+                // continues in the scratch dir under the global system prompt.
+                project: buildRunnerProjectContext(project, scratchDir),
+                modelKeyOverride: project?.modelKey,
                 message: {
                   chatId: scopeId,
                   workspaceId,
@@ -353,14 +381,30 @@ export async function _handleWebHostToolsCommand(
           error: error instanceof Error ? error.message : String(error)
         });
       }
+    };
+
+    try {
+      const executed = await executeHostBashApproval({
+        record: approved.record,
+        approvedTool: approved.approved,
+        cwd
+      });
+      hostBashStore.markExecution(approved.record.id, "executed");
+      lines.push("", "Approved and executed immediately.");
+      resumeWithToolResult(executed.rendered);
+      return { ok: true, response: lines.join("\n"), approval: { status: "executed" } };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       hostBashStore.markExecution(approved.record.id, "failed", message);
       lines.push("", `${subcommand === "approve-session" ? "Approved for this session" : "Approved"}, but automatic execution failed: ${message}`);
+      // Hand the failure to the agent as the tool's real result so it can react
+      // (retry differently, or tell the user) instead of staying suspended.
+      resumeWithToolResult(`Command failed after approval (cwd: ${cwd}):\n\n${message}`);
+      return { ok: true, response: lines.join("\n"), approval: { status: "failed", error: message } };
     }
   }
 
-  return { ok: true, response: lines.join("\n") };
+  return { ok: true, response: lines.join("\n"), approval: { status: "approved" } };
 }
 
 async function tryHandleWebCommand(
@@ -691,17 +735,7 @@ export const POST: RequestHandler = async ({ request }) => {
     chatDir: store.getChatDir(runnerChatId),
     thinkingLevelOverride: parsed.thinkingLevel,
     modelKeyOverride: parsed.modelKey ?? project?.modelKey,
-    project: project ? {
-      id: project.id,
-      name: project.name,
-      rootPath: project.rootPath,
-      instructions: project.instructions,
-      sandboxEnabled: project.sandboxEnabled,
-      toolProgress: project.toolProgress,
-      showReasoning: project.showReasoning,
-      runLogNotice: project.runLogNotice,
-      scratchDir: store.getScratchDir(runnerChatId)
-    } : undefined,
+    project: buildRunnerProjectContext(project, store.getScratchDir(runnerChatId)),
     message: {
       chatId: runnerChatId,
       workspaceId,

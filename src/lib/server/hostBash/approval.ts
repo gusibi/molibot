@@ -5,6 +5,7 @@ import type {
   HostBashApprovalRecord,
   HostBashFilesystemAccess,
   HostBashNetworkAccess,
+  HostBashOwner,
   HostBashPendingAction,
   HostBashPermissions
 } from "$lib/server/hostBash/types.js";
@@ -65,6 +66,51 @@ function sanitizeNetwork(input: unknown): HostBashNetworkAccess {
   const value = sanitizeString(input);
   if (value === "none" || value === "loopback" || value === "internet") return value;
   return defaultHostBashPermissions.network;
+}
+
+/**
+ * Owner a persistent grant is scoped to. A project conversation grants across
+ * that project; anything else grants across the bot workspace that requested
+ * it. Never falls back to a global grant — that was the old behaviour and it
+ * silently shared host access between unrelated bots.
+ */
+export function resolveHostBashOwner(input: {
+  projectId?: string | null;
+  projectName?: string | null;
+  botId?: string | null;
+}): HostBashOwner {
+  const projectId = sanitizeString(input.projectId);
+  if (projectId) {
+    return {
+      kind: "project",
+      id: projectId,
+      key: `project:${projectId}`,
+      label: sanitizeString(input.projectName) || projectId
+    };
+  }
+  const botId = sanitizeString(input.botId) || "unknown";
+  return { kind: "bot", id: botId, key: `bot:${botId}`, label: botId };
+}
+
+export function sanitizeHostBashOwner(input: unknown): HostBashOwner | undefined {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : null;
+  if (!source) return undefined;
+  const id = sanitizeString(source.id).slice(0, 160);
+  if (!id) return undefined;
+  const kind = sanitizeString(source.kind) === "project" ? "project" : "bot";
+  return {
+    kind,
+    id,
+    key: sanitizeString(source.key).slice(0, 200) || `${kind}:${id}`,
+    label: sanitizeString(source.label).slice(0, 160) || id
+  };
+}
+
+/** Grant row id for an owner-scoped whitelist entry. */
+export function hostBashGrantId(toolId: string, owner?: HostBashOwner): string {
+  const normalizedTool = sanitizeHostBashId(toolId);
+  if (!owner) return `hbw-${normalizedTool}`;
+  return `hbw-${sanitizeHostBashId(owner.key)}-${normalizedTool}`;
 }
 
 export function sanitizeHostBashId(input: unknown): string {
@@ -271,14 +317,19 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
   if (persistable && request.displayName) {
     bodyLines.push(`【工具】${request.displayName}`);
   }
+  // Ordered least-privilege last so a UI that renders them left-to-right ends on
+  // the safe default; the desktop card pins `reject` to the left and puts
+  // `approve_once` rightmost as the ⌘⏎ default.
   const options: HostBashApprovalPrompt["options"] = [
-    { id: "approve_once", label: "仅此一次", style: "primary" },
-    { id: "approve_session", label: "本会话允许", style: "primary" }
+    { id: "reject", label: "拒绝", style: "danger" }
   ];
   if (persistable) {
-    options.push({ id: "approve_persistent", label: "永久允许此工具", style: "primary" });
+    options.push({ id: "approve_persistent", label: alwaysAllowLabel(request.owner), style: "primary" });
   }
-  options.push({ id: "reject", label: "拒绝", style: "danger" });
+  options.push(
+    { id: "approve_session", label: "本会话允许", style: "primary" },
+    { id: "approve_once", label: "仅此一次", style: "primary" }
+  );
   return {
     type: "host_bash_approval",
     requestId: request.id,
@@ -294,9 +345,20 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
       reason: request.reason,
       permissions: request.permissions,
       requestedAt: request.requestedAt,
-      classification: request.classification
+      classification: request.classification,
+      owner: request.owner
     }
   };
+}
+
+/**
+ * "一直允许" is scoped to one bot or one project, so say which — an unqualified
+ * "永久允许" reads as install-wide and that is exactly what it is not.
+ */
+export function alwaysAllowLabel(owner: HostBashOwner | undefined): string {
+  if (owner?.kind === "project") return "本项目一直允许";
+  if (owner?.kind === "bot") return "本 Bot 一直允许";
+  return "一直允许";
 }
 
 export function buildNonInteractiveHostBashApprovalText(prompt: HostBashApprovalPrompt): string {
@@ -312,7 +374,8 @@ export function buildNonInteractiveHostBashApprovalText(prompt: HostBashApproval
     "🟡 回复「本会话允许」执行并仅在当前会话允许 Host Bash"
   ];
   if (persistable) {
-    lines.push(`♾️ 回复「永久允许」执行并长期允许 ${prompt.request.displayName || "此工具"}`);
+    const scope = prompt.request.owner?.kind === "project" ? "本项目" : "本 Bot";
+    lines.push(`♾️ 回复「一直允许」执行并在${scope}的所有会话中长期允许 ${prompt.request.displayName || "此工具"}`);
   }
   lines.push("❌ 回复「拒绝」取消执行");
   return lines.join("\n");
@@ -337,6 +400,7 @@ export function createHostBashApprovalRecord(input: {
   chatId: unknown;
   scopeId: unknown;
   sessionId?: unknown;
+  owner?: unknown;
 }): HostBashApprovalRecord {
   const command = sanitizeHostBashCommand(input.command);
   const toolId = sanitizeHostBashId(input.toolId ?? command);
@@ -374,6 +438,7 @@ export function createHostBashApprovalRecord(input: {
     chatId,
     scopeId,
     sessionId,
+    owner: sanitizeHostBashOwner(input.owner),
     requestedAt: new Date().toISOString(),
     approvalMode,
     status: "pending",

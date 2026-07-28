@@ -1911,3 +1911,28 @@
 - Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `readme.md`, and recorded the adversarial review in `findings.md`.
 
 ---
+# 2026-07-28 — Chat conversation prompt navigator
+
+## Phase 1: baseline and contract audit
+- **Status:** complete
+- Read the supplied navigator specification and the required frontend/file-planning workflows.
+- Confirmed unrelated dirty server changes are present and will be preserved.
+- Created task-specific success gates before implementation.
+- Completed the shared-surface audit: `ChatMessagesPane` is the one integration seam; `stickToBottom` remains the sole scroll-follow owner; existing transcript ids are usable anchors.
+- Reviewed Desktop DESIGN rules and prior Chat scroll/search/streaming fixes. No matching prior navigator implementation exists.
+- Phase 1 complete; starting pure helper regressions before component implementation.
+- Added four focused navigation regressions; confirmed the red failure on the absent implementation, then implemented the helpers and reached 4/4 passing.
+- Added the shared navigator component, stable user anchors, follow-suspension seam, bilingual labels, semantic global styles, and `ChatMessagesPane` integration.
+- Desktop TypeScript compilation and Svelte diagnostics both pass; Svelte reports 0 errors and 0 warnings.
+- Extended the same navigator to read-only external-channel transcripts, clamped tooltip placement, respected reduced-motion scrolling/animation, and made newly appended user turns re-arm bottom following.
+- Focused helper/transcript tests pass 8/8; Desktop structural UI guards pass 94/94; Svelte diagnostics remain 0/0.
+- Phases 2 and 3 complete; starting production build and real-page/cold-path verification.
+- Production Desktop build passed (only existing chunk advisories).
+- Mounted the actual shared Chat pane and navigator against an isolated eight-turn fixture. The first keyboard check exposed a reactive-width bug; applied the root fix with explicit template dependencies and added a structural guard before continuing visual verification.
+- Verified 860×620 and a 600px effective Chat pane with no horizontal overflow, clear separation between navigator and messages, dark/light semantic colors, keyboard tooltip/focus, smooth target alignment, and history-safe streaming.
+- The first DOM-based send-follow fix was removed rather than retained as a patch. Replaced it with an explicit Session + user-turn-count contract after nested commit and added a no-DOM-heuristic guard.
+- Final follow contract uses Session + user-turn count after nested DOM commit; the apparent 250ms gap was the existing smooth-scroll animation in progress, and the scroll settles exactly at distance 0 while history-safe streaming remains at delta 0.
+- Final verification passes: focused helper/transcript behavior 8/8, Desktop UI 94/94, Svelte diagnostics 0/0, production Desktop build, and `git diff --check`.
+- Updated DESIGN, PRD, features, changelog, README, and task records. Adversarial review completed with five concrete failure paths checked and no remaining task-scoped defect.
+
+---

@@ -576,7 +576,10 @@ test("Desktop Host Bash approval uses the dedicated API and never submits a chat
     return new Response(JSON.stringify({ ok: true, response: "Approved" }), { status: 200 });
   }) as typeof globalThis.fetch;
   try {
-    assert.equal(await resolveDesktopHostBash("http://127.0.0.1:3000", "default", "session-1", "approval-1", "approve_session"), "Approved");
+    assert.deepEqual(
+      await resolveDesktopHostBash("http://127.0.0.1:3000", "default", "session-1", "approval-1", "approve_session"),
+      { response: "Approved", status: undefined, error: undefined }
+    );
     assert.deepEqual(captured[0], {
       url: "http://127.0.0.1:3000/api/desktop/host-bash",
       body: {
@@ -591,6 +594,53 @@ test("Desktop Host Bash approval uses the dedicated API and never submits a chat
   } finally {
     globalThis.fetch = original;
   }
+});
+
+// A resolution that succeeds as a request but whose command failed is the case
+// that used to look like "I clicked approve and nothing happened": the card
+// disappeared and the error existed only in a response body nobody read.
+test("Desktop Host Bash approval surfaces a failed execution instead of dropping it", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        ok: true,
+        response: "Approved, but automatic execution failed: fatal: not a git repository",
+        approval: { status: "failed", error: "fatal: not a git repository" }
+      }),
+      { status: 200 }
+    )) as typeof globalThis.fetch;
+  try {
+    const result = await resolveDesktopHostBash("http://127.0.0.1:3000", "default", "s1", "a1", "approve_once");
+    assert.equal(result.status, "failed");
+    assert.equal(result.error, "fatal: not a git repository");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("parseDesktopApproval carries the grant owner so the card can name its scope", () => {
+  const prompt = parseDesktopApproval({
+    requestId: "hba-2",
+    options: [{ id: "approve_persistent", label: "本项目一直允许", style: "primary" }],
+    request: {
+      command: "git",
+      args: ["push"],
+      reason: "push release",
+      displayName: "git",
+      owner: { kind: "project", id: "proj-1", key: "project:proj-1", label: "molibot" }
+    }
+  });
+  assert.deepEqual(prompt?.owner, { kind: "project", id: "proj-1", label: "molibot" });
+});
+
+test("parseDesktopApproval omits an owner when the payload has none", () => {
+  const prompt = parseDesktopApproval({
+    requestId: "hba-3",
+    options: [{ id: "reject", label: "拒绝", style: "danger" }],
+    request: { command: "ls", args: [], reason: "list", displayName: "ls" }
+  });
+  assert.equal(prompt?.owner, undefined);
 });
 
 test("filterSessionsByTitle matches case-insensitively and returns all when empty", () => {

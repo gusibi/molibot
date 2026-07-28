@@ -10,6 +10,7 @@
     type DesktopAgentItem,
     type DesktopChannelsSummary,
     type DesktopApprovalDecision,
+    type DesktopApprovalOwner,
     type DesktopConversationChannel,
     type DesktopConversationItem,
     type DesktopConversationMessage,
@@ -82,6 +83,8 @@
   import ApprovalCard from "./lib/chat/ApprovalCard.svelte";
   import ChatInputArea from "./lib/chat/ChatInputArea.svelte";
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
+  import ConversationPromptNavigator from "./lib/chat/ConversationPromptNavigator.svelte";
+  import { PROMPT_NAVIGATOR_MIN_TURNS } from "./lib/chat/conversationNavigation";
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
@@ -695,7 +698,9 @@
       recognizingImage: copy.recognizingImage,
       stopped: copy.stopped,
       idle: copy.idle,
-      resuming: copy.resuming
+      resuming: copy.resuming,
+      approvalFailed: copy.approvalFailed,
+      approvalNotFound: copy.approvalNotFound
     };
   }
 
@@ -1648,9 +1653,17 @@
   function approvalOptionLabel(option: { id: string; label: string }): string {
     if (option.id === "approve_once") return copy.approveOnce;
     if (option.id === "approve_session") return copy.approveSession;
-    if (option.id === "approve_persistent") return copy.approvePersistent;
+    // "一直允许" covers every session of one bot or one project — say which,
+    // otherwise it reads as an install-wide grant, which it is not.
+    if (option.id === "approve_persistent") return persistentApprovalLabel(pendingApproval?.owner);
     if (option.id === "reject") return copy.reject;
     return option.label;
+  }
+
+  function persistentApprovalLabel(owner: DesktopApprovalOwner | undefined): string {
+    if (owner?.kind === "project") return copy.approvePersistentProject;
+    if (owner?.kind === "bot") return copy.approvePersistentBot;
+    return copy.approvePersistent;
   }
 
   async function resolveApproval(decision: DesktopApprovalDecision): Promise<void> {
@@ -2344,7 +2357,11 @@
         <p>{copy.externalChannelsHint}</p>
       </div>
     {:else if viewMode === "external"}
-      <div class="messages" bind:this={messagesElement} use:stickToBottom={activeSessionId} aria-live="polite">
+      <div
+        class:has-prompt-navigator={(externalTranscript?.messages.filter((message) => message.role === "user" && Boolean(message.id?.trim())).length ?? 0) >= PROMPT_NAVIGATOR_MIN_TURNS}
+        class="chat-messages-frame"
+      >
+        <div class="messages" bind:this={messagesElement} use:stickToBottom={activeSessionId} aria-live="polite">
           {#if externalTranscriptLoading}
             <div class="conversation-empty">
               <h2>{copy.loading}</h2>
@@ -2367,6 +2384,10 @@
             {/if}
             <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} />
           {/if}
+        </div>
+        {#if externalTranscript && !externalTranscriptLoading && !externalTranscriptError}
+          <ConversationPromptNavigator messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} scrollElement={messagesElement} />
+        {/if}
       </div>
       {#if externalTranscript}
         <footer class="composer-wrap">
@@ -2399,11 +2420,12 @@
         {#if pendingApproval}
           <ApprovalCard
             title={copy.approvalTitle}
-            commandLabel={copy.approvalCommand}
+            subtitle={pendingApproval.displayName ?? ""}
             reasonLabel={copy.approvalReason}
             command={pendingApproval.command}
             reason={pendingApproval.reason}
             options={approvalOptions}
+            defaultOptionId="approve_once"
             onResolve={resolveApprovalId}
           />
         {/if}

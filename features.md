@@ -7,6 +7,26 @@
 ---
 ## 2026-07-28
 
+### Host Bash 审批：修复"点了通过没反应"，并把"一直允许"收敛到 Bot / Project 维度（已完成，P0）
+
+- **现象**：审批卡片点了「本会话允许」，卡片消失，然后什么都没发生；Agent 还在说"仍在等待你确认"。
+- **根因一（执行目录错了）**：卡片走的是异步审批路径（`/api/chat` 的 `_handleWebHostToolsCommand`、以及渠道侧 `baseRuntime`），这两处用 `store.getScratchDir(scopeId)` 当 cwd，而工具内联路径用的是 Agent 自己的 `ctx.cwd`。项目会话下这两个目录不是同一个，于是 `git push` 报 `fatal: not a git repository`（exit 128）。现在两处都统一走 runner 用的 `resolveSessionWorkingDir(project, scratch)`。
+- **根因二（失败没人看得见）**：服务端把"已批准，但自动执行失败"写进了 HTTP response，而 `ConversationController.resolveApproval` 直接丢弃返回值；失败分支既不改写挂起的 toolResult 也不 resume，所以 UI 和 Agent 两边都不知情。现在 `resolveDesktopHostBash` 返回结构化的 `{ status, error }`，前端展示 `failed` / `not_found`，失败结果也会连同"在哪个目录执行的"一起写回 toolResult 并恢复运行，Agent 能据此改用别的做法。
+- **根因三（恢复的那一轮丢了项目上下文）**：审批后自动 resume 调 `runner.run()` 时没传 `project`，恢复的回合在 scratch 目录里、用全局提示词跑。现在补上项目与模型；顺手把四处手写的同一份 project 投影收敛成 `buildRunnerProjectContext`。
+- **「一直允许」改为 Bot / Project 维度**：此前持久授权的主键是 `hbw-<toolId>`，不带归属 —— 在一个 Bot 里批准，等于在所有 Bot 和 Project 里都放行了。现在授权带 owner（有项目就是 `project:<id>`，否则 `bot:<workspace>`），主键 `hbw-<owner>-<toolId>`：在当前 Bot（或 Project）下批准一次，该 Bot/Project 的其它 Session 都直接放行，范围之外仍会重新询问。卡片文案也相应改成「本项目一直允许」/「本 Bot 一直允许」。
+- **兼容**：历史上没有 owner 的授权保留为全局生效（查找时回落到旧行），已批准过的工具不会突然失效。Host Bash 设置页现在显示每条授权的归属，否则同一个 toolId 会看起来像重复条目。
+- **UI 重做**：黄色告警框 + 一排同色蓝按钮，换成中性卡片：标题问句、工具名、等宽命令块，决策行从左到右是 拒绝 → 一直允许 → 本会话允许 → 仅此一次。拒绝单独留在最左，安全默认项（仅此一次）是最右侧的实心按钮 —— 目光最后落点，也让"拒绝"不会被冲着默认键去的肌肉记忆误击。支持数字键 `1`–`4` 选择、`⌘⏎` 取默认、`Esc` 拒绝，并且不会抢走输入框里正在打的数字。
+- **验证**：`svelte-check` 0 error / 0 warning、生产构建、97 项 Desktop UI 守卫（新增 3 项）、224 项 desktop-chat、14 项 Host Bash 审批/存储测试（新增 4 项，覆盖 owner 维度授权与旧数据回落）、24 项项目测试，以及浏览器内确认 16 条新增 `.approval-*` 规则全部加载且引用的 token 均可解析（对应 pitfall #4）。
+
+### App 长对话新增用户轮次导航（已完成，P1）
+
+- Chat 内容区左侧现在会在 5 轮用户消息后显示一列低干扰横杠；只统计用户消息，不把 Assistant、Tool、Thinking 或 System 内容混进目录。
+- 节点改为在轨道中部紧凑连续排列：2px 横杠之间保留 10px 空隙，不再随全文消息位置拉开。真实消息位置仍用于判断当前轮次和执行跳转，阅读长回复时不会提前跳到下一轮。
+- 鼠标靠近时按垂直距离连续产生 Dock 式放大；Hover 或键盘焦点会显示轮次、纯文本摘要和可选时间。Markdown 会去除格式，图片、语音和文件有中英文专用标签。
+- 点击节点会先暂停自动跟底，再平滑定位并轻微高亮目标。Agent 流式输出可以继续但不会抢走历史阅读位置；发送新问题后由共享滚动层恢复跟底。
+- 普通 Chat、Project Chat 和外部渠道只读会话复用同一组件；支持中英、明暗、减少动态效果和 600px 有效内容宽度。
+- 验证：导航/Transcript 行为测试 9/9、Desktop UI 守卫 94/94、Svelte 0 error / 0 warning、生产构建，以及真实八轮组件走查（历史流式位置 delta 0、新发送最终 distance-to-bottom 0）。
+
 ### Release v2.6.9 / Desktop v0.6.6
 
 - 本次发布只包含版本号同步与发布流程准备；产品功能无新增改动。

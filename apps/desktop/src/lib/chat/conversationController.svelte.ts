@@ -11,6 +11,7 @@ import { runDesktopConversationTurn } from "./conversationTurn";
 import type {
   DesktopApprovalDecision,
   DesktopApprovalPrompt,
+  DesktopApprovalResult,
   DesktopConversationMessage,
   DesktopThinkingLevel
 } from "@molibot/desktop-contract";
@@ -44,6 +45,10 @@ export interface ConversationLabels {
   stopped: string;
   idle: string;
   resuming: string;
+  /** Shown when the approval resolved but the host command itself failed. */
+  approvalFailed?: string;
+  /** Shown when the pending approval expired or was already handled. */
+  approvalNotFound?: string;
 }
 
 /**
@@ -365,7 +370,7 @@ export class ConversationController {
       // the server can continue the run; the live stream will pick up the
       // resumed output and send() will handle reload/cleanup when it ends.
       try {
-        await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision);
+        this.reportApprovalOutcome(await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision));
       } catch (cause) {
         this.host.setError(cause instanceof Error ? cause.message : String(cause));
       }
@@ -376,7 +381,7 @@ export class ConversationController {
     // Drive the approval → poll cycle ourselves.
     this.sending = true;
     try {
-      await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision);
+      this.reportApprovalOutcome(await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision));
       // The approved command runs and the original turn resumes in the background,
       // appending its answer asynchronously; poll the transcript until it lands.
       const before = this.host.getMessages().filter((message) => message.role === "assistant").length;
@@ -393,6 +398,22 @@ export class ConversationController {
     } finally {
       this.sending = false;
       this.activity = "";
+    }
+  }
+
+  /**
+   * Show what actually happened to the approval. The click resolving fine on
+   * the server while the command itself failed is the common case (wrong cwd,
+   * missing binary, non-zero exit) and used to render as nothing at all.
+   */
+  private reportApprovalOutcome(result: DesktopApprovalResult): void {
+    const labels = this.host.labels();
+    if (result.status === "failed") {
+      this.host.setError(`${labels.approvalFailed ?? "Approved, but the command failed"}: ${result.error || result.response}`);
+      return;
+    }
+    if (result.status === "not_found") {
+      this.host.setError(labels.approvalNotFound ?? result.response);
     }
   }
 }

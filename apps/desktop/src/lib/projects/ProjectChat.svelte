@@ -6,6 +6,7 @@
     clampDesktopThinkingLevel,
     type DesktopThinkingLevel,
     type DesktopApprovalDecision,
+    type DesktopApprovalOwner,
     type DesktopModelOption,
     type DesktopSessionFile
   } from "@molibot/desktop-contract";
@@ -199,7 +200,9 @@
       recognizingImage: copy.recognizingImage,
       stopped: copy.stopped,
       idle: copy.idle,
-      resuming: copy.resuming
+      resuming: copy.resuming,
+      approvalFailed: copy.approvalFailed,
+      approvalNotFound: copy.approvalNotFound
     }),
     refreshSessions: () => refreshProjectSessionList(projectsStore.selectedProjectId),
     resolveModel: resolveSessionModel,
@@ -449,9 +452,17 @@
   function approvalOptionLabel(option: { id: string; label: string }): string {
     if (option.id === "approve_once") return copy.approveOnce;
     if (option.id === "approve_session") return copy.approveSession;
-    if (option.id === "approve_persistent") return copy.approvePersistent;
+    // "一直允许" covers every session of one bot or one project — say which,
+    // otherwise it reads as an install-wide grant, which it is not.
+    if (option.id === "approve_persistent") return persistentApprovalLabel(pendingApproval?.owner);
     if (option.id === "reject") return copy.reject;
     return option.label;
+  }
+
+  function persistentApprovalLabel(owner: DesktopApprovalOwner | undefined): string {
+    if (owner?.kind === "project") return copy.approvePersistentProject;
+    if (owner?.kind === "bot") return copy.approvePersistentBot;
+    return copy.approvePersistent;
   }
 
   function resolveApproval(decision: DesktopApprovalDecision): void {
@@ -801,11 +812,12 @@
     {#if pendingApproval}
       <ApprovalCard
         title={copy.approvalTitle}
-        commandLabel={copy.approvalCommand}
+        subtitle={pendingApproval.displayName ?? ""}
         reasonLabel={copy.approvalReason}
         command={pendingApproval.command}
         reason={pendingApproval.reason}
         options={approvalOptions}
+        defaultOptionId="approve_once"
         onResolve={resolveApprovalId}
       />
     {/if}

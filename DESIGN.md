@@ -533,6 +533,17 @@ the base to pure black (`#000000`/`#0A0A0A`).
   positioning that overlaps the title or neighboring actions. Chat and Project Chat
   share the same search control, rendered-text matching, result count, previous/next
   navigation, Enter/Shift+Enter shortcuts, focus restoration, and narrow-width rules.
+- Long Chat transcripts use one shared prompt navigator inside the transcript viewport,
+  never in the global sidebar. It appears only from five stable user turns onward;
+  assistant, tool, thinking, and system entries never create markers. Markers stay
+  quiet at rest and form a vertically centered compact stack: a 2px marker is followed
+  by a 10px gap instead of stretching markers across the transcript's full height. Real
+  message offsets determine only the active user-turn interval and jump target. Markers
+  use the accent for that active interval, expand continuously by pointer distance, and
+  expose a two-line plain-text preview on hover or keyboard focus. Navigation must hand
+  scroll ownership to the reader before jumping, while a committed new user turn
+  explicitly restores bottom following. The same behavior and
+  semantic tokens apply to local Chat, Project Chat, and read-only external transcripts.
 - Primary actions remain visible. Rare and destructive actions belong in an overflow
   menu and require confirmation when irreversible. A persistent outlined button is
   not a substitute for a switch, segmented control, or disclosure menu.

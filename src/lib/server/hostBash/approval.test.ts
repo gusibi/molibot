@@ -38,11 +38,37 @@ test("host bash approval prompt shows only the action and complete command", () 
     prompt.body,
     "【操作】执行 Bash\n【命令】agent-browser open https://example.com\n【工具】Agent Browser"
   );
+  // Ordered reject → widest grant → safest grant, matching the desktop card's
+  // left-to-right layout so the number shortcuts line up with what is rendered.
   assert.deepEqual(
     prompt.options.map((option) => option.label),
-    ["仅此一次", "本会话允许", "永久允许此工具", "拒绝"]
+    ["拒绝", "一直允许", "本会话允许", "仅此一次"]
   );
   assert.doesNotMatch(prompt.body, /Tool ID|Reason|Permissions|hba-agent-browser-1/);
+});
+
+test("persistent option names the bot or project it grants access to", () => {
+  const projectPrompt = buildHostBashApprovalPrompt(approval({
+    owner: { kind: "project", id: "proj-1", key: "project:proj-1", label: "molibot" }
+  }));
+  assert.equal(
+    projectPrompt.options.find((option) => option.id === "approve_persistent")?.label,
+    "本项目一直允许"
+  );
+  assert.deepEqual(projectPrompt.request.owner, {
+    kind: "project",
+    id: "proj-1",
+    key: "project:proj-1",
+    label: "molibot"
+  });
+
+  const botPrompt = buildHostBashApprovalPrompt(approval({
+    owner: { kind: "bot", id: "moli-w", key: "bot:moli-w", label: "moli-w" }
+  }));
+  assert.equal(
+    botPrompt.options.find((option) => option.id === "approve_persistent")?.label,
+    "本 Bot 一直允许"
+  );
 });
 
 test("one-time approval prompt omits the persistent option", () => {
@@ -58,8 +84,15 @@ test("one-time approval prompt omits the persistent option", () => {
 
   assert.deepEqual(
     prompt.options.map((option) => option.id),
-    ["approve_once", "approve_session", "reject"]
+    ["reject", "approve_session", "approve_once"]
   );
+});
+
+test("non-interactive approval text spells out the always-allow scope", () => {
+  const text = buildNonInteractiveHostBashApprovalText(buildHostBashApprovalPrompt(approval({
+    owner: { kind: "project", id: "proj-1", key: "project:proj-1", label: "molibot" }
+  })));
+  assert.match(text, /♾️ 回复「一直允许」执行并在本项目的所有会话中长期允许 Agent Browser/);
 });
 
 test("non-interactive approval text keeps decisions concise and hides internal commands", () => {

@@ -5,6 +5,7 @@ import { dirname as pathDirname, basename, join } from "node:path";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { createAttachTool } from "$lib/server/agent/tools/attach.js";
 import { getBashToolDefinition } from "$lib/server/agent/tools/bash.js";
+import { resolveHostBashOwner } from "$lib/server/hostBash/index.js";
 import { decideBashToolPolicy } from "$lib/server/agent/tools/bashPolicy.js";
 import { getEditToolDefinition } from "$lib/server/agent/tools/edit.js";
 import { createFileSearchTools } from "$lib/server/agent/tools/fileSearch.js";
@@ -138,7 +139,7 @@ export function createMomTools(options: {
   workspaceId?: string;
   timezone: string;
   messageTimestamp?: string | number | Date;
-  project?: { id?: string; rootPath: string; scratchDir: string; sandboxEnabled?: boolean };
+  project?: { id?: string; name?: string; rootPath: string; scratchDir: string; sandboxEnabled?: boolean };
   store: MomRuntimeStore;
   memory: MemoryGateway;
   getSettings: () => RuntimeSettings;
@@ -471,6 +472,13 @@ export function createMomTools(options: {
       chatId: options.chatId,
       scopeId: options.chatId,
       sessionId: options.sessionId,
+      // "一直允许" grants live on the project (when the run has one) or on this
+      // bot workspace — never install-wide.
+      owner: resolveHostBashOwner({
+        projectId: options.project?.id,
+        projectName: options.project?.name,
+        botId
+      }),
       runId: options.runId,
       store: options.store,
       ignoreSessionApprovalMode: options.isolateSessionHostApproval

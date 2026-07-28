@@ -9,6 +9,7 @@ import type {
   ApprovedHostBashEntry,
   HostBashCommandClassification,
   HostBashApprovalPrompt,
+  HostBashOwner,
   HostBashStore
 } from "$lib/server/hostBash/index.js";
 import {
@@ -81,6 +82,8 @@ export interface BashToolHostApprovalOptions {
   chatId: string;
   scopeId: string;
   sessionId: string;
+  /** Bot/project a persistent ("一直允许") grant applies to. */
+  owner?: HostBashOwner;
   runId?: string;
   store: MomRuntimeStore;
   ignoreSessionApprovalMode?: boolean;
@@ -345,6 +348,7 @@ function requestApprovalFromBash(
     chatId: options.chatId,
     scopeId: options.scopeId,
     sessionId: options.sessionId,
+    owner: options.owner,
     requestedByDepth: options.requestedByDepth
   });
 
@@ -473,7 +477,8 @@ async function waitForHostBashApprovalAndExecute(input: {
         }
         const approvedTool = findApprovedHostBash(
           store,
-          tryParseHostBashCommand(record.pendingAction?.originalCommand ?? "")
+          tryParseHostBashCommand(record.pendingAction?.originalCommand ?? ""),
+          record.owner
         );
         try {
           const executed = await executeHostBashApproval({
@@ -518,7 +523,8 @@ export function tryParseHostBashCommand(command: string): ParsedHostBashCommand 
 
 export function findApprovedHostBash(
   store: HostBashStore,
-  parsed: ParsedHostBashCommand | null
+  parsed: ParsedHostBashCommand | null,
+  owner?: HostBashOwner
 ) : ApprovedHostBashEntry | undefined {
   if (!parsed) return undefined;
   if (parsed.classification.kind === "one-time-script") return undefined;
@@ -527,7 +533,7 @@ export function findApprovedHostBash(
     : [...new Set(parsed.classification.capabilities.map((item) => item.toolId))];
   if (toolIds.length === 0) return undefined;
   const approvedEntries = toolIds
-    .map((toolId) => store.getApprovedEntry(sanitizeHostBashId(toolId)))
+    .map((toolId) => store.getApprovedEntry(sanitizeHostBashId(toolId), owner))
     .filter((item): item is ApprovedHostBashEntry => Boolean(item?.enabled));
   if (approvedEntries.length !== toolIds.length) return undefined;
 
@@ -607,7 +613,7 @@ export function getBashToolDefinition(
         ? tryParseHostBashCommand(params.command)
         : null;
       const approvedHostBash = options.hostApproval
-        ? findApprovedHostBash(hostBashStore, parsedHostBashCommand)
+        ? findApprovedHostBash(hostBashStore, parsedHostBashCommand, options.hostApproval.owner)
         : undefined;
 
       if (approvedHostBash && parsedHostBashCommand) {

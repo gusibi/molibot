@@ -5,6 +5,18 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.14 Desktop long-conversation prompt navigator (2026-07-28)
+
+- **Priority / Status**: P1 / Delivered.
+- **Problem**: long Desktop Chat and Project Chat transcripts had no compact overview or direct way to return to an earlier user turn without searching for exact text.
+- **Decision**: every shared Chat viewport shows a low-interference, user-turn-only navigator from five turns onward. Markers form a centered compact stack with a 2px line and 10px gap rather than spreading across the transcript height; real message offsets still determine the active interval and jump target. Pointer distance drives continuous Dock-style magnification; hover/focus exposes a bilingual plain-text preview.
+- **Acceptance**:
+  - Only stable-id user messages produce nodes; Markdown and image/audio/file turns produce safe, bounded previews.
+  - Clicking or keyboard-activating a node pauses bottom following before a smooth, highlighted jump; streaming continues without pulling a history reader away.
+  - A newly committed user turn restores bottom following, while pending-to-persisted ID replacement does not.
+  - Local Chat, Project Chat, and read-only external transcripts share the same component and scroll ownership boundary.
+  - Light/dark, Chinese/English, reduced motion, 860×620, effective 600px Chat width, Svelte diagnostics, focused tests, and production build pass.
+
 ## 3.13 Release v2.6.9 / Desktop v0.6.6 (2026-07-28)
 
 - **Priority / Status**: P3 / Done.

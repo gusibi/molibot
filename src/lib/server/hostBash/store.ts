@@ -5,7 +5,9 @@ import {
   coerceApprovalMode,
   createHostBashApprovalRecord,
   defaultHostBashPermissions,
+  hostBashGrantId,
   sanitizeHostBashId,
+  sanitizeHostBashOwner,
   sanitizeHostBashPendingAction,
   sanitizeHostBashPermissions
 } from "$lib/server/hostBash/approval.js";
@@ -14,7 +16,8 @@ import type {
   HostBashApprovalRecord,
   HostBashApprovalScope,
   HostBashApprovalStatus,
-  HostBashListFilters
+  HostBashListFilters,
+  HostBashOwner
 } from "$lib/server/hostBash/types.js";
 
 interface LegacyHostToolPermissions {
@@ -111,6 +114,7 @@ function rowToApprovalRecord(row: Record<string, any>): HostBashApprovalRecord {
     chatId: action.chatId || "",
     scopeId: row.run_id,
     sessionId: row.session_id || undefined,
+    owner: sanitizeHostBashOwner(action.owner),
     approvalMode: selectedScopeToApprovalMode(row.selected_scope, action.approvalMode),
     status: normalizeStatus(row.status),
     permissions: action.permissions || defaultHostBashPermissions,
@@ -139,6 +143,7 @@ function rowToWhitelistEntry(row: Record<string, any>): ApprovedHostBashEntry {
     channel: metadata.channel || "",
     chatId: metadata.chatId || "",
     scopeId: metadata.scopeId || "",
+    owner: sanitizeHostBashOwner(metadata.owner),
     permissions: metadata.permissions || defaultHostBashPermissions,
     approvedAt: row.created_at,
     approvedFromRecordId: row.run_id || "",
@@ -283,6 +288,7 @@ export class HostBashStore {
     chatId: unknown;
     scopeId: unknown;
     sessionId?: unknown;
+    owner?: unknown;
     requestedByDepth?: number;
   }): {
     kind: "created" | "existing-pending" | "existing-approved";
@@ -293,7 +299,7 @@ export class HostBashStore {
     this.expireStalePending();
 
     if (record.approvalMode === "persistent") {
-      const existingApproved = this.getApprovedEntry(record.toolId);
+      const existingApproved = this.getApprovedEntry(record.toolId, record.owner);
       if (existingApproved?.enabled) {
         return { kind: "existing-approved", approved: existingApproved };
       }
@@ -330,7 +336,8 @@ export class HostBashStore {
       pendingAction: record.pendingAction,
       classification: record.classification,
       permissions: record.permissions,
-      approvalMode: record.approvalMode
+      approvalMode: record.approvalMode,
+      owner: record.owner
     };
 
     this.db.prepare(`
@@ -435,16 +442,17 @@ export class HostBashStore {
           channel: record.channel,
           chatId: record.chatId,
           scopeId: record.scopeId,
+          owner: record.owner,
           permissions: record.permissions
         };
         insertGrant.run({
-          id: `hbw-${capability.toolId}`,
+          id: hostBashGrantId(capability.toolId, record.owner),
           capability: `bash:${capability.toolId}`,
           run_id: record.id,
           action_fingerprint: JSON.stringify(metadata),
           created_at: now
         });
-        const entry = this.getApprovedEntry(capability.toolId);
+        const entry = this.getApprovedEntry(capability.toolId, record.owner);
         if (entry) approvedEntries.push(entry);
       }
     }
@@ -524,13 +532,26 @@ export class HostBashStore {
     return row ? rowToApprovalRecord(row) : null;
   }
 
-  getApprovedEntry(toolId: string): ApprovedHostBashEntry | null {
+  /**
+   * Whitelist entry usable by `owner`. Checks the owner-scoped grant first, then
+   * falls back to a legacy unscoped `hbw-<toolId>` row: grants written before
+   * approvals became bot/project scoped stay global rather than disappearing.
+   * Omitting `owner` matches only legacy global grants.
+   */
+  getApprovedEntry(toolId: string, owner?: HostBashOwner): ApprovedHostBashEntry | null {
     const normalizedId = sanitizeHostBashId(toolId);
     if (!normalizedId) return null;
-    const row = this.db.prepare(`
+    const stmt = this.db.prepare(`
       SELECT * FROM approvals WHERE type = 'grant' AND id = ? LIMIT 1
-    `).get(`hbw-${normalizedId}`) as Record<string, unknown> | undefined;
-    return row ? rowToWhitelistEntry(row) : null;
+    `);
+    const ids = owner
+      ? [hostBashGrantId(normalizedId, owner), `hbw-${normalizedId}`]
+      : [`hbw-${normalizedId}`];
+    for (const id of ids) {
+      const row = stmt.get(id) as Record<string, unknown> | undefined;
+      if (row) return rowToWhitelistEntry(row);
+    }
+    return null;
   }
 
   private expireStalePending(): void {

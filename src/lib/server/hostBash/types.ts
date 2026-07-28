@@ -9,6 +9,25 @@ export type HostBashApprovalStatus =
 
 export type HostBashApprovalScope = "once" | "session" | "persistent";
 
+/**
+ * Who a persistent ("一直允许") grant belongs to. Approving always-on access for
+ * a command grants it across every session of one bot or one project — not
+ * globally across the whole install, which is what a bare `hbw-<toolId>` grant
+ * used to mean. Legacy global grants are still honoured for backwards
+ * compatibility; new grants always carry an owner.
+ */
+export type HostBashOwnerKind = "bot" | "project";
+
+export interface HostBashOwner {
+  kind: HostBashOwnerKind;
+  /** Bot workspace slug, or project id. */
+  id: string;
+  /** Stable composite used as the grant key: `bot:<id>` / `project:<id>`. */
+  key: string;
+  /** Human-facing label for the approval card ("本项目" / bot name). */
+  label: string;
+}
+
 export interface HostBashCapability {
   executable: string;
   toolId: string;
@@ -83,6 +102,8 @@ export interface HostBashApprovalRecord {
   chatId: string;
   scopeId: string;
   sessionId?: string;
+  /** Owner a persistent grant would be scoped to. See {@link HostBashOwner}. */
+  owner?: HostBashOwner;
   approvalMode: HostBashApprovalMode;
   status: HostBashApprovalStatus;
   permissions: HostBashPermissions;
@@ -104,6 +125,8 @@ export interface ApprovedHostBashEntry {
   channel: string;
   chatId: string;
   scopeId: string;
+  /** Absent on legacy grants, which stay global. */
+  owner?: HostBashOwner;
   permissions: HostBashPermissions;
   approvedAt: string;
   approvedFromRecordId: string;
@@ -130,6 +153,7 @@ export interface HostBashApprovalPrompt {
     permissions: HostBashPermissions;
     requestedAt: string;
     classification?: HostBashCommandClassification;
+    owner?: HostBashOwner;
   };
 }
 

@@ -5,6 +5,8 @@ import { buildPromptChannelSections } from "$lib/server/agent/prompts/prompt-cha
 import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/agent/prompts/prompt.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
+import { resolveSessionWorkingDir } from "$lib/server/agent/core/runner.js";
+import { buildRunnerProjectContext } from "$lib/server/projects/context.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
@@ -455,10 +457,14 @@ export abstract class BaseChannelRuntime {
       setActiveProject: (scopeId, projectId) => getProjectStore().setChannelBinding(this.channelName, this.instanceId, scopeId, projectId),
       executeApprovedHostBash: options.executeApprovedHostBash ?? (async (input, approved, request) => {
         if (!request.pendingAction) return;
+        // Run where the agent's turn ran. A chat bound to a project executes in
+        // the project root; only an unbound chat falls back to its scratch dir.
+        const scratchDir = this.store.getScratchDir(input.scopeId);
+        const boundProject = getProjectStore().getChannelBinding(this.channelName, this.instanceId, input.scopeId);
         const executed = await executeHostBashApproval({
           record: request,
           approvedTool: approved,
-          cwd: this.store.getScratchDir(input.scopeId)
+          cwd: resolveSessionWorkingDir(buildRunnerProjectContext(boundProject, scratchDir), scratchDir)
         });
 
         try {
@@ -615,17 +621,7 @@ export abstract class BaseChannelRuntime {
       sessions: this.sessions,
       instanceId: this.instanceId,
       activeSessionId,
-      project: selectedProject ? {
-        id: selectedProject.id,
-        name: selectedProject.name,
-        rootPath: selectedProject.rootPath,
-        instructions: selectedProject.instructions,
-        sandboxEnabled: selectedProject.sandboxEnabled,
-        toolProgress: selectedProject.toolProgress,
-        showReasoning: selectedProject.showReasoning,
-        runLogNotice: selectedProject.runLogNotice,
-        scratchDir: target.store.getScratchDir(target.chatId)
-      } : undefined,
+      project: buildRunnerProjectContext(selectedProject, target.store.getScratchDir(target.chatId)),
       modelKeyOverride: selectedProject?.modelKey,
       thinkingLevelOverride: selectedProject?.thinkingLevel,
       projectConversation: selectedProject && target.conversationId

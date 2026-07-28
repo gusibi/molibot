@@ -83,6 +83,35 @@ test("approve with persistent scope whitelists every capability of a compound co
   assert.ok(store.getApprovedEntry("osascript")?.enabled);
 });
 
+test("persistent grant applies across the owner's sessions but not to another owner", () => {
+  const store = createStore();
+  const projectA = { kind: "project" as const, id: "proj-a", key: "project:proj-a", label: "A" };
+  const projectB = { kind: "project" as const, id: "proj-b", key: "project:proj-b", label: "B" };
+
+  const requested = store.requestApproval(requestInput({ owner: projectA }));
+  store.approve("scope-1", requested.approval?.id, { scope: "persistent" });
+
+  // Same project, different session — already granted, no second card.
+  assert.ok(store.getApprovedEntry("agent-browser", projectA)?.enabled);
+  const reRequest = store.requestApproval(requestInput({ owner: projectA, sessionId: "session-2" }));
+  assert.equal(reRequest.kind, "existing-approved");
+
+  // A different project must still be asked.
+  assert.equal(store.getApprovedEntry("agent-browser", projectB), null);
+  assert.equal(store.requestApproval(requestInput({ owner: projectB })).kind, "created");
+});
+
+test("owner-scoped lookup still honours a legacy unscoped grant", () => {
+  const store = createStore();
+  // Written before approvals carried an owner: stays global rather than vanishing.
+  const legacy = store.requestApproval(requestInput());
+  store.approve("scope-1", legacy.approval?.id, { scope: "persistent" });
+  assert.equal(store.getApprovedEntry("agent-browser")?.id, "hbw-agent-browser");
+
+  const owner = { kind: "bot" as const, id: "moli-w", key: "bot:moli-w", label: "moli-w" };
+  assert.ok(store.getApprovedEntry("agent-browser", owner)?.enabled);
+});
+
 test("listWhitelist tolerates legacy grants without metadata", () => {
   const store = createStore();
   (store as any).db.prepare(`

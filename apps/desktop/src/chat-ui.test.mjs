@@ -59,6 +59,9 @@ const taskScheduleBuilder = read("./lib/settings/TaskScheduleBuilder.svelte");
 const nativeTimeInput = read("./lib/components/ui/NativeTimeInput.svelte");
 const projectDetail = read("./lib/projects/ProjectDetail.svelte");
 const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
+const conversationPromptNavigator = read("./lib/chat/ConversationPromptNavigator.svelte");
+const conversationNavigation = read("./lib/chat/conversationNavigation.ts");
+const stickToBottom = read("./lib/chat/stickToBottom.ts");
 const chatHeader = read("./lib/chat/ChatHeader.svelte");
 const transcriptSearch = read("./lib/chat/TranscriptSearch.svelte");
 const pageHeader = read("./lib/components/ui/PageHeader.svelte");
@@ -969,6 +972,24 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.doesNotMatch(projectChat, /runDesktopConversationTurn/);
   assert.match(conversationLiveView, /<ConversationTranscript/);
   assert.match(conversationLiveView, /<RunActivity/);
+});
+
+test("long conversations share one user-turn navigator and preserve reader scroll ownership", () => {
+  assert.match(chatMessagesPane, /<ConversationPromptNavigator \{messages\} \{copy\} \{formatTime\}/);
+  assert.match(view, /viewMode === "external"[\s\S]*<ConversationPromptNavigator messages=\{externalTranscript\.messages\}/);
+  assert.match(conversationNavigation, /message\.role === "user" && Boolean\(message\.id\?\.trim\(\)\)/);
+  assert.match(conversationNavigation, /export function activePromptIndex[\s\S]*while \(low <= high\)/);
+  assert.match(conversationNavigation, /Math\.exp\(-\(distance \* distance\) \/ \(2 \* sigma \* sigma\)\)/);
+  assert.match(conversationPromptNavigator, /new ResizeObserver[\s\S]*new MutationObserver/);
+  assert.match(conversationPromptNavigator, /markerWidth\(item, focusedMessageId, activeMessageId, pointerY\)/);
+  assert.match(conversationPromptNavigator, /suspendStickToBottom\(scrollElement\)[\s\S]*prefers-reduced-motion: reduce[\s\S]*scrollIntoView\(\{ behavior, block: "start" \}\)/);
+  assert.match(stickToBottom, /molibot:suspend-scroll-follow/);
+  assert.match(stickToBottom, /molibot:resume-scroll-follow/);
+  assert.match(chatMessagesPane, /scrollFollowKey = `\$\{stickKey\}\\u0000\$\{userTurnCount\}`[\s\S]*afterUpdate[\s\S]*resumeStickToBottom\(messagesElement\)/);
+  assert.match(chatMessagesPane, /use:stickToBottom=\{stickKey\}/);
+  assert.doesNotMatch(stickToBottom, /message-row\.mine/);
+  assert.match(stickToBottom, /firstLayoutFrame = requestAnimationFrame[\s\S]*secondLayoutFrame = requestAnimationFrame[\s\S]*if \(pinned\) toBottom\(\)/);
+  assert.match(styles, /\.conversation-prompt-navigator[\s\S]*\.prompt-navigation-preview[\s\S]*prefers-reduced-motion/);
 });
 
 test("settings uses the flat Geist layout", () => {

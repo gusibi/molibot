@@ -20,6 +20,11 @@ export function buildDesktopHostBashWhitelistItem(entry: ApprovedHostBashEntry):
     approvalMode: entry.approvalMode,
     enabled: entry.enabled,
     approvedAt: entry.approvedAt,
+    // Grants are per bot/project, so the same tool id can legitimately appear
+    // more than once; without the scope the list reads as duplicates.
+    scope: entry.owner
+      ? { kind: entry.owner.kind, label: entry.owner.label }
+      : undefined,
     permissions: {
       envAllowlist: entry.permissions.envAllowlist.length,
       filesystem: entry.permissions.filesystem,

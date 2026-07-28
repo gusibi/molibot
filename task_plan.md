@@ -2500,3 +2500,46 @@ Complete — corrected seven-level contract, UI/API cleanup, runtime pass-throug
 | Final stale-copy search used an unescaped backtick inside a double-quoted shell pattern | 1 | The preceding `git diff --check` and source-field search had already completed; reran the documentation search with single-quoted patterns. |
 
 ---
+# Chat conversation prompt navigator (2026-07-28)
+
+## Goal
+Add a lightweight, accessible user-turn navigator to the Desktop Chat viewport so long conversations can be scanned and jumped without breaking streaming or bottom-follow behavior.
+
+## Current phase
+Complete — implementation, real-component walkthrough, records, and adversarial review finished
+
+## Phases
+1. Audit DESIGN/PRD/history plus Chat transcript, scroll follow, and message identity seams — complete
+2. Add focused regression coverage for projection, active-turn selection, positioning, and preview text — complete
+3. Implement the navigator and integrate it with the shared Chat viewport/follow state — complete
+4. Verify keyboard access, Chinese/English, light/dark, responsive layout, streaming resize, and builds — complete
+5. Run a cold-path walkthrough, adversarial review, and update product records — complete
+
+## Verification gates
+- Only stable-id user messages produce markers; tool, assistant, thinking, and system entries do not.
+- Active state remains on the owning user turn while its assistant response is being read.
+- Clicking or keyboard-activating a marker scrolls to the prompt, highlights it subtly, and pauses automatic bottom following.
+- Marker positions preserve order and a usable minimum gap while reacting to transcript height changes.
+- The navigator is hidden for fewer than five user turns and remains unobtrusive, theme-safe, bilingual, keyboard-accessible, and responsive.
+- Existing user-owned dirty changes are preserved; all edits remain inside the Chat navigator slice and required product records.
+
+## Assumptions
+- “APP chat 页” means the Svelte Desktop Chat surface under `apps/desktop`, not the separate Web chat route.
+- The existing Chat viewport and follow controller remain authoritative; the navigator integrates through their public state/events instead of adding a second scroll owner.
+- The requested visual values are guidance; existing DESIGN tokens and component conventions take precedence.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Existing planning files contain extensive unrelated task history | 1 | Preserve all prior content and prepend one isolated dated section for this task. |
+| First focused test command used a repository-root binary path from the Desktop workdir | 1 | Switched to the package-relative bundled Node path; the intended red regression then failed only because the implementation module did not exist. |
+| Direct root `node_modules/svelte-check` path did not exist | 1 | Located the installed pnpm package entry and invoked it with bundled Node; diagnostics pass 0/0. |
+| The first visual fixture launch could not resolve its temporary Svelte dependency, then used the obsolete Svelte constructor API | 2 | Reused the repository's Vite config/module graph and mounted the temporary fixture with Svelte 5's `mount`; the real component rendered without product-code workarounds. |
+| Keyboard focus showed the preview but did not enlarge its marker | 1 | The template helper hid focus/pointer dependencies from legacy Svelte tracking. Pass all reactive values explicitly into the helper and guard that call shape structurally. |
+| Sending a new prompt from history appeared above the bottom after both synchronous and next-frame DOM heuristics | 2 | Remove DOM-shape inference; after final settlement, use Session + user-turn count after nested commit. The remaining 250ms gap was the existing smooth-scroll animation, which settles exactly at zero. |
+| Explicit follow-key update still aligned to the pre-child-render height | 1 | Parent action updates precede the nested transcript render. Use a cancellable two-frame layout settlement, and cancel it immediately if the user takes scroll ownership. |
+| Action-key settlement remained tied to parent update order | 2 | Move new-turn detection to shared-pane `afterUpdate`, use Session + user-turn count to avoid pending-id churn, and signal the existing action only after the nested transcript commit. |
+| A combined hardening patch targeted tooltip lines in the helper module instead of the component | 1 | The atomic patch made no changes; reapply against the correct files with exact contexts. |
+| Planning completion helper reported 2/7 for the accumulated multi-task file | 1 | This is the known parser limitation with many historical task sections; this isolated task explicitly marks all five phases complete, so prior user-owned planning history remains untouched. |
+
+---

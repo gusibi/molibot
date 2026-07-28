@@ -13,7 +13,7 @@ import { resolveRuntimeContext } from "$lib/server/web/runtimeContext";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment } from "$lib/shared/types/message";
-import { resolveProjectContext } from "$lib/server/projects/context";
+import { buildRunnerProjectContext, resolveProjectContext } from "$lib/server/projects/context";
 import { parseStreamRequest, type ParsedStreamRequest } from "./request";
 
 function inferMediaType(file: File): FileAttachment["mediaType"] {
@@ -203,17 +203,7 @@ export const POST: RequestHandler = async ({ request }) => {
             // global. This keeps each session on its own model even after a
             // restart or when the turn originates from a channel bot.
             modelKeyOverride: String(body.modelKey ?? conversation.modelKey ?? project?.modelKey ?? "").trim() || undefined,
-            project: project ? {
-              id: project.id,
-              name: project.name,
-              rootPath: project.rootPath,
-              instructions: project.instructions,
-              sandboxEnabled: project.sandboxEnabled,
-              toolProgress: project.toolProgress,
-              showReasoning: project.showReasoning,
-              runLogNotice: project.runLogNotice,
-              scratchDir: store.getScratchDir(runnerChatId)
-            } : undefined,
+            project: buildRunnerProjectContext(project, store.getScratchDir(runnerChatId)),
             message: {
               chatId: runnerChatId,
               workspaceId,

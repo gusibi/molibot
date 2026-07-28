@@ -64,6 +64,7 @@ import type {
   DesktopApprovalDecision,
   DesktopApprovalOption,
   DesktopApprovalPrompt,
+  DesktopApprovalResult,
   DesktopBootstrapResponse,
   DesktopFileMediaType,
   DesktopHostBashResponse,
@@ -2280,24 +2281,46 @@ export function parseDesktopApproval(data: Record<string, unknown>): DesktopAppr
       style: option.style ? String(option.style) : undefined
     }))
     .filter((option) => option.id);
+  const rawOwner = request.owner && typeof request.owner === "object"
+    ? request.owner as Record<string, unknown>
+    : null;
+  const ownerId = rawOwner ? String(rawOwner.id ?? "").trim() : "";
   return {
     requestId,
     command: fullCommand || command,
     reason: request.reason ? String(request.reason) : undefined,
     displayName: request.displayName ? String(request.displayName) : undefined,
+    owner: ownerId
+      ? {
+          kind: String(rawOwner?.kind ?? "") === "project" ? "project" : "bot",
+          id: ownerId,
+          label: String(rawOwner?.label ?? "").trim() || ownerId
+        }
+      : undefined,
     options
   };
 }
 
-/** Resolve a pending Host Bash approval without creating a chat message. */
+/**
+ * Resolve a pending Host Bash approval without creating a chat message.
+ *
+ * Returns the server's outcome, not just its prose: an approved command that
+ * fails to execute (wrong cwd, missing binary, non-zero exit) reports `failed`
+ * here and nowhere else, so a caller that drops this result leaves the user
+ * staring at a card that vanished with nothing happening.
+ */
 export async function resolveDesktopHostBash(
   endpoint: string,
   profileId: string,
   sessionId: string,
   requestId: string,
   decision: DesktopApprovalDecision
-): Promise<string> {
-  const payload = await requestJson<{ ok: true; response: string }>(endpoint, "/api/desktop/host-bash", {
+): Promise<DesktopApprovalResult> {
+  const payload = await requestJson<{
+    ok: true;
+    response: string;
+    approval?: { status?: string; error?: string };
+  }>(endpoint, "/api/desktop/host-bash", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -2308,7 +2331,12 @@ export async function resolveDesktopHostBash(
       decision
     })
   });
-  return payload.response;
+  const status = String(payload.approval?.status ?? "").trim();
+  return {
+    response: payload.response,
+    status: status ? status as DesktopApprovalResult["status"] : undefined,
+    error: payload.approval?.error
+  };
 }
 
 export async function stopDesktopChat(
