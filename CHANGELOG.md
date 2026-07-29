@@ -5,6 +5,11 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-29
+
+### Release: v2.7.2 / Desktop v0.6.9
+- Synchronized the root and Desktop package versions for the new release.
+
 ## 2026-07-28
 
 ### Fixed: approving a Host Bash command ran it in the wrong directory, and the failure was invisible
