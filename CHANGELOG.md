@@ -7,6 +7,9 @@
 ---
 ## 2026-07-30
 
+### Release: v2.7.4 / Desktop v0.7.1
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Improved: every service-log row now opens a readable detail inspector
 - The Service Logs table now shortens long Run IDs to a stable head-and-tail preview and opens the full record from either the row or its Details action, including keyboard activation.
 - Structured Molibot records are rendered as indented JSON with complete correlation identifiers and copy feedback; legacy and third-party lines remain available as unmodified text. The inline raw expander that collapsed into a narrow vertical strip has been removed.
