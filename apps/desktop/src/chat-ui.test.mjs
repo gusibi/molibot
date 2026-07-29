@@ -1326,7 +1326,10 @@ test("usage and trace pages provide full observability dashboards", () => {
   assert.match(styles, /\.observatory-table\s*\{/);
   assert.match(styles, /\.observatory-mobile-list\s*\{/);
   assert.match(styles, /\.observatory-filter-card\s*\{[^}]*margin-bottom:\s*24px/);
-  assert.match(styles, /\.observatory-filter-headline\s*\{/);
+  assert.match(styles, /\.observatory-filter-headline\s*\{[^}]*min-width:\s*0/);
+  assert.match(styles, /\.observatory-field\s*>\s*:is\(\.select-control,\s*\.search-field\)\s*\{[^}]*width:\s*100%/);
+  assert.match(styles, /\.observatory-field\s*>\s*\.search-field input\s*\{[^}]*border:\s*0/);
+  assert.match(styles, /\.observatory-field\s*>\s*\.search-field input:focus-visible\s*\{[^}]*box-shadow:\s*none/);
   assert.match(styles, /\.observatory-advanced-filters\s*>\s*summary\s*\{[^}]*background:\s*transparent/);
 });
 

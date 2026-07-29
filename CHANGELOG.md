@@ -7,6 +7,13 @@
 ---
 ## 2026-07-30
 
+### Release: v2.7.5 / Desktop v0.7.2
+- Released the shared observability-filter layout repair for Usage, Trace, and Service Logs.
+
+### Fixed: Usage, Trace, and Service Log filters no longer overlap
+- Shared Search and Select wrappers now fit their observability-grid columns instead of retaining a 260px settings-form width that covered neighboring controls. Each field keeps a visible 12px gutter, and Search draws one border/focus surface instead of a nested input frame.
+- The filter headline can shrink within its card, preventing longer English actions and metadata from pushing the four-column grid outside the supported 860×620 window. Browser geometry and structural guards cover the shared layout seam.
+
 ### Release: v2.7.4 / Desktop v0.7.1
 - Synchronized the root and Desktop package versions for the new release.
 

@@ -504,8 +504,10 @@ the base to pure black (`#000000`/`#0A0A0A`).
   shallow headline row and never compete with the filter controls for width. Reset is
   tertiary, refresh is an icon utility, and only an explicit commit action may use the
   primary-button weight. Disclosures stay transparent at rest rather than becoming a
-  filled full-width band. Separate the filter surface from the first data summary by
-  24px so controls and results do not read as one crowded block.
+  filled full-width band. Adjacent filter controls keep a visible 12px gutter; shared
+  search/select wrappers fill but never exceed their grid track, and composite search
+  fields draw only one control border. Separate the filter surface from the first data
+  summary by 24px so controls and results do not read as one crowded block.
 - List/detail workspaces use Global Sidebar → 300–320px list pane → flexible detail
   inspector. Below 1100px the inspector becomes a right-side overlay; the minimum
   supported desktop window is 860×620.

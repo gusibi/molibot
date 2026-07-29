@@ -5,6 +5,19 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.19 Release v2.7.5 / Desktop v0.7.2 (2026-07-30)
+
+- **Priority / Status**: P3 / Delivered.
+- **Scope**: publish the shared observability-filter layout repair and synchronize root, Desktop, Tauri, and Cargo versions.
+- **Acceptance**: all version identifiers match `v2.7.5` / `v0.7.2`; the release tag and GitHub release carry the associated changelog notes.
+
+## 3.18 Non-overlapping observability filters (2026-07-30)
+
+- **Priority / Status**: P0 / Delivered.
+- **Problem**: shared Select wrappers kept their 260px settings-form width inside four-column data-page grids, crossing grid tracks and covering adjacent controls; SearchField also inherited a second input border. English toolbar copy could expand the shared grid beyond its card at the 860×620 minimum window.
+- **Decision**: keep one shared observability layout seam. Search and Select wrappers fill exactly one grid track, adjacent controls retain a 12px gutter, composite search inputs delegate border/focus treatment to their wrapper, and the headline row may shrink without setting the grid's intrinsic width.
+- **Acceptance**: Usage, Trace, and Service Logs share the fix; browser geometry reports 12px between controls with no track overflow; Chinese/English, light/dark, and the 860×620 minimum window remain usable; structural regression guards fail if the width, single-border, focus, or headline shrink constraints disappear.
+
 ## 3.17 Inspectable service-log rows (2026-07-30)
 
 - **Priority / Status**: P1 / Delivered.

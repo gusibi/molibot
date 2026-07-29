@@ -25,7 +25,7 @@
 
 Molibot is a local-first personal AI Agent for people who want more than a new chat window. It is built around two promises:
 
-- **Current release.** v2.6.9 (Desktop v0.6.6)
+- **Current release.** v2.7.5 (Desktop v0.7.2)
 
 - **Easy to start.** Download the macOS app, pick a model provider, and start chatting — one runtime serves the Desktop app, Web, Telegram, Feishu, Weixin, QQ, and the CLI.
 - **Grows with you.** Governed long-term memory, daily memory reflection, and reviewable automations mean the Agent learns your preferences, projects, and habits over time — and you always see and control what it remembers.
@@ -105,7 +105,7 @@ Language, startup behavior, menu-bar mode, notifications, and appearance — all
 
 ### Know exactly what your Agent costs
 
-A local usage dashboard tracks requests, token trends, cache hit ratio, and token distribution — aggregate counts only, no credentials ever leave your machine. Range/model/Bot/channel controls keep their own compact filter row, while Trace puts exact diagnostic IDs behind a low-emphasis optional “More filters” disclosure.
+A local usage dashboard tracks requests, token trends, cache hit ratio, and token distribution — aggregate counts only, no credentials ever leave your machine. Range/model/Bot/channel controls keep a compact, evenly spaced filter row without overlapping at the supported minimum window, while Trace puts exact diagnostic IDs behind a low-emphasis optional “More filters” disclosure.
 
 <p align="center">
   <img src="./assets/screenshots/setting-usage.png" alt="Settings — Usage dashboard" width="800" />
