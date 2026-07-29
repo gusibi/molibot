@@ -7,6 +7,9 @@
 ---
 ## 2026-07-29
 
+### Release: v2.7.3 / Desktop v0.7.0
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: Project session images fell back to filename chips after the first session switch
 - **The attachment join went stale at mount and never recovered.** `ProjectChat` fetched its session-file list from a `$: if (projectsStore.endpoint && projectsStore.selectedSessionId) …`. A legacy reactive statement compiles to `legacy_pre_effect(deps, fn)` where Svelte runs `fn` inside `untrack`, and the only dependency the compiler records for an *imported runes `$state` object* is `reactive_import(() => projectsStore)` — a signal that bumps when the **binding** is reassigned, never when a property changes. So the fetch ran exactly once, for whichever session happened to be open at mount; every later session's attachments looked up `fileByLocal` against the previous session's files, missed, and rendered the plain `attachment-chip` fallback (icon + filename) instead of the image. Remounting the pane made it work again, which is why it read as intermittent.
 - Four other statements in the same component were dead for the same reason: the project-settings derivation (`currentProject`, and with it tool-progress / reasoning display), the model-options reload on endpoint change, the per-session model+thinking hydration, and — ironically — the media-cache reset whose own comment says it exists to stop one session's blob URLs rendering on another.
