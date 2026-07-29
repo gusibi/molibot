@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
+  import Dialog from "../components/ui/Dialog.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import SearchField from "../components/ui/SearchField.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
@@ -84,6 +85,8 @@
   let subagent = $state("");
   let page = $state(1);
   let pageSize = $state(50);
+  let selectedLog = $state<ServiceLogRecord | null>(null);
+  let detailCopied = $state(false);
 
   function buildQuery(targetPage = page): ServiceLogQuery {
     return {
@@ -148,6 +151,49 @@
     return [log.provider, log.model, log.tool, log.subagent].filter(Boolean).join(" · ") || "—";
   }
 
+  function compactRunId(value?: string): string {
+    if (!value) return "—";
+    if (value.length <= 28) return value;
+    return `${value.slice(0, 13)}…${value.slice(-12)}`;
+  }
+
+  function structuredLogJson(log: ServiceLogRecord): string | null {
+    const source = log.raw.startsWith("[mom-t] ") ? log.raw.slice(8).trim() : log.raw.trim();
+    if (!source.startsWith("{")) return null;
+    try {
+      const parsed: unknown = JSON.parse(source);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return null;
+    }
+  }
+
+  function detailText(log: ServiceLogRecord): string {
+    return structuredLogJson(log) ?? log.raw;
+  }
+
+  function openLogDetail(log: ServiceLogRecord): void {
+    selectedLog = log;
+    detailCopied = false;
+  }
+
+  function closeLogDetail(): void {
+    selectedLog = null;
+    detailCopied = false;
+  }
+
+  function handleRowKeydown(event: KeyboardEvent, log: ServiceLogRecord): void {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openLogDetail(log);
+  }
+
+  async function copyLogDetail(): Promise<void> {
+    if (!selectedLog) return;
+    await navigator.clipboard.writeText(detailText(selectedLog));
+    detailCopied = true;
+  }
+
   const options = $derived(result?.options ?? emptyOptions);
   const totalPages = $derived(Math.max(1, Math.ceil((result?.total ?? 0) / pageSize)));
   const advancedFilterCount = $derived([event, runId, provider, model, tool, subagent].filter((value) => value.trim()).length);
@@ -195,8 +241,39 @@
   {#if result.truncated}<div class="service-log-notice"><i class="ph ph-info" aria-hidden="true"></i>{session.text.logsTailTruncated}</div>{/if}
   <div class="settings-card observatory-data-card service-log-data-card">
     <div class="observatory-section-head"><div><strong>{session.text.logsRecords}</strong><p>{result.total} {session.text.logsMatches}{#if result.hasRawLines} · {session.text.logsRawCompatibility}{/if}</p></div><button class="tertiary-button" type="button" disabled={opening} onclick={openLogFile}>{session.text.openLogFile}</button></div>
-    <div class="observatory-table-wrap"><table class="observatory-table service-log-table"><thead><tr><th>{session.text.logsTime}</th><th>{session.text.logsLevel}</th><th>{session.text.logsCategory}</th><th>{session.text.logsEvent}</th><th>{session.text.logsContext}</th><th>{session.text.logsStatus}</th><th>{session.text.logsRunId}</th><th>{session.text.logsDetails}</th></tr></thead><tbody>{#each result.items as log (log.id)}<tr><td>{log.ts ? formatNaturalDateTime(log.ts, session.locale) : "—"}</td><td><span class="service-log-level" data-level={log.level}>{log.level.toUpperCase()}</span></td><td>{humanizeTechnicalName(log.category)}</td><td><strong title={log.event}>{log.event}</strong>{#if log.message}<small title={log.message}>{log.message}</small>{/if}</td><td title={contextFor(log)}>{contextFor(log)}</td><td>{#if log.status}<StatusBadge label={humanizeTechnicalName(log.status)} state={statusState(log.status)} />{:else}—{/if}</td><td class="observatory-id" title={log.runId ?? ""}>{log.runId ?? "—"}</td><td><details class="service-log-raw"><summary>{session.text.logsRawLine}</summary><code>{log.raw}</code></details></td></tr>{/each}</tbody></table></div>
-    <div class="observatory-mobile-list">{#each result.items as log (log.id)}<article><header><strong>{log.event}</strong><span class="service-log-level" data-level={log.level}>{log.level.toUpperCase()}</span></header><p>{log.ts ? formatNaturalDateTime(log.ts, session.locale) : "—"} · {humanizeTechnicalName(log.category)}</p><dl><div><dt>{session.text.logsStatus}</dt><dd>{log.status ?? "—"}</dd></div><div><dt>{session.text.logsContext}</dt><dd>{contextFor(log)}</dd></div><div><dt>{session.text.logsRunId}</dt><dd>{log.runId ?? "—"}</dd></div></dl><details class="service-log-raw"><summary>{session.text.logsRawLine}</summary><code>{log.raw}</code></details></article>{/each}</div>
+    <div class="observatory-table-wrap"><table class="observatory-table service-log-table"><thead><tr><th>{session.text.logsTime}</th><th>{session.text.logsLevel}</th><th>{session.text.logsCategory}</th><th>{session.text.logsEvent}</th><th>{session.text.logsStatus}</th><th>{session.text.logsRunId}</th><th>{session.text.logsDetails}</th></tr></thead><tbody>{#each result.items as log (log.id)}<tr class="service-log-row" role="button" tabindex="0" aria-label={`${session.text.logsViewDetails}: ${log.event}`} onclick={() => openLogDetail(log)} onkeydown={(rowEvent) => handleRowKeydown(rowEvent, log)}><td>{log.ts ? formatNaturalDateTime(log.ts, session.locale) : "—"}</td><td><span class="service-log-level" data-level={log.level}>{log.level.toUpperCase()}</span></td><td>{humanizeTechnicalName(log.category)}</td><td><strong title={log.event}>{log.event}</strong><small title={log.message ?? contextFor(log)}>{log.message ?? contextFor(log)}</small></td><td>{#if log.status}<StatusBadge label={humanizeTechnicalName(log.status)} state={statusState(log.status)} />{:else}—{/if}</td><td class="observatory-id" title={log.runId ?? ""}><code class="service-log-run-id">{compactRunId(log.runId)}</code></td><td><span class="service-log-detail-button">{session.text.logsViewDetails}</span></td></tr>{/each}</tbody></table></div>
+    <div class="observatory-mobile-list">{#each result.items as log (log.id)}<div class="service-log-mobile-row" role="button" tabindex="0" aria-label={`${session.text.logsViewDetails}: ${log.event}`} onclick={() => openLogDetail(log)} onkeydown={(rowEvent) => handleRowKeydown(rowEvent, log)}><header><strong>{log.event}</strong><span class="service-log-level" data-level={log.level}>{log.level.toUpperCase()}</span></header><p>{log.ts ? formatNaturalDateTime(log.ts, session.locale) : "—"} · {humanizeTechnicalName(log.category)}</p><dl><div><dt>{session.text.logsStatus}</dt><dd>{log.status ?? "—"}</dd></div><div><dt>{session.text.logsContext}</dt><dd>{contextFor(log)}</dd></div><div><dt>{session.text.logsRunId}</dt><dd title={log.runId ?? ""}>{compactRunId(log.runId)}</dd></div></dl><span class="service-log-detail-button">{session.text.logsViewDetails}</span></div>{/each}</div>
     <div class="observatory-pagination"><span>{session.text.logsPage.replace("{page}", String(page)).replace("{pages}", String(totalPages)).replace("{total}", String(result.total))}</span><div><label>{session.text.logsPageSize}<SelectControl value={String(pageSize)} ariaLabel={session.text.logsPageSize} options={[25, 50, 100].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => { pageSize = Number(value); void loadLogs(1); }} /></label><button class="tertiary-button" type="button" disabled={page <= 1 || refreshing} onclick={previousLogsPage}>{session.text.logsPrevious}</button><button class="tertiary-button" type="button" disabled={page >= totalPages || refreshing} onclick={nextLogsPage}>{session.text.logsNext}</button></div></div>
   </div>
 {/if}
+
+<Dialog open={Boolean(selectedLog)} contentClass="service-log-detail-dialog" labelledBy="service-log-detail-title" describedBy="service-log-detail-description" onOpenChange={(next) => { if (!next) closeLogDetail(); }}>
+  {#if selectedLog}
+    <header class="service-log-detail-head">
+      <div>
+        <span class="service-log-level" data-level={selectedLog.level}>{selectedLog.level.toUpperCase()}</span>
+        <h2 id="service-log-detail-title">{session.text.logsDetailTitle}</h2>
+        <p id="service-log-detail-description">{selectedLog.event} · {selectedLog.ts ? formatNaturalDateTime(selectedLog.ts, session.locale) : session.text.logsRawLine}</p>
+      </div>
+      <button class="modal-close" type="button" aria-label={session.text.logsClose} onclick={closeLogDetail}><i class="ph ph-x" aria-hidden="true"></i></button>
+    </header>
+    <div class="service-log-detail-body">
+      <dl class="service-log-detail-metadata">
+        <div><dt>{session.text.logsRunId}</dt><dd><code>{selectedLog.runId ?? "—"}</code></dd></div>
+        <div><dt>{session.text.logsSessionId}</dt><dd><code>{selectedLog.sessionId ?? "—"}</code></dd></div>
+        <div><dt>{session.text.logsContext}</dt><dd>{contextFor(selectedLog)}</dd></div>
+        <div><dt>{session.text.logsStatus}</dt><dd>{selectedLog.status ? humanizeTechnicalName(selectedLog.status) : "—"}</dd></div>
+        {#if selectedLog.toolCallId}<div><dt>{session.text.logsToolCallId}</dt><dd><code>{selectedLog.toolCallId}</code></dd></div>{/if}
+        {#if selectedLog.delegationId}<div><dt>{session.text.logsDelegationId}</dt><dd><code>{selectedLog.delegationId}</code></dd></div>{/if}
+      </dl>
+      <section class="service-log-detail-payload">
+        <div><strong>{structuredLogJson(selectedLog) ? session.text.logsStructuredJson : session.text.logsRawText}</strong><span>{structuredLogJson(selectedLog) ? "JSON" : "TEXT"}</span></div>
+        <pre><code>{detailText(selectedLog)}</code></pre>
+      </section>
+    </div>
+    <footer class="service-log-detail-foot">
+      <button class="tertiary-button" type="button" onclick={copyLogDetail}><i class={`ph ${detailCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i>{detailCopied ? session.text.logsCopied : session.text.logsCopyContent}</button>
+      <button class="primary-button" type="button" onclick={closeLogDetail}>{session.text.logsClose}</button>
+    </footer>
+  {/if}
+</Dialog>

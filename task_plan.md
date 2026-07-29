@@ -23,12 +23,75 @@ Complete
 ## Errors encountered
 | Error | Attempt | Resolution |
 | --- | --- | --- |
+| Initial combined inventory pattern had an unmatched shell quote | 1 | Split the search into simpler single-quoted patterns; do not repeat the compound quote construction. |
+| `cargo tree` was invoked from the repository root, which has no Cargo manifest | 1 | Run Rust dependency inspection from `apps/desktop/src-tauri`; the source/tests and whitespace checks in the same command already completed successfully. |
+| Planning completion helper reported 2/7 because this accumulated file contains many historical task formats | 1 | Do not rewrite prior task history; this isolated section explicitly marks all five phases complete and is the authoritative completion record. |
 | Parallel test poll queried sessions after both processes had already completed | 1 | Treat the captured complete Desktop output as final; rerun Agent with the dot reporter to obtain an untruncated exit/result summary instead of polling closed sessions again. |
 | “1 + 2” was initially interpreted as a single merged page | 1 | User clarified that Option 1 is Overview and Option 2 is Topics; implementation now treats them as independent tabs. |
 | `rg` treated a search pattern beginning with `--` as a command flag | 1 | Re-ran with `rg -e` and the same literal alternatives; source inspection completed. |
 | Root `node_modules/.bin` does not expose `svelte-check` | 1 | Run the package-scoped `pnpm exec svelte-check` command instead of repeating the missing root binary path. |
 | Existing dialog structure test required `aria-label` on the memory form itself | 1 | Restored the form label while keeping the enclosing semantic dialog; no product behavior changed. |
 | New projection regression test initially called the fixture helper by the wrong name | 1 | Replaced `item(...)` with the existing `memory(...)` fixture and reran the unchanged assertion; 4/4 projection tests pass. |
+
+---
+# Service-log row detail dialog (2026-07-30)
+
+## Goal
+Make the Desktop Service Logs table readable: compact long Run IDs, make each log row clearly inspectable, and show full structured JSON or raw legacy text in an accessible copyable Dialog without changing Trace.
+
+## Current phase
+Complete — compact rows, shared detail Dialog, bilingual responsive styling, verification, and records finished
+
+## Phases
+1. Inspect the reported viewport, current table/Dialog contracts, and add red structural behavior guards — complete
+2. Implement compact row projection, detail state, JSON formatting, copy action, and shared Dialog — complete
+3. Add responsive/theme-safe semantic styling and bilingual copy — complete
+4. Run UI diagnostics/build, update records, and adversarially review — complete
+
+## Verification gates
+- A long Run ID shows a stable head/ellipsis/tail preview of roughly 24–30 characters and exposes the complete value in the detail Dialog.
+- Clicking a row or its explicit Details action opens one shared Dialog; keyboard activation and nested controls do not double-trigger.
+- Structured `[mom-t] {…}` records render as indented valid JSON; legacy/third-party records render as full raw text.
+- The Dialog exposes copy feedback and all available correlation metadata without horizontal page overflow.
+- Chinese/English, light/dark, 860×620, narrow mobile cards, Svelte diagnostics, UI tests, and production build pass.
+- SQLite Trace remains untouched; existing uncommitted rolling-log work remains preserved.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Svelte accessibility diagnostics rejected keyboard listeners on a plain mobile `article` | 1 | Use an explicit keyboard-activatable `div role="button"` projection and retain the nested Details button for discoverability. |
+
+---
+# Bounded rolling service logs (2026-07-30)
+
+## Goal
+Give every normal file-backed service log a configurable, deterministic maximum size; when the active file reaches the limit, archive it and continue in a new file using a maintained logging/rotation component where it fits the runtime, without changing SQLite Trace.
+
+## Current phase
+Complete — live hard-size rolling, bounded archives, lifecycle draining, verification, and records finished
+
+## Phases
+1. Inventory every normal log file, writer, startup mode, dependency, and historical pitfall — complete
+2. Choose the narrow shared rolling boundary and add failing rotation/compatibility regressions — complete
+3. Implement bounded archival for every in-scope file-backed log — complete
+4. Verify CLI/Desktop/restart behavior, retention, concurrency, and existing structured filtering — complete
+5. Update product records and run adversarial review — complete
+
+## Verification gates
+- SQLite Trace files, schema, APIs, recorder, and UI remain untouched.
+- Every in-scope file-backed normal log has an explicit maximum size and bounded archive retention.
+- Rotation never truncates the only copy, loses the triggering record, or leaves the writer attached to an archived inode.
+- Desktop structured filters keep working across a rotation and disclose the searchable history boundary.
+- Direct CLI/service and Desktop-managed startup paths have a clear, tested behavior rather than depending on an accidental environment variable.
+- No new SDK is introduced unless it materially improves correctness and fits the existing Node/Rust process boundary better than the current dependency set.
+
+## Assumptions
+- “日志文件” means operational/service log files, not SQLite Trace or conversation/session persistence.
+- Existing archive files should be bounded by count; compression and time-based rotation are optional unless already supported by the chosen component.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
 
 ---
 

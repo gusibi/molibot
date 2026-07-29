@@ -18,6 +18,32 @@
 - GitHub Release `v2.5.0` is published, non-draft, and non-prerelease at `https://github.com/gusibi/molibot/releases/tag/v2.5.0`; PR #15 is merged at `cb3e6175`.
 
 ---
+# Service-log row detail dialog (2026-07-30)
+
+- The screenshot confirms the table's 1040px minimum width plus an unbounded Run ID column forces horizontal overflow; the inline raw `<details>` then collapses into an unusably narrow vertical strip.
+- The current record DTO already carries raw text plus parsed event/status/provider/model/tool/session/run/delegation fields, so no native or Trace API change is needed for the requested detail view.
+- The shared Bits UI `Dialog.svelte` already owns Escape, outside-click, focus, overlay, and modal semantics. Reusing it is safer than a page-local overlay.
+- Structured lines can be detected narrowly from the `[mom-t] ` prefix and parsed with `JSON.parse`; parsing failure must fall back to untouched raw text so legacy or malformed third-party output remains inspectable.
+- Design direction: restrained operations inspector. The table remains dense and scannable; one selected record opens a larger monospace evidence surface with metadata rail, explicit copy, and no decorative motion.
+- The final table drops the separate Context column and projects message/context beneath Event, reducing the minimum width from 1040px to 880px without losing information; complete context remains in the Dialog.
+
+---
+# Bounded rolling service logs (2026-07-30)
+
+- The normal App service log has one physical writer: Desktop Supervisor redirects the child process's combined stdout/stderr to `runtime/desktop-sidecar.log`. Node's `momLog` writes to console and therefore does not own the file.
+- The existing 20 MiB / five-generation rotation runs only immediately before `spawn_child`. It bounds startup state but does **not** rotate a long-lived process at the moment it crosses the limit; renaming the open file later would leave the child writing to the archived inode.
+- No Pino/Winston/log4js/rotating-file or Rust rolling-appender dependency exists today.
+- Other `.jsonl` appenders found in sessions, usage, memory governance, delivery audit, and model-error history are application data/audit stores with their own readers and semantics, not console/service log sinks. Host-bash/tool `.log` files are bounded per-command capture artifacts. Treating all of these as interchangeable rotating service logs would corrupt retention/query contracts.
+- The correct shared boundary for ordinary service output is the Desktop Supervisor's child stdout/stderr ownership. A Node logging SDK alone cannot capture arbitrary `console.*`, dependency output, and child stderr already redirected by Rust.
+- Historical records confirm operational JSONL stores are intentional append-only data products. SQLite Trace remains explicitly outside this task.
+- Official `file-rotate` 0.8 documentation exposes a standard `std::io::Write` middleware, byte-based limits, `AppendCount` bounded generations, and no-compression archives. `ContentLimit::BytesSurpassed` preserves a complete write buffer before rotating, unlike exact `Bytes`, which may split one write across files.
+- `tracing-appender` is maintained but its official rolling policy is time-period based rather than size based, and it would still require replacing/capturing all child stdout/stderr. `file-rotate` fits the existing Supervisor pipe boundary more directly.
+- To preserve one JSON/pretty record, stdout and stderr should be piped and copied line-by-line into one mutex-protected `FileRotate` writer. Each complete line becomes one write buffer, so a size-triggered rollover cannot split the record between archive and active file.
+- Final implementation uses `file-rotate` for archive naming, cascading, and retention, plus a small record-aware hard-limit wrapper. Normal records rotate before writing when they would cross 20 MiB; a pathological single record larger than the entire limit is byte-split without loss so every generation still respects the hard cap.
+- Adversarial review checked five failure paths: long-lived processes never restarting, stdout/stderr racing one archive set, restart before pipe drain, a single record larger than the cap, and retention overflow. Dedicated tests cover all five relevant native seams; no Trace/SQLite path changed.
+- Existing legacy files created before this implementation are not destructively rewritten at upgrade. The first new record moves an oversized active legacy file into history, after which every newly created generation is bounded. This preserves the only historical copy instead of risking an in-place migration.
+
+---
 
 # Provider model live refresh bug (2026-07-27)
 

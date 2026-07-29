@@ -1,13 +1,19 @@
 use crate::service::{
     is_compatible_handshake, ServiceHandshake, ServiceOwnership, ServiceState, ServiceStatus,
 };
+use file_rotate::{
+    compression::Compression,
+    suffix::AppendCount,
+    ContentLimit,
+    FileRotate,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
 use std::ffi::OsString;
 use std::collections::BTreeSet;
-use std::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, remove_file, rename, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, rename, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -73,6 +79,28 @@ enum ChildOutcome {
     Restart,
     Stop,
     Exited,
+}
+
+struct ManagedChild {
+    process: Child,
+    log_pumps: Vec<thread::JoinHandle<()>>,
+}
+
+impl ManagedChild {
+    fn finish_log_pumps(&mut self) {
+        for pump in self.log_pumps.drain(..) {
+            let _ = pump.join();
+        }
+    }
+
+    fn has_exited(&mut self) -> bool {
+        if matches!(self.process.try_wait(), Ok(Some(_))) {
+            self.finish_log_pumps();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 fn set_status(status: &Arc<Mutex<ServiceStatus>>, next: ServiceStatus) {
@@ -611,40 +639,117 @@ fn preferred_port(data_dir: &Path) -> u16 {
         .unwrap_or(DEFAULT_PORT)
 }
 
-fn open_log(data_dir: &Path) -> Result<File, String> {
+struct RecordRollingWriter {
+    writer: FileRotate<AppendCount>,
+    max_bytes: usize,
+    current_bytes: usize,
+}
+
+impl RecordRollingWriter {
+    fn write_record(&mut self, record: &[u8]) -> io::Result<()> {
+        if record.len() <= self.max_bytes
+            && self.current_bytes > 0
+            && self.current_bytes + record.len() > self.max_bytes
+        {
+            self.writer.rotate()?;
+            self.current_bytes = 0;
+        }
+
+        let mut remaining = record;
+        while !remaining.is_empty() {
+            if self.current_bytes >= self.max_bytes {
+                self.writer.rotate()?;
+                self.current_bytes = 0;
+            }
+            let write_len = remaining.len().min(self.max_bytes - self.current_bytes);
+            self.writer.write_all(&remaining[..write_len])?;
+            self.current_bytes += write_len;
+            remaining = &remaining[write_len..];
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
+}
+
+type RollingLogWriter = Arc<Mutex<RecordRollingWriter>>;
+
+fn open_rolling_log(
+    data_dir: &Path,
+    max_bytes: usize,
+    archive_count: usize,
+) -> Result<RollingLogWriter, String> {
+    if max_bytes == 0 {
+        return Err("service log maximum size must be greater than zero".into());
+    }
     let runtime_dir = data_dir.join("runtime");
     create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
-    rotate_service_logs(data_dir)?;
+    let path = runtime_dir.join("desktop-sidecar.log");
+    // Fail service startup with a useful error if the log path is not writable.
+    // FileRotate opens lazily and otherwise treats open failures as dropped output.
     OpenOptions::new()
+        .read(true)
         .create(true)
         .append(true)
-        .open(runtime_dir.join("desktop-sidecar.log"))
-        .map_err(|error| error.to_string())
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    let current_bytes = metadata(&path)
+        .map(|metadata| metadata.len() as usize)
+        .unwrap_or(0);
+    Ok(Arc::new(Mutex::new(RecordRollingWriter {
+        writer: FileRotate::new(
+            path,
+            AppendCount::new(archive_count),
+            ContentLimit::None,
+            Compression::None,
+            None,
+        ),
+        max_bytes,
+        current_bytes,
+    })))
 }
 
-fn rotate_service_logs(data_dir: &Path) -> Result<(), String> {
-    let runtime_dir = data_dir.join("runtime");
-    let active = runtime_dir.join("desktop-sidecar.log");
-    let size = metadata(&active).map(|metadata| metadata.len()).unwrap_or(0);
-    if size <= LOG_ROTATE_BYTES { return Ok(()); }
-    let oldest = runtime_dir.join(format!("desktop-sidecar.log.{LOG_ROTATE_GENERATIONS}"));
-    if oldest.exists() { remove_file(&oldest).map_err(|error| error.to_string())?; }
-    for generation in (1..LOG_ROTATE_GENERATIONS).rev() {
-        let from = runtime_dir.join(format!("desktop-sidecar.log.{generation}"));
-        if from.exists() {
-            let to = runtime_dir.join(format!("desktop-sidecar.log.{}", generation + 1));
-            rename(from, to).map_err(|error| error.to_string())?;
+fn spawn_log_pump<R>(reader: R, writer: RollingLogWriter) -> thread::JoinHandle<()>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        let mut record = Vec::new();
+        loop {
+            record.clear();
+            match reader.read_until(b'\n', &mut record) {
+                Ok(0) => break,
+                Ok(_) => {
+                    let result = writer
+                        .lock()
+                        .map_err(|_| "rolling log writer lock was poisoned".to_string())
+                        .and_then(|mut writer| writer.write_record(&record).map_err(|error| error.to_string()));
+                    if let Err(error) = result {
+                        eprintln!("[desktop] failed to write service log: {error}");
+                        break;
+                    }
+                }
+                Err(error) => {
+                    eprintln!("[desktop] failed to read service output: {error}");
+                    break;
+                }
+            }
         }
-    }
-    if active.exists() {
-        rename(active, runtime_dir.join("desktop-sidecar.log.1")).map_err(|error| error.to_string())?;
-    }
-    Ok(())
+        if let Ok(mut writer) = writer.lock() {
+            let _ = writer.flush();
+        }
+    })
 }
 
-fn spawn_child(layout: &RuntimeLayout, data_dir: &Path, port: u16) -> Result<Child, String> {
-    let log = open_log(data_dir)?;
-    let stderr = log.try_clone().map_err(|error| error.to_string())?;
+fn spawn_child(layout: &RuntimeLayout, data_dir: &Path, port: u16) -> Result<ManagedChild, String> {
+    let log = open_rolling_log(
+        data_dir,
+        LOG_ROTATE_BYTES as usize,
+        LOG_ROTATE_GENERATIONS,
+    )?;
     let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     let mut command = Command::new(&layout.node_binary);
     command
@@ -672,28 +777,40 @@ fn spawn_child(layout: &RuntimeLayout, data_dir: &Path, port: u16) -> Result<Chi
             ),
         }
     }
-    command
+    let mut child = command
         .stdin(Stdio::null())
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(stderr))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    let stdout = child.stdout.take().ok_or("service stdout pipe is unavailable")?;
+    let stderr = child.stderr.take().ok_or("service stderr pipe is unavailable")?;
+    let stdout_pump = spawn_log_pump(stdout, Arc::clone(&log));
+    let stderr_pump = spawn_log_pump(stderr, log);
+    Ok(ManagedChild {
+        process: child,
+        log_pumps: vec![stdout_pump, stderr_pump],
+    })
 }
 
-fn stop_child(child: &mut Child) {
+fn stop_child(child: &mut ManagedChild) {
     #[cfg(unix)]
     unsafe {
-        libc::kill(child.id() as i32, libc::SIGTERM);
+        libc::kill(child.process.id() as i32, libc::SIGTERM);
     }
     for _ in 0..50 {
-        match child.try_wait() {
-            Ok(Some(_)) => return,
+        match child.process.try_wait() {
+            Ok(Some(_)) => {
+                child.finish_log_pumps();
+                return;
+            }
             Ok(None) => thread::sleep(Duration::from_millis(100)),
             Err(_) => break,
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    let _ = child.process.kill();
+    let _ = child.process.wait();
+    child.finish_log_pumps();
 }
 
 fn stop_process(pid: u32) {
@@ -739,7 +856,7 @@ fn supervise_adopted(
 }
 
 fn supervise_child(
-    child: &mut Child,
+    child: &mut ManagedChild,
     endpoint: &str,
     status: &Arc<Mutex<ServiceStatus>>,
     commands: &Receiver<ServiceCommand>,
@@ -762,7 +879,7 @@ fn supervise_child(
             }
             Err(RecvTimeoutError::Timeout) => {}
         }
-        if matches!(child.try_wait(), Ok(Some(_))) {
+        if child.has_exited() {
             return ChildOutcome::Exited;
         }
         if let Some(handshake) = probe_handshake(endpoint) {
@@ -814,7 +931,7 @@ fn supervise_child(
             }
             Err(RecvTimeoutError::Timeout) => {}
         }
-        if matches!(child.try_wait(), Ok(Some(_))) {
+        if child.has_exited() {
             return ChildOutcome::Exited;
         }
     }
@@ -1098,25 +1215,94 @@ mod tests {
     #[test]
     fn log_rotation_bounds_active_file_and_keeps_recent_history() {
         let temp_dir = env::temp_dir().join(format!("molibot-log-rotate-{}", Uuid::new_v4()));
-        create_dir_all(temp_dir.join("runtime")).expect("create rotation fixture");
         let active = temp_dir.join("runtime/desktop-sidecar.log");
-        write(&active, vec![b'x'; LOG_ROTATE_BYTES as usize + 1]).expect("write oversized log");
+        let writer = open_rolling_log(&temp_dir, 80, 2).expect("open rolling log");
+        let records = (0..12)
+            .map(|index| format!("record-{index:02}-complete\n"))
+            .collect::<String>();
+        let pump = spawn_log_pump(std::io::Cursor::new(records.clone()), writer);
+        pump.join().expect("join log pump");
 
-        rotate_service_logs(&temp_dir).expect("rotate service log");
-
-        assert!(!active.exists());
+        assert!(active.exists());
         assert!(temp_dir.join("runtime/desktop-sidecar.log.1").exists());
+        assert!(temp_dir.join("runtime/desktop-sidecar.log.2").exists());
+        assert!(!temp_dir.join("runtime/desktop-sidecar.log.3").exists());
+        for path in [&active, &temp_dir.join("runtime/desktop-sidecar.log.1"), &temp_dir.join("runtime/desktop-sidecar.log.2")] {
+            assert!(metadata(path).expect("read rolling log metadata").len() <= 80);
+            let text = read_to_string(path).expect("read rolling log generation");
+            assert!(text.lines().all(|line| line.starts_with("record-") && line.ends_with("-complete")));
+        }
 
-        write(
-            &active,
-            "[mom-t] {\"ts\":\"2026-07-29T12:00:00Z\",\"level\":\"info\",\"category\":\"llm\",\"event\":\"llm_request_sent\",\"schemaVersion\":1}\n",
-        )
-        .expect("write restarted active log");
+        let reconstructed = [
+            temp_dir.join("runtime/desktop-sidecar.log.2"),
+            temp_dir.join("runtime/desktop-sidecar.log.1"),
+            active.clone(),
+        ]
+        .iter()
+        .map(|path| read_to_string(path).expect("read ordered rolling generation"))
+        .collect::<String>();
+        assert_eq!(reconstructed, records);
+
         let restarted = query_service_log(&active, ServiceLogQuery::default())
             .expect("query restarted active log");
-        assert_eq!(restarted.items.len(), 1);
-        assert_eq!(restarted.items[0].category, "llm");
+        assert!(!restarted.items.is_empty());
         remove_dir_all(temp_dir).expect("remove rotation fixture");
+    }
+
+    #[test]
+    fn managed_log_pumps_flush_both_streams_before_restart() {
+        let temp_dir = env::temp_dir().join(format!("molibot-log-pumps-{}", Uuid::new_v4()));
+        let writer = open_rolling_log(&temp_dir, 1024, 2).expect("open rolling log");
+        let mut process = Command::new("sh")
+            .arg("-c")
+            .arg("printf 'stdout-record\\n'; printf 'stderr-record\\n' >&2")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn output fixture");
+        let stdout = process.stdout.take().expect("take stdout");
+        let stderr = process.stderr.take().expect("take stderr");
+        let mut child = ManagedChild {
+            process,
+            log_pumps: vec![
+                spawn_log_pump(stdout, Arc::clone(&writer)),
+                spawn_log_pump(stderr, writer),
+            ],
+        };
+
+        while !child.has_exited() {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(child.log_pumps.is_empty());
+        let text = read_to_string(temp_dir.join("runtime/desktop-sidecar.log"))
+            .expect("read flushed service log");
+        assert!(text.contains("stdout-record\n"));
+        assert!(text.contains("stderr-record\n"));
+        remove_dir_all(temp_dir).expect("remove log pump fixture");
+    }
+
+    #[test]
+    fn oversized_single_log_record_still_respects_the_hard_file_limit() {
+        let temp_dir = env::temp_dir().join(format!("molibot-log-oversized-{}", Uuid::new_v4()));
+        let writer = open_rolling_log(&temp_dir, 80, 3).expect("open rolling log");
+        let record = vec![b'x'; 180];
+        spawn_log_pump(std::io::Cursor::new(record.clone()), writer)
+            .join()
+            .expect("join oversized record pump");
+
+        let paths = [
+            temp_dir.join("runtime/desktop-sidecar.log.2"),
+            temp_dir.join("runtime/desktop-sidecar.log.1"),
+            temp_dir.join("runtime/desktop-sidecar.log"),
+        ];
+        let mut reconstructed = Vec::new();
+        for path in paths {
+            assert!(metadata(&path).expect("read oversized generation metadata").len() <= 80);
+            reconstructed.extend(std::fs::read(path).expect("read oversized generation"));
+        }
+        assert_eq!(reconstructed, record);
+        remove_dir_all(temp_dir).expect("remove oversized record fixture");
     }
 
     #[test]
@@ -1124,12 +1310,16 @@ mod tests {
         let temp_dir = env::temp_dir().join(format!("molibot-supervisor-{}", Uuid::new_v4()));
         create_dir_all(&temp_dir).expect("create temp dir");
         let marker = temp_dir.join("terminated");
-        let mut child = Command::new("sh")
+        let process = Command::new("sh")
             .arg("-c")
             .arg("trap 'printf term > \"$MARKER\"; exit 0' TERM; while :; do sleep 0.1; done")
             .env("MARKER", &marker)
             .spawn()
             .expect("spawn signal fixture");
+        let mut child = ManagedChild {
+            process,
+            log_pumps: Vec::new(),
+        };
         thread::sleep(Duration::from_millis(100));
         stop_child(&mut child);
         assert_eq!(read_to_string(&marker).expect("SIGTERM marker"), "term");

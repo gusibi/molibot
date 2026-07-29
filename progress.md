@@ -10,6 +10,28 @@
 - Final verification: projection 4/4, Desktop UI/HTTP 55/55, Desktop API 72/72, Svelte 0/0, `git diff --check`, and Desktop production build pass. Existing bundle-size/dynamic-import advisories remain unchanged.
 
 ---
+# Service-log row detail dialog (2026-07-30)
+
+- Loaded the frontend-design guidance, inspected the supplied screenshot at original resolution, and audited the shared Dialog and current Service Logs implementation.
+- Confirmed this is a presentation/interaction defect: the existing backend payload already contains everything needed. Phase 1 is adding machine guards before implementation.
+- Added the red UI contract, then implemented compact Run IDs, whole-row keyboard/pointer activation, a shared accessible detail Dialog, complete correlation metadata, pretty JSON/raw fallback, and copy feedback.
+- Added bilingual semantic styling for the dense table, responsive cards, long identifiers, and scrollable evidence surface. Svelte diagnostics pass with 0 errors and 0 warnings.
+- Full Desktop UI/build verification and adversarial review pass; product records updated. **Status: complete.**
+
+---
+# Bounded rolling service logs (2026-07-30)
+
+- Loaded the file-based planning workflow and established explicit scope: normal file-backed service logs only; SQLite Trace remains excluded.
+- Phase 1 is in progress: enumerate writers and existing dependencies before choosing an SDK or expanding the current native rotation.
+- Inventory found one ordinary file-backed service sink (`desktop-sidecar.log`) plus several JSONL persistence/audit stores that must not inherit generic file rotation. The current pre-spawn rotation cannot enforce the cap during a long-lived process.
+- Selected the maintained Rust `file-rotate` writer at the actual stdout/stderr ownership boundary. The design pipes both streams and writes complete lines through one shared size-bounded writer, retaining five numbered archives.
+- Implemented live rolling output and replaced direct child file descriptors with two line-aware pumps sharing one writer. Managed child lifecycle now drains both pumps before restart/stop completion.
+- Added regressions for live size rotation, bounded archive count, intact records, structured-query compatibility after rotation, and stdout/stderr flush ownership.
+- Tightened the SDK integration from a soft threshold to a hard per-file cap while retaining complete normal records; an oversized single-record regression proves byte preservation across bounded generations.
+- Final verification passes: native Rust 26/26, logger/runtime 5/5, Desktop UI 97/97, Desktop production build, dependency-tree inspection, `git diff --check`, and a changed-file audit confirming SQLite Trace is untouched.
+- Updated features, PRD, changelog, README, findings, plan, and progress records. **Status: complete.**
+
+---
 
 # Provider model live refresh bug (2026-07-27)
 

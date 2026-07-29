@@ -136,6 +136,18 @@ test("service logs expose structured filters, paginated records, and raw-line co
   assert.doesNotMatch(logsSection, /<style/);
 });
 
+test("service log rows open a readable JSON detail dialog and compact long Run IDs", () => {
+  assert.match(logsSection, /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
+  assert.match(logsSection, /let selectedLog = \$state<ServiceLogRecord \| null>\(null\)/);
+  assert.match(logsSection, /function compactRunId\(/);
+  assert.match(logsSection, /compactRunId\(log\.runId\)/);
+  assert.match(logsSection, /JSON\.stringify\(parsed, null, 2\)/);
+  assert.match(logsSection, /navigator\.clipboard\.writeText/);
+  assert.match(logsSection, /<Dialog[\s\S]*logsDetailTitle/);
+  assert.match(logsSection, /class="service-log-row"[\s\S]*onclick=\{\(\) => openLogDetail\(log\)\}/);
+  assert.doesNotMatch(logsSection, /<details class="service-log-raw"/);
+});
+
 test("reported Desktop settings pages use the shared macOS-style IosSwitch", () => {
   const affectedSettingsSections = [
     "SkillsSection",

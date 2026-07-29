@@ -5,6 +5,17 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-30
+
+### Improved: every service-log row now opens a readable detail inspector
+- The Service Logs table now shortens long Run IDs to a stable head-and-tail preview and opens the full record from either the row or its Details action, including keyboard activation.
+- Structured Molibot records are rendered as indented JSON with complete correlation identifiers and copy feedback; legacy and third-party lines remain available as unmodified text. The inline raw expander that collapsed into a narrow vertical strip has been removed.
+
+### Fixed: service-log size limits now apply while the App keeps running
+- Replaced the startup-only hand-written size check with the maintained Rust `file-rotate` writer at Desktop Supervisor's stdout/stderr boundary. `desktop-sidecar.log` now rolls live after 20 MiB into numbered archives and retains the newest five generations.
+- Both child streams are copied as complete lines through one synchronized writer, preserving normal structured records. Stop, crash, and restart paths drain the log pumps before the next managed runtime starts, avoiding concurrent archive ownership or lost tail output.
+- SQLite Trace and application JSONL stores remain unchanged because they have separate persistence/query semantics and are not ordinary service-log sinks.
+
 ## 2026-07-29
 
 ### Added: structured, filterable Desktop service logs

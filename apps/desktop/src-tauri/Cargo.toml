@@ -18,6 +18,7 @@ serde_json = "1"
 libc = "0.2"
 cpal = "0.15"
 hound = "3"
+file-rotate = "0.8"
 base64 = "0.22"
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-autostart = "2"

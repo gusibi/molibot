@@ -5,6 +5,24 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.17 Inspectable service-log rows (2026-07-30)
+
+- **Priority / Status**: P1 / Delivered.
+- **Problem**: complete Run IDs and inline raw-log expanders made the Service Logs table wider than its viewport, while expanded content wrapped into an unreadable narrow strip.
+- **Decision**: keep the list as a compact scan surface and move full evidence into the shared accessible Dialog. Show stable head/ellipsis/tail Run ID previews, full correlation metadata, pretty JSON for structured records, untouched text fallback, and copy feedback.
+- **Acceptance**: row/button/keyboard activation opens the same detail view; full identifiers remain available; JSON is indented; legacy text is preserved; Chinese/English, themes, and responsive layouts remain supported; SQLite Trace is unchanged.
+
+## 3.16 Live size-based service-log rotation (2026-07-30)
+
+- **Priority / Status**: P1 / Delivered.
+- **Problem**: the existing service-log rotation checked size only before spawning the managed runtime, so a continuously running App could let the active file grow past its intended limit indefinitely.
+- **Decision**: pipe both managed child streams through one `file-rotate` writer owned by Desktop Supervisor. Rotate after the 20 MiB threshold, retain five numbered archives, and drain both pumps before a replacement child can start. Keep SQLite Trace and semantic JSONL stores outside this generic operational-log policy.
+- **Acceptance**:
+  - Rotation happens while the process is running and does not require a service restart.
+  - Complete normal log records are written atomically to one generation; stdout and stderr share one synchronized writer.
+  - A stop/restart waits for pending output to flush before another writer owns the same archive set.
+  - Archive count stays bounded and existing structured service-log parsing remains compatible.
+
 ## 3.15 Structured Desktop service-log filtering (2026-07-29)
 
 - **Priority / Status**: P1 / Delivered.
