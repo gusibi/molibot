@@ -2877,8 +2877,18 @@ select.provider-input { padding-right: 6px; }
 .settings-content .settings-footbar { position: absolute; right: 0; bottom: 0; left: 0; margin-top: 0; }
 .settings-content .settings-scroll:has(.settings-footbar) { padding-bottom: 72px; }
 .logs-section-head { display: flex; align-items: center; justify-content: flex-end; gap: 16px; width: var(--settings-col); margin: 12px auto 8px; }
-.logs-card { margin-bottom: 28px; overflow: hidden; }
-.logs-card pre { max-height: calc(100vh - 190px); margin: 0; padding: 16px; overflow: auto; background: var(--code-bg); color: var(--code-text); font: 11px/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.service-log-notice { display: flex; align-items: flex-start; gap: 8px; margin: -12px 0 12px; padding: 9px 12px; border-radius: var(--rounded-sm); background: var(--accent-soft); color: var(--label-secondary); font-size: 11px; line-height: 1.45; }
+.service-log-data-card { margin-bottom: 28px; }
+.service-log-table { min-width: 1040px; }
+.service-log-level { display: inline-flex; align-items: center; min-height: 20px; padding: 0 6px; border-radius: var(--rounded-full); background: var(--fill); color: var(--label-secondary); font-size: 11px; font-weight: 700; letter-spacing: .03em; }
+.service-log-level[data-level="warn"] { background: color-mix(in srgb, var(--warning) 12%, transparent); color: var(--warning-text); }
+.service-log-level[data-level="error"] { background: color-mix(in srgb, var(--danger) 11%, transparent); color: var(--danger); }
+.service-log-raw { max-width: 420px; }
+.service-log-raw summary { color: var(--accent); cursor: pointer; font-size: 11px; list-style: none; }
+.service-log-raw summary::-webkit-details-marker { display: none; }
+.service-log-raw summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.service-log-raw code { display: block; max-height: 150px; margin-top: 7px; padding: 9px; overflow: auto; border-radius: var(--rounded-sm); background: var(--code-bg); color: var(--code-text); font: 10px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.observatory-mobile-list .service-log-raw { max-width: none; margin-top: 10px; }
 .settings-footbar-label { font-size: 13px; font-weight: 500; color: var(--label-secondary); }
 .settings-footbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .settings-footbar-notice { justify-content: flex-end; }

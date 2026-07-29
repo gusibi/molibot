@@ -1936,3 +1936,23 @@
 - Updated DESIGN, PRD, features, changelog, README, and task records. Adversarial review completed with five concrete failure paths checked and no remaining task-scoped defect.
 
 ---
+# Structured service-log filtering (2026-07-29)
+
+- Created isolated WorkTree `/Users/gusi/Github/molipibot-structured-service-logs` on `codex/structured-service-logs` from `eb6dba039`.
+- Read the full frontend-design skill and authoritative Desktop product rules in `DESIGN.md`.
+- Confirmed implementation scope and success gates; no SQLite Trace files will be changed.
+- Phase 1 is in progress; next step is narrow source/test/component discovery and red regressions.
+- Located the native file boundary, current single-string command, existing global log styles, shared UI components, and Desktop structural test seam.
+- Confirmed stdout/stderr converge into the same append-only file and that the current Logs page has no behavioral parser/query tests.
+- Confirmed native parser/rotation can be tested with existing Rust temp fixtures and no dependency addition.
+- Selected Desktop-managed JSON output via Supervisor environment rather than changing pretty output for every CLI/development launch.
+- Added red regressions for structured envelope/redaction, Subagent event visibility, tool correlation, native mixed-log filtering/pagination, rotation, and the Desktop filter surface.
+- Desktop structural red test fails on the intended old UI. TS and Rust red commands first hit harness invocation issues recorded in `task_plan.md`; commands will be corrected before implementation.
+- Completed the baseline audit and captured deterministic red coverage at the logger, runtime-hook, native parser/query/rotation, and Desktop UI seams.
+- Implemented the first runtime slice: versioned level/category envelopes, centralized recursive secret redaction, LLM/tool/Subagent correlation fields, default Subagent internal-event visibility, Desktop-managed JSON output, native mixed-line parsing/filtering/pagination, and bounded log rotation. Compilation and focused regression convergence are now in progress.
+- Completed the bilingual responsive Service Logs page with shared filter controls, table/mobile projections, raw-line details, pagination, truncation disclosure, and a widened data-page layout.
+- Final verification passes: logger/runtime 5/5 plus Subagent 37/37, Desktop UI 97/97, native Rust 24/24, Svelte diagnostics 0 errors / 0 warnings, Desktop production build, and `git diff --check`. The native rotation regression simulates a restart by querying a fresh structured active file after rotation.
+- Updated features, PRD, changelog, README, and task records. Adversarial review completed; no Trace or SQLite path appears in the changed-file set.
+- **Status:** complete.
+
+---

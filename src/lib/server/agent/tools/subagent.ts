@@ -796,6 +796,9 @@ interface RunSingleSubagentOptions {
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
   signal?: AbortSignal;
   subagentSessionId?: string;
+  parentRunId?: string;
+  delegationId?: string;
+  subagentTaskId?: string;
 }
 
 export function buildSubagentPiSettings(settings: RuntimeSettings): {
@@ -856,7 +859,14 @@ async function runSubagentOnce(
   runtime: SubagentAttemptRuntime
 ): Promise<SubagentRunResult> {
   const { model, modelRuntime, guard, startedAt } = runtime;
+  const logContext = {
+    runId: options.parentRunId,
+    delegationId: options.delegationId,
+    subagentTaskId: options.subagentTaskId,
+    subagentSessionId: options.subagentSessionId
+  };
   momLog("runner", "subagent_model_resolved", {
+    ...logContext,
     chatId: options.chatId,
     agent: agent.name,
     modelId: model.id,
@@ -939,6 +949,7 @@ async function runSubagentOnce(
     const evaluation = evaluateSubagentEvent(guard, event);
     if (evaluation.abort) {
       momWarn("runner", "subagent_budget_abort", {
+        ...logContext,
         chatId: options.chatId,
         agent: agent.name,
         stopKind: guard.getStopReason()?.kind,
@@ -951,9 +962,11 @@ async function runSubagentOnce(
     if (event.type === "message_start" && event.message?.role === "assistant") {
       subagentLlmCallCount += 1;
       momLog("runner", "subagent_llm_call_start", {
+        ...logContext,
         chatId: options.chatId,
         agent: agent.name,
-        callIndex: subagentLlmCallCount
+        callIndex: subagentLlmCallCount,
+        modelCallId: `${options.subagentTaskId ?? options.subagentSessionId ?? agent.name}:llm:${subagentLlmCallCount}`
       });
       return;
     }
@@ -961,11 +974,13 @@ async function runSubagentOnce(
     if (event.type === "message_end" && event.message?.role === "assistant") {
       const msg = event.message as { stopReason?: string; usage?: { input?: number; output?: number; totalTokens?: number } };
       momLog("runner", "subagent_llm_call_end", {
+        ...logContext,
         chatId: options.chatId,
         agent: agent.name,
         callIndex: subagentLlmCallCount,
         stopReason: msg.stopReason,
-        usageTotal: msg.usage?.totalTokens
+        usageTotal: msg.usage?.totalTokens,
+        modelCallId: `${options.subagentTaskId ?? options.subagentSessionId ?? agent.name}:llm:${subagentLlmCallCount}`
       });
       return;
     }
@@ -973,11 +988,13 @@ async function runSubagentOnce(
     if (event.type === "tool_execution_start") {
       subagentToolCallCount += 1;
       momLog("runner", "subagent_tool_start", {
+        ...logContext,
         chatId: options.chatId,
         agent: agent.name,
         tool: event.toolName,
         toolIndex: subagentToolCallCount,
-        llmCallIndex: subagentLlmCallCount
+        llmCallIndex: subagentLlmCallCount,
+        toolCallId: `${options.subagentTaskId ?? options.subagentSessionId ?? agent.name}:tool:${subagentToolCallCount}`
       });
       return;
     }
@@ -987,11 +1004,13 @@ async function runSubagentOnce(
     const toolName = String((event as { toolName?: unknown }).toolName ?? "unknown");
     const isError = Boolean((event as { isError?: unknown }).isError);
     momLog("runner", "subagent_tool_end", {
+      ...logContext,
       chatId: options.chatId,
       agent: agent.name,
       tool: toolName,
       isError,
-      toolIndex: subagentToolCallCount
+      toolIndex: subagentToolCallCount,
+      toolCallId: `${options.subagentTaskId ?? options.subagentSessionId ?? agent.name}:tool:${subagentToolCallCount}`
     });
 
     const prompt = extractHostBashApprovalPrompt(event.result);
@@ -1023,6 +1042,7 @@ async function runSubagentOnce(
       onTimeout: () => {
         guard.checkDeadline();
         momWarn("runner", "subagent_deadline_timeout", {
+          ...logContext,
           chatId: options.chatId,
           agent: agent.name,
           modelId: model.id,
@@ -1084,6 +1104,7 @@ async function runSubagentOnce(
     };
   } catch (error) {
     momLog("runner", "subagent_prompt_error", {
+      ...logContext,
       chatId: options.chatId,
       agent: agent.name,
       llmCalls: subagentLlmCallCount,
@@ -1301,14 +1322,17 @@ export function createSubagentTool(options: {
     description:
       "Delegate codebase-heavy work to an isolated pi-mono subagent. Use roles `scout`, `planner`, `worker`, or `reviewer`. Supports one task, parallel tasks, or a chain with `{previous}` placeholder.",
     parameters: subagentSchema,
-    execute: async (_toolCallId, params, signal, onUpdate): Promise<AgentToolResult<SubagentToolDetails>> => {
+    execute: async (toolCallId, params, signal, onUpdate): Promise<AgentToolResult<SubagentToolDetails>> => {
       const settings = options.getSettings();
       const parsed = parseSubagentMode(
         params as SubagentInput,
         resolveSubagentExecutionLimits(settings)
       );
       let endEventSent = false;
+      const delegationId = String(toolCallId);
       momLog("runner", "subagent_start", {
+        runId: options.runId,
+        delegationId,
         chatId: options.chatId,
         mode: parsed.mode,
         taskCount: parsed.tasks.length,
@@ -1359,9 +1383,15 @@ export function createSubagentTool(options: {
 
       const runTask = async (item: SingleTaskInput, index: number, task: string): Promise<SubagentRunResult> => {
         const agent = getSubagentDefinition(item.agent);
+        const subagentTaskId = `${delegationId}:${index + 1}:${agent.name}`;
+        const subagentSessionId = `${options.runId ?? options.chatId}-${subagentTaskId}`;
         let started = false;
         try {
           momLog("runner", "subagent_task_start", {
+            runId: options.runId,
+            delegationId,
+            subagentTaskId,
+            subagentSessionId,
             chatId: options.chatId,
             mode: parsed.mode,
             agent: agent.name,
@@ -1403,9 +1433,16 @@ export function createSubagentTool(options: {
             hostApproval,
             emitRunnerEvent: options.emitRunnerEvent,
             signal,
-            subagentSessionId: `${options.runId ?? options.chatId}-${index + 1}-${agent.name}`
+            subagentSessionId,
+            parentRunId: options.runId,
+            delegationId,
+            subagentTaskId
           });
           momLog("runner", "subagent_task_end", {
+            runId: options.runId,
+            delegationId,
+            subagentTaskId,
+            subagentSessionId,
             chatId: options.chatId,
             mode: parsed.mode,
             agent: result.agent,

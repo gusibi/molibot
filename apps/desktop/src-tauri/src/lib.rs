@@ -165,8 +165,8 @@ fn restart_service(state: tauri::State<'_, Mutex<DesktopState>>) -> Result<(), S
 }
 
 #[tauri::command]
-fn desktop_logs() -> Result<String, String> {
-    supervisor::read_service_log(2000)
+fn desktop_logs(query: supervisor::ServiceLogQuery) -> Result<supervisor::ServiceLogPage, String> {
+    supervisor::query_desktop_service_log(query)
 }
 
 #[tauri::command]

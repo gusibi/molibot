@@ -422,7 +422,10 @@ export class MomRunner implements RunnerLike {
           contextWithoutOrphanTools,
         );
         momLog("runner", "llm_stream_start", {
+          runId: this.activeHookContext?.runId,
           chatId: this.chatId,
+          sessionId: this.sessionId,
+          modelCallId: this.activeModelCallContext?.modelAttemptId,
           provider: selectedModel.provider,
           api: selectedModel.api,
           modelId: selectedModel.id,
@@ -434,7 +437,10 @@ export class MomRunner implements RunnerLike {
             patchedContext.tools.length > 0,
         });
         momLog("runner", "llm_request_sent", {
+          runId: this.activeHookContext?.runId,
           chatId: this.chatId,
+          sessionId: this.sessionId,
+          modelCallId: this.activeModelCallContext?.modelAttemptId,
           modelId: selectedModel.id,
           provider: selectedModel.provider
         });

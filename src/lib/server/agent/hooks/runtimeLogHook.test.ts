@@ -77,6 +77,7 @@ test("RuntimeLogHook maps tool hook events to tool logs", () => {
     context,
     payload: {
       toolName: "bash",
+      toolCallId: "tool-1",
       displayName: "Host Bash",
       label: "Host Bash: Run tests"
     }
@@ -88,6 +89,7 @@ test("RuntimeLogHook maps tool hook events to tool logs", () => {
     context,
     payload: {
       toolName: "bash",
+      toolCallId: "tool-1",
       displayName: "Host Bash",
       resultPreview: "failed"
     }
@@ -99,6 +101,7 @@ test("RuntimeLogHook maps tool hook events to tool logs", () => {
     context,
     payload: {
       toolName: "bash",
+      toolCallId: "tool-2",
       displayName: "Host Bash",
       blockedBy: "budget",
       reason: "tool call budget exhausted"
@@ -111,6 +114,13 @@ test("RuntimeLogHook maps tool hook events to tool logs", () => {
     "warn:tool_call_blocked"
   ]);
   assert.equal(calls[0]?.data?.label, "Host Bash: Run tests");
+  assert.equal(calls[0]?.data?.toolCallId, "tool-1");
+  assert.equal(calls[0]?.data?.sessionId, "session-1");
+  assert.equal(calls[0]?.data?.status, "started");
   assert.equal(calls[1]?.data?.isError, true);
+  assert.equal(calls[1]?.data?.toolCallId, "tool-1");
+  assert.equal(calls[1]?.data?.status, "error");
   assert.equal(calls[2]?.data?.blockedBy, "budget");
+  assert.equal(calls[2]?.data?.toolCallId, "tool-2");
+  assert.equal(calls[2]?.data?.status, "blocked");
 });

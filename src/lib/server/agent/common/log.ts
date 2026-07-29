@@ -2,6 +2,17 @@ interface LogData {
   [key: string]: unknown;
 }
 
+export type MomLogLevel = "info" | "warn" | "error";
+
+export interface MomLogPayload extends LogData {
+  ts: string;
+  level: MomLogLevel;
+  scope: string;
+  category: string;
+  event: string;
+  schemaVersion: 1;
+}
+
 const VERBOSE = process.env.MOM_LOG_VERBOSE === "1";
 const PRETTY = process.env.MOM_LOG_PRETTY !== "0";
 
@@ -43,7 +54,13 @@ const KEY_LOG_EVENTS = new Set<string>([
   "api_key_resolve",
   "llm_request_sent",
   "llm_first_token",
+  "llm_first_token_timeout",
   "llm_stream_start",
+  "model_attempt_retryable_error",
+  "model_attempt_failed",
+  "active_model_missing_api_key",
+  "assistant_error_message",
+  "empty_response_retry",
   "prompt_start",
   "assistant_message_end",
   "prompt_end",
@@ -54,6 +71,15 @@ const KEY_LOG_EVENTS = new Set<string>([
   "subagent_task_start",
   "subagent_task_end",
   "subagent_end",
+  "subagent_model_resolved",
+  "subagent_llm_call_start",
+  "subagent_llm_call_end",
+  "subagent_tool_start",
+  "subagent_tool_end",
+  "subagent_model_fallback",
+  "subagent_budget_abort",
+  "subagent_deadline_timeout",
+  "subagent_prompt_error",
   "skill_draft_subagent_start",
   "skill_draft_subagent_end",
   // tool and channel
@@ -237,23 +263,127 @@ function formatKeyValues(data: Record<string, unknown>, skipKeys: string[]): str
     .map(([key, value]) => `${key}=${stringifyValue(value)}`);
 }
 
-function safe(value: unknown): unknown {
+const SENSITIVE_LOG_KEYS = new Set([
+  "apikey",
+  "authorization",
+  "cookie",
+  "credentials",
+  "password",
+  "secret",
+  "token",
+  "accesstoken",
+  "refreshtoken",
+  "clientsecret",
+  "privatekey"
+]);
+
+function normalizedLogKey(value: string): string {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function isSensitiveLogKey(value: string): boolean {
+  const key = normalizedLogKey(value);
+  return SENSITIVE_LOG_KEYS.has(key)
+    || key.endsWith("password")
+    || key.endsWith("secret")
+    || key.endsWith("cookie")
+    || key.endsWith("credential")
+    || (key.endsWith("token") && !key.endsWith("tokens"));
+}
+
+function redactString(value: string): string {
+  let next = value.replace(/(authorization\s*[:=]\s*bearer\s+)[^\s,;]+/gi, "$1[REDACTED]");
+  next = next.replace(/(bearer\s+)[A-Za-z0-9._~+\/-]{8,}/gi, "$1[REDACTED]");
+  if (/^https?:\/\//i.test(next)) {
+    try {
+      const url = new URL(next);
+      for (const key of Array.from(url.searchParams.keys())) {
+        if (isSensitiveLogKey(key)) {
+          url.searchParams.set(key, "[REDACTED]");
+        }
+      }
+      next = url.toString();
+    } catch {
+      // Leave malformed URLs to the generic text redaction above.
+    }
+  }
+  return next;
+}
+
+function safe(value: unknown, key = "", depth = 0): unknown {
+  if (isSensitiveLogKey(key)) return "[REDACTED]";
   if (typeof value === "string") {
-    if (value.length > 400)
-      return `${value.slice(0, 400)}...(len=${value.length})`;
-    return value;
+    const redacted = redactString(value);
+    if (redacted.length > 400)
+      return `${redacted.slice(0, 400)}...(len=${redacted.length})`;
+    return redacted;
   }
   if (Array.isArray(value)) {
-    return value.slice(0, 20).map((v) => safe(v));
+    return depth >= 8 ? `[array:${value.length}]` : value.slice(0, 20).map((v) => safe(v, "", depth + 1));
   }
   if (!value || typeof value !== "object") return value;
+  if (depth >= 8) return "[object]";
 
   const obj = value as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    out[k] = safe(v);
+    out[k] = safe(v, k, depth + 1);
   }
   return out;
+}
+
+function categoryForEvent(scope: string, event: string): string {
+  const normalized = event.toLowerCase();
+  if (
+    normalized.startsWith("llm_")
+    || normalized.startsWith("model_")
+    || normalized.startsWith("assistant_")
+    || normalized === "api_key_resolve"
+    || normalized === "empty_response_retry"
+  ) return "llm";
+  if (normalized.startsWith("subagent_") || normalized.startsWith("skill_draft_subagent_")) return "subagent";
+  if (normalized.startsWith("tool_") || normalized.includes("host_bash")) return "tool";
+  if (normalized.includes("approval")) return "approval";
+  if (normalized.includes("sandbox")) return "sandbox";
+  if (normalized.includes("queue") || normalized.includes("lease")) return "queue";
+  if (normalized.includes("prompt") || normalized.includes("context") || normalized.includes("compact")) return "context";
+  if (normalized.startsWith("skill_")) return "skill";
+  if (normalized.includes("message") || normalized.includes("send") || normalized.includes("outbound")) return "delivery";
+  if (["runner", "taskScheduler", "eventLease"].includes(scope)) return "runtime";
+  if (["telegram", "feishu", "qq", "weixin", "web"].includes(scope)) return "channel";
+  return "service";
+}
+
+function inferredStatus(event: string): string | undefined {
+  const normalized = event.toLowerCase();
+  if (normalized.includes("blocked") || normalized.includes("denied")) return "blocked";
+  if (normalized.includes("timeout")) return "timeout";
+  if (normalized.includes("retry")) return "retrying";
+  if (normalized.includes("failed") || normalized.includes("failure") || normalized.includes("error")) return "error";
+  if (normalized.endsWith("_start") || normalized.endsWith("_started")) return "started";
+  if (normalized.endsWith("_end") || normalized.endsWith("_success") || normalized.endsWith("_completed")) return "success";
+  return undefined;
+}
+
+export function buildMomLogPayload(
+  level: MomLogLevel,
+  scope: string,
+  event: string,
+  data: LogData = {},
+  now: Date = new Date()
+): MomLogPayload {
+  const safeData = safe(data) as Record<string, unknown>;
+  const status = safeData.status ?? inferredStatus(event);
+  return {
+    ...safeData,
+    ts: now.toISOString(),
+    level,
+    scope,
+    category: categoryForEvent(scope, event),
+    event,
+    schemaVersion: 1,
+    ...(status ? { status } : {})
+  } as MomLogPayload;
 }
 
 export function formatMomPrettyLine(
@@ -287,6 +417,10 @@ function shouldLog(event: string): boolean {
   return KEY_LOG_EVENTS.has(event);
 }
 
+export function isMomLogEventEnabled(event: string): boolean {
+  return shouldLog(event);
+}
+
 export function createRunId(chatId: string, messageId: number): string {
   return `${chatId}-${messageId}-${Date.now().toString(36)}`;
 }
@@ -300,12 +434,7 @@ export function momLog(scope: string, event: string, data: LogData = {}): void {
     return;
   }
 
-  const payload = {
-    ts: new Date().toISOString(),
-    scope,
-    event,
-    ...safeData,
-  };
+  const payload = buildMomLogPayload("info", scope, event, safeData);
 
   console.log(`[mom-t] ${JSON.stringify(payload)}`);
 }
@@ -321,12 +450,7 @@ export function momWarn(
     return;
   }
 
-  const payload = {
-    ts: new Date().toISOString(),
-    scope,
-    event,
-    ...safeData,
-  };
+  const payload = buildMomLogPayload("warn", scope, event, safeData);
 
   console.warn(`[mom-t] ${JSON.stringify(payload)}`);
 }
@@ -342,12 +466,7 @@ export function momError(
     return;
   }
 
-  const payload = {
-    ts: new Date().toISOString(),
-    scope,
-    event,
-    ...safeData,
-  };
+  const payload = buildMomLogPayload("error", scope, event, safeData);
 
   console.error(`[mom-t] ${JSON.stringify(payload)}`);
 }

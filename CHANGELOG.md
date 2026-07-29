@@ -7,6 +7,11 @@
 ---
 ## 2026-07-29
 
+### Added: structured, filterable Desktop service logs
+- Desktop-managed Molibot service records now carry a versioned JSON envelope with severity, category, event, status, and available Run/Session/model/tool/Subagent correlation identifiers. Credential-like fields, bearer values, and sensitive URL parameters are redacted before serialization.
+- The App Service Logs page now filters by level, category, status, keyword, event, Run ID, Provider/model, tool, and Subagent, with native pagination, responsive table/cards, and expandable raw lines. Existing pretty logs and third-party output remain visible through backward-compatible parsing.
+- The native supervisor rotates the active service log at 20 MiB and retains five generations; UI queries inspect only the latest 4 MiB of the active file and clearly report when that window is truncated. SQLite Trace is unchanged.
+
 ### Release: v2.7.3 / Desktop v0.7.0
 - Synchronized the root and Desktop package versions for the new release.
 

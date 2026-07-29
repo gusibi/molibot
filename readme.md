@@ -44,6 +44,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Work where you already are.** Use one local runtime from Web, macOS Desktop, Telegram, Feishu, Weixin, QQ, or the CLI.
 - **Diagnose media failures at the shared boundary.** Voice-transcription errors carry safe provider/model, audio, timing, and upstream trace details across every channel without logging credentials or cookies.
 - **Keep execution in your hands.** Tasks, approvals, sandbox policy, and run records make automation visible rather than opaque.
+- **Filter operational logs without reading a wall of text.** Desktop Service Logs separates LLM calls, tool use, Subagent work, severity, status, and Run correlation while preserving inspectable raw lines and keeping SQLite Trace independent.
 - **Let long work fail safely.** Parent and delegated budgets are separate, completed tool results survive context recovery, and interrupted inbound tasks wait for an explicit retry instead of disappearing or replaying side effects automatically.
 - **Keep the data local.** Your runtime, configuration, conversations, and operational state stay on infrastructure you control.
 

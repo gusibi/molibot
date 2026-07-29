@@ -7,6 +7,14 @@
 ---
 ## 2026-07-29
 
+### App 服务日志结构化筛选（已完成，P1）
+
+- `service.log` 的 Molibot 记录现在使用带 `schemaVersion`、时间、级别、类别、事件和状态的 JSON 信封；LLM、工具与 Subagent 记录补齐 Run / Session / Model Call / Tool Call / Delegation 等可用关联字段。
+- 日志序列化前统一递归隐藏凭据字段、Bearer 内容和 URL 敏感参数。桌面托管运行时使用结构化输出，命令行开发输出仍可保持可读格式。
+- App「服务日志」页支持级别、类别、状态、关键词、Event、Run ID、Provider、模型、工具、Subagent 组合筛选与分页；旧版 pretty 日志和第三方原始行仍可查询并展开查看。
+- 活动日志超过 20 MiB 时由 Desktop Supervisor 轮转，保留 5 代；查询只读取活动文件尾部 4 MiB，避免把持续增长的完整日志送入 WebView。
+- SQLite Trace 未修改。验证覆盖脱敏、事件可见性、工具关联、混合格式解析、筛选、分页、轮转、Desktop UI 97/97、Svelte 0/0 与生产构建。
+
 ### 项目会话：图片只显示占位符、切换会话卡顿、消息卡片区分度低（已完成，P0）
 
 - **现象一（图片经常显示不出来，只有文件名占位符）**：项目会话里 Agent 产出的图片，有时正常渲染，有时只剩一行"绿点 + 文件名"的 chip。

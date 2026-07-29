@@ -2379,3 +2379,24 @@ Final conclusion: the voice path is operational inside Molibot and fails because
 - Fix close-out: root classes are reactive dependency tracking and async layout/scroll ownership. Machine guards now cover both; the existing Svelte pitfall already describes the first class, while the second is localized to the shared `stickToBottom` contract and does not warrant another long-term AGENTS rule on its first occurrence.
 
 ---
+# Structured service-log filtering (2026-07-29)
+
+- Scope is strictly `service.log` plus the Desktop Logs surface; SQLite Trace is explicitly excluded.
+- Current logger defaults to human-readable pretty lines; JSON mode exists but lacks an explicit level and the Desktop still treats the file as one string.
+- Desktop native code reads at most the last 4 MiB / 2,000 lines and returns plain text, so filtering and stable pagination are impossible.
+- The live service log is already roughly 34 MiB and no rotation/retention path was found.
+- Main LLM request lines lack run/model-call correlation, RuntimeLogHook drops toolCallId from service output, and Subagent internal LLM/tool info events are filtered out unless verbose.
+- Existing logger `safe()` truncates but does not redact; a structured format must use centralized recursive key/value/URL redaction before making fields easier to query.
+- Desktop DESIGN requires a compact data-page toolbar, advanced exact-ID fields behind disclosure, 24px separation before results, shared semantic components, bilingual/theme/mobile checks, and no page-local style block.
+- The native sidecar opens one append-only file and directs both child stdout and stderr to clones of the same handle; once written, stream severity cannot be reconstructed unless the application record contains `level`.
+- Existing Desktop structural tests only require that Logs invokes `desktop_logs`; there is no parser/query behavior guard yet.
+- TraceSection already demonstrates the approved compact filter toolbar/table/mobile-list composition and can guide layout without importing any Trace data or store.
+- Rust already has temp-file supervisor tests and `serde_json`, so parser/query/rotation regressions can live at the actual native boundary without new dependencies.
+- `spawn_child` is the narrow Desktop-only place to force structured Molibot stdout (`MOM_LOG_PRETTY=0`) while preserving pretty developer consoles outside the managed app.
+- Existing log CSS is an isolated raw `<pre>` surface; the new page should replace it with shared observatory filter/table patterns plus a raw details view, all in global semantic CSS.
+- The backward-compatible query boundary can classify JSON Molibot lines, legacy `[mom]` pretty lines, and arbitrary sidecar/runtime lines independently; only structured records expose exact correlation filters, while every class remains keyword-searchable and inspectable as raw text.
+- Rotation belongs at the native file-open boundary before stdout/stderr handles are cloned, which avoids changing server logging semantics and keeps five bounded prior generations alongside the active file.
+- Adversarial review checked the five likeliest failure paths: secret-bearing nested key variants, partial UTF-8/first-line reads at the 4 MiB boundary, legacy/raw compatibility, pagination against an oversized active file, and restart after rotation. Nested suffix-key redaction and a rotate → new active file → query regression were added; the remaining boundaries are explicitly disclosed in the UI.
+- Filtering rotated generations was intentionally not added: the App queries the bounded active window and offers the physical log file for older inspection. This keeps the first implementation predictable and avoids hidden multi-file cursor semantics.
+
+---

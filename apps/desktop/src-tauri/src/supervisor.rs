@@ -1,10 +1,12 @@
 use crate::service::{
     is_compatible_handshake, ServiceHandshake, ServiceOwnership, ServiceState, ServiceStatus,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::env;
 use std::ffi::OsString;
-use std::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, rename, File, OpenOptions};
+use std::collections::BTreeSet;
+use std::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, remove_file, rename, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
@@ -96,19 +98,89 @@ fn data_dir() -> Result<PathBuf, String> {
 /// slicing it down to `max_lines`. Comfortably holds a few thousand log lines
 /// while keeping the read cheap even when the file has grown to tens of MB.
 const LOG_TAIL_BYTES: u64 = 4 * 1024 * 1024;
+const LOG_ROTATE_BYTES: u64 = 20 * 1024 * 1024;
+const LOG_ROTATE_GENERATIONS: usize = 5;
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ServiceLogQuery {
+    pub levels: Vec<String>,
+    pub categories: Vec<String>,
+    pub statuses: Vec<String>,
+    pub event: Option<String>,
+    pub keyword: Option<String>,
+    pub run_id: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub tool: Option<String>,
+    pub subagent: Option<String>,
+    pub page: usize,
+    pub page_size: usize,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceLogOptions {
+    pub levels: Vec<String>,
+    pub categories: Vec<String>,
+    pub statuses: Vec<String>,
+    pub events: Vec<String>,
+    pub providers: Vec<String>,
+    pub models: Vec<String>,
+    pub tools: Vec<String>,
+    pub subagents: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceLogRecord {
+    pub id: String,
+    pub ts: Option<String>,
+    pub level: String,
+    pub category: String,
+    pub event: String,
+    pub schema_version: Option<u64>,
+    pub scope: Option<String>,
+    pub status: Option<String>,
+    pub message: Option<String>,
+    pub raw: String,
+    pub run_id: Option<String>,
+    pub session_id: Option<String>,
+    pub chat_id: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub tool: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub subagent: Option<String>,
+    pub delegation_id: Option<String>,
+    pub duration_ms: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceLogPage {
+    pub items: Vec<ServiceLogRecord>,
+    pub total: usize,
+    pub page: usize,
+    pub page_size: usize,
+    pub scanned_lines: usize,
+    pub truncated: bool,
+    pub has_raw_lines: bool,
+    pub options: ServiceLogOptions,
+}
 
 pub fn service_log_path() -> Result<PathBuf, String> {
     Ok(data_dir()?.join("runtime/desktop-sidecar.log"))
 }
 
-pub fn read_service_log(max_lines: usize) -> Result<String, String> {
-    read_log_tail(&service_log_path()?, max_lines)
+pub fn query_desktop_service_log(query: ServiceLogQuery) -> Result<ServiceLogPage, String> {
+    query_service_log(&service_log_path()?, query)
 }
 
-fn read_log_tail(path: &Path, max_lines: usize) -> Result<String, String> {
+fn read_log_window(path: &Path) -> Result<(String, bool), String> {
     let mut file = match File::open(path) {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((String::new(), false)),
         Err(error) => return Err(error.to_string()),
     };
     let length = file.metadata().map_err(|error| error.to_string())?.len();
@@ -118,18 +190,176 @@ fn read_log_tail(path: &Path, max_lines: usize) -> Result<String, String> {
     }
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).map_err(|error| error.to_string())?;
-    // `from_utf8_lossy` only produces a replacement char at the very start when
-    // the byte-tail seek lands mid-character; that partial line is dropped below.
     let text = String::from_utf8_lossy(&bytes);
-    let mut lines: Vec<&str> = text.lines().collect();
-    if truncated && !lines.is_empty() {
-        lines.remove(0);
+    let text = if truncated { text.split_once('\n').map(|(_, tail)| tail).unwrap_or("") } else { text.as_ref() };
+    Ok((strip_ansi(text), truncated))
+}
+
+fn value_string(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| value.get(*key)).and_then(|value| match value {
+        Value::String(text) if !text.trim().is_empty() => Some(text.trim().to_string()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
+    })
+}
+
+fn category_for(scope: &str, event: &str) -> String {
+    let event = event.to_ascii_lowercase();
+    if event.starts_with("llm_")
+        || event.starts_with("model_")
+        || event.starts_with("assistant_")
+        || event == "api_key_resolve"
+        || event == "empty_response_retry"
+    { return "llm".into(); }
+    if event.starts_with("subagent_") || event.starts_with("skill_draft_subagent_") { return "subagent".into(); }
+    if event.starts_with("tool_") || event.contains("host_bash") { return "tool".into(); }
+    if event.contains("approval") { return "approval".into(); }
+    if event.contains("sandbox") { return "sandbox".into(); }
+    if event.contains("queue") || event.contains("lease") { return "queue".into(); }
+    if event.contains("prompt") || event.contains("context") || event.contains("compact") { return "context".into(); }
+    if event.starts_with("skill_") { return "skill".into(); }
+    if event.contains("message") || event.contains("send") || event.contains("outbound") { return "delivery".into(); }
+    if matches!(scope, "telegram" | "feishu" | "qq" | "weixin" | "web") { return "channel".into(); }
+    "runtime".into()
+}
+
+fn inferred_level(event: &str) -> String {
+    let event = event.to_ascii_lowercase();
+    if event.contains("failed") || event.contains("failure") || event.contains("error") { "error".into() }
+    else if event.contains("warn") || event.contains("retry") || event.contains("timeout") || event.contains("blocked") { "warn".into() }
+    else { "info".into() }
+}
+
+fn inferred_status(event: &str) -> Option<String> {
+    let event = event.to_ascii_lowercase();
+    if event.contains("blocked") || event.contains("denied") { Some("blocked".into()) }
+    else if event.contains("timeout") { Some("timeout".into()) }
+    else if event.contains("retry") { Some("retrying".into()) }
+    else if event.contains("failed") || event.contains("failure") || event.contains("error") { Some("error".into()) }
+    else if event.ends_with("_start") || event.ends_with("_started") { Some("started".into()) }
+    else if event.ends_with("_end") || event.ends_with("_success") || event.ends_with("_completed") { Some("success".into()) }
+    else { None }
+}
+
+fn parse_pretty_fields(text: &str) -> std::collections::BTreeMap<String, String> {
+    text.split_whitespace().filter_map(|part| {
+        let (key, value) = part.split_once('=')?;
+        Some((key.to_string(), value.trim_matches('"').to_string()))
+    }).collect()
+}
+
+fn parse_service_log_line(line: &str, index: usize) -> ServiceLogRecord {
+    let raw = line.trim().to_string();
+    let json_text = raw.strip_prefix("[mom-t] ").filter(|value| value.starts_with('{'));
+    if let Some(json_text) = json_text {
+        if let Ok(value) = serde_json::from_str::<Value>(json_text) {
+            let event = value_string(&value, &["event"]).unwrap_or_else(|| "service.record".into());
+            let scope = value_string(&value, &["scope"]);
+            return ServiceLogRecord {
+                id: format!("line-{index}"),
+                ts: value_string(&value, &["ts"]),
+                level: value_string(&value, &["level"]).unwrap_or_else(|| inferred_level(&event)),
+                category: value_string(&value, &["category"]).unwrap_or_else(|| category_for(scope.as_deref().unwrap_or("service"), &event)),
+                event: event.clone(),
+                schema_version: value.get("schemaVersion").and_then(Value::as_u64),
+                scope,
+                status: value_string(&value, &["status"]).or_else(|| inferred_status(&event)),
+                message: value_string(&value, &["message", "errorMessage", "reason", "resultPreview"]),
+                raw,
+                run_id: value_string(&value, &["runId"]),
+                session_id: value_string(&value, &["sessionId"]),
+                chat_id: value_string(&value, &["chatId"]),
+                provider: value_string(&value, &["provider", "modelProvider"]),
+                model: value_string(&value, &["model", "modelId"]),
+                tool: value_string(&value, &["tool", "toolName"]),
+                tool_call_id: value_string(&value, &["toolCallId"]),
+                subagent: value_string(&value, &["agent", "subagent"]),
+                delegation_id: value_string(&value, &["delegationId"]),
+                duration_ms: value.get("durationMs").and_then(Value::as_f64),
+            };
+        }
     }
-    let max_lines = max_lines.max(1);
-    if lines.len() > max_lines {
-        lines = lines.split_off(lines.len() - max_lines);
+
+    let parts: Vec<&str> = raw.split_whitespace().collect();
+    if parts.len() >= 7 && parts[0] == "[mom-t]" && parts[1].len() == 10 && parts[1].as_bytes().get(4) == Some(&b'-') {
+        let scope = parts[3].to_string();
+        let event = parts[5].to_string();
+        let fields = parse_pretty_fields(&parts[6..].join(" "));
+        return ServiceLogRecord {
+            id: format!("line-{index}"),
+            ts: Some(format!("{}T{}", parts[1], parts[2])),
+            level: inferred_level(&event),
+            category: category_for(&scope, &event),
+            event: event.clone(),
+            schema_version: None,
+            scope: Some(scope),
+            status: fields.get("status").cloned().or_else(|| inferred_status(&event)),
+            message: fields.get("message").cloned().or_else(|| fields.get("error").cloned()),
+            raw,
+            run_id: fields.get("run").or_else(|| fields.get("runId")).cloned(),
+            session_id: fields.get("session").or_else(|| fields.get("sessionId")).cloned(),
+            chat_id: fields.get("chat").or_else(|| fields.get("chatId")).cloned(),
+            provider: fields.get("provider").or_else(|| fields.get("modelProvider")).cloned(),
+            model: fields.get("modelId").or_else(|| fields.get("model")).cloned(),
+            tool: fields.get("tool").cloned(),
+            tool_call_id: fields.get("toolCallId").cloned(),
+            subagent: fields.get("agent").cloned(),
+            delegation_id: fields.get("delegationId").cloned(),
+            duration_ms: fields.get("durationMs").and_then(|value| value.parse().ok()),
+        };
     }
-    Ok(strip_ansi(&lines.join("\n")))
+
+    ServiceLogRecord {
+        id: format!("line-{index}"), ts: None, level: "info".into(), category: "external".into(),
+        event: "external.raw_line".into(), schema_version: None, scope: None, status: None,
+        message: if raw.is_empty() { None } else { Some(raw.clone()) }, raw, run_id: None,
+        session_id: None, chat_id: None, provider: None, model: None, tool: None,
+        tool_call_id: None, subagent: None, delegation_id: None, duration_ms: None,
+    }
+}
+
+fn matches_term(value: Option<&str>, query: Option<&str>) -> bool {
+    match query.map(str::trim).filter(|value| !value.is_empty()) {
+        None => true,
+        Some(query) => value.unwrap_or("").to_ascii_lowercase().contains(&query.to_ascii_lowercase()),
+    }
+}
+
+fn query_service_log(path: &Path, query: ServiceLogQuery) -> Result<ServiceLogPage, String> {
+    let (text, truncated) = read_log_window(path)?;
+    let records: Vec<ServiceLogRecord> = text.lines().enumerate().map(|(index, line)| parse_service_log_line(line, index)).collect();
+    let has_raw_lines = records.iter().any(|record| record.category == "external");
+    let options = ServiceLogOptions {
+        levels: records.iter().map(|record| record.level.clone()).collect::<BTreeSet<_>>().into_iter().collect(),
+        categories: records.iter().map(|record| record.category.clone()).collect::<BTreeSet<_>>().into_iter().collect(),
+        statuses: records.iter().filter_map(|record| record.status.clone()).collect::<BTreeSet<_>>().into_iter().collect(),
+        events: records.iter().map(|record| record.event.clone()).collect::<BTreeSet<_>>().into_iter().collect(),
+        providers: records.iter().filter_map(|record| record.provider.clone()).collect::<BTreeSet<_>>().into_iter().collect(),
+        models: records.iter().filter_map(|record| record.model.clone()).collect::<BTreeSet<_>>().into_iter().collect(),
+        tools: records.iter().filter_map(|record| record.tool.clone()).collect::<BTreeSet<_>>().into_iter().collect(),
+        subagents: records.iter().filter_map(|record| record.subagent.clone()).collect::<BTreeSet<_>>().into_iter().collect(),
+    };
+    let keyword = query.keyword.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(str::to_ascii_lowercase);
+    let mut filtered: Vec<ServiceLogRecord> = records.into_iter().filter(|record| {
+        (query.levels.is_empty() || query.levels.iter().any(|value| value == &record.level))
+            && (query.categories.is_empty() || query.categories.iter().any(|value| value == &record.category))
+            && (query.statuses.is_empty() || record.status.as_ref().is_some_and(|status| query.statuses.iter().any(|value| value == status)))
+            && matches_term(Some(&record.event), query.event.as_deref())
+            && matches_term(record.run_id.as_deref(), query.run_id.as_deref())
+            && matches_term(record.provider.as_deref(), query.provider.as_deref())
+            && matches_term(record.model.as_deref(), query.model.as_deref())
+            && matches_term(record.tool.as_deref(), query.tool.as_deref())
+            && matches_term(record.subagent.as_deref(), query.subagent.as_deref())
+            && keyword.as_ref().is_none_or(|keyword| record.raw.to_ascii_lowercase().contains(keyword))
+    }).collect();
+    filtered.reverse();
+    let total = filtered.len();
+    let page = query.page.max(1);
+    let page_size = query.page_size.clamp(10, 200);
+    let start = (page - 1).saturating_mul(page_size);
+    let items = filtered.into_iter().skip(start).take(page_size).collect();
+    Ok(ServiceLogPage { items, total, page, page_size, scanned_lines: text.lines().count(), truncated, has_raw_lines, options })
 }
 
 /// Removes terminal control sequences (ANSI CSI/OSC colour codes, stray C0
@@ -384,11 +614,32 @@ fn preferred_port(data_dir: &Path) -> u16 {
 fn open_log(data_dir: &Path) -> Result<File, String> {
     let runtime_dir = data_dir.join("runtime");
     create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
+    rotate_service_logs(data_dir)?;
     OpenOptions::new()
         .create(true)
         .append(true)
         .open(runtime_dir.join("desktop-sidecar.log"))
         .map_err(|error| error.to_string())
+}
+
+fn rotate_service_logs(data_dir: &Path) -> Result<(), String> {
+    let runtime_dir = data_dir.join("runtime");
+    let active = runtime_dir.join("desktop-sidecar.log");
+    let size = metadata(&active).map(|metadata| metadata.len()).unwrap_or(0);
+    if size <= LOG_ROTATE_BYTES { return Ok(()); }
+    let oldest = runtime_dir.join(format!("desktop-sidecar.log.{LOG_ROTATE_GENERATIONS}"));
+    if oldest.exists() { remove_file(&oldest).map_err(|error| error.to_string())?; }
+    for generation in (1..LOG_ROTATE_GENERATIONS).rev() {
+        let from = runtime_dir.join(format!("desktop-sidecar.log.{generation}"));
+        if from.exists() {
+            let to = runtime_dir.join(format!("desktop-sidecar.log.{}", generation + 1));
+            rename(from, to).map_err(|error| error.to_string())?;
+        }
+    }
+    if active.exists() {
+        rename(active, runtime_dir.join("desktop-sidecar.log.1")).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn spawn_child(layout: &RuntimeLayout, data_dir: &Path, port: u16) -> Result<Child, String> {
@@ -404,6 +655,7 @@ fn spawn_child(layout: &RuntimeLayout, data_dir: &Path, port: u16) -> Result<Chi
         .env("PORT", port.to_string())
         .env("NODE_ENV", "production")
         .env("MOLIBOT_DESKTOP_MANAGED", "1")
+        .env("MOM_LOG_PRETTY", "0")
         .env("MOLIBOT_DESKTOP_TOKEN", token);
     // pi's `getToolPath` probes PATH for `rg`/`fd`, so exposing the bundled
     // directory is all the agent's `grep`/`find` tools need. Prepending keeps
@@ -795,14 +1047,6 @@ mod tests {
     }
 
     #[test]
-    fn log_reader_returns_only_the_last_requested_lines() {
-        let path = env::temp_dir().join(format!("molibot-log-tail-{}", Uuid::new_v4()));
-        write(&path, "line1\nline2\nline3\nline4\n").expect("write log fixture");
-        assert_eq!(read_log_tail(&path, 2).expect("read log tail"), "line3\nline4");
-        std::fs::remove_file(path).expect("remove log fixture");
-    }
-
-    #[test]
     fn log_reader_strips_ansi_and_control_sequences() {
         let path = env::temp_dir().join(format!("molibot-log-ansi-{}", Uuid::new_v4()));
         // Bold + colour codes, an OSC title sequence, and a stray BEL around CJK text.
@@ -811,11 +1055,68 @@ mod tests {
             "\u{1b}[1m[mom-t]\u{1b}[0m \u{1b}[33mtelegram\u{1b}[0m \u{07}环境诊断\u{1b}]0;title\u{07}done\n",
         )
         .expect("write log fixture");
-        assert_eq!(
-            read_log_tail(&path, 10).expect("read log tail"),
-            "[mom-t] telegram 环境诊断done"
-        );
+        let (text, truncated) = read_log_window(&path).expect("read log window");
+        assert!(!truncated);
+        assert_eq!(text.trim(), "[mom-t] telegram 环境诊断done");
         std::fs::remove_file(path).expect("remove log fixture");
+    }
+
+    #[test]
+    fn structured_log_query_parses_filters_and_paginates_mixed_lines() {
+        let path = env::temp_dir().join(format!("molibot-log-query-{}", Uuid::new_v4()));
+        write(
+            &path,
+            concat!(
+                "third party boot line\n",
+                "[mom-t] 2026-07-29 10:00:00 runner 🏃 run_start run=run-1 chat=chat-1\n",
+                "[mom-t] {\"ts\":\"2026-07-29T10:00:01.000Z\",\"level\":\"info\",\"category\":\"llm\",\"event\":\"llm_request_sent\",\"schemaVersion\":1,\"runId\":\"run-1\",\"provider\":\"openai\",\"model\":\"gpt-test\"}\n",
+                "[mom-t] {\"ts\":\"2026-07-29T10:00:02.000Z\",\"level\":\"error\",\"category\":\"tool\",\"event\":\"tool_end\",\"schemaVersion\":1,\"runId\":\"run-1\",\"tool\":\"bash\",\"status\":\"error\"}\n"
+            )
+        )
+        .expect("write structured log fixture");
+
+        let page = query_service_log(
+            &path,
+            ServiceLogQuery {
+                categories: vec!["llm".into()],
+                run_id: Some("run-1".into()),
+                page: 1,
+                page_size: 1,
+                ..ServiceLogQuery::default()
+            },
+        )
+        .expect("query service log");
+
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].event, "llm_request_sent");
+        assert_eq!(page.items[0].provider.as_deref(), Some("openai"));
+        assert!(page.has_raw_lines);
+        std::fs::remove_file(path).expect("remove log fixture");
+    }
+
+    #[test]
+    fn log_rotation_bounds_active_file_and_keeps_recent_history() {
+        let temp_dir = env::temp_dir().join(format!("molibot-log-rotate-{}", Uuid::new_v4()));
+        create_dir_all(temp_dir.join("runtime")).expect("create rotation fixture");
+        let active = temp_dir.join("runtime/desktop-sidecar.log");
+        write(&active, vec![b'x'; LOG_ROTATE_BYTES as usize + 1]).expect("write oversized log");
+
+        rotate_service_logs(&temp_dir).expect("rotate service log");
+
+        assert!(!active.exists());
+        assert!(temp_dir.join("runtime/desktop-sidecar.log.1").exists());
+
+        write(
+            &active,
+            "[mom-t] {\"ts\":\"2026-07-29T12:00:00Z\",\"level\":\"info\",\"category\":\"llm\",\"event\":\"llm_request_sent\",\"schemaVersion\":1}\n",
+        )
+        .expect("write restarted active log");
+        let restarted = query_service_log(&active, ServiceLogQuery::default())
+            .expect("query restarted active log");
+        assert_eq!(restarted.items.len(), 1);
+        assert_eq!(restarted.items[0].category, "llm");
+        remove_dir_all(temp_dir).expect("remove rotation fixture");
     }
 
     #[test]

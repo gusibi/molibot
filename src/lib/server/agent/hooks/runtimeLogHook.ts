@@ -94,9 +94,12 @@ export class RuntimeLogHook implements RuntimeHook {
       this.log("runner", "tool_start", {
         runId: event.context.runId,
         chatId: event.context.chatId,
+        sessionId: event.context.sessionId,
         tool: toolName,
+        toolCallId: stringField(payload, "toolCallId"),
         displayName: stringField(payload, "displayName"),
-        label: stringField(payload, "label") ?? toolName
+        label: stringField(payload, "label") ?? toolName,
+        status: "started"
       });
       return;
     }
@@ -106,10 +109,13 @@ export class RuntimeLogHook implements RuntimeHook {
       this.log("runner", "tool_end", {
         runId: event.context.runId,
         chatId: event.context.chatId,
+        sessionId: event.context.sessionId,
         tool: toolName,
+        toolCallId: stringField(payload, "toolCallId"),
         displayName: stringField(payload, "displayName"),
         isError: event.stage === "tool.call.error",
-        resultPreview: stringField(payload, "resultPreview")
+        resultPreview: stringField(payload, "resultPreview"),
+        status: event.stage === "tool.call.error" ? "error" : "success"
       });
       return;
     }
@@ -117,13 +123,16 @@ export class RuntimeLogHook implements RuntimeHook {
     if (event.stage === "tool.call.blocked") {
       const toolName = stringField(payload, "toolName") ?? "unknown";
       this.warn("runner", "tool_call_blocked", {
+        runId: event.context.runId,
         chatId: event.context.chatId,
         sessionId: event.context.sessionId,
         tool: toolName,
+        toolCallId: stringField(payload, "toolCallId"),
         displayName: stringField(payload, "displayName"),
         label: stringField(payload, "label"),
         blockedBy: stringField(payload, "blockedBy"),
-        reason: stringField(payload, "reason")
+        reason: stringField(payload, "reason"),
+        status: "blocked"
       });
       return;
     }

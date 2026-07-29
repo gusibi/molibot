@@ -788,7 +788,7 @@
       </div>
     </aside>
     <section class="settings-content">
-      <PageHeader title={sectionLabel(activeSection, text)} description={sectionDescription(activeSection, text)} dataPage={activeSection === "trace" || activeSection === "usage" || activeSection === "memory"} scrolled={settingsScrolled} />
+      <PageHeader title={sectionLabel(activeSection, text)} description={sectionDescription(activeSection, text)} dataPage={activeSection === "trace" || activeSection === "usage" || activeSection === "memory" || activeSection === "logs"} scrolled={settingsScrolled} />
 
       <div class="settings-scroll" data-section={activeSection} onscroll={(event) => (settingsScrolled = event.currentTarget.scrollTop > 2)}>
 

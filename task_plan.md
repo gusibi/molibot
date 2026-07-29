@@ -2543,3 +2543,45 @@ Complete — implementation, real-component walkthrough, records, and adversaria
 | Planning completion helper reported 2/7 for the accumulated multi-task file | 1 | This is the known parser limitation with many historical task sections; this isolated task explicitly marks all five phases complete, so prior user-owned planning history remains untouched. |
 
 ---
+# Structured service-log filtering (2026-07-29)
+
+## Goal
+Turn Desktop-managed `service.log` into a credential-safe structured operational log and rebuild the Desktop Logs page with real filtering, pagination, raw-line compatibility, bilingual copy, dark/light support, and responsive behavior, without changing SQLite Trace.
+
+## Current phase
+Complete — structured service logging, native query, Desktop UI, verification, and records finished
+
+## Phases
+1. Audit current logger/supervisor/Desktop contracts and historical pitfalls — complete
+2. Define the structured service-log contract and add red parser/query/logger regressions — complete
+3. Implement service-log fields, redaction, correlation, and Subagent/LLM/tool coverage — complete
+4. Implement native log query/pagination plus the Desktop structured Logs page — complete
+5. Verify focused/full tests, diagnostics/build, cold restart simulation, docs, and adversarial review — complete
+
+## Verification gates
+- SQLite Trace source, schema, recorder, APIs, and UI remain untouched.
+- Every Molibot service record has timestamp, level, category, event, and schema version; available run/session/tool/model/Subagent correlation identifiers are preserved.
+- Secrets, credentials, authorization/cookie data, and sensitive URL parameters are redacted before serialization.
+- Desktop filters by level, category, event/status, keyword, Run ID, provider/model, tool, and Subagent; old pretty/raw third-party lines remain visible.
+- Querying is cursor/pagination based and does not load or return the full growing log.
+- Chinese/English, light/dark, keyboard access, and the 860x620 minimum Desktop window pass.
+- Service restart → first Logs open → filter → pagination → restart → refresh succeeds on an isolated data directory.
+
+## Assumptions
+- `desktop-sidecar.log` remains the physical service log; old existing lines are backward-compatible raw records rather than migrated.
+- Pretty formatting becomes a presentation concern; the Desktop-managed runtime must emit machine-readable Molibot records.
+- Log rotation is in scope because the current file grows without a bound and pagination alone does not solve retention.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Planning helper script was not executable directly | 1 | Invoked the same script through `bash`; existing repository planning files were preserved. |
+| New WorkTree has no local `node_modules`, so TS red tests could not load `tsx` | 1 | Reuse the primary checkout's ignored dependency tree through a WorkTree-local symlink; do not reinstall or repeat the unresolved command. |
+| Cargo accepts only one positional test filter | 1 | Run the shared `supervisor::tests` filter rather than passing two names. |
+| Fresh WorkTree lacked generated SvelteKit alias config, so `$lib` still failed after dependencies resolved | 2 | Generate `.svelte-kit` once with the checked-in SvelteKit sync command before rerunning; this is a distinct harness prerequisite, not a repeat of the missing dependency attempt. |
+| Combined red command ran Cargo from the repository root | 1 | Run Cargo from `apps/desktop/src-tauri`; do not repeat the wrong working directory. |
+| Full `cargo fmt --check` exposed unrelated baseline formatting in existing Rust files | 1 | Do not mechanically rewrite unrelated source; compile and test the task-scoped native boundary and keep `git diff --check` as the scoped whitespace gate. |
+| First Desktop diagnostic reused only root dependencies, leaving package-only Tauri modules unresolved | 1 | Point the WorkTree's ignored Desktop dependency link at the primary checkout's existing package dependencies, then rerun without installing or changing lockfiles. |
+| The first full Rust rerun still referenced the removed legacy tail helper from one ANSI test | 1 | Move that existing assertion to the new bounded window reader and rerun the complete native suite. |
+
+---

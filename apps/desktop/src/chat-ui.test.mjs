@@ -124,6 +124,18 @@ test("native close behavior is a localized narrow preference using IosSwitch", (
   assert.doesNotMatch(app, /class="switch"/);
 });
 
+test("service logs expose structured filters, paginated records, and raw-line compatibility", () => {
+  assert.match(logsSection, /invoke<ServiceLogPage>\("desktop_logs", \{ query \}\)/);
+  assert.match(logsSection, /SelectControl/);
+  assert.match(logsSection, /SearchField/);
+  assert.match(logsSection, /log\.category/);
+  assert.match(logsSection, /log\.event/);
+  assert.match(logsSection, /log\.runId/);
+  assert.match(logsSection, /nextLogsPage/);
+  assert.match(logsSection, /logsRawLine/);
+  assert.doesNotMatch(logsSection, /<style/);
+});
+
 test("reported Desktop settings pages use the shared macOS-style IosSwitch", () => {
   const affectedSettingsSections = [
     "SkillsSection",

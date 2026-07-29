@@ -5,6 +5,18 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.15 Structured Desktop service-log filtering (2026-07-29)
+
+- **Priority / Status**: P1 / Delivered.
+- **Problem**: `service.log` was human-readable text only, so the App could not isolate LLM calls, tool use, Subagent work, failures, or one Run without manually scanning raw output; the active file also grew without a bound.
+- **Decision**: Desktop-managed runtime records use a versioned, credential-safe JSON envelope and correlation fields. The native boundary parses structured, legacy pretty, and arbitrary raw lines into one bounded query result with filters and pagination, while rotating the physical service log. SQLite Trace remains a separate unchanged subsystem.
+- **Acceptance**:
+  - Filter by level, category, status, keyword, event, Run ID, Provider/model, tool, and Subagent; paginate without returning the complete file.
+  - LLM/tool/Subagent lifecycle records retain available model-call, tool-call, task/delegation, Run, and Session relationships.
+  - Sensitive keys, bearer credentials, and sensitive URL parameters are redacted before serialization.
+  - Legacy and third-party lines remain visible as raw-compatible records; Chinese/English, light/dark, mobile/Desktop layouts, tests, diagnostics, and production build pass.
+  - Rotate at 20 MiB with five retained generations; query the latest 4 MiB of the active file and disclose truncation in the UI.
+
 ## 3.14 Desktop long-conversation prompt navigator (2026-07-28)
 
 - **Priority / Status**: P1 / Delivered.
