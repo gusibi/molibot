@@ -197,7 +197,15 @@ export interface DesktopProjectTreePage {
 }
 
 export type DesktopProjectFilePreview =
-  | { status: "text"; path: string; content: string; sizeBytes: number; truncated: boolean }
+  | {
+      status: "text";
+      path: string;
+      content: string;
+      sizeBytes: number;
+      byteOffset: number;
+      byteLength: number;
+      truncated: boolean;
+    }
   | { status: "binary" | "oversized"; path: string; sizeBytes: number };
 
 export interface DesktopProjectGitEntry {
@@ -314,9 +322,35 @@ export async function loadDesktopProjectTree(endpoint: string, projectId: string
   return (await requestJson<{ ok: true; page: DesktopProjectTreePage }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/tree?${query}`)).page;
 }
 
-export async function loadDesktopProjectFile(endpoint: string, projectId: string, filePath: string): Promise<DesktopProjectFilePreview> {
+export async function loadDesktopProjectFile(
+  endpoint: string,
+  projectId: string,
+  filePath: string,
+  options: { offset?: number } = {}
+): Promise<DesktopProjectFilePreview> {
   const query = new URLSearchParams({ path: filePath });
+  if (options.offset) query.set("offset", String(options.offset));
   return (await requestJson<{ ok: true; preview: DesktopProjectFilePreview }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/file?${query}`)).preview;
+}
+
+/** Streams a Project file's raw bytes; used for media, PDF and rendered SVG. */
+export function desktopProjectRawFileUrl(endpoint: string, projectId: string, filePath: string): string {
+  const query = new URLSearchParams({ path: filePath, raw: "true" });
+  return serviceUrl(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/file?${query}`);
+}
+
+/** Asks the local service to show a Project file in Finder, or open it with its default app. */
+export async function revealDesktopProjectFile(
+  endpoint: string,
+  projectId: string,
+  filePath: string,
+  mode: "reveal" | "open"
+): Promise<void> {
+  await requestJson(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/reveal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: filePath, mode })
+  });
 }
 
 export async function loadDesktopProjectGitStatus(endpoint: string, projectId: string): Promise<DesktopProjectGitStatus> {
@@ -2299,6 +2333,35 @@ export function parseDesktopApproval(data: Record<string, unknown>): DesktopAppr
       : undefined,
     options
   };
+}
+
+/**
+ * Pending approval for a session, or null.
+ *
+ * Approval cards normally arrive over the chat SSE stream, but a turn that was
+ * resumed *by* an approval runs in the background with no stream attached — a
+ * second approval raised during it is emitted to nobody. Polling this while
+ * waiting on a resumed turn is what makes that card appear at all.
+ */
+export async function loadDesktopPendingApproval(
+  endpoint: string,
+  profileId: string,
+  sessionId: string
+): Promise<DesktopApprovalPrompt | null> {
+  const payload = await requestJson<{ ok: true; approvals: Record<string, unknown>[] }>(
+    endpoint,
+    "/api/desktop/host-bash",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "list_pending", profileId, sessionId })
+    }
+  );
+  for (const raw of payload.approvals ?? []) {
+    const prompt = parseDesktopApproval(raw);
+    if (prompt) return prompt;
+  }
+  return null;
 }
 
 /**

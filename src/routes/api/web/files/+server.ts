@@ -1,5 +1,4 @@
-import { createReadStream, existsSync, readFileSync, statSync, readdirSync } from "node:fs";
-import { Readable } from "node:stream";
+import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -15,6 +14,7 @@ import {
   toWebExternalUserId
 } from "$lib/server/web/identity";
 import { getProjectRuntimeContext, getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import { streamFileWithRange } from "$lib/server/http/rangeResponse";
 
 interface SessionFileRecord {
   id: string;
@@ -146,7 +146,7 @@ function scanDirectoryFiles(dir: string, baseDir: string): { relativePath: strin
   return result;
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, request }) => {
   const profileId = sanitizeWebProfileId(url.searchParams.get("profileId"));
   const userId = sanitizeWebUserId(url.searchParams.get("userId"));
   const sessionId = String(url.searchParams.get("sessionId") ?? "").trim();
@@ -237,7 +237,7 @@ export const GET: RequestHandler = async ({ url }) => {
       return json({ ok: false, error: "File not found on disk" }, { status: 404 });
     }
 
-    return streamFileResponse(fullPath, file.mimeType, file.original, download);
+    return streamFileResponse(fullPath, file.mimeType, file.original, download, request);
   }
 
   const resolved = resolveAuthorizedConversation({ profileId, userId, sessionId, projectId });
@@ -266,7 +266,7 @@ export const GET: RequestHandler = async ({ url }) => {
   }
 
   const fullPath = path.resolve(resolved.workspaceDir, local);
-  return streamFileResponse(fullPath, file.mimeType, file.original, download);
+  return streamFileResponse(fullPath, file.mimeType, file.original, download, request);
 };
 
 /**
@@ -276,17 +276,27 @@ export const GET: RequestHandler = async ({ url }) => {
  * transport started dropping the response. Streaming lets the Node adapter
  * chunk the file through the HTTP response without buffering it all in memory,
  * and keeps `content-length` authoritative so the client knows the real size.
+ *
+ * Range handling comes from the shared helper so an attachment video seeks the
+ * same way a Project file does.
  */
-function streamFileResponse(fullPath: string, mimeType: string | undefined, originalName: string, download: boolean): Response {
+function streamFileResponse(
+  fullPath: string,
+  mimeType: string | undefined,
+  originalName: string,
+  download: boolean,
+  request?: Request
+): Response {
   const stat = statSync(fullPath);
-  const stream = Readable.toWeb(createReadStream(fullPath)) as ReadableStream<Uint8Array>;
-  return new Response(stream, {
-    status: 200,
+  return streamFileWithRange({
+    path: fullPath,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    mimeType,
+    rangeHeader: request?.headers.get("range"),
+    ifNoneMatch: request?.headers.get("if-none-match"),
     headers: {
-      "content-type": mimeType || "application/octet-stream",
-      "content-length": String(stat.size),
       "content-disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(originalName)}`,
-      "cache-control": "no-store",
       "x-content-type-options": "nosniff"
     }
   });

@@ -6,7 +6,11 @@ import type { ProjectRecord } from "./store.js";
 
 const DEFAULT_TREE_LIMIT = 200;
 const MAX_TREE_LIMIT = 500;
-const MAX_PREVIEW_BYTES = 256 * 1024;
+/** Bytes returned by a single preview request; the viewer pages through a file with `offset`. */
+export const PREVIEW_WINDOW_BYTES = 512 * 1024;
+/** Above this a file is reported as oversized instead of being paged as text. */
+export const MAX_TEXT_PREVIEW_BYTES = 16 * 1024 * 1024;
+const ENCODING_SAMPLE_BYTES = 8_192;
 const MAX_GIT_BYTES = 2 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 8_000;
 
@@ -25,8 +29,25 @@ export interface TreePage {
 }
 
 export type FilePreviewResult =
-  | { status: "text"; path: string; content: string; sizeBytes: number; truncated: boolean }
+  | {
+      status: "text";
+      path: string;
+      content: string;
+      sizeBytes: number;
+      /** First byte this window decoded; the viewer passes it back to page forward. */
+      byteOffset: number;
+      /** Bytes consumed by `content`, so `byteOffset + byteLength` is the next offset. */
+      byteLength: number;
+      truncated: boolean;
+    }
   | { status: "binary" | "oversized"; path: string; sizeBytes: number };
+
+export interface FilePreviewInput {
+  path: string;
+  /** Byte position to start decoding at; clamped into the file and onto a character boundary. */
+  offset?: number;
+  maxBytes?: number;
+}
 
 export interface GitStatusEntry {
   path: string;
@@ -90,9 +111,96 @@ export async function resolveProjectPath(project: ProjectRecord, input = "", all
   return { root, target, relative: relativePath(root, target) };
 }
 
+export type TextEncodingGuess = "utf8" | "utf16le" | "utf16be" | "binary";
+
+function hasUtf8Bom(buffer: Buffer): boolean {
+  return buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf;
+}
+
+function utf16BomOf(buffer: Buffer): "utf16le" | "utf16be" | null {
+  if (buffer.length < 2) return null;
+  if (buffer[0] === 0xff && buffer[1] === 0xfe) return "utf16le";
+  if (buffer[0] === 0xfe && buffer[1] === 0xff) return "utf16be";
+  return null;
+}
+
+/**
+ * BOM-less UTF-16 text is mostly ASCII, so one byte of every pair is NUL and
+ * always on the same side. That pattern is what separates it from real binary,
+ * which scatters NUL bytes across both positions.
+ */
+function utf16WithoutBom(sample: Buffer): "utf16le" | "utf16be" | null {
+  const pairBytes = sample.length - (sample.length % 2);
+  if (pairBytes < 16) return null;
+  let evenNul = 0;
+  let oddNul = 0;
+  for (let index = 0; index < pairBytes; index += 2) {
+    if (sample[index] === 0) evenNul += 1;
+    if (sample[index + 1] === 0) oddNul += 1;
+  }
+  const pairs = pairBytes / 2;
+  if (oddNul / pairs > 0.6 && evenNul / pairs < 0.1) return "utf16le";
+  if (evenNul / pairs > 0.6 && oddNul / pairs < 0.1) return "utf16be";
+  return null;
+}
+
+/** Control characters outside tab/newline/carriage-return dominate binary payloads, not text. */
+function looksControlHeavy(sample: Buffer): boolean {
+  if (!sample.length) return false;
+  let control = 0;
+  for (const byte of sample) {
+    if (byte === 0x09 || byte === 0x0a || byte === 0x0d) continue;
+    if (byte < 0x20 || byte === 0x7f) control += 1;
+  }
+  return control / sample.length > 0.3;
+}
+
+/**
+ * Classifies a file's leading bytes. A bare NUL no longer means "binary" on its
+ * own — UTF-16 files are full of them — so BOMs and the NUL-position pattern are
+ * checked first.
+ */
+export function detectTextEncoding(buffer: Buffer): TextEncodingGuess {
+  const sample = buffer.subarray(0, Math.min(buffer.length, ENCODING_SAMPLE_BYTES));
+  if (!sample.length) return "utf8";
+  if (hasUtf8Bom(sample)) return "utf8";
+  const bom = utf16BomOf(sample);
+  if (bom) return bom;
+  const guessed = utf16WithoutBom(sample);
+  if (guessed) return guessed;
+  if (sample.includes(0)) return "binary";
+  return looksControlHeavy(sample) ? "binary" : "utf8";
+}
+
 export function looksBinary(buffer: Buffer): boolean {
-  const sample = buffer.subarray(0, Math.min(buffer.length, 8_192));
-  return sample.includes(0);
+  return detectTextEncoding(buffer) === "binary";
+}
+
+/**
+ * Narrows a byte window to whole UTF-8 characters. Without this a window that
+ * starts or ends mid-sequence turns the first and last CJK character into
+ * replacement glyphs — visible as `` at every page boundary.
+ */
+function utf8WindowBounds(buffer: Buffer, atStart: boolean, atEnd: boolean): { start: number; end: number } {
+  let start = 0;
+  if (!atStart) {
+    while (start < buffer.length && (buffer[start] & 0xc0) === 0x80) start += 1;
+  }
+  let end = buffer.length;
+  if (!atEnd) {
+    let scan = end - 1;
+    let trailing = 0;
+    while (scan >= start && (buffer[scan] & 0xc0) === 0x80 && trailing < 3) {
+      scan -= 1;
+      trailing += 1;
+    }
+    if (scan >= start) {
+      const lead = buffer[scan];
+      const needed = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+      if (needed > 1 && trailing + 1 < needed) end = scan;
+    }
+  }
+  return { start, end: Math.max(start, end) };
 }
 
 async function runGit(projectRoot: string, args: string[]): Promise<{ ok: true; stdout: Buffer; truncated: boolean } | { ok: false; reason: string }> {
@@ -227,19 +335,65 @@ export async function getProjectFilePath(project: ProjectRecord, filePath: strin
   return resolved.target;
 }
 
-export async function readProjectFile(project: ProjectRecord, input: { path: string; maxBytes?: number }): Promise<FilePreviewResult> {
+/**
+ * Reads one window of a file as text. Files larger than the window are no longer
+ * refused outright: the caller pages through them by passing the previous
+ * response's `byteOffset + byteLength` back as `offset`. Only files past
+ * `MAX_TEXT_PREVIEW_BYTES` report `oversized`, and binary ones still report
+ * `binary` so the viewer can fall back to streaming the raw bytes.
+ */
+export async function readProjectFile(project: ProjectRecord, input: FilePreviewInput): Promise<FilePreviewResult> {
   const resolved = await resolveProjectPath(project, input.path);
   const stat = await fs.stat(resolved.target);
   if (!stat.isFile()) throw new Error("Preview path is not a file.");
-  const maxBytes = Math.max(1, Math.min(MAX_PREVIEW_BYTES, input.maxBytes ?? MAX_PREVIEW_BYTES));
-  if (stat.size > MAX_PREVIEW_BYTES) return { status: "oversized", path: resolved.relative, sizeBytes: stat.size };
+  if (stat.size > MAX_TEXT_PREVIEW_BYTES) return { status: "oversized", path: resolved.relative, sizeBytes: stat.size };
+  const windowBytes = Math.max(1, Math.min(PREVIEW_WINDOW_BYTES, Math.floor(input.maxBytes ?? PREVIEW_WINDOW_BYTES)));
+  const requestedOffset = Math.max(0, Math.min(stat.size, Math.floor(input.offset ?? 0)));
+
   const handle = await fs.open(resolved.target, "r");
   try {
-    const buffer = Buffer.alloc(Math.min(stat.size, maxBytes));
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    const content = buffer.subarray(0, bytesRead);
-    if (looksBinary(content)) return { status: "binary", path: resolved.relative, sizeBytes: stat.size };
-    return { status: "text", path: resolved.relative, content: content.toString("utf8"), sizeBytes: stat.size, truncated: bytesRead < stat.size };
+    // Classify from the head every time so a paged read of a binary file cannot
+    // be mistaken for text just because its middle happens to be printable.
+    const head = Buffer.alloc(Math.min(stat.size, ENCODING_SAMPLE_BYTES));
+    if (head.length) await handle.read(head, 0, head.length, 0);
+    const encoding = detectTextEncoding(head);
+    if (encoding === "binary") return { status: "binary", path: resolved.relative, sizeBytes: stat.size };
+
+    const bomBytes = encoding === "utf8" ? (hasUtf8Bom(head) ? 3 : 0) : (utf16BomOf(head) ? 2 : 0);
+    let start = Math.max(bomBytes, requestedOffset);
+    // UTF-16 code units are two bytes wide; an odd offset would swap every byte pair.
+    if (encoding !== "utf8" && (start - bomBytes) % 2 === 1) start += 1;
+    start = Math.min(start, stat.size);
+
+    const buffer = Buffer.alloc(Math.min(windowBytes, Math.max(0, stat.size - start)));
+    const bytesRead = buffer.length ? (await handle.read(buffer, 0, buffer.length, start)).bytesRead : 0;
+    const chunk = buffer.subarray(0, bytesRead);
+    const atEnd = start + bytesRead >= stat.size;
+
+    let content: string;
+    let byteLength: number;
+    if (encoding === "utf8") {
+      const bounds = utf8WindowBounds(chunk, start === bomBytes, atEnd);
+      content = chunk.subarray(bounds.start, bounds.end).toString("utf8");
+      byteLength = bounds.end;
+    } else {
+      const evenBytes = bytesRead - (bytesRead % 2);
+      const units = encoding === "utf16be"
+        ? Buffer.from(chunk.subarray(0, evenBytes)).swap16()
+        : chunk.subarray(0, evenBytes);
+      content = units.toString("utf16le");
+      byteLength = evenBytes;
+    }
+
+    return {
+      status: "text",
+      path: resolved.relative,
+      content,
+      sizeBytes: stat.size,
+      byteOffset: start,
+      byteLength,
+      truncated: start + byteLength < stat.size
+    };
   } finally { await handle.close(); }
 }
 

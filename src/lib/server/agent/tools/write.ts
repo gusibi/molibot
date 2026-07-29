@@ -96,13 +96,21 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
       });
 
       const writtenBytes = Buffer.byteLength(params.content, "utf-8");
+      // Report where the file actually is, not the path that was asked for.
+      // Writes are rooted at the scratch/project output root while `bash` runs
+      // in the run's cwd, so echoing the requested path back hands the agent a
+      // string that resolves to nothing — which is exactly how a release ended
+      // up running `gh release create --notes-file <path that did not exist>`.
+      const reportedPath = filePath === resolveToolPath(ctx.cwd, requestedPath)
+        ? requestedPath
+        : filePath;
       return {
         ok: true,
         content: [{
           type: "text",
           text: legacyTarget.routed
             ? `Wrote ${writtenBytes} bytes to ${legacyTarget.path} (default artifact path for ${legacyTarget.requestedPath})`
-            : `Wrote ${writtenBytes} bytes to ${requestedPath}`
+            : `Wrote ${writtenBytes} bytes to ${reportedPath}`
         }],
         details: baseRoot ? {
           requestedPath,

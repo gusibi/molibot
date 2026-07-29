@@ -13,6 +13,7 @@
     touchedPaths,
     onCopyPath,
     onMention,
+    onContextMenu,
     copiedPath
   }: {
     store: ProjectFilesStore;
@@ -23,11 +24,13 @@
     touchedPaths: Set<string>;
     onCopyPath: (path: string) => void;
     onMention: (path: string) => void;
+    onContextMenu: (event: MouseEvent, path: string, kind: string) => void;
     copiedPath: string;
   } = $props();
 
   const level = $derived(store.dirs[dirPath]);
   const activePath = $derived(store.activeTab?.path ?? "");
+  const cursorPath = $derived(store.cursorPath);
 </script>
 
 {#if level}
@@ -38,8 +41,15 @@
         <div
           class="file-tree-row"
           class:selected={activePath === entry.path}
+          class:cursor={cursorPath === entry.path}
           class:dirty={dirtyPaths.has(entry.path)}
           class:touched={touchedPaths.has(entry.path)}
+          data-tree-path={entry.path}
+          role="treeitem"
+          tabindex={-1}
+          aria-expanded={entry.kind === "directory" ? expanded : undefined}
+          aria-selected={activePath === entry.path}
+          oncontextmenu={(event) => onContextMenu(event, entry.path, entry.kind)}
         >
           <button
             type="button"
@@ -49,6 +59,7 @@
             disabled={entry.kind === "symlink"}
             title={entry.path}
             onclick={() => {
+              store.cursorPath = entry.path;
               if (entry.kind === "directory") store.toggleDir(entry.path);
               else if (entry.kind === "file") void store.openFile(entry.path);
             }}
@@ -102,6 +113,7 @@
               {touchedPaths}
               {onCopyPath}
               {onMention}
+              {onContextMenu}
               {copiedPath}
             />
           {:else}

@@ -119,14 +119,22 @@ export function isTextPreviewKind(kind: FilePreviewKind): boolean {
 
 const MIME_BY_EXTENSION: Record<string, string> = {
   ".png": "image/png",
+  ".apng": "image/apng",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
+  ".jfif": "image/jpeg",
+  ".pjpeg": "image/jpeg",
   ".gif": "image/gif",
   ".webp": "image/webp",
   ".bmp": "image/bmp",
   ".tiff": "image/tiff",
   ".tif": "image/tiff",
   ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  // WebKit renders these natively on macOS, so the Project panel can show them inline.
+  ".heic": "image/heic",
+  ".heif": "image/heif",
+  ".avif": "image/avif",
   ".ogg": "audio/ogg",
   ".oga": "audio/ogg",
   ".opus": "audio/ogg",
@@ -135,13 +143,22 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ".m4a": "audio/mp4",
   ".aac": "audio/aac",
   ".flac": "audio/flac",
+  ".aiff": "audio/aiff",
+  ".aif": "audio/aiff",
+  ".caf": "audio/x-caf",
   ".silk": "audio/silk",
   ".amr": "audio/amr",
   ".mp4": "video/mp4",
   ".m4v": "video/mp4",
   ".webm": "video/webm",
   ".mov": "video/quicktime",
-  ".avi": "video/x-msvideo"
+  ".avi": "video/x-msvideo",
+  ".mkv": "video/x-matroska",
+  ".ogv": "video/ogg",
+  ".mpg": "video/mpeg",
+  ".mpeg": "video/mpeg",
+  ".3gp": "video/3gpp",
+  ".pdf": "application/pdf"
 };
 
 /** Best-effort MIME type from a filename's extension. Returns null when unknown. */
@@ -158,4 +175,26 @@ export function mediaTypeFromName(filename: string): "image" | "audio" | "video"
   if (mime.startsWith("audio/")) return "audio";
   if (mime.startsWith("video/")) return "video";
   return "file";
+}
+
+export type RawPreviewKind = "image" | "audio" | "video" | "pdf" | "file";
+
+/**
+ * What the Project file viewer can render for a filename by streaming its raw
+ * bytes. Unlike `mediaTypeFromName` this separates PDF, which needs its own
+ * embed rather than the media elements.
+ */
+export function rawPreviewKindFromName(filename: string): RawPreviewKind {
+  const mime = mimeFromFilename(filename);
+  if (!mime) return "file";
+  if (mime === "application/pdf") return "pdf";
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  if (mime.startsWith("video/")) return "video";
+  return "file";
+}
+
+/** True when the viewer should offer a rendered/source toggle instead of only code. */
+export function isRenderableTextName(filename: string): boolean {
+  return mimeFromFilename(filename) === "image/svg+xml";
 }

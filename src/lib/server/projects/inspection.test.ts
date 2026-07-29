@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getProjectGitDiff, getProjectGitStatus, listProjectTree, readProjectFile } from "./inspection.js";
@@ -39,7 +39,7 @@ test("tree is bounded, hides .git, and does not follow outside symlinks", async 
   }
 });
 
-test("file preview and diff report binary and oversized states without rendering bytes", async () => {
+test("file preview and diff report binary states without rendering bytes", async () => {
   const root = mkdtempSync(join(tmpdir(), "molibot-inspection-binary-"));
   try {
     git(root, "init");
@@ -52,7 +52,83 @@ test("file preview and diff report binary and oversized states without rendering
     writeFileSync(join(root, "binary.bin"), Buffer.from([0, 4, 5, 6]));
     writeFileSync(join(root, "large.txt"), "y".repeat(300 * 1024));
     assert.equal((await getProjectGitDiff(fixture(root), { path: "binary.bin" })).status, "binary");
-    assert.equal((await getProjectGitDiff(fixture(root), { path: "large.txt" })).status, "oversized");
+    // A file past the old 256 KB preview cap is now diffable like any other.
+    assert.equal((await getProjectGitDiff(fixture(root), { path: "large.txt" })).status, "diff");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("text preview pages through a file larger than one window", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-inspection-paged-"));
+  try {
+    const content = "line\n".repeat(200_000); // 1 MB, past PREVIEW_WINDOW_BYTES.
+    writeFileSync(join(root, "big.txt"), content);
+
+    const first = await readProjectFile(fixture(root), { path: "big.txt" });
+    assert.equal(first.status, "text");
+    if (first.status !== "text") return;
+    assert.equal(first.byteOffset, 0);
+    assert.equal(first.truncated, true);
+    assert.equal(first.sizeBytes, Buffer.byteLength(content));
+
+    let assembled = first.content;
+    let offset = first.byteOffset + first.byteLength;
+    let guard = 0;
+    for (;;) {
+      const page = await readProjectFile(fixture(root), { path: "big.txt", offset });
+      assert.equal(page.status, "text");
+      if (page.status !== "text") return;
+      assembled += page.content;
+      offset = page.byteOffset + page.byteLength;
+      if (!page.truncated) break;
+      assert.ok((guard += 1) < 64, "paging did not terminate");
+    }
+    assert.equal(assembled, content);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("paged windows never split a multi-byte character", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-inspection-cjk-"));
+  try {
+    // 700 KB of CJK guarantees a window boundary lands inside a 3-byte sequence.
+    const content = "中文内容测试".repeat(40_000);
+    writeFileSync(join(root, "cjk.txt"), content);
+
+    let assembled = "";
+    let offset = 0;
+    for (let page = 0; page < 64; page += 1) {
+      const window = await readProjectFile(fixture(root), { path: "cjk.txt", offset });
+      assert.equal(window.status, "text");
+      if (window.status !== "text") return;
+      assert.equal(window.content.includes("�"), false, "window boundary produced a replacement character");
+      assembled += window.content;
+      offset = window.byteOffset + window.byteLength;
+      if (!window.truncated) break;
+    }
+    assert.equal(assembled, content);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("UTF-16 text is decoded instead of being reported as binary", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-inspection-utf16-"));
+  try {
+    const text = "const greeting = \"你好\";\n".repeat(50);
+    writeFileSync(join(root, "utf16.ts"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")]));
+    const preview = await readProjectFile(fixture(root), { path: "utf16.ts" });
+    assert.equal(preview.status, "text");
+    if (preview.status !== "text") return;
+    assert.equal(preview.content, text);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("files past the text preview ceiling are reported as oversized", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-inspection-oversized-"));
+  try {
+    const handle = openSync(join(root, "huge.log"), "w");
+    ftruncateSync(handle, 17 * 1024 * 1024);
+    closeSync(handle);
+    const preview = await readProjectFile(fixture(root), { path: "huge.log" });
+    assert.equal(preview.status, "oversized");
+    assert.equal(preview.sizeBytes, 17 * 1024 * 1024);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

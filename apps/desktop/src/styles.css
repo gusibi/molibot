@@ -978,6 +978,73 @@ a:focus-visible {
 .file-tree-more { margin: 2px 8px 8px; margin-left: calc(8px + var(--depth, 0) * 12px); min-height: 26px; padding: 0 8px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-secondary); font-size: 11px; cursor: pointer; }
 .file-tree-more:hover:not(:disabled) { border-color: var(--control-border-strong); color: var(--label-primary); }
 
+.file-tree-row.cursor { background: var(--fill-hover); box-shadow: inset 2px 0 0 var(--accent); }
+.file-tree-button:focus-visible { outline: none; }
+
+/* Collapsing the browser hands the whole panel to the viewer — at 280–720px wide
+   there is no room for a tree and a file side by side. */
+.project-panel-body.browser-collapsed > .project-browser,
+.project-panel-body.browser-collapsed > .project-split-handle { display: none; }
+.project-panel-body.browser-collapsed > .project-viewer { flex: 1 1 100%; border-top: 0; }
+
+.project-breadcrumb { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.project-breadcrumb::-webkit-scrollbar { display: none; }
+.project-breadcrumb-crumb { flex: none; min-height: 20px; padding: 0 4px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); font: 11px var(--font-mono); white-space: nowrap; cursor: pointer; }
+.project-breadcrumb-crumb:hover { background: var(--fill-hover); color: var(--label-primary); }
+.project-breadcrumb-crumb.is-last { color: var(--label-primary); font-weight: 500; }
+.project-breadcrumb-crumb > .ph { font-size: 12px; }
+.project-breadcrumb-sep { flex: none; font-size: 11px; color: var(--label-tertiary); }
+
+.code-viewer-progress { margin-left: 4px; color: var(--label-tertiary); }
+.code-viewer-more:disabled { opacity: 0.5; cursor: default; }
+
+.media-viewer { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+/* Inside an attachment row the viewer has no flex parent to stretch into. */
+.project-inline-preview .media-viewer { height: 320px; }
+.media-viewer-toolbar { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 4px 8px; border-bottom: 1px solid var(--separator); }
+.media-viewer-meta { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow: hidden; color: var(--label-tertiary); font: 11px var(--font-mono); white-space: nowrap; }
+.media-viewer-stage { display: flex; align-items: center; justify-content: center; flex: 1 1 auto; min-height: 0; padding: 12px; overflow: hidden; }
+.media-viewer-stage.zoomed { cursor: grab; }
+.media-viewer-stage.panning { cursor: grabbing; }
+/* A checkerboard makes an image's transparent regions readable instead of
+   blending into whichever theme is active. */
+.media-viewer.is-image .media-viewer-stage {
+  background-color: var(--surface-secondary);
+  background-image:
+    linear-gradient(45deg, var(--fill) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--fill) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--fill) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--fill) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.media-viewer-image { transform-origin: center center; user-select: none; -webkit-user-drag: none; }
+.media-viewer-image.fitted { max-width: 100%; max-height: 100%; object-fit: contain; }
+.media-viewer-image:not(.fitted) { max-width: none; max-height: none; }
+.media-viewer-video { max-width: 100%; max-height: 100%; border-radius: var(--rounded-sm); background: #000; }
+.media-viewer-audio { width: 100%; max-width: 360px; }
+.media-viewer-pdf { width: 100%; height: 100%; min-height: 320px; border: 0; border-radius: var(--rounded-sm); background: var(--surface-secondary); }
+
+.file-menu-backdrop { position: fixed; inset: 0; z-index: 60; }
+.file-menu {
+  position: fixed;
+  z-index: 61;
+  min-width: 184px;
+  padding: 4px;
+  border: 1px solid var(--separator);
+  border-radius: var(--rounded-md);
+  background: var(--card-bg);
+  box-shadow: var(--popover-shadow);
+  outline: none;
+}
+.file-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 26px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); font-size: 13px; text-align: left; cursor: pointer; }
+.file-menu-item .ph { flex: none; font-size: 14px; color: var(--label-secondary); }
+.file-menu-item.cursor:not(:disabled) { background: var(--accent); color: #fff; }
+.file-menu-item.cursor:not(:disabled) .ph { color: #fff; }
+.file-menu-item:disabled { color: var(--label-tertiary); cursor: default; }
+.file-menu-item:disabled .ph { color: var(--label-tertiary); }
+.file-menu-separator { height: 1px; margin: 4px 8px; background: var(--separator); }
+
 .project-split-handle { flex: 0 0 auto; height: 8px; margin: 0; cursor: row-resize; background: transparent; }
 .project-split-handle::after { content: ""; display: block; height: 1px; margin-top: 3px; background: var(--separator); }
 .project-split-handle:hover::after, .project-file-panel.splitting .project-split-handle::after { background: var(--accent); }

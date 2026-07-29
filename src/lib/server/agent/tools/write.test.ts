@@ -124,3 +124,40 @@ test("project write classifies an absolute scratch path as scratch even when scr
     rmSync(runtime, { recursive: true, force: true });
   }
 });
+
+// A scratch write reported as its requested path is unusable by `bash`, which
+// runs in the project root: `--notes-file report.md` looked past the project
+// root and found nothing. The result must say where the file actually is.
+test("scratch write reports a path that resolves from the run's cwd", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "molibot-write-report-"));
+  const runtime = mkdtempSync(join(tmpdir(), "molibot-write-report-runtime-"));
+  const scratchRoot = join(runtime, "scratch", "2026", "07", "29");
+  try {
+    const tool = createWriteTool({
+      cwd: projectRoot,
+      workspaceDir: runtime,
+      chatId: "chat-1",
+      outputLayout: { projectRoot, scratchRoot }
+    });
+
+    const scratchResult = await tool.execute("tool-1", {
+      label: "write",
+      path: "release_notes.md",
+      target: "scratch",
+      content: "# notes"
+    });
+    const reported = (scratchResult.content[0] as any)?.text ?? "";
+    assert.match(reported, new RegExp(join(scratchRoot, "release_notes.md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+    // A project write already resolves from cwd, so it stays relative.
+    const projectResult = await tool.execute("tool-2", {
+      label: "write",
+      path: "README.md",
+      content: "project"
+    });
+    assert.equal((projectResult.content[0] as any)?.text, "Wrote 7 bytes to README.md");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+    rmSync(runtime, { recursive: true, force: true });
+  }
+});

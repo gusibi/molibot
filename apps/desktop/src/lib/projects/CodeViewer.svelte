@@ -2,19 +2,31 @@
   import { untrack } from "svelte";
   import type { Translation } from "../i18n";
   import { countMatchingLines, highlightLines, markMatches } from "./codeHighlight";
+  import { formatSize } from "./fileIcons";
 
   let {
     content,
     filePath,
     copy,
     revealLine = 0,
-    onRevealed
+    onRevealed,
+    hasMoreBytes = false,
+    loadingMore = false,
+    loadedBytes = 0,
+    sizeBytes = 0,
+    onLoadMoreBytes
   }: {
     content: string;
     filePath: string;
     copy: Translation;
     revealLine?: number;
     onRevealed?: () => void;
+    /** True when the file continues past the bytes currently in `content`. */
+    hasMoreBytes?: boolean;
+    loadingMore?: boolean;
+    loadedBytes?: number;
+    sizeBytes?: number;
+    onLoadMoreBytes?: () => void;
   } = $props();
 
   /** Rendering every line of a 256 KB file at once stalls the WebView; reveal in chunks. */
@@ -58,6 +70,12 @@
       onRevealed?.();
     });
   });
+
+  /** Give the incoming window room up front so it renders instead of hiding behind "show more". */
+  function requestMoreBytes(): void {
+    visibleLines += CHUNK_LINES;
+    onLoadMoreBytes?.();
+  }
 
   function scrollToLine(index: number): void {
     const row = viewport?.querySelector<HTMLElement>(`[data-line="${index}"]`);
@@ -116,7 +134,10 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="code-viewer" onkeydowncapture={onKeydown} role="group" aria-label={filePath}>
   <div class="code-viewer-toolbar">
-    <span class="code-viewer-meta">{copy.codeViewerLines.replace("{count}", String(rawLines.length))}</span>
+    <span class="code-viewer-meta">
+      {copy.codeViewerLines.replace("{count}", String(rawLines.length))}
+      {#if hasMoreBytes}<span class="code-viewer-progress">· {formatSize(loadedBytes)} / {formatSize(sizeBytes)}</span>{/if}
+    </span>
     <button
       type="button"
       class="code-viewer-toggle"
@@ -196,6 +217,13 @@
     {#if remaining}
       <button type="button" class="code-viewer-more" onclick={() => (visibleLines += CHUNK_LINES)}>
         {copy.codeViewerShowMore.replace("{count}", String(remaining))}
+      </button>
+    {:else if hasMoreBytes}
+      <!-- Every loaded line is on screen, so the only thing left is more of the file itself. -->
+      <button type="button" class="code-viewer-more" disabled={loadingMore} onclick={requestMoreBytes}>
+        {loadingMore
+          ? copy.loading
+          : copy.codeViewerLoadMoreBytes.replace("{size}", formatSize(Math.max(0, sizeBytes - loadedBytes)))}
       </button>
     {/if}
   </div>

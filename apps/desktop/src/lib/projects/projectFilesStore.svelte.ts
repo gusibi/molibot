@@ -1,8 +1,10 @@
 import {
+  desktopProjectRawFileUrl,
   loadDesktopProjectFile,
   loadDesktopProjectGitDiff,
   loadDesktopProjectGitStatus,
   loadDesktopProjectTree,
+  revealDesktopProjectFile,
   searchDesktopProjectFiles,
   watchDesktopProjectFiles,
   type DesktopProjectChangeBatch,
@@ -34,9 +36,46 @@ export interface OpenTab {
   diff: DesktopProjectGitDiff | null;
   /** 1-based line the viewer should scroll to once content arrives; 0 means none. */
   revealLine: number;
+  /** True while another byte window is being appended to a partially loaded file. */
+  loadingMore: boolean;
+  /** Byte position the next window starts at; equals `sizeBytes` once fully loaded. */
+  loadedBytes: number;
 }
 
 export type SearchMode = "name" | "content";
+
+export interface FlatTreeRow {
+  path: string;
+  name: string;
+  kind: DesktopProjectTreeEntry["kind"];
+  depth: number;
+  expanded: boolean;
+}
+
+/**
+ * Flattens the loaded tree levels into the rows the panel actually renders, in
+ * visual order. Keyboard navigation walks this list, so it must be derived from
+ * `dirs` and `expanded` explicitly — a template helper that read them itself
+ * would not re-run when either changes.
+ */
+export function flattenTree(
+  dirs: Record<string, TreeLevel>,
+  expanded: Record<string, boolean>,
+  dirPath = "",
+  depth = 0
+): FlatTreeRow[] {
+  const level = dirs[dirPath];
+  if (!level) return [];
+  const rows: FlatTreeRow[] = [];
+  for (const entry of level.entries) {
+    const isOpen = Boolean(expanded[entry.path]);
+    rows.push({ path: entry.path, name: entry.name, kind: entry.kind, depth, expanded: isOpen });
+    if (entry.kind === "directory" && isOpen) {
+      rows.push(...flattenTree(dirs, expanded, entry.path, depth + 1));
+    }
+  }
+  return rows;
+}
 
 const MAX_OPEN_TABS = 12;
 
@@ -67,6 +106,8 @@ export class ProjectFilesStore {
 
   dirs = $state<Record<string, TreeLevel>>({});
   expanded = $state<Record<string, boolean>>({});
+  /** Row the tree's roving focus sits on; drives arrow-key navigation. */
+  cursorPath = $state("");
 
   tabs = $state<OpenTab[]>([]);
   activeTabId = $state("");
@@ -108,6 +149,7 @@ export class ProjectFilesStore {
     this.projectId = projectId;
     this.dirs = {};
     this.expanded = {};
+    this.cursorPath = "";
     this.tabs = [];
     this.activeTabId = "";
     this.git = null;
@@ -207,6 +249,16 @@ export class ProjectFilesStore {
     }
   }
 
+  /**
+   * Opens a directory and everything above it. Unlike `toggleDir` this is
+   * idempotent, so a breadcrumb click on an already-open folder does not close it.
+   */
+  async expandDir(path: string): Promise<void> {
+    await this.revealPath(path);
+    if (!this.expanded[path]) this.expanded = { ...this.expanded, [path]: true };
+    await this.loadDir(path);
+  }
+
   // ── Tabs ────────────────────────────────────────────────────────────────
 
   async openFile(path: string, options: { revealLine?: number } = {}): Promise<void> {
@@ -227,7 +279,8 @@ export class ProjectFilesStore {
     } else {
       const tab: OpenTab = {
         id, kind, path, name: baseName(path),
-        loading: true, error: "", preview: null, diff: null, revealLine
+        loading: true, error: "", preview: null, diff: null, revealLine,
+        loadingMore: false, loadedBytes: 0
       };
       const next = [...this.tabs, tab];
       // Drop the least-recently-opened tab that is not the one being opened.
@@ -244,11 +297,14 @@ export class ProjectFilesStore {
     target.error = "";
     try {
       if (target.kind === "file") {
+        // A reload always restarts at byte 0: the file may have been rewritten,
+        // so appending to what is already loaded would splice two versions.
         const preview = await loadDesktopProjectFile(this.endpoint, this.projectId, target.path);
         if (generation !== this.#generation) return;
         const current = this.tabs.find((tab) => tab.id === id);
         if (!current) return;
         current.preview = preview;
+        current.loadedBytes = preview.status === "text" ? preview.byteOffset + preview.byteLength : 0;
       } else {
         const diff = await loadDesktopProjectGitDiff(this.endpoint, this.projectId, target.path);
         if (generation !== this.#generation) return;
@@ -284,6 +340,57 @@ export class ProjectFilesStore {
   clearReveal(id: string): void {
     const tab = this.tabs.find((candidate) => candidate.id === id);
     if (tab) tab.revealLine = 0;
+  }
+
+  /**
+   * Appends the next byte window of a partially loaded text file. The server
+   * decides where a window ends (it never splits a character), so the next
+   * offset always comes from the previous response rather than being computed.
+   */
+  async loadMoreBytes(id: string): Promise<void> {
+    const generation = this.#generation;
+    const target = this.tabs.find((tab) => tab.id === id);
+    if (!target || target.kind !== "file" || target.loadingMore) return;
+    const current = target.preview;
+    if (current?.status !== "text" || !current.truncated) return;
+    const offset = current.byteOffset + current.byteLength;
+
+    target.loadingMore = true;
+    try {
+      const next = await loadDesktopProjectFile(this.endpoint, this.projectId, target.path, { offset });
+      if (generation !== this.#generation) return;
+      const tab = this.tabs.find((candidate) => candidate.id === id);
+      if (!tab || next.status !== "text") return;
+      const shown = tab.preview;
+      // The tab may have been reloaded underneath this request; only append when
+      // the window on screen still ends exactly where this one begins.
+      if (shown?.status !== "text" || shown.byteOffset + shown.byteLength !== offset) return;
+      tab.preview = {
+        ...next,
+        content: shown.content + next.content,
+        byteOffset: shown.byteOffset,
+        byteLength: shown.byteLength + next.byteLength
+      };
+      tab.loadedBytes = next.byteOffset + next.byteLength;
+    } catch (cause) {
+      if (generation !== this.#generation) return;
+      const tab = this.tabs.find((candidate) => candidate.id === id);
+      if (tab) tab.error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (generation === this.#generation) {
+        const tab = this.tabs.find((candidate) => candidate.id === id);
+        if (tab) tab.loadingMore = false;
+      }
+    }
+  }
+
+  rawFileUrl(filePath: string): string {
+    return desktopProjectRawFileUrl(this.endpoint, this.projectId, filePath);
+  }
+
+  async revealInFinder(filePath: string, mode: "reveal" | "open"): Promise<void> {
+    if (!this.projectId) return;
+    await revealDesktopProjectFile(this.endpoint, this.projectId, filePath, mode);
   }
 
   // ── Git ─────────────────────────────────────────────────────────────────

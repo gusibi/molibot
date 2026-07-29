@@ -1486,3 +1486,30 @@ test("Geist functional typography keeps an 11px floor outside Agent City artwork
   }
   assert.deepEqual(violations, []);
 });
+
+// A `ph-*` class that Phosphor does not ship renders as an empty box with no
+// error — the same silent failure mode as an undefined CSS token. Every icon
+// name in the app is checked against the installed icon set.
+test("every Phosphor icon name used in the UI exists in the installed icon set", () => {
+  const iconCss = readFileSync(
+    new URL("../node_modules/@phosphor-icons/.ignored_web/src/fill/style.css", import.meta.url),
+    "utf8"
+  );
+  const available = new Set([...iconCss.matchAll(/\.(ph-[a-z0-9-]+):/g)].map((match) => match[1]));
+  assert.ok(available.size > 1000, "Phosphor icon stylesheet was not read");
+
+  const used = new Set();
+  for (const source of listSvelteSources()) {
+    for (const match of source.matchAll(/\bph-[a-z0-9-]+/g)) {
+      const name = match[0];
+      // `ph-fill` / `ph-duotone` etc. select a weight, not an icon.
+      if (["ph-fill", "ph-bold", "ph-thin", "ph-light", "ph-duotone"].includes(name)) continue;
+      // A trailing dash means the suffix is interpolated (`ph-caret-${…}`);
+      // only the literal part is visible here, so it cannot be checked.
+      if (name.endsWith("-")) continue;
+      used.add(name);
+    }
+  }
+  assert.ok(used.size > 50, "no icon usages were collected");
+  assert.deepEqual([...used].filter((name) => !available.has(name)).sort(), []);
+});

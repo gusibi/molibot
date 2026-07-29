@@ -2,6 +2,7 @@ import { toStore } from "svelte/store";
 import type { Readable } from "svelte/store";
 import {
   addToFollowUpQueue,
+  loadDesktopPendingApproval,
   nextFollowUp,
   resolveDesktopHostBash,
   stopDesktopChat,
@@ -327,6 +328,12 @@ export class ConversationController {
       this.sending = false;
       this.abort = null;
     }
+    // A turn can end while an approval is still pending server-side (the stream
+    // dropped, or the request was raised after the stream closed). Claim it
+    // rather than leaving the user with an answer that says "click the card".
+    if (!this.pendingApproval) {
+      await this.syncPendingApproval(endpoint, context.profileId, sessionId);
+    }
     this.drainQueue();
   }
 
@@ -389,6 +396,10 @@ export class ConversationController {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         if (sessionId !== this.host.sessionId()) return;
         await this.host.reload(sessionId);
+        // The resumed turn has no SSE stream, so an approval it raises is never
+        // pushed to us. Ask for it, or the user is left reading an assistant
+        // message telling them to click a card that was never rendered.
+        if (await this.syncPendingApproval(endpoint, profileId, sessionId)) break;
         const after = this.host.getMessages().filter((message) => message.role === "assistant").length;
         if (decision === "reject" || after > before) break;
       }
@@ -398,6 +409,27 @@ export class ConversationController {
     } finally {
       this.sending = false;
       this.activity = "";
+    }
+  }
+
+  /**
+   * Pull a pending approval the server never got to push us, and show its card.
+   * Returns whether one was adopted. Guarded on the session still being the
+   * visible one (pitfall #3) — a late reply must not raise a card over a
+   * session the user has already left.
+   */
+  private async syncPendingApproval(endpoint: string, profileId: string, sessionId: string): Promise<boolean> {
+    try {
+      const approval = await loadDesktopPendingApproval(endpoint, profileId, sessionId);
+      if (!approval) return false;
+      if (sessionId !== this.host.sessionId()) return false;
+      if (this.pendingApproval?.requestId === approval.requestId) return false;
+      this.pendingApproval = approval;
+      return true;
+    } catch {
+      // Polling is an assist, not the primary path; a hiccup must not abort the
+      // resume loop that is also waiting for the answer itself.
+      return false;
     }
   }
 

@@ -8,6 +8,8 @@ import type {
   DesktopHostBashToggleResponse
 } from "$lib/shared/desktop";
 import { sanitizeWebProfileId, toWebExternalUserId } from "$lib/server/web/identity";
+import { resolveRunnerChatId } from "$lib/server/web/runtimeContext";
+import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index";
 import { _handleWebHostToolsCommand } from "../../chat/+server";
 
 const APPROVAL_SUBCOMMANDS: Record<DesktopApprovalDecision, string> = {
@@ -35,6 +37,37 @@ export const POST: RequestHandler = async ({ request }) => {
     body = (await request.json()) as typeof body;
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  /**
+   * Pending approvals for one session.
+   *
+   * The approval card is normally pushed over the chat SSE stream, but a turn
+   * resumed *by* an approval runs in the background with no stream attached —
+   * so a second approval raised during that resumed turn reached nobody and the
+   * user had to type "批准" by hand. Desktop polls this while it waits for a
+   * resumed turn so it can render the card it was never sent.
+   */
+  if (body.action === "list_pending") {
+    const profileId = sanitizeWebProfileId(body.profileId);
+    const sessionId = String(body.sessionId ?? "").trim();
+    if (!sessionId) {
+      return json({ ok: false, error: "sessionId is required" }, { status: 400 });
+    }
+    const runtime = getRuntime();
+    const owner = runtime.sessions.getWebConversationOwner(sessionId);
+    if (owner?.startsWith(`web:${profileId}:`) === false) {
+      return json({ ok: false, error: "Session does not belong to the selected profile" }, { status: 403 });
+    }
+    const externalUserId = owner ?? toWebExternalUserId("web-anonymous", profileId);
+    const scopeId = resolveRunnerChatId(sessionId, externalUserId);
+    // listPending ORs scope and session, so narrow to this session explicitly —
+    // another session in the same scope must not steal this one's card.
+    const approvals = runtime.hostBashStore
+      .listPending(scopeId, sessionId)
+      .filter((record) => !record.sessionId || record.sessionId === sessionId)
+      .map((record) => buildHostBashApprovalPrompt(record));
+    return json({ ok: true, approvals }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (body.action === "resolve_approval") {
