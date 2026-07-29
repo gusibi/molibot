@@ -12,7 +12,8 @@ export type PromptPreviewLabels = {
 export type PromptNavigationItem = {
   messageId: string;
   turnIndex: number;
-  previewText: string;
+  userPreviewText: string;
+  assistantPreviewText: string;
   createdAt?: string;
 };
 
@@ -48,18 +49,31 @@ export function extractPromptNavigationItems(
   messages: TranscriptMessage[],
   labels: PromptPreviewLabels
 ): PromptNavigationItem[] {
-  return messages
-    .filter((message) => message.role === "user" && Boolean(message.id?.trim()))
-    .map((message, turnIndex) => {
-      const content = plainText(transcriptDisplayContent(message));
-      const previewText = truncatePreview([...attachmentLabels(message, labels), content].filter(Boolean).join(" ") || labels.empty);
-      return {
-        messageId: message.id!.trim(),
-        turnIndex,
-        previewText,
-        createdAt: message.createdAt
-      };
+  const items: PromptNavigationItem[] = [];
+
+  messages.forEach((message, messageIndex) => {
+    const messageId = message.id?.trim();
+    if (message.role !== "user" || !messageId) return;
+
+    const userContent = plainText(transcriptDisplayContent(message));
+    const assistantContent: string[] = [];
+    for (let index = messageIndex + 1; index < messages.length && messages[index].role !== "user"; index += 1) {
+      if (messages[index].role === "assistant") {
+        const content = plainText(transcriptDisplayContent(messages[index]));
+        if (content) assistantContent.push(content);
+      }
+    }
+
+    items.push({
+      messageId,
+      turnIndex: items.length,
+      userPreviewText: truncatePreview([...attachmentLabels(message, labels), userContent].filter(Boolean).join(" ") || labels.empty),
+      assistantPreviewText: truncatePreview(assistantContent.join(" "), 160),
+      createdAt: message.createdAt
     });
+  });
+
+  return items;
 }
 
 export function layoutPromptMarkers(

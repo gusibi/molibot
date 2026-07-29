@@ -32,6 +32,8 @@
   let mutationObserver: MutationObserver | null = null;
   let measureTimer: ReturnType<typeof setTimeout> | null = null;
   let scrollFrame = 0;
+  let pointerFrame = 0;
+  let pendingPointerY: number | null = null;
   let mounted = false;
 
   $: navigationItems = extractPromptNavigationItems(messages, {
@@ -116,11 +118,25 @@
 
   function handlePointerMove(event: PointerEvent): void {
     const rect = navigatorElement.getBoundingClientRect();
-    pointerY = event.clientY - rect.top;
+    pendingPointerY = event.clientY - rect.top;
+    if (pointerFrame) return;
+    pointerFrame = requestAnimationFrame(() => {
+      pointerFrame = 0;
+      pointerY = pendingPointerY;
+      updateHoveredPrompt();
+    });
+  }
+
+  function updateHoveredPrompt(): void {
+    if (pointerY === null) {
+      hoveredMessageId = "";
+      return;
+    }
+    const currentPointerY = pointerY;
     let nearest: PositionedPrompt | undefined;
     let nearestDistance = Number.POSITIVE_INFINITY;
     positionedItems.forEach((item) => {
-      const distance = Math.abs(item.navigationTop - pointerY!);
+      const distance = Math.abs(item.navigationTop - currentPointerY);
       if (distance < nearestDistance) {
         nearest = item;
         nearestDistance = distance;
@@ -152,7 +168,7 @@
   }
 
   function ariaLabel(item: PositionedPrompt, currentCopy: Translation): string {
-    return currentCopy.jumpToPrompt.replace("{count}", String(item.turnIndex + 1)).replace("{preview}", item.previewText);
+    return currentCopy.jumpToPrompt.replace("{count}", String(item.turnIndex + 1)).replace("{preview}", [item.userPreviewText, item.assistantPreviewText].filter(Boolean).join(" — "));
   }
 
   function previewTop(item: PositionedPrompt): number {
@@ -170,6 +186,7 @@
     mutationObserver?.disconnect();
     if (measureTimer) clearTimeout(measureTimer);
     cancelAnimationFrame(scrollFrame);
+    cancelAnimationFrame(pointerFrame);
   });
 </script>
 
@@ -179,7 +196,7 @@
     class="conversation-prompt-navigator"
     aria-label={copy.promptNavigationLabel}
     onpointermove={handlePointerMove}
-    onpointerleave={() => { pointerY = null; hoveredMessageId = ""; }}
+    onpointerleave={() => { pendingPointerY = null; pointerY = null; hoveredMessageId = ""; }}
   >
     {#each positionedItems as item (item.messageId)}
       {@const showTooltip = hoveredMessageId === item.messageId || focusedMessageId === item.messageId}
@@ -199,9 +216,8 @@
       </button>
       {#if showTooltip}
         <div id={`prompt-preview-${item.turnIndex}`} class="prompt-navigation-preview" role="tooltip" style={`top:${previewTop(item)}px`}>
-          <strong>{turnLabel(item, copy)}</strong>
-          <span aria-hidden="true">·</span>
-          <span>{item.previewText}</span>
+          <div class="prompt-navigation-preview-user"><strong>{turnLabel(item, copy)}</strong><span>{item.userPreviewText}</span></div>
+          {#if item.assistantPreviewText}<div class="prompt-navigation-preview-assistant">{item.assistantPreviewText}</div>{/if}
           {#if item.createdAt}<time>{formatTime(item.createdAt)}</time>{/if}
         </div>
       {/if}

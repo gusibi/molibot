@@ -1229,13 +1229,13 @@ a:focus-visible {
   z-index: 4;
   top: 14px;
   bottom: 14px;
-  left: max(8px, calc(50% - var(--message-content-width) / 2 - 58px));
+  left: 12px;
   width: 54px;
   opacity: .38;
   pointer-events: auto;
   transition: opacity var(--duration-fast) var(--ease-standard);
 }
-.chat-messages-frame:hover .conversation-prompt-navigator { opacity: .58; }
+.chat-messages-frame:hover .conversation-prompt-navigator { opacity: .72; }
 .conversation-prompt-navigator:hover,
 .conversation-prompt-navigator:focus-within { opacity: 1; }
 .prompt-navigation-marker {
@@ -1255,36 +1255,36 @@ a:focus-visible {
   display: block;
   height: 2px;
   border-radius: var(--radius-full);
-  background: var(--label-tertiary);
-  transition: width var(--duration-fast) var(--ease-standard), height var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
+  background: var(--label-secondary);
+  transition: height var(--duration-instant) var(--ease-standard), background var(--duration-instant) var(--ease-standard), opacity var(--duration-instant) var(--ease-standard);
 }
 .prompt-navigation-marker.active .prompt-navigation-line { height: 3px; background: var(--accent); opacity: 1; }
 .prompt-navigation-marker:focus-visible { outline: none; }
 .prompt-navigation-marker:focus-visible .prompt-navigation-line { box-shadow: 0 0 0 2px var(--header-bg), 0 0 0 4px var(--accent); }
 .prompt-navigation-preview {
   position: absolute;
-  left: 58px;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  width: max-content;
-  max-width: min(340px, calc(100vw - 110px));
-  min-height: 32px;
-  padding: 7px 10px;
-  border: 1px solid var(--control-border);
+  left: 54px;
+  display: grid;
+  gap: 4px;
+  width: min(320px, calc(100vw - 96px));
+  min-height: 52px;
+  padding: 9px 11px;
+  border: 1px solid var(--control-border-strong);
   border-radius: var(--radius-control);
-  background: var(--card-bg);
-  color: var(--label-secondary);
+  background: var(--chrome-popover-bg);
+  color: var(--label-primary);
   box-shadow: var(--popover-shadow);
   font-size: 12px;
   line-height: 17px;
   pointer-events: none;
   transform: translateY(-50%);
-  animation: prompt-navigation-preview-in var(--duration-fast) var(--ease-standard) both;
+  animation: prompt-navigation-preview-in var(--duration-instant) var(--ease-standard) both;
 }
-.prompt-navigation-preview strong { flex: none; color: var(--label-primary); font-weight: 600; }
-.prompt-navigation-preview > span:last-of-type { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.prompt-navigation-preview time { flex: none; color: var(--label-tertiary); font-variant-numeric: tabular-nums; }
+.prompt-navigation-preview-user { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 6px; }
+.prompt-navigation-preview strong { color: var(--label-primary); font-weight: 600; white-space: nowrap; }
+.prompt-navigation-preview-user span { overflow: hidden; color: var(--label-primary); text-overflow: ellipsis; white-space: nowrap; }
+.prompt-navigation-preview-assistant { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--label-secondary); }
+.prompt-navigation-preview time { color: var(--label-tertiary); font-variant-numeric: tabular-nums; }
 @keyframes prompt-navigation-preview-in { from { opacity: 0; transform: translate(-4px, -50%); } }
 .message-row.navigation-target .message-bubble { animation: prompt-navigation-target 1s var(--ease-standard); }
 @keyframes prompt-navigation-target { 0%, 45% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent); } 100% { box-shadow: 0 0 0 3px transparent; } }
@@ -1434,7 +1434,11 @@ a:focus-visible {
   min-width: 0;
 }
 .message-row.assistant .message-bubble { padding: 0; border: 0; border-radius: 0; background: transparent; }
-.message-row.mine .message-bubble { color: var(--label-primary); border-color: var(--separator); background: var(--gray-100); box-shadow: none; }
+/* The assistant turn renders as bare prose (no bubble), so the user turn is the
+   only thing carrying a card. `--gray-100` sat ~1 step off the transcript
+   background, leaving the border as the only cue; lift it to `--gray-300` plus
+   the tier-1 `--soft-shadow` so a user turn reads as a distinct surface. */
+.message-row.mine .message-bubble { color: var(--label-primary); border-color: var(--gray-alpha-300); background: var(--gray-300); box-shadow: var(--soft-shadow); }
 .attachment-strip { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; }
 .message-row.mine .attachment-strip { justify-content: flex-end; }
 .attachment-chip {
@@ -3057,7 +3061,10 @@ select.provider-input { padding-right: 6px; }
   --wallpaper: var(--mac-window-background); --panel-blur: none;
 }
 :root[data-theme="dark"] .message-bubble { border-color: rgb(255 255 255 / 6%); }
-:root[data-theme="dark"] .message-row.mine .message-bubble { background: var(--gray-200); }
+/* Keep the user card a full step above the dark transcript background
+   (`--gray-100` is the window fill); `--gray-200` read as almost the same
+   surface, which is what made sent turns hard to pick out. */
+:root[data-theme="dark"] .message-row.mine .message-bubble { border-color: var(--gray-alpha-300); background: var(--gray-300); }
 :root[data-theme="dark"] .status-badge[data-state="ready"] { color: var(--online); background: color-mix(in srgb, var(--online) 12%, transparent); }
 :root[data-theme="dark"] .status-badge[data-state="error"],
 :root[data-theme="dark"] .status-badge[data-state="incompatible"] { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }

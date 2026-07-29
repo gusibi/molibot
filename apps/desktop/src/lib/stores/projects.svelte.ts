@@ -12,6 +12,7 @@ import {
   type DesktopProjectMessage,
   type DesktopProjectSession
 } from "../api";
+import { toStore } from "svelte/store";
 import { projectChatStore } from "../projects/projectChatStore.svelte";
 
 export const projectsStore = $state({
@@ -26,6 +27,31 @@ export const projectsStore = $state({
   busy: "",
   error: ""
 });
+
+/**
+ * Store projection of `projectsStore` for legacy `$:` consumers (pitfall #2).
+ *
+ * A legacy reactive statement compiles to `legacy_pre_effect(deps, fn)` where
+ * only `deps` is tracked and `fn` runs inside `untrack`. For an imported runes
+ * `$state` object the compiler emits `reactive_import(() => projectsStore)` as
+ * the dep, whose signal bumps only if the BINDING is reassigned — never when a
+ * property changes. So `$: if (projectsStore.selectedSessionId) …` runs exactly
+ * once, at mount, and silently goes stale forever after (shipped symptom: a
+ * project session's images fell back to filename chips because the session-file
+ * list was still the one fetched for whichever session was open at mount).
+ * Templates are unaffected — the compiler emits `deep_read_state` there.
+ *
+ * Reading `$projectsView.selectedSessionId` inside a `$:` restores tracking,
+ * mirroring the `$conversationView` pattern used for the turn controller.
+ */
+export const projectsView = toStore(() => ({
+  endpoint: projectsStore.endpoint,
+  projects: projectsStore.projects,
+  selectedProjectId: projectsStore.selectedProjectId,
+  sessions: projectsStore.sessions,
+  selectedSessionId: projectsStore.selectedSessionId,
+  messagesLoading: projectsStore.messagesLoading
+}));
 
 let projectSelectionGeneration = 0;
 let sessionSelectionGeneration = 0;
@@ -91,12 +117,18 @@ async function createAndSelectProjectSession(projectId: string, projectGeneratio
 export async function selectProjectSession(id: string, projectId = projectsStore.selectedProjectId): Promise<void> {
   const generation = ++sessionSelectionGeneration;
   projectsStore.selectedSessionId = id;
+  // Cache-first: a session the user already opened keeps its transcript in its
+  // pinned registry entry, so show that immediately and revalidate behind it.
+  // Clearing to `[]` here made EVERY re-visit pay the full round trip plus a
+  // cold markdown/highlight pass behind the "loading conversation" spinner,
+  // which is what made switching between sessions feel slow.
+  const cached = projectChatStore.cachedMessages(id);
   // The project store owns transcript loading. Activate the pinned runtime and
   // carry one hydration lease across the request: if a turn starts before the
   // response commits, its cached transcript + live row keep display ownership.
-  const hydration = projectChatStore.selectSession(id, projectId, []);
-  projectsStore.messages = [];
-  projectsStore.messagesLoading = true;
+  const hydration = projectChatStore.selectSession(id, projectId, cached);
+  projectsStore.messages = cached as unknown as DesktopProjectMessage[];
+  projectsStore.messagesLoading = cached.length === 0;
   projectsStore.error = "";
   try {
     const messages = await loadDesktopProjectSession(projectsStore.endpoint, projectId, id);

@@ -4,6 +4,7 @@
   import { finalizeTranscriptActivities, transcriptDisplayContent, type TranscriptAttachmentActions, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
   import TranscriptAttachments from "./TranscriptAttachments.svelte";
   import RunActivity from "./RunActivity.svelte";
+  import ThinkingCard from "./ThinkingCard.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
   import { humanizeModelOption } from "../presentation";
 
@@ -126,7 +127,7 @@
         <TranscriptAttachments attachments={message.attachments} {copy} actions={attachmentActions} />
       {/if}
       {#if message.thinking}
-        <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
+        <ThinkingCard text={message.thinking} label={copy.thinking} />
       {/if}
     {:else}
       <div class="assistant-layout">
@@ -137,7 +138,7 @@
           <span>{copy.agentRole}</span>
         </div>
         {#if message.thinking}
-          <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
+          <ThinkingCard text={message.thinking} label={copy.thinking} />
         {/if}
         {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} />{/if}
         {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>{/if}

@@ -14,10 +14,10 @@ const labels = {
   empty: "Message"
 };
 
-test("prompt navigation projects only stable-id user messages with plain-text previews", () => {
+test("prompt navigation projects each stable user turn with its following assistant reply", () => {
   const items = extractPromptNavigationItems([
     { id: "u1", role: "user", content: "## Review **this** [design](https://example.com) &amp; flow" },
-    { id: "a1", role: "assistant", content: "Working" },
+    { id: "a1", role: "assistant", content: "Working on the design" },
     { id: "tool", role: "tool", content: "Read file" },
     { role: "user", content: "Missing stable id" },
     { id: "u2", role: "user", content: "(attachment)", attachments: [{ original: "screen.png", mediaType: "image" }] },
@@ -25,9 +25,9 @@ test("prompt navigation projects only stable-id user messages with plain-text pr
   ], labels);
 
   assert.deepEqual(items, [
-    { messageId: "u1", turnIndex: 0, previewText: "Review this design & flow", createdAt: undefined },
-    { messageId: "u2", turnIndex: 1, previewText: "[Image]", createdAt: undefined },
-    { messageId: "u3", turnIndex: 2, previewText: "[File: brief.pdf] Summarize it", createdAt: undefined }
+    { messageId: "u1", turnIndex: 0, userPreviewText: "Review this design & flow", assistantPreviewText: "Working on the design", createdAt: undefined },
+    { messageId: "u2", turnIndex: 1, userPreviewText: "[Image]", assistantPreviewText: "", createdAt: undefined },
+    { messageId: "u3", turnIndex: 2, userPreviewText: "[File: brief.pdf] Summarize it", assistantPreviewText: "", createdAt: undefined }
   ]);
 });
 

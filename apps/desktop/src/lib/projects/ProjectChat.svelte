@@ -33,7 +33,7 @@
     TranscriptMessage,
     TranscriptMessageActions
   } from "../chat/transcript";
-  import { projectsStore, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
+  import { projectsStore, projectsView, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
 
   export let copy: Translation;
   export let searchMatchIds: string[] = [];
@@ -93,24 +93,33 @@
     max: copy.thinkingMax
   }[clampedThinkingLevel];
 
+  // Every `$:` below must read the projected `$projectsView`, NOT `projectsStore`
+  // directly: a legacy reactive statement's body runs untracked, and the only
+  // dep the compiler records for an imported runes `$state` is the module
+  // binding itself — so `projectsStore.x` reads here would fire once at mount
+  // and then go stale forever (see the `projectsView` doc comment). Templates
+  // are fine reading `projectsStore` directly.
+  const projectsViewStore = projectsView;
+  $: view = $projectsViewStore;
+
   // Load model options for the project composer so it matches the chat surface.
   // Re-loads whenever the endpoint changes (e.g. service restart).
-  $: if (projectsStore.endpoint) void loadModelOptions(projectsStore.endpoint);
-  $: currentProject = projectsStore.projects.find((item) => item.id === projectsStore.selectedProjectId);
+  $: if (view.endpoint) void loadModelOptions(view.endpoint);
+  $: currentProject = view.projects.find((item) => item.id === view.selectedProjectId);
   $: projectToolProgress = currentProject?.toolProgress ?? "all";
   $: projectShowReasoning = currentProject?.showReasoning ?? "on";
   // Resolve the composer's model/thinking UI for the newly-selected session
   // (per-session override → project default → global). Gated on loaded models
   // so the selector reflects a valid option; transcript pinning is a separate
   // `$:` below that does NOT wait on models.
-  $: if (projectsStore.selectedSessionId && projectsStore.selectedSessionId !== appliedSessionId && modelOptions.length > 0) {
-    appliedSessionId = projectsStore.selectedSessionId;
+  $: if (view.selectedSessionId && view.selectedSessionId !== appliedSessionId && modelOptions.length > 0) {
+    appliedSessionId = view.selectedSessionId;
     const requestedModel = sessionModelOverrides.get(appliedSessionId) ?? currentProject?.modelKey ?? globalModelKey;
     activeModelKey = modelOptions.some((option) => option.key === requestedModel) ? requestedModel : globalModelKey;
     thinkingLevel = sessionThinkingOverrides.get(appliedSessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
     void hydrateSessionModel(appliedSessionId);
   }
-  $: if (appliedSessionId && projectsStore.selectedSessionId === appliedSessionId) sessionThinkingOverrides.set(appliedSessionId, clampedThinkingLevel);
+  $: if (appliedSessionId && view.selectedSessionId === appliedSessionId) sessionThinkingOverrides.set(appliedSessionId, clampedThinkingLevel);
   async function loadModelOptions(endpoint: string): Promise<void> {
     try {
       const [state, routing] = await Promise.all([loadDesktopModels(endpoint), loadDesktopModelRouting(endpoint)]);
@@ -487,7 +496,7 @@
         editingId: editingMessageId,
         forkingId: forkingMessageId
       } satisfies TranscriptMessageActions;
-  $: if (editingMessageId && editingSessionId && projectsStore.selectedSessionId !== editingSessionId) {
+  $: if (editingMessageId && editingSessionId && view.selectedSessionId !== editingSessionId) {
     editingMessageId = "";
     editingSessionId = "";
   }
@@ -503,18 +512,18 @@
   let previewFile: DesktopSessionFile | null = null;
   let previewUrl = "";
 
-  $: if (projectsStore.endpoint && projectsStore.selectedSessionId) {
-    void refreshProjectSessionFiles(projectsStore.endpoint, projectsStore.selectedSessionId, projectsStore.selectedProjectId);
+  $: if (view.endpoint && view.selectedSessionId) {
+    void refreshProjectSessionFiles(view.endpoint, view.selectedSessionId, view.selectedProjectId);
   }
   // Drop cached blob URLs and pending media state when the active session
   // changes; otherwise the new session's attachments can briefly render the
   // previous session's media (and leak object URLs).
-  $: if (projectsStore.selectedSessionId !== messageMediaSession) {
+  $: if (view.selectedSessionId !== messageMediaSession) {
     for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
     messageMediaUrls = new Map();
     messageMediaLoading = new Set();
     messageMediaFailed = new Set();
-    messageMediaSession = projectsStore.selectedSessionId;
+    messageMediaSession = view.selectedSessionId;
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = "";
     previewFile = null;

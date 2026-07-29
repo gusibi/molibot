@@ -43,6 +43,7 @@ const row = read("./lib/chat/ConversationRow.svelte");
 const transcript = read("./lib/chat/ConversationTranscript.svelte");
 const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
 const runActivity = read("./lib/chat/RunActivity.svelte");
+const thinkingCard = read("./lib/chat/ThinkingCard.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
 const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
 const agentCityCanvas = read("./lib/chat/AgentCityCanvas.svelte");
@@ -787,7 +788,11 @@ test("automation session detail renders a chat-style transcript", () => {
   assert.match(transcript, /class="message-bubble markdown-body"/);
   assert.match(transcript, /renderMarkdown\(displayContent, copy\.copyCode\)/);
   assert.match(styles, /\.message-row\.assistant \.message-bubble \{[^}]*background: transparent/s);
-  assert.match(styles, /\.message-row\.mine \.message-bubble \{[^}]*background: var\(--gray-100\)/s);
+  // The assistant turn has no bubble, so the user turn is the only card in the
+  // transcript: keep it a full step above the background plus tier-1 elevation,
+  // not a near-invisible 1px outline.
+  assert.match(styles, /\.message-row\.mine \.message-bubble \{[^}]*background: var\(--gray-300\)[^}]*box-shadow: var\(--soft-shadow\)/s);
+  assert.match(styles, /\[data-theme="dark"\] \.message-row\.mine \.message-bubble \{[^}]*background: var\(--gray-300\)/s);
   assert.match(styles, /\.run-activity \{[^}]*border: 0;[^}]*background: transparent/s);
   assert.doesNotMatch(sections.tasks, /class="message-(row|avatar|stack|bubble)/);
 });
@@ -910,11 +915,23 @@ test("shared transcript renders media inline and delegates tool activity", () =>
 });
 
 test("thinking and tool activity stay opt-in", () => {
-  assert.match(transcript, /<details class="thinking-card">/);
-  assert.doesNotMatch(transcript, /<details class="thinking-card" open>/);
+  assert.match(transcript, /<ThinkingCard text=\{message\.thinking\}/);
+  assert.doesNotMatch(thinkingCard, /<details class="thinking-card"[^>]*\bopen>/);
   assert.match(conversationLiveView, /<details class="thinking-card">/);
   assert.doesNotMatch(conversationLiveView, /<details class="thinking-card" open>/);
   assert.doesNotMatch(runActivity, /<details class="run-activity" open=/);
+});
+
+// Completed reasoning text and tool summaries are the bulk of a transcript's
+// bytes and DOM, and both cards are collapsed by default. Mounting their bodies
+// up-front cost a chunk of every session switch for invisible markup, so both
+// gate on their own `open` state; the streaming live view is exempt because its
+// reasoning is written as it arrives.
+test("collapsed transcript cards mount their body only once opened", () => {
+  assert.match(thinkingCard, /bind:open=\{opened\}/);
+  assert.match(thinkingCard, /\{#if opened\}<pre>\{text\}<\/pre>\{\/if\}/);
+  assert.match(runActivity, /<details class="run-activity" bind:open=\{opened\}>/);
+  assert.match(runActivity, /\{#if opened\}[\s\S]*\{#each activities/);
 });
 
 test("structured runner events do not leak into the live answer status", () => {
@@ -977,11 +994,13 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
 test("long conversations share one user-turn navigator and preserve reader scroll ownership", () => {
   assert.match(chatMessagesPane, /<ConversationPromptNavigator \{messages\} \{copy\} \{formatTime\}/);
   assert.match(view, /viewMode === "external"[\s\S]*<ConversationPromptNavigator messages=\{externalTranscript\.messages\}/);
-  assert.match(conversationNavigation, /message\.role === "user" && Boolean\(message\.id\?\.trim\(\)\)/);
+  assert.match(conversationNavigation, /message\.role !== "user" \|\| !messageId/);
   assert.match(conversationNavigation, /export function activePromptIndex[\s\S]*while \(low <= high\)/);
   assert.match(conversationNavigation, /Math\.exp\(-\(distance \* distance\) \/ \(2 \* sigma \* sigma\)\)/);
   assert.match(conversationPromptNavigator, /new ResizeObserver[\s\S]*new MutationObserver/);
   assert.match(conversationPromptNavigator, /markerWidth\(item, focusedMessageId, activeMessageId, pointerY\)/);
+  assert.match(conversationPromptNavigator, /requestAnimationFrame\(\(\) => \{[\s\S]*updateHoveredPrompt\(\)/);
+  assert.match(conversationPromptNavigator, /item\.userPreviewText[\s\S]*item\.assistantPreviewText/);
   assert.match(conversationPromptNavigator, /suspendStickToBottom\(scrollElement\)[\s\S]*prefers-reduced-motion: reduce[\s\S]*scrollIntoView\(\{ behavior, block: "start" \}\)/);
   assert.match(stickToBottom, /molibot:suspend-scroll-follow/);
   assert.match(stickToBottom, /molibot:resume-scroll-follow/);
@@ -990,6 +1009,9 @@ test("long conversations share one user-turn navigator and preserve reader scrol
   assert.doesNotMatch(stickToBottom, /message-row\.mine/);
   assert.match(stickToBottom, /firstLayoutFrame = requestAnimationFrame[\s\S]*secondLayoutFrame = requestAnimationFrame[\s\S]*if \(pinned\) toBottom\(\)/);
   assert.match(styles, /\.conversation-prompt-navigator[\s\S]*\.prompt-navigation-preview[\s\S]*prefers-reduced-motion/);
+  assert.match(styles, /\.conversation-prompt-navigator\s*\{[^}]*left:\s*12px/s);
+  assert.match(styles, /\.prompt-navigation-preview-user span\s*\{[^}]*white-space:\s*nowrap/s);
+  assert.match(styles, /\.prompt-navigation-preview-assistant\s*\{[^}]*-webkit-line-clamp:\s*2/s);
 });
 
 test("settings uses the flat Geist layout", () => {

@@ -165,6 +165,13 @@ export class ProjectChatStore {
     return collectSessionFileTouches(entry.messages ?? [], entry.controller?.activities ?? []);
   });
 
+  /** Transcript already held for a session, or `[]` if it was never opened.
+   *  Lets the caller paint a re-visited session instantly and revalidate
+   *  behind it instead of clearing to a spinner on every switch. */
+  cachedMessages(sessionId: string): UiMessage[] {
+    return this.registry.get(PROJECT_PROFILE_ID, sessionId)?.messages ?? [];
+  }
+
   /** Opens a project session: pins its working directory, ensures its
    *  controller, and marks it active. The returned hydration lease lets a
    *  caller finish its one authoritative request without overwriting a turn

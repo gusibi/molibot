@@ -9,9 +9,9 @@
 
 - **Priority / Status**: P1 / Delivered.
 - **Problem**: long Desktop Chat and Project Chat transcripts had no compact overview or direct way to return to an earlier user turn without searching for exact text.
-- **Decision**: every shared Chat viewport shows a low-interference, user-turn-only navigator from five turns onward. Markers form a centered compact stack with a 2px line and 10px gap rather than spreading across the transcript height; real message offsets still determine the active interval and jump target. Pointer distance drives continuous Dock-style magnification; hover/focus exposes a bilingual plain-text preview.
+- **Decision**: every shared Chat viewport shows a low-interference, user-turn-only navigator from five turns onward, fixed to the left edge of the message viewport. Markers form a centered compact stack with a 2px line and 10px gap rather than spreading across the transcript height; real message offsets still determine the active interval and jump target. Pointer distance drives immediate Dock-style magnification; hover/focus exposes an opaque preview with one user-message line and up to two following-assistant-reply lines.
 - **Acceptance**:
-  - Only stable-id user messages produce nodes; Markdown and image/audio/file turns produce safe, bounded previews.
+  - Only stable-id user messages produce nodes; Markdown and image/audio/file turns produce safe, bounded previews; the following assistant reply is projected separately and limited to two lines.
   - Clicking or keyboard-activating a node pauses bottom following before a smooth, highlighted jump; streaming continues without pulling a history reader away.
   - A newly committed user turn restores bottom following, while pending-to-persisted ID replacement does not.
   - Local Chat, Project Chat, and read-only external transcripts share the same component and scroll ownership boundary.

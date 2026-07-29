@@ -540,7 +540,8 @@ the base to pure black (`#000000`/`#0A0A0A`).
   by a 10px gap instead of stretching markers across the transcript's full height. Real
   message offsets determine only the active user-turn interval and jump target. Markers
   use the accent for that active interval, expand continuously by pointer distance, and
-  expose a two-line plain-text preview on hover or keyboard focus. Navigation must hand
+  expose an opaque, high-contrast preview on hover or keyboard focus: one line for the
+  user prompt and up to two lines for the following assistant reply. Navigation must hand
   scroll ownership to the reader before jumping, while a committed new user turn
   explicitly restores bottom following. The same behavior and
   semantic tokens apply to local Chat, Project Chat, and read-only external transcripts.

@@ -5,6 +5,26 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-29
+
+### 项目会话：图片只显示占位符、切换会话卡顿、消息卡片区分度低（已完成，P0）
+
+- **现象一（图片经常显示不出来，只有文件名占位符）**：项目会话里 Agent 产出的图片，有时正常渲染，有时只剩一行"绿点 + 文件名"的 chip。
+- **根因（legacy `$:` 根本没订阅 runes store，pitfall #2 的第四次复发）**：`ProjectChat` 用 `$: if (projectsStore.endpoint && projectsStore.selectedSessionId) refreshProjectSessionFiles(...)` 拉取会话文件列表。legacy `$:` 编译成 `legacy_pre_effect(deps, fn)`，Svelte 会把 `fn` 放进 `untrack` 里跑，而对**跨模块导入的 runes `$state` 对象**，编译器记录的唯一依赖是 `reactive_import(() => projectsStore)` —— 这个信号只在**绑定被重新赋值**时才变化，属性变化永远不会触发。于是这次拉取只在挂载那一刻跑一次；之后每切换一个会话，附件都拿新会话的 `local` 去查上一个会话的 `fileByLocal`，查不到就落到 `attachment-chip` 兜底分支。把面板卸载再装回来又"好了"，所以看起来像偶发。
+- 同一组件里另有四条 `$:` 因为同样的原因是死的：`currentProject`（连带工具进度 / 思考展示的项目设置）、endpoint 变化时的模型列表重载、每会话模型与思考档位的 hydrate，以及——很讽刺——那条注释写着"防止上一个会话的 blob URL 渲染到新会话"的媒体缓存重置。
+- **根因修复而非逐点打补丁**：`projectsStore` 新增 `projectsView`（`toStore(...)` 投影），所有 `$:` 改读 `$projectsView.*`，与回合控制器已有的 `$conversationView` 模式一致。模板不受影响——编译器在模板里发的是 `deep_read_state`。
+- **机器守卫**：新增 `runes-store-reactivity-guard.test.mjs`，编译全部 80 个 Desktop 组件，任何 `legacy_pre_effect` 依赖表里出现导入 store 访问器即失败。已验证：对修复前的组件必然失败，对修复后通过。
+
+- **现象二（切换 Session 要等很久）**：
+- **先排除服务端**：`/api/settings/projects/[id]/sessions/[conversationId]` 实测 21–122ms（含一个 14MB jsonl 的会话），成本完全在客户端。
+- **每次切换都当冷启动**：`selectProjectSession` 无条件把 transcript 清成 `[]` 并升起"正在载入对话…"，即使该会话的 transcript 就在它自己的 pinned registry entry 里 —— 于是每次回访都要重新走一趟网络，再付一次冷的 markdown + 高亮渲染（59 条消息在 Chrome 实测 174ms，WKWebView 更慢）。现在缓存命中就直接画、在后面静默 revalidate，只有从未打开过的会话才显示 spinner。
+- **默认折叠的卡片不再提前建 DOM**：工具活动的 summary 里是整份文件内容，已完成回合的思考文本更大（实测某个会话 38 条消息里有 464KB 思考文本），而这两种卡片默认都是收起的 —— 等于为看不见的内容付了全部 DOM 和 layout 成本。`RunActivity` 与新增的 `ThinkingCard` 改为首次展开时才挂载内容，实测生成的 transcript 标记量减少 87–89%（617KB → 83KB、476KB → 52KB）。
+
+- **现象三（我发的消息卡片区分度不高）**：assistant 回合是没有气泡的纯文本排版，所以用户回合是 transcript 里唯一的卡片；但它用的是 `--gray-100`，浅色模式下是 `#f5f5f5` 压在 `#f6f6f6` 背景上（对比度 1.009:1，等于看不见），全靠一条发丝边框撑着。现在改为 `--gray-300` 填充 + `--gray-alpha-300` 边框 + tier-1 `--soft-shadow`，浅色 1.009 → 1.199、深色 1.196 → 1.466，新底色上的正文对比度 11.4:1。
+
+- **验证**：`svelte-check` 0 error / 0 warning、Desktop 生产构建、100 项 Desktop UI 守卫（新增 3 项）+ 61 项 tsx 测试全绿；实测数据均来自本机运行中的服务与真实会话数据。
+
+---
 ## 2026-07-28
 
 ### Host Bash 审批：修复"点了通过没反应"，并把"一直允许"收敛到 Bot / Project 维度（已完成，P0）
@@ -36,9 +56,9 @@
 
 ### App 长对话新增用户轮次导航（已完成，P1）
 
-- Chat 内容区左侧现在会在 5 轮用户消息后显示一列低干扰横杠；只统计用户消息，不把 Assistant、Tool、Thinking 或 System 内容混进目录。
+- Chat 内容区左缘现在会在 5 轮用户消息后显示一列低干扰横杠；只统计用户消息，不把 Assistant、Tool、Thinking 或 System 内容混进目录。
 - 节点改为在轨道中部紧凑连续排列：2px 横杠之间保留 10px 空隙，不再随全文消息位置拉开。真实消息位置仍用于判断当前轮次和执行跳转，阅读长回复时不会提前跳到下一轮。
-- 鼠标靠近时按垂直距离连续产生 Dock 式放大；Hover 或键盘焦点会显示轮次、纯文本摘要和可选时间。Markdown 会去除格式，图片、语音和文件有中英文专用标签。
+- 鼠标靠近时按垂直距离连续产生 Dock 式放大；Hover 或键盘焦点会显示不透明、高对比度的预览：一行用户消息，下面最多两行紧随其后的 AI 回复。Markdown 会去除格式，图片、语音和文件有中英文专用标签；鼠标位置按动画帧合并，横杠宽度不再滞后追随。
 - 点击节点会先暂停自动跟底，再平滑定位并轻微高亮目标。Agent 流式输出可以继续但不会抢走历史阅读位置；发送新问题后由共享滚动层恢复跟底。
 - 普通 Chat、Project Chat 和外部渠道只读会话复用同一组件；支持中英、明暗、减少动态效果和 600px 有效内容宽度。
 - 验证：导航/Transcript 行为测试 9/9、Desktop UI 守卫 94/94、Svelte 0 error / 0 warning、生产构建，以及真实八轮组件走查（历史流式位置 delta 0、新发送最终 distance-to-bottom 0）。
