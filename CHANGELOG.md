@@ -7,6 +7,12 @@
 ---
 ## 2026-07-29
 
+### Fixed: the Project watcher test was flaky, making `npm run test:projects` an unreliable signal
+- **The test raced the OS, not the code.** `watcher.test.ts` wrote its fixture files immediately after `watchProject` resolved and then waited once for a batch; it failed roughly 1-in-10 runs (more under CPU load) with "expected a change batch for tracked.ts", having received *zero* events in 3s.
+- **Root cause is outside `watcher.ts`.** `fs.watch(root, { recursive: true })` registers its backing FSEvents stream asynchronously, so writes issued in that window are dropped outright. A standalone probe using only `node:fs` — no project code — reproduced zero-events on 4 of 10 runs. Node exposes no readiness event for `fs.watch`, and the only way to synthesize one would be writing a probe file into the user's real project directory, which would create spurious churn in a watched repo; the production path (SSE panel opens, human edits files seconds later) is not exposed to the window, so `watcher.ts` is unchanged.
+- **The test now re-applies the stimulus instead of racing a timer.** A `batchAfterStimulus` helper rewrites the fixture (tracked file *and* both noise files, so the filtering assertions still bite) and waits one debounce interval, repeating until the watcher observes it. Once registration completes the next attempt lands, so the normal run cost is unchanged (~270ms).
+- Verified with 30/30 consecutive passes in isolation, 12/12 under 8-way CPU contention (previously 2/20 and 4/10 failed respectively), and `npm run test:projects` green at 46/46.
+
 ### Release: v2.7.2 / Desktop v0.6.9
 - Synchronized the root and Desktop package versions for the new release.
 
