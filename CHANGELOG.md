@@ -7,6 +7,11 @@
 ---
 ## 2026-07-29
 
+### Fixed: the Project watcher reported a phantom file named after the project directory
+- On macOS, `fs.watch(root, { recursive: true })` reports touches of the watched root itself with the root's **own basename** as `filename` rather than a path relative to the root — so writing `tracked.ts` at the project root emits `change "<project-dir-name>"` alongside `rename "tracked.ts"`. `isNoise()` did not filter that value, so every project root write shipped a `ProjectChangeBatch` claiming a file named e.g. `molibot` had changed at the root, and SSE consumers of `/api/settings/projects/[id]/inspection/watch` treated it as a real changed path.
+- The watcher now drops any event whose filename is the root's basename, is absolute, or contains a `..` segment — a batch path must name something *under* the root. A genuine top-level entry sharing the root's name is dropped with it; the two events are indistinguishable at this layer, and losing one path from a debounced refresh hint costs far less than a phantom one.
+- Guarded by a new regression test in `watcher.test.ts` asserting no batch ever carries the root basename (verified failing before the fix), reusing the `batchAfterStimulus` helper below rather than a one-shot timed wait.
+
 ### Fixed: the Project watcher test was flaky, making `npm run test:projects` an unreliable signal
 - **The test raced the OS, not the code.** `watcher.test.ts` wrote its fixture files immediately after `watchProject` resolved and then waited once for a batch; it failed roughly 1-in-10 runs (more under CPU load) with "expected a change batch for tracked.ts", having received *zero* events in 3s.
 - **Root cause is outside `watcher.ts`.** `fs.watch(root, { recursive: true })` registers its backing FSEvents stream asynchronously, so writes issued in that window are dropped outright. A standalone probe using only `node:fs` — no project code — reproduced zero-events on 4 of 10 runs. Node exposes no readiness event for `fs.watch`, and the only way to synthesize one would be writing a probe file into the user's real project directory, which would create spurious churn in a watched repo; the production path (SSE panel opens, human edits files seconds later) is not exposed to the window, so `watcher.ts` is unchanged.

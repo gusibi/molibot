@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { closeAllProjectWatchers, watchProject, type ProjectChangeBatch } from "./watcher.js";
 import type { ProjectRecord } from "./store.js";
 
@@ -83,6 +83,33 @@ test("watcher batches changes, filters vendor noise, and reference-counts one OS
     releaseSecond();
     // Releasing every subscriber must be idempotent.
     releaseFirst();
+  } finally {
+    closeAllProjectWatchers();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("watcher drops the root's own basename, which macOS reports when the root directory is touched", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-watch-"));
+  const rootName = basename(root);
+  try {
+    const batches: ProjectChangeBatch[] = [];
+    const release = await watchProject(fixture(root), (batch) => batches.push(batch));
+
+    // Writing at the root touches the root directory itself, which is what makes
+    // macOS emit `change "<rootName>"` alongside the real `rename "tracked.ts"`.
+    const batch = await batchAfterStimulus(
+      batches,
+      () => writeFileSync(join(root, "tracked.ts"), "real"),
+      (candidate) => candidate.paths.includes("tracked.ts") || candidate.overflow
+    );
+    assert.ok(batch, "expected a change batch for tracked.ts");
+    assert.equal(batch.overflow, false);
+    for (const seen of batches) {
+      assert.equal(seen.paths.includes(rootName), false, `batch leaked the root basename: ${seen.paths.join(", ")}`);
+    }
+
+    release();
   } finally {
     closeAllProjectWatchers();
     rmSync(root, { recursive: true, force: true });

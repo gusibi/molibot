@@ -1,5 +1,6 @@
 import { watch, type FSWatcher } from "node:fs";
 import { promises as fs } from "node:fs";
+import { basename } from "node:path";
 import type { Ignore } from "ignore";
 import { loadGitignore } from "./inspection.js";
 import { ALWAYS_SKIP_DIRECTORIES } from "./search.js";
@@ -23,6 +24,8 @@ export type ProjectWatchListener = (batch: ProjectChangeBatch) => void;
 
 interface RootWatch {
   watcher: FSWatcher;
+  /** Basename of the watched root, used to drop macOS self-events. */
+  rootName: string;
   listeners: Set<ProjectWatchListener>;
   pending: Set<string>;
   overflow: boolean;
@@ -32,8 +35,26 @@ interface RootWatch {
 
 const watchesByRoot = new Map<string, RootWatch>();
 
-function isNoise(relPath: string, gitignore: Ignore | null): boolean {
+/**
+ * `fs.watch(root, { recursive: true })` on macOS reports touches of the root
+ * directory itself with the root's own basename as `filename` — not a path
+ * relative to the root. Left alone it ships as a phantom changed file sitting at
+ * the project root. Anything that is absolute or escapes the root is bogus for
+ * the same reason: a batch path must name something under the root.
+ *
+ * A real top-level entry whose name happens to equal the root's basename
+ * (`foo/foo`) is dropped too; the events are indistinguishable at this layer and
+ * losing one path from a debounced refresh hint costs far less than a phantom.
+ */
+function isOutsideRoot(relPath: string, rootName: string): boolean {
+  if (relPath === rootName) return true;
+  if (relPath.startsWith("/")) return true;
+  return relPath.split("/").includes("..");
+}
+
+function isNoise(relPath: string, rootName: string, gitignore: Ignore | null): boolean {
   if (!relPath) return true;
+  if (isOutsideRoot(relPath, rootName)) return true;
   const segments = relPath.split("/");
   if (segments.some((segment) => ALWAYS_SKIP_DIRECTORIES.has(segment))) return true;
   // Editors write `foo.ts~`, `.foo.ts.swp` and `4913` probe files on save.
@@ -91,12 +112,12 @@ export async function watchProject(project: ProjectRecord, listener: ProjectWatc
   if (!entry) {
     const gitignore = await loadGitignore(root);
     const watcher = watch(root, { recursive: true, persistent: false });
-    const created: RootWatch = { watcher, listeners: new Set(), pending: new Set(), overflow: false, timer: null, gitignore };
+    const created: RootWatch = { watcher, rootName: basename(root), listeners: new Set(), pending: new Set(), overflow: false, timer: null, gitignore };
     watcher.on("change", (_event, filename) => {
       const current = watchesByRoot.get(root);
       if (!current) return;
       const relPath = String(filename ?? "").replaceAll("\\", "/");
-      if (isNoise(relPath, current.gitignore)) return;
+      if (isNoise(relPath, current.rootName, current.gitignore)) return;
       if (current.pending.size >= MAX_BATCH_PATHS) current.overflow = true;
       else current.pending.add(relPath);
       schedule(root);
