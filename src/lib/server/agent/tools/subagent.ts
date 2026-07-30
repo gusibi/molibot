@@ -28,6 +28,7 @@ import {
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
+import { isSameModelFamily } from "$lib/server/agent/tools/modelFamily.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { isKnownProvider } from "$lib/server/settings/index.js";
 import { KNOWN_PROVIDER_LIST } from "$lib/server/settings/schema.js";
@@ -106,6 +107,12 @@ export interface SubagentRunResult {
   runtimeStopKind?: SubagentStopKind;
   durationMs?: number;
   sessionId?: string;
+  /**
+   * Only set for roles that require independence (the reviewer). Records
+   * whether the model that actually ran was outside the parent run's lineage,
+   * so a degraded review is never silently presented as an independent one.
+   */
+  reviewIndependence?: "independent" | "same-family";
 }
 
 interface SubagentToolDetails {
@@ -119,6 +126,8 @@ export interface SubagentDefinition {
   tools?: string[];
   modelHint?: string;
   modelLevel?: SubagentModelLevel;
+  /** Declares that this role must not run on the parent run's model lineage. */
+  independentReview?: boolean;
   systemPrompt: string;
 }
 
@@ -128,6 +137,7 @@ export interface BuiltInSubagentInfo {
   tools: string[];
   modelHint?: string;
   modelLevel?: SubagentModelLevel;
+  independentReview?: boolean;
 }
 
 const RUNTIME_PROMPT_APPEND = [
@@ -283,6 +293,7 @@ function loadSubagentRegistry(): Map<SubagentName, SubagentDefinition> {
         .filter(Boolean),
       modelHint: String(frontmatter.model ?? "").trim() || undefined,
       modelLevel: parseSubagentModelLevel(frontmatter.model),
+      independentReview: String(frontmatter.independent_review ?? "").trim().toLowerCase() === "true",
       systemPrompt: extractBody(raw)
     });
   }
@@ -297,7 +308,8 @@ export function listBuiltInSubagents(): BuiltInSubagentInfo[] {
     description: agent.description,
     tools: agent.tools ?? [],
     modelHint: agent.modelHint,
-    modelLevel: agent.modelLevel
+    modelLevel: agent.modelLevel,
+    independentReview: agent.independentReview
   }));
 }
 
@@ -506,7 +518,8 @@ async function buildSubagentFallbackModel(
  */
 async function resolveSubagentModelCandidates(
   settings: RuntimeSettings,
-  modelHint?: string
+  modelHint?: string,
+  options?: { independentReview?: boolean }
 ): Promise<{ models: Model<any>[]; modelRuntime: ModelRuntime }> {
   const modelRuntime = await createPiModelRuntime();
   const models: Model<any>[] = [];
@@ -519,7 +532,7 @@ async function resolveSubagentModelCandidates(
     models.push(model);
   };
 
-  for (const route of buildSubagentModelCandidates(settings, modelHint)) {
+  for (const route of buildSubagentModelCandidates(settings, modelHint, options)) {
     pushModel(await buildModelFromRoute(settings, route, modelRuntime));
   }
   pushModel(await buildSubagentFallbackModel(settings, modelRuntime));
@@ -541,7 +554,8 @@ type SubagentModelRoute = { mode: "pi" | "custom"; provider: string; model: stri
  */
 export function buildSubagentModelCandidates(
   settings: RuntimeSettings,
-  modelHint?: string
+  modelHint?: string,
+  options?: { independentReview?: boolean }
 ): SubagentModelRoute[] {
   const level = parseSubagentModelLevel(modelHint);
   const ordered: Array<SubagentModelRoute | null> = [
@@ -560,14 +574,36 @@ export function buildSubagentModelCandidates(
     seen.add(key);
     candidates.push(route);
   }
-  return candidates;
+
+  if (!options?.independentReview) return candidates;
+  // Reviewing your own work with your own model reproduces your own blind
+  // spots, so a reviewer tries every independent lineage first. Same-family
+  // routes are demoted rather than removed: a same-model review is still
+  // worth more than no review, and the caller discloses the difference.
+  const independent = candidates.filter((route) => isIndependentReviewRoute(settings, route));
+  if (independent.length === 0) return candidates;
+  return [...independent, ...candidates.filter((route) => !independent.includes(route))];
+}
+
+/**
+ * Whether a route's model lineage differs from the parent run's text model —
+ * the concrete meaning of "independent" for the reviewer subagent.
+ */
+export function isIndependentReviewRoute(
+  settings: RuntimeSettings,
+  route: { provider: string; model: string }
+): boolean {
+  const parent = parseModelKey(currentModelKey(settings, "text"));
+  if (!parent) return true;
+  return !isSameModelFamily(parent, route);
 }
 
 export function resolveSubagentModelRoute(
   settings: RuntimeSettings,
-  modelHint?: string
+  modelHint?: string,
+  options?: { independentReview?: boolean }
 ): SubagentModelRoute | null {
-  return buildSubagentModelCandidates(settings, modelHint)[0] ?? null;
+  return buildSubagentModelCandidates(settings, modelHint, options)[0] ?? null;
 }
 
 function buildUsage(messages: AgentMessage[]): UsageStats {
@@ -634,15 +670,28 @@ export function summarizeSubagentResultsForParent(mode: "single" | "parallel" | 
     ].join("\n");
   };
 
+  // A reviewer that fell back to the author's own model family still produced a
+  // useful review, but not an independent one. The parent has to see that
+  // caveat next to the findings to weigh them correctly.
+  const withCaveat = (result: SubagentRunResult, body: string): string => {
+    if (result.reviewIndependence !== "same-family") return body;
+    const model = result.model ? ` (\`${result.model}\`)` : "";
+    return [
+      `> Independence caveat: no model outside this run's own family was available, so this review ran on the same model family${model}. Treat shared blind spots as unchecked.`,
+      "",
+      body
+    ].join("\n");
+  };
+
   if (mode === "single") {
     const [result] = results;
     if (!result) return "Subagent finished with no output.";
-    return compressOutput(result.output || `${result.agent} finished without text output.`);
+    return withCaveat(result, compressOutput(result.output || `${result.agent} finished without text output.`));
   }
 
   return results
     .map((result, index) => {
-      const body = compressOutput(result.output);
+      const body = withCaveat(result, compressOutput(result.output));
       return `## ${index + 1}. ${result.agent}\n\n${body}`;
     })
     .join("\n\n");
@@ -1171,6 +1220,35 @@ async function runSubagentOnce(
  * (budget + deadline). Falls back to the next model only on a plain model error
  * — not on success, abort, approval, or a budget/timeout stop.
  */
+/**
+ * Record whether an independence-requiring role actually got an independent
+ * model. Model routing can be reconfigured at any time, so this is decided from
+ * the model that really ran, not from the candidate list built beforehand. A
+ * degraded review stays a review — it is disclosed, never dropped.
+ */
+function stampReviewIndependence(
+  result: SubagentRunResult,
+  agent: SubagentDefinition,
+  options: RunSingleSubagentOptions,
+  model: Model<any>
+): SubagentRunResult {
+  if (!agent.independentReview) return result;
+  const independent = isIndependentReviewRoute(options.settings, {
+    provider: model.provider,
+    model: model.id
+  });
+  if (!independent) {
+    momWarn("runner", "subagent_review_not_independent", {
+      chatId: options.chatId,
+      agent: agent.name,
+      model: model.id,
+      provider: model.provider,
+      parentModelKey: currentModelKey(options.settings, "text")
+    });
+  }
+  return { ...result, reviewIndependence: independent ? "independent" : "same-family" };
+}
+
 async function runSingleSubagent(
   agent: SubagentDefinition,
   task: string,
@@ -1178,7 +1256,8 @@ async function runSingleSubagent(
 ): Promise<SubagentRunResult> {
   const { models, modelRuntime } = await resolveSubagentModelCandidates(
     options.settings,
-    agent.modelHint
+    agent.modelHint,
+    { independentReview: agent.independentReview }
   );
   const guard = new SubagentExecutionGuard({
     limits: resolveSubagentBudgetLimits(options.settings),
@@ -1208,7 +1287,7 @@ async function runSingleSubagent(
         });
         continue;
       }
-      return result;
+      return stampReviewIndependence(result, agent, options, model);
     } catch (error) {
       lastError = error;
       if (options.signal?.aborted || isLast) {

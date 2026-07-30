@@ -5,10 +5,12 @@ import {
   loadDesktopPendingApproval,
   nextFollowUp,
   resolveDesktopHostBash,
+  steerDesktopChat,
   stopDesktopChat,
   type DesktopActivityEntry
 } from "../api";
 import { runDesktopConversationTurn } from "./conversationTurn";
+import { isAbortCause } from "./turnAbort";
 import type {
   DesktopApprovalDecision,
   DesktopApprovalPrompt,
@@ -123,6 +125,10 @@ export class ConversationController {
   }));
 
   private abort: AbortController | null = null;
+  /** Set by stop() so the resulting stream rejection is not reported as a turn error. */
+  private stopRequested = false;
+  /** True while stop() is unwinding the turn; it owns the queue drain in that window. */
+  private stopInFlight = false;
 
   /**
    * Streaming deltas are buffered here and flushed to the reactive fields at
@@ -225,6 +231,38 @@ export class ConversationController {
     this.queue = this.queue.filter((_, position) => position !== index);
   }
 
+  /**
+   * Steer: hand a queued message to the turn that is already running instead of
+   * waiting for it to finish. The server injects it into the live agent loop
+   * (the same Runner capability the chat channels expose as `/steer`), so the
+   * answer takes it into account mid-run. When the run has already ended the
+   * message stays queued and drains through the normal path.
+   */
+  async steerQueued(index: number): Promise<boolean> {
+    const text = this.queue[index];
+    const endpoint = this.host.endpoint();
+    const sessionId = this.turnSessionId || this.host.sessionId();
+    if (!text || !endpoint || !sessionId || !this.sending) return false;
+    const profileId = this.turnContext?.profileId ?? this.host.profileId();
+    try {
+      const delivered = await steerDesktopChat(endpoint, profileId, sessionId, text);
+      if (!delivered) return false;
+      // Only drop it from the queue once the server owns it, so a rejected
+      // steer can never lose the user's message. Re-locate it by value: the
+      // queue may have shifted while the request was in flight.
+      const at = this.queue.indexOf(text);
+      if (at >= 0) this.queue = this.queue.filter((_, position) => position !== at);
+      // Optimistic echo: the steered message is part of the agent context and
+      // comes back with the post-turn reload, but the user must see it land now.
+      this.host.appendUserMessage(text, []);
+      this.host.afterMutate?.();
+      return true;
+    } catch (cause) {
+      this.host.setError(cause instanceof Error ? cause.message : String(cause));
+      return false;
+    }
+  }
+
   private drainQueue(): void {
     if (this.sending || this.queue.length === 0) return;
     const { next, rest } = nextFollowUp(this.queue);
@@ -272,7 +310,9 @@ export class ConversationController {
     this.host.appendUserMessage(content, files);
     this.host.afterMutate?.();
 
-    this.abort = new AbortController();
+    const abort = new AbortController();
+    this.abort = abort;
+    this.stopRequested = false;
     try {
       await runDesktopConversationTurn({
         endpoint,
@@ -283,7 +323,7 @@ export class ConversationController {
         message: content,
         thinkingLevel: context.thinkingLevel,
         files: hasFiles ? files : undefined,
-        signal: this.abort.signal
+        signal: abort.signal
       }, {
         onUploadComplete: hasFiles ? () => (this.activity = labels.recognizingImage) : undefined,
         onToken: (delta) => {
@@ -319,13 +359,19 @@ export class ConversationController {
       this.activity = "";
       this.host.afterMutate?.();
     } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+      // A user Stop is not a failure. It surfaces as a plain rejection whose
+      // shape depends on the transport (Tauri's HTTP plugin rejects with
+      // `Error("Request cancelled")`, plain fetch with a DOMException, and the
+      // server may even emit an SSE `error` frame before our own abort fires),
+      // so the intent flag — not the error shape — decides whether to alarm.
+      if (!this.stopRequested && !isAbortCause(cause, abort.signal)) {
         this.host.setError(cause instanceof Error ? cause.message : String(cause));
       }
       await this.host.reload(sessionId).catch(() => undefined);
     } finally {
       this.resetStreamBuffers();
       this.sending = false;
+      this.stopRequested = false;
       this.abort = null;
     }
     // A turn can end while an approval is still pending server-side (the stream
@@ -334,7 +380,9 @@ export class ConversationController {
     if (!this.pendingApproval) {
       await this.syncPendingApproval(endpoint, context.profileId, sessionId);
     }
-    this.drainQueue();
+    // A concurrent stop() owns the drain (it still has a reload in flight that
+    // would otherwise wipe the next turn's optimistic message).
+    if (!this.stopInFlight) this.drainQueue();
   }
 
   async stop(): Promise<void> {
@@ -345,7 +393,8 @@ export class ConversationController {
     if (!endpoint || !sessionId || !this.sending) return;
     const profileId = this.turnContext?.profileId ?? this.host.profileId();
     const labels = this.host.labels();
-    this.queue = [];
+    this.stopRequested = true;
+    this.stopInFlight = true;
     try {
       const stopped = await stopDesktopChat(endpoint, profileId, sessionId);
       // Keep SSE attached while the server aborts/finalizes so its persisted
@@ -353,11 +402,28 @@ export class ConversationController {
       // stream that is still stuck after the bounded server-side wait.
       if (this.sending) this.abort?.abort();
       this.activity = stopped ? labels.stopped : labels.idle;
+      // Let the aborted turn finish unwinding first: its own reload must not
+      // land after ours, and drainQueue below is a no-op while it is sending.
+      await this.waitForTurnSettled();
       await this.host.reload(sessionId);
       await this.host.refreshSessions?.();
       this.host.afterMutate?.();
     } catch (cause) {
       this.host.setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      this.stopInFlight = false;
+    }
+    // Stop ends the CURRENT turn; it does not discard what the user lined up
+    // behind it. The next queued message starts now — users who want the whole
+    // queue gone remove the rows with the per-row remove button.
+    this.drainQueue();
+  }
+
+  /** Bounded wait for the in-flight turn to unwind after an abort. */
+  private async waitForTurnSettled(timeoutMs = 3_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.sending && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }
 

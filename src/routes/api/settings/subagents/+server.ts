@@ -30,16 +30,25 @@ export const GET: RequestHandler = async () => {
   );
   const labelForKey = (key: string): string => optionLabels.get(key) ?? fallbackRouteLabel(key);
   const subagents = listBuiltInSubagents().map((subagent) => {
-    const activeKey = routeKey(resolveSubagentModelRoute(settings, subagent.modelHint));
+    // Roles that require independence can be routed away from their configured
+    // level, so the displayed model must come from the same resolver the run
+    // uses — otherwise Settings advertises a model the reviewer never runs on.
+    const activeKey = routeKey(resolveSubagentModelRoute(settings, subagent.modelHint, {
+      independentReview: subagent.independentReview
+    }));
+    const levelKey = routeKey(resolveSubagentModelRoute(settings, subagent.modelHint));
+    const movedForIndependence = Boolean(subagent.independentReview) && activeKey !== levelKey;
     return {
       ...subagent,
       activeModelKey: activeKey,
       activeModelLabel: activeKey ? labelForKey(activeKey) : "",
-      activeModelSource: subagent.modelLevel && levelKeys[subagent.modelLevel]
-        ? `${subagent.modelLevel} level`
-        : configuredKey
-          ? "subagent fallback route"
-          : "text fallback"
+      activeModelSource: movedForIndependence
+        ? "independent review"
+        : subagent.modelLevel && levelKeys[subagent.modelLevel]
+          ? `${subagent.modelLevel} level`
+          : configuredKey
+            ? "subagent fallback route"
+            : "text fallback"
     };
   });
 

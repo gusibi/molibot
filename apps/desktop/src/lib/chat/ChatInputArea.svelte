@@ -52,6 +52,8 @@
   export let onToggleRecording: () => void;
   export let onFinishRecording: (send: boolean) => void;
   export let onRemoveQueued: (index: number) => void;
+  /** Optional: inject a queued message into the running turn (steer). */
+  export let onSteerQueued: ((index: number) => void) | null = null;
   export let onRemoveFile: (index: number) => void;
   export let onDismissError: () => void;
   export let onDismissRecordingError: () => void;
@@ -144,7 +146,15 @@
     </div>
   {/if}
 
-  <QueuedMessagesBar queued={queuedMessages} label={copy.queued} removeLabel={copy.removeQueued} onRemove={onRemoveQueued} />
+  <QueuedMessagesBar
+    queued={queuedMessages}
+    label={copy.queued}
+    removeLabel={copy.removeQueued}
+    onRemove={onRemoveQueued}
+    canSteer={sending}
+    steerLabel={copy.steerQueued}
+    onSteer={onSteerQueued}
+  />
   <PendingFilesBar files={pendingFiles} audioUrls={pendingAudioUrls} removeLabel={copy.removeFile} disabled={sending} inferKind={inferAttachmentKind} onRemove={onRemoveFile} />
 
   <ChatComposerShell

@@ -2416,6 +2416,25 @@ export async function stopDesktopChat(
 }
 
 /**
+ * Inject a queued message into the turn that is currently running for this
+ * session. Resolves to false when the server had nothing running anymore, in
+ * which case the caller keeps the message queued and lets it drain normally.
+ */
+export async function steerDesktopChat(
+  endpoint: string,
+  profileId: string,
+  sessionId: string,
+  text: string
+): Promise<boolean> {
+  const payload = await requestJson<{ ok: true; delivered: boolean }>(endpoint, "/api/stream/steer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profileId, conversationId: sessionId, text })
+  });
+  return payload.delivered;
+}
+
+/**
  * Submit a new custom provider from onboarding. The apiKey is sent directly
  * to the server — it is NOT stored in ProviderDraft (which only tracks
  * `apiKeyPresent: boolean`). The response never returns the key.

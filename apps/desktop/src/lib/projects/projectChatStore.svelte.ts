@@ -208,6 +208,11 @@ export class ProjectChatStore {
     this.registry.active?.controller.removeQueued(index);
   }
 
+  /** Injects a queued message into the active session's running turn. */
+  async steerQueued(index: number): Promise<boolean> {
+    return (await this.registry.active?.controller.steerQueued(index)) ?? false;
+  }
+
   async stopActive(): Promise<void> {
     await this.registry.active?.controller.stop();
   }

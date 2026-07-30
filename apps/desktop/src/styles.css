@@ -1744,7 +1744,10 @@ a:focus-visible {
 .queued-position { color: var(--label-tertiary); font: 11px/1 var(--font-mono); }
 .queued-message-text { overflow: hidden; color: var(--label-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .queued-message-row button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
-.queued-message-row button:hover { background: var(--fill); color: var(--label-primary); }
+.queued-message-row button:hover:not(:disabled) { background: var(--fill); color: var(--label-primary); }
+.queued-message-row.has-steer { grid-template-columns: 22px minmax(0, 1fr) 28px 28px; }
+.queued-steer:hover:not(:disabled) { color: var(--accent); }
+.queued-steer:disabled { cursor: default; opacity: .35; }
 .pending-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 4px 8px; }
 .pending-chip {
   display: flex;

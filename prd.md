@@ -5,6 +5,13 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.23 Model-independent reviewer subagent (2026-07-31)
+
+- **Priority / Status**: P1 / Delivered.
+- **Problem**: `reviewer` was a role name, not an independence guarantee. Its `sonnet` level could resolve to the parent run's own model, the generic subagent route and the main text route were appended as fallbacks with no family check, and a review produced by the author's own model lineage was presented to the parent exactly like an independent one. Rubber-duck review is supposed to reduce blind spots that a single lineage shares.
+- **Decision**: independence is a property of the model lineage, not the provider id — an aggregator or private proxy serving the same family is not independent. The reviewer declares the requirement in its own definition (`independent_review: true`); candidate ordering puts every independent lineage ahead of same-family ones. Independence is preferred, not enforced: a same-family review is still worth more than no review, so same-family routes are demoted rather than removed, and the degradation is disclosed to the parent and logged instead of being silently accepted.
+- **Acceptance**: the reviewer prefers an out-of-family candidate whenever one is reachable; same-family routes remain available as a last resort; the result records which case occurred and the parent-facing summary carries the caveat when it degraded; Settings shows the model the reviewer will actually run on; lineage detection survives aggregator/proxy model ids; agent suite, focused regressions, and the production build pass.
+
 ## 3.22 Release v2.7.6 / Desktop v0.7.3 (2026-07-30)
 
 - **Priority / Status**: P3 / Delivered.

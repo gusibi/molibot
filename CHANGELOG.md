@@ -5,7 +5,22 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-31
+
+### Changed: the reviewer subagent now runs on a model family independent of the parent run
+- `reviewer` was a role name, not an independence guarantee. Its `sonnet` level could resolve to the very model that wrote the code, and both the generic subagent route and the main text route were appended as fallbacks with no family check — so the "second opinion" routinely came from the same lineage, sharing the same blind spots.
+- Independence is now judged by model lineage rather than provider id, because aggregators (`openrouter`, `amazon-bedrock`, `github-copilot`) and private proxies all serve other vendors' models: `anthropic|claude-sonnet-4-5` and `openrouter|anthropic/claude-opus-4-1` are two providers but one family. Unrecognized model ids fall back to their provider, so two unrelated private providers never look related.
+- The requirement lives in the reviewer's own definition (`independent_review: true` frontmatter), and candidate resolution orders every independent lineage ahead of same-family ones. Independence is preferred, not enforced: a same-family review still beats no review, so same-family routes are demoted rather than dropped.
+- When only the parent's own family is reachable, the degradation is never silent — the run result records `reviewIndependence: "same-family"`, the parent-facing summary carries an explicit independence caveat above the findings, and a `subagent_review_not_independent` warning is logged. `/settings/agents` now shows the model the reviewer will actually use, sourced from the same resolver the run uses, with source `independent review` when the rule moved it.
+- Verified: new `modelFamily` tests 3/3 and reviewer routing/disclosure regressions in `subagent.test.ts` (25 tests total across the two files), full agent suite 69/69 files, `tsc` clean on the touched files, root production build passes.
+
 ## 2026-07-30
+
+### Fixed: Desktop queued messages can steer the running turn, and Stop keeps the queue (Issue #24)
+- A message typed while a turn was running could only wait. The Runner layer has exposed `steer` to the chat channels (`/steer`) all along, but Web/Desktop had no transport for it, so the queue was a dead end. New `POST /api/stream/steer` injects the text into the live agent loop through the same shared `RunnerPool.steer`, and each queued row in the composer now has a steer action (enabled only while a turn is actually running). A message leaves the queue only after the server has taken it, so a steer that arrives just after the turn ended stays queued and drains normally.
+- Stop no longer discards the queue: it ends the current turn, then starts the next queued message once the aborted turn has finished unwinding (`waitForTurnSettled`), instead of silently dropping everything the user had lined up. Individual rows are still removable.
+- Stop no longer reports itself as a failure. Tauri's HTTP plugin rejects an aborted request with a plain `Error("Request cancelled")`, which the controller only matched as a `DOMException`, so every Stop raised a red "Request cancelled" error banner. Cancellation is now decided by the stop intent plus a shared `isAbortCause` that knows each transport's wording.
+- Verified: new `turnAbort` unit tests 2/2 and steer-route tests 2/2 (temporary data dir), Desktop UI guards 101/101, desktop suites 66 + 105 pass, Rust 26/26, `svelte-check` 0 errors / 0 warnings, root and Desktop production builds pass.
 
 ### Release: v2.7.7 / Desktop v0.7.4
 - Synchronized the root and Desktop package versions for the new release.

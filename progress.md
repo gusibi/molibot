@@ -2007,3 +2007,16 @@
 - Updated CHANGELOG, features, PRD, README, and CLAUDE recurring pitfall #13; adversarial review completed.
 
 ---
+# Model-independent reviewer subagent (2026-07-31)
+
+- Confirmed the steer/Stop slice was already complete and green before starting; this is the next audit item, not a continuation of it.
+- Started from failing public-interface tests for lineage identification and reviewer candidate ordering.
+- Chose model lineage over provider id as the independence signal: aggregators and private proxies resell other vendors' models, so provider comparison would have accepted a same-family reviewer.
+- Kept same-family routes as demoted last resorts instead of removing them; deleting them would have traded a real capability for a stronger claim.
+- Decided independence from the model that actually ran, not the candidate list, because routing can change between resolution and execution.
+- Disclosed degradation in three places with different audiences: the run result (data), the parent summary (the model that must weigh the findings), and a runtime warning (operators).
+- Aligned `/api/settings/subagents` with the run-time resolver so Settings cannot advertise a model the reviewer never uses.
+- Added no system-prompt text: the rule is now mechanically enforced, which is the direction the same audit recommends for prompt surface area.
+- Verified: `modelFamily` 3/3, `subagent.test.ts` 22/22, Agent suite 69/69 files, `tsc` clean on touched files, root production build passed.
+
+---

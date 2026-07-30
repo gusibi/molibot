@@ -105,6 +105,34 @@ export function stopWebRunner(input: {
   return { ok: true, stopped: true };
 }
 
+/**
+ * Inject a message into the turn that is already running for this conversation.
+ * This is the Web/Desktop transport for the shared Runner capability the chat
+ * channels already expose as `/steer`: the text joins the live agent loop
+ * instead of waiting for the current turn to end. Returns `delivered: false`
+ * when nothing is running, so the caller can fall back to its normal queue.
+ */
+export function steerWebRunner(input: {
+  profileId: string;
+  conversationId: string;
+  userId?: string;
+  text: string;
+  mode?: "steer" | "follow_up";
+}): { ok: true; delivered: boolean } {
+  const profileId = sanitizeWebProfileId(input.profileId);
+  const userId = sanitizeWebUserId(input.userId);
+  const conversationId = String(input.conversationId ?? "").trim();
+  const text = String(input.text ?? "").trim();
+  if (!conversationId || !text) return { ok: true, delivered: false };
+
+  const { pool } = getRuntimeContextForConversation(profileId, conversationId);
+  const chatId = resolveRunnerChatId(conversationId, toWebExternalUserId(userId, profileId));
+  const delivered = input.mode === "follow_up"
+    ? pool.followUp(chatId, conversationId, text)
+    : pool.steer(chatId, conversationId, text);
+  return { ok: true, delivered };
+}
+
 /** Wait until the aborted runner has finalized its persisted partial answer. */
 export async function waitForWebRunnerIdle(input: {
   profileId: string;

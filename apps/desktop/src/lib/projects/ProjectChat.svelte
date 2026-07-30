@@ -510,6 +510,12 @@
     projectChatStore.removeQueued(index);
   }
 
+  /** Injects a queued message into the running turn instead of waiting for it. */
+  async function steerQueued(index: number): Promise<void> {
+    const delivered = await projectChatStore.steerQueued(index);
+    if (!delivered) projectsStore.error = copy.steerQueuedFailed;
+  }
+
   function approvalOptionLabel(option: { id: string; label: string }): string {
     if (option.id === "approve_once") return copy.approveOnce;
     if (option.id === "approve_session") return copy.approveSession;
@@ -921,6 +927,7 @@
     onToggleRecording={toggleRecording}
     onFinishRecording={(send) => void finishRecording(send)}
     onRemoveQueued={removeQueued}
+    onSteerQueued={(index) => void steerQueued(index)}
     onRemoveFile={removePendingFile}
     onDismissError={() => { projectsStore.error = ""; projectChatStore.clearActiveError(); }}
     onDismissRecordingError={() => (recordingError = "")}

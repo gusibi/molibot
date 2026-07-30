@@ -2716,3 +2716,34 @@ Complete — shared fail-closed enforcement, safe presets, verification, cold re
 | Broad Agent glob first lacked the Markdown loader, then inherited the real DB path | 2 | Use the repository loader plus an isolated absolute HOME/DB and serial test execution; 540/540 passed without real-data access. |
 
 ---
+# Model-independent reviewer subagent (2026-07-31)
+
+## Goal
+Close the audit's [P1] finding that `reviewer` is a role name rather than an independence guarantee, without removing the ability to review when only one model family is reachable.
+
+## Current phase
+Complete — contract, implementation, verification, and records finished
+
+## Phases
+1. Pin the meaning of "independent" as a public-interface regression before touching routing — complete
+2. Add lineage identification that survives aggregators and private proxies — complete
+3. Order reviewer candidates by independence and disclose degradation to the parent — complete
+4. Align the Settings projection with the resolver the run actually uses — complete
+
+## Verification gates
+- The reviewer prefers an out-of-family candidate whenever one is reachable, and same-family routes remain available as a last resort.
+- A degraded review is never presented as an independent one: the result records it, the parent-facing summary discloses it, and the runtime logs it.
+- Lineage detection treats a proxy/aggregator of the parent family as the same family, and two unrelated private providers as different families.
+- Settings shows the model the reviewer will actually run on.
+- Agent suite, focused regressions, `tsc` on touched files, and the production build pass.
+
+## Assumptions
+- Independence is preferred, not enforced. The audit's own adversarial note stands: a same-family reviewer is still useful, so the gap was the unearned independence claim, not the capability.
+- Mechanically enforceable policy belongs in code, so this adds no system-prompt text (the audit's [P2] prompt-surface finding).
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Excess-property errors after narrowing `isIndependentReviewRoute` to `{provider, model}` | 1 | Dropped the unused `mode` field from the test literals rather than widening the public parameter type. |
+
+---

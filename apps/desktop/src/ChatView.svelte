@@ -1788,6 +1788,12 @@
     chatStore.removeQueued(index);
   }
 
+  /** Injects a queued message into the running turn instead of waiting for it. */
+  async function steerQueued(index: number): Promise<void> {
+    const delivered = await chatStore.steerQueued(index);
+    if (!delivered) error = copy.steerQueuedFailed;
+  }
+
   async function toggleSearch(): Promise<void> {
     if (searchOpen) {
       searchOpen = false;
@@ -2514,6 +2520,7 @@
         onToggleRecording={toggleRecording}
         onFinishRecording={(send) => void finishRecording(send)}
         onRemoveQueued={removeQueued}
+        onSteerQueued={(index) => void steerQueued(index)}
         onRemoveFile={removePendingFile}
         onDismissError={() => { error = ""; chatStore.clearActiveError?.(); }}
         onDismissRecordingError={() => (recordingError = "")}

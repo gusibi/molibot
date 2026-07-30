@@ -10,6 +10,7 @@ import {
   buildSubagentPiSettings,
   createSubagentSessionManager,
   createSubagentTool,
+  isIndependentReviewRoute,
   isSafeReadOnlySubagentCommand,
   listBuiltInSubagents,
   normalizeSubagentStopReason,
@@ -148,6 +149,98 @@ test("subagent model candidates de-duplicate identical routes", () => {
   const candidates = buildSubagentModelCandidates(settings, undefined);
   const keys = candidates.map((c) => `${c.mode}|${c.provider}|${c.model}`);
   assert.equal(keys.length, new Set(keys).size);
+});
+
+test("the reviewer declares that it needs a model independent of the parent run", () => {
+  const reviewer = listBuiltInSubagents().find((agent) => agent.name === "reviewer");
+  assert.equal(reviewer?.independentReview, true);
+  // Independence is a reviewer-only requirement; the others must stay on the
+  // cheapest route that fits their level.
+  assert.equal(listBuiltInSubagents().filter((agent) => agent.independentReview).length, 1);
+});
+
+test("an independent reviewer prefers a candidate outside the parent model family", () => {
+  const settings = {
+    ...defaultRuntimeSettings,
+    piModelProvider: "anthropic" as const,
+    piModelName: "claude-sonnet-4-5",
+    modelRouting: {
+      ...defaultRuntimeSettings.modelRouting,
+      // The level route the reviewer asks for happens to be the parent family.
+      subagentSonnetModelKey: "pi|anthropic|claude-sonnet-4-5",
+      subagentModelKey: "pi|deepseek|deepseek-v4-flash"
+    }
+  };
+
+  const ordinary = buildSubagentModelCandidates(settings, "sonnet");
+  assert.deepEqual(ordinary[0], { mode: "pi", provider: "anthropic", model: "claude-sonnet-4-5" });
+
+  const review = buildSubagentModelCandidates(settings, "sonnet", { independentReview: true });
+  assert.deepEqual(
+    review[0],
+    { mode: "pi", provider: "deepseek", model: "deepseek-v4-flash" },
+    "a reviewer on the author's own model family cannot claim independent review"
+  );
+  // Same-family routes are demoted, never dropped: a reviewer on the same model
+  // is still useful, so losing the capability would be the worse trade.
+  assert.ok(review.some((route) => route.provider === "anthropic" && route.model === "claude-sonnet-4-5"));
+  assert.equal(review.length, ordinary.length);
+});
+
+test("a reviewer keeps its configured route when every candidate shares the parent family", () => {
+  const settings = {
+    ...defaultRuntimeSettings,
+    piModelProvider: "anthropic" as const,
+    piModelName: "claude-sonnet-4-5",
+    modelRouting: {
+      ...defaultRuntimeSettings.modelRouting,
+      subagentSonnetModelKey: "pi|anthropic|claude-opus-4-1",
+      subagentModelKey: "pi|anthropic|claude-haiku-4-5"
+    }
+  };
+
+  const review = buildSubagentModelCandidates(settings, "sonnet", { independentReview: true });
+  assert.deepEqual(review[0], { mode: "pi", provider: "anthropic", model: "claude-opus-4-1" });
+  assert.equal(isIndependentReviewRoute(settings, review[0]!), false);
+});
+
+test("independence is judged by model lineage, so a proxy of the parent family does not count", () => {
+  const settings = {
+    ...defaultRuntimeSettings,
+    piModelProvider: "anthropic" as const,
+    piModelName: "claude-sonnet-4-5"
+  };
+
+  assert.equal(
+    isIndependentReviewRoute(settings, { provider: "my-proxy", model: "claude-sonnet-4-5" }),
+    false
+  );
+  assert.equal(
+    isIndependentReviewRoute(settings, { provider: "deepseek", model: "deepseek-v4-flash" }),
+    true
+  );
+});
+
+test("a reviewer that had to run on the parent model family says so in its result", () => {
+  const base = {
+    agent: "reviewer" as const,
+    task: "Review the patch",
+    stopReason: "stop",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0, turns: 1 }
+  };
+
+  const degraded = summarizeSubagentResultsForParent("single", [
+    { ...base, output: "## Summary\nLooks fine.", model: "claude-opus-4-1", reviewIndependence: "same-family" }
+  ]);
+  // The parent must be able to discount the review, so the caveat has to reach
+  // the parent context — a log line alone would be invisible to it.
+  assert.match(degraded, /same model family/i);
+  assert.match(degraded, /Looks fine\./);
+
+  const independent = summarizeSubagentResultsForParent("single", [
+    { ...base, output: "## Summary\nLooks fine.", model: "deepseek-v4-flash", reviewIndependence: "independent" }
+  ]);
+  assert.doesNotMatch(independent, /same model family/i);
 });
 
 test("subagent emits a terminal error event when execution fails before producing results", async () => {

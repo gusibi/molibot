@@ -5,7 +5,24 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-31
+
+### reviewer subagent 强制使用与父运行不同的模型族（已完成，P1）
+
+- 此前 `reviewer` 只是个角色名，并没有「独立性」保证：它请求的 `sonnet` 档可能解析到写代码的那个模型本身，通用 subagent 路由和主 text 路由还会被无条件追加为兜底，等于经常是同一个模型族自己审自己，盲区完全重合。
+- 独立性按**模型血统**判定，而不是 provider id：聚合器（`openrouter`、`amazon-bedrock`、`github-copilot`）和私有代理都在转售别家模型，`anthropic|claude-sonnet-4-5` 与 `openrouter|anthropic/claude-opus-4-1` 是两个 provider 但同一个族。无法识别的模型 id 退回按 provider 区分，保证两个互不相关的私有 provider 不会被误判为同族。
+- 该要求写在 reviewer 自己的定义里（frontmatter `independent_review: true`），候选解析把所有异族路线排在同族之前。这是「优先」而非「强制」：同族 review 仍然强过没有 review，因此同族路线只降序不删除。
+- 只剩父模型同族可用时不静默降级：运行结果记录 `reviewIndependence: "same-family"`，回传给父 agent 的摘要在结论上方附加独立性说明，同时输出 `subagent_review_not_independent` 警告日志。`/settings/agents` 改用与实际运行相同的解析器展示 reviewer 真正会用的模型，被独立性规则改道时来源显示为 `independent review`。
+- 守卫：新增 `modelFamily` 测试 3/3、`subagent.test.ts` 中的 reviewer 路由与披露回归（两个文件共 25 项）、Agent 全量套件 69/69 文件、改动文件 `tsc` 无新增错误、根生产构建通过。
+
 ## 2026-07-30
+
+### App 排队消息支持 steer，Stop 不再丢队列（Issue #24，已完成，P0）
+
+- 运行中输入的消息此前只能干等：Runner 层早就为渠道提供了 `steer`（`/steer` 指令），但 Web/Desktop 缺少对应传输通道，排队成了死胡同。新增 `POST /api/stream/steer`，经共享 `RunnerPool.steer` 把文本插入正在运行的 agent 循环；输入区每条排队消息新增「插入当前任务」按钮，仅在确有运行中回合时可点。消息只有在服务端确认接收后才出队，若回合刚好结束则保留在队列里按原顺序发送，不会丢失。
+- Stop 只结束当前回合，不再清空队列：等被中止的回合真正收尾（`waitForTurnSettled`）后自动启动下一条排队消息；想整体取消仍可逐条移除。
+- Stop 不再被当成失败上报：Tauri HTTP 插件中止请求时抛出的是普通 `Error("Request cancelled")`，而控制器只识别 `DOMException`，导致每次停止都弹红色报错条。现在由「停止意图」加共享 `isAbortCause`（覆盖各传输层措辞）判定取消，真实运行错误仍照常提示。
+- 守卫：`turnAbort` 单测 2/2、steer 路由测试 2/2（临时数据目录）、Desktop UI 结构守卫 101/101、Desktop 测试 66 + 105 通过、Rust 26/26、`svelte-check` 0 error / 0 warning、根与 Desktop 生产构建通过。
 
 ### App 输入区模型显示与实际回复模型一致（已完成，P0）
 

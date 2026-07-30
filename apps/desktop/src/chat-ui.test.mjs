@@ -1592,3 +1592,36 @@ test("every Phosphor icon name used in the UI exists in the installed icon set",
   assert.ok(used.size > 50, "no icon usages were collected");
   assert.deepEqual([...used].filter((name) => !available.has(name)).sort(), []);
 });
+
+// Issue #24: a queue with no way out. Stop threw away everything the user had
+// lined up AND reported the user's own cancellation as a red error, and a
+// queued message could only wait — never join the run it was queued behind,
+// even though the Runner layer has exposed `steer` to the chat channels all
+// along. Guards the whole seam: transport → controller → composer.
+test("queued messages can steer the running turn and survive Stop", () => {
+  const controller = read("./lib/chat/conversationController.svelte.ts");
+  const queuedBar = read("./lib/chat/QueuedMessagesBar.svelte");
+  const steerRoute = read("../../../src/routes/api/stream/steer/+server.ts");
+  const runtimeContext = read("../../../src/lib/server/web/runtimeContext.ts");
+
+  // Steer reaches the shared Runner capability, not a re-implementation.
+  assert.match(runtimeContext, /export function steerWebRunner/);
+  assert.match(runtimeContext, /pool\.steer\(chatId, conversationId, text\)/);
+  assert.match(steerRoute, /steerWebRunner/);
+  assert.match(read("./lib/api.ts"), /export async function steerDesktopChat[\s\S]*\/api\/stream\/steer/);
+  assert.match(controller, /async steerQueued\(index: number\)/);
+  // The message leaves the queue only once the server has taken it.
+  assert.match(controller, /const delivered = await steerDesktopChat[\s\S]*?if \(!delivered\) return false;/);
+  for (const [surface, source] of [["chat", view], ["project", read("./lib/projects/ProjectChat.svelte")]]) {
+    assert.match(source, /onSteerQueued=/, `${surface} composer must expose steering`);
+  }
+  assert.match(queuedBar, /onSteer/);
+
+  // Stop ends the current turn only: it must not clear the queue, and the
+  // cancellation it causes must not surface as a turn error.
+  const stopBody = controller.slice(controller.indexOf("async stop()"), controller.indexOf("private async waitForTurnSettled"));
+  assert.doesNotMatch(stopBody, /this\.queue = \[\]/);
+  assert.match(stopBody, /this\.stopRequested = true/);
+  assert.match(stopBody, /this\.drainQueue\(\)/);
+  assert.match(controller, /if \(!this\.stopRequested && !isAbortCause\(cause, abort\.signal\)\)/);
+});
