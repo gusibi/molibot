@@ -7,6 +7,11 @@
 ---
 ## 2026-07-30
 
+### Fixed: the chat composer now shows the model that actually answered
+- A project Session whose every turn ran on DeepSeek kept advertising the global Gemini default in its input bar. The projects view object is recreated on every store tick, so the ungated `$: loadModelOptions(view.endpoint)` re-ran constantly and each run reset the selector to the global key, clobbering the Session's hydrated model. Model options now reload only when the endpoint actually changes, and a reload preserves the Session's own selection.
+- With no explicit per-session pick, both chat surfaces now follow the model that answered last in the transcript — mapping the message's `provider/model` pair back onto a composer option key — and keep following it as new replies land, instead of jumping to whatever the global default happens to be. An explicit pick still outranks it and is not undone by the next reply; unknown or removed models fall back to the previous default rather than silently selecting something else.
+- Verified: model-mapping unit tests 3/3, Desktop UI guards 100/100, `svelte-check` 0 errors / 0 warnings, Desktop production build passes.
+
 ### Release: v2.7.6 / Desktop v0.7.3
 - Released the Desktop transcript/link/model-consistency fixes for GitHub Issues #22 and #23 together with the fail-closed Bash sandbox hardening.
 

@@ -101,6 +101,26 @@ test("message links open externally and session model hydration blocks mismatche
   assert.match(view, /modelSelectionHydrating = true;[\s\S]*loadDesktopSessionModel/);
 });
 
+test("the composer's model pill reflects the Session, never a stale global default", () => {
+  // Shipped bug (2026-07-30): a project Session whose every turn ran on DeepSeek
+  // showed the global Gemini default in its composer. Two causes, both guarded
+  // here.
+  // 1. `view` is a fresh object on every projects-store tick, so an ungated
+  //    `$: loadModelOptions(view.endpoint)` re-ran constantly and each run reset
+  //    the selector to the global key, clobbering the hydrated session model.
+  assert.match(projectChat, /\$: if \(view\.endpoint && view\.endpoint !== loadedModelEndpoint\)/);
+  assert.doesNotMatch(projectChat, /\n\s*activeModelKey = state\.currentKey;/);
+  // 2. With no explicit per-session pick, both chat surfaces follow the model
+  //    that actually answered last instead of the current global default.
+  for (const source of [view, projectChat]) {
+    assert.match(source, /lastTranscriptModelKey/);
+    assert.match(source, /transcriptModelKeys\.set\(sessionId, key\)/);
+    // An explicit pick outranks it and is not undone by the next reply.
+    assert.match(source, /transcriptModelKeys\.delete\(sessionId\)/);
+    assert.match(source, /sessionModelOverrides\.get\(sessionId\) \?\?\s*transcriptModelKeys\.get\(sessionId\)/);
+  }
+});
+
 test("editing rewrites the current Session and branching is a separate explicit action", () => {
   // Edit-and-resend stays destructive: it truncates the active Session in place.
   assert.match(view, /await truncateDesktopMessages\(connectedEndpoint, activeProfileId, activeSessionId, editingId\)/);
@@ -790,11 +810,11 @@ test("Settings Escape respects a nested shared Dialog before closing the overlay
 test("per-session model persistence commits caches only after the server save succeeds", () => {
   assert.match(
     view,
-    /await saveDesktopSessionModel\(connectedEndpoint, sessionId, value\);\s*sessionModelOverrides\.set\(sessionId, value\);\s*hydratedModelSessions\.add\(sessionId\);/
+    /await saveDesktopSessionModel\(connectedEndpoint, sessionId, value\);\s*sessionModelOverrides\.set\(sessionId, value\);[\s\S]{0,240}?hydratedModelSessions\.add\(sessionId\);/
   );
   assert.match(
     projectChat,
-    /await saveDesktopSessionModel\(projectsStore\.endpoint, sessionId, value\);\s*sessionModelOverrides\.set\(sessionId, value\);\s*hydratedModelSessions\.add\(sessionId\);/
+    /await saveDesktopSessionModel\(projectsStore\.endpoint, sessionId, value\);\s*sessionModelOverrides\.set\(sessionId, value\);[\s\S]{0,240}?hydratedModelSessions\.add\(sessionId\);/
   );
   assert.doesNotMatch(view, /saveDesktopSessionModel\([^\n]+\)\.catch\(\(\) => \{\}\)/);
   assert.match(chatSessionStore, /await deps\.onDraftSessionCreated\?\.\(profileId, created\.id\)/);

@@ -7,6 +7,12 @@
 ---
 ## 2026-07-30
 
+### App 输入区模型显示与实际回复模型一致（已完成，P0）
+
+- 修复项目会话输入区长期显示全局默认模型（Gemini）而实际由 DeepSeek 回复的问题：`view` 投影对象每次 store 变更都是新对象，未做端点比较的 `$: loadModelOptions(view.endpoint)` 会反复执行，每次都把选择器重置回全局 key，覆盖掉刚 hydrate 出来的会话模型。现在仅在端点真正变化时重载模型列表，且重载会保留会话自身的选择。
+- 会话没有显式选择模型时，Chat 与项目 Chat 都改为跟随「最后一条 assistant 消息实际使用的模型」：把消息的 `provider/model` 映射回输入区选项 key，并随新回复持续更新。用户手动选择的模型优先级更高，不会被下一条回复覆盖；无法映射（模型已删除/停用）时退回原有默认，不静默选中别的模型。
+- 守卫：`modelSelection` 映射单测 3/3、Desktop UI 结构守卫 100/100、`svelte-check` 0 error / 0 warning、Desktop 生产构建通过。
+
 ### Release v2.7.6 / Desktop v0.7.3
 
 - 发布 Issues #22/#23 的 Desktop 消息、链接与模型一致性修复，以及 Agent Bash sandbox fail-closed 安全加固。

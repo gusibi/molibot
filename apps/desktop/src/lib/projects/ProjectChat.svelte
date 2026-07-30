@@ -33,6 +33,7 @@
     TranscriptMessage,
     TranscriptMessageActions
   } from "../chat/transcript";
+  import { lastTranscriptModelKey } from "../chat/modelSelection";
   import { projectsStore, projectsView, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
 
   export let copy: Translation;
@@ -62,6 +63,7 @@
   let globalThinkingLevel: DesktopThinkingLevel = "medium";
   let changingModel = false;
   let appliedSessionId = "";
+  let loadedModelEndpoint = "";
   // Per-session model lives on the server (persisted on the conversation record);
   // this Map is a local write-through cache. It only ever holds non-empty
   // overrides — an empty persisted value means "follow the default" and is left
@@ -71,6 +73,13 @@
   // (an empty persisted value is a valid "known: follow default").
   const hydratedModelSessions = new Set<string>();
   let modelHydrationSeq = 0;
+  // Bumped when a hydration settles, purely so the transcript-derived `$:` below
+  // re-runs: `hydratedModelSessions` is a plain Set and tracks nothing.
+  let modelHydrationMark = 0;
+  // Sessions with no persisted override whose model we inferred from the last
+  // assistant message (see `applyTranscriptModel`). Ranks below an explicit
+  // override and above the project/global default.
+  const transcriptModelKeys = new Map<string, string>();
   const sessionThinkingOverrides = new Map<string, DesktopThinkingLevel>();
 
   const formatTime = (value: string) => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
@@ -103,8 +112,15 @@
   $: view = $projectsViewStore;
 
   // Load model options for the project composer so it matches the chat surface.
-  // Re-loads whenever the endpoint changes (e.g. service restart).
-  $: if (view.endpoint) void loadModelOptions(view.endpoint);
+  // Re-loads only when the endpoint actually CHANGES (e.g. service restart):
+  // `view` is a fresh object on every projects-store mutation (session list
+  // refresh, `messagesLoading`, …), so an ungated call here re-ran on every
+  // store tick and each run reset the selector to the global default — the
+  // Session's own model was hydrated and then clobbered a tick later.
+  $: if (view.endpoint && view.endpoint !== loadedModelEndpoint) {
+    loadedModelEndpoint = view.endpoint;
+    void loadModelOptions(view.endpoint);
+  }
   $: currentProject = view.projects.find((item) => item.id === view.selectedProjectId);
   $: projectToolProgress = currentProject?.toolProgress ?? "all";
   $: projectShowReasoning = currentProject?.showReasoning ?? "on";
@@ -114,19 +130,45 @@
   // `$:` below that does NOT wait on models.
   $: if (view.selectedSessionId && view.selectedSessionId !== appliedSessionId && modelOptions.length > 0) {
     appliedSessionId = view.selectedSessionId;
-    const requestedModel = sessionModelOverrides.get(appliedSessionId) ?? currentProject?.modelKey ?? globalModelKey;
+    const requestedModel = resolveSessionModel(appliedSessionId);
     activeModelKey = modelOptions.some((option) => option.key === requestedModel) ? requestedModel : globalModelKey;
     thinkingLevel = sessionThinkingOverrides.get(appliedSessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
     void hydrateSessionModel(appliedSessionId);
+  }
+  // The composer must never contradict the transcript: with no explicit
+  // per-session pick, the Session keeps the model that actually answered last
+  // (and follows it as new replies land) instead of jumping to whatever the
+  // global default happens to be now. Depends on `modelHydrationMark` so it
+  // re-runs once the persisted override — which outranks it — is known.
+  $: applyTranscriptModel(appliedSessionId, modelHydrationMark, messages, modelOptions);
+  function applyTranscriptModel(
+    sessionId: string,
+    _hydrationMark: number,
+    transcript: TranscriptMessage[],
+    options: DesktopModelOption[]
+  ): void {
+    if (!sessionId || projectsStore.selectedSessionId !== sessionId) return;
+    if (!hydratedModelSessions.has(sessionId) || sessionModelOverrides.has(sessionId)) return;
+    const key = lastTranscriptModelKey(transcript, options);
+    if (!key) return;
+    transcriptModelKeys.set(sessionId, key);
+    activeModelKey = key;
   }
   $: if (appliedSessionId && view.selectedSessionId === appliedSessionId) sessionThinkingOverrides.set(appliedSessionId, clampedThinkingLevel);
   async function loadModelOptions(endpoint: string): Promise<void> {
     try {
       const [state, routing] = await Promise.all([loadDesktopModels(endpoint), loadDesktopModelRouting(endpoint)]);
       modelOptions = state.options;
-      activeModelKey = state.currentKey;
       globalModelKey = state.currentKey;
       globalThinkingLevel = routing.defaultThinkingLevel;
+      // Keep the Session's own model: reloading the option list (service
+      // restart, provider edit) must not silently re-point the composer at the
+      // global default.
+      const sessionId = projectsStore.selectedSessionId;
+      const resolved = sessionId ? resolveSessionModel(sessionId) : "";
+      activeModelKey = resolved && state.options.some((option) => option.key === resolved)
+        ? resolved
+        : state.currentKey;
     } catch {
       // model selectors simply stay empty; sending is blocked until a model is configured
     }
@@ -147,6 +189,8 @@
         sessionModelOverrides.set(sessionId, key);
         activeModelKey = key;
       }
+      // No persisted pick: fall through to the transcript's last model.
+      modelHydrationMark += 1;
     } catch {
       // network hiccup: leave the composer on its default; a later switch retries
     }
@@ -162,6 +206,9 @@
       if (sessionId) {
         await saveDesktopSessionModel(projectsStore.endpoint, sessionId, value);
         sessionModelOverrides.set(sessionId, value);
+        // An explicit pick outranks the transcript-derived model until the user
+        // picks again, so the selector can't snap back on the next reply.
+        transcriptModelKeys.delete(sessionId);
         hydratedModelSessions.add(sessionId);
         if (projectsStore.selectedSessionId === sessionId) activeModelKey = value;
       }
@@ -186,7 +233,12 @@
   // thinking overrides plus project/global defaults live here; the store injects
   // these into each session's runtime so a background turn keeps its own model.
   function resolveSessionModel(sessionId: string): string {
-    return sessionModelOverrides.get(sessionId) ?? currentProject?.modelKey ?? globalModelKey;
+    return (
+      sessionModelOverrides.get(sessionId) ??
+      transcriptModelKeys.get(sessionId) ??
+      currentProject?.modelKey ??
+      globalModelKey
+    );
   }
   function resolveSessionThinking(sessionId: string): DesktopThinkingLevel {
     const requested = sessionThinkingOverrides.get(sessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;

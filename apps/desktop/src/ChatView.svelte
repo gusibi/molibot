@@ -80,6 +80,7 @@
     type TranscriptMessage,
     type TranscriptMessageActions
   } from "./lib/chat/transcript";
+  import { lastTranscriptModelKey } from "./lib/chat/modelSelection";
   import ApprovalCard from "./lib/chat/ApprovalCard.svelte";
   import ChatInputArea from "./lib/chat/ChatInputArea.svelte";
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
@@ -167,6 +168,13 @@
   const sessionModelOverrides = new Map<string, string>();
   const hydratedModelSessions = new Set<string>();
   let modelHydrationSeq = 0;
+  // Sessions with no persisted override whose model was inferred from the last
+  // assistant message, so the composer shows what actually answered instead of
+  // the current global default. Ranks below an explicit pick.
+  const transcriptModelKeys = new Map<string, string>();
+  // Bumped when a hydration settles so the transcript-derived `$:` re-runs
+  // (`hydratedModelSessions` is a plain Set and tracks nothing).
+  let modelHydrationMark = 0;
   let appliedModelSessionId = "";
   // Model chosen while composing a not-yet-persisted new conversation. Seeded onto
   // the real session the moment it's created (before the first turn snapshots it).
@@ -581,9 +589,30 @@
   // Gated on loaded options so the selector reflects a valid key.
   $: if (viewMode === "local" && activeSessionId && activeSessionId !== appliedModelSessionId && modelOptions.length > 0) {
     appliedModelSessionId = activeSessionId;
-    const override = sessionModelOverrides.get(activeSessionId);
+    const override = resolveSessionModelKey(activeSessionId);
     activeModelKey = override && modelOptions.some((option) => option.key === override) ? override : globalModelKey;
     void hydrateSessionModel(activeSessionId);
+  }
+  // With no explicit per-session pick, the composer follows the model that
+  // actually answered last in this transcript (and updates as new replies land)
+  // rather than showing whatever the global default is now.
+  $: applyTranscriptModel(activeSessionId, modelHydrationMark, messages, modelOptions);
+  function applyTranscriptModel(
+    sessionId: string,
+    _hydrationMark: number,
+    transcript: TranscriptMessage[],
+    options: DesktopModelOption[]
+  ): void {
+    if (viewMode !== "local" || !sessionId) return;
+    if (!hydratedModelSessions.has(sessionId) || sessionModelOverrides.has(sessionId)) return;
+    const key = lastTranscriptModelKey(transcript, options);
+    if (!key) return;
+    transcriptModelKeys.set(sessionId, key);
+    activeModelKey = key;
+  }
+  /** Session model precedence: explicit pick → last answering model → global. */
+  function resolveSessionModelKey(sessionId: string): string {
+    return sessionModelOverrides.get(sessionId) ?? transcriptModelKeys.get(sessionId) ?? "";
   }
   $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
   $: thinkingLevelOptions = modelOptions.find((model) => model.key === activeModelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
@@ -777,7 +806,7 @@
       profiles = nextProfiles;
       modelOptions = modelState.options;
       globalModelKey = modelState.currentKey;
-      activeModelKey = sessionModelOverrides.get(activeSessionId) || modelState.currentKey;
+      activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       onboardingProfiles = nextWebProfiles;
       if (nextAgents) onboardingAgents = nextAgents.items;
       if (nextChannels) {
@@ -821,7 +850,7 @@
       profiles = nextProfiles;
       modelOptions = modelState.options;
       globalModelKey = modelState.currentKey;
-      activeModelKey = sessionModelOverrides.get(activeSessionId) || modelState.currentKey;
+      activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       const rememberedProfile = localStorage.getItem(PROFILE_STORAGE_KEY) ?? "";
       onboardingProfiles = nextWebProfiles;
       onboardingAgents = nextAgents.items;
@@ -1136,7 +1165,7 @@
       const modelState = await loadDesktopModels(connectedEndpoint, "text");
       modelOptions = modelState.options;
       globalModelKey = modelState.currentKey;
-      activeModelKey = sessionModelOverrides.get(activeSessionId) || modelState.currentKey;
+      activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
     } catch (cause) {
       providerSubmitError = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -1694,6 +1723,8 @@
         sessionModelOverrides.set(sessionId, key);
         activeModelKey = key;
       }
+      // No persisted pick: fall through to the transcript's last model.
+      modelHydrationMark += 1;
     } catch {
       // network hiccup: leave the composer on its default; a later switch retries
     } finally {
@@ -1717,13 +1748,16 @@
       } else {
         await saveDesktopSessionModel(connectedEndpoint, sessionId, value);
         sessionModelOverrides.set(sessionId, value);
+        // An explicit pick outranks the transcript-derived model until the user
+        // picks again, so the selector can't snap back on the next reply.
+        transcriptModelKeys.delete(sessionId);
         hydratedModelSessions.add(sessionId);
         if (activeSessionId === sessionId) activeModelKey = value;
       }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
       if (activeSessionId === sessionId) {
-        activeModelKey = sessionModelOverrides.get(sessionId) || globalModelKey;
+        activeModelKey = resolveSessionModelKey(sessionId) || globalModelKey;
       }
     } finally {
       changingModel = false;
