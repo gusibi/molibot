@@ -7,6 +7,9 @@
 ---
 ## 2026-07-31
 
+### Release: v2.7.8 / Desktop v0.7.5
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Changed: the reviewer subagent now runs on a model family independent of the parent run
 - `reviewer` was a role name, not an independence guarantee. Its `sonnet` level could resolve to the very model that wrote the code, and both the generic subagent route and the main text route were appended as fallbacks with no family check — so the "second opinion" routinely came from the same lineage, sharing the same blind spots.
 - Independence is now judged by model lineage rather than provider id, because aggregators (`openrouter`, `amazon-bedrock`, `github-copilot`) and private proxies all serve other vendors' models: `anthropic|claude-sonnet-4-5` and `openrouter|anthropic/claude-opus-4-1` are two providers but one family. Unrecognized model ids fall back to their provider, so two unrelated private providers never look related.
