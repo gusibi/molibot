@@ -5,6 +5,26 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.22 Release v2.7.6 / Desktop v0.7.3 (2026-07-30)
+
+- **Priority / Status**: P3 / Delivered.
+- **Scope**: publish GitHub Issues #22/#23 fixes and the fail-closed Bash sandbox hardening; synchronize root, Desktop, Tauri, Cargo, tag, and GitHub Release versions.
+- **Acceptance**: all version identifiers match `v2.7.6` / `v0.7.3`; release notes cover both delivered slices; the commit and tag are pushed and the GitHub Release is published.
+
+## 3.21 Reliable Desktop transcript outcomes and external links (2026-07-30)
+
+- **Priority / Status**: P0 / Delivered (GitHub Issues #22 and #23).
+- **Problem**: empty-text provider errors disappeared during Agent/UI transcript projection; completed replies could lose their stable source binding; session model hydration allowed a brief visible-model/runtime-model mismatch; message links navigated the embedded WebView with no usable back path.
+- **Decision**: keep outcome/model/source data at the shared transcript boundary, gate sends while a session model is hydrating, and route sanitized HTTP(S) message links through the existing native system-browser command.
+- **Acceptance**: error and normal-stop replies render with localized status treatment and actual response model; switching sessions cannot send under a model different from the visible selector; shared Chat/Project/read-only transcript links leave the app in place; non-HTTP(S) schemes are rejected; focused projection/link/UI regressions, Svelte diagnostics, and production builds pass.
+
+## 3.20 Fail-closed Agent Bash sandbox (2026-07-30)
+
+- **Priority / Status**: P0 / Delivered.
+- **Problem**: an enabled sandbox treated unsupported platforms and initialization/dependency failures as a warning, then executed the original command on the host with inherited environment access. A safety control could therefore disappear precisely when it failed.
+- **Decision**: enabled means sandboxed or blocked. Explicit sandbox disable remains deliberate full host mode; approved Host Bash remains the controlled escape path. Legacy fail-open settings normalize to `block`, defaults inherit only a minimal environment, and Build uses an allowlist.
+- **Acceptance**: main Agent and Subagent share the same fail-closed seam; unavailable providers execute no command; failures are structured and visible; Web/Desktop expose no fail-open choice; settings survive a fresh-store restart; builds, diagnostics, focused tests, and a real isolated restart walk pass.
+
 ## 3.19 Release v2.7.5 / Desktop v0.7.2 (2026-07-30)
 
 - **Priority / Status**: P3 / Delivered.

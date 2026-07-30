@@ -1978,3 +1978,32 @@
 - **Status:** complete.
 
 ---
+# GitHub agentic-workflow concept audit (2026-07-30)
+
+- Loaded the Agent runtime review and file-based planning procedures.
+- Preserved the existing dirty worktree and append-only planning history; no product code will be edited.
+- Defined source-quality, runtime-evidence, architectural-boundary, and adversarial-review gates.
+- Retrieved and extracted the complete referenced X Article after the ordinary X page exposed no text.
+- Corrected the initial search hypothesis: the article is “The harness is all you need (mostly),” not the GitHub Agentic Workflows announcement.
+- Reduced the article to eight operational principles and separated the sandboxed-autonomy condition from a blanket host “allow all” interpretation.
+- Traced Molibot end to end through Runner/TurnOrchestrator, prompt construction, deferred tools, sandbox policy, live controls, Subagent roles/routing, run persistence, and PRD history.
+- Confirmed the main strengths are already in the harness; the remaining gaps are composition, containment semantics, reviewer independence, durable intervention, and prompt surface area.
+- Measured an empty-workspace prompt at 25,763 characters / 349 lines and confirmed system-prompt reuse excludes per-turn memory/query data.
+- Focused verification passed 57/57 (prompt, sandbox, subagent, retry-state).
+- Completed adversarial review: rejected a wholesale Copilot clone, narrowed the reviewer claim to model independence, confirmed unsupported-platform sandbox fail-open behavior, and retained idempotency as a prerequisite for durable continuation.
+- No product source or real runtime data was changed; only the existing append-only audit planning records were updated.
+
+---
+# Sandbox fail-closed hardening (2026-07-30)
+
+- Loaded the runtime-review, TDD, planning, and deep-module procedures.
+- Confirmed the user-approved interface: enabled sandbox is fail-closed; explicit sandbox-off and exact approved Host Bash are the only host paths.
+- Checked CHANGELOG archives and CLAUDE recurring pitfalls before coding. The old soft-disable behavior was intentional, so this is a security contract replacement rather than an accidental local bug.
+- Selected `prepareToolSandboxExecution` as the deep module seam; Phase 1 now starts with one public-interface regression.
+- Added red-then-green coverage proving an unavailable enabled provider executes no command, legacy/default settings are fail-closed, and Bash exposes a structured blocked result.
+- Updated runtime defaults, Web/Desktop presets, UI copy/options, and Build environment inheritance; added preset parity and temporary SQLite save → fresh store → load coverage.
+- Verified focused sandbox/Bash/display/Desktop API/settings tests, Web and Desktop production builds, Desktop `svelte-check` (0/0), Desktop full tests (102 UI/TS + 26 Rust), and the isolated Agent suite (540/540).
+- Completed an isolated first-open → settings-page switch → service stop/restart smoke walk. The visible values remained `block` and `minimal`, with only one safe failure-mode option.
+- Updated CHANGELOG, features, PRD, README, and CLAUDE recurring pitfall #13; adversarial review completed.
+
+---

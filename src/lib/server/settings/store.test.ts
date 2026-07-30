@@ -234,6 +234,33 @@ test("parent and subagent runtime budgets survive a settings store restart indep
   }
 });
 
+test("fail-closed sandbox settings survive a full save and settings store restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-sandbox-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  const toolSandbox = {
+    ...defaultRuntimeSettings.toolSandbox,
+    enabled: true,
+    initFailureMode: "block" as const,
+    env: { inheritMode: "allowlist" as const, allow: ["CI"], deny: ["TOKEN"] },
+    network: { allowedDomains: ["registry.npmjs.org"], deniedDomains: ["example.com"] },
+    filesystem: { denyRead: [".env"], allowWrite: ["scratch"], denyWrite: ["*.pem"] }
+  };
+
+  try {
+    new SettingsStore().save({ ...defaultRuntimeSettings, toolSandbox });
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(restarted.toolSandbox, toolSandbox);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("memory reflection and daily materials survive a settings store restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-plugin-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;

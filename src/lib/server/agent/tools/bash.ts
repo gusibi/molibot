@@ -61,6 +61,8 @@ interface BashToolDetails {
   fullOutputPath?: string;
   sandboxApplied?: boolean;
   sandboxWarning?: string;
+  sandboxBlocked?: boolean;
+  sandboxErrorCode?: "sandbox_unavailable";
   hostBashApproval?: HostBashApprovalPrompt;
 }
 
@@ -659,10 +661,27 @@ export function getBashToolDefinition(
       }
       const rootFilesBefore = relocateRootArtifacts ? snapshotRootFiles(ctx.cwd) : new Map<string, number>();
 
-      const result = await ctx.shell.run(params.command, {
-        cwd: ctx.cwd,
-        timeoutMs: params.timeout ? params.timeout * 1000 : undefined
-      });
+      let result: Awaited<ReturnType<ToolExecutionContext["shell"]["run"]>>;
+      try {
+        result = await ctx.shell.run(params.command, {
+          cwd: ctx.cwd,
+          timeoutMs: params.timeout ? params.timeout * 1000 : undefined
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.startsWith("Sandbox unavailable:")) {
+          return {
+            ok: false,
+            error: message,
+            details: {
+              sandboxApplied: false,
+              sandboxBlocked: true,
+              sandboxErrorCode: "sandbox_unavailable"
+            }
+          };
+        }
+        throw error;
+      }
 
       const movedArtifacts = relocateRootArtifacts
         ? moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore)

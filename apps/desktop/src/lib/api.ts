@@ -668,7 +668,7 @@ const SANDBOX_BUILD_DOMAINS = [
 const DESKTOP_SANDBOX_PRESETS: Record<DesktopSandboxPreset, DesktopSandboxUpdateRequest> = {
   observe: {
     enabled: true,
-    initFailureMode: "warn-disable",
+    initFailureMode: "block",
     envFilePath: ".env",
     env: { inheritMode: "minimal", allow: [], deny: [] },
     network: { allowedDomains: ["*"], deniedDomains: [] },
@@ -676,9 +676,9 @@ const DESKTOP_SANDBOX_PRESETS: Record<DesktopSandboxPreset, DesktopSandboxUpdate
   },
   build: {
     enabled: true,
-    initFailureMode: "warn-disable",
+    initFailureMode: "block",
     envFilePath: ".env",
-    env: { inheritMode: "full", allow: [], deny: [] },
+    env: { inheritMode: "allowlist", allow: [], deny: [] },
     network: { allowedDomains: SANDBOX_BUILD_DOMAINS, deniedDomains: [] },
     filesystem: { denyRead: SANDBOX_DEFAULT_DENY_READ, allowWrite: [".", "/tmp", "scratch"], denyWrite: SANDBOX_DEFAULT_DENY_WRITE }
   },

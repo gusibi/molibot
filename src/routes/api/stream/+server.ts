@@ -326,7 +326,8 @@ export const POST: RequestHandler = async ({ request }) => {
               attachments: responseAttachments,
               activities: activityCollector.finalSnapshot(),
               model: responseModel || undefined,
-              contextBacked: true
+              contextBacked: true,
+              sourceEntryId: result.assistantSourceEntryId
             });
             assistantPersisted = true;
           }

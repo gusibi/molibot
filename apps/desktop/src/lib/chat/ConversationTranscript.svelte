@@ -7,6 +7,8 @@
   import ThinkingCard from "./ThinkingCard.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
   import { humanizeModelOption } from "../presentation";
+  import { invoke } from "@tauri-apps/api/core";
+  import { externalHttpUrlFromClick } from "./markdownLinks";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -42,6 +44,16 @@
       window.setTimeout(() => { if (button.isConnected) button.textContent = copy.copyCode; }, 1200);
     } catch { /* clipboard unavailable */ }
   }
+
+  async function handleMarkdownClick(event: MouseEvent): Promise<void> {
+    const url = externalHttpUrlFromClick(event);
+    if (url) {
+      if ("__TAURI_INTERNALS__" in window) await invoke("open_external_url", { url });
+      else window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    await copyCode(event);
+  }
 </script>
 
 {#each messages as message, index (message.id ?? `${index}-${message.role}`)}
@@ -54,12 +66,18 @@
   {@const key = messageKey(message, index)}
   {@const isLongUserMessage = message.role === "user" && (displayContent.split(/\r?\n/).length > 20 || displayContent.length > 1000)}
   {@const isExpanded = expandedMessages.has(key)}
+  {@const assistantStatus = message.role === "assistant" && message.stopReason === "error"
+    ? "error"
+    : message.role === "assistant" && message.stopReason === "stop"
+      ? "complete"
+      : ""}
   <article
     class:mine={message.role === "user"}
     class:assistant={message.role !== "user"}
     class:search-match={Boolean(message.id && searchMatchIds.includes(message.id))}
     class:search-active={message.id === activeMatchId}
     class:editing={isEditing}
+    class:message-error={assistantStatus === "error"}
     class="message-row"
     data-message-id={message.id}
     data-navigation-id={message.role === "user" && message.id ? message.id : undefined}
@@ -69,12 +87,12 @@
         {#if invocation}
           <div class="message-bubble invocation-message" data-kind={invocation.kind}>
             <div class="invocation-kicker"><i class={`ph ${invocation.kind === "command" ? "ph-terminal-window" : "ph-sparkle"}`} aria-hidden="true"></i><span>{invocation.kind === "command" ? "COMMAND" : "SKILL"}</span><code>{invocation.token}</code></div>
-            {#if displayContent.slice(invocation.token.length).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={copyCode}>{@html renderMarkdown(displayContent.slice(invocation.token.length).trim(), copy.copyCode)}</div>{/if}
+            {#if displayContent.slice(invocation.token.length).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.token.length).trim(), copy.copyCode)}</div>{/if}
           </div>
         {:else}
           <div class="user-message-shell">
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <div class:collapsed={isLongUserMessage && !isExpanded} class="message-bubble markdown-body user-message-content" onclick={copyCode}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>
+            <div class:collapsed={isLongUserMessage && !isExpanded} class="message-bubble markdown-body user-message-content" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>
             {#if isLongUserMessage}
               <button class="message-expand" type="button" aria-expanded={isExpanded} onclick={() => toggleMessage(key)}>{isExpanded ? copy.collapseMessage : copy.expandMessage}</button>
             {/if}
@@ -136,12 +154,13 @@
         <div class="assistant-identity">
           <strong>{assistantName}</strong>
           <span>{copy.agentRole}</span>
+          {#if assistantStatus}<span class={`assistant-status ${assistantStatus}`}><i class={`ph ${assistantStatus === "error" ? "ph-warning-circle" : "ph-check-circle"}`} aria-hidden="true"></i>{assistantStatus === "error" ? copy.assistantStatusError : copy.assistantStatusComplete}</span>{/if}
         </div>
         {#if message.thinking}
           <ThinkingCard text={message.thinking} label={copy.thinking} />
         {/if}
         {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} />{/if}
-        {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>{/if}
+        {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>{/if}
         {#if (canShowActions && messageActions) || message.createdAt || message.model}
           <div class="message-meta assistant-meta">
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}

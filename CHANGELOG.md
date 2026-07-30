@@ -7,6 +7,19 @@
 ---
 ## 2026-07-30
 
+### Release: v2.7.6 / Desktop v0.7.3
+- Released the Desktop transcript/link/model-consistency fixes for GitHub Issues #22 and #23 together with the fail-closed Bash sandbox hardening.
+
+### Fixed: Desktop transcript errors, model consistency, and external links (Issues #22 / #23)
+- Provider failures with an empty assistant text block now display their redacted `errorMessage`; normal `stop` replies remain visible and both outcomes carry a compact localized status badge plus the actual response model.
+- Stream persistence records the final Agent entry id, preventing a completed reply from being rebound to another assistant entry during transcript projection. Session switching also blocks sending until the persisted model selection is hydrated, so the composer cannot advertise Gemini while the runtime uses an older Kimi override.
+- HTTP(S) links in shared Desktop message Markdown now open through the system default browser instead of replacing the Tauri WebView. Non-web schemes remain blocked by both the UI helper and native command validation.
+
+### Security: enabled Bash sandbox now fails closed
+- Agent and Subagent Bash no longer fall back to unsandboxed host execution when the sandbox platform, dependency check, or initialization is unavailable. The command is not executed and returns a structured `sandbox_unavailable` / `Sandbox blocked` failure; explicitly disabling sandbox and approved Host Bash remain the only host-execution paths.
+- Legacy `warn-disable` settings migrate to `block`. New defaults use minimal environment inheritance, and the Build preset uses an explicit allowlist rather than the full host environment. Web and Desktop no longer offer the fail-open option.
+- Guarded by provider-unavailable, structured-result, preset parity, and temporary-database settings round-trip regressions. Web/Desktop production builds, Desktop diagnostics, and an isolated first-open → page switch → service restart smoke walk pass.
+
 ### Release: v2.7.5 / Desktop v0.7.2
 - Released the shared observability-filter layout repair for Usage, Trace, and Service Logs.
 

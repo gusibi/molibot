@@ -39,6 +39,7 @@ export function resolveToolDisplayName(
   const details = extractToolResultDetails(options.result);
   if (details) {
     if (details.hostBash === true) return "Host Bash";
+    if (details.sandboxBlocked === true) return "Sandbox blocked";
     if (details.sandboxApplied === true) return "Sandbox";
     if (typeof details.sandboxWarning === "string" && details.sandboxWarning.includes("host bash fallback")) return "Host Bash";
     if (typeof details.sandboxWarning === "string" && details.sandboxWarning) return "Sandbox disabled";

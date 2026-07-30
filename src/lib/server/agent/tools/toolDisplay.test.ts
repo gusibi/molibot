@@ -8,6 +8,7 @@ test("resolveToolDisplayName marks sandboxed bash without changing other tools",
   assert.equal(resolveToolDisplayName("bash", { sandboxAttempted: true }), "Sandbox");
   assert.equal(resolveToolDisplayName("bash", { result: { details: { sandboxApplied: true } } }), "Sandbox");
   assert.equal(resolveToolDisplayName("bash", { result: { details: { hostBash: true } } }), "Host Bash");
+  assert.equal(resolveToolDisplayName("bash", { result: { details: { sandboxBlocked: true } } }), "Sandbox blocked");
   assert.equal(
     resolveToolDisplayName("bash", { result: { details: { sandboxApplied: false, sandboxWarning: "init failed" } } }),
     "Sandbox disabled"

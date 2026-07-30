@@ -2648,3 +2648,71 @@ Complete — structured service logging, native query, Desktop UI, verification,
 | The first full Rust rerun still referenced the removed legacy tail helper from one ANSI test | 1 | Move that existing assertion to the new bounded window reader and rerun the complete native suite. |
 
 ---
+# GitHub agentic-workflow concept audit (2026-07-30)
+
+## Goal
+Analyze the referenced GitHub/X article on agentic software development, then assess Molibot's Agent runtime against its principles and identify evidence-backed optimization opportunities without changing product code.
+
+## Current phase
+Complete — source analysis, runtime mapping, prioritization, verification, and adversarial review finished
+
+## Phases
+1. Retrieve the referenced post and its primary linked material; extract claims and assumptions — complete
+2. Map each principle to Molibot's actual runtime, prompts, tools, persistence, delegation, and observability — complete
+3. Rank gaps by impact, evidence, effort, and architectural fit — complete
+4. Adversarially challenge the conclusions and deliver verification paths — complete
+
+## Verification gates
+- External claims cite the original post or primary GitHub material, not secondary summaries.
+- Every Molibot finding names a concrete source path and distinguishes shipped capability from a true gap.
+- Recommendations preserve the shared-agent/runtime boundary and do not push orchestration into channels.
+- No product source, real settings, queues, sessions, or runtime data are modified.
+
+## Assumptions
+- “我的 agent” means Molibot's shared Agent/runtime implementation in this repository, not only one channel integration.
+- The user wants analysis and prioritized recommendations, not implementation in this turn.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| X's ordinary page returned no article body, and web-safe URL checks rejected direct metadata endpoints | 1 | Used the public FxTwitter status metadata API through approved read-only network access, then extracted only article text with `jq`. |
+| The first metadata response was truncated around the Autopilot section | 1 | Re-issued a filtered text-only extraction instead of repeating the oversized raw JSON response. |
+| Planning completion helper reported 2/7 because this accumulated file contains many historical task formats | 1 | Preserve prior planning history; this audit's isolated four phases are explicitly complete and are the authoritative status. |
+
+---
+# Sandbox fail-closed hardening (2026-07-30)
+
+## Goal
+Make enabled sandbox execution fail closed on unsupported platforms and initialization failures, keep explicit sandbox-off and approved Host Bash as the only host execution paths, and align Web/Desktop presets and product documentation.
+
+## Current phase
+Complete — shared fail-closed enforcement, safe presets, verification, cold restart, and records finished
+
+## Phases
+1. Confirm historical behavior, current public seam, settings/preset duplication, and add one failing behavioral regression — complete
+2. Make enabled sandbox preparation fail closed at the shared sandbox seam — complete
+3. Align defaults and Web/Desktop presets with block + minimal/allowlisted env semantics — complete
+4. Add remaining main/Subagent/Host Bash regression coverage and run focused/full verification — complete
+5. Cold-path diagnostics review, product records, and adversarial review — complete
+
+## Verification gates
+- `sandbox.enabled=true` can never yield an executable unsandboxed command after unsupported-platform, missing-dependency, initialization, or wrapping failure.
+- `sandbox.enabled=false` remains the only deliberate direct-host path; approved Host Bash continues through its existing exact-action approval path.
+- Observe, Build, and Strict fail closed in both Web and Desktop; Build no longer inherits the full process environment.
+- Main Agent and built-in Subagents share the same behavior through `prepareToolSandboxExecution`.
+- User-visible labels/errors and structured diagnostics never claim Sandbox when no sandbox was applied.
+- Focused tests, settings round-trip, UI structure tests, production build, and cold diagnostics path pass without touching real user data.
+
+## Assumptions
+- The user's approval authorizes the security-policy change from silent fallback to blocking for every enabled sandbox profile.
+- Explicit sandbox-off remains supported as intentional host-full-access behavior.
+- This slice hardens Bash sandbox execution; broad MCP/browser/ACP containment is a separate architectural project and is not silently claimed here.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Isolated production startup inherited the repository `.env` `DB_DIR` and targeted a protected database path | 1 | Explicitly isolate both `DATA_DIR` and `DB_DIR`; no real user database was opened for the successful smoke walk. |
+| Managed sandbox denied the local listener and Desktop test IPC socket | 1 | Requested narrow approval for the isolated loopback service and official Desktop test command. |
+| Broad Agent glob first lacked the Markdown loader, then inherited the real DB path | 2 | Use the repository loader plus an isolated absolute HOME/DB and serial test execution; 540/540 passed without real-data access. |
+
+---

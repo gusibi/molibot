@@ -54,7 +54,7 @@
 
   const defaultSandbox: ToolSandboxSettings = {
     enabled: false,
-    initFailureMode: "warn-disable",
+    initFailureMode: "block",
     envFilePath: ".env",
     env: {
       inheritMode: "minimal",
@@ -121,7 +121,7 @@
     observe: {
       name: "observe",
       enabled: true,
-      initFailureMode: "warn-disable",
+      initFailureMode: "block",
       envFilePath: ".env",
       env: {
         inheritMode: "minimal",
@@ -141,10 +141,10 @@
     build: {
       name: "build",
       enabled: true,
-      initFailureMode: "warn-disable",
+      initFailureMode: "block",
       envFilePath: ".env",
       env: {
-        inheritMode: "full",
+        inheritMode: "allowlist",
         allow: [],
         deny: []
       },
@@ -509,7 +509,7 @@
         <div class="channel-card-header">
           <div>
             <h2 class="channel-card-title">Runtime Mode</h2>
-            <p class="channel-card-desc">Sandbox applies only to Agent bash and subagent bash. It is off by default.</p>
+            <p class="channel-card-desc">Sandbox applies to Agent bash and subagent bash. Initialization failures block execution.</p>
           </div>
         </div>
         <div class="channel-card-body">
@@ -525,7 +525,6 @@
             <div class="channel-field">
               <Label for="sb-failure">Initialization failure mode</Label>
               <NativeSelect id="sb-failure" bind:value={sandbox.initFailureMode}>
-                <NativeSelectOption value="warn-disable">Warn and disable sandbox</NativeSelectOption>
                 <NativeSelectOption value="block">Block bash when sandbox fails</NativeSelectOption>
               </NativeSelect>
             </div>

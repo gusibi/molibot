@@ -80,6 +80,7 @@ const conversationController = read("./lib/chat/conversationController.svelte.ts
 const chatSessionStore = read("./lib/chat/chatSessionStore.svelte.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
 const markdown = read("./lib/markdown.ts");
+const markdownLinks = read("./lib/chat/markdownLinks.ts");
 const queuedMessagesBar = read("./lib/chat/QueuedMessagesBar.svelte");
 const logsSection = read("./lib/settings/LogsSection.svelte");
 const activeRunsRoute = read("../../../src/routes/api/desktop/active-runs/+server.ts");
@@ -90,6 +91,15 @@ const windowState = read("./lib/native/windowState.ts");
 const feedbackCoordinator = read("./lib/native/feedbackCoordinator.ts");
 const hapticCoordinator = read("./lib/native/hapticCoordinator.ts");
 const nativeAppMenu = read("../src-tauri/src/app_menu.rs");
+
+test("message links open externally and session model hydration blocks mismatched sends", () => {
+  assert.match(transcript, /externalHttpUrlFromClick/);
+  assert.match(transcript, /invoke\("open_external_url", \{ url \}\)/);
+  assert.ok(transcript.indexOf("externalHttpUrlFromClick(event)") < transcript.indexOf("await copyCode(event)"));
+  assert.match(markdownLinks, /url\.protocol === "http:" \|\| url\.protocol === "https:"/);
+  assert.match(view, /modelReady = [^;]+&& !modelSelectionHydrating/);
+  assert.match(view, /modelSelectionHydrating = true;[\s\S]*loadDesktopSessionModel/);
+});
 
 test("editing rewrites the current Session and branching is a separate explicit action", () => {
   // Edit-and-resend stays destructive: it truncates the active Session in place.

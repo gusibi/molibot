@@ -52,7 +52,7 @@ test("sanitizeToolSandboxSettings keeps safe defaults for invalid input", () => 
       env: { ...defaultToolSandboxSettings.env, inheritMode: "full" }
     }
   );
-  assert.equal(override.initFailureMode, "warn-disable");
+  assert.equal(override.initFailureMode, "block");
   assert.equal(override.env.inheritMode, "minimal");
 });
 
@@ -264,6 +264,55 @@ test("pluggable sandbox provider dynamically intercepts sandbox execution", asyn
   } finally {
     setSandboxProvider(originalProvider);
   }
+});
+
+test("enabled sandbox blocks execution when its provider is unavailable", async () => {
+  const originalProvider = getSandboxProvider();
+  const unavailableProvider: SandboxProvider = {
+    name: "missing-test-sandbox",
+    checkDependencies() {
+      return false;
+    },
+    async initialize() {},
+    async reset() {},
+    async wrapWithSandbox(command) {
+      return command;
+    },
+    isInitialized() {
+      return false;
+    },
+    getLastError() {
+      return "dependencies missing";
+    }
+  };
+
+  try {
+    setSandboxProvider(unavailableProvider);
+    await assert.rejects(
+      prepareToolSandboxExecution({
+        settings: {
+          ...defaultToolSandboxSettings,
+          enabled: true,
+          initFailureMode: "warn-disable"
+        },
+        cwd: "/mock-cwd",
+        workspaceDir: "/mock-workspace",
+        command: "echo must-not-run",
+        env: {}
+      }),
+      /Sandbox unavailable: Sandbox dependencies are missing\./
+    );
+  } finally {
+    setSandboxProvider(originalProvider);
+  }
+});
+
+test("sandbox defaults and legacy failure settings remain fail-closed", () => {
+  assert.equal(defaultToolSandboxSettings.initFailureMode, "block");
+  assert.equal(defaultToolSandboxSettings.env.inheritMode, "minimal");
+
+  const migrated = sanitizeToolSandboxSettings({ initFailureMode: "warn-disable" });
+  assert.equal(migrated.initFailureMode, "block");
 });
 
 test("resolveEffectiveSandboxSettings correctly prioritizes scopes", () => {

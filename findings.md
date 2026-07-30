@@ -2426,3 +2426,43 @@ Final conclusion: the voice path is operational inside Molibot and fails because
 - Filtering rotated generations was intentionally not added: the App queries the bounded active window and offers the physical log file for older inspection. This keeps the first implementation predictable and avoids hidden multi-file cursor semantics.
 
 ---
+# GitHub agentic-workflow concept audit (2026-07-30)
+
+- The exact X Article is Burke Holland's “The harness is all you need (mostly),” published by GitHub on 2026-07-28; it is not the separate GitHub Agentic Workflows product announcement.
+- Thesis: productivity comes primarily from mastering a stable agent harness and a simple repeatable loop, not accumulating models, MCPs, skills, custom agents, or prompt tricks.
+- Proposed loop: pick one surface/harness -> grant autonomy inside a sandbox -> prototype multiple alternatives -> plan interactively in the same topical session -> let an autopilot loop execute the explicit plan -> apply human taste through follow-ups -> use a second model family for rubber-duck review -> start a fresh session for the next topic.
+- Architectural ideas to test against Molibot: one shared harness across surfaces; autonomy paired with containment; prototype/plan/execute/review as first-class run states; plan completion as the loop invariant; automatic task-based subagent/model routing; topical session boundaries; prompt-cache continuity; cross-model adversarial review; simplicity over extension proliferation.
+- Important caveat: the article's “Allow All” advice is explicitly conditioned on Codespaces/dev-container isolation. It is not an argument for unrestricted host execution.
+- Source retrieval note: X's normal page returned no body. The exact article was recovered read-only from the public post metadata API; tweet timestamp decodes to 2026-07-28T20:28:35Z.
+- Strong alignment already shipped:
+  - One shared `MomRunner`/`TurnOrchestrator`/RunnerPool backs channel and Desktop surfaces; orchestration is above channels.
+  - The system prompt stays stable across turns while memory/time/query data rides in a per-turn user envelope, preserving provider prefix-cache eligibility.
+  - `scout`, `planner`, `worker`, and `reviewer` roles, tiered model routes, bounded fan-out/deadlines, optional child-session persistence, chain/parallel execution, and cross-channel progress traces exist.
+  - `steer` and `followUp` support conversational correction during a live run; compaction and post-tool overflow recovery preserve useful context.
+  - Deferred tools and explicit MCP loading already embody the article's “less is more” idea better than exposing every capability to every turn.
+- [P0] Autonomous-sandbox semantics currently fail open. Default settings are `enabled: true`, `initFailureMode: "warn-disable"`, full host env inheritance, and unrestricted network. On unsupported platforms or initialization failure, the original command executes with `inheritProcessEnv: true` outside the sandbox. The article's Allow-All advice is conditional on containment; Molibot cannot safely describe this default as contained autonomy. This also covers only bash; MCP/browser/ACP/extensions are outside the sandbox envelope.
+- [P1] Molibot has workflow primitives but no first-class workflow invariant. Prompt guidance recommends `scout -> planner -> worker -> reviewer`, yet the persisted `runs` row records only lifecycle status/error, not phase, checklist, acceptance criteria, or completed plan items. Delegation remains model-selected and the mechanical reminder arrives only after 12 parent tool calls. Existing PRD P1-211 already names the durable executable-plan/checkpoint gap.
+- [P1] `reviewer` is a role, not an independent rubber-duck guarantee. It asks for Sonnet-level routing, but candidate resolution may use the generic subagent route and always appends the current text model as fallback. Nothing rejects the parent model/provider family, and no bounded review/fix/re-review convergence loop exists.
+- [P1] Live human corrections are process-memory controls. `MomRunner.enqueueLiveMessage()` sends directly to the in-memory pi Agent, and RunnerPool owns runners in a process-local Map. There is no durable pending/applied event identity, so a crash can lose a steer/follow-up even though ordinary inbound work is durably queued.
+- [P2] The default empty-workspace rendered prompt measures 25,763 characters / 349 lines against a test ceiling of 26,000. Prefix caching reduces repeated billing, but not attention dilution or maintenance risk. Several routing/sandbox/subagent rules appear both in the message pipeline and tool/subagent sections. The article's strongest challenge to Molibot is to move mechanically enforceable policy into code and keep the static prompt focused on decisions only the model must make.
+- [P2] Prototype-first and topic-reset are conventions, not product affordances. The runtime can create artifacts and sessions, but there is no lightweight “explore alternatives before implementation” phase, nor a completion-time suggestion to start/fork a new topical session. These should remain optional UX nudges, not a new heavy workflow engine.
+- Focused verification passed 57/57 across prompt, sandbox, subagent, and retry-state suites. A direct prompt render confirmed the 25,763-character baseline.
+- Adversarial corrections:
+  - This is not a recommendation to copy GitHub's product wholesale or add more skills. Molibot already has more runtime primitives than the article requires; the optimization is subtraction plus stronger composition.
+  - The sandbox issue is sharper than only `warn-disable`: the unsupported-platform branch bypasses `initFailureMode: "block"` entirely and returns an unsandboxed command. A fail-closed autonomous profile must close both unsupported and initialization-failure paths.
+  - A reviewer subagent is still useful even on the same model, so the current capability is not “broken.” The gap is specifically the stronger claim of independent blind-spot reduction.
+  - Automatic cross-run continuation must not replay arbitrary side effects. The existing P1-211 idempotency boundary is the correct prerequisite; the article does not invalidate that safety constraint.
+
+---
+# Sandbox fail-closed hardening (2026-07-30)
+
+- Historical behavior was deliberate: Q2 records introduced `Sandbox disabled` soft degradation and later made explicit sandbox-off equivalent to direct host access. The new user decision supersedes only the enabled-sandbox soft-degradation contract; explicit off and approved Host Bash remain.
+- The deepest seam is `prepareToolSandboxExecution`: both main Agent and built-in Subagent bash ultimately cross it. Enforcing fail-closed there gives locality and avoids Channel/Runner gating.
+- Current Web and Desktop presets duplicate the same unsafe values: Observe/Build use `warn-disable`; Build inherits the full environment. Both surfaces and runtime defaults must move together.
+- Existing sandbox tests cover sanitization, env allowlists, diagnostics, provider wrapping, and override precedence, but do not pin unsupported/init-failure non-execution.
+- The Bash handler needed its own typed blocked-result mapping: throwing at sandbox preparation prevented host execution, but skipped the normal tool-result details that UI/Trace use. It now returns `sandboxBlocked=true` and `sandboxErrorCode=sandbox_unavailable` without swallowing unrelated errors.
+- Persisted `warn-disable` remains accepted at the schema/API boundary for backward compatibility but sanitizes to `block`; removing the union immediately would reject old stored/request payloads instead of migrating them safely.
+- The built-in Subagent Bash is already composed from the same Bash definition and effective sandbox settings, so the shared preparation seam covers both execution paths without Channel-level conditions.
+- Adversarial review found three primary escape risks: unsupported platform return, initialization catch return, and legacy stored fail-open policy. All three now converge to blocking, while explicit disabled mode and already-approved Host Bash remain intentional and tested.
+
+---

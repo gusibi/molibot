@@ -7,6 +7,23 @@
 ---
 ## 2026-07-30
 
+### Release v2.7.6 / Desktop v0.7.3
+
+- 发布 Issues #22/#23 的 Desktop 消息、链接与模型一致性修复，以及 Agent Bash sandbox fail-closed 安全加固。
+
+### Desktop 消息结果与外部链接可靠性（Issues #22 / #23，已完成，P0）
+
+- 共享会话投影保留 assistant 的 `stopReason`、`errorMessage` 和实际 provider/model；空正文错误不再消失，正常完成与错误消息都有中英、明暗主题可用的轻量状态标识。
+- `/api/stream` 将最终 Agent entry id 写入 UI metadata，重载时不再靠同角色顺序猜测回复来源；切换 Session 时等模型 override hydrate 完成后才允许发送，消除输入区模型与实际请求模型不一致的窗口。
+- `ConversationTranscript` 内 HTTP(S) Markdown 链接统一调用 Desktop 原生 `open_external_url`，系统默认浏览器打开且 Molibot 页面保持原位；浏览器预览使用新标签，危险协议继续拒绝。
+- 验证：投影 6/6、链接/Transcript 5/5、Desktop UI 99/99、Svelte 0 error / 0 warning、Root 与 Desktop 生产构建通过。
+
+### Agent Bash 沙箱 fail-closed（已完成，P0）
+
+- 沙箱已启用但平台、依赖或初始化不可用时，主 Agent 与 Subagent 的 Bash 都会停止执行，不再静默降级到宿主机；失败结果带 `sandbox_unavailable` 和 `Sandbox blocked`，便于 UI 与 Trace 识别。
+- 只有用户明确关闭沙箱，或经过 Host Bash 审批，命令才可在宿主机执行。旧 `warn-disable` 配置读取时迁移为 `block`。
+- 默认环境继承由 `full` 收紧为 `minimal`，Build 预设改为 `allowlist`；Web 与 Desktop 删除 fail-open 选项。临时数据库 round-trip、预设一致性、冷启动/页面切换/服务重启均已验证。
+
 ### Release v2.7.5 / Desktop v0.7.2
 
 - 发布本次数据页筛选控件布局修复；根项目与 Desktop 版本同步更新。

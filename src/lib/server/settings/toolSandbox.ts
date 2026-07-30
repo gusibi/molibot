@@ -21,10 +21,10 @@ const DEFAULT_DENY_WRITE = [
 
 export const defaultToolSandboxSettings: ToolSandboxSettings = {
   enabled: true,
-  initFailureMode: "warn-disable",
+  initFailureMode: "block",
   envFilePath: ".env",
   env: {
-    inheritMode: "full",
+    inheritMode: "minimal",
     allow: [],
     deny: []
   },
@@ -56,10 +56,12 @@ function sanitizeStringList(input: unknown, fallback: string[] = []): string[] {
   return out;
 }
 
-function sanitizeInitFailureMode(input: unknown, fallback: ToolSandboxInitFailureMode): ToolSandboxInitFailureMode {
+function sanitizeInitFailureMode(input: unknown): ToolSandboxInitFailureMode {
   const value = String(input ?? "").trim();
-  if (value === "warn-disable" || value === "block") return value;
-  return fallback;
+  if (value === "block") return value;
+  // `warn-disable` is a legacy fail-open value. Keep accepting persisted payloads,
+  // but always migrate them to the only safe runtime behavior.
+  return "block";
 }
 
 function sanitizeEnvInheritMode(input: unknown, fallback: ToolSandboxEnvInheritMode): ToolSandboxEnvInheritMode {
@@ -82,7 +84,7 @@ export function sanitizeToolSandboxSettings(input: unknown, fallback: ToolSandbo
 
   return {
     enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
-    initFailureMode: sanitizeInitFailureMode(source.initFailureMode, fallback.initFailureMode),
+    initFailureMode: sanitizeInitFailureMode(source.initFailureMode),
     envFilePath: String(source.envFilePath ?? fallback.envFilePath ?? defaultToolSandboxSettings.envFilePath).trim()
       || defaultToolSandboxSettings.envFilePath,
     env: {

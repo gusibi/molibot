@@ -548,6 +548,38 @@ test("bash executes approved host pipeline with safe helper without calling sand
   }
 });
 
+test("bash reports an unavailable enabled sandbox as a structured blocked result", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  try {
+    const def = getBashToolDefinition({ cwd });
+    const result = await def.handler({ label: "bash", command: "printf unsafe" }, {
+      runId: "tool-1",
+      sessionId: "session-1",
+      workspaceId: "personal",
+      actorId: "chat-1",
+      cwd,
+      fs: { readText: async () => "", writeText: async () => {} },
+      shell: {
+        run: async () => {
+          throw new Error("Sandbox unavailable: Sandbox dependencies are missing. Command was not executed.");
+        }
+      },
+      network: { fetch: async () => ({}) },
+      emit: () => {}
+    } satisfies ToolExecutionContext);
+
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /Command was not executed/);
+    assert.deepEqual(result.details, {
+      sandboxApplied: false,
+      sandboxBlocked: true,
+      sandboxErrorCode: "sandbox_unavailable"
+    });
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("bash executes approved same-tool chained commands with safe helper through host bash", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   const approvedHostBash = approvedHostBashEntry("printf");

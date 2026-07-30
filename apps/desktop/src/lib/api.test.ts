@@ -233,12 +233,14 @@ test("sandbox list parsing trims, splits, and deduplicates policy entries", () =
 
 test("sandbox presets match Web policy templates and detect custom changes", () => {
   const observe = applyDesktopSandboxPreset("observe");
+  assert.equal(observe.initFailureMode, "block");
   assert.deepEqual(observe.network?.allowedDomains, ["*"]);
   assert.deepEqual(observe.filesystem?.allowWrite, ["/tmp", "scratch"]);
   assert.equal(detectDesktopSandboxPreset(observe), "observe");
 
   const build = applyDesktopSandboxPreset("build");
-  assert.equal(build.env?.inheritMode, "full");
+  assert.equal(build.initFailureMode, "block");
+  assert.equal(build.env?.inheritMode, "allowlist");
   assert.deepEqual(build.filesystem?.allowWrite, [".", "/tmp", "scratch"]);
   assert.equal(detectDesktopSandboxPreset({ ...build, network: { ...build.network, deniedDomains: ["example.com"] } }), "custom");
 

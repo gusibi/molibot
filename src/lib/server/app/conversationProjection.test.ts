@@ -14,6 +14,60 @@ function entry(id: string, role: "user" | "assistant" | "toolResult", content: u
   };
 }
 
+function assistantEntry(
+  id: string,
+  content: unknown,
+  minute: number,
+  details: Record<string, unknown>
+): SessionMessageEntry {
+  const base = entry(id, "assistant", content, minute);
+  return { ...base, message: { ...base.message, ...details } as AgentMessage };
+}
+
+test("projects provider errors and completed replies from their Agent messages", () => {
+  const error = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u-error", "user", [{ type: "text", text: "hello" }], 0),
+      assistantEntry("a-error", [{ type: "text", text: "" }], 1, {
+        provider: "custom-ais",
+        model: "llm-gateway--kimi-k3",
+        stopReason: "error",
+        errorMessage: "400: reasoning_effort is invalid"
+      })
+    ],
+    metadata: [
+      { id: "m-user", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true },
+      { id: "m-error", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:01:00.000Z", contextBacked: true }
+    ]
+  });
+
+  assert.equal(error.messages[1]?.content, "400: reasoning_effort is invalid");
+  assert.equal(error.messages[1]?.model, "custom-ais/llm-gateway--kimi-k3");
+
+  const completed = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u-stop", "user", [{ type: "text", text: "verify" }], 2),
+      assistantEntry("a-stop", [
+        { type: "thinking", thinking: "All verified." },
+        { type: "text", text: "全部验证通过，接入完成！" }
+      ], 3, {
+        provider: "custom-ais",
+        model: "llm-gateway--kimi-k3",
+        stopReason: "stop"
+      })
+    ],
+    metadata: [
+      { id: "m-user-stop", conversationId: "session", role: "user", createdAt: "2026-07-14T10:02:00.000Z", contextBacked: true },
+      { id: "m-stop", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:03:00.000Z", contextBacked: true }
+    ]
+  });
+
+  assert.equal(completed.messages[1]?.content, "全部验证通过，接入完成！");
+  assert.equal(completed.messages[1]?.thinking, "All verified.");
+});
+
 test("projects Agent content through UI-only metadata without duplicating text", () => {
   const result = projectConversationMessages({
     conversationId: "session",

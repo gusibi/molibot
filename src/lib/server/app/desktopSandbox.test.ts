@@ -28,10 +28,10 @@ test("buildDesktopSandboxSummary exposes editable policy but drops resolved abso
   const summary = buildDesktopSandboxSummary(defaultToolSandboxSettings, diagnostics());
 
   assert.equal(summary.enabled, true);
-  assert.equal(summary.initFailureMode, "warn-disable");
+  assert.equal(summary.initFailureMode, "block");
   assert.equal(summary.envFilePath, ".env");
   assert.equal(summary.envFilePathConfiguredExternally, false);
-  assert.equal(summary.env.inheritMode, "full");
+  assert.equal(summary.env.inheritMode, "minimal");
   assert.deepEqual(summary.env.allow, []);
   assert.deepEqual(summary.env.deny, []);
   assert.deepEqual(summary.network.allowedDomains, ["*"]);

@@ -1316,6 +1316,11 @@ a:focus-visible {
 .assistant-identity img { width: 22px; height: 22px; border-radius: var(--radius-full); object-fit: cover; }
 .assistant-identity strong { color: var(--label-primary); font-size: 12px; font-weight: 600; }
 .assistant-identity span::before { content: "·"; margin-right: 7px; }
+.assistant-identity .assistant-status { display: inline-flex; align-items: center; gap: 4px; min-height: 18px; padding: 0 6px; border-radius: var(--radius-full); font-size: 11px; font-weight: 600; }
+.assistant-identity .assistant-status::before { content: none; }
+.assistant-status.complete { color: var(--online); background: color-mix(in srgb, var(--online) 10%, transparent); }
+.assistant-status.error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.message-row.message-error .message-bubble { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--danger) 22%, var(--separator)); border-radius: var(--radius-control); background: color-mix(in srgb, var(--danger) 5%, var(--card-bg)); }
 .message-time { font-size: 11px; color: var(--label-tertiary); padding: 0 2px; display: inline-flex; align-items: center; gap: 3px; }
 .message-meta { display: flex; align-items: center; gap: 7px; min-height: 24px; color: var(--label-tertiary); }
 .message-row.mine .message-meta { justify-self: end; }

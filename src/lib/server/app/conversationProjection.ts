@@ -5,6 +5,8 @@ import type { UiMessageMetadata } from "$lib/server/sessions/store.js";
 
 export interface ProjectedConversationMessage extends ConversationMessage {
   thinking?: string;
+  stopReason?: string;
+  errorMessage?: string;
 }
 
 interface AgentDisplayMessage extends ProjectedConversationMessage {
@@ -49,13 +51,20 @@ function modelLabel(message: AgentMessage): string | undefined {
   return [provider, model].filter(Boolean).join("/") || undefined;
 }
 
+function assistantStatus(message: AgentMessage): { stopReason?: string; errorMessage?: string } {
+  const row = message as AgentMessage & { stopReason?: unknown; errorMessage?: unknown };
+  const stopReason = typeof row.stopReason === "string" ? row.stopReason.trim() : "";
+  const errorMessage = typeof row.errorMessage === "string" ? row.errorMessage.trim() : "";
+  return { stopReason: stopReason || undefined, errorMessage: errorMessage || undefined };
+}
+
 /** Collapse the Agent tool loop into one user row and the last textual assistant row per turn. */
 function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: string): AgentDisplayMessage[] {
   const out: AgentDisplayMessage[] = [];
   let assistant: AgentDisplayMessage | null = null;
 
   const flushAssistant = () => {
-    if (assistant && (assistant.content.trim() || assistant.thinking?.trim())) out.push(assistant);
+    if (assistant && (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim())) out.push(assistant);
     assistant = null;
   };
 
@@ -76,7 +85,8 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
       continue;
     }
     if (role !== "assistant") continue;
-    const content = contentText(entry.message.content).trim();
+    const status = assistantStatus(entry.message);
+    const content = contentText(entry.message.content).trim() || status.errorMessage || "";
     const thinking = thinkingText(entry.message.content);
     if (!assistant) {
       assistant = {
@@ -87,7 +97,8 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
         content,
         createdAt: entry.timestamp,
         model: modelLabel(entry.message),
-        thinking: thinking || undefined
+        thinking: thinking || undefined,
+        ...status
       };
       continue;
     }
@@ -99,6 +110,8 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     const model = modelLabel(entry.message);
     if (model) assistant.model = model;
     if (thinking) assistant.thinking = [assistant.thinking, thinking].filter(Boolean).join("\n\n");
+    if (status.stopReason) assistant.stopReason = status.stopReason;
+    if (status.errorMessage) assistant.errorMessage = status.errorMessage;
   }
   flushAssistant();
   return out;

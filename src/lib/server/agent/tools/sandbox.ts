@@ -393,13 +393,7 @@ export async function prepareToolSandboxExecution(input: ToolSandboxPrepareInput
   }
 
   if (!isSupportedPlatform()) {
-    return {
-      command: input.command,
-      env: input.env,
-      inheritProcessEnv: true,
-      sandboxApplied: false,
-      warning: `Sandbox is not supported on ${process.platform}.`
-    };
+    throw new Error(`Sandbox unavailable: Sandbox is not supported on ${process.platform}. Command was not executed.`);
   }
 
   const envDetails = buildToolSandboxEnv(input.settings, input.workspaceDir, input.env);
@@ -423,16 +417,7 @@ export async function prepareToolSandboxExecution(input: ToolSandboxPrepareInput
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (input.settings.initFailureMode === "block") {
-      throw new Error(`Sandbox initialization failed: ${message}`);
-    }
-    return {
-      command: input.command,
-      env: input.env,
-      inheritProcessEnv: true,
-      sandboxApplied: false,
-      warning: `Sandbox disabled after initialization failure: ${message}`
-    };
+    throw new Error(`Sandbox unavailable: ${message} Command was not executed.`);
   }
 }
 

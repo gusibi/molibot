@@ -623,6 +623,8 @@ export interface DesktopConversationMessage {
   createdAt: string;
   model?: string;
   thinking?: string;
+  stopReason?: string;
+  errorMessage?: string;
   attachments?: DesktopMessageAttachment[];
   activities?: DesktopConversationActivity[];
   memoryTrace?: DesktopMessageMemoryTraceMeta;

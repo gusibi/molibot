@@ -94,7 +94,7 @@ export function applySandboxPreset(name: DesktopSandboxPreset): void {
   if (!preset.env || !preset.network || !preset.filesystem) return;
   sandboxStore.sandboxEdit = {
     enabled: preset.enabled ?? true,
-    initFailureMode: preset.initFailureMode ?? "warn-disable",
+    initFailureMode: preset.initFailureMode ?? "block",
     envFilePath: preset.envFilePath ?? ".env",
     preserveExternalEnvFilePath: false,
     envInheritMode: preset.env.inheritMode ?? "minimal",

@@ -58,7 +58,7 @@
         onCheckedChange={(checked) => updateSandboxEdit((draft) => ({ ...draft, enabled: checked }))}
       />
     </div>
-    <label class="settings-row"><div><strong>{session.text.sandboxInitFailure}</strong><p>{session.text.sandboxInitFailureHint}</p></div><select value={sandboxStore.sandboxEdit.initFailureMode} onchange={(event) => updateSandboxEdit((draft) => ({ ...draft, initFailureMode: event.currentTarget.value as SandboxEditor["initFailureMode"] }))}><option value="warn-disable">{session.text.sandboxInitWarnDisable}</option><option value="block">{session.text.sandboxInitBlock}</option></select></label>
+    <label class="settings-row"><div><strong>{session.text.sandboxInitFailure}</strong><p>{session.text.sandboxInitFailureHint}</p></div><select value={sandboxStore.sandboxEdit.initFailureMode} onchange={(event) => updateSandboxEdit((draft) => ({ ...draft, initFailureMode: event.currentTarget.value as SandboxEditor["initFailureMode"] }))}><option value="block">{session.text.sandboxInitBlock}</option></select></label>
     <label class="settings-row"><div><strong>{session.text.sandboxEnvInherit}</strong><p>{session.text.sandboxEnvInheritHint}</p></div><select value={sandboxStore.sandboxEdit.envInheritMode} onchange={(event) => updateSandboxEdit((draft) => ({ ...draft, envInheritMode: event.currentTarget.value as SandboxEditor["envInheritMode"] }))}><option value="minimal">{session.text.sandboxEnvMinimal}</option><option value="allowlist">{session.text.sandboxEnvAllowlist}</option><option value="full">{session.text.sandboxEnvFull}</option></select></label>
   </div>
 

@@ -172,6 +172,7 @@
   // the real session the moment it's created (before the first turn snapshots it).
   let draftModelKey = "";
   let changingModel = false;
+  let modelSelectionHydrating = false;
   let connectedEndpoint = "";
   let connectionReady = false;
   let loading = false;
@@ -565,7 +566,7 @@
   $: draftProfileId = chatState.draftProfileId;
   $: statusDots = chatState.statusDots;
 
-  $: modelReady = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions }).hasModel;
+  $: modelReady = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions }).hasModel && !modelSelectionHydrating;
   $: readinessSummary = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions });
   $: showOnboarding = serviceState === "ready" && !onboardingDismissed;
   $: filteredFiles = filterDesktopFiles(sessionFiles, fileFilter);
@@ -1679,7 +1680,11 @@
   // user already left must not overwrite the visible selector.
   async function hydrateSessionModel(sessionId: string): Promise<void> {
     if (!connectedEndpoint || !sessionId) return;
-    if (sessionModelOverrides.has(sessionId) || hydratedModelSessions.has(sessionId)) return;
+    if (sessionModelOverrides.has(sessionId) || hydratedModelSessions.has(sessionId)) {
+      modelSelectionHydrating = false;
+      return;
+    }
+    modelSelectionHydrating = true;
     const seq = ++modelHydrationSeq;
     try {
       const key = await loadDesktopSessionModel(connectedEndpoint, sessionId);
@@ -1691,6 +1696,8 @@
       }
     } catch {
       // network hiccup: leave the composer on its default; a later switch retries
+    } finally {
+      if (seq === modelHydrationSeq && activeSessionId === sessionId) modelSelectionHydrating = false;
     }
   }
 

@@ -15,6 +15,8 @@ export type TranscriptMessage = {
   createdAt?: string;
   model?: string;
   thinking?: string;
+  stopReason?: string;
+  errorMessage?: string;
   attachments?: TranscriptAttachment[];
   activities?: DesktopConversationActivity[];
   memoryTrace?: DesktopMessageMemoryTraceMeta;
