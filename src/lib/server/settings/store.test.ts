@@ -234,6 +234,45 @@ test("parent and subagent runtime budgets survive a settings store restart indep
   }
 });
 
+test("MCP server enable state and transport configuration survive a settings store restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-mcp-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  const mcpServers = [
+    {
+      id: "local-tools",
+      name: "Local tools",
+      enabled: false,
+      transport: "stdio" as const,
+      stdio: { command: "node", args: ["server.mjs"], env: { TOKEN: "secret" }, cwd: "workspace" },
+      http: { url: "", headers: {} },
+      toolNamePrefix: "local"
+    },
+    {
+      id: "remote-tools",
+      name: "Remote tools",
+      enabled: true,
+      transport: "http" as const,
+      stdio: { command: "", args: [], env: {}, cwd: "" },
+      http: { url: "http://127.0.0.1:9123/mcp", headers: { Authorization: "Bearer secret" } },
+      toolNamePrefix: "remote"
+    }
+  ];
+
+  try {
+    new SettingsStore().save({ ...defaultRuntimeSettings, mcpServers });
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(restarted.mcpServers, mcpServers);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("fail-closed sandbox settings survive a full save and settings store restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-sandbox-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;

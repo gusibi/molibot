@@ -1,5 +1,5 @@
 // MCP server settings — state + orchestration.
-import { deleteDesktopMcp, loadDesktopMcp, saveDesktopMcp } from "../api";
+import { deleteDesktopMcp, loadDesktopMcp, reconnectDesktopMcp, saveDesktopMcp, toggleDesktopMcp } from "../api";
 import type { DesktopMcpSaveRequest, DesktopMcpSummary } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
@@ -11,6 +11,7 @@ export const mcpStore = $state({
   endpoint: "",
   mcpEdit: null as McpEditor | null,
   saving: false,
+  busyId: "",
   actionMessage: ""
 });
 
@@ -96,5 +97,35 @@ export async function removeMcpServer(id: string): Promise<void> {
     setError(cause);
   } finally {
     mcpStore.saving = false;
+  }
+}
+
+export async function toggleMcpServer(id: string, enabled: boolean): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || mcpStore.busyId) return;
+  mcpStore.busyId = id;
+  session.error = "";
+  try {
+    mcpStore.mcp = await toggleDesktopMcp(endpoint, id, enabled);
+    mcpStore.actionMessage = enabled ? session.text.mcpEnabledMessage : session.text.mcpDisabledMessage;
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    mcpStore.busyId = "";
+  }
+}
+
+export async function reconnectMcp(id: string): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || mcpStore.busyId) return;
+  mcpStore.busyId = id;
+  session.error = "";
+  try {
+    mcpStore.mcp = await reconnectDesktopMcp(endpoint, id);
+    mcpStore.actionMessage = session.text.mcpReconnectFinished;
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    mcpStore.busyId = "";
   }
 }

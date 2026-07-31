@@ -1,15 +1,33 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
+  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { session } from "../stores/session.svelte";
   import {
     mcpStore,
     beginMcpEdit,
     beginNewMcp,
     loadMcp,
+    reconnectMcp,
     removeMcpServer,
     saveMcpEditor,
+    toggleMcpServer,
     updateMcpEdit
   } from "../stores/mcp.svelte";
+
+  function statusLabel(state: string): string {
+    if (state === "connected") return session.text.mcpConnected;
+    if (state === "connecting") return session.text.mcpConnecting;
+    if (state === "error") return session.text.mcpConnectionError;
+    if (state === "disabled") return session.text.providerDisabled;
+    return session.text.mcpDisconnected;
+  }
+
+  function statusTone(state: string): string {
+    if (state === "connected") return "ready";
+    if (state === "error") return "error";
+    if (state === "connecting") return "warning";
+    return "disconnected";
+  }
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== mcpStore.endpoint) {
@@ -41,8 +59,16 @@
               <p>{session.text.mcpHttp} · {session.text.mcpUrl}: {server.url || session.text.unavailable} · {session.text.mcpHeaders}: {server.headerCount}</p>
             {/if}
             {#if server.toolNamePrefix}<p>{session.text.mcpPrefix}: {server.toolNamePrefix}</p>{/if}
+            {#if server.connectionState === "connected"}<p>{session.text.mcpLoadedTools}: {server.toolCount}</p>{/if}
+            {#if server.lastError}<p class="settings-error-copy">{server.lastError}</p>{/if}
           </div>
-          <div class="settings-row-actions"><span class="status-badge" data-state={server.enabled ? "ready" : "disconnected"}>{server.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span><button class="secondary-button" type="button" onclick={() => beginMcpEdit(server)}>{session.text.channelEdit}</button><button class="secondary-button danger-action" type="button" onclick={() => void removeMcpServer(server.id)}>{session.text.channelDelete}</button></div>
+          <div class="settings-row-actions">
+            <span class="status-badge" data-state={statusTone(server.connectionState)}>{statusLabel(server.connectionState)}</span>
+            <IosSwitch checked={server.enabled} ariaLabel={`${session.text.mcpEnabled}: ${server.name}`} disabled={Boolean(mcpStore.busyId)} onCheckedChange={(enabled) => void toggleMcpServer(server.id, enabled)} />
+            {#if server.enabled && server.connectionState !== "connected"}<button class="secondary-button" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => void reconnectMcp(server.id)}>{mcpStore.busyId === server.id ? session.text.mcpConnecting : session.text.mcpReconnect}</button>{/if}
+            <button class="secondary-button" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => beginMcpEdit(server)}>{session.text.channelEdit}</button>
+            <button class="secondary-button danger-action" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => void removeMcpServer(server.id)}>{session.text.channelDelete}</button>
+          </div>
         </div>
       {/each}
     </div>
@@ -57,7 +83,7 @@
         <label class="settings-field"><span>{session.text.mcpTransport}</span><select value={mcpStore.mcpEdit.transport} onchange={(event) => updateMcpEdit((draft) => ({ ...draft, transport: event.currentTarget.value as "stdio" | "http" }))}><option value="stdio">stdio</option><option value="http">http</option></select></label>
         <label class="settings-field"><span>{session.text.mcpPrefix}</span><input value={mcpStore.mcpEdit.toolNamePrefix} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, toolNamePrefix: event.currentTarget.value }))} /></label>
       </div>
-      <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.mcpEnabled}</span><button class:active={mcpStore.mcpEdit.enabled} class="switch" type="button" role="switch" aria-label={session.text.mcpEnabled} aria-checked={mcpStore.mcpEdit.enabled} onclick={() => updateMcpEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div></div>
+      <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.mcpEnabled}</span><IosSwitch checked={mcpStore.mcpEdit.enabled} ariaLabel={session.text.mcpEnabled} onCheckedChange={(enabled) => updateMcpEdit((draft) => ({ ...draft, enabled }))} /></div></div>
       {#if mcpStore.mcpEdit.transport === "stdio"}
         <div class="settings-form">
           <label class="settings-field settings-field-wide"><span>{session.text.mcpCommand}</span><input value={mcpStore.mcpEdit.command} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, command: event.currentTarget.value }))} /></label>

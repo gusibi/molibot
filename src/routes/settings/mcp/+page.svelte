@@ -14,7 +14,12 @@
     type: "stdio" | "http";
     url?: string;
     command?: string;
+    connectionState: "disabled" | "connecting" | "connected" | "disconnected" | "error";
+    toolCount: number;
+    lastError: string;
   };
+
+  type McpStatus = Pick<McpServerDraft, "connectionState" | "toolCount" | "lastError"> & { serverId: string };
 
   const COPY = {
     "zh-CN": {
@@ -40,7 +45,20 @@
       savingBtn: "正在保存...",
       loadedMsg: "已加载 {count} 个 MCP 服务。",
       parsedMsg: "已解析 {count} 个 MCP 服务。",
-      savedMsg: "MCP 设置保存成功。"
+      savedMsg: "MCP 设置保存成功。",
+      connected: "已连接",
+      connecting: "正在连接…",
+      disconnected: "已断开",
+      connectionError: "连接失败",
+      loadedTools: "{count} 个工具",
+      reconnect: "重新连接",
+      delete: "删除",
+      deleteConfirm: "确认删除这个 MCP 服务吗？",
+      enabledMsg: "MCP 服务已启用。",
+      disabledMsg: "MCP 服务已关闭。",
+      reconnectedMsg: "MCP 已重新连接。",
+      deletedMsg: "MCP 服务已删除。",
+      saveBeforeAction: "先保存 JSON 修改，再管理连接。"
     },
     "en-US": {
       eyebrow: "Tooling Surface",
@@ -65,7 +83,20 @@
       savingBtn: "Saving...",
       loadedMsg: "Loaded {count} MCP server(s).",
       parsedMsg: "Parsed {count} MCP server(s).",
-      savedMsg: "MCP settings saved."
+      savedMsg: "MCP settings saved.",
+      connected: "Connected",
+      connecting: "Connecting…",
+      disconnected: "Disconnected",
+      connectionError: "Connection failed",
+      loadedTools: "{count} tools",
+      reconnect: "Reconnect",
+      delete: "Delete",
+      deleteConfirm: "Delete this MCP server?",
+      enabledMsg: "MCP server enabled.",
+      disabledMsg: "MCP server disabled.",
+      reconnectedMsg: "MCP reconnected.",
+      deletedMsg: "MCP server deleted.",
+      saveBeforeAction: "Save the JSON changes before managing connections."
     }
   };
 
@@ -74,7 +105,10 @@
   let error = "";
   let message = "";
   let rawJson = "";
+  let savedRawJson = "";
   let servers: McpServerDraft[] = [];
+  let statuses: McpStatus[] = [];
+  let busyId = "";
   const placeholderJson = `{
   "mcpServers": {
     "browserwing": {
@@ -85,6 +119,7 @@
 }`;
 
   $: copy = COPY[$locale] ?? COPY["en-US"];
+  $: hasUnsavedJson = rawJson !== savedRawJson;
 
   function toMap(input: unknown): Record<string, unknown> {
     if (!input || typeof input !== "object") return {};
@@ -110,7 +145,7 @@
     return toMap(obj);
   }
 
-  function extractServers(payload: Record<string, unknown>): McpServerDraft[] {
+  function extractServers(payload: Record<string, unknown>, liveStatuses: McpStatus[] = statuses): McpServerDraft[] {
     const out: McpServerDraft[] = [];
     for (const [id, value] of Object.entries(payload)) {
       if (!value || typeof value !== "object") continue;
@@ -120,16 +155,48 @@
       const typeRaw = String(row.type ?? row.transport ?? (url ? "http" : "stdio")).trim().toLowerCase();
       const type = typeRaw === "http" ? "http" : "stdio";
       const name = String(row.name ?? id).trim() || id;
+      const status = liveStatuses.find((item) => item.serverId === id);
       out.push({
         id,
         name,
         enabled: row.enabled === undefined ? true : Boolean(row.enabled),
         type,
         url,
-        command
+        command,
+        connectionState: status?.connectionState ?? (row.enabled === false ? "disabled" : "disconnected"),
+        toolCount: status?.toolCount ?? 0,
+        lastError: status?.lastError ?? ""
       });
     }
     return out.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  function normalizeStatuses(input: unknown): McpStatus[] {
+    if (!Array.isArray(input)) return [];
+    return input.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const row = item as Record<string, unknown>;
+      const serverId = String(row.serverId ?? "").trim();
+      const state = String(row.state ?? "disconnected") as McpServerDraft["connectionState"];
+      if (!serverId || !["disabled", "connecting", "connected", "disconnected", "error"].includes(state)) return [];
+      return [{ serverId, connectionState: state, toolCount: Number(row.toolCount ?? 0), lastError: String(row.lastError ?? "") }];
+    });
+  }
+
+  function statusLabel(state: McpServerDraft["connectionState"]): string {
+    if (state === "connected") return copy.connected;
+    if (state === "connecting") return copy.connecting;
+    if (state === "error") return copy.connectionError;
+    if (state === "disabled") return copy.statusOff;
+    return copy.disconnected;
+  }
+
+  function applyServerResponse(data: { mcpServers?: unknown; statuses?: unknown }): void {
+    statuses = normalizeStatuses(data.statuses);
+    const map = normalizePayload(data.mcpServers ?? {});
+    servers = extractServers(map, statuses);
+    rawJson = formatMcpJson(map);
+    savedRawJson = rawJson;
   }
 
   function formatMcpJson(payload: Record<string, unknown>): string {
@@ -174,9 +241,7 @@
       const res = await fetch("/api/settings/mcp");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
-      const map = normalizePayload(data.mcpServers ?? {});
-      servers = extractServers(map);
-      rawJson = formatMcpJson(map);
+      applyServerResponse(data);
       message = copy.loadedMsg.replace("{count}", String(servers.length));
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -206,14 +271,74 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to save MCP settings");
 
-      const map = normalizePayload(data.mcpServers ?? payload);
-      servers = extractServers(map);
-      rawJson = formatMcpJson(map);
+      applyServerResponse({ ...data, mcpServers: data.mcpServers ?? payload });
       message = copy.savedMsg;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
       saving = false;
+    }
+  }
+
+  async function toggleServer(item: McpServerDraft, enabled: boolean): Promise<void> {
+    if (busyId) return;
+    busyId = item.id;
+    error = "";
+    message = "";
+    try {
+      const res = await fetch("/api/settings/mcp", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id, enabled })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Failed to update MCP server");
+      applyServerResponse(data);
+      message = enabled ? copy.enabledMsg : copy.disabledMsg;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busyId = "";
+    }
+  }
+
+  async function reconnectServer(id: string): Promise<void> {
+    if (busyId) return;
+    busyId = id;
+    error = "";
+    message = "";
+    try {
+      const res = await fetch("/api/settings/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "reconnect" })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Failed to reconnect MCP server");
+      applyServerResponse(data);
+      message = copy.reconnectedMsg;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busyId = "";
+    }
+  }
+
+  async function deleteServer(id: string): Promise<void> {
+    if (busyId || !window.confirm(copy.deleteConfirm)) return;
+    busyId = id;
+    error = "";
+    message = "";
+    try {
+      const res = await fetch(`/api/settings/mcp?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Failed to delete MCP server");
+      applyServerResponse(data);
+      message = copy.deletedMsg;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busyId = "";
     }
   }
 
@@ -281,22 +406,26 @@
             {#each servers as item}
               <div class="mcp-server-card">
                 <div class="mcp-server-info">
-                  <p class="mcp-server-name">{item.id}</p>
+                  <p class="mcp-server-name">{item.name}</p>
                   <div class="mcp-server-meta">
                     <span class="mcp-pill">{item.type}</span>
                     <span class="mcp-server-detail">
                       {item.type === "http" ? (item.url || copy.missingUrl) : (item.command || copy.missingCommand)}
                     </span>
+                    <span class="mcp-server-detail">{statusLabel(item.connectionState)}{item.connectionState === "connected" ? ` · ${copy.loadedTools.replace("{count}", String(item.toolCount))}` : ""}</span>
                   </div>
+                  {#if item.lastError}<p class="mcp-server-error">{item.lastError}</p>{/if}
                 </div>
-                <div class="mcp-server-toggle">
-                  <span class="mcp-toggle-label" data-tone={item.enabled ? 'success' : 'default'}>
-                    {item.enabled ? copy.statusActive : copy.statusOff}
-                  </span>
+                <div class="mcp-server-actions">
+                  {#if hasUnsavedJson}<span class="mcp-server-action-hint">{copy.saveBeforeAction}</span>{/if}
+                  <span class="mcp-connection-status" data-state={item.connectionState}>{statusLabel(item.connectionState)}</span>
                   <IosSwitch
-                    bind:checked={item.enabled}
-                    onCheckedChange={syncToggleToRawJson}
+                    checked={item.enabled}
+                    disabled={Boolean(busyId) || hasUnsavedJson}
+                    onCheckedChange={(enabled) => void toggleServer(item, enabled)}
                   />
+                  {#if item.enabled && item.connectionState !== "connected"}<Button type="button" variant="outline" size="sm" disabled={Boolean(busyId) || hasUnsavedJson} onclick={() => void reconnectServer(item.id)}>{busyId === item.id ? copy.connecting : copy.reconnect}</Button>{/if}
+                  <Button type="button" variant="destructive" size="sm" disabled={Boolean(busyId) || hasUnsavedJson} onclick={() => void deleteServer(item.id)}>{copy.delete}</Button>
                 </div>
               </div>
             {/each}

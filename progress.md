@@ -10,6 +10,26 @@
 - Final verification: projection 4/4, Desktop UI/HTTP 55/55, Desktop API 72/72, Svelte 0/0, `git diff --check`, and Desktop production build pass. Existing bundle-size/dynamic-import advisories remain unchanged.
 
 ---
+
+# Issue #25 — Dynamic MCP lifecycle (2026-07-31)
+
+- Read Issue #25, runtime-debug/bug-diagnosis/frontend/planning instructions, DESIGN.md, historical MCP release notes, and the current runtime/settings/UI paths.
+- Reproduced the primary failure with an agent-runnable stdio fixture: first load exposed 2 tools; after the server exited, the second load returned the same objects and `callTool` failed with `Not connected`.
+- Confirmed no product source has been edited yet; pre-existing dirty files remain user-owned.
+- Next: add committed red lifecycle tests at the registry seam, then implement the shared lifecycle/status contract.
+
+## Completion
+
+- Replaced hash-only MCP reuse with a workspace-aware lifecycle registry that records connecting/connected/disconnected/error state and reconnects dead transports even when configuration is unchanged.
+- Kept tool exposure scoped to each Agent selection while reconciling enable/disable/delete globally, so one session can no longer evict or inherit another session's MCP tools.
+- Added truthful load results, bounded connect/list timeouts, credential-redacted errors, explicit reconnect, immediate enable/disable, and deletion APIs.
+- Added live state, tool count, last error, Retry, Delete, and shared Switch controls to both Web and Desktop settings; Web protects unsaved JSON drafts from live actions.
+- Added real stdio lifecycle regressions, failed-load coverage, Desktop mapping/UI guards, and temporary SQLite settings round-trip coverage.
+- Verified focused runtime/settings tests 23/23, Web MCP UI guards 2/2, Desktop check 0 errors/0 warnings, Desktop tests 106/106 plus Rust 26/26, and both production builds.
+- Adversarial review resolved the five highest-risk paths: dead hash reuse, cross-session eviction, page-load blocking, secret leakage, and unsaved-editor overwrite. In-flight mutating MCP calls are deliberately not replayed automatically; recovery applies to the next load or an explicit Retry.
+- Updated CHANGELOG, features, PRD, README, and the MCP feature guide. Existing unrelated prompt edits were preserved.
+
+---
 # Service-log row detail dialog (2026-07-30)
 
 - Loaded the frontend-design guidance, inspected the supplied screenshot at original resolution, and audited the shared Dialog and current Service Logs implementation.
@@ -2018,5 +2038,31 @@
 - Aligned `/api/settings/subagents` with the run-time resolver so Settings cannot advertise a model the reviewer never uses.
 - Added no system-prompt text: the rule is now mechanically enforced, which is the direction the same audit recommends for prompt surface area.
 - Verified: `modelFamily` 3/3, `subagent.test.ts` 22/22, Agent suite 69/69 files, `tsc` clean on touched files, root production build passed.
+
+---
+# Single-source system prompt rules (2026-07-31)
+
+- Confirmed the duplication against a real rendered project prompt, not only the empty-workspace preview: media routing appeared 3 times, the sandbox/host-approval contract 4 times (two of them near-verbatim, four lines apart), freshness 3 times.
+- Measured before touching anything: static baseline 25,839 chars / 349 lines against a 26,000 ceiling, i.e. 161 characters of headroom. A real project turn rendered 27,360 chars once operator/profile/project sections were included.
+- Wrote the rule-coverage guard first and confirmed it failed on the current prompt (3 statement sites for the video URL rule) before editing prose.
+- Separated deliberate redundancy from drift: the safety framing is intentionally restated with override semantics and is declared as such in the guard, rather than being compressed away.
+- Rebuilt the pipeline as a router. Each step now names the section that owns its rules, which is what keeps the block from re-accreting detail.
+- Found and fixed two duplicates that the rewrite itself introduced (translated-keyword qualifier, createEvent routing in `<events>`), both caught by the guard.
+- Re-anchored the seven pre-existing tests that pinned the same sentence in two places; that anchoring style is what allowed the duplication to accumulate.
+- Review follow-up resolved the priority ambiguity: explicit Skill invocation is Step 1; automatic runtime-tool routing is Step 2 and applies only when no Skill was explicitly selected. The shared substitution ban was split into outcome-specific fallbacks.
+- Renamed and scoped the 18-rule test accurately: it verifies selected critical anchors and lexical duplication bounds, not every semantic rule in the prompt.
+- Second pass removed the duplicated Tool Parameters table, compressed environment/layout and Skill/Subagent/MCP sections, and removed static log-query examples. Runtime schemas remain the authority for callable parameters.
+- Result: representative fixture 25,839 -> 15,050 chars (-41.8%), 349 -> 239 lines; budget assertion tightened 26,000 -> 15,500 with its scope documented.
+- Verified: prompt + Project preview 26/26, root production build, and diff check pass. Full Agent tests remain 489/550 with unrelated runtime/settings fixture failures even under a temporary `DATA_DIR`; project-wide `tsc --noEmit` also has pre-existing cross-module errors, so neither is claimed as green.
+- Final focused verification after schema/path compression: prompt/Project preview and deferred-tool registration/loading 36/36, root production build pass, diff check clean.
+
+---
+
+# Issue #25 — Dynamic MCP lifecycle (2026-07-31)
+
+- Read Issue #25, runtime-debug/bug-diagnosis/frontend/planning instructions, DESIGN.md, historical MCP release notes, and the current runtime/settings/UI paths.
+- Reproduced the primary failure with an agent-runnable stdio fixture: first load exposed 2 tools; after the server exited, the second load returned the same objects and `callTool` failed with `Not connected`.
+- Confirmed no product source has been edited yet; pre-existing dirty files remain user-owned.
+- Next: add committed red lifecycle tests at the registry seam, then implement the shared lifecycle/status contract.
 
 ---

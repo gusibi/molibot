@@ -19,6 +19,11 @@ export const modelsStore = $state({
   loading: false,
   switchingRoute: null as DesktopModelRoute | null,
   loadedEndpoint: "",
+  /**
+   * Last load failure. Kept separate from `loadedEndpoint` so a failed load
+   * cannot re-arm the section's `$effect` guard and spin into a reload loop.
+   */
+  loadError: "",
   routing: null as DesktopModelRoutingSettings | null,
   routingDirty: false,
   routingSaving: false,
@@ -41,7 +46,7 @@ export function routeDescription(route: DesktopModelRoute, copy: typeof session.
   return copy.routeSubagentHint;
 }
 
-export async function loadModels(endpoint: string): Promise<void> {
+async function runLoadModels(endpoint: string): Promise<void> {
   modelsStore.loadedEndpoint = endpoint;
   modelsStore.loading = true;
   session.error = "";
@@ -56,12 +61,37 @@ export async function loadModels(endpoint: string): Promise<void> {
     modelsStore.routing = routing;
     modelsStore.routingPristine = JSON.stringify(routing);
     modelsStore.routingDirty = false;
+    modelsStore.loadError = "";
   } catch (cause) {
-    modelsStore.loadedEndpoint = "";
+    modelsStore.loadError = cause instanceof Error ? cause.message : String(cause);
     setError(cause);
   } finally {
     modelsStore.loading = false;
   }
+}
+
+let inflightLoad: Promise<void> | null = null;
+
+/**
+ * Shared by the section `$effect`, the providers-changed listener and manual
+ * retries: plain callers reuse the in-flight request instead of racing over
+ * the single `loading` flag, while `force` queues behind it.
+ */
+export function loadModels(endpoint: string, options: { force?: boolean } = {}): Promise<void> {
+  const previous = inflightLoad;
+  if (previous && !options.force) return previous;
+  // runLoadModels never rejects, so chaining onto it needs no catch.
+  const run = previous ? previous.then(() => runLoadModels(endpoint)) : runLoadModels(endpoint);
+  inflightLoad = run;
+  void run.finally(() => {
+    if (inflightLoad === run) inflightLoad = null;
+  });
+  return run;
+}
+
+export function retryLoadModels(): void {
+  if (!session.endpoint) return;
+  void loadModels(session.endpoint, { force: true });
 }
 
 export async function changeModel(route: DesktopModelRoute, value: string): Promise<void> {

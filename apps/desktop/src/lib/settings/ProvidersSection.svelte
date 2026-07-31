@@ -47,6 +47,7 @@
     providerEditDirty,
     removeProvider,
     removeProviderModel,
+    retryLoadProviders,
     saveProviderEdit,
     saveProviderGlobals,
     setProviderAsDefault,
@@ -465,9 +466,24 @@
 
 {#if !session.serviceReady}
   <SettingGroup><EmptyState title={session.text.providersUnavailable} icon="cloud-slash" /></SettingGroup>
-{:else if providersStore.loading || !providersStore.providers}
+{:else if providersStore.loading && !providersStore.providers}
   <SettingGroup><SkeletonRows count={4} label={session.text.loading} /></SettingGroup>
+{:else if !providersStore.providers}
+  <div class="settings-card" role="alert">
+    <div class="settings-row">
+      <div><p>{session.text.workspaceLoadFailed}</p>{#if providersStore.loadError}<small>{providersStore.loadError}</small>{/if}</div>
+      <button class="secondary-button" type="button" disabled={providersStore.loading} onclick={retryLoadProviders}>{session.text.retryLoading}</button>
+    </div>
+  </div>
 {:else}
+  {#if providersStore.loadError}
+    <div class="settings-card" role="alert">
+      <div class="settings-row">
+        <div><p>{session.text.workspaceLoadFailed}</p><small>{providersStore.loadError}</small></div>
+        <button class="secondary-button" type="button" disabled={providersStore.loading} onclick={retryLoadProviders}>{session.text.retryLoading}</button>
+      </div>
+    </div>
+  {/if}
   <SettingGroup title={session.text.providerGlobalSettings}>
     <SettingRow title={session.text.providersMode}>
       <div class="segmented" role="tablist" aria-label={session.text.providersMode}>

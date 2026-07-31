@@ -1025,6 +1025,7 @@ export interface DesktopAgentsResponse {
 }
 
 export type DesktopMcpTransport = "stdio" | "http";
+export type DesktopMcpConnectionState = "disabled" | "connecting" | "connected" | "disconnected" | "error";
 
 export interface DesktopMcpItem {
   id: string;
@@ -1040,6 +1041,11 @@ export interface DesktopMcpItem {
   url: string;
   headerCount: number;
   headerKeys: string[];
+  connectionState: DesktopMcpConnectionState;
+  toolCount: number;
+  lastError: string;
+  lastAttemptAt: string;
+  connectedAt: string;
 }
 
 export interface DesktopMcpSaveRequest {
@@ -1069,6 +1075,11 @@ export interface DesktopMcpSummary {
 export interface DesktopMcpResponse {
   ok: true;
   summary: DesktopMcpSummary;
+}
+
+export interface DesktopMcpToggleRequest {
+  id: string;
+  enabled: boolean;
 }
 
 export type DesktopSkillScope = "global" | "bot" | "chat" | "project";

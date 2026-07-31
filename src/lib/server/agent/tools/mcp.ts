@@ -6,9 +6,20 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { McpServerConfig } from "$lib/server/settings/schema.js";
 
-interface McpRegistryOptions {
+export interface McpRegistryOptions {
   workspaceDir: string;
   onWarn?: (message: string, extra?: Record<string, unknown>) => void;
+}
+
+export type McpConnectionState = "disabled" | "connecting" | "connected" | "disconnected" | "error";
+
+export interface McpServerStatus {
+  serverId: string;
+  state: McpConnectionState;
+  toolCount: number;
+  lastError?: string;
+  lastAttemptAt?: string;
+  connectedAt?: string;
 }
 
 interface McpToolDetails {
@@ -18,12 +29,20 @@ interface McpToolDetails {
   isError?: boolean;
 }
 
+const MCP_CONNECT_TIMEOUT_MS = 8_000;
+
 interface ConnectedServer {
   hash: string;
   config: McpServerConfig;
-  client: Client;
-  transport: StdioClientTransport | StreamableHTTPClientTransport;
+  workspaceDir: string;
+  state: McpConnectionState;
+  client?: Client;
+  transport?: StdioClientTransport | StreamableHTTPClientTransport;
   tools: AgentTool<any>[];
+  lastError?: string;
+  lastAttemptAt?: string;
+  connectedAt?: string;
+  closing: boolean;
 }
 
 function sanitizeToolNameSegment(value: string): string {
@@ -37,6 +56,27 @@ function toStringRecord(input: unknown): Record<string, string> {
       .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
       .filter(([key]) => Boolean(key))
   );
+}
+
+export function redactMcpError(message: string, server: McpServerConfig): string {
+  let safe = message;
+  const secrets = [
+    ...Object.values(server.stdio.env ?? {}),
+    ...Object.values(server.http.headers ?? {})
+  ].map(String).filter((value) => value.length >= 3);
+  for (const secret of secrets) safe = safe.split(secret).join("[REDACTED]");
+  if (server.http.url) {
+    try {
+      const url = new URL(server.http.url);
+      if (url.username) url.username = "[REDACTED]";
+      if (url.password) url.password = "[REDACTED]";
+      if (url.search) url.search = "?redacted=1";
+      safe = safe.split(server.http.url).join(url.toString());
+    } catch {
+      safe = safe.split(server.http.url).join("[REDACTED MCP URL]");
+    }
+  }
+  return safe;
 }
 
 function normalizeToolContent(
@@ -110,7 +150,7 @@ function normalizeToolContent(
   return out;
 }
 
-class McpToolRegistry {
+export class McpToolRegistry {
   private readonly servers = new Map<string, ConnectedServer>();
   private syncQueue: Promise<void> = Promise.resolve();
 
@@ -120,11 +160,24 @@ class McpToolRegistry {
     return next;
   }
 
-  private async closeServer(server: ConnectedServer): Promise<void> {
+  private serverKey(workspaceDir: string, serverId: string): string {
+    return `${workspaceDir}\u0000${serverId}`;
+  }
+
+  private async closeServer(server: ConnectedServer, state: McpConnectionState = "disconnected"): Promise<void> {
+    server.closing = true;
     try {
-      await server.transport.close();
+      await server.client?.close();
     } catch {
       // ignore close errors
+    } finally {
+      server.client = undefined;
+      server.transport = undefined;
+      server.tools = [];
+      server.state = state;
+      server.lastError = undefined;
+      server.connectedAt = undefined;
+      server.closing = false;
     }
   }
 
@@ -173,102 +226,192 @@ class McpToolRegistry {
       { capabilities: {} }
     );
 
-    await client.connect(transport);
-    const listed = await client.listTools();
-    const tools = listed.tools.map((remote): AgentTool<any> => {
-      const parameters = Type.Unsafe<Record<string, unknown>>(
-        remote.inputSchema && typeof remote.inputSchema === "object"
-          ? remote.inputSchema
-          : { type: "object", additionalProperties: true }
-      );
-      const localToolName = this.buildToolName(server, remote.name);
-
-      return {
-        name: localToolName,
-        label: `mcp:${server.name}/${remote.name}`,
-        description: `[MCP:${server.name}] ${remote.description || remote.name}`,
-        parameters,
-        execute: async (_toolCallId, params, signal): Promise<{ content: Array<TextContent | ImageContent>; details: McpToolDetails }> => {
-          const toolArgs = params && typeof params === "object" ? params as Record<string, unknown> : {};
-          const result = await client.callTool({
-            name: remote.name,
-            arguments: toolArgs
-          }, undefined, {
-            signal
-          });
-          const content = normalizeToolContent(result);
-          const details: McpToolDetails = {
-            serverId: server.id,
-            serverName: server.name,
-            remoteToolName: remote.name,
-            isError: Boolean(result.isError)
-          };
-
-          if (result.isError) {
-            const text = content
-              .filter((part) => part.type === "text")
-              .map((part) => part.text)
-              .join("\n")
-              .trim();
-            throw new Error(text || `MCP tool ${server.name}/${remote.name} returned isError=true`);
-          }
-
-          return { content, details };
-        }
-      };
-    });
-
-    return {
+    const entry: ConnectedServer = {
       hash: this.buildServerHash(server),
       config: server,
+      workspaceDir: options.workspaceDir,
+      state: "connecting",
       client,
       transport,
-      tools
+      tools: [],
+      lastAttemptAt: new Date().toISOString(),
+      closing: false
     };
+    const key = this.serverKey(options.workspaceDir, server.id);
+    this.servers.set(key, entry);
+    const markDisconnected = (error?: Error): void => {
+      if (this.servers.get(key) !== entry || entry.closing) return;
+      entry.state = error ? "error" : "disconnected";
+      entry.lastError = error ? redactMcpError(error.message, server) : undefined;
+      entry.client = undefined;
+      entry.transport = undefined;
+      entry.tools = [];
+      entry.connectedAt = undefined;
+      options.onWarn?.(error ? "mcp_server_transport_error" : "mcp_server_disconnected", {
+        serverId: server.id,
+        serverName: server.name,
+        ...(error ? { error: redactMcpError(error.message, server) } : {})
+      });
+    };
+    transport.onclose = () => markDisconnected();
+    transport.onerror = (error) => markDisconnected(error);
+
+    try {
+      await client.connect(transport, { timeout: MCP_CONNECT_TIMEOUT_MS });
+      const listed = await client.listTools(undefined, { timeout: MCP_CONNECT_TIMEOUT_MS });
+      entry.tools = listed.tools.map((remote): AgentTool<any> => {
+        const parameters = Type.Unsafe<Record<string, unknown>>(
+          remote.inputSchema && typeof remote.inputSchema === "object"
+            ? remote.inputSchema
+            : { type: "object", additionalProperties: true }
+        );
+        const localToolName = this.buildToolName(server, remote.name);
+
+        return {
+          name: localToolName,
+          label: `mcp:${server.name}/${remote.name}`,
+          description: `[MCP:${server.name}] ${remote.description || remote.name}`,
+          parameters,
+          execute: async (_toolCallId, params, signal): Promise<{ content: Array<TextContent | ImageContent>; details: McpToolDetails }> => {
+            const toolArgs = params && typeof params === "object" ? params as Record<string, unknown> : {};
+            const result = await client.callTool({
+              name: remote.name,
+              arguments: toolArgs
+            }, undefined, {
+              signal
+            });
+            const content = normalizeToolContent(result);
+            const details: McpToolDetails = {
+              serverId: server.id,
+              serverName: server.name,
+              remoteToolName: remote.name,
+              isError: Boolean(result.isError)
+            };
+
+            if (result.isError) {
+              const text = content
+                .filter((part) => part.type === "text")
+                .map((part) => part.text)
+                .join("\n")
+                .trim();
+              throw new Error(text || `MCP tool ${server.name}/${remote.name} returned isError=true`);
+            }
+
+            return { content, details };
+          }
+        };
+      });
+      entry.state = "connected";
+      entry.lastError = undefined;
+      entry.connectedAt = new Date().toISOString();
+      return entry;
+    } catch (error) {
+      const message = redactMcpError(error instanceof Error ? error.message : String(error), server);
+      entry.closing = true;
+      entry.client = undefined;
+      entry.transport = undefined;
+      entry.tools = [];
+      try {
+        await transport.close();
+      } catch {
+        // The failed transport may already be closed.
+      }
+      entry.closing = false;
+      entry.state = "error";
+      entry.lastError = message;
+      throw error;
+    }
   }
 
-  async sync(servers: McpServerConfig[], options: McpRegistryOptions): Promise<void> {
-    await this.enqueueSync(async () => {
-      const enabled = servers.filter((server) =>
-        server.enabled && (server.transport === "stdio" || server.transport === "http")
-      );
-      const nextIds = new Set(enabled.map((server) => server.id));
+  private async ensureServer(server: McpServerConfig, options: McpRegistryOptions, force = false): Promise<void> {
+    const key = this.serverKey(options.workspaceDir, server.id);
+    const existing = this.servers.get(key);
+    const hash = this.buildServerHash(server);
+    if (!force && existing?.hash === hash && existing.state === "connected") return;
+    if (existing) await this.closeServer(existing);
+    try {
+      await this.connectServer(server, options);
+    } catch (error) {
+      options.onWarn?.("mcp_server_connect_failed", {
+        serverId: server.id,
+        serverName: server.name,
+        error: redactMcpError(error instanceof Error ? error.message : String(error), server)
+      });
+    }
+  }
 
-      for (const [id, existing] of this.servers.entries()) {
-        if (nextIds.has(id)) continue;
-        await this.closeServer(existing);
-        this.servers.delete(id);
-      }
-
-      for (const server of enabled) {
-        const hash = this.buildServerHash(server);
-        const existing = this.servers.get(server.id);
-        if (existing && existing.hash === hash) continue;
-        if (existing) {
-          await this.closeServer(existing);
-          this.servers.delete(server.id);
-        }
-
-        try {
-          const connected = await this.connectServer(server, options);
-          this.servers.set(server.id, connected);
-        } catch (error) {
-          options.onWarn?.("mcp_server_connect_failed", {
-            serverId: server.id,
-            serverName: server.name,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
-      }
+  async getTools(servers: McpServerConfig[], options: McpRegistryOptions): Promise<AgentTool<any>[]> {
+    return this.enqueueSync(async () => {
+      const enabled = servers.filter((server) => server.enabled);
+      await Promise.all(enabled.map((server) => this.ensureServer(server, options)));
+      return enabled.flatMap((server) => {
+        const entry = this.servers.get(this.serverKey(options.workspaceDir, server.id));
+        return entry?.state === "connected" ? entry.tools : [];
+      });
     });
   }
 
-  listTools(): AgentTool<any>[] {
-    const out: AgentTool<any>[] = [];
-    for (const server of this.servers.values()) {
-      out.push(...server.tools);
-    }
-    return out;
+  async reconnect(server: McpServerConfig, options: McpRegistryOptions): Promise<void> {
+    await this.enqueueSync(() => this.ensureServer(server, options, true));
+  }
+
+  async reconcile(
+    servers: McpServerConfig[],
+    options: McpRegistryOptions & { connectEnabled?: boolean }
+  ): Promise<void> {
+    await this.enqueueSync(async () => {
+      const configured = new Map(servers.map((server) => [server.id, server]));
+      for (const [key, existing] of this.servers) {
+        const next = configured.get(existing.config.id);
+        if (next?.enabled) continue;
+        await this.closeServer(existing, next ? "disabled" : "disconnected");
+        if (!next) this.servers.delete(key);
+        else {
+          existing.config = next;
+          existing.hash = this.buildServerHash(next);
+        }
+      }
+      const enabledToConnect: McpServerConfig[] = [];
+      for (const server of servers) {
+        const key = this.serverKey(options.workspaceDir, server.id);
+        if (!server.enabled) {
+          if (!this.servers.has(key)) {
+            this.servers.set(key, {
+              hash: this.buildServerHash(server),
+              config: server,
+              workspaceDir: options.workspaceDir,
+              state: "disabled",
+              tools: [],
+              closing: false
+            });
+          }
+          continue;
+        }
+        if (options.connectEnabled) enabledToConnect.push(server);
+      }
+      await Promise.all(enabledToConnect.map((server) => this.ensureServer(server, options)));
+    });
+  }
+
+  getStatuses(servers: McpServerConfig[], workspaceDir: string): McpServerStatus[] {
+    return servers.map((server) => {
+      const entry = this.servers.get(this.serverKey(workspaceDir, server.id));
+      return {
+        serverId: server.id,
+        state: server.enabled ? entry?.state ?? "disconnected" : "disabled",
+        toolCount: entry?.state === "connected" ? entry.tools.length : 0,
+        ...(entry?.lastError ? { lastError: entry.lastError } : {}),
+        ...(entry?.lastAttemptAt ? { lastAttemptAt: entry.lastAttemptAt } : {}),
+        ...(entry?.connectedAt ? { connectedAt: entry.connectedAt } : {})
+      };
+    });
+  }
+
+  async closeAll(): Promise<void> {
+    await this.enqueueSync(async () => {
+      for (const server of this.servers.values()) await this.closeServer(server);
+      this.servers.clear();
+    });
   }
 }
 
@@ -279,6 +422,20 @@ export async function getMcpToolsForRuntime(
   options: McpRegistryOptions
 ): Promise<AgentTool<any>[]> {
   if (!Array.isArray(servers) || servers.length === 0) return [];
-  await registry.sync(servers, options);
-  return registry.listTools();
+  return registry.getTools(servers, options);
+}
+
+export function getMcpServerStatuses(servers: McpServerConfig[], workspaceDir: string): McpServerStatus[] {
+  return registry.getStatuses(servers, workspaceDir);
+}
+
+export async function reconcileMcpServers(
+  servers: McpServerConfig[],
+  options: McpRegistryOptions & { connectEnabled?: boolean }
+): Promise<void> {
+  await registry.reconcile(servers, options);
+}
+
+export async function reconnectMcpServer(server: McpServerConfig, options: McpRegistryOptions): Promise<void> {
+  await registry.reconnect(server, options);
 }

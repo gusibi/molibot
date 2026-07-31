@@ -21,6 +21,7 @@
     compactionTriggerPreview,
     discardModelRouting,
     loadModels,
+    retryLoadModels,
     routeLabel,
     routeDescription,
     saveAdvancedModelRouting,
@@ -54,7 +55,8 @@
 
   $effect(() => {
     const refreshAfterProviderChange = () => {
-      if (session.serviceReady && session.endpoint) void loadModels(session.endpoint);
+      // Follows a provider write, so it must not reuse an older in-flight load.
+      if (session.serviceReady && session.endpoint) void loadModels(session.endpoint, { force: true });
     };
     window.addEventListener(PROVIDERS_CHANGED_EVENT, refreshAfterProviderChange);
     return () => window.removeEventListener(PROVIDERS_CHANGED_EVENT, refreshAfterProviderChange);
@@ -74,9 +76,24 @@
 
 {#if !session.serviceReady}
   <SettingGroup><EmptyState icon="cpu" title={session.text.modelsUnavailable} /></SettingGroup>
-{:else if modelsStore.loading || MODEL_ROUTES.some((route) => !modelsStore.modelStates[route])}
+{:else if modelsStore.loading && MODEL_ROUTES.some((route) => !modelsStore.modelStates[route])}
   <SettingGroup><SkeletonRows count={4} label={session.text.loading} /></SettingGroup>
+{:else if MODEL_ROUTES.some((route) => !modelsStore.modelStates[route])}
+  <div class="settings-card" role="alert">
+    <div class="settings-row">
+      <div><p>{session.text.workspaceLoadFailed}</p>{#if modelsStore.loadError}<small>{modelsStore.loadError}</small>{/if}</div>
+      <button class="secondary-button" type="button" disabled={modelsStore.loading} onclick={retryLoadModels}>{session.text.retryLoading}</button>
+    </div>
+  </div>
 {:else}
+  {#if modelsStore.loadError}
+    <div class="settings-card" role="alert">
+      <div class="settings-row">
+        <div><p>{session.text.workspaceLoadFailed}</p><small>{modelsStore.loadError}</small></div>
+        <button class="secondary-button" type="button" disabled={modelsStore.loading} onclick={retryLoadModels}>{session.text.retryLoading}</button>
+      </div>
+    </div>
+  {/if}
   <SettingGroup ariaLabel={session.text.models}>
     {#each MODEL_ROUTES as route (route)}
       {@const state = modelsStore.modelStates[route]!}

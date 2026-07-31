@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, RunEvent, Url, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 struct DesktopState {
@@ -63,21 +64,29 @@ fn show_main_window(app: AppHandle) {
     show_window(&app, "chat");
 }
 
+/// Opens the native folder picker as a window-modal sheet on the calling window.
+///
+/// Shelling out to `osascript "choose folder"` used to take seconds (process spawn plus
+/// Apple-event round trip) and produced a dialog owned by another process, so the webview
+/// stayed clickable and a second click spawned a second picker. The native panel opens
+/// immediately and blocks its parent window, which makes duplicates impossible.
 #[tauri::command]
-async fn pick_project_directory() -> Result<Option<String>, String> {
-    let output = std::process::Command::new("/usr/bin/osascript")
-        .args(["-e", "POSIX path of (choose folder)"])
-        .output()
-        .map_err(|error| error.to_string())?;
-    if output.status.success() {
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return Ok((!path.is_empty()).then_some(path));
-    }
-    let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if error.contains("-128") || error.to_lowercase().contains("canceled") {
-        return Ok(None);
-    }
-    Err(if error.is_empty() { "Unable to open the folder picker.".into() } else { error })
+async fn pick_project_directory(window: tauri::Window) -> Result<Option<String>, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .pick_folder(move |picked| {
+            let _ = sender.send(picked);
+        });
+    let picked = tauri::async_runtime::spawn_blocking(move || receiver.recv())
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|_| "The folder picker closed unexpectedly.".to_string())?;
+    let Some(path) = picked else { return Ok(None) };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -235,6 +244,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--background"]),
         ))
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())

@@ -34,6 +34,44 @@ Complete
 | New projection regression test initially called the fixture helper by the wrong name | 1 | Replaced `item(...)` with the existing `memory(...)` fixture and reran the unchanged assertion; 4/4 projection tests pass. |
 
 ---
+
+# Issue #25 — Dynamic MCP lifecycle and settings controls (2026-07-31)
+
+## Goal
+Make configured MCP servers recover after disconnect/restart, expose honest live connection state, and provide direct enable/disable, reconnect, and delete controls in both Desktop and Web settings without weakening explicit MCP/Skill tool gating.
+
+## Current phase
+Complete — lifecycle recovery, APP/Web controls, persistence coverage, builds, and adversarial review finished
+
+## Phases
+1. Lock the dead-connection, reconnect, empty-scope, and multi-session failures with deterministic tests — complete
+2. Implement one shared MCP lifecycle registry with scoped tool views and live status — complete
+3. Connect fine-grained status/reconnect/toggle/delete APIs to Desktop and Web — complete
+4. Implement bilingual, theme-safe, responsive Desktop/Web controls using existing components — complete
+5. Run lifecycle/settings/UI tests, type checks, builds, cold-path recovery, docs, and adversarial review — complete
+
+## Verification gates
+- A stdio MCP process can exit, be restarted externally, and reconnect without changing its saved configuration.
+- Disable closes the live connection; enable/reconnect immediately attempts a new connection and reports the real outcome.
+- Configured, selected, and connected are distinct states; failed connections never report as loaded.
+- Different sessions can select different servers without closing or exposing each other's tools.
+- Desktop and Web expose enabled/disabled plus connected/connecting/disconnected/error, last error, Retry, and Delete with Chinese/English, light/dark, keyboard, and narrow-width coverage.
+- Settings persistence uses the MCP slice and passes save -> new store -> load round-trip against a temporary database.
+- Existing explicit Skill/MCP exposure gating remains unchanged.
+
+## Assumptions
+- “Dynamic loading” means connection recovery and immediate operator controls; it does not mean globally injecting every configured MCP tool into every Agent turn.
+- Automatic retry should be bounded and observable; manual Retry must always force a fresh client.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| First reconnect harness expected a generic closed-transport message | 1 | Captured the SDK's exact `Not connected` failure; the harness still proved the dead Tool object was reused. |
+| Empty-scope concurrency probe expected `sync([])` to close a prior connection | 1 | Source and probe showed the earlier empty-array return skips sync entirely; record this as stale-resource behavior and use two non-empty scopes for the cross-session regression. |
+| Root `svelte-check` executable was unavailable from the root package | 1 | Used the repository's production build plus Desktop's configured `pnpm run check`; Desktop reported 0 errors and 0 warnings. |
+| Desktop structure guard found the legacy editor-only custom switch | 1 | Replaced it with the existing shared `IosSwitch`, then reran the UI guards successfully. |
+
+---
 # Service-log row detail dialog (2026-07-30)
 
 ## Goal
@@ -2745,5 +2783,76 @@ Complete — contract, implementation, verification, and records finished
 | Error | Attempt | Resolution |
 | --- | --- | --- |
 | Excess-property errors after narrowing `isIndependentReviewRoute` to `{provider, model}` | 1 | Dropped the unused `mode` field from the test literals rather than widening the public parameter type. |
+
+---
+# Single-source system prompt rules (2026-07-31)
+
+## Goal
+Remove the accumulated rule duplication from the static system prompt and rebuild the message pipeline as a router, without losing a single rule.
+
+## Current phase
+Complete — guard, de-duplication, pipeline rebuild, verification, and records finished
+
+## Phases
+1. Add a rule-coverage guard that fails on the existing duplication before any prose is touched — complete
+2. Merge the duplicated rules into one authoritative home each — complete
+3. Rebuild the pipeline as a router that points at owning sections — complete
+4. Re-anchor the pre-existing wording tests to the single home and tighten the budget — complete
+5. Remove schema/path/example duplication and compress low-frequency static sections — complete
+
+## Verification gates
+- Every selected critical rule in the guard table still renders after the rewrite.
+- Stable lexical probes enforce duplication bounds; deliberate redundancy is declared with its reason.
+- Explicit Skill selection precedes automatic runtime-tool routing, and outcome-specific fallback bans remain unambiguous.
+- Callable/deferred tool schemas, not static prose, own parameter signatures; representative empty-workspace prompt remains below 15,500 characters.
+- The pipeline contains no rule that another section owns.
+- Prompt suite, full agent suite, type check, and production build pass.
+
+## Assumptions
+- Compression must not become deletion: the media-routing and sandbox rules are scar tissue from real past failures, so they are relocated, never dropped.
+- Per-sentence anchor tests are part of the problem; the guard asserts rule coverage and statement count instead.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| The rewritten pipeline still repeated "do not search by translated keywords first", which `<tools>` now owns | 1 | Pointed Step 1 at the outcome table instead of restating its qualifier. |
+| Adding `createEvent` to the outcome table created a fresh duplicate inside `<events>` | 1 | Trimmed `<events>` to what is unique to events; the routing rule stays in the table only. |
+| Section pointers written as `<tools>` / `<host-tool-approval>` read like opening XML tags inside the prompt | 1 | Referred to them as backticked section names so no stray tag can be parsed as a section boundary. |
+
+---
+
+# Issue #25 — Dynamic MCP lifecycle and settings controls (2026-07-31)
+
+## Goal
+Make configured MCP servers recover after disconnect/restart, expose honest live connection state, and provide direct enable/disable, reconnect, and delete controls in both Desktop and Web settings without weakening explicit MCP/Skill tool gating.
+
+## Current phase
+Phase 1 — red lifecycle regressions and shared contract design in progress
+
+## Phases
+1. Lock the dead-connection, reconnect, empty-scope, and multi-session failures with deterministic tests — in progress
+2. Implement one shared MCP lifecycle registry with scoped tool views and live status — pending
+3. Connect fine-grained status/reconnect/toggle/delete APIs to Desktop and Web — pending
+4. Implement bilingual, theme-safe, responsive Desktop/Web controls using existing components — pending
+5. Run lifecycle/settings/UI tests, type checks, builds, cold-path recovery, docs, and adversarial review — pending
+
+## Verification gates
+- A stdio MCP process can exit, be restarted externally, and reconnect without changing its saved configuration.
+- Disable closes the live connection; enable/reconnect immediately attempts a new connection and reports the real outcome.
+- Configured, selected, and connected are distinct states; failed connections never report as loaded.
+- Different sessions can select different servers without closing or exposing each other's tools.
+- Desktop and Web expose enabled/disabled plus connected/connecting/disconnected/error, last error, Retry, and Delete with Chinese/English, light/dark, keyboard, and narrow-width coverage.
+- Settings persistence uses the MCP slice and passes save -> new store -> load round-trip against a temporary database.
+- Existing explicit Skill/MCP exposure gating remains unchanged.
+
+## Assumptions
+- “Dynamic loading” means connection recovery and immediate operator controls; it does not mean globally injecting every configured MCP tool into every Agent turn.
+- Automatic retry should be bounded and observable; manual Retry must always force a fresh client.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| First reconnect harness expected a generic closed-transport message | 1 | Captured the SDK's exact `Not connected` failure; the harness still proved the dead Tool object was reused. |
+| Empty-scope concurrency probe expected `sync([])` to close a prior connection | 1 | Source and probe showed the earlier empty-array return skips sync entirely; record this as stale-resource behavior and use two non-empty scopes for the cross-session regression. |
 
 ---

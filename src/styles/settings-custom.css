@@ -2752,6 +2752,75 @@
   gap: 1rem;
 }
 
+.mcp-server-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.mcp-server-action-hint {
+  flex-basis: 100%;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.mcp-connection-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.mcp-connection-status[data-state="connected"] {
+  background: color-mix(in oklab, oklch(55% 0.15 155) 12%, var(--card));
+  color: oklch(55% 0.15 155);
+}
+
+.mcp-connection-status[data-state="connecting"] {
+  background: color-mix(in oklab, oklch(65% 0.16 70) 14%, var(--card));
+  color: oklch(55% 0.15 65);
+}
+
+.mcp-connection-status[data-state="error"] {
+  background: color-mix(in oklab, var(--destructive) 12%, var(--card));
+  color: var(--destructive);
+}
+
+.mcp-server-error {
+  margin: 0.25rem 0 0;
+  color: var(--destructive);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 601px) {
+  .mcp-server-card {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 600px) {
+  .mcp-server-actions {
+    justify-content: flex-start;
+  }
+
+  .mcp-server-action-hint {
+    text-align: left;
+  }
+}
+
 .mcp-server-header {
   display: flex;
   justify-content: space-between;

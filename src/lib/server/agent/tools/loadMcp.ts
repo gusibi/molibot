@@ -38,7 +38,7 @@ export function createLoadMcpTool(options: {
   getSettings: () => RuntimeSettings;
   getSelectedServerIds: () => Set<string>;
   setSelectedServerIds: (next: Set<string>) => void;
-  refreshLoadedMcpTools: () => Promise<{ serverCount: number; toolCount: number }>;
+  refreshLoadedMcpTools: () => Promise<{ serverCount: number; toolCount: number; lastError?: string }>;
 }): AgentTool<typeof loadMcpSchema> {
   return {
     name: "loadMcp",
@@ -96,6 +96,12 @@ export function createLoadMcpTool(options: {
 
       options.setSelectedServerIds(next);
       const refreshed = await options.refreshLoadedMcpTools();
+      if (action === "load" && refreshed.serverCount === 0) {
+        throw new Error([
+          `MCP server could not be connected: ${serverId}.`,
+          refreshed.lastError || "The service is unavailable. Restart it, then call loadMcp(action=\"load\") again or use Reconnect in Settings."
+        ].join(" "));
+      }
       return {
         content: [{
           type: "text",

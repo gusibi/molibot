@@ -199,6 +199,15 @@ test("reported Desktop settings pages use the shared macOS-style IosSwitch", () 
   }
 });
 
+test("Desktop MCP settings distinguish configured enablement from live connection state", () => {
+  assert.match(sections.mcp, /import IosSwitch from "\.\.\/components\/ui\/IosSwitch\.svelte"/);
+  assert.match(sections.mcp, /server\.connectionState/);
+  assert.match(sections.mcp, /toggleMcpServer\(server\.id, enabled\)/);
+  assert.match(sections.mcp, /reconnectMcp\(server\.id\)/);
+  assert.match(sections.mcp, /server\.lastError/);
+  assert.doesNotMatch(sections.mcp, /class="switch"/);
+});
+
 test("native feedback requests permission only on explicit enablement and observes terminal task transitions", () => {
   assert.match(feedbackCoordinator, /export class FeedbackCoordinator/);
   assert.match(feedbackCoordinator, /if \(!event\.terminal \|\| this\.preference\(\) !== "enabled"\)/);
@@ -1105,6 +1114,31 @@ test("settings form controls share the DESIGN input height and time fields use t
   assert.doesNotMatch(sections.plugins, /class="settings-row settings-field"/);
 });
 
+test("the folder picker is a native modal panel guarded by one shared in-flight flag", () => {
+  const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
+  const projectTree = readFileSync(new URL("./lib/projects/ProjectTree.svelte", import.meta.url), "utf8");
+  const projectsStoreSource = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
+  const tauriLib = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+
+  // Shelling out to osascript took seconds to show a dialog owned by another process, so the
+  // webview stayed clickable and extra clicks stacked up extra pickers.
+  const pickerFn = tauriLib.slice(tauriLib.indexOf("async fn pick_project_directory"));
+  assert.doesNotMatch(pickerFn.slice(0, pickerFn.indexOf("\n}")), /osascript|choose folder/);
+  assert.match(pickerFn, /\.set_parent\(&window\)[\s\S]*\.pick_folder\(/);
+  assert.match(tauriLib, /tauri_plugin_dialog::init\(\)/);
+
+  // One store-owned flag, because both project surfaces render their own create dialog.
+  assert.match(projectsStoreSource, /pickingFolder: false/);
+  assert.match(projectsStoreSource, /export async function pickProjectDirectory[\s\S]*if \(projectsStore\.pickingFolder[\s\S]*projectsStore\.pickingFolder = true/);
+  assert.match(projectsStoreSource, /finally \{\s*projectsStore\.pickingFolder = false;/);
+  for (const source of [projectList, projectTree]) {
+    assert.match(source, /pickProjectDirectory,/);
+    assert.doesNotMatch(source, /invoke<string \| null>\("pick_project_directory"\)/);
+    assert.match(source, /projectUseExistingFolder[\s\S]*?/);
+    assert.match(source, /disabled=\{projectsStore\.busy === "add" \|\| projectsStore\.pickingFolder\}[\s\S]*useExistingProjectFolder\(\)/);
+  }
+});
+
 test("project creation asks for a name before offering managed or existing directories", () => {
   const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
   const projectTree = readFileSync(new URL("./lib/projects/ProjectTree.svelte", import.meta.url), "utf8");
@@ -1113,7 +1147,6 @@ test("project creation asks for a name before offering managed or existing direc
     assert.match(source, /copy\.projectCreateAction/);
     assert.match(source, /(?:addProject|createProject)\(\{ name: name\.trim\(\), rootPath: selectedRootPath \}\)/);
   }
-  assert.match(projectList, /pick_project_directory/);
   assert.match(projectList, /project-create-dialog/);
   assert.match(projectList, /createDirectory:\s*true/);
   assert.match(projectList, /projectUseExistingFolder/);

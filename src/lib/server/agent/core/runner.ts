@@ -21,7 +21,7 @@ import { buildPromptInputEnvelope } from "$lib/server/agent/prompts/promptInput.
 import { resolveToolFileTarget } from "$lib/server/app/toolFilePaths.js";
 import { createMomTools } from "$lib/server/agent/tools/index.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
-import { getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
+import { getMcpServerStatuses, getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
 import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
 import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
@@ -972,7 +972,7 @@ export class MomRunner implements RunnerLike {
 
     let localTools: ReturnType<typeof createMomTools> = [];
     let loadedMcpTools: Awaited<ReturnType<typeof getMcpToolsForRuntime>> = [];
-    const refreshLoadedMcpTools = async (): Promise<{ serverCount: number; toolCount: number }> => {
+    const refreshLoadedMcpTools = async (): Promise<{ serverCount: number; toolCount: number; lastError?: string }> => {
       const scoped = resolveScopedMcpServers();
       const mcpTools = await getMcpToolsForRuntime(scoped, {
         workspaceDir: this.store.getWorkspaceDir(),
@@ -991,9 +991,11 @@ export class MomRunner implements RunnerLike {
         : mcpTools;
       loadedMcpTools = wrappedMcpTools;
       this.agent.state.tools = [...localTools, ...wrappedMcpTools];
+      const statuses = getMcpServerStatuses(scoped, this.store.getWorkspaceDir());
       return {
-        serverCount: scoped.length,
-        toolCount: mcpTools.length
+        serverCount: statuses.filter((status) => status.state === "connected").length,
+        toolCount: mcpTools.length,
+        lastError: statuses.find((status) => status.state === "error")?.lastError
       };
     };
 

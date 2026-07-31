@@ -5,7 +5,35 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-08-01
+
+### 项目「选择现有文件夹」改用原生 Panel（已完成，P1）
+
+- 旧实现调 `/usr/bin/osascript -e 'POSIX path of (choose folder)'`：启动解释器加 Apple event 往返要好几秒才出现窗口，而且弹出的对话框属于 `osascript` 进程而不是 App，所以等待期间 WebView 仍然可点，多点一下就再起一个解释器、再弹一个选择器。
+- 现在走 `tauri-plugin-dialog` 原生 Panel，并 `set_parent(&window)` 挂成窗口级 sheet：立即出现，且期间父窗口不可交互，天然不可能弹出第二个。结果通过 `spawn_blocking` + `std::mpsc` 接收，不再用阻塞的 `Command::output()` 占住 async runtime 线程（这正是等待时整个 App 的 IPC 都像卡死的原因）。
+- 重入保护放在 store 的 `projectsStore.pickingFolder`（由 `pickProjectDirectory()` 统一持有），而不是各组件自己一份：`ProjectList` 和 `ProjectTree` 各有一个创建对话框，组件内的 flag 挡不住两个面板。两端现在都调共享函数，面板打开期间创建对话框内所有按钮禁用。
+- 机器守卫在 `apps/desktop/src/chat-ui.test.mjs`：断言取目录用的是带 parent 的原生 Panel（函数体内不得出现 `osascript`）、flag 在 store 里、两个组件都不再直接 `invoke`。验证：`svelte-check` 0 错 0 警、Desktop `vite build`、Desktop UI 测试 103/103、`cargo check` 通过。
+
+---
 ## 2026-07-31
+
+### MCP 动态断线恢复 + APP/Web 实时管理（Issue #25，已完成，P1）
+
+- MCP registry 现在监听 transport close/error；服务退出后旧 Tool 立即失效，同配置在下一次 Agent 加载或手动重连时会创建新 Client，不再卡在 `Not connected` 死连接缓存。
+- 连接共享与工具可见范围分离：不同 Session 可各自加载不同 MCP，互不卸载、互不泄漏工具；加载结果只统计真实 connected server。
+- APP/Web 设置页把配置启用态与运行连接态分开显示，支持 Disabled / Disconnected / Connecting / Connected / Error、工具数、最近错误，以及即时启停、重新连接、删除。Web 有未保存 JSON 时会先要求保存，避免连接操作覆盖草稿。
+- MCP `enabled` 和完整 transport 配置通过临时 SQLite 的 save → 新 store → load round-trip；真实 stdio 退出/恢复、跨 Session、开关恢复、失败重试、两端 UI 结构均有机器守卫。
+
+### 系统提示词去重 + Message Pipeline 重构为路由（已完成，P2）
+
+- 静态提示词里同一条规则被写了三到四遍：媒体路由（image/video/tts/webSearch）在 pipeline、Tool Selection、Tool Parameters 各一份；沙箱到 host 审批的契约有四处，其中两处相隔四行几乎逐字重复；时效性三处；skill 显式调用、memory 文件、提醒定时各两处。而且这些重复的措辞已经开始各自漂移。
+- 现在每条规则只有一个权威出处。`<message-processing-pipeline>` 是紧凑五步路由；显式 Skill 选择优先于自动结果路由，没有显式选择时，图片/视频/TTS/实时信息/提醒仍先走专用 runtime tool。视频异步/URL 契约同时由路由邻近说明和真实 runtime schema 承担；沙箱契约归 `<host-tool-approval>`。
+- 第二轮删除了与真实 tool schema 重复的手写参数表，压缩 environment/runtime layout，移除常驻 shell 日志查询示例，并合并 Skill/Subagent/MCP 相邻说明；运行时门禁和关键行为契约不变。
+- 代表性空 workspace fixture：**25,839 降到 15,050 字符（-41.8%）**，349 行降到 239 行。预算断言从 26,000 收紧到 15,500；真实一轮仍会叠加 operator/profile/项目段落和 per-turn envelope。
+- 没有丢失本次审查覆盖的关键规则。`prompt.test.ts` 新增聚焦守卫：一张 18 条关键规则的表，断言规则仍能渲染，并在存在稳定词法探针时限制重复次数；测试不再夸大为能证明全部语义规则唯一。刻意的冗余被显式标注：「外部内容是数据不是指令」允许出现两次，因为那是抗注入的纵深防御，不是漂移。
+- 原有 7 个把同一句话在两个位置各钉一遍的提示词测试，改为只钉新的唯一出处。把每处复述都钉死正是重复得以增长的原因：过去每修一个 bug 就加一句话再加一个锚点。
+- 专用工具的替代禁令按结果分别表达，不再用一条混合 bash、curl、浏览器、`say` 等无关选项的总禁令让模型自行猜测适用范围。
+- 验证：提示词/Project preview 加 deferred-tool 注册与加载套件 36/36，根 production build 通过，`git diff --check` 通过。Agent 全量与项目级 `tsc` 仍有和本次改动无关的现存失败，因此没有把它们写成全绿。
 
 ### reviewer subagent 强制使用与父运行不同的模型族（已完成，P1）
 

@@ -1031,6 +1031,24 @@ export async function deleteDesktopMcp(endpoint: string, id: string): Promise<De
   return payload.summary;
 }
 
+export async function toggleDesktopMcp(endpoint: string, id: string, enabled: boolean): Promise<DesktopMcpSummary> {
+  const payload = await requestJson<DesktopMcpResponse>(endpoint, "/api/desktop/mcp", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, enabled })
+  });
+  return payload.summary;
+}
+
+export async function reconnectDesktopMcp(endpoint: string, id: string): Promise<DesktopMcpSummary> {
+  const payload = await requestJson<DesktopMcpResponse>(endpoint, "/api/desktop/mcp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, action: "reconnect" })
+  });
+  return payload.summary;
+}
+
 export async function loadDesktopSkills(endpoint: string): Promise<DesktopSkillsSummary> {
   const payload = await requestJson<DesktopSkillsResponse>(endpoint, "/api/desktop/skills");
   return payload.summary;

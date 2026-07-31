@@ -18,6 +18,18 @@
 - GitHub Release `v2.5.0` is published, non-draft, and non-prerelease at `https://github.com/gusibi/molibot/releases/tag/v2.5.0`; PR #15 is merged at `cb3e6175`.
 
 ---
+
+# Issue #25 — Dynamic MCP lifecycle findings (2026-07-31)
+
+- `McpToolRegistry` is a process singleton, but Runner selection is session-local. `sync()` currently treats a caller's scoped subset as the complete global desired set, so non-empty scopes can evict one another.
+- An unchanged config hash bypasses all liveness checks. A real stdio fixture exited after loading; the next `getMcpToolsForRuntime()` returned the identical dead Tool objects and invocation failed with `Not connected`.
+- `getMcpToolsForRuntime([])` returns before `registry.sync([])`, so unload/clear/disable can leave resources in the registry. Re-enabling can then hit the unchanged-hash dead-entry path.
+- The MCP SDK exposes transport/client `onclose` and `onerror`; current integration consumes neither.
+- Runner's `serverCount` is the number requested, not the number connected, so load output can claim one loaded server with zero tools.
+- Desktop/Web summaries project only saved `enabled`; they contain no runtime health. Desktop has edit-time enable and list-time delete, while Web uses a JSON editor and has no first-class per-row delete/reconnect UX.
+- The correct design keeps explicit Skill/MCP exposure gating while moving connection ownership, health, and reconcile into a shared runtime service.
+
+---
 # Service-log row detail dialog (2026-07-30)
 
 - The screenshot confirms the table's 1040px minimum width plus an unbounded Run ID column forces horizontal overflow; the inline raw `<details>` then collapses into an unusably narrow vertical strip.
@@ -2464,5 +2476,17 @@ Final conclusion: the voice path is operational inside Molibot and fails because
 - Persisted `warn-disable` remains accepted at the schema/API boundary for backward compatibility but sanitizes to `block`; removing the union immediately would reject old stored/request payloads instead of migrating them safely.
 - The built-in Subagent Bash is already composed from the same Bash definition and effective sandbox settings, so the shared preparation seam covers both execution paths without Channel-level conditions.
 - Adversarial review found three primary escape risks: unsupported platform return, initialization catch return, and legacy stored fail-open policy. All three now converge to blocking, while explicit disabled mode and already-approved Host Bash remain intentional and tested.
+
+---
+
+# Issue #25 — Dynamic MCP lifecycle findings (2026-07-31)
+
+- `McpToolRegistry` is a process singleton, but Runner selection is session-local. `sync()` currently treats a caller's scoped subset as the complete global desired set, so non-empty scopes can evict one another.
+- An unchanged config hash bypasses all liveness checks. A real stdio fixture exited after loading; the next `getMcpToolsForRuntime()` returned the identical dead Tool objects and invocation failed with `Not connected`.
+- `getMcpToolsForRuntime([])` returns before `registry.sync([])`, so unload/clear/disable can leave resources in the registry. Re-enabling can then hit the unchanged-hash dead-entry path.
+- The MCP SDK exposes transport/client `onclose` and `onerror`; current integration consumes neither.
+- Runner's `serverCount` is the number requested, not the number connected, so load output can claim one loaded server with zero tools.
+- Desktop/Web summaries project only saved `enabled`; they contain no runtime health. Desktop has edit-time enable and list-time delete, while Web uses a JSON editor and has no first-class per-row delete/reconnect UX.
+- The correct design keeps explicit Skill/MCP exposure gating while moving connection ownership, health, and reconcile into a shared runtime service.
 
 ---

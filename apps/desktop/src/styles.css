@@ -2183,6 +2183,7 @@ a:focus-visible {
 .settings-action-message { width: var(--settings-col); margin: 8px auto; color: var(--online); font-size: 13px; }
 .settings-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 .settings-row-actions a.secondary-button { display: inline-flex; align-items: center; text-decoration: none; }
+.settings-error-copy { color: var(--danger) !important; overflow-wrap: anywhere; }
 .media-task-row { align-items: center; }
 /* Records collapse to one scannable line; full detail lives in the task modal. */
 .media-task-summary { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }

@@ -31,6 +31,13 @@ export const providersStore = $state({
   providers: null as DesktopProvidersSummary | null,
   loading: false,
   endpoint: "",
+  /**
+   * Last load failure. The section shows it with a retry button instead of
+   * reloading on its own — a failed load must never re-arm the section's
+   * `$effect` guard, or a service that is briefly down (which is exactly what
+   * a provider write causes) turns into an endless reload loop.
+   */
+  loadError: "",
   saving: false,
   testingId: null as string | null,
   actionMessage: "",
@@ -80,12 +87,13 @@ function notifyProvidersChanged(): void {
   notifySettingsChanged();
 }
 
-export async function loadProviders(endpoint: string): Promise<void> {
+async function runLoadProviders(endpoint: string): Promise<void> {
   providersStore.endpoint = endpoint;
   providersStore.loading = true;
   session.error = "";
   try {
     providersStore.providers = await loadDesktopProviders(endpoint);
+    providersStore.loadError = "";
     if (!providersStore.providerEdit && !providersStore.globalsDirty) {
       providersStore.globals = {
         providerMode: providersStore.providers.providerMode,
@@ -95,11 +103,36 @@ export async function loadProviders(endpoint: string): Promise<void> {
       };
     }
   } catch (cause) {
-    providersStore.endpoint = "";
+    providersStore.loadError = cause instanceof Error ? cause.message : String(cause);
     setError(cause);
   } finally {
     providersStore.loading = false;
   }
+}
+
+let inflightLoad: Promise<void> | null = null;
+
+/**
+ * The section `$effect`, the save handlers and manual retries all reach for
+ * this. Plain callers share whatever request is already in flight rather than
+ * racing over the single `loading` flag; `force` (used right after a write)
+ * queues behind it so the caller never reads back pre-write state.
+ */
+export function loadProviders(endpoint: string, options: { force?: boolean } = {}): Promise<void> {
+  const previous = inflightLoad;
+  if (previous && !options.force) return previous;
+  // runLoadProviders never rejects, so chaining onto it needs no catch.
+  const run = previous ? previous.then(() => runLoadProviders(endpoint)) : runLoadProviders(endpoint);
+  inflightLoad = run;
+  void run.finally(() => {
+    if (inflightLoad === run) inflightLoad = null;
+  });
+  return run;
+}
+
+export function retryLoadProviders(): void {
+  if (!session.endpoint) return;
+  void loadProviders(session.endpoint, { force: true });
 }
 
 export function beginNewProvider(): void {
@@ -270,8 +303,7 @@ export async function saveProviderEdit(): Promise<void> {
       };
       const result = await createDesktopProvider(endpoint, request);
       if (!result.ok) throw new Error(result.error || "Provider save failed");
-      providersStore.endpoint = "";
-      await loadProviders(endpoint);
+      await loadProviders(endpoint, { force: true });
     } else {
       providersStore.providers = await updateDesktopProvider(endpoint, {
         ...draft,

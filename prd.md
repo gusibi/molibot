@@ -5,6 +5,20 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.25 Dynamic MCP lifecycle and operator controls (2026-07-31)
+
+- **Priority / Status**: P1 / Delivered (GitHub Issue #25).
+- **Problem**: an unchanged MCP config hash reused a dead client after the local service exited; unload/disable could leave stale registry entries; a process-global desired-set sync conflicted with Session-local MCP selection; Settings exposed only persisted enablement and could not tell connected from failed.
+- **Decision**: make the shared MCP registry own liveness and transport events while returning tools only for the caller's requested scope. Treat disconnect/error as cache invalidation, support bounded fresh reconnect, reconcile enable/disable/delete immediately, and project a separate live status contract to Web/Desktop without changing explicit Skill/MCP tool exposure gates.
+- **Acceptance**: unchanged config reconnects after process exit; multiple Sessions do not evict or expose one another's tools; failed servers never count as loaded; Web/Desktop show live state/error/tool count and provide switch/reconnect/delete; MCP settings survive a temporary-database store restart; lifecycle/UI regressions, Desktop diagnostics, and production build pass.
+
+## 3.24 Single-source system prompt rules (2026-07-31)
+
+- **Priority / Status**: P2 / Delivered.
+- **Problem**: the static prompt reached 25,839 characters against a 26,000 test ceiling, with the same rule stated three or four times (media routing, sandbox to host approval, freshness, skill invocation, memory, reminders). Restatements had drifted in wording, the next feature needing a prompt line would have broken the budget, and the duplication diluted attention on every turn regardless of prefix caching.
+- **Decision**: each policy gets one authoritative section. The message pipeline is a router that names the owning section per step, never a place that restates rules. Explicit Skill invocation outranks automatic outcome routing; without one, dedicated runtime tools outrank discovered Skills and generic tools. Deliberate redundancy is allowed only where repetition is itself the mechanism (safety framing) and must be marked as such. Mechanically enforceable policy belongs in code, not prose.
+- **Acceptance**: no reviewed critical rule is lost; focused guards verify required anchors, owner sections, and bounded duplication without claiming exhaustive semantic proof; runtime tool schemas replace hand-written parameter copies; the representative static fixture stays below 15,500 characters; focused prompt tests and production build pass, while unrelated repository baseline failures are reported honestly.
+
 ## 3.23 Model-independent reviewer subagent (2026-07-31)
 
 - **Priority / Status**: P1 / Delivered.

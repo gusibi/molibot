@@ -115,3 +115,22 @@ test("buildDesktopMcpSummary counts total/enabled and by transport without leaki
   assert.equal(summary.counts.http, 1);
   assert.equal(JSON.stringify(summary).includes("sk-secret"), false);
 });
+
+test("buildDesktopMcpSummary keeps configured enablement separate from live connection state", () => {
+  const summary = buildDesktopMcpSummary(
+    { mcpServers: [stdioServer(), httpServer({ enabled: false })] } as RuntimeSettings,
+    [{
+      serverId: "fs",
+      state: "error",
+      toolCount: 0,
+      lastError: "Not connected",
+      lastAttemptAt: "2026-07-31T12:00:00.000Z"
+    }]
+  );
+
+  assert.equal(summary.items[0].enabled, true);
+  assert.equal(summary.items[0].connectionState, "error");
+  assert.equal(summary.items[0].lastError, "Not connected");
+  assert.equal(summary.items[1].enabled, false);
+  assert.equal(summary.items[1].connectionState, "disabled");
+});

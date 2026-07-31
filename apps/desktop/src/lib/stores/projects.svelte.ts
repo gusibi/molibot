@@ -12,6 +12,7 @@ import {
   type DesktopProjectMessage,
   type DesktopProjectSession
 } from "../api";
+import { invoke } from "@tauri-apps/api/core";
 import { toStore } from "svelte/store";
 import { projectChatStore } from "../projects/projectChatStore.svelte";
 
@@ -25,6 +26,7 @@ export const projectsStore = $state({
   loading: false,
   messagesLoading: false,
   busy: "",
+  pickingFolder: false,
   error: ""
 });
 
@@ -86,6 +88,27 @@ export async function addProject(input: { name: string; rootPath?: string; creat
     return false;
   } finally {
     projectsStore.busy = "";
+  }
+}
+
+/**
+ * Opens the native folder picker for "use an existing folder".
+ *
+ * The in-flight flag lives in the store, not in a component, because both project
+ * surfaces (sidebar tree and list) render a create dialog: a per-component guard
+ * would still let two pickers open. Returns "" when the user cancels.
+ */
+export async function pickProjectDirectory(): Promise<string> {
+  if (projectsStore.pickingFolder || projectsStore.busy === "add") return "";
+  projectsStore.pickingFolder = true;
+  projectsStore.error = "";
+  try {
+    return (await invoke<string | null>("pick_project_directory")) ?? "";
+  } catch (cause) {
+    projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+    return "";
+  } finally {
+    projectsStore.pickingFolder = false;
   }
 }
 

@@ -40,22 +40,27 @@ test("prompt source no longer embeds live time guidance in the system prompt con
 });
 
 test("prompt source tells codebase tasks to delegate before tool budget exhaustion", () => {
-  assert.match(promptSource, /If you expect more than about 8 direct read\/bash\/edit calls, delegate early/);
-  assert.match(promptSource, /call `subagent` before the parent run approaches the 24-tool hard limit/);
+  assert.match(promptSource, /Delegate before ~8 parent read\/bash\/edit calls or before the 24-tool hard limit/);
 });
 
 test("prompt source requires host tool approval instead of sandbox bypass", () => {
-  assert.match(promptSource, /Host Tool Approval/);
-  assert.match(promptSource, /Use `bash` with `hostApproval.reason`/);
+  assert.match(promptSource, /Bash Sandbox and Host Tool Approval/);
+  assert.match(promptSource, /`bash\(command, hostApproval=\{ reason, permissions\? \}\)`/);
   assert.match(promptSource, /After approval, runtime immediately executes the stored host action/);
   assert.doesNotMatch(promptSource, /hostToolRun/);
-  assert.match(promptSource, /must never claim to approve host tools itself/);
+  assert.match(promptSource, /must never claim to approve host tools yourself/);
   assert.match(promptSource, /Approved host tools are controlled capabilities, not a general host shell/);
+  // The sandbox contract has exactly one home; the pipeline only points at it.
+  assert.doesNotMatch(promptSource, /### Bash Sandbox\\n/);
+  assert.doesNotMatch(promptSource, /### Sandbox Permission Errors/);
 });
 
 test("prompt source trims deferred tool and event duplication", () => {
   assert.match(promptSource, /Deferred tools appear by name in <available-deferred-tools> but are not callable until loaded\./);
-  assert.match(promptSource, /For reminders, timers, scheduled messages, recurring summaries, or event management, call `toolSearch` first, then call `createEvent` after it is loaded\./);
+  // Routing reminders to createEvent (and loading it first) is stated once, in
+  // the outcome table; this section only keeps what is unique to events.
+  assert.match(promptSource, /- reminders, timers, schedules, recurring summaries → `createEvent`/);
+  assert.match(promptSource, /`createEvent` owns them\./);
   assert.doesNotMatch(promptSource, /Result format: each matched tool appears as one <function>/);
   assert.doesNotMatch(promptSource, /When `createEvent` succeeds, the tool will return the exact confirmation text/);
   assert.doesNotMatch(promptSource, /Use `one-shot` for a single future datetime, `periodic` for cron-like recurring tasks/);
@@ -64,7 +69,7 @@ test("prompt source trims deferred tool and event duplication", () => {
 test("prompt source replaces tool priority table and sandbox implementation details with concise rules", () => {
   assert.match(promptSource, /### Tool Selection/);
   assert.match(promptSource, /Prefer dedicated tools over bash equivalents/);
-  assert.match(promptSource, /Bash runs in a runtime-managed sandbox by default/);
+  assert.match(promptSource, /Bash runs in a runtime-managed sandbox and is fine for ordinary shell work/);
   assert.doesNotMatch(promptSource, /### Tool Priority Table/);
   assert.doesNotMatch(promptSource, /macOS `sandbox-exec`/);
   assert.doesNotMatch(promptSource, /Linux `bubblewrap`/);
@@ -74,12 +79,16 @@ test("prompt source merges behavioral guardrails into one core directives sectio
   assert.match(promptSource, /section\("Core Directives"/);
   assert.match(promptSource, /\*\*Execution Discipline\*\*/);
   assert.match(promptSource, /\*\*Freshness & Truthfulness\*\*/);
-  assert.match(promptSource, /\*\*External Content Safety\*\*/);
-  assert.match(promptSource, /\*\*Action Confirmation\*\*/);
+  assert.match(promptSource, /\*\*Scope of Approval\*\*/);
   assert.match(promptSource, /\*\*Runtime Integrity\*\*/);
   assert.match(promptSource, /\*\*Failure Recovery\*\*/);
   assert.match(promptSource, /\*\*Processed Inputs\*\*/);
-  assert.match(promptSource, /Do not ask for API keys, configs, or credentials unless the runtime explicitly reports they are missing or invalid\./);
+  assert.match(promptSource, /do not ask for API keys, configs, or credentials unless the runtime explicitly reports them missing or invalid\./);
+  // External-content safety, high-impact confirmation, and truthful success
+  // reporting are owned by <inviolable-safety> alone. Core Directives used to
+  // restate all three in longer prose, which made both blocks read as noise.
+  assert.doesNotMatch(promptSource, /\*\*External Content Safety\*\*/);
+  assert.doesNotMatch(promptSource, /\*\*Action Confirmation\*\*/);
   assert.match(promptSource, /If the input includes `?\[voice transcript\]`?, treat it as already-transcribed text\./);
   assert.match(promptSource, /If the input includes `?\[image analysis #N: \.\.\.\]`?, treat it as already-processed image understanding\./);
   assert.doesNotMatch(promptSource, /section\("Execution Discipline"/);
@@ -94,7 +103,7 @@ test("prompt source merges skill routing into pipeline and skills protocol", () 
   assert.doesNotMatch(promptSource, /function buildSkillRoutingSection/);
   assert.doesNotMatch(promptSource, /buildSkillRoutingSection\(\)/);
   assert.doesNotMatch(promptSource, /Skill Routing \(Mandatory\)/);
-  assert.match(promptSource, /Route by the user's desired outcome and output format/);
+  assert.match(promptSource, /route by desired outcome and output format, not keywords alone/);
   assert.match(promptSource, /Explicit invocation \(`\$skill-name`, `\/skill-name`, `skill:skill-name`, `技能:skill-name`\) → MUST use that skill for this turn\./);
   assert.match(promptSource, /A Markdown reference in the form `\[\$skill-name\]\(\/path\/to\/SKILL\.md\)` is an explicit invocation/);
   assert.doesNotMatch(promptSource, /\[explicit skill invocation\]/);
@@ -110,7 +119,20 @@ test("rendered prompt stays under a broad size budget while preserving routing a
       timezone: "UTC"
     });
 
-    assert.ok(prompt.length < 26_000, `rendered prompt length ${prompt.length} exceeded budget`);
+    // Tightened from 26_000 after de-duplication and removal of schema/path examples
+    // that already have runtime-owned sources (25_839 → about 15_050 in this fixture).
+    // Raised to 16_200 when <inviolable-safety> became unconditional: this fixture
+    // has no profile files, so it previously rendered with no safety floor at all,
+    // which adds ~855 chars here. That is the cost of the floor, not new bloat —
+    // over the same change Core Directives dropped the three bullets the floor
+    // already owns, and five path-carrying sections collapsed into one <paths>.
+    // Note this measures the static baseline only: a real turn also carries
+    // operator/profile/project sections and the per-turn user envelope, so the
+    // shipped prompt is larger than this number.
+    assert.ok(prompt.length < 16_200, `rendered prompt length ${prompt.length} exceeded budget`);
+    // A workspace with no profile files must still get the safety floor.
+    assert.match(prompt, /<inviolable-safety>/);
+    assert.match(prompt, /<paths>/);
     assert.match(prompt, /<available-deferred-tools>/);
     assert.match(prompt, /createEvent/);
     assert.match(prompt, /skillSearch/);
@@ -134,8 +156,9 @@ test("project prompt discovers priority instructions and replaces Workspace dire
     });
     assert.match(prompt, /Project Instructions \(CLAUDE\.md from project "Wiki"\)/);
     assert.match(prompt, /CLAUDE-MARKER/);
-    assert.match(prompt, /Project Working Layout/);
-    assert.doesNotMatch(prompt, /Bot Runtime Layout/);
+    assert.match(prompt, /You are working in a registered external project directory\./);
+    assert.match(prompt, /Project root, and the working directory for tools:/);
+    assert.doesNotMatch(prompt, /Bot runtime root:/);
     assert.doesNotMatch(prompt, /Bash working directory for tools:/);
     assert.doesNotMatch(prompt, /WORKSPACE-TOOLS-MARKER/);
 
@@ -430,49 +453,221 @@ test("bot operator identity prevents default Momo identity from overriding profi
 test("prompt source prioritizes webSearch for current web information", () => {
   assert.match(promptSource, /"webSearch"/);
   assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"webSearch"[\s\S]*\}/);
-  assert.match(promptSource, /Current web information requests → call `toolSearch` with `select:webSearch`, then call `webSearch`/);
-  assert.match(promptSource, /For current web information, prefer `webSearch` over bash curl, browser search, or legacy skill scripts/);
+  // The outcome table in <tools> owns the routing; the pipeline points at it.
+  assert.match(promptSource, /- current web information → `webSearch`/);
+  assert.match(promptSource, /go back and load `webSearch`/);
   assert.doesNotMatch(promptSource, /Search web\/current information \| `webSearch` \| bash curl, browser search, or skill scripts/);
-  assert.match(promptSource, /`webSearch\(query, maxResults\?, engine\?, route\?, includeDomains\?, excludeDomains\?\)`/);
-  assert.match(promptSource, /date-aware guidance, fallback diagnostics, citations, and source metadata/);
+  assert.doesNotMatch(promptSource, /### Tool Parameters/);
 });
 
 test("prompt source directs MCP usage through loadMcp and mcpInvoke, not toolSearch", () => {
-  assert.match(promptSource, /MCP tools are not deferred tools/);
-  assert.match(promptSource, /Do not use `toolSearch` to find MCP tools/);
-  assert.match(promptSource, /`loadMcp\(action=\\"load\\", serverId=\\"\.\.\.\\"\)`/);
-  assert.match(promptSource, /`mcpInvoke\(action=\\"listTools\\"\)`/);
-  assert.match(promptSource, /`mcpInvoke\(action=\\"call\\", serverId=\\"\.\.\.\\", toolName=\\"\.\.\.\\", arguments=\{\.\.\.\}\)`/);
+  assert.match(promptSource, /MCP is separate from deferred tools: never find it with `toolSearch`/);
+  assert.match(promptSource, /Load a server with `loadMcp`, then list\/call tools with `mcpInvoke`/);
 });
 
+/**
+ * These three used to pin the per-tool routing sentence in the pipeline AND its
+ * restatement in Tool Selection — which is how the same rule ended up written
+ * three times. They now pin the single outcome-table entry plus the shared
+ * substitution ban that covers all of them.
+ */
 test("prompt source prioritizes imageGenerate before skillSearch and bash image scripts", () => {
   assert.match(promptSource, /"imageGenerate"/);
   assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"imageGenerate"[\s\S]*\}/);
-  assert.match(promptSource, /Image generation\/editing requests in any language/);
-  assert.match(promptSource, /infer the intent semantically, call `toolSearch` with `select:imageGenerate`, then call `imageGenerate`/);
-  assert.match(promptSource, /Do not search by translated keywords first/);
-  assert.match(promptSource, /Do not use `skillSearch`, bash, Python image scripts, or create a skill unless `imageGenerate` is unavailable or fails/);
-  assert.match(promptSource, /For drawing\/generating images, prefer `imageGenerate` over running python script skills or writing complex code/);
+  assert.match(promptSource, /- image generation or editing → `imageGenerate`, not scripts or discovered skills/);
+  assert.match(promptSource, /Outcome ownership \(mandatory when no skill was explicitly invoked\)/);
+  assert.match(promptSource, /Infer intent semantically in any language/);
+  assert.match(promptSource, /do not search by translated keywords first/);
 });
 
 test("prompt source prioritizes videoGenerate before skillSearch and bash video scripts", () => {
   assert.match(promptSource, /"videoGenerate"/);
   assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"videoGenerate"[\s\S]*\}/);
-  assert.match(promptSource, /Video generation requests in any language/);
-  assert.match(promptSource, /infer the intent semantically, call `toolSearch` with `select:videoGenerate`, then call `videoGenerate`/);
-  assert.match(promptSource, /images` must contain only public HTTP\(S\) Remote URL values/);
-  assert.match(promptSource, /never pass Base64, data URLs, local file paths, or `Absolute path` values/);
-  assert.match(promptSource, /Do not search by translated keywords first/);
-  assert.match(promptSource, /Do not use `skillSearch`, bash, Python video scripts, or create a skill unless `videoGenerate` is unavailable or fails/);
-  assert.match(promptSource, /For generating videos, prefer `videoGenerate` over writing custom code or searching for skills/);
-  assert.match(promptSource, /images` must be public HTTP\(S\) Remote URLs only/);
+  assert.match(promptSource, /- video generation or progress checks → `videoGenerate`/);
+  assert.match(promptSource, /runtime rejects a second submission this turn/);
+  assert.match(promptSource, /For status, call with taskId\+engine from history/);
+  assert.match(promptSource, /Input images must be public HTTP\(S\) Remote URLs, never Base64\/data URLs\/local paths/);
 });
 
 test("prompt source prioritizes ttsGenerate before skillSearch and bash audio scripts", () => {
   assert.match(promptSource, /"ttsGenerate"/);
   assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"ttsGenerate"[\s\S]*\}/);
-  assert.match(promptSource, /Text-to-speech requests in any language/);
-  assert.match(promptSource, /infer the intent semantically, call `toolSearch` with `select:ttsGenerate`, then call `ttsGenerate`/);
-  assert.match(promptSource, /Do not use `skillSearch`, bash, Python audio scripts, macOS `say`, or create a skill unless `ttsGenerate` is unavailable or fails/);
-  assert.match(promptSource, /For text-to-speech, narration, voiceover, or spoken-audio generation, prefer `ttsGenerate`/);
+  assert.match(promptSource, /- speech, narration, voiceover, spoken audio → `ttsGenerate`, not OS speech commands/);
+  assert.match(promptSource, /macOS `say`/);
+});
+
+test("explicit skill selection precedes automatic runtime-tool routing", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-prompt-priority-"));
+  try {
+    const prompt = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      timezone: "UTC"
+    });
+    const explicitSkill = prompt.indexOf("Step 1 — Explicit skill");
+    const runtimeTool = prompt.indexOf("Step 2 — Dedicated runtime tool");
+    assert.ok(explicitSkill >= 0, "explicit skill routing step is missing");
+    assert.ok(runtimeTool > explicitSkill, "automatic runtime-tool routing must follow explicit skill selection");
+    assert.match(prompt, /Outcome ownership \(mandatory when no skill was explicitly invoked\)/);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Rule coverage and non-duplication guard.
+ *
+ * The prompt accumulated the same rule in three and four places at once
+ * (media routing, sandbox → host approval, freshness, skill invocation), which
+ * both inflated the prompt and let restatements drift apart in wording. Each
+ * selected critical rule below must survive (`keeps`) and, where a stable
+ * lexical probe exists, stay within its duplication bound. This is a focused
+ * regression guard, not proof that every semantic rule in the prompt is unique.
+ *
+ * `statedOnce` probes are deliberately distinctive tokens rather than whole
+ * sentences: a wording change is allowed, a second statement site is not.
+ */
+const PROMPT_RULES: Array<{
+  id: string;
+  keeps: RegExp[];
+  ownerTag?: string;
+  statedOnce?: RegExp;
+  atMost?: { probe: RegExp; count: number };
+}> = [
+  {
+    id: "video-remote-url-only",
+    keeps: [/public HTTP\(S\)/, /Remote URL/],
+    ownerTag: "tools",
+    statedOnce: /Base64/g
+  },
+  {
+    id: "video-async-taskid-contract",
+    keeps: [/taskId/, /second submission this turn/i],
+    ownerTag: "tools"
+  },
+  {
+    id: "tts-not-say",
+    keeps: [/macOS `say`/],
+    ownerTag: "tools",
+    statedOnce: /macOS `say`/g
+  },
+  {
+    id: "media-routing-is-mandatory",
+    keeps: [/imageGenerate/, /videoGenerate/, /ttsGenerate/, /webSearch/, /in any language/i],
+    ownerTag: "tools"
+  },
+  {
+    id: "no-translated-keyword-search-first",
+    keeps: [/translated keywords/],
+    ownerTag: "tools",
+    statedOnce: /translated keywords/g
+  },
+  {
+    id: "sandbox-failure-requests-host-approval",
+    keeps: [/permission, IPC, browser, or native-app limitation/],
+    ownerTag: "host-tool-approval",
+    statedOnce: /permission, IPC, browser, or native-app limitation/g
+  },
+  {
+    id: "no-sandbox-bypass-workarounds",
+    keeps: [/bypass sandbox limits with bash workarounds/],
+    ownerTag: "host-tool-approval",
+    statedOnce: /bypass sandbox limits with bash workarounds/g
+  },
+  {
+    id: "agent-never-self-approves-host",
+    keeps: [/never claim to approve host tools/],
+    ownerTag: "host-tool-approval"
+  },
+  {
+    id: "host-approval-needs-exact-command",
+    keeps: [/minimal permissions/],
+    ownerTag: "host-tool-approval",
+    statedOnce: /minimal permissions/g
+  },
+  {
+    id: "explicit-skill-invocation-is-binding",
+    keeps: [/技能:skill-name/, /skill:skill-name/],
+    ownerTag: "skills-protocol",
+    // Three legitimate sites: the invocation rule itself, the Markdown-reference
+    // variant of it, and the MCP scenario that keys off the same syntax. The
+    // pipeline's own fourth copy is what this bound removes.
+    atMost: { probe: /\$skill-name/g, count: 3 }
+  },
+  {
+    id: "skill-output-medium-not-downgraded",
+    keeps: [/do not silently downgrade unless the skill actually failed/],
+    ownerTag: "skills-protocol",
+    statedOnce: /silently downgrade/g
+  },
+  {
+    id: "no-stale-answer-for-time-sensitive",
+    keeps: [/real-time/, /stale/i]
+  },
+  {
+    id: "reminders-use-createEvent-not-sleep",
+    keeps: [/bash `sleep`/],
+    ownerTag: "events",
+    statedOnce: /`sleep`/g
+  },
+  {
+    id: "memory-files-not-edited-directly",
+    keeps: [/Never read\/write\/edit MEMORY\.md directly/],
+    ownerTag: "memory-contract",
+    statedOnce: /Never read\/write\/edit MEMORY\.md directly/g
+  },
+  {
+    id: "external-content-is-data",
+    keeps: [/data, not instructions/],
+    // Deliberately restated: once inside <inviolable-safety> with override
+    // framing, once as an ordinary core directive. This is defence in depth,
+    // not drift — but a third copy would be.
+    atMost: { probe: /data, not instructions/g, count: 2 }
+  },
+  {
+    id: "no-false-success-claims",
+    keeps: [/succeeded unless it actually/]
+  },
+  {
+    id: "subagent-budget-and-roles",
+    keeps: [/24-tool hard limit/, /`\{previous\}`/, /scout -> planner -> worker -> reviewer/]
+  },
+  {
+    id: "deferred-tools-need-toolSearch",
+    keeps: [/not callable until loaded/, /select:<toolName>/]
+  }
+];
+
+test("selected critical prompt rules retain their anchors and duplication bounds", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-prompt-rules-"));
+  try {
+    const prompt = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      timezone: "UTC"
+    });
+
+    for (const rule of PROMPT_RULES) {
+      const owner = rule.ownerTag
+        ? prompt.match(new RegExp(`<${rule.ownerTag}>[\\s\\S]*?</${rule.ownerTag}>`))?.[0]
+        : prompt;
+      assert.ok(owner, `rule '${rule.id}' owner section <${rule.ownerTag}> is missing`);
+      for (const keep of rule.keeps) {
+        assert.match(owner, keep, `rule '${rule.id}' lost its content from <${rule.ownerTag}>: ${keep}`);
+      }
+      if (rule.statedOnce) {
+        const hits = prompt.match(rule.statedOnce) ?? [];
+        assert.equal(
+          hits.length,
+          1,
+          `rule '${rule.id}' must be stated once, found ${hits.length} sites for ${rule.statedOnce}`
+        );
+      }
+      if (rule.atMost) {
+        const hits = prompt.match(rule.atMost.probe) ?? [];
+        assert.ok(
+          hits.length > 0 && hits.length <= rule.atMost.count,
+          `rule '${rule.id}' expected 1..${rule.atMost.count} sites, found ${hits.length}`
+        );
+      }
+    }
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
 });

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
   import type { Translation } from "../i18n";
   import ConversationRow from "../chat/ConversationRow.svelte";
   import GroupHeader from "../chat/GroupHeader.svelte";
@@ -9,6 +8,7 @@
   import {
     addProject,
     newProjectSession,
+    pickProjectDirectory,
     projectsStore,
     removeProjectSession,
     renameProjectSession,
@@ -72,7 +72,7 @@
   }
 
   function cancelAdding(): void {
-    if (projectsStore.busy === "add") return;
+    if (projectsStore.busy === "add" || projectsStore.pickingFolder) return;
     adding = false;
     createStep = "name";
     name = "";
@@ -89,15 +89,8 @@
   }
 
   async function useExistingProjectFolder(): Promise<void> {
-    if (projectsStore.busy === "add") return;
-    projectsStore.error = "";
-    try {
-      const rootPath = await invoke<string | null>("pick_project_directory");
-      if (!rootPath) return;
-      selectedRootPath = rootPath;
-    } catch (cause) {
-      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-    }
+    const rootPath = await pickProjectDirectory();
+    if (rootPath) selectedRootPath = rootPath;
   }
 </script>
 
@@ -187,13 +180,13 @@
         </div>
       </form>
     {:else}
-      <div class="project-location-options" aria-label={copy.projectChooseLocation}>
-        <button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void createManagedProject()}>
+      <div class="project-location-options" aria-label={copy.projectChooseLocation} aria-busy={projectsStore.pickingFolder}>
+        <button type="button" class="project-location-option" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void createManagedProject()}>
           <span class="project-location-icon"><i class="ph-fill ph-folder-simple-plus" aria-hidden="true"></i></span>
           <span><strong>{copy.projectCreateFolder}</strong><small>{copy.projectCreateFolderHint}</small></span>
           <i class="ph ph-arrow-right" aria-hidden="true"></i>
         </button>
-        <button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void useExistingProjectFolder()}>
+        <button type="button" class="project-location-option" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void useExistingProjectFolder()}>
           <span class="project-location-icon"><i class="ph-fill ph-folder-open" aria-hidden="true"></i></span>
           <span><strong>{copy.projectUseExistingFolder}</strong><small>{copy.projectUseExistingFolderHint}</small></span>
           <i class="ph ph-arrow-right" aria-hidden="true"></i>
@@ -206,9 +199,9 @@
         </div>
       {/if}
       <div class="project-form-actions project-location-actions">
-        <button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={() => (createStep = "name")}>{copy.back}</button>
-        <button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={cancelAdding}>{copy.cancel}</button>
-        <button class="primary-button" type="button" disabled={!selectedRootPath || projectsStore.busy === "add"} onclick={() => void addProject({ name: name.trim(), rootPath: selectedRootPath }).then((created) => created && cancelAdding())}>{copy.projectCreateAction}</button>
+        <button class="secondary-button" type="button" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => (createStep = "name")}>{copy.back}</button>
+        <button class="secondary-button" type="button" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={cancelAdding}>{copy.cancel}</button>
+        <button class="primary-button" type="button" disabled={!selectedRootPath || projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void addProject({ name: name.trim(), rootPath: selectedRootPath }).then((created) => created && cancelAdding())}>{copy.projectCreateAction}</button>
       </div>
     {/if}
   </Dialog>

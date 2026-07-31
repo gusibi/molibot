@@ -1,5 +1,6 @@
 import type { McpServerConfig, RuntimeSettings } from "$lib/server/settings/schema";
 import type { DesktopMcpItem, DesktopMcpSummary, DesktopMcpTransport } from "$lib/shared/desktop";
+import type { McpServerStatus } from "$lib/server/agent/tools/mcp";
 
 function coerceTransport(value: unknown): DesktopMcpTransport {
   return value === "http" ? "http" : "stdio";
@@ -18,7 +19,7 @@ function countKeys(record: Record<string, string> | undefined): number {
  * kept so a user can recognize the server, mirroring how providers expose
  * `baseUrl`.
  */
-export function buildDesktopMcpItem(server: McpServerConfig): DesktopMcpItem {
+export function buildDesktopMcpItem(server: McpServerConfig, status?: McpServerStatus): DesktopMcpItem {
   const transport = coerceTransport(server.transport);
   const stdio = server.stdio ?? { command: "", args: [], env: {}, cwd: "" };
   const http = server.http ?? { url: "", headers: {} };
@@ -35,7 +36,12 @@ export function buildDesktopMcpItem(server: McpServerConfig): DesktopMcpItem {
     cwdConfigured: transport === "stdio" ? Boolean(stdio.cwd) : false,
     url: transport === "http" ? http.url ?? "" : "",
     headerCount: transport === "http" ? countKeys(http.headers) : 0,
-    headerKeys: transport === "http" ? Object.keys(http.headers ?? {}).sort() : []
+    headerKeys: transport === "http" ? Object.keys(http.headers ?? {}).sort() : [],
+    connectionState: server.enabled === false ? "disabled" : status?.state ?? "disconnected",
+    toolCount: status?.toolCount ?? 0,
+    lastError: status?.lastError ?? "",
+    lastAttemptAt: status?.lastAttemptAt ?? "",
+    connectedAt: status?.connectedAt ?? ""
   };
 }
 
@@ -91,9 +97,10 @@ export function deleteDesktopMcpServer(settings: RuntimeSettings, id: string): M
   return servers.filter((server) => server.id !== id);
 }
 
-export function buildDesktopMcpSummary(settings: RuntimeSettings): DesktopMcpSummary {
+export function buildDesktopMcpSummary(settings: RuntimeSettings, statuses: McpServerStatus[] = []): DesktopMcpSummary {
   const servers = Array.isArray(settings.mcpServers) ? settings.mcpServers : [];
-  const items = servers.map(buildDesktopMcpItem);
+  const statusById = new Map(statuses.map((status) => [status.serverId, status]));
+  const items = servers.map((server) => buildDesktopMcpItem(server, statusById.get(server.id)));
   return {
     items,
     counts: {
