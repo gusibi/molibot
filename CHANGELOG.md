@@ -7,6 +7,9 @@
 ---
 ## 2026-08-01
 
+### Release: v2.7.9 / Desktop v0.7.6
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: "use an existing folder" opens the native picker instantly instead of hanging
 - Picking a project directory shelled out to `/usr/bin/osascript -e 'POSIX path of (choose folder)'`. Spawning the interpreter plus the Apple-event round trip took seconds before anything appeared, and the resulting dialog belonged to `osascript`, not to the app — so the WebView stayed fully interactive while the user waited, and a second click on the same button spawned a second interpreter and a second folder chooser.
 - The Tauri command now uses `tauri-plugin-dialog`'s native panel with `set_parent(&window)`, so it opens immediately as a window-modal sheet on the calling window. The panel result is awaited off the async runtime (`spawn_blocking` over a `std::mpsc` receiver) instead of blocking a runtime worker on `Command::output()`, which is what made the rest of the app's IPC feel frozen during the wait.
