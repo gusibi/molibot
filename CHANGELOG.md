@@ -7,6 +7,9 @@
 ---
 ## 2026-08-01
 
+### Release: v2.8.1 / Desktop v0.7.8
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: the title bar drags the window (the drag IPC was never permitted)
 - Dragging the window by its top strip did nothing anywhere in the app, so the window could only be moved from its border. The cause was not the markup: both drag paths — Tauri's built-in `data-tauri-drag-region` handler and `WindowDragMask`'s explicit `startDragging()` — invoke `plugin:window|start_dragging`, and `core:window:default` does **not** include `allow-start-dragging`. Every drag was rejected by the capability ACL, silently, which is why adding more drag regions never helped.
 - `core:window:allow-start-dragging` is now granted explicitly in `src-tauri/capabilities/default.json`, and `WindowDragMask` logs a rejected drag instead of discarding the promise, so a future ACL gap is visible rather than mute.
