@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
-  import type { DesktopMemoryTraceResponse } from "@molibot/desktop-contract";
+  import type { DesktopMemoryFeedbackValue, DesktopMemoryTraceResponse } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import { DirectManipulation } from "../native/directManipulation";
 
@@ -11,7 +11,7 @@
   export let recordedMemoryIds = new Set<string>();
   export let onClose: () => void;
   export let onRetry: () => void;
-  export let onFeedback: (memoryId: string, value: "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private") => void;
+  export let onFeedback: (memoryId: string, value: DesktopMemoryFeedbackValue) => void;
   export let onManageMemory: (memoryId: string) => void;
   export let onHapticCommit: (gestureId: string) => void = () => {};
 
@@ -126,10 +126,15 @@
     }
   }
 
-  function submit(memoryId: string, value: "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private"): void {
+  function submit(memoryId: string, value: DesktopMemoryFeedbackValue): void {
     feedbackMemoryId = "";
     onFeedback(memoryId, value);
   }
+
+  $: referencedItems = trace?.referencedItems ?? [];
+  $: referencedIds = new Set(referencedItems.map((item) => item.memoryId));
+  // Injected-but-unused memories: shown as secondary transparency info only.
+  $: providedItems = (trace?.injectedItems ?? []).filter((item) => !referencedIds.has(item.memoryId));
 </script>
 
 <svelte:window onblur={cancelDrawerDragOnBlur} />
@@ -177,17 +182,18 @@
           <button class="secondary-button" type="button" onclick={onRetry}>{copy.memoryTraceRetry}</button>
         </div>
       {:else if trace}
-        {#if trace.injectedItems.length > 0}
+        {#if referencedItems.length > 0}
           <section class="memory-trace-section">
             <div class="memory-trace-section-title">
               <h3>{copy.memoryTraceReferencedTitle}</h3>
-              <span>{trace.injectedItems.length}</span>
+              <span>{referencedItems.length}</span>
             </div>
             <div class="memory-trace-list">
-              {#each trace.injectedItems as item (item.memoryId)}
+              {#each referencedItems as item (item.memoryId)}
                 <article class="memory-trace-card">
                   <p>{item.snapshot.displayText}</p>
                   <div class="memory-trace-tags">
+                    <span class="memory-trace-source">{item.source === "cited" ? copy.memoryTraceSourceCited : copy.memoryTraceSourceToolRetrieved}</span>
                     <span>{item.snapshot.type || item.snapshot.layer}</span>
                     {#if typeof item.snapshot.confidence === "number"}<span>{Math.round(item.snapshot.confidence * 100)}%</span>{/if}
                   </div>
@@ -212,6 +218,46 @@
               {/each}
             </div>
           </section>
+        {/if}
+
+        {#if providedItems.length > 0}
+          <details class="memory-trace-section memory-trace-provided" open={referencedItems.length === 0}>
+            <summary class="memory-trace-section-title">
+              <h3>{copy.memoryTraceInjectedTitle}</h3>
+              <span>{providedItems.length}</span>
+            </summary>
+            <p class="memory-trace-provided-hint">{copy.memoryTraceInjectedHint}</p>
+            <div class="memory-trace-list">
+              {#each providedItems as item (item.memoryId)}
+                <article class="memory-trace-card">
+                  <p>{item.snapshot.displayText}</p>
+                  <div class="memory-trace-tags">
+                    <span>{item.snapshot.type || item.snapshot.layer}</span>
+                    {#if typeof item.snapshot.confidence === "number"}<span>{Math.round(item.snapshot.confidence * 100)}%</span>{/if}
+                  </div>
+                  <div class="memory-trace-actions">
+                    {#if recordedMemoryIds.has(item.memoryId)}
+                      <span class="memory-feedback-recorded"><i class="ph ph-check" aria-hidden="true"></i>{copy.memoryTraceRecorded}</span>
+                    {:else}
+                      <!-- A memory that was only provided (not used) cannot be
+                           "helpful"; the actionable signal is to stop auto-including it. -->
+                      <button type="button" onclick={() => submit(item.memoryId, "do_not_inject")}><i class="ph ph-eye-slash" aria-hidden="true"></i>{copy.memoryTraceDoNotInject}</button>
+                      <button type="button" aria-expanded={feedbackMemoryId === item.memoryId} onclick={() => feedbackMemoryId = feedbackMemoryId === item.memoryId ? "" : item.memoryId}><i class="ph ph-warning-circle" aria-hidden="true"></i>{copy.memoryTraceNotForThisTurn}</button>
+                    {/if}
+                    <button type="button" onclick={() => onManageMemory(item.memoryId)}><i class="ph ph-pencil-simple-line" aria-hidden="true"></i>{copy.memoryTraceEdit}</button>
+                  </div>
+                  {#if feedbackMemoryId === item.memoryId}
+                    <div class="memory-feedback-reasons">
+                      <button type="button" onclick={() => submit(item.memoryId, "irrelevant")}>{copy.memoryFeedbackIrrelevant}</button>
+                      <button type="button" onclick={() => submit(item.memoryId, "incorrect")}>{copy.memoryFeedbackIncorrect}</button>
+                      <button type="button" onclick={() => submit(item.memoryId, "expired")}>{copy.memoryFeedbackExpired}</button>
+                      <button type="button" onclick={() => submit(item.memoryId, "too_private")}>{copy.memoryFeedbackPrivate}</button>
+                    </div>
+                  {/if}
+                </article>
+              {/each}
+            </div>
+          </details>
         {/if}
 
         {#if trace.writeReceipts.length > 0}

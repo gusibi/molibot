@@ -7,7 +7,10 @@
     dockMarkerWidth,
     extractPromptNavigationItems,
     layoutPromptMarkers,
+    promptMarkerWindow,
     PROMPT_NAVIGATOR_MIN_TURNS,
+    PROMPT_OVERFLOW_SLOT,
+    type PromptMarkerWindow,
     type PromptNavigationItem
   } from "./conversationNavigation";
   import { suspendStickToBottom } from "./stickToBottom";
@@ -20,8 +23,11 @@
   export let scrollElement: HTMLDivElement | undefined;
 
   let navigatorElement: HTMLElement;
+  let measuredItems: { item: PromptNavigationItem; offset: number }[] = [];
   let positionedItems: PositionedPrompt[] = [];
   let promptOffsets: number[] = [];
+  let markerWindow: PromptMarkerWindow = { start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 };
+  let activeIndex = -1;
   let activeMessageId = "";
   let hoveredMessageId = "";
   let focusedMessageId = "";
@@ -50,32 +56,50 @@
 
   function updateActivePrompt(): void {
     if (!scrollElement || promptOffsets.length === 0) {
+      activeIndex = -1;
       activeMessageId = "";
       return;
     }
     const index = activePromptIndex(promptOffsets, scrollElement.scrollTop + 80);
-    activeMessageId = positionedItems[index]?.messageId ?? "";
+    if (index === activeIndex) return;
+    activeIndex = index;
+    layoutWindow();
+  }
+
+  function layoutWindow(): void {
+    if (!navigatorElement || measuredItems.length === 0) {
+      positionedItems = [];
+      markerWindow = { start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 };
+      activeMessageId = "";
+      return;
+    }
+    markerWindow = promptMarkerWindow(measuredItems.length, activeIndex, navigatorElement.clientHeight);
+    const slice = measuredItems.slice(markerWindow.start, markerWindow.end);
+    const positions = layoutPromptMarkers(slice.length, navigatorElement.clientHeight);
+    positionedItems = slice.map(({ item }, index) => ({ ...item, navigationTop: positions[index] }));
+    activeMessageId = measuredItems[activeIndex]?.item.messageId ?? "";
   }
 
   function measure(): void {
     measureTimer = null;
     if (!scrollElement || !navigatorElement || !visible) {
+      measuredItems = [];
       positionedItems = [];
       promptOffsets = [];
+      activeIndex = -1;
       activeMessageId = "";
       return;
     }
     const scrollRect = scrollElement.getBoundingClientRect();
-    const measured = navigationItems.flatMap((item) => {
+    measuredItems = navigationItems.flatMap((item) => {
       const target = scrollElement?.querySelector<HTMLElement>(`[data-navigation-id="${CSS.escape(item.messageId)}"]`);
       if (!target) return [];
       return [{ item, offset: target.getBoundingClientRect().top - scrollRect.top + scrollElement.scrollTop }];
     });
-    promptOffsets = measured.map(({ offset }) => offset);
-    const positions = layoutPromptMarkers(measured.length, navigatorElement.clientHeight);
-    positionedItems = measured.map(({ item }, index) => ({ ...item, navigationTop: positions[index] }));
+    promptOffsets = measuredItems.map(({ offset }) => offset);
     observeRows();
-    updateActivePrompt();
+    activeIndex = activePromptIndex(promptOffsets, scrollElement.scrollTop + 80);
+    layoutWindow();
   }
 
   function scheduleMeasure(immediate = false): void {
@@ -150,11 +174,16 @@
     return Math.max(item.messageId === activeId ? 18 : 6, dockMarkerWidth(item.navigationTop, currentPointerY));
   }
 
-  function jumpToPrompt(item: PositionedPrompt): void {
+  function jumpToPrompt(item: PromptNavigationItem): void {
     if (!scrollElement) return;
     const target = scrollElement.querySelector<HTMLElement>(`[data-navigation-id="${CSS.escape(item.messageId)}"]`);
     if (!target) return;
     suspendStickToBottom(scrollElement);
+    const index = measuredItems.findIndex((entry) => entry.item.messageId === item.messageId);
+    if (index >= 0 && index !== activeIndex) {
+      activeIndex = index;
+      layoutWindow();
+    }
     activeMessageId = item.messageId;
     target.classList.remove("navigation-target");
     requestAnimationFrame(() => target.classList.add("navigation-target"));
@@ -173,6 +202,23 @@
 
   function previewTop(item: PositionedPrompt): number {
     return Math.min(Math.max(item.navigationTop, 28), Math.max(28, navigatorElement.clientHeight - 28));
+  }
+
+  function pageJump(direction: -1 | 1): void {
+    if (measuredItems.length === 0) return;
+    const pageSize = Math.max(1, markerWindow.end - markerWindow.start);
+    const target = Math.min(Math.max(activeIndex + direction * pageSize, 0), measuredItems.length - 1);
+    const entry = measuredItems[target];
+    if (entry) jumpToPrompt(entry.item);
+  }
+
+  function overflowTop(edgeItem: PositionedPrompt | undefined, direction: -1 | 1): number {
+    if (!edgeItem) return direction === -1 ? PROMPT_OVERFLOW_SLOT : 0;
+    return edgeItem.navigationTop + direction * PROMPT_OVERFLOW_SLOT;
+  }
+
+  function overflowLabel(template: string, count: number): string {
+    return template.replace("{count}", String(count));
   }
 
   onMount(() => {
@@ -198,6 +244,15 @@
     onpointermove={handlePointerMove}
     onpointerleave={() => { pendingPointerY = null; pointerY = null; hoveredMessageId = ""; }}
   >
+    {#if markerWindow.hiddenAbove > 0}
+      <button
+        type="button"
+        class="prompt-navigation-overflow"
+        style={`top:${overflowTop(positionedItems[0], -1)}px`}
+        aria-label={overflowLabel(copy.promptNavigationHiddenAbove, markerWindow.hiddenAbove)}
+        onclick={() => pageJump(-1)}
+      >+{markerWindow.hiddenAbove}</button>
+    {/if}
     {#each positionedItems as item (item.messageId)}
       {@const showTooltip = hoveredMessageId === item.messageId || focusedMessageId === item.messageId}
       <button
@@ -222,5 +277,14 @@
         </div>
       {/if}
     {/each}
+    {#if markerWindow.hiddenBelow > 0}
+      <button
+        type="button"
+        class="prompt-navigation-overflow"
+        style={`top:${overflowTop(positionedItems.at(-1), 1)}px`}
+        aria-label={overflowLabel(copy.promptNavigationHiddenBelow, markerWindow.hiddenBelow)}
+        onclick={() => pageJump(1)}
+      >+{markerWindow.hiddenBelow}</button>
+    {/if}
   </nav>
 {/if}

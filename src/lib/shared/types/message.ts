@@ -64,6 +64,8 @@ export interface ConversationMessage {
   memoryTrace?: {
     traceId: string;
     injectedCount: number;
+    /** Memories the reply actually used (citations + mid-run tool retrieval). */
+    referencedCount: number;
     writeCount: number;
   };
 }

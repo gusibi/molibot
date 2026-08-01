@@ -13,6 +13,7 @@ export const GET: RequestHandler = async ({ params }) => {
       id: trace.id,
       query: trace.query,
       injectedItems: trace.injectedItems,
+      referencedItems: trace.referencedItems,
       writeReceipts: trace.writeReceipts,
       createdAt: trace.createdAt
     }
@@ -20,7 +21,7 @@ export const GET: RequestHandler = async ({ params }) => {
   return json(payload, { headers: { "Cache-Control": "no-store" } });
 };
 
-const FEEDBACK_VALUES: MemoryTraceFeedbackValue[] = ["helpful", "irrelevant", "incorrect", "expired", "too_private"];
+const FEEDBACK_VALUES: MemoryTraceFeedbackValue[] = ["helpful", "irrelevant", "incorrect", "expired", "too_private", "do_not_inject"];
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const traceId = String(params.id ?? "").trim();

@@ -178,6 +178,8 @@ export interface MemoryInjectionItem {
   order: number;
   /** Exact numbered line serialized into the model context. */
   promptText: string;
+  /** Citation short id (M1, M2, …) assigned at injection time. */
+  shortId?: string;
   source: "profile" | "retrieved";
   namespace?: MemoryNamespace;
   domain?: MemoryDomain;

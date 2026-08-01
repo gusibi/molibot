@@ -7,6 +7,19 @@
 ---
 ## 2026-08-01
 
+### Changed: memory trace now distinguishes "provided" from "referenced", and feedback actually changes future injection
+- The memory chip under every reply claimed "参考了 N 条记忆", but the trace only recorded prompt-injected items — the system never knew what the model actually used, and memories the agent fetched mid-run via the memory tool (the strongest "really referenced" signal) were invisible. Retrieval also had no relevance floor, so a low-signal question ("现在几点") always injected the same high-class-weight memories, and the helpful/irrelevant buttons wrote a `utility` score no ranking path read.
+- **Referenced capture**: injected memories now carry citation short ids (`[M1]`), and the model appends one `[[mem:M1,M3]]` line naming those that informed the reply. The marker is stripped everywhere users look — a streaming hold-back filter (`src/lib/server/memory/citation.ts`) keeps it out of live tokens, and the shared transcript projection strips it from context-backed rows. Memory-tool `search` hits are recorded from the runner's existing tool-result hook (`src/lib/server/memory/referenced.ts`), no trace plumbing into the tool layer. Both land in a new `referencedItems` trace column (ALTER-migrated; legacy rows parse as empty, verified against a copy of the real settings DB).
+- **Honest display**: the chat chip renders only when referenced or written memories exist — injected-but-unused ones no longer fake an association under every reply. The drawer becomes 「本轮记忆」: 参考记忆 on top with provenance tags (回答引用 / 运行中检索), 本次附带 collapsed with an explicit "未必被使用" hint.
+- **Feedback that works**: "别再自动附带" (`do_not_inject`) flips `allowInjection` immediately for profile items and after 3 cross-trace strikes for retrieved ones, reversibly (owns/previous rollback like dispute/expiry). "Irrelevant" on a memory the reply actually referenced now costs −0.15 utility vs −0.08. `memoryPriority` gains a `(utility−0.5)×8` term so those penalties really demote, plus a relevance floor: zero lexical overlap injects nothing retrieved. Injection-usage recording switched from "injected" to "referenced", so never-used memories finally become eligible for the unused-90d forgetting path.
+- Design doc: `docs/designs/memory/memory-usage-trace-and-feedback.md` (PRD §3.26). Verified: memory + prompts + projection suites 96/96 (new citation/referenced/round-trip/strike/ranking-floor cases), `tsc` clean on touched files, `svelte-check` 0 errors / 0 warnings, desktop UI tests (incl. new chip/drawer structural guard) 178 passing, desktop `vite build` + root production build pass, real-DB trace migration check OK.
+
+### Changed: conversation turn navigator uses a fixed-pitch sliding window instead of squeezing every turn
+- The chat-pane turn navigator previously compressed all turns into its fixed height, so long conversations (hundreds of turns) rendered markers a couple of pixels apart — unreadable and effectively unclickable.
+- Marker pitch is now fixed at 12px and capacity follows the navigator's actual height (taller window shows more markers). When all turns fit, nothing changes; when they don't, only a window centered on the active turn is shown, and scrolling or clicking a marker re-centers the window, clamped at both transcript edges.
+- Clickable "+N" overflow indicators at both ends show how many turns are hidden and page the window by one capacity per click, with localized aria-labels.
+- Implemented as the pure `promptMarkerWindow` helper in `apps/desktop/src/lib/chat/conversationNavigation.ts` plus windowed layout in `ConversationPromptNavigator.svelte`. Guarded by new unit tests (centering, edge clamping, height-driven growth, no-op when everything fits). Verified: unit tests 9/9, `svelte-check` 0 errors / 0 warnings, desktop UI structural tests 105/105, `vite build` passes.
+
 ### Release: v2.7.9 / Desktop v0.7.6
 - Synchronized the root and Desktop package versions for the new release.
 

@@ -76,7 +76,9 @@ import {
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol.js";
 import { stripImagePartsForTextOnlyModel } from "$lib/server/agent/routing/mediaFallback.js";
-import { getMemoryTraceStore, type MemoryWriteReceipt } from "$lib/server/memory/traceStore.js";
+import { getMemoryTraceStore, type MemoryReferencedItem, type MemoryWriteReceipt } from "$lib/server/memory/traceStore.js";
+import { createMemoryCitationStreamFilter, stripMemoryCitations } from "$lib/server/memory/citation.js";
+import { buildReferencedItems, memoryToolHitsFromToolCall } from "$lib/server/memory/referenced.js";
 import { detectImmediateMemoryCorrections } from "$lib/server/memory/correctionDetector.js";
 import { memoryWriteReceiptsFromToolCall } from "$lib/server/memory/writeReceipt.js";
 
@@ -197,6 +199,7 @@ export class MomRunner implements RunnerLike {
   // tool gate (progress checks with a taskId stay allowed).
   private submittedVideoTaskId: string | undefined;
   private activeMemoryWriteReceipts: MemoryWriteReceipt[] = [];
+  private activeMemoryToolHits: MemoryReferencedItem[] = [];
 
   private readonly hookManager: HookManager;
 
@@ -392,6 +395,11 @@ export class MomRunner implements RunnerLike {
             const index = this.activeMemoryWriteReceipts.findIndex((item) => item.memoryId === receipt.memoryId);
             if (index >= 0) this.activeMemoryWriteReceipts[index] = receipt;
             else this.activeMemoryWriteReceipts.push(receipt);
+          }
+          for (const hit of memoryToolHitsFromToolCall(context.args, context.result)) {
+            if (!this.activeMemoryToolHits.some((item) => item.memoryId === hit.memoryId)) {
+              this.activeMemoryToolHits.push(hit);
+            }
           }
         }
         return undefined;
@@ -1007,6 +1015,7 @@ export class MomRunner implements RunnerLike {
     let assistantMessagePersisted = false;
     let assistantSourceEntryId: string | undefined;
     this.activeMemoryWriteReceipts = [];
+    this.activeMemoryToolHits = [];
     const emittedHostBashApprovalIds = new Set<string>();
     const shouldForwardHostBashApproval = (approval: HostBashApprovalPrompt | undefined): boolean => {
       if (!approval) return true;
@@ -1151,6 +1160,14 @@ export class MomRunner implements RunnerLike {
     let streamedAssistantText = "";
     let firstAssistantTokenLogged = false;
     let promptStartedAt = 0;
+    // Citation markers ([[mem:M1]]) are model-facing bookkeeping; hold back
+    // potential marker tails so they never flash in a live stream, and collect
+    // the cited short ids across assistant messages for the memory trace.
+    let citationFilter = createMemoryCitationStreamFilter();
+    const citedShortIds = new Set<string>();
+    const collectCitationFilter = (): void => {
+      for (const id of citationFilter.citedShortIds()) citedShortIds.add(id);
+    };
      const unsubscribeHooks = this.agent.subscribe(async (event: AgentEvent) => {
       const hookContext = this.activeHookContext;
       if (!hookContext) return;
@@ -1175,6 +1192,8 @@ export class MomRunner implements RunnerLike {
         event.type === "message_start" &&
         (event.message as { role?: string }).role === "assistant"
       ) {
+        collectCitationFilter();
+        citationFilter = createMemoryCitationStreamFilter();
         const next = applyAssistantStreamEvent(
           { assistantTextStreamed, streamedAssistantText },
           { type: "message_start", role: (event.message as { role?: string }).role }
@@ -1184,7 +1203,7 @@ export class MomRunner implements RunnerLike {
       }
 
       if (event.type === "message_update") {
-        const assistantEvent = event.assistantMessageEvent;
+        let assistantEvent = event.assistantMessageEvent;
         if (assistantEvent.type === "text_delta" && assistantEvent.delta) {
           const next = applyAssistantStreamEvent(
             { assistantTextStreamed, streamedAssistantText },
@@ -1201,11 +1220,15 @@ export class MomRunner implements RunnerLike {
               latency: promptStartedAt > 0 ? Date.now() - promptStartedAt : undefined
             });
           }
+          const filteredDelta = citationFilter.push(assistantEvent.delta);
+          if (!filteredDelta) return;
+          assistantEvent = { ...assistantEvent, delta: filteredDelta };
         }
         if (ctx.onRunnerEvent) {
+          const forwarded = assistantEvent;
           enqueue(() => ctx.onRunnerEvent!({
             type: "assistant_message_event",
-            event: assistantEvent
+            event: forwarded
           }));
         }
       }
@@ -2249,6 +2272,13 @@ export class MomRunner implements RunnerLike {
         }
       }
 
+      collectCitationFilter();
+      if (finalText) {
+        const strippedFinal = stripMemoryCitations(finalText);
+        finalText = strippedFinal.text;
+        for (const id of strippedFinal.shortIds) citedShortIds.add(id);
+      }
+
       if (finalText.startsWith("[SILENT]")) {
         momLog("runner", "final_silent", { runId, chatId: this.chatId });
         await ctx.deleteMessage();
@@ -2426,7 +2456,12 @@ export class MomRunner implements RunnerLike {
       if (!finalText.startsWith("[SILENT]") && Boolean(savedSkillDraft)) {
         await respondInThread(formatRunClosingNote(runSummary));
       }
-      if (stopReason === "stop" && assistantSourceEntryId && (promptInput.memoryInjection.items.length > 0 || this.activeMemoryWriteReceipts.length > 0)) {
+      const referencedItems = buildReferencedItems({
+        injectedItems: promptInput.memoryInjection.items,
+        citedShortIds: [...citedShortIds],
+        toolHits: this.activeMemoryToolHits
+      });
+      if (stopReason === "stop" && assistantSourceEntryId && (promptInput.memoryInjection.items.length > 0 || referencedItems.length > 0 || this.activeMemoryWriteReceipts.length > 0)) {
         try {
           const trace = getMemoryTraceStore().save({
             runId,
@@ -2440,13 +2475,17 @@ export class MomRunner implements RunnerLike {
             retrievedCount: memorySnapshot.selected.length,
             selectedCount: memorySnapshot.selected.length,
             injectedItems: promptInput.memoryInjection.items,
+            referencedItems,
             writeReceipts: [...this.activeMemoryWriteReceipts],
             createdAt: new Date().toISOString()
           });
+          // Usage means "actually referenced", not merely injected: recording
+          // only referenced ids keeps never-used memories eligible for the
+          // unused-90d forgetting path instead of being touched every turn.
           await this.memory.recordSuccessfulInjectionUsage(
             memorySnapshot.scope,
             trace.id,
-            trace.injectedItems.map((item) => item.memoryId),
+            trace.referencedItems.map((item) => item.memoryId),
             trace.createdAt
           );
         } catch (traceError) {
@@ -2460,7 +2499,7 @@ export class MomRunner implements RunnerLike {
       return { runId, workspaceId, assistantSourceEntryId, stopReason, errorMessage };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const partialText = streamedAssistantText.trim();
+      const partialText = stripMemoryCitations(streamedAssistantText.trim()).text;
       if (!assistantMessagePersisted) {
         appendRunContextMessage(
           createAssistantErrorMessage({
@@ -2524,6 +2563,7 @@ export class MomRunner implements RunnerLike {
       this.activeModelPromptContext = undefined;
       this.activeModelCallContext = undefined;
       this.activeMemoryWriteReceipts = [];
+      this.activeMemoryToolHits = [];
       if (isRunScopedAutomation) {
         this.agent.state.messages = [];
       } else {

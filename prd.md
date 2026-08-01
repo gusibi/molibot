@@ -5,6 +5,13 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.26 Memory usage trace and feedback loop (2026-08-01)
+
+- **Priority / Status**: P1 / Delivered (2026-08-01). Design doc: [docs/designs/memory/memory-usage-trace-and-feedback.md](docs/designs/memory/memory-usage-trace-and-feedback.md).
+- **Problem**: the memory panel claims every reply "referenced N memories" but the trace only records prompt-injected items — the system never knows what the model actually used; memories the agent actively fetched via the memory tool mid-run (the strongest "really referenced" signal) are invisible; retrieval has no relevance floor so low-signal questions ("what time is it") always inject the same high-class-weight memories; the helpful/irrelevant feedback buttons write a `utility` score that no ranking path reads, and the forgetting path requires `injectionCount === 0`, so daily-injected memories can never be demoted or forgotten.
+- **Decision**: split memory usage into `injected_profile` / `injected_retrieved` / `referenced`. "Referenced" is captured deterministically from memory-tool hits recorded into the turn trace, plus a citation protocol (`[[mem:M1]]` markers, stripped from output) for prompt-injected items; no lexical-overlap guessing. The chat chip renders only when the referenced set is non-empty; the drawer groups 参考记忆 (with source session/time) above collapsed 本次附带. Feedback buttons remap per usage: "别再自动附带" flips `allowInjection` (immediately for profile items, after 3 strikes for retrieved), "参考错了" applies a stronger utility penalty, and `memoryPriority` gains a utility term plus a relevance floor so both actually change future injection. Forgetting eligibility switches from never-injected to never-referenced-and-low-utility.
+- **Acceptance**: low-signal questions show no memory chip and an empty referenced group; cited and tool-retrieved memories appear in the referenced group with provenance; citation markers never leak into visible or persisted text; 别再自动附带 takes effect (immediate / 3-strike); utility measurably lowers ranking under machine test; feedback idempotency/undo and store round-trip regressions pass; agent suite, `tsc`, `svelte-check` 0/0, `vite build`, desktop UI tests, and a cold-start smoke walk pass.
+
 ## 3.25 Dynamic MCP lifecycle and operator controls (2026-07-31)
 
 - **Priority / Status**: P1 / Delivered (GitHub Issue #25).

@@ -117,7 +117,7 @@ test("buildPromptInputEnvelope reports only the final five serialized memories",
     result.memoryInjection.items.map((item) => item.memoryId),
     ["memory-1", "memory-2", "memory-3", "memory-4", "memory-5"]
   );
-  assert.ok(result.modelMessage.includes("5. Preference 5"));
+  assert.ok(result.modelMessage.includes("5. [M5] Preference 5"));
   assert.ok(!result.modelMessage.includes("Preference 6"));
 });
 
@@ -153,4 +153,34 @@ test("stable profile is injected without lexical retrieval and deduplicates retr
   assert.match(result.modelMessage, /Stable profile:/);
   assert.equal(result.memoryInjection.items.length, 1);
   assert.equal(result.memoryInjection.items[0]?.source, "profile");
+});
+
+test("injected memories carry citation short ids and the citation instruction", () => {
+  const profileRecord = memoryRecord("profile-1", "User prefers Simplified Chinese.");
+  const retrievedRecord = memoryRecord("memory-1", "User tracks weight weekly.");
+  const snapshot = memorySnapshot([retrievedRecord]);
+  const profileItem = {
+    memoryId: profileRecord.id,
+    order: 0,
+    promptText: `- ${profileRecord.content}`,
+    source: "profile" as const,
+    snapshot: { displayText: profileRecord.content, content: profileRecord.content, layer: profileRecord.layer, tags: [], updatedAt: profileRecord.updatedAt }
+  };
+  snapshot.profile = {
+    version: 1,
+    baseFingerprint: "profile-base",
+    baseItems: [profileItem],
+    revokedMemoryIds: [],
+    effectiveItems: [profileItem]
+  };
+  const result = buildPromptInputEnvelope({ messageText: "Hi", timezone: "UTC", memorySnapshot: snapshot });
+
+  assert.deepEqual(result.memoryInjection.items.map((item) => [item.memoryId, item.shortId]), [
+    ["profile-1", "M1"],
+    ["memory-1", "M2"]
+  ]);
+  assert.ok(result.modelMessage.includes("- [M1] User prefers Simplified Chinese."));
+  assert.ok(result.modelMessage.includes("1. [M2] User tracks weight weekly."));
+  assert.ok(result.modelMessage.includes("[[mem:M1,M3]]"));
+  assert.ok(!result.persistedMessage.includes("[[mem:"));
 });

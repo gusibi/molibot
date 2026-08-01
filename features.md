@@ -7,6 +7,21 @@
 ---
 ## 2026-08-01
 
+### 记忆「附带 vs 参考」链路与可生效的反馈闭环（已完成，P1）
+
+- 旧行为三断层：chip 把「注入了 N 条」谎称为「参考了 N 条」；Agent 运行中用 memory 工具主动查到的记忆（最强的真参考信号）不进 trace；检索无相关度门槛，「现在几点」也固定注入同一批高类别权重记忆。反馈按钮只改一个排序不读的 `utility`，遗忘通道又要求 `injectionCount === 0`，天天被注入的记忆永远够不着。
+- **真参考采集**：注入记忆带引用短 ID（`[M1]`），模型在回复末尾用一行 `[[mem:M1,M3]]` 声明实际参考项；标记在所有用户可见面全部剥离——流式端用 hold-back 过滤器（`src/lib/server/memory/citation.ts`），context-backed 转录在共享投影层剥离。memory 工具 `search` 命中复用 runner 既有 tool-result 钩子回写（`src/lib/server/memory/referenced.ts`），不向工具层塞 traceId。两类来源落入 trace 新列 `referencedItems`（ALTER 迁移，旧行解析为空；已用真实 settings 库副本验证）。
+- **诚实展示**：chip 只在有参考/写入时出现，文案与真实语义一致；抽屉改为「本轮记忆」，参考记忆置顶（来源标签：回答引用 / 运行中检索），本次附带折叠并注明「未必被使用」。
+- **反馈闭环**：新增「别再自动附带」（`do_not_inject`）——画像项立即 `allowInjection=false`，检索项跨 trace 累计 3 次后禁用，均可撤销（owns/previous 回滚沿用 dispute/expiry 模式）；被真参考的记忆点「无关」扣 −0.15（普通 −0.08）；`memoryPriority` 纳入 `(utility−0.5)×8` 项让扣分真实压排序；检索加相关度门槛（零词面重叠不注入检索项，画像不受影响）；使用记录从「注入即使用」改为「参考才算使用」，未被参考的记忆重新进入 90 天遗忘评估。
+- 设计文档 `docs/designs/memory/memory-usage-trace-and-feedback.md`（PRD §3.26）。机器守卫：citation 剥离/流式 hold-back、tool 命中提取、trace round-trip、do_not_inject 立即/三振/撤销、referenced 强扣分、相关度门槛与 utility 排序（服务端 96/96），chip/抽屉结构守卫（desktop 178 项）。验证：触及文件 `tsc` 干净、`svelte-check` 0 错 0 警、双端 build 通过、真实库迁移检查通过。
+
+### 对话轮次导航条改为固定间距滑动窗口（已完成，P2）
+
+- 旧行为：`layoutPromptMarkers` 把全部轮次压进导航条高度里，几百轮时间距被压到不足 3px，标记密到不可点、不可读。
+- 新增纯函数 `promptMarkerWindow`（`apps/desktop/src/lib/chat/conversationNavigation.ts`）：标记间距固定 12px，容量由导航条实际高度决定（窗口拉大显示多、缩小显示少）；全部放得下时行为不变，放不下时只显示以当前活动轮次为中心的一段窗口，滚动或点击标记后窗口自动重新居中，到达首尾时 clamp。
+- 窗口两端显示可点击的「+N」溢出指示（`prompt-navigation-overflow` 语义类，Geist 11px / `--label-tertiary`），点击按一页（窗口容量）翻页跳转；带 aria-label（中英文 `promptNavigationHiddenAbove/Below`）。
+- 机器守卫：`conversationNavigation.test.ts` 新增窗口居中、首尾 clamp、随高度增长、放得下不裁剪 4 组用例。验证：单元测试 9/9、`svelte-check` 0 错 0 警、desktop UI 结构测试 105/105、`vite build` 通过。
+
 ### 项目「选择现有文件夹」改用原生 Panel（已完成，P1）
 
 - 旧实现调 `/usr/bin/osascript -e 'POSIX path of (choose folder)'`：启动解释器加 Apple event 往返要好几秒才出现窗口，而且弹出的对话框属于 `osascript` 进程而不是 App，所以等待期间 WebView 仍然可点，多点一下就再起一个解释器、再弹一个选择器。

@@ -380,6 +380,25 @@ test("Memory Trace drawer shares direct manipulation for interruption and cancel
   assert.match(styles, /\.memory-trace-drag-handle \{/);
 });
 
+test("memory chip claims reference only for truly-used memories and the drawer separates referenced from provided", () => {
+  const transcript = read("./lib/chat/ConversationTranscript.svelte");
+  const memoryTraceDrawer = read("./lib/chat/MemoryTraceDrawer.svelte");
+
+  // The chip must key on referencedCount/writeCount — never injectedCount —
+  // so injected-but-unused memories no longer fake an association under every reply.
+  assert.match(transcript, /message\.memoryTrace\.referencedCount \?\? 0\) > 0 \|\| message\.memoryTrace\.writeCount > 0/);
+  assert.doesNotMatch(transcript, /memoryTrace\.injectedCount/);
+  assert.match(transcript, /copy\.memoryTraceReferenced\.replace\("\{count\}", String\(message\.memoryTrace\.referencedCount\)\)/);
+
+  // Drawer: referenced group on top (with provenance source tag), provided
+  // group collapsed as secondary transparency info.
+  assert.match(memoryTraceDrawer, /trace\?\.referencedItems \?\? \[\]/);
+  assert.match(memoryTraceDrawer, /copy\.memoryTraceSourceCited : copy\.memoryTraceSourceToolRetrieved/);
+  assert.match(memoryTraceDrawer, /details class="memory-trace-section memory-trace-provided"/);
+  assert.match(memoryTraceDrawer, /copy\.memoryTraceInjectedHint/);
+  assert.match(styles, /\.memory-trace-provided-hint \{/);
+});
+
 test("Project workflows use shared Dialog and AlertDialog primitives", () => {
   const projectList = read("./lib/projects/ProjectList.svelte");
   const projectTree = read("./lib/projects/ProjectTree.svelte");

@@ -45,6 +45,9 @@ import { tokenizeWords } from "#mory";
 import { getMemoryProfileSnapshotStore, type MemoryProfileSnapshotStore } from "$lib/server/memory/profileSnapshotStore.js";
 import type { MemoryProfileTurnSnapshot } from "$lib/server/memory/types.js";
 
+/** Retrieved-item "别再自动附带" strikes (across traces) before injection is auto-disabled. */
+const DO_NOT_INJECT_STRIKE_THRESHOLD = 3;
+
 export class MemoryCandidateValidationError extends Error {
   override readonly name = "MemoryCandidateValidationError";
 }
@@ -523,15 +526,28 @@ export class MemoryGateway {
     if (!existing) throw new Error("Memory is not authorized in the trace scope.");
     const recorded = traceStore.recordFeedback(input);
     const previousEffect = traceStore.getFeedbackEffect(input.traceId, input.memoryId);
-    const contributionFor = (value: MemoryTraceFeedbackValue): number => value === "helpful" ? 0.08 : value === "irrelevant" ? -0.08 : 0;
+    // "Irrelevant" on a memory the reply actually referenced is a stronger
+    // signal than on one that was merely provided with the message.
+    const referencedInTrace = (traceId: string): boolean => {
+      const target = traceId === trace.id ? trace : traceStore.getById(traceId);
+      return Boolean(target?.referencedItems.some((item) => item.memoryId === input.memoryId));
+    };
+    const contributionFor = (traceId: string, value: MemoryTraceFeedbackValue): number => {
+      if (value === "helpful") return 0.08;
+      if (value === "irrelevant") return referencedInTrace(traceId) ? -0.15 : -0.08;
+      if (value === "do_not_inject") return -0.08;
+      return 0;
+    };
     const currentValues = traceStore.listCurrentFeedbackValues(input.memoryId);
     const baseUtility = traceStore.getOrCreateBaseUtility(input.memoryId, existing.utility ?? 0.5);
-    const utility = Math.max(0, Math.min(1, baseUtility + currentValues.reduce((sum, item) => sum + contributionFor(item.value), 0)));
+    const utility = Math.max(0, Math.min(1, baseUtility + currentValues.reduce((sum, item) => sum + contributionFor(item.traceId, item.value), 0)));
     const patch: MemoryUpdateInput = { utility };
     let ownsDispute = previousEffect?.ownsDispute ?? false;
     let previousConfidence = previousEffect?.previousConfidence;
     let ownsExpiry = previousEffect?.ownsExpiry ?? false;
     let previousExpiresAt = previousEffect?.previousExpiresAt;
+    let ownsInjectionDisable = previousEffect?.ownsInjectionDisable ?? false;
+    let previousAllowInjection = previousEffect?.previousAllowInjection;
 
     if (input.value === "incorrect" && previousEffect?.value !== "incorrect") {
       if (existing.state !== "disputed") {
@@ -555,6 +571,22 @@ export class MemoryGateway {
       ownsExpiry = false;
     }
 
+    // "别再自动附带": profile items disable injection immediately; retrieved
+    // items accumulate strikes across traces before the hard switch flips.
+    const injectedSource = trace.injectedItems.find((item) => item.memoryId === input.memoryId)?.source;
+    const doNotInjectCount = currentValues.filter((item) => item.value === "do_not_inject").length;
+    const disableThreshold = injectedSource === "profile" ? 1 : DO_NOT_INJECT_STRIKE_THRESHOLD;
+    if (input.value === "do_not_inject" && doNotInjectCount >= disableThreshold) {
+      if (existing.allowInjection !== false && !ownsInjectionDisable) {
+        ownsInjectionDisable = true;
+        previousAllowInjection = existing.allowInjection ?? true;
+        patch.allowInjection = false;
+      }
+    } else if (input.value !== "do_not_inject" && ownsInjectionDisable && doNotInjectCount < disableThreshold) {
+      patch.allowInjection = previousAllowInjection ?? true;
+      ownsInjectionDisable = false;
+    }
+
     if (input.value === "too_private") {
       await this.suppressPrivacy(trace.scope, input.memoryId, {
         idempotencyKey: `feedback-privacy:${recorded.event.id}`,
@@ -567,11 +599,13 @@ export class MemoryGateway {
       traceId: input.traceId,
       memoryId: input.memoryId,
       value: input.value,
-      utilityContribution: contributionFor(input.value),
+      utilityContribution: contributionFor(input.traceId, input.value),
       ownsDispute,
       previousConfidence,
       ownsExpiry,
       previousExpiresAt,
+      ownsInjectionDisable,
+      previousAllowInjection,
       updatedAt: new Date().toISOString()
     });
     traceStore.markFeedbackEffectApplied(recorded.event.id);

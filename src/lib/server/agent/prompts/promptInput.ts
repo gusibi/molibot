@@ -1,4 +1,5 @@
 import { formatIsoInTimeZone, localDateKeyInTimeZone, normalizeTimeZone } from "$lib/server/time.js";
+import { formatMemoryShortId, MEMORY_CITATION_INSTRUCTION } from "$lib/server/memory/citation.js";
 import { resolveScratchArtifactDir } from "$lib/server/agent/session/scratchArtifacts.js";
 import type {
   MemoryInjectionSnapshot,
@@ -17,11 +18,17 @@ interface PromptInputEnvelopeOptions {
 const MAX_INJECTED_MEMORIES = 5;
 const MAX_INJECTED_MEMORY_LINE_LENGTH = 220;
 
-function compactMemoryLine(index: number, record: MemoryRecord): string {
-  const line = `${index}. ${record.content}`.replace(/\s+/g, " ").trim();
+function compactMemoryLine(index: number, shortId: string, record: MemoryRecord): string {
+  const line = `${index}. [${shortId}] ${record.content}`.replace(/\s+/g, " ").trim();
   return line.length > MAX_INJECTED_MEMORY_LINE_LENGTH
     ? `${line.slice(0, MAX_INJECTED_MEMORY_LINE_LENGTH - 1).trimEnd()}…`
     : line;
+}
+
+function withShortIdPrefix(promptText: string, shortId: string): string {
+  const trimmed = promptText.trimStart();
+  if (trimmed.startsWith("- ")) return `- [${shortId}] ${trimmed.slice(2)}`;
+  return `[${shortId}] ${trimmed}`;
 }
 
 export function materializeMemoryInjection(snapshot?: MemoryPromptSnapshot): MemoryInjectionSnapshot {
@@ -38,14 +45,22 @@ export function materializeMemoryInjection(snapshot?: MemoryPromptSnapshot): Mem
 
   const profileIds = new Set(profileItems.map((item) => item.memoryId));
   const selected = snapshot.selected.filter((record) => !profileIds.has(record.id)).slice(0, MAX_INJECTED_MEMORIES);
+  // Citation short ids number every injected item (profile first, then
+  // retrieved) so the model can cite exactly which memories informed a reply.
+  const numberedProfileItems = profileItems.map((item, order) => {
+    const shortId = formatMemoryShortId(order + 1);
+    return { ...item, order, shortId, promptText: withShortIdPrefix(item.promptText, shortId) };
+  });
   let longTermIndex = 0;
   let dailyIndex = 0;
   const retrievedItems = selected.map((record, order) => {
     const index = record.layer === "daily" ? ++dailyIndex : ++longTermIndex;
-    const promptText = compactMemoryLine(index, record);
+    const shortId = formatMemoryShortId(numberedProfileItems.length + order + 1);
+    const promptText = compactMemoryLine(index, shortId, record);
     return {
       memoryId: record.id,
       order,
+      shortId,
       promptText,
       source: "retrieved" as const,
       namespace: record.namespace,
@@ -64,14 +79,15 @@ export function materializeMemoryInjection(snapshot?: MemoryPromptSnapshot): Mem
   });
   const hasLongTerm = selected.some((record) => record.layer !== "daily");
   const items = [
-    ...profileItems.map((item, order) => ({ ...item, order })),
-    ...retrievedItems.map((item, offset) => ({ ...item, order: profileItems.length + offset }))
+    ...numberedProfileItems,
+    ...retrievedItems.map((item, offset) => ({ ...item, order: numberedProfileItems.length + offset }))
   ];
   const promptText = [
-    profileItems.length > 0 ? "Stable profile:" : "",
-    ...profileItems.map((item) => item.promptText),
+    numberedProfileItems.length > 0 ? "Stable profile:" : "",
+    ...numberedProfileItems.map((item) => item.promptText),
     selected.length > 0 ? (hasLongTerm ? "Retrieved long-term memory (trimmed):" : "Retrieved memory:") : "",
-    ...retrievedItems.map((item) => item.promptText)
+    ...retrievedItems.map((item) => item.promptText),
+    items.length > 0 ? MEMORY_CITATION_INSTRUCTION : ""
   ].filter(Boolean).join("\n");
   return {
     createdAt: snapshot.createdAt,

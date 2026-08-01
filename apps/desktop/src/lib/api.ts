@@ -36,6 +36,7 @@ import type {
   DesktopMemoryActionRequest,
   DesktopMemoryActionResponse,
   DesktopMemoryRejectionsResponse,
+  DesktopMemoryFeedbackValue,
   DesktopMemoryTraceResponse,
   DesktopPluginsResponse,
   DesktopPluginsSummary,
@@ -1857,7 +1858,7 @@ export async function submitDesktopMemoryTraceFeedback(
   endpoint: string,
   traceId: string,
   memoryId: string,
-  value: "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private",
+  value: DesktopMemoryFeedbackValue,
   idempotencyKey: string = crypto.randomUUID()
 ): Promise<void> {
   await requestJson(

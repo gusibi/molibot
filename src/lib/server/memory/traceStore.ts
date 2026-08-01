@@ -19,7 +19,26 @@ export interface MemoryWriteReceipt {
   };
 }
 
-export type MemoryTraceFeedbackValue = "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private";
+export type MemoryTraceFeedbackValue = "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private" | "do_not_inject";
+
+export type MemoryReferencedSource = "cited" | "tool_retrieved";
+
+export interface MemoryReferencedItem {
+  memoryId: string;
+  /** How the reference was established: model citation vs. mid-run tool search. */
+  source: MemoryReferencedSource;
+  /** Search query for tool_retrieved hits. */
+  query?: string;
+  snapshot: {
+    displayText: string;
+    content: string;
+    layer: string;
+    type?: string;
+    confidence?: number;
+    tags: string[];
+    updatedAt: string;
+  };
+}
 
 export interface MemoryTurnTrace {
   id: string;
@@ -34,6 +53,7 @@ export interface MemoryTurnTrace {
   retrievedCount: number;
   selectedCount: number;
   injectedItems: MemoryInjectionItem[];
+  referencedItems: MemoryReferencedItem[];
   writeReceipts: MemoryWriteReceipt[];
   createdAt: string;
 }
@@ -58,6 +78,8 @@ export interface MemoryFeedbackEffect {
   previousConfidence?: number;
   ownsExpiry: boolean;
   previousExpiresAt?: string;
+  ownsInjectionDisable: boolean;
+  previousAllowInjection?: boolean;
   updatedAt: string;
 }
 
@@ -74,6 +96,7 @@ type TraceRow = {
   retrieved_count: number;
   selected_count: number;
   injected_json: string;
+  referenced_json: string;
   writes_json: string;
   created_at: string;
 };
@@ -98,6 +121,7 @@ export class SqliteMemoryTraceStore {
         retrieved_count INTEGER NOT NULL,
         selected_count INTEGER NOT NULL,
         injected_json TEXT NOT NULL,
+        referenced_json TEXT NOT NULL DEFAULT '[]',
         writes_json TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
@@ -150,6 +174,8 @@ export class SqliteMemoryTraceStore {
         previous_confidence REAL,
         owns_expiry INTEGER NOT NULL DEFAULT 0,
         previous_expires_at TEXT,
+        owns_injection_disable INTEGER NOT NULL DEFAULT 0,
+        previous_allow_injection INTEGER,
         updated_at TEXT NOT NULL,
         PRIMARY KEY(trace_id, memory_id)
       );
@@ -181,21 +207,32 @@ export class SqliteMemoryTraceStore {
     if (!columns.some((column) => column.name === "profile_revoked_json")) {
       this.db.exec("ALTER TABLE memory_turn_traces ADD COLUMN profile_revoked_json TEXT NOT NULL DEFAULT '[]'");
     }
+    if (!columns.some((column) => column.name === "referenced_json")) {
+      this.db.exec("ALTER TABLE memory_turn_traces ADD COLUMN referenced_json TEXT NOT NULL DEFAULT '[]'");
+    }
+    const effectColumns = this.db.prepare("PRAGMA table_info(memory_feedback_effects)").all() as Array<{ name: string }>;
+    if (!effectColumns.some((column) => column.name === "owns_injection_disable")) {
+      this.db.exec("ALTER TABLE memory_feedback_effects ADD COLUMN owns_injection_disable INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!effectColumns.some((column) => column.name === "previous_allow_injection")) {
+      this.db.exec("ALTER TABLE memory_feedback_effects ADD COLUMN previous_allow_injection INTEGER");
+    }
   }
 
-  save(input: Omit<MemoryTurnTrace, "id"> & { id?: string }): MemoryTurnTrace {
-    const trace: MemoryTurnTrace = { ...input, id: input.id ?? randomUUID() };
+  save(input: Omit<MemoryTurnTrace, "id" | "referencedItems"> & { id?: string; referencedItems?: MemoryReferencedItem[] }): MemoryTurnTrace {
+    const trace: MemoryTurnTrace = { ...input, id: input.id ?? randomUUID(), referencedItems: input.referencedItems ?? [] };
     this.db.prepare(`
       INSERT INTO memory_turn_traces (
         id, run_id, session_id, chat_id, scope_json, profile_base_fingerprint, profile_revoked_json, assistant_source_entry_id, query,
-        retrieved_count, selected_count, injected_json, writes_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        retrieved_count, selected_count, injected_json, referenced_json, writes_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(assistant_source_entry_id) DO UPDATE SET
         run_id = excluded.run_id,
         scope_json = excluded.scope_json,
         profile_base_fingerprint = excluded.profile_base_fingerprint,
         profile_revoked_json = excluded.profile_revoked_json,
         injected_json = excluded.injected_json,
+        referenced_json = excluded.referenced_json,
         writes_json = excluded.writes_json
     `).run(
       trace.id,
@@ -210,6 +247,7 @@ export class SqliteMemoryTraceStore {
       trace.retrievedCount,
       trace.selectedCount,
       JSON.stringify(trace.injectedItems),
+      JSON.stringify(trace.referencedItems),
       JSON.stringify(trace.writeReceipts),
       trace.createdAt
     );
@@ -223,18 +261,19 @@ export class SqliteMemoryTraceStore {
     return row ? this.fromRow(row) : null;
   }
 
-  getMetaBySourceEntryIds(sourceEntryIds: string[]): Record<string, { traceId: string; injectedCount: number; writeCount: number }> {
+  getMetaBySourceEntryIds(sourceEntryIds: string[]): Record<string, { traceId: string; injectedCount: number; referencedCount: number; writeCount: number }> {
     const unique = [...new Set(sourceEntryIds.filter(Boolean))];
     if (unique.length === 0) return {};
     const placeholders = unique.map(() => "?").join(", ");
     const rows = this.db.prepare(`
-      SELECT id, assistant_source_entry_id, injected_json, writes_json
+      SELECT id, assistant_source_entry_id, injected_json, referenced_json, writes_json
       FROM memory_turn_traces
       WHERE assistant_source_entry_id IN (${placeholders})
-    `).all(...unique) as Array<Pick<TraceRow, "id" | "assistant_source_entry_id" | "injected_json" | "writes_json">>;
+    `).all(...unique) as Array<Pick<TraceRow, "id" | "assistant_source_entry_id" | "injected_json" | "referenced_json" | "writes_json">>;
     return Object.fromEntries(rows.map((row) => [row.assistant_source_entry_id, {
       traceId: row.id,
       injectedCount: this.parseArray(row.injected_json).length,
+      referencedCount: this.parseArray(row.referenced_json).length,
       writeCount: this.parseArray(row.writes_json).length
     }]));
   }
@@ -266,7 +305,9 @@ export class SqliteMemoryTraceStore {
     if (existing) return { event: existing, duplicate: true };
     const trace = this.getById(input.traceId);
     if (!trace) throw new Error("Memory trace not found.");
-    if (!trace.injectedItems.some((item) => item.memoryId === input.memoryId)) {
+    const known = trace.injectedItems.some((item) => item.memoryId === input.memoryId)
+      || trace.referencedItems.some((item) => item.memoryId === input.memoryId);
+    if (!known) {
       throw new Error("Memory was not injected by this trace.");
     }
     const current = this.db.prepare(`
@@ -353,8 +394,8 @@ export class SqliteMemoryTraceStore {
     this.db.prepare(`
       INSERT INTO memory_feedback_effects(
         trace_id, memory_id, value, utility_contribution, owns_dispute, previous_confidence,
-        owns_expiry, previous_expires_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        owns_expiry, previous_expires_at, owns_injection_disable, previous_allow_injection, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(trace_id, memory_id) DO UPDATE SET
         value = excluded.value,
         utility_contribution = excluded.utility_contribution,
@@ -362,6 +403,8 @@ export class SqliteMemoryTraceStore {
         previous_confidence = excluded.previous_confidence,
         owns_expiry = excluded.owns_expiry,
         previous_expires_at = excluded.previous_expires_at,
+        owns_injection_disable = excluded.owns_injection_disable,
+        previous_allow_injection = excluded.previous_allow_injection,
         updated_at = excluded.updated_at
     `).run(
       effect.traceId,
@@ -372,6 +415,8 @@ export class SqliteMemoryTraceStore {
       effect.previousConfidence ?? null,
       effect.ownsExpiry ? 1 : 0,
       effect.previousExpiresAt ?? null,
+      effect.ownsInjectionDisable ? 1 : 0,
+      effect.previousAllowInjection == null ? null : (effect.previousAllowInjection ? 1 : 0),
       effect.updatedAt
     );
   }
@@ -431,6 +476,7 @@ export class SqliteMemoryTraceStore {
       retrievedCount: row.retrieved_count,
       selectedCount: row.selected_count,
       injectedItems: this.parseArray(row.injected_json) as MemoryInjectionItem[],
+      referencedItems: this.parseArray(row.referenced_json ?? "[]") as MemoryReferencedItem[],
       writeReceipts: this.parseArray(row.writes_json) as MemoryWriteReceipt[],
       createdAt: row.created_at
     };
@@ -464,6 +510,8 @@ export class SqliteMemoryTraceStore {
       previousConfidence: typeof row.previous_confidence === "number" ? row.previous_confidence : undefined,
       ownsExpiry: Number(row.owns_expiry) === 1,
       previousExpiresAt: row.previous_expires_at ? String(row.previous_expires_at) : undefined,
+      ownsInjectionDisable: Number(row.owns_injection_disable) === 1,
+      previousAllowInjection: row.previous_allow_injection == null ? undefined : Number(row.previous_allow_injection) === 1,
       updatedAt: String(row.updated_at)
     };
   }

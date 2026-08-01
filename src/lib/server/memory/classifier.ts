@@ -281,6 +281,10 @@ function memoryPriority(row: MemoryRecord, query: string): number {
     score += scoreLexical(row.content, queryLower) * 4;
   }
 
+  // Feedback-driven utility (0.5 = neutral): repeated "参考错了 / 别再附带"
+  // must actually push a memory down the ranking, and "有帮助" lifts it.
+  score += ((row.utility ?? 0.5) - 0.5) * 8;
+
   return score;
 }
 
@@ -298,9 +302,15 @@ export function selectPromptMemoryRows(
     });
 
   const queryLifestyle = hasHint(query, LIFESTYLE_HINTS);
+  const queryLower = normalizeMemoryContent(query).toLowerCase();
   const eligible = sorted.filter((row) => {
     const tags = new Set((row.tags ?? []).map((tag) => tag.toLowerCase()));
     if (tags.has("class:lifestyle") && !queryLifestyle) return false;
+    // Relevance floor: a memory with zero lexical relevance to the question
+    // must not be injected. Low-signal questions ("现在几点") therefore get no
+    // retrieved memories at all instead of a fixed set of high-class-weight
+    // ones — the stable profile channel is unaffected.
+    if (!queryLower || scoreLexical(row.content, queryLower) <= 0) return false;
     return true;
   });
 

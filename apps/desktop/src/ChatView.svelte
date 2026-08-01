@@ -16,6 +16,7 @@
     type DesktopConversationMessage,
     type DesktopExternalTranscript,
     type DesktopMessageAttachment,
+    type DesktopMemoryFeedbackValue,
     type DesktopMemoryTraceResponse,
     type DesktopProfileSummary,
     type DesktopProviderCreateRequest,
@@ -240,7 +241,7 @@
     void tick().then(() => target?.focus());
   }
 
-  async function submitMemoryTraceFeedback(memoryId: string, value: "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private"): Promise<void> {
+  async function submitMemoryTraceFeedback(memoryId: string, value: DesktopMemoryFeedbackValue): Promise<void> {
     if (!memoryTraceId) return;
     try {
       await submitDesktopMemoryTraceFeedback(connectedEndpoint, memoryTraceId, memoryId, value);

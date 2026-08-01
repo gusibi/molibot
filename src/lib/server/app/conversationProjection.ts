@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionMessageEntry } from "$lib/server/agent/session/session.js";
 import type { ConversationMessage } from "$lib/shared/types/message.js";
 import type { UiMessageMetadata } from "$lib/server/sessions/store.js";
+import { stripMemoryCitations } from "$lib/server/memory/citation.js";
 
 export interface ProjectedConversationMessage extends ConversationMessage {
   thinking?: string;
@@ -42,6 +43,13 @@ function thinkingText(content: unknown): string {
 
 function displayUserText(text: string): string {
   return text.replace(/\n*<channel_attachments>[\s\S]*?<\/channel_attachments>\n*/g, "").trim();
+}
+
+// Context-backed assistant rows re-read the raw model output, which may end in
+// a memory-citation marker ([[mem:M1]]); it is model-facing bookkeeping and
+// must never render in a transcript.
+function displayAssistantText(text: string): string {
+  return stripMemoryCitations(text).text;
 }
 
 function modelLabel(message: AgentMessage): string | undefined {
@@ -86,7 +94,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     }
     if (role !== "assistant") continue;
     const status = assistantStatus(entry.message);
-    const content = contentText(entry.message.content).trim() || status.errorMessage || "";
+    const content = displayAssistantText(contentText(entry.message.content).trim()) || status.errorMessage || "";
     const thinking = thinkingText(entry.message.content);
     if (!assistant) {
       assistant = {

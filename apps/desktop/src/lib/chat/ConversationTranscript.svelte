@@ -165,15 +165,19 @@
           <div class="message-meta assistant-meta">
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
             {#if message.model}<details class="message-model technical-detail"><summary><i class="ph ph-cpu" aria-hidden="true"></i>{humanizeModelOption(message.model, message.model).label}</summary><code>{message.model}</code></details>{/if}
-            {#if message.memoryTrace && messageActions?.onOpenMemoryTrace}
+            <!-- Only truly-used memories earn a chip: referenced (cited or
+                 tool-retrieved) and writes. Injected-but-unused memories stay
+                 out of the message meta so every reply no longer carries the
+                 same misleading association. -->
+            {#if message.memoryTrace && messageActions?.onOpenMemoryTrace && ((message.memoryTrace.referencedCount ?? 0) > 0 || message.memoryTrace.writeCount > 0)}
               <button
                 type="button"
                 class="message-memory-trace"
                 onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}
               >
                 <i class="ph ph-brain" aria-hidden="true"></i>
-                {#if message.memoryTrace.injectedCount > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.injectedCount))}{/if}
-                {#if message.memoryTrace.injectedCount > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
+                {#if (message.memoryTrace.referencedCount ?? 0) > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.referencedCount))}{/if}
+                {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
                 {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
               </button>
             {/if}

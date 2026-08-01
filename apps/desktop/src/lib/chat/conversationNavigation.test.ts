@@ -4,7 +4,8 @@ import {
   activePromptIndex,
   dockMarkerWidth,
   extractPromptNavigationItems,
-  layoutPromptMarkers
+  layoutPromptMarkers,
+  promptMarkerWindow
 } from "./conversationNavigation";
 
 const labels = {
@@ -42,6 +43,30 @@ test("prompt marker layout compresses only when the compact stack cannot fit", (
   assert.equal(positions[0], 8);
   assert.equal(positions.at(-1), 92);
   assert.ok(positions.every((position, index) => index === 0 || position > positions[index - 1]));
+});
+
+test("marker window shows everything while the fixed-pitch stack fits", () => {
+  assert.deepEqual(promptMarkerWindow(8, 3, 100), { start: 0, end: 8, hiddenAbove: 0, hiddenBelow: 0 });
+  assert.deepEqual(promptMarkerWindow(0, 0, 100), { start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 });
+});
+
+test("marker window keeps the active turn centered with fixed pitch when items overflow", () => {
+  assert.deepEqual(promptMarkerWindow(30, 15, 100), { start: 13, end: 18, hiddenAbove: 13, hiddenBelow: 12 });
+  const tall = promptMarkerWindow(300, 100, 600);
+  assert.equal(tall.end - tall.start, 47);
+  assert.ok(tall.start < 100 && 100 < tall.end);
+  assert.equal(tall.hiddenAbove + tall.hiddenBelow + (tall.end - tall.start), 300);
+});
+
+test("marker window clamps at both transcript edges", () => {
+  assert.deepEqual(promptMarkerWindow(30, 0, 100), { start: 0, end: 5, hiddenAbove: 0, hiddenBelow: 25 });
+  assert.deepEqual(promptMarkerWindow(30, 29, 100), { start: 25, end: 30, hiddenAbove: 25, hiddenBelow: 0 });
+});
+
+test("marker window grows with navigator height", () => {
+  const short = promptMarkerWindow(300, 150, 240);
+  const tall = promptMarkerWindow(300, 150, 720);
+  assert.ok(tall.end - tall.start > short.end - short.start);
 });
 
 test("active prompt uses the user-turn interval rather than element visibility", () => {

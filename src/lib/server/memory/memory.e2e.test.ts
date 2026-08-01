@@ -269,3 +269,48 @@ test("compaction membership checks remain set-based", () => {
   const source = readFileSync(new URL("./moryCore.ts", import.meta.url), "utf8");
   assert.doesNotMatch(source, /expiredIds\.includes\(|duplicateIds\.includes\(/);
 });
+
+test("do_not_inject disables profile items immediately, strikes retrieved items, and is reversible", () => withMemory(async (gateway, backend) => {
+  const scope = { channel: "web", externalUserId: "chat", botId: "momo" };
+  const profileMemory = await backend.add(scope, { content: "用户偏好被称呼为大哥", type: "user_preference", subject: "address_style", confidence: 0.9 });
+  const retrievedMemory = await backend.add(scope, { content: "用户在减肥，按周记录体重", type: "user_fact", subject: "weight_program", confidence: 0.9 });
+  const traces = new SqliteMemoryTraceStore(":memory:");
+  const makeTrace = (suffix: string) => traces.save({
+    runId: `run-${suffix}`, sessionId: `session-${suffix}`, chatId: "chat", scope, profileRevokedMemoryIds: [], assistantSourceEntryId: `assistant-${suffix}`,
+    query: "现在几点", retrievedCount: 2, selectedCount: 2,
+    injectedItems: [
+      { memoryId: profileMemory.id, order: 0, shortId: "M1", promptText: `- [M1] ${profileMemory.content}`, source: "profile", snapshot: { displayText: profileMemory.content, content: profileMemory.content, layer: profileMemory.layer, tags: [], updatedAt: profileMemory.updatedAt } },
+      { memoryId: retrievedMemory.id, order: 1, shortId: "M2", promptText: `1. [M2] ${retrievedMemory.content}`, source: "retrieved", snapshot: { displayText: retrievedMemory.content, content: retrievedMemory.content, layer: retrievedMemory.layer, tags: [], updatedAt: retrievedMemory.updatedAt } }
+    ],
+    writeReceipts: [], createdAt: "2026-08-01T00:00:00.000Z"
+  });
+
+  // Profile item: one "别再自动附带" flips the hard switch immediately.
+  const traceA = makeTrace("a");
+  assert.equal((await gateway.applyTraceFeedback(traces, { traceId: traceA.id, memoryId: profileMemory.id, value: "do_not_inject", idempotencyKey: "dni-profile-1" })).memory.allowInjection, false);
+  // Withdrawing the feedback restores injection.
+  assert.equal((await gateway.applyTraceFeedback(traces, { traceId: traceA.id, memoryId: profileMemory.id, value: "helpful", idempotencyKey: "dni-profile-undo" })).memory.allowInjection, true);
+
+  // Retrieved item: strikes accumulate across traces; the third disables.
+  const traceB = makeTrace("b");
+  const traceC = makeTrace("c");
+  assert.equal((await gateway.applyTraceFeedback(traces, { traceId: traceA.id, memoryId: retrievedMemory.id, value: "do_not_inject", idempotencyKey: "dni-r1" })).memory.allowInjection ?? true, true);
+  assert.equal((await gateway.applyTraceFeedback(traces, { traceId: traceB.id, memoryId: retrievedMemory.id, value: "do_not_inject", idempotencyKey: "dni-r2" })).memory.allowInjection ?? true, true);
+  assert.equal((await gateway.applyTraceFeedback(traces, { traceId: traceC.id, memoryId: retrievedMemory.id, value: "do_not_inject", idempotencyKey: "dni-r3" })).memory.allowInjection, false);
+  traces.close();
+}));
+
+test("irrelevant feedback on a referenced memory carries a stronger utility penalty", () => withMemory(async (gateway, backend) => {
+  const scope = { channel: "web", externalUserId: "chat", botId: "momo" };
+  const memory = await backend.add(scope, { content: "用户关注电力行业分析", type: "user_fact", subject: "industry_interest", confidence: 0.9 });
+  const traces = new SqliteMemoryTraceStore(":memory:");
+  const trace = traces.save({
+    runId: "run-ref", sessionId: "session-ref", chatId: "chat", scope, profileRevokedMemoryIds: [], assistantSourceEntryId: "assistant-ref",
+    query: "行业", retrievedCount: 1, selectedCount: 1,
+    injectedItems: [{ memoryId: memory.id, order: 0, shortId: "M1", promptText: `1. [M1] ${memory.content}`, source: "retrieved", snapshot: { displayText: memory.content, content: memory.content, layer: memory.layer, tags: [], updatedAt: memory.updatedAt } }],
+    referencedItems: [{ memoryId: memory.id, source: "cited", snapshot: { displayText: memory.content, content: memory.content, layer: memory.layer, tags: [], updatedAt: memory.updatedAt } }],
+    writeReceipts: [], createdAt: "2026-08-01T00:00:00.000Z"
+  });
+  assert.equal((await gateway.applyTraceFeedback(traces, { traceId: trace.id, memoryId: memory.id, value: "irrelevant", idempotencyKey: "ref-irrelevant" })).memory.utility, 0.35);
+  traces.close();
+}));

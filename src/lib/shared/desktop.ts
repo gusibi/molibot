@@ -633,6 +633,8 @@ export interface DesktopConversationMessage {
 export interface DesktopMessageMemoryTraceMeta {
   traceId: string;
   injectedCount: number;
+  /** Memories the reply actually used (citations + mid-run tool retrieval). */
+  referencedCount: number;
   writeCount: number;
 }
 
@@ -658,12 +660,23 @@ export interface DesktopMemoryWriteReceipt {
   snapshot: DesktopMemoryTraceItem["snapshot"];
 }
 
+export type DesktopMemoryFeedbackValue = "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private" | "do_not_inject";
+
+export interface DesktopMemoryReferencedItem {
+  memoryId: string;
+  /** "cited" = the model cited it in the reply; "tool_retrieved" = fetched mid-run via the memory tool. */
+  source: "cited" | "tool_retrieved";
+  query?: string;
+  snapshot: DesktopMemoryTraceItem["snapshot"];
+}
+
 export interface DesktopMemoryTraceResponse {
   ok: true;
   trace: {
     id: string;
     query: string;
     injectedItems: DesktopMemoryTraceItem[];
+    referencedItems: DesktopMemoryReferencedItem[];
     writeReceipts: DesktopMemoryWriteReceipt[];
     createdAt: string;
   };

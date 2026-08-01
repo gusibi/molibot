@@ -1,6 +1,8 @@
 import { transcriptDisplayContent, type TranscriptMessage } from "./transcript";
 
 export const PROMPT_NAVIGATOR_MIN_TURNS = 5;
+export const PROMPT_MARKER_PITCH = 12;
+export const PROMPT_OVERFLOW_SLOT = 16;
 
 export type PromptPreviewLabels = {
   image: string;
@@ -76,10 +78,36 @@ export function extractPromptNavigationItems(
   return items;
 }
 
+export type PromptMarkerWindow = {
+  start: number;
+  end: number;
+  hiddenAbove: number;
+  hiddenBelow: number;
+};
+
+export function promptMarkerWindow(
+  itemCount: number,
+  activeIndex: number,
+  navigatorHeight: number,
+  markerPitch = PROMPT_MARKER_PITCH
+): PromptMarkerWindow {
+  if (itemCount <= 0) return { start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 };
+  const edge = Math.min(8, navigatorHeight / 2);
+  const fullAvailable = Math.max(0, navigatorHeight - edge * 2);
+  if (navigatorHeight <= 0 || markerPitch * (itemCount - 1) <= fullAvailable) {
+    return { start: 0, end: itemCount, hiddenAbove: 0, hiddenBelow: 0 };
+  }
+  const available = Math.max(0, fullAvailable - PROMPT_OVERFLOW_SLOT * 2);
+  const capacity = Math.min(itemCount, Math.max(5, Math.floor(available / markerPitch) + 1));
+  const clampedActive = Math.min(Math.max(activeIndex, 0), itemCount - 1);
+  const start = Math.min(Math.max(clampedActive - Math.floor((capacity - 1) / 2), 0), itemCount - capacity);
+  return { start, end: start + capacity, hiddenAbove: start, hiddenBelow: itemCount - start - capacity };
+}
+
 export function layoutPromptMarkers(
   itemCount: number,
   navigatorHeight: number,
-  markerPitch = 12
+  markerPitch = PROMPT_MARKER_PITCH
 ): number[] {
   if (itemCount <= 0 || navigatorHeight <= 0) return [];
   const edge = Math.min(8, navigatorHeight / 2);
