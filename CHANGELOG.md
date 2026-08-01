@@ -7,6 +7,9 @@
 ---
 ## 2026-08-01
 
+### Release: v2.8.4 / Desktop v0.8.1
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Added: OpenConnector catalog and Agent MCP gateway
 
 - Added a first-class Desktop OpenConnector settings page beside MCP, with secret-safe Runtime Token configuration, Provider and connected-account discovery, search/filter controls, Console deep links, and explicit manual refresh.
