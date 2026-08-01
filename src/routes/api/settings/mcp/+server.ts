@@ -4,11 +4,12 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { listMcpServers, replaceMcpServers } from "$lib/server/settings/handlers/mcp";
 import { config } from "$lib/server/app/env";
 import { getMcpServerStatuses, reconcileMcpServers, reconnectMcpServer } from "$lib/server/agent/tools/mcp";
+import { effectiveMcpServers } from "$lib/server/settings/openConnector";
 
 async function responsePayload(connectEnabled = false) {
   const runtime = getRuntime();
   const servers = listMcpServers(runtime);
-  await reconcileMcpServers(servers, { workspaceDir: config.webWorkspaceDir, connectEnabled });
+  await reconcileMcpServers(effectiveMcpServers(runtime.getSettings()), { workspaceDir: config.webWorkspaceDir, connectEnabled });
   return { ok: true, mcpServers: servers, statuses: getMcpServerStatuses(servers, config.webWorkspaceDir) };
 }
 

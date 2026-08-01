@@ -35,7 +35,7 @@ test("CommandSystem projects stable localized commands and settings destinations
   );
   assert.equal(snapshot.find((command) => command.id === commandIdForSettings("memory"))?.label, "Memory");
   assert.equal(snapshot.find((command) => command.id === "workspace.automations")?.label, "Automations");
-  assert.equal(snapshot.filter((command) => command.id.startsWith("settings.")).length, 22);
+  assert.equal(snapshot.filter((command) => command.id.startsWith("settings.")).length, 23);
 
   const chinese = system.snapshot(context({ locale: "zh-CN" }));
   assert.equal(chinese.find((command) => command.id === "app.open-settings")?.label, "打开设置");

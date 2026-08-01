@@ -7,6 +7,19 @@
 ---
 ## 2026-08-01
 
+### OpenConnector 服务目录与 Agent MCP 接入（已完成，P1）
+
+- 在 Desktop“设置 → 工具”中新增与 MCP 平级的 OpenConnector 页面：独立配置启用状态、服务地址、Console 地址与 Runtime Token；支持搜索、分类/连接状态筛选、Provider 能力摘要、已连接账户、手动刷新和配置页深链，普通页面进入只读取本地目录缓存。
+- Runtime Token 只经 Molibot 服务端访问 `/v1/providers` 与 `/v1/apps`；常规前端摘要只收到 `tokenConfigured`，显式点击眼睛才通过本地 Desktop API 读取。保存接口保留未重新输入的密文配置，并覆盖临时 SQLite 的 save → fresh store → load 回归。
+- Agent 层从专属配置派生唯一的 `open-connector` Streamable HTTP MCP，不在通用 MCP 设置中复制凭据；普通 MCP 生命周期同步也保留该托管连接。配套 `open-connector` Skill 固定“确认连接 → 搜索动作 → 读取指南 → 只读调用”的流程。
+- 完整方案和后续写操作安全阶段保留在 `docs/requirements/openconnector-cloudflare-and-molibot-plan.md`；首版仍要求 OpenConnector 侧 Runtime Token/Action policy 采用只读 allowlist，不保存 Admin Token。
+- **连接状态根修与目录分组**：`/v1/apps/authenticated` 只过滤调用方传入的 service 集合，无参数调用必然返回空数组；现改用 Runtime Token 可访问的 `/v1/apps`，并只将 `status: active` 计为已连接，同时映射 alias/账号标签。Provider 展示为三列 68px 服务行，配置块默认折叠，顶部状态改为内容列内的安静状态行；目录上方新增带数量的可见分类栏，而非把分类藏在单个下拉框中。
+- **本地目录缓存与品牌图标**：Provider 区域限制在设置页标准内容列。页面进入只读取按 Runtime 地址隔离的 `<DATA_DIR>/cache/open-connector-catalog.json`，不再自动访问 OpenConnector；保存配置或点击“刷新”才实时请求 `/v1/providers` 与 `/v1/apps` 并原子更新缓存。Agent 的 MCP 调用仍直接访问 Runtime，不经过目录缓存。图标优先采用 Provider 明示地址或 Iconify 品牌 SVG，无法映射时按官网域名使用 Google Favicon，并保留首字母失败兜底。
+- **统一 MCP 可见性**：启用且已配置的 OpenConnector 现在作为 `open-connector` HTTP 服务出现在统一 MCP 页面及总数中，展示实时连接状态、工具数量和“托管”标记，并支持重新连接。该条目的启停、地址和 Token 仍由 OpenConnector 设置页单点管理，因此 MCP 页面不提供编辑、删除或开关操作。
+- **Provider 可读性与组合筛选**：目录从三列改为两列，给 Provider 名称和技术标识保留足够空间；搜索、连接状态和分类现在位于同一行。分类使用共享 Bits UI 多选下拉，支持同时选择多个分类（任一命中），空选择表示全部分类，并在窄宽度下垂直排列、目录回落为单列。
+- Provider 结果不再共用整行外框；每个服务是独立的带边框卡片。筛选后出现单数结果时，最后一张只占左列，右列保持自然留白。
+- Provider 卡片将连接状态与“管理/连接”组合为固定的右侧操作区；Logo、名称和技术标识独占左侧弹性空间，不再因名称长度产生参差排列。
+
 ### Desktop 设置下拉菜单交互与宽度修复（已完成，P0）
 
 - **根因**：共享 `SelectControl` 把 Bits UI `Select.Item` 的 `child` snippet 误当成内容插槽；该 API 实际会替换整个选项根节点，导致 `role="option"`、点击/键盘事件、纵向布局和选中态全部丢失，所有选项退化成一行不可点击文字。

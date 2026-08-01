@@ -139,6 +139,7 @@ interface RawSettings {
   feishuBots?: unknown;
   qqBots?: unknown;
   mcpServers?: unknown;
+  openConnector?: unknown;
   skillSearch?: unknown;
   skillDrafts?: unknown;
   webSearch?: unknown;
@@ -615,6 +616,18 @@ function sanitizeMcpServers(input: unknown): McpServerConfig[] {
   }
 
   return out;
+}
+
+function sanitizeOpenConnector(input: unknown): RuntimeSettings["openConnector"] {
+  const raw = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const baseUrl = String(raw.baseUrl ?? "https://opc.eztoolab.com").trim().replace(/\/+$/, "");
+  const consoleUrl = String(raw.consoleUrl ?? `${baseUrl}/providers`).trim().replace(/\/+$/, "");
+  return {
+    enabled: raw.enabled === undefined ? false : Boolean(raw.enabled),
+    baseUrl,
+    runtimeToken: String(raw.runtimeToken ?? "").trim(),
+    consoleUrl
+  };
 }
 
 function sanitizeRoles(input: unknown): ModelRole[] {
@@ -1147,6 +1160,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const effectiveQQBots = qqBots.length > 0 ? qqBots : deriveQQBotsFromChannels(channels);
   const primaryBot = effectiveTelegramBots[0];
   const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
+  const openConnector = sanitizeOpenConnector(raw.openConnector ?? defaultRuntimeSettings.openConnector);
   const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
   const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);
   const webSearch = sanitizeWebSearchSettings(raw.webSearch ?? defaultRuntimeSettings.webSearch);
@@ -1232,6 +1246,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     agents,
     channels,
     mcpServers,
+    openConnector,
     skillSearch,
     skillDrafts,
     webSearch,
@@ -1971,6 +1986,7 @@ export class SettingsStore {
       plugins: settings.plugins,
       timezone: settings.timezone,
       mcpServers: settings.mcpServers,
+      openConnector: settings.openConnector,
       skillSearch: settings.skillSearch,
       skillDrafts: settings.skillDrafts,
       disabledSkillPaths: settings.disabledSkillPaths,

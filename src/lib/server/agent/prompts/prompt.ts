@@ -15,6 +15,7 @@ import {
 import { formatSkillsForPrompt, loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
 import { buildFeaturePluginPromptSections } from "$lib/server/plugins/feature-registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
 import {
   resolveDataRootFromWorkspacePath,
   resolveMemoryRootFromWorkspacePath,
@@ -378,7 +379,7 @@ function buildSubagentSection(): string {
 }
 
 function buildMcpAccessSection(settings?: RuntimeSettings): string {
-  const servers = (settings?.mcpServers ?? []).filter((server) => server.enabled);
+  const servers = settings ? effectiveMcpServers(settings).filter((server) => server.enabled) : [];
   const serverList =
     servers.length > 0
       ? servers.map((server) => `- ${server.id} (${server.transport})`).join("\n")

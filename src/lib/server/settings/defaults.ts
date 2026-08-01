@@ -472,6 +472,12 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     }
   },
   mcpServers: defaultMcpServers,
+  openConnector: {
+    enabled: false,
+    baseUrl: "https://opc.eztoolab.com",
+    runtimeToken: "",
+    consoleUrl: "https://opc.eztoolab.com/providers"
+  },
   skillSearch: defaultSkillSearchSettings,
   skillDrafts: defaultSkillDraftSettings,
   webSearch: defaultWebSearchSettings,

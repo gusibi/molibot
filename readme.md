@@ -129,6 +129,12 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
 | [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with one stable live reply per Project turn and Finder-style native sidebar materials. |
 
+OpenConnector is available in Desktop under **Settings → Tools → OpenConnector**. Its connection settings stay collapsed until needed; the compact local-cached catalog exposes category counts, active services, and Provider logos, supports explicit manual refresh and saved-token reveal/hide, opens Provider setup, and exposes the real-time managed remote MCP to Agents through the bundled read-only Skill. See the [deployment and integration design](docs/requirements/openconnector-cloudflare-and-molibot-plan.md).
+The Provider directory uses a readable two-column layout with one compact search/status/multi-category filter row; selecting several categories includes Providers from any selected category.
+Each Provider owns its card boundary, so odd result counts leave a clean empty column instead of drawing an empty row cell.
+Provider identity stays left-aligned while connection state and management actions form a consistent right-aligned group.
+When enabled and configured, the derived `open-connector` service also appears in **Settings → Tools → MCP** with its live connection state and a Managed label. Reconnect is available there; configuration remains owned by the OpenConnector page.
+
 Project runs generate `SYSTEM_PROMPT.preview.md` in the Project's Molibot workspace. Its header lists only effective prompt sources: Project rules come from `AGENTS.md`, `AGENT.md`, or `CLAUDE.md`; runtime context retains `USER.md` but excludes Bot/Agent identity and persona profiles.
 When a user explicitly invokes a Skill, that choice takes precedence over automatic outcome routing; otherwise media, current-information, and scheduling requests use their dedicated runtime tools before generic Skill discovery.
 

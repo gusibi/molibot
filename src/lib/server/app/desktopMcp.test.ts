@@ -134,3 +134,21 @@ test("buildDesktopMcpSummary keeps configured enablement separate from live conn
   assert.equal(summary.items[1].enabled, false);
   assert.equal(summary.items[1].connectionState, "disabled");
 });
+
+test("buildDesktopMcpSummary includes the managed OpenConnector MCP server", () => {
+  const summary = buildDesktopMcpSummary({
+    mcpServers: [],
+    openConnector: {
+      enabled: true,
+      baseUrl: "https://opc.example.com",
+      consoleUrl: "https://opc.example.com/providers",
+      runtimeToken: "oct-secret"
+    }
+  } as RuntimeSettings);
+
+  assert.equal(summary.counts.total, 1);
+  assert.equal(summary.items[0]?.id, "open-connector");
+  assert.equal(summary.items[0]?.managed, true);
+  assert.equal(summary.items[0]?.url, "https://opc.example.com/mcp");
+  assert.equal(JSON.stringify(summary).includes("oct-secret"), false);
+});

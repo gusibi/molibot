@@ -699,6 +699,18 @@ export function sanitizeMcpServers(input: unknown): McpServerConfig[] {
   return out;
 }
 
+export function sanitizeOpenConnector(input: unknown, current: RuntimeSettings["openConnector"] = defaultRuntimeSettings.openConnector): RuntimeSettings["openConnector"] {
+  const raw = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const baseUrl = String(raw.baseUrl ?? current.baseUrl).trim().replace(/\/+$/, "");
+  const consoleUrl = String(raw.consoleUrl ?? current.consoleUrl ?? `${baseUrl}/providers`).trim().replace(/\/+$/, "");
+  return {
+    enabled: raw.enabled === undefined ? current.enabled : Boolean(raw.enabled),
+    baseUrl,
+    runtimeToken: String(raw.runtimeToken ?? current.runtimeToken).trim(),
+    consoleUrl
+  };
+}
+
 export function sanitizeChannelInstanceDisplaySettings(input: unknown): ChannelInstanceSettings["display"] {
   if (!input || typeof input !== "object") return undefined;
   const raw = input as Record<string, unknown>;
@@ -1171,6 +1183,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.feishuBots = sanitizedFeishuBots;
   next.qqBots = sanitizedQQBots;
   next.mcpServers = sanitizeMcpServers(next.mcpServers ?? current.mcpServers);
+  next.openConnector = sanitizeOpenConnector(next.openConnector ?? current.openConnector, current.openConnector);
   next.skillSearch = sanitizeSkillSearchSettings(next.skillSearch ?? current.skillSearch, current.skillSearch);
   next.skillDrafts = sanitizeSkillDraftSettings(next.skillDrafts ?? current.skillDrafts, current.skillDrafts);
   next.webSearch = sanitizeWebSearchSettings(next.webSearch ?? current.webSearch, current.webSearch);

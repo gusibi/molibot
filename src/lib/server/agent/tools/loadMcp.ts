@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
 
 const loadMcpSchema = Type.Object({
   action: Type.Union([
@@ -16,7 +17,7 @@ function formatServerList(
   settings: RuntimeSettings,
   selectedIds: Set<string>
 ): string {
-  const rows = settings.mcpServers ?? [];
+  const rows = effectiveMcpServers(settings);
   if (rows.length === 0) {
     return "No MCP servers configured in settings.";
   }
@@ -77,7 +78,7 @@ export function createLoadMcpTool(options: {
         throw new Error("serverId is required for action=load/unload");
       }
 
-      const configured = (settings.mcpServers ?? []).find((server) => server.id === serverId);
+      const configured = effectiveMcpServers(settings).find((server) => server.id === serverId);
       if (!configured) {
         throw new Error(`MCP server not found: ${serverId}`);
       }

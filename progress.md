@@ -2066,3 +2066,21 @@
 - Next: add committed red lifecycle tests at the registry seam, then implement the shared lifecycle/status contract.
 
 ---
+# OpenConnector Agent integration progress (2026-08-01)
+
+- Read the required frontend-design and planning-with-files skills and the complete authoritative `DESIGN.md` rules.
+- Recorded assumptions, five implementation phases, verification gates, and the accepted security boundary before editing product code.
+- Next: audit the current Settings/MCP/settings-store seams and probe only non-secret deployed runtime endpoints.
+- Live non-secret deployment verification passed for `/health`; protected runtime catalog endpoints fail closed with 401 before configuration.
+- Added the narrow OpenConnector settings contract, secret-safe Desktop API projection, runtime catalog client, derived MCP helper, Desktop store/page/navigation/i18n, and initial focused tests.
+- First diagnostics command used the wrong root entry point and surfaced two undefined CSS token names; both are recorded for targeted correction before rerunning through `desktop:check`.
+- Completed the dedicated configuration API/store, secret-safe catalog proxy, Provider/connection filters and deep links, explicit manual refresh with a Runtime-scoped atomic JSON cache, managed MCP lifecycle, and bundled read-only Agent Skill.
+- Constrained the Provider directory to the standard Settings column and added explicit/Iconify logo resolution with domain-Favicon and initials fallbacks. Page entry now performs no OpenConnector network request; focused cache/UI/settings verification passes 14/14 server tests, 109/109 Desktop tests, and Svelte diagnostics 0/0.
+- Reproduced the exact MCP visibility bug with a focused red test: an enabled OpenConnector plus an empty raw MCP list produced a zero-item Desktop summary. Root-fixed the read model to use the same effective MCP projection as Agent execution, added a managed flag and protected UI actions, and extended reconnect/status lookup to the derived server.
+- Reworked the OpenConnector catalog to two columns and replaced the horizontal category pill strip with a shared Bits UI multi-select beside search and status. The filter uses explicit reactive array state and OR matching; Desktop UI tests pass 109/109, Svelte diagnostics 0/0, and the Desktop production build passes.
+- Verified focused server/settings round-trip tests, 109 Desktop structural/scope tests, 8 native command tests, `svelte-check` with 0 errors/0 warnings, and the Desktop production build.
+- Browser cold-open confirmed the Desktop preview fails honestly at Tauri service discovery rather than rendering a false configured state; browser-only preview cannot exercise the native bootstrap. Live Provider/action verification is intentionally deferred until the product owner enters the Runtime Token in Desktop Settings.
+- First follow-up from real deployment screenshots correctly normalized structured category metadata, compressed Provider cards into three-column 68px rows, narrowed the status treatment, and added explicit local reveal/hide for the saved Runtime Token. Its authenticated-services parser matched the payload shape but missed the endpoint's empty-query semantics; the next follow-up replaced that endpoint rather than adding another UI patch.
+- Second live follow-up found the upstream semantic cause: `/v1/apps/authenticated` filters only query-supplied service ids, so an empty query always yields zero. Switched to `/v1/apps`, filtered `status: active`, mapped safe connection labels, made configuration default-collapsed, and promoted category metadata into a visible counted category bar.
+
+---

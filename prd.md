@@ -5,6 +5,17 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.30 OpenConnector Cloudflare gateway and connector catalog (2026-08-01)
+
+- **Priority / Status**: P1 / Delivered (2026-08-01); Cloudflare deployment supplied by the product owner at `https://opc.eztoolab.com`.
+- **Decision**: self-host OpenConnector on Cloudflare Workers with D1 and R2. Molibot derives one remote MCP connection from a dedicated OpenConnector setting and presents a searchable, visibly categorized service catalog using `/v1/providers` plus active connections from `/v1/apps`. Credential and OAuth management remains in OpenConnector Console for V1; Molibot does not store an Admin Token or call `/api/connections`.
+- **Delivered**: Desktop Settings exposes OpenConnector beside MCP, with a default-collapsed fine-grained configuration panel, searchable/filterable two-column Provider catalog in the standard settings column, one-row search/status/multi-category filtering, active connected-service status, Console deep links, explicit manual refresh, cached catalog reads on page entry, Iconify/Favicon brand images, explicit saved-token reveal/hide, and one derived remote MCP server plus an Agent Skill. The generic MCP editor never owns or duplicates the Runtime Token.
+- **Safety boundary**: Molibot stores only a least-privilege Runtime Token; it stays hidden by default and is returned only after an explicit reveal action through the local Desktop API. V1 Agent instructions are read-only and do not store the Admin Token. The deployed Runtime Token/Action policy must also enforce the read-only allowlist. Write Actions require a later shared Agent-layer approval/idempotency slice.
+- **Unified MCP ownership**: the derived `open-connector` server is visible in Desktop MCP inventory, counts, live state, and reconnect controls. It is explicitly marked managed; configuration mutations remain exclusively owned by OpenConnector Settings so the two pages cannot produce competing sources of truth.
+- **Catalog layout detail**: Provider results are independent two-column cards rather than cells inside one full-row frame, so an odd final result leaves the unused right column visually empty.
+- **Card alignment**: Provider identity owns the flexible left side; status and manage/connect form one fixed, right-aligned action group.
+- **Plan / Acceptance**: [docs/requirements/openconnector-cloudflare-and-molibot-plan.md](docs/requirements/openconnector-cloudflare-and-molibot-plan.md).
+
 ## 3.29 Quiet Chat source identity and contextual timestamps (2026-08-01)
 
 - **Priority / Status**: P2 / Delivered (2026-08-01).

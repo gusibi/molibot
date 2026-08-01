@@ -273,6 +273,23 @@ test("MCP server enable state and transport configuration survive a settings sto
   }
 });
 
+test("OpenConnector settings survive a full save and settings store restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-open-connector-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+  const openConnector = { enabled: true, baseUrl: "https://opc.example.com", consoleUrl: "https://opc.example.com/providers", runtimeToken: "oct-secret" };
+  try {
+    new SettingsStore().save({ ...defaultRuntimeSettings, openConnector });
+    assert.deepEqual(new SettingsStore().load().openConnector, openConnector);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("fail-closed sandbox settings survive a full save and settings store restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-sandbox-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;

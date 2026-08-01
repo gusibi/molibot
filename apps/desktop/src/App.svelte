@@ -10,6 +10,7 @@
   import ModelsSection from "./lib/settings/ModelsSection.svelte";
   import AgentsSection from "./lib/settings/AgentsSection.svelte";
   import McpSection from "./lib/settings/McpSection.svelte";
+  import OpenConnectorSection from "./lib/settings/OpenConnectorSection.svelte";
   import SkillsSection from "./lib/settings/SkillsSection.svelte";
   import MemorySection from "./lib/settings/MemorySection.svelte";
   import ChannelsSection from "./lib/settings/ChannelsSection.svelte";
@@ -69,7 +70,7 @@
     hapticPreference: HapticPreference;
   };
 
-  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "skills" | "memory" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "sandbox" | "hostBash" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "sandbox" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -196,6 +197,7 @@
     { id: "providers", icon: "plugs" },
     { id: "agents", icon: "robot" },
     { id: "mcp", icon: "plugs-connected" },
+    { id: "openConnector", icon: "circles-three-plus" },
     { id: "skills", icon: "magic-wand" },
     { id: "memory", icon: "brain" },
     { id: "channels", icon: "broadcast" },
@@ -219,7 +221,7 @@
     { id: "general", sections: ["general"] },
     { id: "models", sections: ["models", "providers"] },
     { id: "assistant", sections: ["agents", "skills", "memory"] },
-    { id: "tools", sections: ["mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"] },
+    { id: "tools", sections: ["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"] },
     { id: "channels", sections: ["profiles", "channels"] },
     { id: "activity", sections: ["runHistory", "usage", "trace", "logs"] },
     { id: "system", sections: ["runtimeEnv", "sandbox", "plugins", "diagnostics"] }
@@ -258,6 +260,7 @@
       case "providers": return copy.providers;
       case "agents": return copy.agents;
       case "mcp": return copy.mcp;
+      case "openConnector": return copy.openConnector;
       case "skills": return copy.skills;
       case "memory": return copy.memory;
       case "channels": return copy.channels;
@@ -285,6 +288,7 @@
       case "providers": return copy.providersHint;
       case "agents": return copy.agentsHint;
       case "mcp": return copy.mcpHint;
+      case "openConnector": return copy.openConnectorHint;
       case "skills": return copy.skillsHint;
       case "memory": return copy.memoryHint;
       case "channels": return copy.channelsHint;
@@ -886,6 +890,8 @@
         <AgentsSection />
       {:else if activeSection === "mcp"}
         <McpSection />
+      {:else if activeSection === "openConnector"}
+        <OpenConnectorSection />
       {:else if activeSection === "skills"}
         <SkillsSection />
       {:else if activeSection === "memory"}

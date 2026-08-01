@@ -12,6 +12,7 @@ const view = read("./ChatView.svelte");
 const app = read("./App.svelte");
 const i18n = read("./lib/i18n.ts");
 const styles = read("./styles.css");
+const multiSelectControl = read("./lib/components/ui/MultiSelectControl.svelte");
 const design = read("../../../DESIGN.md");
 const tauriConfig = JSON.parse(read("../src-tauri/tauri.conf.json"));
 const tauriCargo = read("../src-tauri/Cargo.toml");
@@ -26,6 +27,7 @@ const tauriCapabilities = JSON.parse(read("../src-tauri/capabilities/default.jso
 const sections = {
   agents: read("./lib/settings/AgentsSection.svelte"),
   mcp: read("./lib/settings/McpSection.svelte"),
+  openConnector: read("./lib/settings/OpenConnectorSection.svelte"),
   channels: read("./lib/settings/ChannelsSection.svelte"),
   profiles: read("./lib/settings/ProfilesSection.svelte"),
   tasks: read("./lib/settings/TasksSection.svelte"),
@@ -209,6 +211,9 @@ test("Desktop MCP settings distinguish configured enablement from live connectio
   assert.match(sections.mcp, /toggleMcpServer\(server\.id, enabled\)/);
   assert.match(sections.mcp, /reconnectMcp\(server\.id\)/);
   assert.match(sections.mcp, /server\.lastError/);
+  assert.match(sections.mcp, /\{#if server\.managed\}[^\n]*mcpManaged/);
+  assert.match(sections.mcp, /\{#if !server\.managed\}<IosSwitch/);
+  assert.match(sections.mcp, /\{#if !server\.managed\}[\s\S]*beginMcpEdit\(server\)[\s\S]*removeMcpServer\(server\.id\)/);
   assert.doesNotMatch(sections.mcp, /class="switch"/);
 });
 
@@ -1575,7 +1580,7 @@ test("settings navigation keeps the current product taxonomy and entity editors 
   assert.match(app, /id: "general", sections: \["general"\]/);
   assert.match(app, /id: "models", sections: \["models", "providers"\]/);
   assert.match(app, /id: "assistant", sections: \["agents", "skills", "memory"\]/);
-  assert.match(app, /id: "tools", sections: \["mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"\]/);
+  assert.match(app, /id: "tools", sections: \["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"\]/);
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
   assert.match(app, /id: "activity", sections: \["runHistory", "usage", "trace", "logs"\]/);
   assert.match(app, /id: "system", sections: \["runtimeEnv", "sandbox", "plugins", "diagnostics"\]/);
@@ -1788,4 +1793,49 @@ test("queued messages can steer the running turn and survive Stop", () => {
   assert.match(stopBody, /this\.stopRequested = true/);
   assert.match(stopBody, /this\.drainQueue\(\)/);
   assert.match(controller, /if \(!this\.stopRequested && !isAbortCause\(cause, abort\.signal\)\)/);
+});
+
+test("OpenConnector is a first-class peer to MCP with a safe catalog and fixed save bar", () => {
+  const connector = sections.openConnector;
+  const connectorStore = read("./lib/stores/openConnector.svelte.ts");
+  assert.match(app, /\{ id: "mcp"[\s\S]*\{ id: "openConnector"/);
+  assert.match(app, /sections: \["mcp", "openConnector"/);
+  assert.match(app, /activeSection === "openConnector"[\s\S]*<OpenConnectorSection/);
+  assert.match(connector, /SearchField/);
+  assert.match(connector, /SelectControl/);
+  assert.match(connector, /MultiSelectControl/);
+  assert.match(multiSelectControl, /<Select\.Root type="multiple"/);
+  assert.match(multiSelectControl, /value\.includes\(option\.value\)/);
+  assert.match(connector, /class="connector-grid"/);
+  assert.match(connector, /class="connector-card-action"/);
+  assert.match(connector, /class="connector-card-actions">[\s\S]*class="status-badge"[\s\S]*class="connector-card-action"/);
+  assert.doesNotMatch(connector, /class="connector-description"/);
+  assert.match(connector, /<details class="settings-card connector-config-panel">/);
+  assert.doesNotMatch(connector, /<details class="settings-card connector-config-panel" open/);
+  assert.doesNotMatch(connector, /class="connector-category-bar"/);
+  assert.match(connector, /categoryFilters\.length > 0/);
+  assert.match(connector, /provider\.categories\.some\(\(category\) => categoryFilters\.includes\(category\)\)/);
+  assert.match(connector, /categoryCounts\.get\(category\)/);
+  assert.match(connector, /type=\{tokenVisible \? "text" : "password"\}/);
+  assert.match(connector, /revealOpenConnectorToken\(\)/);
+  assert.match(connector, /class="settings-footbar"/);
+  assert.match(connector, /invoke\("open_external_url", \{ url: parsed\.href \}\)/);
+  assert.doesNotMatch(connector, /<style/);
+  assert.match(connector, /type=\{tokenVisible \? "text" : "password"\}[^\n]*bind:value=\{openConnectorStore\.draft\.runtimeToken\}/);
+  assert.match(connectorStore, /runtimeToken: ""/);
+  assert.doesNotMatch(connectorStore, /summary\.config\.runtimeToken/);
+  assert.doesNotMatch(connector, /window\.addEventListener\("focus"/);
+  assert.match(connectorStore, /hydrate\(await loadDesktopOpenConnector\(endpoint\)\)/);
+  assert.match(connectorStore, /hydrate\(await refreshDesktopOpenConnector\(session\.endpoint\)\)/);
+  assert.match(connector, /onerror=\{\(event\) => event\.currentTarget\.remove\(\)\}/);
+  assert.match(styles, /\.connector-catalog \{[^}]*width: var\(--settings-col\)/);
+  assert.match(styles, /\.connector-filter-toolbar[\s\S]*gap: 12px/);
+  assert.match(styles, /\.connector-filter-toolbar \{[^}]*grid-template-columns: minmax\(180px, 1fr\)[^}]*minmax\(128px, 160px\)[^}]*minmax\(148px, 180px\)/);
+  assert.match(styles, /\.connector-grid \{[^}]*repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /\.connector-grid \{[^}]*gap: 10px/);
+  assert.doesNotMatch(styles, /\.connector-grid \{[^}]*overflow: hidden/);
+  assert.match(styles, /\.connector-card \{[^}]*min-height: 68px[^}]*border: 1px solid var\(--chrome-border\)[^}]*border-radius: 12px/);
+  assert.match(styles, /\.connector-card-head \{[^}]*flex: 1/);
+  assert.match(styles, /\.connector-card-actions \{[^}]*justify-content: flex-end[^}]*margin-left: auto/);
+  assert.match(styles, /\.connector-config-panel > summary \{[^}]*min-height: 56px/);
 });

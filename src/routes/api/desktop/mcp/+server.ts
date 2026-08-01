@@ -5,12 +5,14 @@ import { buildDesktopMcpSummary, deleteDesktopMcpServer, saveDesktopMcpServer } 
 import { replaceMcpServers } from "$lib/server/settings/handlers/mcp";
 import { config } from "$lib/server/app/env";
 import { getMcpServerStatuses, reconcileMcpServers, reconnectMcpServer } from "$lib/server/agent/tools/mcp";
+import { effectiveMcpServers } from "$lib/server/settings/openConnector";
 import type { DesktopMcpResponse, DesktopMcpSaveRequest, DesktopMcpToggleRequest } from "$lib/shared/desktop";
 
 async function liveSummary(runtime: ReturnType<typeof getRuntime>, connectEnabled = false) {
-  const servers = runtime.getSettings().mcpServers ?? [];
-  await reconcileMcpServers(servers, { workspaceDir: config.webWorkspaceDir, connectEnabled });
-  return buildDesktopMcpSummary(runtime.getSettings(), getMcpServerStatuses(servers, config.webWorkspaceDir));
+  const settings = runtime.getSettings();
+  const runtimeServers = effectiveMcpServers(settings);
+  await reconcileMcpServers(runtimeServers, { workspaceDir: config.webWorkspaceDir, connectEnabled });
+  return buildDesktopMcpSummary(settings, getMcpServerStatuses(runtimeServers, config.webWorkspaceDir));
 }
 
 export const GET: RequestHandler = async () => {
@@ -65,7 +67,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const body = await request.json() as { id?: string; action?: string };
     const id = String(body.id ?? "").trim();
     if (body.action !== "reconnect") throw new Error("Unsupported MCP action");
-    const server = (runtime.getSettings().mcpServers ?? []).find((item) => item.id === id);
+    const server = effectiveMcpServers(runtime.getSettings()).find((item) => item.id === id);
     if (!server) throw new Error(`Unknown MCP server: ${id}`);
     if (!server.enabled) throw new Error(`MCP server is disabled: ${id}`);
     await reconnectMcpServer(server, { workspaceDir: config.webWorkspaceDir });

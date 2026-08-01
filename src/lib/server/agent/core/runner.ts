@@ -22,6 +22,7 @@ import { resolveToolFileTarget } from "$lib/server/app/toolFilePaths.js";
 import { createMomTools } from "$lib/server/agent/tools/index.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { getMcpServerStatuses, getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
+import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
 import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
 import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
@@ -971,7 +972,7 @@ export class MomRunner implements RunnerLike {
       const settingsNow = this.getSettings();
       const selectedIds = this.selectedMcpServerIds;
       if (selectedIds.size > 0) {
-        return (settingsNow.mcpServers ?? []).filter((server) =>
+        return effectiveMcpServers(settingsNow).filter((server) =>
           server.enabled && selectedIds.has(server.id)
         );
       }

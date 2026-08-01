@@ -3132,6 +3132,49 @@ select.provider-input { padding-right: 6px; }
 .settings-footbar { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 28px; border-top: 1px solid var(--chrome-border); background: var(--chrome-footbar-bg); z-index: 10; margin-top: 24px; }
 .settings-content .settings-footbar { position: absolute; right: 0; bottom: 0; left: 0; margin-top: 0; }
 .settings-content .settings-scroll:has(.settings-footbar) { padding-bottom: 72px; }
+
+.connector-overview,
+.connector-catalog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.connector-overview { width: var(--settings-col); margin: 0 auto 12px; padding: 0 2px; }
+.connector-overview-copy { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.connector-overview-copy p,
+.connector-catalog-head p { margin: 0; color: var(--label-secondary); font-size: 13px; line-height: 18px; }
+.connector-config-panel > summary { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; cursor: pointer; list-style: none; }
+.connector-config-panel > summary::-webkit-details-marker { display: none; }
+.connector-config-summary-state { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; color: var(--label-tertiary); }
+.connector-config-summary-state > i { font-size: 12px; transition: transform 140ms ease; }
+.connector-config-panel[open] .connector-config-summary-state > i { transform: rotate(180deg); }
+.connector-config-body { border-top: 1px solid var(--chrome-border); }
+.connector-config-form { padding: 16px; }
+.connector-catalog { width: var(--settings-col); margin: 0 auto; }
+.connector-catalog-head { margin: 28px 0 12px; }
+.connector-catalog-head > div { min-width: 0; }
+.connector-catalog-head strong { display: block; margin-bottom: 3px; font-size: 15px; }
+.connector-filter-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(128px, 160px) minmax(148px, 180px); gap: 12px; margin-bottom: 12px; }
+.connector-filter-toolbar > * { min-width: 0; width: 100%; }
+.connector-filter-toolbar .select-control-trigger { height: 32px; font-size: 12px; }
+.connector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.connector-card { display: flex; min-width: 0; min-height: 68px; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--chrome-border); border-radius: 12px; background: var(--card-bg); }
+.connector-card-head { display: flex; min-width: 0; flex: 1; align-items: center; gap: 10px; }
+.connector-icon { position: relative; display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; overflow: hidden; border: 1px solid var(--chrome-border); border-radius: 8px; background: var(--surface-secondary); color: var(--label-secondary); font-size: 14px; font-weight: 600; }
+.connector-icon img { position: absolute; width: 24px; height: 24px; object-fit: contain; background: var(--surface-secondary); }
+.connector-card-title { min-width: 0; flex: 1; }
+.connector-card-title strong,
+.connector-card-title small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connector-card-title strong { font-size: 14px; }
+.connector-card-title small { margin-top: 2px; color: var(--label-tertiary); font-family: var(--font-mono); font-size: 11px; }
+.connector-card-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 10px; margin-left: auto; }
+.connector-card-action { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; padding: 5px 2px; border: 0; background: transparent; color: var(--label-secondary); font-size: 12px; cursor: pointer; }
+.connector-card-action:hover { color: var(--label-primary); }
+.connector-card-action i { font-size: 12px; }
+
+@media (max-width: 720px) {
+  .connector-overview,
+  .connector-catalog-head,
+  .connector-overview-copy { align-items: flex-start; flex-direction: column; }
+  .connector-filter-toolbar { grid-template-columns: 1fr; }
+  .connector-grid { grid-template-columns: 1fr; }
+}
 .logs-section-head { display: flex; align-items: center; justify-content: flex-end; gap: 16px; width: var(--settings-col); margin: 12px auto 8px; }
 .service-log-notice { display: flex; align-items: flex-start; gap: 8px; margin: -12px 0 12px; padding: 9px 12px; border-radius: var(--rounded-sm); background: var(--accent-soft); color: var(--label-secondary); font-size: 11px; line-height: 1.45; }
 .service-log-data-card { margin-bottom: 28px; }

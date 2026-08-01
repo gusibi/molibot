@@ -2856,3 +2856,55 @@ Phase 1 — red lifecycle regressions and shared contract design in progress
 | Empty-scope concurrency probe expected `sync([])` to close a prior connection | 1 | Source and probe showed the earlier empty-array return skips sync entirely; record this as stale-resource behavior and use two non-empty scopes for the cross-session regression. |
 
 ---
+# OpenConnector Agent integration (2026-08-01)
+
+## Goal
+
+Integrate the deployed OpenConnector runtime at `https://opc.eztoolab.com` as a first-class Molibot connector: one persisted configuration, a Settings entry peer to MCP, a searchable/filterable provider catalog with live connected state and provider deep links, and a derived Session-scoped remote MCP server.
+
+## Assumptions
+
+- “和 MCP 评级” means “和 MCP 平级”: OpenConnector gets its own Settings navigation item in the same tools/integrations category.
+- The base URL is `https://opc.eztoolab.com`; `/providers` is the Console catalog route, `/v1/*` is the runtime API, and `/mcp` is the MCP endpoint.
+- V1 stores only a Runtime Token and never an OpenConnector Admin Token.
+- Provider connection/edit flows remain in the OpenConnector Console.
+
+## Phases
+
+1. **Contract audit — complete**
+   - Inspect Settings navigation, MCP page/store/API, shared settings persistence, external-link behavior, semantic UI components, and the deployed runtime's public/authenticated response shapes.
+   - Verify: concrete source map and no unresolved auth/CORS/route assumptions.
+2. **Settings and server integration — complete**
+   - Add a narrow persisted OpenConnector settings object, sanitizer, temporary-database round trip, secret-safe Desktop projection/save API, and server-side runtime client.
+   - Derive/reconcile one remote MCP server without duplicating user configuration.
+   - Verify: focused settings/client/API tests.
+3. **Desktop Settings UI — complete**
+   - Add a peer Settings destination, configuration form with fixed footbar, provider search/status/category filters, cards/detail/actions, refresh, and system-browser deep links.
+   - Verify: bilingual copy, light/dark semantic tokens, 860×620 and narrow width, keyboard/focus states, no native select or page-local style.
+4. **Runtime behavior and safety — complete, except live credential validation requires the user's Runtime Token**
+   - Confirm Session-scoped MCP loading, redaction, unavailable/token-error states, and no Admin Token exposure.
+   - Verify: cold start → first open → Session switch → service unavailable/recovery.
+5. **Records and adversarial review — complete**
+   - Update feature/PRD/changelog/README facts, run focused/full relevant checks, attack the 3–5 most likely failure paths, and correct them before delivery.
+
+## Success criteria
+
+- A user configures base URL and Runtime Token once.
+- Settings shows an OpenConnector page peer to MCP with a cached Provider catalog and connection states; only Save/Refresh updates that cache, while Agent MCP calls remain live.
+- Connect/manage opens `https://opc.eztoolab.com/providers/{service}` outside the WebView.
+- The Agent can explicitly load the derived `open-connector` MCP server without exposing it to unrelated Sessions.
+- Tokens never reach Desktop response payloads, logs, URLs, or error text.
+- Save → fresh store → load retains the full supported object without affecting unrelated settings.
+
+## Errors encountered
+
+- `corepack pnpm exec svelte-check --tsconfig apps/desktop/tsconfig.json` failed because the root package does not expose `svelte-check`; use the repository's `desktop:check` script instead.
+- Initial connector CSS referenced nonexistent `--surface-raised` / `--surface-recessed` names; remap to existing semantic Desktop surface tokens before the real UI check.
+- First real `desktop:check` found three missing translation keys (`refresh`, `all`) used by the new page; add connector-specific bilingual keys instead of assuming generic copy exists.
+- CommandSystem regression expected the previous 22 Settings destinations; the new peer destination correctly raises the catalog to 23, so update the explicit inventory assertion.
+- The standalone browser preview cannot complete Desktop's Tauri service bootstrap, so it only verified the honest offline cold state. Machine checks cover the real Settings structure and build; final live catalog verification remains the user's post-configuration acceptance step because no Runtime Token was provided.
+- Real deployment follow-up exposed a response-shape mismatch: `/v1/apps/authenticated` returns service strings, not connection records. Fixed at the server adapter seam with the upstream envelope as a regression fixture; no per-card UI exception was added.
+- Upstream source review then exposed the deeper semantic bug: `/v1/apps/authenticated` only intersects explicitly supplied service query parameters, so an empty query returns zero even when connections exist. Replaced it with `/v1/apps` and active-status filtering; the regression now includes both active and disconnected runtime apps.
+- UI guards caught an undefined accent contrast token and a 10px category counter below the 11px typography floor; both were corrected using existing Desktop conventions before delivery.
+
+---

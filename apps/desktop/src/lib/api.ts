@@ -12,6 +12,10 @@ import type {
   DesktopMcpResponse,
   DesktopMcpSummary,
   DesktopMcpSaveRequest,
+  DesktopOpenConnectorResponse,
+  DesktopOpenConnectorSummary,
+  DesktopOpenConnectorSaveRequest,
+  DesktopOpenConnectorTokenResponse,
   DesktopChannelsResponse,
   DesktopChannelsSummary,
   DesktopChannelInstance,
@@ -1048,6 +1052,39 @@ export async function reconnectDesktopMcp(endpoint: string, id: string): Promise
     body: JSON.stringify({ id, action: "reconnect" })
   });
   return payload.summary;
+}
+
+export async function loadDesktopOpenConnector(endpoint: string): Promise<DesktopOpenConnectorSummary> {
+  const payload = await requestJson<DesktopOpenConnectorResponse>(endpoint, "/api/desktop/open-connector");
+  return payload.summary;
+}
+
+export async function refreshDesktopOpenConnector(endpoint: string): Promise<DesktopOpenConnectorSummary> {
+  const payload = await requestJson<DesktopOpenConnectorResponse>(endpoint, "/api/desktop/open-connector", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "refresh-catalog" })
+  });
+  return payload.summary;
+}
+
+export async function saveDesktopOpenConnector(endpoint: string, input: DesktopOpenConnectorSaveRequest): Promise<DesktopOpenConnectorSummary> {
+  const payload = await requestJson<DesktopOpenConnectorResponse>(endpoint, "/api/desktop/open-connector", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return payload.summary;
+}
+
+export async function revealDesktopOpenConnectorToken(endpoint: string): Promise<string> {
+  const payload = await requestJson<DesktopOpenConnectorTokenResponse>(endpoint, "/api/desktop/open-connector", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "reveal-token" })
+  });
+  if (!payload.ok) throw new Error(payload.error || "Failed to reveal OpenConnector Runtime Token");
+  return payload.runtimeToken ?? "";
 }
 
 export async function loadDesktopSkills(endpoint: string): Promise<DesktopSkillsSummary> {

@@ -1043,6 +1043,7 @@ export type DesktopMcpConnectionState = "disabled" | "connecting" | "connected" 
 export interface DesktopMcpItem {
   id: string;
   name: string;
+  managed: boolean;
   enabled: boolean;
   transport: DesktopMcpTransport;
   toolNamePrefix: string;
@@ -1093,6 +1094,55 @@ export interface DesktopMcpResponse {
 export interface DesktopMcpToggleRequest {
   id: string;
   enabled: boolean;
+}
+
+export type DesktopOpenConnectorState = "disabled" | "unconfigured" | "ready" | "error";
+
+export interface DesktopOpenConnectorProvider {
+  service: string;
+  displayName: string;
+  description: string;
+  categories: string[];
+  authTypes: string[];
+  iconUrl: string;
+  homepageUrl: string;
+  actionCount: number;
+  locallyExecutableActionCount: number;
+}
+
+export interface DesktopOpenConnectorConnection {
+  service: string;
+  connectionName: string;
+  authType: string;
+  displayName: string;
+}
+
+export interface DesktopOpenConnectorSummary {
+  config: { enabled: boolean; baseUrl: string; consoleUrl: string; tokenConfigured: boolean };
+  state: DesktopOpenConnectorState;
+  providers: DesktopOpenConnectorProvider[];
+  connections: DesktopOpenConnectorConnection[];
+  error: string;
+  refreshedAt: string;
+}
+
+export interface DesktopOpenConnectorResponse {
+  ok: true;
+  summary: DesktopOpenConnectorSummary;
+}
+
+export interface DesktopOpenConnectorTokenResponse {
+  ok: boolean;
+  runtimeToken?: string;
+  error?: string;
+}
+
+export interface DesktopOpenConnectorSaveRequest {
+  enabled: boolean;
+  baseUrl: string;
+  consoleUrl: string;
+  runtimeToken?: string;
+  clearRuntimeToken?: boolean;
 }
 
 export type DesktopSkillScope = "global" | "bot" | "chat" | "project";

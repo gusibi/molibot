@@ -64,11 +64,14 @@
             {#if server.lastError}<p class="settings-error-copy">{server.lastError}</p>{/if}
           </div>
           <div class="settings-row-actions">
+            {#if server.managed}<span class="status-badge" data-state="disconnected">{session.text.mcpManaged}</span>{/if}
             <span class="status-badge" data-state={statusTone(server.connectionState)}>{statusLabel(server.connectionState)}</span>
-            <IosSwitch checked={server.enabled} ariaLabel={`${session.text.mcpEnabled}: ${server.name}`} disabled={Boolean(mcpStore.busyId)} onCheckedChange={(enabled) => void toggleMcpServer(server.id, enabled)} />
+            {#if !server.managed}<IosSwitch checked={server.enabled} ariaLabel={`${session.text.mcpEnabled}: ${server.name}`} disabled={Boolean(mcpStore.busyId)} onCheckedChange={(enabled) => void toggleMcpServer(server.id, enabled)} />{/if}
             {#if server.enabled && server.connectionState !== "connected"}<button class="secondary-button" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => void reconnectMcp(server.id)}>{mcpStore.busyId === server.id ? session.text.mcpConnecting : session.text.mcpReconnect}</button>{/if}
-            <button class="secondary-button" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => beginMcpEdit(server)}>{session.text.channelEdit}</button>
-            <button class="secondary-button danger-action" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => void removeMcpServer(server.id)}>{session.text.channelDelete}</button>
+            {#if !server.managed}
+              <button class="secondary-button" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => beginMcpEdit(server)}>{session.text.channelEdit}</button>
+              <button class="secondary-button danger-action" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => void removeMcpServer(server.id)}>{session.text.channelDelete}</button>
+            {/if}
           </div>
         </div>
       {/each}

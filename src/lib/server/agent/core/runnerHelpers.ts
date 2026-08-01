@@ -4,6 +4,7 @@ import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { isContextOverflow } from "@earendil-works/pi-ai";
 import { assistantErrorFromText } from "$lib/server/agent/core/runnerRetryState.js";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
+import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
 import { stripTransientRuntimeNoticesFromMessages } from "$lib/server/agent/core/runtimeNotices.js";
 import { type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import {
@@ -336,7 +337,7 @@ export function buildPromptRefreshKey(
     timezone: settings.timezone,
     systemPrompt: settings.systemPrompt,
     disabledSkillPaths: settings.disabledSkillPaths,
-    mcpServers: settings.mcpServers
+    mcpServers: effectiveMcpServers(settings)
   });
 }
 

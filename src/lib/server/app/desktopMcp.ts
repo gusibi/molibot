@@ -1,6 +1,7 @@
 import type { McpServerConfig, RuntimeSettings } from "$lib/server/settings/schema";
 import type { DesktopMcpItem, DesktopMcpSummary, DesktopMcpTransport } from "$lib/shared/desktop";
 import type { McpServerStatus } from "$lib/server/agent/tools/mcp";
+import { effectiveMcpServers, OPEN_CONNECTOR_MCP_ID } from "$lib/server/settings/openConnector";
 
 function coerceTransport(value: unknown): DesktopMcpTransport {
   return value === "http" ? "http" : "stdio";
@@ -26,6 +27,7 @@ export function buildDesktopMcpItem(server: McpServerConfig, status?: McpServerS
   return {
     id: server.id,
     name: server.name || server.id,
+    managed: server.id === OPEN_CONNECTOR_MCP_ID,
     enabled: server.enabled !== false,
     transport,
     toolNamePrefix: server.toolNamePrefix ?? "",
@@ -98,7 +100,7 @@ export function deleteDesktopMcpServer(settings: RuntimeSettings, id: string): M
 }
 
 export function buildDesktopMcpSummary(settings: RuntimeSettings, statuses: McpServerStatus[] = []): DesktopMcpSummary {
-  const servers = Array.isArray(settings.mcpServers) ? settings.mcpServers : [];
+  const servers = effectiveMcpServers(settings);
   const statusById = new Map(statuses.map((status) => [status.serverId, status]));
   const items = servers.map((server) => buildDesktopMcpItem(server, statusById.get(server.id)));
   return {

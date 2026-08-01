@@ -290,6 +290,13 @@ export interface McpServerConfig {
   toolNamePrefix: string;
 }
 
+export interface OpenConnectorSettings {
+  enabled: boolean;
+  baseUrl: string;
+  runtimeToken: string;
+  consoleUrl: string;
+}
+
 export interface SkillSearchLocalSettings {
   enabled: boolean;
 }
@@ -571,6 +578,7 @@ export interface RuntimeSettings {
   agents: AgentSettings[];
   channels: ChannelSettingsMap;
   mcpServers: McpServerConfig[];
+  openConnector: OpenConnectorSettings;
   skillSearch: SkillSearchSettings;
   skillDrafts: SkillDraftSettings;
   webSearch: WebSearchSettings;

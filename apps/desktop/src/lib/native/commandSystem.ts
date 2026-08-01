@@ -7,6 +7,7 @@ export type SettingsDestination =
   | "providers"
   | "agents"
   | "mcp"
+  | "openConnector"
   | "skills"
   | "memory"
   | "channels"
@@ -80,7 +81,7 @@ type CommandDefinition = {
 };
 
 export const settingsDestinations: SettingsDestination[] = [
-  "general", "models", "providers", "agents", "mcp", "skills", "memory", "channels", "plugins",
+  "general", "models", "providers", "agents", "mcp", "openConnector", "skills", "memory", "channels", "plugins",
   "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "profiles", "usage", "runHistory",
   "logs", "trace", "sandbox", "hostBash", "diagnostics", "runtimeEnv"
 ];
@@ -96,6 +97,7 @@ function sectionLabel(destination: SettingsDestination, locale: Locale): string 
     case "providers": return copy.providers;
     case "agents": return copy.agents;
     case "mcp": return copy.mcp;
+    case "openConnector": return copy.openConnector;
     case "skills": return copy.skills;
     case "memory": return copy.memory;
     case "channels": return copy.channels;

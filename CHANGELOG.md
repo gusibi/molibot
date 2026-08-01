@@ -7,6 +7,17 @@
 ---
 ## 2026-08-01
 
+### Added: OpenConnector catalog and Agent MCP gateway
+
+- Added a first-class Desktop OpenConnector settings page beside MCP, with secret-safe Runtime Token configuration, Provider and connected-account discovery, search/filter controls, Console deep links, and explicit manual refresh.
+- Added a managed remote MCP projection and a read-only OpenConnector Agent Skill. The generic MCP editor no longer risks disconnecting the managed connection, and regular Desktop summaries never contain the Runtime Token.
+- Fixed connected Providers being reported as zero: `/v1/apps/authenticated` filters only explicitly supplied service ids, so its no-argument result is always empty. Molibot now consumes `/v1/apps`, counts only active connections, and maps safe aliases/account labels. Configuration is collapsed by default; the catalog uses compact three-column rows, a quiet status line, and visible category tabs with counts. A saved Runtime Token remains hidden by default and is returned only through an explicit local reveal action triggered by the eye control.
+- Provider catalog page entry is now local-first: successful saves and manual refreshes atomically persist the catalog under the runtime data directory, while ordinary navigation performs no OpenConnector request. The cache is scoped to the configured Runtime URL and does not affect live MCP calls. Provider rows now use explicit/Iconify logos with domain Favicon and initial fallbacks, and the catalog follows the standard Settings content width.
+- Fixed the derived OpenConnector MCP being invisible in the unified MCP page. It now participates in MCP inventory counts and live status, is labeled as managed, and can be reconnected there; edit/delete/toggle remain protected because OpenConnector Settings owns its URL and credential.
+- Improved OpenConnector Provider scanning by changing the dense three-column catalog to two columns. Search, status, and category now share one compact toolbar; category filtering is a keyboard-accessible multi-select with per-category counts and OR matching.
+- OpenConnector Provider results now render as independent bordered cards, preventing a single filtered result from appearing attached to an empty right-hand card.
+- Aligned each Provider's connection status and manage/connect action as one stable right-side group, leaving identity content consistently aligned on the left.
+
 ### Release: v2.8.3 / Desktop v0.8.0
 - Bugfix release resolving Bits UI custom select control options rendering/interaction regressions.
 

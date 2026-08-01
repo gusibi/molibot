@@ -2490,3 +2490,13 @@ Final conclusion: the voice path is operational inside Molibot and fails because
 - The correct design keeps explicit Skill/MCP exposure gating while moving connection ownership, health, and reconcile into a shared runtime service.
 
 ---
+# OpenConnector Agent integration findings (2026-08-01)
+
+- User has deployed the Console at `https://opc.eztoolab.com/providers`; inferred runtime base is `https://opc.eztoolab.com` pending live endpoint verification.
+- Confirmed product decision: first-class Settings catalog, provider configuration remains in OpenConnector Console, Molibot synchronizes catalog/connected state and derives MCP from one configuration.
+- UI direction: quiet macOS data/settings surface using existing semantic components and tokens; OpenConnector is peer to MCP in the same Settings category.
+- Security boundary from the accepted plan: Runtime Token only, no Admin Token, server-side upstream requests, read-only initial policy, provider proxies disabled.
+- Live deployment probe: `GET https://opc.eztoolab.com/health` returns HTTP 200 and `{"ok":true}`. Both `/v1/providers` and `/v1/apps/authenticated` return HTTP 401 without a bearer token, confirming the catalog/status proxy must use the saved Runtime Token on the Molibot server side.
+- The public Console uses `/providers` and upstream source confirms stable detail deep links at `/providers/:service`.
+
+---
