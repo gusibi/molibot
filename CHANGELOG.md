@@ -7,6 +7,9 @@
 ---
 ## 2026-08-01
 
+### Release: v2.8.0 / Desktop v0.7.7
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Changed: memory trace now distinguishes "provided" from "referenced", and feedback actually changes future injection
 - The memory chip under every reply claimed "参考了 N 条记忆", but the trace only recorded prompt-injected items — the system never knew what the model actually used, and memories the agent fetched mid-run via the memory tool (the strongest "really referenced" signal) were invisible. Retrieval also had no relevance floor, so a low-signal question ("现在几点") always injected the same high-class-weight memories, and the helpful/irrelevant buttons wrote a `utility` score no ranking path read.
 - **Referenced capture**: injected memories now carry citation short ids (`[M1]`), and the model appends one `[[mem:M1,M3]]` line naming those that informed the reply. The marker is stripped everywhere users look — a streaming hold-back filter (`src/lib/server/memory/citation.ts`) keeps it out of live tokens, and the shared transcript projection strips it from context-backed rows. Memory-tool `search` hits are recorded from the runner's existing tool-result hook (`src/lib/server/memory/referenced.ts`), no trace plumbing into the tool layer. Both land in a new `referencedItems` trace column (ALTER-migrated; legacy rows parse as empty, verified against a copy of the real settings DB).
