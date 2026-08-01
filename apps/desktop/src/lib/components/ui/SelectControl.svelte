@@ -30,10 +30,8 @@
         <Select.Viewport class="select-control-viewport">
           {#each options as option (option.value)}
             <Select.Item class="select-control-item" value={option.value} label={option.label} disabled={option.disabled}>
-              {#snippet child({ selected })}
-                <span title={option.label}>{option.label}</span>
-                {#if selected}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
-              {/snippet}
+              <span title={option.label}>{option.label}</span>
+              {#if option.value === value}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
             </Select.Item>
           {/each}
         </Select.Viewport>

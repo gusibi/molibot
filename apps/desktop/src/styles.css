@@ -2097,7 +2097,7 @@ a:focus-visible {
 .setting-row-control { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
 .setting-row.stacked { align-items: stretch; flex-direction: column; }
 .setting-row.stacked .setting-row-control { justify-content: stretch; }
-.select-control { display: grid; justify-items: end; gap: 5px; width: 260px; max-width: 100%; min-width: 0; }
+.select-control { display: grid; justify-items: end; gap: 5px; width: 320px; max-width: 100%; min-width: 0; }
 .select-control-trigger {
   display: flex;
   align-items: center;
@@ -2168,7 +2168,9 @@ a:focus-visible {
 .settings-disclosure { display: flex; justify-content: flex-start; width: min(calc(100% - 56px), var(--settings-content-width)); margin: -8px auto 24px; }
 .disclosure-button { gap: 7px; }
 
-.settings-row .select-control { width: min(260px, 52%); }
+.settings-row .select-control { flex: 0 1 320px; width: 320px; max-width: 58%; }
+.setting-row-control:has(> .select-control) { flex: 0 1 320px; width: 320px; max-width: 58%; }
+.setting-row-control > .select-control { width: 100%; max-width: 100%; }
 .settings-field .select-control, .provider-field .select-control, .onboarding-field .select-control { width: 100%; }
 .diag-value { color: var(--label-secondary); font-size: 12px; overflow-wrap: anywhere; text-align: right; }
 .diag-actions { display: flex; justify-content: flex-end; width: var(--settings-col); margin: 14px auto 0; }

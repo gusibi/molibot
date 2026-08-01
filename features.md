@@ -7,6 +7,13 @@
 ---
 ## 2026-08-01
 
+### Desktop 设置下拉菜单交互与宽度修复（已完成，P0）
+
+- **根因**：共享 `SelectControl` 把 Bits UI `Select.Item` 的 `child` snippet 误当成内容插槽；该 API 实际会替换整个选项根节点，导致 `role="option"`、点击/键盘事件、纵向布局和选中态全部丢失，所有选项退化成一行不可点击文字。
+- **根修**：保留 Bits UI 自己的选项根节点，只在默认 children 中渲染标签和勾选；一处修复覆盖设置、Project 设置和首次引导的全部 55 个调用点。
+- **macOS 宽度**：普通选择器和设置行选择器上限由 260px 提升到 320px，设置行最多占 58%；宽度由控制列持有明确的 320px flex basis，避免中间 shrink-to-content 容器让百分比宽度循环收缩成文字宽度，窄窗口仍安全收缩。
+- **机器守卫**：结构测试明确禁止在 `Select.Item` 中再次使用 `child` replacement，并锁定默认 item 根节点、标签内容和设置行宽度；`svelte-check` 0 错误 0 警告。
+
 ### Chat 三栏最小宽度与文件面板 macOS 化（已完成，P1）
 
 - **对话区最小宽度**：`.chat-layout.with-files` 改为 `minmax(--chat-min-w, 1fr)`，侧栏与文件面板使用 `minmax(下限, 期望值)` 轨道，空间不足时先由这两栏让位，对话区始终保留 460px。窗口宽度低于 1000px 时由**侧栏**让位，对话区与文件面板保持在网格内。

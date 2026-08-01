@@ -1175,6 +1175,10 @@ test("settings form controls share the DESIGN input height and time fields use t
   assert.match(styles, /\.select-control-trigger\s*\{[^}]*height:\s*40px[^}]*padding:\s*0 11px 0 12px/s);
   assert.match(selectControl, /Select\.Root/);
   assert.match(selectControl, /Select\.Content/);
+  assert.match(selectControl, /<Select\.Item[^>]*>[\s\S]*<span title=\{option\.label\}>\{option\.label\}<\/span>[\s\S]*<\/Select\.Item>/);
+  assert.doesNotMatch(selectControl, /#snippet child/);
+  assert.match(styles, /\.settings-row \.select-control\s*\{[^}]*flex:\s*0 1 320px;[^}]*width:\s*320px;[^}]*max-width:\s*58%/s);
+  assert.match(styles, /\.setting-row-control:has\(> \.select-control\)\s*\{[^}]*flex:\s*0 1 320px;[^}]*width:\s*320px;[^}]*max-width:\s*58%/s);
   assert.doesNotMatch(listSvelteSources().join("\n"), /<select(?:\s|>)/);
   assert.equal(sections.plugins.match(/<NativeTimeInput/g)?.length, 2);
   assert.equal(taskScheduleBuilder.match(/<NativeTimeInput/g)?.length, 1);

@@ -17,7 +17,7 @@
 - **Priority / Status**: P1 / Delivered (2026-08-01).
 - **Problem**: settings pages mixed a shared wrapper with 45 direct native selects; the wrapper itself was also native, so expanded menus ignored Molibot's visual system and behaved differently across pages.
 - **Decision**: make one Bits UI-backed `SelectControl` the only enumeration control and migrate every Desktop settings, Project settings, and onboarding call site. Preserve native time and numeric inputs where direct entry or a platform picker is the correct behavior.
-- **Acceptance**: no Desktop Svelte file contains `<select>`; triggers and floating menus follow semantic Light/Dark tokens; checked state, long-list scrolling, typeahead, disabled state, pointer dismissal, and complete keyboard navigation work; all existing narrow save/update paths remain unchanged.
+- **Acceptance**: no Desktop Svelte file contains `<select>`; triggers and floating menus follow semantic Light/Dark tokens; every item retains the Bits UI option root and is independently clickable; checked state, long-list scrolling, typeahead, disabled state, pointer dismissal, and complete keyboard navigation work; settings-row triggers allow up to 320px for readable model names while shrinking safely in narrow windows; all existing narrow save/update paths remain unchanged. Delivered, including the 2026-08-01 item-root regression fix.
 
 ## 3.27 Compact composer model menu (2026-08-01)
 

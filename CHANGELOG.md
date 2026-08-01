@@ -45,6 +45,7 @@
 ### Improved: every Desktop selection field now uses the design-system menu
 - Replaced all 55 native selects across Desktop settings, Project settings, and onboarding with the shared `SelectControl`, including observability filters, provider/model editors, Skills, Plugins, Agents, Channels, tasks, sandbox, MCP, and media tools.
 - The shared control now uses Bits UI for accessible listbox behavior and a token-driven Molibot surface: a consistent trigger, checked selection, bounded scrolling, typeahead, arrow/Enter/Escape navigation, disabled and focus states, plus Light/Dark styling. Native time and numeric inputs remain native by design.
+- Fixed the initial custom-menu regression where a mistaken Bits UI `child` override removed every option's interactive root and rendered the catalog as one unclickable text run. Items now retain their listbox behavior and vertical menu rows, while wider 320px settings triggers expose substantially more of long provider/model names.
 - A whole-source structural guard rejects any future Desktop Svelte `<select>` so the system menu cannot drift back in page by page.
 
 ### Improved: model and thinking depth now share one polished composer menu
