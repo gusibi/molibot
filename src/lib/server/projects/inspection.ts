@@ -208,6 +208,14 @@ async function runGit(projectRoot: string, args: string[]): Promise<{ ok: true; 
     "-c", "core.fsmonitor=false",
     "-c", "core.hooksPath=",
     "-c", "submodule.recurse=false",
+    // `core.quotePath` defaults to TRUE, and this runner deliberately drops HOME
+    // and system config for hermetic inspection — so a user's global
+    // `quotepath=false` never reaches it. Without this, `git diff` renders every
+    // non-ASCII path as backslash-octal ("02-\345\206\205…") in its `diff --git`
+    // and `---`/`+++` headers, which is what the viewer shows as the file name.
+    // `status --porcelain -z` is immune (NUL-delimited raw bytes), which is why
+    // the changes list looked fine while the diff header did not.
+    "-c", "core.quotePath=false",
     "-C", projectRoot,
     ...args
   ];

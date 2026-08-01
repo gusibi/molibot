@@ -148,6 +148,36 @@ test("large deleted-file diffs are returned with an explicit truncation flag", a
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("a CJK path survives the diff headers instead of arriving backslash-octal", async () => {
+  // `core.quotePath` defaults to true and this runner drops HOME / system config
+  // for hermetic inspection, so a user's global `quotepath=false` never applies.
+  // Without an explicit override every non-ASCII path reached the viewer as
+  // "02-\345\206\205..." in the `diff --git` and `---`/`+++` headers.
+  const root = mkdtempSync(join(tmpdir(), "molibot-inspection-cjk-"));
+  const name = "02-内容创作/图文长文.md";
+  try {
+    git(root, "init");
+    git(root, "config", "user.email", "test@example.com");
+    git(root, "config", "user.name", "Test");
+    mkdirSync(join(root, "02-内容创作"), { recursive: true });
+    writeFileSync(join(root, name), "第一行\n");
+    git(root, "add", ".");
+    git(root, "commit", "-m", "initial");
+    writeFileSync(join(root, name), "第一行\n第二行\n");
+
+    const status = await getProjectGitStatus(fixture(root));
+    assert.equal(status.status, "ok");
+    if (status.status === "ok") assert.deepEqual(status.entries.map((entry) => entry.path), [name]);
+
+    const diff = await getProjectGitDiff(fixture(root), { path: name });
+    assert.equal(diff.status, "diff");
+    if (diff.status === "diff") {
+      assert.ok(diff.content.includes(`a/${name}`), "diff header keeps the literal UTF-8 path");
+      assert.doesNotMatch(diff.content, /\\3\d\d/, "no backslash-octal escapes anywhere in the diff");
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("a project inside a larger repository exposes only project-relative paths", async () => {
   const repo = mkdtempSync(join(tmpdir(), "molibot-inspection-parent-"));
   const root = join(repo, "packages", "app");

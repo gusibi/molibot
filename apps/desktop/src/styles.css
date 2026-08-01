@@ -92,6 +92,13 @@
   --radius-small: 6px; --radius-control: 8px; --radius-panel: 12px; --radius-full: 999px;
   --rounded-sm: var(--radius-control); --rounded-md: var(--radius-panel); --rounded-lg: var(--radius-panel); --rounded-full: var(--radius-full);
   --toolbar-height: 52px;
+  /* The transcript column never yields below this: the composer's tool row and
+     the header's title/actions stop fitting under it, so the file panel and the
+     sidebar give up their width first (and the panel becomes an overlay drawer
+     once even that is not enough). */
+  --chat-min-w: 460px;
+  --files-min-w: 300px;
+  --sidebar-min-w: 200px;
   --settings-content-width: 720px;
   --data-content-width: 720px;
   /* Shared centered content column: every settings block aligns to this. */
@@ -131,6 +138,19 @@
   /* Code surface — fixed dark in both themes (a terminal-like block, not chrome). */
   --code-bg: #171717;
   --code-text: #ededed;
+
+  /* Git diff palette — GitHub (Primer) values, used ONLY by .project-diff-preview.
+     macOS system green/red mixed down to 14% produced muddy tints that matched
+     neither platform; diff red/green is a convention readers already know, so it
+     follows GitHub rather than the AppKit status colors used everywhere else. */
+  --diff-add-line: #e6ffec;
+  --diff-add-num: #ccffd8;
+  --diff-add-word: #abf2bc;
+  --diff-del-line: #ffebe9;
+  --diff-del-num: #ffd7d5;
+  --diff-del-word: #fdb8c0;
+  --diff-add-label: #1a7f37;
+  --diff-del-label: #cf222e;
 
   /* Legacy no-ops (glass removed) */
   --wallpaper: #fafafa;
@@ -193,8 +213,17 @@ a:focus-visible {
   width: 100%;
   height: 100%;
 }
-.chat-layout { grid-template-columns: var(--sidebar-w, 260px) 1fr; background: transparent; }
-.chat-layout.with-files { grid-template-columns: var(--sidebar-w, 260px) 1fr var(--files-w, 380px); }
+.chat-layout { grid-template-columns: minmax(var(--sidebar-min-w), var(--sidebar-w, 260px)) minmax(0, 1fr); background: transparent; }
+/* `minmax(min, fixed)` shrinks a track back to its floor when the window cannot
+   afford the preferred width, so the transcript keeps `--chat-min-w` even if the
+   stored panel widths were saved on a larger window. ChatView clamps the stored
+   widths to the same budget so the drag handles stay on the real track edges. */
+.chat-layout.with-files {
+  grid-template-columns:
+    minmax(var(--sidebar-min-w), var(--sidebar-w, 260px))
+    minmax(var(--chat-min-w), 1fr)
+    minmax(var(--files-min-w), var(--files-w, 380px));
+}
 .chat-layout.resizing { cursor: col-resize; }
 .chat-layout.resizing .chat-sidebar,
 .chat-layout.resizing .chat-content,
@@ -666,7 +695,11 @@ a:focus-visible {
      page header (which has no scrollbar gutter). */
   scrollbar-gutter: stable both-edges;
 }
-.chat-title-block { display: flex; align-items: center; gap: 6px; min-width: 0; height: 18px; }
+/* Takes the slack in the header row so the actions keep their natural width and
+   the title is the part that ellipsizes. Sizing the title against the viewport
+   instead let it run under the action buttons whenever the file panel narrowed
+   the column. */
+.chat-title-block { display: flex; align-items: center; flex: 1 1 auto; gap: 6px; min-width: 0; height: 18px; }
 .chat-source-tag {
   display: inline-flex;
   flex: none;
@@ -685,8 +718,8 @@ a:focus-visible {
 .chat-source-tag > span { opacity: .55; }
 .chat-source-tag > b { color: var(--label-secondary); font: inherit; }
 .chat-title-separator { flex: none; height: 18px; color: var(--label-tertiary); font: 400 11px/18px var(--font-mono); opacity: .65; }
-.chat-title-text { display: flex; align-items: center; min-width: 0; height: 18px; }
-.chat-title-name { font-size: 11px; font-weight: 500; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }
+.chat-title-text { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; height: 18px; }
+.chat-title-name { min-width: 0; max-width: 100%; font-size: 11px; font-weight: 500; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-title-sub { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--label-secondary); line-height: 1.3; }
 .chat-header h1, .page-header h2, .settings-sidebar h1 { margin: 0; font-size: 22px; }
 .chat-header .eyebrow, .page-header .eyebrow { margin: 0 0 3px; }
@@ -694,7 +727,7 @@ a:focus-visible {
 .secondary-button:hover { background: var(--control-bg-hover); border-color: var(--control-border-strong); }
 .secondary-button:disabled { opacity: .5; cursor: default; }
 .header-actions { position: relative; z-index: 31; display: flex; align-items: center; gap: 8px; }
-.chat-header .header-actions { flex: 1; min-width: 0; justify-content: flex-end; }
+.chat-header .header-actions { flex: 0 1 auto; min-width: 0; justify-content: flex-end; }
 /* The action row stretches across the toolbar, so its empty space must fall
    through to the window drag mask underneath; only the controls stay clickable. */
 .header-actions { pointer-events: none; }
@@ -840,15 +873,17 @@ a:focus-visible {
   position: relative;
   z-index: 31;
 }
-.file-panel-icon { font-size: 18px; color: var(--accent); }
-.file-panel-head strong { font-size: 14px; font-weight: 600; flex: 1; }
+/* macOS inspector chrome: monochrome glyphs at label ranks, no tinted icon and
+   no filled circle for close — the accent is reserved for selection and state. */
+.file-panel-icon { flex: none; font-size: 15px; color: var(--label-tertiary); }
+.file-panel-head strong { flex: 1; min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; letter-spacing: var(--tracking-tight); text-overflow: ellipsis; white-space: nowrap; }
 .file-panel-close {
-  display: flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%;
-  background: var(--fill); color: var(--label-secondary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-small);
+  background: transparent; color: var(--label-secondary); cursor: pointer;
 }
-.file-panel-close .ph { font-size: 16px; }
-.file-panel-close:hover { background: var(--fill-hover); color: inherit; }
+.file-panel-close .ph { font-size: 15px; }
+.file-panel-close:hover { background: var(--fill); color: var(--label-primary); }
 .file-filters { display: flex; gap: 7px; padding: 12px 14px 8px; flex-wrap: wrap; flex: 0 0 auto; }
 .file-filters button { padding: 4px 11px; border: 0; border-radius: var(--rounded-full); background: var(--fill); color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
 .file-filters button:hover { background: var(--fill-hover); color: inherit; }
@@ -884,30 +919,42 @@ a:focus-visible {
 .file-row:hover .file-actions { opacity: 1; }
 .file-actions button { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); font-size: 14px; cursor: pointer; }
 .file-actions button:hover { background: var(--fill-hover); color: var(--accent); }
+/* macOS status bar: a low, quiet strip, not a full control row. */
 .file-panel-footer {
-  display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
-  height: 48px; padding: 0 16px;
+  display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  height: 28px; padding: 0 12px;
   border-top: 1px solid var(--separator);
-  color: var(--label-secondary); font-size: 12px;
+  color: var(--label-tertiary); font-size: 11px;
 }
-.file-panel-footer > .ph { font-size: 16px; color: var(--label-tertiary); }
+.file-panel-footer > .ph { flex: none; font-size: 13px; color: var(--label-tertiary); }
 .file-panel-footer span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-panel-manage { padding: 0; border: 0; background: transparent; color: var(--accent); font-size: 12px; font-weight: 500; cursor: pointer; }
 
-.project-panel-refresh { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); cursor: pointer; }
-.project-panel-refresh:hover { background: var(--fill-hover); color: var(--label-primary); }
-.project-file-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 12px; padding: 4px; border-radius: var(--rounded-sm); background: var(--fill); }
-.project-file-tabs button { min-width: 0; height: 32px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
-.project-file-tabs button:hover { color: var(--label-primary); }
-.project-file-tabs button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: var(--soft-shadow); }
+.project-panel-refresh { display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-secondary); font-size: 15px; cursor: pointer; }
+.project-panel-refresh:hover { background: var(--fill); color: var(--label-primary); }
+/* AppKit segmented control proportions: a 24px track with a 2px inset, one
+   selected segment lifted onto the control surface. The previous 32px pill row
+   read as an iOS tab bar rather than a macOS inspector switcher. */
+.project-file-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; margin: 10px 12px 8px; padding: 2px; border-radius: 7px; background: var(--fill); }
+.project-file-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 22px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.project-file-tabs button:hover:not(.active) { color: var(--label-primary); }
+.project-file-tabs button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: 0 0 0 .5px var(--gray-alpha-300), var(--soft-shadow); }
 .project-panel-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .project-panel-content { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: auto; }
 .project-panel-error { margin: 0 12px 8px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger); font-size: 12px; line-height: 16px; }
 .project-entry-list { display: grid; align-content: start; gap: 1px; margin: 0; padding: 0 8px 12px; list-style: none; }
 .project-entry-list li { min-width: 0; }
-.project-entry-list li.project-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.project-entry-list .project-entry-button { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; min-height: 32px; padding: 4px 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
-.project-entry-list .project-entry-button:hover, .project-entry-list .project-entry-button.selected { background: var(--fill); }
+/* A change row is always ONE line. `flex-wrap: wrap` broke the line using the
+   path button's hypothetical (content) size, which a long path already exceeds
+   — `min-width: 0` and `flex-shrink` never got a chance, so the hover action
+   landed on a second line. Only the attachment list still wraps, because its
+   inline preview is a `flex: 0 0 100%` sibling that must take its own row. */
+.project-entry-list li.project-entry { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.project-attachment-list li.project-entry { flex-wrap: wrap; }
+.project-entry-list .project-entry-button { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; min-height: 26px; padding: 3px 8px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
+.project-entry-list .project-entry-button:hover { background: var(--fill); }
+/* Same source-list selection language as the file tree. */
+.project-entry-list .project-entry-button.selected { background: var(--mac-unemphasized-selection); }
 .project-entry-list .project-entry-button:disabled { color: var(--label-tertiary); cursor: default; }
 .project-entry-list .project-entry-button > .ph:first-child { color: var(--file-color, var(--label-secondary)); font-size: 16px; }
 .project-entry-list .project-entry-button > span { overflow: hidden; font: 12px/18px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
@@ -928,6 +975,13 @@ a:focus-visible {
 .project-panel-scope { margin: 0; padding: 0 12px 8px; color: var(--label-secondary); font-size: 12px; line-height: 16px; }
 .project-truncated-note { margin: 0 8px 8px; padding: 7px 9px; border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--warning) 10%, transparent); color: var(--label-secondary); font-size: 11px; line-height: 16px; }
 .project-change-list .project-entry-button { grid-template-columns: auto minmax(0, 1fr) auto; }
+/* The hover action floats over the row's right edge so it costs the path no
+   width at rest; the row only reserves room for it while it is showing, which
+   moves the ellipsis in rather than shifting the text. Right-click exposes the
+   same action plus diff/copy/reveal. */
+.project-change-list .project-entry-action { position: absolute; top: 50%; right: 4px; margin: 0; transform: translateY(-50%); }
+.project-change-list .project-entry:hover .project-entry-button,
+.project-change-list .project-entry:focus-within .project-entry-button { padding-right: 34px; }
 .project-change-status { min-width: 0; padding: 2px 6px; border-radius: var(--rounded-sm); font: 11px/16px var(--font-ui); font-weight: 600; text-align: center; }
 .project-change-status.status-modified { background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning-text); }
 .project-change-status.status-added { background: color-mix(in srgb, var(--online) 14%, transparent); color: var(--online); }
@@ -942,17 +996,83 @@ a:focus-visible {
 .project-attachment-row button:hover { background: var(--fill-hover); color: var(--label-primary); }
 .project-panel-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px; color: var(--label-secondary); font-size: 12px; }
 .project-panel-loading .ph { animation: project-spin .8s linear infinite; }
-.project-diff-preview { margin: 0; background: transparent; font-size: 12px; }
+/* diff2html theming goes through ITS OWN `--d2h-*` variables, not through
+   ad-hoc rule overrides. Overriding only `.d2h-ins` / `.d2h-del` left the rest
+   of diff2html's built-in light palette showing through in every theme: the
+   `@@` row stayed Bootstrap blue (`#f8fafd` on `#d5e4f2`), a modified line kept
+   the mustard `d2h-change` fill (`#fdf2d0`), the gutter kept `--d2h-bg-color:
+   #fff`, and the ins/del *borders* stayed the library's older greens and reds
+   (`#b4e2b4` / `#e9aeae`) — which is the mismatch that read as "neither macOS
+   nor GitHub". Remapping the variables covers line, word, border, gutter,
+   hunk, change and placeholder in one place.
+   Both the light (`--d2h-*`) and dark (`--d2h-dark-*`) sets point at the same
+   theme-aware `--diff-*` tokens, so the palette is correct no matter which
+   colour-scheme class diff2html emits (it defaults to `light`). */
+.project-diff-preview {
+  margin: 0;
+  background: transparent;
+  font-size: 12px;
+
+  --d2h-bg-color: var(--card-bg);
+  --d2h-border-color: var(--separator);
+  --d2h-line-border-color: var(--separator);
+  --d2h-dim-color: var(--label-tertiary);
+  --d2h-file-header-bg-color: var(--surface-secondary);
+  --d2h-file-header-border-color: var(--separator);
+  --d2h-empty-placeholder-bg-color: var(--surface-secondary);
+  --d2h-empty-placeholder-border-color: var(--separator);
+  --d2h-selected-color: var(--accent-soft);
+  --d2h-info-bg-color: var(--surface-secondary);
+  --d2h-info-border-color: var(--separator);
+  --d2h-ins-bg-color: var(--diff-add-line);
+  --d2h-ins-border-color: var(--diff-add-num);
+  --d2h-ins-highlight-bg-color: var(--diff-add-word);
+  --d2h-ins-label-color: var(--diff-add-label);
+  --d2h-del-bg-color: var(--diff-del-line);
+  --d2h-del-border-color: var(--diff-del-num);
+  --d2h-del-highlight-bg-color: var(--diff-del-word);
+  --d2h-del-label-color: var(--diff-del-label);
+  --d2h-change-ins-color: var(--diff-add-line);
+  --d2h-change-del-color: var(--diff-del-line);
+  --d2h-change-label-color: var(--diff-del-label);
+
+  --d2h-dark-color: var(--label-primary);
+  --d2h-dark-bg-color: var(--card-bg);
+  --d2h-dark-border-color: var(--separator);
+  --d2h-dark-line-border-color: var(--separator);
+  --d2h-dark-dim-color: var(--label-tertiary);
+  --d2h-dark-file-header-bg-color: var(--surface-secondary);
+  --d2h-dark-file-header-border-color: var(--separator);
+  --d2h-dark-empty-placeholder-bg-color: var(--surface-secondary);
+  --d2h-dark-empty-placeholder-border-color: var(--separator);
+  --d2h-dark-selected-color: var(--accent-soft);
+  --d2h-dark-info-bg-color: var(--surface-secondary);
+  --d2h-dark-info-border-color: var(--separator);
+  --d2h-dark-ins-bg-color: var(--diff-add-line);
+  --d2h-dark-ins-border-color: var(--diff-add-num);
+  --d2h-dark-ins-highlight-bg-color: var(--diff-add-word);
+  --d2h-dark-ins-label-color: var(--diff-add-label);
+  --d2h-dark-del-bg-color: var(--diff-del-line);
+  --d2h-dark-del-border-color: var(--diff-del-num);
+  --d2h-dark-del-highlight-bg-color: var(--diff-del-word);
+  --d2h-dark-del-label-color: var(--diff-del-label);
+  --d2h-dark-change-ins-color: var(--diff-add-line);
+  --d2h-dark-change-del-color: var(--diff-del-line);
+  --d2h-dark-change-label-color: var(--diff-del-label);
+}
 .project-diff-preview .d2h-wrapper { background: transparent; }
 .project-diff-preview .d2h-file-wrapper { background: var(--card-bg); border: 1px solid var(--separator); border-radius: var(--rounded-sm); color: var(--label-primary); }
 .project-diff-preview .d2h-file-header { background: var(--surface-secondary); border-color: var(--separator); color: var(--label-primary); }
 .project-diff-preview .d2h-file-diff, .project-diff-preview .d2h-diff-tbody { background: var(--card-bg); color: var(--label-primary); }
-.project-diff-preview .d2h-code-linenumber, .project-diff-preview .d2h-code-side-linenumber, .project-diff-preview .d2h-info { background: var(--surface-secondary); color: var(--label-tertiary); border-color: var(--separator); }
 .project-diff-preview .d2h-code-line, .project-diff-preview .d2h-code-side-line { background: transparent; color: var(--label-primary); }
-.project-diff-preview .d2h-ins { background: color-mix(in srgb, var(--online) 14%, transparent); }
-.project-diff-preview .d2h-del { background: color-mix(in srgb, var(--danger) 14%, transparent); }
-.project-diff-preview .d2h-code-line ins { background: color-mix(in srgb, var(--online) 22%, transparent); }
-.project-diff-preview .d2h-code-line del { background: color-mix(in srgb, var(--danger) 22%, transparent); }
+/* The only thing the variables cannot express: GitHub tints the line-number
+   cell more strongly than the line itself, while diff2html paints both from
+   one `--d2h-*-bg-color`. These combined selectors are required — a bare
+   `.d2h-ins` ties on specificity with the gutter rule and would lose. */
+.project-diff-preview .d2h-code-linenumber.d2h-ins,
+.project-diff-preview .d2h-code-side-linenumber.d2h-ins { background: var(--diff-add-num); }
+.project-diff-preview .d2h-code-linenumber.d2h-del,
+.project-diff-preview .d2h-code-side-linenumber.d2h-del { background: var(--diff-del-num); }
 .project-preview-label { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--separator); color: var(--label-secondary); font-size: 12px; text-align: left; }
 /* Project file panel — tree, viewer and search (see DESIGN.vercel.md scale) */
 .project-panel-refresh { position: relative; }
@@ -961,34 +1081,63 @@ a:focus-visible {
 .project-tab-badge { margin-left: 4px; padding: 0 5px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); font: 11px/16px var(--font-mono); }
 
 .project-browser { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: auto; }
-.project-browser-actions { display: flex; justify-content: flex-end; padding: 0 12px 4px; }
-.project-browser-actions button { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0 6px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); font-size: 11px; cursor: pointer; }
+/* A source-list utility strip, hairline-separated from the rows below, instead
+   of a control floating over the first tree row. */
+.project-browser-actions { position: sticky; top: 0; z-index: 1; display: flex; flex: none; justify-content: flex-end; padding: 0 8px 3px; border-bottom: 1px solid var(--separator); background: var(--sidebar-bg); }
+.project-browser > .project-browser-actions + .file-tree-level { padding-top: 4px; }
+.project-browser-actions button { display: inline-flex; align-items: center; gap: 4px; min-height: 22px; padding: 0 6px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-tertiary); font-size: 11px; cursor: pointer; }
 .project-browser-actions button:hover { background: var(--fill); color: var(--label-secondary); }
 
 .file-tree-level { margin: 0; padding: 0; list-style: none; }
 .project-browser > .file-tree-level { padding: 0 8px 8px; }
 .file-tree-item { min-width: 0; }
-.file-tree-row { display: flex; align-items: center; gap: 2px; border-radius: var(--rounded-sm); }
+.file-tree-row { position: relative; display: flex; align-items: center; gap: 2px; border-radius: var(--radius-small); }
 .file-tree-row:hover { background: var(--fill); }
-.file-tree-row.selected { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+/* AppKit source-list selection: unemphasized grey while the list is not the
+   first responder, accent fill (with every glyph turning white) once it is.
+   A flat 14% accent tint reads the same either way and is the single detail
+   that made this list feel like a web tree rather than a Finder sidebar. */
+.file-tree-row.selected { background: var(--mac-unemphasized-selection); }
+.project-browser:focus-within .file-tree-row.selected { background: var(--accent); }
+.project-browser:focus-within .file-tree-row.selected .file-tree-button,
+.project-browser:focus-within .file-tree-row.selected .file-tree-name,
+.project-browser:focus-within .file-tree-row.selected .file-tree-icon,
+.project-browser:focus-within .file-tree-row.selected .file-tree-caret,
+.project-browser:focus-within .file-tree-row.selected .file-tree-size,
+.project-browser:focus-within .file-tree-row.selected .file-tree-action { color: #fff; }
 .file-tree-row.dirty .file-tree-name { color: var(--warning-text); }
-.file-tree-button { display: grid; grid-template-columns: 12px 16px minmax(0, 1fr) auto; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; min-height: 28px; padding: 0 4px 0 calc(4px + var(--depth, 0) * 12px); border: 0; background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
+.project-browser:focus-within .file-tree-row.selected.dirty .file-tree-name { color: #fff; }
+.file-tree-button { display: grid; grid-template-columns: 12px 16px minmax(0, 1fr) auto; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; min-height: 24px; padding: 0 4px 0 calc(4px + var(--depth, 0) * 14px); border: 0; background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
 .file-tree-button:disabled { color: var(--label-tertiary); cursor: default; }
 .file-tree-caret { font-size: 11px; color: var(--label-tertiary); transition: transform var(--duration-instant) var(--ease-standard); }
 .file-tree-caret.open { transform: rotate(90deg); }
 .file-tree-caret-spacer { width: 12px; }
-.file-tree-icon { font-size: 15px; color: var(--file-color, var(--label-secondary)); }
-.file-tree-name { overflow: hidden; font: 12px/18px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.file-tree-size { color: var(--label-tertiary); font: 11px var(--font-mono); }
-.file-tree-action { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin-right: 4px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; opacity: 0; transition: opacity var(--duration-instant) var(--ease-standard); }
-.file-tree-row:hover .file-tree-action { opacity: 1; }
+.file-tree-icon { font-size: 14px; color: var(--file-color, var(--label-secondary)); }
+/* Finder and Xcode set file names in the system font; the monospace stack is
+   reserved for full paths, identifiers and code (DESIGN.md § Foundations). */
+.file-tree-name { overflow: hidden; font: 13px/16px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
+.file-tree-size { color: var(--label-tertiary); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+/* Same treatment as the change list: the row actions float over the right edge
+   instead of holding a permanent slot, so the file name and its size get the
+   full row width at rest rather than sitting beside a wide empty gutter. The
+   row only reserves room while they are showing. Right-click carries the same
+   actions plus open/diff/reveal. */
+.file-tree-action { position: absolute; top: 50%; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-tertiary); font-size: 13px; cursor: pointer; opacity: 0; transform: translateY(-50%); transition: opacity var(--duration-instant) var(--ease-standard); }
+.file-tree-action:nth-last-of-type(2) { right: 30px; }
+.file-tree-action:last-of-type { right: 6px; }
+.file-tree-row:hover .file-tree-action, .file-tree-row:focus-within .file-tree-action { opacity: 1; }
+.file-tree-row:hover .file-tree-button,
+.file-tree-row:focus-within .file-tree-button { padding-right: 56px; }
 .file-tree-action:hover { background: var(--fill-hover); color: var(--label-primary); }
-.file-tree-hint { margin: 0; padding: 4px 8px 4px calc(20px + var(--depth, 0) * 12px); color: var(--label-tertiary); font-size: 11px; }
+.project-browser:focus-within .file-tree-row.selected .file-tree-action:hover { background: rgb(255 255 255 / 22%); }
+.file-tree-hint { margin: 0; padding: 4px 8px 4px calc(22px + var(--depth, 0) * 14px); color: var(--label-tertiary); font-size: 11px; }
 .file-tree-hint.file-tree-error { color: var(--danger); }
-.file-tree-more { margin: 2px 8px 8px; margin-left: calc(8px + var(--depth, 0) * 12px); min-height: 26px; padding: 0 8px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-secondary); font-size: 11px; cursor: pointer; }
+.file-tree-more { margin: 2px 8px 8px; margin-left: calc(8px + var(--depth, 0) * 14px); min-height: 22px; padding: 0 8px; border: 1px solid var(--separator); border-radius: var(--radius-small); background: var(--card-bg); color: var(--label-secondary); font-size: 11px; cursor: pointer; }
 .file-tree-more:hover:not(:disabled) { border-color: var(--control-border-strong); color: var(--label-primary); }
 
-.file-tree-row.cursor { background: var(--fill-hover); box-shadow: inset 2px 0 0 var(--accent); }
+/* Keyboard cursor without selection: a focus ring, not a second fill — two
+   competing tinted rows made it impossible to tell which file was open. */
+.file-tree-row.cursor:not(.selected) { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
 .file-tree-button:focus-visible { outline: none; }
 
 /* Collapsing the browser hands the whole panel to the viewer — at 280–720px wide
@@ -1064,13 +1213,15 @@ a:focus-visible {
 .project-file-panel .project-viewer { flex: 1 1 calc(100% - var(--file-split, 52%)); }
 
 .project-viewer { display: flex; min-height: 0; flex-direction: column; border-top: 1px solid var(--separator); background: var(--card-bg); }
-.project-viewer-tabs { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; padding: 4px 6px; overflow-x: auto; border-bottom: 1px solid var(--separator); }
-.project-viewer-tab { display: flex; align-items: center; flex: none; border-radius: var(--rounded-sm); background: transparent; }
-.project-viewer-tab:hover { background: var(--fill); }
-.project-viewer-tab.active { background: var(--fill); box-shadow: inset 0 -2px 0 var(--accent); }
-.project-viewer-tab > button:first-child { display: flex; align-items: center; gap: 6px; max-width: 160px; min-height: 28px; padding: 0 4px 0 8px; border: 0; background: transparent; color: var(--label-secondary); cursor: pointer; }
+/* macOS tab bar: the selected tab is lifted onto the content surface. The
+   previous accent underline was a code-editor idiom, not an AppKit one. */
+.project-viewer-tabs { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; padding: 4px 6px; overflow-x: auto; border-bottom: 1px solid var(--separator); background: var(--surface-secondary); }
+.project-viewer-tab { display: flex; align-items: center; flex: none; border-radius: var(--radius-small); background: transparent; }
+.project-viewer-tab:hover:not(.active) { background: var(--fill); }
+.project-viewer-tab.active { background: var(--card-bg); box-shadow: 0 0 0 .5px var(--gray-alpha-300), var(--soft-shadow); }
+.project-viewer-tab > button:first-child { display: flex; align-items: center; gap: 6px; max-width: 160px; min-height: 24px; padding: 0 4px 0 8px; border: 0; background: transparent; color: var(--label-secondary); cursor: pointer; }
 .project-viewer-tab.active > button:first-child { color: var(--label-primary); }
-.project-viewer-tab > button:first-child span { overflow: hidden; font: 12px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.project-viewer-tab > button:first-child span { overflow: hidden; font: 12px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
 .project-viewer-tab-close { display: grid; place-items: center; width: 20px; height: 20px; margin-right: 4px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); font-size: 11px; cursor: pointer; }
 .project-viewer-tab-close:hover { background: var(--fill-hover); color: var(--label-primary); }
 .project-viewer-tab-clear { display: grid; place-items: center; flex: none; width: 24px; height: 24px; margin-left: auto; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
@@ -1140,9 +1291,10 @@ a:focus-visible {
 
 /* P2: session-scoped changes, agent-touched marks, chat references */
 .project-tab-badge.is-session { background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning-text); }
-.project-change-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 0 12px 8px; padding: 4px; border-radius: var(--rounded-sm); background: var(--fill); }
-.project-change-scope button { min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
-.project-change-scope button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: var(--soft-shadow); }
+/* Same segmented-control geometry as the panel's tab switcher. */
+.project-change-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; margin: 0 12px 8px; padding: 2px; border-radius: 7px; background: var(--fill); }
+.project-change-scope button { min-width: 0; height: 22px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.project-change-scope button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: 0 0 0 .5px var(--gray-alpha-300), var(--soft-shadow); }
 .file-tree-row.touched .file-tree-name { color: var(--label-primary); font-weight: 600; }
 .file-tree-touched { justify-self: end; width: 6px; height: 6px; border-radius: 50%; background: var(--warning-text); }
 .file-search-row { display: flex; align-items: center; gap: 2px; min-width: 0; border-radius: var(--rounded-sm); }
@@ -1156,9 +1308,24 @@ a:focus-visible {
 .project-file-panel .file-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .project-file-panel .file-empty .ph { font-size: 24px; color: var(--label-tertiary); }
 
-@media (max-width: 820px) {
-  .chat-layout.with-files { grid-template-columns: minmax(190px, var(--sidebar-w)) minmax(0, 1fr); }
-  .chat-layout.with-files .file-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 15; width: min(360px, calc(100vw - 48px)); box-shadow: var(--drawer-shadow); }
+/* Below this the three columns cannot all hold their floor, so the SIDEBAR
+   yields and the panel stays in flow. It must not become a fixed overlay: an
+   overlaid panel needs a z-index, that z-index makes the panel a stacking
+   context, and its head (z-index 31, deliberately above the window drag mask)
+   gets trapped underneath that mask at z-index 30 — the panel's close and
+   refresh buttons stop responding. The chat header's own action row, still
+   laid out at the full width underneath, also paints straight through the
+   panel's head. Keeping the panel in flow means nothing overlaps and the
+   header title compresses inside its own narrower column. */
+@media (max-width: 1000px) {
+  .chat-layout.with-files {
+    grid-template-columns: minmax(360px, 1fr) minmax(var(--files-min-w), var(--files-w, 380px));
+  }
+  .chat-layout.with-files .chat-sidebar,
+  .chat-layout.with-files .sidebar-resizer { display: none; }
+  /* With the sidebar gone the header starts at the window edge, so it has to
+     reserve the traffic lights itself. */
+  .chat-layout.with-files .chat-header { padding-left: 84px; }
 }
 
 .preview-overlay {
@@ -1208,7 +1375,9 @@ a:focus-visible {
   pointer-events: none;
   transition: width var(--duration-normal) var(--ease-standard), padding var(--duration-normal) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard), visibility 0s linear var(--duration-normal);
 }
-.search-bar.open { width: clamp(220px, 32vw, 360px); padding: 3px 4px 3px 9px; border-color: var(--control-border); box-shadow: var(--soft-shadow); opacity: 1; visibility: visible; pointer-events: auto; transition-delay: 0s; }
+/* Shrinkable while open: on a narrowed column the field gives way instead of
+   pushing the neighbouring actions past the header edge. */
+.search-bar.open { flex: 0 1 auto; width: clamp(180px, 32vw, 360px); padding: 3px 4px 3px 9px; border-color: var(--control-border); box-shadow: var(--soft-shadow); opacity: 1; visibility: visible; pointer-events: auto; transition-delay: 0s; }
 .search-bar:focus-within { border-color: color-mix(in srgb, var(--accent) 38%, var(--control-border-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent), var(--soft-shadow); }
 .search-bar-icon { flex: none; color: var(--label-tertiary); font-size: 14px; }
 .search-bar input { flex: 1; min-width: 0; height: 28px; padding: 0 4px; border: 0; background: transparent; color: var(--label-primary); font: inherit; font-size: 12px; outline: 0; }
@@ -1232,8 +1401,11 @@ a:focus-visible {
 .service-starting-spinner img { width: 42px; height: 42px; border-radius: 50%; }
 .service-starting-spinner span { position: absolute; inset: 0; border: 2px solid var(--separator); border-top-color: var(--accent); border-radius: 50%; animation: activity-spin .9s linear infinite; }
 .chat-messages-frame { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
-.messages { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 24px clamp(20px, 5vw, 56px); scroll-behavior: smooth; }
-.chat-messages-frame.has-prompt-navigator .messages { padding-inline: clamp(56px, 6vw, 72px); }
+/* The gutter is a share of the CHAT COLUMN, not of the window: a `vw` gutter
+   kept its full 56px after the file panel narrowed the column, which left the
+   composer's tool row with less width than its own controls needed. */
+.messages { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 24px clamp(20px, 5%, 56px); scroll-behavior: smooth; }
+.chat-messages-frame.has-prompt-navigator .messages { padding-inline: clamp(44px, 6%, 72px); }
 .conversation-prompt-navigator {
   position: absolute;
   z-index: 4;
@@ -1649,9 +1821,9 @@ a:focus-visible {
    with the message rows (720px) instead of sitting flush against the pane edges
    on narrower surfaces like the project chat. The widened max-width absorbs the
    padding so the inner content still caps at --message-content-width. */
-.composer-wrap { width: 100%; max-width: calc(var(--message-content-width) + 2 * clamp(20px, 5vw, 56px)); margin: 0 auto; padding: 10px clamp(20px, 5vw, 56px) 16px; background: transparent; }
-.composer-selectors { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; margin-left: auto; }
-.composer-model-menu { position: relative; max-width: min(260px, 38vw); }
+.composer-wrap { width: 100%; max-width: calc(var(--message-content-width) + 2 * clamp(20px, 5%, 56px)); margin: 0 auto; padding: 10px clamp(20px, 5%, 56px) 16px; background: transparent; }
+.composer-selectors { display: flex; align-items: center; flex: 0 1 auto; gap: 6px; flex-wrap: nowrap; min-width: 0; margin-left: auto; }
+.composer-model-menu { position: relative; min-width: 0; max-width: min(260px, 100%); }
 .composer-model-menu > summary::-webkit-details-marker { display: none; }
 .composer-model-trigger {
   position: relative;
@@ -1784,8 +1956,8 @@ a:focus-visible {
 .recording-action { padding: 4px 8px; border: 0; border-radius: var(--rounded-sm); background: var(--fill); color: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .recording-action.primary { background: var(--accent); color: white; }
 @keyframes recording-pulse { 50% { opacity: .45; transform: scale(.82); } }
-.composer-bar { display: flex; align-items: center; gap: 5px; }
-.composer-tools { display: flex; align-items: center; gap: 2px; }
+.composer-bar { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.composer-tools { display: flex; align-items: center; flex: none; gap: 2px; }
 .composer-tool {
   display: flex;
   flex: none;
@@ -3128,6 +3300,17 @@ select.provider-input { padding-right: 6px; }
   --mac-tertiary-label: rgb(255 255 255 / 24.7%);
   --mac-separator: rgb(255 255 255 / 9.8%);
   --mac-unemphasized-selection: #464646;
+
+  /* Git diff — Primer dark. Alpha over the panel surface, exactly as GitHub
+     composites it, so the tint stays correct on any dark canvas. */
+  --diff-add-line: rgba(46,160,67,0.15);
+  --diff-add-num: rgba(63,185,80,0.3);
+  --diff-add-word: rgba(46,160,67,0.4);
+  --diff-del-line: rgba(248,81,73,0.15);
+  --diff-del-num: rgba(248,81,73,0.3);
+  --diff-del-word: rgba(248,81,73,0.4);
+  --diff-add-label: #3fb950;
+  --diff-del-label: #f85149;
   /* Fallback for explicit dark theme under a LIGHT OS: the native macOS sidebar
      material follows the OS, so it stays light and would bleed through a
      transparent tint. A near-opaque dark veil keeps the nav dark. When the OS
@@ -3413,6 +3596,17 @@ select.provider-input { padding-right: 6px; }
     --mac-label: rgb(255 255 255 / 84.7%); --mac-secondary-label: rgb(255 255 255 / 54.9%);
     --mac-tertiary-label: rgb(255 255 255 / 24.7%); --mac-separator: rgb(255 255 255 / 9.8%);
     --mac-unemphasized-selection: #464646;
+
+    /* Git diff — Primer dark. Alpha over the panel surface, exactly as GitHub
+       composites it, so the tint stays correct on any dark canvas. */
+    --diff-add-line: rgba(46,160,67,0.15);
+    --diff-add-num: rgba(63,185,80,0.3);
+    --diff-add-word: rgba(46,160,67,0.4);
+    --diff-del-line: rgba(248,81,73,0.15);
+    --diff-del-num: rgba(248,81,73,0.3);
+    --diff-del-word: rgba(248,81,73,0.4);
+  --diff-add-label: #3fb950;
+  --diff-del-label: #f85149;
     --sidebar-material-tint: transparent;
     --gray-100: #1e1e1e; --gray-200: #2c2c2e; --gray-300: #3a3a3a; --gray-400: #424242;
     --gray-500: #464646; --gray-600: #5a5a5a; --gray-700: #777777; --gray-800: #999999;
@@ -3501,11 +3695,13 @@ html[data-increased-contrast="true"] .settings-sidebar {
 @media (max-width: 820px) {
   .chat-layout { grid-template-columns: 180px minmax(0, 1fr); }
   .chat-layout .sidebar-resizer { left: 180px; }
-  .chat-layout.with-files { grid-template-columns: 1fr minmax(220px, 46%); }
-  .chat-layout.with-files .chat-sidebar,
-  .chat-layout.with-files .sidebar-resizer { display: none; }
+  /* Sidebar hiding and the two-column split are owned by the 1000px tier; this
+     tier only tightens the floors. Re-declaring the whole `with-files` grid
+     here is what previously fought that tier and left an empty panel track. */
+  .chat-layout.with-files { grid-template-columns: minmax(280px, 1fr) minmax(260px, var(--files-w, 380px)); }
   .settings-layout { grid-template-columns: 170px 1fr; }
   .chat-header, .page-header { padding-inline: 18px; }
+  .chat-layout.with-files .chat-header { padding-left: 84px; }
   .settings-search { margin-inline: 10px; }
   .settings-nav-list { padding-inline: 7px; }
   .settings-card { margin-inline: 18px; }

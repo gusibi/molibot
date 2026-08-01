@@ -565,7 +565,12 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   // The composer content column still caps at the 720px reading width, but the
   // wrap carries the same horizontal inset as .messages so it never sits flush
   // against the pane edges on narrower surfaces (e.g. project chat).
-  assert.match(styles, /\.composer-wrap\s*\{[^}]*max-width:\s*calc\(var\(--message-content-width\)[^}]*padding:[^}]*clamp\(20px, 5vw, 56px\)/s);
+  // The gutter is a share of the CHAT COLUMN, not of the window: a `vw` gutter
+  // kept its full 56px after the file panel narrowed the column and pushed the
+  // composer's own controls past the pane edge.
+  assert.match(styles, /\.composer-wrap\s*\{[^}]*max-width:\s*calc\(var\(--message-content-width\)[^}]*padding:[^}]*clamp\(20px, 5%, 56px\)/s);
+  assert.match(styles, /\.messages \{[^}]*padding: 24px clamp\(20px, 5%, 56px\)/);
+  assert.doesNotMatch(styles, /\.(messages|composer-wrap|chat-title-name) \{[^}]*\dvw/);
   assert.match(styles, /\.composer textarea\s*\{[^}]*min-height:\s*42px;[^}]*max-height:\s*180px/s);
   assert.match(transcript, /humanizeModelOption\(message\.model, message\.model\)\.label/);
   assert.match(view, /activeAgentName[\s\S]*copy\.agentStudioGlobalName/);
@@ -800,6 +805,12 @@ test("chat header is single-line and service status lives on the sidebar logo", 
   assert.match(view, /activeHeaderSourceInitial/);
   assert.match(view, /activeHeaderTitle/);
   assert.match(view, /class="chat-title-separator"[^>]*>\/<\/span>/);
+  // The title takes the row's slack and ellipsizes inside the CHAT COLUMN. A
+  // viewport-relative `max-width` let it run underneath the action buttons as
+  // soon as the file panel narrowed the column.
+  assert.match(styles, /\.chat-title-block \{[^}]*flex: 1 1 auto/);
+  assert.match(styles, /\.chat-header \.header-actions \{ flex: 0 1 auto/);
+  assert.match(styles, /\.chat-title-name \{[^}]*max-width: 100%[^}]*text-overflow: ellipsis/);
   assert.doesNotMatch(view, /activeHeaderAvatar|activeSessionTitle|activeExternalTitleWithSource/);
   assert.match(view, /openExternalTranscript\(item\.sessionId, item\.channel, item\.title, item\.botName\)/);
   assert.doesNotMatch(view, /activeExternalTitle\?\.replace/);
@@ -1259,7 +1270,54 @@ test("project file panel exposes live files, Git changes, and session attachment
   assert.match(projectFilePanel, /listDesktopSessionFiles\(endpoint, "personal", sessionId, projectId\)/);
   assert.match(projectFilePanel, /projectReadOnlyHint/);
   assert.match(styles, /\.project-file-tabs/);
-  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.chat-layout\.with-files \.file-panel/);
+  // A change row stays on ONE line. With `flex-wrap: wrap` the line broke on
+  // the path button's hypothetical (content) size — which a long path already
+  // exceeds — so `min-width: 0` / `flex-shrink` never applied and the hover
+  // action dropped onto a second line. The action floats over the row's right
+  // edge instead of occupying a flex slot; right-click carries the full set.
+  assert.match(styles, /\.project-entry-list li\.project-entry \{[^}]*flex-wrap: nowrap/);
+  assert.match(styles, /\.project-change-list \.project-entry-action \{[^}]*position: absolute/);
+  assert.match(projectFilePanel, /oncontextmenu=\{\(event\) => openContextMenu\(event, entry\.path, "file"\)\}/);
+  // Only the attachment list may still wrap: its inline preview is a
+  // `flex: 0 0 100%` sibling that has to take its own row.
+  assert.match(styles, /\.project-attachment-list li\.project-entry \{ flex-wrap: wrap; \}/);
+  // File tree rows use the same floating actions, so a name and its size get
+  // the full row width instead of sitting beside a permanently reserved gutter.
+  assert.match(styles, /\.file-tree-action \{[^}]*position: absolute/);
+  assert.match(styles, /\.file-tree-row:hover \.file-tree-button,\s*\.file-tree-row:focus-within \.file-tree-button \{ padding-right/);
+  // Git diff uses the GitHub (Primer) palette, not the app's AppKit status
+  // colors: diff red/green is a convention readers already know, and macOS
+  // green/red mixed to 14% produced tints that matched no platform. Light is
+  // Primer's solid pastels; dark is Primer's alpha-over-canvas values.
+  assert.match(styles, /--diff-add-line: #e6ffec;[\s\S]*--diff-del-word: #fdb8c0;/);
+  assert.match(styles, /--diff-add-line: rgba\(46,160,67,0\.15\)/);
+  assert.match(styles, /\.project-diff-preview \.d2h-code-linenumber\.d2h-ins[\s\S]*var\(--diff-add-num\)/);
+  // Both dark paths (explicit and system) must carry the palette.
+  assert.equal(styles.match(/--diff-add-line: rgba\(46,160,67,0\.15\)/g).length, 2);
+  assert.doesNotMatch(styles, /\.d2h-(ins|del|code-line ins|code-line del) \{ background: color-mix/);
+  // diff2html is themed through ITS OWN `--d2h-*` variables. Overriding only
+  // `.d2h-ins` / `.d2h-del` left the library's built-in light palette showing
+  // through in every theme — blue `@@` row, mustard `d2h-change` fill, white
+  // gutter, and the old green/red ins/del BORDERS. Both the light and dark
+  // variable sets must be remapped, and both must point at the theme-aware
+  // `--diff-*` tokens so the palette holds whichever colour-scheme class
+  // diff2html emits (it defaults to `light`).
+  for (const nameOfVar of ["ins-bg-color", "ins-border-color", "ins-highlight-bg-color", "del-bg-color", "del-border-color", "del-highlight-bg-color", "change-ins-color", "change-del-color", "info-bg-color"]) {
+    assert.match(styles, new RegExp(`--d2h-${nameOfVar}: var\\(--(diff|surface|separator)`), `light --d2h-${nameOfVar} must be remapped`);
+    assert.match(styles, new RegExp(`--d2h-dark-${nameOfVar}: var\\(--(diff|surface|separator)`), `dark --d2h-${nameOfVar} must be remapped`);
+  }
+  // Narrow windows drop the SIDEBAR, never the panel's place in the grid. An
+  // overlaid panel needs a z-index; that z-index makes it a stacking context,
+  // which traps its own head (z-index 31, deliberately above the drag mask)
+  // under the mask at z-index 30 and kills its close/refresh buttons — while
+  // the chat header's action row, still laid out full-width underneath, paints
+  // through the panel head.
+  assert.match(styles, /@media \(max-width: 1000px\)[\s\S]*?\.chat-layout\.with-files \.chat-sidebar,\s*\.chat-layout\.with-files \.sidebar-resizer \{ display: none/);
+  assert.doesNotMatch(styles, /\.chat-layout\.with-files \.file-panel \{[^}]*position: fixed/);
+  // Exactly one tier may own the narrow `with-files` split; a second full
+  // re-declaration is what previously left an empty panel track behind an
+  // out-of-flow panel.
+  assert.equal(styles.match(/\.chat-layout\.with-files \.chat-sidebar/g)?.length, 1);
 });
 
 test("project file tree expands in place and keeps its expansion state", () => {
@@ -1350,8 +1408,17 @@ test("project file panel follows file changes live and stays resizable", () => {
   assert.match(filesStore, /if \(batch\.overflow\)/);
   assert.match(view, /class="files-resizer"/);
   assert.match(view, /molibot-desktop-files-width/);
-  assert.match(styles, /\.chat-layout\.with-files \{ grid-template-columns:[^}]*var\(--files-w/);
+  assert.match(styles, /\.chat-layout\.with-files \{[^}]*grid-template-columns:[^}]*var\(--files-w/s);
   assert.match(styles, /\.files-resizer/);
+  // Opening the file panel must never squeeze the transcript below its floor:
+  // the grid gives the sidebar and the panel back their width first, and
+  // ChatView clamps the STORED widths to the same budget so the absolutely
+  // positioned drag handles stay on the real track edges.
+  assert.match(styles, /\.chat-layout\.with-files \{[^}]*minmax\(var\(--chat-min-w\), 1fr\)[^}]*minmax\(var\(--files-min-w\)/s);
+  assert.match(view, /\$: filesMaxWidth =[\s\S]*viewportWidth - sidebarWidth - CHAT_MIN[\s\S]*viewportWidth - CHAT_MIN_NARROW/);
+  assert.match(view, /\$: effectiveFilesWidth = Math\.min\(filesWidth, filesMaxWidth\)/);
+  assert.match(view, /--sidebar-w:\$\{effectiveSidebarWidth\}px; --files-w:\$\{effectiveFilesWidth\}px/);
+  assert.match(view, /bind:innerWidth=\{viewportWidth\}/);
 });
 
 test("selectProjectSession discards stale transcript responses when switching sessions", () => {

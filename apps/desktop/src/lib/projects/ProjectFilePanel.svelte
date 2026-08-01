@@ -386,7 +386,7 @@
   onkeydown={onPanelKeydown}
 >
   <div class="file-panel-head">
-    <i class="ph-fill ph-folder-simple file-panel-icon" aria-hidden="true"></i>
+    <i class="ph ph-folder-simple file-panel-icon" aria-hidden="true"></i>
     <strong>{copy.projectFilesPanel}</strong>
     <button
       type="button"

@@ -313,9 +313,21 @@
     automationUnreadScheduler = null;
   }
 
+  // Mirrors `--chat-min-w` / `--files-min-w` / `--sidebar-min-w` in styles.css.
+  // The grid enforces the transcript's floor on its own, but both resizers are
+  // absolutely positioned from the stored widths, so the stored values have to
+  // respect the same budget or a handle drifts off the track edge it drags.
+  // Below NARROW_WIDTH the sidebar is hidden and the layout drops to
+  // transcript + panel, so the three-column budget stops applying.
+  const CHAT_MIN = 460;
+  const CHAT_MIN_NARROW = 360;
+  const NARROW_WIDTH = 1000;
+  let viewportWidth = window.innerWidth;
+
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_MIN = 220;
   const SIDEBAR_MAX = 420;
+  let sidebarMaxWidth = SIDEBAR_MAX;
   let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || 260);
   let resizingSidebar = false;
   let sidebarGestureId = "";
@@ -338,7 +350,7 @@
     }
   });
   function clampSidebarWidth(value: number): number {
-    return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(value)));
+    return Math.min(sidebarMaxWidth, Math.max(SIDEBAR_MIN, Math.round(value)));
   }
   function startSidebarResize(event: PointerEvent): void {
     if (event.button !== 0) return;
@@ -375,8 +387,9 @@
   }
 
   const FILES_WIDTH_KEY = "molibot-desktop-files-width";
-  const FILES_MIN = 280;
+  const FILES_MIN = 300;
   const FILES_MAX = 720;
+  let filesMaxWidth = FILES_MAX;
   let filesWidth = clampFilesWidth(Number(localStorage.getItem(FILES_WIDTH_KEY) || 0) || 380);
   let resizingFiles = false;
   let filesGestureId = "";
@@ -401,7 +414,7 @@
     }
   });
   function clampFilesWidth(value: number): number {
-    return Math.min(FILES_MAX, Math.max(FILES_MIN, Math.round(value)));
+    return Math.min(filesMaxWidth, Math.max(FILES_MIN, Math.round(value)));
   }
   function startFilesResize(event: PointerEvent): void {
     if (event.button !== 0) return;
@@ -436,6 +449,27 @@
     filesWidth = clampFilesWidth(next);
     localStorage.setItem(FILES_WIDTH_KEY, String(filesWidth));
   }
+
+  // Every dependency is read directly here on purpose: a legacy `$:` only tracks
+  // what the statement itself references, so folding this into a helper would
+  // freeze the budget at its first value.
+  $: filesPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0);
+  $: threeColumn = filesPanelVisible && viewportWidth > NARROW_WIDTH;
+  // Below NARROW_WIDTH the sidebar is hidden and only two tracks share the
+  // window, so the budget drops the sidebar term and uses the lower floor the
+  // narrow tier gives the transcript.
+  $: filesMaxWidth = !filesPanelVisible
+    ? FILES_MAX
+    : Math.max(FILES_MIN, Math.min(FILES_MAX, threeColumn
+      ? viewportWidth - sidebarWidth - CHAT_MIN
+      : viewportWidth - CHAT_MIN_NARROW));
+  $: sidebarMaxWidth = threeColumn
+    ? Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, viewportWidth - Math.min(filesWidth, filesMaxWidth) - CHAT_MIN))
+    : SIDEBAR_MAX;
+  // The stored widths stay the user's preference; only what the grid gets is
+  // capped, so widening the window restores the panel the user asked for.
+  $: effectiveFilesWidth = Math.min(filesWidth, filesMaxWidth);
+  $: effectiveSidebarWidth = Math.min(sidebarWidth, sidebarMaxWidth);
 
   let searchOpen = false;
   let commandOpen = false;
@@ -2188,13 +2222,13 @@
   });
 </script>
 
-<svelte:window onkeydown={onChatShortcut} />
+<svelte:window onkeydown={onChatShortcut} bind:innerWidth={viewportWidth} />
 
 <main
   class="chat-layout"
-  class:with-files={filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0)}
+  class:with-files={filesPanelVisible}
   class:resizing={resizingSidebar || resizingFiles}
-  style={`--sidebar-w:${sidebarWidth}px; --files-w:${filesWidth}px`}
+  style={`--sidebar-w:${effectiveSidebarWidth}px; --files-w:${effectiveFilesWidth}px`}
 >
   <WindowDragMask />
   {#if commandOpen}
@@ -2277,9 +2311,9 @@
     role="separator"
     aria-orientation="vertical"
     aria-label={copy.resizeSidebar}
-    aria-valuenow={sidebarWidth}
+    aria-valuenow={effectiveSidebarWidth}
     aria-valuemin={SIDEBAR_MIN}
-    aria-valuemax={SIDEBAR_MAX}
+    aria-valuemax={sidebarMaxWidth}
     tabindex="0"
     bind:this={sidebarResizer}
     onpointerdown={startSidebarResize}
@@ -2534,16 +2568,16 @@
   </section>
   {/if}
 
-  {#if filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0)}
+  {#if filesPanelVisible}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
     <div
       class="files-resizer"
       role="separator"
       aria-orientation="vertical"
       aria-label={copy.projectResizePanel}
-      aria-valuenow={filesWidth}
+      aria-valuenow={effectiveFilesWidth}
       aria-valuemin={FILES_MIN}
-      aria-valuemax={FILES_MAX}
+      aria-valuemax={filesMaxWidth}
       tabindex="0"
       bind:this={filesResizer}
       onpointerdown={startFilesResize}
@@ -2567,7 +2601,7 @@
   {:else if filePanelOpen && serviceState === "ready" && profiles.length > 0}
     <aside class="file-panel">
       <div class="file-panel-head">
-        <i class="ph-fill ph-folder-simple file-panel-icon" aria-hidden="true"></i>
+        <i class="ph ph-folder-simple file-panel-icon" aria-hidden="true"></i>
         <strong>{copy.files}</strong>
         <button type="button" class="file-panel-close" aria-label={copy.closePanel} title={copy.closePanel} onclick={() => (filePanelOpen = false)}>
           <i class="ph ph-x" aria-hidden="true"></i>
