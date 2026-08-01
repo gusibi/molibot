@@ -520,6 +520,33 @@ the base to pure black (`#000000`/`#0A0A0A`).
   rail above the detail when two columns no longer leave a usable model pane.
 - Chat uses a 260px default resizable sidebar, flat assistant messages with Agent
   identity, hover/focus actions, and one compact auto-growing composer.
+- Chat headers identify the active source with a quiet `#` + initial micro-tag
+  (for example W, F, T, or P), not a large avatar. The accessible label and title
+  expose the full source name. A quiet slash expresses the source/title hierarchy;
+  tag, slash, and title share one compact type size, 18px line box, and vertical center.
+  The title carries only the conversation or project/session name and does not repeat
+  the channel prefix.
+- Chat's four primary sidebar destinations use one coherent regular-weight icon set
+  and compact 30px rows. Their spacing is sufficient grouping: do not add a hairline
+  between the primary destinations and the conversation tree. Their content begins
+  below the full 60px native title-bar drag zone so traffic lights and drag capture
+  never overlap the first destination's pointer target.
+- The complete 60px Chat header is a native window drag region. Header actions sit
+  above that region and remain clickable; empty chrome and passive source/title text
+  drag the window consistently across the full row.
+- The conversation tree and Project tree are peer first-level sidebar sections. Their
+  32px titles share the same sticky top slot inside one scroll container: the active
+  title remains visible, and the next section title pushes it away rather than stacking
+  beneath it. Only one first-level title is pinned at a time. Sticky positioning must
+  not introduce an independent fill, card, or strip; titles remain transparent on the
+  continuous sidebar material. A 14px backdrop blur makes scrolled rows underneath
+  unreadable without creating a visible fill. Reduced-transparency mode disables blur
+  and uses the existing sidebar surface as the accessible fallback.
+- The Chat composer exposes model and thinking depth through one compact summary
+  control. Its custom popover keeps both choices in one keyboard-accessible menu,
+  uses an in-place overview → option-list transition, and caps long model lists with
+  internal scrolling; do not split these settings into separate pills or fall back
+  to native `select` menus.
 
 ## Components and interaction
 
@@ -530,6 +557,11 @@ the base to pure black (`#000000`/`#0A0A0A`).
   token at 40px; compact 32px controls are reserved for toolbars and dense lists.
   Time fields remain native `input[type="time"]` controls and make the whole field
   invoke the platform picker when the host WebView supports it.
+- Enumeration fields use the shared Bits UI-backed `SelectControl`: a 40px semantic
+  trigger, 12px floating menu, checked current item, bounded internal scrolling,
+  typeahead, full keyboard navigation, and token-driven Light/Dark states. Desktop
+  Svelte surfaces must not render native `<select>` elements; native time and numeric
+  inputs remain appropriate for direct entry and platform pickers.
 - Transcript search belongs inside the Header action row and must remain in normal
   flex flow; it may replace the search trigger while open, but must not use absolute
   positioning that overlaps the title or neighboring actions. Chat and Project Chat
@@ -555,6 +587,12 @@ the base to pure black (`#000000`/`#0A0A0A`).
   for decoration. Every interactive element needs keyboard access and a visible focus.
 - Copy leads with the user's task and uses localized, human-readable time and status.
   Raw model keys, provider protocols, trace IDs, cron, and paths are secondary details.
+- Transcript timestamps use one shared contextual format across local and Project Chat:
+  today shows the time, yesterday shows the localized yesterday label plus time, older
+  messages show a localized date plus time, and messages from another year include it.
+- Read-only external transcripts show source and read-only status once, as one quiet
+  footer sentence (`From {channel} · …`). Do not repeat source context in a transcript-
+  top banner when the header tag and footer already provide it.
 
 # Geist
 

@@ -27,6 +27,7 @@
     type DesktopWebProfile
   } from "@molibot/desktop-contract";
   import type { Translation } from "./lib/i18n";
+  import SelectControl from "./lib/components/ui/SelectControl.svelte";
   import {
     buildOnboardingHealthCheck,
     classifyFirstLaunch,
@@ -73,6 +74,7 @@
     validateProviderDraft
   } from "./lib/api";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
+  import { formatMessageTime } from "./lib/chat/messageTime";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
   import {
     clampTranscriptSearchIndex,
@@ -637,15 +639,12 @@
   $: activeBotName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.name ?? copy.bot;
   $: activeAgentName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.agentName || copy.agentStudioGlobalName;
   $: activeHeaderBotName = viewMode === "external" ? (activeExternalBotName || copy.bot) : activeBotName;
-  $: activeHeaderAvatar = activeHeaderBotName.trim().charAt(0).toUpperCase() || "M";
   $: activeSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeSessionId);
   $: activeExternalSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeExternalSessionId);
-  $: activeSessionTitle = activeSessionItem
-    ? `${sidebarChannels.find((channel) => channel.id === activeSessionItem?.channel)?.name ?? activeSessionItem.channel} / ${activeSessionItem.title}`
-    : copy.chat;
-  $: activeExternalTitleWithSource = activeExternalSessionId
-    ? `${sidebarChannels.find((channel) => channel.id === activeExternalChannel)?.name ?? activeExternalChannel} / ${activeExternalTitle}`
-    : copy.chat;
+  $: activeHeaderChannel = viewMode === "external" ? activeExternalChannel : (activeSessionItem?.channel ?? "web");
+  $: activeHeaderSourceLabel = sidebarChannels.find((channel) => channel.id === activeHeaderChannel)?.name ?? activeHeaderChannel;
+  $: activeHeaderSourceInitial = ({ web: "W", telegram: "T", feishu: "F", qq: "Q", weixin: "W" } as Record<string, string>)[activeHeaderChannel] ?? activeHeaderSourceLabel.trim().charAt(0).toUpperCase();
+  $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (activeSessionItem?.title || copy.chat);
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
   $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
   $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "", copy.chatAssistantError);
@@ -1208,8 +1207,8 @@
     if (prev) onboardingStep = prev;
   }
 
-  function changeOnboardingProfile(event: Event): void {
-    onboardingProfileId = (event.currentTarget as HTMLSelectElement).value;
+  function changeOnboardingProfile(value: string): void {
+    onboardingProfileId = value;
     const profile = onboardingProfiles.find((item) => item.id === onboardingProfileId);
     if (profile && onboardingEnabledAgents.some((agent) => agent.id === profile.agentId)) {
       onboardingAgentId = profile.agentId;
@@ -1220,8 +1219,8 @@
     onboardingPersonalizationError = "";
   }
 
-  function changeOnboardingAgent(event: Event): void {
-    onboardingAgentId = (event.currentTarget as HTMLSelectElement).value;
+  function changeOnboardingAgent(value: string): void {
+    onboardingAgentId = value;
     onboardingAgentSaved = false;
     onboardingAgentError = "";
     onboardingPersonalizationSaved = false;
@@ -1736,9 +1735,8 @@
   // The chat model selector is per-session: it persists onto the active
   // conversation (or the draft, applied on creation) and never touches the
   // global routing that other channels share.
-  async function changeModel(event: Event): Promise<void> {
+  async function changeModel(value: string): Promise<void> {
     if (!connectedEndpoint || changingModel) return;
-    const value = (event.currentTarget as HTMLSelectElement).value;
     const sessionId = activeSessionId;
     changingModel = true;
     error = "";
@@ -1765,9 +1763,8 @@
     }
   }
 
-  function changeThinking(event: Event): void {
-    const requested = (event.currentTarget as HTMLSelectElement).value as DesktopThinkingLevel;
-    thinkingLevel = clampDesktopThinkingLevel(requested, thinkingLevelOptions);
+  function changeThinking(value: DesktopThinkingLevel): void {
+    thinkingLevel = clampDesktopThinkingLevel(value, thinkingLevelOptions);
     chatStore.draftStore.setThinking(chatStore.currentDraftKey(), thinkingLevel);
   }
 
@@ -1994,18 +1991,7 @@
   }
 
   function formatSessionTime(value: string): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const startOfYesterday = startOfToday - 86400000;
-    const time = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
-    if (date.getTime() >= startOfToday) return time;
-    if (date.getTime() >= startOfYesterday) return `${copy.groupYesterday} ${time}`;
-    const sameYear = date.getFullYear() === now.getFullYear();
-    return new Intl.DateTimeFormat(undefined, sameYear
-      ? { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }
-      : { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+    return formatMessageTime(value, copy.groupYesterday);
   }
 
   // Sidebar list timestamps: show the clock only for today; anything older
@@ -2325,9 +2311,10 @@
     {:else}
     <header class:searching={searchOpen} class="chat-header" data-tauri-drag-region>
       <div class="chat-title-block" data-tauri-drag-region>
-        <div class="chat-header-avatar" data-tauri-drag-region aria-hidden="true">{activeHeaderAvatar}</div>
+        <span class="chat-source-tag" data-tauri-drag-region aria-label={activeHeaderSourceLabel} title={activeHeaderSourceLabel}><span aria-hidden="true">#</span><b aria-hidden="true">{activeHeaderSourceInitial}</b></span>
+        <span class="chat-title-separator" data-tauri-drag-region aria-hidden="true">/</span>
         <div class="chat-title-text" data-tauri-drag-region>
-          <div class="chat-title-name" data-tauri-drag-region>{viewMode === "external" ? activeExternalTitleWithSource : activeSessionTitle}</div>
+          <div class="chat-title-name" data-tauri-drag-region>{activeHeaderTitle}</div>
         </div>
       </div>
       <div class="header-actions">
@@ -2424,12 +2411,6 @@
                 <h2>{copy.noExternalSessions}</h2>
               </div>
             {/if}
-            {#if activeExternalChannel}
-              <div class="transcript-divider">
-                <i class={`ph-fill ph-${sidebarChannels.find((c) => c.id === activeExternalChannel)?.icon ?? "chat-circle-dots"}`} style={`color:#006bff`} aria-hidden="true"></i>
-                <span>{copy.externalSessionDivider.replace("{channel}", activeExternalChannel)}</span>
-              </div>
-            {/if}
             <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} />
           {/if}
         </div>
@@ -2440,7 +2421,7 @@
       {#if externalTranscript}
         <footer class="composer-wrap">
           <p class="external-readonly-notice">
-            {copy.externalSessionReadOnly}
+            {copy.externalSessionReadOnly.replace("{channel}", activeHeaderSourceLabel)}
           </p>
         </footer>
       {/if}
@@ -2677,10 +2658,7 @@
             </label>
             <label class="onboarding-field">
               <span>{copy.onboardingProviderProtocol}</span>
-              <select bind:value={providerDraft.protocol}>
-                <option value="openai-compatible">{copy.protocolOpenaiCompatible}</option>
-                <option value="anthropic">{copy.protocolAnthropic}</option>
-              </select>
+              <SelectControl value={providerDraft.protocol} ariaLabel={copy.onboardingProviderProtocol} options={[{ value: "openai-compatible", label: copy.protocolOpenaiCompatible }, { value: "anthropic", label: copy.protocolAnthropic }]} onChange={(value) => providerDraft.protocol = value as typeof providerDraft.protocol} />
             </label>
             <label class="onboarding-field">
               <span>{copy.onboardingProviderBaseUrl}</span>
@@ -2753,19 +2731,11 @@
             {:else}
               <label class="onboarding-field">
                 <span>{copy.profile}</span>
-                <select value={onboardingProfileId} onchange={changeOnboardingProfile}>
-                  {#each onboardingProfiles as profile (profile.id)}
-                    <option value={profile.id}>{profile.name}</option>
-                  {/each}
-                </select>
+                <SelectControl value={onboardingProfileId} ariaLabel={copy.profile} options={onboardingProfiles.map((profile) => ({ value: profile.id, label: profile.name }))} onChange={changeOnboardingProfile} />
               </label>
               <label class="onboarding-field">
                 <span>{copy.onboardingStepAgent}</span>
-                <select value={onboardingAgentId} onchange={changeOnboardingAgent}>
-                  {#each onboardingEnabledAgents as agent (agent.id)}
-                    <option value={agent.id}>{agent.name}</option>
-                  {/each}
-                </select>
+                <SelectControl value={onboardingAgentId} ariaLabel={copy.onboardingStepAgent} options={onboardingEnabledAgents.map((agent) => ({ value: agent.id, label: agent.name }))} onChange={changeOnboardingAgent} />
               </label>
               <button type="button" class="secondary-button" disabled={!onboardingAgentCanConfirm} onclick={confirmOnboardingAgent}>
                 {onboardingAgentSaving ? copy.onboardingAgentSaving : copy.onboardingAgentConfirm}
@@ -2784,12 +2754,7 @@
             </label>
             <label class="onboarding-field">
               <span>{copy.onboardingAiStyle}</span>
-              <select bind:value={onboardingAiStyle}>
-                <option value="concise">{copy.onboardingAiStyleConcise}</option>
-                <option value="patient">{copy.onboardingAiStylePatient}</option>
-                <option value="rigorous">{copy.onboardingAiStyleRigorous}</option>
-                <option value="natural">{copy.onboardingAiStyleNatural}</option>
-              </select>
+              <SelectControl value={onboardingAiStyle} ariaLabel={copy.onboardingAiStyle} options={[{ value: "concise", label: copy.onboardingAiStyleConcise }, { value: "patient", label: copy.onboardingAiStylePatient }, { value: "rigorous", label: copy.onboardingAiStyleRigorous }, { value: "natural", label: copy.onboardingAiStyleNatural }]} onChange={(value) => onboardingAiStyle = value as typeof onboardingAiStyle} />
             </label>
             <button type="button" class="secondary-button" disabled={onboardingPersonalizationSaving || !onboardingAgentId} onclick={saveOnboardingPersonalization}>
               {onboardingPersonalizationSaving ? copy.onboardingProviderSaving : onboardingPersonalizationSaved ? copy.onboardingPersonalizationSaved : copy.onboardingPersonalizationSave}

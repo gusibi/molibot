@@ -9,6 +9,7 @@
   import type { Translation } from "../i18n";
   import { composerSuggestionsStore, ensureComposerSuggestions } from "./composerSuggestions.svelte";
   import ChatComposerShell from "./ChatComposerShell.svelte";
+  import ComposerModelMenu from "./ComposerModelMenu.svelte";
   import PendingFilesBar from "./PendingFilesBar.svelte";
   import QueuedMessagesBar from "./QueuedMessagesBar.svelte";
   import RecordingBar from "./RecordingBar.svelte";
@@ -58,11 +59,8 @@
   export let onDismissError: () => void;
   export let onDismissRecordingError: () => void;
   export let onOpenSettings: () => void;
-  export let onChangeModel: (event: Event) => void;
-  export let onChangeThinking: (event: Event) => void;
-
-  $: modelPillLabel = activeModelLabel || copy.model;
-  $: thinkingPillLabel = thinkingLevelLabel || copy.thinkingLevel;
+  export let onChangeModel: (value: string) => void;
+  export let onChangeThinking: (value: DesktopThinkingLevel) => void;
   let activeSuggestionIndex = 0;
   let suggestionsDismissed = false;
 
@@ -104,17 +102,6 @@
     if (suggestion.submitOnSelect) void tick().then(onSend);
   }
 
-  function thinkingOptionLabel(level: DesktopThinkingLevel): string {
-    return {
-      off: copy.thinkingOff,
-      minimal: copy.thinkingMinimal,
-      low: copy.thinkingLow,
-      medium: copy.thinkingMedium,
-      high: copy.thinkingHigh,
-      xhigh: copy.thinkingXHigh,
-      max: copy.thinkingMax
-    }[level];
-  }
 </script>
 
 <footer class="composer-wrap">
@@ -196,26 +183,20 @@
       {/if}
     </div>
     <div class="composer-selectors" slot="selectors">
-      <label class="composer-pill" title={activeModelTitle || modelPillLabel}>
-        <i class="ph ph-cpu" aria-hidden="true"></i>
-        <span class="composer-pill-label">{modelPillLabel}</span>
-        <select value={activeModelKey} disabled={sending || changingModel || modelOptions.length === 0} onchange={onChangeModel} aria-label={copy.model}>
-          {#each modelOptions as model (model.key)}
-            <option value={model.key}>{model.label}</option>
-          {/each}
-        </select>
-        <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
-      </label>
-      <label class="composer-pill">
-        <i class="ph ph-brain" aria-hidden="true"></i>
-        <span class="composer-pill-label">{thinkingPillLabel}</span>
-        <select value={thinkingLevel} disabled={sending || thinkingLevelOptions.length <= 1} onchange={onChangeThinking} aria-label={copy.thinkingLevel}>
-          {#each thinkingLevelOptions as level (level)}
-            <option value={level}>{thinkingOptionLabel(level)}</option>
-          {/each}
-        </select>
-        <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
-      </label>
+      <ComposerModelMenu
+        {copy}
+        {modelOptions}
+        {activeModelKey}
+        {activeModelLabel}
+        {activeModelTitle}
+        {changingModel}
+        {thinkingLevel}
+        {thinkingLevelOptions}
+        {thinkingLevelLabel}
+        disabled={sending || modelOptions.length === 0}
+        {onChangeModel}
+        {onChangeThinking}
+      />
     </div>
     <svelte:fragment slot="action">
       {#if showRecordingTool}

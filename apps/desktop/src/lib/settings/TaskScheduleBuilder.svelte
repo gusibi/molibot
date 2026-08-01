@@ -1,6 +1,7 @@
 <script lang="ts">
   import { session } from "../stores/session.svelte";
   import NativeTimeInput from "../components/ui/NativeTimeInput.svelte";
+  import SelectControl from "../components/ui/SelectControl.svelte";
   import { isTaskScheduleValid, parseTaskSchedule, taskScheduleToCron, type TaskScheduleMode } from "./taskSchedule";
 
   let { schedule = $bindable() }: { schedule: string } = $props();
@@ -61,11 +62,7 @@
     {:else if draft.mode === "monthly"}
       <label class="settings-field">
         <span>{session.text.tasksMonthDay}</span>
-        <select bind:value={draft.monthDay} onchange={commit}>
-          {#each Array.from({ length: 31 }, (_, index) => index + 1) as day}
-            <option value={day}>{session.text.tasksMonthDayOption.replace("{day}", String(day))}</option>
-          {/each}
-        </select>
+        <SelectControl value={String(draft.monthDay)} ariaLabel={session.text.tasksMonthDay} options={Array.from({ length: 31 }, (_, index) => ({ value: String(index + 1), label: session.text.tasksMonthDayOption.replace("{day}", String(index + 1)) }))} onChange={(value) => { draft.monthDay = Number(value); commit(); }} />
         {#if draft.monthDay > 28}<small>{session.text.tasksMonthDayHint}</small>{/if}
       </label>
     {/if}

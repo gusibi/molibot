@@ -7,6 +7,31 @@
 ---
 ## 2026-08-01
 
+### Fixed: the title bar drags the window (the drag IPC was never permitted)
+- Dragging the window by its top strip did nothing anywhere in the app, so the window could only be moved from its border. The cause was not the markup: both drag paths — Tauri's built-in `data-tauri-drag-region` handler and `WindowDragMask`'s explicit `startDragging()` — invoke `plugin:window|start_dragging`, and `core:window:default` does **not** include `allow-start-dragging`. Every drag was rejected by the capability ACL, silently, which is why adding more drag regions never helped.
+- `core:window:allow-start-dragging` is now granted explicitly in `src-tauri/capabilities/default.json`, and `WindowDragMask` logs a rejected drag instead of discarding the promise, so a future ACL gap is visible rather than mute.
+- Secondary blocker on the same strip: the header action row stretches across the whole toolbar (`flex: 1`) and sits at `z-index: 31` so its buttons stay above the drag mask, which made its large empty middle an invisible drag blocker. The row is now `pointer-events: none` with `pointer-events: auto` on its direct children — empty space falls through to the mask, every header control stays clickable.
+- Both are guarded in `apps/desktop/src/chat-ui.test.mjs` (top-chrome drag test now asserts the capability). Verified: `svelte-check` 0 errors / 0 warnings, desktop `vite build`, 106 Chat UI tests passing. The capability change only takes effect after a Rust rebuild (`tauri dev` / `tauri build`), not a WebView reload.
+
+### Improved: quieter Chat source identity and date-aware message times
+- Replaced the prominent circular Chat header initial with a subtle `# + source initial` tag for Web, Telegram, Feishu, QQ, Weixin, and Project contexts. Full source names remain available to assistive technology and on hover, while ordinary Chat titles no longer repeat the channel name.
+- Refined the header into a vertically centered `# W / title` sequence with one compact font size and line box. The four primary sidebar destinations now use tighter 30px rows and a coherent set of regular-weight semantic icons, without a redundant divider above the conversation tree.
+- Extended the native Chat drag mask across the complete 60px header and moved sidebar navigation below it. The whole passive header now drags the window, header buttons stay interactive, and the upper half of “New chat” is no longer blocked by title-bar hit testing.
+- External read-only transcripts no longer repeat their channel source in a banner above the first message. Source and read-only status now share one quiet localized footer line.
+- Conversation and Project now behave as peer sticky sidebar sections: the current first-level title remains pinned during long lists, and the next title replaces it in the same slot instead of stacking a second header. Both remain transparent on the existing sidebar material, using a 14px backdrop blur to hide scrolling text without introducing a visible strip; reduced-transparency mode uses the existing sidebar surface as its fallback.
+- Local and Project Chat now share contextual message timestamps: time today, localized yesterday plus time, date plus time for older messages, and the year when needed.
+- Added structural header guards and date-boundary unit coverage; Desktop Svelte diagnostics and all 104 Chat UI tests pass.
+
+### Improved: every Desktop selection field now uses the design-system menu
+- Replaced all 55 native selects across Desktop settings, Project settings, and onboarding with the shared `SelectControl`, including observability filters, provider/model editors, Skills, Plugins, Agents, Channels, tasks, sandbox, MCP, and media tools.
+- The shared control now uses Bits UI for accessible listbox behavior and a token-driven Molibot surface: a consistent trigger, checked selection, bounded scrolling, typeahead, arrow/Enter/Escape navigation, disabled and focus states, plus Light/Dark styling. Native time and numeric inputs remain native by design.
+- A whole-source structural guard rejects any future Desktop Svelte `<select>` so the system menu cannot drift back in page by page.
+
+### Improved: model and thinking depth now share one polished composer menu
+- Desktop Chat and Project Chat replace the two native model/thinking selects with one compact `model · depth` control. A custom themed popover keeps both choices in one place, moves between its overview and option lists in place, and scrolls long model catalogs without taking over the window.
+- The menu supports current-item checks, outside-click dismissal, Escape/back behavior, arrow-key navigation, visible focus, bilingual labels, and light/dark semantic surfaces. Session model persistence and runtime thinking behavior are unchanged.
+- A structural regression now rejects native selects in the shared composer and requires both option sets to remain in the accessible combined menu.
+
 ### Release: v2.8.0 / Desktop v0.7.7
 - Synchronized the root and Desktop package versions for the new release.
 

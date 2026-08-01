@@ -5,6 +5,7 @@
   "windows": ["chat", "settings"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
     {
       "identifier": "http:default",
       "allow": [

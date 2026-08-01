@@ -91,20 +91,20 @@
   <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true"></div>
   <nav class="sidebar-nav" aria-label={copy.newChat}>
     <button type="button" class="nav-item" onclick={onNewConversation}>
-      <i class="ph-fill ph-plus-circle" aria-hidden="true"></i>
+      <i class="ph ph-note-pencil" aria-hidden="true"></i>
       <span>{copy.newChat}</span>
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "automations"} aria-current={activeWorkspacePane === "automations" ? "page" : undefined} onclick={onOpenAutoTasks}>
-      <i class="ph-fill ph-clock-countdown" aria-hidden="true"></i>
+      <i class="ph ph-calendar-dots" aria-hidden="true"></i>
       <span>{copy.autoTasks}</span>
       {#if automationUnreadCount > 0}<span class="nav-notification" aria-label={`${automationUnreadCount} ${copy.tasksReminderUnread}`}>{automationUnreadCount > 99 ? "99+" : automationUnreadCount}</span>{/if}
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "skills"} aria-current={activeWorkspacePane === "skills" ? "page" : undefined} onclick={onOpenSkills}>
-      <i class="ph-fill ph-sparkle" aria-hidden="true"></i>
+      <i class="ph ph-puzzle-piece" aria-hidden="true"></i>
       <span>{copy.skillsSquare}</span>
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "agents"} aria-current={activeWorkspacePane === "agents" ? "page" : undefined} onclick={onOpenAgents}>
-      <i class="ph-fill ph-dog" aria-hidden="true"></i>
+      <i class="ph ph-robot" aria-hidden="true"></i>
       <span>{copy.agentsNav}</span>
     </button>
   </nav>
@@ -160,16 +160,18 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
-    padding: 0 0 8px;
+    gap: 2px;
+    padding: 0 0 6px;
     margin-bottom: 0;
-    border-bottom: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
+    border-bottom: 0;
   }
   .nav-item {
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 6px 8px;
+    height: 30px;
+    padding: 0 8px;
     border: none;
     background: transparent;
     border-radius: var(--rounded-sm, 6px);
@@ -182,7 +184,7 @@
   .nav-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
   .nav-item.active i { color: var(--accent, #006bff); }
-  .nav-item i { font-size: 16px; color: var(--label-secondary, #666); }
+  .nav-item i { width: 16px; font-size: 16px; color: var(--label-secondary, #666); text-align: center; }
   .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: #fff; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .sidebar-channels {
     flex: 1 1 auto;
@@ -195,7 +197,8 @@
     min-height: 0;
   }
   .sidebar-tree-section { min-width: 0; padding: 0 0 8px; }
-  .sidebar-tree-title { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 8px; border: 0; background: transparent; color: var(--label-secondary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
+  .sidebar-tree-title { position: sticky; z-index: 4; top: 0; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 8px; border: 0; background: transparent; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); color: var(--label-secondary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
+  :global(html[data-reduced-transparency="true"]) .sidebar-tree-title { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--sidebar-bg); }
   .sidebar-tree-title:hover { color: var(--label-primary); }
   .sidebar-tree-title span { flex: 1; }
   .sidebar-tree-caret { opacity: 0; font-size: 11px; color: var(--label-tertiary); transition: opacity var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); }

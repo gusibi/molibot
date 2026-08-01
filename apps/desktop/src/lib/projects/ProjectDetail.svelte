@@ -27,7 +27,6 @@
     onOpenFiles?: () => void;
   } = $props();
   const project = $derived(projectsStore.projects.find((item) => item.id === projectsStore.selectedProjectId));
-  const projectInitial = $derived((project?.name.trim().charAt(0) || "M").toUpperCase());
   const session = $derived(projectsStore.sessions.find((item) => item.conversationId === projectsStore.selectedSessionId));
   const headerTitle = $derived(project ? `${project.name} / ${session?.title || copy.newChat}` : copy.chat);
   let settingsOpen = $state(false);
@@ -91,7 +90,7 @@
 
 {#if project}
   <section class="chat-content" bind:this={contentElement}>
-    <ChatHeader avatar={projectInitial} showAvatar={false} title={headerTitle} searching={searchOpen}>
+    <ChatHeader sourceInitial="P" sourceLabel={copy.projects} title={headerTitle} searching={searchOpen}>
       <svelte:fragment slot="actions">
         <TranscriptSearch
           bind:value={searchQuery}

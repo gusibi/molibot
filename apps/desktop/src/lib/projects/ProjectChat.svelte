@@ -10,6 +10,7 @@
     type DesktopModelOption,
     type DesktopSessionFile
   } from "@molibot/desktop-contract";
+  import { formatMessageTime } from "../chat/messageTime";
   import type { Translation } from "../i18n";
   import ApprovalCard from "../chat/ApprovalCard.svelte";
   import ChatInputArea from "../chat/ChatInputArea.svelte";
@@ -82,7 +83,7 @@
   const transcriptModelKeys = new Map<string, string>();
   const sessionThinkingOverrides = new Map<string, DesktopThinkingLevel>();
 
-  const formatTime = (value: string) => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+  const formatTime = (value: string) => formatMessageTime(value, copy.groupYesterday);
 
   $: modelReady = summarizeDesktopReadiness([], { currentKey: activeModelKey, options: modelOptions }).hasModel;
   $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
@@ -196,10 +197,9 @@
     }
   }
 
-  async function changeModel(event: Event): Promise<void> {
+  async function changeModel(value: string): Promise<void> {
     if (!projectsStore.endpoint || changingModel) return;
     const sessionId = projectsStore.selectedSessionId;
-    const value = (event.currentTarget as HTMLSelectElement).value;
     changingModel = true;
     projectsStore.error = "";
     try {
@@ -220,9 +220,9 @@
     }
   }
 
-  function changeThinking(event: Event): void {
+  function changeThinking(value: DesktopThinkingLevel): void {
     thinkingLevel = clampDesktopThinkingLevel(
-      (event.currentTarget as HTMLSelectElement).value as DesktopThinkingLevel,
+      value,
       thinkingLevelOptions
     );
     const sessionId = projectsStore.selectedSessionId;

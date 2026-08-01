@@ -825,29 +825,20 @@
               <div class="provider-field-grid">
                 <label class="provider-field">
                   <span class="provider-field-label">{session.text.providerDefaultModel}</span>
-                  <select class="provider-input" value={editor.defaultModel} onchange={(event) => updateProviderEdit((draft) => ({ ...draft, defaultModel: (event.currentTarget as HTMLSelectElement).value }))}>
-                    <option value="">—</option>
-                    {#each editor.models as model, i (`${i}:${model.id}`)}<option value={model.id}>{model.id || session.text.providerModelId}</option>{/each}
-                  </select>
+                  <SelectControl value={editor.defaultModel} ariaLabel={session.text.providerDefaultModel} options={[{ value: "", label: "—" }, ...editor.models.map((model) => ({ value: model.id, label: model.id || session.text.providerModelId }))]} onChange={(value) => updateProviderEdit((draft) => ({ ...draft, defaultModel: value }))} />
                 </label>
                 <label class="provider-field">
                   <span class="provider-field-label">{session.text.providerThinkingFormat}</span>
-                  <select class="provider-input" value={editor.thinkingFormat ?? ""} onchange={(event) => updateProviderEdit((draft) => ({ ...draft, thinkingFormat: ((event.currentTarget as HTMLSelectElement).value || null) as DesktopProviderUpdateRequest["thinkingFormat"] }))}>
-                    <option value="">{session.text.providerThinkingAuto}</option>
-                    {#each PROVIDER_THINKING_FORMATS as format (format)}<option value={format}>{format}</option>{/each}
-                  </select>
+                  <SelectControl value={editor.thinkingFormat ?? ""} ariaLabel={session.text.providerThinkingFormat} options={[{ value: "", label: session.text.providerThinkingAuto }, ...PROVIDER_THINKING_FORMATS.map((format) => ({ value: format, label: format }))]} onChange={(value) => updateProviderEdit((draft) => ({ ...draft, thinkingFormat: (value || null) as DesktopProviderUpdateRequest["thinkingFormat"] }))} />
                 </label>
                 {#if !editor.isBuiltin}
                   <label class="provider-field">
                     <span class="provider-field-label">{session.text.onboardingProviderProtocol}</span>
-                    <select class="provider-input" value={editor.protocol} onchange={(event) => updateProviderEdit((draft) => {
-                      const protocol = (event.currentTarget as HTMLSelectElement).value === "anthropic" ? "anthropic" : "openai-compatible";
+                    <SelectControl value={editor.protocol} ariaLabel={session.text.onboardingProviderProtocol} options={[{ value: "openai-compatible", label: session.text.protocolOpenaiCompatible }, { value: "anthropic", label: session.text.protocolAnthropic }]} onChange={(value) => updateProviderEdit((draft) => {
+                      const protocol = value === "anthropic" ? "anthropic" : "openai-compatible";
                       const oldDefaultPath = defaultProviderPath(draft.protocol);
                       return { ...draft, protocol, path: !draft.path.trim() || draft.path === oldDefaultPath ? defaultProviderPath(protocol) : draft.path };
-                    })}>
-                      <option value="openai-compatible">{session.text.protocolOpenaiCompatible}</option>
-                      <option value="anthropic">{session.text.protocolAnthropic}</option>
-                    </select>
+                    })} />
                   </label>
                   <label class="provider-field">
                     <span class="provider-field-label">{session.text.providerPath}</span>

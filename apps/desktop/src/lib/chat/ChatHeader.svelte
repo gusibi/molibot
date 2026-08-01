@@ -1,6 +1,6 @@
 <script lang="ts">
-  export let avatar = "M";
-  export let showAvatar = true;
+  export let sourceInitial = "";
+  export let sourceLabel = "";
   export let title: string;
   export let subtitle = "";
   export let searching = false;
@@ -8,7 +8,8 @@
 
 <header class:searching class="chat-header" data-tauri-drag-region>
   <div class="chat-title-block" data-tauri-drag-region>
-    {#if showAvatar}<div class="chat-header-avatar" data-tauri-drag-region aria-hidden="true">{avatar}</div>{/if}
+    {#if sourceInitial}<span class="chat-source-tag" data-tauri-drag-region aria-label={sourceLabel} title={sourceLabel}><span aria-hidden="true">#</span><b aria-hidden="true">{sourceInitial}</b></span>{/if}
+    {#if sourceInitial}<span class="chat-title-separator" data-tauri-drag-region aria-hidden="true">/</span>{/if}
     <div class="chat-title-text" data-tauri-drag-region>
       <div class="chat-title-name" data-tauri-drag-region>{title}</div>
       {#if subtitle || $$slots.subtitle}

@@ -10,6 +10,7 @@ const listSvelteSources = (dir = new URL("./", import.meta.url)) => readdirSync(
 });
 const view = read("./ChatView.svelte");
 const app = read("./App.svelte");
+const i18n = read("./lib/i18n.ts");
 const styles = read("./styles.css");
 const design = read("../../../DESIGN.md");
 const tauriConfig = JSON.parse(read("../src-tauri/tauri.conf.json"));
@@ -17,6 +18,7 @@ const tauriCargo = read("../src-tauri/Cargo.toml");
 const svelteStyleSources = listSvelteSources().flatMap((source) => [...source.matchAll(/<style(?:\s[^>]*)?>([\s\S]*?)<\/style>/g)].map((match) => match[1]));
 const allStyleSources = [styles, ...svelteStyleSources];
 const infoPlist = read("../src-tauri/Info.plist");
+const tauriCapabilities = JSON.parse(read("../src-tauri/capabilities/default.json"));
 
 // The settings UI is split into per-domain runes stores + section components
 // under lib/settings and lib/stores. Assertions target the file where the
@@ -53,11 +55,13 @@ const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
 const chatWorkspace = read("./lib/chat/ChatWorkspacePane.svelte");
 const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
+const composerModelMenu = read("./lib/chat/ComposerModelMenu.svelte");
 const slashSuggestionMenu = read("./lib/chat/SlashSuggestionMenu.svelte");
 
 const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
 const taskScheduleBuilder = read("./lib/settings/TaskScheduleBuilder.svelte");
 const nativeTimeInput = read("./lib/components/ui/NativeTimeInput.svelte");
+const selectControl = read("./lib/components/ui/SelectControl.svelte");
 const projectDetail = read("./lib/projects/ProjectDetail.svelte");
 const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
 const conversationPromptNavigator = read("./lib/chat/ConversationPromptNavigator.svelte");
@@ -676,6 +680,15 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(row, /\.row-time\s*\{[^}]*font-size:\s*12px[^}]*line-height:\s*16px/s);
 });
 
+test("conversation and project section titles share one push-off sticky slot", () => {
+  const projectTree = read("./lib/projects/ProjectTree.svelte");
+  assert.match(chatSidebar, /\.sidebar-tree-title\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*background:\s*transparent;[^}]*backdrop-filter:\s*blur\(14px\)/s);
+  assert.match(projectTree, /\.project-tree-head\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*background:\s*transparent;[^}]*backdrop-filter:\s*blur\(14px\)/s);
+  assert.match(chatSidebar, /data-reduced-transparency="true"[^}]*sidebar-tree-title[^}]*backdrop-filter:\s*none;[^}]*background:\s*var\(--sidebar-bg\)/s);
+  assert.match(projectTree, /data-reduced-transparency="true"[^}]*project-tree-head[^}]*backdrop-filter:\s*none;[^}]*background:\s*var\(--sidebar-bg\)/s);
+  assert.match(chatSidebar, /<section class="sidebar-tree-section">[\s\S]*<ProjectTree/);
+});
+
 test("Agent Studio projects real activity into an accessible Three.js city", () => {
   const skillsPosition = chatSidebar.indexOf('activeWorkspacePane === "skills"');
   const agentsPosition = chatSidebar.indexOf('activeWorkspacePane === "agents"');
@@ -784,7 +797,10 @@ test("chat primary navigation stays in the Chat workspace", () => {
 
 test("chat header is single-line and service status lives on the sidebar logo", () => {
   const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
-  assert.match(view, /activeHeaderAvatar/);
+  assert.match(view, /activeHeaderSourceInitial/);
+  assert.match(view, /activeHeaderTitle/);
+  assert.match(view, /class="chat-title-separator"[^>]*>\/<\/span>/);
+  assert.doesNotMatch(view, /activeHeaderAvatar|activeSessionTitle|activeExternalTitleWithSource/);
   assert.match(view, /openExternalTranscript\(item\.sessionId, item\.channel, item\.title, item\.botName\)/);
   assert.doesNotMatch(view, /activeExternalTitle\?\.replace/);
   assert.doesNotMatch(view, /class="chat-title-sub"[\s\S]*copy\.statusOnline/);
@@ -792,6 +808,13 @@ test("chat header is single-line and service status lives on the sidebar logo", 
   assert.match(view, /serviceState=\{serviceState\}/);
   assert.match(chatSidebar, /sidebar-footer-logo-wrap/);
   assert.match(chatSidebar, /data-state=\{serviceState\}/);
+});
+
+test("external transcripts merge source and read-only status into the footer", () => {
+  assert.doesNotMatch(view, /copy\.externalSessionDivider/);
+  assert.match(view, /copy\.externalSessionReadOnly\.replace\("\{channel\}", activeHeaderSourceLabel\)/);
+  assert.match(i18n, /externalSessionReadOnly:\s*"来自 \{channel\} · 此会话在桌面端为只读。"/);
+  assert.match(i18n, /externalSessionReadOnly:\s*"From \{channel\} · This conversation is read-only on Desktop."/);
 });
 
 test("chat shell does not stay click-blocked during startup or sidebar resize", () => {
@@ -808,17 +831,27 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   const sidebarShell = read("./lib/chat/SidebarShell.svelte");
   const workspacePane = read("./lib/chat/ChatWorkspacePane.svelte");
   const windowDragMask = read("./lib/WindowDragMask.svelte");
+  // `core:window:default` does NOT grant `start_dragging`, so without this explicit
+  // permission every drag region is silently denied at the IPC layer and the title
+  // bar looks inert no matter how the CSS layers are arranged.
+  assert.ok(tauriCapabilities.permissions.includes("core:window:allow-start-dragging"));
   assert.match(view, /<WindowDragMask \/>/);
   assert.match(app, /<WindowDragMask \/>/);
   assert.match(windowDragMask, /getCurrentWindow\(\)\.startDragging\(\)/);
   assert.match(styles, /\.window-drag-mask\s*\{[^}]*position:\s*absolute;[^}]*height:\s*var\(--toolbar-height\);[^}]*z-index:\s*30;/s);
+  assert.match(styles, /\.chat-layout > \.window-drag-mask\s*\{[^}]*height:\s*60px;/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*padding:\s*60px 12px 8px;/s);
   assert.match(chatSidebar, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
   assert.match(sidebarShell, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
   assert.match(styles, /\.sidebar-titlebar-drag\s*\{[^}]*position:\s*absolute;[^}]*height:\s*30px;/s);
-  assert.match(view, /class="chat-header-avatar" data-tauri-drag-region/);
-  assert.match(chatHeader, /class="chat-header-avatar" data-tauri-drag-region/);
+  assert.match(view, /class="chat-source-tag" data-tauri-drag-region/);
+  assert.match(chatHeader, /class="chat-source-tag" data-tauri-drag-region/);
   assert.match(workspacePane, /class="workspace-page-title" data-tauri-drag-region/);
   assert.match(styles, /\.header-actions\s*\{[^}]*z-index:\s*31;/s);
+  // The stretched action row sits above the drag mask, so its empty space must
+  // stay transparent to pointer events or the toolbar stops dragging the window.
+  assert.match(styles, /\.header-actions\s*\{\s*pointer-events:\s*none;\s*\}/);
+  assert.match(styles, /\.header-actions > \*\s*\{\s*pointer-events:\s*auto;\s*\}/);
   assert.doesNotMatch(view, /<button[\s\S]{0,160}data-tauri-drag-region/);
 });
 
@@ -1046,8 +1079,11 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.match(chatMessagesPane, /<ConversationLiveView/);
   assert.match(chatInputArea, /<ChatComposerShell/);
   assert.match(chatInputArea, /thinkingLevelLabel/);
-  assert.match(chatInputArea, /thinkingLevelOptions/);
-  assert.match(chatInputArea, /\{#each thinkingLevelOptions as level/);
+  assert.match(chatInputArea, /<ComposerModelMenu/);
+  assert.doesNotMatch(chatInputArea, /<select/);
+  assert.match(composerModelMenu, /\{#each thinkingLevelOptions as level/);
+  assert.match(composerModelMenu, /\{#each modelOptions as model/);
+  assert.match(composerModelMenu, /role="menuitemradio"/);
   assert.match(view, /chatStore\.draftStore\.setThinking\(chatStore\.currentDraftKey\(\), thinkingLevel\)/);
   assert.match(view, /onChangeThinking=\{changeThinking\}/);
   assert.match(projectChat, /onChangeThinking=\{changeThinking\}/);
@@ -1108,14 +1144,14 @@ test("settings uses the flat Geist layout", () => {
   assert.match(styles, /\.settings-card \+ \.settings-card\s*\{[^}]*margin-top:\s*16px/s);
   assert.match(styles, /\.settings-content \.settings-footbar\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*0/s);
   assert.match(sections.tts, /open=\{provider\.id === toolsStore\.ttsGenerateEdit\.defaultProvider\}/);
-  assert.match(sections.image, /<option value="1024x1024">1024 × 1024<\/option>/);
+  assert.match(sections.image, /value: "1024x1024", label: "1024 × 1024"/);
   assert.match(sections.plugins, /memoryDailyMaterials\.enabled/);
   assert.match(sections.plugins, /memoryDailyMaterials\.projectId/);
   assert.match(sections.plugins, /memoryDailyMaterials\.promptPath/);
   assert.match(sections.plugins, /memoryReflectionNotificationTarget/);
   assert.match(sections.plugins, /reflectionNotificationTargets/);
   assert.equal(
-    sections.plugins.match(/bind:value=\{pluginsStore\.pluginsEdit\.memoryReflectionNotificationTarget\}/g)?.length,
+    sections.plugins.match(/value=\{pluginsStore\.pluginsEdit\.memoryReflectionNotificationTarget\}/g)?.length,
     2,
     "the shared memory notification target must be editable from both memory and daily-material cards"
   );
@@ -1125,7 +1161,10 @@ test("settings uses the flat Geist layout", () => {
 test("settings form controls share the DESIGN input height and time fields use the native picker", () => {
   assert.match(design, /input:\s*[\s\S]*?height:\s*40px/);
   assert.match(styles, /\.settings-field input\s*\{[^}]*height:\s*40px[^}]*padding:\s*0 12px/s);
-  assert.match(styles, /\.settings-field select\s*\{[^}]*height:\s*40px[^}]*padding:\s*0 30px 0 12px/s);
+  assert.match(styles, /\.select-control-trigger\s*\{[^}]*height:\s*40px[^}]*padding:\s*0 11px 0 12px/s);
+  assert.match(selectControl, /Select\.Root/);
+  assert.match(selectControl, /Select\.Content/);
+  assert.doesNotMatch(listSvelteSources().join("\n"), /<select(?:\s|>)/);
   assert.equal(sections.plugins.match(/<NativeTimeInput/g)?.length, 2);
   assert.equal(taskScheduleBuilder.match(/<NativeTimeInput/g)?.length, 1);
   assert.match(nativeTimeInput, /<input type="time"[^>]*onpointerdown=\{openNativePicker\}/);
@@ -1198,13 +1237,14 @@ test("project detail reuses the chat header chrome for a single visual language"
   assert.match(projectDetail, /class="chat-content"/);
   assert.match(projectDetail, /<ChatHeader/);
   assert.match(projectDetail, /\$\{project\.name\} \/ \$\{session\?\.title/);
-  assert.match(projectDetail, /showAvatar=\{false\}/);
+  assert.match(projectDetail, /sourceInitial="P"/);
   assert.doesNotMatch(projectDetail, /subtitle=\{project\.rootPath\}/);
   assert.match(projectDetail, /class="icon-button"[\s\S]*aria-label=\{copy\.search\}/);
   assert.match(projectDetail, /class="icon-button"[\s\S]*aria-label=\{copy\.files\}/);
   assert.doesNotMatch(projectDetail, /aria-label=\{copy\.delete\}/);
   assert.match(chatHeader, /class="chat-header"/);
-  assert.match(chatHeader, /class="chat-header-avatar"/);
+  assert.match(chatHeader, /class="chat-source-tag"/);
+  assert.match(chatHeader, /class="chat-title-separator"/);
 });
 
 test("project file panel exposes live files, Git changes, and session attachments", () => {
@@ -1580,7 +1620,8 @@ test("Geist CSS references only defined variables and keyframes", () => {
   const definedVariables = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((match) => match[1]));
   const runtimeVariables = new Set([
     "--sidebar-w", "--detail-drag", "--kpi-accent", "--dot", "--c", "--badge-color",
-    "--file-color", "--agent-city-height", "--size", "--conversation-row-overlay"
+    "--file-color", "--agent-city-height", "--size", "--conversation-row-overlay",
+    "--bits-select-anchor-width", "--bits-select-content-transform-origin"
   ]);
   const undefinedVariables = [...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/gi)]
     .map((match) => match[1])

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SelectControl from "../components/ui/SelectControl.svelte";
   import { fly } from "svelte/transition";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { session } from "../stores/session.svelte";
@@ -80,7 +81,7 @@
       <div class="settings-form">
         <label class="settings-field"><span>{session.text.mcpId}</span><input value={mcpStore.mcpEdit.id} disabled={!mcpStore.mcpEdit.isNew} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, id: event.currentTarget.value }))} /></label>
         <label class="settings-field"><span>{session.text.mcpName}</span><input value={mcpStore.mcpEdit.name} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, name: event.currentTarget.value }))} /></label>
-        <label class="settings-field"><span>{session.text.mcpTransport}</span><select value={mcpStore.mcpEdit.transport} onchange={(event) => updateMcpEdit((draft) => ({ ...draft, transport: event.currentTarget.value as "stdio" | "http" }))}><option value="stdio">stdio</option><option value="http">http</option></select></label>
+        <label class="settings-field"><span>{session.text.mcpTransport}</span><SelectControl value={mcpStore.mcpEdit.transport} ariaLabel={session.text.mcpTransport} options={[{ value: "stdio", label: "stdio" }, { value: "http", label: "http" }]} onChange={(value) => updateMcpEdit((draft) => ({ ...draft, transport: value as "stdio" | "http" }))} /></label>
         <label class="settings-field"><span>{session.text.mcpPrefix}</span><input value={mcpStore.mcpEdit.toolNamePrefix} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, toolNamePrefix: event.currentTarget.value }))} /></label>
       </div>
       <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.mcpEnabled}</span><IosSwitch checked={mcpStore.mcpEdit.enabled} ariaLabel={session.text.mcpEnabled} onCheckedChange={(enabled) => updateMcpEdit((draft) => ({ ...draft, enabled }))} /></div></div>

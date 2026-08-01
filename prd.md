@@ -5,6 +5,27 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.29 Quiet Chat source identity and contextual timestamps (2026-08-01)
+
+- **Priority / Status**: P2 / Delivered (2026-08-01).
+- **Problem**: the large circular initial in the Chat header competed with the conversation title while still providing little source information; message metadata showed only a clock, so older turns could not be placed on a date.
+- **Decision**: replace the avatar with one quiet `# + source initial / title` sequence whose accessible name retains the full Web/Feishu/Telegram/QQ/Weixin/Project identity. Keep all three header elements at one compact size and vertical center. Remove redundant channel prefixes from ordinary Chat titles, retain Project/session hierarchy, and share one contextual message-time formatter between local and Project Chat. Tighten the four primary sidebar destinations to 30px rows, use coherent regular-weight semantic icons, and let spacing replace the redundant divider above conversations.
+- **Acceptance**: all Chat surfaces expose a compact source dimension without a prominent avatar; external read-only transcripts merge source and status into one footer line without a duplicate top banner; Conversation and Project act as peer sticky sections where the next title pushes off the previous and only one title is pinned; the complete 60px header drag zone moves the window without intercepting header actions or the first sidebar destination; today/yesterday/older/cross-year messages retain the clock and add the appropriate localized date context; invalid timestamps fail quietly; header and date-boundary regressions plus Desktop diagnostics and production build pass.
+
+## 3.28 Design-system selects across Desktop (2026-08-01)
+
+- **Priority / Status**: P1 / Delivered (2026-08-01).
+- **Problem**: settings pages mixed a shared wrapper with 45 direct native selects; the wrapper itself was also native, so expanded menus ignored Molibot's visual system and behaved differently across pages.
+- **Decision**: make one Bits UI-backed `SelectControl` the only enumeration control and migrate every Desktop settings, Project settings, and onboarding call site. Preserve native time and numeric inputs where direct entry or a platform picker is the correct behavior.
+- **Acceptance**: no Desktop Svelte file contains `<select>`; triggers and floating menus follow semantic Light/Dark tokens; checked state, long-list scrolling, typeahead, disabled state, pointer dismissal, and complete keyboard navigation work; all existing narrow save/update paths remain unchanged.
+
+## 3.27 Compact composer model menu (2026-08-01)
+
+- **Priority / Status**: P2 / Delivered (2026-08-01).
+- **Problem**: model and thinking depth used two separate pills backed by native selects, consuming scarce composer width and exposing platform-default menus that could not follow Molibot's light/dark visual system.
+- **Decision**: combine both settings into one `model · depth` summary and one custom, in-place hierarchical popover shared by Chat and Project Chat. Keep the existing Session-scoped model persistence and runtime thinking contracts unchanged.
+- **Acceptance**: one trigger reaches both choices; long model lists scroll inside the popover; current values remain visible and checked; outside-click, Escape, arrow-key navigation, focus, bilingual copy, light/dark themes, and narrow composer widths work; no native select remains in the shared composer.
+
 ## 3.26 Memory usage trace and feedback loop (2026-08-01)
 
 - **Priority / Status**: P1 / Delivered (2026-08-01). Design doc: [docs/designs/memory/memory-usage-trace-and-feedback.md](docs/designs/memory/memory-usage-trace-and-feedback.md).

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SelectControl from "../components/ui/SelectControl.svelte";
   import type { DesktopSandboxPreset } from "../api";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { session } from "../stores/session.svelte";
@@ -58,8 +59,8 @@
         onCheckedChange={(checked) => updateSandboxEdit((draft) => ({ ...draft, enabled: checked }))}
       />
     </div>
-    <label class="settings-row"><div><strong>{session.text.sandboxInitFailure}</strong><p>{session.text.sandboxInitFailureHint}</p></div><select value={sandboxStore.sandboxEdit.initFailureMode} onchange={(event) => updateSandboxEdit((draft) => ({ ...draft, initFailureMode: event.currentTarget.value as SandboxEditor["initFailureMode"] }))}><option value="block">{session.text.sandboxInitBlock}</option></select></label>
-    <label class="settings-row"><div><strong>{session.text.sandboxEnvInherit}</strong><p>{session.text.sandboxEnvInheritHint}</p></div><select value={sandboxStore.sandboxEdit.envInheritMode} onchange={(event) => updateSandboxEdit((draft) => ({ ...draft, envInheritMode: event.currentTarget.value as SandboxEditor["envInheritMode"] }))}><option value="minimal">{session.text.sandboxEnvMinimal}</option><option value="allowlist">{session.text.sandboxEnvAllowlist}</option><option value="full">{session.text.sandboxEnvFull}</option></select></label>
+    <label class="settings-row"><div><strong>{session.text.sandboxInitFailure}</strong><p>{session.text.sandboxInitFailureHint}</p></div><SelectControl value={sandboxStore.sandboxEdit.initFailureMode} ariaLabel={session.text.sandboxInitFailure} options={[{ value: "block", label: session.text.sandboxInitBlock }]} onChange={(value) => updateSandboxEdit((draft) => ({ ...draft, initFailureMode: value as SandboxEditor["initFailureMode"] }))} /></label>
+    <label class="settings-row"><div><strong>{session.text.sandboxEnvInherit}</strong><p>{session.text.sandboxEnvInheritHint}</p></div><SelectControl value={sandboxStore.sandboxEdit.envInheritMode} ariaLabel={session.text.sandboxEnvInherit} options={[{ value: "minimal", label: session.text.sandboxEnvMinimal }, { value: "allowlist", label: session.text.sandboxEnvAllowlist }, { value: "full", label: session.text.sandboxEnvFull }]} onChange={(value) => updateSandboxEdit((draft) => ({ ...draft, envInheritMode: value as SandboxEditor["envInheritMode"] }))} /></label>
   </div>
 
   <p class="settings-group-title">{session.text.sandboxEnvironment}</p>
