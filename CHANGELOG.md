@@ -7,6 +7,9 @@
 ---
 ## 2026-08-01
 
+### Release: v2.8.3 / Desktop v0.8.0
+- Bugfix release resolving Bits UI custom select control options rendering/interaction regressions.
+
 ### Release: v2.8.2 / Desktop v0.7.9
 - Synchronized the root and Desktop package versions for the new release.
 
