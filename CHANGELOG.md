@@ -7,6 +7,9 @@
 ---
 ## 2026-08-01
 
+### Release: v2.8.2 / Desktop v0.7.9
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: the file panel no longer crushes the Chat column, and the file panel follows macOS
 
 - Opening the file panel could squeeze the transcript to a sliver: the layout was `sidebar 1fr files-width`, so a wide (remembered) panel took its width off the middle column with no floor. At that width the header title ran underneath the action buttons and the composer's own controls spilled past the pane edge.
