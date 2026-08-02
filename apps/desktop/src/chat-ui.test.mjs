@@ -802,7 +802,7 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /onHover=\{handleHover\}/);
   assert.match(agentStudio, /let hoveredFloorKey: string \| null = null/);
   assert.match(agentStudio, /hoveredFloorKey \? cityFloors\.find/);
-  assert.match(agentStudio, /\{#if hoveredFloor\}/);
+  assert.match(agentStudio, /\{#if hoveredFloor && hoveredFloor\.key !== selectedFloorKey\}/);
   assert.match(agentStudio, /class="agent-city-hover-card"/);
   assert.doesNotMatch(agentStudio, /agent-city-label-layer|agent-city-agent-label|agent-city-status-dot|agent-city-tooltip|agent-city-working-frame/);
   assert.match(agentStudio, /hoveredFloor\.activity\.taskPreview/);
@@ -836,11 +836,11 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityCanvas, /prefers-reduced-motion: reduce/);
   assert.match(agentCityCanvas, /controller\?\.setQuality\("low"\)/);
   assert.match(agentCityCanvas, /controller\?\.dispose\(\)/);
-  assert.match(agentCityScene, /new THREE\.OrthographicCamera/);
+  assert.match(agentCityScene, /new THREE\.PerspectiveCamera/);
   assert.match(agentCityScene, /new THREE\.Raycaster\(\)/);
-  assert.match(agentCityScene, /function addFloorTarget/);
-  assert.match(agentCityScene, /target\.userData\.floorKey = floor\.key/);
-  assert.match(agentCityScene, /raycaster\.intersectObjects\(floorTargets, false\)/);
+  assert.match(agentCityScene, /function attachFloorTarget/);
+  assert.match(agentCityScene, /target\.userData\.floorKey = key/);
+  assert.match(agentCityScene, /raycaster\.intersectObjects\(targets, false\)/);
   assert.match(agentCityScene, /hitTest\(clientX, clientY\)/);
   assert.match(agentCityScene, /new THREE\.LineSegments/);
   assert.match(agentCityScene, /new THREE\.LineDashedMaterial/);
@@ -856,7 +856,140 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /renderer\.renderLists\.dispose\(\)/);
   assert.match(agentCityScene, /renderer\.dispose\(\)/);
   assert.match(agentCityScene, /renderer\.forceContextLoss\(\)/);
-  assert.doesNotMatch(agentCityScene, /OrbitControls|TrackballControls|MapControls/);
+  assert.match(agentCityScene, /controls\.dispose\(\)/);
+  assert.doesNotMatch(agentCityScene, /TrackballControls|MapControls|ArcballControls/);
+});
+
+// The activity poll fires every 2.5s. Rebuilding the whole scene on each poll
+// is what made the city feel static: it reset the camera and restarted every
+// animation, so no interaction could survive longer than one poll.
+test("Agent City syncs the activity poll incrementally instead of rebuilding the scene", () => {
+  assert.match(agentCityScene, /function syncProjection/);
+  assert.match(agentCityScene, /floorNodes = new Map<string, FloorNode>/);
+  assert.match(agentCityScene, /agentCityFloorSignature/);
+  assert.match(agentCityScene, /node\.signature !== signature/);
+  assert.match(agentCityScene, /applyFloorState\(node, floor\)/);
+  // update() must touch projection state only — never the camera.
+  const update = agentCityScene.match(/update\(nextProjection\) \{[\s\S]*?\n {4}\},/);
+  assert.ok(update, "controller.update was not found");
+  assert.doesNotMatch(update[0], /camera\.position|controls\.target|applyOverview|rebuild\(\)/);
+  assert.doesNotMatch(agentCityScene, /function rebuild\(/);
+  // A user who has framed their own shot keeps it when the roster changes.
+  assert.match(agentCityScene, /if \(!userAdjusted && projection\.sceneFloors !== lastSceneFloors\)/);
+});
+
+test("Agent City camera is orbitable, bounded, and resettable", () => {
+  assert.match(agentCityScene, /new OrbitControls\(camera, options\.canvas\)/);
+  assert.match(agentCityScene, /controls\.minDistance = AGENT_CITY_MIN_DISTANCE/);
+  assert.match(agentCityScene, /controls\.maxDistance = AGENT_CITY_MAX_DISTANCE/);
+  assert.match(agentCityScene, /controls\.maxPolarAngle/);
+  // Panning must stay inside the city or the user ends up staring at fog.
+  assert.match(agentCityScene, /function handleControlChange[\s\S]*clampCameraTarget/);
+  assert.match(agentCityScene, /controls\.addEventListener\("change", handleControlChange\)/);
+  assert.match(agentCityScene, /resetView\(\) \{/);
+  assert.match(agentCityScene, /zoom\(direction\) \{/);
+  assert.match(agentCityScene, /focusFloor\(key\) \{/);
+  // Damping would fight a scripted fly-to and leave it short of its framing.
+  assert.match(agentCityScene, /if \(tween\) \{[\s\S]*camera\.lookAt\(controls\.target\)/);
+  assert.match(agentCityCanvas, /export function zoom/);
+  assert.match(agentCityCanvas, /export function resetView/);
+  assert.match(agentStudio, /cityCanvas\?\.zoom\("in"\)/);
+  assert.match(agentStudio, /cityCanvas\?\.resetView\(\)/);
+  assert.match(styles, /\.agent-city-controls\s*\{[^}]*pointer-events:\s*auto/s);
+});
+
+test("Agent City pugs are rigged and clip-driven, and clicking one greets back", () => {
+  // Front paws are what make typing / phone-scrolling / waving readable; the
+  // original model had only hind legs and a sine bob on position.y.
+  assert.match(agentCityScene, /pawLeft: THREE\.Group/);
+  assert.match(agentCityScene, /pawRight: THREE\.Group/);
+  assert.match(agentCityScene, /function applyPugPose/);
+  assert.match(agentCityScene, /clipsForStatus\(rig\.status\)/);
+  assert.match(agentCityScene, /transitionClip\(previous, floor\.state\)/);
+  assert.match(agentCityScene, /oneShot = \{ clip: "greet", startedAt: performance\.now\(\) \}/);
+  assert.match(agentCityScene, /reducedMotion && !rig\.oneShot/);
+  // Props are hidden when the camera is too far away for them to read.
+  assert.match(agentCityScene, /const detailed = distance <= AGENT_CITY_DETAIL_DISTANCE/);
+  // A click must not fire at the end of an orbit drag.
+  assert.match(agentCityCanvas, /CLICK_SLOP_PX/);
+  assert.match(agentCityCanvas, /function movedTooFar/);
+  assert.match(agentCityCanvas, /controller\?\.greetAt/);
+  assert.match(agentCityCanvas, /ondblclick=\{handleDoubleClick\}/);
+  assert.match(agentStudio, /class="agent-city-detail"/);
+  assert.match(agentStudio, /function handleWindowKeydown/);
+});
+
+test("Agent City can be searched, followed, and lights its windows at night", () => {
+  // 10 buildings x 10 floors is unnavigable without a way to jump to a name.
+  assert.match(agentStudio, /function searchFloors/);
+  assert.match(agentStudio, /class="agent-city-search"/);
+  assert.match(agentStudio, /function handleSearchKeydown/);
+  assert.match(agentStudio, /event\.key === "ArrowDown"/);
+  assert.match(agentStudio, /jumpToFloor\(match\.key\)/);
+  assert.match(agentStudio, /cityCanvas\?\.focusFloor\(key\)/);
+  assert.match(agentStudio, /agentCitySearchEmpty/);
+
+  assert.match(agentStudio, /function toggleFollow/);
+  assert.match(agentStudio, /cityCanvas\?\.setFollowWorking\(followWorking\)/);
+  assert.match(agentCityCanvas, /export function setFollowWorking/);
+  assert.match(agentCityScene, /setFollowWorking\(enabled\) \{/);
+  assert.match(agentCityScene, /function syncFollowTarget/);
+  // Re-framing every poll would fight a user panning while follow is on.
+  assert.match(agentCityScene, /if \(!next \|\| next === followKey\) return;/);
+  assert.match(agentCityScene, /selectFollowFloorKey\(projection, followKey\)/);
+
+  assert.match(agentCityScene, /function createWindowPanes/);
+  assert.match(agentCityScene, /function applyWindowGlow/);
+  assert.match(agentCityScene, /applyWindowGlow\(node, floor\.state\)/);
+  // Night glow is status-driven, so it must repaint on the poll, not rebuild.
+  assert.doesNotMatch(agentCityScene, /windowMaterial: THREE\.MeshStandardMaterial \| null/);
+  assert.match(agentCityScene, /node\.windowMaterial\.emissiveIntensity = node\.windowBase;/);
+  assert.match(styles, /\.agent-city-search\s*\{/s);
+});
+
+// App.svelte REMOVES data-theme when the theme preference is "system" — the
+// default — so a surface styled only under `:root[data-theme="dark"]` renders
+// light on a dark canvas for most users, with nothing to notice at build time.
+// Agent City floats its chrome over a WebGL canvas, which is exactly where that
+// mismatch is most visible, so it must theme through the shared tokens instead.
+test("Agent City chrome themes through tokens, not a data-theme-only override list", () => {
+  // Comments are stripped first: prose in this file legitimately mentions
+  // data-theme, and it would otherwise be read as part of the next selector.
+  const source = styles.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...source.matchAll(/([^{}]*\.agent-city[^{}]*)\{([^{}]*)\}/g)];
+  assert.ok(rules.length > 30, `expected the Agent City block, found ${rules.length} rules`);
+
+  const themeScoped = rules
+    .map(([, selector]) => selector.trim())
+    .filter((selector) => selector.includes("data-theme"));
+  assert.deepEqual(themeScoped, [], "Agent City must not carry per-theme override rules");
+
+  // Pug artwork keeps its coat colours in both themes; everything else must
+  // resolve through a token so Light / Dark / System all follow automatically.
+  const violations = [];
+  for (const [, selector, body] of rules) {
+    if (/agent-city-fallback-pug/.test(selector)) continue;
+    for (const declaration of body.split(";")) {
+      const match = declaration.match(/^\s*(background|background-color|color|border-color)\s*:\s*(.+)$/s);
+      if (!match) continue;
+      const value = match[2];
+      const literal =
+        /#[0-9a-f]{3,8}\b/i.test(value) ||
+        /\brgba?\(\s*255/.test(value) ||
+        /\brgba?\(\s*0\s*,\s*0\s*,\s*0/.test(value);
+      if (literal) violations.push(`${selector.trim()} { ${declaration.trim()} }`);
+    }
+  }
+  assert.deepEqual(violations, []);
+
+  // The one Agent City colour that cannot derive from a token: it has to match
+  // the WebGL clear colour, so it must be mirrored into every theme context.
+  const skyDeclarations = [...source.matchAll(/--agent-city-sky\s*:/g)];
+  assert.equal(skyDeclarations.length, 3, "--agent-city-sky must be declared for light, dark and system-dark");
+  const darkBlock = source.slice(source.indexOf(':root[data-theme="dark"] {'));
+  assert.match(darkBlock.slice(0, 4000), /--agent-city-sky:\s*#101820/);
+  const systemBlock = source.slice(source.indexOf("@media (prefers-color-scheme: dark)"));
+  assert.match(systemBlock.slice(0, 4000), /--agent-city-sky:\s*#101820/);
 });
 
 test("sidebar conversation rows expose a rename/delete menu", () => {

@@ -8,7 +8,8 @@
     type AgentCityHover,
     type AgentCityQuality,
     type AgentCitySceneController,
-    type AgentCityTheme
+    type AgentCityTheme,
+    type AgentCityViewState
   } from "./agentCityScene";
 
   export let projection: AgentCityProjection;
@@ -16,6 +17,9 @@
   export let onQuality: (quality: AgentCityQuality) => void;
   export let onFallback: () => void;
   export let onHover: (hover: AgentCityHover | null) => void;
+  export let onSelect: (key: string | null) => void = () => {};
+  export let onFocus: (key: string) => void = () => {};
+  export let onView: (view: AgentCityViewState) => void = () => {};
 
   let canvas: HTMLCanvasElement;
   let container: HTMLDivElement;
@@ -27,6 +31,30 @@
   let mounted = false;
   let visible = true;
   let hoveredKey: string | null = null;
+  let pressOrigin: { x: number; y: number } | null = null;
+
+  /** Distinguishes a click from the tail of an orbit/pan drag. */
+  const CLICK_SLOP_PX = 4;
+
+  export function zoom(direction: "in" | "out"): void {
+    controller?.zoom(direction);
+  }
+
+  export function resetView(): void {
+    controller?.resetView();
+  }
+
+  export function focusFloor(key: string): void {
+    controller?.focusFloor(key);
+  }
+
+  export function setFollowWorking(enabled: boolean): void {
+    controller?.setFollowWorking(enabled);
+  }
+
+  export function clearFocus(): void {
+    controller?.clearFocus();
+  }
 
   function updateHover(event: PointerEvent): void {
     const hover = controller?.hitTest(event.clientX, event.clientY) ?? null;
@@ -42,6 +70,32 @@
     if (!hoveredKey) return;
     hoveredKey = null;
     onHover(null);
+  }
+
+  function handlePointerDown(event: PointerEvent): void {
+    pressOrigin = { x: event.clientX, y: event.clientY };
+  }
+
+  function movedTooFar(event: PointerEvent): boolean {
+    if (!pressOrigin) return true;
+    return Math.hypot(event.clientX - pressOrigin.x, event.clientY - pressOrigin.y) > CLICK_SLOP_PX;
+  }
+
+  function handleClick(event: MouseEvent): void {
+    if (movedTooFar(event as unknown as PointerEvent)) {
+      pressOrigin = null;
+      return;
+    }
+    pressOrigin = null;
+    const hit = controller?.greetAt(event.clientX, event.clientY) ?? null;
+    onSelect(hit?.key ?? null);
+  }
+
+  function handleDoubleClick(event: MouseEvent): void {
+    const hit = controller?.hitTest(event.clientX, event.clientY) ?? null;
+    if (!hit) return;
+    controller?.focusFloor(hit.key);
+    onFocus(hit.key);
   }
 
   function handleVisibility(): void {
@@ -79,7 +133,8 @@
           onFallback();
         }
       },
-      onContextLost: onFallback
+      onContextLost: onFallback,
+      onViewChange: (view) => onView(view)
     });
 
     const handleMotion = (event: MediaQueryListEvent): void => {
@@ -131,6 +186,16 @@
   });
 </script>
 
-<div class="agent-city-canvas" bind:this={container} aria-hidden="true">
-  <canvas bind:this={canvas} onpointermove={updateHover} onpointerleave={clearHover}></canvas>
+<div class="agent-city-canvas" bind:this={container}>
+  <!-- Scene contents are mirrored for assistive tech by the pane's sr-only list. -->
+  <canvas
+    bind:this={canvas}
+    aria-hidden="true"
+    onpointerdown={handlePointerDown}
+    onpointermove={updateHover}
+    onpointerleave={clearHover}
+    onclick={handleClick}
+    ondblclick={handleDoubleClick}
+    oncontextmenu={(event) => event.preventDefault()}
+  ></canvas>
 </div>

@@ -9,11 +9,13 @@
   import {
     agentCityViewportHeight,
     type AgentCityQuality,
-    type AgentCityTheme
+    type AgentCityTheme,
+    type AgentCityViewState
   } from "./agentCityScene";
   import {
     projectAgentCity,
     reconcileAgentCitySlots,
+    type AgentCityFloor,
     type AgentCityProjection,
     type AgentCityStatus
   } from "./agentCityProjection";
@@ -40,6 +42,14 @@
   let theme: AgentCityTheme = currentTheme();
   let hoveredFloorKey: string | null = null;
   let hoveredFloorAnchor: { x: number; y: number } | null = null;
+  let selectedFloorKey: string | null = null;
+  let cityCanvas: AgentCityCanvas | null = null;
+  let viewAdjusted = false;
+  let followWorking = false;
+  let searchOpen = false;
+  let searchQuery = "";
+  let searchIndex = 0;
+  let searchInput: HTMLInputElement | null = null;
 
   function readStoredSlots(): Record<string, number> {
     try {
@@ -70,10 +80,16 @@
   $: projection = projectAgentCity({ agents: visibleAgents, activities, slots: slotMap });
   $: cityFloors = [projection.globalFloor, ...projection.buildings.flatMap((building) => building.floors)];
   $: hoveredFloor = hoveredFloorKey ? cityFloors.find((floor) => floor.key === hoveredFloorKey) ?? null : null;
+  $: selectedFloor = selectedFloorKey ? cityFloors.find((floor) => floor.key === selectedFloorKey) ?? null : null;
   $: if (hoveredFloorKey && !cityFloors.some((floor) => floor.key === hoveredFloorKey)) {
     hoveredFloorKey = null;
     hoveredFloorAnchor = null;
   }
+  $: if (selectedFloorKey && !cityFloors.some((floor) => floor.key === selectedFloorKey)) {
+    selectedFloorKey = null;
+  }
+  $: searchResults = searchFloors(cityFloors, searchQuery);
+  $: if (searchIndex >= searchResults.length) searchIndex = 0;
   $: enabledCount = visibleAgents.filter((agent) => agent.enabled).length;
   $: cityHeight = agentCityViewportHeight(projection.sceneFloors, cityWidth);
 
@@ -115,8 +131,87 @@
   function handleFallback(): void {
     hoveredFloorKey = null;
     hoveredFloorAnchor = null;
+    selectedFloorKey = null;
     fallback = true;
     quality = "fallback";
+  }
+
+  function handleSelect(key: string | null): void {
+    selectedFloorKey = key;
+  }
+
+  /** Working agents first, so the search box answers "who is busy?" too. */
+  function searchFloors(floors: AgentCityFloor[], query: string): AgentCityFloor[] {
+    const needle = query.trim().toLowerCase();
+    const matches = needle
+      ? floors.filter((floor) =>
+          floor.agent.name.toLowerCase().includes(needle) ||
+          floor.agent.description.toLowerCase().includes(needle))
+      : floors;
+    return [...matches]
+      .sort((left, right) => Number(right.state === "working") - Number(left.state === "working"))
+      .slice(0, 8);
+  }
+
+  function handleView(view: AgentCityViewState): void {
+    viewAdjusted = view.adjusted;
+    // Follow mode re-frames on its own; mirror its target into the detail card.
+    if (view.following && view.followKey && view.followKey !== selectedFloorKey) {
+      selectedFloorKey = view.followKey;
+    }
+  }
+
+  function closeSelection(): void {
+    selectedFloorKey = null;
+    cityCanvas?.clearFocus();
+  }
+
+  function toggleFollow(): void {
+    followWorking = !followWorking;
+    cityCanvas?.setFollowWorking(followWorking);
+  }
+
+  function openSearch(): void {
+    searchOpen = true;
+    queueMicrotask(() => searchInput?.focus());
+  }
+
+  function closeSearch(): void {
+    searchOpen = false;
+    searchQuery = "";
+    searchIndex = 0;
+  }
+
+  function jumpToFloor(key: string): void {
+    selectedFloorKey = key;
+    cityCanvas?.focusFloor(key);
+    closeSearch();
+  }
+
+  function handleSearchKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      closeSearch();
+      return;
+    }
+    if (event.key === "ArrowDown") searchIndex = Math.min(searchResults.length - 1, searchIndex + 1);
+    else if (event.key === "ArrowUp") searchIndex = Math.max(0, searchIndex - 1);
+    else if (event.key === "Enter") {
+      const match = searchResults[searchIndex];
+      if (match) jumpToFloor(match.key);
+    } else return;
+    event.preventDefault();
+  }
+
+  // Escape backs out of a focused room. Zoom and reset stay on the toolbar
+  // buttons so keyboard users reach them by tabbing, not by a hidden shortcut.
+  function handleWindowKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape") return;
+    if (searchOpen) {
+      closeSearch();
+      return;
+    }
+    if (!selectedFloorKey) return;
+    closeSelection();
   }
 
   function handleHover(hover: { key: string; x: number; y: number } | null): void {
@@ -177,6 +272,8 @@
   });
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <section class="agent-studio" aria-label={copy.agentStudio}>
   <div class="agent-studio-summary" aria-label={copy.agentStudioSummary}>
     <span><strong>{visibleAgents.length}</strong>{copy.agentStudioResidents}</span>
@@ -192,14 +289,92 @@
     <div class="agent-city-shell" class:agent-city-shell--fallback={fallback} bind:this={cityShell} style={`--agent-city-height:${cityHeight}px`}>
       <div class="agent-city-toolbar">
         <span><i class="ph ph-map-trifold" aria-hidden="true"></i>{copy.agentCityDispatchCenter}</span>
+        {#if !fallback}
+          <div class="agent-city-controls">
+            <button type="button" class:agent-city-control-active={searchOpen} title={copy.agentCitySearchLabel} aria-label={copy.agentCitySearchLabel} aria-expanded={searchOpen} onclick={() => searchOpen ? closeSearch() : openSearch()}>
+              <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+            </button>
+            <button type="button" class:agent-city-control-active={followWorking} title={copy.agentCityFollowWorking} aria-label={copy.agentCityFollowWorking} aria-pressed={followWorking} onclick={toggleFollow}>
+              <i class="ph ph-video-camera" aria-hidden="true"></i>
+            </button>
+            <button type="button" title={copy.agentCityZoomOut} aria-label={copy.agentCityZoomOut} onclick={() => cityCanvas?.zoom("out")}>
+              <i class="ph ph-minus" aria-hidden="true"></i>
+            </button>
+            <button type="button" title={copy.agentCityZoomIn} aria-label={copy.agentCityZoomIn} onclick={() => cityCanvas?.zoom("in")}>
+              <i class="ph ph-plus" aria-hidden="true"></i>
+            </button>
+            <button type="button" class:agent-city-control-active={viewAdjusted} title={copy.agentCityResetView} aria-label={copy.agentCityResetView} onclick={() => cityCanvas?.resetView()}>
+              <i class="ph ph-crosshair-simple" aria-hidden="true"></i>
+            </button>
+          </div>
+        {/if}
         <small>{fallback ? copy.agentCityFallbackNotice : quality === "low" ? copy.agentCityLowQuality : copy.agentCityFullQuality}</small>
       </div>
 
       {#if fallback}
         <AgentCityFallback {projection} {copy} {statusLabel} {onOpenAgentSettings} />
       {:else}
-        <AgentCityCanvas {projection} {theme} onQuality={(value) => { quality = value; }} onFallback={handleFallback} onHover={handleHover} />
-        {#if hoveredFloor}
+        <AgentCityCanvas
+          bind:this={cityCanvas}
+          {projection}
+          {theme}
+          onQuality={(value) => { quality = value; }}
+          onFallback={handleFallback}
+          onHover={handleHover}
+          onSelect={handleSelect}
+          onFocus={handleSelect}
+          onView={handleView}
+        />
+        {#if searchOpen}
+          <div class="agent-city-search">
+            <input
+              bind:this={searchInput}
+              bind:value={searchQuery}
+              type="search"
+              placeholder={copy.agentCitySearchPlaceholder}
+              aria-label={copy.agentCitySearchLabel}
+              onkeydown={handleSearchKeydown}
+            />
+            <ul>
+              {#each searchResults as floor, index (floor.key)}
+                <li>
+                  <button type="button" class:is-active={index === searchIndex} onclick={() => jumpToFloor(floor.key)} onmouseenter={() => { searchIndex = index; }}>
+                    <strong>{floor.agent.name}</strong>
+                    <small data-status={floor.state}>{statusLabel(floor.state)}</small>
+                  </button>
+                </li>
+              {:else}
+                <li class="agent-city-search-empty">{copy.agentCitySearchEmpty}</li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+        <p class="agent-city-hint">{copy.agentCityInteractionHint}</p>
+        {#if selectedFloor}
+          <aside class="agent-city-detail" aria-label={selectedFloor.agent.name}>
+            <header>
+              <strong>{selectedFloor.agent.name}</strong>
+              <span data-status={selectedFloor.state}>{statusLabel(selectedFloor.state)}</span>
+              <button type="button" title={copy.agentCityCloseDetail} aria-label={copy.agentCityCloseDetail} onclick={closeSelection}>
+                <i class="ph ph-x" aria-hidden="true"></i>
+              </button>
+            </header>
+            <p>{selectedFloor.agent.description || copy.agentStudioNoDescription}</p>
+            {#if selectedFloor.activity}
+              <small>{shortBotName(selectedFloor.activity.botName)} · {channelLabel(selectedFloor.activity.channel)} · {activityTime(selectedFloor.activity.startedAt)}</small>
+              <p>{selectedFloor.activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
+            {/if}
+            <em>{selectedFloor.agent.modelOverrides > 0 ? `${selectedFloor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
+            {#if selectedFloor.subagents.visible.length || selectedFloor.subagents.overflowCount}
+              <small>{selectedFloor.subagents.visible.map((subagent) => `${subagent.name} · ${statusLabel(subagent.status)}`).join(" · ")}{selectedFloor.subagents.overflowCount ? ` · +${selectedFloor.subagents.overflowCount}` : ""}</small>
+            {/if}
+            <div class="agent-city-detail-actions">
+              <button type="button" onclick={() => selectedFloorKey && cityCanvas?.focusFloor(selectedFloorKey)}>{copy.agentCityFocusFloor}</button>
+              <button type="button" onclick={onOpenAgentSettings}>{copy.agentCityOpenAgentSettings}</button>
+            </div>
+          </aside>
+        {/if}
+        {#if hoveredFloor && hoveredFloor.key !== selectedFloorKey}
           <div class="agent-city-hover-card" style={hoverCardStyle()}>
             <strong>{hoveredFloor.agent.name}</strong>
             <span>{statusLabel(hoveredFloor.state)}</span>

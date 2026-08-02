@@ -83,6 +83,9 @@
   --chrome-footbar-bg: var(--footbar-bg);
   --chrome-popover-bg: var(--card-bg);
   --chrome-border: var(--separator);
+  /* Backdrop behind the Agent City canvas. Must match DAY_SKY / NIGHT_SKY in
+     agentCityScene.ts, or the shell edges show a seam against the render. */
+  --agent-city-sky: #eaf3f5;
 
   /* WKWebView composites translucent fills against its clear backing before the
      native effect. A thick white veil keeps Light material near Finder's neutral
@@ -3689,6 +3692,7 @@ select.provider-input { padding-right: 6px; }
 
   --accent: #007aff; --accent-hover: #419cff; --accent-soft: rgb(0 122 255 / 18%);
   --online: #30d158; --danger: #ff4245; --warning: #ff9230; --warning-text: #ff9230;
+  --agent-city-sky: #101820;
   --skill-accent: #c07cf0; --miniapp-accent: #2dd4bf;
 
   --text-primary: var(--mac-label); --label-primary: var(--mac-label);
@@ -3978,6 +3982,7 @@ select.provider-input { padding-right: 6px; }
     --gray-alpha-300: rgba(255,255,255,0.12); --gray-alpha-400: rgba(255,255,255,0.12);
     --accent: #007aff; --accent-hover: #419cff; --accent-soft: rgb(0 122 255 / 18%);
     --online: #30d158; --danger: #ff4245; --warning: #ff9230; --warning-text: #ff9230;
+    --agent-city-sky: #101820;
     --skill-accent: #c07cf0; --miniapp-accent: #2dd4bf;
     --text-primary: var(--mac-label); --label-primary: var(--mac-label);
     --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
@@ -4001,7 +4006,6 @@ select.provider-input { padding-right: 6px; }
   :root:not([data-theme="light"]):not([data-theme="dark"]) .status-badge[data-state="ready"] { color: var(--online); background: color-mix(in srgb, var(--online) 12%, transparent); }
   :root:not([data-theme="light"]):not([data-theme="dark"]) .status-badge[data-state="error"],
   :root:not([data-theme="light"]):not([data-theme="dark"]) .status-badge[data-state="incompatible"] { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
-  :root:not([data-theme="light"]):not([data-theme="dark"]) .agent-city-overflow { border-color: rgba(255,178,36,.35); background: rgba(86,25,0,.85); color: #ffdc73; }
 }
 
 @media (prefers-contrast: more) {
@@ -4100,72 +4104,107 @@ html[data-increased-contrast="true"] .settings-sidebar {
 .agent-studio-spinner { animation: agent-studio-spin .8s linear infinite; }
 .agent-studio-error { margin: 12px 0 0; color: var(--danger); font-size: 12px; text-align: center; }
 @keyframes agent-studio-spin { to { transform: rotate(360deg); } }
-.agent-city-shell { position: relative; min-height: var(--agent-city-height); overflow: hidden; border: 1px solid var(--separator); border-radius: var(--rounded-lg); background: #eaf3f5; box-shadow: 0 2px 2px rgba(0,0,0,.04); isolation: isolate; transition: min-height .2s cubic-bezier(.175,.885,.32,1.1); }
+/* Agent City chrome floats over a WebGL canvas. Every surface below derives
+   from the shared semantic tokens (--card-bg / --label-* / --separator / status
+   hues), so it follows Light, Dark and System with no per-theme duplicates.
+   The previous hand-written `:root[data-theme="dark"] .agent-city-*` list never
+   matched for System users at all: App.svelte REMOVES data-theme in that mode,
+   which is the default, so the whole panel rendered light on a dark canvas. */
+.agent-city-shell {
+  --agent-city-surface: color-mix(in srgb, var(--card-bg) 92%, transparent);
+  --agent-city-surface-strong: color-mix(in srgb, var(--card-bg) 97%, transparent);
+  position: relative; min-height: var(--agent-city-height); overflow: hidden;
+  border: 1px solid var(--separator); border-radius: var(--rounded-lg);
+  background: var(--agent-city-sky); box-shadow: 0 2px 2px rgba(0,0,0,.04);
+  isolation: isolate; transition: min-height .2s cubic-bezier(.175,.885,.32,1.1);
+}
+.agent-city-shell:focus-visible { outline: 0; box-shadow: 0 0 0 2px var(--accent), 0 2px 2px rgba(0,0,0,.04); }
 .agent-city-toolbar { position: absolute; z-index: 12; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; pointer-events: none; }
-.agent-city-toolbar > span { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid rgba(255,255,255,.65); border-radius: var(--rounded-sm); background: rgba(255,255,255,.86); box-shadow: 0 1px 1px rgba(0,0,0,.02), 0 4px 8px -4px rgba(0,0,0,.04); color: #171717; font-size: 12px; font-weight: 600; }
-.agent-city-toolbar > span .ph { color: #006bff; font-size: 14px; }
-.agent-city-toolbar small { max-width: 46%; padding: 6px 8px; border-radius: var(--rounded-sm); background: rgba(255,255,255,.7); color: #4d4d4d; font-size: 11px; line-height: 16px; text-align: right; }
+.agent-city-toolbar > span { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid var(--chrome-border); border-radius: var(--rounded-sm); background: var(--agent-city-surface); box-shadow: 0 1px 1px rgba(0,0,0,.02), 0 4px 8px -4px rgba(0,0,0,.04); color: var(--label-primary); font-size: 12px; font-weight: 600; }
+.agent-city-toolbar > span .ph { color: var(--accent); font-size: 14px; }
+.agent-city-toolbar small { max-width: 46%; padding: 6px 8px; border-radius: var(--rounded-sm); background: var(--agent-city-surface); color: var(--label-secondary); font-size: 11px; line-height: 16px; text-align: right; }
 .agent-city-canvas { position: absolute; inset: 0; min-height: var(--agent-city-height); }
-.agent-city-canvas canvas { display: block; width: 100%; height: 100%; }
-.agent-city-overflow { position: absolute; z-index: 12; right: 16px; bottom: 16px; max-width: 360px; margin: 0; padding: 8px 10px; border: 1px solid rgba(255,174,0,.4); border-radius: var(--rounded-sm); background: rgba(255,246,222,.92); color: #7a4200; font-size: 11px; line-height: 16px; }
-.agent-city-hover-card { position: absolute; z-index: 13; display: grid; gap: 4px; width: min(280px, calc(100% - 32px)); max-height: 220px; overflow: hidden; padding: 10px 12px; border: 1px solid rgba(255,255,255,.7); border-radius: var(--rounded-sm); background: rgba(255,255,255,.94); box-shadow: 0 4px 12px -6px rgba(0,0,0,.22); color: #171717; font-size: 11px; line-height: 15px; pointer-events: none; transform: translate(-50%, calc(-100% - 12px)); }
+.agent-city-canvas canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+.agent-city-canvas canvas:active { cursor: grabbing; }
+.agent-city-controls { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--chrome-border); border-radius: var(--rounded-sm); background: var(--agent-city-surface); box-shadow: 0 1px 1px rgba(0,0,0,.02), 0 4px 8px -4px rgba(0,0,0,.04); pointer-events: auto; }
+.agent-city-controls button { display: grid; width: 26px; height: 26px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); font-size: 14px; cursor: pointer; place-items: center; transition: background .12s ease, color .12s ease; }
+.agent-city-controls button:hover { background: var(--fill); color: var(--label-primary); }
+.agent-city-controls button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
+.agent-city-controls .agent-city-control-active { color: var(--accent); }
+.agent-city-search { position: absolute; z-index: 15; top: 56px; right: 16px; display: grid; gap: 6px; width: min(268px, calc(100% - 32px)); padding: 8px; border: 1px solid var(--chrome-border); border-radius: var(--rounded-md); background: var(--agent-city-surface-strong); box-shadow: 0 8px 24px -12px rgba(0,0,0,.32); }
+.agent-city-search input { height: 28px; padding: 0 8px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: 12px; }
+.agent-city-search input:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
+.agent-city-search ul { display: grid; max-height: 208px; margin: 0; padding: 0; overflow-y: auto; gap: 2px; list-style: none; }
+.agent-city-search li button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 7px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); font-size: 11px; text-align: left; cursor: pointer; }
+.agent-city-search li button.is-active { background: var(--accent-soft); }
+.agent-city-search li button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
+.agent-city-search li button strong { overflow: hidden; min-width: 0; flex: 1 1 auto; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.agent-city-search li button small { flex: 0 0 auto; color: var(--label-tertiary); font-size: 11px; }
+.agent-city-search li button small[data-status="working"] { color: var(--accent); }
+.agent-city-search li button small[data-status="error"] { color: var(--danger); }
+.agent-city-search-empty { padding: 8px 7px; color: var(--label-tertiary); font-size: 11px; }
+.agent-city-hint { position: absolute; z-index: 12; bottom: 14px; left: 50%; max-width: 92%; margin: 0; padding: 5px 10px; border-radius: var(--rounded-sm); background: var(--agent-city-surface); color: var(--label-secondary); font-size: 11px; line-height: 15px; pointer-events: none; transform: translateX(-50%); }
+.agent-city-detail { position: absolute; z-index: 14; bottom: 16px; left: 16px; display: grid; gap: 5px; width: min(300px, calc(100% - 32px)); padding: 12px; border: 1px solid var(--chrome-border); border-radius: var(--rounded-md); background: var(--agent-city-surface-strong); box-shadow: 0 8px 24px -12px rgba(0,0,0,.32); color: var(--label-primary); font-size: 11px; line-height: 15px; }
+.agent-city-detail header { display: flex; align-items: center; gap: 8px; }
+.agent-city-detail header strong { overflow: hidden; flex: 1 1 auto; min-width: 0; font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-city-detail header span { flex: 0 0 auto; padding: 2px 6px; border-radius: var(--rounded-sm); background: var(--fill); color: var(--label-secondary); font-size: 11px; }
+.agent-city-detail header span[data-status="working"] { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.agent-city-detail header span[data-status="completed"] { background: color-mix(in srgb, var(--online) 16%, transparent); color: var(--online); }
+.agent-city-detail header span[data-status="error"] { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+.agent-city-detail header button { display: grid; flex: 0 0 auto; width: 22px; height: 22px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); font-size: 12px; cursor: pointer; place-items: center; }
+.agent-city-detail header button:hover { background: var(--fill); color: var(--label-primary); }
+.agent-city-detail p { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.agent-city-detail small { color: var(--label-secondary); font-size: 11px; line-height: 15px; }
+.agent-city-detail em { color: var(--accent); font-size: 11px; font-style: normal; }
+.agent-city-detail-actions { display: flex; gap: 6px; margin-top: 3px; }
+.agent-city-detail-actions button { height: 26px; padding: 0 10px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: 11px; cursor: pointer; }
+.agent-city-detail-actions button:hover { background: var(--fill); }
+.agent-city-detail-actions button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
+.agent-city-hover-card { position: absolute; z-index: 13; display: grid; gap: 4px; width: min(280px, calc(100% - 32px)); max-height: 220px; overflow: hidden; padding: 10px 12px; border: 1px solid var(--chrome-border); border-radius: var(--rounded-sm); background: var(--agent-city-surface-strong); box-shadow: 0 4px 12px -6px rgba(0,0,0,.22); color: var(--label-primary); font-size: 11px; line-height: 15px; pointer-events: none; transform: translate(-50%, calc(-100% - 12px)); }
 .agent-city-hover-card strong { overflow: hidden; font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.agent-city-hover-card > span, .agent-city-hover-card small { color: #666; font-size: 11px; line-height: 14px; }
+.agent-city-hover-card > span, .agent-city-hover-card small { color: var(--label-secondary); font-size: 11px; line-height: 14px; }
 .agent-city-hover-card p { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.agent-city-hover-card em { color: #006bff; font-size: 11px; font-style: normal; line-height: 14px; }
-:root[data-theme="dark"] .agent-city-overflow { border-color: rgba(255,178,36,.35); background: rgba(86,25,0,.85); color: #ffdc73; }
+.agent-city-hover-card em { color: var(--accent); font-size: 11px; font-style: normal; line-height: 14px; }
+.agent-city-overflow { position: absolute; z-index: 12; right: 16px; bottom: 16px; max-width: 360px; margin: 0; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent); border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--warning) 14%, var(--card-bg)); color: var(--warning-text); font-size: 11px; line-height: 16px; }
 .agent-city-overflow strong { font-family: var(--font-mono); }
-.agent-city-fallback { min-height: var(--agent-city-height); padding: 64px 16px 56px; background: radial-gradient(circle at 50% 8%, rgba(255,255,255,.92), rgba(234,243,245,.72) 38%, rgba(223,231,229,.94)); }
-.agent-city-fallback-landmark { position: relative; display: flex; align-items: center; gap: 10px; width: fit-content; min-width: 220px; margin: 0 auto 12px; padding: 10px 12px; border: 1px solid rgba(255,255,255,.72); border-radius: var(--rounded-md); background: rgba(255,255,255,.84); box-shadow: 0 2px 2px rgba(0,0,0,.04); color: #171717; text-align: left; }
-.agent-city-fallback-landmark .ph { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--rounded-sm); background: #f0f7ff; color: #006bff; font-size: 17px; }
+.agent-city-fallback { min-height: var(--agent-city-height); padding: 64px 16px 56px; background: radial-gradient(circle at 50% 8%, color-mix(in srgb, var(--card-bg) 92%, transparent), color-mix(in srgb, var(--agent-city-sky) 72%, transparent) 38%, var(--agent-city-sky)); }
+.agent-city-fallback-landmark { position: relative; display: flex; align-items: center; gap: 10px; width: fit-content; min-width: 220px; margin: 0 auto 12px; padding: 10px 12px; border: 1px solid var(--chrome-border); border-radius: var(--rounded-md); background: var(--agent-city-surface); box-shadow: 0 2px 2px rgba(0,0,0,.04); color: var(--label-primary); text-align: left; }
+.agent-city-fallback-landmark .ph { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--rounded-sm); background: var(--accent-soft); color: var(--accent); font-size: 17px; }
 .agent-city-fallback-landmark div { display: grid; gap: 2px; }
 .agent-city-fallback-landmark strong { font-size: 12px; }
-.agent-city-fallback-landmark span { color: #7d7d7d; font-size: 9px; }
+.agent-city-fallback-landmark span { color: var(--label-tertiary); font-size: 9px; }
 .agent-city-fallback-global { flex-wrap: wrap; margin-bottom: 24px; }
 .agent-city-fallback-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: end; }
-.agent-city-fallback-building { min-width: 0; overflow: hidden; border: 1px solid rgba(0,0,0,.12); border-radius: var(--rounded-md) var(--rounded-md) var(--rounded-sm) var(--rounded-sm); background: rgba(255,255,255,.76); box-shadow: 0 2px 2px rgba(0,0,0,.04); }
-.agent-city-fallback-building header { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 32px; padding: 0 9px; background: rgba(23,23,23,.86); color: #fff; }
+.agent-city-fallback-building { min-width: 0; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--rounded-md) var(--rounded-md) var(--rounded-sm) var(--rounded-sm); background: var(--agent-city-surface); box-shadow: 0 2px 2px rgba(0,0,0,.04); color: var(--label-primary); }
+.agent-city-fallback-building header { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 32px; padding: 0 9px; background: color-mix(in srgb, var(--label-primary) 10%, transparent); color: var(--label-primary); }
 .agent-city-fallback-building header span { font: 600 11px/16px var(--font-mono); }
-.agent-city-fallback-building header small { color: rgba(255,255,255,.7); font-size: 9px; }
+.agent-city-fallback-building header small { color: var(--label-secondary); font-size: 9px; }
 .agent-city-fallback-floors { display: flex; min-height: 74px; flex-direction: column; justify-content: flex-end; }
-.agent-city-fallback-floor { position: relative; display: grid; grid-template-columns: 27px minmax(0,1fr); align-items: center; gap: 7px; min-height: 54px; padding: 7px; border: 0; border-top: 1px solid rgba(0,0,0,.08); background: rgba(255,255,255,.72); color: #171717; text-align: left; cursor: default; }
-.agent-city-fallback-floor:hover, .agent-city-fallback-floor:focus-visible { background: #fff; }
-.agent-city-fallback-floor:focus-visible { position: relative; z-index: 2; outline: 0; box-shadow: inset 0 0 0 2px #006bff; }
-.agent-city-fallback-floor[data-status="working"] { background: #f0f7ff; box-shadow: inset 0 0 0 1px #006bff; }
-.agent-city-fallback-global[data-status="working"] { border-color: #006bff; box-shadow: 0 0 0 1px rgba(0,107,255,.28), 0 2px 2px rgba(0,0,0,.04); }
-.agent-city-fallback-floor[data-status="completed"] { background: #ecfdec; }
-.agent-city-fallback-floor[data-status="error"] { background: #ffeeef; }
+.agent-city-fallback-floor { position: relative; display: grid; grid-template-columns: 27px minmax(0,1fr); align-items: center; gap: 7px; min-height: 54px; padding: 7px; border: 0; border-top: 1px solid var(--separator); background: transparent; color: var(--label-primary); text-align: left; cursor: default; }
+.agent-city-fallback-floor:hover, .agent-city-fallback-floor:focus-visible { background: var(--fill); }
+.agent-city-fallback-floor:focus-visible { position: relative; z-index: 2; outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
+.agent-city-fallback-floor[data-status="working"] { background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: inset 0 0 0 1px var(--accent); }
+.agent-city-fallback-global[data-status="working"] { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 2px 2px rgba(0,0,0,.04); }
+.agent-city-fallback-floor[data-status="completed"] { background: color-mix(in srgb, var(--online) 14%, transparent); }
+.agent-city-fallback-floor[data-status="error"] { background: color-mix(in srgb, var(--danger) 14%, transparent); }
 .agent-city-fallback-floor[data-status="disabled"] { filter: grayscale(.7); opacity: .62; }
 .agent-city-fallback-floor > span:nth-child(2) { display: grid; min-width: 0; }
 .agent-city-fallback-floor strong { overflow: hidden; font-size: 9px; line-height: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.agent-city-fallback-floor small { color: #7d7d7d; font-size: 9px; line-height: 11px; }
-.agent-city-fallback-floor em { grid-column: 2; color: #006bff; font-size: 9px; font-style: normal; line-height: 10px; }
-.agent-city-fallback-details { display: none; grid-column: 1 / -1; gap: 5px; width: 100%; padding: 8px; border-top: 1px solid rgba(0,0,0,.08); color: #171717; text-align: left; }
+.agent-city-fallback-floor small { color: var(--label-tertiary); font-size: 9px; line-height: 11px; }
+.agent-city-fallback-floor em { grid-column: 2; color: var(--accent); font-size: 9px; font-style: normal; line-height: 10px; }
+.agent-city-fallback-details { display: none; grid-column: 1 / -1; gap: 5px; width: 100%; padding: 8px; border-top: 1px solid var(--separator); color: var(--label-primary); text-align: left; }
 .agent-city-fallback-floor:hover .agent-city-fallback-details, .agent-city-fallback-floor:focus-visible .agent-city-fallback-details, .agent-city-fallback-global:hover .agent-city-fallback-details, .agent-city-fallback-global:focus-visible .agent-city-fallback-details { display: grid; }
 .agent-city-fallback-details strong { overflow: visible; font-size: 11px; line-height: 13px; white-space: normal; }
-.agent-city-fallback-details small, .agent-city-fallback-details span, .agent-city-fallback-details em { grid-column: 1; color: #7d7d7d; font-size: 11px; font-style: normal; line-height: 12px; white-space: normal; }
-.agent-city-fallback-details em { color: #006bff; }
+.agent-city-fallback-details small, .agent-city-fallback-details span, .agent-city-fallback-details em { grid-column: 1; color: var(--label-secondary); font-size: 11px; font-style: normal; line-height: 12px; white-space: normal; }
+.agent-city-fallback-details em { color: var(--accent); }
 .agent-city-fallback-global .agent-city-fallback-details { flex-basis: 100%; width: 100%; }
+/* The pug is illustration, not chrome — it keeps its coat colours in both themes. */
 .agent-city-fallback-pug { position: relative; display: block; width: 26px; height: 26px; }
 .agent-city-fallback-pug::before { content: ""; position: absolute; left: 3px; bottom: 1px; width: 22px; height: 15px; border-radius: 11px 11px 7px 8px; background: #caa678; }
 .agent-city-fallback-pug i { position: absolute; z-index: 2; left: 0; top: 0; width: 18px; height: 18px; border-radius: 48%; background: #d9b98e; }
 .agent-city-fallback-pug i::after { content: ""; position: absolute; left: 3px; top: 8px; width: 13px; height: 9px; border-radius: 45%; background: #4c4037; }
 .agent-city-fallback-pug b { position: absolute; z-index: 3; left: 7px; top: 11px; width: 4px; height: 3px; border-radius: 50%; background: #211d1b; }
-.agent-city-fallback-vacant { display: grid; place-items: center; min-height: 74px; padding: 8px; color: #8f8f8f; font-size: 9px; text-align: center; }
-:root[data-theme="dark"] .agent-city-shell { background: #101820; }
-:root[data-theme="dark"] .agent-city-toolbar > span, :root[data-theme="dark"] .agent-city-toolbar small, :root[data-theme="dark"] .agent-city-hover-card { border-color: rgba(255,255,255,.12); background: rgba(20,28,34,.94); color: #f2f2f2; }
-:root[data-theme="dark"] .agent-city-toolbar small, :root[data-theme="dark"] .agent-city-hover-card > span, :root[data-theme="dark"] .agent-city-hover-card small { color: #a8a8a8; }
-:root[data-theme="dark"] .agent-city-fallback { background: radial-gradient(circle at 50% 8%, rgba(43,57,66,.95), rgba(16,24,32,.96) 48%, #101820); }
-:root[data-theme="dark"] .agent-city-fallback-landmark, :root[data-theme="dark"] .agent-city-fallback-building { border-color: rgba(255,255,255,.12); background: rgba(31,42,49,.9); color: #f2f2f2; }
-:root[data-theme="dark"] .agent-city-fallback-landmark span { color: #a8a8a8; }
-:root[data-theme="dark"] .agent-city-fallback-building header { background: rgba(242,242,242,.12); }
-:root[data-theme="dark"] .agent-city-fallback-floor { border-color: rgba(255,255,255,.08); background: rgba(16,24,32,.72); color: #f2f2f2; }
-:root[data-theme="dark"] .agent-city-fallback-floor[data-status="working"] { background: rgba(0,107,255,.14); box-shadow: inset 0 0 0 1px #2997ff; }
-:root[data-theme="dark"] .agent-city-fallback-global[data-status="working"] { border-color: #2997ff; box-shadow: 0 0 0 1px rgba(41,151,255,.35), 0 2px 2px rgba(0,0,0,.16); }
-:root[data-theme="dark"] .agent-city-fallback-floor[data-status="completed"] { background: rgba(40,169,72,.14); }
-:root[data-theme="dark"] .agent-city-fallback-floor[data-status="error"] { background: rgba(234,0,29,.14); }
-:root[data-theme="dark"] .agent-city-fallback-details { border-color: rgba(255,255,255,.08); color: #f2f2f2; }
-:root[data-theme="dark"] .agent-city-fallback-details small, :root[data-theme="dark"] .agent-city-fallback-details span { color: #a8a8a8; }
+.agent-city-fallback-vacant { display: grid; place-items: center; min-height: 74px; padding: 8px; color: var(--label-tertiary); font-size: 9px; text-align: center; }
 @media (max-width: 1080px) and (min-width: 821px) { .agent-city-fallback-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 620px) {
   .logs-section-head { align-items: stretch; flex-direction: column; }

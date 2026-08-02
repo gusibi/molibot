@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
-import { projectAgentCity, reconcileAgentCitySlots } from "./agentCityProjection";
+import { agentCityFloors, projectAgentCity, reconcileAgentCitySlots, selectFollowFloorKey } from "./agentCityProjection";
 
 function agent(id: string, enabled = true): DesktopAgentItem {
   return {
@@ -129,4 +129,63 @@ test("projectAgentCity caps visible Sub-agents at three and never invents tool i
   assert.equal(floor?.animation, "working");
   assert.equal(floor?.activity?.taskPreview, parentActivity.taskPreview);
   assert.equal("toolAction" in (floor ?? {}), false);
+});
+
+function workingAt(agentId: string, startedAt: string): DesktopAgentActivityItem {
+  return { ...activity(agentId, "working"), startedAt };
+}
+
+test("selectFollowFloorKey stays put while nothing is working", () => {
+  const projection = projectAgentCity({ agents: regularAgents(3), activities: [], slots: {} });
+  assert.equal(selectFollowFloorKey(projection, null), null);
+  // "Stay where you are" rather than yanking the camera back to a stale room.
+  assert.equal(selectFollowFloorKey(projection, "slot-0"), null);
+});
+
+test("selectFollowFloorKey is sticky while the followed agent keeps working", () => {
+  const projection = projectAgentCity({
+    agents: regularAgents(3),
+    activities: [workingAt("agent-1", "2026-07-14T12:00:00.000Z"), workingAt("agent-2", "2026-07-14T12:05:00.000Z")],
+    slots: { "agent-1": 0, "agent-2": 1, "agent-3": 2 }
+  });
+  // agent-2 started later, but a camera that hops every poll is unwatchable.
+  assert.equal(selectFollowFloorKey(projection, "slot-0"), "slot-0");
+});
+
+test("selectFollowFloorKey moves to the most recent starter once its agent stops", () => {
+  const projection = projectAgentCity({
+    agents: regularAgents(3),
+    activities: [workingAt("agent-2", "2026-07-14T12:05:00.000Z"), workingAt("agent-3", "2026-07-14T12:09:00.000Z")],
+    slots: { "agent-1": 0, "agent-2": 1, "agent-3": 2 }
+  });
+  assert.equal(selectFollowFloorKey(projection, "slot-0"), "slot-2");
+  assert.equal(selectFollowFloorKey(projection, null), "slot-2");
+});
+
+test("selectFollowFloorKey breaks ties deterministically so the camera cannot oscillate", () => {
+  const projection = projectAgentCity({
+    agents: regularAgents(3),
+    activities: [workingAt("agent-2", "2026-07-14T12:05:00.000Z"), workingAt("agent-3", "2026-07-14T12:05:00.000Z")],
+    slots: { "agent-1": 0, "agent-2": 1, "agent-3": 2 }
+  });
+  const first = selectFollowFloorKey(projection, null);
+  assert.equal(first, selectFollowFloorKey(projection, null));
+  assert.ok(first === "slot-1" || first === "slot-2");
+});
+
+test("selectFollowFloorKey can follow the global headquarters", () => {
+  const projection = projectAgentCity({
+    agents: [agent("default"), ...regularAgents(2)],
+    activities: [workingAt("default", "2026-07-14T12:09:00.000Z")],
+    slots: {}
+  });
+  assert.equal(selectFollowFloorKey(projection, null), "global");
+});
+
+test("agentCityFloors lists the headquarters alongside every occupied floor", () => {
+  const projection = projectAgentCity({ agents: regularAgents(4), activities: [], slots: {} });
+  const keys = agentCityFloors(projection).map((floor) => floor.key);
+  assert.equal(keys[0], "global");
+  assert.equal(keys.length, 5);
+  assert.equal(new Set(keys).size, keys.length);
 });

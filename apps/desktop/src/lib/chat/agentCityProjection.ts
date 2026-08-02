@@ -160,6 +160,35 @@ export function reconcileAgentCitySlots(agentIds: string[], previous: Record<str
   return { slots, hiddenAgentCount: Math.max(0, activeIds.length - AGENT_CITY_MAX_AGENTS) };
 }
 
+export function agentCityFloors(projection: AgentCityProjection): AgentCityFloor[] {
+  return [projection.globalFloor, ...projection.buildings.flatMap((building) => building.floors)];
+}
+
+function startedAtMs(floor: AgentCityFloor): number {
+  const value = floor.activity?.startedAt ? Date.parse(floor.activity.startedAt) : Number.NaN;
+  return Number.isNaN(value) ? 0 : value;
+}
+
+/**
+ * Which agent the follow camera should be watching. Deliberately sticky: while
+ * the agent it is already following is still working the camera stays put, so a
+ * busy city does not make the view hop between rooms every poll. Returns null
+ * when nothing is working, which means "stay where you are".
+ */
+export function selectFollowFloorKey(
+  projection: AgentCityProjection,
+  currentKey: string | null
+): string | null {
+  const working = agentCityFloors(projection).filter((floor) => floor.state === "working");
+  if (working.length === 0) return null;
+  if (currentKey && working.some((floor) => floor.key === currentKey)) return currentKey;
+  const [next] = [...working].sort((left, right) => {
+    const delta = startedAtMs(right) - startedAtMs(left);
+    return delta !== 0 ? delta : left.key.localeCompare(right.key);
+  });
+  return next.key;
+}
+
 export function projectAgentCity(input: AgentCityProjectionInput): AgentCityProjection {
   const globalAgent = input.agents.find((item) => item.id === "default") ?? {
     id: "default",

@@ -7,6 +7,29 @@
 ---
 ## 2026-08-02
 
+### Agent City 暗色主题修复：弹层不再是亮色（已完成，P1）
+
+Agent City 里所有浮层——悬浮卡、详情卡、搜索框、提示条、工具栏——在暗色下仍是亮色背景，而后面的 3D 画布是正确的暗色，整个面板看起来像做了一半。
+
+- **根因不限于 Agent City，值得记住**：`App.svelte` 在主题偏好为 `system`（默认值）时会**移除** `data-theme` 属性。而 Agent City 的整套暗色配色是一份手写的 `:root[data-theme="dark"] .agent-city-*` 覆盖清单——对系统主题用户来说**一条都不匹配**；与此同时 3D 场景自己通过 `matchMedia` 解析主题，所以画布正确变暗，只有 CSS 部分没跟上。历史上只有 `.agent-city-overflow` 被同步进了 `@media (prefers-color-scheme: dark)` 块。
+- **按根因修，而不是再抄一份清单**：Agent City 的 CSS 现在全部改用共享语义 token（`--card-bg`、`--label-primary/secondary/tertiary`、`--separator`、`--chrome-border`、`--fill`、`--accent`、`--online`、`--danger`、`--warning`），这些 token 本就在三种主题上下文里各声明了一遍。那份 20 条的per-theme 覆盖清单被整体删除，新加的几个面板也顺带免费修好。状态色块改用项目里 `.status-badge` 已有的 `color-mix(in srgb, var(--danger) 14%, transparent)` 写法，不再写死亮色底。
+- 唯一无法由 token 推导的颜色是画布背后的天空底色（它必须与 WebGL clear color 一致），提取为 `--agent-city-sky`，在 light / 显式 dark / 系统 dark 三处各声明一次。
+- 二维 fallback 视图有同样的缺陷，一并转换；字号刻度保持不变，只动颜色。
+- **机器守卫**：新增结构测试，断言 Agent City 区块不含任何 `data-theme` 作用域规则、`background`/`color`/`border-color` 中不出现字面颜色（巴哥犬插画除外）、且 `--agent-city-sky` 在三处均有声明。该守卫已通过重新注入 `:root[data-theme="dark"] .agent-city-detail { background: #fff }` 验证确实会失败。
+- **验证**：`svelte-check` 0/0、`vite build` 通过、桌面守卫 134/134。并在运行中的应用里针对真实样式表、在原先出问题的状态下（无 `data-theme` + 系统暗色）实测：所有浮层现在解析为 `rgb(44,44,46)` 92–97% 透明度配 `rgba(255,255,255,.847)` 文字；`[data-theme="light"]` 仍为白底配 `#eaf3f5`。
+
+### Agent City 从静态渲染变为可缩放、可交互的场景（已完成，P1）
+
+原来的 Agent 城市能正确渲染，但完全不能看、也不能玩：没有缩放、没有平移、点不动，小狗只有一条 `position.y` 正弦浮动。根因是结构性的而非视觉性的——每 2.5s 的活动轮询都会走一次完整 `rebuild()`，销毁整个场景图**并重设相机**，所以任何相机状态和动画状态都活不过一次轮询。
+
+- **增量同步**：每个房间带一个几何签名 `agentCityFloorSignature`，该签名刻意不含 `state`；状态变化只改材质与姿态，只有真正的几何变化（楼层号、subagent 数量、route 有无、配色/主题）才重建那一个房间。`controller.update()` 完全不碰相机。工作光框、错误信标、route 改为一次性创建 + 显隐切换，不再按状态条件创建。
+- **相机**：`PerspectiveCamera` + `OrbitControls`，滚轮缩放、拖拽旋转、右键平移；距离上下限、俯仰角上限（保住娃娃屋视角）、平移目标 clamp 在城市范围内，避免用户拖进空雾里。工具栏的放大/缩小/回到全景按钮给同样的操作提供了可 Tab 到达的键盘路径。用户自己框好的视角在 roster 变化时保留，只有未被调整过的相机才会在城市长高时重新取景。
+- **小狗骨架与动画**：小狗现在有命名骨骼（头、耳、尾，以及新增的前爪——原模型只有后腿），由 `agentCityPugAnimation.ts` 驱动，该模块是纯函数、不依赖 WebGL，因此可直接单测。闲置动作：刷手机、躺地打滚、趴睡、伸懒腰、东张西望；工作动作：敲键盘、翻书、握笔写字。动作选择用与列表长度互质的每狗步长遍历，保证不会连续重复、且各 Agent 之间明显错开。超出细节距离时道具自动隐藏。
+- **交互**：单击小狗播放一次性打招呼（转身面向镜头 + 挥爪），双击把镜头飞进该房间，钉住的详情卡展示活动信息并提供「镜头对准」和「打开 Agent 设置」；Esc 退出。指针位移超过 4px 的点击会被抑制，所以松开旋转拖拽不会误选。状态跃迁触发一次性反应（完成时欢呼、出错时抱头），而不再只是换个颜色。
+- **导航与氛围**：工具栏搜索框按名称把镜头飞到某个 Agent（上下键选择、回车确认、工作中的排在前面）——10 栋楼 × 10 层靠肉眼根本扫不过来；「跟随工作中的 Agent」开关自动取景，且刻意做成**粘滞**的：只有被跟随的 Agent 变了才重新取景，不会在用户手动平移时每次轮询都跟他抢镜头；夜间每个房间点亮自己的窗户——工作中最亮、闲置留一盏低灯、错误偏红、停用全黑——房间内壁同步吃到这份光，避免出现「亮着的窗户配一片死黑的屋内」。窗户亮度由状态驱动，走轮询重绘而不是重建房间。
+- **必须保住的既有行为**：reduced-motion 下仍是静态姿态且无相机补间；画质降级阶梯与二维 fallback 视图完全未动；工位改为贴侧墙摆放，工作中的小狗以侧面朝向镜头，而不是把背对着用户。
+- **验证**：`svelte-check` 0 错误 0 警告、`vite build` 通过、Agent City 单测 38/38（新增 `agentCityCamera.test.ts` 与 `agentCityPugAnimation.test.ts`，断言「status 永远不能触发重建」的签名用例，以及 `selectFollowFloorKey` 的粘滞、并列打破、无人工作三类用例）、`chat-ui.test.mjs` 133/133 并新增四条结构守卫覆盖增量同步、相机边界/重置、骨架与打招呼路径、搜索/跟随/夜间窗光。另用 8 个 Agent 的合成 projection 实机验证：飞行落点正确、框好的视角能扛过连续十次轮询、跟随只在工作 Agent 变化时换目标且关掉后立即停手、夜景能明确区分工作/闲置/错误/停用四种房间。
+
 ### Mini App 轮次不再把工具调用本身当作最终回复（已完成，P0）
 
 真实 Session `s-20260802-wkfi`：`@expense-tracker 买肉花 20` 实际记账成功，工具结果里已有可直接示人的一句「已记账：餐饮 −20.00 元（2026-08-02，备注：买肉）」，但模型最终回复的是 `run tool miniapp__expense-tracker__add with amount is 20 category is food ...`。用户看到的只有内部语法，无法判断到底记上没有。
