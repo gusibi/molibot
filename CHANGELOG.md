@@ -7,6 +7,9 @@
 ---
 ## 2026-08-02
 
+### Release: v2.8.6 / Desktop v0.8.3
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Changed: shared readable Session and Task context IDs
 
 - New App/Web, Project, channel Agent, and forked Sessions now share the upper-layer `s-YYYYMMDD-xxxx` naming rule instead of mixing UUID, `fork-*`, and channel-specific forms.
