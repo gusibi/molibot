@@ -1,6 +1,10 @@
 # Molibot
 
 <p align="center">
+  <strong>English</strong> · <a href="./readme.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <img src="./apps/desktop/public/molibot-icon.png" alt="Molibot logo" width="168" />
 </p>
 
