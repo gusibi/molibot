@@ -25,10 +25,27 @@
 
 Molibot is a local-first personal AI Agent for people who want more than a new chat window. It is built around two promises:
 
-- **Current release.** v2.7.6 (Desktop v0.7.3)
+- **Current release.** v2.8.6 (Desktop v0.8.3)
 
 - **Easy to start.** Download the macOS app, pick a model provider, and start chatting — one runtime serves the Desktop app, Web, Telegram, Feishu, Weixin, QQ, and the CLI.
 - **Grows with you.** Governed long-term memory, daily memory reflection, and reviewable automations mean the Agent learns your preferences, projects, and habits over time — and you always see and control what it remembers.
+
+## 🚀 Major Features in Latest Upgrade (V2.8+)
+
+This release introduces two major runtime and UI pillars that make Molibot significantly more powerful and extensible:
+
+### 🔌 OpenConnector: Unified Third-Party Integrations
+OpenConnector integrates Cloudflare and Molibot to connect external services seamlessly. It enables safe runtime credential configuration and connected-account discovery.
+- **Local-First & Secure:** Saved access tokens are kept safely in your local workspace and are never sent in summaries or exposed to standard LLM prompts.
+- **Agent Gateway Integration:** When configured, it derives a managed, real-time remote MCP connection for your Agents, automatically registering connected services with zero manual configuration.
+- **Category Filter Catalog:** Navigate third-party providers with a responsive, double-column settings interface with category counts, active indicators, and safe homepage deep links.
+
+### 📦 Mini App Platform: Local-First Application Runtime
+Molibot now runs **Mini Apps** inside the desktop client and Agent loop, letting you extend the agent's tools and UI.
+- **Hosted UI & Unified Runtimes:** Mini Apps run inside a highly locked-down iframe sandbox on a custom local origin, sharing the same state module and SQLite database as their background agent tools.
+- **Automated Installation & Provenance:** Install instantly from local folders, `.zip` archives, or GitHub repositories. Manifest and directory checks protect the host system during install and upgrade.
+- **Unified Composer Integration:** Call installed apps using `@app-id` in the composer (with syntax-highlighted pills) or check the Sidebar's Mini Apps section to view and open recent apps.
+- **Developer Scaffolding:** Includes a built-in `miniapp-creator` Skill and Agent template with a runnable template, database WAL mutation, and code scaffolds.
 
 ## Why Molibot?
 
@@ -43,6 +60,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Inspect external conversations without duplicated chrome.** Read-only Telegram, Feishu, QQ, and Weixin transcripts combine their source and Desktop read-only state into one quiet footer line.
 - **Stay oriented in long sidebars.** Conversation and Project share one sticky first-level title slot, so the visible heading follows the section currently being scrolled without stacking extra chrome.
 - **Open Mini Apps like real applications.** Desktop presents manifest icons in the bounded Mini App manager, the recent-first 10-item sidebar section, and Inspector chrome; its sidebar section uses the same compact header rhythm as Conversation and Project, staying transparent in normal flow and showing edge-faded glass only while pinned, while installation, enablement, opening, and removal stay together in one discoverable application-library surface.
+- **Build Mini Apps with receipts, not promises.** The Creator builds in Session scratch, runtime-smokes against temporary data, atomically installs through the shared manager, and reads back the installed version and manifest hash before it can report completion.
 - **Trust what each message shows.** Desktop transcripts retain provider errors and completed replies with their actual response model, while message links open safely in the system browser without navigating away from Molibot.
 - **Navigate long conversations by turn.** Desktop Chat, Project Chat, and external transcripts gain a quiet left-edge user-prompt rail after five turns, with immediate Dock-style hover, a readable user/reply preview, keyboard access, and history-safe streaming.
 - **Use each model's real thinking depths.** Built-in models follow pi 0.82's per-model levels; custom models and built-ins without capability metadata expose all seven canonical choices (`off / minimal / low / medium / high / xhigh / max`) without guessed remapping.
@@ -55,6 +73,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Fail closed when isolation is unavailable.** With Bash sandbox enabled, a missing or failed sandbox blocks the command instead of running it on the host. Host execution requires either an explicit sandbox-off choice or Host Bash approval.
 - **Filter and inspect operational logs without reading a wall of text.** Desktop Service Logs separates LLM calls, tool use, Subagent work, severity, status, and Run correlation; every row opens full pretty JSON or original text while long IDs stay compact in the list. The active file rolls automatically at 20 MiB with five retained archives, independently of SQLite Trace.
 - **Let long work fail safely.** Parent and delegated budgets are separate, completed tool results survive context recovery, and interrupted inbound tasks wait for an explicit retry instead of disappearing or replaying side effects automatically.
+- **Keep every completed reply.** When one Agent run produces a primary answer plus terminal supplements, Chat displays each one instead of letting the last message hide an earlier complete result; tool-loop progress remains compact.
 - **Keep the data local.** Your runtime, configuration, conversations, and operational state stay on infrastructure you control.
 
 ## Quick start
@@ -127,6 +146,8 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 | [Personal Agent and Memory](docs/features/personal-agent-and-memory.md) | Momo as the first-use default, built-in Agent templates including Workplace English Coach, governed long-term memory, and isolated project or Agent context. |
 | [Channels and Surfaces](docs/features/channels-and-surfaces.md) | One local runtime across browser, macOS Desktop, chat channels, and the terminal. |
 | [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior and controlled access to reusable workflows and external tools. |
+| [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | Connect third-party services with secure runtime tokens and dynamic remote MCP integration. |
+| [Mini App Platform](docs/guides/miniapps/authoring.md) | Install and run local-first applications with custom agent tools, hosted UI, and database isolation. |
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
 | [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with one stable live reply per Project turn and Finder-style native sidebar materials. |
 
@@ -182,7 +203,7 @@ Conversations follow you: a chat started on the Web can continue on Desktop, and
 - [Architecture](docs/designs/architecture/v1-architecture.md)
 - [Agent runtime design](docs/designs/architecture/agent-redesign-v2.2.md)
 - [Plugin authoring](docs/guides/plugins/plugin-authoring.md)
-- [Mini App authoring](docs/guides/miniapps/authoring.md) — build an installable app with its own agent tools, UI and data
+- [Mini App authoring](docs/guides/miniapps/authoring.md) — build in scratch, validate the Runtime, and atomically install an app with its own agent tools, UI and data
 - [Mini App shortcuts](docs/guides/miniapps/authoring.md#using-an-installed-mini-app) — use `/miniapps` to list apps, then `@app-id` to target one directly for a turn
 - [Deferred tool authoring](docs/guides/tools/deferred-tool-authoring.md)
 - [Agent development series](docs/agent-dev-series/README.md)
