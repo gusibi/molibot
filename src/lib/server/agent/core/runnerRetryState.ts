@@ -117,6 +117,83 @@ export function shouldCountToolResultAsFailure(isError: boolean, budgetBlocked: 
   return isError && !budgetBlocked;
 }
 
+/**
+ * Detects a Mini App completion receipt written as prose when the attempt ran
+ * no tools. The runner uses this only under the zero-tool gate, so retrying can
+ * never duplicate a file write or installation side effect.
+ */
+export function describesUnexecutedMiniAppChange(finalText: string): boolean {
+  const text = String(finalText ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  const namesMiniApp = /mini\s*app|miniapp|小程序|miniapps[\\/]+apps|manifest\.json/i.test(text);
+  const claimsCompletion =
+    /(?:已(?:经)?|成功|完成).{0,24}(?:安装|更新|写入|替换|修改)/i.test(text) ||
+    /(?:安装|更新|写入|替换|修改).{0,16}(?:完成|成功)/i.test(text) ||
+    /我.{0,16}(?:安装|更新|写入|替换|修改)了/i.test(text);
+  const reportsBlocker = /(?:没有|并未|未能|尚未|无法|不能).{0,16}(?:安装|更新|写入|替换|修改|完成)/i.test(text);
+  return namesMiniApp && claimsCompletion && !reportsBlocker;
+}
+
+/**
+ * A successful install is the only tool result that proves the live Mini App
+ * tree changed. File writes can target a scratch build and validate/inspect are
+ * deliberately non-mutating, so merely observing "some tool" is not enough.
+ */
+export function isMiniAppInstallReceipt(
+  toolName: string,
+  isError: boolean,
+  result: unknown
+): boolean {
+  if (toolName !== "miniAppManage" || isError || !result || typeof result !== "object") return false;
+  const details = (result as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return false;
+  const receipt = details as Record<string, unknown>;
+  return receipt.action === "install" &&
+    typeof receipt.appId === "string" && receipt.appId.length > 0 &&
+    typeof receipt.version === "string" && receipt.version.length > 0 &&
+    typeof receipt.manifestHash === "string" && receipt.manifestHash.length > 0;
+}
+
+/** How many identical failures in a row earn a corrective runtime notice. */
+export const REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD = 3;
+
+/**
+ * Signature for "the same tool failed the same way again".
+ *
+ * Error bodies carry the offending path, so an exact-string compare would treat
+ * three `ls` calls on three different `~/...` paths as three unrelated
+ * failures. Digits, quoted fragments and anything path-shaped are folded away
+ * so the signature describes the *class* of failure, which is what the model
+ * needs to be told about.
+ */
+export function toolFailureSignature(toolName: string, errorText: string): string {
+  const normalized = String(errorText ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/[~$]?[\w.@%+-]*\/[\w./@%+-]*/g, "<path>")
+    .replace(/\d+/g, "<n>")
+    .slice(0, 160);
+  return `${toolName}::${normalized}`;
+}
+
+/**
+ * Track consecutive identical failures. Any success, or a failure of a
+ * different class, resets the streak — we only want to interrupt a model that
+ * is genuinely stuck in a loop, not one that is making progress with the odd
+ * error along the way.
+ */
+export function trackRepeatedToolFailure(
+  previous: { signature: string; count: number } | undefined,
+  next: { signature: string } | undefined
+): { signature: string; count: number } | undefined {
+  if (!next) return undefined;
+  if (previous?.signature === next.signature) {
+    return { signature: next.signature, count: previous.count + 1 };
+  }
+  return { signature: next.signature, count: 1 };
+}
+
 export type FinalErrorActionKind = "none" | "preserve_partial" | "generic";
 
 /**

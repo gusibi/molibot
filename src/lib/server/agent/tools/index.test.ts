@@ -137,3 +137,10 @@ test("tools index registers ttsGenerate as a deferred tool with concise English 
   assert.match(indexSource, /"voiceover"/);
   assert.doesNotMatch(indexSource, /"文字转语音"/);
 });
+
+test("tools index registers miniAppManage as the deferred install receipt seam", () => {
+  assert.match(indexSource, /createMiniAppManageTool/);
+  assert.match(indexSource, /name: "miniAppManage"/);
+  assert.match(indexSource, /tool: miniAppManageRuntimeTool/);
+  assert.match(indexSource, /atomically install\/update/);
+});

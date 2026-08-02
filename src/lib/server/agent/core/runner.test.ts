@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -42,6 +42,64 @@ function createRunnerTestSettings(): RuntimeSettings {
     ]
   };
 }
+
+test("runtime corrective notices steer the active tool loop instead of queuing a post-completion reply", () => {
+  const source = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
+  for (const notice of [
+    "buildRepeatedToolFailureNotice",
+    "TOOL_FAILURE_BUDGET_RUNTIME_NOTICE",
+    "SUBAGENT_DELEGATION_RUNTIME_NOTICE"
+  ]) {
+    const match = source.match(new RegExp(`this\\.agent\\.(steer|followUp)\\(\\{[\\s\\S]{0,500}?${notice}`));
+    assert.equal(match?.[1], "steer", `${notice} must be injected before the next model turn`);
+  }
+});
+
+test("a Mini App pseudo-call recovers the reply in place and never replays the tool", () => {
+  const source = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
+  const branch = source.slice(
+    source.indexOf("const leakedTool = describesPseudoToolCall"),
+    source.indexOf("// An @app turn that ran no tool")
+  );
+  assert.ok(branch.length > 0, "the pseudo-call recovery branch must exist");
+  // It runs only after tools executed, so it must repair rather than retry:
+  // rolling back and re-prompting would fire the side effect a second time.
+  assert.ok(
+    !/rollbackAttempt\(\)/.test(branch) && !/continue;/.test(branch),
+    "recovery must not roll back or retry an attempt whose tools already ran"
+  );
+  assert.ok(
+    /candidateFinalText = recovered/.test(branch),
+    "the recovered tool result must replace the leaked pseudo-call"
+  );
+  const guard = source.slice(
+    source.indexOf("// The same habit, after the call actually happened"),
+    source.indexOf("const leakedTool = describesPseudoToolCall")
+  );
+  assert.ok(
+    /\battemptExecutedTools\b/.test(guard) && !/!attemptExecutedTools/.test(guard),
+    "the branch must be gated on tools having executed, not on zero tools"
+  );
+});
+
+test("the Mini App reply-shape instruction stays domain-agnostic", () => {
+  const source = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
+  const instruction = source
+    .split("\n")
+    .find((line) => line.includes("Close the turn with a short reply written for the user"));
+  assert.ok(instruction, "the @app runtime instructions must state the reply shape");
+  // Any app may be routed here, so the rule cannot name one app's fields.
+  for (const domainWord of ["amount", "category", "expense", "todo", "date", "note"]) {
+    assert.ok(
+      !new RegExp(`\\b${domainWord}\\b`, "i").test(instruction),
+      `reply-shape instruction must not name the ${domainWord} field of one app`
+    );
+  }
+  assert.ok(
+    /tool names|parameter names|internal identifiers/i.test(instruction),
+    "the instruction must forbid leaking tool syntax into the reply"
+  );
+});
 
 test("resolveSessionWorkingDir uses project root only for project runs", () => {
   assert.equal(resolveSessionWorkingDir(undefined, "/tmp/scratch"), "/tmp/scratch");

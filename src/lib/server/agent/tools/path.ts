@@ -1,7 +1,9 @@
+import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 import {
   resolveDataRootFromWorkspacePath,
-  resolveMemoryRootFromWorkspacePath
+  resolveMemoryRootFromWorkspacePath,
+  resolveMiniAppCodeRootFromWorkspacePath
 } from "$lib/server/agent/session/workspace.js";
 
 const GLOBAL_PROFILE_FILES = [
@@ -22,8 +24,36 @@ export function pathCompareKey(pathLike: string): string {
   return resolved;
 }
 
+/**
+ * Expand a leading `~`, `~/` or `$HOME` the way a shell would.
+ *
+ * The `bash` tool goes through a shell and expands these; the file tools
+ * (`ls`/`read`/`write`/`edit`) resolve with `path.resolve`, which treats `~` as
+ * an ordinary directory name and silently produces `<cwd>/~/...`. That
+ * mismatch made the same path mean two different things depending on which
+ * tool the model reached for, and the file tools failed with a confusing
+ * "Path not found" instead of pointing at the real problem.
+ *
+ * Returns null when the input carries no home prefix.
+ */
+export function expandHomePrefix(input: string): string | null {
+  const home = homedir();
+  if (!home) return null;
+  const normalized = input.replace(/\\/g, "/");
+  if (normalized === "~" || normalized === "$HOME" || normalized === "${HOME}") return resolve(home);
+  const match = normalized.match(/^(?:~|\$HOME|\$\{HOME\})\/(.*)$/);
+  if (!match) return null;
+  return resolve(home, match[1] ?? "");
+}
+
 export function resolveToolPath(baseDir: string, input: string): string {
   if (input === "") throw new Error("Path is required");
+
+  // Shell-style home prefixes resolve against the real home directory, not
+  // against the chat scratch dir. Do this first: an expanded path is absolute
+  // and must not fall through the scratch/skill prefix normalizations below.
+  const expandedHome = expandHomePrefix(input);
+  if (expandedHome) return expandedHome;
 
   const normalizedBase = resolve(baseDir).replace(/\\/g, "/");
 
@@ -81,7 +111,12 @@ export function createPathGuard(cwd: string, workspaceDir: string): (filePath: s
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceResolved);
   const memoryRoot = resolveMemoryRootFromWorkspacePath(workspaceResolved);
   const globalSkillsRoot = resolve(dataRoot, "skills");
-  const allowedRoots = [resolve(cwd), workspaceResolved, globalSkillsRoot];
+  // Mini App source lives outside every chat workspace by design (one install,
+  // every channel). It is owner-authored code the agent is expected to edit —
+  // `miniapp-creator` scaffolds into it and then rewrites `server/index.mjs` —
+  // so the file tools must reach it, exactly like the global Skill root.
+  const miniAppCodeRoot = resolveMiniAppCodeRootFromWorkspacePath(workspaceResolved);
+  const allowedRoots = [resolve(cwd), workspaceResolved, globalSkillsRoot, miniAppCodeRoot];
 
   // Pre-compute the exact global profile file paths under dataRoot.
   const globalProfilePathKeys = new Set(

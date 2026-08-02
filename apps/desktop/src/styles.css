@@ -1816,7 +1816,14 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .assistant-identity .assistant-status::before { content: none; }
 .assistant-status.complete { color: var(--online); background: color-mix(in srgb, var(--online) 10%, transparent); }
 .assistant-status.error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.assistant-status.aborted { color: var(--warning-text); background: color-mix(in srgb, var(--warning-text) 10%, transparent); }
 .message-row.message-error .message-bubble { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--danger) 22%, var(--separator)); border-radius: var(--radius-control); background: color-mix(in srgb, var(--danger) 5%, var(--card-bg)); }
+/* Why a turn stopped, shown beside the answer it already produced — never in
+   place of it. Reads as an annotation, not as a second reply. */
+.assistant-error-note { display: flex; align-items: baseline; gap: 6px; padding: 8px 10px; border: 0.5px solid color-mix(in srgb, var(--warning-text) 24%, var(--separator)); border-radius: var(--radius-control); background: color-mix(in srgb, var(--warning-text) 7%, var(--card-bg)); font-size: 12px; line-height: 1.5; }
+.assistant-error-note .ph { flex: none; color: var(--warning-text); font-size: 13px; }
+.assistant-error-label { flex: none; color: var(--warning-text); font-weight: 600; }
+.assistant-error-text { color: var(--label-secondary); word-break: break-word; }
 .message-time { font-size: 11px; color: var(--label-tertiary); padding: 0 2px; display: inline-flex; align-items: center; gap: 3px; }
 .message-meta { display: flex; align-items: center; gap: 7px; min-height: 24px; color: var(--label-tertiary); }
 .message-row.mine .message-meta { justify-self: end; }

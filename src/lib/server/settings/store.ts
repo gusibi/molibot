@@ -45,6 +45,7 @@ import {
 } from "$lib/server/settings/thinking.js";
 import { ensureSqliteParentDir, readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import { normalizeTimeZone } from "$lib/server/time.js";
+import { deriveToolFailureBudget } from "$lib/server/agent/core/runtimeBudget.js";
 
 type DynamicSettingKey =
   | "customProviders"
@@ -412,15 +413,21 @@ function sanitizeBudgetSettings(input: unknown): RuntimeSettings["budget"] {
     ? input as Record<string, unknown>
     : {};
   const maxToolCallsRaw = Number(source.maxToolCalls ?? defaultRuntimeSettings.budget.maxToolCalls);
-  const maxToolFailuresRaw = Number(source.maxToolFailures ?? defaultRuntimeSettings.budget.maxToolFailures);
   const maxModelAttemptsRaw = Number(source.maxModelAttempts ?? defaultRuntimeSettings.budget.maxModelAttempts);
 
   const maxToolCalls = Number.isFinite(maxToolCallsRaw)
     ? Math.max(1, Math.min(500, Math.round(maxToolCallsRaw)))
     : defaultRuntimeSettings.budget.maxToolCalls;
+  // Raising `maxToolCalls` alone used to leave the failure budget at 6, so a
+  // 100-call run still died on its sixth failed tool. An explicit
+  // `maxToolFailures` always wins; otherwise it follows the tool-call budget.
+  const maxToolFailuresFallback = source.maxToolCalls != null && source.maxToolFailures == null
+    ? deriveToolFailureBudget(maxToolCalls)
+    : defaultRuntimeSettings.budget.maxToolFailures;
+  const maxToolFailuresRaw = Number(source.maxToolFailures ?? maxToolFailuresFallback);
   const maxToolFailures = Number.isFinite(maxToolFailuresRaw)
     ? Math.max(1, Math.min(100, Math.round(maxToolFailuresRaw)))
-    : defaultRuntimeSettings.budget.maxToolFailures;
+    : maxToolFailuresFallback;
   const maxModelAttempts = Number.isFinite(maxModelAttemptsRaw)
     ? Math.max(1, Math.min(100, Math.round(maxModelAttemptsRaw)))
     : defaultRuntimeSettings.budget.maxModelAttempts;

@@ -7,6 +7,62 @@
 ---
 ## 2026-08-02
 
+### Fixed: a Mini App turn answered with its own tool call instead of the result
+
+`@expense-tracker 买肉花 20` recorded the expense correctly and then replied `run tool miniapp__expense-tracker__add with amount is 20 category is food ...`. The work was done, but the only thing the user could see was internal syntax, with no way to tell whether anything had been saved — the tool result already held the sentence they should have received (`已记账：餐饮 −20.00 元…`), and it never reached them.
+
+- The Runner already caught the sibling failure — naming a tool in prose *instead of* calling it — but that guard is gated on zero executed tools, so a pseudo-call written *after* a real call passed straight through. A second guard now covers the post-execution case. It never retries (the side effect already happened) and instead recovers the reply from the last successful Mini App tool result, so the answer says what changed without the runtime knowing anything about the app's domain.
+- Detection here is deliberately stricter than the zero-tool guard: after a real call, mentioning a tool can be legitimate, so only invocation-shaped text (`run tool <id> with ...`, `<id>(...)`, `调用 <app>.<tool>`) counts. A report that merely names the tool is left alone.
+- The `@app` runtime instructions now also state the shape of the closing reply — a short answer in the user's language saying what now holds, carrying the tool result's concrete details, with no tool names, parameter names, or internal ids. The rule is app-agnostic; it names no domain fields, so it holds for any installed Mini App.
+- Guarded by pseudo-call vs. genuine-report cases (including the exact text from the real Session), result-recovery cases covering failed/foreign/empty results, plus structural assertions that the branch stays gated on tools having executed, never rolls back or retries, and that the reply-shape instruction stays domain-agnostic. Verification: `toolCallIntent` 8/8, `runner.test.ts` 31/31, Mini App suite 82/82, `tsc` clean on both touched files.
+
+### Fixed: one Agent turn no longer hides an earlier complete reply
+
+- Web/Desktop conversation projection now keeps every textual terminal assistant reply in a turn as a separate message while continuing to collapse non-terminal tool progress. Existing Session data needs no migration; previously hidden replies reappear when the transcript is projected again.
+- Tool progress after a committed reply cannot replace that reply, and a later abort/error remains visible as status without erasing the answer.
+- Runtime-authored corrective notices for repeated failures, failure-budget exhaustion, and Subagent delegation now steer the active tool loop before its next model call instead of queuing a post-completion follow-up that can produce a redundant second closing reply. Owner-authored follow-ups keep their existing semantics.
+- Guarded by the real two-terminal projection shape, an intervening tool-use case, the existing interrupted-answer cases, and a Runner notice-queue contract test.
+
+### Fixed: Mini App Creator installs are now backed by runtime evidence
+
+- Hyphenated app ids no longer leak into SQLite identifiers: `expense-tracker` keeps its public id while generated table names use `expense_tracker`. Scaffolding directly into the live install root is refused; builds start in Session scratch.
+- A new deferred `miniAppManage` Agent tool validates a build by loading its Runtime against temporary data, atomically installs or replaces it through the existing installer, and reads back an installed receipt containing version and manifest hash. Validate/install require owner approval because they load selected server code in-process; read-only inspect does not.
+- Creator instructions now require successful file-tool results plus validate/install/inspect receipts before claiming completion. `miniapp-creator` ships as 1.2.0 so the corrected workflow reaches existing installations through the versioned built-in Skill upgrade path.
+- If a zero-tool attempt nevertheless claims a Mini App was installed or updated, the Runner discards that prose and retries once with an execution-only runtime instruction. If file tools ran but no successful install receipt exists, the final answer gets a runtime-authored warning that the live install is unverified; side-effecting attempts are never replayed.
+
+### Added: built-in Skills can now be upgraded
+
+Bundled Skills are materialised into the owner's workspace because the loader never reads the app bundle — but the bootstrap skipped any directory that already existed, so a fix to a shipped Skill reached nobody who already had it. Recovering by hand took two steps (delete the directory *and* its ledger record, or the tombstone kept it from coming back).
+
+- A **`version` bump is now the upgrade trigger**: same version, same behaviour as before (a restart is never destructive); new version, the shipped content replaces what is on disk.
+- **Overwrites stay recoverable.** The install ledger now records the sha256 of every file as we wrote it. A tree still matching those hashes is replaced in place. If anything diverged — an owner edit, or a hand-installed directory that has no recorded hashes at all — the previous tree is renamed to `<id>.backup-<timestamp>` first, and the path is logged. Files the owner *added* are carried across in both cases, and a file we stopped shipping is deleted only while it still matches what we wrote.
+- The swap is staged and renamed into place, so a crash cannot leave a half-upgraded Skill. Ledger-recorded paths are validated before use — stale-file cleanup is driven by data read back from disk, and a corrupt ledger must not be able to name `../../something`.
+- `miniapp-creator` ships as 1.1.0, carrying the absolute-path scaffold output and the writable-root note from the fix above.
+
+### Fixed: a run that lost its answer to "Request aborted"
+
+A Mini App creation run ended with nothing in the transcript but `Request aborted`, discarding the summary it had already written. Three separate defects lined up.
+
+- **The file tools disagreed with `bash` about `~`.** `resolveToolPath` resolved `~/x` against the chat scratch dir, producing `<scratch>/~/x` and a "Path not found" that pointed nowhere real; `bash` went through a shell and expanded it. Home prefixes (`~`, `~/`, `$HOME`) are now expanded before anything else, so one path means one thing in every tool.
+- **The Mini App code root was unreachable by the very workflow that targets it.** `miniapp-creator` scaffolds into `<dataRoot>/miniapps/apps/<id>` and then tells the agent to edit `server/index.mjs`, but the file-tool path guard only allowed cwd, the Workspace and the global Skill root — so the agent could read through `bash cat` and could never write. `miniapps/apps` is now an allowed root; `miniapps/data` (each app's private SQLite) deliberately stays out.
+- **`subagent` rejected a request that was not ambiguous.** A model that restated one task as both `{agent, task}` and a one-element `{tasks}` got `Provide exactly one subagent mode`; emitted twice in parallel that cost two tool failures, which is what tipped the run over its budget. Redundant modes describing identical work now collapse; genuinely conflicting ones still fail, with a message that says what conflicted.
+
+### Changed: the tool-failure budget winds a turn down instead of killing it
+
+- Hitting `maxToolFailures` used to call `agent.abort()`, which killed the in-flight model request. The turn died with a transport-level `Request aborted`, the answer already produced in that turn was lost, and the actual reason ("too many tool failures (6/6)") only ever reached the thread notes. The budget now withdraws the tool list and hands the model a runtime notice, so it explains what failed and what to do next — the same graceful path the tool-*call* budget already had, which is now shared by both.
+- `RunBudget` reports an `exceededKind` instead of requiring callers to substring-match its user-facing prose, refuses any tool once any budget is blown, and carries a separate human-readable stop message that names the failing tools (the existing `exceededReason` is written for the model, not for a chat bubble).
+- **Repeated identical failures now interrupt the loop.** Three consecutive failures of the same class (same tool, same error — matched by signature so different paths in the same error still count) inject a one-shot corrective notice. The model previously re-issued a broken `ls` three times with no feedback at all.
+- **Raising `maxToolCalls` now carries the failure budget with it.** Only `maxToolCalls` is discoverable, so a bump to 100 left runs still dying on the sixth failed tool. An explicit `maxToolFailures` always wins; otherwise it follows the tool-call budget at the shipped 6/24 ratio.
+
+### Fixed: an error no longer overwrites the reply it interrupted
+
+- `conversationProjection` collapses one turn's assistant entries into a single bubble and used `content || errorMessage` per entry. A turn that answered and was *then* aborted ends with a content-less entry, whose error string won the overwrite — the user lost the reply and saw only `Request aborted`. The error is now status, not content: it stands in as the body only when the turn produced no text at all.
+- The Desktop transcript renders it accordingly — the answer stays, with a separate "中断原因 / Why it stopped" note beneath it — and `aborted` is now its own status chip ("已中断 / Interrupted") instead of falling through unlabelled.
+- A budget wind-down now sets `errorMessage` to its own reason, so the transcript ends on the cause rather than on the transport's symptom, and the generic "Sorry, something went wrong." is replaced by a message naming the limit and the failing tools.
+
+Verification (built-in Skill upgrade): bootstrap suite 9/9, covering in-place upgrade, backup-on-divergence, unknown-provenance adoption, the ledger path-traversal guard, and a re-run being a no-op; plus an end-to-end pass over the real shipped `miniapp-creator` (fresh install → simulated 1.0.0 install with an owner edit → upgrade → re-run) confirming the new content lands, the owner's file rides along, and their edit stays recoverable. Verification (the fixes above): `runtimeBudget`/`runnerRetryState`/`conversationProjection`/`path`/`subagent`/settings-store suites pass with new regressions for each defect above; Desktop structural test 125/125, `svelte-check` 0 errors 0 warnings, root `vite build` and desktop tests pass. Note: `runner.test.ts`'s "manual compact" case and `bash-output.test.ts`'s host-approval case flaked twice under a fully parallel run and pass in isolation and on six repeat runs — timing-sensitive, unrelated to this change.
+
+
 ### Release: v2.8.6 / Desktop v0.8.3
 - Synchronized the root and Desktop package versions for the new release.
 

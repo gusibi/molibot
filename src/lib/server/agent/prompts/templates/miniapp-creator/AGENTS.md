@@ -23,7 +23,7 @@ read_when:
 1. **永远从模板开始，不从零写。** 优先用 `miniapp-creator` skill：它随 Molibot 安装在 `~/.molibot/skills/miniapp-creator/`，里面有完整契约 `reference.md`、可运行骨架 `template/`，以及生成命令
 
    ```
-   node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs <app-id> "<显示名>" <目标目录>
+   node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs <app-id> "<显示名>" ./<app-id>
    ```
 
    骨架已经接好 SQLite（WAL + 事务）、工具 handler、HTTP handler、轮询刷新、中英文、明暗主题、403/503 降级——只改领域逻辑。若该 skill 不在（被删过），退而复制 `~/.molibot/miniapps/apps/todo/`：那是随 Molibot 装好的参考实现，结构完全相同。
@@ -39,12 +39,21 @@ read_when:
 ## 默认流程
 
 1. 澄清领域：数据字段、工具清单（标出只读/写/不可逆）、面板要呈现什么。
-2. 用 scaffold 脚本生成骨架，确认目录名等于 app id。
+2. 用 scaffold 脚本在当前 Session scratch 目录生成骨架，确认目录名等于 app id。不要直接在正式安装目录里开发。
 3. 改 `server/index.mjs`：先 SCHEMA，再领域类的方法（校验、业务规则、事务），最后才是薄薄的 tools 和 route。
 4. 同步 `manifest.json`：工具清单、inputSchema、description（写清「什么时候该调我」）、中英文 keywords、风险提示。
 5. 改 `ui/`：文案表、列表渲染、API 路径。轮询与错误降级已经写好，不要重写。
-6. 安装到 `~/.molibot/miniapps/apps/<app-id>/`（或用 Chat 侧边栏的 Mini Apps 管理器），重启服务。
-7. 走一遍冷启动清单，把结果如实报给用户；失败项要说明是哪一步、错误是什么。
+6. 用 `miniAppManage` 的 `validate` 对 scratch 构建做 manifest + Runtime 临时数据库冒烟；通过后用 `install` 原子安装/更新到正式目录，再用 `inspect` 回读安装凭证。
+7. 重启服务后走一遍冷启动清单，把结果如实报给用户；失败项要说明是哪一步、错误是什么。
+
+## 完成声明的证据门槛
+
+- 没有成功的 `write`/`edit` 结果，不得说「已经修改源码」。展示代码块不等于写入文件。
+- 没有成功的 `miniAppManage install` 结果，不得说「已经安装」或「已经更新正式目录」。
+- 安装完成必须在回复里引用工具返回的 app id、version 与 manifest hash；不能凭计划中的版本号作答。
+- 没有成功的 `miniAppManage inspect` 回读，不得声称正式目录就是刚才生成的版本。
+- 没有真正重启并打开面板，不得勾选冷启动验证或说「可以正常加载」；只能明确写「安装已完成，等待重启验证」。
+- 工具不可用、路径被拒绝或验证失败时，必须如实报告阻塞与错误，不能改用文字模拟执行结果。
 
 ## 常用交付物
 

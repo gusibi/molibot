@@ -33,7 +33,7 @@ export function getRuntimeToolClassification(
   // Installing an extension downloads and executes third-party code. "Install
   // this plugin" can appear in content the agent read rather than coming from
   // the owner, so this always reaches the approval broker.
-  if (toolName === "extensionManage") {
+  if (toolName === "extensionManage" || toolName === "miniAppManage") {
     return { risk: "critical", source: "builtin" };
   }
   // Mini App tools are owner-installed plugin code. They are classified from

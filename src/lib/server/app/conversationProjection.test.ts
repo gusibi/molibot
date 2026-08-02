@@ -177,3 +177,75 @@ test("pairs by stored sourceEntryId regardless of list position", () => {
   // Stored id already matched, so nothing new to persist for that row.
   assert.equal(result.resolvedSourceEntries.some((e) => e.id === "m-a"), false);
 });
+
+test("preserves multiple terminal assistant replies from the same user turn", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "完成这个任务" }], 0),
+      assistantEntry("a-primary", [{ type: "text", text: "完整交付报告" }], 1, { stopReason: "stop" }),
+      assistantEntry("a-progress", [
+        { type: "thinking", thinking: "A queued runtime follow-up arrived." },
+        { type: "text", text: "处理中间状态" },
+        { type: "toolCall", id: "call-1" }
+      ], 2, { stopReason: "toolUse" }),
+      entry("tool", "toolResult", [{ type: "text", text: "done" }], 3),
+      assistantEntry("a-supplement", [{ type: "text", text: "补充收尾说明" }], 4, { stopReason: "stop" })
+    ],
+    metadata: [
+      { id: "m-u", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true },
+      { id: "m-a", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:04:00.000Z", contextBacked: true, sourceEntryId: "a-supplement" }
+    ]
+  });
+
+  assert.deepEqual(
+    result.messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => [result.sourceEntryByMessageId.get(message.id), message.content]),
+    [
+      ["a-primary", "完整交付报告"],
+      ["a-supplement", "补充收尾说明"]
+    ]
+  );
+});
+
+test("an aborted trailing entry never overwrites the answer the same turn produced", () => {
+  // Regression: a run that answered, then kept using tools and was killed by
+  // the tool-failure budget, ends with `content: []` + errorMessage. The old
+  // projection let that error stand in as content and clobber the real reply,
+  // so the transcript showed nothing but "Request aborted".
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "创建一个记账小程序" }], 0),
+      assistantEntry("a-text", [{ type: "text", text: "已创建 expense-tracker。" }], 1, { stopReason: "stop" }),
+      assistantEntry("a-tool", [{ type: "toolCall", id: "call-1" }], 2, { stopReason: "toolUse" }),
+      assistantEntry("a-abort", [], 3, { stopReason: "aborted", errorMessage: "Request aborted" })
+    ],
+    metadata: [
+      { id: "m-u", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true },
+      { id: "m-a", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:03:00.000Z", contextBacked: true, sourceEntryId: "a-abort" }
+    ]
+  });
+
+  const reply = result.messages.find((message) => message.id === "m-a");
+  assert.equal(reply?.content, "已创建 expense-tracker。");
+  // The failure is still reported — as status beside the answer, not instead of it.
+  assert.equal(reply?.stopReason, "aborted");
+  assert.equal(reply?.errorMessage, "Request aborted");
+});
+
+test("a turn with no text at all still shows its error as the bubble body", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "hi" }], 0),
+      assistantEntry("a-fail", [], 1, { stopReason: "error", errorMessage: "401: invalid api key" })
+    ],
+    metadata: [
+      { id: "m-u", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true },
+      { id: "m-a", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:01:00.000Z", contextBacked: true }
+    ]
+  });
+  assert.equal(result.messages.find((message) => message.id === "m-a")?.content, "401: invalid api key");
+});

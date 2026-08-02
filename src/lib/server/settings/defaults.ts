@@ -28,6 +28,7 @@ import { defaultToolSandboxSettings } from "$lib/server/settings/toolSandbox.js"
 import { defaultHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings/thinking.js";
 import { normalizeTimeZone } from "$lib/server/time.js";
+import { deriveToolFailureBudget } from "$lib/server/agent/core/runtimeBudget.js";
 
 function listFromEnv(name: string): string[] {
   const raw = process.env[name] ?? "";
@@ -202,6 +203,8 @@ const defaultCustomProviders =
   envCustomProvider.baseUrl || envCustomProvider.apiKey || envCustomProvider.models.length > 0
     ? [envCustomProvider]
     : [];
+
+const defaultMaxToolCalls = Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_CALLS ?? 24) || 24);
 
 const defaultTelegramBotToken = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
 const defaultTelegramAllowedChatIds = listFromEnv("TELEGRAM_ALLOWED_CHAT_IDS");
@@ -531,8 +534,12 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   telegramAllowedChatIds: defaultTelegramAllowedChatIds,
   feishuBots: defaultFeishuBots,
   budget: {
-    maxToolCalls: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_CALLS ?? 24) || 24),
-    maxToolFailures: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_FAILURES ?? 6) || 6),
+    maxToolCalls: defaultMaxToolCalls,
+    // Only an explicit env var pins the failure budget; otherwise it follows the
+    // tool-call budget, so raising one limit no longer leaves the other behind.
+    maxToolFailures: process.env.MOLIBOT_MAX_TOOL_FAILURES != null
+      ? Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_FAILURES) || 6)
+      : deriveToolFailureBudget(defaultMaxToolCalls),
     maxModelAttempts: Math.max(1, Number(process.env.MOLIBOT_MAX_MODEL_ATTEMPTS ?? 6) || 6)
   },
   subagentRuntime: {

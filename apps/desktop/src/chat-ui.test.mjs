@@ -2167,3 +2167,22 @@ test("Mini App copy exists in both locales", () => {
     assert.equal(occurrences, 2, `${key} must be defined in both zh-CN and en`);
   }
 });
+
+test("an interrupted turn keeps its answer and shows why it stopped as a separate note", () => {
+  const transcript = read("./lib/chat/ConversationTranscript.svelte");
+
+  // The error is status, never the bubble body. A run killed by the tool-failure
+  // budget used to render nothing but "Request aborted" because the projection
+  // let the error string overwrite the answer the same turn had produced.
+  assert.match(transcript, /assistantError = message\.role === "assistant"/);
+  assert.match(transcript, /message\.errorMessage\.trim\(\) !== displayContent\.trim\(\)/);
+  assert.match(transcript, /class="assistant-error-note"/);
+  assert.match(transcript, /copy\.assistantErrorLabel/);
+
+  // "aborted" is its own status: a stopped turn is not a failed one, and it must
+  // not fall through to the unlabelled default the way it used to.
+  assert.match(transcript, /message\.stopReason === "aborted"/);
+  assert.match(transcript, /copy\.assistantStatusAborted/);
+  assert.match(styles, /\.assistant-error-note \{/);
+  assert.match(styles, /\.assistant-status\.aborted \{/);
+});

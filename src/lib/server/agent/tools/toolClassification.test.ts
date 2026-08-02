@@ -50,9 +50,10 @@ test("getRuntimeToolClassification: non-MCP normal tool => low risk, builtin sou
 // as well as Host Bash records: a broker request that no channel can answer
 // would just time out. Adding another high/critical tool means checking that
 // same path still works — do not simply add it to the list below.
-test("only bash and extensionManage carry an approval-triggering risk level", () => {
+test("host execution and code installers carry an approval-triggering risk level", () => {
   assert.equal(getRuntimeToolClassification("bash").risk, "high");
   assert.equal(getRuntimeToolClassification("extensionManage").risk, "critical");
+  assert.equal(getRuntimeToolClassification("miniAppManage").risk, "critical");
   // Extension-provided tools are medium: honest about not being built-in,
   // without prompting on every call.
   assert.deepEqual(

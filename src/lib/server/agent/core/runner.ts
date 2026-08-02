@@ -14,7 +14,7 @@ import { buildRunReflection, buildSubagentTaskRecord, formatRunClosingNote, type
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import { saveSkillDraft, shouldSuggestSkillDraft } from "$lib/server/agent/skills/skillDraft.js";
 import { buildSkillDraftMetadataViaSubagent } from "$lib/server/agent/skills/skillDraftSubagent.js";
-import { DEFAULT_RUN_BUDGET, RunBudget } from "$lib/server/agent/core/runtimeBudget.js";
+import { buildBudgetStopUserMessage, DEFAULT_RUN_BUDGET, RunBudget } from "$lib/server/agent/core/runtimeBudget.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { applyAssistantStreamEvent } from "$lib/server/agent/core/assistantStream.js";
 import { withFirstTokenTimeout } from "$lib/server/agent/core/firstTokenStreamTimeout.js";
@@ -28,7 +28,17 @@ import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
 import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
-import { isRetryableModelError, resolveFinalErrorAction, resolvePromptAttemptDecision, shouldCountToolResultAsFailure } from "$lib/server/agent/core/runnerRetryState.js";
+import {
+  describesUnexecutedMiniAppChange,
+  isMiniAppInstallReceipt,
+  isRetryableModelError,
+  REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD,
+  resolveFinalErrorAction,
+  resolvePromptAttemptDecision,
+  shouldCountToolResultAsFailure,
+  toolFailureSignature,
+  trackRepeatedToolFailure
+} from "$lib/server/agent/core/runnerRetryState.js";
 import { formatSubagentProgressLabel } from "$lib/server/agent/subagentProgress.js";
 import type { MomContext, RunResult, RunnerLike, ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { resolvePlannedBashDisplayName, resolveToolDisplayName } from "$lib/server/agent/tools/toolDisplay.js";
@@ -45,10 +55,12 @@ import {
   validateToolCallPreflight
 } from "$lib/server/agent/tools/toolPolicy.js";
 import {
+  buildRepeatedToolFailureNotice,
   POST_TOOL_OVERFLOW_CONTINUATION_NOTICE,
   SUBAGENT_DELEGATION_RUNTIME_NOTICE,
   stripTransientRuntimeNoticesFromMessages,
-  TOOL_BUDGET_RUNTIME_NOTICE
+  TOOL_BUDGET_RUNTIME_NOTICE,
+  TOOL_FAILURE_BUDGET_RUNTIME_NOTICE
 } from "$lib/server/agent/core/runtimeNotices.js";
 import { getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
@@ -108,7 +120,11 @@ import {
 
 import { prepareEnrichedInput } from "$lib/server/agent/core/runnerInputEnricher.js";
 import { resolveMiniAppInvocation } from "$lib/server/miniapps/invocation.js";
-import { describesUncalledMiniAppTool } from "$lib/server/miniapps/toolCallIntent.js";
+import {
+  describesUncalledMiniAppTool,
+  describesPseudoToolCall,
+  recoverMiniAppResultText
+} from "$lib/server/miniapps/toolCallIntent.js";
 import { miniAppToolId } from "$lib/server/miniapps/types.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
@@ -775,7 +791,17 @@ export class MomRunner implements RunnerLike {
     const budget = new RunBudget(this.getSettings().budget ?? DEFAULT_RUN_BUDGET);
     const usedToolNames: string[] = [];
     const failedToolNames: string[] = [];
+    let miniAppInstallReceiptObserved = false;
     let subagentDelegationNoticeSent = false;
+    // Set when a budget ends the tool loop. It is the only human-readable
+    // account of why the run stopped, so it must reach `errorMessage` (and
+    // therefore the transcript) instead of living only in the thread notes.
+    let budgetExhaustedNotice: string | undefined;
+    // Consecutive identical tool failures: same tool, same error. The model
+    // cannot see that it is looping, so it re-issued a broken `ls` three times
+    // in a row and spent half the failure budget on it.
+    let repeatedFailure: { signature: string; count: number } | undefined;
+    let repeatedFailureNoticeSent = false;
     const subagentTaskRecords: NonNullable<RunSummary["subagent"]>["tasks"] = [];
     const subagentTaskStartTimes = new Map<string, number>();
     let subagentInvoked = false;
@@ -1322,6 +1348,9 @@ export class MomRunner implements RunnerLike {
 
       if (event.type === "tool_execution_end") {
         const body = extractTextFromResult(event.result);
+        if (isMiniAppInstallReceipt(event.toolName, event.isError, event.result)) {
+          miniAppInstallReceiptObserved = true;
+        }
         const displayName = resolveToolDisplayName(event.toolName, {
           result: event.result,
           sandboxAttempted: this.getEffectiveSandboxEnabled()
@@ -1332,6 +1361,37 @@ export class MomRunner implements RunnerLike {
         const budgetResult = budget.recordToolResult(countsAsFailure);
         if (countsAsFailure) {
           failedToolNames.push(event.toolName);
+        }
+        repeatedFailure = trackRepeatedToolFailure(
+          repeatedFailure,
+          countsAsFailure ? { signature: toolFailureSignature(event.toolName, body) } : undefined
+        );
+        if (
+          !repeatedFailureNoticeSent &&
+          repeatedFailure &&
+          repeatedFailure.count >= REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD &&
+          budgetResult.ok
+        ) {
+          repeatedFailureNoticeSent = true;
+          this.agent.steer({
+            role: "user",
+            content: [{
+              type: "text",
+              text: buildRepeatedToolFailureNotice({
+                toolName: event.toolName,
+                count: repeatedFailure.count,
+                error: body
+              })
+            }],
+            timestamp: Date.now()
+          });
+          momWarn("runner", "repeated_tool_failure_notice", {
+            runId,
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            toolName: event.toolName,
+            count: repeatedFailure.count
+          });
         }
         const hostBashApproval = extractHostBashApprovalPrompt(event.result);
         const forwardHostBashApproval = shouldForwardHostBashApproval(hostBashApproval);
@@ -1358,8 +1418,29 @@ export class MomRunner implements RunnerLike {
           enqueue(() => ctx.respond(`_Error: ${body.slice(0, 200)}_`, false));
         }
         if (!budgetResult.ok) {
-          enqueue(() => respondInThread(budgetResult.reason ?? "Run budget exceeded."));
-          this.agent.abort();
+          // The failure budget ends the tool loop, not the turn. Aborting here
+          // killed the in-flight model request, so the run died with a bare
+          // "Request aborted" and the user never learned that six tool calls
+          // had failed — nor kept the answer the same turn had already
+          // produced. Stripping the tool list makes the next step text-only;
+          // `RunBudget` refuses any tool that is already in flight, and the
+          // no-tool continuation below still covers a model that stops cold.
+          budgetExhaustedNotice = budgetResult.reason ?? "Run budget exceeded.";
+          enqueue(() => respondInThread(budgetExhaustedNotice!));
+          this.agent.state.tools = [];
+          this.agent.steer({
+            role: "user",
+            content: [{ type: "text", text: TOOL_FAILURE_BUDGET_RUNTIME_NOTICE }],
+            timestamp: Date.now()
+          });
+          momWarn("runner", "tool_failure_budget_exhausted", {
+            runId,
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            failedToolNames: failedToolNames.slice(-6),
+            budget: budget.snapshot(),
+            limits: budget.limitsSnapshot()
+          });
         } else if (!hostBashApproval) {
           const currentBudget = budget.snapshot();
           const shouldRecommendSubagent =
@@ -1369,7 +1450,7 @@ export class MomRunner implements RunnerLike {
             this.agent.state.tools.some((tool) => tool.name === "subagent");
           if (shouldRecommendSubagent) {
             subagentDelegationNoticeSent = true;
-            this.agent.followUp({
+            this.agent.steer({
               role: "user",
               content: [{ type: "text", text: SUBAGENT_DELEGATION_RUNTIME_NOTICE }],
               timestamp: Date.now()
@@ -1530,7 +1611,8 @@ export class MomRunner implements RunnerLike {
         runtimeInstructions: miniAppInvocation
           ? [
               `The user explicitly selected Mini App \"${miniAppInvocation.app.name}\" (id: ${miniAppInvocation.app.id}) for this turn. Its tools are already preloaded and are the only tools available${miniAppToolIds.length > 0 ? `: ${miniAppToolIds.join(", ")}` : ""}. Do not use toolSearch, memory, files, bash, or another Mini App.`,
-              "Act by emitting a real tool call. Writing the tool name and its arguments as ordinary text (for example \"run <tool> with ...\") executes nothing and is never an acceptable answer; if a tool is needed, call it, and only then report the result."
+              "Act by emitting a real tool call. Writing the tool name and its arguments as ordinary text (for example \"run <tool> with ...\") executes nothing and is never an acceptable answer; if a tool is needed, call it, and only then report the result.",
+              "Close the turn with a short reply written for the user, in the language they used. Say what now holds — what was recorded, changed, or found — carrying over the concrete details the tool result reports. Do not mention tool names, parameter names, internal identifiers, or the call itself: the user sees only your reply, and can tell the action succeeded only from it. If the tool result already reads as a complete answer, relay it as-is rather than restating it."
             ]
           : undefined,
         attachmentPaths: nonImage,
@@ -1544,6 +1626,7 @@ export class MomRunner implements RunnerLike {
       // runtime instruction (see the Mini App tool-call nudge below).
       let activeUserMessage = userMessage;
       let miniAppToolNudgeUsed = false;
+      let miniAppCompletionNudgeUsed = false;
       currentModelPromptMessage = userMessage;
       currentPersistedPromptMessage = promptInput.persistedMessage;
 
@@ -1950,10 +2033,16 @@ export class MomRunner implements RunnerLike {
               model: selectedModel.id
             });
 
-            if (
-              !toolBudgetContinuationUsed &&
-              budget.getExceededReason()?.includes("too many tool calls")
-            ) {
+            // Both tool budgets end the tool loop the same way, so both deserve
+            // the same wind-down. The failure budget only needs the extra
+            // no-tool attempt when the model produced nothing after its tools
+            // were withdrawn; if it already answered, spending another model
+            // attempt would just re-say it.
+            const exceededKind = budget.getExceededKind();
+            const needsBudgetContinuation =
+              exceededKind === "toolCalls" ||
+              (exceededKind === "toolFailures" && !candidateFinalText.trim());
+            if (!toolBudgetContinuationUsed && needsBudgetContinuation) {
               const continuationBudget = budget.tryRecordModelAttempt();
               if (!continuationBudget.ok) {
                 stopReason = "error";
@@ -1964,8 +2053,11 @@ export class MomRunner implements RunnerLike {
                 this.store.appendRuntimeEvent(this.chatId, {
                   code: TOOL_BUDGET_EXHAUSTED_CODE,
                   level: "warn",
-                  summary: "Run hit the tool-call budget and switched to one no-tool continuation attempt.",
+                  summary: exceededKind === "toolFailures"
+                    ? "Run hit the tool-failure budget and switched to one no-tool continuation attempt."
+                    : "Run hit the tool-call budget and switched to one no-tool continuation attempt.",
                   details: {
+                    kind: exceededKind,
                     reason: toolBudgetNotice,
                     budget: budget.snapshot(),
                     limits: budget.limitsSnapshot(),
@@ -1990,7 +2082,9 @@ export class MomRunner implements RunnerLike {
                 const previousTools = this.agent.state.tools;
                 this.agent.state.tools = [];
                 await respondInThread(
-                  "工具调用已达到本轮上限，正在自动发起一次无工具续写，尽量保留已有结果并给出当前最佳答案。"
+                  exceededKind === "toolFailures"
+                    ? "工具连续失败已达到本轮上限，正在自动发起一次无工具续写，说明已完成的部分与失败原因。"
+                    : "工具调用已达到本轮上限，正在自动发起一次无工具续写，尽量保留已有结果并给出当前最佳答案。"
                 );
                 if (this.activeHookContext) {
                   this.hookManager.emit("runtime.notice", this.activeHookContext, {
@@ -2025,7 +2119,11 @@ export class MomRunner implements RunnerLike {
                 this.activeModelCallContext = undefined;
 
                 try {
-                  await this.agent.prompt(TOOL_BUDGET_RUNTIME_NOTICE);
+                  await this.agent.prompt(
+                    exceededKind === "toolFailures"
+                      ? TOOL_FAILURE_BUDGET_RUNTIME_NOTICE
+                      : TOOL_BUDGET_RUNTIME_NOTICE
+                  );
                 } finally {
                   this.agent.state.tools = previousTools;
                 }
@@ -2190,6 +2288,97 @@ export class MomRunner implements RunnerLike {
               }
               attemptCount += 1;
               break;
+            }
+
+            // A creator-style answer that says a Mini App was installed or
+            // updated, despite the attempt executing no tools, is a fabricated
+            // receipt. Retry once with a transient instruction. The zero-tool
+            // gate is essential: it makes the retry incapable of replaying a
+            // real write or install side effect.
+            if (
+              !miniAppCompletionNudgeUsed &&
+              !attemptExecutedTools &&
+              attemptCount < MAX_EMPTY_RETRIES &&
+              decision.kind === "success" &&
+              describesUnexecutedMiniAppChange(candidateFinalText)
+            ) {
+              miniAppCompletionNudgeUsed = true;
+              momWarn("runner", "miniapp_completion_claim_without_tools", {
+                runId,
+                chatId: this.chatId,
+                sessionId: this.sessionId,
+                provider: selectedModel.provider,
+                model: selectedModel.id,
+                candidateIndex,
+                attempt: attemptCount
+              });
+              rollbackAttempt();
+              activeUserMessage = [
+                userMessage,
+                "",
+                "<runtime-control>",
+                "Your previous answer claimed that Mini App files were installed or updated, but this attempt executed no tools. Text is not execution. Use real file tools and miniAppManage validate/install/inspect, then report their receipts. If tools are unavailable, report the blocker and do not claim completion.",
+                "</runtime-control>"
+              ].join("\n");
+              currentModelPromptMessage = activeUserMessage;
+              attemptCount += 1;
+              continue;
+            }
+
+            // File tools may have changed only the scratch build. If the model
+            // nevertheless claims the Mini App was installed/updated, retain
+            // its useful details but attach a runtime-authored correction. Do
+            // not retry after tools ran: that could replay their side effects.
+            if (
+              attemptExecutedTools &&
+              !miniAppInstallReceiptObserved &&
+              decision.kind === "success" &&
+              describesUnexecutedMiniAppChange(candidateFinalText)
+            ) {
+              const verificationWarning =
+                "⚠️ 运行时校验：本轮没有成功的 miniAppManage install 回执，因此不能确认正式 Mini App 安装目录已更新；当前最多只能确认构建过程执行过部分工具。";
+              candidateFinalText = `${candidateFinalText.trim()}\n\n${verificationWarning}`;
+              momWarn("runner", "miniapp_completion_claim_without_install_receipt", {
+                runId,
+                chatId: this.chatId,
+                sessionId: this.sessionId,
+                provider: selectedModel.provider,
+                model: selectedModel.id,
+                candidateIndex,
+                attempt: attemptCount,
+                toolNames: usedToolNames
+              });
+            }
+
+            // The same habit, after the call actually happened: the model closes
+            // by writing the invocation out again ("run tool miniapp__x__add
+            // with amount is 20") instead of reporting what came back. The work
+            // is done, so retrying is forbidden — it would replay the side
+            // effect. Recover the reply from the tool's own result text, which
+            // Mini App tools already write for a human reader, and ship that.
+            if (
+              miniAppInvocation &&
+              attemptExecutedTools &&
+              decision.kind === "success" &&
+              miniAppToolIds.length > 0
+            ) {
+              const leakedTool = describesPseudoToolCall(candidateFinalText, miniAppToolIds);
+              if (leakedTool) {
+                const recovered = recoverMiniAppResultText(attemptMessages, miniAppToolIds);
+                momWarn("runner", "miniapp_pseudo_call_as_final_text", {
+                  runId,
+                  chatId: this.chatId,
+                  sessionId: this.sessionId,
+                  appId: miniAppInvocation.app.id,
+                  leakedTool,
+                  recovered: Boolean(recovered),
+                  provider: selectedModel.provider,
+                  model: selectedModel.id,
+                  candidateIndex,
+                  attempt: attemptCount
+                });
+                if (recovered) candidateFinalText = recovered;
+              }
             }
 
             // An @app turn that ran no tool and instead *names* one in prose did
@@ -2381,6 +2570,13 @@ export class MomRunner implements RunnerLike {
         }
       }
 
+      // A budget wind-down is the *cause*; anything the transport reports
+      // afterwards ("Request aborted") is a symptom of it. Report the cause, or
+      // the transcript ends on a string that explains nothing.
+      if (budgetExhaustedNotice && stopReason !== "stop") {
+        errorMessage = budgetExhaustedNotice;
+      }
+
       collectCitationFilter();
       if (finalText) {
         const strippedFinal = stripMemoryCitations(finalText);
@@ -2455,7 +2651,19 @@ export class MomRunner implements RunnerLike {
           chatId: this.chatId,
           errorMessage,
         });
-        await ctx.replaceMessage("Sorry, something went wrong.");
+        // "Sorry, something went wrong." is the right message only when we have
+        // nothing better. A budget wind-down knows exactly what went wrong, and
+        // saying so is the difference between a dead end and an actionable one.
+        await ctx.replaceMessage(
+          budgetExhaustedNotice
+            ? buildBudgetStopUserMessage({
+                kind: budget.getExceededKind(),
+                snapshot: budget.snapshot(),
+                limits: budget.limitsSnapshot(),
+                failedToolNames
+              })
+            : "Sorry, something went wrong."
+        );
         await respondInThread(`Error: ${errorMessage}`);
       } else if (finalErrorAction.kind === "preserve_partial") {
         // Keep the partial answer the user already saw; append a concise note

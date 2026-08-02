@@ -39,6 +39,7 @@ import {
   sanitizeToolSandboxSettings
 } from "$lib/server/settings/index.js";
 import { isAbsolute } from "node:path";
+import { deriveToolFailureBudget } from "$lib/server/agent/core/runtimeBudget.js";
 
 /**
  * Keys of `settings.plugins` that have a dedicated sanitizer. Everything else
@@ -905,9 +906,15 @@ export function sanitizeBudgetSettings(
   const source = input && typeof input === "object"
     ? input as Record<string, unknown>
     : {};
+  const maxToolCalls = clampNumber(source.maxToolCalls, fallback.maxToolCalls, 1, 500);
+  // Same rule as the settings store: an explicit failure budget wins, otherwise
+  // it tracks a raised tool-call budget instead of silently staying at 6.
+  const maxToolFailuresFallback = source.maxToolCalls != null && source.maxToolFailures == null
+    ? deriveToolFailureBudget(maxToolCalls)
+    : fallback.maxToolFailures;
   return {
-    maxToolCalls: clampNumber(source.maxToolCalls, fallback.maxToolCalls, 1, 500),
-    maxToolFailures: clampNumber(source.maxToolFailures, fallback.maxToolFailures, 1, 100),
+    maxToolCalls,
+    maxToolFailures: clampNumber(source.maxToolFailures, maxToolFailuresFallback, 1, 100),
     maxModelAttempts: clampNumber(source.maxModelAttempts, fallback.maxModelAttempts, 1, 100)
   };
 }

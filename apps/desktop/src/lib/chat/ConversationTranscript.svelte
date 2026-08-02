@@ -66,11 +66,24 @@
   {@const key = messageKey(message, index)}
   {@const isLongUserMessage = message.role === "user" && (displayContent.split(/\r?\n/).length > 20 || displayContent.length > 1000)}
   {@const isExpanded = expandedMessages.has(key)}
-  {@const assistantStatus = message.role === "assistant" && message.stopReason === "error"
-    ? "error"
-    : message.role === "assistant" && message.stopReason === "stop"
-      ? "complete"
-      : ""}
+  {@const assistantStatus = message.role !== "assistant"
+    ? ""
+    : message.stopReason === "error"
+      ? "error"
+      : message.stopReason === "aborted"
+        ? "aborted"
+        : message.stopReason === "stop"
+          ? "complete"
+          : ""}
+  <!-- The error is status, never the body: a turn that answered and was then
+       interrupted keeps its answer above and carries the reason underneath.
+       Suppressed when the projection already had to use it as the body (a turn
+       that produced no text at all), so it is never printed twice. -->
+  {@const assistantError = message.role === "assistant"
+    && message.errorMessage
+    && message.errorMessage.trim() !== displayContent.trim()
+    ? message.errorMessage
+    : ""}
   <article
     class:mine={message.role === "user"}
     class:assistant={message.role !== "user"}
@@ -154,13 +167,16 @@
         <div class="assistant-identity">
           <strong>{assistantName}</strong>
           <span>{copy.agentRole}</span>
-          {#if assistantStatus}<span class={`assistant-status ${assistantStatus}`}><i class={`ph ${assistantStatus === "error" ? "ph-warning-circle" : "ph-check-circle"}`} aria-hidden="true"></i>{assistantStatus === "error" ? copy.assistantStatusError : copy.assistantStatusComplete}</span>{/if}
+          {#if assistantStatus}<span class={`assistant-status ${assistantStatus}`}><i class={`ph ${assistantStatus === "error" ? "ph-warning-circle" : assistantStatus === "aborted" ? "ph-stop-circle" : "ph-check-circle"}`} aria-hidden="true"></i>{assistantStatus === "error" ? copy.assistantStatusError : assistantStatus === "aborted" ? copy.assistantStatusAborted : copy.assistantStatusComplete}</span>{/if}
         </div>
         {#if message.thinking}
           <ThinkingCard text={message.thinking} label={copy.thinking} />
         {/if}
         {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} />{/if}
         {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>{/if}
+        {#if assistantError}
+          <div class="assistant-error-note"><i class="ph ph-warning-circle" aria-hidden="true"></i><span class="assistant-error-label">{copy.assistantErrorLabel}</span><span class="assistant-error-text">{assistantError}</span></div>
+        {/if}
         {#if (canShowActions && messageActions) || message.createdAt || message.model}
           <div class="message-meta assistant-meta">
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}

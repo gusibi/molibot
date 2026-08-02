@@ -2,11 +2,40 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   isRetryableModelError,
+  describesUnexecutedMiniAppChange,
+  isMiniAppInstallReceipt,
+  REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD,
   resolveFinalErrorAction,
   resolvePromptAttemptDecision,
   shouldCountToolResultAsFailure,
-  shouldEmitFinalRunnerError
+  shouldEmitFinalRunnerError,
+  toolFailureSignature,
+  trackRepeatedToolFailure
 } from "$lib/server/agent/core/runnerRetryState.js";
+
+test("Mini App completion prose is distinguishable from an honest blocked report", () => {
+  assert.equal(describesUnexecutedMiniAppChange("✅ 已为你完成 Mini App 安装和更新，manifest.json 是 1.1.0。"), true);
+  assert.equal(describesUnexecutedMiniAppChange("我现在真正更新了 ~/.molibot/miniapps/apps/expense-tracker。"), true);
+  assert.equal(describesUnexecutedMiniAppChange("由于路径被拒绝，尚未完成小程序安装。"), false);
+  assert.equal(describesUnexecutedMiniAppChange("下面解释如何安装普通 npm 包。"), false);
+});
+
+test("only a successful miniAppManage install result counts as an install receipt", () => {
+  const receipt = {
+    details: {
+      action: "install",
+      appId: "expense-tracker",
+      version: "1.1.0",
+      manifestHash: "abc123"
+    }
+  };
+  assert.equal(isMiniAppInstallReceipt("miniAppManage", false, receipt), true);
+  assert.equal(isMiniAppInstallReceipt("miniAppManage", true, receipt), false);
+  assert.equal(isMiniAppInstallReceipt("miniAppManage", false, {
+    details: { ...receipt.details, action: "validate" }
+  }), false);
+  assert.equal(isMiniAppInstallReceipt("write", false, receipt), false);
+});
 
 test("retryable 429 error stays a retryable request error instead of collapsing into empty response", () => {
   const result = resolvePromptAttemptDecision({
@@ -134,4 +163,29 @@ test("transport failures pi tracks are retryable without this project listing th
 
   assert.equal(isRetryableModelError("invalid_request_error: unknown model"), false);
   assert.equal(isRetryableModelError(""), false);
+});
+
+test("repeated tool failures are recognised by class, not by exact error text", () => {
+  // The three `ls` calls that started a real run's death spiral carried three
+  // different paths in the same error; an exact compare saw three unrelated
+  // failures and never warned the model.
+  const a = toolFailureSignature("ls", "Path not found: /w/scratch/~/.molibot/miniapps/apps/expense-tracker");
+  const b = toolFailureSignature("ls", "Path not found: /w/scratch/~/.molibot/miniapps/apps");
+  assert.equal(a, b);
+  // A different tool, or a different kind of error, is a different class.
+  assert.notEqual(a, toolFailureSignature("read", "Path not found: /w/scratch/~/x"));
+  assert.notEqual(a, toolFailureSignature("ls", "Permission denied: /w/scratch/x"));
+});
+
+test("a failure streak only counts consecutive failures of the same class", () => {
+  let state = trackRepeatedToolFailure(undefined, { signature: "ls::a" });
+  assert.deepEqual(state, { signature: "ls::a", count: 1 });
+  state = trackRepeatedToolFailure(state, { signature: "ls::a" });
+  state = trackRepeatedToolFailure(state, { signature: "ls::a" });
+  assert.equal(state?.count, REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD);
+
+  // A success in between means the model is making progress — reset.
+  assert.equal(trackRepeatedToolFailure(state, undefined), undefined);
+  // So does a different failure class.
+  assert.deepEqual(trackRepeatedToolFailure(state, { signature: "read::b" }), { signature: "read::b", count: 1 });
 });

@@ -4,7 +4,9 @@
  *
  * Renaming is the error-prone part of "start from the template": the app id
  * appears in the directory name, the manifest, the SQLite filename, the table
- * name, the CSS class prefix and every DOM id. Doing it by hand leaves one
+ * name, the CSS class prefix and every DOM id. SQL identifiers cannot contain
+ * the hyphens that app ids allow, so the table prefix is normalized separately.
+ * Doing it by hand leaves one
  * behind, and the failure shows up as a load error after a service restart.
  *
  *   node scaffold.mjs <app-id> "<Display Name>" <target-dir>
@@ -28,7 +30,7 @@ if (!appId || !displayName || !targetArg) {
   fail(`Usage: node scaffold.mjs <app-id> "<Display Name>" <target-dir>
 
 Example:
-  node scaffold.mjs expenses "Expenses" ~/.molibot/miniapps/apps/expenses`);
+  node scaffold.mjs expenses "Expenses" ./expenses`);
 }
 
 if (!APP_ID_PATTERN.test(appId)) {
@@ -37,6 +39,12 @@ if (!APP_ID_PATTERN.test(appId)) {
 
 const templateDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "template");
 const targetDir = path.resolve(expandHome(targetArg));
+
+// A build that lands directly in the live code root bypasses runtime smoke and
+// atomic replacement. The dedicated install tool owns that boundary.
+if (targetDir.replaceAll("\\", "/").includes("/miniapps/apps/")) {
+  fail("Build in the current session scratch directory, then use miniAppManage validate/install. Do not scaffold directly into the live Mini App install root.");
+}
 
 if (!fs.existsSync(path.join(templateDir, "manifest.json"))) {
   fail(`Template not found at ${templateDir}.`);
@@ -55,14 +63,18 @@ if (targetName !== appId) {
 // A CSS-class / DOM-id prefix cannot start with a digit or contain a leading
 // hyphen run; the app id pattern already guarantees a leading letter.
 const classPrefix = appId;
+const sqlPrefix = appId.replaceAll("-", "_");
 
 copyTree(templateDir, targetDir);
 
 console.log(`Created ${targetDir}`);
+// The absolute path is repeated deliberately. An agent that carries `~/...`
+// forward hands it to file tools that resolve it against their own working
+// directory, and every read/write then fails on a path that never existed.
 console.log(`
-Next:
-  1. Edit server/index.mjs — SCHEMA and the Store class are your domain model.
-  2. Keep manifest.json tools and the \`tools\` handlers exactly in sync.
+Next (use these absolute paths — do not re-type them with \`~\`):
+  1. Edit ${path.join(targetDir, "server/index.mjs")} — SCHEMA and the Store class are your domain model.
+  2. Keep ${path.join(targetDir, "manifest.json")} tools and the \`tools\` handlers exactly in sync.
   3. Give every tool keywords in every language your users speak.
   4. Restart Molibot (V1 has no hot reload), then open the panel cold.`);
 
@@ -90,6 +102,7 @@ function copyTree(sourceDir, destinationDir) {
  */
 function rename(content) {
   return content
+    .replaceAll(`${TEMPLATE_ID}_records`, `${sqlPrefix}_records`)
     .replaceAll(TEMPLATE_ID, classPrefix)
     .replaceAll(TEMPLATE_NAME, displayName);
 }

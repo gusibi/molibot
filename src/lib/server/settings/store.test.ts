@@ -428,3 +428,33 @@ test("legacy Default Agent migrates to Momo across a settings restart without re
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a raised tool-call budget carries the failure budget with it unless one is set explicitly", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-budget-scaling-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    // The two limits are one policy, but only maxToolCalls is discoverable.
+    // Raising it to 100 and leaving the failure budget at 6 meant a long run
+    // still died on its sixth failed tool — not what the owner asked for.
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      budget: { maxToolCalls: 100 } as never
+    });
+    assert.equal(new SettingsStore().load().budget.maxToolFailures, 25);
+
+    // An explicit value always wins, in either direction.
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      budget: { maxToolCalls: 100, maxToolFailures: 3 } as never
+    });
+    assert.equal(new SettingsStore().load().budget.maxToolFailures, 3);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

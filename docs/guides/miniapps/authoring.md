@@ -45,6 +45,13 @@ Rules that the host enforces, not merely suggests:
 
 ### Installing
 
+When an Agent is authoring the app, it first scaffolds into the current Session
+scratch directory. The Agent then uses `miniAppManage validate` to load the
+Runtime against temporary data, `miniAppManage install` for the staged atomic
+replace, and `miniAppManage inspect` to read the installed version and manifest
+hash back from the live directory. A code block or a planned version number is
+not an installation receipt.
+
 Open **Mini Apps** in the Chat sidebar (it is also mounted in Settings ›
 Plugins). The manager installs from three sources:
 

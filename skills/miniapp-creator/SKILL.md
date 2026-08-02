@@ -28,12 +28,14 @@ description: "创建、修改和安装 Molibot Mini App（安装在 ~/.molibot/m
 脚本和模板都在**本 skill 自己的目录**里（提示词里的 `skill_file` 就是它的路径；标准安装位置是 `~/.molibot/skills/miniapp-creator/`）：
 
 ```bash
-node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs expenses "Expenses" ~/.molibot/miniapps/apps/expenses
+node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs expenses "Expenses" ./expenses
 ```
 
-用法是 `scaffold.mjs <app-id> "<显示名>" <目标目录>`。脚本会复制 `template/` 并把 id、名称、CSS 类前缀、SQLite 表名一起换掉，产物是**可以直接跑起来的完整应用**。目标目录必须不存在，且目录名必须等于 app id——脚本会当场拒绝，省得重启后才看到加载错误。
+用法是 `scaffold.mjs <app-id> "<显示名>" <目标目录>`。在当前 Session scratch 目录构建，不要把尚未验证的源码直接生成到正式安装目录。脚本会复制 `template/` 并分别转换 app id、名称、CSS 类前缀与 SQLite 安全表名，产物是**可以直接跑起来的完整应用**。目标目录必须不存在，且目录名必须等于 app id——脚本会当场拒绝，省得重启后才看到加载错误。
 
 手工做也可以：复制本 skill 目录下的 `template/`，再把里面所有 `starter` / `Starter` 替换成你的 app id 与显示名。实在找不到模板时，退而复制 `~/.molibot/miniapps/apps/todo/`——那是随 Molibot 一起装好的参考实现，结构完全一样，只是内容是待办领域的。
+
+**脚本跑完之后，用它打印出来的绝对路径继续。** 文件工具（`read`/`write`/`edit`/`ls`）能修改 scratch 构建；`miniapps/data/` 是各 App 自己的 SQLite 私有数据，不在可写范围内——那份数据只能通过 App 自己的工具和 HTTP 接口改。
 
 ### 3. 改领域层，而不是四处改
 
@@ -65,11 +67,15 @@ node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs expenses "Expenses" 
 - 内联 `<script>` 不会执行（CSP），代码必须放在 `.js` 文件里。
 - 语言和主题从 `location.search` 的 `locale` / `theme` 读，启动时读一次就够（切换会重载 iframe）。
 
-### 6. 安装并冷启动验证
+### 6. 校验、安装并冷启动验证
 
-安装 = 把目录放进 `~/.molibot/miniapps/apps/<app-id>/`，或用 Chat 侧边栏的 **Mini Apps** 管理器（支持本地文件夹 / ZIP / GitHub 仓库三种来源）。
+源码完成后必须调用 `miniAppManage`：先用 `validate` 在临时数据库中加载 Runtime，校验 manifest、SQL 与工具 handler；通过后用 `install` 原子安装或更新，再用 `inspect` 从正式目录回读 app id、version 和 manifest hash。也可以由用户在侧边栏 **Mini Apps** 管理器安装本地文件夹 / ZIP / GitHub 仓库。
+
+**证据规则：**没有成功的文件写结果，不得说已经改源码；没有成功的 `miniAppManage install`，不得说已经安装；没有 `inspect` 回读，不得声称正式目录版本；展示代码块不算执行。任何工具失败都要原样报告，不能用文字模拟成功。
 
 **装完必须重启 Molibot 服务，V1 没有热更新。** 数据目录 `~/.molibot/miniapps/data/<app-id>/` 不受安装和升级影响。
+
+如果当前会话没有真实重启和打开面板的能力，只能报告「安装完成，等待重启验证」，不得勾选下面的冷启动项目或说「可以正常加载」。
 
 重启后按这条清单走一遍真实链路，不要只看代码通过：
 

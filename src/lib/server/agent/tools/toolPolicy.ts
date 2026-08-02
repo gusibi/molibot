@@ -11,6 +11,7 @@ const SERIALIZED_TOOL_NAMES = new Set([
   "write",
   "switchModel",
   "profileFiles",
+  "miniAppManage",
   "loadMcp",
   "createEvent",
   "attach",

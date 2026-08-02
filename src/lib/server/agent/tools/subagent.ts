@@ -204,7 +204,41 @@ export function summarizeSubagentStopReason(
   return "stop";
 }
 
-function parseSubagentMode(
+function taskListKey(tasks: SingleTaskInput[]): string {
+  return JSON.stringify(tasks.map((item) => [String(item.agent ?? "").trim(), String(item.task ?? "").trim()]));
+}
+
+/**
+ * Decide whether redundant mode fields describe the *same* work.
+ *
+ * Models routinely restate one task in two shapes at once — `{agent, task}`
+ * plus a one-element `{tasks}` holding that identical pair. Rejecting that is
+ * a pure loss: the request is unambiguous, and the rejection costs a tool
+ * failure (two, when the model emitted the call twice in parallel), which is
+ * how a run reaches the failure budget and dies.
+ *
+ * Genuine ambiguity is still refused: `{tasks}` and `{chain}` carrying more
+ * than one task differ in execution order even when the lists match, and any
+ * disagreement between lists means we would have to guess.
+ */
+function reconcileRedundantModes(
+  present: Array<{ mode: "single" | "parallel" | "chain"; tasks: SingleTaskInput[] }>
+): { mode: "single" | "parallel" | "chain"; tasks: SingleTaskInput[] } | null {
+  const keys = new Set(present.map((entry) => taskListKey(entry.tasks)));
+  if (keys.size !== 1) return null;
+  const multiTask = present.some((entry) => entry.tasks.length > 1);
+  const hasParallel = present.some((entry) => entry.mode === "parallel");
+  const hasChain = present.some((entry) => entry.mode === "chain");
+  // Same list, but "run these concurrently" and "run these in order" are not
+  // the same instruction once there is more than one task.
+  if (multiTask && hasParallel && hasChain) return null;
+  // Identical lists: keep the most explicit shape the caller supplied.
+  return present.find((entry) => entry.mode === "chain")
+    ?? present.find((entry) => entry.mode === "parallel")
+    ?? present[0]!;
+}
+
+export function parseSubagentMode(
   input: SubagentInput,
   limits: { maxTasks: number; maxConcurrency: number }
 ): {
@@ -212,13 +246,32 @@ function parseSubagentMode(
   tasks: SingleTaskInput[];
   maxConcurrency: number;
 } {
-  const hasSingle = Boolean(input.agent?.trim() && input.task?.trim());
-  const hasParallel = Array.isArray(input.tasks) && input.tasks.length > 0;
-  const hasChain = Array.isArray(input.chain) && input.chain.length > 0;
+  let hasSingle = Boolean(input.agent?.trim() && input.task?.trim());
+  let hasParallel = Array.isArray(input.tasks) && input.tasks.length > 0;
+  let hasChain = Array.isArray(input.chain) && input.chain.length > 0;
   const modeCount = [hasSingle, hasParallel, hasChain].filter(Boolean).length;
 
-  if (modeCount !== 1) {
+  if (modeCount === 0) {
     throw new Error("Provide exactly one subagent mode: {agent, task}, {tasks}, or {chain}.");
+  }
+
+  if (modeCount > 1) {
+    const present: Array<{ mode: "single" | "parallel" | "chain"; tasks: SingleTaskInput[] }> = [];
+    if (hasSingle) present.push({ mode: "single", tasks: [{ agent: input.agent!.trim(), task: input.task!.trim() }] });
+    if (hasParallel) present.push({ mode: "parallel", tasks: input.tasks! as SingleTaskInput[] });
+    if (hasChain) present.push({ mode: "chain", tasks: input.chain! as SingleTaskInput[] });
+
+    const reconciled = reconcileRedundantModes(present);
+    if (!reconciled) {
+      const supplied = present.map((entry) => entry.mode).join(", ");
+      throw new Error(
+        `Conflicting subagent modes supplied (${supplied}). Provide exactly one of {agent, task}, {tasks}, or {chain} — ` +
+        "they described different work, so the request is ambiguous."
+      );
+    }
+    hasSingle = reconciled.mode === "single";
+    hasParallel = reconciled.mode === "parallel";
+    hasChain = reconciled.mode === "chain";
   }
 
   const requestedTasks = hasSingle ? 1 : hasParallel ? input.tasks!.length : input.chain!.length;

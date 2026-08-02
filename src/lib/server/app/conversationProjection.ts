@@ -66,14 +66,24 @@ function assistantStatus(message: AgentMessage): { stopReason?: string; errorMes
   return { stopReason: stopReason || undefined, errorMessage: errorMessage || undefined };
 }
 
-/** Collapse the Agent tool loop into one user row and the last textual assistant row per turn. */
+/** Collapse tool-loop progress, while preserving every terminal assistant reply in a turn. */
 function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: string): AgentDisplayMessage[] {
   const out: AgentDisplayMessage[] = [];
   let assistant: AgentDisplayMessage | null = null;
+  let terminalCommitted = false;
 
   const flushAssistant = () => {
-    if (assistant && (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim())) out.push(assistant);
+    if (assistant) {
+      // An error is a *status*, not a reply. It only stands in as the bubble
+      // body when the turn produced no text at all — otherwise the transcript
+      // shows the answer and renders the error alongside it.
+      if (!assistant.content.trim() && assistant.errorMessage?.trim()) {
+        assistant.content = assistant.errorMessage.trim();
+      }
+      if (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim()) out.push(assistant);
+    }
     assistant = null;
+    terminalCommitted = false;
   };
 
   for (const entry of entries) {
@@ -94,8 +104,15 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     }
     if (role !== "assistant") continue;
     const status = assistantStatus(entry.message);
-    const content = displayAssistantText(contentText(entry.message.content).trim()) || status.errorMessage || "";
+    // Deliberately NOT falling back to `status.errorMessage` here. A turn ends
+    // with a content-less assistant entry whenever the run was aborted (budget
+    // guard, user Stop, provider abort). Treating that entry's error string as
+    // "content" made it overwrite the real answer the same turn had already
+    // produced — the user lost the reply and got a bare "Request aborted".
+    const content = displayAssistantText(contentText(entry.message.content).trim());
     const thinking = thinkingText(entry.message.content);
+    const isTerminalReply = status.stopReason === "stop" && Boolean(content);
+    if (isTerminalReply && terminalCommitted) flushAssistant();
     if (!assistant) {
       assistant = {
         id: entry.id,
@@ -108,9 +125,12 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
         thinking: thinking || undefined,
         ...status
       };
+      terminalCommitted = isTerminalReply;
       continue;
     }
-    if (content) {
+    // Once a terminal reply exists, later tool-loop progress must not replace
+    // it. A second terminal reply is flushed separately above.
+    if (content && (!terminalCommitted || isTerminalReply)) {
       assistant.content = content;
       assistant.sourceEntryId = entry.id;
       assistant.createdAt = entry.timestamp;
@@ -118,8 +138,11 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     const model = modelLabel(entry.message);
     if (model) assistant.model = model;
     if (thinking) assistant.thinking = [assistant.thinking, thinking].filter(Boolean).join("\n\n");
-    if (status.stopReason) assistant.stopReason = status.stopReason;
+    if (status.stopReason && (!terminalCommitted || status.stopReason !== "toolUse")) {
+      assistant.stopReason = status.stopReason;
+    }
     if (status.errorMessage) assistant.errorMessage = status.errorMessage;
+    if (isTerminalReply) terminalCommitted = true;
   }
   flushAssistant();
   return out;

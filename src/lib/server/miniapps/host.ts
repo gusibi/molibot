@@ -345,6 +345,29 @@ export class MiniAppHost {
     return this.slots.get(appId)?.revision ?? 0;
   }
 
+  /**
+   * Loads an app runtime without invoking one of its domain tools.
+   *
+   * The creator workflow uses this over a temporary data root before install,
+   * catching invalid SQL, a missing default factory, and manifest/handler drift
+   * without mutating the owner's live Mini App data.
+   */
+  async smokeTest(appId: string): Promise<void> {
+    const slot = this.slots.get(appId);
+    if (!slot) throw new MiniAppError(`Unknown Mini App: ${appId}`, "not_found");
+    if (!slot.descriptor) {
+      throw new MiniAppError(slot.loadError ?? "Mini App failed to load.", "load_failed");
+    }
+
+    const runtime = await this.ensureRuntime(slot);
+    try {
+      await runtime.dispose?.();
+    } finally {
+      slot.runtime = null;
+      slot.loading = null;
+    }
+  }
+
   // ---------------------------------------------------------------- lifecycle
 
   setEnabled(appId: string, enabled: boolean): MiniAppCatalogEntry {

@@ -424,6 +424,15 @@ export function getRuntime(): RuntimeState {
       if (bootstrappedSkills.installed.length > 0) {
         console.log(`${runtimeLabel("runtime")} skill_bootstrap installed=[${formatList(bootstrappedSkills.installed)}]`);
       }
+      for (const upgrade of bootstrappedSkills.upgraded) {
+        // A backup means the owner's copy had diverged and was moved aside, not
+        // deleted. That path is the only way back to their edits, so it must be
+        // in the log rather than only in the return value.
+        console.log(
+          `${runtimeLabel("runtime")} skill_upgraded id=${upgrade.id} ${upgrade.from} -> ${upgrade.to}`
+          + (upgrade.backupDir ? ` previous_copy_kept_at=${upgrade.backupDir}` : "")
+        );
+      }
     } catch (error) {
       console.error("[runtime] Failed to bootstrap built-in Skills:", error);
     }

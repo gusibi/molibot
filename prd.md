@@ -5,6 +5,20 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.34 Multiple terminal replies remain visible (2026-08-02)
+
+- **Priority / Status**: P0 / Delivered (2026-08-02).
+- **Problem**: one Agent run can legitimately persist multiple terminal assistant replies, including a primary answer plus a supplement. Web/Desktop conversation projection collapsed every assistant entry before the next visible user message into one bubble, so the last reply silently replaced the earlier, more complete answer. Runtime-authored corrective notices also used the follow-up queue, allowing a notice raised mid-tool-loop to run only after the task had already answered.
+- **Decision**: collapse non-terminal tool progress but preserve each textual terminal assistant as its own projected message. Runtime-authored corrective controls steer the active loop before its next model call; only owner-authored follow-ups retain post-completion queue semantics.
+- **Acceptance**: the captured `s-20260802-grja` pattern projects both terminal replies; an intervening tool-use message cannot replace either one; a trailing abort/error remains status on the existing answer; repeated-failure, tool-failure-budget, and subagent-delegation notices are machine-guarded as steering controls.
+
+## 3.33 Evidence-backed Mini App Creator delivery (2026-08-02)
+
+- **Priority / Status**: P0 / Delivered (2026-08-02).
+- **Problem**: the Creator scaffold accepted hyphenated ids but copied them verbatim into SQLite identifiers; generic file tools could previously miss the live code root; and later turns could claim an install/update with zero tool calls. The prompt required cold verification without providing a machine-owned install receipt.
+- **Decision**: builds live in Session scratch until a shared `miniAppManage` tool validates the manifest and actually loads the Runtime against temporary data, then delegates installation to the existing staged atomic installer and reads an exact receipt back from the live directory. Validate/install are critical owner-approved actions because they load selected server code in-process; inspect is read-only. App ids and SQL identifiers are distinct generated values. Prompt evidence rules are backed by a Runner retry when a zero-tool attempt fabricates a Mini App completion claim, plus a runtime-authored warning when some tools ran but no successful install receipt exists.
+- **Acceptance**: `expense-tracker` scaffolds with SQL-safe identifiers; direct scaffold into `miniapps/apps` is refused; invalid SQL installs nothing; successful install/inspect returns matching app id, version and manifest hash; completion prose without a successful install receipt is never presented without a runtime correction; bundled `miniapp-creator` is versioned so existing owner workspaces receive the workflow safely.
+
 ## 3.32 Shared readable Session and Task context IDs (2026-08-02)
 
 - **Priority / Status**: P1 / Delivered (2026-08-02).

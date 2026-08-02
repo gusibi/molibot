@@ -7,6 +7,61 @@
 ---
 ## 2026-08-02
 
+### Mini App 轮次不再把工具调用本身当作最终回复（已完成，P0）
+
+真实 Session `s-20260802-wkfi`：`@expense-tracker 买肉花 20` 实际记账成功，工具结果里已有可直接示人的一句「已记账：餐饮 −20.00 元（2026-08-02，备注：买肉）」，但模型最终回复的是 `run tool miniapp__expense-tracker__add with amount is 20 category is food ...`。用户看到的只有内部语法，无法判断到底记上没有。
+
+- Runner 原有的 `describesUncalledMiniAppTool` 守卫只覆盖「只描述、没调用」，门禁是 `!attemptExecutedTools`；本例工具真的跑了，守卫直接跳过。新增执行后分支 `describesPseudoToolCall` 补上这一半：因副作用已发生，**不回滚、不重试**，改为从本轮最后一条成功的 Mini App 工具结果回收正文替换掉泄漏的伪调用。Mini App 工具结果本就是写给人看的，因此运行时无需了解任何具体 App 的领域字段。
+- 执行后的判定刻意比零工具时更严：真正调用过之后提到工具名可能是合法叙述，故只认「调用形态」的文本（`run tool <id> with ...`、`<id>(...)`、`调用 <app>.<tool>`、整句以 id 开头）；单纯提到 id 的正常汇报不动。
+- `@app` runtime instructions 补充第三条收尾约束：用用户的语言写一句面向人的简短回复，说明现在的状态、带上工具结果里的具体信息，禁止出现工具名、参数名、内部 id；工具结果本身已是完整答案时直接转述。该约束刻意保持领域无关，不写死金额/分类等某一个 App 的字段，对未来任意小程序同样成立。
+- 机器回归：`toolCallIntent` 覆盖真实 Session 原文、四种调用形态、三类正常汇报的免判，以及结果回收对失败结果 / 非本 App 工具 / 空文本的跳过；`runner.test.ts` 增加结构守卫，断言该分支门禁为 `attemptExecutedTools`（非取反）、分支内不出现 `rollbackAttempt()`/`continue`、收尾指令不含领域字段词。验证：`toolCallIntent` 8/8、`runner.test.ts` 31/31、Mini App 套件 82/82、改动文件 `tsc` 干净。
+
+### 同一轮多条 AI 最终回复完整展示（已完成，P0）
+
+- 会话投影不再把同一用户轮次里的所有 assistant 条目压成“最后一条”：工具调用过程中的非终态进度仍折叠，但每条带正文的 terminal `stop` 回复都会成为独立消息。历史 Session 无需迁移，重新投影即可恢复此前被最后一条遮住的完整回答。
+- 首条最终回复之后若又出现工具进度，该进度不会覆盖已提交正文；若随后发生 abort/error，仍沿用“错误作为状态、正文继续保留”的既有规则。
+- 重复工具失败、工具失败预算和 Subagent 委派建议都属于“纠正当前工具循环”，现改为 `steer` 到下一次模型调用，不再作为 `followUp` 排到主答案之后生成过期的重复收尾。用户主动 follow-up 行为不变。
+- 回归覆盖同轮两个 terminal 回复、terminal 之间夹工具进度、正文后异常终止，以及三类 runtime corrective notice 的队列语义；真实 `s-20260802-grja` 样本从 1 个气泡恢复为 2 个。
+
+### Mini App Creator 可信交付链：从 scratch 构建到安装凭证（已完成，P0）
+
+- 修复 scaffold 把合法连字符 App ID 直接写进 SQLite 标识符的问题：`expense-tracker` 的目录、manifest 与 CSS 仍保留原 id，表名独立规范化为 `expense_tracker_records`；脚本拒绝直接生成到正式安装根，强制先在 Session scratch 构建。
+- 新增共享 Agent 工具 `miniAppManage`：`validate` 在临时数据目录真实加载 Runtime，提前捕获 SQL、工厂导出及 manifest/handler 不一致；`install` 复用 Desktop 已有 staging + 原子替换 installer；`inspect` 从正式目录回读 app id、version、schemaVersion 与 manifest sha256。只有 install receipt 才是正式目录已变化的机器证据；因前两项会在进程内加载 owner 选择的代码，它们按 critical 走审批，纯读 inspect 直接放行。
+- Mini App Creator Agent/Skill 改为 scratch → 文件修改 → validate → install → inspect；内置 Skill bump 到 1.2.0，使现有安装在启动时通过可回滚升级拿到新流程。没有真实重启/开面板能力时只能报告等待冷启动验证。
+- Runner 增加完成声明守卫：模型若未执行任何工具却声称 Mini App 已安装/更新，会回滚该回答并用瞬时 runtime control 重试一次；执行过 scratch 文件工具但没有成功 install receipt 时，运行时会在最终回答中附加不可伪造的「尚未确认正式安装」警告，而不会重放副作用。
+- 机器回归覆盖连字符 scaffold、禁止直写 live root、坏 SQL 校验失败、原子安装与精确凭证回读、Session 原始虚假措辞识别；所有 SQLite 测试均使用临时目录。
+
+### 内置 Skill 覆盖式升级（已完成，P1）
+
+内置 Skill 必须落盘到 owner workspace 才能被加载器发现，但 bootstrap 见到目录已存在就跳过，导致随版本修好的 Skill 永远送不到已安装的用户手里；手动补救还要同时删目录和 ledger 记录，否则 tombstone 会拦住重装。
+
+- **`version` 变化即触发升级**：版本相同时行为不变（重启永远不具破坏性）；版本变化时用随包内容覆盖磁盘上的副本。
+- **覆盖可回滚**：ledger 现在记录写入时每个文件的 sha256。哈希仍然吻合的目录直接原地覆盖；一旦发现改动——owner 手改过，或是手工安装、根本没有哈希记录——先把整棵旧目录重命名为 `<id>.backup-<时间戳>` 并打日志。两种情况下 owner 自己新增的文件都会带过去；已不再随包的文件只有在仍与我们写入的内容一致时才删除。
+- 升级走 staging + 两次 rename，崩溃不会留下半升级的 Skill。ledger 里记录的路径在使用前校验——过期文件清理是由磁盘上读回的数据驱动的，损坏的 ledger 不能指向 `../../xxx`。
+- `miniapp-creator` 随之发布 1.1.0，带上前述修复里的 scaffold 绝对路径输出与可写范围说明。
+
+### 运行中止可解释化：预算不再"杀"掉一轮对话（已完成，P0）
+
+一次创建 Mini App 的运行最终只在会话里留下 `Request aborted`，且把这一轮已经写好的总结整个覆盖掉。三个缺陷叠加导致：
+
+- **文件工具与 `bash` 对 `~` 的理解不一致**：`resolveToolPath` 把 `~/x` 解析到聊天 scratch 目录下变成 `<scratch>/~/x`，报出一条指向不存在路径的 "Path not found"；而 `bash` 走 shell 会正常展开。现在 `~`、`~/`、`$HOME` 在最前面统一展开，同一个路径在所有工具里含义一致。
+- **Mini App 代码目录不在文件工具白名单内**：`miniapp-creator` 把骨架生成到 `<数据目录>/miniapps/apps/<id>` 并要求 Agent 编辑 `server/index.mjs`，但路径守卫只允许 cwd、Workspace 与全局 Skill 根，Agent 只能用 `bash cat` 读、永远无法写。现在 `miniapps/apps` 进入允许根；`miniapps/data`（各 App 私有 SQLite）仍然禁止直接读写。
+- **`subagent` 拒绝了并不歧义的调用**：模型把同一个任务同时写成 `{agent, task}` 和只含该任务的 `{tasks}`，被判为模式冲突；这条调用还是并行发出的两份，一次吃掉 2 次工具失败额度，直接把运行推过预算上限。现在语义等价的冗余模式会归一化，真正冲突的仍然拒绝并说明冲突点。
+
+### 工具失败预算：从硬中止改为优雅收尾（已完成，P0）
+
+- 触达 `maxToolFailures` 原本直接调用 `agent.abort()`，杀掉进行中的模型请求：这一轮的回答丢失，真正原因（`too many tool failures (6/6)`）只留在 thread notes 里，用户只看到传输层的 `Request aborted`。现在改为撤下工具列表并向模型注入 runtime notice，让它说明"完成了什么、哪一步失败、下一步怎么办"——与工具调用上限早就有的降级路径合并为同一条。
+- `RunBudget` 增加结构化的 `exceededKind`（不再让调用方去匹配面向模型的提示语文案）、任一预算耗尽后拒绝一切后续工具，并单独提供一条面向人的中止说明（含失败工具清单）。
+- **连续同类失败会打断循环**：同一工具、同一类错误连续 3 次（按签名归一化，同一错误里的不同路径仍算同类）会注入一次纠正提示。此前模型连发三次注定失败的 `ls` 却得不到任何反馈。
+- **调高 `maxToolCalls` 会同步带上失败预算**：只有 `maxToolCalls` 是可发现的配置，调到 100 之后运行仍在第 6 次工具失败时死亡。显式设置的 `maxToolFailures` 始终优先，否则按出厂 6/24 的比例跟随。
+
+### 会话投影：错误不再覆盖它打断的那条回答（已完成，P0）
+
+- `conversationProjection` 把一轮的多条 assistant 条目折叠成一个气泡，并对每条使用 `content || errorMessage`。一轮"先回答、后被中止"的运行以空内容 + errorMessage 结尾，这个错误串赢得了覆盖——回答被吞、只剩 `Request aborted`。现在错误是状态而非正文，只有整轮没有任何文本时才作为气泡内容兜底。
+- Desktop 会话视图相应调整：回答保留，下方单独显示「中断原因 / Why it stopped」注记；`aborted` 有了自己的状态标签（「已中断 / Interrupted」），不再落到无标签的默认分支。
+- 预算收尾会把自己的原因写入 `errorMessage`，会话结尾呈现的是原因而不是传输层症状；原先的 "Sorry, something went wrong." 也替换为点名上限与失败工具的说明。
+
+
 ### Session / Task Context ID 统一（已完成，P1）
 
 - 新建 App/Web Session、Project 对话、渠道 Agent Session 与会话分支统一由共享上层生成 `s-YYYYMMDD-xxxx`，不再分别产生 UUID 或 `fork-*`。

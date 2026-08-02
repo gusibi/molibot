@@ -14,6 +14,7 @@ import {
   isSafeReadOnlySubagentCommand,
   listBuiltInSubagents,
   normalizeSubagentStopReason,
+  parseSubagentMode,
   resolveSubagentModelRoute,
   summarizeSubagentStopReason,
   summarizeSubagentResultsForParent
@@ -501,4 +502,38 @@ test("createSubagentTool requestedByDepth is incremented and propagated to hostA
 
   assert.ok(capturedHostApproval);
   assert.equal(capturedHostApproval.requestedByDepth, 3);
+});
+
+const MODE_LIMITS = { maxTasks: 8, maxConcurrency: 4 };
+
+// A model that restates one task as both {agent, task} and a one-element
+// {tasks} has not asked for anything ambiguous. Rejecting it burned two tool
+// failures per turn (the call was emitted twice in parallel) and that is what
+// pushed a real run into the failure budget and killed it mid-flight.
+test("parseSubagentMode collapses redundant modes that describe identical work", () => {
+  const single = { agent: "scout", task: "Explore the miniapp" };
+  const collapsed = parseSubagentMode({ ...single, tasks: [single] }, MODE_LIMITS);
+  assert.equal(collapsed.mode, "parallel");
+  assert.deepEqual(collapsed.tasks, [single]);
+
+  const chained = parseSubagentMode({ ...single, chain: [single] }, MODE_LIMITS);
+  assert.equal(chained.mode, "chain");
+  assert.deepEqual(chained.tasks, [single]);
+});
+
+test("parseSubagentMode still refuses genuinely ambiguous mode combinations", () => {
+  const a = { agent: "scout", task: "Explore" };
+  const b = { agent: "planner", task: "Design" };
+  // Different work in each shape — we would have to guess which one to run.
+  assert.throws(
+    () => parseSubagentMode({ agent: a.agent, task: a.task, tasks: [b] }, MODE_LIMITS),
+    /Conflicting subagent modes/
+  );
+  // Same list, but concurrent and sequential are different instructions once
+  // there is more than one task.
+  assert.throws(
+    () => parseSubagentMode({ tasks: [a, b], chain: [a, b] }, MODE_LIMITS),
+    /Conflicting subagent modes/
+  );
+  assert.throws(() => parseSubagentMode({}, MODE_LIMITS), /Provide exactly one subagent mode/);
 });

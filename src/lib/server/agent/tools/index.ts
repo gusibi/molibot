@@ -21,6 +21,7 @@ import { createSkillSearchTool } from "$lib/server/agent/tools/skillSearch.js";
 import { createSubagentTool } from "$lib/server/agent/tools/subagent.js";
 import { createSwitchModelTool } from "$lib/server/agent/tools/switchModel.js";
 import { createExtensionManageTool } from "$lib/server/agent/tools/extensionManage.js";
+import { createMiniAppManageTool } from "$lib/server/agent/tools/miniAppManage.js";
 import { createToolSearchTool, type DeferredToolEntry } from "$lib/server/agent/tools/toolSearch.js";
 import { getWriteToolDefinition } from "$lib/server/agent/tools/write.js";
 import { createWebSearchTool } from "$lib/server/agent/search/webSearchTool.js";
@@ -196,6 +197,10 @@ export function createMomTools(options: {
     getSettings: options.getSettings,
     updateSettings: options.updateSettings
   }));
+  const miniAppManageRuntimeTool = wrapSerializedTool(createMiniAppManageTool({
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir
+  }));
   const skillManageRuntimeTool = wrapSerializedTool(createSkillManageTool({
     workspaceDir: options.workspaceDir,
     chatId: options.chatId
@@ -260,6 +265,14 @@ export function createMomTools(options: {
         ctx,
         sandboxEnabled: sandboxSettings.enabled
       });
+    }
+
+    // Reading an installed receipt executes no app code and needs no approval.
+    // validate/install do load owner-selected server code in-process, so the
+    // critical classification below deliberately sends those actions through
+    // the approval broker.
+    if (tool.id === "miniAppManage" && (input as { action?: unknown })?.action === "inspect") {
+      return { type: "allow" };
     }
 
     if (tool.risk === "high" || tool.risk === "critical") {
@@ -578,6 +591,25 @@ export function createMomTools(options: {
         "安装"
       ],
       tool: extensionManageRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "miniAppManage",
+      description: "Validate a Mini App scratch build, atomically install/update it, or inspect the installed receipt.",
+      keywords: [
+        "miniapp",
+        "mini app",
+        "app",
+        "validate",
+        "install",
+        "update",
+        "manifest",
+        "小程序",
+        "校验",
+        "安装",
+        "更新"
+      ],
+      tool: miniAppManageRuntimeTool,
       loadDeferredTools
     }),
     createDeferredToolEntry({
