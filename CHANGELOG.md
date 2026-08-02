@@ -7,6 +7,9 @@
 ---
 ## 2026-08-02
 
+### Release: v2.8.8 / Desktop v0.8.5
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: Agent City rendered its light theme over a dark canvas
 
 Every floating panel in Agent City — the hover card, the detail card, the search box, the hint strip, the toolbar chips — kept its light styling while the 3D canvas behind it was correctly dark, so the panel read as half-finished.
