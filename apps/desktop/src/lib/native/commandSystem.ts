@@ -41,7 +41,7 @@ export type CommandId =
   | `settings.${SettingsDestination}`;
 
 export type CommandScope = "application" | "chat" | "workspace" | "settings" | "service";
-export type CommandWorkspace = "chat" | "automations" | "skills" | "agents" | "project";
+export type CommandWorkspace = "chat" | "automations" | "skills" | "agents" | "miniapps" | "project";
 
 export type CommandContext = {
   locale: Locale;

@@ -6,6 +6,7 @@ import { builtInChannelPlugins } from "$lib/server/channels/registry.js";
 import { builtInMemoryBackends } from "$lib/server/memory/registry.js";
 import { builtInFeaturePlugins, createFeaturePluginCatalog } from "$lib/server/plugins/feature-registry.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
+import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
 import type {
   ExternalPluginLoadResult,
   InstalledPluginCatalogEntry,
@@ -147,6 +148,31 @@ function buildPiExtensionCatalog(settings: RuntimeSettings): InstalledPluginCata
   }));
 }
 
+/**
+ * Mini Apps, projected from the live MiniAppHost at read time.
+ *
+ * Deliberately not snapshotted: a lazy-load failure or an enable toggle must be
+ * visible on the very next catalog read, and the generic catalog row carries
+ * only identity + status — never a manifest path, entry path or data path.
+ */
+function buildMiniAppCatalog(): InstalledPluginCatalogEntry[] {
+  try {
+    return getMiniAppHost().listCatalog().map((entry) => ({
+      kind: "miniapp" as const,
+      key: entry.id,
+      name: entry.name,
+      version: entry.version,
+      description: entry.description,
+      source: entry.builtin ? ("built-in" as const) : ("external" as const),
+      status: entry.status === "active" ? "active" : entry.status === "error" ? "error" : "discovered",
+      enabled: entry.enabled,
+      error: entry.error
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export function discoverPlugins(settings: RuntimeSettings = defaultRuntimeSettings): ExternalPluginLoadResult {
   const channels = [
     ...buildBuiltInChannelCatalog(),
@@ -163,7 +189,9 @@ export function discoverPlugins(settings: RuntimeSettings = defaultRuntimeSettin
 
   const extensions = buildPiExtensionCatalog(settings);
 
-  const catalog: PluginCatalog = { channels, providers, features, memoryBackends, extensions };
+  const miniApps = buildMiniAppCatalog();
+
+  const catalog: PluginCatalog = { channels, providers, features, memoryBackends, extensions, miniApps };
 
   const providerPlugins: ProviderPlugin[] = providers.map((provider) => ({
     key: provider.key,

@@ -5,6 +5,67 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-08-02
+
+### Mini App 资料库界面与图标一致性（已完成，P1）
+
+- Mini App 管理面收敛到 `DESIGN.md` 的 720px 数据页内容列，安装区、已安装列表、状态与卸载菜单改为清晰的卡片层级；窄宽度下输入、操作与应用信息会安全换行，明暗主题继续使用共享语义 token。
+- 顶部「小程序」入口使用 App Store 语义图标，不再使用四宫格。应用列表、侧栏快捷项和右侧 Inspector 标题栏统一优先显示 manifest 的 `ui.icon`，无图标时才回退到 app-window 图标；Todo 的内置图标改为在明暗主题中都清晰的独立应用图标。
+- 侧栏分组固定命名为「小程序」，内容仍按最近打开顺序优先，并以 catalog 顺序补足首次使用场景，显示上限从 5 提升到 10；「全部」继续进入完整管理面。
+- **侧栏一致性与玻璃过渡修复**：小程序子组件此前引用 `ChatSidebar.svelte` 内的 scoped class，DOM 虽然带 class，但编译后的作用域选择器永远匹配不到，因此标题退化为原生按钮。现在对话、项目、小程序共用全局语义 header/toggle/caret 样式；标题平时完全透明，只有真实吸顶时才显示向上下延伸的 mask 毛玻璃，blur 与 tint 随边缘渐隐，不再形成硬边矩形。暗色使用轻微白色提亮而不是深色实底，减少透明度、增强对比度与低性能模式使用同形状的无模糊降级。
+- 验证：Desktop 结构回归 123/123、Mini App 服务/安装链路 82/82、`svelte-check` 0 错误 0 警告、Desktop Vite 生产构建通过，并由结构守卫锁定 10 项上限、共享图标组件、App Store 入口图标、720px 内容列与窄宽度布局。
+
+### Mini App Creator：面向使用者的 Skill 与 Agent 模板（已完成，P1）
+
+- Mini App 平台此前只有契约、没有入口：拿到 Molibot 的人除了读 `src/lib/server/miniapps/` 源码，没有别的办法学会怎么写一个应用。现在补上两个共享同一份知识的入口——**`miniapp-creator` Skill**（`skills/miniapp-creator/`，给已经在会话里的 Agent 用）与 **Mini App Creator Agent 模板**（`src/lib/server/agent/prompts/templates/miniapp-creator/`，给想要一个专职智能体的用户）。
+- 两者的核心工作方式都是**从可运行模板改，不从零写**。`skills/miniapp-creator/template/` 是一个完整可跑的应用：SQLite（WAL + 每次写一个事务）、四个工具 handler、与之共用领域模块的 HTTP handler、revision 轮询、中英文文案、明暗色 token、403/503 降级，直接对齐随平台交付的 Todo 参考实现。`scripts/scaffold.mjs <app-id> "<显示名>" <目录>` 负责复制并一次性替换 manifest id、SQLite 文件名、表名、CSS 前缀与 DOM id——手工重命名恰恰最容易漏掉其中一处，而且要到重启服务后才暴露。
+- `reference.md` 收录宿主强制的契约（manifest 校验规则、`miniapp__<appId>__<tool>` 命名、风险提示分级、运行时工厂形状、保留路由 `/_host/state`、iframe 与 CSP 边界、信任模型、schemaVersion 升级语义），因此 Skill 在没有 checkout 宿主仓库时同样可用。
+- **Skill 现在真的会随包分发**：Skill 加载器只读用户工作区（`<dataRoot>/skills`、`<workspace>/skills`、项目 `.agents/skills`），而 `bin/molibot-release.sh` 从来没有拷贝过仓库根的 `skills/` 目录——也就是说本仓库所有 Skill 对打包安装的用户都是不可见的，一个让 Agent 去执行 `skills/miniapp-creator/scripts/scaffold.mjs` 的指引会指向不存在的路径。新增 `ensureBuiltinSkills()` 按内置 Mini App 的同一套做法补上：文件用 `?raw` 内联进服务端 bundle（仓库副本仍是唯一事实来源，不在 `src/` 下留第二份），启动时物化到 `<dataRoot>/skills/<id>`；已存在的目录绝不覆盖，并用安装台账 `.builtin-skills.json` 记录，用户删掉的内置 Skill 不会在下次启动被复活。
+- 验证：生成结果通过真实的 `readMiniAppManifest` 校验（Ajv 编译 + `engines` 范围 + 工具规则）；对生成的 `server/index.mjs` 做冒烟运行，在临时 SQLite 库上跑通四个工具与 HTTP 路由，并断言 manifest 工具清单与 handler 集合完全一致；`src/lib/server/agent/skills/bootstrap.test.ts` 覆盖安装 / 不覆盖 / 墓碑 / 台账损坏，并闭环断言物化后的 Skill 能被 `loadSkillsFromWorkspace` 以 `global` 作用域和正确 `baseDir` 发现；Agent 测试套件 72/72；`vite build` 通过且在服务端 chunk 里确认到模板 SQL（即确实随包发布）；`builtInAgentTemplates` 测试能列出新模板。
+
+### Mini App 调用体验修复：选择器可见、工具必须真调、`@` 唤出应用列表（已完成，P1）
+
+- **`@todo` 不再从会话记录里消失**：路由消费掉前导选择器后，持久化的却是被剥掉的正文，于是会话列表和 transcript 里显示的是用户从没输入过的 `现在有哪些任务`。现在选择器只从**模型消息**里剥离（那里路由已经生效），持久化文本保留原样，transcript 因此把它渲染成 **MINI APP** 调用胶囊，和 `/command`、`/skill` 一致。回归见 `src/lib/server/miniapps/invocation.test.ts`。
+- **"把工具调用写成文字"不再算完成**：较弱模型会用 `run miniapp__todo__add with title is ...` 这样的散文回答一个 `@app` 轮次然后停下——什么都没执行，回复却读起来像成功，用户要求添加的任务被静默丢弃。现在每轮控制指令会列出预加载的工具 id 并明确"把调用写成文字等于没执行"；模型仍然这么做时，runner 通过 `describesUncalledMiniAppTool` 识别、回滚该次尝试并带显式指令重试一次。重试以"本次尝试零工具执行"为前提，因此不可能重复触发副作用。回归见 `src/lib/server/miniapps/toolCallIntent.test.ts`。
+- **输入框 `@` 唤出已安装小程序列表**：以前必须记住并手打 app id。现在 `@` 复用 `/` 的建议菜单，只列已启用且加载成功的应用，选中后插入路由真正接受的 token，并在输入框里以专属青色胶囊标识（命令是强调蓝，Skill 是紫色）。`/` 不再混入小程序，`@` 也不再混入命令与 Skill；安装、卸载、启停会失效建议缓存，避免 `@` 继续展示过期列表（Settings 与 Chat 共用一个 WebView）。
+- 两种调用色现在是真实 CSS 变量（`--skill-accent`、`--miniapp-accent`，明暗两套都声明），不再依赖未定义的 `--purple-700` 靠 fallback 生效。
+- 验证：`svelte-check` 0 错 0 警、`vite build`、桌面测试套件（71 + 126）、Mini App 与 composer 建议服务端测试。
+
+### Mini App 显式调用与跨渠道清单命令（已完成，P1）
+
+- 现在可在任意对话入口使用 `@todo 添加任务：买牛奶` 或 `@todo list unfinished tasks` 显式指定小程序；选择器只对当前轮有效、不进入模型消息（保留在持久化 transcript 中，见上一条修复），且本轮 Mini App 工具搜索只保留被指定应用的工具。
+- 新增 `/miniapps`（别名 `/mini-apps`、`/apps`）跨渠道列出当前已安装小程序、状态、`@app-id` 用法与工具；Web 输入框的命令建议同步提供该快捷入口。
+- 修复首版延迟工具加载只更新下一轮 `Agent.state.tools` 的缺陷：本轮 loop 快照现在会在 toolSearch 后刷新。显式 `@app-id` 则在首个模型请求前预加载该 App 的工具，并从执行面移除 bash、memory、文件与 toolSearch，避免模型在工具缺席时越界替代调用。
+
+### Mini App 平台：工作区可插拔应用（Agent 工具 + 托管 UI）（已完成，P1）
+
+- 新增 **Mini App** 机制：一个应用同时提供 Agent 工具、自带 UI 和一份私有数据，三者共用同一个领域模块，因此对话里加的待办和面板里看到的待办永远是同一份数据。安装 = 把目录放进 `~/.molibot/miniapps/apps/<app-id>/` 后重启服务；数据独立存放在 `miniapps/data/<app-id>/`，安装、升级、卸载都不会被动到（卸载时是否删除数据由用户明确选择）。
+- **MiniAppHost（`src/lib/server/miniapps/host.ts`）是唯一跨越缝**：目录扫描、manifest 校验、路径包含性、ESM 懒加载、单实例缓存、revision、in-flight 计数和卸载顺序都留在模块内部。Agent 工具适配器、SvelteKit 路由和 Settings 只看到 catalog / 工具描述 / 调用 / HTTP / 生命周期。
+- **一个 App 只有一个 Runtime 实例**：工具 handler 和 HTTP handler 共享同一个 SQLite 连接与 revision 计数器，并发首次调用共享同一个 loading Promise（测试断言 factory 只执行一次）——否则 Agent 和 UI 会各自持有一份状态并逐渐分叉。
+- **禁用在调用时强制，而不是只在列表里过滤**：工具列表过滤只是交互提示；`invokeTool` 与两个 HTTP 入口每次都重新读取启停状态，所以运行中的一轮对话里关掉开关，已加载的工具下一次调用仍会被拒绝，UI 与 API 路由同时返回 403。
+- **Manifest 严格校验**：`manifestVersion`/id/SemVer 版本/`engines.molibot` 范围/entry 路径包含性/工具名唯一性/`inputSchema` 由 Ajv 预编译；未识别的顶层字段直接拒绝，避免拼写错误被静默忽略。任何失败都生成带原因的 catalog error 条目，而不是静默跳过。
+- **工具命名与风险**：内部注册名 `miniapp__<appId>__<toolName>`，展示名 `<appId>.<toolName>`，与 `mcp__server__tool` 命名空间不冲突。风险只由 manifest 的 `readOnlyHint`/`destructiveHint` 推导（只读=low，破坏性=high 走既有审批链，其余=medium），`source` 固定为 `plugin`，绝不落进 builtin/low 兜底，也不从工具名猜语义。
+- **工具经 toolSearch 延迟加载**：已安装应用集合是动态的，其名称和 schema 不进入系统提示词稳定前缀；提示词只增加一条稳定规则，Agent 用领域关键词（`todo` / `待办`）搜索即可拿到完整 schema。
+- **UI 托管与 loopback 防护**：`/miniapps/<app-id>/` 托管静态资源，`/miniapps/<app-id>/api/*` 进入 App 自己的 handler，`/_host/state` 由宿主直接回答 revision。宿主统一负责 JSON 信封、1 MiB body 上限、`Cache-Control: no-store` 和文档级 CSP；App 不能设置任何响应头。所有路由要求自定义 `X-Molibot-Miniapp-Proxy` 头且不返回任何 CORS 许可，因此扫描本机端口的网页无法调用 App API（该设计防浏览器页面，不承诺隔离本机其他进程）。
+- **固定自定义协议解决"动态端口 vs 静态 CSP"**：Server 端口由 supervisor 运行时决定，而 Tauri CSP 构建期固定，所以面板从固定来源 `molibot-miniapp://<app-id>/` 加载，由 `apps/desktop/src-tauri/src/miniapp_protocol.rs` 转发到 `http://127.0.0.1:<runtime-port>/miniapps/<app-id>/*`。CSP 只放行 `frame-src molibot-miniapp:`，**不放宽任何 localhost 端口范围**；转发层不跟随重定向、不转发 cookie/authorization、强制覆盖 proxy 头，并且 upstream 只能来自 supervisor 状态而非 iframe 指定。
+- **Chat Inspector 缝**：右侧面板升级为显式 `ChatInspector` 状态，File Inspector 和 Mini App Inspector 是同一条缝的两个 Adapter，共用网格轨道、存储宽度、拖动手柄、最小宽度和窄屏规则；打开一个即关闭另一个，永远不会出现第四列，窄屏也保持 in-flow 而非 fixed 覆盖。
+- **Sidebar 与 Settings 分工**：Sidebar 的「小应用」是与会话树、项目树平级的一级分组，只列出已启用且加载成功的应用；停用和加载失败的应用在「设置 → 插件 → 小应用」中管理，那里能看到具体原因。启停与卸载走独立的细粒度路由（PATCH/DELETE `/api/desktop/miniapps`），不会顺带提交插件编辑器里其它未保存的字段；删除数据是单独措辞的不可恢复确认。
+- **Todo 参考实现**：随服务 bundle 内嵌，首次启动写入空工作区（已存在则绝不覆盖；用户卸载内置应用后写入 `removedBuiltin` 墓碑，下次启动不会偷偷装回来）。提供 add/list/complete/delete 四个工具和对应 HTTP 接口，SQLite 启用 WAL + busy_timeout + 每次写入事务，UI 每 2 秒轮询 `_host/state` 的 revision，面板不可见时暂停轮询，403/503 会降级提示而不是无限重试，中英文与 Light/Dark 由 iframe URL hint 初始化。
+- **数据安全边界**：schemaVersion 不匹配时停用并报错，宿主绝不自动迁移用户数据；卸载会先拒绝新调用、等待 in-flight 清零（超时返回 409 且不删任何文件）、调用 `dispose()`，之后才动文件系统。响应与工具 details 中不出现宿主绝对路径、凭据或 stack。
+- **开发者契约**：`docs/guides/miniapps/authoring.md` 给出目录约定、manifest 字段表、Runtime/HTTP 契约、UI 与轮询规则、信任模型、升级与迁移规则和交付检查清单，第二个 Mini App 无需改动 Molibot 主应用即可安装。
+- **入口、安装与图标（对首版的补充）**：
+  - Chat 侧边栏一级导航新增「小程序」，与自动任务、技能、Agent 平级，点进去就是完整管理页（安装、启停、查看状态与错误、打开、卸载）。此前唯一的管理入口在「设置 → 系统 → 插件」页面底部，实际上没人找得到。设置页现在挂载**同一个组件**，两个入口不会各自演化。
+  - 侧边栏分组命名为「小程序」，优先展示最近使用的 10 个（按打开时间倒序，未打开过时用 catalog 顺序补足），下方「全部」跳转到管理页。管理页、侧栏快捷项和 Inspector 标题栏统一展示 manifest 图标。
+  - 支持三种图形化安装：本地目录、ZIP 压缩包、GitHub 仓库（`owner/repo` 或 github.com 链接，可选分支/标签）。安装先落到临时暂存目录并在那里完成 manifest 校验，校验通过才原子移入安装根——因此坏的来源什么都装不上，覆盖安装失败时旧版本原封不动。返回结果明确告知"新代码需重启后生效"，而不是让界面暗示应用已经在跑。
+  - 压缩包解压做了实打实的加固：越界条目（含 yauzl 只报「流错误」、否则会显示成误导性「压缩包损坏」的那种）、symlink 条目、超大压缩包、按解压后总体积判定的 zip bomb、条目数量爆炸，全部拒绝。repo 与 ref 在拼 URL 之前先过正则，非法输入根本不会发起网络请求。从目录安装时跳过 `.git` 与 `node_modules`，且不跟随任何 symlink。
+  - **记录并展示来源**：每个应用都标明是内置、本地目录、ZIP，还是某个 GitHub 仓库与 ref，重启后依然保留。
+  - manifest 新增可选 `ui.icon`（`ui/` 下的 SVG/PNG，≤64 KB），侧边栏与管理页显示。图标以 `data:` URI 内联进 catalog——若改为 URL 提供，就必须把应用 CSP 的 `img-src` 放宽到自定义协议，并把可解析的资源路径放进 Desktop 契约。声明了却加载不到的图标是显式错误，不做静默兜底。Todo 已附带图标。
+  - **修复：Agent 发现不了已安装的应用**。`<available-deferred-tools>` 是固定的内置工具名单，Mini App 工具不在其中，模型唯一的线索是提示词规则里恰好写死的 "todo / 待办" 举例——Todo 能用纯属巧合，之后装的记账、书单之类根本不会被搜到。现在提示词新增 `<installed-mini-apps>` 段落，列出每个已启用应用的名称、id、描述与工具 id（只有名字，没有 schema，schema 仍通过 `toolSearch` 获取）。该段落位于与 `available-skills` 同区的易变尾部，安装应用不会让可缓存的提示词前缀失效。
+  - 应用列表由调用方传入提示词构造函数，而不是在其中读取 host 单例。读单例会让提示词内容取决于当前用户真实 `~/.molibot` 里装了什么——在装有应用的机器上提示词体积测试会失败，在干净机器上却通过。
+  - **安全说明**：远程安装是对 PRD 信任模型的主动扩展——原模型假设所有应用都是 owner 自己写的。小应用服务端代码在 Molibot 进程内**无沙箱**运行，可读写你的文件，GitHub 安装与手放目录在这一点上完全相同。界面在每次安装前明示这一后果并要求确认（确认框中会写明来源）。签名、权限粒度与子进程隔离仍未实现；在它们落地之前，只安装你自己写过或读过的应用。
+- 需求与实施方案：[miniapp-platform-prd.md](docs/requirements/miniapp-platform-prd.md)、[miniapp-platform-implementation-plan.md](docs/requirements/miniapp-platform-implementation-plan.md)。
+
+---
 ## 2026-08-01
 
 ### OpenConnector 服务目录与 Agent MCP 接入（已完成，P1）
@@ -19,6 +80,7 @@
 - **Provider 可读性与组合筛选**：目录从三列改为两列，给 Provider 名称和技术标识保留足够空间；搜索、连接状态和分类现在位于同一行。分类使用共享 Bits UI 多选下拉，支持同时选择多个分类（任一命中），空选择表示全部分类，并在窄宽度下垂直排列、目录回落为单列。
 - Provider 结果不再共用整行外框；每个服务是独立的带边框卡片。筛选后出现单数结果时，最后一张只占左列，右列保持自然留白。
 - Provider 卡片将连接状态与“管理/连接”组合为固定的右侧操作区；Logo、名称和技术标识独占左侧弹性空间，不再因名称长度产生参差排列。
+- 有 `homepageUrl` 的 Provider 将 Logo 与名称显示为带外链标识的官网入口，通过 Desktop 安全外链能力在系统浏览器打开；缺少官网元数据时保持不可点击，避免猜测或伪造地址。
 
 ### Desktop 设置下拉菜单交互与宽度修复（已完成，P0）
 

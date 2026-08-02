@@ -10,6 +10,8 @@ import { getProjectStore } from "$lib/server/projects/store";
 import { resolveRuntimeContext } from "$lib/server/web/runtimeContext";
 import { loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills";
 import { sanitizeWebProfileId } from "$lib/server/web/identity";
+import { buildDesktopMiniApps } from "$lib/server/app/desktopMiniApps";
+import { getMiniAppHost } from "$lib/server/miniapps/registry";
 
 export const GET: RequestHandler = async ({ url }) => {
   const runtime = getRuntime();
@@ -31,9 +33,16 @@ export const GET: RequestHandler = async ({ url }) => {
     skills = buildDesktopSkillsSummary(payload).items;
   }
   const locale = isChineseLocale(runtime.getSettings().locale) ? "zh" : "en";
+  // A broken or unavailable Mini App host must not empty the command palette.
+  let miniApps: ReturnType<typeof buildDesktopMiniApps> = [];
+  try {
+    miniApps = buildDesktopMiniApps(getMiniAppHost().listCatalog());
+  } catch {
+    miniApps = [];
+  }
   const response: DesktopComposerSuggestionsResponse = {
     ok: true,
-    suggestions: buildComposerSuggestions(skills, locale)
+    suggestions: buildComposerSuggestions(skills, locale, miniApps)
   };
   return json(response, { headers: { "Cache-Control": "no-store" } });
 };

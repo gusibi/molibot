@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import {
+  buildSystemPrompt,
   buildSystemPromptPreview,
   getProjectPromptRefreshKey,
   getSystemPromptSources
@@ -670,4 +671,50 @@ test("selected critical prompt rules retain their anchors and duplication bounds
   } finally {
     rmSync(workspaceDir, { recursive: true, force: true });
   }
+});
+
+test("installed Mini Apps are named in the prompt so the agent knows to search for them", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-prompt-miniapps-"));
+
+  const withApps = buildSystemPrompt(workspaceDir, "chat-1", "session-1", "(memory)", {
+    channel: "web",
+    miniApps: [
+      { id: "todo", name: "Todo", description: "One shared todo list.", toolNames: ["add", "list"] },
+      { id: "expenses", name: "Expenses", description: "Track spending.", toolNames: ["record"] }
+    ]
+  });
+
+  // The whole point: an app the model has never heard of must still be
+  // discoverable. Its name, id and tool ids all have to appear.
+  assert.match(withApps, /<installed-mini-apps>/);
+  assert.match(withApps, /\*\*Expenses\*\* \(expenses\)/);
+  assert.match(withApps, /miniapp__expenses__record/);
+  assert.match(withApps, /miniapp__todo__add, miniapp__todo__list/);
+  // Schemas stay out; they arrive through toolSearch.
+  assert.doesNotMatch(withApps, /inputSchema/);
+
+  // The list sits in the volatile tail, after the cacheable prefix, so
+  // installing an app does not invalidate the whole prompt cache.
+  // lastIndexOf, not indexOf: the toolSearch protocol rule names the tag in its
+  // prose, so the first match is a mention rather than the section itself.
+  const sectionAt = withApps.lastIndexOf("<installed-mini-apps>");
+  assert.ok(
+    sectionAt > withApps.indexOf("<core-directives>"),
+    "the Mini App list must live in the volatile tail, after the cacheable prefix"
+  );
+  assert.ok(
+    sectionAt < withApps.lastIndexOf("<current-memory>"),
+    "the Mini App list belongs with the other volatile sections"
+  );
+
+  // No apps installed = no section at all, not an empty heading.
+  const withoutApps = buildSystemPrompt(workspaceDir, "chat-1", "session-1", "(memory)", { channel: "web" });
+  // The stable rule still explains the `miniapp__` naming, but no app list and
+  // no concrete tool id may appear when nothing is installed.
+  assert.doesNotMatch(withoutApps, /## Installed Mini Apps/);
+  assert.doesNotMatch(withoutApps, /miniapp__todo__/);
+
+  // Prompt construction must not reach for the Mini App host singleton, or the
+  // rendered prompt would depend on whatever is installed in the real workspace.
+  assert.doesNotMatch(promptSource, /getMiniAppHost/);
 });

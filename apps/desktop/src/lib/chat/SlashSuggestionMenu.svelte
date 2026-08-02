@@ -6,12 +6,12 @@
   export let onSelect: (suggestion: DesktopComposerSuggestion) => void;
 </script>
 
-<div class="slash-suggestions" role="listbox" aria-label="Slash commands and Skills">
-  {#each ["command", "skill"] as kind}
+<div class="slash-suggestions" role="listbox" aria-label="Slash commands, Skills and Mini Apps">
+  {#each ["command", "skill", "miniapp"] as kind}
     {@const items = suggestions.filter((item) => item.kind === kind)}
     {#if items.length}
       <div class="slash-suggestion-group">
-        <div class="slash-suggestion-heading">{kind === "command" ? "COMMANDS" : "SKILLS"}</div>
+        <div class="slash-suggestion-heading">{kind === "command" ? "COMMANDS" : kind === "skill" ? "SKILLS" : "MINI APPS"}</div>
         {#each items as item (item.id)}
           {@const index = suggestions.indexOf(item)}
           <button
@@ -23,7 +23,7 @@
             onmousedown={(event) => event.preventDefault()}
             onclick={() => onSelect(item)}
           >
-            <span class="slash-suggestion-icon" data-kind={item.kind}><i class={`ph ${item.kind === "command" ? "ph-terminal-window" : "ph-sparkle"}`} aria-hidden="true"></i></span>
+            <span class="slash-suggestion-icon" data-kind={item.kind}><i class={`ph ${item.kind === "command" ? "ph-terminal-window" : item.kind === "skill" ? "ph-sparkle" : "ph-squares-four"}`} aria-hidden="true"></i></span>
             <span class="slash-suggestion-copy"><strong>{item.label}</strong><small>{item.description}</small></span>
             {#if item.argumentHint}<code>{item.argumentHint}</code>{:else if item.scope}<span class="slash-suggestion-scope">{item.scope}</span>{/if}
           </button>

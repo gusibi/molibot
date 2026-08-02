@@ -20,6 +20,9 @@ cpal = "0.15"
 hound = "3"
 file-rotate = "0.8"
 base64 = "0.22"
+# Loopback-only forwarder for the Mini App custom protocol. No TLS features:
+# it must never be able to reach anything but the local Molibot service.
+reqwest = { version = "0.12", default-features = false }
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-http = "2"

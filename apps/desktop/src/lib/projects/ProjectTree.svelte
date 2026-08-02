@@ -258,9 +258,9 @@
 </script>
 
 <div class="project-tree">
-  <div class="project-tree-head" class:open={expanded}>
-    <button type="button" class="project-tree-toggle" aria-expanded={expanded} onclick={onToggle}>
-      <span>{copy.projects}</span><i class="ph ph-caret-right project-tree-caret" class:open={expanded} aria-hidden="true"></i>
+  <div class="sidebar-section-head" class:open={expanded}>
+    <button type="button" class="sidebar-section-toggle" aria-expanded={expanded} onclick={onToggle}>
+      <span>{copy.projects}</span><i class="ph ph-caret-right sidebar-section-caret project-tree-caret" class:open={expanded} aria-hidden="true"></i>
     </button>
     <button type="button" class="project-add" aria-label={copy.addProject} title={copy.addProject} onclick={() => void beginAdding()}><i class="ph ph-plus" aria-hidden="true"></i></button>
   </div>
@@ -340,20 +340,14 @@
 {/if}
 
 <style>
-  .project-tree { min-width: 0; padding: 0 0 8px; }
+  .project-tree { min-width: 0; }
   .project-tree-group { position: relative; padding-left: 8px; }
   .project-row-menu { position: absolute; z-index: 20; top: 32px; right: 8px; display: grid; width: 148px; padding: 4px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); box-shadow: var(--popover-shadow); }
   .project-row-menu button { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
   .project-row-menu button:hover { background: var(--fill); }
   .project-row-menu button.danger-action { color: var(--danger); }
-  .project-tree-head { position: sticky; z-index: 4; top: 0; display: flex; align-items: center; min-height: 32px; padding: 0 4px; background: transparent; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
-  :global(html[data-reduced-transparency="true"]) .project-tree-head { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--sidebar-bg); }
-  .project-tree-toggle { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 32px; padding: 0 4px; border: 0; background: transparent; color: var(--label-secondary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
-  .project-tree-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .project-tree-caret, .project-add { opacity: 0; pointer-events: none; transition: opacity var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); }
-  .project-tree-head:hover .project-tree-caret, .project-tree-head:hover .project-add, .project-tree-head:focus-within .project-tree-caret, .project-tree-head:focus-within .project-add { opacity: 1; pointer-events: auto; }
-  .project-tree-caret { font-size: 11px; color: var(--label-tertiary); }
-  .project-tree-caret.open { transform: rotate(90deg); }
+  .sidebar-section-head:hover .project-tree-caret, .sidebar-section-head:hover .project-add, .sidebar-section-head:focus-within .project-tree-caret, .sidebar-section-head:focus-within .project-add { opacity: 1; pointer-events: auto; }
   .project-add { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; margin-right: 2px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
   .project-add:hover { background: var(--fill); color: var(--label-primary); }
   .project-tree-state { margin: 0; padding: 6px 12px 6px 32px; color: var(--label-tertiary); font-size: 12px; }

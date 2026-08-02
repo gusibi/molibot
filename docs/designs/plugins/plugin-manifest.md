@@ -46,3 +46,8 @@ Important:
 - This manifest flow currently covers external `channel` and `provider` discovery.
 - Feature plugins exist today as built-in code-registered runtime plugins, not as executable external manifests.
 - For a practical authoring/install guide, see [`docs/guides/plugins/plugin-authoring.md`](../../guides/plugins/plugin-authoring.md).
+- **Mini Apps are a separate plugin kind with their own manifest.** They live under
+  `~/.molibot/miniapps/apps/<app-id>/manifest.json`, not `plugins/`, and unlike the
+  manifests above their server code *is* executed in-process. They contribute Agent
+  tools plus a hosted UI over one private data directory. See
+  [`docs/guides/miniapps/authoring.md`](../../guides/miniapps/authoring.md).

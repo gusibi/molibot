@@ -7,6 +7,19 @@ export const composerSuggestionsStore = $state({
   items: [] as DesktopComposerSuggestion[]
 });
 
+/**
+ * Drops the cache so the next `ensureComposerSuggestions` refetches.
+ *
+ * The catalog carries Mini Apps, so installing, uninstalling or toggling one
+ * changes what `@` may offer. Without this the composer keeps advertising an
+ * app that no longer exists — or hides one the owner just installed — until the
+ * WebView reloads. Settings and Chat share one WebView, so the mutation and the
+ * stale consumer are always live at the same time.
+ */
+export function invalidateComposerSuggestions(): void {
+  composerSuggestionsStore.endpoint = "";
+}
+
 export async function ensureComposerSuggestions(endpoint: string, projectId = ""): Promise<void> {
   const cacheKey = `${endpoint}::${projectId}`;
   if (!endpoint || cacheKey === composerSuggestionsStore.endpoint) return;
@@ -19,6 +32,6 @@ export async function ensureComposerSuggestions(endpoint: string, projectId = ""
   }
 }
 
-export function classifyComposerInvocation(content: string): { kind: "command" | "skill"; token: string } | null {
+export function classifyComposerInvocation(content: string): { kind: DesktopComposerSuggestion["kind"]; token: string } | null {
   return classifyComposerSuggestion(content, composerSuggestionsStore.items);
 }

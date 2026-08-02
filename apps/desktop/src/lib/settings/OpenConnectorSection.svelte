@@ -120,13 +120,23 @@
           {#each visibleProviders as provider (provider.service)}
             {@const connections = connectionsByService.get(provider.service) ?? []}
             <article class="connector-card">
-              <div class="connector-card-head">
-                <div class="connector-icon">
-                  <span>{provider.displayName.slice(0, 1).toUpperCase()}</span>
-                  {#if provider.iconUrl}<img src={provider.iconUrl} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={(event) => event.currentTarget.remove()} />{/if}
+              {#if provider.homepageUrl}
+                <button class="connector-card-head connector-provider-link" type="button" title={provider.homepageUrl} aria-label={session.text.openConnectorOpenHomepage.replace("{name}", provider.displayName)} onclick={() => void openUrl(provider.homepageUrl)}>
+                  <div class="connector-icon">
+                    <span>{provider.displayName.slice(0, 1).toUpperCase()}</span>
+                    {#if provider.iconUrl}<img src={provider.iconUrl} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={(event) => event.currentTarget.remove()} />{/if}
+                  </div>
+                  <div class="connector-card-title"><strong><span>{provider.displayName}</span><i class="ph ph-arrow-square-out" aria-hidden="true"></i></strong><small>{provider.service}</small></div>
+                </button>
+              {:else}
+                <div class="connector-card-head">
+                  <div class="connector-icon">
+                    <span>{provider.displayName.slice(0, 1).toUpperCase()}</span>
+                    {#if provider.iconUrl}<img src={provider.iconUrl} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={(event) => event.currentTarget.remove()} />{/if}
+                  </div>
+                  <div class="connector-card-title"><strong><span>{provider.displayName}</span></strong><small>{provider.service}</small></div>
                 </div>
-                <div class="connector-card-title"><strong>{provider.displayName}</strong><small>{provider.service}</small></div>
-              </div>
+              {/if}
               <div class="connector-card-actions">
                 <span class="status-badge" data-state={connections.length ? "ready" : "disconnected"}>{connections.length ? session.text.openConnectorConnected : session.text.openConnectorAvailable}</span>
                 <button class="connector-card-action" type="button" aria-label={connections.length ? session.text.openConnectorManage : session.text.openConnectorConnect} onclick={() => void openUrl(providerUrl(provider.service))}><span>{connections.length ? session.text.openConnectorManage : session.text.openConnectorConnect}</span><i class="ph ph-caret-right" aria-hidden="true"></i></button>

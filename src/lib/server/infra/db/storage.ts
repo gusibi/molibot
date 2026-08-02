@@ -15,7 +15,19 @@ export const storagePaths = {
   projectsDir: path.resolve(config.dataDir, "projects"),
   webWorkspaceDir: path.resolve(config.webWorkspaceDir),
   sessionsDir: path.resolve(config.sessionsDir),
-  sessionsIndexFile: path.resolve(config.sessionsIndexFile)
+  sessionsIndexFile: path.resolve(config.sessionsIndexFile),
+  /**
+   * The global (owner-wide) Skill root. Must stay in step with
+   * `resolveGlobalSkillsDirFromWorkspacePath`, which is how the loader derives
+   * the same directory from a workspace path.
+   */
+  globalSkillsDir: path.resolve(config.dataDir, "skills"),
+  // Mini App platform. Code and data are siblings with independent lifecycles:
+  // `apps/` is replaceable (an upgrade swaps the whole directory), `data/`
+  // survives install, upgrade and — at the owner's choice — uninstall.
+  miniAppsDir: path.resolve(config.dataDir, "miniapps"),
+  miniAppCodeDir: path.resolve(config.dataDir, "miniapps", "apps"),
+  miniAppDataDir: path.resolve(config.dataDir, "miniapps", "data")
 };
 
 const SQLITE_SIDE_SUFFIXES = ["-wal", "-shm"];
@@ -78,6 +90,9 @@ export function initDb(): void {
   fs.mkdirSync(storagePaths.projectsDir, { recursive: true });
   fs.mkdirSync(storagePaths.webWorkspaceDir, { recursive: true });
   fs.mkdirSync(storagePaths.sessionsDir, { recursive: true });
+  fs.mkdirSync(storagePaths.globalSkillsDir, { recursive: true });
+  fs.mkdirSync(storagePaths.miniAppCodeDir, { recursive: true });
+  fs.mkdirSync(storagePaths.miniAppDataDir, { recursive: true });
   migrateLegacyDbFiles();
 
   if (!fs.existsSync(storagePaths.settingsFile)) {

@@ -1,0 +1,163 @@
+{
+  "manifestVersion": 1,
+  "id": "starter",
+  "name": "Starter",
+  "version": "1.0.0",
+  "description": "A working Mini App skeleton: one record list, managed from chat and from the desktop panel.",
+  "engines": {
+    "molibot": ">=2.8.0 <4"
+  },
+  "runtime": {
+    "entry": "server/index.mjs"
+  },
+  "ui": {
+    "entry": "ui/index.html",
+    "icon": "ui/icon.svg"
+  },
+  "data": {
+    "schemaVersion": 1
+  },
+  "tools": [
+    {
+      "name": "add",
+      "title": "Add Record",
+      "description": "Add one record to the owner's Starter list. Replace this description with the exact situation in which the agent should call your tool — it is the only signal the model has.",
+      "keywords": [
+        "starter",
+        "record",
+        "note",
+        "add",
+        "记录",
+        "添加",
+        "记一下"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "What the record is about, in the user's own words."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Optional longer detail."
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "list",
+      "title": "List Records",
+      "description": "List the owner's Starter records, optionally filtered by status.",
+      "keywords": [
+        "starter",
+        "record",
+        "list",
+        "show",
+        "记录",
+        "列表",
+        "有哪些"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "all",
+              "open",
+              "done"
+            ],
+            "description": "Which records to return. Defaults to open."
+          }
+        },
+        "additionalProperties": false
+      },
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "update",
+      "title": "Update Record",
+      "description": "Change a record's title, note, or done flag. Call list first to get the record id.",
+      "keywords": [
+        "starter",
+        "record",
+        "update",
+        "edit",
+        "done",
+        "记录",
+        "修改",
+        "完成"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Record id from list."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "done": {
+            "type": "boolean",
+            "description": "True to mark the record done, false to reopen it."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "remove",
+      "title": "Delete Record",
+      "description": "Permanently delete one record. This cannot be undone; prefer update with done:true when the user simply finished it.",
+      "keywords": [
+        "starter",
+        "record",
+        "delete",
+        "remove",
+        "记录",
+        "删除",
+        "去掉"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Record id from list."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": true
+    }
+  ]
+}

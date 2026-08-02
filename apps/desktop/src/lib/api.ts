@@ -45,6 +45,12 @@ import type {
   DesktopPluginsResponse,
   DesktopPluginsSummary,
   DesktopPluginsUpdateRequest,
+  DesktopMiniAppItem,
+  DesktopMiniAppsResponse,
+  DesktopMiniAppToggleRequest,
+  DesktopMiniAppUninstallRequest,
+  DesktopMiniAppInstallRequest,
+  DesktopMiniAppInstallResponse,
   DailyMaterialsBackfillResponse,
   DailyMaterialsBackfillStatus,
   DesktopProfileFilesResponse,
@@ -1167,6 +1173,73 @@ export async function loadDesktopPlugins(endpoint: string): Promise<DesktopPlugi
 export async function saveDesktopPlugins(endpoint: string, input: DesktopPluginsUpdateRequest): Promise<DesktopPluginsSummary> {
   const payload = await requestJson<DesktopPluginsResponse>(endpoint, "/api/desktop/plugins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return payload.summary;
+}
+
+export async function loadDesktopMiniApps(endpoint: string): Promise<DesktopMiniAppItem[]> {
+  const payload = await requestJson<DesktopMiniAppsResponse>(endpoint, "/api/desktop/miniapps");
+  return payload.items;
+}
+
+/**
+ * Toggling one app is its own request, not part of the Plugins editor's PUT:
+ * a switch must not also commit whatever else is unsaved on that page.
+ */
+export async function setDesktopMiniAppEnabled(
+  endpoint: string,
+  appId: string,
+  enabled: boolean
+): Promise<DesktopMiniAppItem[]> {
+  const payload = await requestJson<DesktopMiniAppsResponse>(endpoint, "/api/desktop/miniapps", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ appId, enabled } satisfies DesktopMiniAppToggleRequest)
+  });
+  return payload.items;
+}
+
+export async function uninstallDesktopMiniApp(
+  endpoint: string,
+  appId: string,
+  deleteData: boolean
+): Promise<DesktopMiniAppItem[]> {
+  const payload = await requestJson<DesktopMiniAppsResponse>(endpoint, "/api/desktop/miniapps", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ appId, deleteData } satisfies DesktopMiniAppUninstallRequest)
+  });
+  return payload.items;
+}
+
+/**
+ * Installs a Mini App from a local directory, a local ZIP, or a GitHub repo.
+ *
+ * The installed code does not run until the service restarts (V1 has no hot
+ * reload), so the response reports that explicitly instead of leaving the UI to
+ * imply the app is already live.
+ */
+export async function installDesktopMiniApp(
+  endpoint: string,
+  request: DesktopMiniAppInstallRequest
+): Promise<DesktopMiniAppInstallResponse> {
+  return requestJson<DesktopMiniAppInstallResponse>(endpoint, "/api/desktop/miniapps/install", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
+/**
+ * The iframe URL for a Mini App panel.
+ *
+ * Deliberately NOT a loopback URL: the service port is decided at runtime while
+ * the WebView CSP is fixed at build time, so the panel loads from the fixed
+ * `molibot-miniapp://` origin and the Tauri transport forwards it to the real
+ * port. `locale` and `theme` are non-sensitive display hints the app reads at
+ * startup.
+ */
+export function miniAppPanelUrl(appId: string, locale: string, theme: "light" | "dark"): string {
+  const params = new URLSearchParams({ locale, theme });
+  return `molibot-miniapp://${appId}/index.html?${params.toString()}`;
 }
 
 export async function startDailyMaterialsBackfill(endpoint: string): Promise<DailyMaterialsBackfillStatus> {

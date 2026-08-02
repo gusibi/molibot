@@ -30,6 +30,8 @@ import { createTtsGenerateTool } from "$lib/server/agent/ttsGenerate/ttsGenerate
 import { createFeaturePluginTools } from "$lib/server/plugins/feature-registry.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { createPiExtensionTools } from "$lib/server/plugins/piExtensions/toolBridge.js";
+import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
+import { buildMiniAppDeferredTools } from "$lib/server/miniapps/toolAdapter.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import { resolveScratchArtifactDir } from "$lib/server/agent/session/scratchArtifacts.js";
@@ -150,6 +152,8 @@ export function createMomTools(options: {
   refreshLoadedMcpTools: () => Promise<{ serverCount: number; toolCount: number }>;
   onLocalToolsChanged?: (tools: AgentTool<any>[]) => void;
   exposeLoadMcpTool?: boolean;
+  /** A leading @mini-app selector preloads and exclusively exposes that app. */
+  miniAppId?: string;
   uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }): AgentTool<any>[] {
@@ -243,6 +247,9 @@ export function createMomTools(options: {
   // tool names are known (built-ins always win a name collision).
   let piExtensionTools: AgentTool<any>[] = [];
   const piExtensionToolNames = new Set<string>();
+  // Manifest risk hints per Mini App tool id, so classification never has to
+  // guess read-only / destructive from the tool name.
+  const miniAppToolHints = new Map<string, { readOnlyHint: boolean; destructiveHint: boolean }>();
 
   const registry = new ToolRegistry();
   const decidePolicy: ToolPolicyDecider = (tool, input, ctx) => {
@@ -375,7 +382,8 @@ export function createMomTools(options: {
   const wrapWithToolRuntime = (originalTool: AgentTool<any>): AgentTool<any> => {
     if (!registry.get(originalTool.name)) {
       const { risk, source } = getRuntimeToolClassification(originalTool.name, {
-        isExtensionTool: piExtensionToolNames.has(originalTool.name)
+        isExtensionTool: piExtensionToolNames.has(originalTool.name),
+        miniApp: miniAppToolHints.get(originalTool.name)
       });
       const toolDef: ToolDefinition = {
         id: originalTool.name,
@@ -495,7 +503,10 @@ export function createMomTools(options: {
       ...featureTools,
       ...piExtensionTools
     ];
-    return rawTools.map(tool => wrapWithToolRuntime(tool));
+    const scopedTools = options.miniAppId
+      ? rawTools.filter((tool) => tool.name.startsWith(`miniapp__${options.miniAppId}__`))
+      : rawTools;
+    return scopedTools.map(tool => wrapWithToolRuntime(tool));
   };
   const loadDeferredTools = (toolNames: string[]): string[] => {
     const loaded: string[] = [];
@@ -637,9 +648,51 @@ export function createMomTools(options: {
       ],
       tool: ttsGenerateRuntimeTool,
       loadDeferredTools
-    })
+    }),
+    // Installed Mini Apps. Deferred with no stub: the installed app set is
+    // dynamic, so their schemas must not enter the prompt's stable prefix, and
+    // a permissive stub would let the model call an app tool before it has seen
+    // the real schema.
+    ...(() => {
+      let miniAppEntries: ReturnType<typeof createDeferredToolEntry>[] = [];
+      try {
+        miniAppEntries = buildMiniAppDeferredTools(getMiniAppHost())
+          .filter((miniApp) => !options.miniAppId || miniApp.descriptor.appId === options.miniAppId)
+          .map((miniApp) => {
+          miniAppToolHints.set(miniApp.name, {
+            readOnlyHint: miniApp.descriptor.readOnlyHint,
+            destructiveHint: miniApp.descriptor.destructiveHint
+          });
+          return createDeferredToolEntry({
+            name: miniApp.name,
+            description: miniApp.description,
+            keywords: miniApp.keywords,
+            tool: miniApp.tool,
+            loadDeferredTools,
+            exposeStub: false
+          });
+        });
+      } catch (error) {
+        // A broken Mini App must not take down tool construction for the turn.
+        momLog("runner", "miniapp_tools_unavailable", {
+          chatId: options.chatId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      return miniAppEntries;
+    })()
   ];
   deferredTools = deferredEntries.map((item) => item.entry);
+  // The Agent loop snapshots its tools before the first provider request.
+  // Explicit @app invocation must therefore preload its tools now, rather
+  // than relying on a later toolSearch state update.
+  if (options.miniAppId) {
+    for (const entry of deferredTools) {
+      if (entry.name.startsWith(`miniapp__${options.miniAppId}__`)) {
+        loadedDeferredToolNames.add(entry.name);
+      }
+    }
+  }
 
   tools = [
     createMemoryTool({

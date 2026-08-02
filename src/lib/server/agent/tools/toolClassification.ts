@@ -7,6 +7,13 @@ export interface RuntimeToolClassificationOptions {
    * from attributing extension behaviour to Molibot itself.
    */
   isExtensionTool?: boolean;
+  /**
+   * Manifest risk hints for a Mini App tool. Risk is derived from declared
+   * semantics, never guessed from the tool name — a Mini App called
+   * `todo.delete` and one called `todo.archive` can have the same blast radius,
+   * and only the manifest knows which.
+   */
+  miniApp?: { readOnlyHint: boolean; destructiveHint: boolean };
 }
 
 /**
@@ -28,6 +35,14 @@ export function getRuntimeToolClassification(
   // the owner, so this always reaches the approval broker.
   if (toolName === "extensionManage") {
     return { risk: "critical", source: "builtin" };
+  }
+  // Mini App tools are owner-installed plugin code. They are classified from
+  // the manifest and must never fall through to the builtin/low default below,
+  // which would attribute app behaviour to Molibot itself.
+  if (toolName.startsWith("miniapp__")) {
+    if (options.miniApp?.destructiveHint) return { risk: "high", source: "plugin" };
+    if (options.miniApp?.readOnlyHint) return { risk: "low", source: "plugin" };
+    return { risk: "medium", source: "plugin" };
   }
   if (options.isExtensionTool) {
     return { risk: "medium", source: "plugin" };

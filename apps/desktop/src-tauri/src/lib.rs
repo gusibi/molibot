@@ -1,6 +1,7 @@
 mod app_menu;
 mod audio;
 mod desktop_preferences;
+mod miniapp_protocol;
 mod native_feedback;
 pub mod service;
 mod supervisor;
@@ -84,6 +85,30 @@ async fn pick_project_directory(window: tauri::Window) -> Result<Option<String>,
         .await
         .map_err(|error| error.to_string())?
         .map_err(|_| "The folder picker closed unexpectedly.".to_string())?;
+    let Some(path) = picked else { return Ok(None) };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Native file picker for a Mini App ZIP archive.
+///
+/// Mirrors `pick_project_directory`: the native panel blocks its parent window,
+/// so a second click cannot spawn a second picker.
+#[tauri::command]
+async fn pick_miniapp_archive(window: tauri::Window) -> Result<Option<String>, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .add_filter("Mini App archive", &["zip"])
+        .pick_file(move |picked| {
+            let _ = sender.send(picked);
+        });
+    let picked = tauri::async_runtime::spawn_blocking(move || receiver.recv())
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|_| "The file picker closed unexpectedly.".to_string())?;
     let Some(path) = picked else { return Ok(None) };
     let path = path.into_path().map_err(|error| error.to_string())?;
     Ok(Some(path.to_string_lossy().into_owned()))
@@ -250,11 +275,24 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(DesktopState::default()))
         .manage(audio::AudioState::default())
+        // Mini App UIs load from this fixed origin so the CSP can name it, even
+        // though the service port is only known at runtime. The upstream comes
+        // from supervisor state, never from the iframe.
+        .register_asynchronous_uri_scheme_protocol("molibot-miniapp", |app, request, responder| {
+            let endpoint = app
+                .app_handle()
+                .try_state::<Mutex<DesktopState>>()
+                .and_then(|state| state.lock().ok().and_then(|desktop| {
+                    desktop.service.lock().ok().and_then(|service| service.endpoint.clone())
+                }));
+            miniapp_protocol::handle(request, endpoint, responder);
+        })
         .invoke_handler(tauri::generate_handler![
             execute_native_command,
             sync_native_command_menu,
             show_main_window,
             pick_project_directory,
+            pick_miniapp_archive,
             desktop_status,
             set_login_start,
             set_close_behavior,

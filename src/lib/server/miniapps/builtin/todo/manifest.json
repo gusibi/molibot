@@ -1,0 +1,154 @@
+{
+  "manifestVersion": 1,
+  "id": "todo",
+  "name": "Todo",
+  "version": "1.0.0",
+  "description": "One shared todo list, managed from chat and from the desktop panel.",
+  "engines": {
+    "molibot": ">=2.8.0 <4"
+  },
+  "runtime": {
+    "entry": "server/index.mjs"
+  },
+  "ui": {
+    "entry": "ui/index.html",
+    "icon": "ui/icon.svg"
+  },
+  "data": {
+    "schemaVersion": 1
+  },
+  "tools": [
+    {
+      "name": "add",
+      "title": "Add Todo",
+      "description": "Add one item to the owner's shared todo list. Use this whenever the user asks to remember, track, or be reminded of a task.",
+      "keywords": [
+        "todo",
+        "todos",
+        "task",
+        "tasks",
+        "reminder",
+        "checklist",
+        "待办",
+        "任务",
+        "清单",
+        "记一下"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "What needs to be done, in the user's own words."
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "list",
+      "title": "List Todos",
+      "description": "List the owner's todo items, optionally filtered by status.",
+      "keywords": [
+        "todo",
+        "todos",
+        "task",
+        "tasks",
+        "list",
+        "pending",
+        "待办",
+        "任务",
+        "列表",
+        "还有什么"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "all",
+              "open",
+              "completed"
+            ],
+            "description": "Which items to return. Defaults to open."
+          }
+        },
+        "additionalProperties": false
+      },
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "complete",
+      "title": "Complete Todo",
+      "description": "Mark one todo item as done, or reopen it. Call list first to get the item id.",
+      "keywords": [
+        "todo",
+        "complete",
+        "done",
+        "finish",
+        "reopen",
+        "待办",
+        "完成",
+        "做完了"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Item id from list."
+          },
+          "completed": {
+            "type": "boolean",
+            "description": "True to complete, false to reopen. Defaults to true."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "remove",
+      "title": "Delete Todo",
+      "description": "Permanently delete one todo item. This cannot be undone; prefer complete when the user simply finished the task.",
+      "keywords": [
+        "todo",
+        "delete",
+        "remove",
+        "待办",
+        "删除",
+        "去掉"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Item id from list."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": true
+    }
+  ]
+}

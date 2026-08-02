@@ -50,6 +50,8 @@ import {
 import { resolveSessionWorkingDir } from "$lib/server/agent/core/runner";
 import { getProjectStore } from "$lib/server/projects/store";
 import { WEB_COMMAND_DEFINITIONS } from "$lib/server/app/composerSuggestions";
+import { getMiniAppHost } from "$lib/server/miniapps/registry";
+import { formatMiniAppList } from "$lib/server/miniapps/invocation";
 
 interface ChatBody {
   userId?: string;
@@ -110,6 +112,13 @@ function normalizeText(input: string): string {
 
 function buildModelsText(profileId: string, route: ModelRoute): string {
   const runtime = getRuntime();
+
+  if (cmd === "/miniapps" || cmd === "/mini-apps" || cmd === "/apps") {
+    return {
+      ok: true,
+      response: formatMiniAppList(getMiniAppHost().listCatalog(), isChineseLocale(runtime.getSettings().locale))
+    };
+  }
   const settings = runtime.getSettings();
   const options = buildModelOptions(settings, route);
   const activeKey = currentModelKey(settings, route);

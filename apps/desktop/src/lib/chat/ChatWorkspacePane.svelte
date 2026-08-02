@@ -3,6 +3,7 @@
   import type { Translation } from "../i18n";
   import TasksSection from "../settings/TasksSection.svelte";
   import InstalledSkillsPane from "./InstalledSkillsPane.svelte";
+  import MiniAppsManager from "../miniapps/MiniAppsManager.svelte";
   import type { ChatWorkspacePane } from "./workspace";
 
   export let pane: Exclude<ChatWorkspacePane, "chat">;
@@ -13,6 +14,7 @@
   export let onRetryService: () => void;
   export let onOpenAgentSettings: () => void;
   export let onAutomationUnreadChange: (count: number) => void = () => {};
+  export let onOpenMiniApp: (appId: string) => void = () => {};
 
   interface AgentStudioProps {
     copy: Translation;
@@ -35,7 +37,7 @@
 </script>
 
 <header class="chat-header workspace-header" data-tauri-drag-region>
-  <h1 class="workspace-page-title" data-tauri-drag-region>{pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : copy.agentsNav}</h1>
+  <h1 class="workspace-page-title" data-tauri-drag-region>{pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : copy.agentsNav}</h1>
 </header>
 
 <div class="workspace-scroll" data-workspace-pane={pane}>
@@ -48,6 +50,8 @@
     <TasksSection presentation="workspace" onUnreadChange={onAutomationUnreadChange} />
   {:else if pane === "skills"}
     <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />
+  {:else if pane === "miniapps"}
+    <MiniAppsManager onOpenApp={onOpenMiniApp} />
   {:else if AgentStudioComponent}
     <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} />
   {:else}

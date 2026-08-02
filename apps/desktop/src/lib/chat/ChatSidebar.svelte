@@ -3,6 +3,7 @@
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
   import ProjectTree from "../projects/ProjectTree.svelte";
+  import MiniAppsSidebarSection from "../miniapps/MiniAppsSidebarSection.svelte";
   import type { Translation } from "../i18n";
 
   let {
@@ -34,13 +35,18 @@
     onMoreChannel,
     onRenameSession,
     onDeleteSession,
-    onActivateProjectSession
+    onActivateProjectSession,
+    miniAppsExpanded = true,
+    activeMiniAppId = "",
+    onToggleMiniApps,
+    onOpenMiniApp,
+    onOpenMiniApps
   }: {
     copy: Translation;
     channels: ChannelDescriptor[];
     conversationsExpanded: boolean;
     projectsExpanded: boolean;
-    activeWorkspacePane?: "chat" | "automations" | "skills" | "agents";
+    activeWorkspacePane?: "chat" | "automations" | "skills" | "agents" | "miniapps";
     automationUnreadCount?: number;
     expandedChannels: Record<string, boolean>;
     channelItems: Record<string, DesktopConversationItem[]>;
@@ -65,6 +71,11 @@
     onRenameSession: (item: DesktopConversationItem, title: string) => void;
     onDeleteSession: (item: DesktopConversationItem) => void;
     onActivateProjectSession: () => void;
+    miniAppsExpanded?: boolean;
+    activeMiniAppId?: string;
+    onToggleMiniApps: () => void;
+    onOpenMiniApp: (appId: string) => void;
+    onOpenMiniApps: () => void;
   } = $props();
 
   const accordionLabels = $derived({
@@ -85,6 +96,42 @@
     cancel: copy.cancelAction,
     forkedConversation: copy.forkedConversation
   });
+
+  function trackStickySectionHeads(node: HTMLElement) {
+    let animationFrame = 0;
+
+    const update = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        const containerTop = node.getBoundingClientRect().top;
+        for (const head of node.querySelectorAll<HTMLElement>(".sidebar-section-head")) {
+          const section = head.closest<HTMLElement>(".sidebar-tree-section");
+          const headRect = head.getBoundingClientRect();
+          const sectionRect = section?.getBoundingClientRect();
+          const isStuck = node.scrollTop > 0
+            && Math.abs(headRect.top - containerTop) <= 1
+            && Boolean(sectionRect && sectionRect.bottom > containerTop + headRect.height);
+          head.classList.toggle("is-stuck", isStuck);
+        }
+      });
+    };
+
+    node.addEventListener("scroll", update, { passive: true });
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(node);
+    const mutationObserver = new MutationObserver(update);
+    mutationObserver.observe(node, { childList: true, subtree: true });
+    update();
+
+    return {
+      destroy() {
+        cancelAnimationFrame(animationFrame);
+        node.removeEventListener("scroll", update);
+        resizeObserver.disconnect();
+        mutationObserver.disconnect();
+      }
+    };
+  }
 </script>
 
 <aside class="chat-sidebar">
@@ -107,12 +154,16 @@
       <i class="ph ph-robot" aria-hidden="true"></i>
       <span>{copy.agentsNav}</span>
     </button>
+    <button type="button" class="nav-item" class:active={activeWorkspacePane === "miniapps"} aria-current={activeWorkspacePane === "miniapps" ? "page" : undefined} onclick={onOpenMiniApps}>
+      <i class="ph ph-app-store-logo" aria-hidden="true"></i>
+      <span>{copy.miniAppsNav}</span>
+    </button>
   </nav>
 
-  <div class="sidebar-channels">
+  <div class="sidebar-channels" use:trackStickySectionHeads>
     <section class="sidebar-tree-section">
-      <button type="button" class="sidebar-tree-title" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>
-        <span>{copy.chat}</span><i class="ph ph-caret-right sidebar-tree-caret" class:open={conversationsExpanded} aria-hidden="true"></i>
+      <button type="button" class="sidebar-section-head sidebar-section-toggle" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>
+        <span>{copy.chat}</span><i class="ph ph-caret-right sidebar-section-caret" class:open={conversationsExpanded} aria-hidden="true"></i>
       </button>
       {#if conversationsExpanded}
         {#each channels as channel (channel.id)}
@@ -138,6 +189,17 @@
     </section>
     <section class="sidebar-tree-section">
       <ProjectTree {copy} {endpoint} expanded={projectsExpanded} activeSessionId={activeProjectSessionId} {formatTime} onToggle={onToggleProjects} onActivateSession={onActivateProjectSession} />
+    </section>
+    <section class="sidebar-tree-section">
+      <MiniAppsSidebarSection
+        {copy}
+        {endpoint}
+        expanded={miniAppsExpanded}
+        activeAppId={activeMiniAppId}
+        onToggle={onToggleMiniApps}
+        onOpenApp={onOpenMiniApp}
+        onSeeAll={onOpenMiniApps}
+      />
     </section>
   </div>
 
@@ -197,13 +259,6 @@
     min-height: 0;
   }
   .sidebar-tree-section { min-width: 0; padding: 0 0 8px; }
-  .sidebar-tree-title { position: sticky; z-index: 4; top: 0; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 8px; border: 0; background: transparent; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); color: var(--label-secondary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
-  :global(html[data-reduced-transparency="true"]) .sidebar-tree-title { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--sidebar-bg); }
-  .sidebar-tree-title:hover { color: var(--label-primary); }
-  .sidebar-tree-title span { flex: 1; }
-  .sidebar-tree-caret { opacity: 0; font-size: 11px; color: var(--label-tertiary); transition: opacity var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); }
-  .sidebar-tree-title:hover .sidebar-tree-caret, .sidebar-tree-title:focus-visible .sidebar-tree-caret { opacity: 1; }
-  .sidebar-tree-caret.open { transform: rotate(90deg); }
   .sidebar-footer {
     display: flex;
     align-items: center;

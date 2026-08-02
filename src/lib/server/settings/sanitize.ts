@@ -19,6 +19,7 @@ import {
   type QQBotConfig,
   type ProviderMode,
   type McpServerConfig,
+  type MiniAppEntrySettings,
   type RuntimeSettings,
   type WebSearchEngineId,
   type WebSearchEngineSelectionStrategy,
@@ -44,7 +45,7 @@ import { isAbsolute } from "node:path";
  * on that object is a feature plugin's own settings blob (keyed by its
  * settingsKey) and must round-trip untouched.
  */
-export const RESERVED_PLUGIN_KEYS = ["memory", "cloudflareHtml", "hooks", "piExtensions"];
+export const RESERVED_PLUGIN_KEYS = ["memory", "cloudflareHtml", "hooks", "piExtensions", "miniApps"];
 
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
@@ -387,6 +388,61 @@ export function sanitizePiExtensionSettings(
   }
 
   return { enabled, entries };
+}
+
+/** App ids are also directory names; the pattern is the host's, kept in sync. */
+const MINI_APP_ID_PATTERN = /^[a-z][a-z0-9-]{1,62}$/;
+
+/** Provenance is free-form-ish display data, so each shape is rebuilt field by field. */
+function sanitizeMiniAppSource(input: unknown): NonNullable<MiniAppEntrySettings["source"]> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const source = input as Record<string, unknown>;
+  const text = (value: unknown, max = 200): string => String(value ?? "").trim().slice(0, max);
+  if (source.kind === "directory" || source.kind === "zip") {
+    return { kind: source.kind, label: text(source.label) };
+  }
+  if (source.kind === "github") {
+    const repo = text(source.repo);
+    if (!repo) return undefined;
+    return { kind: "github", repo, ref: text(source.ref) || "HEAD" };
+  }
+  return undefined;
+}
+
+/**
+ * Sanitizes the plugins.miniApps block (per-app enable + built-in uninstall
+ * tombstones). Shared by sanitizeSettings and the SettingsStore load path.
+ *
+ * A recorded entry is kept even when no matching directory exists right now:
+ * uninstalling a built-in leaves a tombstone precisely so a later boot with no
+ * app directory still knows not to reinstall it.
+ */
+export function sanitizeMiniAppSettings(
+  input: unknown,
+  current: RuntimeSettings["plugins"]["miniApps"]
+): RuntimeSettings["plugins"]["miniApps"] {
+  const source = input && typeof input === "object" && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {};
+  const rawEntries = source.entries && typeof source.entries === "object" && !Array.isArray(source.entries)
+    ? source.entries as Record<string, unknown>
+    : (current?.entries ?? {});
+
+  const entries: RuntimeSettings["plugins"]["miniApps"]["entries"] = {};
+  for (const [rawId, rawEntry] of Object.entries(rawEntries)) {
+    const id = String(rawId ?? "").trim();
+    if (!MINI_APP_ID_PATTERN.test(id)) continue;
+    if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) continue;
+    const entry = rawEntry as Record<string, unknown>;
+    const removedBuiltin = entry.removedBuiltin === true;
+    entries[id] = {
+      enabled: entry.enabled === undefined ? true : Boolean(entry.enabled),
+      ...(removedBuiltin ? { removedBuiltin: true } : {}),
+      ...(sanitizeMiniAppSource(entry.source) ? { source: sanitizeMiniAppSource(entry.source)! } : {})
+    };
+  }
+
+  return { entries };
 }
 
 /**
@@ -1251,6 +1307,10 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
     piExtensions: sanitizePiExtensionSettings(
       next.plugins?.piExtensions ?? current.plugins.piExtensions,
       current.plugins.piExtensions ?? defaultRuntimeSettings.plugins.piExtensions
+    ),
+    miniApps: sanitizeMiniAppSettings(
+      next.plugins?.miniApps ?? current.plugins.miniApps,
+      current.plugins.miniApps ?? defaultRuntimeSettings.plugins.miniApps
     )
   } as RuntimeSettings["plugins"];
 

@@ -534,14 +534,40 @@ the base to pure black (`#000000`/`#0A0A0A`).
 - The complete 60px Chat header is a native window drag region. Header actions sit
   above that region and remain clickable; empty chrome and passive source/title text
   drag the window consistently across the full row.
+- Chat opens at most one right-side Inspector at a time. The File Inspector and the
+  Mini App Inspector are two adapters of one seam: they share the grid track, the
+  stored width, the resize handle, the minimum width, and the narrow-screen rules.
+  Opening one closes the other; a second Inspector kind must never introduce a fourth
+  column. Both are laid out in flow — a narrow window drops the sidebar and keeps the
+  Inspector in the grid rather than turning it into a `position: fixed` overlay above
+  Chat or the composer.
+- Mini Apps have two coordinated entry points: a primary navigation destination for
+  installation and management, plus a peer first-level sidebar section alongside the
+  conversation and Project trees for opening apps quickly. The sidebar section is named
+  "Mini Apps" (not "Recent"), orders enabled and loaded apps by recent use, fills unused
+  slots from the catalog, and shows at most 10. Every app-identity surface (manager row,
+  sidebar row, and inspector chrome) uses the manifest icon when present and a neutral
+  app-window glyph only as fallback. Disabled and failed apps stay in the manager, where
+  their reason is visible. The primary destination uses the regular App Store glyph so
+  it reads as an application library rather than a generic four-cell grid.
+- A Mini App's UI runs in a sandboxed iframe on its own origin and cannot inherit the
+  app's design tokens. The panel passes the resolved locale and theme as URL hints and
+  reloads on change; each app ships its own strings and Light/Dark palette, and must
+  not convey state through colour alone. The panel chrome shows the app name and a close
+  control; technical identifiers and version are secondary.
 - The conversation tree and Project tree are peer first-level sidebar sections. Their
   32px titles share the same sticky top slot inside one scroll container: the active
   title remains visible, and the next section title pushes it away rather than stacking
-  beneath it. Only one first-level title is pinned at a time. Sticky positioning must
-  not introduce an independent fill, card, or strip; titles remain transparent on the
-  continuous sidebar material. A 14px backdrop blur makes scrolled rows underneath
-  unreadable without creating a visible fill. Reduced-transparency mode disables blur
-  and uses the existing sidebar surface as the accessible fallback.
+  beneath it. Mini Apps use this exact header/toggle/caret treatment rather than naming
+  parent-scoped classes that cannot reach a child component. Only one first-level title
+  is pinned at a time. Titles remain fully transparent in normal flow; the glass appears
+  only while a title is actually pinned to the scroll container. That pinned state uses
+  a masked glass veil extending beyond the 32px title: blur and tint are strongest behind the label, then fade smoothly to
+  transparent above and below. Apply backdrop blur only to that extended pseudo-element,
+  never directly to the rectangular header; Dark mode uses a faint white lift rather
+  than an opaque dark fill. Reduced-transparency, increased-contrast, and low-performance
+  modes replace blur with the same masked fade using the opaque sidebar role. The header
+  never becomes a card, gains a divider, or introduces a hard rectangular edge.
 - The Chat composer exposes model and thinking depth through one compact summary
   control. Its custom popover keeps both choices in one keyboard-accessible menu,
   uses an in-place overview → option-list transition, and caps long model lists with

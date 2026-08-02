@@ -60,11 +60,23 @@ test("only bash and extensionManage carry an approval-triggering risk level", ()
     { risk: "medium", source: "plugin" }
   );
 
+  // Mini App tools reach the approval broker only when the manifest declares
+  // the tool destructive. A destructive Mini App tool IS an intentional
+  // addition to the high-risk set above — it answers through the same broker.
+  assert.equal(
+    getRuntimeToolClassification("miniapp__todo__remove", {
+      miniApp: { readOnlyHint: false, destructiveHint: true }
+    }).risk,
+    "high"
+  );
+
   for (const name of [
     "read", "write", "edit", "webSearch", "subagent", "attach", "event",
     "memory", "skillSearch", "skillManage", "switchModel", "imageGenerate",
     "ttsGenerate", "videoGenerate", "mcpInvoke", "loadMcp",
-    "mcp__server__tool", "anyUnknownToolName"
+    "mcp__server__tool", "anyUnknownToolName",
+    // A Mini App tool with no declared hints defaults to medium/plugin.
+    "miniapp__notes__add"
   ]) {
     const { risk } = getRuntimeToolClassification(name);
     assert.notEqual(risk, "high", `${name} must not be high risk`);

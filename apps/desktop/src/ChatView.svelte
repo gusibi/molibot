@@ -93,6 +93,8 @@
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
   import ProjectFilePanel from "./lib/projects/ProjectFilePanel.svelte";
+  import MiniAppPanel from "./lib/miniapps/MiniAppPanel.svelte";
+  import { markMiniAppUsed } from "./lib/stores/miniapps.svelte";
   import { projectsStore } from "./lib/stores/projects.svelte";
   import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
@@ -256,6 +258,7 @@
   // Sidebar expansion is separate from selection. Every group may be open and
   // the preference survives restarts.
   const SIDEBAR_TREE_KEY = "molibot-desktop-sidebar-tree-v2";
+  const MINIAPPS_EXPANDED_KEY = "molibot-desktop-miniapps-expanded";
   let conversationsExpanded = true;
   let projectsExpanded = true;
   let expandedChannels: Record<DesktopConversationChannel, boolean> = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
@@ -453,12 +456,18 @@
   // Every dependency is read directly here on purpose: a legacy `$:` only tracks
   // what the statement itself references, so folding this into a helper would
   // freeze the budget at its first value.
+  $: filePanelOpen = inspector?.kind === "files";
+  $: miniAppPanelAppId = inspector?.kind === "miniapp" ? inspector.appId : "";
   $: filesPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0);
-  $: threeColumn = filesPanelVisible && viewportWidth > NARROW_WIDTH;
+  $: miniAppPanelVisible = Boolean(miniAppPanelAppId) && serviceState === "ready";
+  // One budget for both Inspector kinds: a second panel must never widen the
+  // layout into a fourth column.
+  $: inspectorVisible = filesPanelVisible || miniAppPanelVisible;
+  $: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH;
   // Below NARROW_WIDTH the sidebar is hidden and only two tracks share the
   // window, so the budget drops the sidebar term and uses the lower floor the
   // narrow tier gives the transcript.
-  $: filesMaxWidth = !filesPanelVisible
+  $: filesMaxWidth = !inspectorVisible
     ? FILES_MAX
     : Math.max(FILES_MIN, Math.min(FILES_MAX, threeColumn
       ? viewportWidth - sidebarWidth - CHAT_MIN
@@ -496,7 +505,26 @@
   let sessionFiles: DesktopSessionFile[] = [];
   let fileFilter: DesktopFileFilter = "all";
   let filesLoading = false;
-  let filePanelOpen = false;
+  // The right-hand Inspector. Chat shows at most one at a time — Files or a
+  // Mini App — so the width budget, resize handle, narrow-screen rules and
+  // close behaviour below exist exactly once and serve both.
+  type ChatInspector = { kind: "files" } | { kind: "miniapp"; appId: string } | null;
+  let inspector: ChatInspector = null;
+  let miniAppsExpanded = localStorage.getItem(MINIAPPS_EXPANDED_KEY) !== "0";
+
+  // A Mini App runs on its own origin and cannot inherit our CSS variables, so
+  // the panel passes the *resolved* theme (never "system") as a URL hint. The
+  // shell owns the setting; this mirrors whatever it applied to <html>.
+  let resolvedTheme: "light" | "dark" = readResolvedTheme();
+  let themeObserver: MutationObserver | null = null;
+  let systemThemeQuery: MediaQueryList | null = null;
+  let onSystemThemeChange: (() => void) | null = null;
+
+  function readResolvedTheme(): "light" | "dark" {
+    const explicit = document.documentElement.getAttribute("data-theme");
+    if (explicit === "dark" || explicit === "light") return explicit;
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
   let previewFile: DesktopSessionFile | null = null;
   let previewUrl = "";
   let copiedPath = "";
@@ -1908,6 +1936,13 @@
 
   onMount(() => {
     commandUsage = loadCommandUsage(localStorage, commandSnapshot);
+    // The shell writes `data-theme` on <html>; watching it (plus the OS query
+    // for "system") keeps an open Mini App panel in step with a theme switch.
+    themeObserver = new MutationObserver(() => (resolvedTheme = readResolvedTheme()));
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
+    onSystemThemeChange = () => (resolvedTheme = readResolvedTheme());
+    systemThemeQuery?.addEventListener("change", onSystemThemeChange);
     if (!isTauriRuntime()) return;
     void listen<string>(NATIVE_COMMAND_EVENT, (event) => {
       void runSystemCommand(event.payload);
@@ -2006,12 +2041,40 @@
     target?.scrollIntoView({ block: "center", behavior: "auto" });
   }
 
+  // Inspector transitions live here so opening one kind always closes the
+  // other. Toggling the same target closes it; re-selecting the Mini App
+  // already shown is a no-op, which keeps its iframe (and its state) alive.
+  function toggleFilesInspector(): void {
+    inspector = inspector?.kind === "files" ? null : { kind: "files" };
+  }
+
+  function openMiniAppInspector(appId: string): void {
+    // Recency drives the sidebar's short list, so it is recorded even when the
+    // app is already open — reopening is still a use.
+    markMiniAppUsed(appId);
+    if (inspector?.kind === "miniapp" && inspector.appId === appId) return;
+    // Opening an app panel returns to Chat: the panel is an inspector beside a
+    // conversation, not something to show next to the manager.
+    workspacePane = "chat";
+    inspector = { kind: "miniapp", appId };
+  }
+
+  function closeInspector(): void {
+    inspector = null;
+  }
+
+  function toggleMiniAppsSection(): void {
+    miniAppsExpanded = !miniAppsExpanded;
+    localStorage.setItem(MINIAPPS_EXPANDED_KEY, miniAppsExpanded ? "1" : "0");
+  }
+
   function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
     const next = openWorkspacePaneState(pane);
     workspacePane = next.workspacePane;
     projectPaneActive = next.projectPaneActive;
     searchOpen = next.searchOpen;
-    filePanelOpen = next.filePanelOpen;
+    // Leaving Chat closes whichever Inspector was open, not just Files.
+    if (!next.filePanelOpen) inspector = null;
     if (!connectionReady && !loading && serviceState === "ready" && serviceEndpoint) {
       void connect(serviceEndpoint);
     }
@@ -2203,6 +2266,11 @@
   onDestroy(() => {
     nativeCommandUnlisten?.();
     nativeCommandUnlisten = null;
+    themeObserver?.disconnect();
+    themeObserver = null;
+    if (onSystemThemeChange) systemThemeQuery?.removeEventListener("change", onSystemThemeChange);
+    onSystemThemeChange = null;
+    systemThemeQuery = null;
     connectionGeneration += 1;
     stopSidebarResize();
     stopReconnectPoll();
@@ -2226,7 +2294,7 @@
 
 <main
   class="chat-layout"
-  class:with-files={filesPanelVisible}
+  class:with-files={inspectorVisible}
   class:resizing={resizingSidebar || resizingFiles}
   style={`--sidebar-w:${effectiveSidebarWidth}px; --files-w:${effectiveFilesWidth}px`}
 >
@@ -2303,6 +2371,11 @@
       viewMode = "local";
       activeProjectSessionId = projectsStore.selectedSessionId;
     }}
+    miniAppsExpanded={miniAppsExpanded}
+    activeMiniAppId={miniAppPanelAppId}
+    onToggleMiniApps={toggleMiniAppsSection}
+    onOpenMiniApp={openMiniAppInspector}
+    onOpenMiniApps={() => openWorkspacePane("miniapps")}
   />
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
@@ -2327,7 +2400,7 @@
   {#if projectPaneActive}
     <ProjectDetail
       {copy}
-      onOpenFiles={() => { filePanelOpen = !filePanelOpen; }}
+      onOpenFiles={toggleFilesInspector}
     />
   {:else}
   <section class="chat-content">
@@ -2341,6 +2414,7 @@
         onRetryService={() => serviceEndpoint && void connect(serviceEndpoint)}
         onOpenAgentSettings={() => openSettings("agents")}
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
+        onOpenMiniApp={openMiniAppInspector}
       />
     {:else}
     <header class:searching={searchOpen} class="chat-header" data-tauri-drag-region>
@@ -2385,7 +2459,7 @@
             aria-pressed={filePanelOpen}
             aria-label={copy.files}
             title={copy.files}
-            onclick={() => (filePanelOpen = !filePanelOpen)}
+            onclick={toggleFilesInspector}
           >
             <i class="ph ph-sidebar-simple flip" aria-hidden="true"></i>
             {#if sessionFiles.length}<span class="icon-badge">{sessionFiles.length}</span>{/if}
@@ -2568,7 +2642,7 @@
   </section>
   {/if}
 
-  {#if filesPanelVisible}
+  {#if inspectorVisible}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
     <div
       class="files-resizer"
@@ -2589,21 +2663,29 @@
     ></div>
   {/if}
 
-  {#if filePanelOpen && serviceState === "ready" && projectPaneActive && projectsStore.selectedProjectId}
+  {#if miniAppPanelVisible}
+    <MiniAppPanel
+      appId={miniAppPanelAppId}
+      {locale}
+      theme={resolvedTheme}
+      {copy}
+      onClose={closeInspector}
+    />
+  {:else if filePanelOpen && serviceState === "ready" && projectPaneActive && projectsStore.selectedProjectId}
     <ProjectFilePanel
       endpoint={connectedEndpoint || serviceEndpoint || ""}
       projectId={projectsStore.selectedProjectId}
       sessionId={projectsStore.selectedSessionId}
       touches={$sessionFileTouches}
       {copy}
-      onClose={() => (filePanelOpen = false)}
+      onClose={closeInspector}
     />
   {:else if filePanelOpen && serviceState === "ready" && profiles.length > 0}
     <aside class="file-panel">
       <div class="file-panel-head">
         <i class="ph ph-folder-simple file-panel-icon" aria-hidden="true"></i>
         <strong>{copy.files}</strong>
-        <button type="button" class="file-panel-close" aria-label={copy.closePanel} title={copy.closePanel} onclick={() => (filePanelOpen = false)}>
+        <button type="button" class="file-panel-close" aria-label={copy.closePanel} title={copy.closePanel} onclick={closeInspector}>
           <i class="ph ph-x" aria-hidden="true"></i>
         </button>
       </div>

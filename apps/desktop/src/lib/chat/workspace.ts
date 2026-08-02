@@ -1,4 +1,4 @@
-export type ChatWorkspacePane = "chat" | "automations" | "skills" | "agents";
+export type ChatWorkspacePane = "chat" | "automations" | "skills" | "agents" | "miniapps";
 
 export function openWorkspacePaneState(pane: Exclude<ChatWorkspacePane, "chat">): {
   workspacePane: Exclude<ChatWorkspacePane, "chat">;

@@ -2,6 +2,9 @@ import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import { sanitizeSettings } from "$lib/server/settings/sanitize.js";
 import { applyChannelPlugins } from "$lib/server/plugins/loader.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
+import { configureMiniAppSettings, getMiniAppHost } from "$lib/server/miniapps/registry.js";
+import { ensureBuiltinMiniApps } from "$lib/server/miniapps/bootstrap.js";
+import { ensureBuiltinSkills } from "$lib/server/agent/skills/bootstrap.js";
 import { getToolSandboxEnvStartupReport } from "$lib/server/agent/tools/sandbox.js";
 import { config, liveServicesDisabled } from "$lib/server/app/env.js";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
@@ -366,7 +369,7 @@ export function getRuntime(): RuntimeState {
       sessions,
       router,
       channelManagers: new Map<string, Map<string, ChannelManager>>(),
-      pluginCatalog: { channels: [], providers: [], features: [], memoryBackends: [], extensions: [] },
+      pluginCatalog: { channels: [], providers: [], features: [], memoryBackends: [], extensions: [], miniApps: [] },
       providerPlugins: [],
       memory,
       memorySyncTimer: null,
@@ -389,6 +392,42 @@ export function getRuntime(): RuntimeState {
 
     state.settings = sanitizeSettings({}, state.settings);
     currentSettings.value = state.settings;
+
+    // Mini Apps belong to base runtime initialization, not to the live-services
+    // branch: they are neither a network service nor a long-lived connection,
+    // and tests need a fully usable host (catalog, tools, HTTP) without starting
+    // channels or the scheduler.
+    configureMiniAppSettings({
+      getSettings: () => currentSettings.value,
+      updateSettings: applySettingsPatch
+    });
+    // Bootstrap has to run *before* discovery, or the shipped Todo app would
+    // only appear on the second start.
+    try {
+      const bootstrapped = ensureBuiltinMiniApps({
+        codeRoot: storagePaths.miniAppCodeDir,
+        getEnablement: () => currentSettings.value.plugins?.miniApps?.entries ?? {}
+      });
+      if (bootstrapped.installed.length > 0) {
+        console.log(`${runtimeLabel("runtime")} miniapp_bootstrap installed=[${formatList(bootstrapped.installed)}]`);
+      }
+    } catch (error) {
+      console.error("[runtime] Failed to bootstrap built-in Mini Apps:", error);
+    }
+    getMiniAppHost().refresh();
+
+    // Built-in Skills are materialised for the same reason built-in Mini Apps
+    // are: the Skill loader only reads the owner's workspace, so a Skill that
+    // ships with Molibot is invisible until it exists on disk there.
+    try {
+      const bootstrappedSkills = ensureBuiltinSkills({ skillsRoot: storagePaths.globalSkillsDir });
+      if (bootstrappedSkills.installed.length > 0) {
+        console.log(`${runtimeLabel("runtime")} skill_bootstrap installed=[${formatList(bootstrappedSkills.installed)}]`);
+      }
+    } catch (error) {
+      console.error("[runtime] Failed to bootstrap built-in Skills:", error);
+    }
+
     logMemoryStartup(state);
     logSandboxEnvStartup(state);
     // Skip every long-lived/networked subsystem when live services are disabled

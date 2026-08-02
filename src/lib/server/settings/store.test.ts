@@ -153,6 +153,41 @@ test("settings serialization keeps full plugins block (reflection, daily materia
   assert.deepEqual(raw.plugins.myFeature, { apiKey: "k", mode: "fast" });
 });
 
+test("Mini App enable state and built-in tombstones survive a settings store restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-miniapp-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        miniApps: {
+          entries: {
+            todo: { enabled: false, removedBuiltin: true },
+            expenses: { enabled: true },
+            budget: { enabled: false }
+          }
+        }
+      }
+    });
+
+    const restarted = new SettingsStore().load();
+    // The tombstone is the field a narrow serializer drops first, and losing it
+    // silently reinstalls a built-in the owner deliberately removed.
+    assert.deepEqual(restarted.plugins.miniApps.entries.todo, { enabled: false, removedBuiltin: true });
+    assert.deepEqual(restarted.plugins.miniApps.entries.expenses, { enabled: true });
+    assert.deepEqual(restarted.plugins.miniApps.entries.budget, { enabled: false });
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("pi extension enable state and per-bot exclusions survive a settings store restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-pi-extension-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;

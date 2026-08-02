@@ -258,11 +258,38 @@ export interface PiExtensionsSettings {
   entries: Record<string, PiExtensionEntrySettings>;
 }
 
+/**
+ * Per-Mini-App state. Keyed by app id (the install directory name under
+ * `~/.molibot/miniapps/apps`).
+ */
+export interface MiniAppEntrySettings {
+  enabled: boolean;
+  /**
+   * Where the app was installed from. Display-only provenance — it does not
+   * grant or restrict anything, since app server code runs unsandboxed
+   * regardless of source.
+   */
+  source?:
+    | { kind: "directory"; label: string }
+    | { kind: "zip"; label: string }
+    | { kind: "github"; repo: string; ref: string };
+  /**
+   * Tombstone for a built-in app the owner uninstalled. Without it,
+   * `ensureBuiltinMiniApps()` would silently reinstall the app on next boot.
+   */
+  removedBuiltin?: boolean;
+}
+
+export interface MiniAppsSettings {
+  entries: Record<string, MiniAppEntrySettings>;
+}
+
 export interface PluginSettings {
   memory: MemoryBackendSettings;
   cloudflareHtml: CloudflareHtmlPluginSettings;
   hooks: HookPluginEntry[];
   piExtensions: PiExtensionsSettings;
+  miniApps: MiniAppsSettings;
 }
 
 

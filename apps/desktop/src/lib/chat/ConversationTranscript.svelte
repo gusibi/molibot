@@ -86,7 +86,7 @@
       {#if displayContent}
         {#if invocation}
           <div class="message-bubble invocation-message" data-kind={invocation.kind}>
-            <div class="invocation-kicker"><i class={`ph ${invocation.kind === "command" ? "ph-terminal-window" : "ph-sparkle"}`} aria-hidden="true"></i><span>{invocation.kind === "command" ? "COMMAND" : "SKILL"}</span><code>{invocation.token}</code></div>
+            <div class="invocation-kicker"><i class={`ph ${invocation.kind === "command" ? "ph-terminal-window" : invocation.kind === "skill" ? "ph-sparkle" : "ph-squares-four"}`} aria-hidden="true"></i><span>{invocation.kind === "command" ? "COMMAND" : invocation.kind === "skill" ? "SKILL" : "MINI APP"}</span><code>{invocation.token}</code></div>
             {#if displayContent.slice(invocation.token.length).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.token.length).trim(), copy.copyCode)}</div>{/if}
           </div>
         {:else}

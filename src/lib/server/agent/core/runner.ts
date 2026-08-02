@@ -7,7 +7,8 @@ import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { NOOP_HOOK_MANAGER, type HookContext, type HookManager } from "$lib/server/agent/hooks/index.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
-import { buildSystemPrompt, getProjectPromptRefreshKey } from "$lib/server/agent/prompts/prompt.js";
+import { buildSystemPrompt, getProjectPromptRefreshKey, type PromptMiniApp } from "$lib/server/agent/prompts/prompt.js";
+import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
 import { writeProjectSystemPromptPreview } from "$lib/server/agent/prompts/projectPromptPreview.js";
 import { buildRunReflection, buildSubagentTaskRecord, formatRunClosingNote, type RunSummary } from "$lib/server/agent/session/runSummary.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
@@ -106,6 +107,9 @@ import {
 } from "$lib/server/agent/core/runnerHelpers.js";
 
 import { prepareEnrichedInput } from "$lib/server/agent/core/runnerInputEnricher.js";
+import { resolveMiniAppInvocation } from "$lib/server/miniapps/invocation.js";
+import { describesUncalledMiniAppTool } from "$lib/server/miniapps/toolCallIntent.js";
+import { miniAppToolId } from "$lib/server/miniapps/types.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
 // Stable placeholder: the real snapshot is injected per turn via the user
@@ -133,6 +137,31 @@ type PendingToolSignalContext = {
 export function resolveSessionWorkingDir(project: MomContext["project"], scratchDir: string): string {
   return project?.rootPath ?? scratchDir;
 }
+
+/**
+ * Enabled, loaded Mini Apps for the system prompt.
+ *
+ * Without this list the model has no way to know a domain app is installed —
+ * the deferred-tool block is a fixed set of built-ins, so an installed app
+ * would only be found by guessing the right search keyword. Only names and
+ * tool ids go in; schemas arrive through `toolSearch`.
+ */
+function promptMiniApps(): PromptMiniApp[] {
+  try {
+    return getMiniAppHost().listCatalog()
+      .filter((entry) => entry.enabled && entry.status === "active")
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        description: entry.description,
+        toolNames: entry.toolNames
+      }));
+  } catch {
+    // A broken Mini App host must never break prompt construction.
+    return [];
+  }
+}
+
 
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
@@ -239,7 +268,8 @@ export class MomRunner implements RunnerLike {
       {
         channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
         timezone: settings.timezone,
-        settings
+        settings,
+        miniApps: promptMiniApps()
       },
     );
 
@@ -283,6 +313,12 @@ export class MomRunner implements RunnerLike {
         this.emitActiveModelCallAfter((response as any)?.usage, (response as any)?.stopReason);
         return undefined;
       },
+      // `toolSearch` can load a deferred tool in the middle of a run. The
+      // loop owns a snapshot, so refresh that snapshot between provider turns;
+      // assigning Agent.state.tools alone affects only the next run.
+      prepareNextTurnWithContext: async (turn) => ({
+        context: { ...turn.context, tools: this.agent.state.tools }
+      }),
       beforeToolCall: async (context, _signal) => {
         const hookContext = this.activeHookContext;
         const args = context.args as { command?: unknown; label?: string };
@@ -844,6 +880,18 @@ export class MomRunner implements RunnerLike {
       });
     }
 
+    let miniAppInvocation: ReturnType<typeof resolveMiniAppInvocation> = null;
+    try {
+      miniAppInvocation = resolveMiniAppInvocation(enrichedText, getMiniAppHost().listCatalog());
+    } catch {
+      // Discovery failure is never allowed to turn an ordinary user message
+      // into a failed run. The normal tool catalog has the same fail-open rule.
+    }
+    if (miniAppInvocation) enrichedText = miniAppInvocation.text;
+    const miniAppToolIds = miniAppInvocation
+      ? miniAppInvocation.app.toolNames.map((toolName) => miniAppToolId(miniAppInvocation!.app.id, toolName))
+      : [];
+
     const memoryScope = {
       channel: this.channel,
       externalUserId: this.chatId,
@@ -882,7 +930,8 @@ export class MomRunner implements RunnerLike {
           channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
           timezone: settings.timezone,
           settings,
-          project: ctx.project
+          project: ctx.project,
+          miniApps: promptMiniApps()
         },
       );
       if (this.activeHookContext) {
@@ -1056,6 +1105,7 @@ export class MomRunner implements RunnerLike {
         this.agent.state.tools = [...localTools, ...loadedMcpTools];
       },
       exposeLoadMcpTool,
+      miniAppId: miniAppInvocation?.app.id,
       uploadFile: async (filePath, title, text) => {
         await ctx.uploadFile(filePath, title, text);
       },
@@ -1472,12 +1522,28 @@ export class MomRunner implements RunnerLike {
         .map((a) => `${ctx.workspaceDir}/${a.local}`);
       const promptInput = buildPromptInputEnvelope({
         messageText: effectiveInputText,
+        // The selector routed the turn and is stripped from what the model
+        // reads, but it stays in the transcript: it is text the owner typed.
+        persistedText: miniAppInvocation
+          ? `${miniAppInvocation.selector} ${effectiveInputText}`.trim()
+          : undefined,
+        runtimeInstructions: miniAppInvocation
+          ? [
+              `The user explicitly selected Mini App \"${miniAppInvocation.app.name}\" (id: ${miniAppInvocation.app.id}) for this turn. Its tools are already preloaded and are the only tools available${miniAppToolIds.length > 0 ? `: ${miniAppToolIds.join(", ")}` : ""}. Do not use toolSearch, memory, files, bash, or another Mini App.`,
+              "Act by emitting a real tool call. Writing the tool name and its arguments as ordinary text (for example \"run <tool> with ...\") executes nothing and is never an acceptable answer; if a tool is needed, call it, and only then report the result."
+            ]
+          : undefined,
         attachmentPaths: nonImage,
         messageTimestamp: ctx.message.ts,
         timezone: settings.timezone,
         memorySnapshot
       });
       const userMessage = promptInput.modelMessage;
+      // The prompt actually sent for the current attempt. It only diverges from
+      // userMessage when an attempt is rolled back and retried with an extra
+      // runtime instruction (see the Mini App tool-call nudge below).
+      let activeUserMessage = userMessage;
+      let miniAppToolNudgeUsed = false;
       currentModelPromptMessage = userMessage;
       currentPersistedPromptMessage = promptInput.persistedMessage;
 
@@ -1777,7 +1843,7 @@ export class MomRunner implements RunnerLike {
             momLog("runner", "prompt_start", {
               runId,
               chatId: this.chatId,
-              promptLength: userMessage.length,
+              promptLength: activeUserMessage.length,
               imageCount: visionDecision.sendImagesNatively ? ctx.message.imageContents.length : 0,
               rawImageCount: ctx.message.imageContents.length,
               visionRoutingMode: visionDecision.mode,
@@ -1813,7 +1879,7 @@ export class MomRunner implements RunnerLike {
               await this.agent.continue();
             } else {
               await this.agent.prompt(
-                userMessage,
+                activeUserMessage,
                 visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0
                   ? ctx.message.imageContents
                   : undefined,
@@ -2126,11 +2192,53 @@ export class MomRunner implements RunnerLike {
               break;
             }
 
+            // An @app turn that ran no tool and instead *names* one in prose did
+            // nothing the user asked for, while reading like it succeeded. Retry
+            // the attempt once with an explicit instruction rather than shipping
+            // a fabricated success. Gated on zero executed tools, so the retry
+            // cannot double-execute a side effect.
+            if (
+              miniAppInvocation &&
+              !miniAppToolNudgeUsed &&
+              !attemptExecutedTools &&
+              attemptCount < MAX_EMPTY_RETRIES &&
+              decision.kind === "success"
+            ) {
+              const describedTool = describesUncalledMiniAppTool(candidateFinalText, miniAppToolIds);
+              if (describedTool) {
+                miniAppToolNudgeUsed = true;
+                momWarn("runner", "miniapp_tool_call_described_not_called", {
+                  runId,
+                  chatId: this.chatId,
+                  sessionId: this.sessionId,
+                  appId: miniAppInvocation.app.id,
+                  describedTool,
+                  provider: selectedModel.provider,
+                  model: selectedModel.id,
+                  candidateIndex,
+                  attempt: attemptCount
+                });
+                rollbackAttempt();
+                activeUserMessage = [
+                  userMessage,
+                  "",
+                  "<runtime-control>",
+                  `Your previous answer described the tool call \`${describedTool}\` as text instead of emitting it. Text is not execution: nothing ran. Emit the tool call now, using the tool-calling mechanism, then report what it returned.`,
+                  "</runtime-control>"
+                ].join("\n");
+                // The persistence rewrite matches the prompt by exact text, so
+                // the retried prompt must become the one it recognizes.
+                currentModelPromptMessage = activeUserMessage;
+                attemptCount += 1;
+                continue;
+              }
+            }
+
             if (candidateFinalText) {
               const sessionContextFile = this.store.getSessionEntriesPath(this.chatId, this.sessionId);
               const currentMessages = this.agent.state.messages as AgentMessage[];
               const boundaryMessage = currentMessages[beforeAttempt.length];
-              const finalMessages = boundaryMessage && getMessageText(boundaryMessage).trim() === userMessage.trim()
+              const finalMessages = boundaryMessage && getMessageText(boundaryMessage).trim() === activeUserMessage.trim()
                 ? rewritePromptUserMessage(
                     currentMessages,
                     beforeAttempt.length,

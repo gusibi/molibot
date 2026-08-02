@@ -522,6 +522,9 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     piExtensions: {
       enabled: String(process.env.PI_EXTENSIONS_ENABLED ?? "true").toLowerCase() !== "false",
       entries: {}
+    },
+    miniApps: {
+      entries: {}
     }
   },
   telegramBotToken: defaultTelegramBotToken,

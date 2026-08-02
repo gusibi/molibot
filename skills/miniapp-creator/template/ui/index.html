@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Starter</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="starter-app" aria-labelledby="starter-heading">
+      <h1 id="starter-heading" class="starter-heading" data-i18n="heading">Starter</h1>
+
+      <form class="starter-composer" id="composer" autocomplete="off">
+        <input
+          class="starter-input"
+          id="title"
+          name="title"
+          type="text"
+          maxlength="300"
+          required
+          data-i18n-placeholder="placeholder"
+          placeholder="Add a record"
+        />
+        <button class="starter-submit" type="submit" data-i18n="add">Add</button>
+      </form>
+
+      <p class="starter-status" id="status" role="status" aria-live="polite" hidden></p>
+
+      <section class="starter-group" id="open-group">
+        <h2 class="starter-group-title" data-i18n="open">Open</h2>
+        <ul class="starter-list" id="open-list"></ul>
+        <p class="starter-empty" data-i18n="noOpen">Nothing open.</p>
+      </section>
+
+      <section class="starter-group" id="done-group">
+        <h2 class="starter-group-title" data-i18n="done">Done</h2>
+        <ul class="starter-list" id="done-list"></ul>
+        <p class="starter-empty" data-i18n="noDone">Nothing done yet.</p>
+      </section>
+    </main>
+
+    <!-- Inline scripts do not run under the host CSP: keep code in .js files. -->
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

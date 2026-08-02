@@ -9,6 +9,15 @@ import type {
 
 interface PromptInputEnvelopeOptions {
   messageText: string;
+  /**
+   * What the transcript stores, when it must differ from what the model reads.
+   * Routing hints the runner consumed (a leading `@app` selector) belong in the
+   * session record — dropping them makes the owner's own message unrecognizable
+   * in the UI — but not in the model message, where routing already applied.
+   */
+  persistedText?: string;
+  /** Ephemeral runner controls. Never copied to persisted conversation data. */
+  runtimeInstructions?: string[];
   attachmentPaths?: string[];
   messageTimestamp?: string | number | Date;
   timezone: string;
@@ -179,7 +188,10 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
   const receivedAt = formatIsoInTimeZone(messageDate, timeZone);
   const today = localDateKeyInTimeZone(messageDate, timeZone);
   const scratchArtifactDir = resolveScratchArtifactDir(timeZone, messageDate);
-  const persistedMessage = appendAttachmentBlock(options.messageText, attachmentPaths);
+  const persistedMessage = appendAttachmentBlock(
+    options.persistedText ?? options.messageText,
+    attachmentPaths
+  );
   const memoryInjection = materializeMemoryInjection(options.memorySnapshot);
   const memoryText = memoryInjection.promptText;
   const memoryBlock = memoryText
@@ -195,6 +207,7 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
       "</env>",
       "",
       ...memoryBlock,
+      ...(options.runtimeInstructions?.filter(Boolean).flatMap((instruction) => ["<runtime-control>", instruction, "</runtime-control>", ""]) ?? []),
       "<user_message>",
       options.messageText,
       "</user_message>"

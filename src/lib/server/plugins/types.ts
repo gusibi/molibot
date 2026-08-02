@@ -2,7 +2,7 @@ import type { ChannelPlugin } from "$lib/server/channels/registry.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
-export type InstalledPluginKind = "channel" | "provider" | "feature" | "memory-backend" | "extension";
+export type InstalledPluginKind = "channel" | "provider" | "feature" | "memory-backend" | "extension" | "miniapp";
 export type InstalledPluginSource = "built-in" | "external";
 export type InstalledPluginStatus = "active" | "error" | "discovered";
 
@@ -76,6 +76,8 @@ export interface PluginCatalog {
   memoryBackends: InstalledPluginCatalogEntry[];
   /** Third-party pi extensions installed under `${DATA_DIR}/extensions`. */
   extensions: InstalledPluginCatalogEntry[];
+  /** Mini Apps installed under `${DATA_DIR}/miniapps/apps`. */
+  miniApps: InstalledPluginCatalogEntry[];
 }
 
 export interface ExternalPluginLoadResult {

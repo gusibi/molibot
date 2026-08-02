@@ -65,9 +65,16 @@
   let suggestionsDismissed = false;
 
   $: if (endpoint) void ensureComposerSuggestions(endpoint, projectId);
+  // Two trigger characters, one menu: `/` offers commands and Skills, `@` offers
+  // installed Mini Apps. A bare `@` lists every app so the owner can pick one
+  // without remembering its id — that is the whole point of the trigger.
   $: suggestionQuery = value.match(/^\/([^\s]*)$/)?.[1]?.toLowerCase() ?? null;
-  $: filteredSuggestions = suggestionQuery === null || suggestionsDismissed ? [] : composerSuggestionsStore.items
-    .filter((item) => !suggestionQuery || item.label.slice(1).toLowerCase().includes(suggestionQuery) || item.aliases.some((alias) => alias.toLowerCase().includes(suggestionQuery)))
+  $: mentionQuery = value.match(/^@([^\s@]*)$/)?.[1]?.toLowerCase() ?? null;
+  $: suggestionKinds = suggestionQuery !== null ? ["command", "skill"] : mentionQuery !== null ? ["miniapp"] : [];
+  $: activeQuery = suggestionQuery ?? mentionQuery ?? "";
+  $: filteredSuggestions = suggestionKinds.length === 0 || suggestionsDismissed ? [] : composerSuggestionsStore.items
+    .filter((item) => suggestionKinds.includes(item.kind))
+    .filter((item) => !activeQuery || item.label.slice(1).toLowerCase().includes(activeQuery) || item.aliases.some((alias) => alias.toLowerCase().includes(activeQuery)))
     .slice(0, 10);
   $: if (activeSuggestionIndex >= filteredSuggestions.length) activeSuggestionIndex = 0;
 

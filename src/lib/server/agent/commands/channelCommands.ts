@@ -36,6 +36,8 @@ import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/se
 import type { ProjectRecord } from "$lib/server/projects/store.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { listPiExtensionCommands, runPiExtensionCommand } from "$lib/server/plugins/piExtensions/commandBridge.js";
+import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
+import { formatMiniAppList } from "$lib/server/miniapps/invocation.js";
 
 const ACP_DISABLED_MESSAGE = "ACP has been removed from the active runtime path. Use the normal Agent workflow instead.";
 
@@ -436,6 +438,11 @@ export class SharedRuntimeCommandService<TTarget> {
     const parts = text.split(/\s+/);
     const cmd = parts[0]?.toLowerCase() || "";
     const rawArg = parts.slice(1).join(" ").trim();
+
+    if (cmd === "/miniapps" || cmd === "/mini-apps" || cmd === "/apps") {
+      await this.options.sendText(input.target, formatMiniAppList(getMiniAppHost().listCatalog(), this.isChinese));
+      return true;
+    }
 
     if (cmd === "/acp" || cmd === "/approve" || cmd === "/deny") {
       await this.options.sendText(input.target, ACP_DISABLED_MESSAGE);
@@ -2252,6 +2259,7 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/models", value: d("show or switch model (/models <index|key>)", "查看或切换模型（/models <编号|key>）") },
       { label: "/skills", value: d("list loaded skill names and file paths", "查看已加载技能名称和文件路径") },
       { label: "/project", value: d("list, select, or exit Project mode", "查看、选择或退出 Project 模式") },
+      { label: "/miniapps", value: d("list installed Mini Apps", "查看已安装的小程序") },
       { label: "/help", value: d("show this help", "显示此帮助") }
     ];
 

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Todo</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="todo-app" aria-labelledby="todo-heading">
+      <h1 id="todo-heading" class="todo-heading" data-i18n="heading">Todo</h1>
+
+      <form class="todo-composer" id="composer" autocomplete="off">
+        <input
+          class="todo-input"
+          id="title"
+          name="title"
+          type="text"
+          maxlength="300"
+          required
+          data-i18n-placeholder="placeholder"
+          placeholder="What needs doing?"
+        />
+        <button class="todo-add" type="submit" data-i18n="add">Add</button>
+      </form>
+
+      <p class="todo-status" id="status" role="status" aria-live="polite" hidden></p>
+
+      <section class="todo-group" id="open-group">
+        <h2 class="todo-group-title" data-i18n="open">Open</h2>
+        <ul class="todo-list" id="open-list"></ul>
+        <p class="todo-empty" id="open-empty" data-i18n="noOpen">Nothing open.</p>
+      </section>
+
+      <section class="todo-group" id="done-group">
+        <h2 class="todo-group-title" data-i18n="completed">Completed</h2>
+        <ul class="todo-list" id="done-list"></ul>
+        <p class="todo-empty" id="done-empty" data-i18n="noCompleted">Nothing completed yet.</p>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

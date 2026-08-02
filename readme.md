@@ -42,6 +42,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Keep Chat context visible without visual noise.** A vertically aligned `# source / title` header distinguishes Web, Feishu, Telegram, QQ, Weixin, and Project conversations; its full passive surface drags the native window, the safely inset compact sidebar keeps frequent destinations close, and contextual timestamps add yesterday or the date once a message is no longer from today.
 - **Inspect external conversations without duplicated chrome.** Read-only Telegram, Feishu, QQ, and Weixin transcripts combine their source and Desktop read-only state into one quiet footer line.
 - **Stay oriented in long sidebars.** Conversation and Project share one sticky first-level title slot, so the visible heading follows the section currently being scrolled without stacking extra chrome.
+- **Open Mini Apps like real applications.** Desktop presents manifest icons in the bounded Mini App manager, the recent-first 10-item sidebar section, and Inspector chrome; its sidebar section uses the same compact header rhythm as Conversation and Project, staying transparent in normal flow and showing edge-faded glass only while pinned, while installation, enablement, opening, and removal stay together in one discoverable application-library surface.
 - **Trust what each message shows.** Desktop transcripts retain provider errors and completed replies with their actual response model, while message links open safely in the system browser without navigating away from Molibot.
 - **Navigate long conversations by turn.** Desktop Chat, Project Chat, and external transcripts gain a quiet left-edge user-prompt rail after five turns, with immediate Dock-style hover, a readable user/reply preview, keyboard access, and history-safe streaming.
 - **Use each model's real thinking depths.** Built-in models follow pi 0.82's per-model levels; custom models and built-ins without capability metadata expose all seven canonical choices (`off / minimal / low / medium / high / xhigh / max`) without guessed remapping.
@@ -133,6 +134,7 @@ OpenConnector is available in Desktop under **Settings → Tools → OpenConnect
 The Provider directory uses a readable two-column layout with one compact search/status/multi-category filter row; selecting several categories includes Providers from any selected category.
 Each Provider owns its card boundary, so odd result counts leave a clean empty column instead of drawing an empty row cell.
 Provider identity stays left-aligned while connection state and management actions form a consistent right-aligned group.
+When OpenConnector supplies a Provider homepage, its logo and name open that official site in the system browser.
 When enabled and configured, the derived `open-connector` service also appears in **Settings → Tools → MCP** with its live connection state and a Managed label. Reconnect is available there; configuration remains owned by the OpenConnector page.
 
 Project runs generate `SYSTEM_PROMPT.preview.md` in the Project's Molibot workspace. Its header lists only effective prompt sources: Project rules come from `AGENTS.md`, `AGENT.md`, or `CLAUDE.md`; runtime context retains `USER.md` but excludes Bot/Agent identity and persona profiles.
@@ -180,6 +182,8 @@ Conversations follow you: a chat started on the Web can continue on Desktop, and
 - [Architecture](docs/designs/architecture/v1-architecture.md)
 - [Agent runtime design](docs/designs/architecture/agent-redesign-v2.2.md)
 - [Plugin authoring](docs/guides/plugins/plugin-authoring.md)
+- [Mini App authoring](docs/guides/miniapps/authoring.md) — build an installable app with its own agent tools, UI and data
+- [Mini App shortcuts](docs/guides/miniapps/authoring.md#using-an-installed-mini-app) — use `/miniapps` to list apps, then `@app-id` to target one directly for a turn
 - [Deferred tool authoring](docs/guides/tools/deferred-tool-authoring.md)
 - [Agent development series](docs/agent-dev-series/README.md)
 

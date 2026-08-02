@@ -549,7 +549,7 @@ export interface DesktopModelState {
   options: DesktopModelOption[];
 }
 
-export type DesktopComposerSuggestionKind = "command" | "skill";
+export type DesktopComposerSuggestionKind = "command" | "skill" | "miniapp";
 
 export interface DesktopComposerSuggestion {
   id: string;
@@ -1406,6 +1406,70 @@ export interface DesktopPluginsUpdateRequest {
 export interface DesktopPluginsResponse {
   ok: true;
   summary: DesktopPluginsSummary;
+}
+
+export type DesktopMiniAppStatus = "active" | "disabled" | "error" | "uninstalling";
+
+/**
+ * Where an installed Mini App came from. Display-only provenance: app server
+ * code runs in-process without a sandbox regardless of source, so this informs
+ * the owner rather than constraining the app.
+ */
+export type DesktopMiniAppSource =
+  | { kind: "builtin" }
+  | { kind: "directory"; label: string }
+  | { kind: "zip"; label: string }
+  | { kind: "github"; repo: string; ref: string };
+
+export type DesktopMiniAppInstallRequest =
+  | { source: "directory"; path: string }
+  | { source: "zip"; path: string }
+  | { source: "github"; repo: string; ref?: string };
+
+export interface DesktopMiniAppInstallResponse {
+  ok: true;
+  items: DesktopMiniAppItem[];
+  /** The app that was just installed, so the UI can point at it. */
+  installedId: string;
+  /** True when the install replaced an existing app rather than adding one. */
+  replaced: boolean;
+  /** V1 has no hot reload: installed code only runs after a service restart. */
+  restartRequired: true;
+}
+
+/**
+ * A Mini App as the desktop sees it. Deliberately path-free: the WebView never
+ * receives a manifest path, an entry path or a data directory.
+ */
+export interface DesktopMiniAppItem {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  status: DesktopMiniAppStatus;
+  enabled: boolean;
+  builtin: boolean;
+  toolNames: string[];
+  /** Icon inlined as a `data:` URI, or empty when the app declares none. */
+  iconDataUri: string;
+  source: DesktopMiniAppSource;
+  error: string;
+}
+
+export interface DesktopMiniAppsResponse {
+  ok: true;
+  items: DesktopMiniAppItem[];
+}
+
+export interface DesktopMiniAppToggleRequest {
+  appId: string;
+  enabled: boolean;
+}
+
+export interface DesktopMiniAppUninstallRequest {
+  appId: string;
+  /** True permanently removes the app's data directory. Not recoverable. */
+  deleteData: boolean;
 }
 
 // One-off "backfill all history" job for daily materials. Progress is polled.

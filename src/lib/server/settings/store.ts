@@ -35,6 +35,7 @@ import {
   sanitizeChannelInstanceDisplaySettings,
   sanitizeHookPluginEntries,
   sanitizeMemoryPluginSettings,
+  sanitizeMiniAppSettings,
   sanitizePiExtensionSettings,
   sanitizeTtsGenerateSettings
 } from "$lib/server/settings/sanitize.js";
@@ -125,6 +126,7 @@ interface RawSettings {
       objectPrefix?: string;
     };
     piExtensions?: unknown;
+    miniApps?: unknown;
   };
   telegramBots?: unknown;
   agents?: unknown;
@@ -1121,6 +1123,10 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     raw.plugins?.piExtensions,
     defaultRuntimeSettings.plugins.piExtensions
   );
+  const miniApps = sanitizeMiniAppSettings(
+    raw.plugins?.miniApps,
+    defaultRuntimeSettings.plugins.miniApps
+  );
   // Feature-plugin settings blobs (keyed by settingsKey) round-trip untouched.
   const pluginExtras = raw.plugins && typeof raw.plugins === "object"
     ? Object.fromEntries(
@@ -1263,7 +1269,8 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       memory: memoryPlugin,
       cloudflareHtml,
       hooks: hookPlugins,
-      piExtensions
+      piExtensions,
+      miniApps
     } as RuntimeSettings["plugins"],
     timezone: normalizeTimeZone(
       String(raw.timezone ?? ""),

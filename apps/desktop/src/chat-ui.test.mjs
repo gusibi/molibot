@@ -609,6 +609,34 @@ test("shared composer provides keyboard slash suggestions and transcript invocat
   assert.match(styles, /\.invocation-message\[data-kind="skill"\]/);
 });
 
+// An @app selector is both a routing token and something the owner must be able
+// to see and pick. The composer therefore needs a second trigger character that
+// lists installed Mini Apps, and every surface that renders an invocation must
+// know the third kind — otherwise a Mini App turn falls through to plain prose.
+test("@ trigger lists Mini Apps and every invocation surface knows the miniapp kind", () => {
+  const catalog = read("./lib/chat/composerSuggestionCatalog.ts");
+  assert.match(chatInputArea, /mentionQuery/);
+  assert.match(chatInputArea, /\^@\(\[\^\\s@\]\*\)\$/);
+  // The `/` trigger must not offer Mini Apps, and `@` must not offer commands.
+  assert.match(chatInputArea, /suggestionKinds/);
+  assert.match(chatInputArea, /\["miniapp"\]/);
+  assert.match(catalog, /\^@\[a-z0-9\]/);
+  assert.match(slashSuggestionMenu, /MINI APPS/);
+  assert.match(transcript, /MINI APP/);
+  assert.match(styles, /\.invocation-message\[data-kind="miniapp"\]/);
+  assert.match(styles, /\.composer-token\[data-kind="miniapp"\]/);
+  assert.match(styles, /\.slash-suggestion-icon\[data-kind="miniapp"\]/);
+  // Pitfall 4: an undefined var() fails silently, so both invocation hues must
+  // exist as real tokens in the light AND dark declarations.
+  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 3);
+  assert.equal(styles.match(/--skill-accent:/g)?.length, 3);
+  assert.doesNotMatch(styles, /--purple-700/);
+  // Pitfall 12: the catalog now carries Mini Apps, so every catalog mutation
+  // must invalidate the composer's cache or `@` keeps advertising a stale set.
+  const miniAppsStore = read("./lib/stores/miniapps.svelte.ts");
+  assert.equal(miniAppsStore.match(/invalidateComposerSuggestions\(\)/g)?.length, 3);
+});
+
 test("issue 8 chat polish stays wired across shared Chat and Project surfaces", () => {
   assert.match(view, /openWorkspacePaneState\(pane\)/);
   assert.match(view, /service-starting-spinner/);
@@ -673,7 +701,7 @@ test("sidebar channel groups are independently collapsible with balanced list de
   const projectTree = read("./lib/projects/ProjectTree.svelte");
   assert.match(chatSidebar, /<ProjectTree/);
   assert.match(chatSidebar, /overflow-x: hidden/);
-  assert.match(projectTree, /project-tree-head/);
+  assert.match(projectTree, /sidebar-section-head/);
   assert.doesNotMatch(projectTree, /project-tree-actions/);
   assert.match(projectTree, /opacity: 0; pointer-events: none/);
   assert.match(row, /\.row-title\s*\{[^}]*flex:\s*1 1 auto[^}]*min-width:\s*0/s);
@@ -690,12 +718,25 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(row, /\.row-time\s*\{[^}]*font-size:\s*12px[^}]*line-height:\s*16px/s);
 });
 
-test("conversation and project section titles share one push-off sticky slot", () => {
+test("conversation, project, and Mini App titles share glass only while stuck", () => {
   const projectTree = read("./lib/projects/ProjectTree.svelte");
-  assert.match(chatSidebar, /\.sidebar-tree-title\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*background:\s*transparent;[^}]*backdrop-filter:\s*blur\(14px\)/s);
-  assert.match(projectTree, /\.project-tree-head\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*background:\s*transparent;[^}]*backdrop-filter:\s*blur\(14px\)/s);
-  assert.match(chatSidebar, /data-reduced-transparency="true"[^}]*sidebar-tree-title[^}]*backdrop-filter:\s*none;[^}]*background:\s*var\(--sidebar-bg\)/s);
-  assert.match(projectTree, /data-reduced-transparency="true"[^}]*project-tree-head[^}]*backdrop-filter:\s*none;[^}]*background:\s*var\(--sidebar-bg\)/s);
+  const sharedHeader = styles.slice(styles.indexOf(".sidebar-section-head {"), styles.indexOf(".brand-row {"));
+  assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*min-height:\s*32px/s);
+  assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*inset:\s*-11px 0 -13px[^}]*backdrop-filter:\s*blur\(16px\) saturate\(1\.14\)[^}]*mask-image:\s*linear-gradient/s);
+  assert.match(sharedHeader, /background:\s*linear-gradient\(to bottom, transparent 0%, var\(--sidebar-section-glass\) 34%, var\(--sidebar-section-glass\) 66%, transparent 100%\)/);
+  assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*background:\s*transparent/s);
+  assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*opacity:\s*0/s);
+  assert.match(sharedHeader, /\.sidebar-section-head\.is-stuck::before \{ opacity:\s*1; \}/);
+  assert.doesNotMatch(sharedHeader, /color-mix\(in srgb, var\(--sidebar-bg\) 94%, transparent\)/);
+  assert.match(styles, /:root\[data-theme="dark"\] \{[\s\S]*--sidebar-section-glass:\s*rgb\(255 255 255 \/ 5\.5%\)/);
+  assert.match(sharedHeader, /data-reduced-transparency="true"[^}]*\.sidebar-section-head::before[\s\S]*backdrop-filter:\s*none/);
+  for (const source of [chatSidebar, projectTree, miniAppSidebar]) {
+    assert.match(source, /sidebar-section-head/);
+    assert.match(source, /sidebar-section-toggle/);
+    assert.match(source, /sidebar-section-caret/);
+  }
+  assert.match(chatSidebar, /use:trackStickySectionHeads/);
+  assert.match(chatSidebar, /node\.scrollTop > 0[\s\S]*head\.classList\.toggle\("is-stuck", isStuck\)/);
   assert.match(chatSidebar, /<section class="sidebar-tree-section">[\s\S]*<ProjectTree/);
 });
 
@@ -1809,6 +1850,9 @@ test("OpenConnector is a first-class peer to MCP with a safe catalog and fixed s
   assert.match(connector, /class="connector-grid"/);
   assert.match(connector, /class="connector-card-action"/);
   assert.match(connector, /class="connector-card-actions">[\s\S]*class="status-badge"[\s\S]*class="connector-card-action"/);
+  assert.match(connector, /\{#if provider\.homepageUrl\}[\s\S]*class="connector-card-head connector-provider-link"[\s\S]*openUrl\(provider\.homepageUrl\)/);
+  assert.match(connector, /openConnectorOpenHomepage\.replace\("\{name\}", provider\.displayName\)/);
+  assert.match(connector, /ph-arrow-square-out/);
   assert.doesNotMatch(connector, /class="connector-description"/);
   assert.match(connector, /<details class="settings-card connector-config-panel">/);
   assert.doesNotMatch(connector, /<details class="settings-card connector-config-panel" open/);
@@ -1837,5 +1881,251 @@ test("OpenConnector is a first-class peer to MCP with a safe catalog and fixed s
   assert.match(styles, /\.connector-card \{[^}]*min-height: 68px[^}]*border: 1px solid var\(--chrome-border\)[^}]*border-radius: 12px/);
   assert.match(styles, /\.connector-card-head \{[^}]*flex: 1/);
   assert.match(styles, /\.connector-card-actions \{[^}]*justify-content: flex-end[^}]*margin-left: auto/);
+  assert.match(styles, /\.connector-provider-link:focus-visible \{[^}]*var\(--accent\)/);
   assert.match(styles, /\.connector-config-panel > summary \{[^}]*min-height: 56px/);
+});
+
+// ---------------------------------------------------------------- Mini Apps
+
+const miniAppPanel = read("./lib/miniapps/MiniAppPanel.svelte");
+const miniAppSidebar = read("./lib/miniapps/MiniAppsSidebarSection.svelte");
+const miniAppSettings = read("./lib/settings/MiniAppsSettingsGroup.svelte");
+const miniAppManager = read("./lib/miniapps/MiniAppsManager.svelte");
+const miniAppIcon = read("./lib/miniapps/MiniAppIcon.svelte");
+const miniAppInstall = read("../../../src/lib/server/miniapps/install.ts");
+const workspacePane = read("./lib/chat/ChatWorkspacePane.svelte");
+const miniAppStore = read("./lib/stores/miniapps.svelte.ts");
+const desktopApi = read("./lib/api.ts");
+const miniAppProtocol = read("../src-tauri/src/miniapp_protocol.rs");
+
+test("Mini App panels load from a fixed custom origin, never a loopback port range", () => {
+  // The service port is chosen at runtime while the CSP is fixed at build time.
+  // Widening frame-src to localhost would let the WebView frame anything
+  // listening on the machine, so the panel gets its own isolated scheme instead.
+  const csp = tauriConfig.app.security.csp;
+  assert.match(csp, /frame-src[^;]*molibot-miniapp:/);
+  assert.doesNotMatch(csp, /frame-src[^;]*127\.0\.0\.1/);
+  assert.doesNotMatch(csp, /frame-src[^;]*localhost:\*/);
+  assert.doesNotMatch(csp, /frame-src[^;]*\bhttp:\/\/localhost:\d/);
+
+  assert.match(desktopApi, /molibot-miniapp:\/\/\$\{appId\}\/index\.html/);
+  // The panel URL carries display hints only — never a token or a host path.
+  assert.match(desktopApi, /new URLSearchParams\(\{ locale, theme \}\)/);
+  assert.doesNotMatch(desktopApi, /miniAppPanelUrl[\s\S]{0,400}127\.0\.0\.1/);
+
+  // The Mini App API is not reachable through the desktop HTTP capability;
+  // it is only reachable through the custom-protocol transport.
+  const httpPermission = tauriCapabilities.permissions.find(
+    (permission) => permission && permission.identifier === "http:default"
+  );
+  assert.ok(httpPermission, "http:default capability should exist");
+  assert.equal(
+    httpPermission.allow.some((entry) => String(entry.url).includes("/miniapps/")),
+    false,
+    "Mini App routes must not be in the WebView's direct HTTP allowlist"
+  );
+});
+
+test("the Mini App iframe keeps a fixed, minimal sandbox", () => {
+  assert.match(miniAppPanel, /sandbox="allow-scripts allow-forms allow-same-origin"/);
+  // Each of these would hand a Mini App a capability the isolation boundary is
+  // meant to withhold; none may be added without a deliberate review.
+  for (const capability of [
+    "allow-popups",
+    "allow-modals",
+    "allow-top-navigation",
+    "allow-downloads",
+    "allow-pointer-lock",
+    "allow-presentation",
+    "allow-storage-access-by-user-activation"
+  ]) {
+    assert.doesNotMatch(miniAppPanel, new RegExp(capability), `${capability} must stay off the Mini App sandbox`);
+  }
+  assert.match(miniAppPanel, /referrerpolicy="no-referrer"/);
+});
+
+test("the Mini App panel is generic chrome with no per-app knowledge", () => {
+  // A shared panel that special-cases one app stops being reusable; Todo is a
+  // Mini App like any other.
+  assert.doesNotMatch(miniAppPanel, /\btodo\b/i);
+  assert.match(miniAppPanel, /miniAppsStore\.items\.find/);
+  // Disabled and failed states are shown in place, not left as a blank iframe.
+  assert.match(miniAppPanel, /miniAppDisabledPanel/);
+  assert.match(miniAppPanel, /miniAppLoadFailed/);
+});
+
+test("Chat opens at most one Inspector, and both kinds share one width budget", () => {
+  assert.match(view, /type ChatInspector =\s*\{ kind: "files" \} \| \{ kind: "miniapp"; appId: string \} \| null/);
+  assert.match(view, /\$: filePanelOpen = inspector\?\.kind === "files"/);
+  assert.match(view, /\$: inspectorVisible = filesPanelVisible \|\| miniAppPanelVisible/);
+  // One grid class, one resizer, one max-width computation for both adapters —
+  // a second panel must never introduce a fourth column.
+  assert.match(view, /class:with-files=\{inspectorVisible\}/);
+  assert.match(view, /\$: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH/);
+  assert.match(view, /\$: filesMaxWidth = !inspectorVisible/);
+  assert.match(view, /\{#if inspectorVisible\}[\s\S]{0,400}class="files-resizer"/);
+  // Opening one kind replaces the other rather than stacking.
+  assert.match(view, /inspector = \{ kind: "miniapp", appId \}/);
+  assert.match(view, /inspector = inspector\?\.kind === "files" \? null : \{ kind: "files" \}/);
+});
+
+test("the Mini App panel obeys the shared panel layout rules", () => {
+  // Column-relative sizing only: a `vw` here keeps its full-window value after
+  // the panel narrows the content column.
+  const panelBlock = styles.slice(styles.indexOf(".miniapp-panel {"), styles.indexOf(".miniapps-list"));
+  assert.doesNotMatch(panelBlock, /\d+vw/);
+  assert.doesNotMatch(panelBlock, /position:\s*fixed/);
+  assert.match(panelBlock, /\.miniapp-panel \{[^}]*min-width: 0/s);
+  // The head must clear the window drag mask (z-index 30) like the file panel.
+  assert.match(panelBlock, /\.miniapp-panel-head \{[^}]*z-index: 31/s);
+  assert.match(panelBlock, /\.miniapp-frame \{[^}]*flex: 1 1 auto/s);
+});
+
+test("Mini Apps are reachable as a primary destination and a recent-first app section", () => {
+  // The manager is a first-class sidebar destination, not something buried at
+  // the bottom of a Settings page.
+  assert.match(chatSidebar, /class="nav-item"[\s\S]{0,200}onclick=\{onOpenMiniApps\}/);
+  assert.match(chatSidebar, /copy\.miniAppsNav/);
+  assert.match(chatSidebar, /ph-app-store-logo/);
+  assert.match(workspacePane, /pane === "miniapps"[\s\S]{0,120}<MiniAppsManager/);
+
+  // The tree section keeps the Mini Apps label, while ordering a bounded list
+  // by recent use and retaining a way to reach the complete manager.
+  assert.match(chatSidebar, /<MiniAppsSidebarSection/);
+  assert.match(miniAppSidebar, /copy\.miniAppsRecent/);
+  assert.match(i18n, /miniAppsRecent: "小程序"/);
+  assert.match(miniAppSidebar, /recentMiniApps\(\)/);
+  assert.match(miniAppSidebar, /onSeeAll/);
+  assert.match(miniAppStore, /const RECENT_LIMIT = 10/);
+  // Recency is recorded on open, so the list reflects real use.
+  assert.match(view, /markMiniAppUsed\(appId\)/);
+
+  // Only enabled, loaded apps are offered for opening.
+  assert.match(miniAppStore, /item\.enabled && item\.status === "active" && !item\.error/);
+});
+
+test("the sidebar destination and the Settings group mount one manager component", () => {
+  // Two management surfaces implemented twice would drift; both mount the same
+  // component instead.
+  assert.match(miniAppSettings, /<MiniAppsManager/);
+  assert.match(workspacePane, /<MiniAppsManager/);
+  // Opening a panel belongs to Chat, so the Settings mount passes no handler.
+  assert.doesNotMatch(miniAppSettings, /onOpenApp=\{/);
+});
+
+test("Mini App icons are inlined so no CSP or path leak is needed", () => {
+  // A URL-based icon would need `img-src molibot-miniapp:` in the app CSP and a
+  // resolvable asset path in the Desktop contract; a data URI keeps both closed.
+  for (const source of [miniAppManager, miniAppSidebar, miniAppPanel]) {
+    assert.match(source, /<MiniAppIcon/);
+    assert.match(source, /iconDataUri/);
+  }
+  const csp = tauriConfig.app.security.csp;
+  assert.doesNotMatch(csp, /img-src[^;]*molibot-miniapp/);
+  // Every icon-bearing surface shares one neutral fallback rather than drifting
+  // back to the generic four-cell grid.
+  assert.match(miniAppIcon, /\{:else\}[\s\S]{0,120}ph-app-window/);
+  assert.doesNotMatch(miniAppIcon, /ph-squares-four/);
+});
+
+test("the Mini App manager follows the bounded data-page layout", () => {
+  assert.match(styles, /\.workspace-scroll\[data-workspace-pane="miniapps"\] > \.miniapps-manager \{[^}]*var\(--data-content-width\)[^}]*margin: 0 auto/s);
+  assert.match(styles, /\.miniapps-settings-row \{[^}]*grid-template-columns: 40px minmax\(0, 1fr\) auto/s);
+  assert.match(styles, /@media \(max-width: 600px\)[\s\S]*\.miniapps-settings-row \{[^}]*grid-template-columns: 40px minmax\(0, 1fr\)/s);
+});
+
+test("Mini App toggle and uninstall use fine-grained routes, not the Plugins editor PUT", () => {
+  assert.match(desktopApi, /"\/api\/desktop\/miniapps", \{\s*method: "PATCH"/s);
+  assert.match(desktopApi, /"\/api\/desktop\/miniapps", \{\s*method: "DELETE"/s);
+  // A toggle must not also commit whatever else is unsaved on the Plugins page,
+  // so the group renders outside that form.
+  assert.match(sections.plugins, /<\/form>[\s\S]*<MiniAppsSettingsGroup \/>/);
+  assert.match(miniAppManager, /toggleMiniApp\(app\.id, checked\)/);
+  // Toggles must use IosSwitch, never the generic Switch.
+  assert.match(miniAppManager, /<IosSwitch/);
+  assert.doesNotMatch(miniAppManager, /<Switch[\s/>]/);
+});
+
+test("installing states the trust consequence before it happens, and names the source", () => {
+  // App server code runs in-process with no sandbox, so the owner is told what
+  // installing means *before* the install, and a remote source is confirmed.
+  assert.match(miniAppManager, /function confirmInstall[\s\S]{0,200}window\.confirm/);
+  assert.match(miniAppManager, /miniAppInstallTrustWarning/);
+  for (const installer of ["installFromDirectory", "installFromZip", "installFromGithub"]) {
+    const body = miniAppManager.slice(miniAppManager.indexOf(`async function ${installer}`));
+    assert.match(body.slice(0, 600), /confirmInstall\(/, `${installer} must confirm first`);
+  }
+  assert.match(i18n, /miniAppInstallTrustWarning: "[^"]*没有沙箱/);
+  assert.match(i18n, /miniAppInstallTrustWarning: "[^"]*no sandbox/);
+
+  // Provenance is recorded and shown, so an owner can see what they are running.
+  assert.match(miniAppManager, /function sourceLabel/);
+  assert.match(miniAppManager, /class="miniapps-provenance"/);
+
+  // V1 has no hot reload: the UI must say so rather than imply the app is live.
+  assert.match(miniAppManager, /miniAppRestartRequired/);
+  assert.match(miniAppStore, /restartRequired = true/);
+});
+
+test("the installer contains archive extraction, not just path checks", () => {
+  // These are the failure modes that turn "install from a zip" into arbitrary
+  // file write outside the install root.
+  assert.match(miniAppInstall, /isSafeRelativePath\(rawName\)/);
+  assert.match(miniAppInstall, /symlink/i);
+  assert.match(miniAppInstall, /MAX_UNPACKED_BYTES/);
+  assert.match(miniAppInstall, /MAX_ENTRIES/);
+  // The repo and ref are pattern-checked before any URL is built.
+  assert.match(miniAppInstall, /GITHUB_REPO_PATTERN\.test\(repo\)/);
+  assert.match(miniAppInstall, /GITHUB_REF_PATTERN\.test\(ref\)/);
+  // The manifest must validate in staging, before anything reaches the code root.
+  assert.match(miniAppInstall, /readMiniAppManifest\(namedStaging, manifestId\)/);
+});
+
+test("deleting a Mini App's data is opt-in and separately confirmed", () => {
+  assert.match(miniAppManager, /miniAppUninstallKeepData/);
+  assert.match(miniAppManager, /miniAppUninstallDeleteData/);
+  // Two different confirmation strings: the destructive one must say the data
+  // cannot be recovered rather than reusing the milder wording.
+  assert.match(miniAppManager, /deleteData\s*\?\s*session\.text\.miniAppDeleteDataConfirm/s);
+  assert.match(i18n, /miniAppDeleteDataConfirm: "[^"]*不可恢复/);
+  assert.match(i18n, /miniAppDeleteDataConfirm: "[^"]*cannot be undone/);
+});
+
+test("the Mini App transport pins its upstream and marks every forwarded request", () => {
+  // The proxy header is what makes the loopback API unreachable from an
+  // ordinary web page: a cross-origin caller would need a CORS preflight, and
+  // the Mini App routes grant no CORS.
+  assert.match(miniAppProtocol, /const PROXY_HEADER: &str = "x-molibot-miniapp-proxy"/);
+  assert.match(miniAppProtocol, /builder = builder\.header\(PROXY_HEADER, PROXY_VALUE\)/);
+  assert.match(miniAppProtocol, /redirect\(reqwest::redirect::Policy::none\(\)\)/);
+  // Cookies and credentials are never forwarded.
+  assert.doesNotMatch(miniAppProtocol, /FORWARDED_REQUEST_HEADERS[^;]*"cookie"/s);
+  assert.doesNotMatch(miniAppProtocol, /FORWARDED_REQUEST_HEADERS[^;]*"authorization"/s);
+  assert.match(tauriCargo, /reqwest = \{ version = "0\.12", default-features = false \}/);
+});
+
+test("Mini App copy exists in both locales", () => {
+  const keys = [
+    "miniAppsSection",
+    "miniAppsEmpty",
+    "miniAppsSettingsTitle",
+    "miniAppOpen",
+    "miniAppUninstallKeepData",
+    "miniAppUninstallDeleteData",
+    "miniAppDisabledPanel",
+    "miniAppLoadFailed",
+    "miniAppManageHint",
+    "miniAppsNav",
+    "miniAppsRecent",
+    "miniAppsSeeAll",
+    "miniAppInstallDirectory",
+    "miniAppInstallZip",
+    "miniAppInstallGithub",
+    "miniAppInstallTrustWarning",
+    "miniAppRestartRequired"
+  ];
+  for (const key of keys) {
+    const occurrences = [...i18n.matchAll(new RegExp(`\\b${key}:`, "g"))].length;
+    assert.equal(occurrences, 2, `${key} must be defined in both zh-CN and en`);
+  }
 });

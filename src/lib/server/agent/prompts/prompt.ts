@@ -273,6 +273,31 @@ function buildFeaturePluginsSection(settings: RuntimeSettings | undefined): stri
   return xmlBlock("feature-plugins", ["## Installed Feature Plugins", ...sections].join("\n\n"));
 }
 
+/**
+ * Installed Mini Apps, by name and one-line purpose.
+ *
+ * Without this the model cannot know a domain app exists: the deferred-tool
+ * block below is a fixed list of built-ins, so an installed "expenses" app
+ * would only ever be found if the model happened to guess the right search
+ * keyword. Names and descriptions are enough to prompt a `toolSearch`; the
+ * schemas deliberately stay out and arrive through that search instead.
+ *
+ * This lives in the volatile tail with `available-skills`, not in the cacheable
+ * prefix — installing an app must not invalidate the whole prompt cache.
+ */
+function buildInstalledMiniAppsSection(apps: readonly PromptMiniApp[] | undefined): string {
+  if (!apps || apps.length === 0) return "";
+
+  return xmlBlock("installed-mini-apps", [
+    "## Installed Mini Apps",
+    "These apps own their domain data. When a request belongs to one, load its tools with `toolSearch` (for example `select:miniapp__todo__add`) and use them instead of memory, files, or bash.",
+    ...apps.map((app) => {
+      const tools = app.toolNames.map((tool) => `miniapp__${app.id}__${tool}`).join(", ");
+      return `- **${app.name}** (${app.id})${app.description ? ` — ${app.description}` : ""}\n  Tools: ${tools}`;
+    })
+  ].join("\n"));
+}
+
 function buildAvailableDeferredToolsSection(): string {
   return xmlBlock("available-deferred-tools", [
     "createEvent",
@@ -292,6 +317,10 @@ function buildToolSearchProtocolSection(): string {
     "",
     "Deferred tools appear by name in <available-deferred-tools> but are not callable until loaded.",
     "Use `toolSearch` to fetch the full schema for a deferred tool before calling it. Use `select:<toolName>` when the exact tool name is known.",
+    // Installed Mini Apps are dynamic, so their names and schemas deliberately
+    // stay out of this stable prefix. This rule is what points the model at
+    // toolSearch instead.
+    "Installed Mini Apps own domain data and expose tools named `miniapp__<appId>__<tool>`. Any app installed right now is listed in `<installed-mini-apps>` with its tool names; load them with `toolSearch` before answering such a request from memory, files, or bash.",
   ].join("\n");
 }
 
@@ -332,7 +361,7 @@ function buildToolsSection(): string {
     "",
     "### Tool Selection",
     "- Prefer dedicated tools over bash equivalents: read/write/edit for files, memory for memory, attach for sending files, skillSearch for skills, and toolSearch for deferred tools.",
-    "- Every tool named in `<available-deferred-tools>` MUST be loaded before it can be called: `toolSearch` with `select:<toolName>`, then call the tool. Calling one without loading it first fails.",
+    "- Deferred tools require `toolSearch` first, except Mini App tools marked preloaded by `<runtime-control>`.",
     "- Outcome ownership (mandatory when no skill was explicitly invoked). Infer intent semantically in any language; do not search by translated keywords first. Load the owning tool as above, then use it unless it is unavailable or actually failed:",
     "  - image generation or editing → `imageGenerate`, not scripts or discovered skills",
     "  - video generation or progress checks → `videoGenerate`; submission returns taskId: report it and end the turn because runtime rejects a second submission this turn. For status, call with taskId+engine from history. Input images must be public HTTP(S) Remote URLs, never Base64/data URLs/local paths",
@@ -394,8 +423,23 @@ function buildMcpAccessSection(settings?: RuntimeSettings): string {
   ].join("\n"));
 }
 
+/**
+ * The slice of a Mini App the prompt needs. Passed in rather than read from the
+ * host singleton so prompt construction stays pure and testable — reaching for
+ * the singleton made the prompt depend on whatever is installed in the running
+ * user's real workspace.
+ */
+export interface PromptMiniApp {
+  id: string;
+  name: string;
+  description?: string;
+  toolNames: readonly string[];
+}
+
 interface PromptBuildOptions {
   channel?: PromptChannel;
+  /** Enabled, loaded Mini Apps. Empty or absent renders no section. */
+  miniApps?: readonly PromptMiniApp[];
   settings?: RuntimeSettings;
   operatorDirectivesPresent?: boolean;
   /** Profile file names actually loaded for this turn, in injection order. */
@@ -483,6 +527,8 @@ function buildBaseSystemPromptWithOptions(
     // `available-skills` and `current-memory` change between turns. Keeping them
     // at the very tail leaves the large, static prefix above byte-identical across
     // turns, which helps providers that do prefix-based prompt caching.
+    buildInstalledMiniAppsSection(options?.miniApps),
+    "",
     buildSkillsRuntimeStateSection(vars),
     "",
     buildCurrentMemorySection(),

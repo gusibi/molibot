@@ -2324,6 +2324,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-av-foundation",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tauri",
