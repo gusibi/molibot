@@ -7,6 +7,9 @@
 ---
 ## 2026-08-02
 
+### Release: v2.8.7 / Desktop v0.8.4
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: a Mini App turn answered with its own tool call instead of the result
 
 `@expense-tracker 买肉花 20` recorded the expense correctly and then replied `run tool miniapp__expense-tracker__add with amount is 20 category is food ...`. The work was done, but the only thing the user could see was internal syntax, with no way to tell whether anything had been saved — the tool result already held the sentence they should have received (`已记账：餐饮 −20.00 元…`), and it never reached them.
