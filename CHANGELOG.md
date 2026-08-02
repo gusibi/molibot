@@ -7,6 +7,9 @@
 ---
 ## 2026-08-02
 
+### Release: v2.8.5 / Desktop v0.8.2
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Changed: Mini Apps now read as real applications across Desktop
 
 - The Mini App manager now follows the bounded 720px data-page layout instead of stretching across the workspace. Installation, installed-app rows, state, and destructive actions have a clearer macOS-style hierarchy with responsive narrow-width behavior and shared semantic controls.
