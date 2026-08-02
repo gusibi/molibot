@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
+import { createRuntimeSessionId } from "$lib/server/agent/session/ids.js";
 import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import type { ConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import type {
@@ -390,7 +391,9 @@ export class SessionStore {
 
   private createConversation(channel: Channel, externalUserId: string, projectId?: string, origin?: string): Conversation {
     const now = new Date().toISOString();
-    const id = uuidv4();
+    const id = createRuntimeSessionId("session", {
+      exists: (candidate) => this.resolveSessionStorage(candidate) !== null
+    });
     const conversation: Conversation = {
       id,
       channel,

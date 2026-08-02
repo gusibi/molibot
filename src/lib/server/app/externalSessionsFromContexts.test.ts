@@ -74,13 +74,19 @@ test("listExternalSessionsFromContexts projects contexts sessions, skips automat
     );
     writeFileSync(path.join(dir, "task-20260703-bbbb.meta.json"), JSON.stringify({ origin: "automation" }), "utf8");
 
-    // Older automation contexts may be missing meta; task-* and [EVENT:...]
-    // prompts still must not leak into the ordinary external session list.
+    // Older automation contexts may be missing meta; current t-*, legacy
+    // task-*, and [EVENT:...] prompts still must not leak into the ordinary list.
     seedSession(
       dir,
       "task-20260703-cccc",
       [{ role: "user", content: "Scheduled run without metadata", timestamp: "2026-07-03T00:01:00.000Z" }],
       "2026-07-03T00:01:00.000Z"
+    );
+    seedSession(
+      dir,
+      "t-20260703-dddd",
+      [{ role: "user", content: "Current task context", timestamp: "2026-07-03T00:01:30.000Z" }],
+      "2026-07-03T00:01:30.000Z"
     );
     seedSession(
       dir,
@@ -104,6 +110,7 @@ test("listExternalSessionsFromContexts projects contexts sessions, skips automat
     assert.ok(bySession.has("bot:mybot:chat:111:s-20260702-aaaa"));
     assert.ok(!bySession.has("bot:mybot:chat:111:task-20260703-bbbb"));
     assert.ok(!bySession.has("bot:mybot:chat:111:task-20260703-cccc"));
+    assert.ok(!bySession.has("bot:mybot:chat:111:t-20260703-dddd"));
     assert.ok(!bySession.has("bot:mybot:chat:111:s-legacy-event"));
 
     const dflt = bySession.get("bot:mybot:chat:111:default")!;
@@ -329,4 +336,3 @@ test("readExternalTranscriptFromContexts recovers user-sent attachments from the
     rmSync(root, { recursive: true, force: true });
   }
 });
-

@@ -1,6 +1,11 @@
 import type { DesktopComposerSuggestion } from "@molibot/desktop-contract";
 import { loadDesktopComposerSuggestions } from "../api";
-import { classifyComposerSuggestion, setComposerSuggestionCatalog } from "./composerSuggestionCatalog";
+import {
+  classifyComposerSuggestion,
+  segmentComposerInvocations,
+  setComposerSuggestionCatalog,
+  type ComposerSegment
+} from "./composerSuggestionCatalog";
 
 export const composerSuggestionsStore = $state({
   endpoint: "",
@@ -34,4 +39,9 @@ export async function ensureComposerSuggestions(endpoint: string, projectId = ""
 
 export function classifyComposerInvocation(content: string): { kind: DesktopComposerSuggestion["kind"]; token: string } | null {
   return classifyComposerSuggestion(content, composerSuggestionsStore.items);
+}
+
+/** Segments composer text against the live catalog for the highlight overlay. */
+export function segmentComposerValue(content: string): ComposerSegment[] {
+  return segmentComposerInvocations(content, composerSuggestionsStore.items);
 }

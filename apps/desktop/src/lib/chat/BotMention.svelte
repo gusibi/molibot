@@ -111,20 +111,21 @@
 <style>
   .bot-mention {
     position: relative;
-    align-self: flex-start;
     max-width: 100%;
   }
 
+  /* Lives in the composer's bottom tool row now, so it stays as quiet as the
+     neighbouring icon buttons: no resting background, hover reveals one. */
   .mention-token {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 26px;
+    height: 28px;
     max-width: 100%;
     padding: 0 8px 0 7px;
     border: 0;
     border-radius: var(--rounded-full);
-    background: var(--fill);
+    background: transparent;
     color: var(--label-secondary);
     font-size: 12.5px;
     font-weight: 500;
@@ -134,7 +135,7 @@
   }
   .mention-token:hover,
   .mention-token.active {
-    background: var(--fill-hover);
+    background: var(--fill);
     color: var(--label-primary);
   }
   .mention-at {
@@ -144,6 +145,7 @@
   }
   .mention-name {
     min-width: 0;
+    max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

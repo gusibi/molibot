@@ -24,6 +24,7 @@ test("deleting a Web conversation removes its file and index entry", () => {
     const store = new SessionStore();
     const externalUserId = "web:personal:web-anonymous";
     const session = store.createWebConversation(externalUserId);
+    assert.match(session.id, /^s-\d{8}-[a-z]{4}$/);
     store.appendMessage(session.id, "user", "hello", {
       activities: [{ key: "read-1", kind: "tool", label: "Read file", state: "success", summary: "done" }]
     });
@@ -424,6 +425,7 @@ test("getForkableConversation resolves Project Sessions and keeps Web Sessions o
     const store = new SessionStore();
     const web = store.createWebConversation(owner);
     const project = store.createProjectConversation("proj-a", owner);
+    assert.match(project.id, /^s-\d{8}-[a-z]{4}$/);
 
     assert.equal(store.getForkableConversation(web.id, owner)?.kind, "web");
     // A Web Session stays scoped to its owner.

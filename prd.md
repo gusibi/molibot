@@ -5,6 +5,13 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.32 Shared readable Session and Task context IDs (2026-08-02)
+
+- **Priority / Status**: P1 / Delivered (2026-08-02).
+- **Problem**: channel Agent contexts already used readable `s-YYYYMMDD-xxxx` ids, while App/Web and Project conversations used UUIDs and forks used a third `fork-*` form. The split made one Agent appear to follow different identity rules depending on entry surface.
+- **Decision**: one shared Agent-layer generator owns new Session ids across App/Web, Projects, external channels, and forks. Ordinary Sessions use `s-YYYYMMDD-xxxx`; automation contexts use `t-YYYYMMDD-xxxx` (or `t-archive-*` for shared archives). Channels do not implement their own naming rules. Persisted UUID, `fork-*`, and `task-*` ids remain valid and are never renamed in place.
+- **Acceptance**: Web, Project, Agent, Task, and fork creation paths are machine-guarded; current and legacy Task contexts remain hidden from ordinary conversation lists, routable, recoverable, and eligible for retention cleanup.
+
 ## 3.31 Mini App platform: workspace-installed apps with agent tools + hosted UI (2026-08-02)
 
 - **Priority / Status**: P1 / **Delivered 2026-08-02** (GitHub Issue [#26](https://github.com/gusibi/molibot/issues/26)). Slices 0-6 complete; see `features.md` for the delivered scope. **Scope expanded 2026-08-02 after review**: Mini Apps became a primary sidebar destination with a full manager (the original Settings-only entry was undiscoverable); the peer sidebar section keeps the product name while prioritizing the 10 most recently used apps; manifests gained an optional `ui.icon` rendered consistently in the manager, quick list, and Inspector; and graphical installation from a local folder / ZIP / GitHub repo was added. Remote install deliberately relaxes the original trust model — app server code still runs in-process **unsandboxed** — so the UI confirms provenance before every install and the catalog records where each app came from. Still deferred: SSE push (V1 polls a revision), an app marketplace with signing/permission scopes/subprocess sandboxing, per-agent or per-project app instances, app-to-app calls, code hot reload, automatic data-schema migration.

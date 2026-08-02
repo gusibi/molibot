@@ -25,12 +25,12 @@ function ageSessionFiles(store: MomRuntimeStore, chatId: string, sessionId: stri
   utimesSync(entries.replace(/\.jsonl$/, ".json"), old, old);
 }
 
-test("beginTaskSession creates an active task- session", () => {
+test("beginTaskSession creates an active t- session", () => {
   const { store, dir } = makeStore();
   try {
     const chatId = "chat1";
     const id = store.beginTaskSession(chatId);
-    assert.match(id, /^task-\d{8}-[a-z]{4}$/);
+    assert.match(id, /^t-\d{8}-[a-z]{4}$/);
     assert.equal(store.getActiveSession(chatId), id);
     assert.ok(store.listSessions(chatId).includes(id));
   } finally {
@@ -58,8 +58,8 @@ test("beginTaskSession uses date-scoped random ids", () => {
     const chatId = "chat1";
     const first = store.beginTaskSession(chatId);
     const second = store.beginTaskSession(chatId);
-    assert.match(first, /^task-\d{8}-[a-z]{4}$/);
-    assert.match(second, /^task-\d{8}-[a-z]{4}$/);
+    assert.match(first, /^t-\d{8}-[a-z]{4}$/);
+    assert.match(second, /^t-\d{8}-[a-z]{4}$/);
     assert.equal(store.getActiveSession(chatId), second);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -76,7 +76,7 @@ test("beginTaskArchiveSession reuses one archive per task and separates differen
 
     assert.equal(second, first);
     assert.notEqual(other, first);
-    assert.match(first, /^task-archive-[a-f0-9]{16}$/);
+    assert.match(first, /^t-archive-[a-f0-9]{16}$/);
     assert.deepEqual(store.readSessionOrigin(chatId, first), {
       origin: "automation",
       taskId: "daily-report",
@@ -95,7 +95,7 @@ test("beginTaskArchiveSession keeps legacy fresh behavior without a stable task 
     const first = store.beginTaskArchiveSession("chat1", "");
     const second = store.beginTaskArchiveSession("chat1", "");
     assert.notEqual(second, first);
-    assert.match(first, /^task-\d{8}-[a-z]{4}$/);
+    assert.match(first, /^t-\d{8}-[a-z]{4}$/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

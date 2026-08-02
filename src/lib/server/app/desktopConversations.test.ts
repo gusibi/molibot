@@ -216,6 +216,7 @@ test("buildWebItems classifies fresh automation sessions so the sidebar can filt
 test("classifyWebPurpose keeps project above automation fallbacks", () => {
   assert.equal(classifyWebPurpose({ id: "task-project", projectId: "p-1", origin: "automation" }), "project");
   assert.equal(classifyWebPurpose({ id: "task-legacy" }), "automation");
+  assert.equal(classifyWebPurpose({ id: "t-20260802-abcd" }), "automation");
   assert.equal(classifyWebPurpose({ id: "s-origin", origin: "automation" }), "automation");
   assert.equal(classifyWebPurpose({ id: "s-normal" }), "conversation");
 });

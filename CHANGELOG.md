@@ -7,6 +7,23 @@
 ---
 ## 2026-08-02
 
+### Changed: shared readable Session and Task context IDs
+
+- New App/Web, Project, channel Agent, and forked Sessions now share the upper-layer `s-YYYYMMDD-xxxx` naming rule instead of mixing UUID, `fork-*`, and channel-specific forms.
+- Fresh automation contexts now use `t-YYYYMMDD-xxxx`; shared task archives use `t-archive-*`. Existing UUID, `fork-*`, and `task-*` data remains readable and is not renamed.
+- Automation filtering and Project routing recognize both current `t-*` and legacy `task-*` contexts.
+
+### Changed: composer and sidebar polish — quiet controls, one tool row, caret-aware triggers
+
+- **Sidebar sticky headers lost the floating glass blob.** The 对话/项目/小程序 section titles used to reveal a gradient blur band that bled 11–13px past the header while stuck, which read as an abrupt smudge rather than macOS chrome. The stuck state now paints a quiet material band exactly the header's height (sidebar-tinted `color-mix` + 12px blur) with a 0.5px bottom hairline; the reduced-transparency/low-performance fallback is a plain solid. The now-unused `--sidebar-section-glass` token was removed everywhere (pitfall 4).
+- **The `@Agent` picker no longer occupies its own row.** It moved into the composer's bottom tool row next to the attachment button and the model selector (new `mention` slot through `ChatInputArea`), and rests transparent like the neighbouring icons — hover reveals the background. The edit-message banner stays above the textarea.
+- **The model / thinking-level trigger is now text-only.** No resting border or pill background; hover (or an open menu) paints the same `--fill` the icon buttons use.
+- **`/` and `@` now trigger on the token under the caret at any offset**, not only as the message's first character. A token counts only when it starts the message or follows whitespace, so `3/4` or an email address never opens the menu. Selecting a suggestion replaces just that token (caret restored after it via the shell's `setSelection`), and `submitOnSelect` commands only auto-send when the invocation is the entire message.
+- **`@` can now reference Project files.** Inside a Project, the mention menu adds a FILES group fed by the existing name-mode file search (debounced, generation-guarded per pitfall 3); selecting one inserts the `@path` reference the file panel's "引用到输入框" already produces. Outside a Project `@` keeps offering Mini Apps only.
+- **The in-composer invocation pill was softened and now follows the token anywhere**: an 11% tint with the standard small radius instead of the heavy 22% fill plus inset ring, and the highlight overlay segments the whole text (`segmentComposerInvocations`) so every recognized `/command`, `/skill` or `@miniapp` token gets its pill at any offset — the old overlay only recognized a leading token. Unknown tokens (`/addx`, `@todos`) and non-boundary matches (`3/4`, emails) stay plain.
+- **The sticky band got the row radius** (`--rounded-sm`) so it reads as sidebar chrome instead of a hard-edged strip.
+- Verification: desktop structural tests 124/124 (sticky-band, quiet-selector, caret-trigger and FILES guards updated/added), `svelte-check` 0 errors 0 warnings, desktop `vite build` passes.
+
 ### Release: v2.8.5 / Desktop v0.8.2
 - Synchronized the root and Desktop package versions for the new release.
 

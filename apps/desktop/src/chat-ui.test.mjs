@@ -616,10 +616,33 @@ test("shared composer provides keyboard slash suggestions and transcript invocat
 test("@ trigger lists Mini Apps and every invocation surface knows the miniapp kind", () => {
   const catalog = read("./lib/chat/composerSuggestionCatalog.ts");
   assert.match(chatInputArea, /mentionQuery/);
-  assert.match(chatInputArea, /\^@\(\[\^\\s@\]\*\)\$/);
+  // Both triggers fire on the token under the caret at ANY offset — not only as
+  // the first character — but require a word boundary so "3/4" or an email
+  // address never opens the menu.
+  assert.match(chatInputArea, /textBeforeCaret/);
+  assert.match(chatInputArea, /\(\?:\^\|\\s\)\(\\\/\[\^\\s\]\*\)\$/);
+  assert.match(chatInputArea, /\(\?:\^\|\\s\)\(@\[\^\\s@\]\*\)\$/);
+  // Selecting a suggestion replaces only the trigger token and only submits
+  // when the invocation is the whole message.
+  assert.match(chatInputArea, /activeTokenStart/);
+  assert.match(chatInputArea, /wholeMessage/);
+  // The caret position must come from the textarea itself, not be guessed.
+  const composerShell = read("./lib/chat/ChatComposerShell.svelte");
+  assert.match(composerShell, /onCaretMove/);
+  assert.match(composerShell, /setSelectionRange/);
+  // The highlight overlay pills every recognized token, not only a leading one.
+  assert.match(composerShell, /segmentComposerValue/);
+  assert.match(composerShell, /\{#each segments as segment\}/);
+  assert.match(catalog, /segmentComposerInvocations/);
   // The `/` trigger must not offer Mini Apps, and `@` must not offer commands.
   assert.match(chatInputArea, /suggestionKinds/);
-  assert.match(chatInputArea, /\["miniapp"\]/);
+  assert.match(chatInputArea, /\["miniapp", "file"\]/);
+  // Inside a Project, `@` also offers file references from the name search;
+  // stale responses are generation-guarded (pitfall 3).
+  assert.match(chatInputArea, /searchDesktopProjectFiles/);
+  assert.match(chatInputArea, /fileSearchGeneration/);
+  assert.match(slashSuggestionMenu, /FILES/);
+  assert.match(styles, /\.slash-suggestion-icon\[data-kind="file"\]/);
   assert.match(catalog, /\^@\[a-z0-9\]/);
   assert.match(slashSuggestionMenu, /MINI APPS/);
   assert.match(transcript, /MINI APP/);
@@ -635,6 +658,19 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   // must invalidate the composer's cache or `@` keeps advertising a stale set.
   const miniAppsStore = read("./lib/stores/miniapps.svelte.ts");
   assert.equal(miniAppsStore.match(/invalidateComposerSuggestions\(\)/g)?.length, 3);
+});
+
+test("composer bottom bar owns the agent mention and keeps selectors quiet", () => {
+  // The @Agent picker lives in the bottom tool row next to attachments and the
+  // model selector instead of occupying its own row above the textarea.
+  assert.match(chatInputArea, /<slot name="mention" \/>/);
+  assert.match(view, /slot="mention"/);
+  // The model/thinking trigger and the mention pill rest without a background
+  // or border; only hover (or open) paints one — like the neighbouring icons.
+  assert.match(styles, /\.composer-model-trigger \{[^}]*border: 0;[^}]*background: transparent/s);
+  assert.match(styles, /\.composer-model-trigger:hover[^{]*\{[^}]*background: var\(--fill\)/);
+  const botMention = read("./lib/chat/BotMention.svelte");
+  assert.match(botMention, /\.mention-token \{[^}]*background: transparent/s);
 });
 
 test("issue 8 chat polish stays wired across shared Chat and Project surfaces", () => {
@@ -718,18 +754,20 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(row, /\.row-time\s*\{[^}]*font-size:\s*12px[^}]*line-height:\s*16px/s);
 });
 
-test("conversation, project, and Mini App titles share glass only while stuck", () => {
+test("conversation, project, and Mini App titles share a quiet material band only while stuck", () => {
   const projectTree = read("./lib/projects/ProjectTree.svelte");
   const sharedHeader = styles.slice(styles.indexOf(".sidebar-section-head {"), styles.indexOf(".brand-row {"));
   assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*min-height:\s*32px/s);
-  assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*inset:\s*-11px 0 -13px[^}]*backdrop-filter:\s*blur\(16px\) saturate\(1\.14\)[^}]*mask-image:\s*linear-gradient/s);
-  assert.match(sharedHeader, /background:\s*linear-gradient\(to bottom, transparent 0%, var\(--sidebar-section-glass\) 34%, var\(--sidebar-section-glass\) 66%, transparent 100%\)/);
+  // The stuck band stays inside the head's own rect (no bleeding gradient) and
+  // rounds its corners to the row radius instead of a hard-edged strip.
+  assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*inset:\s*0;[^}]*border-radius:\s*var\(--rounded-sm\);[^}]*background:\s*color-mix\(in srgb, var\(--sidebar-bg\) 86%, transparent\);[^}]*backdrop-filter:\s*blur\(12px\)/s);
+  assert.doesNotMatch(sharedHeader, /mask-image|linear-gradient|inset:\s*-/);
   assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*background:\s*transparent/s);
   assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*opacity:\s*0/s);
   assert.match(sharedHeader, /\.sidebar-section-head\.is-stuck::before \{ opacity:\s*1; \}/);
-  assert.doesNotMatch(sharedHeader, /color-mix\(in srgb, var\(--sidebar-bg\) 94%, transparent\)/);
-  assert.match(styles, /:root\[data-theme="dark"\] \{[\s\S]*--sidebar-section-glass:\s*rgb\(255 255 255 \/ 5\.5%\)/);
   assert.match(sharedHeader, /data-reduced-transparency="true"[^}]*\.sidebar-section-head::before[\s\S]*backdrop-filter:\s*none/);
+  // The old gradient's private token must not linger once nothing reads it (pitfall 4).
+  assert.doesNotMatch(styles, /--sidebar-section-glass/);
   for (const source of [chatSidebar, projectTree, miniAppSidebar]) {
     assert.match(source, /sidebar-section-head/);
     assert.match(source, /sidebar-section-toggle/);

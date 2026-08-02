@@ -9,7 +9,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { createHash, randomInt } from "node:crypto";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
@@ -37,6 +37,7 @@ import {
   resolveWorkspaceRelativeFromWorkspacePath
 } from "$lib/server/agent/session/workspace.js";
 import { estimateContextTokens } from "$lib/server/agent/session/compaction.js";
+import { createRuntimeSessionId, isTaskSessionId } from "$lib/server/agent/session/ids.js";
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
@@ -250,35 +251,6 @@ export class MomRuntimeStore {
     const raw = String(sessionId ?? "").trim();
     const safe = raw.replace(/[^a-zA-Z0-9._-]/g, "");
     return safe || this.defaultSessionId;
-  }
-
-  private formatSessionDate(date = new Date()): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}${month}${day}`;
-  }
-
-  private randomSessionSuffix(length = 4): string {
-    const alphabet = "abcdefghijklmnopqrstuvwxyz";
-    let out = "";
-    for (let i = 0; i < length; i += 1) {
-      out += alphabet[randomInt(alphabet.length)];
-    }
-    return out;
-  }
-
-  private nextRandomSessionId(chatId: string, prefix: "s" | "task"): string {
-    const day = this.formatSessionDate();
-    const marker = `${prefix}-${day}-`;
-    let candidate = `${marker}${this.randomSessionSuffix()}`;
-    while (
-      existsSync(this.getSessionContextFile(chatId, candidate)) ||
-      existsSync(this.getSessionEntriesFile(chatId, candidate))
-    ) {
-      candidate = `${marker}${this.randomSessionSuffix()}`;
-    }
-    return candidate;
   }
 
   private ensureSessionContextFile(chatId: string, sessionId: string): string {
@@ -496,7 +468,10 @@ export class MomRuntimeStore {
   }
 
   createSession(chatId: string): string {
-    const id = this.nextRandomSessionId(chatId, "s");
+    const id = createRuntimeSessionId("session", {
+      exists: (candidate) => existsSync(this.getSessionContextFile(chatId, candidate))
+        || existsSync(this.getSessionEntriesFile(chatId, candidate))
+    });
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
     this.setActiveSession(chatId, id);
@@ -513,7 +488,10 @@ export class MomRuntimeStore {
     retentionMs?: number,
     metadata?: Omit<SessionOriginMetadata, "origin" | "createdAt">
   ): string {
-    const id = this.nextRandomSessionId(chatId, "task");
+    const id = createRuntimeSessionId("task", {
+      exists: (candidate) => existsSync(this.getSessionContextFile(chatId, candidate))
+        || existsSync(this.getSessionEntriesFile(chatId, candidate))
+    });
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
     this.markSessionOrigin(chatId, id, { origin: "automation", ...(metadata ?? {}) });
@@ -534,7 +512,7 @@ export class MomRuntimeStore {
     if (!stableTaskId) return this.beginTaskSession(chatId, retentionMs);
 
     const digest = createHash("sha256").update(stableTaskId).digest("hex").slice(0, 16);
-    const id = `task-archive-${digest}`;
+    const id = `t-archive-${digest}`;
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
     if (!this.readSessionOrigin(chatId, id)) {
@@ -563,7 +541,7 @@ export class MomRuntimeStore {
   }
 
   /**
-   * Deletes `task-` sessions whose latest activity (entries-file mtime) is
+   * Deletes current `t-` and legacy `task-` sessions whose latest activity is
    * older than retentionMs. The active session and non-task sessions are
    * never touched.
    */
@@ -573,7 +551,7 @@ export class MomRuntimeStore {
     const pruned: string[] = [];
 
     for (const id of this.listSessions(chatId)) {
-      if (!id.startsWith("task-") || id === active) continue;
+      if (!isTaskSessionId(id) || id === active) continue;
       let lastActivityMs = 0;
       for (const file of [this.getSessionEntriesFile(chatId, id), this.getSessionContextFile(chatId, id)]) {
         try {

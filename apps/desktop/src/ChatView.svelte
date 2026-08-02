@@ -2618,15 +2618,17 @@
         onChangeModel={changeModel}
         onChangeThinking={changeThinking}
       >
-        {#if profiles.length > 0 && (draftMode || activeSessionId)}
-          <BotMention
-            mode={draftMode ? "select" : "locked"}
-            bots={botOptions}
-            selectedId={draftMode ? draftProfileId : activeProfileId}
-            onSelect={(id) => chatStore.setDraftProfileId(id)}
-            labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
-          />
-        {/if}
+        <svelte:fragment slot="mention">
+          {#if profiles.length > 0 && (draftMode || activeSessionId)}
+            <BotMention
+              mode={draftMode ? "select" : "locked"}
+              bots={botOptions}
+              selectedId={draftMode ? draftProfileId : activeProfileId}
+              onSelect={(id) => chatStore.setDraftProfileId(id)}
+              labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
+            />
+          {/if}
+        </svelte:fragment>
         {#if editingMessageId}
           <div class="composer-edit-banner" role="status">
             <i class="ph ph-pencil-simple-line" aria-hidden="true"></i>

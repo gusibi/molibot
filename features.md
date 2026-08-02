@@ -7,6 +7,23 @@
 ---
 ## 2026-08-02
 
+### Session / Task Context ID 统一（已完成，P1）
+
+- 新建 App/Web Session、Project 对话、渠道 Agent Session 与会话分支统一由共享上层生成 `s-YYYYMMDD-xxxx`，不再分别产生 UUID 或 `fork-*`。
+- 自动化 Task Context 改为 `t-YYYYMMDD-xxxx`，共享归档改为 `t-archive-*`；旧 UUID、`fork-*`、`task-*` 文件继续原样读取，不做破坏性迁移。
+- 普通会话列表过滤、Project Runner 路由和过期 Task 清理统一识别新旧 Task 前缀。回归覆盖共享格式、Web、Project、Agent、Task、fork 幂等与旧数据兼容。
+
+### 输入区与侧栏视觉收敛：安静控件、单行工具栏、光标感知触发（已完成，P1）
+
+- **侧栏吸顶标题去掉突兀的玻璃渐变**：对话/项目/小程序标题吸顶时不再显示上下溢出的 mask 毛玻璃带,改为与表头等高的轻量材质条（侧栏底色 `color-mix` + 12px blur）加 0.5px 底部发丝线;降透明度/低性能模式降级为纯色。删除了不再被引用的 `--sidebar-section-glass` token。
+- **`@Agent` 选择器不再独占一行**：通过新的 `mention` slot 移入输入框底部工具栏,与附件、模型选择器同行;平时透明、悬浮才显示背景,与相邻图标一致。编辑消息横幅仍保留在输入框上方。
+- **模型/思考强度触发器改为纯文字**：去掉常驻边框与胶囊底色,悬浮或菜单展开时才出现与图标按钮相同的 `--fill` 背景。
+- **`/` 与 `@` 在任意位置生效**：改为对光标所在 token 触发（须位于行首或空白之后,`3/4`、邮箱地址不会误触发）。选中建议只替换该 token 并把光标落在其后;`submitOnSelect` 命令仅在其构成整条消息时自动发送。
+- **`@` 支持引用项目文件**：在 Project 会话中,mention 菜单新增 FILES 分组,复用文件面板的名称搜索（防抖 + generation 守卫,防陷阱 3）,选中插入与「引用到输入框」一致的 `@path`。非 Project 会话 `@` 仍只列小程序。
+- **命令/Skill/小程序胶囊柔化,且任意位置都有胶囊**：token 高亮改为 11% 色调 + 标准小圆角,去掉重底色与内描边;高亮覆盖层改为对全文分段（`segmentComposerInvocations`）,任意位置的已知 `/command`、`/skill`、`@miniapp` token 都会显示胶囊,未知 token（`/addx`、`@todos`）与非词边界（`3/4`、邮箱）保持纯文本。
+- **吸顶材质条使用行圆角**（`--rounded-sm`）,消除直角硬边。
+- 验证：Desktop 结构回归 124/124（新增/更新吸顶材质、安静选择器、光标触发与 FILES 守卫）、`svelte-check` 0 错误 0 警告、Desktop `vite build` 通过。
+
 ### Mini App 资料库界面与图标一致性（已完成，P1）
 
 - Mini App 管理面收敛到 `DESIGN.md` 的 720px 数据页内容列，安装区、已安装列表、状态与卸载菜单改为清晰的卡片层级；窄宽度下输入、操作与应用信息会安全换行，明暗主题继续使用共享语义 token。

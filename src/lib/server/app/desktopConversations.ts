@@ -6,6 +6,7 @@ import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { resolveDesktopWebProfiles } from "$lib/server/app/desktopProfiles.js";
 import { buildDesktopChannelsSummary } from "$lib/server/app/desktopChannels.js";
 import { listExternalSessionsFromContexts } from "$lib/server/app/externalSessionsFromContexts.js";
+import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import { parseBotInstanceId, type ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { deleteWebSession, type WebSessionDeletionResult } from "$lib/server/web/sessionLifecycle.js";
@@ -124,7 +125,7 @@ export function classifyWebPurpose(conversation: { id: string; projectId?: strin
   if (conversation.projectId) return "project";
   if (conversation.origin?.startsWith("internal:")) return "diagnostic";
   if (conversation.origin === "automation") return "automation";
-  if (conversation.id.startsWith("task-")) return "automation";
+  if (isTaskSessionId(conversation.id)) return "automation";
   return "conversation";
 }
 

@@ -33,6 +33,7 @@ test("forkSessionWith creates one restart-safe child and preserves the parent", 
     const secondUser = sessions.appendMessage(parent.id, "user", "second", { contextBacked: true, sourceEntryId: secondUserEntry });
     sessions.appendMessage(parent.id, "assistant", "second answer", { contextBacked: true });
     const childId = sessionForkId(parent.id, secondUser.id, "request-1");
+    assert.match(childId, /^s-\d{8}-[a-z]{4}$/);
     const pool = {
       get: () => ({ isRunning: () => false }),
       reset: () => {}

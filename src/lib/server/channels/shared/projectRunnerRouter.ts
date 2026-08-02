@@ -1,6 +1,7 @@
 import type { MomRunner } from "$lib/server/agent/core/runner.js";
 import { RunnerPool, type ChannelRunnerPoolLike } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
@@ -33,7 +34,7 @@ export interface ResolvedRunnerTarget {
  * context (`<dataRoot>/projects/<id>/runtime/<conversationKey>/contexts/<conversationId>.json`)
  * with the Desktop app. Unbound scopes keep using the bot-local pool.
  *
- * Automation task sessions (`task-*`) always stay on the bot pool so scheduled
+ * Automation task sessions (current `t-*`, legacy `task-*`) always stay on the bot pool so scheduled
  * runs never leak into the project session list.
  */
 export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
@@ -89,7 +90,7 @@ export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
       conversationKey,
       conversationId: null
     };
-    if (sessionId.startsWith("task-")) return botTarget;
+    if (isTaskSessionId(sessionId)) return botTarget;
 
     let project: ProjectRecord | null = null;
     try {

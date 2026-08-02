@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createDeterministicSessionId } from "$lib/server/agent/session/ids.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { Conversation } from "$lib/shared/types/message.js";
@@ -33,11 +33,7 @@ interface SessionForkDependencies {
 }
 
 export function sessionForkId(sourceSessionId: string, fromMessageId: string, requestId: string): string {
-  const digest = createHash("sha256")
-    .update(`${sourceSessionId}\0${fromMessageId}\0${requestId}`)
-    .digest("hex")
-    .slice(0, 24);
-  return `fork-${digest}`;
+  return createDeterministicSessionId([sourceSessionId, fromMessageId, requestId]);
 }
 
 /** Shared cross-store coordinator. Agent state is written first; if the visible

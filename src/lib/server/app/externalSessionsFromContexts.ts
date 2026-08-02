@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { parseSessionEntries } from "$lib/server/agent/session/session.js";
+import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import type { SessionFileEntry, SessionMessageEntry } from "$lib/server/agent/session/session.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 import type { ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
@@ -123,11 +124,11 @@ function listContextSessionIds(contextsDir: string): string[] {
 
 /**
  * Mirrors `MomRuntimeStore.readSessionOrigin` + `listVisibleSessions`: automation
- * (`task-*`) sessions carry `origin:"automation"` in their `.meta.json` and are
+ * (`t-*`, formerly `task-*`) sessions carry `origin:"automation"` in their `.meta.json` and are
  * excluded from ordinary navigation.
  */
 function isAutomationSession(contextsDir: string, sessionId: string): boolean {
-  if (sessionId.startsWith("task-")) return true;
+  if (isTaskSessionId(sessionId)) return true;
   const metaFile = join(contextsDir, `${sessionId}.meta.json`);
   if (!existsSync(metaFile)) return false;
   try {

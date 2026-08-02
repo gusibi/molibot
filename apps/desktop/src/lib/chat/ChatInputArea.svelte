@@ -2,11 +2,12 @@
   import { tick } from "svelte";
   import {
     DESKTOP_THINKING_LEVELS,
-    type DesktopComposerSuggestion,
     type DesktopModelOption,
     type DesktopThinkingLevel
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
+  import { searchDesktopProjectFiles, type DesktopProjectSearchNameHit } from "../api";
+  import type { ComposerMenuItem } from "./composerSuggestionCatalog";
   import { composerSuggestionsStore, ensureComposerSuggestions } from "./composerSuggestions.svelte";
   import ChatComposerShell from "./ChatComposerShell.svelte";
   import ComposerModelMenu from "./ComposerModelMenu.svelte";
@@ -63,20 +64,72 @@
   export let onChangeThinking: (value: DesktopThinkingLevel) => void;
   let activeSuggestionIndex = 0;
   let suggestionsDismissed = false;
+  let shell: ChatComposerShell;
+  let caret = 0;
+  let fileHits: DesktopProjectSearchNameHit[] = [];
+  let fileSearchGeneration = 0;
+  let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
   $: if (endpoint) void ensureComposerSuggestions(endpoint, projectId);
-  // Two trigger characters, one menu: `/` offers commands and Skills, `@` offers
-  // installed Mini Apps. A bare `@` lists every app so the owner can pick one
-  // without remembering its id — that is the whole point of the trigger.
-  $: suggestionQuery = value.match(/^\/([^\s]*)$/)?.[1]?.toLowerCase() ?? null;
-  $: mentionQuery = value.match(/^@([^\s@]*)$/)?.[1]?.toLowerCase() ?? null;
-  $: suggestionKinds = suggestionQuery !== null ? ["command", "skill"] : mentionQuery !== null ? ["miniapp"] : [];
+  // Two trigger characters, one menu, and both fire on the token the caret sits
+  // in — at any offset, not only as the first character. `/` offers commands and
+  // Skills, `@` offers installed Mini Apps plus (inside a Project) file
+  // references. A bare `@` lists every app so the owner can pick one without
+  // remembering its id — that is the whole point of the trigger. A token counts
+  // only when it starts the message or follows whitespace, so "3/4" or an email
+  // address never opens the menu.
+  $: caretClamped = Math.min(caret, value.length);
+  $: textBeforeCaret = value.slice(0, caretClamped);
+  $: slashToken = textBeforeCaret.match(/(?:^|\s)(\/[^\s]*)$/)?.[1] ?? null;
+  $: mentionToken = textBeforeCaret.match(/(?:^|\s)(@[^\s@]*)$/)?.[1] ?? null;
+  $: suggestionQuery = slashToken?.slice(1).toLowerCase() ?? null;
+  $: mentionQuery = slashToken === null ? (mentionToken?.slice(1).toLowerCase() ?? null) : null;
+  $: activeToken = slashToken ?? (mentionQuery !== null ? mentionToken : null);
+  $: activeTokenStart = activeToken ? caretClamped - activeToken.length : 0;
+  $: suggestionKinds = suggestionQuery !== null ? ["command", "skill"] : mentionQuery !== null ? ["miniapp", "file"] : [];
   $: activeQuery = suggestionQuery ?? mentionQuery ?? "";
-  $: filteredSuggestions = suggestionKinds.length === 0 || suggestionsDismissed ? [] : composerSuggestionsStore.items
-    .filter((item) => suggestionKinds.includes(item.kind))
-    .filter((item) => !activeQuery || item.label.slice(1).toLowerCase().includes(activeQuery) || item.aliases.some((alias) => alias.toLowerCase().includes(activeQuery)))
-    .slice(0, 10);
+  $: scheduleFileSearch(mentionQuery, endpoint, projectId);
+  $: fileSuggestions = mentionQuery !== null ? fileHits.map((hit): ComposerMenuItem => ({
+    id: `file:${hit.path}`,
+    kind: "file",
+    label: `@${hit.name}`,
+    insertText: `@${hit.path} `,
+    description: hit.path,
+    aliases: [],
+    submitOnSelect: false
+  })) : [];
+  $: filteredSuggestions = (suggestionKinds.length === 0 || suggestionsDismissed ? [] : [
+    ...composerSuggestionsStore.items
+      .filter((item) => suggestionKinds.includes(item.kind))
+      .filter((item) => !activeQuery || item.label.slice(1).toLowerCase().includes(activeQuery) || item.aliases.some((alias) => alias.toLowerCase().includes(activeQuery))),
+    ...fileSuggestions
+  ]).slice(0, 12) as ComposerMenuItem[];
   $: if (activeSuggestionIndex >= filteredSuggestions.length) activeSuggestionIndex = 0;
+
+  /**
+   * Fetches Project file-name matches for an `@` token. Debounced, and each
+   * request carries a generation so a stale response never overwrites the hits
+   * for what the user has typed since (pitfall 3). Outside a Project there is
+   * no file source, so `@` keeps offering Mini Apps only.
+   */
+  function scheduleFileSearch(query: string | null, searchEndpoint: string, searchProjectId: string): void {
+    if (fileSearchTimer) clearTimeout(fileSearchTimer);
+    const generation = ++fileSearchGeneration;
+    if (!query || !searchEndpoint || !searchProjectId) {
+      fileHits = [];
+      return;
+    }
+    fileSearchTimer = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await searchDesktopProjectFiles(searchEndpoint, searchProjectId, { query, mode: "name", limit: 8 });
+          if (generation === fileSearchGeneration && result.mode === "name") fileHits = result.hits;
+        } catch {
+          if (generation === fileSearchGeneration) fileHits = [];
+        }
+      })();
+    }, 140);
+  }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
     if (filteredSuggestions.length > 0 && !event.isComposing) {
@@ -101,12 +154,24 @@
     onKeydown(event);
   }
 
-  function selectSuggestion(suggestion: DesktopComposerSuggestion | undefined): void {
+  function selectSuggestion(suggestion: ComposerMenuItem | undefined): void {
     if (!suggestion) return;
-    value = suggestion.insertText;
+    // Replace only the trigger token; text on either side of it stays put.
+    const before = value.slice(0, activeTokenStart);
+    const after = value.slice(caretClamped);
+    const insert = suggestion.insertText.endsWith(" ") && after.startsWith(" ")
+      ? suggestion.insertText.trimEnd()
+      : suggestion.insertText;
+    const wholeMessage = !before.trim() && !after.trim();
+    value = before + insert + after;
     suggestionsDismissed = true;
     activeSuggestionIndex = 0;
-    if (suggestion.submitOnSelect) void tick().then(onSend);
+    caret = (before + insert).length;
+    void tick().then(() => {
+      shell?.setSelection(caret);
+      // Submit immediately only when the invocation is the entire message.
+      if (suggestion.submitOnSelect && wholeMessage) onSend();
+    });
   }
 
 </script>
@@ -152,6 +217,7 @@
   <PendingFilesBar files={pendingFiles} audioUrls={pendingAudioUrls} removeLabel={copy.removeFile} disabled={sending} inferKind={inferAttachmentKind} onRemove={onRemoveFile} />
 
   <ChatComposerShell
+    bind:this={shell}
     bind:value
     {copy}
     {sending}
@@ -162,6 +228,7 @@
     {onStop}
     {onPasteFiles}
     onKeydown={handleComposerKeydown}
+    onCaretMove={(position) => (caret = position)}
   >
     {#if filteredSuggestions.length > 0}
       <SlashSuggestionMenu suggestions={filteredSuggestions} activeIndex={activeSuggestionIndex} onSelect={selectSuggestion} />
@@ -178,6 +245,7 @@
       />
     {/if}
     <div class="composer-tools" slot="tools">
+      <slot name="mention" />
       {#if showFileTool}
         <button
           class="composer-tool"
