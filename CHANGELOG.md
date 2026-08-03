@@ -7,6 +7,9 @@
 ---
 ## 2026-08-03
 
+### Release: v2.9.0 / Desktop v0.8.7
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: A wedged runtime is now detected and restarted, crashes are recorded, and upgrades no longer adopt the stale sidecar
 
 The desktop service could sit unusable for hours behind a green status, and a crashed process could only be recovered by quitting the whole app. Installing a Mini App on a freshly upgraded machine 503'd the whole service because `{workspace}/miniapps` had never been created. Four independent defects combined to produce these symptoms; all are fixed together.
