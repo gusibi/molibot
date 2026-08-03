@@ -7,6 +7,7 @@
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import { searchDesktopProjectFiles, type DesktopProjectSearchNameHit } from "../api";
+  import { formatProjectFileReference } from "@molibot/shared/projectFileReference";
   import type { ComposerMenuItem } from "./composerSuggestionCatalog";
   import { composerSuggestionsStore, ensureComposerSuggestions } from "./composerSuggestions.svelte";
   import ChatComposerShell from "./ChatComposerShell.svelte";
@@ -93,7 +94,7 @@
     id: `file:${hit.path}`,
     kind: "file",
     label: `@${hit.name}`,
-    insertText: `@${hit.path} `,
+    insertText: `${formatProjectFileReference(hit.path)} `,
     description: hit.path,
     aliases: [],
     submitOnSelect: false

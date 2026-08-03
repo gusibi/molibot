@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  describesProjectFileMutationClaim,
+  getFileMutationReceipt,
   isRetryableModelError,
   describesUnexecutedMiniAppChange,
+  isProjectFileMutationReceipt,
   isMiniAppInstallReceipt,
   REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD,
   resolveFinalErrorAction,
@@ -10,8 +13,52 @@ import {
   shouldCountToolResultAsFailure,
   shouldEmitFinalRunnerError,
   toolFailureSignature,
-  trackRepeatedToolFailure
+  trackRepeatedToolFailure,
+  verifyProjectFileMutationClaim
 } from "$lib/server/agent/core/runnerRetryState.js";
+
+test("Project file completion claims require a successful Project mutation receipt", () => {
+  const fabricated = [
+    "改动记录（git diff）",
+    "```diff",
+    "diff --git a/@02-内容创作/a.md b/@02-内容创作/a.md",
+    "+invented",
+    "```",
+    "文件已保存至你指定的目录。"
+  ].join("\n");
+  assert.equal(describesProjectFileMutationClaim(fabricated), true);
+  assert.equal(describesProjectFileMutationClaim("文件尚未修改；目标路径不存在。"), false);
+  assert.equal(describesProjectFileMutationClaim("建议修改这个文件。"), false);
+  assert.equal(describesProjectFileMutationClaim("公众号短文案已经生成完成。"), false);
+
+  assert.equal(isProjectFileMutationReceipt("edit", true, { details: { rootKind: "project", action: "modified", relativePath: "a.md" } }), false);
+  assert.equal(isProjectFileMutationReceipt("edit", false, { details: { rootKind: "scratch", action: "modified", relativePath: "a.md" } }), false);
+  assert.equal(isProjectFileMutationReceipt("edit", false, { details: { rootKind: "project", action: "modified", relativePath: "a.md" } }), true);
+  assert.equal(isProjectFileMutationReceipt("write", false, { details: { rootKind: "project", action: "created", relativePath: "b.md" } }), true);
+  assert.deepEqual(getFileMutationReceipt("write", false, { details: { rootKind: "scratch", action: "created", relativePath: "report.md" } }), {
+    rootKind: "scratch",
+    action: "created",
+    relativePath: "report.md"
+  });
+
+  const verified = verifyProjectFileMutationClaim({
+    finalText: fabricated,
+    userMessage: "你改了什么？",
+    successfulMutationCount: 0
+  });
+  assert.equal(verified.corrected, true);
+  assert.doesNotMatch(verified.text, /diff --git|文件已保存/);
+  assert.match(verified.text, /没有成功的文件写入回执/);
+
+  assert.deepEqual(
+    verifyProjectFileMutationClaim({
+      finalText: fabricated,
+      userMessage: "请修改文件",
+      successfulMutationCount: 1
+    }),
+    { text: fabricated, corrected: false }
+  );
+});
 
 test("Mini App completion prose is distinguishable from an honest blocked report", () => {
   assert.equal(describesUnexecutedMiniAppChange("✅ 已为你完成 Mini App 安装和更新，manifest.json 是 1.1.0。"), true);

@@ -5,6 +5,15 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-08-03
+
+### Project 文件引用与写入声明可信化（已完成，P0）
+
+- Project Chat 的文件搜索和文件面板不再插入裸 `@path`，统一展示为 `@[文件名](项目内路径)`；显示名只供人阅读，路径由共享解析器转义、解析并在 Project root 内校验。
+- Runner 只把引用标记和本轮临时的可信路径表交给模型，要求文件工具使用不带 `@` 的精确项目相对路径；会话里仍保留用户看到的引用文本。失效或越界引用不会变成猜测路径，历史 Session 中含目录层级的裸 `@path` 也会在运行时安全解析。
+- `write` / `edit` 成功返回的结构化 receipt 成为文件已创建或修改的机器证据。Project 轮次没有成功 receipt 却声称已保存、已修改或输出伪造 `git diff` 时，Runner 会用校验提示替换该声明，不再把模型文本当作事实。
+- 回归覆盖中文路径、空格/括号/行号、失效引用、旧格式兼容、Mini App `@todo` 隔离、失败/Project/scratch receipt，以及事故中的伪造 diff 原文。
+
 ## 2026-08-02
 
 ### Agent City 暗色主题修复：弹层不再是亮色（已完成，P1）

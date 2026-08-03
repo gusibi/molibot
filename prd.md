@@ -5,6 +5,13 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.35 Trusted Project file references and mutation claims (2026-08-03)
+
+- **Priority / Status**: P0 / Delivered (2026-08-03).
+- **Problem**: Project file mentions were serialized as bare `@path`. The presentation marker reached file tools as part of the path, so edits targeted a non-existent `@...` tree; after tool failure and an empty real diff, the model could still claim success and invent diff output.
+- **Decision**: the composer owns a structured `@[display name](Project-relative path)` syntax, while the shared Runtime validates the target against the registered Project root and exposes only a transient exact-path mapping to the model. Existing multi-segment bare `@path` references remain readable through a validation-only compatibility path; Mini App selectors such as `@todo` remain separate. File completion claims are accepted only when the run observed a successful structured `write`/`edit` receipt.
+- **Acceptance**: new and legacy Project references never pass a leading `@` to filesystem tools; missing/escaping paths fail closed; transcript display stays readable; a failed edit or empty diff cannot be presented as a successful save; real Project and scratch writes and non-file content generation remain unaffected.
+
 ## 3.34 Multiple terminal replies remain visible (2026-08-02)
 
 - **Priority / Status**: P0 / Delivered (2026-08-02).

@@ -95,7 +95,7 @@ async function loadRootGitignore(root: string): Promise<Ignore | null> {
   return await loadGitignore(root);
 }
 
-export async function resolveProjectPath(project: ProjectRecord, input = "", allowSymlink = false, requireExists = true): Promise<{ root: string; target: string; relative: string }> {
+export async function resolveProjectPath(project: Pick<ProjectRecord, "rootPath">, input = "", allowSymlink = false, requireExists = true): Promise<{ root: string; target: string; relative: string }> {
   const root = await fs.realpath(project.rootPath);
   const requested = String(input ?? "").replaceAll("\\", "/").replace(/^\/+/, "");
   const target = path.resolve(root, requested);

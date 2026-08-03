@@ -39,9 +39,9 @@ test("a file written across several turns is counted once", () => {
 });
 
 test("composer references keep one space around the inserted token", () => {
-  assert.equal(formatFileReference("src/a.ts"), "@src/a.ts");
-  assert.equal(formatFileReference("src/a.ts", 42), "@src/a.ts:42");
-  assert.equal(appendReference("", "@src/a.ts"), "@src/a.ts ");
-  assert.equal(appendReference("look at", "@src/a.ts"), "look at @src/a.ts ");
-  assert.equal(appendReference("look at   ", "@src/a.ts"), "look at @src/a.ts ");
+  assert.equal(formatFileReference("src/a.ts"), "@[a.ts](src/a.ts)");
+  assert.equal(formatFileReference("src/a.ts", 42), "@[a.ts:42](src/a.ts:42)");
+  assert.equal(appendReference("", "@[a.ts](src/a.ts)"), "@[a.ts](src/a.ts) ");
+  assert.equal(appendReference("look at", "@[a.ts](src/a.ts)"), "look at @[a.ts](src/a.ts) ");
+  assert.equal(appendReference("look at   ", "@[a.ts](src/a.ts)"), "look at @[a.ts](src/a.ts) ");
 });

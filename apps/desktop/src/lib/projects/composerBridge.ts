@@ -1,4 +1,5 @@
 import { writable } from "svelte/store";
+import { formatProjectFileReference } from "@molibot/shared/projectFileReference";
 
 /**
  * One-way channel from the Project file panel to the Project chat composer.
@@ -26,7 +27,7 @@ let sequence = 0;
 
 /** Formats a file reference the way the composer should show it. */
 export function formatFileReference(path: string, line = 0): string {
-  return `@${line > 0 ? `${path}:${line}` : path}`;
+  return formatProjectFileReference(path, line);
 }
 
 export function requestComposerInsertion(path: string, line = 0): void {

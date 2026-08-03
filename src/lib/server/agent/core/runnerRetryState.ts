@@ -134,6 +134,71 @@ export function describesUnexecutedMiniAppChange(finalText: string): boolean {
   return namesMiniApp && claimsCompletion && !reportsBlocker;
 }
 
+export interface FileMutationReceipt {
+  rootKind: "project" | "scratch";
+  action: "created" | "modified";
+  relativePath: string;
+}
+
+/** Extract the machine-owned receipt emitted by a successful write/edit call. */
+export function getFileMutationReceipt(
+  toolName: string,
+  isError: boolean,
+  result: unknown
+): FileMutationReceipt | null {
+  if ((toolName !== "write" && toolName !== "edit") || isError || !result || typeof result !== "object") return null;
+  const details = (result as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return null;
+  const receipt = details as Record<string, unknown>;
+  const rootKind = receipt.rootKind;
+  const action = receipt.action;
+  const relativePath = typeof receipt.relativePath === "string" ? receipt.relativePath.trim() : "";
+  if ((rootKind !== "project" && rootKind !== "scratch") ||
+      (action !== "created" && action !== "modified") ||
+      !relativePath) return null;
+  return { rootKind, action, relativePath };
+}
+
+export function isProjectFileMutationReceipt(toolName: string, isError: boolean, result: unknown): boolean {
+  return getFileMutationReceipt(toolName, isError, result)?.rootKind === "project";
+}
+
+/**
+ * Detect strong first-person/runtime completion claims, not suggestions or an
+ * honest report that a file is still unchanged.
+ */
+export function describesProjectFileMutationClaim(finalText: string): boolean {
+  const text = String(finalText ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  const namesFileTarget =
+    /文件|目录|文档|路径|diff --git|\bfile\b|\bfiles\b|\bdirectory\b|\bdocument\b|\bpath\b|(?:^|[\s`'"(])[^\s`'"]+\.[a-z0-9]{1,12}\b/i.test(text);
+  if (!namesFileTarget) return false;
+  const chineseClaim =
+    /(?:我|文件|内容|改动|变更|目录)?\s*(?:已(?:经)?|成功|完成).{0,24}(?:修改|更新|写入|保存|创建|新增|生成|落盘)/i.test(text) ||
+    /(?:修改|更新|写入|保存|创建|新增|生成|落盘).{0,16}(?:完成|成功)/i.test(text);
+  const englishClaim =
+    /\bI(?:'ve| have)?\s+(?:updated|modified|edited|saved|created|wrote|written)\b/i.test(text) ||
+    /\b(?:the\s+)?(?:file|files|changes?|content)\s+(?:has|have|was|were)\s+(?:been\s+)?(?:updated|modified|edited|saved|created|written)\b/i.test(text);
+  return chineseClaim || englishClaim;
+}
+
+export function verifyProjectFileMutationClaim(input: {
+  finalText: string;
+  userMessage: string;
+  successfulMutationCount: number;
+}): { text: string; corrected: boolean } {
+  if (input.successfulMutationCount > 0 || !describesProjectFileMutationClaim(input.finalText)) {
+    return { text: input.finalText, corrected: false };
+  }
+  const chinese = /[\u3400-\u9fff]/u.test(input.userMessage);
+  return {
+    text: chinese
+      ? "⚠️ 运行时校验：本轮没有成功的文件写入回执，因此无法确认任何文件已创建、修改或保存。工具失败或空 diff 不构成文件改动；请修正路径后重试。"
+      : "⚠️ Runtime verification: this run has no successful file-mutation receipt, so no file creation, edit, or save can be confirmed. A failed tool or empty diff is not a file change; correct the path and try again.",
+    corrected: true
+  };
+}
+
 /**
  * A successful install is the only tool result that proves the live Mini App
  * tree changed. File writes can target a scratch build and validate/inspect are

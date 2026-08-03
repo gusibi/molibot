@@ -10,6 +10,7 @@ import { momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildSystemPrompt, getProjectPromptRefreshKey, type PromptMiniApp } from "$lib/server/agent/prompts/prompt.js";
 import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
 import { writeProjectSystemPromptPreview } from "$lib/server/agent/prompts/projectPromptPreview.js";
+import { resolveProjectFileReferences } from "$lib/server/projects/fileReferences.js";
 import { buildRunReflection, buildSubagentTaskRecord, formatRunClosingNote, type RunSummary } from "$lib/server/agent/session/runSummary.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import { saveSkillDraft, shouldSuggestSkillDraft } from "$lib/server/agent/skills/skillDraft.js";
@@ -30,6 +31,8 @@ import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js
 import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
 import {
   describesUnexecutedMiniAppChange,
+  getFileMutationReceipt,
+  type FileMutationReceipt,
   isMiniAppInstallReceipt,
   isRetryableModelError,
   REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD,
@@ -37,7 +40,8 @@ import {
   resolvePromptAttemptDecision,
   shouldCountToolResultAsFailure,
   toolFailureSignature,
-  trackRepeatedToolFailure
+  trackRepeatedToolFailure,
+  verifyProjectFileMutationClaim
 } from "$lib/server/agent/core/runnerRetryState.js";
 import { formatSubagentProgressLabel } from "$lib/server/agent/subagentProgress.js";
 import type { MomContext, RunResult, RunnerLike, ChannelInboundMessage } from "$lib/server/agent/core/types.js";
@@ -791,6 +795,7 @@ export class MomRunner implements RunnerLike {
     const budget = new RunBudget(this.getSettings().budget ?? DEFAULT_RUN_BUDGET);
     const usedToolNames: string[] = [];
     const failedToolNames: string[] = [];
+    const successfulFileMutationReceipts = new Map<string, FileMutationReceipt>();
     let miniAppInstallReceiptObserved = false;
     let subagentDelegationNoticeSent = false;
     // Set when a budget ends the tool loop. It is the only human-readable
@@ -1031,7 +1036,15 @@ export class MomRunner implements RunnerLike {
     // persisted transcript). The agent reads the SKILL.md itself per the Skill
     // Execution Protocol, so we no longer inline the full file content — it kept
     // the whole skill out of the model context and cluttered the chat view.
-    const effectiveInputText = injectExplicitSkillInvocationContext(enrichedText, explicitlyInvokedSkills);
+    let effectiveInputText = injectExplicitSkillInvocationContext(enrichedText, explicitlyInvokedSkills);
+    let persistedInputText = effectiveInputText;
+    let projectFileReferenceInstruction = "";
+    if (ctx.project) {
+      const fileReferenceResolution = await resolveProjectFileReferences(effectiveInputText, ctx.project);
+      effectiveInputText = fileReferenceResolution.modelText;
+      persistedInputText = fileReferenceResolution.persistedText;
+      projectFileReferenceInstruction = fileReferenceResolution.runtimeInstruction;
+    }
     if (this.activeHookContext) {
       for (const skill of explicitlyInvokedSkills) {
         this.markSkillLoaded(skill);
@@ -1348,6 +1361,13 @@ export class MomRunner implements RunnerLike {
 
       if (event.type === "tool_execution_end") {
         const body = extractTextFromResult(event.result);
+        const fileMutationReceipt = getFileMutationReceipt(event.toolName, event.isError, event.result);
+        if (fileMutationReceipt) {
+          successfulFileMutationReceipts.set(
+            `${fileMutationReceipt.rootKind}:${fileMutationReceipt.relativePath}`,
+            fileMutationReceipt
+          );
+        }
         if (isMiniAppInstallReceipt(event.toolName, event.isError, event.result)) {
           miniAppInstallReceiptObserved = true;
         }
@@ -1601,20 +1621,26 @@ export class MomRunner implements RunnerLike {
       const nonImage = ctx.message.attachments
         .filter((a) => !a.isImage || !visionDecision.sendImagesNatively)
         .map((a) => `${ctx.workspaceDir}/${a.local}`);
+      const miniAppRuntimeInstructions = miniAppInvocation
+        ? [
+            `The user explicitly selected Mini App "${miniAppInvocation.app.name}" (id: ${miniAppInvocation.app.id}) for this turn. Its tools are already preloaded and are the only tools available${miniAppToolIds.length > 0 ? `: ${miniAppToolIds.join(", ")}` : ""}. Do not use toolSearch, memory, files, bash, or another Mini App.`,
+            "Act by emitting a real tool call. Writing the tool name and its arguments as ordinary text (for example \"run <tool> with ...\") executes nothing and is never an acceptable answer; if a tool is needed, call it, and only then report the result.",
+            "Close the turn with a short reply written for the user, in the language they used. Say what now holds — what was recorded, changed, or found — carrying over the concrete details the tool result reports. Do not mention tool names, parameter names, internal identifiers, or the call itself: the user sees only your reply, and can tell the action succeeded only from it. If the tool result already reads as a complete answer, relay it as-is rather than restating it."
+          ]
+        : [];
       const promptInput = buildPromptInputEnvelope({
         messageText: effectiveInputText,
         // The selector routed the turn and is stripped from what the model
         // reads, but it stays in the transcript: it is text the owner typed.
         persistedText: miniAppInvocation
-          ? `${miniAppInvocation.selector} ${effectiveInputText}`.trim()
-          : undefined,
-        runtimeInstructions: miniAppInvocation
-          ? [
-              `The user explicitly selected Mini App \"${miniAppInvocation.app.name}\" (id: ${miniAppInvocation.app.id}) for this turn. Its tools are already preloaded and are the only tools available${miniAppToolIds.length > 0 ? `: ${miniAppToolIds.join(", ")}` : ""}. Do not use toolSearch, memory, files, bash, or another Mini App.`,
-              "Act by emitting a real tool call. Writing the tool name and its arguments as ordinary text (for example \"run <tool> with ...\") executes nothing and is never an acceptable answer; if a tool is needed, call it, and only then report the result.",
-              "Close the turn with a short reply written for the user, in the language they used. Say what now holds — what was recorded, changed, or found — carrying over the concrete details the tool result reports. Do not mention tool names, parameter names, internal identifiers, or the call itself: the user sees only your reply, and can tell the action succeeded only from it. If the tool result already reads as a complete answer, relay it as-is rather than restating it."
-            ]
-          : undefined,
+          ? `${miniAppInvocation.selector} ${persistedInputText}`.trim()
+          : persistedInputText !== effectiveInputText
+            ? persistedInputText
+            : undefined,
+        runtimeInstructions: [
+          ...(projectFileReferenceInstruction ? [projectFileReferenceInstruction] : []),
+          ...miniAppRuntimeInstructions
+        ],
         attachmentPaths: nonImage,
         messageTimestamp: ctx.message.ts,
         timezone: settings.timezone,
@@ -2290,6 +2316,32 @@ export class MomRunner implements RunnerLike {
               break;
             }
 
+            if (
+              ctx.project &&
+              decision.kind === "success" &&
+              !describesUnexecutedMiniAppChange(candidateFinalText)
+            ) {
+              const fileClaimVerification = verifyProjectFileMutationClaim({
+                finalText: candidateFinalText,
+                userMessage: persistedInputText,
+                successfulMutationCount: successfulFileMutationReceipts.size
+              });
+              if (fileClaimVerification.corrected) {
+                candidateFinalText = fileClaimVerification.text;
+                momWarn("runner", "project_file_completion_claim_without_receipt", {
+                  runId,
+                  chatId: this.chatId,
+                  sessionId: this.sessionId,
+                  provider: selectedModel.provider,
+                  model: selectedModel.id,
+                  candidateIndex,
+                  attempt: attemptCount,
+                  toolNames: usedToolNames,
+                  failedToolNames
+                });
+              }
+            }
+
             // A creator-style answer that says a Mini App was installed or
             // updated, despite the attempt executing no tools, is a fabricated
             // receipt. Retry once with a transient instruction. The zero-tool
@@ -2702,7 +2754,7 @@ export class MomRunner implements RunnerLike {
       ) {
         const templateSkillPath = String(settings.skillDrafts.template.skillPath ?? "").trim();
         const draftMetadata = await buildSkillDraftMetadataViaSubagent({
-          userMessage: effectiveInputText,
+          userMessage: persistedInputText,
           finalAnswer: finalText,
           toolNames: usedToolNames,
           templateSkillPath
@@ -2715,7 +2767,7 @@ export class MomRunner implements RunnerLike {
         savedSkillDraft = saveSkillDraft({
           workspaceDir: this.store.getWorkspaceDir(),
           chatId: this.chatId,
-          userMessage: effectiveInputText,
+          userMessage: persistedInputText,
           finalAnswer: finalText,
           toolNames: usedToolNames,
           failedToolNames,

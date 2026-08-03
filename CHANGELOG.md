@@ -5,6 +5,16 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-08-03
+
+### Fixed: Project `@` references no longer become fake paths or fake diffs
+
+- File suggestions and “reference in composer” now insert `@[file name](Project-relative path)` instead of a bare `@path`. The transcript keeps that readable form, while the shared Project Runtime validates the target and gives the model an ephemeral exact path without the presentation `@` marker.
+- Missing or out-of-root references fail closed. Existing Sessions containing multi-segment bare `@path` references are resolved through the same validation boundary, while single-segment Mini App selectors such as `@todo` stay untouched.
+- A Project answer may claim a file was created, edited, or saved only after the Runner observes a successful structured `write`/`edit` receipt. If tools failed or the real diff is empty, a fabricated save claim or diff is replaced with an explicit runtime verification warning.
+- Root-cause class: presentation serialization leaked into path execution, followed by an unverified completion claim. Machine guards cover structured-reference round trips, canonical resolution, legacy compatibility, unresolved paths, mutation receipt classification, and the captured fabricated-diff wording.
+- Verification: focused shared/server/runtime suites 53/53, Desktop composer suite 5/5, Desktop structural UI guards 130/130, `svelte-check` 0 errors / 0 warnings, Desktop production build clean (existing chunk-size/import warnings only), and `git diff --check` clean. Root-wide `tsc --noEmit` remains blocked by pre-existing unrelated dependency/test typing errors.
+
 ## 2026-08-02
 
 ### Release: v2.8.8 / Desktop v0.8.5
