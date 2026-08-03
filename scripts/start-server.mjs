@@ -9,6 +9,7 @@ import {
   writeServiceState
 } from "./runtime/service-lease.mjs";
 import { findAvailableServicePort, readConfiguredServicePort } from "./runtime/service-port.mjs";
+import { installCrashHandlers } from "./runtime/crash-report.mjs";
 
 const releaseRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 dotenv.config({ path: path.join(releaseRoot, ".env") });
@@ -58,6 +59,11 @@ function shutdown() {
   const force = setTimeout(() => process.exit(0), 500);
   force.unref?.();
 }
+
+// Installed after the lease exists so a crash still releases it: an orphaned
+// lock file would make the supervisor's restart fail with a lease conflict,
+// turning one crash into a service that never comes back.
+installCrashHandlers({ dataDir, onCrash: cleanup });
 
 process.once("exit", cleanup);
 process.once("sveltekit:shutdown", shutdown);

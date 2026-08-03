@@ -35,6 +35,19 @@ read_when:
 7. **交付前必须冷启动验证。** 装完要重启服务（V1 无热更新），然后真的打开面板首屏、让 Agent 写一条看面板是否 2 秒内刷新、在面板改一条看 Agent 是否读得到、禁用后看面板是否优雅降级。测试通过不等于链路通。
 8. **不引入需要 `npm install` 的依赖。** 宿主不编译 TypeScript、不跑安装脚本；SQLite 用 Node 内置的 `node:sqlite`，第三方依赖必须自带。
 9. **说清信任边界。** App 服务端代码在 Molibot 进程内运行且完全不做沙箱。为用户安装第三方 App 前必须明说：这等于用自己的权限运行别人的代码。
+10. **UI 铁律（每条都对应真实事故，违反即出「点击没反应」类故障）：**
+   - styles.css 第一条规则永远是 `[hidden] { display: none !important; }`。作者样式里的任何 `display: flex/block` 都会覆盖 `hidden` 属性的默认隐藏——真实案例：todo 的列表选择器因此以透明状态盖住输入框，吃掉了所有点击。
+   - 透明 ≠ 不可点：`opacity: 0` 照样参与命中测试。弹层/遮罩关闭态必须落在 `display: none` 或 `pointer-events: none` 上。
+   - 关闭动画的 `setTimeout` 要存句柄、重开时 `clearTimeout`，否则快速开关会把刚打开的面板重新藏掉。
+   - 不用 `prompt()`/`confirm()`/`alert()`（沙箱 iframe 无 `allow-modals`，静默无效）；`body` 不写 `user-select: none`（WKWebView 下挡输入聚焦）；搜索框用 `type="text"` 不用 `type="search"`。
+   - 全屏透明遮罩（`.backdrop { position: fixed; inset: 0 }`）关闭态必须 `pointer-events: none`，否则 `opacity:0` 的它会变成盖住整个视口的点击黑洞--todo 的遮罩因此在淡出窗口里吞掉了搜索框和输入框的所有点击。
+   - 弹层关闭时主动 `.blur()` 里面持焦的元素：弹层内的输入框关闭后仍持焦点，键盘事件会继续落进去，直到 `hidden` 生效；WebKitGTK 会把这段延迟拉长，表现为「点搜索框没反应、打字却进了弹层输入框」。
+   - `overflow: hidden` 会裁掉容器内绝对定位的下拉菜单（`top: 100%`）：承载下拉的容器别用 `overflow: hidden`，圆角改用首/尾子元素 `border-radius` 补；下拉靠近滚动容器底部时量剩余空间、不够就向上翻（`bottom: 100%`）。
+11. **交互失灵先怀疑 App 自己，不怀疑运行时。** 宿主样式进不了 iframe（独立 origin + sandbox + CSP）。排查顺序：① devtools 里 `document.elementFromPoint(x, y)` 找出谁在吃点击（命中看不见的元素 = 隐形浮层遮挡）；② console 查 CSP 静默拒绝；③ 把 ui/ 放进普通浏览器同样 sandbox 属性的 iframe + stub API 复现——浏览器里也坏 = 代码 bug，仅 Tauri 里坏才查 WebView 差异（见「跨平台 WebView 差异」）。
+
+## 跨平台 WebView 差异
+
+桌面端是 Tauri，iframe 跑在哪个 WebView 取决于系统：macOS=WKWebView、Linux=WebKitGTK、Windows=WebView2。**在 Mac 上能跑 ≠ 在 Linux 上能跑**--WKWebView 上侥幸过的焦点 / 时序边界，到 WebKitGTK 上常稳定复现。两类已知差异：① 沙箱 iframe 焦点更脆，点击转移焦点可能失效（`user-select:none` 挡聚焦是 macOS，弹层关闭后输入框仍吞键盘是 Linux）；② `setTimeout` 会被节流，「关闭动画 300ms 后再 `hidden`」的窗口被拉长。防御写法：关闭态立即落 `display:none` / `pointer-events:none`、主动 `.blur()`，别留依赖定时器或自动失焦的窗口。只有 Mac 开发时更要照铁律写--测不到的边界 Linux 用户替你踩。
 
 ## 默认流程
 
@@ -69,5 +82,5 @@ read_when:
 涉及数据结构选择、权限风险、不可逆操作时，主动指出取舍，不要默默替用户决定。
 
 ---
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 owner: molipibot

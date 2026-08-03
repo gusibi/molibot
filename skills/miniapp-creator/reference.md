@@ -147,6 +147,7 @@ molibot-miniapp://todo/index.html?locale=zh-CN&theme=dark
 - 只能用相对 URL `./api/*` 访问自己的 API。
 - CSP：仅同源脚本与样式，无 `<object>`、无外部 form action、无 `<base>` 重写；**内联 `<script>` 不执行**。
 - 自带自己的文案与明暗色 token，无法继承 Molibot 的设计系统。
+- iframe 跑在哪个 WebView 取决于系统（macOS=WKWebView、Linux=WebKitGTK、Windows=WebView2），焦点与定时器行为有差异；写 UI 时照 SKILL.md 的「UI 铁律」与「跨平台 WebView 差异」做防御，别只在自己的机器上验证。
 
 ### 保持数据新鲜
 

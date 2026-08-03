@@ -67,6 +67,44 @@ node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs expenses "Expenses" 
 - 内联 `<script>` 不会执行（CSP），代码必须放在 `.js` 文件里。
 - 语言和主题从 `location.search` 的 `locale` / `theme` 读，启动时读一次就够（切换会重载 iframe）。
 
+#### UI 铁律（每条都对应一个真实翻过车的 bug，违反一条就会出「点击没反应」类故障）
+
+1. **styles.css 第一条规则永远是 `[hidden] { display: none !important; }`**（模板已带）。原因：`hidden` 属性只是浏览器默认样式表里的 `[hidden]{display:none}`，**任何作者样式里的 `display: flex/block/grid` 都会覆盖它**。真实案例：todo 的列表选择器写了 `.list-picker { display: flex }`，`hidden` 从此失效，它以 `opacity: 0` 的透明状态一直盖在搜索框和输入框上，把所有点击吃掉——用户看到的就是「输入框点了没反应」。
+2. **透明 ≠ 不可点。** `opacity: 0` 的元素照样参与命中测试。任何弹层/遮罩/菜单的关闭态必须落在 `display: none`（或 `visibility: hidden` / `pointer-events: none`）上，不能只靠 opacity + transform 做「视觉上消失」。
+3. **带出场动画的关闭要管好 timer。** 「先移除 class、300ms 后再设 `hidden`」的模式必须把 `setTimeout` 的句柄存下来，重新打开时 `clearTimeout`，否则快速开→关→开会让残留的 timeout 把刚打开的面板重新藏掉。
+4. **不要用 `prompt()` / `confirm()` / `alert()`。** iframe 没有 `allow-modals`，它们静默无效（不报错、不弹窗）。确认类交互一律用内联 DOM（把行内容替换成「确认/取消」按钮）。
+5. **`body` 上不要写 `user-select: none`**——在 WKWebView（macOS 桌面端的 WebView）里会挡住输入框聚焦。需要禁选中就精确加在按钮等具体元素上。
+6. **搜索框用 `type="text"`，不要 `type="search"`**——后者在沙箱 iframe 里有过聚焦/样式异常。
+7. **全屏透明遮罩必须 `pointer-events: none`。** 「点遮罩关闭弹层」的 `.backdrop` 通常是 `position: fixed; inset: 0`，盖住整个视口。关闭态若只是 `opacity: 0` 而非 `display: none`，就是一层看不见的「点击黑洞」，把下面所有输入框的点击都吃掉——真实案例：todo 的遮罩在 300ms 淡出窗口里把搜索框和添加框的点击全吞了。写法：遮罩默认 `pointer-events: none`，只在激活态（如 `.show`）才 `pointer-events: auto`。
+8. **关闭弹层时主动 `.blur()` 里面持焦的元素。** 弹层里的输入框（如「新建列表」）在弹层关闭后仍持焦点，键盘事件会继续落进去，直到 `hidden` 真正生效。WebKitGTK 会把这段关闭延迟拉长（见下「跨平台 WebView 差异」），用户就会遇到「点搜索框没反应、打字却进了弹层输入框」。写法：关闭分支里 `if (container.contains(document.activeElement)) document.activeElement.blur();`。
+9. **`overflow: hidden` 会裁掉绝对定位的下拉菜单。** 卡片为圆角常写 `overflow: hidden`，但卡片内 item 右侧向下展开的菜单（`position: absolute; top: 100%`）会被它裁掉——列表短或点最后一条时整个菜单看不见，表现为「下拉框出不来」。写法：承载下拉的容器不要 `overflow: hidden`，圆角改用首/尾子元素的 `border-radius` 补；下拉靠近滚动容器底部时还要能向上翻转（量 `getBoundingClientRect()` 的剩余空间，不够就把 `top: 100%` 换成 `bottom: 100%`）。
+
+#### 交互出问题时的排查顺序
+
+先记住结论：**宿主样式进不了 iframe（独立 origin + sandbox + CSP），所以「样式串了/被外面影响」基本不存在；交互失灵几乎总是 App 自己的代码问题。**按下面顺序排查，不要一上来怀疑运行时环境：
+
+1. **找出谁在吃点击**：在面板 WebView 的 devtools console 里跑 `document.elementFromPoint(x, y)`（x/y 用出问题控件的坐标）。返回的不是你以为的控件，就是有隐形浮层盖着——回头查铁律 1/2。
+2. **看 console 有没有 CSP 拒绝**：内联 script 不执行、跨 origin 请求被拦都是静默失败，只有 console 里有记录。
+3. **把 ui/ 拿到普通浏览器里复现**：写个几十行的静态服务器 + stub API，用一模一样的 `sandbox="allow-scripts allow-forms allow-same-origin"` iframe 套起来点一遍。**普通浏览器里也坏 = 代码 bug（绝大多数情况）；只有普通浏览器正常、仅 Tauri 里坏，才去怀疑 WebView 差异**（见下「跨平台 WebView 差异」；macOS=WKWebView / Linux=WebKitGTK / Windows=WebView2）。
+4. 确认不是宿主遮挡（罕见）：面板头部 60px 之内是宿主的 window-drag-mask 区域，iframe 本体在其下方，正常不受影响；拖拽分栏时面板会临时 `pointer-events: none`，松手即恢复。
+
+#### 跨平台 WebView 差异（macOS / Linux / Windows）
+
+桌面端是 Tauri 应用，iframe 实际跑在哪个 WebView 里取决于操作系统：
+
+| 系统 | WebView | 焦点 / 定时器表现 |
+| --- | --- | --- |
+| macOS | WKWebView | 基准，最接近标准浏览器 |
+| Linux | WebKitGTK | 沙箱 iframe 里点击转移焦点更脆；非活动状态下 `setTimeout` 会被节流 |
+| Windows | WebView2（Chromium 内核） | 接近 Chrome，一般无额外问题 |
+
+**结论：在 Mac 上能跑 ≠ 在 Linux 上能跑。** WKWebView 上侥幸过的焦点 / 时序边界，到 WebKitGTK 上常常稳定复现。已知两类差异：
+
+1. **沙箱 iframe 的焦点更脆。** WKWebView 里点输入框能聚焦，WebKitGTK 上点击转移焦点可能失效。`body { user-select: none }` 在 WKWebView 挡聚焦（铁律 5），而「弹层关闭后里面的输入框仍持焦点、键盘事件继续落进去」是在 Linux 上才暴露的（铁律 8）。防御写法：弹层关闭时主动 `.blur()` 里面持焦的元素，别指望点别处会自动转移焦点。
+2. **定时器会被节流。** 「移除 class → `setTimeout` 300ms 后设 `hidden`」这种关闭动画，在 WebKitGTK 上 300ms 可能被拉长，原本一闪即过的「透明但仍可命中」窗口会持续数秒。防御写法：关闭态立即落到 `display: none` 或 `pointer-events: none`，不要只靠定时器善后（铁律 2 / 7）。
+
+所以铁律不是「最佳实践」，而是「在某台机器上已经翻过车」的硬约束。只有 Mac 开发时更要照着写——你测不到的边界，Linux 用户替你踩。
+
 ### 6. 校验、安装并冷启动验证
 
 源码完成后必须调用 `miniAppManage`：先用 `validate` 在临时数据库中加载 Runtime，校验 manifest、SQL 与工具 handler；通过后用 `install` 原子安装或更新，再用 `inspect` 从正式目录回读 app id、version 和 manifest hash。也可以由用户在侧边栏 **Mini Apps** 管理器安装本地文件夹 / ZIP / GitHub 仓库。

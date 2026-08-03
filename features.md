@@ -7,6 +7,16 @@
 ---
 ## 2026-08-03
 
+### 服务自愈：假健康检查、升级抢占旧进程、崩溃无痕、目录缺失（已完成，P0）
+
+四个独立缺陷叠加，表现为「服务 503 但状态灯是绿的」「崩溃后必须重启整个应用」「升级后 `{workspace}/miniapps` 没被创建」，一并修复。
+
+- **健康检查是假的**：supervisor 原来只探 `/api/desktop/handshake`——一个静态对象字面量，运行时能不能构建都返回 200；而 `getRuntime()` 失败时不缓存，一次初始化失败会让之后每个请求都重抛 503、永久性的，握手却一直是绿的。新增真实就绪信号：`getRuntime()` 把每次结果记进 `runtimeHealth.ts`，新路由 `/api/desktop/health?deep=1` 真正构建运行时、不行就 503；supervisor 每 15s 探一次（仅对声明了 `runtime-health-v1` capability 的构建，旧 sidecar 回 404 不会被误判为不健康）；连续 4 次不可用就回收子进程。
+- **升级会抢占旧构建**：`initialize_worker` 原来只要协议兼容就接管任何在跑的 sidecar，不比版本——于是新版应用悄悄跑着旧构建的进程，本次更新新增的迁移和目录（含 Mini App 根目录）一行都没执行。现在会把在跑版本与打包的 `molibot-runtime.version` 比对，不一致就替换为全新托管子进程。
+- **崩溃无痕且不可恢复**：adopted 监护原来什么都不查，进程死了根本没人发现；连续 5 次失败后 `supervise` 直接返回、命令通道关闭，「重启服务」按钮从此变死键。现在 adopted 路径监测存活（signal 0）与健康，死亡即交接给全新托管子进程；托管路径以封顶 60s 的退避无限重试，遇到不可恢复的启动失败则停泊在通道上等手动重启。子进程退出码/信号与每次重启决策都以日志面板可解析的 `[mom-t]` 格式写入服务日志。
+- **Node 崩溃只剩默认 stderr**：`start-server.mjs` 现在安装 `uncaughtException`/`unhandledRejection` 处理器（`crash-report.mjs`），写一行结构化 `service_crash` 记录 + 独立 `<dataDir>/runtime/crashes/<ts>.log`，释放服务租约（避免重启撞上租约冲突）后以非零码退出交给 supervisor 重启。这点很关键：Mini App 的 server 模块是 `import()` 进同一进程的，第三方小程序里一个未 await 的 rejection 就能带走整个服务——此前毫无痕迹。
+- **目录初始化改为数据驱动、故障隔离**：`initDb()` 遍历 `REQUIRED_DIR_KEYS`，每个目录独立 try/catch（单个不可写路径不再中断其余），旧库迁移单独包裹以免跨设备 rename 阻止健康安装启动。测试断言 `storagePaths` 里每个 `*Dir` 都在引导清单中，新增存储位置不会漏建。
+
 ### Project 文件引用与写入声明可信化（已完成，P0）
 
 - Project Chat 的文件搜索和文件面板不再插入裸 `@path`，统一展示为 `@[文件名](项目内路径)`；显示名只供人阅读，路径由共享解析器转义、解析并在 Project root 内校验。

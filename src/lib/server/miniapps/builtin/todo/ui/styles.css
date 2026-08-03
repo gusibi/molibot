@@ -1,192 +1,496 @@
 /*
- * Todo Mini App styles.
- *
- * The panel runs in an isolated iframe origin, so it cannot inherit Molibot's
- * design tokens — it ships its own light/dark palette and receives the active
- * theme as a `data-theme` attribute set from the iframe URL hint. Status is
- * never signalled by colour alone: a completed item also carries a checked
- * control and strike-through text.
+ * Todo Mini App — v3.4
+ * Fix: user-select:none on body was blocking input focus in sandboxed iframe.
+ * Fix: priority badge always visible on items.
+ * Fix: backdrop/list-picker swallowed clicks during the 300ms close transition
+ *      and the New List input kept keyboard focus; pointer-events:none while
+ *      not .open/.show, plus blur the picker on close (see app.js).
  */
 
 :root {
   color-scheme: light;
-  --bg: #ffffff;
-  --surface: #ffffff;
-  --surface-hover: #f5f5f5;
-  --border: #ebebeb;
-  --text: #171717;
-  --text-muted: #666666;
-  --accent: #0070f3;
-  --danger: #d93025;
-  --radius: 8px;
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --card2: #ffffff;
+  --card-hover: #f0f0f5;
+  --text: #1c1c1e;
+  --text-secondary: #8e8e93;
+  --text-tertiary: #c7c7cc;
+  --accent: #007aff;
+  --accent-soft: rgba(0, 122, 255, 0.08);
+  --danger: #ff3b30;
+  --danger-soft: rgba(255, 59, 48, 0.08);
+  --star: #ffcc00;
+  --separator: rgba(60, 60, 67, 0.1);
+  --separator-strong: rgba(60, 60, 67, 0.15);
+  --shadow-sm: 0 0.5px 1px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.1);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.14), 0 0 1px rgba(0,0,0,0.1);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-xs: 7px;
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0a0a0a;
-  --surface: #111111;
-  --surface-hover: #1a1a1a;
-  --border: #2e2e2e;
-  --text: #ededed;
-  --text-muted: #a1a1a1;
-  --accent: #3291ff;
-  --danger: #ff6166;
+  --bg: #000000;
+  --card: #1c1c1e;
+  --card2: #2c2c2e;
+  --card-hover: #3a3a3c;
+  --text: #ffffff;
+  --text-secondary: #8e8e93;
+  --text-tertiary: #48484a;
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.12);
+  --danger: #ff453a;
+  --danger-soft: rgba(255, 69, 58, 0.12);
+  --star: #ffd60a;
+  --separator: rgba(84, 84, 88, 0.25);
+  --separator-strong: rgba(84, 84, 88, 0.35);
+  --shadow-sm: 0 0.5px 1px rgba(0,0,0,0.2), 0 1px 3px rgba(0,0,0,0.15);
+  --shadow-md: 0 2px 10px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.5);
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Never remove: `.list-picker { display: flex }` used to defeat the `hidden`
+   attribute (any author display beats the UA's `[hidden]{display:none}`),
+   leaving the picker as an invisible click-swallowing layer over the search
+   and composer inputs. `pointer-events:none` on the non-.open/.show rules
+   below covers the 300ms close window where `hidden` has not been set yet -
+   both guards are needed. */
+[hidden] { display: none !important; }
 
 html, body {
-  margin: 0;
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  /* NO user-select:none here — it breaks input focus in sandboxed iframes */
 }
 
-.todo-app {
+.app {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   height: 100%;
-  padding: 16px;
-  overflow-y: auto;
+  max-width: 480px;
+  margin: 0 auto;
+  overflow: hidden;
+  position: relative;
 }
 
-.todo-heading {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+/* — Backdrop — */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  z-index: 90;
+  transition: background 0.3s, backdrop-filter 0.3s;
+  backdrop-filter: blur(0px);
+  /* Transparent by default and must not intercept clicks - only the .show
+     state is an active click-target (outside-click to close). Without this,
+     a closing (fading-out) backdrop swallows clicks on search/composer. */
+  pointer-events: none;
+}
+.backdrop.show {
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
 }
 
-.todo-composer {
-  display: flex;
-  gap: 8px;
-}
-
-.todo-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-}
-
-.todo-input:focus-visible,
-.todo-add:focus-visible,
-.todo-toggle:focus-visible,
-.todo-delete:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.todo-add {
-  flex: 0 0 auto;
-  padding: 8px 16px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: #ffffff;
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.todo-add:hover { filter: brightness(1.08); }
-.todo-add:disabled { opacity: 0.5; cursor: default; }
-
-.todo-status {
-  margin: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-muted);
-}
-
-.todo-status[data-tone="error"] {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.todo-group { display: flex; flex-direction: column; gap: 8px; }
-
-.todo-group-title {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-}
-
-.todo-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.todo-item {
+/* — Topbar — */
+.topbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  gap: 6px;
+  padding: 10px 12px 6px;
+  flex-shrink: 0;
+  z-index: 80;
+  background: var(--bg);
 }
-
-.todo-item:hover { background: var(--surface-hover); }
-
-.todo-toggle {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--accent);
+.topbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: none;
+  color: var(--accent);
   cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s, transform 0.1s;
+  flex-shrink: 0;
+}
+.topbar-btn:hover { background: var(--accent-soft); }
+.topbar-btn:active { transform: scale(0.92); }
+.topbar-center { flex: 1; min-width: 0; text-align: center; }
+.topbar-title {
+  font-size: 17px; font-weight: 600; letter-spacing: -0.2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.topbar-count {
+  font-size: 17px; font-weight: 500; color: var(--text-secondary);
+  min-width: 28px; text-align: right; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-.todo-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-wrap: anywhere;
+/* — List picker — */
+.list-picker {
+  position: absolute; top: 50px; left: 8px; right: 8px;
+  max-width: 464px; margin: 0 auto;
+  background: var(--card); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); overflow: hidden;
+  opacity: 0; transform: translateY(-10px) scale(0.96);
+  transition: opacity 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 100; max-height: 70vh;
+  display: flex; flex-direction: column;
+  /* Not interactive unless .open. While fading out (no .open, hidden not yet
+     set) this stops the picker from sitting as an invisible click-swallowing
+     layer over the search and composer inputs. */
+  pointer-events: none;
+}
+.list-picker.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+.lp-scroll { overflow-y: auto; flex: 1; }
+
+.lp-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 10px 14px;
+  border: none; background: none; color: var(--text);
+  font: inherit; font-size: 16px; text-align: left; cursor: pointer;
+  transition: background 0.1s; position: relative;
+}
+.lp-item:not(:last-child)::after {
+  content: ""; position: absolute; bottom: 0; left: 44px; right: 14px;
+  height: 0.5px; background: var(--separator);
+}
+.lp-item:hover { background: var(--card-hover); }
+.lp-item:active { background: var(--separator-strong); }
+.lp-item.active { background: var(--accent-soft); }
+.lp-icon { display: flex; align-items: center; justify-content: center; width: 20px; flex-shrink: 0; }
+.lp-name { flex: 1; }
+.lp-count {
+  font-size: 15px; font-weight: 500; color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.lp-delete {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; color: var(--text-tertiary); cursor: pointer;
+  border-radius: 50%; transition: color 0.12s, background 0.12s, opacity 0.15s;
+  opacity: 0;
+}
+.lp-item:hover .lp-delete { opacity: 1; }
+.lp-delete:hover { color: var(--danger); background: var(--danger-soft); }
+@media (hover: none) { .lp-delete { opacity: 1; } }
+
+.lp-add {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 14px; border: none; border-top: 0.5px solid var(--separator);
+  background: none; color: var(--accent); font: inherit; font-size: 16px;
+  text-align: left; cursor: pointer; flex-shrink: 0; transition: background 0.1s;
+}
+.lp-add:hover { background: var(--card-hover); }
+.lp-add:active { background: var(--separator-strong); }
+
+/* New list inline */
+.lp-new-list {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  border-top: 0.5px solid var(--separator); flex-shrink: 0;
+}
+.lp-new-input {
+  flex: 1; padding: 7px 10px; border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-xs); background: var(--bg); color: var(--text);
+  font: inherit; font-size: 15px; outline: none; transition: border-color 0.15s;
+}
+.lp-new-input:focus { border-color: var(--accent); }
+.lp-new-confirm, .lp-new-cancel {
+  padding: 6px 12px; border: none; border-radius: var(--radius-xs);
+  font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.lp-new-confirm { background: var(--accent); color: #fff; }
+.lp-new-confirm:disabled { opacity: 0.4; }
+.lp-new-cancel { background: var(--card2); color: var(--text-secondary); }
+
+/* Delete confirmation */
+.lp-confirm-delete { padding: 12px 14px; }
+.lp-confirm-msg { font-size: 15px; font-weight: 600; }
+.lp-confirm-desc { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+.lp-confirm-btns { display: flex; gap: 8px; margin-top: 10px; }
+.lp-confirm-yes {
+  padding: 6px 14px; border: none; border-radius: var(--radius-xs);
+  background: var(--danger); color: #fff; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.lp-confirm-yes:disabled { opacity: 0.4; }
+.lp-confirm-no {
+  padding: 6px 14px; border: none; border-radius: var(--radius-xs);
+  background: var(--card2); color: var(--text-secondary); font: inherit; font-size: 14px; cursor: pointer;
 }
 
-.todo-item[data-completed="true"] .todo-title {
-  color: var(--text-muted);
-  text-decoration: line-through;
+/* — Search — */
+.search-wrap {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 12px 8px; flex-shrink: 0;
+}
+.search-icon { color: var(--text-tertiary); flex-shrink: 0; margin-left: 6px; }
+.search-input {
+  flex: 1; padding: 7px 10px 7px 4px; border: none;
+  border-radius: var(--radius-sm); background: rgba(118, 118, 128, 0.12);
+  color: var(--text); font: inherit; font-size: 15px; outline: none;
+  transition: background 0.15s;
+}
+.search-input::placeholder { color: var(--text-tertiary); }
+.search-input:focus { background: rgba(118, 118, 128, 0.18); }
+
+/* — Composer (always visible) — */
+.composer {
+  padding: 0 12px 8px; flex-shrink: 0;
+}
+.composer-form {
+  background: var(--card); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); overflow: hidden;
+  transition: box-shadow 0.15s;
+}
+.composer-form:focus-within { box-shadow: var(--shadow-md); }
+
+.composer-header {
+  display: flex; align-items: center;
+  padding: 10px 12px 6px 14px;
+  gap: 8px;
+}
+.composer-input {
+  flex: 1; min-width: 0; border: none; background: none;
+  color: var(--text); font: inherit; font-size: 16px; outline: none;
+  line-height: 1.4;
+}
+.composer-input::placeholder { color: var(--text-tertiary); }
+
+.composer-submit {
+  padding: 6px 16px; border: none; border-radius: var(--radius-xs);
+  background: var(--accent); color: #fff;
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  flex-shrink: 0; transition: opacity 0.1s, transform 0.1s;
+}
+.composer-submit:active { opacity: 0.8; transform: scale(0.97); }
+
+.composer-options {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 10px 8px 14px;
+  transition: max-height 0.2s, opacity 0.15s, padding 0.2s;
+  max-height: 40px; opacity: 1;
+}
+.composer-form.collapsed .composer-options {
+  max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; overflow: hidden;
+}
+.composer-form.collapsed .composer-submit { display: none; }
+
+.opt-group { display: flex; gap: 4px; }
+.opt-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border: none; border-radius: 20px;
+  background: var(--bg); color: var(--text-secondary);
+  font: inherit; font-size: 13px; cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.opt-btn:hover { background: var(--card-hover); }
+.opt-btn.active { background: rgba(255, 204, 0, 0.12); color: var(--star); }
+.opt-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-tertiary); transition: background 0.15s;
+}
+.opt-dot.pri-high { background: var(--danger); }
+.opt-dot.pri-normal { background: var(--text-tertiary); }
+.opt-dot.pri-low { background: var(--accent); }
+
+.composer-collapse {
+  padding: 4px; border: none; border-radius: 50%;
+  background: none; color: var(--text-tertiary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.2s, color 0.15s;
+  width: 24px; height: 24px;
+}
+.composer-collapse:hover { color: var(--text-secondary); }
+.composer-form.collapsed .composer-collapse { transform: rotate(180deg); }
+
+/* — Status — */
+.status-banner {
+  margin: 0 12px 6px; padding: 7px 12px; border-radius: var(--radius-xs);
+  background: var(--card); color: var(--text-secondary);
+  font-size: 13px; text-align: center; box-shadow: var(--shadow-sm);
+}
+.status-banner[data-tone="error"] { color: var(--danger); }
+
+/* — Content — */
+.content {
+  flex: 1; overflow-y: auto; padding: 4px 12px 32px;
+  -webkit-overflow-scrolling: touch;
+}
+.section { margin-bottom: 20px; }
+.section:last-child { margin-bottom: 0; }
+
+/* Done section: controlled by .visible class */
+.done-section { display: none; }
+.done-section.visible { display: block; }
+
+/* — Group card — */
+.group-card {
+  list-style: none; background: var(--card);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  /* No overflow:hidden - it clipped the per-item Move dropdown, which opens
+     below the item. Corner rounding is preserved on the first/last items. */
+}
+.group-card:empty { display: none; }
+.group-card > .todo-item:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+.group-card > .todo-item:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.group-card > .todo-item:only-child { border-radius: var(--radius); }
+
+/* — Todo item — */
+.todo-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px; position: relative;
+  transition: background 0.1s;
+}
+.todo-item:not(:last-child)::after {
+  content: ""; position: absolute; bottom: 0; left: 46px; right: 14px;
+  height: 0.5px; background: var(--separator);
+}
+.todo-item:hover { background: var(--card-hover); }
+.todo-item:active { background: var(--separator-strong); }
+
+/* Star indicator */
+.star-indicator {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  width: 14px; height: 22px; color: var(--star); margin-left: -2px;
 }
 
-.todo-delete {
-  flex: 0 0 auto;
-  padding: 2px 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
+/* Check circle */
+.check-circle {
+  flex-shrink: 0; width: 24px; height: 24px; margin-top: -1px;
+  border: none; background: none; color: var(--text-tertiary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  transition: color 0.2s, transform 0.1s;
+}
+.check-circle:hover { color: var(--accent); }
+.check-circle:active { transform: scale(0.88); }
+.todo-item.completed .check-circle { color: var(--accent); }
+.check-mark { animation: checkPop 0.25s cubic-bezier(0.2, 1.5, 0.4, 1); }
+@keyframes checkPop {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Priority badge — always visible on each item */
+.item-pri-badge {
+  flex-shrink: 0;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin-top: 1px;
   cursor: pointer;
+  transition: transform 0.1s;
+  position: relative;
+}
+.item-pri-badge:active { transform: scale(0.85); }
+.item-pri-badge .pri-ring {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid;
+  transition: border-color 0.15s, background 0.15s;
+}
+.item-pri-badge.pri-high .pri-ring { border-color: var(--danger); background: rgba(255,59,48,0.15); }
+.item-pri-badge.pri-normal .pri-ring { border-color: var(--text-tertiary); }
+.item-pri-badge.pri-low .pri-ring { border-color: var(--accent); background: rgba(0,122,255,0.1); }
+.item-pri-badge:hover .pri-ring { border-width: 2.5px; }
+
+/* Text */
+.item-text {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+  padding-top: 1px;
+}
+.item-title {
+  font-size: 15px; line-height: 1.4; overflow-wrap: anywhere;
+  transition: color 0.25s, opacity 0.25s;
+}
+.todo-item.completed .item-title {
+  color: var(--text-tertiary); text-decoration: line-through; opacity: 0.7;
+}
+.item-meta {
+  display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary);
+}
+.meta-tag { display: flex; align-items: center; gap: 4px; }
+.meta-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.meta-dot.pri-high { background: var(--danger); }
+.meta-dot.pri-low { background: var(--accent); }
+
+/* Actions */
+.item-actions {
+  display: flex; align-items: center; gap: 0; flex-shrink: 0;
+  opacity: 0; transition: opacity 0.18s; margin-top: -1px;
+}
+.todo-item:hover .item-actions { opacity: 1; }
+@media (hover: none) { .item-actions { opacity: 0.7; } }
+
+.action-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: none; border-radius: 50%;
+  background: none; color: var(--text-tertiary); cursor: pointer;
+  transition: color 0.12s, background 0.12s, transform 0.1s; padding: 0;
+}
+.action-btn:hover { background: var(--bg); color: var(--text-secondary); }
+.action-btn:active { transform: scale(0.88); }
+.star-btn { color: var(--text-tertiary); }
+.todo-item.starred .star-btn { color: var(--star); }
+.star-btn:hover { color: var(--star); }
+.pri-btn .action-dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+}
+.action-dot.pri-high { background: var(--danger); }
+.action-dot.pri-normal { background: var(--text-tertiary); }
+.action-dot.pri-low { background: var(--accent); }
+.del-btn:hover { color: var(--danger); background: var(--danger-soft); }
+
+/* Move menu */
+.move-wrap { position: relative; }
+.move-menu {
+  position: absolute; top: 100%; right: 0; min-width: 150px;
+  background: var(--card); border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-md); padding: 4px; z-index: 50; display: none;
+  animation: menuPop 0.15s ease;
+}
+.move-menu.open { display: block; }
+/* Flip above the button when there's no room below (last item near the
+   content's bottom edge). Toggled from app.js on open. */
+.move-menu.up { top: auto; bottom: 100%; }
+@keyframes menuPop {
+  from { opacity: 0; transform: scale(0.95) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.move-option {
+  display: block; width: 100%; padding: 8px 10px; border: none;
+  background: none; color: var(--text); font: inherit; font-size: 14px;
+  text-align: left; border-radius: 5px; cursor: pointer;
+  transition: background 0.1s;
+}
+.move-option:hover { background: var(--card-hover); }
+
+/* Empty state */
+.empty-state {
+  text-align: center; padding: 48px 20px 32px;
+  color: var(--text-tertiary); font-size: 15px; font-weight: 300;
 }
 
-.todo-delete:hover { border-color: var(--danger); color: var(--danger); }
-
-.todo-empty {
-  margin: 0;
-  color: var(--text-muted);
-}
-
-.todo-group[data-empty="false"] .todo-empty { display: none; }
-.todo-group[data-empty="true"] .todo-list { display: none; }
-
+/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }

@@ -29,7 +29,23 @@ const SUPPORTED_PROTOCOL_VERSION: u32 = 1;
 const DEFAULT_PORT: u16 = 3000;
 const READY_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTHY_RESET_AFTER: Duration = Duration::from_secs(60);
+/// Failures after which the service is *reported* as broken. It keeps being
+/// retried — see `backoff_delay` — because the causes seen in practice
+/// (a port that frees up, a disk that comes back, a data directory restored)
+/// are transient, and a supervisor that stops trying leaves the owner with no
+/// recovery short of quitting the app.
 const MAX_CONSECUTIVE_FAILURES: usize = 5;
+/// Longest gap between restart attempts once the service keeps failing.
+const MAX_BACKOFF_SECS: u64 = 60;
+/// How often a *running*, handshake-answering service is asked whether its
+/// runtime actually works.
+const HEALTH_PROBE_INTERVAL: Duration = Duration::from_secs(15);
+/// Consecutive unusable-runtime probes before the child is recycled. Four
+/// probes ≈ one minute, which clears a slow first-run migration without
+/// sitting on a permanently wedged runtime.
+const MAX_CONSECUTIVE_UNHEALTHY: usize = 4;
+/// How often an adopted (pre-existing) service is checked for liveness.
+const ADOPTED_PROBE_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Debug)]
 pub enum ServiceCommand {
@@ -93,14 +109,20 @@ impl ManagedChild {
         }
     }
 
-    fn has_exited(&mut self) -> bool {
-        if matches!(self.process.try_wait(), Ok(Some(_))) {
-            self.finish_log_pumps();
-            true
-        } else {
-            false
+    /// Reaps the child if it has exited, returning how it died so the caller
+    /// can record it. Draining the log pumps first is what guarantees the
+    /// crash output the process wrote on its way down is already in the log
+    /// file by the time the exit is reported.
+    fn exited(&mut self) -> Option<std::process::ExitStatus> {
+        match self.process.try_wait() {
+            Ok(Some(status)) => {
+                self.finish_log_pumps();
+                Some(status)
+            }
+            _ => None,
         }
     }
+
 }
 
 fn set_status(status: &Arc<Mutex<ServiceStatus>>, next: ServiceStatus) {
@@ -582,28 +604,140 @@ fn local_endpoint_port(endpoint: &str) -> Option<u16> {
     address.trim_end_matches('/').parse().ok()
 }
 
-fn probe_handshake(endpoint: &str) -> Option<ServiceHandshake> {
+/// Minimal loopback GET. Returns the status code and body, so callers can tell
+/// "answered 503" apart from "did not answer" — a distinction the supervisor
+/// depends on, since only one of the two means the process is gone.
+fn http_get(endpoint: &str, request_path: &str, read_timeout: Duration) -> Option<(u16, String)> {
     let port = local_endpoint_port(endpoint)?;
     let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
     let mut stream =
         TcpStream::connect_timeout(&address.into(), Duration::from_millis(500)).ok()?;
-    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .ok()?;
+    stream.set_read_timeout(Some(read_timeout)).ok()?;
+    stream.set_write_timeout(Some(Duration::from_secs(2))).ok()?;
     stream
         .write_all(
-            b"GET /api/desktop/handshake HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+            format!("GET {request_path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
         )
         .ok()?;
     let mut response = Vec::new();
     stream.read_to_end(&mut response).ok()?;
     let response = String::from_utf8(response).ok()?;
     let (headers, body) = response.split_once("\r\n\r\n")?;
-    if !headers.starts_with("HTTP/1.1 200") && !headers.starts_with("HTTP/1.0 200") {
+    Some((parse_status_code(headers)?, body.to_string()))
+}
+
+fn parse_status_code(headers: &str) -> Option<u16> {
+    let status_line = headers.lines().next()?;
+    let mut parts = status_line.split_whitespace();
+    let version = parts.next()?;
+    if !version.starts_with("HTTP/") {
         return None;
     }
-    serde_json::from_str(body).ok()
+    parts.next()?.parse().ok()
+}
+
+fn probe_handshake(endpoint: &str) -> Option<ServiceHandshake> {
+    let (status, body) = http_get(endpoint, "/api/desktop/handshake", Duration::from_secs(2))?;
+    if status != 200 {
+        return None;
+    }
+    serde_json::from_str(&body).ok()
+}
+
+/// What a deep health probe found.
+///
+/// `Unsupported` is not a failure: an adopted sidecar from a build that
+/// predates `/api/desktop/health` answers 404 there, and treating that as
+/// unhealthy would restart a service that is working fine.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RuntimeHealth {
+    Ready,
+    /// The HTTP server answered, but the runtime cannot be built.
+    Unusable(String),
+    /// Nothing answered — the process is gone, wedged, or still starting.
+    Unreachable,
+    Unsupported,
+}
+
+fn health_error_from_body(body: &str) -> String {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .as_ref()
+        .and_then(|value| value.get("error"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| "runtime is not ready".into())
+}
+
+fn classify_health_response(status: u16, body: &str) -> RuntimeHealth {
+    match status {
+        200 => RuntimeHealth::Ready,
+        404 => RuntimeHealth::Unsupported,
+        _ => RuntimeHealth::Unusable(health_error_from_body(body)),
+    }
+}
+
+/// Asks the service to actually build its runtime.
+///
+/// The handshake route is a static object literal: it answers 200 from a
+/// process whose runtime throws on every request. That is why a wedged service
+/// could sit behind a green status indefinitely while every real API returned
+/// 503. This probe is the one that can fail.
+fn probe_runtime_health(endpoint: &str) -> RuntimeHealth {
+    // Generous timeout: the first deep probe after a cold start may run
+    // database migrations and Mini App/Skill bootstrap before answering.
+    match http_get(endpoint, "/api/desktop/health?deep=1", Duration::from_secs(20)) {
+        None => RuntimeHealth::Unreachable,
+        Some((status, body)) => classify_health_response(status, &body),
+    }
+}
+
+/// True when the discovered service is a different build than the one this app
+/// ships, and so must be replaced rather than adopted.
+///
+/// Without this check, quitting an app version that left its sidecar running
+/// (or a sidecar whose shutdown timed out) means the *new* app adopts the
+/// *old* process: every initialisation the update added — new storage
+/// directories, migrations, bootstrapped built-ins — never runs, and the
+/// symptom is a feature that is present in the UI but broken on disk until the
+/// owner restarts a second time.
+///
+/// `bundled_version` is `None` in a dev run, where there is no bundled runtime
+/// to compare against and the developer owns the process.
+fn should_replace_adopted(running_version: &str, bundled_version: Option<&str>) -> bool {
+    match bundled_version {
+        None => false,
+        Some(bundled) => {
+            let bundled = bundled.trim();
+            !bundled.is_empty() && bundled != running_version.trim()
+        }
+    }
+}
+
+fn bundled_runtime_version(app: &AppHandle) -> Option<String> {
+    let resource_dir = app.path().resource_dir().ok()?;
+    let version = read_to_string(resource_dir.join("molibot-runtime.version")).ok()?;
+    let version = version.trim().to_string();
+    if version.is_empty() {
+        None
+    } else {
+        Some(version)
+    }
+}
+
+fn process_is_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    unsafe {
+        // Signal 0 performs the permission and existence checks without
+        // delivering anything.
+        libc::kill(pid as i32, 0) == 0
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 fn wait_for_handshake(endpoint: &str, timeout: Duration) -> Option<ServiceHandshake> {
@@ -676,6 +810,87 @@ impl RecordRollingWriter {
 
 type RollingLogWriter = Arc<Mutex<RecordRollingWriter>>;
 
+/// Days since the Unix epoch to a civil date (Howard Hinnant's
+/// `civil_from_days`). Avoids a date-library dependency for the one timestamp
+/// the supervisor needs to emit.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as i64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if month <= 2 { year + 1 } else { year }, month, day)
+}
+
+fn iso_timestamp(now: std::time::SystemTime) -> String {
+    let seconds = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_secs() as i64)
+        .unwrap_or(0);
+    let (year, month, day) = civil_from_days(seconds.div_euclid(86_400));
+    let rest = seconds.rem_euclid(86_400);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.000Z",
+        rest / 3600,
+        (rest % 3600) / 60,
+        rest % 60
+    )
+}
+
+/// The supervisor's own log sink. `None` when the log file could not be opened,
+/// in which case events still reach stderr.
+type SupervisorLog = Option<RollingLogWriter>;
+
+/// Writes a supervisor event into the same file the service logs to, in the
+/// same `[mom-t] {json}` shape, so it parses and filters in the desktop log
+/// panel like any other record.
+///
+/// Before this, the supervisor's diagnostics went to `eprintln!` only — which
+/// in a bundled `.app` goes nowhere the owner can reach. A child that died took
+/// its exit code with it: the log showed the service's output stopping and then
+/// starting again, with nothing saying it had crashed or why it was restarted.
+fn log_event(log: &SupervisorLog, level: &str, event: &str, fields: &[(&str, String)]) {
+    let mut record = serde_json::Map::new();
+    record.insert("ts".into(), Value::String(iso_timestamp(std::time::SystemTime::now())));
+    record.insert("level".into(), Value::String(level.into()));
+    record.insert("category".into(), Value::String("runtime".into()));
+    record.insert("scope".into(), Value::String("desktop".into()));
+    record.insert("event".into(), Value::String(event.into()));
+    record.insert("schemaVersion".into(), Value::Number(1.into()));
+    for (key, value) in fields {
+        record.insert((*key).to_string(), Value::String(value.clone()));
+    }
+    let line = format!("[mom-t] {}\n", Value::Object(record));
+    eprint!("{line}");
+    if let Some(writer) = log {
+        if let Ok(mut writer) = writer.lock() {
+            let _ = writer.write_record(line.as_bytes());
+            let _ = writer.flush();
+        }
+    }
+}
+
+/// Human-readable cause of a child process exit, for the log record.
+fn describe_exit(status: &std::process::ExitStatus) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            // A SIGKILL here is almost always the OS OOM killer, which leaves
+            // nothing in the service's own log — this line is the only trace.
+            return format!("signal {signal}");
+        }
+    }
+    match status.code() {
+        Some(code) => format!("exit code {code}"),
+        None => "unknown".into(),
+    }
+}
+
 fn open_rolling_log(
     data_dir: &Path,
     max_bytes: usize,
@@ -744,12 +959,16 @@ where
     })
 }
 
-fn spawn_child(layout: &RuntimeLayout, data_dir: &Path, port: u16) -> Result<ManagedChild, String> {
-    let log = open_rolling_log(
-        data_dir,
-        LOG_ROTATE_BYTES as usize,
-        LOG_ROTATE_GENERATIONS,
-    )?;
+fn spawn_child(
+    layout: &RuntimeLayout,
+    data_dir: &Path,
+    port: u16,
+    log: &SupervisorLog,
+) -> Result<ManagedChild, String> {
+    let log = match log {
+        Some(log) => Arc::clone(log),
+        None => open_rolling_log(data_dir, LOG_ROTATE_BYTES as usize, LOG_ROTATE_GENERATIONS)?,
+    };
     let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     let mut command = Command::new(&layout.node_binary);
     command
@@ -827,18 +1046,32 @@ fn stop_process(pid: u32) {
     }
 }
 
+/// Watches a service this app did not start but has taken ownership of.
+///
+/// This used to be a bare command loop: it waited for Restart/Stop and checked
+/// nothing at all. An adopted process that died — and adoption is the common
+/// path, taken every time the app reopens while its previous sidecar is still
+/// running — was simply never noticed, which is why a crash could only be
+/// recovered from by quitting the whole app. It now watches liveness and
+/// runtime health, and hands over to `supervise` (a fresh, app-owned child) the
+/// moment the adopted process stops being usable.
 fn supervise_adopted(
     layout: RuntimeLayout,
     data_dir: PathBuf,
+    endpoint: String,
     pid: u32,
     status: Arc<Mutex<ServiceStatus>>,
     commands: Receiver<ServiceCommand>,
+    log: SupervisorLog,
 ) {
+    let mut last_health_probe = Instant::now();
+    let mut unhealthy_probes = 0usize;
     loop {
-        match commands.recv_timeout(Duration::from_millis(250)) {
+        match commands.recv_timeout(ADOPTED_PROBE_INTERVAL) {
             Ok(ServiceCommand::Restart) => {
+                log_event(&log, "info", "service_restart_requested", &[("mode", "adopted".into())]);
                 stop_process(pid);
-                supervise(layout, data_dir, status, commands);
+                supervise(&layout, &data_dir, &status, &commands, &log);
                 return;
             }
             Ok(ServiceCommand::Stop(ack)) => {
@@ -852,7 +1085,98 @@ fn supervise_adopted(
             }
             Err(RecvTimeoutError::Timeout) => {}
         }
+
+        if !process_is_alive(pid) {
+            log_event(
+                &log,
+                "error",
+                "adopted_service_died",
+                &[("pid", pid.to_string()), ("action", "starting_managed_service".into())],
+            );
+            set_status(
+                &status,
+                ServiceStatus {
+                    endpoint: Some(endpoint.clone()),
+                    ownership: Some(ServiceOwnership::Managed),
+                    state: ServiceState::Disconnected,
+                    version: None,
+                },
+            );
+            supervise(&layout, &data_dir, &status, &commands, &log);
+            return;
+        }
+
+        if last_health_probe.elapsed() < HEALTH_PROBE_INTERVAL {
+            continue;
+        }
+        last_health_probe = Instant::now();
+        match probe_runtime_health(&endpoint) {
+            RuntimeHealth::Ready | RuntimeHealth::Unsupported => unhealthy_probes = 0,
+            RuntimeHealth::Unreachable => {
+                // The process is alive but not answering. Give it the same
+                // budget as a broken runtime rather than killing on one miss:
+                // a long synchronous startup task can block the event loop.
+                unhealthy_probes += 1;
+            }
+            RuntimeHealth::Unusable(reason) => {
+                unhealthy_probes += 1;
+                log_event(
+                    &log,
+                    "warn",
+                    "service_runtime_unhealthy",
+                    &[
+                        ("mode", "adopted".into()),
+                        ("reason", reason),
+                        ("consecutive", unhealthy_probes.to_string()),
+                    ],
+                );
+            }
+        }
+        if unhealthy_probes >= MAX_CONSECUTIVE_UNHEALTHY {
+            log_event(
+                &log,
+                "error",
+                "service_recycled_unhealthy",
+                &[("mode", "adopted".into()), ("pid", pid.to_string())],
+            );
+            stop_process(pid);
+            supervise(&layout, &data_dir, &status, &commands, &log);
+            return;
+        }
     }
+}
+
+/// Keeps the supervisor thread alive after a failure it cannot retry its way
+/// out of, so the command channel stays open.
+///
+/// When this function did not exist, the worker thread simply returned: the
+/// `Receiver` dropped, and every later `request_restart` hit a closed channel
+/// and was discarded by its `let _ =`. The "Restart service" button stayed
+/// enabled and did nothing for the rest of the app's lifetime — the exact
+/// state in which quitting and reopening the app is the only cure.
+///
+/// Returns true when the owner asked for a restart and the caller should retry.
+fn park_for_restart(commands: &Receiver<ServiceCommand>) -> bool {
+    loop {
+        match commands.recv() {
+            Ok(ServiceCommand::Restart) => return true,
+            Ok(ServiceCommand::Stop(ack)) => {
+                let _ = ack.send(());
+                return false;
+            }
+            Err(_) => return false,
+        }
+    }
+}
+
+/// True when the ready handshake declared the deep-health route. A child that
+/// predates `runtime-health-v1` is watched for liveness only, exactly as
+/// before, so this feature can never cause a false restart of an older build.
+fn supports_deep_health(handshake: &ServiceHandshake) -> bool {
+    handshake
+        .capabilities
+        .iter()
+        .any(|capability| capability == "runtime-health-v1")
 }
 
 fn supervise_child(
@@ -860,8 +1184,10 @@ fn supervise_child(
     endpoint: &str,
     status: &Arc<Mutex<ServiceStatus>>,
     commands: &Receiver<ServiceCommand>,
+    log: &SupervisorLog,
 ) -> ChildOutcome {
     let ready_started = Instant::now();
+    let mut deep_health = false;
     while ready_started.elapsed() < READY_TIMEOUT {
         match commands.recv_timeout(Duration::from_millis(250)) {
             Ok(ServiceCommand::Restart) => {
@@ -879,7 +1205,13 @@ fn supervise_child(
             }
             Err(RecvTimeoutError::Timeout) => {}
         }
-        if child.has_exited() {
+        if let Some(status_code) = child.exited() {
+            log_event(
+                log,
+                "error",
+                "service_exited",
+                &[("phase", "startup".into()), ("reason", describe_exit(&status_code))],
+            );
             return ChildOutcome::Exited;
         }
         if let Some(handshake) = probe_handshake(endpoint) {
@@ -896,6 +1228,7 @@ fn supervise_child(
                 stop_child(child);
                 return ChildOutcome::Stop;
             }
+            deep_health = supports_deep_health(&handshake);
             set_status(
                 status,
                 ServiceStatus {
@@ -910,10 +1243,18 @@ fn supervise_child(
     }
 
     if ready_started.elapsed() >= READY_TIMEOUT {
+        log_event(
+            log,
+            "error",
+            "service_ready_timeout",
+            &[("timeoutSeconds", READY_TIMEOUT.as_secs().to_string())],
+        );
         stop_child(child);
         return ChildOutcome::Exited;
     }
 
+    let mut last_health_probe = Instant::now();
+    let mut unhealthy_probes = 0usize;
     loop {
         match commands.recv_timeout(Duration::from_millis(250)) {
             Ok(ServiceCommand::Restart) => {
@@ -931,41 +1272,95 @@ fn supervise_child(
             }
             Err(RecvTimeoutError::Timeout) => {}
         }
-        if child.has_exited() {
+        if let Some(status_code) = child.exited() {
+            log_event(
+                log,
+                "error",
+                "service_exited",
+                &[("phase", "running".into()), ("reason", describe_exit(&status_code))],
+            );
             return ChildOutcome::Exited;
+        }
+
+        if !deep_health || last_health_probe.elapsed() < HEALTH_PROBE_INTERVAL {
+            continue;
+        }
+        last_health_probe = Instant::now();
+        match probe_runtime_health(endpoint) {
+            RuntimeHealth::Ready | RuntimeHealth::Unsupported | RuntimeHealth::Unreachable => {
+                unhealthy_probes = 0;
+            }
+            RuntimeHealth::Unusable(reason) => {
+                unhealthy_probes += 1;
+                log_event(
+                    log,
+                    "warn",
+                    "service_runtime_unhealthy",
+                    &[
+                        ("mode", "managed".into()),
+                        ("reason", reason),
+                        ("consecutive", unhealthy_probes.to_string()),
+                    ],
+                );
+                if unhealthy_probes >= MAX_CONSECUTIVE_UNHEALTHY {
+                    log_event(log, "error", "service_recycled_unhealthy", &[("mode", "managed".into())]);
+                    stop_child(child);
+                    // A wedged runtime is a failure, not a clean stop: fall
+                    // back into the restart path so backoff and status apply.
+                    return ChildOutcome::Exited;
+                }
+            }
         }
     }
 }
 
 fn backoff_delay(failures: usize) -> Duration {
-    Duration::from_secs(1_u64 << failures.saturating_sub(1).min(4))
+    // 1, 2, 4, … doubling per failure, exponent capped so the shift can't
+    // overflow, then the whole delay clamped to a minute. The clamp is what
+    // keeps an endless crash loop retrying at a steady, non-punishing cadence.
+    Duration::from_secs((1_u64 << failures.saturating_sub(1).min(6)).min(MAX_BACKOFF_SECS))
 }
 
+/// Runs an app-owned service, restarting it forever.
+///
+/// The old contract returned once `MAX_CONSECUTIVE_FAILURES` was hit — and with
+/// it the worker thread ended, the command channel closed, and the "Restart
+/// service" button went permanently dead. Now the same threshold only *reports*
+/// `Error`; the loop keeps retrying with capped backoff, and after a truly
+/// unrecoverable setup failure (no port, cannot even spawn repeatedly) it parks
+/// on the channel so a manual restart still works.
 fn supervise(
-    layout: RuntimeLayout,
-    data_dir: PathBuf,
-    status: Arc<Mutex<ServiceStatus>>,
-    commands: Receiver<ServiceCommand>,
+    layout: &RuntimeLayout,
+    data_dir: &Path,
+    status: &Arc<Mutex<ServiceStatus>>,
+    commands: &Receiver<ServiceCommand>,
+    log: &SupervisorLog,
 ) {
-    let mut failures = 0;
+    let mut failures = 0usize;
     loop {
-        let port = match choose_port(preferred_port(&data_dir)) {
+        let port = match choose_port(preferred_port(data_dir)) {
             Ok(port) => port,
             Err(error) => {
+                log_event(log, "error", "service_port_unavailable", &[("error", error)]);
                 set_status(
-                    &status,
+                    status,
                     ServiceStatus {
                         state: ServiceState::Error,
                         ..ServiceStatus::default()
                     },
                 );
-                eprintln!("[desktop] failed to select service port: {error}");
+                // A machine with no free loopback port at all is not something
+                // backoff fixes; wait for the owner rather than spin.
+                if park_for_restart(commands) {
+                    failures = 0;
+                    continue;
+                }
                 return;
             }
         };
         let endpoint = format!("http://127.0.0.1:{port}");
         set_status(
-            &status,
+            status,
             ServiceStatus {
                 endpoint: Some(endpoint.clone()),
                 ownership: Some(ServiceOwnership::Managed),
@@ -974,14 +1369,14 @@ fn supervise(
             },
         );
         let started = Instant::now();
-        let mut child = match spawn_child(&layout, &data_dir, port) {
+        let mut child = match spawn_child(layout, data_dir, port, log) {
             Ok(child) => child,
             Err(error) => {
-                eprintln!("[desktop] failed to start bundled service: {error}");
+                log_event(log, "error", "service_spawn_failed", &[("error", error)]);
                 failures += 1;
                 if failures >= MAX_CONSECUTIVE_FAILURES {
                     set_status(
-                        &status,
+                        status,
                         ServiceStatus {
                             endpoint: Some(endpoint),
                             ownership: Some(ServiceOwnership::Managed),
@@ -989,16 +1384,20 @@ fn supervise(
                             version: None,
                         },
                     );
+                }
+                if !sleep_or_command(commands, backoff_delay(failures)) {
                     return;
                 }
-                thread::sleep(backoff_delay(failures));
                 continue;
             }
         };
 
-        match supervise_child(&mut child, &endpoint, &status, &commands) {
+        match supervise_child(&mut child, &endpoint, status, commands, log) {
             ChildOutcome::Stop => return,
-            ChildOutcome::Restart => failures = 0,
+            ChildOutcome::Restart => {
+                log_event(log, "info", "service_restart_requested", &[("mode", "managed".into())]);
+                failures = 0;
+            }
             ChildOutcome::Exited => {
                 failures = if started.elapsed() >= HEALTHY_RESET_AFTER {
                     1
@@ -1006,27 +1405,44 @@ fn supervise(
                     failures + 1
                 };
                 if failures >= MAX_CONSECUTIVE_FAILURES {
+                    // Report the trouble, but keep retrying: the owner sees a
+                    // red status and the service still heals itself when the
+                    // cause clears.
                     set_status(
-                        &status,
+                        status,
                         ServiceStatus {
-                            endpoint: Some(endpoint),
+                            endpoint: Some(endpoint.clone()),
                             ownership: Some(ServiceOwnership::Managed),
                             state: ServiceState::Error,
                             version: None,
                         },
                     );
-                    return;
                 }
-                match commands.recv_timeout(backoff_delay(failures)) {
-                    Ok(ServiceCommand::Stop(ack)) => {
-                        let _ = ack.send(());
-                        return;
-                    }
-                    Ok(ServiceCommand::Restart) | Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => return,
+                let delay = backoff_delay(failures);
+                log_event(
+                    log,
+                    "warn",
+                    "service_restart_scheduled",
+                    &[("failures", failures.to_string()), ("delaySeconds", delay.as_secs().to_string())],
+                );
+                if !sleep_or_command(commands, delay) {
+                    return;
                 }
             }
         }
+    }
+}
+
+/// Waits `delay`, returning early if a command arrives. Returns false only when
+/// the supervisor should exit (Stop received, or the channel closed).
+fn sleep_or_command(commands: &Receiver<ServiceCommand>, delay: Duration) -> bool {
+    match commands.recv_timeout(delay) {
+        Ok(ServiceCommand::Stop(ack)) => {
+            let _ = ack.send(());
+            false
+        }
+        Ok(ServiceCommand::Restart) | Err(RecvTimeoutError::Timeout) => true,
+        Err(RecvTimeoutError::Disconnected) => false,
     }
 }
 
@@ -1050,6 +1466,12 @@ fn initialize_worker(
         }
     };
 
+    // Open the supervisor's log sink up front so exit codes, crashes and
+    // restart decisions all land in the same file the service logs to.
+    let log: SupervisorLog =
+        open_rolling_log(&data_dir, LOG_ROTATE_BYTES as usize, LOG_ROTATE_GENERATIONS).ok();
+    let bundled_version = bundled_runtime_version(&app);
+
     if let Some(runtime_state) = read_runtime_state(&data_dir) {
         let wait = if runtime_state.status == "starting" && runtime_state.pid.is_some() {
             Duration::from_secs(20)
@@ -1059,6 +1481,36 @@ fn initialize_worker(
         if let Some(handshake) = wait_for_handshake(&runtime_state.endpoint, wait) {
             let compatible = is_compatible_handshake(&handshake, SUPPORTED_PROTOCOL_VERSION);
             let ownership = discovered_ownership(&runtime_state, &handshake);
+            let endpoint = runtime_state.endpoint.clone();
+
+            // A running sidecar from a different build than the one we ship must
+            // be replaced, not adopted: adopting it means every migration and
+            // directory this update added never runs, and the owner sees a
+            // feature that is present but broken until a second restart. This is
+            // the root cause of "after upgrade, {workspace}/miniapps was never
+            // created."
+            let stale = compatible
+                && ownership == ServiceOwnership::Managed
+                && should_replace_adopted(&handshake.version, bundled_version.as_deref());
+            if stale {
+                if let Some(pid) = runtime_state.pid {
+                    log_event(
+                        &log,
+                        "info",
+                        "adopted_service_version_mismatch",
+                        &[
+                            ("running", handshake.version.clone()),
+                            ("bundled", bundled_version.clone().unwrap_or_default()),
+                        ],
+                    );
+                    stop_process(pid);
+                }
+                if let Ok(layout) = runtime_layout(&app, &data_dir) {
+                    supervise(&layout, &data_dir, &status, &commands, &log);
+                }
+                return;
+            }
+
             set_status(
                 &status,
                 ServiceStatus {
@@ -1076,7 +1528,7 @@ fn initialize_worker(
                 if let (Some(pid), Ok(layout)) =
                     (runtime_state.pid, runtime_layout(&app, &data_dir))
                 {
-                    supervise_adopted(layout, data_dir, pid, status, commands);
+                    supervise_adopted(layout, data_dir, endpoint, pid, status, commands, log);
                 }
             }
             return;
@@ -1086,7 +1538,7 @@ fn initialize_worker(
     let layout = match runtime_layout(&app, &data_dir) {
         Ok(layout) => layout,
         Err(error) => {
-            eprintln!("[desktop] failed to resolve bundled runtime: {error}");
+            log_event(&log, "error", "runtime_layout_failed", &[("error", error)]);
             set_status(
                 &status,
                 ServiceStatus {
@@ -1094,10 +1546,17 @@ fn initialize_worker(
                     ..ServiceStatus::default()
                 },
             );
+            // Keep the thread alive so a manual restart can retry once the
+            // owner fixes whatever made the runtime unresolvable.
+            if park_for_restart(&commands) {
+                if let Ok(layout) = runtime_layout(&app, &data_dir) {
+                    supervise(&layout, &data_dir, &status, &commands, &log);
+                }
+            }
             return;
         }
     };
-    supervise(layout, data_dir, status, commands);
+    supervise(&layout, &data_dir, &status, &commands, &log);
 }
 
 pub fn initialize(app: AppHandle, status: Arc<Mutex<ServiceStatus>>) -> Sender<ServiceCommand> {
@@ -1160,7 +1619,69 @@ mod tests {
     fn restart_backoff_is_bounded() {
         assert_eq!(backoff_delay(1), Duration::from_secs(1));
         assert_eq!(backoff_delay(4), Duration::from_secs(8));
-        assert_eq!(backoff_delay(8), Duration::from_secs(16));
+        assert_eq!(backoff_delay(6), Duration::from_secs(32));
+        // Capped: an endless crash loop must not stretch to hours between tries.
+        assert_eq!(backoff_delay(7), Duration::from_secs(MAX_BACKOFF_SECS));
+        assert_eq!(backoff_delay(20), Duration::from_secs(MAX_BACKOFF_SECS));
+    }
+
+    #[test]
+    fn http_status_line_is_parsed_and_non_200_is_distinguished() {
+        assert_eq!(parse_status_code("HTTP/1.1 200 OK\r\nx: y"), Some(200));
+        assert_eq!(parse_status_code("HTTP/1.0 503 Service Unavailable"), Some(503));
+        assert_eq!(parse_status_code("HTTP/1.1 404 Not Found"), Some(404));
+        assert_eq!(parse_status_code("garbage"), None);
+    }
+
+    #[test]
+    fn health_response_classification_separates_ready_unusable_and_legacy() {
+        assert_eq!(classify_health_response(200, "{}"), RuntimeHealth::Ready);
+        // A build without the deep route answers 404 — not a failure.
+        assert_eq!(classify_health_response(404, ""), RuntimeHealth::Unsupported);
+        assert_eq!(
+            classify_health_response(503, "{\"error\":\"ENOENT miniapps\"}"),
+            RuntimeHealth::Unusable("ENOENT miniapps".into())
+        );
+        // Unusable with no parseable body still reports a usable message.
+        assert!(matches!(
+            classify_health_response(500, "not json"),
+            RuntimeHealth::Unusable(_)
+        ));
+    }
+
+    #[test]
+    fn adopted_service_of_a_different_build_is_replaced() {
+        // Dev run: nothing bundled to compare against, never replace.
+        assert!(!should_replace_adopted("2.8.9", None));
+        // Same build: adopt.
+        assert!(!should_replace_adopted("2.8.9", Some("2.8.9")));
+        assert!(!should_replace_adopted("2.8.9", Some(" 2.8.9\n")));
+        // Upgraded app, stale sidecar still running the old build: replace.
+        assert!(should_replace_adopted("2.8.8", Some("2.8.9")));
+        // An empty bundled version is treated as "unknown", not a mismatch.
+        assert!(!should_replace_adopted("2.8.9", Some("")));
+    }
+
+    #[test]
+    fn deep_health_is_only_probed_when_the_handshake_advertises_it() {
+        let mut handshake = ServiceHandshake {
+            service: "molibot".into(),
+            version: "2.8.9".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSION,
+            instance_id: None,
+            managed_by_desktop: true,
+            capabilities: vec!["service-ownership-v1".into()],
+        };
+        assert!(!supports_deep_health(&handshake));
+        handshake.capabilities.push("runtime-health-v1".into());
+        assert!(supports_deep_health(&handshake));
+    }
+
+    #[test]
+    fn iso_timestamp_matches_a_known_epoch_second() {
+        // 2026-08-03T12:00:00Z == 1_785_758_400 seconds since the epoch.
+        let when = std::time::UNIX_EPOCH + Duration::from_secs(1_785_758_400);
+        assert_eq!(iso_timestamp(when), "2026-08-03T12:00:00.000Z");
     }
 
     #[test]
@@ -1270,7 +1791,7 @@ mod tests {
             ],
         };
 
-        while !child.has_exited() {
+        while child.exited().is_none() {
             thread::sleep(Duration::from_millis(10));
         }
 

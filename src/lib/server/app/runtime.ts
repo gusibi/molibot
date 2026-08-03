@@ -12,6 +12,7 @@ import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternal
 import { executeOwnerMemoryReflection } from "$lib/server/agent/ownerMemoryReflection.js";
 import { MessageRouter } from "$lib/server/channels/shared/messageRouter.js";
 import { initDb, storagePaths } from "$lib/server/infra/db/storage.js";
+import { recordRuntimeInitFailure, recordRuntimeReady } from "$lib/server/app/runtimeHealth.js";
 import { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { PluginCatalog, ProviderPlugin } from "$lib/server/plugins/types.js";
 import { AssistantService } from "$lib/server/providers/assistantService.js";
@@ -116,7 +117,27 @@ function logSandboxEnvStartup(state: RuntimeState): void {
   }
 }
 
+/**
+ * Builds the runtime on first use and reports readiness.
+ *
+ * The wrapper exists so that *every* path into the runtime — an API request, a
+ * channel callback, the health probe — records whether initialisation worked.
+ * Without it a failed bootstrap is only visible as a 503 on whichever request
+ * happened to trigger it, which is how a service could sit wedged behind a
+ * green handshake for hours. Never call `initializeRuntime` directly.
+ */
 export function getRuntime(): RuntimeState {
+  try {
+    const state = initializeRuntime();
+    recordRuntimeReady();
+    return state;
+  } catch (error) {
+    recordRuntimeInitFailure(error);
+    throw error;
+  }
+}
+
+function initializeRuntime(): RuntimeState {
   if (!globalThis.__molibotRuntime) {
     initDb();
     ensureGlobalProfileDefaults();

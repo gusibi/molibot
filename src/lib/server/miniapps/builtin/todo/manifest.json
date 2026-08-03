@@ -2,8 +2,8 @@
   "manifestVersion": 1,
   "id": "todo",
   "name": "Todo",
-  "version": "1.0.0",
-  "description": "One shared todo list, managed from chat and from the desktop panel.",
+  "version": "1.0.1",
+  "description": "Multi-list todo with priority, search, and pinning. Managed from chat and the desktop panel.",
   "engines": {
     "molibot": ">=2.8.0 <4"
   },
@@ -15,38 +15,26 @@
     "icon": "ui/icon.svg"
   },
   "data": {
-    "schemaVersion": 1
+    "schemaVersion": 2
   },
   "tools": [
     {
       "name": "add",
       "title": "Add Todo",
-      "description": "Add one item to the owner's shared todo list. Use this whenever the user asks to remember, track, or be reminded of a task.",
+      "description": "Add one item to a todo list. Use this whenever the user asks to remember, track, or be reminded of a task. Optionally specify listId, priority (1=high, 2=normal, 3=low), and pinned.",
       "keywords": [
-        "todo",
-        "todos",
-        "task",
-        "tasks",
-        "reminder",
-        "checklist",
-        "待办",
-        "任务",
-        "清单",
-        "记一下"
+        "todo", "todos", "task", "tasks", "reminder", "checklist",
+        "待办", "任务", "清单", "记一下", "添加", "新增"
       ],
       "inputSchema": {
         "type": "object",
         "properties": {
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 300,
-            "description": "What needs to be done, in the user's own words."
-          }
+          "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "What needs to be done, in the user's own words." },
+          "listId": { "type": "string", "description": "Which list to add to. Defaults to 'inbox'. Use list_all to see available lists." },
+          "priority": { "type": "integer", "enum": [1, 2, 3], "description": "1=high, 2=normal (default), 3=low." },
+          "pinned": { "type": "boolean", "description": "Pin to top of the list. Default false." }
         },
-        "required": [
-          "title"
-        ],
+        "required": ["title"],
         "additionalProperties": false
       },
       "readOnlyHint": false,
@@ -55,31 +43,19 @@
     {
       "name": "list",
       "title": "List Todos",
-      "description": "List the owner's todo items, optionally filtered by status.",
+      "description": "List todo items with optional filters: by status, list, priority, pinned, and text search. Returns items sorted by pinned first, then priority, then creation time.",
       "keywords": [
-        "todo",
-        "todos",
-        "task",
-        "tasks",
-        "list",
-        "pending",
-        "待办",
-        "任务",
-        "列表",
-        "还有什么"
+        "todo", "todos", "task", "tasks", "list", "pending", "search", "filter",
+        "待办", "任务", "列表", "还有什么", "搜索", "查找", "筛选"
       ],
       "inputSchema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "all",
-              "open",
-              "completed"
-            ],
-            "description": "Which items to return. Defaults to open."
-          }
+          "status": { "type": "string", "enum": ["all", "open", "completed"], "description": "Which items to return. Defaults to open." },
+          "listId": { "type": "string", "description": "Filter to a specific list. Omit for all lists." },
+          "priority": { "type": "integer", "enum": [1, 2, 3], "description": "Filter by priority level." },
+          "pinned": { "type": "boolean", "description": "If true, return only pinned items." },
+          "search": { "type": "string", "description": "Case-insensitive text search on title." }
         },
         "additionalProperties": false
       },
@@ -88,34 +64,99 @@
     },
     {
       "name": "complete",
-      "title": "Complete Todo",
+      "title": "Complete / Reopen Todo",
       "description": "Mark one todo item as done, or reopen it. Call list first to get the item id.",
       "keywords": [
-        "todo",
-        "complete",
-        "done",
-        "finish",
-        "reopen",
-        "待办",
-        "完成",
-        "做完了"
+        "todo", "complete", "done", "finish", "reopen",
+        "待办", "完成", "做完了", "重新打开"
       ],
       "inputSchema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Item id from list."
-          },
-          "completed": {
-            "type": "boolean",
-            "description": "True to complete, false to reopen. Defaults to true."
-          }
+          "id": { "type": "string", "minLength": 1, "description": "Item id from list." },
+          "completed": { "type": "boolean", "description": "True to complete, false to reopen. Defaults to true." }
         },
-        "required": [
-          "id"
-        ],
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "update",
+      "title": "Update Todo",
+      "description": "Update a todo item's title, priority, or pinned status. Only provided fields are changed.",
+      "keywords": [
+        "todo", "update", "edit", "rename", "priority", "pin",
+        "待办", "更新", "修改", "编辑", "优先级", "置顶"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "description": "Item id from list." },
+          "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "New title." },
+          "priority": { "type": "integer", "enum": [1, 2, 3], "description": "1=high, 2=normal, 3=low." },
+          "pinned": { "type": "boolean", "description": "Pin or unpin." }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "pin",
+      "title": "Pin Todo",
+      "description": "Pin a todo item to the top of its list.",
+      "keywords": [
+        "todo", "pin", "pinned", "top",
+        "置顶", "固定", "todo pin"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "description": "Item id from list." }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "unpin",
+      "title": "Unpin Todo",
+      "description": "Remove pin from a todo item.",
+      "keywords": [
+        "todo", "unpin", "remove pin",
+        "取消置顶", "取消固定"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "description": "Item id from list." }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "move",
+      "title": "Move Todo",
+      "description": "Move a todo item to a different list.",
+      "keywords": [
+        "todo", "move", "transfer", "reassign",
+        "待办", "移动", "转移", "移动到"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "description": "Item id from list." },
+          "listId": { "type": "string", "description": "Target list id. Use list_all to see available lists." }
+        },
+        "required": ["id", "listId"],
         "additionalProperties": false
       },
       "readOnlyHint": false,
@@ -126,25 +167,69 @@
       "title": "Delete Todo",
       "description": "Permanently delete one todo item. This cannot be undone; prefer complete when the user simply finished the task.",
       "keywords": [
-        "todo",
-        "delete",
-        "remove",
-        "待办",
-        "删除",
-        "去掉"
+        "todo", "delete", "remove",
+        "待办", "删除", "去掉"
       ],
       "inputSchema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Item id from list."
-          }
+          "id": { "type": "string", "minLength": 1, "description": "Item id from list." }
         },
-        "required": [
-          "id"
-        ],
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": true
+    },
+    {
+      "name": "list_create",
+      "title": "Create List",
+      "description": "Create a new todo list (category). Use when the user wants to organize tasks into separate lists like 'work', 'shopping', etc.",
+      "keywords": [
+        "todo", "list", "create", "category", "folder", "new list",
+        "待办", "列表", "创建", "分类", "新建列表"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 100, "description": "Display name for the list." }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "list_all",
+      "title": "List All Lists",
+      "description": "List all todo lists (categories) with their open and completed item counts.",
+      "keywords": [
+        "todo", "lists", "categories", "all lists",
+        "待办", "列表", "所有列表", "分类"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "list_delete",
+      "title": "Delete List",
+      "description": "Delete a todo list. Items in it are moved to 'inbox'. This cannot be undone.",
+      "keywords": [
+        "todo", "list", "delete", "remove list",
+        "待办", "列表", "删除列表"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "description": "List id to delete. Cannot delete 'inbox'." }
+        },
+        "required": ["id"],
         "additionalProperties": false
       },
       "readOnlyHint": false,
