@@ -7,6 +7,9 @@
 ---
 ## 2026-08-04
 
+### Release: v2.9.1 / Desktop v0.8.8
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: v2.9.0 could not start — the release bundle was missing two runtime modules (#30)
 
 A packaged v2.9.0 install died on every boot with `Cannot find module '.../scripts/runtime/crash-report.mjs'` and the supervisor restart-looped it forever, so the app was unusable rather than degraded.
