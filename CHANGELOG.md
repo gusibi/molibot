@@ -7,6 +7,9 @@
 ---
 ## 2026-08-04
 
+### Release: v2.9.2 / Desktop v0.8.9
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: The composer lost its model name, aliases did not stick, and Project settings could not scroll (#28)
 
 Four regressions from the model-alias / Project-command release, all reported on the same issue.
