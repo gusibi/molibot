@@ -249,7 +249,7 @@
     position: absolute;
     left: 3px;
     color: var(--label-tertiary, #8f8f8f);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     line-height: 1;
   }
   .conversation-row:hover,
@@ -281,8 +281,8 @@
   .row-title {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--fs-label);
+    line-height: var(--lh-label);
     color: var(--label-primary, #171717);
     white-space: nowrap;
     overflow: hidden;
@@ -290,8 +290,8 @@
   }
   .row-time {
     flex: 0 0 auto;
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--fs-meta);
+    line-height: var(--lh-meta);
     color: var(--label-tertiary, #8f8f8f);
     white-space: nowrap;
   }
@@ -311,7 +311,7 @@
     border-radius: var(--rounded-sm, 6px);
     background: var(--card-bg);
     color: var(--label-primary, #171717);
-    font-size: 13px;
+    font-size: var(--fs-label);
     outline: none;
   }
   .status-dot {
@@ -361,7 +361,7 @@
     cursor: pointer;
     transition: background var(--duration-instant) var(--ease-standard);
   }
-  .row-menu-btn i { font-size: 16px; }
+  .row-menu-btn i { font-size: var(--icon-md); }
   .conversation-row:hover .row-menu-btn,
   .conversation-row:focus-within .row-menu-btn,
   .conversation-row.menu-open .row-menu-btn {
@@ -391,11 +391,11 @@
     border-radius: var(--rounded-sm, 6px);
     background: transparent;
     color: var(--label-primary, #171717);
-    font-size: 13px;
+    font-size: var(--fs-label);
     text-align: left;
     cursor: pointer;
   }
-  .row-menu-item i { font-size: 15px; opacity: 0.8; }
+  .row-menu-item i { font-size: var(--icon-md); opacity: 0.8; }
   .row-menu-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .row-menu-item.danger { color: var(--danger); }
   .row-menu-item.danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
@@ -404,7 +404,8 @@
   .row-menu-prompt {
     margin: 0;
     padding: 6px 8px 4px;
-    font-size: 12px;
+    font-size: var(--fs-label);
+    line-height: var(--lh-label);
     color: var(--label-secondary, #666);
   }
   .row-menu-confirm {
@@ -418,7 +419,7 @@
     padding: 6px 8px;
     border-radius: var(--rounded-sm, 6px);
     border: 1px solid var(--separator, rgba(0, 0, 0, 0.08));
-    font-size: 12px;
+    font-size: var(--fs-label);
     font-weight: 500;
     cursor: pointer;
   }

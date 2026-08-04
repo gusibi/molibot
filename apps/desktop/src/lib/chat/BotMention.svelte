@@ -127,7 +127,7 @@
     border-radius: var(--rounded-full);
     background: transparent;
     color: var(--label-secondary);
-    font-size: 12.5px;
+    font-size: var(--fs-label);
     font-weight: 500;
     line-height: 1;
     cursor: pointer;
@@ -141,7 +141,7 @@
   .mention-at {
     color: var(--accent);
     font-weight: 700;
-    font-size: 13px;
+    font-size: var(--fs-label);
   }
   .mention-name {
     min-width: 0;
@@ -151,7 +151,7 @@
     white-space: nowrap;
   }
   .mention-caret {
-    font-size: 11px;
+    font-size: var(--icon-xs);
     opacity: 0.5;
   }
 
@@ -166,7 +166,7 @@
     color: var(--label-secondary);
   }
   .mention-lock {
-    font-size: 11px;
+    font-size: var(--icon-xs);
     opacity: 0.5;
   }
 
@@ -208,7 +208,7 @@
     border-radius: var(--rounded-sm);
     background: transparent;
     color: var(--label-primary);
-    font-size: 13px;
+    font-size: var(--fs-label);
     text-align: left;
     cursor: pointer;
     transition: background var(--duration-instant) var(--ease-standard);
@@ -233,7 +233,8 @@
     white-space: nowrap;
   }
   .mention-option-sub {
-    font-size: 11px;
+    font-size: var(--fs-meta);
+    line-height: var(--lh-meta);
     color: var(--label-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -241,7 +242,7 @@
   }
   .mention-check {
     flex: none;
-    font-size: 13px;
+    font-size: var(--icon-sm);
     color: var(--accent);
   }
 </style>

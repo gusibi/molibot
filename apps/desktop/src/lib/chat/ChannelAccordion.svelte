@@ -130,26 +130,26 @@
     cursor: pointer;
     color: var(--label-primary, #171717);
     text-align: left;
-    font-size: 12px;
+    font-size: var(--fs-label);
     font-weight: 500;
     letter-spacing: 0;
     transition: background var(--duration-instant) var(--ease-standard);
   }
   .channel-accordion-header:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
-  .channel-accordion-header i:first-child { font-size: 15px; opacity: 0.7; }
+  .channel-accordion-header i:first-child { font-size: var(--icon-md); opacity: 0.7; }
   .channel-accordion-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chevron { opacity: 0; font-size: 11px; color: var(--label-tertiary, #8f8f8f); transition: opacity var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); flex: 0 0 auto; }
+  .chevron { opacity: 0; font-size: var(--icon-xs); color: var(--label-tertiary, #8f8f8f); transition: opacity var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); flex: 0 0 auto; }
   .channel-accordion-header:hover .chevron, .channel-accordion-header:focus-visible .chevron { opacity: 1; }
   .chevron.open { transform: rotate(90deg); }
   .channel-accordion-body { padding: 1px 0 4px; }
   .channel-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
-  .channel-state { padding: 8px; font-size: 12px; color: var(--label-tertiary, #8f8f8f); margin: 0; }
+  .channel-state { padding: 8px; font-size: var(--fs-label); color: var(--label-tertiary, #8f8f8f); margin: 0; }
   .channel-configure, .channel-more {
     border: none;
     background: transparent;
     color: var(--accent, #006bff);
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--fs-label);
     padding: 6px 8px;
     width: 100%;
     text-align: left;

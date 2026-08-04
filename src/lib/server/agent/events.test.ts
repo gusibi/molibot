@@ -94,6 +94,150 @@ test("skipping a periodic run for task_already_running releases the file run-loc
   }
 });
 
+// Recovery harness: an event file left at "running" by a process that died,
+// plus the lease that attempt was holding.
+function stageInterruptedRun(options: { startedAt: string; taskId?: string } ) {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-"));
+  const filename = "event.json";
+  const eventPath = join(eventsDir, filename);
+  const slotKey = "2026-06-04T17:00";
+  const taskId = options.taskId ?? "daily-report";
+
+  const lease = store.acquire({
+    leaseScope: "telegram",
+    eventFile: filename,
+    eventType: "periodic",
+    triggerSlot: slotKey,
+    chatId: "chat-1",
+    sessionId: "session-1",
+    channel: "telegram",
+    taskId,
+    runId: "crashed-run",
+    maxAttempts: 3,
+    timeoutMs: 600_000,
+    eventPayloadJson: "{}",
+    now: new Date(options.startedAt)
+  });
+  assert.ok(lease);
+
+  const event: MomEvent = {
+    ...createPeriodicEvent(),
+    taskId,
+    status: { state: "running", reason: "running", startedAt: options.startedAt, runId: "crashed-run", runningSlotKey: slotKey }
+  };
+  writeFileSync(eventPath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+  return { store, eventsDir, eventPath, filename, event, lease, slotKey, taskId };
+}
+
+function readStatus(eventPath: string) {
+  return JSON.parse(readFileSync(eventPath, "utf8")).status as Record<string, unknown>;
+}
+
+test("an interrupted run outside the catch-up window is reported, never left spinning", async () => {
+  const staged = stageInterruptedRun({ startedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString() });
+  let onEventCalls = 0;
+  const watcher = new EventsWatcher(staged.eventsDir, async () => { onEventCalls += 1; }, {
+    leaseStore: staged.store,
+    channel: "telegram",
+    leaseScope: "telegram",
+    catchUpWindowMs: 30 * 60 * 1000
+  }) as unknown as { resumeRecoveredLease: (filename: string, event: MomEvent) => boolean };
+
+  try {
+    // A restart reclaims the orphaned lease first, exactly as start() does.
+    staged.store.recoverStaleRunning(new Date(), "next-process");
+    assert.equal(staged.store.getById(staged.lease.id)?.status, "interrupted");
+
+    assert.equal(watcher.resumeRecoveredLease(staged.filename, staged.event), true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const status = readStatus(staged.eventPath);
+    assert.equal(status.state, "pending", "a periodic task returns to its schedule instead of hanging");
+    assert.equal(status.reason, "interrupted");
+    assert.equal(status.runningSlotKey, undefined);
+    assert.equal(status.runId, undefined);
+    assert.equal(onEventCalls, 0, "a stale side-effecting run must not be replayed hours later");
+  } finally {
+    rmSync(staged.eventsDir, { recursive: true, force: true });
+    staged.store.close();
+  }
+});
+
+test("an interrupted run inside the catch-up window resumes and is not blocked by its own lease", async () => {
+  const staged = stageInterruptedRun({ startedAt: new Date(Date.now() - 60_000).toISOString() });
+  let onEventCalls = 0;
+  const watcher = new EventsWatcher(staged.eventsDir, async () => { onEventCalls += 1; }, {
+    leaseStore: staged.store,
+    channel: "telegram",
+    leaseScope: "telegram",
+    catchUpWindowMs: 30 * 60 * 1000
+  }) as unknown as { resumeRecoveredLease: (filename: string, event: MomEvent) => boolean };
+
+  try {
+    staged.store.recoverStaleRunning(new Date(), "next-process");
+    assert.equal(watcher.resumeRecoveredLease(staged.filename, staged.event), true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    assert.equal(onEventCalls, 1, "the catch-up actually executed");
+    assert.equal(staged.store.getById(staged.lease.id)?.status, "completed");
+    assert.equal(
+      staged.store.listForTask(staged.taskId).some((execution) => execution.stopReason === "task_already_running"),
+      false,
+      "recovery must not skip itself"
+    );
+    assert.equal(readStatus(staged.eventPath).state, "pending");
+  } finally {
+    rmSync(staged.eventsDir, { recursive: true, force: true });
+    staged.store.close();
+  }
+});
+
+test("a running file whose lease vanished is reconciled instead of hanging", async () => {
+  const staged = stageInterruptedRun({ startedAt: new Date().toISOString() });
+  const emptyStore = new EventExecutionLeaseStore(":memory:");
+  const watcher = new EventsWatcher(staged.eventsDir, async () => {}, {
+    leaseStore: emptyStore,
+    channel: "telegram",
+    leaseScope: "telegram"
+  }) as unknown as { resumeRecoveredLease: (filename: string, event: MomEvent) => boolean };
+
+  try {
+    assert.equal(watcher.resumeRecoveredLease(staged.filename, staged.event), true);
+    const status = readStatus(staged.eventPath);
+    assert.equal(status.state, "pending");
+    assert.equal(status.reason, "interrupted");
+  } finally {
+    rmSync(staged.eventsDir, { recursive: true, force: true });
+    emptyStore.close();
+    staged.store.close();
+  }
+});
+
+// The release guard compared runIds only. On the recovery path the file still
+// holds the crashed attempt's runId while the release carries a fresh one, so
+// the guard rejected exactly the release that unsticks the file.
+test("releasing the run-lock succeeds when recovery carries a fresh runId for the same slot", () => {
+  const staged = stageInterruptedRun({ startedAt: new Date().toISOString() });
+  const watcher = new EventsWatcher(staged.eventsDir, async () => {}, {
+    leaseStore: staged.store,
+    channel: "telegram",
+    leaseScope: "telegram"
+  }) as unknown as {
+    releasePeriodicRunLock: (filename: string, event: MomEvent, reason: string, slotKey: string, runId: string) => void;
+  };
+
+  try {
+    watcher.releasePeriodicRunLock(staged.filename, staged.event, "task_already_running", staged.slotKey, "a-brand-new-run-id");
+    const status = readStatus(staged.eventPath);
+    assert.equal(status.state, "pending");
+    assert.equal(status.runningSlotKey, undefined);
+  } finally {
+    rmSync(staged.eventsDir, { recursive: true, force: true });
+    staged.store.close();
+  }
+});
+
 test("late successful event completion suppresses timeout retry outcome", async () => {
   const store = new EventExecutionLeaseStore(":memory:");
   const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-"));

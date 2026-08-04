@@ -7,6 +7,8 @@ import {
   buildCrashRecord,
   crashDir,
   formatCrashLine,
+  installStdioErrorGuards,
+  isBrokenPipeError,
   pruneCrashReports,
   writeCrashReport
 } from "./crash-report.mjs";
@@ -80,4 +82,24 @@ test("writeCrashReport returns null instead of throwing on an unwritable dir", (
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+// A closed supervisor pipe killed a healthy service twice in one day, each time
+// stranding an in-flight scheduled task at "running". Log output is expendable;
+// the process is not.
+test("a broken stdout pipe is classified as benign, other stream errors are not", () => {
+  assert.equal(isBrokenPipeError(Object.assign(new Error("write EPIPE"), { code: "EPIPE" })), true);
+  assert.equal(isBrokenPipeError(Object.assign(new Error("gone"), { code: "ERR_STREAM_DESTROYED" })), true);
+  assert.equal(isBrokenPipeError(new Error("ordinary failure")), false);
+  assert.equal(isBrokenPipeError(undefined), false);
+});
+
+test("stdio error guards swallow a broken pipe and rethrow everything else", () => {
+  const handlers = [];
+  const stream = { on: (event, handler) => { if (event === "error") handlers.push(handler); } };
+  installStdioErrorGuards([stream]);
+  assert.equal(handlers.length, 1);
+
+  handlers[0](Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+  assert.throws(() => handlers[0](new Error("a real invariant broke")), /a real invariant broke/);
 });

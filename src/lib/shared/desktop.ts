@@ -443,6 +443,20 @@ export interface DesktopTaskItem {
   createdAt: string;
   executions: DesktopTaskExecution[];
   executionCount: number;
+  /**
+   * Outcome of the most recent attempt. For periodic tasks the event file's
+   * `status` is a run *lock* (it returns to `pending` on success), so it can
+   * never answer "did the last run succeed" — that lives here, and this is what
+   * the UI shows as the headline state.
+   */
+  lastRun?: {
+    status: DesktopTaskExecutionStatus;
+    startedAt: string;
+    finishedAt?: string;
+    lastError?: string;
+  };
+  /** True only while an attempt is genuinely held by a live run. */
+  active: boolean;
 }
 
 export interface DesktopTaskTarget {
@@ -453,7 +467,7 @@ export interface DesktopTaskTarget {
   botDisplayName?: string;
 }
 
-export type DesktopTaskExecutionStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped";
+export type DesktopTaskExecutionStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped" | "interrupted";
 
 export interface DesktopTaskExecution {
   id: string;

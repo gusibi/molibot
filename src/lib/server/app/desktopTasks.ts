@@ -202,9 +202,43 @@ export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskT
     || a.chatId.localeCompare(b.chatId));
 }
 
+const ACTIVE_EXECUTION_STATUSES: readonly string[] = ["running", "retry_wait"];
+
+/**
+ * The status a user should see for a task.
+ *
+ * The event file's own `status.state` is a scheduling lock, not a report: a
+ * successful periodic run writes `pending` back, and a run whose process died
+ * leaves `running` behind with nobody to clear it. Reading it directly is what
+ * made finished and crashed tasks both render as a spinner forever. The lease
+ * store is the record of what actually happened, so it wins whenever it has an
+ * opinion; the file only supplies the answer for a task that has never run.
+ */
+export function resolveDesktopTaskStatus(
+  fileStatus: DesktopTaskState,
+  type: DesktopTaskType,
+  latest: DesktopTaskExecution | undefined
+): DesktopTaskState {
+  if (!latest) return fileStatus === "running" ? "pending" : fileStatus;
+  if (ACTIVE_EXECUTION_STATUSES.includes(latest.status)) return "running";
+  if (latest.status === "completed") {
+    // A periodic task that succeeded is idle until its next slot; a one-shot
+    // task that succeeded is done.
+    return type === "periodic" ? "completed" : fileStatus === "pending" ? "completed" : fileStatus;
+  }
+  if (latest.status === "failed" || latest.status === "aborted" || latest.status === "interrupted") return "error";
+  if (latest.status === "skipped") return fileStatus === "running" ? "pending" : fileStatus;
+  return fileStatus;
+}
+
 export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: DesktopTaskExecutionLoader = () => ({ items: [], total: 0 })): DesktopTaskItem {
   const taskId = String(item.taskId ?? "").trim() || desktopTaskId(item.filePath);
   const executions = loadExecutions(taskId);
+  // A `skipped` row records that a *dispatch* was declined, not the fate of an
+  // attempt, so it must not stand in as "what happened last".
+  const latest = executions.items.find((execution) => execution.status !== "skipped") ?? executions.items[0];
+  const type = coerceType(item.type);
+  const status = resolveDesktopTaskStatus(coerceState(item.status), type, latest);
   const systemKind = item.managed?.by === "molibot" && item.managed.scope === "owner"
     && (item.managed.kind === "memory-reflection" || item.managed.kind === "daily-materials")
     ? item.managed.kind
@@ -218,13 +252,13 @@ export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: Deskt
     botId: item.botId,
     chatId: item.chatId,
     scope: item.scope === "chat-scratch" ? "chat-scratch" : "workspace",
-    type: coerceType(item.type),
+    type,
     enabled: item.enabled !== false,
     text: item.text,
     delivery: item.delivery,
     scheduleText: item.scheduleText,
     timezone: item.timezone,
-    status: coerceState(item.status),
+    status,
     statusReason: item.statusReason,
     lastError: item.lastError,
     runCount: item.runCount,
@@ -235,7 +269,11 @@ export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: Deskt
     updatedAt: item.updatedAt,
     createdAt: item.createdAt,
     executions: executions.items,
-    executionCount: executions.total
+    executionCount: executions.total,
+    lastRun: latest
+      ? { status: latest.status, startedAt: latest.startedAt, finishedAt: latest.finishedAt, lastError: latest.lastError }
+      : undefined,
+    active: executions.items.some((execution) => ACTIVE_EXECUTION_STATUSES.includes(execution.status))
   };
 }
 

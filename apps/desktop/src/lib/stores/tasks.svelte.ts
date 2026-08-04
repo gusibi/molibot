@@ -1,6 +1,6 @@
 // Scheduled tasks settings — state + orchestration.
 import { loadDesktopTaskHistory, loadDesktopTasks, loadDesktopTaskSession, runDesktopTaskAction, stopDesktopActiveRun } from "../api";
-import type { DesktopTaskExecutionPage, DesktopTaskSession, DesktopTaskSummary, DesktopTaskTarget } from "@molibot/desktop-contract";
+import type { DesktopTaskExecutionPage, DesktopTaskExecutionStatus, DesktopTaskSession, DesktopTaskSummary, DesktopTaskTarget } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 import type { FeedbackEvent } from "../native/feedbackCoordinator";
 
@@ -146,12 +146,25 @@ export function beginTaskEdit(item: DesktopTaskSummary["items"][number]): void {
   tasksStore.taskEdit = { ...item, draftText: item.text, draftDelivery: item.delivery || "agent", draftSchedule: item.scheduleText, draftTimezone: item.timezone, draftSessionMode: item.sessionMode || (item.type === "periodic" ? "fresh" : "chat") };
 }
 
+/**
+ * Liveness comes from `active` — a lease actually held by a run. The event
+ * file's `status` is a scheduling lock that a crashed run leaves at "running"
+ * with nobody to clear it, so trusting it spun the row's spinner forever.
+ */
+function hasLiveRun(id: string): boolean {
+  return tasksStore.tasks?.items.some((task) => task.id === id && task.active) === true;
+}
+
 export function isTaskRunning(id: string): boolean {
-  return tasksStore.runningTaskIds.has(id) || tasksStore.tasks?.items.some((task) => task.id === id && task.status === "running") === true;
+  return tasksStore.runningTaskIds.has(id) || hasLiveRun(id);
 }
 
 export function isTaskStarting(id: string): boolean {
-  return tasksStore.runningTaskIds.has(id) && tasksStore.tasks?.items.some((task) => task.id === id && task.status === "running") !== true;
+  return tasksStore.runningTaskIds.has(id) && !hasLiveRun(id);
+}
+
+export function taskExecutionStatusLabel(status: DesktopTaskExecutionStatus, copy: typeof session.text): string {
+  return copy[`taskExecution_${status}`];
 }
 
 export function isTaskUpdating(id: string): boolean {

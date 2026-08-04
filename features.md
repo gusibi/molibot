@@ -7,6 +7,120 @@
 ---
 ## 2026-08-04
 
+### 自动任务页头部重排：分段控件不再被拉成灰色长条（已完成，P1）
+
+用户反馈：「自动任务这个页面 UI 是乱的」，圈出的正是顶部整条 header 区域。
+
+**问题定位**——一条 CSS 规则同时造成了这一条里的所有症状：
+
+分类切换是 macOS 分段控件：`display: inline-flex` + `width: fit-content`，三个 segment 共用一块圆角 `--fill` 底。为了让它和下方内容列左对齐，`presentation="workspace"` 变体给**控件本身**加了 `width: min(1240px, …); margin: 0 auto`。但 **inline 级盒子的 auto margin 会算成 0**，于是：
+
+- 宽度把那块「唯一的圆角底」拉满整列 → 截图里那条几乎横贯全宽、三个 tab 挤在最左的灰条；
+- `margin: 0 auto` 不生效 → 控件贴在滚动区左边缘，而下方任务网格是居中的 → 两者左边不对齐。
+
+**修复**
+
+- 新增块级 `.automation-category-bar` 承担对齐，控件恢复 `fit-content`，只包住自己的三个 tab。
+- 新增 `--automation-col` token：tab 条、工具条、任务网格三块此前各写一份宽度表达式（正是它们漂移的原因），现在共用一个。
+- 头部从三行压到两行：搜索框限宽 320px（此前 `flex: 1` 在 1240px 列里是约 900px 的空输入框，「创建任务」被甩到最右端），运行统计移到同一行右端填掉空档；容器窄于 720px 时统计独占一行并与网格左对齐。
+- 字号归位到 type scale：页面标题原为 18px（scale 里没有这一档），任务卡片原为 13px 标题 / 12px 计划 / 12px 状态——同一层级取不同数值，正是「说不出哪里不对」的来源。卡片现在只有 `label` 标题 + `meta` 详情两档，靠颜色而非字号分层；automation / one-shot / execution / task 弹窗共 43 处硬编码字号改走 `--fs-*`/`--lh-*`，图标走 `--icon-*`。
+- 顺带删除 `.automation-workspace-search` 死代码（搜索框早已改用共享 `SearchField`）。
+
+**守卫**：`apps/desktop/src/chat-ui.test.mjs` 新增——控件必须保持 `fit-content` 且不得自行 auto 居中、宽度覆盖必须写在 bar 上、三块必须引用 `--automation-col`、搜索框限宽与统计位置及换行回退；type-scale「禁止裸 px」守卫的作用域扩展到 `automation-*` / `one-shot-*` / `task-*` / `execution-state` / 页面标题。
+
+**验证**：`chat-ui` 守卫 141/141、`svelte-check` 0 error / 0 warning、desktop `vite build` 通过；在应用内浏览器用真实 markup + 构建产物样式实测，1400/1000/820px 下 tab 条、搜索框、统计、卡片网格左右边缘完全一致（1400px 时 170 / 1365），控件宽 361px（列宽 1195px），720px 容器阈值以下统计正确换行。Tauri 实机冷启动走查仍待补（pitfall 10）。
+
+### Chat 与侧边栏字体规范化：落地 type scale token（已完成，P1）
+
+用户反馈：「Chat 页的字体不和谐，同一个区域有的大有的小，说不出哪里不好，但不规范。以后想改主题应该统一改一个 CSS，而不是每个文件单独调。」
+
+**问题定位**
+
+`DESIGN.md §Typography` 早就定义了完整的 typography token（`heading-*` / `label-*` / `copy-*` / `button-*`，都带成对的 fontSize + lineHeight），并明确写了「Apply the typography tokens instead of setting font size, line height, or weight by hand」。但 `styles.css` 的 `:root` 里，圆角有 token、动效有 token、字距有 token、颜色有一整套——**唯独字体只有三个 family，没有任何 size / line-height token**。于是：
+
+| 指标 | 迁移前 |
+|---|---|
+| 硬编码 `font-size: Npx` | 583 处（另有 46 处在 `font:` 简写里） |
+| 字号档位 | 17 档（9…30px） |
+| line-height 取值 | 21 种（1.3/1.35/1.4/1.45/1.5/1.55/1.6/1.65 与 10–28px 混用） |
+| 图标（`.ph`）也走 font-size | 51 处，与文字挤在同一数值空间 |
+
+具体到 Chat 页的「不和谐」：
+
+- **会话标题 11px，而它自己的副标题 12px**——header 里最重要的文字是全页最小的，层级是倒的。
+- 同一个「次要信息」语义层在 11 / 12 / 13 之间随机取值：`message-time` 11、`transcript-divider` 12、`message-read` 13。
+- 同一行内文字与图标不同步：`assistant-identity` 11px 但内部 `strong` 12px；`transcript-divider` 12px 但图标 13px；`assistant-error-note` 12px 但图标 13px。
+- 模型选择器 12px，点开的菜单项 13px——**打开菜单字会变大**。
+- 侧边栏会话行标题 12px + 时间戳 12px，两者同号，整行读起来是一条没有层次的色带。
+- 还有一处 12.5px（approval 命令块）这样的完全脱表值。
+
+**方案与实现**
+
+1. **`:root` 落地 type scale**，命名对齐 DESIGN.md，size 与 line-height **成对**声明（只改其一必然重新走散）：
+   - `--fs-body / --lh-body` = 14/22 —— 正文（气泡、markdown、输入框）
+   - `--fs-label / --lh-label` = 13/18 —— 单行界面文字（标题、菜单项、按钮、卡片）
+   - `--fs-meta / --lh-meta` = 11/16 —— 时间、计数、id、状态、图注
+   - 标题另成一轴：`--fs-title` 15/20、`--fs-heading` 16/22、`--fs-page` 22/28
+2. **图标独立命名空间** `--icon-xs/sm/md/lg` = 12/14/16/18。Phosphor 用 `font-size` 渲染字形，不分开的话「13px」会同时指两件无关的事。
+3. **Chat 页取消 12px 档**，按语义分流到 13（label）或 11（meta）。会话标题 11→13 修正倒挂；模型选择器 12→13 与菜单统一；侧边栏行标题走 label、时间戳走 meta。
+4. **补上文档级默认字号**：此前没有任何地方声明 document font-size，凡是没设字号的元素都在继承浏览器默认的 16px——一个设计体系里根本不存在的档位。`.chat-layout` 现在锚定在 label 档。
+5. 迁移范围：Chat（header / 正文 / 输入框）+ 侧边栏，含 `ConversationRow` / `ChatSidebar` / `ChannelAccordion` / `BotMention` 的组件内样式。Settings 与 Project 页仍是硬编码，作为后续切片。
+
+**输入框胶囊（`.composer-token`）**
+
+胶囊由一层镜像 overlay 绘制，垫在真 textarea 底下逐字符对齐，所以任何改变字符推进量的内边距都会让色块漂移、光标与中文 IME 候选框错位。原来的 `padding: 1px 5px; margin: 0 -5px` 把两个轴搞反了：
+
+- **垂直方向本来是免费的**——inline box 的垂直 padding 不进入行盒（CSS 2.1 §10.6.1），无需负 margin 抵消，而它只用了 1px，白白浪费。字形盒 16.5px、行盒 22px，取 **3px** 正好填满行盒且不与上下行相撞。
+- **水平方向必须被等值负 margin 抵消，预算极小**：14px 下词间空格只有 3.8px，原来的 5px 是**画在了后一个字底下**——这正是「右边看起来没有 padding」的真正原因（它其实在画，只是被后面的字盖住了）。改为 **2px**，留下一线可见间隙。
+- 圆角从 `--rounded-sm`(8px) 改为 `--radius-full`：行盒填满后，19px 盒子上的 8px 圆角是那种「接近全圆又不是」的中间态，读起来像没做完的矩形。
+
+实测（真实组件 DOM、真实样式表）：胶囊绘制高度 22.5px / 行高 22px，胶囊后文字的推进量偏移 **0.000px**——光标与 IME 完全不受影响。
+
+**机器守卫**（`apps/desktop/src/chat-ui.test.mjs`）
+
+- 每个 token 必须以文档记载的值声明；`--fs-*` 中不得再出现 12px。
+- Chat / 侧边栏的任何选择器块内不得出现裸 `font-size: Npx`（`em` 仍允许——它跟着 token 设定的档位走）。
+- `.chat-layout` 必须锚定默认档位。
+- 胶囊两个轴必须各自引用自己的 token，且水平的 padding 与 margin 精确抵消；overlay 与 textarea 必须引用**同一组** size/line-height token（它们是分居两条规则的孪生度量，走散一个就错位）。
+
+**验证**：`chat-ui` 结构守卫 138/140（2 处失败是 `automation-*` 断言，在本次改动前的工作区里就已经失败，与本次无关），`svelte-check` 0 error / 0 warning，Desktop `vite build` 通过，并在内置浏览器里对真实组件标记做了实测。真实会话数据无法在纯浏览器里加载（走 Tauri IPC），完整冷启动走查仍欠（pitfall 10）。
+
+### 修复：自动化任务永远停在「进行中」，且此后再也不会执行（已完成，P0）
+
+用户看到两个任务的转圈图标一直转，实际上它们早就死了。现场数据坐实了一整条因果链，两端都有 bug。
+
+**一、服务是被自己打死的（崩溃，不是「重启」）**
+
+- `~/.molibot/runtime/crashes/` 里当天三份崩溃报告：一份 `unhandledRejection` 来自 grammy 的 `sendMessage` 网络失败，两份 `uncaughtException: write EPIPE`，栈顶是 `console.log` ← `momLog`。
+- **流式渲染的 promise 是游离的**。Telegram 流式回显由 `setTimeout` 触发 `void flushQueuedRender()` 三处，没有任何人 await、也没有 `.catch`，所以一次网络抖动就成了 unhandledRejection，直接带走整个 runtime。渲染进度本就是尽力而为，现在统一走 `detachRender()` 记一条 `stream_render_failed` 警告后继续跑。
+- **写日志不能有能力终结进程**。桌面端 supervisor 持有 sidecar 的 stdout；管道一断，`console.log` 会**同步**抛 `EPIPE`，逃逸成 uncaughtException 杀死健康服务。`momLog/momWarn/momError` 的写入现在包在 try/catch 里；同时 `installCrashHandlers()` 会挂上 stdout/stderr 的 error 守卫，并把 EPIPE 类错误判定为良性、不再当作崩溃上报退出。真实故障仍与原来一样退出。
+
+**二、崩完为什么永远卡住（四个独立缺陷）**
+
+- **`recoverStaleRunning()` 会跳过「还没超时」的租约**——主因。它按 `now - started_at > timeout_ms` 判断陈旧，可进程刚重启，任何 `running` 租约都不可能还有 in-process 定时器持有，年龄根本不是存活证据。两个任务分别在第 38 秒和第 4 分钟崩在 10 分钟预算里，正好落进这个窗口，于是租约永久停在 `running`，`hasActiveForTask` 又据此**把这个任务以后每一次执行都跳过**。租约现在记录 `owner_id`（进程身份），启动时只要 owner 不是本进程就一律回收为新的终态 `interrupted`。
+- **恢复时被自己的租约挡住**：`runLeasedEvent` 开头的 `hasActiveForTask` 把正要被接管的那条 `retry_wait` 租约也算作「已在运行」，于是每次恢复都记一条 `task_already_running` 然后放弃。新增 `excludeLeaseId` 参数。
+- **释放运行锁的 runId 守卫在恢复路径上必然不匹配**：`releasePeriodicRunLock` 要求文件里的 runId 等于本次 runId，可恢复路径拿的是新 runId、文件里存的是崩溃那次的旧 runId，于是直接返回、文件一个字没改，继续 `running`。守卫改为「runId 相同**或**占着同一个 slot」。
+- **`resumeRecoveredLease` 有沉默出口**：它按最新一条租约决定怎么修文件，而上一条缺陷刚插进去的 `skipped` 记账行成了「最新」，四个分支一个都不匹配，直接 `return false`，文件永远没人管。改为 `getLatestOutcome()`（忽略 `skipped` 记账行），并且**删掉了所有沉默分支**——停在 `running` 的文件必须被收敛到终态，这不只是徽章不对，它会压住下一次周期调度。
+
+**三、崩溃后要不要续跑：限时追补**
+
+中断的执行标记为 `interrupted`。若距原定开始时间还在追补窗口内（默认 30 分钟，`MOLIBOT_EVENT_CATCHUP_WINDOW_MS` / `catchUpWindowMs` 可调），启动时自动接着跑完；超窗则如实标记为已中断、等下一个 cron 时刻，用户可用「立即执行」手动补。定时任务有对外副作用（发消息、发博客），隔十几小时自动重放比漏跑更糟。
+
+**四、状态显示：事件文件的 `status` 是锁，不是结果**
+
+周期任务跑成功后 `markDone` 把文件写回 `pending`，崩溃则留下没人清的 `running` —— 这个字段天生表达不了「上一次成功还是失败」。UI 却直接拿它当状态，这就是转圈不停的直接原因。现在由共享投影层 `resolveDesktopTaskStatus()` 统一裁决：以租约表的最近一次执行为准，`active` 才叫「进行中」，否则显示上次结果（成功/失败/已中断）。契约新增 `lastRun` 与 `active`，`isTaskRunning()` 只认 `active`。
+
+**五、UI 统一到 workspace 版并回到 Geist**
+
+- 自动化页原本有两套并存的视觉语言，而 `presentation="settings"` 那套「command deck + 卡片列表」**从未被任何调用方挂载**，是死代码，却在按自己一套令牌漂移。已连同其 CSS（44 条规则）一并删除。
+- 剩下的 workspace 版按 DESIGN.md（Geist）收敛：遗留的 `--radius-small/full/panel` 全部换成 `--rounded-*`；`.5px` 发丝边框回到 1px 刻度；**去掉中文标签上的 `text-transform: uppercase` 与 caps tracking**（英文专属排版手法，套在中文上只剩一堆更小的灰字，这是「不伦不类」最直接的来源）；正文字号从 10–11px 提到 12px 档位；列表行前排新增「上次执行结果」并按语义着色。
+
+**机器护栏**：`eventsLeaseStore.test.ts` 覆盖年轻孤儿租约的回收、本进程在飞租约不被误伤、无 owner 的历史租约、自我阻塞、中断槽位可重取而已结算槽位不可、`getLatestOutcome` 跳过记账行、interrupted 计入失败统计；`events.test.ts` 覆盖超窗中断不重放且不留 running、窗内中断真的执行且不自我跳过、租约丢失仍收敛、恢复路径 runId 不同也能释放运行锁；`desktopTasks.test.ts` 覆盖状态取自最近一次执行而非调度锁；`crash-report.test.mjs` 覆盖 EPIPE 判定与 stdio 守卫；`chat-ui.test.mjs` 覆盖「只有一个自动化界面」「状态取自 active 而非文件锁」「Geist 令牌与中文可读性」。
+
+**文档**：策略已固化为面向用户的 [docs/features/scheduled-task-execution-and-recovery.md](docs/features/scheduled-task-execution-and-recovery.md)（两份记录的分工、状态含义、重启对账两步、追补窗口与配置项、排查与设计不变量），并从 `docs/README.md` 入口列表与 automation 功能页链入。
+
+**验证**：`events` / `eventsLeaseStore` / `taskScheduler` / `taskSessions` / telegram 套件 65+18 全通过，`desktopTasks` 14/14，`test:service-bootstrap` 18/18，`test:desktop-chat` 235/236（唯一失败 `SessionStore incrementally indexes…` 在改动前即已存在），`chat-ui` 结构护栏 138/138，`svelte-check` 0 error / 0 warning，桌面端 `vite build` 通过。用户现存的两条卡死记录会在下次服务启动时被新的回收逻辑自动收敛（它们的 `owner_id` 为空）——这一步仍欠一次真机冷启动走查（坑位 10）。
+
 ### 修复：模型名不显示、别名保存即丢、Project 设置页无法滚动（Issue #28，已完成，P1）
 
 上一版「模型别名 + Project 自定义命令」带出的四个回归，同一个 issue 报告。

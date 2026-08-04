@@ -224,6 +224,99 @@ test("completed event lease retains its structured execution result", () => {
   store.close();
 });
 
+// Two production runs hung as "运行中" indefinitely because their process died
+// 38s and 4min into a 10min timeout: age-based recovery read "young" as "alive"
+// and skipped them, and the surviving `running` row then blocked every later run
+// of the same task through `hasActiveForTask`.
+test("startup recovery reclaims a running lease from a dead process no matter how young it is", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput({ taskId: "ai-daily-report", timeoutMs: 600_000 }));
+  assert.ok(lease);
+  assert.equal(store.hasActiveForTask("ai-daily-report"), true);
+
+  // 38 seconds later a *different* process starts up.
+  const recovered = store.recoverStaleRunning(new Date("2026-05-31T10:00:38.000Z"), "other-process");
+  assert.equal(recovered, 1);
+  assert.equal(store.getById(lease.id)?.status, "interrupted");
+  assert.equal(store.getById(lease.id)?.stopReason, "interrupted");
+  // The task is no longer pinned as active, so its next slot can run.
+  assert.equal(store.hasActiveForTask("ai-daily-report"), false);
+  store.close();
+});
+
+test("startup recovery leaves this process's own in-flight lease alone", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput({ timeoutMs: 600_000 }));
+  assert.ok(lease);
+
+  assert.equal(store.recoverStaleRunning(new Date("2026-05-31T10:00:38.000Z")), 0);
+  assert.equal(store.getById(lease.id)?.status, "running");
+  store.close();
+});
+
+test("legacy leases without owner identity are reclaimed on startup", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput());
+  assert.ok(lease);
+  store.getById(lease.id); // sanity
+  (store as unknown as { db: DatabaseSync }).db
+    .prepare("UPDATE event_execution_leases SET owner_id = NULL WHERE id = ?").run(lease.id);
+
+  assert.equal(store.recoverStaleRunning(new Date("2026-05-31T10:00:10.000Z")), 1);
+  assert.equal(store.getById(lease.id)?.status, "interrupted");
+  store.close();
+});
+
+test("a resuming lease is not treated as a competitor of itself", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput({ taskId: "ai-news-daily" }));
+  assert.ok(lease);
+  store.markTimedOut(lease.id, lease.runId, 0);
+
+  assert.equal(store.hasActiveForTask("ai-news-daily"), true, "retry_wait is active for anyone else");
+  assert.equal(store.hasActiveForTask("ai-news-daily", undefined, lease.id), false, "but not for the run taking it over");
+  store.close();
+});
+
+test("an interrupted slot can be re-acquired for catch-up, a settled one cannot", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput());
+  assert.ok(lease);
+  store.markInterrupted(lease.id);
+
+  const resumed = store.acquire(acquireInput({ runId: "run-2" }));
+  assert.equal(resumed?.id, lease.id, "catch-up continues the same slot rather than opening a new one");
+  assert.equal(resumed?.status, "running");
+  assert.equal(resumed?.attempt, 2);
+
+  assert.equal(store.markCompleted(resumed!.id, "run-2"), true);
+  assert.equal(store.acquire(acquireInput({ runId: "run-3" })), null, "a completed slot never runs again");
+  store.close();
+});
+
+test("outcome lookup ignores skipped bookkeeping rows", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput());
+  assert.ok(lease);
+  store.markInterrupted(lease.id);
+  // A later dispatch declined to run and recorded a skip against the same slot.
+  store.recordSkipped({ ...acquireInput({ runId: "run-2", now: new Date("2026-05-31T11:00:00.000Z") }), reason: "task_already_running" });
+
+  assert.equal(store.getLatest("default", "event.json", "chat-1", "2026-05-31T10:00")?.status, "skipped");
+  assert.equal(store.getLatestOutcome("default", "event.json", "chat-1", "2026-05-31T10:00")?.status, "interrupted");
+  store.close();
+});
+
+test("interrupted attempts count as failures in task summaries", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput({ taskId: "summary-task" }));
+  assert.ok(lease);
+  store.markInterrupted(lease.id);
+
+  assert.deepEqual(store.summarizeTasks(["summary-task"]), { total: 1, completed: 0, failed: 1 });
+  store.close();
+});
+
 test("existing event lease databases migrate result storage without losing history", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "molibot-event-lease-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

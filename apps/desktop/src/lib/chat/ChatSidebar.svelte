@@ -240,14 +240,14 @@
     cursor: pointer;
     color: var(--label-primary, #171717);
     text-align: left;
-    font-size: 13px;
+    font-size: var(--fs-label);
     transition: background var(--duration-instant) var(--ease-standard);
   }
   .nav-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
   .nav-item.active i { color: var(--accent, #006bff); }
-  .nav-item i { width: 16px; font-size: 16px; color: var(--label-secondary, #666); text-align: center; }
-  .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: #fff; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .nav-item i { width: 16px; font-size: var(--icon-md); color: var(--label-secondary, #666); text-align: center; }
+  .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: #fff; font-size: var(--fs-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
   .sidebar-channels {
     flex: 1 1 auto;
     overflow-y: auto;
@@ -306,7 +306,7 @@
     object-fit: cover;
   }
   .sidebar-footer-copy { display: grid; flex: 1 1 auto; gap: 1px; min-width: 0; }
-  .sidebar-footer-copy strong { overflow: hidden; font-weight: 600; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-  .sidebar-footer-copy small { color: var(--label-secondary, #666); font-size: 11px; }
-  .sidebar-footer-gear { opacity: 0.6; font-size: 16px; }
+  .sidebar-footer-copy strong { overflow: hidden; font-weight: 600; font-size: var(--fs-label); text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar-footer-copy small { color: var(--label-secondary, #666); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+  .sidebar-footer-gear { opacity: 0.6; font-size: var(--icon-md); }
 </style>

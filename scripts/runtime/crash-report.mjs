@@ -136,8 +136,38 @@ export function writeCrashReport(dataDir, record) {
  * into this process, so an unawaited rejection inside a third-party Mini App
  * takes the whole service down, and until now it did so anonymously.
  */
+/**
+ * A broken stdout/stderr pipe is not a broken invariant.
+ *
+ * The desktop supervisor owns this process's stdout. When that pipe closes
+ * (supervisor restart, log rotation, the app quitting), every subsequent write
+ * raises `EPIPE` — synchronously from `console.log`, or asynchronously as a
+ * stream `error` event. Either way it reached the uncaughtException handler and
+ * killed a healthy service; twice in one day that happened mid-run and left a
+ * scheduled task pinned at "running" (issue: 自动化任务卡在进行中).
+ *
+ * Losing log output is the correct outcome here, so these are swallowed rather
+ * than reported. Genuine faults still crash the process as before.
+ */
+export function isBrokenPipeError(error) {
+  const code = error?.code;
+  return code === "EPIPE" || code === "ERR_STREAM_DESTROYED" || code === "ERR_STREAM_WRITE_AFTER_END";
+}
+
+export function installStdioErrorGuards(streams = [process.stdout, process.stderr]) {
+  for (const stream of streams) {
+    stream?.on?.("error", (error) => {
+      if (isBrokenPipeError(error)) return;
+      throw error;
+    });
+  }
+}
+
 export function installCrashHandlers({ dataDir, onCrash, exit = (code) => process.exit(code) }) {
+  installStdioErrorGuards();
+
   const report = (kind, error) => {
+    if (isBrokenPipeError(error)) return;
     const record = buildCrashRecord({ kind, error });
     try {
       writeSync(2, formatCrashLine(record));

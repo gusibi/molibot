@@ -10,7 +10,27 @@ import { momWarn } from "$lib/server/agent/common/log.js";
 const MIN_LEASE_TIMEOUT_MS = 1000;
 const MIN_LEASE_ATTEMPTS = 1;
 
-export type EventExecutionLeaseStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped";
+/**
+ * Identity of the process that owns a `running` lease. A lease is only being
+ * executed by an in-process timer, so any `running` row carrying a *different*
+ * owner is orphaned by definition — its runner died with its process. Without
+ * this, startup recovery had to guess liveness from `started_at`, and a crash
+ * inside the timeout window (the common case: the two production runs that hung
+ * died 38s and 4min into a 10min budget) left a lease `running` forever, which
+ * then blocked every later run of that task through `hasActiveForTask`.
+ */
+export const PROCESS_OWNER_ID = `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+export type EventExecutionLeaseStatus =
+  | "running"
+  | "retry_wait"
+  | "completed"
+  | "failed"
+  | "aborted"
+  | "skipped"
+  // The service died while this attempt was in flight. Distinct from `failed`
+  // so the UI can say "被中断" instead of blaming the task itself.
+  | "interrupted";
 
 export interface EventExecutionLease {
   id: string;
@@ -35,6 +55,7 @@ export interface EventExecutionLease {
   retryScheduledAt?: string;
   eventPayloadJson: string;
   result?: unknown;
+  ownerId?: string;
 }
 
 export interface AcquireEventLeaseInput {
@@ -76,6 +97,7 @@ interface LeaseRow {
   retry_scheduled_at: string | null;
   event_payload_json: string;
   result_json: string | null;
+  owner_id: string | null;
 }
 
 const ACTIVE_STATUSES = ["running", "retry_wait"] as const;
@@ -103,7 +125,8 @@ function rowToLease(row: LeaseRow): EventExecutionLease {
     lastError: row.last_error ?? undefined,
     retryScheduledAt: row.retry_scheduled_at ?? undefined,
     eventPayloadJson: row.event_payload_json,
-    result: parseResultJson(row.result_json)
+    result: parseResultJson(row.result_json),
+    ownerId: row.owner_id ?? undefined
   };
 }
 
@@ -205,15 +228,43 @@ export class EventExecutionLeaseStore {
               result_json = NULL,
               task_id = ?,
               event_payload_json = ?,
+              owner_id = ?,
               updated_at = ?
           WHERE id = ?
-        `).run(input.runId, timeoutMs, nowIso, nowIso, input.taskId ?? active.taskId ?? null, input.eventPayloadJson, nowIso, active.id);
+        `).run(input.runId, timeoutMs, nowIso, nowIso, input.taskId ?? active.taskId ?? null, input.eventPayloadJson, PROCESS_OWNER_ID, nowIso, active.id);
         const lease = this.getById(active.id);
         this.db.exec("COMMIT");
         return lease;
       }
 
       const latest = this.findLatest(leaseScope, input.eventFile, input.chatId, input.triggerSlot);
+      // An interrupted attempt is the one terminal state that may be re-taken:
+      // the slot never produced an outcome, so a catch-up within the window is
+      // resuming the same slot rather than running it twice.
+      if (latest?.status === "interrupted" && latest.attempt < latest.maxAttempts) {
+        this.db.prepare(`
+          UPDATE event_execution_leases
+          SET status = 'running',
+              run_id = ?,
+              attempt = attempt + 1,
+              timeout_ms = ?,
+              started_at = ?,
+              last_heartbeat_at = ?,
+              finished_at = NULL,
+              stop_reason = NULL,
+              last_error = NULL,
+              retry_scheduled_at = NULL,
+              result_json = NULL,
+              task_id = ?,
+              event_payload_json = ?,
+              owner_id = ?,
+              updated_at = ?
+          WHERE id = ?
+        `).run(input.runId, timeoutMs, nowIso, nowIso, input.taskId ?? latest.taskId ?? null, input.eventPayloadJson, PROCESS_OWNER_ID, nowIso, latest.id);
+        const lease = this.getById(latest.id);
+        this.db.exec("COMMIT");
+        return lease;
+      }
       if (latest) {
         this.db.exec("COMMIT");
         return null;
@@ -224,8 +275,8 @@ export class EventExecutionLeaseStore {
         INSERT INTO event_execution_leases (
           id, lease_scope, event_file, event_type, trigger_slot, chat_id, session_id, channel, task_id, run_id,
           status, attempt, max_attempts, timeout_ms, started_at, last_heartbeat_at,
-          finished_at, stop_reason, last_error, retry_scheduled_at, event_payload_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?)
+          finished_at, stop_reason, last_error, retry_scheduled_at, event_payload_json, owner_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
       `).run(
         id,
         leaseScope,
@@ -242,6 +293,7 @@ export class EventExecutionLeaseStore {
         nowIso,
         nowIso,
         input.eventPayloadJson,
+        PROCESS_OWNER_ID,
         nowIso,
         nowIso
       );
@@ -390,17 +442,43 @@ export class EventExecutionLeaseStore {
     return Boolean(row);
   }
 
-  hasActiveForTask(taskId: string, leaseScope?: string): boolean {
+  /**
+   * `excludeLeaseId` is what makes resumption possible: a lease being resumed
+   * after a restart is itself still `retry_wait`, so an unfiltered check made
+   * every recovery skip itself with `task_already_running` and the task never
+   * ran again.
+   */
+  hasActiveForTask(taskId: string, leaseScope?: string, excludeLeaseId?: string): boolean {
     const trimmed = String(taskId ?? "").trim();
     if (!trimmed) return false;
     const scopeClause = leaseScope ? "AND lease_scope = ?" : "";
-    const params = leaseScope ? [trimmed, leaseScope] : [trimmed];
+    const excludeClause = excludeLeaseId ? "AND id != ?" : "";
+    const params = [trimmed, ...(leaseScope ? [leaseScope] : []), ...(excludeLeaseId ? [excludeLeaseId] : [])];
     const row = this.db.prepare(`
       SELECT id FROM event_execution_leases
-      WHERE task_id = ? ${scopeClause} AND status IN ('running', 'retry_wait')
+      WHERE task_id = ? ${scopeClause} ${excludeClause} AND status IN ('running', 'retry_wait')
       LIMIT 1
     `).get(...params) as { id: string } | undefined;
     return Boolean(row);
+  }
+
+  /**
+   * Terminate an attempt whose process died. Unlike `markFailed` this does not
+   * require the row to still be owned by the caller's run loop — nobody owns it.
+   */
+  markInterrupted(id: string, error = "Service restarted while this run was in progress.", now = new Date()): EventExecutionLease | null {
+    const nowIso = now.toISOString();
+    const result = this.db.prepare(`
+      UPDATE event_execution_leases
+      SET status = 'interrupted',
+          finished_at = ?,
+          stop_reason = 'interrupted',
+          last_error = ?,
+          retry_scheduled_at = NULL,
+          updated_at = ?
+      WHERE id = ? AND status IN ('running', 'retry_wait')
+    `).run(nowIso, error, nowIso, id);
+    return Number(result.changes ?? 0) > 0 ? this.getById(id) : null;
   }
 
   attachSessionByRunId(runId: string, sessionId: string, now = new Date()): boolean {
@@ -439,7 +517,7 @@ export class EventExecutionLeaseStore {
     return {
       total: rows.reduce((sum, row) => sum + Number(row.count ?? 0), 0),
       completed: byStatus.get("completed") ?? 0,
-      failed: (byStatus.get("failed") ?? 0) + (byStatus.get("aborted") ?? 0)
+      failed: (byStatus.get("failed") ?? 0) + (byStatus.get("aborted") ?? 0) + (byStatus.get("interrupted") ?? 0)
     };
   }
 
@@ -459,7 +537,17 @@ export class EventExecutionLeaseStore {
     return rows.map(rowToLease);
   }
 
-  recoverStaleRunning(now = new Date()): number {
+  /**
+   * Startup reclamation of leases nobody is executing any more.
+   *
+   * A `running` lease is only advanced by an in-process timer, so one owned by
+   * another process identity is orphaned no matter how recently it started —
+   * age is not evidence of liveness. The previous version only reclaimed rows
+   * older than their timeout, so a crash inside the timeout window left the
+   * lease `running` forever, which pinned the event file at "运行中" *and*
+   * blocked every future run of the task via `hasActiveForTask`.
+   */
+  recoverStaleRunning(now = new Date(), ownerId = PROCESS_OWNER_ID): number {
     const rows = this.db.prepare(`
       SELECT * FROM event_execution_leases
       WHERE status IN ('running', 'retry_wait')
@@ -468,6 +556,12 @@ export class EventExecutionLeaseStore {
     const nowMs = now.getTime();
     for (const row of rows) {
       if (row.status === "running") {
+        // Legacy rows predating owner tracking have no owner and are always
+        // from an earlier process, since this one only just started.
+        if (row.owner_id !== ownerId) {
+          if (this.markInterrupted(row.id, undefined, now)) recovered += 1;
+          continue;
+        }
         const startedAt = Date.parse(row.started_at);
         if (Number.isFinite(startedAt) && nowMs - startedAt <= row.timeout_ms) continue;
         const lease = this.markTimedOut(row.id, row.run_id, 0, now);
@@ -515,6 +609,23 @@ export class EventExecutionLeaseStore {
 
   getLatest(leaseScope: string, eventFile: string, chatId: string, triggerSlot: string): EventExecutionLease | null {
     return this.findLatest(leaseScope, eventFile, chatId, triggerSlot);
+  }
+
+  /**
+   * The lease that describes what happened to a slot, for recovery decisions.
+   * `skipped` rows are bookkeeping — a skip records that a *dispatch* was
+   * declined, not the fate of the attempt — and letting one be "latest" made
+   * recovery match none of its branches and silently leave the event file
+   * pinned at "running".
+   */
+  getLatestOutcome(leaseScope: string, eventFile: string, chatId: string, triggerSlot: string): EventExecutionLease | null {
+    const rows = this.db.prepare(`
+      SELECT * FROM event_execution_leases
+      WHERE lease_scope = ? AND event_file = ? AND chat_id = ? AND trigger_slot = ? AND status != 'skipped'
+      ORDER BY started_at DESC
+      LIMIT 1
+    `).all(leaseScope, eventFile, chatId, triggerSlot) as unknown as LeaseRow[];
+    return rows[0] ? rowToLease(rows[0]) : null;
   }
 
   private findActive(leaseScope: string, eventFile: string, chatId: string, triggerSlot: string): EventExecutionLease | null {
@@ -579,6 +690,9 @@ export class EventExecutionLeaseStore {
     }
     if (!columns.some((column) => column.name === "result_json")) {
       this.db.exec("ALTER TABLE event_execution_leases ADD COLUMN result_json TEXT;");
+    }
+    if (!columns.some((column) => column.name === "owner_id")) {
+      this.db.exec("ALTER TABLE event_execution_leases ADD COLUMN owner_id TEXT;");
     }
     this.db.exec(`
       DROP INDEX IF EXISTS idx_event_leases_one_active;

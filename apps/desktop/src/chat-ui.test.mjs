@@ -552,11 +552,11 @@ test("issue 13 automation uses a fixed list-detail template with separated statu
   assert.match(sections.tasks, /formatNaturalSchedule\(task\.scheduleText, session\.locale\)/);
   assert.match(sections.tasks, /stopTaskRun\(selectedTask\.id/);
   assert.match(chatWorkspace, /<TasksSection presentation="workspace"/);
-  assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*minmax\(250px, 320px\) minmax\(0, 1fr\)/s);
+  assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*minmax\(280px, 320px\) minmax\(0, 1fr\)/s);
   // The detail pane overlays the list only when the workspace CONTAINER (not
   // the viewport — the sidebar eats ~220px) is too narrow for side-by-side.
   assert.match(styles, /\.automation-workspace\s*\{[^}]*container-type:\s*inline-size/s);
-  assert.match(styles, /@container \(max-width: 679px\)[\s\S]*\.automation-task-detail\s*\{[^}]*position:\s*absolute/s);
+  assert.match(styles, /@container \(max-width: 880px\)[\s\S]*\.automation-task-detail\s*\{[^}]*position:\s*absolute/s);
 });
 
 test("issue 13 Chat renders an Agent message unit and a compact 720px composer", () => {
@@ -843,11 +843,14 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.doesNotMatch(view, /const firstBot = externalNav/);
   // Project and Chat share the same collapsible group rhythm and DESIGN's compact 32px Session row.
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
-  assert.match(design, /label-12:\s*[\s\S]*?fontSize:\s*12px[\s\S]*?lineHeight:\s*16px/);
+  assert.match(design, /label-13:\s*[\s\S]*?fontSize:\s*13px[\s\S]*?lineHeight:\s*16px/);
   assert.match(design, /button-small:\s*[\s\S]*?height:\s*32px/);
   assert.match(row, /\.conversation-row\s*\{[^}]*min-height:\s*32px[^}]*padding:\s*4px 8px/s);
-  assert.match(row, /\.row-title\s*\{[^}]*font-size:\s*12px[^}]*line-height:\s*16px/s);
-  assert.match(row, /\.row-time\s*\{[^}]*font-size:\s*12px[^}]*line-height:\s*16px/s);
+  // A session row's title is UI text (the `label` rank) and its timestamp is
+  // supporting data (`meta`). They were both 12px, which is why a row read as
+  // one flat band; ranking them is what the type scale is for.
+  assert.match(row, /\.row-title\s*\{[^}]*font-size:\s*var\(--fs-label\)[^}]*line-height:\s*var\(--lh-label\)/s);
+  assert.match(row, /\.row-time\s*\{[^}]*font-size:\s*var\(--fs-meta\)[^}]*line-height:\s*var\(--lh-meta\)/s);
 });
 
 test("conversation, project, and Mini App titles share a quiet material band only while stuck", () => {
@@ -1236,14 +1239,31 @@ test("automation session detail renders a chat-style transcript", () => {
   assert.doesNotMatch(sections.tasks, /class="message-(row|avatar|stack|bubble)/);
 });
 
-test("automation management uses a command deck and opens full history in a modal", () => {
-  assert.match(sections.tasks, /class="automation-command-deck"/);
-  assert.match(sections.tasks, /class="automation-card" data-status=/);
+// The automation page had two parallel visual languages for one feature: a
+// "command deck" card list and the list-detail workspace. Only the workspace was
+// ever mounted, so the deck was dead markup drifting on its own token family.
+test("automation management has exactly one surface and opens full history in a modal", () => {
+  assert.doesNotMatch(sections.tasks, /automation-command-deck/);
+  assert.doesNotMatch(sections.tasks, /class="automation-card"/);
+  assert.doesNotMatch(styles, /\.automation-command-deck\s*\{/);
+  assert.doesNotMatch(styles, /\.automation-card\s*\{/);
+  assert.match(sections.tasks, /class="automation-workspace-layout"/);
   assert.match(sections.tasks, /<Dialog[\s\S]*contentClass="task-history-modal"/);
   assert.match(sections.tasks, /<AlertDialog[\s\S]*contentClass="task-delete-confirm-modal"/);
-  assert.match(sections.tasks, /openTaskHistory\(task\.id\)/);
+  assert.match(sections.tasks, /openTaskHistory\(selectedTask\.id\)/);
   assert.doesNotMatch(sections.tasks, /class="task-history-panel"/);
   assert.match(styles, /\.task-history-modal\s*\{[^}]*width:\s*min\(820px/s);
+});
+
+// Uppercase + caps tracking is an English-only idiom; applied to the Chinese
+// labels these chips actually carry it only shrinks them.
+test("automation status chips follow Geist tokens and stay legible in CJK", () => {
+  assert.doesNotMatch(styles, /\.automation-status\s*\{[^}]*text-transform:\s*uppercase/s);
+  assert.doesNotMatch(styles, /\.execution-state\s*\{[^}]*text-transform:\s*uppercase/s);
+  assert.match(styles, /\.automation-status\s*\{[^}]*border-radius:\s*var\(--rounded-full\)/s);
+  // Legacy pre-Geist radius family must not come back into these surfaces.
+  assert.doesNotMatch(styles, /\.(?:automation|task-)[^{\n]*\{[^}]*var\(--radius-(?:small|full|panel)\)/s);
+  assert.match(styles, /\.execution-state\.state-interrupted\b/);
 });
 
 test("automation workspace keeps each task in a bounded card while retaining task details", () => {
@@ -1269,18 +1289,62 @@ test("automation workspace separates user and system tasks with accessible tabs"
   assert.match(styles, /\.automation-category-tab\.active\s*\{/s);
 });
 
+// Pitfall 16 family, on the header instead of the panels: the segmented control
+// is `inline-flex`, and an inline-level box IGNORES `margin: auto`. Giving the
+// control itself the content-column width therefore did two wrong things at
+// once — it stretched its single rounded fill across the full 1240px (a grey
+// slab with three tabs huddled at its left end) and left it flush against the
+// scroll edge while the task grid below stayed centred. Alignment belongs to a
+// block-level bar; the control keeps `fit-content`.
+test("automation header shares one content column and the segmented control hugs its tabs", () => {
+  assert.match(sections.tasks, /class="automation-category-bar"/);
+  assert.match(sections.tasks, /class:workspace=\{presentation === "workspace"\} class="automation-category-bar"/);
+
+  const tabs = styles.match(/\.automation-category-tabs \{([^}]*)\}/)?.[1] ?? "";
+  assert.match(tabs, /width:\s*fit-content/, "the control must hug its segments, never carry the column width");
+  assert.doesNotMatch(tabs, /margin:\s*0 auto/, "an inline-level box cannot centre itself with auto margins");
+  assert.doesNotMatch(styles, /\.automation-category-tabs\.workspace\s*\{/, "the width override moved to the bar");
+
+  // One token, three blocks: tab bar, toolbar and grid must not drift apart.
+  assert.match(styles, /--automation-col:\s*min\(1240px, calc\(100% - 48px\)\);/);
+  assert.match(styles, /\.automation-category-bar\.workspace \{[^}]*width:\s*var\(--automation-col\)[^}]*margin:\s*0 auto/s);
+  assert.match(styles, /\.automation-workspace \{[^}]*width:\s*var\(--automation-col\)/s);
+
+  // Search, create and the run totals are one band: an uncapped `flex: 1`
+  // search across the column is ~900px of empty field with the action stranded
+  // at the far edge, and the totals then cost a third stacked header row.
+  assert.match(styles, /\.automation-workspace-toolbar \.search-field \{[^}]*max-width:\s*320px/s);
+  assert.match(styles, /\.automation-workspace-summary \{[^}]*margin:\s*0 0 0 auto/s);
+  assert.match(sections.tasks, /class="automation-workspace-toolbar">[\s\S]{0,900}?class="automation-workspace-summary"[\s\S]{0,900}?<\/div>\s*<\/div>/);
+  // Wrapped totals must fall back to the grid's left edge, not stay right.
+  assert.match(styles, /@container \(max-width: 720px\) \{[^}]*\.automation-workspace-summary \{[^}]*margin-left:\s*0/s);
+});
+
 test("automation details are opt-in and execution state stays task-scoped", () => {
   assert.match(sections.tasks, /selectedTaskId \? filteredTaskItems\.find/);
   assert.match(sections.tasks, /class="automation-detail-close"/);
   assert.match(sections.tasks, /class:detail-open=\{Boolean\(selectedTask\)\}/);
   assert.match(sections.tasks, /session\.text\.tasksLatestResult/);
-  assert.match(sections.tasks, /session\.text\.tasksLastTriggered\} \{formatTaskTime/);
+  assert.match(sections.tasks, /session\.text\.tasksLastRun\}<\/dt><dd>\{formatTaskTime/);
   assert.match(sections.tasks, /setTaskEnabled\(selectedTask\.id, !selectedTask\.enabled\)/);
   assert.match(sections.tasks, /isTaskRunning\(selectedTask\.id\)/);
   assert.match(taskStore, /runningTaskIds: new Set<string>\(\)/);
   assert.match(taskStore, /if \(action === "trigger"\) tasksStore\.runningTaskIds/);
   assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:/s);
   assert.match(styles, /@keyframes automation-spin/);
+});
+
+// A periodic event file's `status` is a scheduling lock — success rewrites it to
+// "pending" and a crashed run leaves "running" with nobody to clear it. Reading
+// it as liveness kept two real tasks spinning for hours after they had died.
+test("task liveness comes from an active lease, never from the event file's lock", () => {
+  assert.match(taskStore, /function hasLiveRun/);
+  assert.match(taskStore, /task\.id === id && task\.active/);
+  assert.doesNotMatch(taskStore, /task\.status === "running"/);
+  // The headline state is the last run's outcome.
+  assert.match(sections.tasks, /task\.active\) return session\.text\.taskStatusRunning/);
+  assert.match(sections.tasks, /task\.lastRun \? executionStatusLabel\(task\.lastRun\.status\)/);
+  assert.match(sections.tasks, /outcome-\$\{task\.lastRun\?\.status \?\? "none"\}/);
 });
 
 test("one-shot task rows expose the execution that triggered each reminder", () => {
@@ -2041,6 +2105,113 @@ test("Geist functional typography keeps an 11px floor outside Agent City artwork
     }
   }
   assert.deepEqual(violations, []);
+});
+
+// Pitfall 24. DESIGN.md §Typography defines a type scale, but styles.css never
+// expressed it as tokens — so 583 hand-written `font-size: Npx` declarations
+// drifted into 17 sizes and 21 line-heights, and the same semantic rank ended
+// up at 11px in one rule and 13px in its neighbour (the Chat header's session
+// title was 11px while its own subtitle was 12px). Chat and the sidebar now
+// reference the tokens; a raw px font-size in those blocks is the regression.
+test("Chat and sidebar typography goes through the type scale, never raw px", () => {
+  const scale = {
+    "--fs-body": "14px", "--lh-body": "22px",
+    "--fs-label": "13px", "--lh-label": "18px",
+    "--fs-meta": "11px", "--lh-meta": "16px",
+    "--fs-title": "15px", "--lh-title": "20px",
+    "--fs-heading": "16px", "--lh-heading": "22px",
+    "--fs-page": "22px", "--lh-page": "28px",
+    "--icon-xs": "12px", "--icon-sm": "14px", "--icon-md": "16px", "--icon-lg": "18px"
+  };
+  for (const [name, value] of Object.entries(scale)) {
+    assert.match(styles, new RegExp(`${name}\\s*:\\s*${value}\\s*;`), `${name} must be declared as ${value}`);
+  }
+
+  // 12px carries no rank in Chat: it was doing both `label` and `meta` duty,
+  // which is what made same-rank neighbours read as randomly sized. It survives
+  // only as an icon size, in its own namespace.
+  assert.equal(Object.entries(scale).filter(([name, value]) => name.startsWith("--fs-") && value === "12px").length, 0);
+
+  // Anything that never set a size was inheriting the UA's 16px — a rank the
+  // design does not contain. The Chat shell anchors the default on `label`.
+  assert.match(styles, /\.chat-layout \{ font-size: var\(--fs-label\); line-height: var\(--lh-label\); \}/);
+
+  const scopePrefixes = [
+    "chat-title", "chat-source-tag", "chat-header", "chat-layout",
+    "message-", "user-message-", "assistant-", "markdown-body", "transcript-",
+    "attachment-", "composer", "slash-suggestion", "invocation-", "queued-",
+    "pending-", "send-button", "recording-", "approval-", "run-activity",
+    "thinking-card", "conversation-empty", "empty-state", "conv-group",
+    "conv-caret", "conversation-row", "row-title", "row-time", "row-menu",
+    "row-branch", "nav-item", "nav-count", "nav-section-label", "sidebar-",
+    "brand-copy", "brand-mark", "new-chat", "channel-chip", "channel-accordion",
+    "channel-state", "channel-configure", "channel-more", "icon-badge",
+    "section-label", "eyebrow", "prompt-navigation", "mention-", "code-block",
+    "secondary-button", "header-profile", "icon-button", "search-bar",
+    // Automation carried the same drift the Chat surfaces did: the task card's
+    // name was 13px over a 12px schedule over a 12px status, and the pane title
+    // sat at 18px — a rank the scale does not contain.
+    "automation", "one-shot", "task-", "execution-state", "row-outcome",
+    "system-task", "workspace-page-title", "workspace-empty"
+  ];
+  const inScope = (selector) => [...selector.matchAll(/\.([a-z][\w-]*)/gi)]
+    .some((match) => scopePrefixes.some((prefix) => match[1] === prefix || match[1].startsWith(prefix)));
+
+  const violations = [];
+  for (const css of allStyleSources) {
+    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = rule[1].trim();
+      if (!inScope(selector)) continue;
+      // `em` sizes are relative to the rank the token already set (markdown
+      // headings, inline code), so they follow a theme change for free.
+      for (const decl of rule[2].matchAll(/font-size\s*:\s*([0-9.]+px)/gi)) violations.push(`${selector} { font-size: ${decl[1]} }`);
+      for (const decl of rule[2].matchAll(/font\s*:\s*(?:[0-9]{3}\s+)?([0-9.]+px)/gi)) violations.push(`${selector} { font: … ${decl[1]} }`);
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+// Pitfall 24, second half. The composer's command/skill pill is painted by an
+// overlay that mirrors the textarea character for character, so ANY inset that
+// advances the text drifts the tint off the glyphs and misplaces the caret and
+// the CJK IME candidate window. The two axes have completely different budgets
+// and the old `padding: 1px 5px; margin: 0 -5px` had them backwards: 1px
+// vertical (where padding is free and 3px was available) and 5px horizontal
+// (where only ~2px fits before the following glyph paints over the tint).
+test("composer token pill sizes its two axes against their real budgets", () => {
+  // Vertical fills the line box: 16.5px glyph box inside a 22px line.
+  assert.match(styles, /--composer-token-bleed-y:\s*3px;/);
+  // Horizontal must stay under the 3.8px inter-word space at the body rank.
+  assert.match(styles, /--composer-token-bleed-x:\s*2px;/);
+
+  const pill = styles.match(/\.composer-token \{([^}]*)\}/)?.[1];
+  assert.ok(pill, ".composer-token rule must exist");
+  // Horizontal padding and margin must cancel EXACTLY — same token, opposite
+  // sign — or the mirror stops lining up with the textarea.
+  assert.match(pill, /padding:\s*var\(--composer-token-bleed-y\) var\(--composer-token-bleed-x\);/);
+  assert.match(pill, /margin:\s*0 calc\(-1 \* var\(--composer-token-bleed-x\)\);/);
+  // A filled line box needs a capsule; 8px on a 19px box was the uncanny middle.
+  assert.match(pill, /border-radius:\s*var\(--radius-full\);/);
+  // Each line fragment must carry its own padding and radius when the token wraps.
+  assert.match(pill, /box-decoration-break: clone/);
+  assert.match(pill, /background:\s*var\(--composer-token-tint\)/);
+  for (const kind of ["skill", "miniapp"]) {
+    const variant = styles.match(new RegExp(`\\.composer-token\\[data-kind="${kind}"\\] \\{([^}]*)\\}`))?.[1];
+    assert.ok(variant, `.composer-token[data-kind="${kind}"] must exist`);
+    assert.match(variant, /--composer-token-tint:/);
+    assert.doesNotMatch(variant, /(?<!-)\bbackground:/, `${kind} must retint through the custom property, not re-set background`);
+  }
+  // `overflow: hidden` would shave the bleed off the first token on a line.
+  assert.match(styles, /\.composer-highlight \{[^}]*overflow: clip; overflow-clip-margin: var\(--composer-token-bleed-y\)/);
+
+  // The overlay and the textarea must read the SAME tokens: they are twin text
+  // metrics that happen to live in two rules, and one drifting breaks alignment.
+  const highlight = styles.match(/\.composer-highlight \{([^}]*)\}/)?.[1] ?? "";
+  const textarea = styles.match(/\.composer textarea \{([^}]*)\}/)?.[1] ?? "";
+  for (const source of [highlight, textarea]) {
+    assert.match(source, /font-size: var\(--fs-body\)/);
+    assert.match(source, /line-height: var\(--lh-body\)/);
+  }
 });
 
 // A `ph-*` class that Phosphor does not ship renders as an empty box with no

@@ -1118,6 +1118,20 @@ export class TelegramManager extends BaseChannelRuntime {
     const seededStatusText = event.initialStatusText?.trim() || "";
     let hasAssistantDelta = false;
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    // Streaming re-renders are fired from timers with nobody awaiting them, so a
+    // transient Telegram network failure inside one became an unhandled
+    // rejection and took the whole service process down mid-run — which is how a
+    // scheduled task ended up stranded at "running". Progress rendering is
+    // best-effort by nature: log the failure and let the run continue.
+    const detachRender = (label: string, promise: Promise<unknown>): void => {
+      void promise.catch((error) => {
+        momWarn("telegram", "stream_render_failed", {
+          chatId,
+          render: label,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    };
     const isTelegramRateLimitError = (error: unknown): boolean => {
       const message = error instanceof Error ? error.message : String(error ?? "");
       return message.includes("Too Many Requests") || message.includes("(429:");
@@ -1263,7 +1277,7 @@ export class TelegramManager extends BaseChannelRuntime {
 
       renderTimer = setTimeout(() => {
         renderTimer = null;
-        void flushQueuedRender();
+        detachRender("flushQueuedRender", flushQueuedRender());
       }, delayMs);
     };
 
@@ -1376,7 +1390,7 @@ export class TelegramManager extends BaseChannelRuntime {
 
       answerRenderTimer = setTimeout(() => {
         answerRenderTimer = null;
-        void flushQueuedAnswerRender();
+        detachRender("flushQueuedAnswerRender", flushQueuedAnswerRender());
       }, delayMs);
     };
 
@@ -1473,7 +1487,7 @@ export class TelegramManager extends BaseChannelRuntime {
 
       reasoningRenderTimer = setTimeout(() => {
         reasoningRenderTimer = null;
-        void flushQueuedReasoningRender();
+        detachRender("flushQueuedReasoningRender", flushQueuedReasoningRender());
       }, delayMs);
     };
 

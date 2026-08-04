@@ -30,6 +30,7 @@ This directory is organized by document purpose first, then by topic. Start with
 - [Channels and Surfaces](features/channels-and-surfaces.md)
 - [Tools, Skills, and MCP](features/tools-skills-and-mcp.md)
 - [Automation, Approvals, and Sandbox](features/automation-approvals-and-sandbox.md)
+- [Scheduled Task Execution and Recovery](features/scheduled-task-execution-and-recovery.md)
 - [Desktop Project Workspace](features/desktop-project-workspace.md)
 
 ### Architecture and operation

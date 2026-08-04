@@ -6,6 +6,7 @@ import {
   type EventExecutionLeaseStore
 } from "$lib/server/agent/eventsLeaseStore.js";
 import { settleWithCooperativeTimeout } from "$lib/server/agent/core/cooperativeTimeout.js";
+import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 
 export interface EventStatus {
   state: "pending" | "running" | "completed" | "skipped" | "error";
@@ -266,6 +267,14 @@ export interface EventsWatcherOptions {
   onTimeout?: (context: EventDispatchTimeoutContext) => Promise<void> | void;
   leaseStore?: EventExecutionLeaseStore;
   timeoutSettleGraceMs?: number;
+  /**
+   * How long after a run's scheduled start an interrupted attempt may still be
+   * caught up automatically. A scheduled task has side effects in the world
+   * (messages sent, posts published), so replaying one many hours late is worse
+   * than skipping it: past this window the attempt is reported as interrupted
+   * and waits for its next slot or a manual retry.
+   */
+  catchUpWindowMs?: number;
 }
 
 export class EventsWatcher {
@@ -273,6 +282,7 @@ export class EventsWatcher {
   private static readonly DEFAULT_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
   private static readonly DEFAULT_MAX_ATTEMPTS = 3;
   private static readonly DEFAULT_RETRY_DELAY_MS = 5000;
+  private static readonly DEFAULT_CATCH_UP_WINDOW_MS = 30 * 60 * 1000;
   private readonly oneShotTimers = new Map<string, NodeJS.Timeout>();
   private readonly periodic = new Map<string, PeriodicSchedule>();
   private watcher: FSWatcher | null = null;
@@ -280,6 +290,7 @@ export class EventsWatcher {
   private readonly debounce = new Map<string, NodeJS.Timeout>();
   private readonly knownFiles = new Set<string>();
   private readonly runningTtlMs: number;
+  private readonly catchUpWindowMs: number;
 
   constructor(
     private readonly eventsDir: string,
@@ -293,6 +304,13 @@ export class EventsWatcher {
     this.runningTtlMs = Number.isFinite(rawRunningTtlMs) && rawRunningTtlMs > 0
       ? rawRunningTtlMs
       : EventsWatcher.DEFAULT_RUNNING_TTL_MS;
+
+    const rawCatchUpMs = Number.parseInt(process.env.MOLIBOT_EVENT_CATCHUP_WINDOW_MS ?? "", 10);
+    this.catchUpWindowMs = options.catchUpWindowMs !== undefined
+      ? Math.max(0, options.catchUpWindowMs)
+      : Number.isFinite(rawCatchUpMs) && rawCatchUpMs >= 0
+        ? rawCatchUpMs
+        : EventsWatcher.DEFAULT_CATCH_UP_WINDOW_MS;
   }
 
   private isRunningLockEnabled(): boolean {
@@ -513,13 +531,18 @@ export class EventsWatcher {
     void this.runLeasedEvent(event, filename, slotKey ?? this.buildTriggerSlot(event, filename), runId);
   }
 
-  private async runLeasedEvent(event: MomEvent, filename: string, triggerSlot: string, runId: string): Promise<void> {
+  /**
+   * `resumeLeaseId` identifies a lease this call is *taking over* after a
+   * restart. It must be excluded from the "is this task already running" guard,
+   * or recovery skips itself.
+   */
+  private async runLeasedEvent(event: MomEvent, filename: string, triggerSlot: string, runId: string, resumeLeaseId?: string): Promise<void> {
     const settings = this.getExecutionSettings();
     const store = this.getLeaseStore();
     let currentRunId = runId;
     const taskId = event.taskId ?? `${this.getLeaseScope()}:${filename}`;
 
-    if (store.hasActiveForTask(taskId, this.getLeaseScope())) {
+    if (store.hasActiveForTask(taskId, this.getLeaseScope(), resumeLeaseId)) {
       store.recordSkipped({
         leaseScope: this.getLeaseScope(),
         eventFile: filename,
@@ -603,15 +626,46 @@ export class EventsWatcher {
     return result.status === "settled" ? result.value : { status: "timeout" };
   }
 
+  /**
+   * Reconcile an event file left at `running` by a process that died.
+   *
+   * Every path through this method must leave the file in a state that reflects
+   * reality: a file stuck at `running` is not just a wrong badge, it suppresses
+   * the next periodic dispatch and reads to the user as a task that hangs
+   * forever. There is deliberately no "give up quietly" exit.
+   */
   private resumeRecoveredLease(filename: string, event: MomEvent): boolean {
     if (event.status?.state !== "running") return false;
     const triggerSlot = event.status.runningSlotKey ?? this.buildTriggerSlot(event, filename);
-    const lease = this.getLeaseStore().getLatest(this.getLeaseScope(), filename, event.chatId, triggerSlot);
-    if (!lease) return false;
+    const lease = this.getLeaseStore().getLatestOutcome(this.getLeaseScope(), filename, event.chatId, triggerSlot);
+
+    if (!lease) {
+      // The file claims a run that the lease store has no record of at all —
+      // nothing can ever finish it.
+      this.markInterrupted(filename, event, "Event attempt was lost before it could be recorded.", triggerSlot);
+      return true;
+    }
 
     if (lease.status === "retry_wait") {
-      void this.runLeasedEvent(event, filename, triggerSlot, this.createRunId(filename));
+      void this.runLeasedEvent(event, filename, triggerSlot, this.createRunId(filename), lease.id);
       return true;
+    }
+
+    if (lease.status === "interrupted") {
+      if (this.isWithinCatchUpWindow(lease.startedAt)) {
+        momLog("eventsWatcher", "interrupted_run_caught_up", { filename, triggerSlot, startedAt: lease.startedAt });
+        void this.runLeasedEvent(event, filename, triggerSlot, this.createRunId(filename), lease.id);
+        return true;
+      }
+      momWarn("eventsWatcher", "interrupted_run_expired", { filename, triggerSlot, startedAt: lease.startedAt });
+      this.markInterrupted(filename, event, lease.lastError ?? "Service restarted while this run was in progress.", triggerSlot);
+      return true;
+    }
+
+    if (lease.status === "running") {
+      // Startup recovery runs before any watcher reads a file, so a still-
+      // running lease here belongs to a live sibling process. Leave both alone.
+      return false;
     }
 
     if (lease.status === "failed") {
@@ -629,7 +683,14 @@ export class EventsWatcher {
       return true;
     }
 
-    return false;
+    this.markInterrupted(filename, event, "Event attempt ended in an unknown state.", triggerSlot);
+    return true;
+  }
+
+  private isWithinCatchUpWindow(startedAt: string | undefined): boolean {
+    const startedMs = Date.parse(String(startedAt ?? ""));
+    if (!Number.isFinite(startedMs)) return false;
+    return Date.now() - startedMs <= this.catchUpWindowMs;
   }
 
   private buildTriggerSlot(event: MomEvent, filename: string): string {
@@ -818,7 +879,10 @@ export class EventsWatcher {
     const next = this.updateEventFile(filename, (current) => {
       if (current.type !== "periodic") return null;
       const status = this.normalizeStatus(current.status);
-      if (status.runId && runId && status.runId !== runId) return null;
+      // A recovery-path release carries a fresh runId while the file still
+      // holds the runId of the crashed attempt, so runId equality alone would
+      // reject exactly the release that matters. Owning the slot is enough.
+      if (status.runId && runId && status.runId !== runId && status.runningSlotKey !== slotKey) return null;
       return {
         ...current,
         delivery: this.resolveDeliveryMode(current),
@@ -836,6 +900,39 @@ export class EventsWatcher {
       };
     });
     if (next) this.refreshPeriodicEntry(filename, next);
+  }
+
+  /**
+   * A run the service never got to finish. Periodic events return to `pending`
+   * so the next slot fires normally — the interruption is history, not a state
+   * the schedule should stay in — while the slot is marked consumed and the
+   * reason is preserved for the UI. One-shot events keep `error`, since for
+   * them the interruption is the final outcome.
+   */
+  private markInterrupted(filename: string, event: MomEvent, message: string, slotKey?: string): void {
+    const next = this.updateEventFile(filename, (current) => {
+      const status = this.normalizeStatus(current.status);
+      const periodic = current.type === "periodic";
+      return {
+        ...current,
+        delivery: this.resolveDeliveryMode(current),
+        status: {
+          ...status,
+          state: periodic ? "pending" : "error",
+          completedAt: periodic ? undefined : new Date().toISOString(),
+          runCount: status.runCount ?? event.status?.runCount ?? 0,
+          reason: "interrupted",
+          lastError: message,
+          lastSlotKey: slotKey ?? status.runningSlotKey ?? status.lastSlotKey,
+          runningSlotKey: undefined,
+          startedAt: undefined,
+          runId: undefined
+        }
+      };
+    });
+    if (next && next.type === "periodic") {
+      this.refreshPeriodicEntry(filename, next);
+    }
   }
 
   private markSkipped(filename: string, event: MomEvent, reason: string): void {

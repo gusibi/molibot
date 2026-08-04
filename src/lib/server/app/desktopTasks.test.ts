@@ -7,8 +7,10 @@ import {
   buildDesktopTaskSummary,
   buildDesktopTaskTargets,
   resolveDesktopOneShotTaskPaths,
-  resolveDesktopTaskPaths
+  resolveDesktopTaskPaths,
+  type DesktopTaskExecutionLoader
 } from "./desktopTasks";
+import type { DesktopTaskExecution } from "$lib/shared/desktop";
 
 test("system task details project the execution record without requiring a chat context", () => {
   assert.deepEqual(buildDesktopSystemTaskExecution({
@@ -136,6 +138,68 @@ test("buildDesktopTaskItem coerces unknown type and status to defaults", () => {
   const desktop = buildDesktopTaskItem(item({ type: "bogus", status: "weird" }));
   assert.equal(desktop.type, "one-shot");
   assert.equal(desktop.status, "pending");
+});
+
+// A periodic event file's `status` is a run *lock*: success rewrites it to
+// "pending" and a crashed run leaves "running" behind forever. Reading it as the
+// task's state is what made finished and dead tasks both render as a spinner.
+function execution(overrides: Partial<DesktopTaskExecution> = {}): DesktopTaskExecution {
+  return {
+    id: "lease-1",
+    status: "completed",
+    sessionId: "s-1",
+    runId: "run-1",
+    attempt: 1,
+    maxAttempts: 3,
+    startedAt: "2026-08-04T00:30:00.000Z",
+    ...overrides
+  };
+}
+
+function withExecutions(items: DesktopTaskExecution[]): DesktopTaskExecutionLoader {
+  return () => ({ items, total: items.length });
+}
+
+test("periodic task status reports the last run's outcome, not the schedule lock", () => {
+  const succeeded = buildDesktopTaskItem(item({ status: "pending" }), withExecutions([execution()]));
+  assert.equal(succeeded.status, "completed");
+  assert.equal(succeeded.lastRun?.status, "completed");
+  assert.equal(succeeded.active, false);
+
+  const failed = buildDesktopTaskItem(item({ status: "pending" }), withExecutions([execution({ status: "failed", lastError: "boom" })]));
+  assert.equal(failed.status, "error");
+  assert.equal(failed.lastRun?.lastError, "boom");
+});
+
+test("a task whose run was interrupted reads as failed, not as running", () => {
+  const desktop = buildDesktopTaskItem(
+    item({ status: "running" }),
+    withExecutions([execution({ status: "interrupted", lastError: "Service restarted while this run was in progress." })])
+  );
+  assert.equal(desktop.status, "error");
+  assert.equal(desktop.active, false);
+  assert.equal(desktop.lastRun?.status, "interrupted");
+});
+
+test("a skipped dispatch never stands in as the last outcome", () => {
+  const desktop = buildDesktopTaskItem(item({ status: "error" }), withExecutions([
+    execution({ id: "lease-2", status: "skipped", startedAt: "2026-08-04T04:44:05.000Z" }),
+    execution({ status: "failed", lastError: "retry exhausted" })
+  ]));
+  assert.equal(desktop.lastRun?.status, "failed");
+  assert.equal(desktop.lastRun?.lastError, "retry exhausted");
+  assert.equal(desktop.status, "error");
+});
+
+test("only a live lease marks a task as running", () => {
+  const live = buildDesktopTaskItem(item({ status: "running" }), withExecutions([execution({ status: "running" })]));
+  assert.equal(live.status, "running");
+  assert.equal(live.active, true);
+
+  // The orphan case: file says running, but no execution ever recorded it.
+  const orphan = buildDesktopTaskItem(item({ status: "running" }), withExecutions([]));
+  assert.equal(orphan.status, "pending");
+  assert.equal(orphan.active, false);
 });
 
 test("buildDesktopTaskItem exposes the persisted pause state", () => {

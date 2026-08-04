@@ -22,6 +22,7 @@ Automations are not a license for unattended external publishing. Keep destructi
 
 ## Related documentation
 
+- [Scheduled task execution and recovery](scheduled-task-execution-and-recovery.md) — what each task status means, and what happens to a run that was in flight when the service stopped
 - [Daily materials guide](../guides/daily-materials.md)
 - [Sandbox research](../research/sandbox/subagent-sandbox.md)
 - [Event retry design](../designs/agent-runtime/event-run-timeout-retry.md)

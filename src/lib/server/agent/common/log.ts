@@ -425,18 +425,36 @@ export function createRunId(chatId: string, messageId: number): string {
   return `${chatId}-${messageId}-${Date.now().toString(36)}`;
 }
 
+/**
+ * Writing a log line must never be able to end the process.
+ *
+ * When the desktop supervisor's stdout pipe goes away, `console.log` throws
+ * `EPIPE` *synchronously* from inside whatever was being logged. That escaped as
+ * an uncaughtException and killed the runtime mid-run twice in one day, each
+ * time leaving a scheduled task stuck at "running". Losing a log line is an
+ * acceptable outcome; losing the service is not.
+ */
+function writeLogLine(write: (line: string) => void, line: string): void {
+  try {
+    write(line);
+  } catch {
+    // Nothing to fall back to — the sink we would report this on is the one
+    // that just failed.
+  }
+}
+
 export function momLog(scope: string, event: string, data: LogData = {}): void {
   if (!shouldLog(event)) return;
 
   const safeData = safe(data) as Record<string, unknown>;
   if (PRETTY) {
-    console.log(formatMomPrettyLine(scope, event, safeData));
+    writeLogLine((line) => console.log(line), formatMomPrettyLine(scope, event, safeData));
     return;
   }
 
   const payload = buildMomLogPayload("info", scope, event, safeData);
 
-  console.log(`[mom-t] ${JSON.stringify(payload)}`);
+  writeLogLine((line) => console.log(line), `[mom-t] ${JSON.stringify(payload)}`);
 }
 
 export function momWarn(
@@ -446,13 +464,13 @@ export function momWarn(
 ): void {
   const safeData = safe(data) as Record<string, unknown>;
   if (PRETTY) {
-    console.warn(formatMomPrettyLine(scope, event, safeData));
+    writeLogLine((line) => console.warn(line), formatMomPrettyLine(scope, event, safeData));
     return;
   }
 
   const payload = buildMomLogPayload("warn", scope, event, safeData);
 
-  console.warn(`[mom-t] ${JSON.stringify(payload)}`);
+  writeLogLine((line) => console.warn(line), `[mom-t] ${JSON.stringify(payload)}`);
 }
 
 export function momError(
@@ -462,11 +480,11 @@ export function momError(
 ): void {
   const safeData = safe(data) as Record<string, unknown>;
   if (PRETTY) {
-    console.error(formatMomPrettyLine(scope, event, safeData));
+    writeLogLine((line) => console.error(line), formatMomPrettyLine(scope, event, safeData));
     return;
   }
 
   const payload = buildMomLogPayload("error", scope, event, safeData);
 
-  console.error(`[mom-t] ${JSON.stringify(payload)}`);
+  writeLogLine((line) => console.error(line), `[mom-t] ${JSON.stringify(payload)}`);
 }
