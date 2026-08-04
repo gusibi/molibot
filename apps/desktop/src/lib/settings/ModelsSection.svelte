@@ -10,7 +10,7 @@
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
-  import { humanizeModelOption } from "../presentation";
+  import { modelOptionCopy } from "../presentation";
   import { session } from "../stores/session.svelte";
   import { timezoneOptions } from "./timezones";
   import { PROVIDERS_CHANGED_EVENT } from "../stores/providers.svelte";
@@ -63,7 +63,7 @@
   });
 
   function displayOption(option: DesktopModelOption): { value: string; label: string } {
-    return { value: option.key, label: humanizeModelOption(option.label, option.key).label };
+    return { value: option.key, label: modelOptionCopy(option).name };
   }
 
   function modelOptions(options: DesktopModelOption[], emptyLabel?: string): Array<{ value: string; label: string }> {

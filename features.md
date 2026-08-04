@@ -7,6 +7,20 @@
 ---
 ## 2026-08-04
 
+### 修复：模型名不显示、别名保存即丢、Project 设置页无法滚动（Issue #28，已完成，P1）
+
+上一版「模型别名 + Project 自定义命令」带出的四个回归，同一个 issue 报告。
+
+- **输入框模型 pill 完全不显示模型名**：悬浮跑马灯把 `.composer-model-label` 变成了尺寸容器（`container-type: inline-size`）。inline-size 包含会「当作没有内容」来算尺寸，于是这个由内容撑开的 flex item 宽度归零，`overflow: hidden` 把名字整个抹掉——有没有别名都一样。已移除跑马灯，恢复省略号截断；完整模型 ID 仍可从 trigger 的 tooltip 和下拉里每项的次级行看到。
+- **别名点保存就丢**：Desktop 客户端的 `providerItemToUpdateRequest()` 会用保存后的 provider 记录重建内联编辑草稿，却没拷贝 `alias`，所以保存成功的一瞬间输入框就被清空，下一次保存再把这个「空」写回库。Web 的 Provider 页面也漏了两处——载入 `customProviders` 进表单时、以及把选中 provider 序列化提交 `POST /api/settings/custom-providers` 时。存储层一直是对的，问题只在这三处手写投影（坑位 11）。
+- **Project 设置弹窗不能上下滚动**，底部的自定义命令编辑器看不到。弹窗容器是 `overflow: hidden` 的 flex 列，但中间那层 `<form>` 是自动最小尺寸=内容高度的 flex item，压不下去，`.modal-body` 因此永远不会成为滚动容器。现在 form 把高度预算继续往下传（`display: flex; flex-direction: column; min-height: 0`），body 正常滚动。
+- **整页未按 DESIGN.md 实现**：弹窗底部直接复用了设置「页面」的 sticky footbar（28px 边距、页面 footbar 底色），命令编辑器用的是 0.5px 边框、6px 内边距、不在刻度上的输入框高度。现已改为与其他弹窗一致的 modal foot，字段统一走 40px 控件令牌（`--control-bg` / `--control-border` / `--rounded-sm`），圆角只用一套，间距回到 4/8/12/16 节奏。
+- **模型选择器显示的是路由标签而不是别名**：下拉直接渲染 `option.label`（`[Custom] CliProxyAPI / gpt-5.4-mini`），既暴露了 `buildModelOptions` 的内部标签，也没有用上别名（而别名本身又因为上面那条根本没存住）。新增共享的 `modelOptionCopy()`（`lib/presentation.ts`）：有别名用别名，否则用可读的 `供应商 · 模型` 名，去掉标签后的 `供应商 / 模型 ID` 作为次级行保留。输入框下拉、Project 设置的默认模型、设置→模型、Agent 模型路由四处选择器统一走它。
+- **只填了命令名的自定义命令，保存即消失**：Project store 的 sanitizer 会丢掉没有内容、或命令名归一化后为空的命令（会转小写并去掉 `a-z 0-9 : _ -` 之外的字符，所以纯中文名会被归一化成空）。弹窗客户端又做了一遍同样的过滤，于是「只填了名字就保存」表现为保存成功、关闭、再打开什么都没有。现在这种保存会被拒绝并指出该补什么；命令名在失焦时按 store 同一套 slug 规则归一化，所见即将来 `/` 里能唤出的名字；只有完全没动过的空行才会被丢弃。
+- **自定义命令编辑器改为 macOS 分组列表**：原先是一摞各自带边框的盒子、控件尺寸也不在刻度上。现在是一张卡片内以分隔线分行（System Settings 呈现重复行的方式），卡片 8px、紧凑控件 6px 圆角（DESIGN.md Foundations），密集列表字段 32px；校验提示同时给出图标与说明文案，不靠颜色单独表意。
+- **机器护栏**：`apps/desktop/src/lib/api.test.ts` 断言编辑草稿投影带上 `alias` 与 `contextWindow`；`presentation.test.ts` 覆盖 `modelOptionCopy()` 的别名 / 可读化 / 空白别名三种情况；另有结构护栏断言命令编辑器会拒绝半填行（且旧的静默过滤已移除）、与 store 共用同一套 slug 规则、并渲染为分组卡片；`chat-ui.test.mjs` 断言 pill 用省略号截断且**不是**尺寸容器，并断言 Project 弹窗把高度预算交给可滚动 body、使用 modal foot 与 40px 命令字段。
+- 验证：`chat-ui` 结构护栏 136/136、桌面端 `presentation` / `api` / `modelSelection` 套件 90/90、settings/provider/model TS 套件 30/30、Project store 与 composer-suggestions 套件 11/11、`svelte-check` 0 error / 0 warning、Desktop 生产构建通过、Web `vite build` 通过。本次会话内嵌浏览器不可用，CSS 结论依据包含规范与护栏而非实机渲染，仍欠一次 pill 与 Project 设置弹窗的冷启动走查（坑位 10）。
+
 ### 修复：v2.9.0 打包缺模块导致服务完全无法启动（Issue #30，已完成，P0）
 
 - 现象：打包安装的 v2.9.0 每次启动都以 `Cannot find module '.../scripts/runtime/crash-report.mjs'` 退出，supervisor 无限重启，应用彻底不可用。

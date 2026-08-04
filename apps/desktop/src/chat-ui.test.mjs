@@ -527,7 +527,7 @@ test("issue 13 settings pages share a title and product description header", () 
 test("issue 13 target pages expose user-facing controls and secondary technical detail", () => {
   const models = read("./lib/settings/ModelsSection.svelte");
   assert.match(models, /routeDescription\(route, session\.text\)/);
-  assert.match(models, /humanizeModelOption/);
+  assert.match(models, /modelOptionCopy/);
   assert.match(models, /technicalId=\{state\.currentKey\}/);
   assert.match(sections.providers, /humanizeProviderName/);
   assert.match(sections.providers, /aria-pressed=\{providerSortActive\}/);
@@ -632,17 +632,77 @@ test("Project custom commands round-trip through settings into the / palette", (
   assert.match(suggestions, /if \(lastEndpoint\) void ensureComposerSuggestions\(lastEndpoint, lastProjectId\)/);
 });
 
-// A model id can be far longer than the composer pill. The configured alias is
-// preferred for display, and hovering marquees the text right→left so the full
-// id stays readable — using column-relative units (pitfall 16), never `vw`.
-test("composer model pill prefers the alias and marquees the full name on hover", () => {
+// A model id can be far longer than the composer pill, so the configured alias
+// is preferred for display and the rest truncates. The pill must never become a
+// size query container: `container-type: inline-size` sizes the box as if it had
+// no contents, which zeroed this content-sized flex item and hid the model name
+// completely behind `overflow: hidden` (issue #28).
+test("composer model pill prefers the alias and truncates without size containment", () => {
   assert.match(view, /activeModelOption\?\.alias/);
-  assert.match(composerModelMenu, /model\.alias \|\| model\.label/);
-  assert.match(styles, /\.composer-model-label \{[^}]*container-type: inline-size/s);
-  assert.match(styles, /@keyframes composer-model-marquee/);
-  assert.match(styles, /translateX\(min\(0px, calc\(100cqw - 100%\)\)\)/);
-  // Reduced motion must not animate the pill.
-  assert.match(styles, /@media \(prefers-reduced-motion: no-preference\) \{\s*\.composer-model-trigger:hover \.composer-model-label-text/s);
+  // Every model selector goes through the shared copy helper, so none of them
+  // can leak a `[PI]` / `[Custom]` routing tag or ignore a configured alias.
+  assert.match(composerModelMenu, /modelOptionCopy\(model\)/);
+  assert.match(projectSettingsDialog, /modelOptionCopy\(model\)\.name/);
+  assert.match(read("./lib/settings/ModelsSection.svelte"), /modelOptionCopy\(option\)\.name/);
+  assert.match(read("./lib/settings/AgentsSection.svelte"), /modelOptionCopy\(option\)\.name/);
+  assert.match(styles, /\.composer-model-label \{[^}]*text-overflow: ellipsis/s);
+  assert.doesNotMatch(styles, /\.composer-model-label[^{]*\{[^}]*container-type/s);
+  assert.doesNotMatch(styles, /composer-model-marquee/);
+  // The full id stays reachable through the trigger tooltip and the option list.
+  assert.match(composerModelMenu, /title=\{activeModelTitle \|\| modelLabel\}/);
+  assert.match(composerModelMenu, /composer-model-option-id/);
+});
+
+// Everything the saved provider record holds must survive the editor-draft
+// projection: the draft is rebuilt from it after every save, so a field omitted
+// here disappears from the UI immediately and from storage on the next write
+// (pitfall 11 — this is how the model alias was lost, issue #28).
+test("provider editor draft keeps the model alias when reloading a saved provider", () => {
+  const api = read("./lib/api.ts");
+  const projection = api.slice(api.indexOf("export function providerItemToUpdateRequest"));
+  assert.match(projection.slice(0, projection.indexOf("defaultModel:")), /alias: model\.alias/);
+});
+
+// The dialog content is a flex column with `overflow: hidden`. A <form> wrapper
+// in between is a flex item whose automatic minimum size is its content, so it
+// refuses to shrink and the body never scrolls — the tail of the settings (the
+// custom-command editor) is simply clipped (issue #28).
+test("project settings dialog hands the height budget to a scrollable body", () => {
+  assert.match(projectSettingsDialog, /<form class="project-settings-form"/);
+  assert.match(styles, /\.project-settings-form \{[^}]*min-height: 0/s);
+  assert.match(styles, /\.project-settings-form \{[^}]*flex-direction: column/s);
+  assert.match(styles, /\.project-settings-body \{[^}]*overflow-y: auto/s);
+  assert.match(styles, /\.project-settings-body \{[^}]*min-height: 0/s);
+  // A modal footer is a modal footer, not the settings page's sticky footbar.
+  assert.doesNotMatch(projectSettingsDialog, /settings-footbar/);
+  assert.match(styles, /\.project-settings-foot \{[^}]*flex: none/s);
+  // Commands render as one grouped macOS list — a single card with hairline
+  // separated rows — using the documented radii and control tokens, not ad-hoc
+  // per-row boxes, 0.5px borders or invented sizes.
+  assert.match(styles, /\.project-commands-list \{[^}]*border-radius: var\(--radius-control\)/s);
+  assert.match(styles, /\.project-command-row \+ \.project-command-row \{ border-top/);
+  assert.match(styles, /\.project-commands \.project-command-desc \{[^}]*height: 32px/s);
+  assert.match(styles, /\.project-commands \.project-command-desc \{[^}]*border: 1px solid var\(--control-border\)/s);
+  assert.match(styles, /\.project-commands \.project-command-desc \{[^}]*border-radius: var\(--radius-small\)/s);
+});
+
+// The Project store drops any command without a body or with a name that slugs
+// to nothing. Saving used to report success while the row disappeared on the
+// next open, so the dialog must refuse the save and name the fix instead of
+// filtering the row away in silence (issue #28).
+test("Project settings refuses to save a half-filled command instead of dropping it", () => {
+  assert.match(projectSettingsDialog, /function normalizeCommandName/);
+  // Same slug rule as `sanitizeProjectCustomCommands` in the Project store.
+  assert.match(projectSettingsDialog, /replace\(\/\[\^a-z0-9:_-\]\+\/g, "-"\)/);
+  assert.match(projectSettingsDialog, /commandError = copy\.projectCommandInvalidName/);
+  assert.match(projectSettingsDialog, /commandError = copy\.projectCommandEmptyContent/);
+  // Only a row the owner never touched may be discarded.
+  assert.match(projectSettingsDialog, /function isBlankCommand/);
+  assert.doesNotMatch(projectSettingsDialog, /\.filter\(\(command\) => command\.name && command\.content\.trim\(\)\)/);
+  assert.match(projectSettingsDialog, /class="project-commands-error" role="alert"/);
+  for (const key of ["projectCommandEmptyContent", "projectCommandInvalidName"]) {
+    assert.equal((i18n.match(new RegExp(`${key}:`, "g")) ?? []).length, 2, `${key} must exist in both locales`);
+  }
 });
 
 // An @app selector is both a routing token and something the owner must be able
@@ -740,7 +800,7 @@ test("issue 8 chat polish stays wired across shared Chat and Project surfaces", 
 test("Project settings exposes inherited model and thinking defaults in a fixed footbar", () => {
   assert.match(projectSettingsDialog, /projectDefaultModel/);
   assert.match(projectSettingsDialog, /projectFollowGlobal/);
-  assert.match(projectSettingsDialog, /class="settings-footbar"/);
+  assert.match(projectSettingsDialog, /class="project-settings-foot"/);
   // Project chat resolves each session's model per-session (override → project →
   // global) and feeds it to the pinned controller via the runtime store.
   assert.match(projectChat, /function resolveSessionModel/);

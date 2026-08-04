@@ -4,6 +4,7 @@ import {
   formatNaturalDateTime,
   formatNaturalSchedule,
   humanizeModelOption,
+  modelOptionCopy,
   humanizeProviderName,
   humanizeTechnicalName
 } from "./presentation";
@@ -17,6 +18,22 @@ test("model options lead with a human name and keep the opaque key secondary", (
     humanizeModelOption("[Custom] 硅基流动语音 / TeleAI/TeleSpeechASR", "custom|siliconflow|TeleAI/TeleSpeechASR"),
     { label: "硅基流动语音 · TeleSpeech ASR", technicalId: "custom|siliconflow|TeleAI/TeleSpeechASR" }
   );
+});
+
+// `[PI]` / `[Custom]` are routing tags from `buildModelOptions`, not something a
+// person picking a model should read (issue #28). The alias wins when set; the
+// exact id survives as the secondary line so near-identical models stay apart.
+test("model selectors lead with the alias and never show the routing tag", () => {
+  assert.deepEqual(
+    modelOptionCopy({ key: "custom|cli-proxy-api|gpt-5.4-mini", label: "[Custom] CliProxyAPI / gpt-5.4-mini", alias: "小模型" }),
+    { name: "小模型", detail: "CliProxyAPI / gpt-5.4-mini" }
+  );
+  assert.deepEqual(
+    modelOptionCopy({ key: "pi|deepseek|deepseek-v4-pro", label: "[PI] deepseek / deepseek-v4-pro" }),
+    { name: "DeepSeek V4 Pro", detail: "deepseek / deepseek-v4-pro" }
+  );
+  // A blank alias is not an alias.
+  assert.equal(modelOptionCopy({ key: "pi|deepseek|deepseek-v4-pro", label: "[PI] deepseek / deepseek-v4-pro", alias: "  " }).name, "DeepSeek V4 Pro");
 });
 
 test("provider and technical names become readable without losing their identifiers", () => {

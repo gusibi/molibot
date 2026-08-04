@@ -65,6 +65,22 @@ export function humanizeModelOption(label: string, key: string): { label: string
   return { label: display || label || key, technicalId: key.trim() };
 }
 
+/**
+ * Display copy for one model option in a selector.
+ *
+ * `name` leads with the configured alias and otherwise falls back to the
+ * humanized provider · model name. The `[PI]` / `[Custom]` routing tag is an
+ * internal detail of `buildModelOptions` and never reaches the owner (DESIGN.md:
+ * raw model keys and provider protocols are secondary details). `detail` keeps
+ * the exact `provider / model-id` so two near-identical models stay tellable
+ * apart; it is empty when it would only repeat `name`.
+ */
+export function modelOptionCopy(option: { key: string; label: string; alias?: string }): { name: string; detail: string } {
+  const untagged = option.label.trim().replace(/^\[[^\]]+\]\s*/, "");
+  const name = option.alias?.trim() || humanizeModelOption(option.label, option.key).label;
+  return { name, detail: untagged === name ? "" : untagged };
+}
+
 export function humanizeProviderName(name: string, id: string): { label: string; technicalId: string } {
   const source = name.trim().replace(/^\[[^\]]+\]\s*/, "");
   return {

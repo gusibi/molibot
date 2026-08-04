@@ -2151,23 +2151,13 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
   transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 .composer-model-trigger > .ph:first-child { flex: none; font-size: 13px; }
-.composer-model-label { min-width: 0; overflow: hidden; color: var(--label-primary); font-weight: 500; white-space: nowrap; container-type: inline-size; }
-.composer-model-label-text { display: inline-block; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
-/* On hover, scroll a truncated model name right→left so the whole id is
-   readable. The distance is `container - text` width, clamped to 0 so a name
-   that already fits never moves. */
-@media (prefers-reduced-motion: no-preference) {
-  .composer-model-trigger:hover .composer-model-label-text,
-  .composer-model-menu[open] .composer-model-trigger .composer-model-label-text {
-    max-width: none;
-    text-overflow: clip;
-    animation: composer-model-marquee 5s ease-in-out infinite alternate;
-  }
-}
-@keyframes composer-model-marquee {
-  0%, 14% { transform: translateX(0); }
-  86%, 100% { transform: translateX(min(0px, calc(100cqw - 100%))); }
-}
+/* Never make this a query container. `container-type: inline-size` applies
+   inline-size containment, so the box is sized as if it had no contents — as a
+   content-sized flex item that resolves to 0 width, and `overflow: hidden` then
+   hides the model name entirely (issue #28). The full id stays reachable through
+   the trigger's `title` and the dropdown's per-option id line. */
+.composer-model-label { min-width: 0; overflow: hidden; color: var(--label-primary); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.composer-model-label-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-model-level { flex: none; color: var(--label-tertiary); white-space: nowrap; }
 .composer-model-level::before { content: "·"; margin-right: 5px; }
 .composer-model-trigger .ph-caret-down { flex: none; font-size: 11px; transition: transform var(--duration-fast) var(--ease-standard); }
@@ -3585,22 +3575,42 @@ select.provider-input { padding-right: 6px; }
 .browser-load-more:disabled { opacity: 0.5; cursor: default; }
 .modal-card { width: min(560px, 100%); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; border: 0.5px solid var(--glass-border); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--glass-shadow), var(--glass-inset); animation: modal-in 180ms var(--ease-spring); }
 .modal-card.closing { animation: modal-out 150ms var(--ease-standard) forwards; }
-.project-settings-modal { width: min(680px, 100%); max-height: min(86vh, 760px); }
-.project-settings-body { padding-top: 16px; }
-.project-settings-modal .settings-footbar { margin-top: 0; padding-inline: 16px; }
-.project-commands { display: flex; flex-direction: column; gap: 8px; }
-.project-commands-hint { color: var(--label-secondary); font-size: 12px; line-height: 1.5; }
-.project-commands-list { display: flex; flex-direction: column; gap: 10px; }
-.project-command-row { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: var(--fill); }
+.project-settings-modal { width: min(680px, calc(100vw - 48px)); max-height: min(86vh, calc(100vh - 48px)); }
+/* The dialog content is a flex column with `overflow: hidden`; the form sits
+   between it and the body, so it must pass the height budget down (flex column,
+   `min-height: 0`) or the body never becomes the scroller and the tail of the
+   settings is simply clipped (issue #28). */
+.project-settings-form { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
+.project-settings-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-top: 16px; }
+.project-settings-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 0.5px solid var(--separator); background: var(--footbar-bg); }
+.project-settings-foot-label { min-width: 0; overflow: hidden; color: var(--label-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.project-settings-foot-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.project-commands { display: flex; flex-direction: column; gap: 6px; }
+.project-commands-hint { color: var(--label-secondary); font-size: 12px; font-weight: 400; line-height: 1.5; }
+/* One grouped list, the way macOS System Settings shows a repeated set of rows:
+   a single elevated card with hairline-separated rows — not a stack of
+   individually bordered boxes. Radii follow DESIGN.md: 8px for the card and its
+   controls, 6px for the compact utility button. */
+.project-commands-list { display: flex; flex-direction: column; margin-top: 2px; overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--radius-control); background: var(--card-bg); }
+.project-commands-list:empty { display: none; }
+.project-command-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; }
+.project-command-row + .project-command-row { border-top: 0.5px solid var(--separator); }
 .project-command-head { display: flex; align-items: center; gap: 8px; }
-.project-command-slash { display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; color: var(--label-tertiary); }
-.project-command-slash-mark { flex: none; font-family: var(--font-mono); font-size: 13px; }
-.project-command-name { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--label-primary); font-family: var(--font-mono); font-size: 13px; outline: none; }
-.project-command-remove { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
+.project-command-slash { display: flex; flex: 1; align-items: center; gap: 5px; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--control-border); border-radius: var(--radius-small); background: var(--control-bg); color: var(--label-tertiary); }
+.project-command-slash:focus-within { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
+.project-command-slash-mark { flex: none; font-family: var(--font-mono); }
+.project-commands .project-command-name { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; color: var(--label-primary); font: inherit; font-family: var(--font-mono); font-weight: 400; outline: none; }
+.project-command-remove { display: grid; flex: none; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-tertiary); cursor: pointer; transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
 .project-command-remove:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
-.project-command-desc { border: 0.5px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: 12px; padding: 6px 8px; }
-.project-command-content { border: 0.5px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: 13px; padding: 6px 8px; resize: vertical; }
-.project-command-add { align-self: flex-start; }
+.project-command-remove:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
+.project-commands .project-command-desc { min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--control-border); border-radius: var(--radius-small); background: var(--control-bg); color: var(--label-primary); font: inherit; font-weight: 400; }
+.project-commands .project-command-content { min-width: 0; min-height: 56px; padding: 7px 10px; border: 1px solid var(--control-border); border-radius: var(--radius-small); background: var(--control-bg); color: var(--label-primary); font: 12px/1.5 var(--font-mono); resize: vertical; }
+.project-commands .project-command-desc:focus-visible, .project-commands .project-command-content:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
+.project-commands-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.project-command-add { flex: none; }
+/* Status is never colour alone (DESIGN.md Foundations): the tint carries an icon
+   and a sentence naming the row and the fix. */
+.project-commands-error { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--danger); font-size: 12px; font-weight: 400; line-height: 1.4; }
 .modal-card.task-delete-confirm-modal { width: min(380px, 100%); }
 .modal-head p { margin: 4px 0 0; color: var(--label-secondary); font-size: 12px; font-weight: 400; line-height: 1.5; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 0.5px solid var(--separator); font-size: 14px; font-weight: 600; }

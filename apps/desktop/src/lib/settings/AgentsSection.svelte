@@ -1,5 +1,6 @@
 <script lang="ts">
   import SelectControl from "../components/ui/SelectControl.svelte";
+  import { modelOptionCopy } from "../presentation";
   import { fly } from "svelte/transition";
   import type { DesktopModelRoute } from "../api";
   import { session } from "../stores/session.svelte";
@@ -88,7 +89,7 @@
       <label class="settings-field settings-field-wide"><span>{session.text.agentDescription}</span><textarea rows="3" value={agentsStore.agentEdit.description} oninput={(event) => updateAgentEdit((draft) => ({ ...draft, description: (event.currentTarget as HTMLTextAreaElement).value }))}></textarea></label>
       <label class="settings-field"><span>{session.text.profileSandbox}</span><SelectControl value={agentsStore.agentEdit.sandboxEnabled === null ? "inherit" : agentsStore.agentEdit.sandboxEnabled ? "on" : "off"} ariaLabel={session.text.profileSandbox} options={[{ value: "inherit", label: session.text.profileSandboxInherit }, { value: "on", label: session.text.profileSandboxOn }, { value: "off", label: session.text.profileSandboxOff }]} onChange={(value) => updateAgentEdit((draft) => ({ ...draft, sandboxEnabled: value === "inherit" ? null : value === "on" }))} /></label>
       {#each [{ key: "textModelKey", route: "text", label: session.text.agentTextModel }, { key: "visionModelKey", route: "vision", label: session.text.agentVisionModel }, { key: "sttModelKey", route: "stt", label: session.text.agentSttModel }] as field (field.key)}
-        <label class="settings-field"><span>{field.label}</span><SelectControl value={agentsStore.agentEdit.modelRouting[field.key as keyof typeof agentsStore.agentEdit.modelRouting]} ariaLabel={field.label} options={[{ value: "", label: session.text.agentFollowGlobal }, ...(modelsStore.modelStates[field.route as DesktopModelRoute]?.options ?? []).map((option) => ({ value: option.key, label: option.label }))]} onChange={(value) => updateAgentEdit((draft) => ({ ...draft, modelRouting: { ...draft.modelRouting, [field.key]: value } }))} /></label>
+        <label class="settings-field"><span>{field.label}</span><SelectControl value={agentsStore.agentEdit.modelRouting[field.key as keyof typeof agentsStore.agentEdit.modelRouting]} ariaLabel={field.label} options={[{ value: "", label: session.text.agentFollowGlobal }, ...(modelsStore.modelStates[field.route as DesktopModelRoute]?.options ?? []).map((option) => ({ value: option.key, label: modelOptionCopy(option).name }))]} onChange={(value) => updateAgentEdit((draft) => ({ ...draft, modelRouting: { ...draft.modelRouting, [field.key]: value } }))} /></label>
       {/each}
     </div>
     <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.agentEnabled}</span><button class:active={agentsStore.agentEdit.enabled} class="switch" type="button" role="switch" aria-label={session.text.agentEnabled} aria-checked={agentsStore.agentEdit.enabled} onclick={() => updateAgentEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div></div>

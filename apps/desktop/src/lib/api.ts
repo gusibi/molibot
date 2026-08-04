@@ -2691,6 +2691,10 @@ export function providerItemToUpdateRequest(provider: DesktopProviderItem): Desk
     baseUrl: provider.baseUrl,
     models: provider.models.map((model): DesktopProviderModel => ({
       id: model.id,
+      // Every field of the saved model must survive this projection: the editor
+      // draft is rebuilt from it after each save, so anything omitted here is
+      // silently dropped on the next write (pitfall 11).
+      alias: model.alias,
       tags: [...model.tags],
       supportedRoles: [...model.supportedRoles],
       contextWindow: model.contextWindow,

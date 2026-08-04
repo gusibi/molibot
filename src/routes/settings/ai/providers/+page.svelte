@@ -1669,6 +1669,7 @@
                                   : [];
                               return {
                                   id: String(m.id ?? ""),
+                                  alias: String(m.alias ?? "").trim() || undefined,
                                   tags:
                                       tags.length > 0
                                           ? tags
@@ -1749,6 +1750,7 @@
                             : selected.thinkingFormat,
                     models: selected.models.map((model) => ({
                         id: model.id.trim(),
+                        alias: model.alias?.trim() || undefined,
                         tags: [...model.tags],
                         supportedRoles: [...model.supportedRoles],
                         contextWindow: model.contextWindow && model.contextWindow > 0 ? model.contextWindow : undefined,
