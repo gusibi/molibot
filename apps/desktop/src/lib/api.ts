@@ -177,8 +177,15 @@ export interface DesktopProject {
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
   runLogNotice?: boolean;
+  customCommands?: DesktopProjectCustomCommand[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DesktopProjectCustomCommand {
+  name: string;
+  content: string;
+  description?: string;
 }
 
 export interface DesktopProjectSession {
@@ -288,7 +295,7 @@ export async function createDesktopProject(endpoint: string, input: { name: stri
   })).project;
 }
 
-export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: DesktopThinkingLevel | null; sandboxEnabled?: boolean | null; toolProgress?: DesktopProject["toolProgress"] | null; showReasoning?: DesktopProject["showReasoning"] | null; runLogNotice?: boolean | null }): Promise<DesktopProject> {
+export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: DesktopThinkingLevel | null; sandboxEnabled?: boolean | null; toolProgress?: DesktopProject["toolProgress"] | null; showReasoning?: DesktopProject["showReasoning"] | null; runLogNotice?: boolean | null; customCommands?: DesktopProjectCustomCommand[] | null }): Promise<DesktopProject> {
   return (await requestJson<{ ok: true; project: DesktopProject }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
   })).project;

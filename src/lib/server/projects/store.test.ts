@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
-import { ProjectStore, validateProjectRootPath } from "./store.js";
+import { ProjectStore, sanitizeProjectCustomCommands, validateProjectRootPath } from "./store.js";
 
 test("ProjectStore creates stable slugs, rejects duplicate roots, updates, and removes", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-project-store-"));
@@ -34,6 +34,43 @@ test("ProjectStore creates stable slugs, rejects duplicate roots, updates, and r
     assert.equal(store.get(first.id)?.runLogNotice, false);
     assert.equal(store.remove(first.id), true);
     assert.equal(store.get(first.id), null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("sanitizeProjectCustomCommands slugs names, drops empties, de-dupes", () => {
+  const commands = sanitizeProjectCustomCommands([
+    { name: "  Code Review ", content: "review it", description: " check " },
+    { name: "code-review", content: "dupe" },       // dropped: duplicate slug
+    { name: "empty", content: "   " },               // dropped: blank content
+    { name: "", content: "no name" },                // dropped: no name
+    "not an object"
+  ]);
+  assert.deepEqual(commands, [{ name: "code-review", content: "review it", description: "check" }]);
+});
+
+test("ProjectStore round-trips custom commands across a fresh store", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-project-commands-"));
+  const dbFile = path.join(root, "settings.sqlite");
+  const projectRoot = path.join(root, "project");
+  fs.mkdirSync(projectRoot);
+  try {
+    const store = new ProjectStore(dbFile);
+    const project = store.create({ name: "Cmd Project", rootPath: projectRoot });
+    assert.equal(store.get(project.id)?.customCommands, undefined);
+    store.update(project.id, {
+      customCommands: [
+        { name: "translate", content: "Translate to English:", description: "i18n" },
+        { name: "  ", content: "dropped" }
+      ]
+    });
+    // A fresh store instance proves the column persisted, not just the cache.
+    const reloaded = new ProjectStore(dbFile).get(project.id);
+    assert.deepEqual(reloaded?.customCommands, [{ name: "translate", content: "Translate to English:", description: "i18n" }]);
+    // Clearing removes the column value again.
+    store.update(project.id, { customCommands: [] });
+    assert.equal(new ProjectStore(dbFile).get(project.id)?.customCommands, undefined);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -13,6 +13,7 @@ import {
   type DesktopProjectSession
 } from "../api";
 import { invoke } from "@tauri-apps/api/core";
+import { invalidateComposerSuggestions } from "../chat/composerSuggestions.svelte";
 import { toStore } from "svelte/store";
 import { projectChatStore } from "../projects/projectChatStore.svelte";
 
@@ -264,7 +265,7 @@ export async function renameProject(projectId: string, name: string): Promise<bo
 
 export async function saveProjectSettings(
   projectId: string,
-  patch: { name: string; instructions: string; modelKey: string | null; thinkingLevel: DesktopProject["thinkingLevel"] | null; sandboxEnabled: boolean | null; toolProgress: DesktopProject["toolProgress"] | null; showReasoning: DesktopProject["showReasoning"] | null; runLogNotice: boolean | null }
+  patch: { name: string; instructions: string; modelKey: string | null; thinkingLevel: DesktopProject["thinkingLevel"] | null; sandboxEnabled: boolean | null; toolProgress: DesktopProject["toolProgress"] | null; showReasoning: DesktopProject["showReasoning"] | null; runLogNotice: boolean | null; customCommands: DesktopProject["customCommands"] }
 ): Promise<boolean> {
   if (!projectId || !projectsStore.endpoint || projectsStore.busy) return false;
   projectsStore.busy = "project-settings";
@@ -272,6 +273,9 @@ export async function saveProjectSettings(
   try {
     const updated = await patchDesktopProject(projectsStore.endpoint, projectId, patch);
     projectsStore.projects = projectsStore.projects.map((item) => item.id === projectId ? updated : item);
+    // Custom commands feed the `/` composer palette; drop the cache so the
+    // Project composer reflects the edit without a WebView reload.
+    invalidateComposerSuggestions();
     return true;
   } catch (cause) {
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);

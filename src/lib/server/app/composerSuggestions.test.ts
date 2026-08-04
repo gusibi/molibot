@@ -52,6 +52,22 @@ test("installed Mini Apps are offered under the @ trigger", () => {
   assert.equal(suggestions.some((item) => item.id === "miniapp:broken"), false);
 });
 
+test("project custom commands lead the palette and never auto-send", () => {
+  const suggestions = buildComposerSuggestions([], "en", [], [
+    { name: "review", content: "Please review the diff and flag issues.", description: "Code review" }
+  ]);
+  const review = suggestions.find((item) => item.id === "project-command:review");
+  assert.ok(review);
+  assert.equal(review.kind, "command");
+  assert.equal(review.label, "/review");
+  // Completing fills the composer with the body (not the `/name` token)…
+  assert.equal(review.insertText, "Please review the diff and flag issues.");
+  // …and never auto-sends, so the user reviews then presses Enter.
+  assert.equal(review.submitOnSelect, false);
+  // Project commands lead so a Project's own commands surface first.
+  assert.equal(suggestions[0].id, "project-command:review");
+});
+
 test("a leading @app selector classifies as a Mini App invocation", () => {
   const suggestions = buildComposerSuggestions([], "zh", [miniApp]);
   assert.deepEqual(

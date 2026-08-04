@@ -147,7 +147,10 @@
       }
       if (event.key === "Enter" || event.key === "Tab") {
         event.preventDefault();
-        selectSuggestion(filteredSuggestions[activeSuggestionIndex]);
+        // Tab only completes the token into the input; Enter may auto-send a
+        // whole-message invocation. The user asked for Tab to fill and leave
+        // the cursor so they can review before pressing Enter themselves.
+        selectSuggestion(filteredSuggestions[activeSuggestionIndex], event.key === "Enter");
         return;
       }
     }
@@ -155,7 +158,7 @@
     onKeydown(event);
   }
 
-  function selectSuggestion(suggestion: ComposerMenuItem | undefined): void {
+  function selectSuggestion(suggestion: ComposerMenuItem | undefined, allowSubmit = true): void {
     if (!suggestion) return;
     // Replace only the trigger token; text on either side of it stays put.
     const before = value.slice(0, activeTokenStart);
@@ -170,8 +173,9 @@
     caret = (before + insert).length;
     void tick().then(() => {
       shell?.setSelection(caret);
-      // Submit immediately only when the invocation is the entire message.
-      if (suggestion.submitOnSelect && wholeMessage) onSend();
+      // Submit immediately only when the invocation is the entire message AND
+      // the caller allows it (Tab never submits; a click/Enter may).
+      if (allowSubmit && suggestion.submitOnSelect && wholeMessage) onSend();
     });
   }
 

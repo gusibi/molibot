@@ -609,6 +609,42 @@ test("shared composer provides keyboard slash suggestions and transcript invocat
   assert.match(styles, /\.invocation-message\[data-kind="skill"\]/);
 });
 
+// Tab is a COMPLETION key, not a send key: it fills the token into the composer
+// and leaves the caret there so the owner can edit before pressing Enter. Only
+// Enter (or a click) may hand a whole-message invocation straight to `onSend`.
+test("Tab completes a suggestion without sending; only Enter may auto-submit", () => {
+  assert.match(chatInputArea, /selectSuggestion\(filteredSuggestions\[activeSuggestionIndex\], event\.key === "Enter"\)/);
+  assert.match(chatInputArea, /function selectSuggestion\(suggestion: ComposerMenuItem \| undefined, allowSubmit = true\)/);
+  assert.match(chatInputArea, /if \(allowSubmit && suggestion\.submitOnSelect && wholeMessage\) onSend\(\)/);
+});
+
+// A Project's own `/` commands are edited in Project settings and consumed by
+// the shared composer catalog, so the save must refetch it (pitfall 13 — one
+// WebView, and ChatInputArea's legacy `$:` cannot see the store change).
+test("Project custom commands round-trip through settings into the / palette", () => {
+  assert.match(projectSettingsDialog, /customCommands/);
+  assert.match(projectSettingsDialog, /projectCommandAdd/);
+  assert.match(projectSettingsDialog, /project-command-content/);
+  const projectsStore = read("./lib/stores/projects.svelte.ts");
+  assert.match(projectsStore, /invalidateComposerSuggestions\(\)/);
+  const suggestions = read("./lib/chat/composerSuggestions.svelte.ts");
+  // Invalidation must reload, not merely clear: nothing else re-triggers it.
+  assert.match(suggestions, /if \(lastEndpoint\) void ensureComposerSuggestions\(lastEndpoint, lastProjectId\)/);
+});
+
+// A model id can be far longer than the composer pill. The configured alias is
+// preferred for display, and hovering marquees the text right→left so the full
+// id stays readable — using column-relative units (pitfall 16), never `vw`.
+test("composer model pill prefers the alias and marquees the full name on hover", () => {
+  assert.match(view, /activeModelOption\?\.alias/);
+  assert.match(composerModelMenu, /model\.alias \|\| model\.label/);
+  assert.match(styles, /\.composer-model-label \{[^}]*container-type: inline-size/s);
+  assert.match(styles, /@keyframes composer-model-marquee/);
+  assert.match(styles, /translateX\(min\(0px, calc\(100cqw - 100%\)\)\)/);
+  // Reduced motion must not animate the pill.
+  assert.match(styles, /@media \(prefers-reduced-motion: no-preference\) \{\s*\.composer-model-trigger:hover \.composer-model-label-text/s);
+});
+
 // An @app selector is both a routing token and something the owner must be able
 // to see and pick. The composer therefore needs a second trigger character that
 // lists installed Mini Apps, and every surface that renders an invocation must

@@ -13,6 +13,12 @@ export type ModelCapabilityVerification = "untested" | "passed" | "failed";
 
 export interface ProviderModelConfig {
   id: string;
+  /**
+   * Optional human-friendly display name. When set, UI surfaces (chat composer
+   * model selector, provider list) prefer this over the raw model id, which can
+   * be long enough to truncate. The id remains the routing key.
+   */
+  alias?: string;
   tags: ModelCapabilityTag[];
   supportedRoles: ModelRole[];
   contextWindow?: number;

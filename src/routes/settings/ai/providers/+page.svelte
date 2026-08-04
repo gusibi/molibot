@@ -36,6 +36,7 @@
 
     interface ProviderModelForm {
         id: string;
+        alias?: string;
         tags: ModelCapabilityTag[];
         supportedRoles: ModelRole[];
         contextWindow?: number;
@@ -189,6 +190,8 @@
             addModelModalTitle: "添加模型",
             editModelModalTitle: "编辑模型",
             addModelIdLabel: "模型 ID",
+            addModelAliasLabel: "别名（可选）",
+            addModelAliasPlaceholder: "显示用的简短名称",
             addModelCwLabel: "上下文窗口 (Tokens)",
             modelEnabledLabel: "启用此模型",
             cancelBtn: "取消",
@@ -358,6 +361,8 @@
             addModelModalTitle: "Add Model",
             editModelModalTitle: "Edit Model",
             addModelIdLabel: "Model ID",
+            addModelAliasLabel: "Alias (optional)",
+            addModelAliasPlaceholder: "Short display name",
             addModelCwLabel: "Context Window (tokens)",
             modelEnabledLabel: "Enable this model",
             cancelBtn: "Cancel",
@@ -474,6 +479,7 @@
     let modelEditorTargetProviderId = "";
     let modelEditorIndex: number | null = null;
     let modelEditorId = "";
+    let modelEditorAlias = "";
     let modelEditorTags: ModelCapabilityTag[] = ["text"];
     let modelEditorContextWindow: number | undefined = undefined;
     let modelEditorEnabled = true;
@@ -741,6 +747,7 @@
 
     function ensureModelDefaults(model: ProviderModelForm): void {
         model.id = model.id.trim();
+        model.alias = model.alias?.trim() || undefined;
         model.tags = Array.isArray(model.tags)
             ? model.tags.filter((t) => capabilityTags.includes(t))
             : ["text"];
@@ -785,6 +792,7 @@
                       }
                     : {
                           id: String(m.id ?? ""),
+                          alias: String((m as any).alias ?? "").trim() || undefined,
                           tags: Array.isArray(m.tags) ? m.tags : ["text"],
                           supportedRoles: Array.isArray(m.supportedRoles)
                               ? m.supportedRoles
@@ -911,6 +919,7 @@
         modelEditorTargetProviderId = providerId;
         modelEditorIndex = null;
         modelEditorId = "";
+        modelEditorAlias = "";
         modelEditorTags = ["text"];
         modelEditorContextWindow = undefined;
         modelEditorEnabled = true;
@@ -923,6 +932,7 @@
         modelEditorTargetProviderId = providerId;
         modelEditorIndex = modelIndex;
         modelEditorId = model.id;
+        modelEditorAlias = model.alias ?? "";
         modelEditorTags = [...model.tags];
         modelEditorContextWindow = model.contextWindow;
         modelEditorEnabled = model.enabled !== false;
@@ -932,6 +942,7 @@
     function confirmModelEditor(): void {
         const modelId = modelEditorId.trim();
         if (!modelId) return;
+        const modelAlias = modelEditorAlias.trim() || undefined;
         const targetIndex = modelEditorIndex;
         const provider = form.customProviders.find((row) => row.id === modelEditorTargetProviderId);
         if (!provider) return;
@@ -943,6 +954,7 @@
             const nextModel: ProviderModelForm = targetIndex === null
                 ? {
                     id: modelId,
+                    alias: modelAlias,
                     tags: [...modelEditorTags],
                     supportedRoles: ["system", "user", "assistant", "tool"],
                     contextWindow: modelEditorContextWindow,
@@ -951,6 +963,7 @@
                 : {
                     ...current.models[targetIndex],
                     id: modelId,
+                    alias: modelAlias,
                     tags: [...modelEditorTags],
                     contextWindow: modelEditorContextWindow,
                     enabled: modelEditorEnabled,
@@ -2150,8 +2163,8 @@
                                     {@const index = row.index}
                                     <article class="providers-model-row" role="listitem">
                                         <div class="providers-model-row-copy">
-                                            <strong>{model.id}</strong>
-                                            <small>{model.contextWindow ? `${model.contextWindow.toLocaleString()} tokens` : copy.addModelCwLabel}</small>
+                                            <strong>{model.alias || model.id}</strong>
+                                            <small>{model.alias ? model.id : (model.contextWindow ? `${model.contextWindow.toLocaleString()} tokens` : copy.addModelCwLabel)}</small>
                                         </div>
                                         <div class="providers-model-row-caps" aria-label={copy.capabilitiesCol}>
                                             {#each model.tags as tag}
@@ -2287,6 +2300,10 @@
                 <label class="providers-detail-form-label">
                     <span class="providers-detail-form-label-text">{copy.addModelIdLabel}</span>
                     <Input bind:value={modelEditorId} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
+                </label>
+                <label class="providers-detail-form-label">
+                    <span class="providers-detail-form-label-text">{copy.addModelAliasLabel}</span>
+                    <Input bind:value={modelEditorAlias} placeholder={copy.addModelAliasPlaceholder} />
                 </label>
                 <label class="providers-detail-form-label">
                     <span class="providers-detail-form-label-text">{copy.addModelCwLabel}</span>

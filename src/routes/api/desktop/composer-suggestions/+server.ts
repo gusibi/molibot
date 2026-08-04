@@ -17,9 +17,11 @@ export const GET: RequestHandler = async ({ url }) => {
   const runtime = getRuntime();
   const projectId = String(url.searchParams.get("projectId") ?? "").trim();
   let skills;
+  let projectCommands: import("$lib/server/projects/store").ProjectCustomCommand[] = [];
   if (projectId) {
     const project = getProjectStore().get(projectId);
     if (!project) return json({ ok: false, error: "Unknown project" }, { status: 404 });
+    projectCommands = project.customCommands ?? [];
     const profileId = sanitizeWebProfileId(url.searchParams.get("profileId") ?? "personal");
     const { store } = resolveRuntimeContext({ profileId, projectId });
     skills = loadSkillsFromWorkspace(store.getWorkspaceDir(), undefined, {
@@ -42,7 +44,7 @@ export const GET: RequestHandler = async ({ url }) => {
   }
   const response: DesktopComposerSuggestionsResponse = {
     ok: true,
-    suggestions: buildComposerSuggestions(skills, locale, miniApps)
+    suggestions: buildComposerSuggestions(skills, locale, miniApps, projectCommands)
   };
   return json(response, { headers: { "Cache-Control": "no-store" } });
 };

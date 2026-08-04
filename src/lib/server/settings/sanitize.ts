@@ -1104,6 +1104,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
       const modelObj = m as {
         id?: unknown;
         model?: unknown;
+        alias?: unknown;
         tags?: unknown;
         supportedRoles?: unknown;
         verification?: unknown;
@@ -1112,6 +1113,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
       };
       const id = String(modelObj.id ?? modelObj.model ?? "").trim();
       if (!id) continue;
+      const alias = String(modelObj.alias ?? "").trim();
       const rawVerification = modelObj.verification && typeof modelObj.verification === "object"
         ? modelObj.verification as Record<string, unknown>
         : {};
@@ -1125,6 +1127,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
       ) as ProviderModelConfig["verification"];
       models.push({
         id,
+        alias: alias || undefined,
         tags: sanitizeModelTags(modelObj.tags),
         supportedRoles: sanitizeRoles(modelObj.supportedRoles ?? (row as { supportedRoles?: unknown }).supportedRoles),
         contextWindow: typeof modelObj.contextWindow === "number" && modelObj.contextWindow > 0 ? modelObj.contextWindow : undefined,

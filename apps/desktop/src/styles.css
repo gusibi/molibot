@@ -2151,7 +2151,23 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
   transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 .composer-model-trigger > .ph:first-child { flex: none; font-size: 13px; }
-.composer-model-label { min-width: 0; overflow: hidden; color: var(--label-primary); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.composer-model-label { min-width: 0; overflow: hidden; color: var(--label-primary); font-weight: 500; white-space: nowrap; container-type: inline-size; }
+.composer-model-label-text { display: inline-block; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+/* On hover, scroll a truncated model name right→left so the whole id is
+   readable. The distance is `container - text` width, clamped to 0 so a name
+   that already fits never moves. */
+@media (prefers-reduced-motion: no-preference) {
+  .composer-model-trigger:hover .composer-model-label-text,
+  .composer-model-menu[open] .composer-model-trigger .composer-model-label-text {
+    max-width: none;
+    text-overflow: clip;
+    animation: composer-model-marquee 5s ease-in-out infinite alternate;
+  }
+}
+@keyframes composer-model-marquee {
+  0%, 14% { transform: translateX(0); }
+  86%, 100% { transform: translateX(min(0px, calc(100cqw - 100%))); }
+}
 .composer-model-level { flex: none; color: var(--label-tertiary); white-space: nowrap; }
 .composer-model-level::before { content: "·"; margin-right: 5px; }
 .composer-model-trigger .ph-caret-down { flex: none; font-size: 11px; transition: transform var(--duration-fast) var(--ease-standard); }
@@ -2201,6 +2217,9 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .composer-menu-options { max-height: min(360px, 48vh); overflow: auto; padding-top: 3px; overscroll-behavior: contain; }
 .composer-menu-options > button { min-height: 36px; padding-block: 5px; }
 .composer-menu-options > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-model-option-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.composer-model-option-name { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.composer-model-option-id { overflow: hidden; color: var(--label-tertiary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .composer-menu-options > button[aria-checked="true"] { background: var(--accent-soft); }
 .composer-menu-options > button[aria-checked="true"] > .ph { color: var(--accent); }
 .composer {
@@ -3140,7 +3159,8 @@ select.provider-input { padding-right: 6px; }
 }
 .provider-model-row:hover { background: color-mix(in srgb, var(--fill) 45%, var(--card-bg)); }
 .provider-model-row.off .provider-model-name { color: var(--label-tertiary); }
-.provider-model-name { min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.provider-model-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.provider-model-alias-id { overflow: hidden; color: var(--label-tertiary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .provider-model-caps { display: flex; align-items: center; flex: none; gap: 4px; }
 .provider-model-context { color: var(--label-tertiary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .provider-model-added { color: var(--label-tertiary); font-size: 11px; }
@@ -3568,6 +3588,19 @@ select.provider-input { padding-right: 6px; }
 .project-settings-modal { width: min(680px, 100%); max-height: min(86vh, 760px); }
 .project-settings-body { padding-top: 16px; }
 .project-settings-modal .settings-footbar { margin-top: 0; padding-inline: 16px; }
+.project-commands { display: flex; flex-direction: column; gap: 8px; }
+.project-commands-hint { color: var(--label-secondary); font-size: 12px; line-height: 1.5; }
+.project-commands-list { display: flex; flex-direction: column; gap: 10px; }
+.project-command-row { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: var(--fill); }
+.project-command-head { display: flex; align-items: center; gap: 8px; }
+.project-command-slash { display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; color: var(--label-tertiary); }
+.project-command-slash-mark { flex: none; font-family: var(--font-mono); font-size: 13px; }
+.project-command-name { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--label-primary); font-family: var(--font-mono); font-size: 13px; outline: none; }
+.project-command-remove { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
+.project-command-remove:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.project-command-desc { border: 0.5px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: 12px; padding: 6px 8px; }
+.project-command-content { border: 0.5px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: 13px; padding: 6px 8px; resize: vertical; }
+.project-command-add { align-self: flex-start; }
 .modal-card.task-delete-confirm-modal { width: min(380px, 100%); }
 .modal-head p { margin: 4px 0 0; color: var(--label-secondary); font-size: 12px; font-weight: 400; line-height: 1.5; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 0.5px solid var(--separator); font-size: 14px; font-weight: 600; }

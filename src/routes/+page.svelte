@@ -541,6 +541,7 @@
 
   $: thinkingLevelOptions = modelOptions.find((model) => model.key === activeModelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
   $: clampedThinkingLevel = clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
+  $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? "";
 
   function resetStreamingState(): void {
     streamingAssistantText = "";
@@ -2283,11 +2284,12 @@
               <select
                 class="max-w-[240px] rounded-full border border-transparent bg-transparent px-2 py-1 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--muted)] focus:border-[var(--ring)]"
                 value={activeModelKey}
+                title={activeModelFullLabel}
                 disabled={changingModel || modelOptions.length === 0}
                 on:change={async (e) => applyModelSelection((e.target as HTMLSelectElement).value)}
               >
                 {#each modelOptions as m}
-                  <option value={m.key}>{m.label}</option>
+                  <option value={m.key} title={m.label}>{m.alias || m.label}</option>
                 {/each}
               </select>
               <select

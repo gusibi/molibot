@@ -679,12 +679,15 @@
   function resolveSessionModelKey(sessionId: string): string {
     return sessionModelOverrides.get(sessionId) ?? transcriptModelKeys.get(sessionId) ?? "";
   }
-  $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
-  $: thinkingLevelOptions = modelOptions.find((model) => model.key === activeModelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
+  $: activeModelOption = modelOptions.find((model) => model.key === activeModelKey);
+  $: activeModelFullLabel = activeModelOption?.label ?? copy.model;
+  $: thinkingLevelOptions = activeModelOption?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
   $: clampedThinkingLevel = clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
-  // The pill only shows the bare model name (last "/"-segment); the provider
-  // prefix like "[Custom] CliProxyAPI /" is kept for the dropdown + tooltip.
-  $: activeModelLabel = humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model;
+  // The pill prefers the configured alias; otherwise it shows the bare model
+  // name (last "/"-segment). The provider prefix like "[Custom] CliProxyAPI /"
+  // is kept for the dropdown + tooltip.
+  $: activeModelLabel = activeModelOption?.alias
+    || (humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model);
   $: thinkingLabel = {
     off: copy.thinkingOff,
     minimal: copy.thinkingMinimal,

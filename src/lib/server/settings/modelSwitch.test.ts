@@ -54,6 +54,48 @@ test("buildModelOptions treats enabled built-in providers as pi routes", () => {
   assert.equal(options.some((option) => option.key === "custom|grok2api|grok-4.20-fast"), true);
 });
 
+test("buildModelOptions surfaces the model alias onto both custom and built-in options", () => {
+  const settings: RuntimeSettings = {
+    ...defaultRuntimeSettings,
+    providerMode: "custom" as const,
+    piModelProvider: "google" as const,
+    piModelName: "gemini-flash-latest",
+    customProviders: [
+      {
+        id: "google",
+        name: "[Built-in] google",
+        enabled: true,
+        baseUrl: "",
+        apiKey: "google-key",
+        path: "/v1/chat/completions",
+        defaultModel: "gemini-flash-latest",
+        models: [
+          { id: "gemini-flash-latest", alias: "Gemini Flash", enabled: true, tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"] }
+        ]
+      },
+      {
+        id: "cliproxy",
+        name: "CliProxyAPI",
+        enabled: true,
+        baseUrl: "http://localhost:8001/v1",
+        apiKey: "custom-key",
+        path: "/chat/completions",
+        defaultModel: "deepseek/deepseek-v4-pro",
+        models: [
+          { id: "deepseek/deepseek-v4-pro", alias: "DeepSeek V4", enabled: true, tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"] },
+          { id: "plain", enabled: true, tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"] }
+        ]
+      }
+    ]
+  };
+
+  const options = buildModelOptions(settings, "text");
+  assert.equal(options.find((option) => option.key === "custom|cliproxy|deepseek/deepseek-v4-pro")?.alias, "DeepSeek V4");
+  assert.equal(options.find((option) => option.key === "custom|cliproxy|plain")?.alias, undefined);
+  // A configured built-in (pi route) model also carries its alias.
+  assert.equal(options.find((option) => option.key === "pi|google|gemini-flash-latest")?.alias, "Gemini Flash");
+});
+
 test("switchModelSelection keeps built-in switch on pi route even when providerMode is custom", () => {
   const settings: RuntimeSettings = {
     ...defaultRuntimeSettings,

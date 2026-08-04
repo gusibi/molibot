@@ -17,6 +17,7 @@ const MODEL_ROLES = new Set<DesktopProviderModelRole>(["system", "user", "assist
 function buildDesktopProviderModel(model: CustomProviderConfig["models"][number]): DesktopProviderModel {
   return {
     id: String(model.id ?? "").trim(),
+    alias: String(model.alias ?? "").trim() || undefined,
     tags: (Array.isArray(model.tags) ? model.tags : []).filter((tag): tag is DesktopProviderModelTag => MODEL_TAGS.has(tag as DesktopProviderModelTag)),
     supportedRoles: (Array.isArray(model.supportedRoles) ? model.supportedRoles : []).filter((role): role is DesktopProviderModelRole => MODEL_ROLES.has(role as DesktopProviderModelRole)),
     contextWindow: typeof model.contextWindow === "number" && model.contextWindow > 0 ? model.contextWindow : undefined,

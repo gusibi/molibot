@@ -6,6 +6,17 @@ import { pathCompareKey } from "$lib/server/agent/tools/path.js";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import { RUNTIME_THINKING_LEVELS, type RuntimeThinkingLevel } from "$lib/server/settings/thinking.js";
 
+/**
+ * A user-defined composer command scoped to a Project. Typing `/name` in the
+ * Project composer completes `content` into the input (it never auto-sends —
+ * the user reviews and presses Enter). `description` is shown in the dropdown.
+ */
+export interface ProjectCustomCommand {
+  name: string;
+  content: string;
+  description?: string;
+}
+
 export interface ProjectRecord {
   id: string;
   name: string;
@@ -17,10 +28,33 @@ export interface ProjectRecord {
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
   runLogNotice?: boolean;
+  customCommands?: ProjectCustomCommand[];
   sandboxProfileId?: string;
   approvalProfileId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Normalizes raw command rows into a clean, de-duplicated list. A command needs
+ * a non-empty name (lower-cased, slug-safe so it can be a `/token`) and
+ * non-empty content; description is optional. Invalid rows are dropped.
+ */
+export function sanitizeProjectCustomCommands(input: unknown): ProjectCustomCommand[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: ProjectCustomCommand[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as { name?: unknown; content?: unknown; description?: unknown };
+    const name = String(row.name ?? "").trim().toLowerCase().replace(/[^a-z0-9:_-]+/g, "-").replace(/^-+|-+$/g, "");
+    const content = String(row.content ?? "");
+    if (!name || !content.trim() || seen.has(name)) continue;
+    seen.add(name);
+    const description = String(row.description ?? "").trim();
+    out.push({ name, content, description: description || undefined });
+  }
+  return out;
 }
 
 export interface CreateProjectInput {
@@ -43,6 +77,7 @@ interface ProjectRow {
   tool_progress: string | null;
   show_reasoning: string | null;
   run_log_notice: number | null;
+  custom_commands: string | null;
   sandbox_profile_id: string | null;
   approval_profile_id: string | null;
   created_at: string;
@@ -105,6 +140,16 @@ function projectDirectoryName(value: string): string {
     .replace(/[. ]+$/g, "") || "Untitled Project";
 }
 
+function parseCustomCommandsColumn(value: string | null): ProjectCustomCommand[] | undefined {
+  if (!value) return undefined;
+  try {
+    const commands = sanitizeProjectCustomCommands(JSON.parse(value));
+    return commands.length > 0 ? commands : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function rowToProject(row: ProjectRow): ProjectRecord {
   return {
     id: row.id,
@@ -119,6 +164,7 @@ function rowToProject(row: ProjectRow): ProjectRecord {
     toolProgress: (["off", "new", "all", "verbose"] as const).includes(row.tool_progress as never) ? row.tool_progress as ProjectRecord["toolProgress"] : undefined,
     showReasoning: (["off", "on", "stream", "new"] as const).includes(row.show_reasoning as never) ? row.show_reasoning as ProjectRecord["showReasoning"] : undefined,
     runLogNotice: row.run_log_notice === null ? undefined : row.run_log_notice === 1,
+    customCommands: parseCustomCommandsColumn(row.custom_commands),
     sandboxProfileId: row.sandbox_profile_id || undefined,
     approvalProfileId: row.approval_profile_id || undefined,
     createdAt: row.created_at,
@@ -161,6 +207,7 @@ export class ProjectStore {
         tool_progress TEXT,
         show_reasoning TEXT,
         run_log_notice INTEGER,
+        custom_commands TEXT,
         sandbox_profile_id TEXT,
         approval_profile_id TEXT,
         created_at TEXT NOT NULL,
@@ -184,6 +231,7 @@ export class ProjectStore {
     if (!columns.has("tool_progress")) db.exec("ALTER TABLE projects ADD COLUMN tool_progress TEXT");
     if (!columns.has("show_reasoning")) db.exec("ALTER TABLE projects ADD COLUMN show_reasoning TEXT");
     if (!columns.has("run_log_notice")) db.exec("ALTER TABLE projects ADD COLUMN run_log_notice INTEGER");
+    if (!columns.has("custom_commands")) db.exec("ALTER TABLE projects ADD COLUMN custom_commands TEXT");
     return db;
   }
 
@@ -280,7 +328,7 @@ export class ProjectStore {
     }
   }
 
-  update(id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: ProjectRecord["thinkingLevel"] | null; sandboxEnabled?: boolean | null; toolProgress?: ProjectRecord["toolProgress"] | null; showReasoning?: ProjectRecord["showReasoning"] | null; runLogNotice?: boolean | null }): ProjectRecord | null {
+  update(id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: ProjectRecord["thinkingLevel"] | null; sandboxEnabled?: boolean | null; toolProgress?: ProjectRecord["toolProgress"] | null; showReasoning?: ProjectRecord["showReasoning"] | null; runLogNotice?: boolean | null; customCommands?: ProjectCustomCommand[] | null }): ProjectRecord | null {
     const existing = this.get(id);
     if (!existing) return null;
     const name = patch.name === undefined ? existing.name : String(patch.name).trim();
@@ -300,13 +348,16 @@ export class ProjectStore {
     const toolProgress = patch.toolProgress === undefined ? existing.toolProgress : patch.toolProgress ?? undefined;
     const showReasoning = patch.showReasoning === undefined ? existing.showReasoning : patch.showReasoning ?? undefined;
     const runLogNotice = patch.runLogNotice === undefined ? existing.runLogNotice : patch.runLogNotice ?? undefined;
+    const customCommands = patch.customCommands === undefined
+      ? existing.customCommands
+      : sanitizeProjectCustomCommands(patch.customCommands ?? []);
     if (thinkingLevel && !RUNTIME_THINKING_LEVELS.includes(thinkingLevel)) throw new Error("Invalid Project thinking level.");
     if (toolProgress && !["off", "new", "all", "verbose"].includes(toolProgress)) throw new Error("Invalid Project tool progress setting.");
     if (showReasoning && !["off", "on", "stream", "new"].includes(showReasoning)) throw new Error("Invalid Project reasoning setting.");
     const db = this.openDb();
     try {
-      db.prepare("UPDATE projects SET name = ?, root_path = ?, instructions = ?, model_key = ?, thinking_level = ?, sandbox_enabled = ?, tool_progress = ?, show_reasoning = ?, run_log_notice = ?, updated_at = ? WHERE id = ?")
-        .run(name, rootPath, instructions ?? null, modelKey ?? null, thinkingLevel ?? null, sandboxEnabled === undefined ? null : Number(sandboxEnabled), toolProgress ?? null, showReasoning ?? null, runLogNotice === undefined ? null : Number(runLogNotice), new Date().toISOString(), existing.id);
+      db.prepare("UPDATE projects SET name = ?, root_path = ?, instructions = ?, model_key = ?, thinking_level = ?, sandbox_enabled = ?, tool_progress = ?, show_reasoning = ?, run_log_notice = ?, custom_commands = ?, updated_at = ? WHERE id = ?")
+        .run(name, rootPath, instructions ?? null, modelKey ?? null, thinkingLevel ?? null, sandboxEnabled === undefined ? null : Number(sandboxEnabled), toolProgress ?? null, showReasoning ?? null, runLogNotice === undefined ? null : Number(runLogNotice), customCommands && customCommands.length > 0 ? JSON.stringify(customCommands) : null, new Date().toISOString(), existing.id);
       return rowToProject(db.prepare("SELECT * FROM projects WHERE id = ?").get(existing.id) as unknown as ProjectRow);
     } finally {
       db.close();

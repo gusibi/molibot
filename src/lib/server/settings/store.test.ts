@@ -188,6 +188,46 @@ test("Mini App enable state and built-in tombstones survive a settings store res
   }
 });
 
+test("custom provider model alias survives a settings store restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-model-alias-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      customProviders: [
+        {
+          id: "cliproxy",
+          name: "CliProxyAPI",
+          enabled: true,
+          protocol: "openai-compatible",
+          baseUrl: "https://example.test",
+          apiKey: "sk-test",
+          models: [
+            { id: "deepseek/deepseek-v4-pro-0711", alias: "DeepSeek V4", tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"], enabled: true },
+            { id: "plain", tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"], enabled: true }
+          ],
+          defaultModel: "deepseek/deepseek-v4-pro-0711",
+          path: "/v1/chat/completions"
+        }
+      ]
+    });
+
+    const restarted = new SettingsStore().load();
+    const models = restarted.customProviders.find((provider) => provider.id === "cliproxy")?.models ?? [];
+    assert.equal(models.find((model) => model.id === "deepseek/deepseek-v4-pro-0711")?.alias, "DeepSeek V4");
+    // A model with no alias must load back as undefined, not "".
+    assert.equal(models.find((model) => model.id === "plain")?.alias, undefined);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("pi extension enable state and per-bot exclusions survive a settings store restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-pi-extension-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;

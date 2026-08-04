@@ -5,6 +5,29 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-08-04
+
+### Fixed: v2.9.0 could not start — the release bundle was missing two runtime modules (#30)
+
+A packaged v2.9.0 install died on every boot with `Cannot find module '.../scripts/runtime/crash-report.mjs'` and the supervisor restart-looped it forever, so the app was unusable rather than degraded.
+
+- **Root cause.** `bin/molibot-release.sh` copied `scripts/runtime/*` by hand-written filename. `start-server.mjs` gained `crash-report.mjs` and `file-logger.mjs` imports, the copy list did not, and nothing in CI resolved the import graph against what the bundle actually contains. This is the second time the same manifest drifted (the first omitted `skills/`), so the fix is structural: the script now copies the directory by glob, excluding `*.test.mjs`.
+- **Second layer.** Crash reporting and file logging are diagnostics, not boot dependencies. A static `import` turned a missing diagnostic into a fatal `ERR_MODULE_NOT_FOUND` before any handler could report it; they now load through `loadOptionalRuntimeModule()` and are called with `?.`, so an absent module costs one stderr line and the service still starts.
+- **Machine guard.** `scripts/runtime/release-bundle.test.mjs` resolves every relative `*.mjs` specifier reachable from `scripts/start-server.mjs` (static, dynamic, or passed as a specifier argument) and asserts each resolves inside the globbed `scripts/runtime/` directory, plus that the release script still copies by glob. `pnpm run test:service-bootstrap` now also runs the previously unwired `service-port`, `crash-report` and `file-logger` tests. See pitfall 22 in `CLAUDE.md`.
+- Verification: `pnpm run test:service-bootstrap` 16/16 (13 runtime + 3 handshake); the new guard was negative-tested — reverting the glob to a single filename fails it. Real boot walk in a synthetic bundle: with both modules deleted the service logs the two "optional runtime module unavailable" lines and proceeds past lease + port acquisition into the app import (previously it exited before line 1); with them present the crash handler captures a startup fault as a structured `[mom-t]` `service_crash` record.
+
+### Added: Model aliases, Project custom `/` commands, and a bounded service log
+
+Three independent requests, shipped together on both the macOS app and the Web UI.
+
+- **Model alias.** A provider model can now carry an optional `alias` alongside its id. The composer model pill, the model dropdown, the provider model list (Desktop and Web) and the Web chat model `<select>` all prefer the alias and keep the full id as a tooltip / secondary line, so `deepseek/deepseek-v4-pro-0711` no longer truncates into meaninglessness. Routing still keys on the id — the alias is display only.
+- **Compatibility.** `alias` is a new column on `settings_custom_provider_models`, added through the existing additive `ALTER TABLE … ADD COLUMN` migration path, so an upgraded install keeps every configured model and simply reads back `undefined` until an alias is set. Sanitization (both `sanitize.ts` and the store's own `sanitizeModels`) normalizes `""` to `undefined`, and a save → fresh store → load round-trip test guards it (pitfall 11).
+- **Hover marquee.** When the model name still does not fit the composer pill, hovering (or opening the menu) scrolls it right→left so the whole name is readable. The travel distance is computed from the pill's own width via a CSS container query (`calc(100cqw - 100%)`), not `vw` — pitfall 16 — so it stays correct when the file panel narrows the chat column, and it is disabled under `prefers-reduced-motion`.
+- **Project custom commands.** Project settings gained a command editor (name / description / body). The commands are stored per Project and served through the shared `/api/desktop/composer-suggestions` catalog, so typing `/` in that Project's composer lists them first. Selecting one fills the composer with the command body and never sends: `submitOnSelect: false` on the suggestion, plus Tab now completes without submitting anywhere in the composer (only Enter or a click may auto-send a whole-message invocation). Saving the Project refetches the catalog, since Settings and Chat share one WebView and the composer's legacy `$:` cannot observe the store change on its own (pitfalls 2 and 13).
+- **Compatibility.** `custom_commands` is a new nullable `projects` column created through the same additive migration the table already uses; existing Projects load with no commands and behave exactly as before.
+- **Log rotation.** The desktop supervisor's rolling log cap dropped from 20 MB to 5 MB per file (5 generations, via the `file-rotate` crate it already used). The standalone Web/Node service had no file sink at all — it now tees stdout/stderr into `<dataDir>/runtime/server.log` with the same 5 MB / 5-generation policy, rotating *before* a write so no record straddles two files and the cap is a firm ceiling. The desktop-managed sidecar skips this, because the supervisor already captures its output.
+- Verification: `chat-ui` structural guards 133/133 (new assertions for Tab-completes-without-sending, the alias + marquee pill, and the Project-command round trip), `svelte-check` 0 errors / 0 warnings, Desktop production build clean, Web `vite build` clean, supervisor Rust suite 41/41, `file-logger` node test 1/1, and the composer-suggestion / project-store / settings-store / model-switch / desktop-model TS suites 59/59. Not yet exercised on a real cold-start walk (pitfall 10) — see below.
+
 ## 2026-08-03
 
 ### Release: v2.9.0 / Desktop v0.8.7

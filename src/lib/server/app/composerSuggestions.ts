@@ -1,4 +1,5 @@
 import type { DesktopComposerSuggestion, DesktopMiniAppItem, DesktopSkillItem } from "$lib/shared/desktop";
+import type { ProjectCustomCommand } from "$lib/server/projects/store";
 
 interface CommandDefinition {
   name: string;
@@ -24,8 +25,22 @@ export const WEB_COMMAND_DEFINITIONS: readonly CommandDefinition[] = [
 export function buildComposerSuggestions(
   skills: DesktopSkillItem[],
   locale: "en" | "zh",
-  miniApps: DesktopMiniAppItem[] = []
+  miniApps: DesktopMiniAppItem[] = [],
+  projectCommands: ProjectCustomCommand[] = []
 ): DesktopComposerSuggestion[] {
+  // Project-scoped custom commands. `insertText` is the command body (not the
+  // `/name` token), so completing one fills the composer with the template for
+  // the user to review; `submitOnSelect: false` means neither Tab nor Enter
+  // auto-sends. They lead the list so a Project's own commands surface first.
+  const customCommands = projectCommands.map((command) => ({
+    id: `project-command:${command.name}`,
+    kind: "command" as const,
+    label: `/${command.name}`,
+    insertText: command.content,
+    description: command.description ?? "",
+    aliases: [command.name],
+    submitOnSelect: false
+  }));
   const commands = WEB_COMMAND_DEFINITIONS.map((command) => ({
     id: `command:${command.name}`,
     kind: "command" as const,
@@ -62,7 +77,7 @@ export function buildComposerSuggestions(
       aliases: [app.id, app.name.toLowerCase()],
       submitOnSelect: false
     }));
-  return [...commands, ...enabledSkills, ...invocableMiniApps];
+  return [...customCommands, ...commands, ...enabledSkills, ...invocableMiniApps];
 }
 
 /**

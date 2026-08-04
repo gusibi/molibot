@@ -54,8 +54,15 @@ cp "$ROOT_DIR/.env.example" "$OUTPUT_DIR/.env.example"
 
 mkdir -p "$OUTPUT_DIR/scripts/runtime"
 cp "$ROOT_DIR/scripts/start-server.mjs" "$OUTPUT_DIR/scripts/start-server.mjs"
-cp "$ROOT_DIR/scripts/runtime/service-lease.mjs" "$OUTPUT_DIR/scripts/runtime/service-lease.mjs"
-cp "$ROOT_DIR/scripts/runtime/service-port.mjs" "$OUTPUT_DIR/scripts/runtime/service-port.mjs"
+# Copy every runtime module (excluding tests). Never enumerate files by hand here:
+# start-server.mjs imports these at startup, so a missing one is a hard boot failure.
+for runtime_module in "$ROOT_DIR"/scripts/runtime/*.mjs; do
+  [[ -e "$runtime_module" ]] || continue
+  case "$runtime_module" in
+    *.test.mjs) continue ;;
+  esac
+  cp "$runtime_module" "$OUTPUT_DIR/scripts/runtime/$(basename "$runtime_module")"
+done
 
 for script_name in molibot.js molibot-release.sh molibot-manage.js molibot-service.sh molibot-update.sh molibot-control.js molibot-control-service.sh; do
   if [[ -f "$ROOT_DIR/bin/$script_name" ]]; then

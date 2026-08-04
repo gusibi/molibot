@@ -28,6 +28,7 @@ export function buildDesktopModelState(
     options: buildModelOptions(settings, route).map((option) => ({
       key: option.key,
       label: option.label,
+      alias: option.alias,
       contextWindow: option.contextWindow,
       thinkingLevels: option.thinkingLevels
     }))

@@ -5,6 +5,34 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-08-04
+
+### 修复：v2.9.0 打包缺模块导致服务完全无法启动（Issue #30，已完成，P0）
+
+- 现象：打包安装的 v2.9.0 每次启动都以 `Cannot find module '.../scripts/runtime/crash-report.mjs'` 退出，supervisor 无限重启，应用彻底不可用。
+- 根因：`bin/molibot-release.sh` 用手写文件名逐个拷贝 `scripts/runtime/*`，`start-server.mjs` 新增的 `crash-report.mjs` / `file-logger.mjs` 没被加进拷贝清单，且没有任何测试把「启动入口的 import 图」和「打包产物内容」对上。这是同一根因第二次发生（上一次漏的是 `skills/`），因此改为按 glob 拷贝整个目录并排除 `*.test.mjs`。
+- 第二层防护：崩溃上报与文件日志属于可观测性模块，不应成为启动依赖。改为 `loadOptionalRuntimeModule()` 动态加载 + `?.` 调用，模块缺失只打一行 stderr，服务照常启动。
+- 机器护栏：新增 `scripts/runtime/release-bundle.test.mjs`，解析 `scripts/start-server.mjs` 可达的全部相对 `*.mjs` 依赖（静态 import、动态 import、以及作为参数传入的 specifier），断言它们都落在被 glob 覆盖的 `scripts/runtime/` 内，并断言发布脚本仍是 glob 拷贝。`pnpm run test:service-bootstrap` 同时补上此前未接入的 `service-port` / `crash-report` / `file-logger` 测试。见 `CLAUDE.md` 坑位 22。
+- 验证：`pnpm run test:service-bootstrap` 16/16；护栏做过反向验证（把 glob 改回单文件名即 fail）；并在合成 bundle 上走了真实启动路径——删掉两个模块时服务打印降级提示并继续走到应用导入，保留时崩溃处理器能写出结构化 `[mom-t] service_crash` 记录。
+
+### 模型别名显示 + 悬浮跑马灯（已完成，P1）
+
+- Provider 的每个模型新增可选 `alias`（别名）。Desktop 与 Web 的 Provider 模型列表、模型编辑弹窗、聊天输入区的模型选择器都优先显示别名，完整模型 ID 退居 tooltip / 次级行。路由仍以模型 ID 为准，别名纯展示。
+- 名称仍放不下时，鼠标悬浮（或菜单展开）会让文字右→左滚动，滚动距离由 pill 自身宽度经容器查询算出（`calc(100cqw - 100%)`，非 `vw`，见坑位 16），文件面板收窄聊天列时依然正确；`prefers-reduced-motion` 下不动。
+- 兼容性：`settings_custom_provider_models` 新增 `alias` 列，走既有的增量 `ALTER TABLE … ADD COLUMN` 迁移；升级后旧配置完好，未设别名读回 `undefined`（`""` 会被归一化）。已有保存→重开 store→读取的往返回归（坑位 11）。
+
+### Project 自定义命令（已完成，P1）
+
+- Project 设置页新增命令编辑器（命令名 / 说明 / 内容），按 Project 存储，经共享的 `/api/desktop/composer-suggestions` 目录下发；在该 Project 的输入框输入 `/` 时，自定义命令排在最前。
+- 选中命令只把内容补齐到输入框，绝不自动发送（建议项 `submitOnSelect: false`）。同时 Tab 在整个输入框内统一改为「只补全不发送」，只有 Enter 或点击才可能触发整条消息型调用的自动发送。
+- 保存 Project 设置后立即重新拉取建议目录：Settings 与 Chat 共用一个 WebView，而输入框的 legacy `$:` 看不到跨模块 store 变化（坑位 2、13）。
+- 兼容性：`projects` 表新增可空 `custom_commands` 列，沿用该表已有的增量迁移；旧 Project 读出为空、行为不变。
+
+### 服务日志按 5MB 自动切片（已完成，P2）
+
+- 桌面端 supervisor 的滚动日志上限由 20MB 降为 5MB / 文件，保留 5 代（继续使用其已引入的 `file-rotate` crate）。
+- 独立 Web/Node 服务此前完全没有文件日志，现在把 stdout/stderr 同时写入 `<dataDir>/runtime/server.log`，同样 5MB × 5 代；切片发生在写入之前，因此单条记录不会被拆到两个文件，上限是硬上限。被桌面托管的 sidecar 跳过这条路径（supervisor 已经在录）。
+
 ## 2026-08-03
 
 ### 服务自愈：假健康检查、升级抢占旧进程、崩溃无痕、目录缺失（已完成，P0）

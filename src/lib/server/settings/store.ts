@@ -699,6 +699,7 @@ function sanitizeModels(
     if (!id) continue;
     models.push({
       id,
+      alias: String(obj.alias ?? "").trim() || undefined,
       tags: sanitizeModelTags(obj.tags),
       supportedRoles: sanitizeRoles(obj.supportedRoles ?? providerRoles),
       contextWindow: typeof obj.contextWindow === "number" && obj.contextWindow > 0 ? obj.contextWindow : undefined,
@@ -1342,6 +1343,7 @@ export class SettingsStore {
       CREATE TABLE IF NOT EXISTS settings_custom_provider_models (
         provider_id TEXT NOT NULL,
         model_id TEXT NOT NULL,
+        alias TEXT,
         tags_json TEXT NOT NULL,
         supported_roles_json TEXT NOT NULL,
         context_window INTEGER,
@@ -1395,6 +1397,11 @@ export class SettingsStore {
     }
     try {
       db.exec("ALTER TABLE settings_custom_provider_models ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_custom_provider_models ADD COLUMN alias TEXT");
     } catch {
       // column already exists
     }
@@ -1686,12 +1693,13 @@ export class SettingsStore {
         reasoning_effort_map_json: string;
       }>;
       const modelRows = db.prepare(`
-        SELECT provider_id, model_id, tags_json, supported_roles_json, context_window, verification_json, enabled
+        SELECT provider_id, model_id, alias, tags_json, supported_roles_json, context_window, verification_json, enabled
         FROM settings_custom_provider_models
         ORDER BY provider_id ASC, order_index ASC, model_id ASC
       `).all() as Array<{
         provider_id: string;
         model_id: string;
+        alias: string | null;
         tags_json: string;
         supported_roles_json: string;
         context_window: number | null;
@@ -1703,6 +1711,7 @@ export class SettingsStore {
         const list = modelsByProvider.get(row.provider_id) ?? [];
         list.push({
           id: row.model_id,
+          alias: row.alias?.trim() || undefined,
           tags: this.parseDynamicValue(row.tags_json, []),
           supportedRoles: this.parseDynamicValue(row.supported_roles_json, []),
           contextWindow: row.context_window && row.context_window > 0 ? row.context_window : undefined,
@@ -1889,8 +1898,8 @@ export class SettingsStore {
         `);
         const insertModel = db.prepare(`
           INSERT INTO settings_custom_provider_models
-            (provider_id, model_id, tags_json, supported_roles_json, context_window, verification_json, enabled, order_index, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (provider_id, model_id, alias, tags_json, supported_roles_json, context_window, verification_json, enabled, order_index, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const provider of settings.customProviders) {
           insertProvider.run(
@@ -1915,6 +1924,7 @@ export class SettingsStore {
             insertModel.run(
               provider.id,
               modelId,
+              model.alias?.trim() || null,
               JSON.stringify(model.tags ?? []),
               JSON.stringify(model.supportedRoles ?? []),
               model.contextWindow && model.contextWindow > 0 ? model.contextWindow : null,

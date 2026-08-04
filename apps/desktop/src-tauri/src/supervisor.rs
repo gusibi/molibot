@@ -148,7 +148,7 @@ fn data_dir() -> Result<PathBuf, String> {
 /// slicing it down to `max_lines`. Comfortably holds a few thousand log lines
 /// while keeping the read cheap even when the file has grown to tens of MB.
 const LOG_TAIL_BYTES: u64 = 4 * 1024 * 1024;
-const LOG_ROTATE_BYTES: u64 = 20 * 1024 * 1024;
+const LOG_ROTATE_BYTES: u64 = 5 * 1024 * 1024;
 const LOG_ROTATE_GENERATIONS: usize = 5;
 
 #[derive(Clone, Debug, Default, Deserialize)]

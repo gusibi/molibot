@@ -799,7 +799,10 @@
                         {#each group.items as item (item.index)}
                           {@const model = item.model}
                           <div class="provider-model-row" class:off={!model.enabled}>
-                            <span class="provider-model-name">{model.id || session.text.providerModelId}</span>
+                            <span class="provider-model-name">
+                              {model.alias || model.id || session.text.providerModelId}
+                              {#if model.alias}<small class="provider-model-alias-id" title={model.id}>{model.id}</small>{/if}
+                            </span>
                             <span class="provider-model-caps">
                               {#each model.tags as tag (tag)}
                                 <span class="provider-cap" data-tag={tag} title={capabilityLabel(tag)}><i class={`ph ${CAPABILITY_ICONS[tag]}`} aria-hidden="true"></i><span class="sr-only">{capabilityLabel(tag)}</span></span>
@@ -881,6 +884,10 @@
           <label class="provider-field">
             <span class="provider-field-label">{session.text.providerModelId}</span>
             <input class="provider-input" value={modelEditorDraft.id} placeholder="gpt-5" spellcheck="false" oninput={(event) => (modelEditorDraft = modelEditorDraft ? { ...modelEditorDraft, id: (event.currentTarget as HTMLInputElement).value } : null)} />
+          </label>
+          <label class="provider-field">
+            <span class="provider-field-label">{session.text.providerModelAlias}</span>
+            <input class="provider-input" value={modelEditorDraft.alias ?? ""} placeholder={session.text.providerModelAliasHint} spellcheck="false" oninput={(event) => { const value = (event.currentTarget as HTMLInputElement).value; modelEditorDraft = modelEditorDraft ? { ...modelEditorDraft, alias: value.trim() ? value : undefined } : null; }} />
           </label>
           <label class="provider-field">
             <span class="provider-field-label">{session.text.providerModelContext}</span>

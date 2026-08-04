@@ -121,7 +121,7 @@
     onclick={(event) => disabled && event.preventDefault()}
   >
     <i class="ph ph-cpu" aria-hidden="true"></i>
-    <span class="composer-model-label">{modelLabel}</span>
+    <span class="composer-model-label"><span class="composer-model-label-text">{modelLabel}</span></span>
     <span class="composer-model-level">{levelLabel}</span>
     <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
   </summary>
@@ -146,7 +146,10 @@
           {#if page === "model"}
             {#each modelOptions as model (model.key)}
               <button type="button" role="menuitemradio" aria-checked={model.key === activeModelKey} onclick={() => selectModel(model.key)}>
-                <span title={model.label}>{model.label}</span>
+                <span class="composer-model-option-copy" title={model.label}>
+                  <span class="composer-model-option-name">{model.alias || model.label}</span>
+                  {#if model.alias}<small class="composer-model-option-id">{model.label}</small>{/if}
+                </span>
                 {#if model.key === activeModelKey}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
               </button>
             {/each}

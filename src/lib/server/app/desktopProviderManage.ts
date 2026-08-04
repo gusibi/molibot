@@ -16,6 +16,7 @@ function normalizeModel(model: DesktopProviderModel): ProviderModelConfig | null
   if (!id) return null;
   return {
     id,
+    alias: String(model.alias ?? "").trim() || undefined,
     tags: Array.isArray(model.tags) && model.tags.length > 0 ? [...model.tags] : ["text"],
     supportedRoles: Array.isArray(model.supportedRoles) && model.supportedRoles.length > 0
       ? [...model.supportedRoles]

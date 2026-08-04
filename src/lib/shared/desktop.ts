@@ -540,6 +540,8 @@ export interface DesktopTaskActionResponse extends DesktopTaskResponse {
 export interface DesktopModelOption {
   key: string;
   label: string;
+  /** Optional human-friendly display name; UI prefers this over `label`. */
+  alias?: string;
   contextWindow?: number;
   thinkingLevels?: DesktopThinkingLevel[];
 }
@@ -799,6 +801,7 @@ export type DesktopProviderThinkingFormat = "openai" | "openrouter" | "anthropic
 
 export interface DesktopProviderModel {
   id: string;
+  alias?: string;
   tags: DesktopProviderModelTag[];
   supportedRoles: DesktopProviderModelRole[];
   contextWindow?: number;

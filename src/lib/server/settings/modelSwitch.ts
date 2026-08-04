@@ -9,6 +9,8 @@ export type ModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
 export interface ModelOption {
   key: string;
   label: string;
+  /** Optional human-friendly display name from the provider config. */
+  alias?: string;
   contextWindow?: number;
   thinkingLevels: RuntimeSettings["defaultThinkingLevel"][];
   patch: Partial<RuntimeSettings>;
@@ -110,7 +112,7 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
     options.push(option);
   };
 
-  const pushBuiltInOption = (providerId: string, modelId: string): void => {
+  const pushBuiltInOption = (providerId: string, modelId: string, alias?: string): void => {
     const key = `pi|${providerId}|${modelId}`;
     let contextWindow: number | undefined;
     let thinkingLevels: RuntimeSettings["defaultThinkingLevel"][] = [...RUNTIME_THINKING_LEVELS];
@@ -125,6 +127,7 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
     pushOption({
       key,
       label: `[PI] ${providerId} / ${modelId}`,
+      alias: alias?.trim() || undefined,
       contextWindow,
       thinkingLevels,
       patch: {
@@ -139,16 +142,17 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
   };
 
   if (route === "text" || route === "vision" || route === "subagent") {
-    pushBuiltInOption(
-      settings.piModelProvider,
-      resolveBuiltInProviderDefaultModel(settings, settings.piModelProvider, settings.piModelName)
-    );
+    const defaultModelId = resolveBuiltInProviderDefaultModel(settings, settings.piModelProvider, settings.piModelName);
+    const configuredAlias = settings.customProviders
+      .find((p) => p.id === settings.piModelProvider)
+      ?.models.find((m) => m.id.trim() === defaultModelId)?.alias;
+    pushBuiltInOption(settings.piModelProvider, defaultModelId, configuredAlias);
   }
 
   for (const provider of settings.customProviders.filter((p) => p.enabled !== false && isKnownProvider(p.id))) {
     const models = provider.models.filter((m) => m.enabled !== false && m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
     for (const model of models) {
-      pushBuiltInOption(provider.id, model.id.trim());
+      pushBuiltInOption(provider.id, model.id.trim(), model.alias);
     }
   }
 
@@ -162,6 +166,7 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
       options.push({
         key: `custom|${provider.id}|${modelId}`,
         label: `[Custom] ${provider.name} / ${modelId}`,
+        alias: model.alias?.trim() || undefined,
         contextWindow: model.contextWindow,
         thinkingLevels: getModelThinkingLevels({
           reasoning: true,
