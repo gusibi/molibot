@@ -5,6 +5,11 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-08-05
+
+### Release: v2.9.3 / Desktop v0.9.0
+- Synchronized the root and Desktop package versions for the new release.
+
 ## 2026-08-04
 
 ### Fixed: The Automations page header was a grey slab with the tabs huddled in its left corner
