@@ -7,6 +7,9 @@
 ---
 ## 2026-08-05
 
+### Release: v2.9.4 / Desktop v0.9.1
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: A Feishu image sent together with text was never seen by the vision model — the agent invented its contents
 
 Reported from a session where "这张图片是什么内容" returned a fabricated description of a dog meme, after the agent had wandered through `skillSearch` and then generated an unrelated image into the user's chat. Three defects, one root cause and two amplifiers.
