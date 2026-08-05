@@ -124,14 +124,18 @@
           <span>{copy.projectCommands}</span>
           <small class="project-commands-hint">{copy.projectCommandsHint}</small>
           <div class="project-commands-list">
+            {#if customCommands.length === 0}
+              <p class="project-commands-empty">{copy.projectCommandsEmpty}</p>
+            {/if}
             {#each customCommands as command, index (index)}
               <div class="project-command-row">
-                <div class="project-command-head">
-                  <div class="project-command-slash"><span class="project-command-slash-mark" aria-hidden="true">/</span><input class="project-command-name" value={command.name} placeholder={copy.projectCommandNamePlaceholder} spellcheck="false" autocapitalize="off" autocorrect="off" oninput={(event) => updateCustomCommand(index, { name: (event.currentTarget as HTMLInputElement).value })} onblur={(event) => updateCustomCommand(index, { name: normalizeCommandName((event.currentTarget as HTMLInputElement).value) })} /></div>
-                  <button class="project-command-remove" type="button" aria-label={copy.projectCommandRemove} title={copy.projectCommandRemove} onclick={() => removeCustomCommand(index)}><i class="ph ph-trash" aria-hidden="true"></i></button>
-                </div>
-                <input class="project-command-desc" value={command.description ?? ""} placeholder={copy.projectCommandDescriptionPlaceholder} oninput={(event) => updateCustomCommand(index, { description: (event.currentTarget as HTMLInputElement).value })} />
-                <textarea class="project-command-content" rows="2" value={command.content} placeholder={copy.projectCommandContentPlaceholder} oninput={(event) => updateCustomCommand(index, { content: (event.currentTarget as HTMLTextAreaElement).value })}></textarea>
+                <label class="project-command-label" for={`project-command-name-${index}`}>{copy.projectCommandNameLabel}</label>
+                <div class="project-command-slash"><span class="project-command-slash-mark" aria-hidden="true">/</span><input id={`project-command-name-${index}`} class="project-command-name" value={command.name} placeholder={copy.projectCommandNamePlaceholder} spellcheck="false" autocapitalize="off" autocorrect="off" oninput={(event) => updateCustomCommand(index, { name: (event.currentTarget as HTMLInputElement).value })} onblur={(event) => updateCustomCommand(index, { name: normalizeCommandName((event.currentTarget as HTMLInputElement).value) })} /></div>
+                <button class="project-command-remove" type="button" aria-label={copy.projectCommandRemove} title={copy.projectCommandRemove} onclick={() => removeCustomCommand(index)}><i class="ph ph-trash" aria-hidden="true"></i></button>
+                <label class="project-command-label" for={`project-command-desc-${index}`}>{copy.projectCommandDescriptionLabel}</label>
+                <input id={`project-command-desc-${index}`} class="project-command-desc" value={command.description ?? ""} placeholder={copy.projectCommandDescriptionPlaceholder} oninput={(event) => updateCustomCommand(index, { description: (event.currentTarget as HTMLInputElement).value })} />
+                <label class="project-command-label project-command-label-top" for={`project-command-content-${index}`}>{copy.projectCommandContentLabel}</label>
+                <textarea id={`project-command-content-${index}`} class="project-command-content" rows="3" value={command.content} placeholder={copy.projectCommandContentPlaceholder} oninput={(event) => updateCustomCommand(index, { content: (event.currentTarget as HTMLTextAreaElement).value })}></textarea>
               </div>
             {/each}
           </div>

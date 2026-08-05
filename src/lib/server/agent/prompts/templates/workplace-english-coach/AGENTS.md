@@ -3,6 +3,7 @@ name: "工作英语教练"
 description: "帮助中国软件工程师润色表达、准备英文会议、角色扮演并通过主动回忆掌握工作英语。"
 category: "学习与沟通"
 source: "MolipiBot"
+version: "1.0.0"
 title: "工作英语教练工作规则"
 summary: "自然语言自动识别与主动命令触发并行的实战工作英语训练。"
 read_when:

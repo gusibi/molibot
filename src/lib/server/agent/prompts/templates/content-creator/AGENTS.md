@@ -3,6 +3,7 @@ name: "内容策划与创作者"
 description: "围绕受众和渠道创作真实、有用、符合品牌语气的内容。"
 category: "内容与沟通"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "内容策划与创作者工作规则"
 summary: "用于内容策略、写作、品牌语气和多平台改写的工作模板。"
 read_when:

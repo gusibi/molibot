@@ -10,6 +10,7 @@
     loadMiniApps,
     toggleMiniApp,
     uninstallMiniApp,
+    updateMiniApp,
     installMiniApp
   } from "../stores/miniapps.svelte";
   import type { DesktopMiniAppItem, DesktopMiniAppSource } from "@molibot/desktop-contract";
@@ -203,6 +204,11 @@
               <strong>
                 {app.name}
                 <span class="miniapps-version">{app.version}</span>
+                {#if app.updateAvailable}
+                  <span class="miniapps-update-badge">
+                    {session.text.miniAppUpdateAvailable.replace("{version}", app.availableVersion)}
+                  </span>
+                {/if}
               </strong>
               {#if app.description}<p>{app.description}</p>{/if}
               <p class="miniapps-provenance">{sourceLabel(app.source)}</p>
@@ -221,6 +227,16 @@
                 ariaLabel={`${app.name}: ${session.text.pluginEnabled}`}
                 onCheckedChange={(checked) => void toggleMiniApp(app.id, checked)}
               />
+              {#if app.updateAvailable}
+                <button
+                  class="secondary-button"
+                  type="button"
+                  disabled={miniAppsStore.busyId.length > 0}
+                  onclick={() => void updateMiniApp(app.id)}
+                >
+                  {miniAppsStore.busyId === app.id ? session.text.miniAppUpdating : session.text.miniAppUpdate}
+                </button>
+              {/if}
               {#if app.enabled && app.status === "active" && onOpenApp}
                 <button class="secondary-button" type="button" onclick={() => onOpenApp?.(app.id)}>
                   {session.text.miniAppOpen}

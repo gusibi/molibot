@@ -5,6 +5,27 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.38 Unified Artifact Panel: viewer registry, HTML preview, CSV tables (2026-08-05)
+
+- **Priority / Status**: P0-P2 slices / Planned (local PRD only, no GitHub issue).
+- **Problem**: the right side is three unrelated surfaces — ProjectFilePanel (code/diff/MediaViewer, Projects only), MiniAppPanel (its own container), and a chat-side modal that previews only image/audio/video. HTML preview does not exist anywhere, ordinary chats cannot preview PDFs or code in a panel, CSV/JSON/Markdown/SVG render as raw text, and every new format would have to be built twice (pitfall #7 fork).
+- **Decision**: converge the right side into one Artifact Panel — a tab container plus a shared viewer registry keyed on MIME + extension (empty-MIME fallback per `resolveWebInboundFileMeta()`); Mini Apps become an iframe-type tab with their internals untouched. Slice 0 is a behavior-preserving container refactor; Slice 1 (P0) adds sandboxed same-pattern-as-miniapp HTML preview (no `allow-same-origin`, root-validated, fail-closed), routes chat attachments into the panel viewers, and adds a CSV/TSV table viewer with raw toggle; Slice 2 (P1) adds Markdown (reusing `markdown.ts`), JSON tree, SVG, and audio; Slice 3 (P2) adds mermaid and a system-app fallback card for unsupported types. Every file tab shares one action bar: reveal, open-with-system, copy path, save-as, insert-as-`@`-reference (via §3.35 validated syntax). Explicitly out of scope: embedded editor, file management ops, a general browser, Office inline rendering, CSV/JSON editing.
+- **Acceptance**: full PRD with user stories, per-slice acceptance, and mandatory test seams (registry dispatch, HTML route escape/fail-closed, CSV parsing incl. CJK, single-mount + sandbox + three-theme structural guards, blob URL lifecycle, cold-start smoke walk) in [docs/requirements/artifact-panel-prd.md](docs/requirements/artifact-panel-prd.md).
+
+## 3.37 Model verification feedback belongs to the model dialog (2026-08-05)
+
+- **Priority / Status**: P2 / Delivered (2026-08-05).
+- **Problem**: a per-model connection check wrote its outcome to the Provider page's generic action message, leaving success/failure visibly behind the modal and disconnected from the button that initiated it.
+- **Decision**: return the model-check outcome from the Provider store without publishing a page-level message; let the open model editor own its transient result and place it immediately left of the verification action.
+- **Acceptance**: pending, passed, and failed states remain within the model dialog; success and failure share one stable footer position and explicit accessible text; closing or switching editors rejects stale outcomes; the outer Provider pane receives no model-check result; Desktop structural tests, Svelte diagnostics, and production build pass.
+
+## 3.36 Project custom-command editor hierarchy and focus ownership (2026-08-05)
+
+- **Priority / Status**: P2 / Delivered (2026-08-05).
+- **Problem**: one custom command appeared as three unrelated, misaligned bordered boxes; the remove action shortened only the name row, and focusing the nested name input drew both its generic settings-field ring and the composite wrapper ring.
+- **Decision**: present each command as one label/field grid inside a grouped surface, reserve a stable action gutter, use tonal wells instead of another border layer, and make the slash/name wrapper the sole owner of the command-name focus ring. Scope Project settings to the AppKit-neutral `--control-border-strong` / `--label-primary` focus hierarchy instead of the generic blue Geist ring.
+- **Acceptance**: command, description, and content share aligned edges and explicit labels; empty state is visible; Light/Dark roles stay token-driven; every Project-settings control retains a visible neutral keyboard focus with no accent-blue border; structural regressions, Svelte diagnostics, and the Desktop production build pass.
+
 ## 3.35 Trusted Project file references and mutation claims (2026-08-03)
 
 - **Priority / Status**: P0 / Delivered (2026-08-03).

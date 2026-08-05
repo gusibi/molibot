@@ -1187,14 +1187,34 @@ export interface DesktopSkillSearch {
   providers: Array<{ id: string; name: string; defaultModel: string; models: string[] }>;
 }
 
+/**
+ * A Skill that ships with Molibot and was materialised into the workspace.
+ *
+ * The loader only ever reads the owner's workspace, so a bundled Skill exists
+ * on disk as the owner's copy. This is what lets Settings say which version is
+ * installed, and offer to write the shipped one over it.
+ */
+export interface DesktopBuiltinSkillState {
+  id: string;
+  version: string;
+  installedVersion: string;
+  installed: boolean;
+  updateAvailable: boolean;
+  /** True when the copy on disk no longer matches the files Molibot wrote. */
+  modified: boolean;
+}
+
 export type DesktopSkillsUpdateRequest =
   | { kind: "skill"; id: string; enabled: boolean }
-  | { kind: "search"; localEnabled: boolean; apiEnabled: boolean; apiProvider: string; apiModel: string; maxTokens: number; temperature: number; timeoutMs: number; minConfidence: number };
+  | { kind: "search"; localEnabled: boolean; apiEnabled: boolean; apiProvider: string; apiModel: string; maxTokens: number; temperature: number; timeoutMs: number; minConfidence: number }
+  | { kind: "builtin"; id: string };
 
 export interface DesktopSkillsSummary {
   items: DesktopSkillItem[];
   counts: { total: number; enabled: number; global: number; bot: number; chat: number };
   search: DesktopSkillSearch;
+  /** Built-in Skills and their installed-vs-shipped version state. */
+  builtins: DesktopBuiltinSkillState[];
 }
 
 export interface DesktopSkillsResponse {
@@ -1470,6 +1490,10 @@ export interface DesktopMiniAppItem {
   /** Icon inlined as a `data:` URI, or empty when the app declares none. */
   iconDataUri: string;
   source: DesktopMiniAppSource;
+  /** True when Molibot ships a newer copy of this built-in than the installed one. */
+  updateAvailable: boolean;
+  /** The version the current Molibot build carries, or empty when none. */
+  availableVersion: string;
   error: string;
 }
 
@@ -1481,6 +1505,23 @@ export interface DesktopMiniAppsResponse {
 export interface DesktopMiniAppToggleRequest {
   appId: string;
   enabled: boolean;
+}
+
+/**
+ * Reinstalls a built-in Mini App from the copy this Molibot build ships.
+ * Replaces the app's code wholesale; its data directory is never touched.
+ */
+export interface DesktopMiniAppUpdateRequest {
+  appId: string;
+}
+
+export interface DesktopMiniAppUpdateResponse {
+  ok: true;
+  items: DesktopMiniAppItem[];
+  /** The version now on disk. */
+  version: string;
+  /** V1 has no hot reload: the new code only runs after a service restart. */
+  restartRequired: true;
 }
 
 export interface DesktopMiniAppUninstallRequest {

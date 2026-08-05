@@ -33,6 +33,8 @@ const miniApp: DesktopMiniAppItem = {
   toolNames: ["add", "list"],
   iconDataUri: "",
   source: { kind: "builtin" },
+  updateAvailable: false,
+  availableVersion: "1.0.0",
   error: ""
 };
 

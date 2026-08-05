@@ -77,6 +77,8 @@
   let apiKeyVisible = $state(false);
   let modelEditorIndex = $state<number | null>(null);
   let modelEditorDraft = $state<DesktopProviderModel | null>(null);
+  let modelVerificationMessage = $state("");
+  let modelVerificationFailed = $state(false);
   let modelDiscoveryOpen = $state(false);
   let modelDiscoveryQuery = $state("");
   let modelDiscoveryFilter = $state<"all" | "added" | "new">("all");
@@ -368,6 +370,8 @@
 
   function openNewModelEditor(): void {
     modelEditorIndex = null;
+    modelVerificationMessage = "";
+    modelVerificationFailed = false;
     modelEditorDraft = {
       id: "",
       tags: ["text"],
@@ -381,6 +385,8 @@
     const model = editor?.models[index];
     if (!model) return;
     modelEditorIndex = index;
+    modelVerificationMessage = "";
+    modelVerificationFailed = false;
     modelEditorDraft = {
       ...model,
       tags: [...model.tags],
@@ -392,6 +398,27 @@
   function closeModelEditor(): void {
     modelEditorIndex = null;
     modelEditorDraft = null;
+    modelVerificationMessage = "";
+    modelVerificationFailed = false;
+  }
+
+  async function verifyModelEditorConnection(): Promise<void> {
+    if (modelEditorIndex === null || !modelEditorDraft || !editor) return;
+    const index = modelEditorIndex;
+    const providerId = editor.id;
+    modelVerificationMessage = "";
+    modelVerificationFailed = false;
+    const outcome = await verifyProviderModel(index);
+    // Closing the dialog or switching providers while the request is in flight
+    // retires the result instead of leaking it into a different editor.
+    if (!outcome || modelEditorIndex !== index || !modelEditorDraft || editor?.id !== providerId) return;
+    modelVerificationMessage = outcome.message;
+    modelVerificationFailed = !outcome.ok;
+    modelEditorDraft = {
+      ...modelEditorDraft,
+      supportedRoles: outcome.model.supportedRoles ? [...outcome.model.supportedRoles] : modelEditorDraft.supportedRoles,
+      verification: { ...(outcome.model.verification ?? {}) }
+    };
   }
 
   function saveModelEditor(): void {
@@ -852,7 +879,7 @@
             </div>
           </details>
 
-          {#if providersStore.actionMessage}
+          {#if providersStore.actionMessage && !modelEditorDraft}
             <p class:run-history-failed={providersStore.actionFailed} class="settings-action-message provider-pane-message">{providersStore.actionMessage}</p>
           {/if}
         </div>
@@ -925,7 +952,12 @@
         </div>
         <footer class="provider-modal-foot">
           {#if modelEditorIndex !== null && editor && !editor.isNew}
-            <button class="secondary-button provider-modal-foot-lead" type="button" disabled={providersStore.testingId !== null} onclick={() => void verifyProviderModel(modelEditorIndex!)}>{providersStore.testingId === `${editor.id}:${modelEditorDraft.id}` ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button>
+            <div class="provider-modal-foot-leading">
+              {#if modelVerificationMessage}
+                <span class:failed={modelVerificationFailed} class="provider-model-test-result" role="status" aria-live="polite" title={modelVerificationMessage}>{modelVerificationMessage}</span>
+              {/if}
+              <button class="secondary-button" type="button" disabled={providersStore.testingId !== null} onclick={() => void verifyModelEditorConnection()}>{providersStore.testingId === `${editor.id}:${modelEditorDraft.id}` ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button>
+            </div>
           {/if}
           <button class="secondary-button" type="button" onclick={closeModelEditor}>{session.text.cancel}</button>
           <button class="primary-button" type="submit" disabled={!modelEditorDraft.id.trim()}>{session.text.save}</button>

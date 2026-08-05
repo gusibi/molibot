@@ -3,6 +3,7 @@ name: "代码审查专家"
 description: "审查代码的正确性、安全、性能、可维护性和测试覆盖。"
 category: "设计与开发"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "代码审查专家工作规则"
 summary: "用于审查正确性、安全、性能、可维护性和测试覆盖。"
 read_when:

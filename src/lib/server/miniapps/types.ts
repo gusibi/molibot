@@ -74,6 +74,14 @@ export interface MiniAppCatalogEntry {
   iconDataUri: string;
   /** Where this app came from. Display only — see {@link MiniAppInstallSource}. */
   source: MiniAppInstallSource;
+  /**
+   * True when this build ships a newer copy of a built-in than the one
+   * installed. Always false for a non-built-in: the host has no bundled copy to
+   * compare an owner-installed app against.
+   */
+  updateAvailable: boolean;
+  /** The version the bundle carries, or empty when there is no bundled copy. */
+  availableVersion: string;
   error?: string;
 }
 

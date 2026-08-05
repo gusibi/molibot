@@ -1,7 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { readMiniAppManifest, type ValidatedMiniAppManifest } from "$lib/server/miniapps/manifest.js";
+import semver from "semver";
+import {
+  builtinMiniAppVersion,
+  materializeBuiltinMiniApp,
+  type BuiltinMiniApp
+} from "$lib/server/miniapps/builtinPackage.js";
+import {
+  hasMiniAppManifestFile,
+  readMiniAppManifest,
+  type ValidatedMiniAppManifest
+} from "$lib/server/miniapps/manifest.js";
 import {
   appDataDirPath,
   isValidMiniAppId,
@@ -89,6 +99,12 @@ export interface MiniAppHostOptions {
   getInstallSources?: () => Record<string, MiniAppInstallSource>;
   /** Test seam for ESM loading. Production uses a plain dynamic import. */
   importModule?: (entryPath: string) => Promise<unknown>;
+  /**
+   * The bundled copy of a built-in app, used to offer and apply an update.
+   * Absent means the host cannot update built-ins (the catalog then simply
+   * never offers one).
+   */
+  getBuiltinApp?: (appId: string) => BuiltinMiniApp | null;
 }
 
 interface AppSlot {
@@ -104,6 +120,14 @@ interface AppSlot {
   revision: number;
   inFlight: number;
   uninstalling: boolean;
+  /**
+   * Set while the app's code directory is being replaced by an update. Like
+   * `uninstalling` it stops new work from entering, but it is deliberately not
+   * a catalog status: the app is coming straight back, and the request that
+   * started it is still in flight, so there is no moment for the owner to see
+   * a transient label.
+   */
+  updating: boolean;
 }
 
 const noopLogger: MiniAppLogger = {
@@ -180,6 +204,12 @@ export class MiniAppHost {
 
     for (const name of names.sort()) {
       if (name.startsWith(".")) continue;
+      // The code root is a real directory a person can drop files into. Only an
+      // entry that claims to be a Mini App — a directory holding a
+      // `manifest.json` — is a catalog candidate; a zip, a stray file or an
+      // unrelated folder is skipped without a slot, because an entry the user
+      // can neither install nor uninstall is only noise.
+      if (!hasMiniAppManifestFile(path.join(this.options.codeRoot, name))) continue;
       const codeDir = resolveAppCodeDir(this.options.codeRoot, name);
       if (!codeDir) {
         if (!isValidMiniAppId(name)) {
@@ -217,7 +247,8 @@ export class MiniAppHost {
         runtimeError: unchanged ? existing!.runtimeError : null,
         revision: existing?.revision ?? 0,
         inFlight: existing?.inFlight ?? 0,
-        uninstalling: false
+        uninstalling: false,
+        updating: false
       });
     }
 
@@ -236,7 +267,8 @@ export class MiniAppHost {
       runtimeError: null,
       revision: 0,
       inFlight: 0,
-      uninstalling: false
+      uninstalling: false,
+      updating: false
     };
   }
 
@@ -267,6 +299,36 @@ export class MiniAppHost {
     return recorded ?? { kind: "directory", label: "" };
   }
 
+  /**
+   * The bundled version of a built-in, when this host was given access to the
+   * bundle and the app is one we ship.
+   */
+  private bundledVersionOf(appId: string): string {
+    if (!this.builtinAppIds.has(appId)) return "";
+    const bundled = this.options.getBuiltinApp?.(appId);
+    return bundled ? builtinMiniAppVersion(bundled) : "";
+  }
+
+  /**
+   * Whether the shipped copy is newer than what is installed.
+   *
+   * Semver decides when both sides parse, so a build that ships an *older*
+   * app than the owner already has never offers a downgrade. When either side
+   * is unparseable — including the `"unknown"` an app that failed to load
+   * reports — any difference counts as an update, because reinstalling the
+   * shipped copy is exactly the repair for a broken built-in.
+   */
+  private updateAvailableFor(slot: AppSlot): boolean {
+    const bundled = this.bundledVersionOf(slot.id);
+    if (!bundled) return false;
+    const installed = slot.descriptor?.manifest.version ?? "";
+    if (installed === bundled) return false;
+    const bundledParsed = semver.valid(bundled);
+    const installedParsed = semver.valid(installed);
+    if (bundledParsed && installedParsed) return semver.gt(bundledParsed, installedParsed);
+    return true;
+  }
+
   listCatalog(): MiniAppCatalogEntry[] {
     return [...this.slots.values()]
       .map((slot) => ({
@@ -281,6 +343,8 @@ export class MiniAppHost {
         toolNames: slot.descriptor?.manifest.tools.map((tool) => tool.name) ?? [],
         iconDataUri: slot.iconDataUri,
         source: this.sourceOf(slot.id),
+        updateAvailable: this.updateAvailableFor(slot),
+        availableVersion: this.bundledVersionOf(slot.id),
         error: slot.loadError ?? slot.runtimeError ?? undefined
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
@@ -293,7 +357,7 @@ export class MiniAppHost {
   listTools(): MiniAppToolDescriptor[] {
     const descriptors: MiniAppToolDescriptor[] = [];
     for (const slot of this.slots.values()) {
-      if (!slot.descriptor || slot.uninstalling || slot.loadError) continue;
+      if (!slot.descriptor || slot.uninstalling || slot.updating || slot.loadError) continue;
       if (!this.isEnabled(slot.id)) continue;
       const { manifest } = slot.descriptor;
       for (const tool of manifest.tools) {
@@ -377,6 +441,62 @@ export class MiniAppHost {
     this.options.setEnablement(appId, { ...existing, enabled });
     this.logger.info("miniapp_enablement_changed", { appId, enabled });
     return this.listCatalog().find((entry) => entry.id === appId)!;
+  }
+
+  /**
+   * Reinstalls a built-in from the copy this build ships, replacing the code
+   * directory wholesale and leaving the app's data directory untouched.
+   *
+   * Same ordering discipline as uninstall — suspend, drain, dispose, then touch
+   * the filesystem — because the app may hold an open SQLite handle on files
+   * inside the directory being replaced.
+   *
+   * Enablement is preserved: an owner who had the app switched off gets the new
+   * code, still switched off.
+   */
+  async updateBuiltin(appId: string): Promise<void> {
+    const slot = this.slots.get(appId);
+    if (!slot) throw new MiniAppError(`Unknown Mini App: ${appId}`, "not_found");
+    if (!this.builtinAppIds.has(appId)) {
+      throw new MiniAppError(`Mini App "${appId}" is not a built-in app.`, "bad_request");
+    }
+    const bundled = this.options.getBuiltinApp?.(appId);
+    if (!bundled) {
+      throw new MiniAppError(`No bundled copy of "${appId}" is available.`, "not_found");
+    }
+
+    slot.updating = true;
+    try {
+      const drainedAt = Date.now() + UNINSTALL_DRAIN_TIMEOUT_MS;
+      while (slot.inFlight > 0) {
+        if (Date.now() > drainedAt) {
+          throw new MiniAppError(
+            `Mini App "${appId}" still has ${slot.inFlight} call(s) running; try again shortly.`,
+            "busy"
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      if (slot.runtime?.dispose) {
+        await slot.runtime.dispose();
+      }
+      slot.runtime = null;
+      slot.loading = null;
+
+      materializeBuiltinMiniApp(this.options.codeRoot, bundled);
+    } catch (cause) {
+      if (cause instanceof MiniAppError) throw cause;
+      throw new MiniAppError(sanitizeOutwardMessage(errorMessage(cause)), "load_failed");
+    } finally {
+      slot.updating = false;
+    }
+
+    this.logger.info("miniapp_updated", {
+      appId,
+      version: builtinMiniAppVersion(bundled)
+    });
+    this.refresh();
   }
 
   /**
@@ -553,6 +673,7 @@ export class MiniAppHost {
     const slot = this.slots.get(appId);
     if (!slot) throw new MiniAppError(`Unknown Mini App: ${appId}`, "not_found");
     if (slot.uninstalling) throw new MiniAppError(`Mini App "${appId}" is being uninstalled.`, "disabled");
+    if (slot.updating) throw new MiniAppError(`Mini App "${appId}" is being updated; try again shortly.`, "busy");
     // Re-read enablement per call. A tool already present in a run's tool list
     // must still be refused once the owner switches the app off.
     if (!this.isEnabled(appId)) throw new MiniAppError(`Mini App "${appId}" is disabled.`, "disabled");

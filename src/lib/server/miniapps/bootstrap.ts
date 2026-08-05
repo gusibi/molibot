@@ -6,6 +6,10 @@ import uiHtmlSource from "./builtin/todo/ui/index.html?raw";
 import uiScriptSource from "./builtin/todo/ui/app.js?raw";
 import uiStyleSource from "./builtin/todo/ui/styles.css?raw";
 import uiIconSource from "./builtin/todo/ui/icon.svg?raw";
+import {
+  materializeBuiltinMiniApp,
+  type BuiltinMiniApp
+} from "$lib/server/miniapps/builtinPackage.js";
 import { isValidMiniAppId } from "$lib/server/miniapps/paths.js";
 import type { MiniAppEnablementEntry } from "$lib/server/miniapps/host.js";
 
@@ -25,11 +29,6 @@ import type { MiniAppEnablementEntry } from "$lib/server/miniapps/host.js";
  *    reinstall the thing they deliberately removed.
  */
 
-interface BuiltinMiniApp {
-  id: string;
-  files: Record<string, string>;
-}
-
 const BUILTIN_APPS: BuiltinMiniApp[] = [
   {
     id: "todo",
@@ -43,6 +42,11 @@ const BUILTIN_APPS: BuiltinMiniApp[] = [
     }
   }
 ];
+
+/** The bundled copy of a built-in, or null when the id is not one we ship. */
+export function getBuiltinMiniApp(appId: string): BuiltinMiniApp | null {
+  return BUILTIN_APPS.find((app) => app.id === appId) ?? null;
+}
 
 export interface EnsureBuiltinMiniAppsOptions {
   codeRoot: string;
@@ -77,17 +81,7 @@ export function ensureBuiltinMiniApps(
     }
 
     try {
-      // Materialise into a staging directory and rename into place, so a crash
-      // mid-write cannot leave a half-written app that discovery would then
-      // report as a broken manifest.
-      const stagingDir = `${appDir}.installing`;
-      fs.rmSync(stagingDir, { recursive: true, force: true });
-      for (const [relativePath, content] of Object.entries(app.files)) {
-        const target = path.join(stagingDir, relativePath);
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, content, "utf8");
-      }
-      fs.renameSync(stagingDir, appDir);
+      materializeBuiltinMiniApp(options.codeRoot, app);
       result.installed.push(app.id);
     } catch {
       result.skipped.push({ id: app.id, reason: "failed" });

@@ -2,6 +2,8 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { buildDesktopSkillSearchSettings, buildDesktopSkillsSummary, resolveDesktopSkillPath } from "$lib/server/app/desktopSkills";
 import { getRuntime } from "$lib/server/app/runtime";
+import { applyBuiltinSkill, listBuiltinSkillStates } from "$lib/server/agent/skills/bootstrap";
+import { storagePaths } from "$lib/server/infra/db/storage";
 import { updateSkillsConfig } from "$lib/server/settings/handlers/skills";
 import type { DesktopSkillsResponse, DesktopSkillsUpdateRequest } from "$lib/shared/desktop";
 
@@ -19,7 +21,10 @@ export const GET: RequestHandler = async () => {
     return json({ ok: false, error: "Failed to list skills" }, { status: 500 });
   }
 
-  const summary = buildDesktopSkillsSummary(payload as Parameters<typeof buildDesktopSkillsSummary>[0]);
+  const summary = buildDesktopSkillsSummary(
+    payload as Parameters<typeof buildDesktopSkillsSummary>[0],
+    listBuiltinSkillStates({ skillsRoot: storagePaths.globalSkillsDir })
+  );
   const response: DesktopSkillsResponse = { ok: true, summary };
   return json(response, { headers: { "Cache-Control": "no-store" } });
 };
@@ -38,6 +43,11 @@ export const PUT: RequestHandler = async ({ request }) => {
     } else if (body.kind === "search") {
       const skillSearch = buildDesktopSkillSearchSettings(runtime.getSettings(), body);
       updateSkillsConfig(runtime, { skillSearch });
+    } else if (body.kind === "builtin") {
+      // Writes the shipped copy over the installed one. The skills root is the
+      // only place the loader reads from, so this is the whole update: no
+      // settings change, and the next turn picks the new files up.
+      applyBuiltinSkill({ skillsRoot: storagePaths.globalSkillsDir, id: String(body.id ?? "") });
     } else {
       throw new Error("Unsupported skills update");
     }

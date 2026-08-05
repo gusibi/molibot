@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import { getRuntime } from "$lib/server/app/runtime";
-import { installBuiltInAgentTemplate, listBuiltInAgentTemplates } from "$lib/server/agent/prompts/builtInAgentTemplates";
+import {
+  installBuiltInAgentTemplate,
+  listBuiltInAgentTemplates,
+  updateBuiltInAgentTemplate
+} from "$lib/server/agent/prompts/builtInAgentTemplates";
 import type { BuiltInAgentTemplateSummary } from "$lib/shared/agentTemplates";
 
 export function listInstallableAgentTemplates(): BuiltInAgentTemplateSummary[] {
@@ -32,4 +36,62 @@ export function installAgentTemplate(templateId: string): { templateId: string; 
   }
 
   return { templateId: id, agentId: id };
+}
+
+export interface AgentTemplateUpdateResult {
+  templateId: string;
+  agentId: string;
+  from: string;
+  to: string;
+  backupDir?: string;
+}
+
+/**
+ * Re-apply a built-in Agent's shipped files over the installed copy.
+ *
+ * The prompt files on disk are the substance of the update; the settings row is
+ * only the Agent's registration, so it is refreshed — name and description
+ * only — to match the template that now backs it. Everything the owner set on
+ * that row (enabled state, model routing, sandbox) is deliberately preserved:
+ * an update replaces what Molibot ships, not what the owner configured.
+ */
+export function updateAgentTemplate(templateId: string): AgentTemplateUpdateResult {
+  const runtime = getRuntime();
+  const id = String(templateId ?? "").trim();
+  const updated = updateBuiltInAgentTemplate(id);
+
+  const current = runtime.getSettings();
+  const registered = current.agents.find((agent) => agent.id === id);
+  if (registered) {
+    runtime.updateSettings({
+      agents: current.agents.map((agent) => (
+        agent.id === id
+          ? { ...agent, name: updated.template.name, description: updated.template.description }
+          : agent
+      ))
+    });
+  } else {
+    // The directory existed without a settings row — an Agent that was
+    // unregistered by hand, or a half-finished install. Updating the files and
+    // leaving it invisible would look like the button did nothing.
+    runtime.updateSettings({
+      agents: [
+        ...current.agents,
+        {
+          id,
+          name: updated.template.name,
+          description: updated.template.description,
+          enabled: true
+        }
+      ]
+    });
+  }
+
+  return {
+    templateId: id,
+    agentId: id,
+    from: updated.from,
+    to: updated.to,
+    backupDir: updated.backupDir
+  };
 }

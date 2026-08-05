@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { ensureBuiltinMiniApps } from "$lib/server/miniapps/bootstrap.js";
+import manifestSource from "$lib/server/miniapps/builtin/todo/manifest.json?raw";
+import { ensureBuiltinMiniApps, getBuiltinMiniApp } from "$lib/server/miniapps/bootstrap.js";
+import { builtinMiniAppVersion } from "$lib/server/miniapps/builtinPackage.js";
 import { createMiniAppHost, type MiniAppEnablementEntry } from "$lib/server/miniapps/host.js";
 
 /**
@@ -44,7 +46,9 @@ test("an empty owner workspace gets the Todo app on first start", () => {
   for (const file of ["manifest.json", "server/index.mjs", "ui/index.html", "ui/app.js", "ui/styles.css"]) {
     assert.ok(existsSync(join(codeRoot, "todo", file)), `${file} should be installed`);
   }
-  // No staging directory may survive a successful install.
+  // No staging directory may survive a successful install. It is dot-prefixed
+  // so that even mid-write, discovery skips it instead of reporting a broken app.
+  assert.equal(existsSync(join(codeRoot, ".todo.installing")), false);
   assert.equal(existsSync(join(codeRoot, "todo.installing")), false);
 });
 
@@ -72,7 +76,7 @@ test("an uninstalled built-in is not silently reinstalled on the next start", ()
   assert.equal(existsSync(join(codeRoot, "todo")), false);
 });
 
-test("the bootstrapped Todo app loads and exposes its four tools", () => {
+test("the bootstrapped Todo app loads and exposes the tools its manifest declares", () => {
   const { codeRoot, dataRoot } = makeRoots();
   ensureBuiltinMiniApps({ codeRoot, getEnablement: () => ({}) });
   const host = hostOver(codeRoot, dataRoot, {});
@@ -80,7 +84,12 @@ test("the bootstrapped Todo app loads and exposes its four tools", () => {
   const entry = host.listCatalog().find((row) => row.id === "todo");
   assert.equal(entry?.status, "active", entry?.error);
   assert.equal(entry?.builtin, true);
-  assert.deepEqual(entry?.toolNames, ["add", "list", "complete", "remove"]);
+  // Asserted against the shipped manifest rather than a copy of the tool list:
+  // the host's own load check already proves manifest and handlers correspond,
+  // and hard-coding the names here only breaks every time the app grows one.
+  const declared = (JSON.parse(manifestSource) as { tools: Array<{ name: string }> }).tools;
+  assert.deepEqual(entry?.toolNames, declared.map((tool) => tool.name));
+  assert.ok(["add", "list", "complete", "remove"].every((name) => entry?.toolNames.includes(name)));
 });
 
 test("Todo supports add / list / complete / delete through the agent tools", async () => {
@@ -151,6 +160,48 @@ test("20 concurrent adds keep every item and advance the revision monotonically"
   assert.equal(titles.length, 20);
   assert.equal(new Set(titles).size, 20, "no add may overwrite another");
   assert.equal(host.getRevision("todo"), 20);
+});
+
+test("updating the built-in restores the shipped code and keeps the owner's todos", async () => {
+  const { codeRoot, dataRoot } = makeRoots();
+  ensureBuiltinMiniApps({ codeRoot, getEnablement: () => ({}) });
+  const enablement: Record<string, MiniAppEnablementEntry> = {};
+  const host = createMiniAppHost({
+    codeRoot,
+    dataRoot,
+    getEnablement: () => enablement,
+    setEnablement: (appId, entry) => {
+      if (entry === null) delete enablement[appId];
+      else enablement[appId] = entry;
+    },
+    builtinAppIds: ["todo"],
+    getBuiltinApp: getBuiltinMiniApp
+  });
+  await host.invokeTool("miniapp__todo__add", { title: "survive the update" }, { toolCallId: "t1" });
+
+  // Stand in for an older install: an owner on the previous version, whose copy
+  // is also missing a file the new build ships.
+  const stale = JSON.parse(readFileSync(join(codeRoot, "todo", "manifest.json"), "utf8"));
+  stale.version = "0.9.0";
+  writeFileSync(join(codeRoot, "todo", "manifest.json"), JSON.stringify(stale), "utf8");
+  rmSync(join(codeRoot, "todo", "ui", "styles.css"));
+  host.refresh();
+
+  const shipped = builtinMiniAppVersion(getBuiltinMiniApp("todo")!);
+  const before = host.listCatalog().find((row) => row.id === "todo");
+  assert.equal(before?.updateAvailable, true);
+  assert.equal(before?.availableVersion, shipped);
+
+  await host.updateBuiltin("todo");
+
+  const after = host.listCatalog().find((row) => row.id === "todo");
+  assert.equal(after?.version, shipped);
+  assert.equal(after?.updateAvailable, false);
+  assert.equal(after?.status, "active", after?.error);
+  assert.ok(existsSync(join(codeRoot, "todo", "ui", "styles.css")), "the missing file is restored");
+
+  const listed = await host.invokeTool("miniapp__todo__list", { status: "all" }, { toolCallId: "t2" });
+  assert.deepEqual((listed.structuredContent as any[]).map((row) => row.title), ["survive the update"]);
 });
 
 test("replacing the app code leaves the owner's todos intact", async () => {

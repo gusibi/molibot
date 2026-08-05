@@ -3,6 +3,7 @@ name: "产品经理"
 description: "把用户问题转化为可验证、可交付、可衡量的产品决策。"
 category: "产品与项目"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "产品经理工作规则"
 summary: "用于问题定义、优先级、PRD、路线图与产品交付的工作模板。"
 read_when:

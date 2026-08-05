@@ -85,3 +85,22 @@ test("buildDesktopSkillsSummary counts by scope and drops the skill-search api k
   assert.equal(summary.search.apiModel, "gpt-4o");
   assert.equal(JSON.stringify(summary).includes("sk-secret-search-key"), false);
 });
+
+// Built-in version state is what the Settings "update" affordance reads. It is
+// supplied by the caller (it comes from the skills root on disk, not from the
+// shared route's payload), so the mapper must pass it through rather than
+// dropping it — a dropped field here is a button that never appears.
+test("buildDesktopSkillsSummary carries built-in Skill version state through", () => {
+  const summary = buildDesktopSkillsSummary(
+    { items: [item({ scope: "global" })] } as Parameters<typeof buildDesktopSkillsSummary>[0],
+    [{ id: "miniapp-creator", version: "1.3.0", installedVersion: "1.2.0", installed: true, updateAvailable: true, modified: false }]
+  );
+  assert.deepEqual(summary.builtins, [
+    { id: "miniapp-creator", version: "1.3.0", installedVersion: "1.2.0", installed: true, updateAvailable: true, modified: false }
+  ]);
+  // Omitting the argument must not produce `undefined` for a field the UI maps over.
+  assert.deepEqual(
+    buildDesktopSkillsSummary({ items: [] } as Parameters<typeof buildDesktopSkillsSummary>[0]).builtins,
+    []
+  );
+});

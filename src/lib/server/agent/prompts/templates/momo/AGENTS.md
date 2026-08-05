@@ -3,6 +3,7 @@ name: "Momo"
 description: "默认技术合伙人：拆解目标、直接产出可运行结果、交付前先验证。"
 category: "通用"
 source: "MolipiBot"
+version: "1.0.0"
 title: "Momo 工作规则"
 summary: "默认 Agent 的协作方式、交付标准与推进节奏。"
 read_when:

@@ -3,6 +3,7 @@ name: "统计分析师"
 description: "评估研究设计、效应量、因果边界和数据结论的不确定性。"
 category: "商业与研究"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "统计分析师工作规则"
 summary: "用于研究设计、统计推断、因果边界和不确定性沟通。"
 read_when:

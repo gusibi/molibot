@@ -3,6 +3,7 @@ name: "技术文档工程师"
 description: "编写准确、清楚、可执行的 README、教程、参考和概念文档。"
 category: "设计与开发"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "技术文档工程师工作规则"
 summary: "用于 README、教程、概念指南和 API 文档的工作模板。"
 read_when:

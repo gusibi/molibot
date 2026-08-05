@@ -2,7 +2,7 @@
   import SelectControl from "../components/ui/SelectControl.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { session } from "../stores/session.svelte";
-  import { skillsStore, discardSkillsSearch, loadSkills, saveSkillsSearch, toggleSkill } from "../stores/skills.svelte";
+  import { skillsStore, discardSkillsSearch, loadSkills, saveSkillsSearch, toggleSkill, updateBuiltinSkill } from "../stores/skills.svelte";
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== skillsStore.endpoint) {
@@ -21,6 +21,48 @@
   <div class="settings-card">
     <div class="settings-row"><strong>{session.text.skillsTotal}</strong><span class="diag-value">{skillsStore.skills.counts.total} · {session.text.agentsEnabledCount}: {skillsStore.skills.counts.enabled} · {session.text.skillScopeGlobal}: {skillsStore.skills.counts.global} · {session.text.skillScopeBot}: {skillsStore.skills.counts.bot} · {session.text.skillScopeChat}: {skillsStore.skills.counts.chat}</span></div>
   </div>
+  {#if skillsStore.skills.builtins.length > 0}
+    <div class="settings-card">
+      <div class="settings-row"><div class="profile-info"><strong>{session.text.skillBuiltins}</strong><p>{session.text.skillBuiltinsHint}</p></div></div>
+      {#each skillsStore.skills.builtins as builtin (builtin.id)}
+        <div class="settings-row">
+          <div class="profile-info">
+            <strong>{builtin.id}</strong>
+            <p>
+              v{builtin.version}
+              {#if builtin.installed && builtin.installedVersion && builtin.installedVersion !== builtin.version}
+                · {session.text.agentTemplateInstalledVersion}: v{builtin.installedVersion}
+              {/if}
+              {#if !builtin.installed}
+                · {session.text.skillBuiltinRemoved}
+              {:else if builtin.modified}
+                · {session.text.agentTemplateModified}
+              {/if}
+            </p>
+          </div>
+          {#if builtin.updateAvailable || !builtin.installed}
+            <span class="status-badge" data-state="warning">{builtin.installed ? session.text.agentTemplateUpdateAvailable : session.text.skillBuiltinRemoved}</span>
+          {/if}
+          <div class="settings-row-actions">
+            <button
+              class="secondary-button"
+              type="button"
+              disabled={builtin.installed && !builtin.updateAvailable && !builtin.modified || Boolean(skillsStore.updatingBuiltinId)}
+              onclick={() => void updateBuiltinSkill(builtin.id)}
+            >
+              {skillsStore.updatingBuiltinId === builtin.id
+                ? session.text.agentTemplateUpdating
+                : !builtin.installed
+                  ? session.text.agentTemplateInstall
+                  : builtin.updateAvailable || builtin.modified
+                    ? session.text.agentTemplateUpdate
+                    : session.text.agentTemplateInstalled}
+            </button>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
   {#if skillsStore.searchDraft}
     {@const selectedSkillProvider = skillsStore.searchDraft.providers.find((provider) => provider.id === skillsStore.searchDraft?.apiProvider)}
     <form id="desktop-skills-search-form" class="settings-card provider-editor" onsubmit={(event) => { event.preventDefault(); void saveSkillsSearch(); }}>

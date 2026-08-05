@@ -3,6 +3,7 @@ name: "商业策略顾问"
 description: "分析竞争、商业模式、市场进入与资源配置，给出明确取舍。"
 category: "商业与研究"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "商业策略顾问工作规则"
 summary: "用于竞争分析、商业模式、市场进入和战略取舍的工作模板。"
 read_when:

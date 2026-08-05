@@ -7,6 +7,64 @@
 ---
 ## 2026-08-05
 
+### Added: a built-in Mini App can be updated in place, code only
+
+An owner whose installed built-in is older than the one this Molibot build ships had no way forward: bootstrap never overwrites an existing app (by design — it must not clobber an edited copy), so the only route to the new code was uninstall + reinstall, which is exactly the operation that risks the data.
+
+- The Mini App catalog now reports `updateAvailable` / `availableVersion`. Semver decides: a build that ships an *older* app than the owner has never offers a downgrade, and equal versions offer nothing. When either side is unparseable — including the `"unknown"` a failed-to-load app reports — any difference counts, because rewriting the shipped copy is the repair for a broken built-in.
+- `MiniAppHost.updateBuiltin()` applies it with the same ordering discipline as uninstall (suspend → drain in-flight → `dispose()` → touch the filesystem), because the app may hold an open SQLite handle inside the directory being replaced. The code directory is replaced **wholesale**, so a file the old build had and the new one doesn't is gone; the data root is never touched, and enablement is preserved (an app that was off stays off).
+- Writing a package is now one shared helper (`builtinPackage.ts`), used by both first-install and update, staged under a dot-prefixed sibling and renamed into place. Dot-prefixed matters: discovery skips dotted entries, so a staging directory can never surface as a broken catalog row mid-write.
+- New route `POST /api/desktop/miniapps/update`, separate from `/install` because the payload differs in kind — install takes a source the owner must be warned about, this takes only an app id and always writes code that shipped inside the app they are already running. Correspondingly there is no trust confirm and no data prompt on this button.
+- Settings › Mini Apps shows a "v1.0.1 available" badge next to the installed version and an Update button on that row only. As with install, the new code is only live after a service restart (the replaced module is already in the ESM cache), so the same restart notice is raised.
+- Guards: version-comparison and update cases in `src/lib/server/miniapps/host.test.ts` (newer/equal/older/unbundled, data + enablement survival, repair of a broken built-in, refusal for a non-built-in), a real Todo end-to-end update in `bootstrap.test.ts`, a new `src/lib/server/app/desktopMiniApps.test.ts` pinning the projection field-for-field (pitfall 11 — this mapper enumerates rather than spreads, so a new field is dropped silently unless asserted), and the update-affordance guard in `apps/desktop/src/chat-ui.test.mjs`.
+- Verification: Mini App + projection suites 91/91, desktop UI tests 142/142, `svelte-check` 0 errors / 0 warnings, both `vite build`s clean. Exercised on a real service against a scratch `DATA_DIR`: a downgraded install with a deleted `ui/styles.css` reported the update, `POST /update` returned v1.0.1, the missing file came back, the todo written beforehand was still there afterwards, and no staging directory was left behind.
+
+### Fixed: only real Mini Apps appear in the Mini App list
+
+Reported as "小程序页面会加载出很奇怪的东西" — anything sitting in the Mini App code root (a downloaded `.zip`, a loose file, an unrelated folder) became a catalog row. Those rows could not be installed, enabled or uninstalled, so they were pure noise.
+
+- `MiniAppHost.refresh()` now treats an entry as a candidate only when `<entry>/manifest.json` exists as a regular file (`hasMiniAppManifestFile()`). Everything else is skipped without a slot, instead of producing an "App directory is not a real directory" / "must match ^[a-z]…" error row.
+- A directory that *does* claim to be an app still reports every existing failure — broken JSON, id mismatch, unknown field, engine range, bad tool schema, illegal directory name, symlinked directory — so a genuinely broken install stays visible rather than disappearing.
+- Guarded by "non-app clutter in the code root never reaches the catalog" in `src/lib/server/miniapps/host.test.ts` (zip, loose file, scratch folder, app-illegal folder name, manifest-less tree next to one valid app).
+- Verification: `src/lib/server/miniapps/host.test.ts` + `install.test.ts` 42/42 pass; `tsc --noEmit` clean on the touched files. (`bootstrap.test.ts`'s Todo tool-list assertion fails on `master` independently of this change — the built-in app has gained tools the test never learned about.)
+
+### Fixed: per-model connection results stay inside the model editor
+
+Model-level “Test connection” results were written into the Provider page's generic `actionMessage`, so the success or failure appeared behind the open model dialog instead of beside the action that produced it.
+
+- `verifyProviderModel()` now returns a scoped outcome while still updating the model's discovered roles and verification map; it no longer writes the Provider pane's global action message.
+- The model editor owns the transient result and renders success or failure immediately to the left of “Test connection” in the dialog footer. Long upstream errors truncate in place with the complete text available from the title; explicit localized text means status never relies on colour alone.
+- While a model editor is open, the background Provider pane suppresses any older generic action message; closing the dialog restores unrelated Provider-level feedback, while model-check results never enter that channel.
+- Closing the dialog or switching Provider/model while a request is running retires the late result so it cannot appear in another editor.
+- A Desktop structural guard requires the local footer group and forbids model verification from writing `providersStore.actionMessage` / `actionFailed`.
+
+### Added: Built-in Agents and built-in Skills can be updated after they are installed
+
+Reported as "一旦安装之后，我的 Agent 和 Skill 就没办法更新了". Built-in Agent templates were genuinely frozen: the templates live in the app bundle, the installed copy lives in `<dataRoot>/agents`, and nothing connected the two — a fix shipped in a newer Molibot reached only people who had never installed that Agent. Built-in Skills already upgraded themselves on a version bump at boot, but nothing in the UI showed which version was installed, and a copy the owner had edited (or one deleted and wanted back) had no path at all.
+
+- **Built-in Agent templates are versioned.** `version:` in the template's `AGENTS.md` frontmatter, defaulting to `1.0.0` when absent; all 17 curated templates now carry it explicitly so the bump point is visible.
+- **An install ledger records provenance.** `<dataRoot>/agents/.builtin-agents.json` holds the version written and the sha256 of every file as Molibot wrote it. That is what makes "有更新" detectable, and what tells an untouched copy from an edited one.
+- **Settings → Agents shows version state and an update action** (desktop `AgentsSection` and the web Agents page): shipped version, installed version when they differ, an "有更新" badge, an "本地已修改" note, and an Update button. Update is manual by design — Agent prompts are exactly what the owner edits, so nothing is rewritten on boot.
+- **Owner edits are stepped aside, never destroyed.** An update over a diverged copy renames the whole directory to `<id>.backup-<timestamp>` first and reports that path in the UI; files the owner *added* are carried across to the live directory either way. A copy installed before the ledger existed has no provable provenance, so it is treated as diverged (backed up) and — deliberately — reported as updatable, since every pre-ledger install is older than what this build ships.
+- **The registered Agent row follows the template's name/description**, while everything the owner configured on it (enabled, model routing, sandbox) is preserved. A directory with no settings row is re-registered rather than updated invisibly.
+- **Built-in Skills gained the same visibility plus a manual apply.** `GET /api/desktop/skills` now carries `builtins[]` (shipped version, installed version, `updateAvailable`, `modified`), and `PUT` accepts `{kind: "builtin", id}`. The manual path deliberately ignores the two gates that exist to make *automatic* behaviour safe — the version check (so it can repair an edited or half-written copy at the current version) and the tombstone (asking for it back is what an explicit request means) — while keeping the backup guarantee. Boot behaviour is unchanged.
+- **One mechanism, not two.** The hashing, divergence check, staging+rename swap and backup logic moved into `src/lib/server/agent/bundles/materializedBundle.ts`; the Skill bootstrap and the Agent templates are now two policies over one implementation instead of a forked copy (`AGENTS.md` §Recurring pitfalls 7).
+- Fixed in passing: `.status-badge[data-state="warning"]` had no rule in the system-appearance (no `data-theme` attribute) context, so it painted the light `--warning-text` (#9a4700) on a dark tint — pitfall 4, hit by the new "有更新" badge.
+- **Machine guards**: `builtInAgentTemplates.test.ts` (version reporting, update in place with no backup clutter, backup + owner-added files on an edited copy, pre-ledger install offered the update, update refused when not installed); `skills/bootstrap.test.ts` (state reporting, repair of an edited copy at the same version, reinstall after deletion, unsafe id refused); `desktopSkills.test.ts` (built-in state passes through the mapper, and defaults to `[]`).
+- Verification: agent-template suite 7/7, skill bootstrap suite 14/14, `test:desktop-chat` 240/241 (the one failure, `SessionStore incrementally indexes…`, fails identically on a clean tree), desktop `svelte-check` 0/0, desktop UI tests 141/141, both `vite build`s clean, and the whole flow was exercised end-to-end against a real server on a temp `DATA_DIR`: install → edit the copy → ship a new template version → update → new content live, `NOTES.md` kept, the edit recovered from the backup directory; and for the Skill, edit → update → `modified` back to false with the edit preserved in the backup.
+
+### Changed: Project settings — the custom-command editor is one aligned label/field list
+
+Reported as "这么多框也没有对齐，看着很乱". The row stacked three independently bordered controls whose widths disagreed: the remove button sat inside the first line, so the name field was ~28px shorter than the description and content fields below it, and every field drew its own 1px border inside an already bordered group — box inside box inside box.
+
+- The row is now a `max-content / 1fr / 28px` grid with explicit placement: the labels form one column, the three fields share one left and one right edge, and the remove button owns a reserved gutter track so it can never shorten the field above it. (Auto-flow was tried first and is wrong here — it happily fills the deliberately empty gutter cells with the next label.)
+- Each field carries a real label (命令 / 说明 / 内容) instead of relying on placeholders alone, so the three lines read as one command rather than three unrelated inputs, and each control is reachable by its label.
+- Fields became wells (`--control-bg` on a `--surface-secondary` group) instead of bordered boxes, which removes the third border level. Project settings now uses a quiet AppKit-neutral focus treatment (`--control-border-strong` plus an 8% `--label-primary` halo) across its inputs, textareas, selects, command wells, and buttons instead of the generic blue Geist ring. The nested command-name input explicitly suppresses the generic settings-field focus shadow, leaving its wrapper as the only focus-ring owner.
+- An empty list now says so instead of collapsing to a lone "添加命令" button.
+- Typography moved onto the type-scale tokens (`--fs-label` / `--lh-label`, `--icon-sm`), replacing the hand-set 12px values in this block.
+- Machine guards in `apps/desktop/src/chat-ui.test.mjs`: the grid template and reserved gutter, the well/`--surface-secondary` roles, the absence of blue focus rules inside Project settings, the semantic neutral focus roles, the nested-input focus reset, and the presence of the three labels plus the empty state.
+- Verification: desktop UI tests 141/141 pass, `svelte-check` 0 errors / 0 warnings, `vite build` clean, and both themes plus the focus and empty states were checked in a live render (Light, `data-theme="dark"`).
+
 ### Release: v2.9.4 / Desktop v0.9.1
 - Synchronized the root and Desktop package versions for the new release.
 

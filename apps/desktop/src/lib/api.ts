@@ -49,6 +49,8 @@ import type {
   DesktopMiniAppsResponse,
   DesktopMiniAppToggleRequest,
   DesktopMiniAppUninstallRequest,
+  DesktopMiniAppUpdateRequest,
+  DesktopMiniAppUpdateResponse,
   DesktopMiniAppInstallRequest,
   DesktopMiniAppInstallResponse,
   DailyMaterialsBackfillResponse,
@@ -963,12 +965,28 @@ export interface DesktopAgentTemplateSummary {
   description: string;
   category: string;
   source: string;
+  /** The version this build ships. */
+  version: string;
   installed: boolean;
+  /** The installed copy's version; empty when it predates version tracking. */
+  installedVersion: string;
+  updateAvailable: boolean;
+  /** True when the installed copy no longer matches the files Molibot wrote. */
+  modified: boolean;
 }
 
 export interface DesktopAgentTemplateInstallResult {
   templateId: string;
   agentId: string;
+}
+
+export interface DesktopAgentTemplateUpdateResult {
+  templateId: string;
+  agentId: string;
+  from: string;
+  to: string;
+  /** Set when the installed copy had diverged and was preserved at this path. */
+  backupDir?: string;
 }
 
 export async function loadDesktopAgentTemplates(endpoint: string): Promise<DesktopAgentTemplateSummary[]> {
@@ -980,9 +998,19 @@ export async function installDesktopAgentTemplate(endpoint: string, templateId: 
   const payload = await requestJson<{ ok: true; templateId: string; agentId: string }>(endpoint, "/api/desktop/agent-templates", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ templateId })
+    body: JSON.stringify({ templateId, action: "install" })
   });
   return { templateId: payload.templateId, agentId: payload.agentId };
+}
+
+/** Re-applies the shipped files of an installed built-in Agent over the owner's copy. */
+export async function updateDesktopAgentTemplate(endpoint: string, templateId: string): Promise<DesktopAgentTemplateUpdateResult> {
+  const payload = await requestJson<{ ok: true; templateId: string; agentId: string; from: string; to: string; backupDir?: string }>(endpoint, "/api/desktop/agent-templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ templateId, action: "update" })
+  });
+  return { templateId: payload.templateId, agentId: payload.agentId, from: payload.from, to: payload.to, backupDir: payload.backupDir };
 }
 
 export async function loadDesktopAgents(endpoint: string): Promise<DesktopAgentsSummary> {
@@ -1215,6 +1243,23 @@ export async function uninstallDesktopMiniApp(
     body: JSON.stringify({ appId, deleteData } satisfies DesktopMiniAppUninstallRequest)
   });
   return payload.items;
+}
+
+/**
+ * Reinstalls a built-in Mini App from the copy this Molibot build ships.
+ *
+ * Code only: the app's stored data survives the update untouched, which is why
+ * this is offered as a one-click button rather than an uninstall/reinstall.
+ */
+export async function updateDesktopMiniApp(
+  endpoint: string,
+  appId: string
+): Promise<DesktopMiniAppUpdateResponse> {
+  return requestJson<DesktopMiniAppUpdateResponse>(endpoint, "/api/desktop/miniapps/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ appId } satisfies DesktopMiniAppUpdateRequest)
+  });
 }
 
 /**

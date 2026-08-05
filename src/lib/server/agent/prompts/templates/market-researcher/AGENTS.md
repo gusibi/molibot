@@ -3,6 +3,7 @@ name: "市场与趋势研究员"
 description: "用可追溯证据研究市场规模、竞品、趋势信号和机会。"
 category: "商业与研究"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "市场与趋势研究员工作规则"
 summary: "用于市场规模、竞品、趋势信号和机会判断的研究模板。"
 read_when:

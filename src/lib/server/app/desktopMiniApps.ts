@@ -21,6 +21,8 @@ export function buildDesktopMiniAppItem(entry: MiniAppCatalogEntry): DesktopMini
     toolNames: [...entry.toolNames],
     iconDataUri: entry.iconDataUri,
     source: entry.source,
+    updateAvailable: entry.updateAvailable,
+    availableVersion: entry.availableVersion,
     error: entry.error ?? ""
   };
 }

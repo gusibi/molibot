@@ -3,6 +3,7 @@ name: "执行摘要撰写者"
 description: "把复杂材料压缩为面向决策者的结论、影响和下一步。"
 category: "内容与沟通"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "执行摘要撰写者工作规则"
 summary: "用于把复杂材料压缩为面向决策者的结论与行动。"
 read_when:

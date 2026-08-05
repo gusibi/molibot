@@ -400,10 +400,10 @@ export async function discoverProviderModels(): Promise<void> {
   }
 }
 
-export async function verifyProviderModel(index: number): Promise<void> {
+export async function verifyProviderModel(index: number): Promise<{ ok: boolean; message: string; model: DesktopProviderModel } | null> {
   const endpoint = session.endpoint;
   const model = providersStore.providerEdit?.models[index];
-  if (!endpoint || !providersStore.providerEdit || providersStore.providerEdit.isNew || !model?.id.trim() || providersStore.testingId) return;
+  if (!endpoint || !providersStore.providerEdit || providersStore.providerEdit.isNew || !model?.id.trim() || providersStore.testingId) return null;
   providersStore.testingId = `${providersStore.providerEdit.id}:${model.id}`;
   try {
     const result = await testDesktopProvider(endpoint, providersStore.providerEdit.id, model.id);
@@ -413,11 +413,17 @@ export async function verifyProviderModel(index: number): Promise<void> {
         verification: { ...model.verification, ...(result.verification ?? {}) }
       });
     }
-    providersStore.actionFailed = !result.ok;
-    providersStore.actionMessage = result.ok ? session.text.onboardingProviderTestOk : `${session.text.onboardingProviderTestFail}: ${result.error || result.message || session.text.unknownValue}`;
+    return {
+      ok: result.ok,
+      message: result.ok ? session.text.onboardingProviderTestOk : `${session.text.onboardingProviderTestFail}: ${result.error || result.message || session.text.unknownValue}`,
+      model: providersStore.providerEdit.models[index] ?? model
+    };
   } catch (cause) {
-    providersStore.actionFailed = true;
-    providersStore.actionMessage = cause instanceof Error ? cause.message : String(cause);
+    return {
+      ok: false,
+      message: `${session.text.onboardingProviderTestFail}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      model
+    };
   } finally {
     providersStore.testingId = null;
   }

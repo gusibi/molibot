@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureBuiltinSkills, type BuiltinSkill } from "$lib/server/agent/skills/bootstrap.js";
+import { applyBuiltinSkill, ensureBuiltinSkills, listBuiltinSkillStates, type BuiltinSkill } from "$lib/server/agent/skills/bootstrap.js";
 import { loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
 
 function tempRoot(): string {
@@ -289,6 +289,76 @@ test("a ledger cannot make the upgrade delete outside the skill directory", () =
 
     ensureBuiltinSkills({ skillsRoot, skills: upgraded });
     assert.equal(fs.readFileSync(outside, "utf8"), "keep me\n");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// The boot path upgrades on a version bump on its own, so these two cases are
+// what the Settings button exists for: a copy the owner edited (no version
+// change, so boot leaves it alone) and one they deleted (boot honours the
+// tombstone, an explicit request overrides it).
+test("applying a built-in skill on request repairs an edited copy at the same version", () => {
+  const root = tempRoot();
+  try {
+    const skillsRoot = path.join(root, "skills");
+    ensureBuiltinSkills({ skillsRoot, skills: sample });
+    const skillDir = path.join(skillsRoot, "sample-skill");
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: sample-skill\ndescription: Mine.\n---\n", "utf8");
+
+    let [state] = listBuiltinSkillStates({ skillsRoot, skills: sample });
+    assert.equal(state.installed, true);
+    assert.equal(state.installedVersion, "1.0.0");
+    // Same version, so nothing to upgrade — but the copy no longer matches what
+    // we wrote, which is what makes the button meaningful.
+    assert.equal(state.updateAvailable, false);
+    assert.equal(state.modified, true);
+
+    const applied = applyBuiltinSkill({ skillsRoot, skills: sample, id: "sample-skill" });
+    assert.equal(applied.installed, false);
+    assert.ok(applied.backupDir, "an edited copy must be preserved, not silently replaced");
+    assert.match(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8"), /A sample\./);
+
+    [state] = listBuiltinSkillStates({ skillsRoot, skills: sample });
+    assert.equal(state.modified, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("applying a built-in skill on request reinstalls one the owner deleted", () => {
+  const root = tempRoot();
+  try {
+    const skillsRoot = path.join(root, "skills");
+    ensureBuiltinSkills({ skillsRoot, skills: sample });
+    fs.rmSync(path.join(skillsRoot, "sample-skill"), { recursive: true, force: true });
+
+    // Boot keeps honouring the tombstone; only an explicit request brings it back.
+    assert.deepEqual(
+      ensureBuiltinSkills({ skillsRoot, skills: sample }).skipped,
+      [{ id: "sample-skill", reason: "removed-by-owner" }]
+    );
+    assert.equal(listBuiltinSkillStates({ skillsRoot, skills: sample })[0].installed, false);
+
+    const applied = applyBuiltinSkill({ skillsRoot, skills: upgraded, id: "sample-skill" });
+    assert.equal(applied.installed, true);
+    assert.equal(applied.to, "1.1.0");
+    assert.match(fs.readFileSync(path.join(skillsRoot, "sample-skill", "SKILL.md"), "utf8"), /Sample v2/);
+
+    const [state] = listBuiltinSkillStates({ skillsRoot, skills: upgraded });
+    assert.equal(state.installed, true);
+    assert.equal(state.updateAvailable, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unknown built-in skill id is refused rather than materialising a directory", () => {
+  const root = tempRoot();
+  try {
+    const skillsRoot = path.join(root, "skills");
+    assert.throws(() => applyBuiltinSkill({ skillsRoot, skills: sample, id: "../escape" }), /Unknown built-in skill/);
+    assert.equal(fs.existsSync(path.join(root, "escape")), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

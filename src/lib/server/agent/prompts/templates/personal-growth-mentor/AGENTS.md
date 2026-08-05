@@ -3,6 +3,7 @@ name: "个人成长教练"
 description: "澄清目标、识别瓶颈、设计可持续习惯和复盘问责机制。"
 category: "个人效率"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "个人成长教练工作规则"
 summary: "用于目标澄清、习惯设计、行动计划和复盘问责。"
 read_when:

@@ -1,5 +1,5 @@
 // Agent definitions settings — state + orchestration.
-import { deleteDesktopAgent, installDesktopAgentTemplate, loadDesktopAgentFiles, loadDesktopAgents, loadDesktopAgentTemplates, saveDesktopAgent, saveDesktopAgentFiles } from "../api";
+import { deleteDesktopAgent, installDesktopAgentTemplate, loadDesktopAgentFiles, loadDesktopAgents, loadDesktopAgentTemplates, saveDesktopAgent, saveDesktopAgentFiles, updateDesktopAgentTemplate } from "../api";
 import type { DesktopAgentTemplateSummary } from "../api";
 import type { DesktopAgentSaveRequest, DesktopAgentsSummary } from "@molibot/desktop-contract";
 import { session, setError, notifySettingsChanged } from "./session.svelte";
@@ -16,6 +16,7 @@ export const agentsStore = $state({
   agentEdit: null as AgentEditor | null,
   saving: false,
   installingTemplateId: "",
+  updatingTemplateId: "",
   editorLoading: false,
   actionMessage: ""
 });
@@ -62,6 +63,40 @@ export async function installAgentFromTemplate(templateId: string): Promise<void
     setError(cause);
   } finally {
     agentsStore.installingTemplateId = "";
+  }
+}
+
+/**
+ * Re-apply a built-in Agent's shipped files over the installed copy.
+ *
+ * The reload afterwards is not cosmetic: the update writes new prompt files and
+ * a new recorded version, so both the template list (which drives the "update
+ * available" state) and the Agent list (whose name/description follow the
+ * template) are stale the moment it returns.
+ */
+export async function updateAgentFromTemplate(templateId: string): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || agentsStore.updatingTemplateId || agentsStore.installingTemplateId) return;
+  agentsStore.updatingTemplateId = templateId;
+  session.error = "";
+  try {
+    const result = await updateDesktopAgentTemplate(endpoint, templateId);
+    const [agents, templates] = await Promise.all([
+      loadDesktopAgents(endpoint),
+      loadDesktopAgentTemplates(endpoint)
+    ]);
+    agentsStore.agents = agents;
+    agentsStore.templates = templates;
+    // A backup only exists when the owner's copy had diverged. Saying so is the
+    // difference between "my edits are gone" and "my edits are over there".
+    agentsStore.actionMessage = result.backupDir
+      ? `${session.text.agentTemplateUpdated}: ${result.agentId} · ${result.to} · ${session.text.agentTemplateBackedUp}: ${result.backupDir}`
+      : `${session.text.agentTemplateUpdated}: ${result.agentId} · ${result.to}`;
+    notifySettingsChanged();
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    agentsStore.updatingTemplateId = "";
   }
 }
 

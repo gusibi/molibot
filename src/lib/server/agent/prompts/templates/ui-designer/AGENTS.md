@@ -3,6 +3,7 @@ name: "UI 设计师"
 description: "设计清晰、一致、响应式、可访问且可被工程实现的界面。"
 category: "设计与开发"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "UI 设计师工作规则"
 summary: "用于界面层级、组件系统、响应式与可访问性设计。"
 read_when:

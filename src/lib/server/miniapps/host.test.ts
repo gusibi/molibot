@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -160,6 +160,22 @@ test("an orphan data directory produces no catalog entry", () => {
   mkdirSync(join(fixture.dataRoot, "ghost"), { recursive: true });
   const host = hostFor(fixture);
   assert.deepEqual(host.listCatalog(), []);
+});
+
+test("non-app clutter in the code root never reaches the catalog", () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes");
+  // Everything a person can plausibly leave next to their apps: an archive, a
+  // loose file, a scratch folder, a folder with an app-illegal name, and a
+  // manifest-less tree that merely looks like one.
+  writeFileSync(join(fixture.codeRoot, "notes-1.2.0.zip"), "PK", "utf8");
+  writeFileSync(join(fixture.codeRoot, "README.md"), "# apps", "utf8");
+  mkdirSync(join(fixture.codeRoot, "Downloads_v2"), { recursive: true });
+  mkdirSync(join(fixture.codeRoot, "scratch", "server"), { recursive: true });
+  writeFileSync(join(fixture.codeRoot, "scratch", "server", "index.mjs"), "export default () => ({});", "utf8");
+
+  const host = hostFor(fixture);
+  assert.deepEqual(host.listCatalog().map((entry) => entry.id), ["notes"]);
 });
 
 test("a missing code root yields an empty catalog rather than an error", () => {
@@ -402,6 +418,103 @@ test("uninstall removes code, keeps data by default and can delete it on request
 
   await host.uninstall("notes", { deleteData: true });
   assert.equal(existsSync(join(fixture.dataRoot, "notes")), false);
+});
+
+/**
+ * A bundled built-in package, as the host would receive it from `bootstrap.ts`.
+ * The server source is a second, distinguishable build so an update can be
+ * proven to have replaced the code and not merely rewritten the manifest.
+ */
+function bundledTodo(version: string): { id: string; files: Record<string, string> } {
+  return {
+    id: "todo",
+    files: {
+      "manifest.json": JSON.stringify(baseManifest("todo", { version })),
+      "server/index.mjs": APP_SOURCE.replace("added", "added-by-bundle"),
+      "ui/index.html": "<!doctype html><title>bundled</title>"
+    }
+  };
+}
+
+test("a newer bundled built-in is offered as an update; an older or equal one is not", () => {
+  const fixture = makeFixture();
+  installApp(fixture, "todo", { manifest: baseManifest("todo", { version: "1.0.0" }) });
+
+  const offered = (bundledVersion: string) => hostFor(fixture, {
+    builtinAppIds: ["todo"],
+    getBuiltinApp: () => bundledTodo(bundledVersion)
+  }).listCatalog().find((entry) => entry.id === "todo");
+
+  assert.equal(offered("2.0.0")?.updateAvailable, true);
+  assert.equal(offered("2.0.0")?.availableVersion, "2.0.0");
+  assert.equal(offered("1.0.0")?.updateAvailable, false, "same version is not an update");
+  assert.equal(offered("0.9.0")?.updateAvailable, false, "an older bundle must not offer a downgrade");
+
+  // An app with no bundled copy — anything the owner installed themselves —
+  // can never advertise an update, because there is nothing to update it to.
+  installApp(fixture, "notes");
+  const external = hostFor(fixture, { getBuiltinApp: () => null })
+    .listCatalog().find((entry) => entry.id === "notes");
+  assert.equal(external?.updateAvailable, false);
+  assert.equal(external?.availableVersion, "");
+});
+
+test("updating a built-in replaces its code, keeps its data and keeps it disabled if it was", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "todo", { manifest: baseManifest("todo", { version: "1.0.0" }) });
+  const host = hostFor(fixture, {
+    builtinAppIds: ["todo"],
+    getBuiltinApp: () => bundledTodo("2.0.0")
+  });
+
+  await host.invokeTool("miniapp__todo__add", { text: "keep me" }, { toolCallId: "t1" });
+  host.setEnabled("todo", false);
+
+  await host.updateBuiltin("todo");
+
+  const entry = host.listCatalog().find((row) => row.id === "todo");
+  assert.equal(entry?.version, "2.0.0");
+  assert.equal(entry?.updateAvailable, false, "the offer must clear once applied");
+  // The old build's extra file is gone: an update is a full replacement of the
+  // code directory, not a merge over whatever was there.
+  assert.equal(existsSync(join(fixture.codeRoot, "todo", "ui", "app.js")), false);
+  assert.match(readFileSync(join(fixture.codeRoot, "todo", "server", "index.mjs"), "utf8"), /added-by-bundle/);
+
+  // Data survives, and enablement is not silently flipped back on.
+  assert.equal(existsSync(join(fixture.dataRoot, "todo", "notes.json")), true);
+  assert.equal(fixture.enablement.todo?.enabled, false);
+
+  host.setEnabled("todo", true);
+  const listed = await host.invokeTool("miniapp__todo__list", {}, { toolCallId: "t2" });
+  assert.deepEqual(listed.structuredContent, [{ id: "1", text: "keep me" }]);
+});
+
+test("a broken built-in can be repaired by updating, and no staging directory is left behind", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "todo", { manifest: "{ not json" });
+  const host = hostFor(fixture, {
+    builtinAppIds: ["todo"],
+    getBuiltinApp: () => bundledTodo("1.0.0")
+  });
+
+  // "unknown" versus a real bundled version is a difference neither side can
+  // compare with semver, so the shipped copy is offered as the repair.
+  assert.equal(host.listCatalog().find((row) => row.id === "todo")?.updateAvailable, true);
+
+  await host.updateBuiltin("todo");
+  const entry = host.listCatalog().find((row) => row.id === "todo");
+  assert.equal(entry?.status, "active");
+  assert.equal(entry?.error, undefined);
+  assert.deepEqual(readdirSync(fixture.codeRoot).sort(), ["todo"]);
+});
+
+test("updating refuses for an app that is not a bundled built-in", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes");
+  const host = hostFor(fixture, { getBuiltinApp: () => null });
+
+  await assert.rejects(() => host.updateBuiltin("notes"), /not a built-in/);
+  await assert.rejects(() => host.updateBuiltin("ghost"), /Unknown Mini App/);
 });
 
 test("uninstalling a built-in leaves a tombstone so it is not reinstalled", async () => {

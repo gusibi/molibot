@@ -14,7 +14,8 @@
     loadAgents,
     removeAgent,
     saveAgentEditor,
-    updateAgentEdit
+    updateAgentEdit,
+    updateAgentFromTemplate
   } from "../stores/agents.svelte";
 
   $effect(() => {
@@ -39,16 +40,47 @@
         <div class="profile-info">
           <strong>{template.name}</strong>
           <p>{template.description}</p>
-          <p>{template.category} · {template.id} · {template.source}</p>
+          <p>
+            {template.category} · {template.id} · {template.source} · v{template.version}
+            {#if template.installed && template.installedVersion && template.installedVersion !== template.version}
+              · {session.text.agentTemplateInstalledVersion}: v{template.installedVersion}
+            {/if}
+            {#if template.installed && template.modified}
+              · {session.text.agentTemplateModified}
+            {/if}
+          </p>
         </div>
-        <button
-          class="secondary-button"
-          type="button"
-          disabled={template.installed || Boolean(agentsStore.installingTemplateId)}
-          onclick={() => void installAgentFromTemplate(template.id)}
-        >
-          {template.installed ? session.text.agentTemplateInstalled : agentsStore.installingTemplateId === template.id ? session.text.agentTemplateInstalling : session.text.agentTemplateInstall}
-        </button>
+        {#if template.updateAvailable}
+          <span class="status-badge" data-state="warning">{session.text.agentTemplateUpdateAvailable}</span>
+        {/if}
+        <div class="settings-row-actions">
+          {#if template.installed}
+            <!-- An installed template's only meaningful action is re-applying
+                 the shipped files; "已安装" stays as the disabled resting state
+                 when there is nothing newer to write. -->
+            <button
+              class="secondary-button"
+              type="button"
+              disabled={!template.updateAvailable && !template.modified || Boolean(agentsStore.updatingTemplateId)}
+              onclick={() => void updateAgentFromTemplate(template.id)}
+            >
+              {agentsStore.updatingTemplateId === template.id
+                ? session.text.agentTemplateUpdating
+                : template.updateAvailable || template.modified
+                  ? session.text.agentTemplateUpdate
+                  : session.text.agentTemplateInstalled}
+            </button>
+          {:else}
+            <button
+              class="secondary-button"
+              type="button"
+              disabled={Boolean(agentsStore.installingTemplateId)}
+              onclick={() => void installAgentFromTemplate(template.id)}
+            >
+              {agentsStore.installingTemplateId === template.id ? session.text.agentTemplateInstalling : session.text.agentTemplateInstall}
+            </button>
+          {/if}
+        </div>
       </div>
     {/each}
   </div>

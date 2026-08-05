@@ -682,8 +682,41 @@ test("project settings dialog hands the height budget to a scrollable body", () 
   assert.match(styles, /\.project-commands-list \{[^}]*border-radius: var\(--radius-control\)/s);
   assert.match(styles, /\.project-command-row \+ \.project-command-row \{ border-top/);
   assert.match(styles, /\.project-commands \.project-command-desc \{[^}]*height: 32px/s);
-  assert.match(styles, /\.project-commands \.project-command-desc \{[^}]*border: 1px solid var\(--control-border\)/s);
   assert.match(styles, /\.project-commands \.project-command-desc \{[^}]*border-radius: var\(--radius-small\)/s);
+  // The three fields of a command must share one left and one right edge: the
+  // row is a label/field grid whose third track is a reserved gutter for the
+  // remove button, so that button can never shorten the name field and leave
+  // the stack ragged (which is what read as "so many boxes, none aligned").
+  assert.match(styles, /\.project-command-row \{[^}]*display: grid/s);
+  assert.match(styles, /\.project-command-row \{[^}]*grid-template-columns: max-content minmax\(0, 1fr\) 28px/s);
+  // Token-driven wells, not a third border inside an already-bordered group,
+  // and a single focus ring instead of the doubled surface-then-accent halo.
+  assert.match(styles, /\.project-commands-list \{[^}]*background: var\(--surface-secondary\)/s);
+  for (const field of ["\\.project-command-slash", "\\.project-commands \\.project-command-desc", "\\.project-commands \\.project-command-content"]) {
+    assert.match(styles, new RegExp(`${field} \\{[^}]*background: var\\(--control-bg\\)`, "s"));
+  }
+  for (const field of ["\\.project-commands \\.project-command-desc", "\\.project-commands \\.project-command-content"]) {
+    assert.match(styles, new RegExp(`${field} \\{[^}]*border: 0`, "s"));
+  }
+  assert.doesNotMatch(styles, /\.project-command[^{]*:focus[^{]*\{[^}]*0 0 0 2px var\(--card-bg\), 0 0 0 4px var\(--accent\)/s);
+  // The command name is nested inside the wrapper that owns the visible focus
+  // ring. It also matches the generic `.settings-field input:focus-visible`
+  // rule, so it needs an explicit reset or both elements draw an accent ring.
+  assert.match(styles, /\.project-commands \.project-command-name:focus-visible \{[^}]*box-shadow: none/s);
+  // Project settings follows the product-level AppKit hierarchy: focus stays
+  // visible but uses semantic neutral control roles, never the generic blue
+  // Geist ring that overpowers this dense modal.
+  assert.match(styles, /\.project-settings-form \.settings-field > input:focus-visible,[^{]*\{[^}]*border-color: var\(--control-border-strong\)[^}]*color-mix\(in srgb, var\(--label-primary\) 8%, transparent\)/s);
+  assert.match(styles, /\.project-settings-form button:focus-visible \{[^}]*var\(--control-border-strong\)/s);
+  assert.match(styles, /\.project-command-slash:focus-within[^\{]*\{[^}]*var\(--control-border-strong\)[^}]*var\(--label-primary\)/s);
+  assert.doesNotMatch(styles, /\.project-settings-form[^\{]*:focus-visible[^\{]*\{[^}]*(?:var\(--accent\)|#007aff|#006bff)/is);
+  assert.doesNotMatch(styles, /\.project-command[^\{]*:focus(?:-visible|-within)[^\{]*\{[^}]*var\(--accent\)/is);
+  // Every field is reachable by its own label, and an empty list says so rather
+  // than collapsing to a lone "add" button.
+  assert.match(projectSettingsDialog, /projectCommandNameLabel/);
+  assert.match(projectSettingsDialog, /projectCommandDescriptionLabel/);
+  assert.match(projectSettingsDialog, /projectCommandContentLabel/);
+  assert.match(projectSettingsDialog, /projectCommandsEmpty/);
 });
 
 // The Project store drops any command without a body or with a name that slugs
@@ -752,8 +785,10 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   assert.doesNotMatch(styles, /--purple-700/);
   // Pitfall 12: the catalog now carries Mini Apps, so every catalog mutation
   // must invalidate the composer's cache or `@` keeps advertising a stale set.
+  // One per catalog mutation: toggle, install, update, uninstall. An update can
+  // add or remove tools, so it invalidates exactly like the other three.
   const miniAppsStore = read("./lib/stores/miniapps.svelte.ts");
-  assert.equal(miniAppsStore.match(/invalidateComposerSuggestions\(\)/g)?.length, 3);
+  assert.equal(miniAppsStore.match(/invalidateComposerSuggestions\(\)/g)?.length, 4);
 });
 
 test("composer bottom bar owns the agent mention and keeps selectors quiet", () => {
@@ -2024,6 +2059,18 @@ test("AI provider configuration is an inline workbench, not a modal, and separat
   // compressing every row to fit one screen.
   assert.match(styles, /\.provider-model-discovery-body\s*\{[^}]*display:\s*flex;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
   assert.match(styles, /\.provider-model-discovery-body > \.provider-model-groups\s*\{[^}]*overflow-y:\s*auto;/s);
+  // A model connection check belongs to the model dialog that initiated it.
+  // Its success/failure sits immediately left of the test button; it must not
+  // leak through the provider pane's generic action message behind the modal.
+  assert.match(sections.providers, /let modelVerificationMessage = \$state\(""\)/);
+  assert.match(sections.providers, /class="provider-modal-foot-leading"[\s\S]{0,500}modelVerificationMessage[\s\S]{0,500}verifyModelEditorConnection/);
+  assert.match(styles, /\.provider-modal-foot-leading\s*\{[^}]*margin-right:\s*auto;/s);
+  assert.match(sections.providers, /\{#if providersStore\.actionMessage && !modelEditorDraft\}[\s\S]{0,180}provider-pane-message/);
+  const verifyProviderModelSource = providersStore.slice(
+    providersStore.indexOf("export async function verifyProviderModel"),
+    providersStore.indexOf("\nexport ", providersStore.indexOf("export async function verifyProviderModel") + 1)
+  );
+  assert.doesNotMatch(verifyProviderModelSource, /providersStore\.actionMessage|providersStore\.actionFailed/);
 });
 
 test("switching providers never silently drops an unsaved draft", () => {
@@ -2482,6 +2529,24 @@ test("Mini App toggle and uninstall use fine-grained routes, not the Plugins edi
   // Toggles must use IosSwitch, never the generic Switch.
   assert.match(miniAppManager, /<IosSwitch/);
   assert.doesNotMatch(miniAppManager, /<Switch[\s/>]/);
+});
+
+test("a built-in update is offered only when one exists, and never confirms away data", () => {
+  // The button appears exactly when the host says a newer bundled copy exists;
+  // it is not a permanent "reinstall" control.
+  assert.match(miniAppManager, /\{#if app\.updateAvailable\}[\s\S]{0,400}updateMiniApp\(app\.id\)/);
+  assert.match(miniAppManager, /miniAppUpdateAvailable[\s\S]{0,80}app\.availableVersion/);
+  // Its own route, like every other per-app action — never the Plugins PUT.
+  assert.match(desktopApi, /"\/api\/desktop\/miniapps\/update", \{\s*method: "POST"/s);
+  // An update replaces code only, so it must not ask about deleting data the
+  // way uninstall does; a confirm here would teach the owner to fear the button.
+  assert.doesNotMatch(miniAppStore, /updateMiniApp[\s\S]{0,400}confirm/);
+  assert.doesNotMatch(miniAppStore, /updateMiniApp[\s\S]{0,400}deleteData/);
+  // Replaced module code is already in the ESM cache, so the same restart
+  // notice install raises must be raised here.
+  assert.match(miniAppStore, /updateMiniApp[\s\S]{0,600}restartRequired = true/);
+  // One lifecycle action per row at a time.
+  assert.match(miniAppStore, /export async function updateMiniApp[\s\S]{0,200}if \(!endpoint \|\| miniAppsStore\.busyId\) return;/);
 });
 
 test("installing states the trust consequence before it happens, and names the source", () => {

@@ -1,4 +1,5 @@
 import type {
+  DesktopBuiltinSkillState,
   DesktopSkillItem,
   DesktopSkillScope,
   DesktopSkillsSummary
@@ -67,11 +68,20 @@ export function buildDesktopSkillItem(item: SharedSkillItem): DesktopSkillItem {
   };
 }
 
-export function buildDesktopSkillsSummary(response: SharedSkillsResponse): DesktopSkillsSummary {
+export function buildDesktopSkillsSummary(
+  response: SharedSkillsResponse,
+  /**
+   * Built-in version state, supplied by the caller rather than read here: this
+   * mapper is a pure projection of the shared route's payload, and the state
+   * comes from the skills root on disk.
+   */
+  builtins: DesktopBuiltinSkillState[] = []
+): DesktopSkillsSummary {
   const items = Array.isArray(response.items) ? response.items.map(buildDesktopSkillItem) : [];
   const search = response.skillSearch ?? {};
   return {
     items,
+    builtins: builtins.map((builtin) => ({ ...builtin })),
     counts: {
       total: items.length,
       enabled: items.filter((item) => item.enabled).length,

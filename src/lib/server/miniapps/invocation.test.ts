@@ -6,7 +6,8 @@ import type { MiniAppCatalogEntry } from "$lib/server/miniapps/types.js";
 
 const todo: MiniAppCatalogEntry = {
   id: "todo", name: "Todo", version: "1.0.0", description: "Shared tasks.",
-  status: "active", enabled: true, builtin: true, hasUi: true, toolNames: ["add", "list"], iconDataUri: "", source: { kind: "builtin" }
+  status: "active", enabled: true, builtin: true, hasUi: true, toolNames: ["add", "list"], iconDataUri: "",
+  source: { kind: "builtin" }, updateAvailable: false, availableVersion: "1.0.0"
 };
 
 test("a leading @Mini App selector routes one turn and leaves only user intent", () => {

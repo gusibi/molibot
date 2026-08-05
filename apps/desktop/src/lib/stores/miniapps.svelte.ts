@@ -3,7 +3,8 @@ import {
   installDesktopMiniApp,
   loadDesktopMiniApps,
   setDesktopMiniAppEnabled,
-  uninstallDesktopMiniApp
+  uninstallDesktopMiniApp,
+  updateDesktopMiniApp
 } from "../api";
 import type { DesktopMiniAppInstallRequest } from "@molibot/desktop-contract";
 import type { DesktopMiniAppItem } from "@molibot/desktop-contract";
@@ -136,6 +137,33 @@ export async function installMiniApp(request: DesktopMiniAppInstallRequest): Pro
     return "";
   } finally {
     miniAppsStore.installing = false;
+  }
+}
+
+/**
+ * Reinstalls a built-in from the copy this build ships. Code only — the app's
+ * data is untouched, so this needs no confirmation the way uninstall does.
+ *
+ * Shares `busyId` with the other per-app actions so one row can never run two
+ * lifecycle operations at once.
+ */
+export async function updateMiniApp(appId: string): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || miniAppsStore.busyId) return;
+  miniAppsStore.busyId = appId;
+  miniAppsStore.actionMessage = "";
+  try {
+    const result = await updateDesktopMiniApp(endpoint, appId);
+    miniAppsStore.items = result.items;
+    invalidateComposerSuggestions();
+    // Same as an install: the replaced module is already in the ESM cache, so
+    // the new code only runs after the service restarts.
+    miniAppsStore.restartRequired = true;
+    miniAppsStore.actionMessage = session.text.miniAppUpdatedMessage.replace("{version}", result.version);
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    miniAppsStore.busyId = "";
   }
 }
 

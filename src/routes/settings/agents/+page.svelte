@@ -78,6 +78,14 @@
       installingBtn: "安装中...",
       installSuccess: "已安装 Agent：",
       installFailed: "安装模板失败",
+      updateBtn: "更新",
+      updatingBtn: "更新中...",
+      updateAvailableTag: "有更新",
+      installedVersionLabel: "已装",
+      modifiedTag: "本地已修改",
+      updateSuccess: "已更新 Agent：",
+      updateBackedUp: "原文件已备份到：",
+      updateFailed: "更新模板失败",
       subagentsLabel: "内置 Subagent",
       subagentsDesc: "个内置委派角色",
       builtInTag: "内置",
@@ -143,6 +151,14 @@
       installingBtn: "Installing...",
       installSuccess: "Installed Agent: ",
       installFailed: "Failed to install template",
+      updateBtn: "Update",
+      updatingBtn: "Updating...",
+      updateAvailableTag: "Update available",
+      installedVersionLabel: "installed",
+      modifiedTag: "Edited locally",
+      updateSuccess: "Updated Agent: ",
+      updateBackedUp: "Previous copy kept at: ",
+      updateFailed: "Failed to update template",
       subagentsLabel: "Subagents",
       subagentsDesc: "built-in delegation roles",
       builtInTag: "BUILT-IN",
@@ -200,6 +216,7 @@
   let agents: AgentItem[] = [];
   let builtInTemplates: BuiltInAgentTemplateItem[] = [];
   let installingTemplateId = "";
+  let updatingTemplateId = "";
   let modelRouteOptions: Record<AgentModelRoute, ModelRouteOption[]> = { text: [], vision: [], stt: [] };
   let builtInSubagents: BuiltInSubagentItem[] = [];
   let subagentConfiguredModelLabel = "";
@@ -400,7 +417,7 @@
       const res = await fetch("/api/settings/agent-templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId })
+        body: JSON.stringify({ templateId, action: "install" })
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || copy.installFailed);
@@ -411,6 +428,35 @@
       error = e instanceof Error ? e.message : String(e);
     } finally {
       installingTemplateId = "";
+    }
+  }
+
+  /**
+   * Re-applies a built-in Agent's shipped files over the installed copy. The
+   * template list is reloaded because it carries the version state that decides
+   * whether this button is still offered.
+   */
+  async function updateTemplate(templateId: string): Promise<void> {
+    if (updatingTemplateId) return;
+    updatingTemplateId = templateId;
+    error = "";
+    message = "";
+    try {
+      const res = await fetch("/api/settings/agent-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId, action: "update" })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || copy.updateFailed);
+      await loadSettings();
+      message = data.backupDir
+        ? `${copy.updateSuccess}${templateId} · ${copy.updateBackedUp}${data.backupDir}`
+        : `${copy.updateSuccess}${templateId}`;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      updatingTemplateId = "";
     }
   }
 
@@ -604,21 +650,43 @@
                     <h3 class="channel-card-title">{template.name}</h3>
                     <p class="channel-card-desc">{template.description}</p>
                   </div>
-                  <span class="channel-sidebar-badge">{template.category}</span>
+                  <span class="channel-sidebar-badge">{template.installed && template.updateAvailable ? copy.updateAvailableTag : template.category}</span>
                 </div>
                 <div class="channel-card-body">
                   <div class="channel-field">
-                    <span class="channel-sidebar-btn-id">{template.id} · {template.source}</span>
+                    <span class="channel-sidebar-btn-id">
+                      {template.id} · {template.source} · v{template.version}
+                      {#if template.installed && template.installedVersion && template.installedVersion !== template.version}
+                        · {copy.installedVersionLabel} v{template.installedVersion}
+                      {/if}
+                      {#if template.installed && template.modified}· {copy.modifiedTag}{/if}
+                    </span>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    type="button"
-                    disabled={template.installed || Boolean(installingTemplateId)}
-                    onclick={() => installTemplate(template.id)}
-                  >
-                    {template.installed ? copy.installedBtn : installingTemplateId === template.id ? copy.installingBtn : copy.installBtn}
-                  </Button>
+                  {#if template.installed}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      type="button"
+                      disabled={(!template.updateAvailable && !template.modified) || Boolean(updatingTemplateId)}
+                      onclick={() => updateTemplate(template.id)}
+                    >
+                      {updatingTemplateId === template.id
+                        ? copy.updatingBtn
+                        : template.updateAvailable || template.modified
+                          ? copy.updateBtn
+                          : copy.installedBtn}
+                    </Button>
+                  {:else}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      type="button"
+                      disabled={Boolean(installingTemplateId)}
+                      onclick={() => installTemplate(template.id)}
+                    >
+                      {installingTemplateId === template.id ? copy.installingBtn : copy.installBtn}
+                    </Button>
+                  {/if}
                 </div>
               </div>
             {/each}

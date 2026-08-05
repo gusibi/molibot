@@ -11,6 +11,7 @@ export const skillsStore = $state({
   searchDraft: null as DesktopSkillsSummary["search"] | null,
   saving: false,
   savingId: "",
+  updatingBuiltinId: "",
   // Pristine snapshot so the sticky save bar only appears on real changes.
   searchPristine: "",
   actionMessage: ""
@@ -46,6 +47,28 @@ export async function toggleSkill(id: string, enabled: boolean): Promise<void> {
     setError(cause);
   } finally {
     skillsStore.savingId = "";
+  }
+}
+
+/**
+ * Write the shipped copy of a built-in Skill over the installed one.
+ *
+ * The response is the refreshed summary, so the version state and the skill
+ * list both come back from the same request that performed the update — there
+ * is no window where the row still advertises the old version.
+ */
+export async function updateBuiltinSkill(id: string): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || skillsStore.updatingBuiltinId) return;
+  skillsStore.updatingBuiltinId = id;
+  session.error = "";
+  try {
+    skillsStore.skills = await updateDesktopSkills(endpoint, { kind: "builtin", id });
+    skillsStore.actionMessage = `${session.text.skillBuiltinUpdated}: ${id}`;
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    skillsStore.updatingBuiltinId = "";
   }
 }
 

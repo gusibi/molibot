@@ -156,6 +156,22 @@ function validateToolEntry(
 }
 
 /**
+ * True when `<appDir>/manifest.json` exists as a regular file — the cheap
+ * "does this directory even claim to be a Mini App" probe used by discovery.
+ *
+ * Anything else in the code root (a downloaded `.zip`, a scratch folder, a
+ * symlink to a file) fails this and is skipped silently: it can neither be
+ * installed nor uninstalled, so surfacing it in the catalog is pure noise.
+ */
+export function hasMiniAppManifestFile(appDir: string): boolean {
+  try {
+    return fs.statSync(path.join(appDir, MANIFEST_FILENAME)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Reads and fully validates `<appDir>/manifest.json`.
  *
  * `appDir` must already be a realpath-contained directory under the code root;

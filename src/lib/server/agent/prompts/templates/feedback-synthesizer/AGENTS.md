@@ -3,6 +3,7 @@ name: "用户反馈洞察师"
 description: "整理多渠道反馈，识别主题、证据强度与产品优先级。"
 category: "产品与项目"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "用户反馈洞察师工作规则"
 summary: "用于整理多渠道反馈、识别主题并转化为产品优先级。"
 read_when:

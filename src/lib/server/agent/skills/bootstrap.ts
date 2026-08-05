@@ -1,6 +1,14 @@
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  hasDiverged,
+  installDirectory,
+  isSafeRelativePath,
+  readLedger,
+  upgradeDirectory,
+  writeLedger,
+  type MaterializedEntry
+} from "../bundles/materializedBundle";
 import miniappCreatorSkill from "../../../../../skills/miniapp-creator/SKILL.md?raw";
 import miniappCreatorReference from "../../../../../skills/miniapp-creator/reference.md?raw";
 import miniappCreatorScaffold from "../../../../../skills/miniapp-creator/scripts/scaffold.mjs?raw";
@@ -47,25 +55,6 @@ import miniappTemplateIcon from "../../../../../skills/miniapp-creator/template/
 const LEDGER_FILENAME = ".builtin-skills.json";
 const SAFE_SKILL_ID = /^[a-z][a-z0-9-]{1,62}$/;
 
-/**
- * Reject anything that could escape the skill directory.
- *
- * This guards the shipped file map (ours, so mostly a formality) and — the
- * reason it exists — the ledger's recorded paths, which are read back from a
- * JSON file on disk and drive deletion of stale files. A corrupt or tampered
- * ledger must not be able to name `../../something`.
- */
-function isSafeRelativePath(relativePath: string): boolean {
-  if (!relativePath || path.isAbsolute(relativePath)) return false;
-  const normalized = path.normalize(relativePath);
-  if (normalized.startsWith("..")) return false;
-  return !normalized.split(/[\\/]/).includes("..");
-}
-
-function hashContent(content: string | Buffer): string {
-  return createHash("sha256").update(content).digest("hex");
-}
-
 export interface BuiltinSkill {
   id: string;
   /**
@@ -98,19 +87,7 @@ const BUILTIN_SKILLS: BuiltinSkill[] = [
   }
 ];
 
-interface LedgerEntry {
-  version: string;
-  installedAt: string;
-  /**
-   * sha256 of each file as *we* wrote it, so a later upgrade can tell an
-   * untouched install from one the owner edited.
-   *
-   * Absent means "unknown provenance": a legacy entry written before hashes
-   * existed, or a hand-installed directory we merely adopted. Both are treated
-   * as diverged, so an upgrade always keeps a backup of them.
-   */
-  files?: Record<string, string>;
-}
+type LedgerEntry = MaterializedEntry;
 
 export interface EnsureBuiltinSkillsOptions {
   /** The global skills root, `<dataRoot>/skills`. */
@@ -166,7 +143,7 @@ export function ensureBuiltinSkills(options: EnsureBuiltinSkillsOptions): Ensure
       }
 
       try {
-        const upgrade = upgradeSkillDirectory(skillDir, shippedFiles, existing);
+        const upgrade = upgradeDirectory(skillDir, shippedFiles, existing);
         ledger[skill.id] = {
           version: skill.version,
           installedAt: new Date().toISOString(),
@@ -191,13 +168,7 @@ export function ensureBuiltinSkills(options: EnsureBuiltinSkillsOptions): Ensure
     }
 
     try {
-      // Materialise into a staging directory and rename into place, so a crash
-      // mid-write cannot leave a half-written skill that the loader would then
-      // report as a broken frontmatter diagnostic.
-      const stagingDir = `${skillDir}.installing`;
-      fs.rmSync(stagingDir, { recursive: true, force: true });
-      const files = writeShippedFiles(stagingDir, shippedFiles);
-      fs.renameSync(stagingDir, skillDir);
+      const files = installDirectory(skillDir, shippedFiles);
       ledger[skill.id] = { version: skill.version, installedAt: new Date().toISOString(), files };
       ledgerChanged = true;
       result.installed.push(skill.id);
@@ -210,113 +181,94 @@ export function ensureBuiltinSkills(options: EnsureBuiltinSkillsOptions): Ensure
   return result;
 }
 
-/** Writes the shipped set into `targetDir`, returning the hash of each file. */
-function writeShippedFiles(
-  targetDir: string,
-  shippedFiles: Array<[string, string]>
-): Record<string, string> {
-  const files: Record<string, string> = {};
-  for (const [relativePath, content] of shippedFiles) {
-    const target = path.join(targetDir, relativePath);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content, "utf8");
-    files[relativePath] = hashContent(content);
-  }
-  return files;
+export interface BuiltinSkillState {
+  id: string;
+  /** The version this build ships. */
+  version: string;
+  /** The version recorded for the copy on disk; empty when unknown. */
+  installedVersion: string;
+  installed: boolean;
+  /** True when the shipped version differs from the installed one. */
+  updateAvailable: boolean;
+  /** True when the copy on disk no longer matches what we wrote. */
+  modified: boolean;
 }
 
 /**
- * Replace an installed skill with the shipped version.
+ * What the owner's workspace holds versus what this build ships.
  *
- * Built in a staging copy and swapped in with two renames, so a crash cannot
- * leave a half-upgraded tree that the loader would report as broken. The copy
- * starts from what is on disk, which is what carries owner-added files across;
- * the shipped set is then written over it.
+ * The boot path upgrades on a version bump on its own, so in normal operation
+ * this reports "up to date". It exists for the two cases the boot path
+ * deliberately does not handle: a copy the owner edited (still reported as
+ * `modified`, so Settings can offer to re-apply it), and a version that was
+ * skipped because the earlier attempt failed.
  */
-function upgradeSkillDirectory(
-  skillDir: string,
-  shippedFiles: Array<[string, string]>,
-  previous: LedgerEntry
-): { files: Record<string, string>; backupDir?: string } {
-  const recorded = previous.files;
-  // No recorded hashes means we cannot prove the tree is ours, so it is the
-  // owner's until shown otherwise.
-  const diverged = !recorded || Object.entries(recorded).some(([relativePath, hash]) => {
-    if (!isSafeRelativePath(relativePath)) return true;
-    return readFileHash(path.join(skillDir, relativePath)) !== hash;
-  });
-
-  const stagingDir = `${skillDir}.installing`;
-  fs.rmSync(stagingDir, { recursive: true, force: true });
-  fs.cpSync(skillDir, stagingDir, { recursive: true });
-
-  // Drop files we shipped last time and no longer ship — but only while they
-  // still match what we wrote, so a file the owner took over is never deleted.
-  const shippedPaths = new Set(shippedFiles.map(([relativePath]) => relativePath));
-  for (const [relativePath, hash] of Object.entries(recorded ?? {})) {
-    if (shippedPaths.has(relativePath) || !isSafeRelativePath(relativePath)) continue;
-    const stale = path.join(stagingDir, relativePath);
-    if (readFileHash(stale) === hash) fs.rmSync(stale, { force: true });
-  }
-
-  const files = writeShippedFiles(stagingDir, shippedFiles);
-
-  const backupDir = diverged
-    ? `${skillDir}.backup-${new Date().toISOString().replace(/[:.]/g, "-")}`
-    : `${skillDir}.replacing`;
-  fs.rmSync(backupDir, { recursive: true, force: true });
-  fs.renameSync(skillDir, backupDir);
-  fs.renameSync(stagingDir, skillDir);
-  if (!diverged) fs.rmSync(backupDir, { recursive: true, force: true });
-
-  return { files, backupDir: diverged ? backupDir : undefined };
-}
-
-function readFileHash(filePath: string): string | undefined {
-  try {
-    return hashContent(fs.readFileSync(filePath));
-  } catch {
-    return undefined;
-  }
-}
-
-function readLedger(ledgerPath: string): Record<string, LedgerEntry> {
-  try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(ledgerPath, "utf8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const ledger: Record<string, LedgerEntry> = {};
-    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!value || typeof value !== "object") continue;
-      const entry = value as Record<string, unknown>;
-      // Only a well-formed hash map counts. A partially readable one would make
-      // an edited install look untouched, which is exactly the case that must
-      // keep a backup — so anything odd degrades to "unknown provenance".
-      const rawFiles = entry.files;
-      let files: Record<string, string> | undefined;
-      if (rawFiles && typeof rawFiles === "object" && !Array.isArray(rawFiles)) {
-        files = {};
-        for (const [relativePath, hash] of Object.entries(rawFiles as Record<string, unknown>)) {
-          if (typeof hash !== "string" || !hash) { files = undefined; break; }
-          files[relativePath] = hash;
-        }
-      }
-      ledger[id] = {
-        version: String(entry.version ?? ""),
-        installedAt: String(entry.installedAt ?? ""),
-        ...(files ? { files } : {})
+export function listBuiltinSkillStates(options: EnsureBuiltinSkillsOptions): BuiltinSkillState[] {
+  const skillsRoot = path.resolve(options.skillsRoot);
+  const ledger = readLedger(path.join(skillsRoot, LEDGER_FILENAME));
+  return (options.skills ?? BUILTIN_SKILLS)
+    .filter((skill) => SAFE_SKILL_ID.test(skill.id))
+    .map((skill) => {
+      const entry = ledger[skill.id];
+      const installed = fs.existsSync(path.join(skillsRoot, skill.id));
+      return {
+        id: skill.id,
+        version: skill.version,
+        installedVersion: installed ? entry?.version ?? "" : "",
+        installed,
+        updateAvailable: installed && (entry?.version ?? "") !== skill.version,
+        modified: installed && hasDiverged(path.join(skillsRoot, skill.id), entry?.files)
       };
-    }
-    return ledger;
-  } catch {
-    // A missing or corrupt ledger must not block startup. The worst case is
-    // that a deleted built-in comes back once, which is recoverable; refusing
-    // to boot is not.
-    return {};
-  }
+    });
 }
 
-function writeLedger(ledgerPath: string, ledger: Record<string, LedgerEntry>): void {
-  const tmpPath = `${ledgerPath}.tmp`;
-  fs.writeFileSync(tmpPath, `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
-  fs.renameSync(tmpPath, ledgerPath);
+export interface ApplyBuiltinSkillResult {
+  id: string;
+  from: string;
+  to: string;
+  /** Set when the previous tree had diverged and was preserved instead of replaced. */
+  backupDir?: string;
+  /** True when the skill was materialised for the first time (or after deletion). */
+  installed: boolean;
+}
+
+/**
+ * Write the shipped copy of one built-in Skill into the workspace, on request.
+ *
+ * Unlike the boot path this ignores both gates that exist to keep *automatic*
+ * behaviour safe: the version check (so it can repair a copy that was edited or
+ * half-written at the current version) and the tombstone (asking for it back is
+ * exactly what an explicit request means). It keeps the one guarantee that is
+ * not about automation: a diverged tree is backed up, never discarded.
+ */
+export function applyBuiltinSkill(
+  options: EnsureBuiltinSkillsOptions & { id: string }
+): ApplyBuiltinSkillResult {
+  const skill = (options.skills ?? BUILTIN_SKILLS).find((candidate) => candidate.id === options.id);
+  if (!skill || !SAFE_SKILL_ID.test(skill.id)) throw new Error(`Unknown built-in skill: ${options.id}`);
+  const shippedFiles = Object.entries(skill.files).filter(([relativePath]) => isSafeRelativePath(relativePath));
+  if (shippedFiles.length === 0) throw new Error(`Built-in skill ships no files: ${skill.id}`);
+
+  const skillsRoot = path.resolve(options.skillsRoot);
+  fs.mkdirSync(skillsRoot, { recursive: true });
+  const ledgerPath = path.join(skillsRoot, LEDGER_FILENAME);
+  const ledger = readLedger(ledgerPath);
+  const skillDir = path.join(skillsRoot, skill.id);
+  const previous = ledger[skill.id];
+  const exists = fs.existsSync(skillDir);
+
+  const applied = exists
+    ? upgradeDirectory(skillDir, shippedFiles, previous ?? { version: "", installedAt: "" })
+    : { files: installDirectory(skillDir, shippedFiles), backupDir: undefined };
+
+  ledger[skill.id] = { version: skill.version, installedAt: new Date().toISOString(), files: applied.files };
+  writeLedger(ledgerPath, ledger);
+
+  return {
+    id: skill.id,
+    from: previous?.version ?? "",
+    to: skill.version,
+    backupDir: applied.backupDir,
+    installed: !exists
+  };
 }

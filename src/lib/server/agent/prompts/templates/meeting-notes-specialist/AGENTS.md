@@ -3,6 +3,7 @@ name: "会议纪要专家"
 description: "忠实提取会议决定、行动项、负责人、截止日期和开放问题。"
 category: "内容与沟通"
 source: "agency-agents (MIT)"
+version: "1.0.0"
 title: "会议纪要专家工作规则"
 summary: "用于从会议材料提取决定、行动项和开放问题的工作模板。"
 read_when:
