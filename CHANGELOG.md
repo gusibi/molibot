@@ -5,6 +5,11 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-08-06
+
+### Release: v2.9.5 / Desktop v0.9.2
+- Synchronized the root and Desktop package versions for the new release.
+
 ## 2026-08-05
 
 ### Added: a built-in Mini App can be updated in place, code only
