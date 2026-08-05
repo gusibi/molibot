@@ -4,12 +4,19 @@ import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 
+interface ParsedFeishuResource {
+  fileKey: string;
+  fileName: string | null;
+  resourceType: "file" | "image" | "media";
+}
+
 interface ParsedFeishuContent {
   rawText: string;
-  fileKey: string | null;
-  fileName: string | null;
-  resourceType: "file" | "image" | "media" | null;
+  resources: ParsedFeishuResource[];
 }
+
+/** Upper bound on resources pulled from one rich-text message, so a wall of images cannot stall intake. */
+const MAX_MESSAGE_RESOURCES = 9;
 
 export type FeishuInboundEvent = ChannelInboundMessage;
 
@@ -28,6 +35,102 @@ function parseJsonContent(raw: unknown): Record<string, any> | null {
   }
 }
 
+function singleResource(
+  fileKey: unknown,
+  fileName: unknown,
+  resourceType: ParsedFeishuResource["resourceType"]
+): ParsedFeishuResource[] {
+  if (typeof fileKey !== "string" || !fileKey.trim()) return [];
+  return [{
+    fileKey: fileKey.trim(),
+    fileName: typeof fileName === "string" && fileName.trim() ? fileName : null,
+    resourceType
+  }];
+}
+
+/**
+ * A `post` payload is either `{ title, content }` or locale-keyed
+ * (`{ zh_cn: { title, content } }`) depending on the event version; `content`
+ * is always an array of paragraphs, each an array of tagged elements.
+ */
+function readPostBody(payload: Record<string, any>): { title: string; paragraphs: unknown[] } | null {
+  if (Array.isArray(payload.content)) {
+    return { title: String(payload.title ?? ""), paragraphs: payload.content };
+  }
+  for (const value of Object.values(payload)) {
+    if (value && typeof value === "object" && Array.isArray((value as any).content)) {
+      return { title: String((value as any).title ?? ""), paragraphs: (value as any).content };
+    }
+  }
+  return null;
+}
+
+function parseFeishuPost(payload: Record<string, any>): ParsedFeishuContent {
+  const body = readPostBody(payload);
+  if (!body) return { rawText: "", resources: [] };
+
+  const resources: ParsedFeishuResource[] = [];
+  const seenKeys = new Set<string>();
+  const lines: string[] = [];
+
+  const pushResource = (resource: ParsedFeishuResource[]) => {
+    for (const item of resource) {
+      if (seenKeys.has(item.fileKey)) continue;
+      seenKeys.add(item.fileKey);
+      resources.push(item);
+    }
+  };
+
+  for (const paragraph of body.paragraphs) {
+    if (!Array.isArray(paragraph)) continue;
+    let line = "";
+    for (const element of paragraph) {
+      if (!element || typeof element !== "object") continue;
+      const el = element as Record<string, any>;
+      switch (String(el.tag || "")) {
+        case "text":
+          line += String(el.text ?? "");
+          break;
+        case "a": {
+          const label = String(el.text ?? "").trim();
+          const href = String(el.href ?? "").trim();
+          line += label && href ? `[${label}](${href})` : label || href;
+          break;
+        }
+        case "at": {
+          const name = String(el.user_name ?? "").trim() || String(el.user_id ?? "").trim();
+          if (name) line += `@${name}`;
+          break;
+        }
+        case "emotion": {
+          const emoji = String(el.emoji_type ?? "").trim();
+          if (emoji) line += `[${emoji}]`;
+          break;
+        }
+        case "img":
+          pushResource(singleResource(el.image_key, el.file_name, "image"));
+          break;
+        case "media":
+          pushResource(singleResource(el.file_key, el.file_name, "media"));
+          break;
+        case "file":
+          pushResource(singleResource(el.file_key, el.file_name, "file"));
+          break;
+        default:
+          break;
+      }
+    }
+    const trimmedLine = line.trim();
+    if (trimmedLine) lines.push(trimmedLine);
+  }
+
+  const title = body.title.trim();
+  return {
+    rawText: [title, ...lines].filter(Boolean).join("\n"),
+    resources
+  };
+}
+
 function parseFeishuContent(message: Record<string, any>): ParsedFeishuContent {
   const payload = parseJsonContent(message.content) ?? {};
   const messageType = String(message.message_type || "").trim();
@@ -35,18 +138,25 @@ function parseFeishuContent(message: Record<string, any>): ParsedFeishuContent {
   if (messageType === "text") {
     return {
       rawText: String(payload.text ?? message.content ?? ""),
-      fileKey: null,
-      fileName: null,
-      resourceType: null
+      resources: []
     };
+  }
+
+  if (messageType === "post") {
+    const parsed = parseFeishuPost(payload);
+    if (!parsed.rawText && parsed.resources.length === 0) {
+      momWarn("feishu", "post_content_unparsed", {
+        messageId: String(message.message_id || ""),
+        contentPreview: String(message.content ?? "").slice(0, 200)
+      });
+    }
+    return parsed;
   }
 
   if (messageType === "image") {
     return {
       rawText: "",
-      fileKey: typeof payload.image_key === "string" ? payload.image_key : null,
-      fileName: typeof payload.file_name === "string" ? payload.file_name : null,
-      resourceType: "image"
+      resources: singleResource(payload.image_key, payload.file_name, "image")
     };
   }
 
@@ -56,34 +166,37 @@ function parseFeishuContent(message: Record<string, any>): ParsedFeishuContent {
         ? payload.file_key
         : typeof payload.audio_key === "string"
           ? payload.audio_key
-          : typeof payload.media_key === "string"
-            ? payload.media_key
-            : null;
-    const resourceType: ParsedFeishuContent["resourceType"] = messageType === "media" || messageType === "video"
+          : payload.media_key;
+    const resourceType: ParsedFeishuResource["resourceType"] = messageType === "media" || messageType === "video"
       ? "media"
       : "file";
     return {
       rawText: String(payload.text ?? payload.file_name ?? ""),
-      fileKey,
-      fileName: typeof payload.file_name === "string" ? payload.file_name : null,
-      resourceType
+      resources: singleResource(fileKey, payload.file_name, resourceType)
     };
   }
 
   if (messageType === "file") {
     return {
       rawText: String(payload.text ?? payload.file_name ?? ""),
-      fileKey: typeof payload.file_key === "string" ? payload.file_key : null,
-      fileName: typeof payload.file_name === "string" ? payload.file_name : null,
-      resourceType: "file"
+      resources: singleResource(payload.file_key, payload.file_name, "file")
     };
   }
 
+  // Unknown type: never hand the raw event JSON to the model as if the user had
+  // typed it (a `post` message reaching here is what made an attached image look
+  // like a text blob containing an `image_key`). Label it and warn instead.
+  const resources = singleResource(payload.file_key, payload.file_name, "file");
+  momWarn("feishu", "unsupported_message_type", {
+    messageId: String(message.message_id || ""),
+    messageType,
+    hasFileKey: resources.length > 0,
+    contentPreview: String(message.content ?? "").slice(0, 200)
+  });
+  const fallbackText = typeof payload.text === "string" ? payload.text : "";
   return {
-    rawText: String(payload.text ?? message.content ?? ""),
-    fileKey: typeof payload.file_key === "string" ? payload.file_key : null,
-    fileName: typeof payload.file_name === "string" ? payload.file_name : null,
-    resourceType: typeof payload.file_key === "string" ? "file" : null
+    rawText: fallbackText || `(unsupported Feishu message type: ${messageType || "unknown"})`,
+    resources
   };
 }
 
@@ -177,6 +290,15 @@ function guessResourceTypes(
     return ordered;
   }
 
+  // A `post` mixes element kinds under one message_type, so the element's own
+  // kind is the only signal — never infer from the message type here.
+  if (msg === "post") {
+    push(preferred);
+    push("file");
+    push("media");
+    return ordered;
+  }
+
   if (msg === "media" || msg === "video") {
     push("media");
     return ordered;
@@ -249,6 +371,26 @@ async function downloadFeishuMessageResource(
     error: lastError
   });
   return null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Text messages carry mentions as `@_user_N` placeholders; `post` messages carry
+ * an `at` element that we render as `@<display name>`. Strip both shapes so a
+ * group message reads the same to the agent regardless of message type.
+ */
+function stripGroupMentions(text: string, message: Record<string, any>): string {
+  let result = text.replace(/@_user_[^\s]+\s*/g, "");
+  const mentions = Array.isArray(message.mentions) ? message.mentions : [];
+  for (const mention of mentions) {
+    const name = String(mention?.name ?? "").trim();
+    if (!name) continue;
+    result = result.replace(new RegExp(`@${escapeRegExp(name)}\\s*`, "g"), "");
+  }
+  return result.trim();
 }
 
 export function getFeishuThreadId(message: Record<string, any>): string {
@@ -335,7 +477,7 @@ export async function toFeishuInboundEvent(input: {
 
   let cleaned = parsed.rawText.trim();
   if (chatType === "group") {
-    cleaned = cleaned.replace(/@_user_[^\s]+\s*/g, "").trim();
+    cleaned = stripGroupMentions(cleaned, message);
   }
 
   const ts = message.create_time
@@ -345,40 +487,48 @@ export async function toFeishuInboundEvent(input: {
   const attachments: ChannelInboundMessage["attachments"] = [];
   const imageContents: ChannelInboundMessage["imageContents"] = [];
 
-  if (parsed.fileKey && parsed.resourceType) {
+  if (parsed.resources.length > MAX_MESSAGE_RESOURCES) {
+    momWarn("feishu", "message_resources_truncated", {
+      messageId,
+      total: parsed.resources.length,
+      limit: MAX_MESSAGE_RESOURCES
+    });
+  }
+
+  for (const item of parsed.resources.slice(0, MAX_MESSAGE_RESOURCES)) {
     const resource = await downloadFeishuMessageResource(
       client,
       messageId,
-      parsed.fileKey,
-      parsed.resourceType,
+      item.fileKey,
+      item.resourceType,
       String(message.message_type || "")
     );
 
-    if (resource) {
-      const guessedName =
-        parsed.fileName ||
-        resource.filename ||
-        `${parsed.fileKey}${parsed.resourceType === "image"
-          ? ".png"
-          : resolveResourceExt(resource.contentType)
-        }`;
-      const mimeType = resource.contentType || mimeFromFilename(guessedName) || undefined;
-      const mediaType = parsed.resourceType === "image"
-        ? "image"
-        : mimeType?.startsWith("audio/") || message.message_type === "audio"
-          ? "audio"
-          : mimeType?.startsWith("video/") || message.message_type === "media" || message.message_type === "video"
-            ? "video"
-            : "file";
-      const saved = store.saveAttachment(scopeId, guessedName, ts, resource.data, {
-        mediaType,
-        mimeType
-      });
-      attachments.push(saved);
+    if (!resource) continue;
 
-      if (saved.isImage && mimeType) {
-        imageContents.push({ type: "image", mimeType, data: resource.data.toString("base64") });
-      }
+    const guessedName =
+      item.fileName ||
+      resource.filename ||
+      `${item.fileKey}${item.resourceType === "image"
+        ? ".png"
+        : resolveResourceExt(resource.contentType)
+      }`;
+    const mimeType = resource.contentType || mimeFromFilename(guessedName) || undefined;
+    const mediaType = item.resourceType === "image"
+      ? "image"
+      : mimeType?.startsWith("audio/") || message.message_type === "audio"
+        ? "audio"
+        : mimeType?.startsWith("video/") || message.message_type === "media" || message.message_type === "video"
+          ? "video"
+          : "file";
+    const saved = store.saveAttachment(scopeId, guessedName, ts, resource.data, {
+      mediaType,
+      mimeType
+    });
+    attachments.push(saved);
+
+    if (saved.isImage && mimeType) {
+      imageContents.push({ type: "image", mimeType, data: resource.data.toString("base64") });
     }
   }
 

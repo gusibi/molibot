@@ -353,17 +353,20 @@ export async function enrichMessageTextWithImages(
 ): Promise<{
   text: string;
   analysisErrors: string[];
+  /** Images whose contents made it into `text`. Anything else is unreadable to the model. */
+  analyzedCount: number;
 }> {
   const imageAttachments = ctx.message.attachments.filter((item) => item.isImage);
   const imageContents = Array.isArray(ctx.message.imageContents) ? ctx.message.imageContents : [];
   if (imageAttachments.length === 0 || imageContents.length === 0) {
-    return { text: baseText, analysisErrors: [] };
+    return { text: baseText, analysisErrors: [], analyzedCount: 0 };
   }
 
   if (!imageDecision.shouldAnalyze) {
     return {
       text: baseText,
-      analysisErrors: imageDecision.userNotice ? [imageDecision.userNotice] : []
+      analysisErrors: imageDecision.userNotice ? [imageDecision.userNotice] : [],
+      analyzedCount: 0
     };
   }
 
@@ -401,7 +404,7 @@ export async function enrichMessageTextWithImages(
     text = "(image message received; analysis unavailable)";
   }
 
-  return { text, analysisErrors };
+  return { text, analysisErrors, analyzedCount: analyses.length };
 }
 
 export function stripImagePartsForTextOnlyModel(selectedModel: Model<any>, context: any): any {

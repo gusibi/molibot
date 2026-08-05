@@ -229,7 +229,17 @@ export function createImageGenerateTool(options: {
         }
       };
 
-      const inputPrompt = String(params.prompt || "").trim();
+      // Validate before any side effect: a non-string prompt used to stringify to
+      // "[object Object]", generate an unrelated image, and auto-upload it to the
+      // user's chat. This tool creates images from text; it never reads one.
+      if (typeof params.prompt !== "string") {
+        throw new Error(
+          `imageGenerate 'prompt' must be a string describing the image to create, received ${
+            Array.isArray(params.prompt) ? "array" : params.prompt === null ? "null" : typeof params.prompt
+          }. This tool generates a new image from text and cannot read or describe an existing image.`
+        );
+      }
+      const inputPrompt = params.prompt.trim();
       if (!inputPrompt) {
         throw new Error("Prompt is required.");
       }

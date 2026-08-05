@@ -1723,3 +1723,37 @@ test("videoGenerate submissions are blocked after a successful submission in the
     rmSync(workspaceDir, { recursive: true, force: true });
   }
 });
+
+test("an image no vision route could read is announced to the model, not left as a bare path", () => {
+  const source = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
+  const block = source.slice(
+    source.indexOf("const unreadableImageInstructions"),
+    source.indexOf("const miniAppRuntimeInstructions")
+  );
+  assert.ok(block.length > 0, "the unreadable-image runtime instruction must exist");
+  assert.ok(
+    /unreadableImageCount > 0/.test(block),
+    "it must fire only when an image actually went unread"
+  );
+  // The observed failure: handed only `<channel_attachments>` with a .png path,
+  // the model burned the turn on skillSearch/ls hunting for an OCR tool.
+  assert.ok(
+    /do not try/i.test(block) && /(file or shell tool|searching for a skill)/i.test(block),
+    "it must tell the model that reading the path back will not recover the content"
+  );
+  assert.ok(
+    /cannot see the image/i.test(block),
+    "it must tell the model to say plainly that it cannot see the image"
+  );
+  // Every surface shares this instruction, so it must not name one of them.
+  for (const word of ["feishu", "telegram", "desktop", "provider", "setting", "vision model"]) {
+    assert.ok(
+      !new RegExp(`\\b${word}\\b`, "i").test(block),
+      `the instruction must stay domain-agnostic (found "${word}")`
+    );
+  }
+  assert.ok(
+    /\.\.\.unreadableImageInstructions/.test(source),
+    "the instruction must be wired into runtimeInstructions"
+  );
+});

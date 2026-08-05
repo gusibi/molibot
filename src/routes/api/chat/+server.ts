@@ -41,7 +41,7 @@ import {
 } from "$lib/server/channels/shared/approvalAutoResume";
 import { getHostBashStore } from "$lib/server/hostBash";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n";
-import { saveWebResponseAttachment } from "$lib/server/web/attachments";
+import { resolveWebInboundFileMeta, saveWebResponseAttachment } from "$lib/server/web/attachments";
 import {
   buildRunnerProjectContext,
   getConversationProject,
@@ -92,18 +92,6 @@ function webCommandText(english: string, chinese: string): string {
   return commandText(commandLocaleFromSettings(getRuntime().getSettings()), english, chinese);
 }
 
-function inferMediaType(file: File): FileAttachment["mediaType"] {
-  const type = (file.type || "").toLowerCase();
-  if (type.startsWith("image/")) return "image";
-  if (type.startsWith("audio/")) return "audio";
-  if (type.startsWith("video/")) return "video";
-  return "file";
-}
-
-function isImageFile(file: File): boolean {
-  return inferMediaType(file) === "image";
-}
-
 function normalizeText(input: string): string {
   const text = input.trim();
   if (text) return text;
@@ -112,13 +100,6 @@ function normalizeText(input: string): string {
 
 function buildModelsText(profileId: string, route: ModelRoute): string {
   const runtime = getRuntime();
-
-  if (cmd === "/miniapps" || cmd === "/mini-apps" || cmd === "/apps") {
-    return {
-      ok: true,
-      response: formatMiniAppList(getMiniAppHost().listCatalog(), isChineseLocale(runtime.getSettings().locale))
-    };
-  }
   const settings = runtime.getSettings();
   const options = buildModelOptions(settings, route);
   const activeKey = currentModelKey(settings, route);
@@ -445,6 +426,15 @@ async function tryHandleWebCommand(
     };
   }
 
+  // Aliases mirror `WEB_COMMAND_DEFINITIONS` (the composer offers /miniapps
+  // with /mini-apps and /apps) and the channel dispatcher in channelCommands.ts.
+  if (cmd === "/miniapps" || cmd === "/mini-apps" || cmd === "/apps") {
+    return {
+      ok: true,
+      response: formatMiniAppList(getMiniAppHost().listCatalog(), isChineseLocale(runtime.getSettings().locale))
+    };
+  }
+
   if (cmd === "/skills") {
     return {
       ok: true,
@@ -643,22 +633,20 @@ export const POST: RequestHandler = async ({ request }) => {
 
   for (const file of parsed.files) {
     const bytes = Buffer.from(await file.arrayBuffer());
-    const mediaType = inferMediaType(file);
     const saved = store.saveAttachment(
       runnerChatId,
       file.name || "upload.bin",
       ts,
       bytes,
-      {
-        mediaType,
-        mimeType: file.type || undefined
-      }
+      resolveWebInboundFileMeta(file)
     );
     attachments.push(saved);
-    if (isImageFile(file)) {
+    // Keyed off the saved attachment, like the channel intakes: `isImage` and
+    // `imageContents` must never disagree.
+    if (saved.isImage) {
       imageContents.push({
         type: "image",
-        mimeType: file.type || "image/jpeg",
+        mimeType: saved.mimeType || "image/jpeg",
         data: bytes.toString("base64")
       });
     }

@@ -111,6 +111,151 @@ test("toFeishuInboundEvent preserves Feishu platform ids and thread scope", asyn
   assert.equal(event?.text, "continue");
 });
 
+function collectingStore(saved: unknown[]) {
+  return {
+    saveAttachment: (_scopeId: string, filename: string, _ts: string, content: Buffer, meta: any) => {
+      const record = {
+        original: filename,
+        local: filename,
+        mediaType: meta.mediaType,
+        mimeType: meta.mimeType,
+        size: content.byteLength,
+        isImage: meta.mediaType === "image",
+        isAudio: meta.mediaType === "audio",
+        isVideo: meta.mediaType === "video"
+      };
+      saved.push(record);
+      return record;
+    }
+  } as never;
+}
+
+function imageClient(resourceCalls: unknown[], data: Buffer) {
+  return {
+    im: {
+      messageResource: {
+        get: async (payload: unknown) => {
+          resourceCalls.push(payload);
+          return {
+            headers: { "content-type": "image/png" },
+            getReadableStream: () => Readable.from([data])
+          };
+        }
+      }
+    }
+  } as never;
+}
+
+test("toFeishuInboundEvent extracts image and text from a post message", async () => {
+  const data = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const resourceCalls: unknown[] = [];
+  const saved: unknown[] = [];
+  const event = await toFeishuInboundEvent({
+    client: imageClient(resourceCalls, data),
+    store: collectingStore(saved),
+    message: message({
+      message_type: "post",
+      content: JSON.stringify({
+        title: "",
+        content: [
+          [{ tag: "img", image_key: "img_v3_abc", width: 555, height: 400 }],
+          [{ tag: "text", text: "这张图片是什么内容", style: [] }]
+        ]
+      })
+    }),
+    sender
+  });
+
+  // The image must be downloaded and surfaced as vision input, not left as an
+  // `image_key` inside a JSON blob standing in for the user's text.
+  assert.equal(event?.text, "这张图片是什么内容");
+  assert.equal(event?.attachments.length, 1);
+  assert.equal(event?.imageContents?.length, 1);
+  assert.equal(event?.imageContents?.[0].mimeType, "image/png");
+  assert.equal(event?.imageContents?.[0].data, data.toString("base64"));
+  assert.deepEqual(resourceCalls[0], {
+    path: { message_id: "om_user", file_key: "img_v3_abc" },
+    params: { type: "image" }
+  });
+});
+
+test("toFeishuInboundEvent never leaks raw post JSON into the message text", async () => {
+  const event = await toFeishuInboundEvent({
+    client: imageClient([], Buffer.from([0x89])),
+    store: collectingStore([]),
+    message: message({
+      message_type: "post",
+      content: JSON.stringify({
+        title: "周报",
+        content: [[{ tag: "text", text: "本周进展" }]]
+      })
+    }),
+    sender
+  });
+
+  assert.equal(event?.text, "周报\n本周进展");
+  assert.equal(event?.text.includes("image_key"), false);
+  assert.equal(event?.text.includes("\"tag\""), false);
+});
+
+test("toFeishuInboundEvent strips the mentioned bot name from a post message", async () => {
+  const event = await toFeishuInboundEvent({
+    client: imageClient([], Buffer.from([0x89])),
+    store: collectingStore([]),
+    message: message({
+      message_type: "post",
+      mentions: [{ key: "@_user_1", id: { open_id: "ou_bot" }, name: "Molibot" }],
+      content: JSON.stringify({
+        content: [[
+          { tag: "at", user_id: "ou_bot", user_name: "Molibot" },
+          { tag: "text", text: " 帮我看看" }
+        ]]
+      })
+    }),
+    sender
+  });
+
+  assert.equal(event?.text, "帮我看看");
+});
+
+test("toFeishuInboundEvent collects every image in a multi-image post", async () => {
+  const data = Buffer.from([0x89, 0x50]);
+  const resourceCalls: unknown[] = [];
+  const event = await toFeishuInboundEvent({
+    client: imageClient(resourceCalls, data),
+    store: collectingStore([]),
+    message: message({
+      message_type: "post",
+      content: JSON.stringify({
+        content: [
+          [{ tag: "img", image_key: "img_a" }, { tag: "img", image_key: "img_b" }],
+          [{ tag: "text", text: "对比这两张" }]
+        ]
+      })
+    }),
+    sender
+  });
+
+  assert.equal(event?.imageContents?.length, 2);
+  assert.equal(resourceCalls.length, 2);
+  assert.equal(event?.text, "对比这两张");
+});
+
+test("toFeishuInboundEvent labels an unsupported message type instead of dumping its JSON", async () => {
+  const event = await toFeishuInboundEvent({
+    client: imageClient([], Buffer.from([0x89])),
+    store: collectingStore([]),
+    message: message({
+      message_type: "sticker",
+      content: JSON.stringify({ file_key: "", sticker_id: "abc" })
+    }),
+    sender
+  });
+
+  assert.equal(event?.text, "(unsupported Feishu message type: sticker)");
+  assert.equal(event?.text.includes("sticker_id"), false);
+});
+
 test("toFeishuInboundEvent preserves mp4 messages as video attachments", async () => {
   const data = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
   const resourceCalls: unknown[] = [];

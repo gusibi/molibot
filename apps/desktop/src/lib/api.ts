@@ -2389,9 +2389,11 @@ export interface DesktopChatResult {
  * `/api/chat` multipart endpoint. The Tauri HTTP client forwards the multipart
  * body and its generated Content-Type boundary.
  *
- * This is a `multipart/form-data` POST from the `tauri://localhost` WebView
- * origin, which SvelteKit's CSRF check would reject as a cross-site form
- * submission; the server allows that origin via `kit.csrf.trustedOrigins`.
+ * This is a `multipart/form-data` POST from a WebView origin that is never
+ * same-origin with the loopback server (`tauri://localhost` when packaged,
+ * `http://127.0.0.1:1420` under `desktop:dev`), which SvelteKit's CSRF check
+ * would reject as a cross-site form submission; the server allows every such
+ * origin via `kit.csrf.trustedOrigins` (`scripts/runtime/csrf-trusted-origins.mjs`).
  */
 export async function sendDesktopChatWithFiles(
   endpoint: string,

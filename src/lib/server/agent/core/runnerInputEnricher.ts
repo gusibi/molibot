@@ -23,6 +23,13 @@ export interface EnrichedRunnerInput {
   modelUseCase: "text" | "vision";
   audioDecision: AudioRouteDecision;
   visionDecision: VisionRouteDecision;
+  /**
+   * Image attachments the model can neither see natively nor read a description
+   * of. The runner turns this into an explicit runtime instruction: without one
+   * the model is handed a bare binary path and burns the turn on `skillSearch`
+   * / `ls` / `read` before concluding it has no OCR tool.
+   */
+  unreadableImageCount: number;
 }
 
 export async function prepareEnrichedInput(options: {
@@ -96,6 +103,7 @@ export async function prepareEnrichedInput(options: {
     chatId,
     sessionId,
     analysisErrors: enrichedInput.analysisErrors.length,
+    analyzedCount: enrichedInput.analyzedCount,
     hasAnalyses: enrichedInput.text !== audioEnrichedInput.text
   });
   if (enrichedInput.analysisErrors.length > 0) {
@@ -112,12 +120,18 @@ export async function prepareEnrichedInput(options: {
   const modelCandidates = buildModelFallbackSelections(settings, visionDecision.selection, modelUseCase);
   const activeSelection = modelCandidates[0] ?? visionDecision.selection;
 
+  const imageAttachmentCount = ctx.message.attachments.filter((item) => item.isImage).length;
+  const unreadableImageCount = visionDecision.sendImagesNatively
+    ? 0
+    : Math.max(0, imageAttachmentCount - enrichedInput.analyzedCount);
+
   return {
     enrichedText: enrichedInput.text,
     activeSelection,
     modelCandidates,
     modelUseCase,
     audioDecision,
-    visionDecision
+    visionDecision,
+    unreadableImageCount
   };
 }

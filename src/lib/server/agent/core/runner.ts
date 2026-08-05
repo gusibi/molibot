@@ -878,7 +878,7 @@ export class MomRunner implements RunnerLike {
         hasInlineAudioTranscript: Boolean(ctx.message.hasInlineAudioTranscript)
       });
     }
-    let { enrichedText, activeSelection, modelCandidates, modelUseCase, audioDecision, visionDecision } = await prepareEnrichedInput({
+    let { enrichedText, activeSelection, modelCandidates, modelUseCase, audioDecision, visionDecision, unreadableImageCount } = await prepareEnrichedInput({
       ctx,
       settings,
       respondInThread,
@@ -1621,6 +1621,17 @@ export class MomRunner implements RunnerLike {
       const nonImage = ctx.message.attachments
         .filter((a) => !a.isImage || !visionDecision.sendImagesNatively)
         .map((a) => `${ctx.workspaceDir}/${a.local}`);
+      // An attachment path is not evidence of what a tool can do with it. When
+      // no vision route could read the image, the model is otherwise handed a
+      // bare `.png` path with nothing saying it is unreadable, and spends the
+      // turn hunting for an OCR tool that does not exist before giving up.
+      // Domain-agnostic on purpose: it must not name a channel, a provider or a
+      // setting, since every surface shares this instruction.
+      const unreadableImageInstructions = unreadableImageCount > 0
+        ? [
+            `${unreadableImageCount} image attachment${unreadableImageCount === 1 ? "" : "s"} arrived with this message, but no vision route was available this turn, so ${unreadableImageCount === 1 ? "its content is" : "their contents are"} not part of what you can read. The listed path${unreadableImageCount === 1 ? " is" : "s are"} binary image data: opening ${unreadableImageCount === 1 ? "it" : "them"} with a file or shell tool, or searching for a skill, will not recover the content — do not try. Tell the user plainly that you cannot see the image this time, and ask them to describe it or paste the relevant text if the task depends on it.`
+          ]
+        : [];
       const miniAppRuntimeInstructions = miniAppInvocation
         ? [
             `The user explicitly selected Mini App "${miniAppInvocation.app.name}" (id: ${miniAppInvocation.app.id}) for this turn. Its tools are already preloaded and are the only tools available${miniAppToolIds.length > 0 ? `: ${miniAppToolIds.join(", ")}` : ""}. Do not use toolSearch, memory, files, bash, or another Mini App.`,
@@ -1639,6 +1650,7 @@ export class MomRunner implements RunnerLike {
             : undefined,
         runtimeInstructions: [
           ...(projectFileReferenceInstruction ? [projectFileReferenceInstruction] : []),
+          ...unreadableImageInstructions,
           ...miniAppRuntimeInstructions
         ],
         attachmentPaths: nonImage,

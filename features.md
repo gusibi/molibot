@@ -5,6 +5,71 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-08-05
+
+### 飞书「图片+文字」消息不走图片识别，AI 编造图片内容（已完成，P0）
+
+用户反馈：发了一张图并问「这张图片是什么内容」，配置好的图片解析模型没有被调用，AI 编了一段小狗表情包的描述，中途还乱调 skill、并往群里发了一张不相干的生成图。
+
+**问题定位**——一个根因，两个放大器：
+
+- **根因：`post`（富文本）消息类型从未被解析。** `parseFeishuContent` 只认 `text` / `image` / `audio|media|video` / `file`。图文混排消息的 `message_type` 是 `post`，图片 key 在 `content[0][0].image_key`、文字在 `content[1][0].text`，于是落进未知类型兜底分支：`payload.text` 为 undefined → `rawText` 变成**整个事件 JSON 原文**；`payload.file_key` 为 undefined → 图片根本没下载。`imageContents` 为空，`runnerInputEnricher.ts` 里的 `decideVisionRouting` 就判定「这轮没有图片」，路由到文本模型——**视觉模型全程没被问过**，且 `analysisErrors` 为空，连既有的「图片识别不可用」降级提示都不会发。全链路静默失败。
+- **放大器一：`imageGenerate` 不校验参数就产生副作用。** 模型手上没有图，抓住唯一名字带 image 的工具，传了 `prompt: {action:"describe", image_key:…}`。`String(params.prompt)` 得到 `"[object Object]"`（真值，非空），于是真的按这个字面量生成了一张图，**并自动上传发进用户群里**，模型再据此编造描述。
+- **放大器二：兜底分支把事件 JSON 当成用户输入。** 这既是错乱的直接燃料，也是 `post` 能静默失效这么久的原因——没有任何日志。
+
+**修复**：
+
+- `post` 正式解析：逐段逐元素遍历，`text`/`a`/`at`/`emotion` 组成文本（title 置顶），`img`/`media`/`file` 转成待下载资源；同时兼容扁平 `{title, content}` 与按 locale 分组 `{zh_cn: {…}}` 两种 payload 形状。
+- 单消息支持多附件：`ParsedFeishuContent` 由单个 `fileKey`/`resourceType` 改为去重后的 `resources[]`，`toFeishuInboundEvent` 逐个下载（上限 `MAX_MESSAGE_RESOURCES` = 9，超出记 warn），多图 post 会作为多个 `imageContents` 进入模型。`guessResourceTypes` 在 `message_type` 为 `post` 时不再据此推断资源种类——post 混装多种元素，只信元素自己的 tag。
+- 未知类型兜底不再倾倒 JSON：返回带标签的 `(unsupported Feishu message type: X)`，并 `momWarn("feishu", "unsupported_message_type")`。
+- 群聊 @ 清洗统一：文本消息用 `@_user_N` 占位符，post 的 `at` 元素渲染成 `@<显示名>`，`stripGroupMentions` 两种都清（名字做正则转义）。
+- `imageGenerate` 在任何副作用之前拒绝非字符串 `prompt`，错误文案明确告诉模型「本工具是文生图，不能读图」。
+- **机器防线**：`message-intake.test.ts` 新增 5 例（图文 post 产出 `imageContents`、原始 JSON 不得进入 `text`、群聊剥离被 @ 的机器人名、多图 post、未知类型带标签）；`imageGenerateTool.test.ts` 断言对象型 prompt 被拒且 fetch/upload 调用数均为 0。
+- 验证：飞书 channel 套件 58/58 通过，`imageGenerate` 套件 13/13 通过，两个被改的源文件 `tsc` 无报错（`imageGenerateTool.test.ts` 上原有的 12 个类型错误改动前后数量一致，非本次引入）。
+
+### `/miniapps` 在输入框里能选，但从来不会执行（已完成，P2）
+
+**问题定位**：`/miniapps`（含 `/mini-apps`、`/apps` 别名）的分支被放进了 `buildModelsText()` —— 一个返回 `string`、作用域里根本没有 `cmd` 的格式化函数，而不是 `tryHandleWebCommand` 的命令分发处。自 4619d2b8 起就在 `master` 上，`tsc` 报 4 个错（3 个 `Cannot find name 'cmd'` + 1 个返回类型不匹配），Web / 桌面端该命令静默无响应，而 composer 仍在推荐它。`channelCommands.ts` 里渠道侧的同名分支位置一直是对的，所以从飞书 / Telegram 发 `/miniapps` 正常。
+
+**修复**：把分支移到 `tryHandleWebCommand` 顶部，与其它命令分支并列。
+
+**机器防线**（针对整类问题，而非这一个命令）：新增 `src/routes/api/chat/webCommands.test.ts`，断言 ① `WEB_COMMAND_DEFINITIONS` 里每个名字和别名在分发器里都有对应的 `cmd === "/x"` 分支；② `/miniapps` 返回 `formatMiniAppList(getMiniAppHost().listCatalog())`；③ 分发器之外的任何位置都不得出现 `cmd === "/..."`（分支跑错函数体正是本次根因）。三条在修复前的文件上全部失败、修复后全部通过；已挂进 `npm run test:desktop-chat`。
+
+验证：`src/routes/api/chat/+server.ts` 的 `tsc` 错误归零；`test:desktop-chat` 239/240，唯一失败项在 `HEAD` 上同样失败。
+
+---
+### 上传截图只送到一个裸路径，模型转而去找 OCR 工具（已完成，P1）
+
+用户反馈：「app 中图片识别有些问题」。对照 transcript：模型收到的用户消息里只有 `<channel_attachments>` 和一个 `.png` 路径，既没有原生图片，也没有 `[image analysis #N]`，于是连续两次 `skillSearch("OCR 识别图片文字")`、一次 `ls`，最后回「当前没有可用的 OCR 工具」。
+
+**问题定位**——两个独立缺陷，都属于 pitfall 26 的同一根因类别（Feishu `post` 那次的第二次出现，只是换了入口）：
+
+1. **`File.type` 不是判定依据。** `/api/stream`、`/api/chat` 只按 MIME 前缀分类上传文件，但 WebView 在拖拽、未知格式（`.heic`/`.avif`/`.bmp`/`.tiff`）、从路径合成的 File 上都会给空 `type`。截图因此被存成普通 `file`，`imageContents` 为空——而整条视觉链路都门控在这个数组非空上，runtime 于是「正确地」判定本轮没有图片，全程零报错零提示。
+2. **附件路径不能说明工具拿它能做什么。** 没有可用视觉路由时，模型只拿到一个二进制路径，没有任何一句话说明它读不了。
+
+**修复**：
+
+- 两个入口统一走新的 `resolveWebInboundFileMeta()`（先信声明的 MIME，否则退回文件名扩展名），并且 `imageContents` 改为由 `saved.isImage` 派生——和各渠道 intake 同一形状，附件列表与图片列表不可能再互相矛盾。
+- Runner 新增 `unreadableImageCount`：凡是既没原生直传、也没拿到描述的图片，就在 runtime instructions 里明说「本轮有 N 张图未能读取，用文件/shell 工具打开这个路径或去搜技能都拿不回内容，别试；直接告诉用户你这次看不到图」。刻意保持领域无关——这条指令所有 surface 共用，不能出现渠道名、provider 名或设置名。
+- **未改动**（结论修正）：原先怀疑「`resolveVisionFallbackTarget` 只扫 custom provider，内置 pi 视觉模型配了也不生效」——复核后不成立。声明了 `image` 输入的 pi 模型会被 `decideVisionRouting` 直接走原生直传，根本不需要 HTTP 描述那条；没声明的也当不了 fallback。
+- **机器防线**：新增 `src/lib/server/agent/core/runnerInputEnricher.test.ts`（描述失败时上报 `unreadableImageCount`、原生路由时为 0、降级提示仍然发出）；`src/lib/server/web/attachments.test.ts` 补空 MIME 分类用例；`src/lib/server/agent/core/runner.test.ts` 断言该指令存在、只在 `unreadableImageCount > 0` 时触发、且不含领域词。
+- 验证：routing + agent-core + web-attachments + stream-request + feishu-intake + imageGenerate 共 130/130 通过；`test:desktop-chat` 236/237，唯一失败项在 `HEAD` 上同样失败（既有问题）。
+
+---
+### dev 环境发图片报 CSRF 拦截（已完成，P1）
+
+用户反馈：dev 环境启动 APP、添加一张图片后发送，报 `Cross-site POST form submissions are forbidden`。
+
+**问题定位**——与 2026 Q2「打包后发录音失败」是同一根因类别（第二次出现）：桌面 WebView 与 loopback 服务端永远不同源，带附件的 `/api/chat` 是 `multipart/form-data` POST，SvelteKit 的 CSRF 检查一律视为跨站表单提交。上次只放行了当时手上的那个 origin（打包版自定义协议 `tauri://localhost`），而 `pnpm desktop:dev` 的 WebView origin 是 Tauri 开发服务器 `http://127.0.0.1:1420`（见 `apps/desktop/vite.config.ts`），仍然被拦。
+
+**修复**：
+
+- 可信 origin 列表收敛到单一来源 `scripts/runtime/csrf-trusted-origins.mjs`：打包协议 + 1420 端口的两种 host 写法 + `$TAURI_DEV_HOST`（局域网真机调试）。`svelte.config.js` 只负责接线。Web 部署的 CSRF 防护不受影响——外部页面不可能带上 `tauri://` 或 loopback origin。
+- **机器防线**（同类根因第二次出现，按规则必须加）：`scripts/runtime/csrf-trusted-origins.test.mjs` 断言每个 WebView origin 都在列表里、`TAURI_DEV_HOST` 去重、不放行任何远端 origin、且 `svelte.config.js` 仍从共享列表读取；已挂进 `npm run test:service-bootstrap`。
+- 该配置只在服务端构建时生效，改完需重启 dev 应用（`pnpm desktop:dev` 会先重新构建 runtime）。
+- 验证：`npm run test:service-bootstrap` 19/19 + 3/3 通过。
+
+---
 ## 2026-08-04
 
 ### 自动任务页头部重排：分段控件不再被拉成灰色长条（已完成，P1）

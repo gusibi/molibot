@@ -11,18 +11,10 @@ import {
 } from "$lib/server/web/identity";
 import { resolveRuntimeContext } from "$lib/server/web/runtimeContext";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
-import { saveWebResponseAttachment } from "$lib/server/web/attachments";
+import { resolveWebInboundFileMeta, saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment } from "$lib/shared/types/message";
 import { buildRunnerProjectContext, resolveProjectContext } from "$lib/server/projects/context";
 import { parseStreamRequest, type ParsedStreamRequest } from "./request";
-
-function inferMediaType(file: File): FileAttachment["mediaType"] {
-  const type = file.type.toLowerCase();
-  if (type.startsWith("image/")) return "image";
-  if (type.startsWith("audio/")) return "audio";
-  if (type.startsWith("video/")) return "video";
-  return "file";
-}
 
 function writeEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
@@ -139,16 +131,16 @@ export const POST: RequestHandler = async ({ request }) => {
   const imageContents: ChannelInboundMessage["imageContents"] = [];
   for (const file of body.files) {
     const bytes = Buffer.from(await file.arrayBuffer());
-    const mediaType = inferMediaType(file);
-    const saved = store.saveAttachment(runnerChatId, file.name || "upload.bin", ts, bytes, {
-      mediaType,
-      mimeType: file.type || undefined
-    });
+    const meta = resolveWebInboundFileMeta(file);
+    const saved = store.saveAttachment(runnerChatId, file.name || "upload.bin", ts, bytes, meta);
     attachments.push(saved);
-    if (mediaType === "image") {
+    // Keyed off the saved attachment, like the channel intakes: `isImage` and
+    // `imageContents` must never disagree, or the vision path sees one image
+    // and the model sees a different attachment list.
+    if (saved.isImage) {
       imageContents.push({
         type: "image",
-        mimeType: file.type || "image/jpeg",
+        mimeType: saved.mimeType || "image/jpeg",
         data: bytes.toString("base64")
       });
     }

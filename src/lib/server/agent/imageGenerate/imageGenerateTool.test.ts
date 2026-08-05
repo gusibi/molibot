@@ -710,3 +710,37 @@ test("imageGenerate tool handles ModelScope async task submission and polling co
     } catch {}
   }
 });
+
+test("imageGenerate rejects a non-string prompt before generating or uploading", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  let uploadCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("no network call expected");
+  }) as any;
+
+  try {
+    const tool = createImageGenerateTool(getTestContext(undefined, async () => {
+      uploadCalls += 1;
+    }));
+
+    // A model that mistakes this text-to-image tool for an image *reader* used to
+    // pass an object here, which stringified to "[object Object]" and shipped an
+    // unrelated generated image straight into the user's chat.
+    await assert.rejects(
+      () => tool.execute("call-guard", {
+        prompt: { action: "describe", image_key: "img_v3_abc" }
+      } as any),
+      /must be a string/
+    );
+
+    assert.equal(fetchCalls, 0);
+    assert.equal(uploadCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    try {
+      await fs.rm(mockCwd, { recursive: true, force: true });
+    } catch {}
+  }
+});
