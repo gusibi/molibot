@@ -7,6 +7,9 @@
 ---
 ## 2026-08-06
 
+### Release: v2.9.6 / Desktop v0.9.3
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: one MCP tool result could blow the context window, and compaction could never recover from it
 
 Reported as a provider 400: a request carrying ~2.88M tokens of text input against a 1M-token endpoint. That is not gradual growth — it is ~11 MB arriving in a single tool step — and it exposed two gaps that only look like one bug.
