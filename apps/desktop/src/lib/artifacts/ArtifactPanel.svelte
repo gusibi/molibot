@@ -3,7 +3,7 @@
   import { onDestroy, untrack } from "svelte";
   import type { Translation } from "../i18n";
   import { rawPreviewKindFromName } from "@molibot/shared/filePreview";
-  import { desktopFileContentUrl, fetchDesktopFileBlob, fetchDesktopProjectRawBlob, listDesktopSessionFiles, artifactPreviewUrl, sessionArtifactToken, revealDesktopSessionFile } from "../api";
+  import { desktopFileContentUrl, fetchDesktopFileBlob, fetchDesktopProjectRawBlob, filterDesktopFiles, listDesktopSessionFiles, artifactPreviewUrl, sessionArtifactToken, revealDesktopSessionFile, type DesktopFileFilter } from "../api";
   import { html as renderDiffHtml } from "diff2html";
   import CodeViewer from "../projects/CodeViewer.svelte";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
@@ -94,6 +94,8 @@
   let expandedAttachment = $state("");
   let copiedPath = $state("");
   let attachmentGeneration = 0;
+  /** Media-type filter for the Session artifact list (the old right-hand aside). */
+  let sessionFilter = $state<DesktopFileFilter>("all");
 
   /** Split position between the browser and the viewer, as a percentage of panel height. */
   const SPLIT_KEY = "molibot-desktop-file-split";
@@ -209,6 +211,22 @@
     const token = sessionArtifactToken({ profileId, sessionId, projectId: projectId || undefined });
     return artifactPreviewUrl("session", token, activeTab.path, locale, theme);
   });
+  /**
+   * The Session artifact list - every file this conversation produced or
+   * received. It is the Files surface in Session scope, where there is no
+   * Project tree: without it, opening a Mini App beside a conversation left the
+   * Files side of the panel showing nothing at all.
+   */
+  const panelTitle = $derived(scope === "project" ? copy.projectFilesPanel : copy.files);
+  const filteredAttachments = $derived(filterDesktopFiles(attachments, sessionFilter));
+  const attachmentsTotalSize = $derived(attachments.reduce((sum, file) => sum + file.size, 0));
+  const sessionFilters: [DesktopFileFilter, string][] = $derived([
+    ["all", copy.fileFilterAll],
+    ["image", copy.fileFilterImage],
+    ["video", copy.fileFilterVideo],
+    ["audio", copy.fileFilterAudio],
+    ["file", copy.fileFilterFile]
+  ]);
   /** True while the panel is showing its Mini App surface rather than files. */
   const miniAppActive = $derived(store.mode === "miniapps");
   const miniAppTabs = $derived(store.miniAppTabs);
@@ -427,7 +445,11 @@
     attachmentsLoading = true;
     attachmentsError = "";
     try {
-      const files = sessionId ? await listDesktopSessionFiles(endpoint, "personal", sessionId, projectId) : [];
+      // A Project session belongs to the built-in personal profile; a plain
+      // conversation belongs to whichever bot owns it, so the host's profile id
+      // wins when it has one. Reading the wrong profile returns an empty list
+      // with no error, which is indistinguishable from "no files".
+      const files = sessionId ? await listDesktopSessionFiles(endpoint, profileId || "personal", sessionId, projectId) : [];
       if (current === attachmentGeneration) attachments = files;
     } catch (cause) {
       if (current === attachmentGeneration) attachmentsError = cause instanceof Error ? cause.message : String(cause);
@@ -510,10 +532,13 @@
     }
   }
 
-  /** Closing the last tab in session scope ends the inspector: there is no file tree to fall back to. */
+  /**
+   * Closing a tab falls back to the surface behind it - the Project tree, or
+   * the Session artifact list - so the panel never closes itself out from under
+   * a Mini App the user still has open in the other mode.
+   */
   function handleCloseTab(id: string): void {
     store.closeTab(id);
-    if (scope === "session" && store.tabs.length === 0) onClose();
   }
 
   $effect(() => {
@@ -567,7 +592,7 @@
   });
 
   $effect(() => {
-    const identity = `${endpoint}:${projectId}:${sessionId}`;
+    const identity = `${endpoint}:${projectId}:${profileId}:${sessionId}`;
     untrack(() => {
       identity;
       closeAttachmentPreview();
@@ -609,7 +634,7 @@
   class="file-panel project-file-panel artifact-panel"
   class:miniapp-active={miniAppActive}
   class:splitting
-  aria-label={copy.projectFilesPanel}
+  aria-label={panelTitle}
   bind:this={panelElement}
   style={`--file-split:${splitPercent}%`}
   onkeydown={onPanelKeydown}
@@ -651,37 +676,41 @@
       </OverflowMenu>
     {:else}
       <i class="ph ph-folder-simple file-panel-icon" aria-hidden="true"></i>
-      <strong>{copy.projectFilesPanel}</strong>
+      <strong>{panelTitle}</strong>
     {/if}
 
     {#if !miniAppActive}
-      <button
-        type="button"
-        class="project-panel-refresh"
-        class:active={store.searchOpen}
-        aria-label={copy.projectSearch}
-        title={`${copy.projectSearch} (⌘P)`}
-        onclick={() => (store.searchOpen ? store.closeSearch() : (store.searchOpen = true))}
-      >
-        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-      </button>
-      <button
-        type="button"
-        class="project-panel-refresh"
-        class:active={followAgentWrites}
-        aria-pressed={followAgentWrites}
-        aria-label={copy.projectFollowAgent}
-        title={followAgentWrites ? copy.projectFollowAgentOn : copy.projectFollowAgent}
-        onclick={toggleFollow}
-      >
-        <i class="ph ph-crosshair-simple" aria-hidden="true"></i>
-      </button>
+      <!-- Search and follow-the-agent read the Project tree and its Git status,
+           so they exist only in Project scope; refresh serves both surfaces. -->
+      {#if scope === "project"}
+        <button
+          type="button"
+          class="project-panel-refresh"
+          class:active={store.searchOpen}
+          aria-label={copy.projectSearch}
+          title={`${copy.projectSearch} (⌘P)`}
+          onclick={() => (store.searchOpen ? store.closeSearch() : (store.searchOpen = true))}
+        >
+          <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        </button>
+        <button
+          type="button"
+          class="project-panel-refresh"
+          class:active={followAgentWrites}
+          aria-pressed={followAgentWrites}
+          aria-label={copy.projectFollowAgent}
+          title={followAgentWrites ? copy.projectFollowAgentOn : copy.projectFollowAgent}
+          onclick={toggleFollow}
+        >
+          <i class="ph ph-crosshair-simple" aria-hidden="true"></i>
+        </button>
+      {/if}
       <button
         type="button"
         class="project-panel-refresh"
         aria-label={copy.projectRefresh}
         title={store.watching ? copy.projectWatchLive : copy.projectRefresh}
-        onclick={() => store.refreshAll()}
+        onclick={() => { if (scope === "project") store.refreshAll(); else void loadAttachments(); }}
       >
         <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
         {#if store.watching}<span class="project-watch-dot" aria-hidden="true"></span>{/if}
@@ -1043,9 +1072,9 @@
                   {:else if viewer === "svg"}
                     <SvgViewer src={rawUrl} source={activeText} name={activeTab.name} {showSource} {copy} />
                   {:else if viewer === "csv" && activeTab.preview.status === "text"}
-                    <CsvTable content={activeTab.preview.content} {copy} />
+                    <CsvTable content={activeTab.preview.content} name={activeTab.name} {copy} />
                   {:else if viewer === "markdown" && activeTab.preview.status === "text"}
-                    <MarkdownPreview content={activeTab.preview.content} {copy} {theme} {showSource} />
+                    <MarkdownPreview content={activeTab.preview.content} name={activeTab.name} {copy} {theme} {showSource} />
                   {:else if viewer === "json" && activeTab.preview.status === "text"}
                     <JsonTree content={activeTab.preview.content} {copy} />
                   {:else if viewer !== "system" && activeTab.preview.status === "text"}
@@ -1104,7 +1133,74 @@
           </section>
         {/if}
       {:else if scope === "session"}
+        <!--
+          The Session artifact list. This is the Files surface of a conversation
+          - the peer of the Project tree - so it lives inside the panel rather
+          than in a second aside the host renders instead of this one: with a
+          Mini App open the host had no way to show that aside, and switching
+          the panel back to Files landed on an empty surface.
+        -->
+        <div class="project-browser artifact-session-browser" aria-busy={attachmentsLoading}>
+          <div class="file-filters">
+            {#each sessionFilters as [value, label] (value)}
+              <button type="button" class:active={sessionFilter === value} onclick={() => (sessionFilter = value)}>{label}</button>
+            {/each}
+          </div>
+          {#if attachmentsError}
+            <div class="project-panel-error" role="alert">{attachmentsError}</div>
+          {/if}
+          {#if attachmentsLoading && attachments.length === 0}
+            <p class="file-empty"><span>{copy.filesLoading}</span></p>
+          {:else if filteredAttachments.length === 0}
+            <p class="file-empty"><i class="ph ph-paperclip" aria-hidden="true"></i><span>{copy.noFiles}</span></p>
+          {:else}
+            <ul class="project-entry-list project-session-file-list">
+              {#each filteredAttachments as file (file.id)}
+                <li class="project-entry">
+                  <button
+                    type="button"
+                    class="project-entry-button"
+                    class:selected={activeTab?.fileId === file.id}
+                    title={file.original}
+                    onclick={() => void store.openSessionFile(file)}
+                  >
+                    <i class={`ph ${fileIconName(file.original, "file")}`} style={fileIconStyle(file.original, "file")} aria-hidden="true"></i>
+                    <span>{file.original}</span>
+                    <small class="project-entry-size">{formatSize(file.size)}</small>
+                  </button>
+                  <button
+                    type="button"
+                    class="project-entry-action"
+                    aria-label={copy.download}
+                    title={copy.download}
+                    onclick={() => void downloadAttachment(file)}
+                  ><i class="ph ph-download-simple" aria-hidden="true"></i></button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+
         {#if fileTabs.length}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <div
+            class="project-split-handle"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label={copy.projectResizeViewer}
+            aria-valuenow={splitPercent}
+            aria-valuemin={20}
+            aria-valuemax={80}
+            tabindex="0"
+            onpointerdown={startSplit}
+            onpointermove={moveSplit}
+            onpointerup={stopSplit}
+            onpointercancel={stopSplit}
+            onlostpointercapture={() => (splitting = false)}
+            onkeydown={onSplitKeydown}
+          ></div>
+
           <section class="project-viewer artifact-session-viewer" aria-label={copy.projectViewer}>
             <div class="project-viewer-tabs" role="tablist" aria-label={copy.projectViewer}>
               {#each fileTabs as openTab (openTab.id)}
@@ -1118,6 +1214,15 @@
                   </button>
                 </div>
               {/each}
+              <button
+                type="button"
+                class="project-viewer-tab-clear"
+                aria-label={browserCollapsed ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
+                title={browserCollapsed ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
+                onclick={toggleBrowser}
+              >
+                <i class={`ph ${browserCollapsed ? "ph-arrows-out-line-vertical" : "ph-arrows-in-line-vertical"}`} aria-hidden="true"></i>
+              </button>
               <button type="button" class="project-viewer-tab-clear" aria-label={copy.closeAllTabs} title={copy.closeAllTabs} onclick={() => store.closeAllTabs()}>
                 <i class="ph ph-x-circle" aria-hidden="true"></i>
               </button>
@@ -1184,9 +1289,9 @@
                   {:else if viewer === "svg" && sessionStreamUrl}
                     <SvgViewer src={sessionStreamUrl} source={activeTab.textContent} name={activeTab.name} {showSource} {copy} />
                   {:else if viewer === "csv" && activeTab.textContent}
-                    <CsvTable content={activeTab.textContent} {copy} />
+                    <CsvTable content={activeTab.textContent} name={activeTab.name} {copy} />
                   {:else if viewer === "markdown" && activeTab.textContent}
-                    <MarkdownPreview content={activeTab.textContent} {copy} {theme} {showSource} />
+                    <MarkdownPreview content={activeTab.textContent} name={activeTab.name} {copy} {theme} {showSource} />
                   {:else if viewer === "json" && activeTab.textContent}
                     <JsonTree content={activeTab.textContent} {copy} />
                   {:else if viewer === "media" && sessionStreamUrl}
@@ -1211,19 +1316,24 @@
               </div>
             {/if}
           </section>
-        {:else}
-          <p class="file-empty"><i class="ph ph-squares-four" aria-hidden="true"></i><span>{copy.artifactEmpty}</span></p>
         {/if}
       {/if}
       </div>
     </div>
   {/if}
 
-  {#if scope === "project" && !miniAppActive}
-    <div class="file-panel-footer">
-      <i class="ph ph-eye" aria-hidden="true"></i>
-      <span>{store.watching ? copy.projectReadOnlyLiveHint : copy.projectReadOnlyHint}</span>
-    </div>
+  {#if !miniAppActive}
+    {#if scope === "project"}
+      <div class="file-panel-footer">
+        <i class="ph ph-eye" aria-hidden="true"></i>
+        <span>{store.watching ? copy.projectReadOnlyLiveHint : copy.projectReadOnlyHint}</span>
+      </div>
+    {:else}
+      <div class="file-panel-footer">
+        <i class="ph ph-cloud" aria-hidden="true"></i>
+        <span>{attachments.length} {copy.files} · {formatSize(attachmentsTotalSize)}</span>
+      </div>
+    {/if}
   {/if}
 
   {#if menu}

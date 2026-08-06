@@ -7,6 +7,28 @@
 ---
 ## 2026-08-06
 
+### 打开小程序后切换会话丢失小程序、会话里「文件面板」为空（已修复，P1）
+
+两个现象，同一个接缝。
+
+- **切换 Session 时小程序被销毁。** `ArtifactTabsStore.connect()` 在上下文（endpoint / project / profile / session）变化时清空**所有** tab，于是选中另一个会话就把正在运行的小程序 iframe 一并拆掉，面板退回文件侧。小程序是独立的工作面，不是「它恰好被打开时那个会话」的产物：现在 `connect()` 保留小程序 tab、当前选中项与所处 mode，只清理确实属于旧上下文的 file/diff tab。`{#each}` 的 key 不变，保留下来的 tab 复用原 DOM，iframe 文档不重载。
+- **会话里切回「文件」是空的。** Session scope 下面板只渲染已打开的文件 tab，背后是一句「暂无工件」；真正的会话产物列表在 `ChatView` 的**另一个**右侧 aside 里，而宿主只在「没有打开小程序」时才渲染它。所以一旦开着小程序，那个列表根本无法到达，文件侧从结构上就是空的。现在产物列表移进面板内部（媒体类型筛选、数量/体积页脚、点击在下方查看器打开、下载），旧 aside 删除，Chat 在任何 scope 下都只挂一个右侧检查器。
+- 合并时暴露的两处旧问题：面板读取附件时把 profile 硬编码成 `"personal"`，对属于其它 bot 的会话会返回空列表且不报错——现在接收宿主传入的 `profileId`，与转写区自己的预览/下载走同一套身份解析；`.project-panel-body.browser-collapsed > .project-browser` 自 `.artifact-file-surface` 包装层引入后就不再匹配，折叠按钮点了没反应，规则改写到包装层上。
+- 面板可见性改由实时的 `projectPaneActive` 推导，不再读打开时写死的 `inspector.scope`，可见性判断与真正传给面板的 props 不可能再打架。
+- 机器防护：`apps/desktop/src/chat-ui.test.mjs` 断言 `connect()` 保留小程序 tab 与 mode、Session 产物列表面存在、不再有 `artifactEmpty`、关闭最后一个 tab 不关面板、单一检查器（`inspectorVisible = artifactPanelVisible`，无 `sessionFilesAsideVisible`、无 `file-list`）、折叠选择器写在包装层上。
+- 验证：desktop UI 167/167 + unit 143/143 + Rust 52/52，`svelte-check` 0/0，`vite build` 通过。并对着真实服务走了一遍冷路径：打开小程序 → 切会话（小程序还在）→ 切到「文件」（列出会话产物）→ 打开文件（列表上、查看器下分屏）→ 关闭 tab（列表仍在）→ 切到项目会话（文件树/变更/附件正常，小程序 tab 仍在）→ 折叠再展开列表。
+
+### 工件面板四个文件预览 bug 修复（issue #31，已修复，P1）
+
+统一工件面板上线后，项目文件面板里 CSV 和图片预览空白/一直转圈、`.gitignore` 打开后是系统打开卡片而非内容、Markdown 源码视图无行号。四个 bug，四个不同根因。
+
+- **CSV 遇到重复值就空白。** `CsvTable` 的三个 `{#each}` 都用**值**做 key（`row.join("\0")`、`cell`、`header`）。Svelte 5 在**生产环境**也会抛 `each_key_duplicate`（不是只 dev 警告），所以一行 `yes,yes,yes,yes`、两行完全相同、或重复列名都会在渲染时抛错，tab 直接空白--数据类 CSV 极常见。改为按行/列 index 做 key：CSV 是静态列表，追加行只新增 index，重载则在原 index 原地更新，安全。顺手去掉 `row.join` 里嵌的原始 NUL 字节（git 因此把 `CsvTable.svelte` 当二进制）。
+- **图片被 CSP 挡住。** `app.security.csp` 的 `media-src` 允许了 `http://127.0.0.1:*`（所以 video/audio 能流式播放），但 `img-src` **没有**，于是 `<img src={serviceUrl}>` 被拦、video/audio 却正常--这正是只有图片被报坏的原因。`img-src` 现与 `media-src` 对齐；同一改动也修好了 SVG 流式渲染图和会话附件图片。
+- **`.gitignore` 打开成系统卡片。** `classifyFilePreview` 对 dotfile 返回 `"binary"`（`extensionOf` 把 `.gitignore` 整串当扩展名），`matchViewer` 据此路由到 `"system"`，面板只给「在外部打开/在 Finder 中显示/下载」。新增 `TEXT_DOTFILES` 集合，把常见配置 dotfile（`.gitignore`/`.gitattributes`/`.gitmodules`/`.dockerignore`/`.editorconfig`/`.npmrc`/`.nvmrc`/`.prettierrc`/`.eslintrc`/`.babelrc` 等）判成 `"text"`；服务端本就用 `detectTextEncoding` 把它们读成文本，于是直接在 CodeViewer 里打开。`.DS_Store` 等二进制 dotfile 仍走系统卡片。
+- **Markdown/CSV/SVG 源码视图无行号。** 三者原本都是裸 `<pre>`，现统一复用共享的 `CodeViewer`，源码视图 thus 带行号、查找、换行，和其它文本文件一致。`MarkdownPreview`、`CsvTable` 新增 `name` prop 供 CodeViewer 按路径高亮。
+- 机器防护：`apps/desktop/src/chat-ui.test.mjs` 断言 CsvTable 用 index key、无原始 NUL、源码视图走 CodeViewer、`name` prop、CSP `img-src` 含 loopback；`viewerRegistry.test.ts` 断言 `.gitignore` -> `code`；新建 `src/lib/shared/filePreview.test.ts` 覆盖 dotfile 分类（接入 `test:projects`）。
+- 验证：desktop UI 166/166 + unit 143/143 + Rust 52/52，`test:projects` 68/68，`svelte-check` 0/0，`vite build` 通过。CSP 改动烧在 Tauri 构建里，需要 Rust 重建（pitfall #18），WebView reload 不生效。
+
 ### 单个 MCP 工具结果可撑爆上下文，且压缩永远救不回来（已修复，P0）
 
 现象是 provider 返回 400：一次请求携带约 288 万 token 文本，而端点上限 100 万。这不是多轮累积——是约 11 MB 在**一个工具步骤**里一次性进来的——它暴露了两个看起来像一个 bug 的缺口。

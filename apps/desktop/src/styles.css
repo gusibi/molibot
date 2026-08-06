@@ -1329,36 +1329,6 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .file-filters button:hover { background: var(--fill-hover); color: inherit; }
 .file-filters button.active { color: #fff; background: var(--accent); font-weight: 600; }
 .file-empty { margin: 24px 12px; color: var(--label-secondary); font-size: 12px; text-align: center; }
-.file-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 4px 10px 8px; overflow: auto; list-style: none; flex: 1; min-height: 0; }
-.file-row {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 8px 8px;
-  border: 0;
-  border-radius: var(--rounded-md);
-  background: transparent;
-  transition: background var(--duration-fast) var(--ease-standard);
-}
-.file-row:hover { background: var(--fill); }
-.file-info { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1; }
-.file-kind { flex: none; display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: var(--rounded-sm); background: var(--fill); }
-.file-kind .ph-fill { font-size: 19px; }
-.file-kind[data-kind="image"] { background: color-mix(in srgb, var(--online) 22%, transparent); }
-.file-kind[data-kind="image"] .ph-fill { color: var(--online); }
-.file-kind[data-kind="video"] { background: color-mix(in srgb, var(--accent) 22%, transparent); }
-.file-kind[data-kind="video"] .ph-fill { color: var(--accent); }
-.file-kind[data-kind="audio"] { background: color-mix(in srgb, var(--chart-purple) 22%, transparent); }
-.file-kind[data-kind="audio"] .ph-fill { color: var(--chart-purple); }
-.file-kind[data-kind="file"] { background: var(--fill-hover); }
-.file-kind[data-kind="file"] .ph-fill { color: var(--label-secondary); }
-.file-meta { display: grid; gap: 2px; min-width: 0; flex: 1; }
-.file-meta strong { overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.file-meta small { color: var(--label-secondary); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.file-actions { display: flex; gap: 2px; flex: 0 0 auto; opacity: 0; transition: opacity var(--duration-fast) var(--ease-standard); }
-.file-row:hover .file-actions { opacity: 1; }
-.file-actions button { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); font-size: 14px; cursor: pointer; }
-.file-actions button:hover { background: var(--fill-hover); color: var(--accent); }
 /* macOS status bar: a low, quiet strip, not a full control row. */
 .file-panel-footer {
   display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
@@ -1368,7 +1338,6 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 }
 .file-panel-footer > .ph { flex: none; font-size: 13px; color: var(--label-tertiary); }
 .file-panel-footer span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-panel-manage { padding: 0; border: 0; background: transparent; color: var(--accent); font-size: 12px; font-weight: 500; cursor: pointer; }
 
 .project-panel-refresh { display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-secondary); font-size: 15px; cursor: pointer; }
 .project-panel-refresh:hover { background: var(--fill); color: var(--label-primary); }
@@ -1581,10 +1550,27 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .file-tree-button:focus-visible { outline: none; }
 
 /* Collapsing the browser hands the whole panel to the viewer — at 280–720px wide
-   there is no room for a tree and a file side by side. */
+   there is no room for a tree and a file side by side.
+
+   The browser, split handle and viewer are children of `.artifact-file-surface`
+   (the box that is hidden while a Mini App is on screen), not of the panel body
+   — a `>` combinator against the body stopped matching the moment that wrapper
+   was introduced, and the collapse button silently did nothing. */
+.project-panel-body.browser-collapsed .artifact-file-surface > .project-browser,
+.project-panel-body.browser-collapsed .artifact-file-surface > .project-split-handle { display: none; }
+.project-panel-body.browser-collapsed .artifact-file-surface > .project-viewer { flex: 1 1 100%; border-top: 0; }
 .project-panel-body.browser-collapsed > .project-browser,
 .project-panel-body.browser-collapsed > .project-split-handle { display: none; }
 .project-panel-body.browser-collapsed > .project-viewer { flex: 1 1 100%; border-top: 0; }
+
+/* The Session artifact list is the Files surface of a conversation: same source
+   list as the Project tree, with the media filter the old right-hand aside had. */
+.artifact-session-browser > .file-filters { position: sticky; top: 0; z-index: 1; padding: 8px 8px 6px; background: var(--sidebar-bg); }
+/* Same floating hover action as the change list: the name gets the full row
+   width at rest instead of sitting beside a permanently reserved gutter. */
+.project-session-file-list .project-entry-action { position: absolute; top: 50%; right: 4px; margin: 0; transform: translateY(-50%); }
+.project-session-file-list .project-entry:hover .project-entry-button,
+.project-session-file-list .project-entry:focus-within .project-entry-button { padding-right: 34px; }
 
 .project-breadcrumb { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .project-breadcrumb::-webkit-scrollbar { display: none; }

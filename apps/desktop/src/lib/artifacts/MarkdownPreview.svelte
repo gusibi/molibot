@@ -2,6 +2,7 @@
   import { renderMarkdown } from "../markdown";
   import { markdownBody } from "../markdownInteractions";
   import { splitMermaidBlocks, hasMermaidBlock, type MarkdownSegment } from "./mermaidBlocks";
+  import CodeViewer from "../projects/CodeViewer.svelte";
   import type { Translation } from "../i18n";
 
   /**
@@ -21,11 +22,14 @@
     content,
     copy,
     theme,
+    name,
     showSource = false
   }: {
     content: string;
     copy: Translation;
     theme: "light" | "dark";
+    /** File name; drives CodeViewer's highlighter in the source view. */
+    name: string;
     /** Owned by the panel's shared source toggle. */
     showSource?: boolean;
   } = $props();
@@ -90,7 +94,7 @@
 </script>
 
 {#if showSource}
-  <pre class="markdown-preview-raw">{content}</pre>
+  <CodeViewer content={content} filePath={name} {copy} />
 {:else}
   <!-- One delegated listener for every segment: links and code-block copy
        buttons behave the same wherever they land in the document. -->
@@ -157,18 +161,5 @@
     line-height: var(--lh-meta);
     white-space: pre-wrap;
     word-break: break-word;
-  }
-  .markdown-preview-raw {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    margin: 0;
-    padding: 12px 16px;
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    line-height: var(--lh-meta);
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: var(--label-primary);
   }
 </style>

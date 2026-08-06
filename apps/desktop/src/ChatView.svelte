@@ -34,7 +34,6 @@
     createDesktopProvider,
     fetchDesktopFileBlob,
     deleteDesktopConversation,
-    filterDesktopFiles,
     forkDesktopSession,
     truncateDesktopMessages,
     listDesktopConversations,
@@ -66,7 +65,6 @@
     testDesktopProvider,
     type OnboardingChannelsView,
     type OnboardingDiagnostics,
-    type DesktopFileFilter,
     type FirstLaunchClassification,
     type OnboardingStep,
     type OnboardingRepairTarget,
@@ -459,12 +457,14 @@
   // freeze the budget at its first value.
   $: filePanelOpen = inspector?.kind === "artifact";
   $: miniAppPanelAppId = inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : "";
-  // The Artifact Panel hosts Project files and Mini App tabs. A non-Project chat
-  // with no Mini App open keeps the legacy session-files list for now (Slice 1b
-  // folds that list into the panel too).
-  $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (inspector?.scope === "project" || Boolean(inspector?.miniApp) || Boolean(inspector?.sessionFile));
-  $: sessionFilesAsideVisible = filePanelOpen && serviceState === "ready" && inspector?.scope === "session" && !inspector?.miniApp && !inspector?.sessionFile && profiles.length > 0;
-  $: inspectorVisible = artifactPanelVisible || sessionFilesAsideVisible;
+  // One inspector for every scope: the Artifact Panel hosts Project files,
+  // Session artifacts and Mini App tabs. A second right-hand aside for the
+  // session file list is what made the panel unreachable while a Mini App was
+  // open — and left the Files side of the panel empty in a conversation.
+  // Scope comes from the live pane, not from the (open-time) `inspector.scope`,
+  // so it can never disagree with the props the panel is actually given.
+  $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0);
+  $: inspectorVisible = artifactPanelVisible;
   $: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH;
   // Below NARROW_WIDTH the sidebar is hidden and only two tracks share the
   // window, so the budget drops the sidebar term and uses the lower floor the
@@ -505,8 +505,6 @@
   let searchReturnFocus: HTMLElement | null = null;
   let messagesElement: HTMLDivElement;
   let sessionFiles: DesktopSessionFile[] = [];
-  let fileFilter: DesktopFileFilter = "all";
-  let filesLoading = false;
   // The right-hand Inspector. Chat shows at most one at a time — Files or a
   // Mini App — so the width budget, resize handle, narrow-screen rules and
   // close behaviour below exist exactly once and serve both.
@@ -542,7 +540,6 @@
   }
   let previewFile: DesktopSessionFile | null = null;
   let previewUrl = "";
-  let copiedPath = "";
 
   let onboardingDismissed = localStorage.getItem(FIRST_LAUNCH_SEEN_KEY) === "1";
   let onboardingMode: FirstLaunchClassification = "new";
@@ -657,8 +654,12 @@
   $: modelReady = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions }).hasModel && !modelSelectionHydrating;
   $: readinessSummary = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions });
   $: showOnboarding = serviceState === "ready" && !onboardingDismissed;
-  $: filteredFiles = filterDesktopFiles(sessionFiles, fileFilter);
   $: fileByLocal = new Map(sessionFiles.map((file) => [file.local, file]));
+  // The inspector reads a conversation's artifacts through the same identity the
+  // transcript's own preview/download actions use — a read-only external
+  // transcript belongs to the bot that owns it, not to the active web profile.
+  $: inspectorProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
+  $: inspectorSessionId = viewMode === "external" ? (activeExternalSessionId ?? "") : (activeSessionId ?? "");
   $: botOptions = profiles.map((profile) => ({
     id: profile.id,
     name: profile.agentName || copy.agentStudioGlobalName,
@@ -1393,14 +1394,11 @@
       sessionFiles = [];
       return;
     }
-    filesLoading = true;
     try {
       const files = await listDesktopSessionFiles(connectedEndpoint, profileId, sessionId);
       sessionFiles = files;
     } catch {
       sessionFiles = [];
-    } finally {
-      filesLoading = false;
     }
   }
 
@@ -1443,30 +1441,8 @@
     }
   }
 
-  async function copyPath(path: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(path);
-      copiedPath = path;
-      setTimeout(() => { if (copiedPath === path) copiedPath = ""; }, 1200);
-    } catch { /* clipboard unavailable */ }
-  }
-
-  function formatFileSize(bytes: number): string {
-    if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-    const units = ["B", "KB", "MB", "GB"];
-    const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-    const value = bytes / 1024 ** exponent;
-    return `${exponent === 0 ? value : value.toFixed(value >= 10 ? 0 : 1)} ${units[exponent]}`;
-  }
-
   function canPreview(file: DesktopSessionFile): boolean {
     return file.mediaType === "image" || file.mediaType === "audio" || file.mediaType === "video";
-  }
-  function fileTypeIcon(mediaType: DesktopSessionFile["mediaType"]): string {
-    if (mediaType === "image") return "image";
-    if (mediaType === "video") return "film-slate";
-    if (mediaType === "audio") return "waveform";
-    return "file-text";
   }
   function inferAttachmentKind(file: File): DesktopMessageAttachment["mediaType"] {
     const type = file.type.toLowerCase();
@@ -2691,7 +2667,8 @@
     <ArtifactPanel
       endpoint={connectedEndpoint || serviceEndpoint || ""}
       projectId={projectPaneActive ? (projectsStore.selectedProjectId ?? "") : ""}
-      sessionId={projectPaneActive ? (projectsStore.selectedSessionId ?? "") : (activeSessionId ?? "")}
+      sessionId={projectPaneActive ? (projectsStore.selectedSessionId ?? "") : inspectorSessionId}
+      profileId={projectPaneActive ? "" : inspectorProfileId}
       scope={projectPaneActive ? "project" : "session"}
       touches={projectPaneActive ? $sessionFileTouches : EMPTY_TOUCHES}
       miniApp={inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : ""}
@@ -2701,63 +2678,6 @@
       {copy}
       onClose={closeInspector}
     />
-  {:else if filePanelOpen && serviceState === "ready" && profiles.length > 0}
-    <aside class="file-panel">
-      <div class="file-panel-head">
-        <i class="ph ph-folder-simple file-panel-icon" aria-hidden="true"></i>
-        <strong>{copy.files}</strong>
-        <button type="button" class="file-panel-close" aria-label={copy.closePanel} title={copy.closePanel} onclick={closeInspector}>
-          <i class="ph ph-x" aria-hidden="true"></i>
-        </button>
-      </div>
-      <div class="file-filters">
-        {#each [["all", copy.fileFilterAll], ["image", copy.fileFilterImage], ["video", copy.fileFilterVideo], ["audio", copy.fileFilterAudio], ["file", copy.fileFilterFile]] as [value, label] (value)}
-          <button
-            type="button"
-            class:active={fileFilter === value}
-            onclick={() => (fileFilter = value as DesktopFileFilter)}
-          >{label}</button>
-        {/each}
-      </div>
-
-      {#if filesLoading && sessionFiles.length === 0}
-        <p class="file-empty">{copy.filesLoading}</p>
-      {:else if filteredFiles.length === 0}
-        <p class="file-empty">{copy.noFiles}</p>
-      {:else}
-        <ul class="file-list">
-          {#each filteredFiles as file (file.id)}
-            <li class="file-row">
-              <div class="file-info">
-                <span class="file-kind" data-kind={file.mediaType} aria-hidden="true">
-                  <i class={`ph-fill ph-${fileTypeIcon(file.mediaType)}`}></i>
-                </span>
-                <div class="file-meta">
-                  <strong title={file.original}>{file.original}</strong>
-                  <small>{formatFileSize(file.size)} · {formatTime(file.createdAt)}</small>
-                </div>
-              </div>
-              <div class="file-actions">
-                {#if file.local}
-                  <button type="button" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(file.local)}>
-                    <i class={`ph ph-${copiedPath === file.local ? "check" : "copy"}`} aria-hidden="true"></i>
-                  </button>
-                {/if}
-                {#if canPreview(file)}
-                  <button type="button" aria-label={copy.preview} title={copy.preview} onclick={() => openPreview(file)}><i class="ph ph-eye" aria-hidden="true"></i></button>
-                {/if}
-                <button type="button" aria-label={copy.download} title={copy.download} onclick={() => downloadFile(file)}><i class="ph ph-download-simple" aria-hidden="true"></i></button>
-              </div>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      <div class="file-panel-footer">
-        <i class="ph ph-cloud" aria-hidden="true"></i>
-        <span>{sessionFiles.length} {copy.files} · {formatFileSize(sessionFiles.reduce((sum, f) => sum + f.size, 0))}</span>
-        <button type="button" class="file-panel-manage" onclick={() => (fileFilter = "all")}>{copy.fileFilterAll}</button>
-      </div>
-    </aside>
   {/if}
 
   <ConversationBrowserDialog

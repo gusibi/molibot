@@ -1690,7 +1690,10 @@ test("project file panel exposes live files, Git changes, and session attachment
   // Tree, Git and search now load through the shared store, not the component.
   assert.match(filesStore, /loadDesktopProjectTree/);
   assert.match(filesStore, /loadDesktopProjectGitStatus/);
-  assert.match(projectFilePanel, /listDesktopSessionFiles\(endpoint, "personal", sessionId, projectId\)/);
+  // A Project session belongs to the personal profile, a plain conversation to
+  // the bot that owns it; reading the wrong profile returns an empty list with
+  // no error, which is indistinguishable from "this session has no files".
+  assert.match(projectFilePanel, /listDesktopSessionFiles\(endpoint, profileId \|\| "personal", sessionId, projectId\)/);
   assert.match(projectFilePanel, /projectReadOnlyHint/);
   assert.match(styles, /\.project-file-tabs/);
   // A change row stays on ONE line. With `flex-wrap: wrap` the line broke on
@@ -1979,6 +1982,58 @@ test("the SVG viewer renders through an img element, never inlined markup", () =
   const svgViewer = read("./lib/artifacts/SvgViewer.svelte");
   assert.match(svgViewer, /<img class="svg-viewer-image"/);
   assert.doesNotMatch(svgViewer, /\{@html/);
+});
+
+test("CsvTable keys each block by index, never by cell value (issue #31 bug 1)", () => {
+  // Svelte 5 throws `each_key_duplicate` in production (not only dev) on a
+  // repeated key. A row like `yes,yes,yes,yes`, two identical rows, or a
+  // repeated column name blanked the tab when keys were the cell/row/header
+  // value. Index keys are safe: a CSV is a static list, so appending rows only
+  // adds new indices and a reload updates each index in place.
+  const csv = read("./lib/artifacts/CsvTable.svelte");
+  assert.doesNotMatch(csv, /row\.join/);
+  assert.doesNotMatch(csv, /as header \(header\)/);
+  assert.doesNotMatch(csv, /as row \(row/);
+  assert.doesNotMatch(csv, /as cell \(cell\)/);
+  assert.match(csv, /as header, \w+ \(\w+\)/);
+  assert.match(csv, /as row, \w+ \(\w+\)/);
+  assert.match(csv, /as cell, \w+ \(\w+\)/);
+  // The raw-NUL byte that made git treat the file as binary is gone.
+  assert.equal(csv.includes("\0"), false);
+});
+
+test("source/raw views reuse CodeViewer for line numbers and consistency (issue #31 bug 4)", () => {
+  // Markdown source, CSV raw and SVG source all used a bare <pre> with no line
+  // numbers; they now go through the same CodeViewer as every other text file.
+  for (const file of [
+    "./lib/artifacts/MarkdownPreview.svelte",
+    "./lib/artifacts/CsvTable.svelte",
+    "./lib/artifacts/SvgViewer.svelte"
+  ]) {
+    const src = read(file);
+    assert.match(src, /import CodeViewer from "\.\.\/projects\/CodeViewer\.svelte"/, `${file} must import CodeViewer`);
+    assert.match(src, /<CodeViewer /, `${file} must render CodeViewer`);
+  }
+  assert.doesNotMatch(read("./lib/artifacts/CsvTable.svelte"), /class="csv-raw"/);
+  assert.doesNotMatch(read("./lib/artifacts/MarkdownPreview.svelte"), /class="markdown-preview-raw"/);
+  assert.doesNotMatch(read("./lib/artifacts/SvgViewer.svelte"), /class="svg-viewer-source"/);
+  // MarkdownPreview and CsvTable now take a `name` prop for CodeViewer's path.
+  assert.match(read("./lib/artifacts/MarkdownPreview.svelte"), /name: string/);
+  assert.match(read("./lib/artifacts/CsvTable.svelte"), /name: string/);
+  assert.match(projectFilePanel, /<MarkdownPreview[^>]*name=\{activeTab\.name\}/);
+  assert.match(projectFilePanel, /<CsvTable[^>]*name=\{activeTab\.name\}/);
+});
+
+test("CSP img-src allows the loopback service so images stream (issue #31 bug 2)", () => {
+  // media-src already allowed http://127.0.0.1:* but img-src did not, so
+  // <img src={serviceUrl}> was CSP-blocked while <video>/<audio> worked - which
+  // is why only images were reported broken. The raw file route serves images
+  // over http://127.0.0.1:<port>; the CSP is fixed at build time so the port is
+  // a wildcard. frame-src stays on the custom scheme (the test above) because
+  // Mini Apps have one; images do not.
+  const csp = tauriConfig.app.security.csp;
+  assert.match(csp, /img-src[^;]*http:\/\/127\.0\.0\.1:\*/);
+  assert.match(csp, /img-src[^;]*http:\/\/localhost:\*/);
 });
 
 test("every new artifact copy key exists in both locales", () => {
@@ -2676,7 +2731,17 @@ test("Chat mounts one Artifact Panel hosting two separate surfaces", () => {
   // (see the tab-separation guard below) but the mount seam is single.
   assert.match(view, /type ChatInspector =[\s\S]*?kind: "artifact"[\s\S]*?scope: "project" \| "session"[\s\S]*?miniApp\?: string[\s\S]*?miniAppNonce\?: number[\s\S]*?\} \| null/);
   assert.match(view, /\$: filePanelOpen = inspector\?\.kind === "artifact"/);
-  assert.match(view, /\$: inspectorVisible = artifactPanelVisible \|\| sessionFilesAsideVisible/);
+  // ONE inspector, every scope. A second right-hand aside for the session file
+  // list is what made the artifact list unreachable while a Mini App was open —
+  // the host could only render one of the two, so switching the panel back to
+  // Files landed on an empty surface. The panel owns the Session list now.
+  assert.match(view, /\$: inspectorVisible = artifactPanelVisible;/);
+  assert.doesNotMatch(view, /sessionFilesAsideVisible/);
+  assert.doesNotMatch(view, /class="file-list"/);
+  // Scope and identity come from the live pane, never from the open-time
+  // `inspector.scope`, so the visibility test cannot disagree with the props.
+  assert.match(view, /\$: artifactPanelVisible = filePanelOpen && serviceState === "ready" && \(projectPaneActive \|\| profiles\.length > 0\)/);
+  assert.match(view, /profileId=\{projectPaneActive \? "" : inspectorProfileId\}/);
   // One grid class, one resizer, one max-width computation for both adapters —
   // a second panel must never introduce a fourth column.
   assert.match(view, /class:with-files=\{inspectorVisible\}/);
@@ -2691,6 +2756,40 @@ test("Chat mounts one Artifact Panel hosting two separate surfaces", () => {
   // Opening a Mini App keeps any open files alive rather than replacing them.
   assert.match(view, /inspector = \{\s*kind: "artifact",\s*scope: projectPaneActive \? "project" : "session",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq\s*\}/);
   assert.match(view, /inspector = inspector\?\.kind === "artifact" \? null : \{ kind: "artifact", scope: projectPaneActive \? "project" : "session" \}/);
+});
+
+test("a Mini App survives a session switch, and Session scope always has a Files surface", () => {
+  // Two symptoms, one seam. (a) `connect()` cleared EVERY tab whenever the
+  // panel's context changed, so selecting another conversation destroyed the
+  // running app's iframe and dropped the panel back to files. A Mini App is a
+  // workspace of its own, not an artifact of the conversation it was opened
+  // beside, so its tabs (and the mode showing them) are carried over.
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
+  const connect = filesStore.slice(
+    filesStore.indexOf("connect(endpoint: string"),
+    filesStore.indexOf("dispose(): void")
+  );
+  assert.ok(connect.length > 0, "connect() must exist");
+  assert.doesNotMatch(connect, /this\.tabs = \[\];/);
+  assert.match(connect, /filter\(\(tab\) => tab\.kind === "miniapp"\)/);
+  assert.match(connect, /this\.tabs = keptMiniApps;/);
+  assert.match(connect, /this\.mode = this\.activeMiniAppTabId && this\.mode === "miniapps" \? "miniapps" : "files"/);
+
+  // (b) With the app kept, switching the panel back to Files in a conversation
+  // must land on the session's artifacts — not the empty state that used to be
+  // the whole Session surface whenever no file tab happened to be open.
+  assert.doesNotMatch(projectFilePanel, /artifactEmpty/);
+  assert.match(projectFilePanel, /class="project-browser artifact-session-browser"/);
+  assert.match(projectFilePanel, /filterDesktopFiles\(attachments, sessionFilter\)/);
+  assert.match(projectFilePanel, /store\.openSessionFile\(file\)/);
+  // Closing the last file tab falls back to that list; it must not close the
+  // panel out from under a Mini App the user still has open.
+  assert.doesNotMatch(projectFilePanel, /store\.tabs\.length === 0\) onClose\(\)/);
+  // The browser, handle and viewer are children of the file surface wrapper, so
+  // the collapse rules must be written against it — a `>` combinator on the
+  // panel body stopped matching when that wrapper was added and the collapse
+  // button silently did nothing.
+  assert.match(styles, /\.project-panel-body\.browser-collapsed \.artifact-file-surface > \.project-browser/);
 });
 
 test("files and Mini Apps are separate surfaces, never one mixed tab strip", () => {

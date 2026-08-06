@@ -63,6 +63,19 @@ test("office and unrecognized binary formats fall through to the system card", (
   assert.equal(matchViewer(meta("blob.unknownext")), "system");
 });
 
+test("text dotfiles such as .gitignore open as code, not the system card (issue #31 bug 3)", () => {
+  // extensionOf treats the whole filename as the extension (`.gitignore` ->
+  // ext `.gitignore`), so without shared text-dotfile recognition these fell
+  // through to "binary" -> "system" and the panel showed no contents.
+  assert.equal(matchViewer(meta(".gitignore")), "code");
+  assert.equal(matchViewer(meta(".gitattributes")), "code");
+  assert.equal(matchViewer(meta(".dockerignore")), "code");
+  assert.equal(matchViewer(meta(".editorconfig")), "code");
+  assert.equal(matchViewer(meta(".npmrc")), "code");
+  // A binary dotfile still gets the system card.
+  assert.equal(matchViewer(meta(".DS_Store")), "system");
+});
+
 test("empty declared MIME falls back to the extension, not to a plain file", () => {
   // Pitfall #26e: the WebView hands over an empty File.type for drag-and-drop
   // and unknown formats. A screenshot must still reach the media viewer.

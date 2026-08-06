@@ -52,6 +52,41 @@ const OFFICE_EXTENSIONS = new Set([
   ".xlsx"
 ]);
 
+/**
+ * Dotfiles with no real extension that are plain-text config. `extensionOf`
+ * treats the whole filename as the extension (`.gitignore` -> ext `.gitignore`),
+ * so without this set they fall through to `"binary"` and the Artifact Panel
+ * offers only a system-open card instead of showing the contents. `.DS_Store`
+ * and other binary dotfiles are deliberately omitted (issue #31 bug 3).
+ */
+const TEXT_DOTFILES = new Set([
+  ".gitignore",
+  ".gitattributes",
+  ".gitmodules",
+  ".gitkeep",
+  ".mailmap",
+  ".dockerignore",
+  ".npmignore",
+  ".yarnignore",
+  ".eslintignore",
+  ".prettierignore",
+  ".editorconfig",
+  ".npmrc",
+  ".yarnrc",
+  ".nvmrc",
+  ".node-version",
+  ".ruby-version",
+  ".python-version",
+  ".prettierrc",
+  ".eslintrc",
+  ".babelrc",
+  ".stylelintrc",
+  ".bashrc",
+  ".zshrc",
+  ".profile",
+  ".bash_profile"
+]);
+
 function extensionOf(name: string): string {
   const trimmed = String(name ?? "").trim().toLowerCase();
   const index = trimmed.lastIndexOf(".");
@@ -102,6 +137,8 @@ export function classifyFilePreview(input: {
   ) {
     return "office";
   }
+
+  if (TEXT_DOTFILES.has(String(input.name ?? "").trim().toLowerCase())) return "text";
 
   return "binary";
 }

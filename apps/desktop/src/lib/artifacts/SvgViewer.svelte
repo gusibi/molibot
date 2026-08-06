@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
+  import CodeViewer from "../projects/CodeViewer.svelte";
 
   /**
    * SVG viewer (PRD §3.38 Slice 2): renders the graphic with the source one
@@ -37,7 +38,7 @@
 </script>
 
 {#if showSource}
-  <pre class="svg-viewer-source">{source}</pre>
+  <CodeViewer content={source} filePath={name} {copy} />
 {:else if failed || !src}
   <p class="project-viewer-note">{copy.mediaLoadFailed}</p>
 {:else}
@@ -68,18 +69,5 @@
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
-  }
-  .svg-viewer-source {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    margin: 0;
-    padding: 12px 16px;
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    line-height: var(--lh-meta);
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: var(--label-primary);
   }
 </style>

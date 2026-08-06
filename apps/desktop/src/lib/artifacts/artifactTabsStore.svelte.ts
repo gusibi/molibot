@@ -222,10 +222,14 @@ export class ArtifactTabsStore {
   }
 
   /**
-   * Points the store at a Project (or a non-Project session). Resets all view
-   * state and, for Project scope, restarts the change stream; the generation
-   * bump invalidates every in-flight request from the previous context. Mini App
-   * tabs are cleared too - they belong to the previous mount session.
+   * Points the store at a Project (or a non-Project session). Resets the view
+   * state that belongs to the previous context and, for Project scope, restarts
+   * the change stream; the generation bump invalidates every in-flight request.
+   *
+   * Mini App tabs deliberately SURVIVE: an app is a workspace of its own, not
+   * an artifact of the conversation it was opened beside. Clearing them here is
+   * what used to make switching sessions tear a running app down (its iframe is
+   * destroyed with the tab) and drop the panel back to an empty file surface.
    */
   connect(endpoint: string, projectId: string, scope: ArtifactScope, profileId = "", sessionId = ""): void {
     if (
@@ -243,13 +247,22 @@ export class ArtifactTabsStore {
     this.profileId = profileId;
     this.sessionId = sessionId;
     this.#revokeBlobUrls();
+    // Mini App tabs are carried over; their `scope` follows the new context so
+    // nothing downstream reads a stale one.
+    const keptMiniApps = this.tabs
+      .filter((tab) => tab.kind === "miniapp")
+      .map((tab) => ({ ...tab, scope }));
     this.dirs = {};
     this.expanded = {};
     this.cursorPath = "";
-    this.tabs = [];
+    this.tabs = keptMiniApps;
     this.activeFileTabId = "";
-    this.activeMiniAppTabId = "";
-    this.mode = "files";
+    this.activeMiniAppTabId = keptMiniApps.some((tab) => tab.id === this.activeMiniAppTabId)
+      ? this.activeMiniAppTabId
+      : keptMiniApps[0]?.id ?? "";
+    // Staying on the Mini App the user was looking at is the whole point of
+    // keeping the tabs; only fall back to files when no app is open.
+    this.mode = this.activeMiniAppTabId && this.mode === "miniapps" ? "miniapps" : "files";
     this.git = null;
     this.gitError = "";
     this.searchQuery = "";
