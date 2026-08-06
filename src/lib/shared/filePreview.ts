@@ -193,8 +193,3 @@ export function rawPreviewKindFromName(filename: string): RawPreviewKind {
   if (mime.startsWith("video/")) return "video";
   return "file";
 }
-
-/** True when the viewer should offer a rendered/source toggle instead of only code. */
-export function isRenderableTextName(filename: string): boolean {
-  return mimeFromFilename(filename) === "image/svg+xml";
-}

@@ -1,10 +1,19 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { join } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { McpServerConfig } from "$lib/server/settings/schema.js";
+import { spillFullOutput } from "$lib/server/agent/tools/outputSpill.js";
+import {
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+  formatSize,
+  sliceToBytes,
+  truncateHead
+} from "$lib/server/agent/tools/truncate.js";
 
 export interface McpRegistryOptions {
   workspaceDir: string;
@@ -77,6 +86,78 @@ export function redactMcpError(message: string, server: McpServerConfig): string
     }
   }
   return safe;
+}
+
+/**
+ * Cap one MCP tool result to the shared tool-output budget.
+ *
+ * `read` and `bash` truncate their own output, but an MCP server is third-party
+ * code whose result used to be inlined verbatim — one server returning a
+ * multi-megabyte payload pushed the whole conversation past the model's context
+ * window inside a single tool step. Neither existing defence covers that:
+ * threshold compaction only runs between turns, and post-overflow compaction
+ * cannot repair it either, because the oversized message is the most recent one
+ * and compaction always keeps the tail.
+ *
+ * The budget is shared across all text parts of the result, so a server that
+ * splits its payload into many small parts is bounded exactly like one that
+ * returns a single blob. Image parts pass through: they are not text tokens and
+ * dropping them would silently discard the answer for a vision turn.
+ */
+export function capMcpToolContent(
+  content: Array<TextContent | ImageContent>,
+  options: { spillDir?: string; spillPrefix?: string; maxBytes?: number; maxLines?: number } = {}
+): Array<TextContent | ImageContent> {
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+  const maxLines = options.maxLines ?? DEFAULT_MAX_LINES;
+
+  const isText = (part: TextContent | ImageContent): part is TextContent => part.type === "text";
+  const totalBytes = content.reduce(
+    (sum, part) => (isText(part) ? sum + Buffer.byteLength(part.text, "utf-8") : sum),
+    0
+  );
+  const totalLines = content.reduce(
+    (sum, part) => (isText(part) ? sum + part.text.split("\n").length : sum),
+    0
+  );
+  if (totalBytes <= maxBytes && totalLines <= maxLines) return content;
+
+  const out: Array<TextContent | ImageContent> = [];
+  let remainingBytes = maxBytes;
+  let remainingLines = maxLines;
+
+  for (const part of content) {
+    if (!isText(part)) {
+      out.push(part);
+      continue;
+    }
+    if (remainingBytes <= 0 || remainingLines <= 0) continue;
+
+    const truncation = truncateHead(part.text, { maxBytes: remainingBytes, maxLines: remainingLines });
+    // A payload that is one enormous line (minified JSON, the common shape)
+    // makes `truncateHead` return nothing at all; a hard byte slice is worse
+    // formatting but infinitely better than handing the model an empty result.
+    const kept = truncation.firstLineExceedsLimit
+      ? sliceToBytes(part.text, remainingBytes)
+      : truncation.content;
+    if (!kept) continue;
+    out.push({ type: "text", text: kept });
+    remainingBytes -= Buffer.byteLength(kept, "utf-8");
+    remainingLines -= kept.split("\n").length;
+  }
+
+  const fullText = content.filter(isText).map((part) => part.text).join("\n");
+  const fullOutputPath = options.spillDir
+    ? spillFullOutput(options.spillDir, fullText, options.spillPrefix ?? "mcp")
+    : null;
+  out.push({
+    type: "text",
+    text: `[MCP output truncated from ${totalLines} lines / ${formatSize(totalBytes)} to fit the tool-output budget.${
+      fullOutputPath ? ` Full output: ${fullOutputPath}` : ""
+    }]`
+  });
+
+  return out;
 }
 
 function normalizeToolContent(
@@ -280,7 +361,10 @@ export class McpToolRegistry {
             }, undefined, {
               signal
             });
-            const content = normalizeToolContent(result);
+            const content = capMcpToolContent(normalizeToolContent(result), {
+              spillDir: join(options.workspaceDir, ".mom-tool-output"),
+              spillPrefix: `mcp-${sanitizeToolNameSegment(remote.name)}`
+            });
             const details: McpToolDetails = {
               serverId: server.id,
               serverName: server.name,

@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ApprovedHostTool, HostToolApprovalRequest, HostToolPermissions } from "$lib/server/settings/index.js";
 import { normalizeCommandOutput, stripAnsi } from "$lib/server/agent/tools/helpers.js";
@@ -11,6 +10,7 @@ import {
   truncateMiddle,
   type TruncationResult
 } from "$lib/server/agent/tools/truncate.js";
+import { buildTempOutputPath as buildSpillPath } from "$lib/server/agent/tools/outputSpill.js";
 
 interface HostToolExecutionDetails {
   hostTool: true;
@@ -34,9 +34,7 @@ export interface ApprovedHostToolRunOutput {
 }
 
 function buildTempOutputPath(cwd: string): string {
-  const dir = join(cwd, ".mom-tool-output");
-  mkdirSync(dir, { recursive: true });
-  return join(dir, `host-tool-${Date.now()}-${randomBytes(4).toString("hex")}.log`);
+  return buildSpillPath(join(cwd, ".mom-tool-output"), "host-tool");
 }
 
 function buildHostEnv(permissions: HostToolPermissions): NodeJS.ProcessEnv {

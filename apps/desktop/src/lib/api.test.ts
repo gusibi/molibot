@@ -1635,3 +1635,34 @@ test("forkDesktopSession POSTs an idempotent non-destructive edit request", asyn
     globalThis.fetch = original;
   }
 });
+
+test("the session artifact token matches the server's decoder byte for byte", async () => {
+  // The client encodes and the service decodes; if these two drift, every
+  // Session HTML preview silently 404s and falls back to the pathless blob.
+  const { sessionArtifactToken, artifactPreviewUrl } = await import("./api");
+  const { decodeSessionArtifactToken } = await import("@molibot/shared/artifactToken");
+
+  const token = sessionArtifactToken({ profileId: "p1", sessionId: "s-20260806-abcd", projectId: "proj-1" });
+  assert.deepEqual(decodeSessionArtifactToken(token), {
+    profileId: "p1",
+    sessionId: "s-20260806-abcd",
+    projectId: "proj-1"
+  });
+
+  const plain = sessionArtifactToken({ profileId: "p1", sessionId: "s-20260806-abcd" });
+  assert.deepEqual(decodeSessionArtifactToken(plain), { profileId: "p1", sessionId: "s-20260806-abcd" });
+
+  // The token is one URL segment: base64url only, no padding or slashes.
+  assert.match(token, /^[A-Za-z0-9_-]+$/);
+
+  // A Session preview URL names the session scope and keeps the workspace path.
+  const url = artifactPreviewUrl("session", token, "attachments/page.html", "en", "dark");
+  assert.match(url, new RegExp(`^molibot-artifact://artifact/session/${token}/attachments/page\\.html\\?`));
+});
+
+test("a session artifact token survives CJK and spaces in the ids", async () => {
+  const { sessionArtifactToken } = await import("./api");
+  const { decodeSessionArtifactToken } = await import("@molibot/shared/artifactToken");
+  const token = sessionArtifactToken({ profileId: "默认 配置", sessionId: "s-1" });
+  assert.deepEqual(decodeSessionArtifactToken(token), { profileId: "默认 配置", sessionId: "s-1" });
+});

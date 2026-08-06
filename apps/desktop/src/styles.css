@@ -1001,6 +1001,90 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
   border-left: 1px solid var(--separator);
 }
 
+/* Artifact Panel - the unified right-hand inspector. Carries `file-panel` and
+   `project-file-panel` so it reuses the existing split / focus / empty-state
+   rules; this block only adds the Mini App tab body, which has no file path or
+   action bar. Sizes are column-relative (no `vw`) and token-driven so all three
+   theme states render correctly without per-theme rules (pitfall #4/#16). */
+.artifact-panel.miniapp-active .project-panel-body { flex: 1 1 auto; min-height: 0; }
+.artifact-miniapp-viewer { flex: 1 1 auto; min-height: 0; }
+.artifact-miniapp-viewer .project-viewer-tabs { flex: 0 0 auto; }
+.miniapp-viewer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.miniapp-viewer-body .miniapp-frame { flex: 1 1 auto; min-height: 0; border: 0; }
+.miniapp-viewer-body .miniapp-panel-state { flex: 1 1 auto; min-height: 0; }
+
+/* Files vs Mini Apps — two surfaces sharing one panel.
+
+   `display: none` is load-bearing here, not cosmetic: it keeps a hidden
+   iframe's document alive, whereas removing the node from the DOM tears the
+   Mini App down and restarts it. Every open app is mounted at all times; only
+   one is visible, and the file surface is hidden the same way so its scroll
+   position survives a round trip through a Mini App. */
+.artifact-file-surface {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+.artifact-file-surface.is-hidden,
+.artifact-miniapp-viewer.is-hidden,
+.artifact-miniapp-slot.is-hidden {
+  display: none;
+}
+.artifact-miniapp-slot {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+/* The Files/Mini Apps switch is a quiet menu in the head, not a segmented
+   control and not a row of its own. Switching surfaces is rare next to the
+   reading you do inside one, so the control names what you are looking at and
+   otherwise stays out of the way; the panel is only ~380px wide, and a
+   two-button pill spent that width restating the choice on every frame.
+
+   It takes the head's flexible slack (where the title otherwise sits) and
+   shrinks label-first, so the action buttons keep their natural width
+   (pitfall #16a). */
+/* `margin-right: auto` rather than `flex: 1`: the trigger stays sized to its
+   label (a quiet control should not carry a header-wide hover target) while the
+   slack after it pushes the action buttons to the right edge, where the plain
+   title's `flex: 1` puts them. */
+.file-panel-head > .overflow-menu-inline { flex: 0 1 auto; min-width: 0; margin-left: -6px; margin-right: auto; }
+.artifact-mode-trigger { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.artifact-mode-trigger > .ph { flex: none; font-size: var(--icon-sm); color: var(--label-tertiary); }
+.artifact-mode-current {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--label-primary);
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifact-mode-caret { font-size: var(--icon-xs) !important; }
+.overflow-menu-inline[open] .artifact-mode-caret { transform: rotate(180deg); }
+.artifact-mode-tick { margin-left: auto; font-size: var(--icon-xs); color: var(--accent); }
+.artifact-mode-count {
+  flex: none;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--label-primary) 10%, transparent);
+  color: var(--label-secondary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  text-align: center;
+}
+
 /* Mini App Inspector — the second adapter of the Chat inspector seam. It shares
    the File Inspector's grid track, width budget, resize handle and narrow-screen
    rules; only the body differs (one sandboxed iframe instead of a file list).
@@ -1015,35 +1099,6 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
   background: var(--sidebar-bg);
   border-left: 1px solid var(--separator);
 }
-.miniapp-panel-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 60px;
-  flex: 0 0 auto;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--separator);
-  /* Same reason as the file panel head: lift above the window-drag mask, or the
-     close button is covered and its clicks never land. */
-  position: relative;
-  z-index: 31;
-}
-.miniapp-panel-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: var(--tracking-tight);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.miniapp-panel-close {
-  display: flex; align-items: center; justify-content: center; flex: none;
-  width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-small);
-  background: transparent; color: var(--label-tertiary); cursor: pointer;
-}
-.miniapp-panel-close:hover { background: var(--gray-alpha-100); color: var(--label-primary); }
 .miniapp-frame {
   flex: 1 1 auto;
   width: 100%;
@@ -1108,8 +1163,10 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .miniapp-icon-list { width: 40px; height: 40px; border: 0.5px solid var(--separator); border-radius: var(--rounded-sm); background: var(--fill); }
 .miniapp-icon-list img { width: 32px; height: 32px; border-radius: 7px; }
 .miniapp-icon-list .ph { font-size: 20px; }
-.miniapp-icon-panel { width: 22px; height: 22px; border-radius: 5px; }
-.miniapp-icon-panel .ph { font-size: 16px; }
+/* Inside an Artifact Panel tab, the icon sits on the text baseline next to the
+   app name, so it matches the file tabs' glyph rather than the panel head. */
+.miniapp-icon-tab { width: 14px; height: 14px; border-radius: 3px; }
+.miniapp-icon-tab .ph { font-size: var(--icon-xs); }
 .miniapps-item.active .miniapp-icon { color: var(--label-primary); }
 
 /* Mini App manager (sidebar destination + Settings mount) */
@@ -1255,7 +1312,11 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 /* macOS inspector chrome: monochrome glyphs at label ranks, no tinted icon and
    no filled circle for close — the accent is reserved for selection and state. */
 .file-panel-icon { flex: none; font-size: 15px; color: var(--label-tertiary); }
-.file-panel-head strong { flex: 1; min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; letter-spacing: var(--tracking-tight); text-overflow: ellipsis; white-space: nowrap; }
+/* Direct child only: this is the panel title, which takes the head's slack so
+   the action buttons sit at the right edge. A descendant selector also caught
+   the mode menu's own `<strong>` label, overriding its type rank and making it
+   grow inside its trigger. */
+.file-panel-head > strong { flex: 1; min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; letter-spacing: var(--tracking-tight); text-overflow: ellipsis; white-space: nowrap; }
 .file-panel-close {
   display: flex; align-items: center; justify-content: center; flex: none;
   width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-small);
@@ -3770,6 +3831,11 @@ select.provider-input { padding-right: 6px; }
 .row-icon-btn:disabled { opacity: .4; cursor: default; }
 .overflow-menu { position: relative; flex: none; }
 .overflow-menu > summary { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-control); color: var(--label-secondary); cursor: pointer; list-style: none; }
+/* Inline variant: a quiet "current value ▾" trigger that sizes to its label
+   instead of the fixed icon square, for use in a header where the menu names
+   what you are looking at rather than offering extra actions. */
+.overflow-menu-inline > summary { display: flex; align-items: center; gap: 4px; width: auto; min-width: 0; height: 28px; padding: 0 6px; }
+.overflow-menu-inline .overflow-menu-popover { right: auto; left: 0; transform-origin: top left; }
 .overflow-menu > summary::-webkit-details-marker { display: none; }
 .overflow-menu > summary:hover { background: var(--fill); color: var(--label-primary); }
 .overflow-menu[open] > summary { background: var(--fill); color: var(--label-primary); }

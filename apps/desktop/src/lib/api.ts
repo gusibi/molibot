@@ -373,6 +373,30 @@ export async function revealDesktopProjectFile(
   });
 }
 
+/**
+ * Session-scope peer of `revealDesktopProjectFile`: shows a chat attachment in
+ * Finder, or opens it with its default app. `filePath` is workspace-relative -
+ * the service resolves the absolute path behind its own root check and never
+ * returns it.
+ */
+export async function revealDesktopSessionFile(
+  endpoint: string,
+  input: { profileId: string; sessionId: string; projectId?: string; path: string },
+  mode: "reveal" | "open"
+): Promise<void> {
+  await requestJson(endpoint, "/api/web/files/reveal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      profileId: input.profileId,
+      sessionId: input.sessionId,
+      projectId: input.projectId ?? "",
+      path: input.path,
+      mode
+    })
+  });
+}
+
 export async function loadDesktopProjectGitStatus(endpoint: string, projectId: string): Promise<DesktopProjectGitStatus> {
   return (await requestJson<{ ok: true; result: DesktopProjectGitStatus }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/status`)).result;
 }
@@ -1294,6 +1318,42 @@ export function miniAppPanelUrl(appId: string, locale: string, theme: "light" | 
   return `molibot-miniapp://${appId}/index.html?${params.toString()}`;
 }
 
+/**
+ * The iframe URL for an Artifact Panel HTML preview.
+ *
+ * Same pattern as `miniAppPanelUrl`: a fixed `molibot-artifact://` origin the
+ * build-time CSP can name, forwarded to the runtime service port by the Tauri
+ * transport. The scope + token identify the root - a Project id, or a Session's
+ * opaque token from `sessionArtifactToken` - and the path is relative to that
+ * root. Each path segment is encoded so spaces and CJK characters survive the
+ * URL without becoming traversal; the transport's `is_safe_path` still rejects
+ * any `..` segment outright.
+ */
+export function artifactPreviewUrl(
+  scope: "project" | "session",
+  token: string,
+  path: string,
+  locale: string,
+  theme: "light" | "dark"
+): string {
+  const params = new URLSearchParams({ locale, theme });
+  const cleanPath = String(path ?? "")
+    .replace(/^\/+/, "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `molibot-artifact://artifact/${scope}/${token}/${cleanPath}?${params.toString()}`;
+}
+
+/**
+ * The opaque token identifying a Session root for `artifactPreviewUrl`.
+ *
+ * Re-exported from the shared codec the service decodes with, so the two can
+ * never drift - a drift here 404s every Session HTML preview and silently falls
+ * back to the pathless blob.
+ */
+export { encodeSessionArtifactToken as sessionArtifactToken } from "@molibot/shared/artifactToken";
+
 export async function startDailyMaterialsBackfill(endpoint: string): Promise<DailyMaterialsBackfillStatus> {
   const payload = await requestJson<DailyMaterialsBackfillResponse>(endpoint, "/api/desktop/plugins/daily-materials-backfill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start" }) });
   return payload.status;
@@ -2135,6 +2195,23 @@ export async function fetchDesktopFileBlob(
   const response = await fetchFromDesktop(
     desktopFileContentUrl(endpoint, profileId, sessionId, fileId, download, projectId)
   );
+  if (!response.ok) {
+    throw new Error(`Failed to load file (${response.status})`);
+  }
+  return await responseToBlob(response);
+}
+
+/**
+ * Fetches a Project file's raw bytes as a Blob for the Artifact Panel's download
+ * action. Goes through the Tauri HTTP transport (not `fetch`) so the WebView CSP
+ * `connect-src` does not need to name the runtime service port.
+ */
+export async function fetchDesktopProjectRawBlob(
+  endpoint: string,
+  projectId: string,
+  path: string
+): Promise<Blob> {
+  const response = await fetchFromDesktop(desktopProjectRawFileUrl(endpoint, projectId, path));
   if (!response.ok) {
     throw new Error(`Failed to load file (${response.status})`);
   }

@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -25,6 +24,7 @@ import { pollUntilResolved, type PollOutcome } from "$lib/server/approval/approv
 import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi, wrapCommandWithVenv, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { prepareToolSandboxExecution } from "$lib/server/agent/tools/sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
+import { buildTempOutputPath as buildSpillPath } from "$lib/server/agent/tools/outputSpill.js";
 import type { ToolDefinition, ToolExecutionContext, ToolResult } from "$lib/server/agent/tools/toolTypes.js";
 
 const bashSchema = Type.Object({
@@ -136,8 +136,7 @@ const ROOT_ARTIFACT_EXCLUDED_NAMES = new Set([
 ]);
 
 function buildTempOutputPath(dir: string): string {
-  mkdirSync(dir, { recursive: true });
-  return join(dir, `bash-${Date.now()}-${randomBytes(4).toString("hex")}.log`);
+  return buildSpillPath(dir, "bash");
 }
 
 function snapshotRootFiles(cwd: string): Map<string, number> {

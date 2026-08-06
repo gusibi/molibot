@@ -3,9 +3,9 @@
   import { escapeHtml } from "./codeHighlight";
   import { requestComposerInsertion } from "./composerBridge";
   import { fileIconName, fileIconStyle } from "./fileIcons";
-  import type { ProjectFilesStore } from "./projectFilesStore.svelte";
+  import type { ArtifactTabsStore } from "../artifacts/artifactTabsStore.svelte";
 
-  let { store, copy }: { store: ProjectFilesStore; copy: Translation } = $props();
+  let { store, copy }: { store: ArtifactTabsStore; copy: Translation } = $props();
 
   let input = $state<HTMLInputElement | null>(null);
   let cursor = $state(0);

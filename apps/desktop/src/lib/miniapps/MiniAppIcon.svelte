@@ -6,7 +6,7 @@
   }: {
     src?: string;
     label: string;
-    size?: "sidebar" | "list" | "panel";
+    size?: "sidebar" | "list" | "tab";
   } = $props();
 </script>
 

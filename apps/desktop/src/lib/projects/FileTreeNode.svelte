@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
   import { fileIconName, fileIconStyle, formatSize } from "./fileIcons";
-  import type { ProjectFilesStore } from "./projectFilesStore.svelte";
+  import type { ArtifactTabsStore } from "../artifacts/artifactTabsStore.svelte";
   import FileTreeNode from "./FileTreeNode.svelte";
 
   let {
@@ -16,7 +16,7 @@
     onContextMenu,
     copiedPath
   }: {
-    store: ProjectFilesStore;
+    store: ArtifactTabsStore;
     dirPath: string;
     depth?: number;
     copy: Translation;

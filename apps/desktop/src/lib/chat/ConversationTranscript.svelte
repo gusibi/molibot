@@ -7,8 +7,7 @@
   import ThinkingCard from "./ThinkingCard.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
   import { humanizeModelOption } from "../presentation";
-  import { invoke } from "@tauri-apps/api/core";
-  import { externalHttpUrlFromClick } from "./markdownLinks";
+  import { handleMarkdownBodyClick } from "../markdownInteractions";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -33,26 +32,11 @@
     expandedMessages = next;
   }
 
-  async function copyCode(event: MouseEvent): Promise<void> {
-    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-copy-code]");
-    if (!button) return;
-    const code = button.closest(".code-block")?.querySelector("code")?.textContent ?? "";
-    if (!code) return;
-    try {
-      await navigator.clipboard.writeText(code);
-      button.textContent = copy.copied;
-      window.setTimeout(() => { if (button.isConnected) button.textContent = copy.copyCode; }, 1200);
-    } catch { /* clipboard unavailable */ }
-  }
-
+  // External links and code-block copy buttons behave identically wherever
+  // `renderMarkdown` output is mounted; the Artifact Panel's Markdown viewer
+  // shares this handler.
   async function handleMarkdownClick(event: MouseEvent): Promise<void> {
-    const url = externalHttpUrlFromClick(event);
-    if (url) {
-      if ("__TAURI_INTERNALS__" in window) await invoke("open_external_url", { url });
-      else window.open(url, "_blank", "noopener,noreferrer");
-      return;
-    }
-    await copyCode(event);
+    await handleMarkdownBodyClick(event, copy);
   }
 </script>
 

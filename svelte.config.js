@@ -14,6 +14,9 @@ const config = {
       // packaged + dev WebView origins keeps full CSRF protection for the web
       // deployment. See scripts/runtime/csrf-trusted-origins.mjs.
       trustedOrigins: csrfTrustedOrigins({ tauriDevHost: process.env.TAURI_DEV_HOST })
+    },
+    alias: {
+      "@molibot/shared": "./src/lib/shared"
     }
   }
 };

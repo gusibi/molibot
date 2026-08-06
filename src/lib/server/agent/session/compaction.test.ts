@@ -3,6 +3,7 @@ import test from "node:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import {
+  capOversizedMessages,
   compactContextMessages,
   estimateContextTokens,
   planCompactionSpan,
@@ -449,4 +450,82 @@ test("a split turn produces one merged summary carrying both halves", async () =
   assert.match(result.summary, /HISTORY-SUMMARY/);
   assert.match(result.summary, /Turn Context \(split turn\)/);
   assert.match(result.summary, /PREFIX-SUMMARY/);
+});
+
+test("a single message larger than the whole budget is shrunk, not kept verbatim", async () => {
+  // The shape that used to be unrecoverable: the newest message alone exceeds
+  // the context window, so the kept slice (which always seeds with it) stayed
+  // oversized no matter how often compaction ran.
+  const blob = "X".repeat(4_000_000);
+  const messages = [
+    textMessage("user", "please call the tool"),
+    toolResultMessage("call-1", blob)
+  ];
+
+  const result = await compactContextMessages({
+    messages,
+    model: { provider: "test", id: "test-model" } as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 20000 },
+    reason: "threshold"
+  });
+
+  assert.equal(result.changed, true);
+  assert.ok(
+    result.afterTokens < 20000 * 2,
+    `expected the compacted context to fit the budget, got ${result.afterTokens} tokens`
+  );
+  assert.ok(result.afterTokens < result.beforeTokens / 10);
+  // Compaction is terminal: the shrunk content is what gets persisted, so the
+  // blob cannot come back on the next turn.
+  const keptText = JSON.stringify(result.messages);
+  assert.ok(!keptText.includes("X".repeat(200000)));
+  assert.match(keptText, /truncated by compaction/);
+});
+
+test("an oversized message with no history to summarize still returns a summary at index 0", async () => {
+  // `appendCompaction` persists messages[0] as the summary and slice(1) as the
+  // new context; a capped-only compaction that skipped the summary message
+  // would silently drop the first real message.
+  const messages = [toolResultMessage("call-1", "Y".repeat(4_000_000))];
+
+  const result = await compactContextMessages({
+    messages,
+    model: { provider: "test", id: "test-model" } as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 20000 },
+    reason: "threshold"
+  });
+
+  assert.equal(result.changed, true);
+  assert.equal((result.messages[0] as any).role, "user");
+  assert.match(String((result.messages[0] as any).content), /\[context summary\]/);
+  assert.equal(result.messages.length, 2);
+  assert.equal((result.messages[1] as any).role, "toolResult");
+});
+
+test("capOversizedMessages leaves normal messages and tool-call blocks untouched", () => {
+  const toolCall = {
+    role: "assistant",
+    content: [{ type: "toolCall", name: "read", arguments: { path: "a.txt" } }],
+    timestamp: Date.now()
+  } as unknown as AgentMessage;
+  const messages = [textMessage("user", "hello"), toolCall];
+
+  const result = capOversizedMessages(messages, 20000);
+
+  assert.equal(result.cappedCount, 0);
+  assert.equal(result.messages, messages);
+});
+
+test("capOversizedMessages keeps a CJK blob under the token budget", () => {
+  // chars/4 undercounts CJK 3-4x; the byte budget has to hold for the estimator
+  // that actually decides whether the next request fits.
+  const messages = [toolResultMessage("call-1", "中".repeat(500_000))];
+
+  const result = capOversizedMessages(messages, 5000);
+
+  assert.equal(result.cappedCount, 1);
+  assert.ok(
+    estimateContextTokens(result.messages) <= 5000,
+    `expected <= 5000 tokens, got ${estimateContextTokens(result.messages)}`
+  );
 });

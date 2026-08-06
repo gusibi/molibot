@@ -24,6 +24,25 @@ import {
   type TruncationResult
 } from "@earendil-works/pi-coding-agent";
 
+/**
+ * Cut a string to a byte budget without splitting a character.
+ *
+ * `truncateHead`/`truncateTail` never return partial lines, so a payload that is
+ * one enormous line (minified JSON is the common case) comes back **empty** with
+ * `firstLineExceedsLimit`. Callers that must still show something — an MCP
+ * result, an oversized message being compacted — fall back to this. Stepping
+ * back over UTF-8 continuation bytes (`10xxxxxx`) keeps a multi-byte character
+ * from being cut in half, which would otherwise decode to U+FFFD.
+ */
+export function sliceToBytes(text: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  const buffer = Buffer.from(text, "utf-8");
+  if (buffer.byteLength <= maxBytes) return text;
+  let end = maxBytes;
+  while (end > 0 && ((buffer[end] ?? 0) & 0xc0) === 0x80) end -= 1;
+  return buffer.subarray(0, end).toString("utf-8");
+}
+
 export function truncateMiddle(
   content: string,
   options: TruncationOptions & { headLines?: number; tailLines?: number } = {}

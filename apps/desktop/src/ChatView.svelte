@@ -92,8 +92,7 @@
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
-  import ProjectFilePanel from "./lib/projects/ProjectFilePanel.svelte";
-  import MiniAppPanel from "./lib/miniapps/MiniAppPanel.svelte";
+  import ArtifactPanel from "./lib/artifacts/ArtifactPanel.svelte";
   import { markMiniAppUsed } from "./lib/stores/miniapps.svelte";
   import { projectsStore } from "./lib/stores/projects.svelte";
   import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
@@ -105,6 +104,8 @@
   import { projectChatStore } from "./lib/projects/projectChatStore.svelte";
   // Files the active Project session has touched, projected for the file panel.
   const sessionFileTouches = projectChatStore.sessionFiles;
+  import type { SessionFileTouches } from "./lib/projects/sessionFileTouches";
+  const EMPTY_TOUCHES: SessionFileTouches = { written: new Set(), all: new Set() };
   import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
   import { stickToBottom } from "./lib/chat/stickToBottom";
   import { openWorkspacePaneState, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
@@ -456,13 +457,14 @@
   // Every dependency is read directly here on purpose: a legacy `$:` only tracks
   // what the statement itself references, so folding this into a helper would
   // freeze the budget at its first value.
-  $: filePanelOpen = inspector?.kind === "files";
-  $: miniAppPanelAppId = inspector?.kind === "miniapp" ? inspector.appId : "";
-  $: filesPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0);
-  $: miniAppPanelVisible = Boolean(miniAppPanelAppId) && serviceState === "ready";
-  // One budget for both Inspector kinds: a second panel must never widen the
-  // layout into a fourth column.
-  $: inspectorVisible = filesPanelVisible || miniAppPanelVisible;
+  $: filePanelOpen = inspector?.kind === "artifact";
+  $: miniAppPanelAppId = inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : "";
+  // The Artifact Panel hosts Project files and Mini App tabs. A non-Project chat
+  // with no Mini App open keeps the legacy session-files list for now (Slice 1b
+  // folds that list into the panel too).
+  $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (inspector?.scope === "project" || Boolean(inspector?.miniApp) || Boolean(inspector?.sessionFile));
+  $: sessionFilesAsideVisible = filePanelOpen && serviceState === "ready" && inspector?.scope === "session" && !inspector?.miniApp && !inspector?.sessionFile && profiles.length > 0;
+  $: inspectorVisible = artifactPanelVisible || sessionFilesAsideVisible;
   $: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH;
   // Below NARROW_WIDTH the sidebar is hidden and only two tracks share the
   // window, so the budget drops the sidebar term and uses the lower floor the
@@ -508,8 +510,21 @@
   // The right-hand Inspector. Chat shows at most one at a time — Files or a
   // Mini App — so the width budget, resize handle, narrow-screen rules and
   // close behaviour below exist exactly once and serve both.
-  type ChatInspector = { kind: "files" } | { kind: "miniapp"; appId: string } | null;
+  type ChatInspector = {
+    kind: "artifact";
+    scope: "project" | "session";
+    /** Mini App id to open as a tab on mount or on a live open request. */
+    miniApp?: string;
+    /** Bumped so a repeat open of the same app re-activates its tab. */
+    miniAppNonce?: number;
+    /** A chat attachment to open as a session-scope tab (Slice 1b). */
+    sessionFile?: DesktopSessionFile;
+    /** Bumped so re-opening the same attachment re-activates its tab. */
+    sessionFileNonce?: number;
+  } | null;
   let inspector: ChatInspector = null;
+  let miniAppSeq = 0;
+  let sessionFileSeq = 0;
   let miniAppsExpanded = localStorage.getItem(MINIAPPS_EXPANDED_KEY) !== "0";
 
   // A Mini App runs on its own origin and cannot inherit our CSS variables, so
@@ -2048,18 +2063,22 @@
   // other. Toggling the same target closes it; re-selecting the Mini App
   // already shown is a no-op, which keeps its iframe (and its state) alive.
   function toggleFilesInspector(): void {
-    inspector = inspector?.kind === "files" ? null : { kind: "files" };
+    inspector = inspector?.kind === "artifact" ? null : { kind: "artifact", scope: projectPaneActive ? "project" : "session" };
   }
 
   function openMiniAppInspector(appId: string): void {
     // Recency drives the sidebar's short list, so it is recorded even when the
     // app is already open — reopening is still a use.
     markMiniAppUsed(appId);
-    if (inspector?.kind === "miniapp" && inspector.appId === appId) return;
     // Opening an app panel returns to Chat: the panel is an inspector beside a
     // conversation, not something to show next to the manager.
     workspacePane = "chat";
-    inspector = { kind: "miniapp", appId };
+    inspector = {
+      kind: "artifact",
+      scope: projectPaneActive ? "project" : "session",
+      miniApp: appId,
+      miniAppNonce: ++miniAppSeq
+    };
   }
 
   function closeInspector(): void {
@@ -2668,20 +2687,17 @@
     ></div>
   {/if}
 
-  {#if miniAppPanelVisible}
-    <MiniAppPanel
-      appId={miniAppPanelAppId}
+  {#if artifactPanelVisible}
+    <ArtifactPanel
+      endpoint={connectedEndpoint || serviceEndpoint || ""}
+      projectId={projectPaneActive ? (projectsStore.selectedProjectId ?? "") : ""}
+      sessionId={projectPaneActive ? (projectsStore.selectedSessionId ?? "") : (activeSessionId ?? "")}
+      scope={projectPaneActive ? "project" : "session"}
+      touches={projectPaneActive ? $sessionFileTouches : EMPTY_TOUCHES}
+      miniApp={inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : ""}
+      miniAppNonce={inspector?.kind === "artifact" ? (inspector.miniAppNonce ?? 0) : 0}
       {locale}
       theme={resolvedTheme}
-      {copy}
-      onClose={closeInspector}
-    />
-  {:else if filePanelOpen && serviceState === "ready" && projectPaneActive && projectsStore.selectedProjectId}
-    <ProjectFilePanel
-      endpoint={connectedEndpoint || serviceEndpoint || ""}
-      projectId={projectsStore.selectedProjectId}
-      sessionId={projectsStore.selectedSessionId}
-      touches={$sessionFileTouches}
       {copy}
       onClose={closeInspector}
     />

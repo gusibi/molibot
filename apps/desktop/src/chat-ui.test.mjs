@@ -77,7 +77,7 @@ const settingGroup = read("./lib/components/ui/SettingGroup.svelte");
 const recordingBar = read("./lib/chat/RecordingBar.svelte");
 const projectChat = read("./lib/projects/ProjectChat.svelte");
 const projectChatStoreSource = read("./lib/projects/projectChatStore.svelte.ts");
-const projectFilePanel = read("./lib/projects/ProjectFilePanel.svelte");
+const projectFilePanel = read("./lib/artifacts/ArtifactPanel.svelte");
 const taskStore = read("./lib/stores/tasks.svelte.ts");
 const settingsSessionStore = read("./lib/stores/session.svelte.ts");
 const skillsStoreSource = read("./lib/stores/skills.svelte.ts");
@@ -99,9 +99,16 @@ const hapticCoordinator = read("./lib/native/hapticCoordinator.ts");
 const nativeAppMenu = read("../src-tauri/src/app_menu.rs");
 
 test("message links open externally and session model hydration blocks mismatched sends", () => {
-  assert.match(transcript, /externalHttpUrlFromClick/);
-  assert.match(transcript, /invoke\("open_external_url", \{ url \}\)/);
-  assert.ok(transcript.indexOf("externalHttpUrlFromClick(event)") < transcript.indexOf("await copyCode(event)"));
+  // The behaviour lives in one shared handler now: the transcript and the
+  // Artifact Panel's Markdown viewer must not each own a copy (pitfall #7).
+  const markdownInteractions = read("./lib/markdownInteractions.ts");
+  assert.match(transcript, /handleMarkdownBodyClick\(event, copy\)/);
+  assert.match(markdownInteractions, /externalHttpUrlFromClick/);
+  assert.match(markdownInteractions, /invoke\("open_external_url", \{ url \}\)/);
+  assert.ok(
+    markdownInteractions.indexOf("externalHttpUrlFromClick(event)") <
+      markdownInteractions.indexOf("await copyCodeFromClick(event, copy)")
+  );
   assert.match(markdownLinks, /url\.protocol === "http:" \|\| url\.protocol === "https:"/);
   assert.match(view, /modelReady = [^;]+&& !modelSelectionHydrating/);
   assert.match(view, /modelSelectionHydrating = true;[\s\S]*loadDesktopSessionModel/);
@@ -1675,8 +1682,8 @@ test("project detail reuses the chat header chrome for a single visual language"
 });
 
 test("project file panel exposes live files, Git changes, and session attachments", () => {
-  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
-  assert.match(view, /<ProjectFilePanel/);
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
+  assert.match(view, /<ArtifactPanel/);
   assert.match(projectFilePanel, /tab = "files"/);
   assert.match(projectFilePanel, /tab = "changes"/);
   assert.match(projectFilePanel, /tab = "attachments"/);
@@ -1737,7 +1744,7 @@ test("project file panel exposes live files, Git changes, and session attachment
 });
 
 test("project file tree expands in place and keeps its expansion state", () => {
-  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
   const treeNode = read("./lib/projects/FileTreeNode.svelte");
   // Expansion is keyed per directory path so a reload cannot collapse the tree,
   // and each level is fetched lazily and cached in `dirs`.
@@ -1752,12 +1759,12 @@ test("project file tree expands in place and keeps its expansion state", () => {
 });
 
 test("project file panel opens several files as tabs with a highlighted viewer", () => {
-  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
   const codeViewer = read("./lib/projects/CodeViewer.svelte");
-  assert.match(filesStore, /tabs = \$state<OpenTab\[\]>/);
+  assert.match(filesStore, /tabs = \$state<ArtifactTab\[\]>/);
   assert.match(filesStore, /closeTab\(id: string\)/);
   // Opening a file appends a tab; it must never replace the ones already open.
-  assert.match(filesStore, /const next = \[\.\.\.this\.tabs, tab\]/);
+  assert.match(filesStore, /this\.#commitTabs\(\[\.\.\.this\.tabs, tab\]\)/);
   assert.match(projectFilePanel, /<CodeViewer/);
   assert.match(codeViewer, /highlightLines/);
   assert.match(codeViewer, /code-line-number/);
@@ -1767,8 +1774,231 @@ test("project file panel opens several files as tabs with a highlighted viewer",
   assert.match(styles, /\.code-viewer-scroll\.wrap \.code-line-text/);
 });
 
+test("the Artifact Panel action bar is the same set of file actions on every file tab", () => {
+  // PRD §3.38: one action bar per file tab - reveal, open-with-system, copy
+  // path, download, insert as @-reference - provided by the container, not
+  // re-implemented per viewer. Mini App tabs carry no path actions.
+  assert.match(projectFilePanel, /revealInFinder\(activeTab\.path, "reveal"\)/);
+  assert.match(projectFilePanel, /revealInFinder\(activeTab\.path, "open"\)/);
+  assert.match(projectFilePanel, /copyPath\(activeTab\.path\)/);
+  assert.match(projectFilePanel, /downloadProjectFile\(activeTab\.path\)/);
+  assert.match(projectFilePanel, /mentionInChat\(activeTab\.path\)/);
+  assert.match(projectFilePanel, /artifactDownload/);
+  // The registry, not an inline if/else, picks the viewer for a file tab.
+  assert.match(projectFilePanel, /matchViewer/);
+});
+
+test("the HTML preview iframe is sandboxed without same-origin access", () => {
+  // PRD §3.38 Slice 1a: `sandbox="allow-scripts"` and NO `allow-same-origin` -
+  // the preview is a static render, not a Mini App, so it gets no share of the
+  // Mini App API channel and no same-origin access to the app (pitfall #6).
+  const htmlPreview = read("./lib/artifacts/HtmlPreview.svelte");
+  assert.match(htmlPreview, /sandbox="allow-scripts"/);
+  // No sandbox attribute on the preview may grant same-origin access.
+  assert.doesNotMatch(htmlPreview, /sandbox="[^"]*allow-same-origin/);
+  assert.match(htmlPreview, /referrerpolicy="no-referrer"/);
+  // The panel builds the iframe URL through the fixed-origin builder, never a
+  // loopback or file URL.
+  assert.match(projectFilePanel, /artifactPreviewUrl/);
+  const api = read("./lib/api.ts");
+  assert.match(api, /molibot-artifact:\/\/artifact\//);
+});
+
+test("every path that drops an artifact tab releases its blob URL", () => {
+  // PRD §3.38 test seam #5. A session attachment's bytes are held as an object
+  // URL; whoever removes the tab is the last owner, so a removal path that
+  // forgets to revoke leaks the whole file for the life of the WebView - with
+  // nothing visible in any console.
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
+
+  // Exactly one place creates one.
+  assert.equal(filesStore.match(/URL\.createObjectURL/g)?.length, 1);
+
+  // Closing one tab, closing all, reconnecting and disposing all release.
+  assert.match(filesStore, /closeTab\(id: string\): void \{[\s\S]*?URL\.revokeObjectURL\(removed\.blobUrl\)/);
+  // `closeAllTabs` closes only the mode on screen, so it revokes that subset
+  // rather than every tab - the other surface stays open and must keep its own.
+  assert.match(filesStore, /closeAllTabs\(\): void \{[\s\S]*?for \(const tab of closing\) \{\s*if \(tab\.blobUrl\) URL\.revokeObjectURL\(tab\.blobUrl\)/);
+  assert.match(filesStore, /connect\([\s\S]*?this\.#revokeBlobUrls\(\)/);
+  assert.match(filesStore, /dispose\(\): void \{[\s\S]*?this\.#revokeBlobUrls\(\)/);
+
+  // Eviction at the tab cap is a removal too, and it is the one that was missed:
+  // three inline `slice` calls each dropped the oldest tab without revoking.
+  // Every open path now commits through the single capping helper.
+  assert.match(filesStore, /#commitTabs\(next: ArtifactTab\[\]\): void \{[\s\S]*?URL\.revokeObjectURL\(tab\.blobUrl\)/);
+  assert.equal(filesStore.match(/this\.#commitTabs\(\[\.\.\.this\.tabs, tab\]\)/g)?.length, 3);
+  // No open path may cap the list inline again: the cap is read only by its
+  // declaration and by the helper that owns eviction.
+  assert.doesNotMatch(filesStore, /this\.tabs = next\.length > MAX_OPEN_TABS/);
+  const helper = filesStore.slice(
+    filesStore.indexOf("Commits a new tab list"),
+    filesStore.indexOf("// ── Tree ──")
+  );
+  assert.ok(helper.length > 0);
+  assert.equal(
+    filesStore.match(/MAX_OPEN_TABS/g).length,
+    helper.match(/MAX_OPEN_TABS/g).length + 1,
+    "MAX_OPEN_TABS is referenced outside its declaration and the eviction helper"
+  );
+});
+
+test("a Session HTML preview goes through the artifact route, not a pathless blob", () => {
+  // A blob URL has no path, so every relative css/img reference in the page
+  // resolves to nothing and a multi-file page renders as a bare skeleton. The
+  // blob remains only as the fallback for transcripts the route declines.
+  assert.match(projectFilePanel, /sessionArtifactToken\(\{ profileId, sessionId, projectId: projectId \|\| undefined \}\)/);
+  assert.match(projectFilePanel, /artifactPreviewUrl\("session", token, activeTab\.path, locale, theme\)/);
+  assert.match(projectFilePanel, /viewer === "html" && \(htmlPreviewSrc \|\| activeTab\.blobUrl\)/);
+  assert.match(projectFilePanel, /src=\{htmlPreviewSrc \|\| activeTab\.blobUrl\}/);
+  // One shared codec: a client-side re-implementation is how the encoder and
+  // the service's decoder drift into a silent 404 (pitfall #7).
+  const api = read("./lib/api.ts");
+  assert.match(api, /export \{ encodeSessionArtifactToken as sessionArtifactToken \} from "@molibot\/shared\/artifactToken"/);
+  assert.doesNotMatch(api, /function sessionArtifactToken/);
+});
+
+test("a session tab's path means the same thing every file action reads it", () => {
+  // Pitfall #6 corollary: `path` is the artifact's location inside its own root
+  // in both scopes. A session tab left with an empty path silently disables the
+  // preview route and every path-bearing action.
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
+  assert.match(filesStore, /scope: "session", path: file\.local \?\? ""/);
+});
+
+test("Session file tabs carry the same actions as Project tabs, minus the @ insertion", () => {
+  const sessionBranch = projectFilePanel.slice(projectFilePanel.indexOf('{:else if scope === "session"}'));
+  for (const action of ["projectCopyPath", "artifactDownload", "projectRevealInFinder", "projectOpenExternally"]) {
+    assert.match(sessionBranch, new RegExp(action), `${action} missing from the Session action bar`);
+  }
+  // `@` insertion is deliberately absent: the shared Runtime validates a file
+  // reference against a Project root (PRD §3.35), which an ordinary Session has
+  // no equivalent of. A button here would insert a reference that fails closed.
+  assert.doesNotMatch(sessionBranch, /mentionInChat/);
+  // Reveal/open resolve the absolute path service-side; the panel only ever
+  // sends the workspace-relative path.
+  assert.match(projectFilePanel, /revealDesktopSessionFile\(\s*endpoint,\s*\{ profileId, sessionId, projectId: projectId \|\| undefined, path \}/);
+});
+
+test("every Slice 2/3 viewer is reachable from both artifact scopes", () => {
+  // PRD §3.38: one registry, two entrances. A viewer wired into only the
+  // Project branch is exactly the fork the panel exists to prevent (pitfall #7),
+  // and it is invisible to any test that looks at one scope only.
+  const projectBranch = projectFilePanel.slice(
+    projectFilePanel.indexOf('activeTab.kind === "file" && activeTab.preview'),
+    projectFilePanel.indexOf('{:else if scope === "session"}')
+  );
+  const sessionBranch = projectFilePanel.slice(projectFilePanel.indexOf('{:else if scope === "session"}'));
+  assert.ok(projectBranch.length > 0 && sessionBranch.length > 0);
+  for (const component of ["HtmlPreview", "CsvTable", "MarkdownPreview", "JsonTree", "SvgViewer", "SystemOpenCard"]) {
+    assert.match(projectBranch, new RegExp(`<${component}\\b`), `${component} missing from project scope`);
+    assert.match(sessionBranch, new RegExp(`<${component}\\b`), `${component} missing from session scope`);
+  }
+});
+
+test("no file is a dead end: the system card always offers a way out", () => {
+  // PRD §3.38 Slice 3. Office formats deliberately get no embedded preview, so
+  // the fallback must be an action, not a sentence.
+  const card = read("./lib/artifacts/SystemOpenCard.svelte");
+  assert.match(card, /projectOpenExternally/);
+  assert.match(card, /projectRevealInFinder/);
+  assert.match(card, /artifactDownload/);
+  // Reveal/open are optional because a Session attachment has no host path;
+  // download is not optional and must never be gated behind a callback check.
+  assert.match(card, /onReveal\?:/);
+  assert.match(card, /onOpenExternally\?:/);
+  assert.match(card, /onDownload: \(\) => void;/);
+  assert.doesNotMatch(card, /\{#if onDownload\}/);
+});
+
+test("the source toggle is a registry fact and is offered in both scopes", () => {
+  // Pitfall #7 corollary: which viewers have a rendered/source toggle belongs to
+  // the registry, so the two scope toolbars cannot drift apart.
+  const registry = read("./lib/artifacts/viewerRegistry.ts");
+  assert.match(registry, /export function hasSourceToggle/);
+  assert.match(projectFilePanel, /hasSourceToggle\(viewer\)/);
+  // Both toolbars read the same derived flag and the same shared state.
+  assert.equal(projectFilePanel.match(/sourceToggleAvailable && activeTab\.kind === "file"/g)?.length, 2);
+  assert.match(projectFilePanel, /artifactShowSource/);
+  // The toggle resets per tab; a sticky source view would carry into the next file.
+  assert.match(projectFilePanel, /store\.activeTabId;[\s\S]*?showSource = false/);
+});
+
+test("the session loader decodes text for exactly the viewers that render it", () => {
+  // The panel and the loader must dispatch on one shared rule, or a new viewer
+  // renders an empty tab because nothing decoded its bytes.
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
+  const registry = read("./lib/artifacts/viewerRegistry.ts");
+  assert.match(registry, /export function needsTextContent/);
+  assert.match(filesStore, /viewer === "html" \|\| needsTextContent\(viewer\)/);
+  // No hand-maintained exclusion list may stand in for the registry rule.
+  assert.doesNotMatch(filesStore, /viewer !== "media" && viewer !== "system"/);
+});
+
+test("mermaid loads lazily and cannot execute diagram-authored script", () => {
+  // PRD §3.38 Slice 3: a ~2 MB library must never enter the initial bundle, and
+  // diagram text is agent-generated content.
+  const preview = read("./lib/artifacts/MarkdownPreview.svelte");
+  assert.match(preview, /await import\("mermaid"\)/);
+  assert.doesNotMatch(preview, /^import mermaid from/m);
+  assert.match(preview, /securityLevel: "strict"/);
+  // The load is gated on the document actually containing a diagram.
+  assert.match(preview, /if \(showSource \|\| !diagramsPresent\) return;/);
+  // A late render must not replace a newer document's diagrams (pitfall #3).
+  assert.match(preview, /if \(token === renderToken\) diagrams = next;/);
+  // Every mermaid failure degrades to the diagram's source, never a blank tab.
+  assert.match(preview, /artifactMermaidFailed/);
+});
+
+test("the Markdown viewer reuses the transcript renderer and its click behaviour", () => {
+  // Pitfall #7: a second markdown pipeline is how one surface silently loses
+  // syntax highlighting, sanitization or the copy-code button.
+  const preview = read("./lib/artifacts/MarkdownPreview.svelte");
+  assert.match(preview, /import \{ renderMarkdown \} from "\.\.\/markdown"/);
+  assert.doesNotMatch(preview, /^\s*import .* from "marked"/m);
+  assert.doesNotMatch(preview, /^\s*import .* from "dompurify"/mi);
+  assert.match(preview, /use:markdownBody=\{copy\}/);
+});
+
+test("the JSON tree fails visibly and counts UTF-8 bytes", () => {
+  // Pitfall #8: a character-length ceiling under-counts CJK ~3x, so a document
+  // well over the render budget would still try to build a tree.
+  const jsonTree = read("./lib/artifacts/jsonTree.ts");
+  assert.match(jsonTree, /new TextEncoder\(\)\.encode/);
+  assert.match(jsonTree, /status: "too-large"/);
+  assert.match(jsonTree, /status: "invalid"/);
+  // Both failure modes render the source rather than an empty pane.
+  const component = read("./lib/artifacts/JsonTree.svelte");
+  assert.match(component, /artifactJsonTooLarge/);
+  assert.match(component, /artifactJsonInvalid/);
+  assert.match(component, /<pre class="json-tree-raw">\{content\}<\/pre>/);
+});
+
+test("the SVG viewer renders through an img element, never inlined markup", () => {
+  // An `<img>` document cannot run scripts or fetch external resources; inlining
+  // agent-generated SVG markup would.
+  const svgViewer = read("./lib/artifacts/SvgViewer.svelte");
+  assert.match(svgViewer, /<img class="svg-viewer-image"/);
+  assert.doesNotMatch(svgViewer, /\{@html/);
+});
+
+test("every new artifact copy key exists in both locales", () => {
+  const keys = [
+    "artifactShowSource",
+    "artifactExpandAll",
+    "artifactCollapseAll",
+    "artifactJsonRoot",
+    "artifactJsonInvalid",
+    "artifactJsonTooLarge",
+    "artifactMermaidFailed",
+    "artifactUnsupportedFormat"
+  ];
+  for (const key of keys) {
+    assert.equal(i18n.match(new RegExp(`\\b${key}:`, "g"))?.length, 2, `${key} must exist in zh and en`);
+  }
+});
+
 test("project file search covers names and contents and reveals the hit", () => {
-  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
   const searchPanel = read("./lib/projects/FileSearchPanel.svelte");
   assert.match(filesStore, /searchDesktopProjectFiles/);
   assert.match(filesStore, /searchMode = \$state<SearchMode>/);
@@ -1808,7 +2038,7 @@ test("agent-written files are marked in the tree and scope the Changes tab", () 
   // The running turn's activities count before they land in the transcript.
   assert.match(touches, /liveActivities/);
   assert.match(chatStore, /readonly sessionFiles = toStore<SessionFileTouches>/);
-  assert.match(view, /touches=\{\$sessionFileTouches\}/);
+  assert.match(view, /touches=\{projectPaneActive \? \$sessionFileTouches : EMPTY_TOUCHES\}/);
   assert.match(treeNode, /class:touched=\{touchedPaths\.has\(entry\.path\)\}/);
   assert.match(projectFilePanel, /touches\.written\.has\(entry\.path\)/);
   assert.match(projectFilePanel, /changeScope === "session" \? sessionEntries : gitEntries/);
@@ -1817,7 +2047,7 @@ test("agent-written files are marked in the tree and scope the Changes tab", () 
 });
 
 test("project file panel follows file changes live and stays resizable", () => {
-  const filesStore = read("./lib/projects/projectFilesStore.svelte.ts");
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
   assert.match(filesStore, /watchDesktopProjectFiles/);
   assert.match(filesStore, /applyChanges\(batch: DesktopProjectChangeBatch\)/);
   // An overflow batch reloads wholesale instead of enumerating paths.
@@ -2439,19 +2669,117 @@ test("the Mini App panel is generic chrome with no per-app knowledge", () => {
   assert.match(miniAppPanel, /miniAppLoadFailed/);
 });
 
-test("Chat opens at most one Inspector, and both kinds share one width budget", () => {
-  assert.match(view, /type ChatInspector =\s*\{ kind: "files" \} \| \{ kind: "miniapp"; appId: string \} \| null/);
-  assert.match(view, /\$: filePanelOpen = inspector\?\.kind === "files"/);
-  assert.match(view, /\$: inspectorVisible = filesPanelVisible \|\| miniAppPanelVisible/);
+test("Chat mounts one Artifact Panel hosting two separate surfaces", () => {
+  // The old discriminated union (`files` | `miniapp`) is gone: one Artifact
+  // Panel hosts both, so there is still exactly one inspector column, one
+  // resizer and one width budget. The two surfaces inside it are separate
+  // (see the tab-separation guard below) but the mount seam is single.
+  assert.match(view, /type ChatInspector =[\s\S]*?kind: "artifact"[\s\S]*?scope: "project" \| "session"[\s\S]*?miniApp\?: string[\s\S]*?miniAppNonce\?: number[\s\S]*?\} \| null/);
+  assert.match(view, /\$: filePanelOpen = inspector\?\.kind === "artifact"/);
+  assert.match(view, /\$: inspectorVisible = artifactPanelVisible \|\| sessionFilesAsideVisible/);
   // One grid class, one resizer, one max-width computation for both adapters —
   // a second panel must never introduce a fourth column.
   assert.match(view, /class:with-files=\{inspectorVisible\}/);
   assert.match(view, /\$: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH/);
   assert.match(view, /\$: filesMaxWidth = !inspectorVisible/);
   assert.match(view, /\{#if inspectorVisible\}[\s\S]{0,400}class="files-resizer"/);
-  // Opening one kind replaces the other rather than stacking.
-  assert.match(view, /inspector = \{ kind: "miniapp", appId \}/);
-  assert.match(view, /inspector = inspector\?\.kind === "files" \? null : \{ kind: "files" \}/);
+  // ChatView mounts exactly one Artifact Panel; MiniAppPanel and ProjectFilePanel
+  // no longer appear as direct mounts (PRD test seam #4).
+  assert.match(view, /<ArtifactPanel/);
+  assert.doesNotMatch(view, /<MiniAppPanel\b/);
+  assert.doesNotMatch(view, /<ProjectFilePanel\b/);
+  // Opening a Mini App keeps any open files alive rather than replacing them.
+  assert.match(view, /inspector = \{\s*kind: "artifact",\s*scope: projectPaneActive \? "project" : "session",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq\s*\}/);
+  assert.match(view, /inspector = inspector\?\.kind === "artifact" \? null : \{ kind: "artifact", scope: projectPaneActive \? "project" : "session" \}/);
+});
+
+test("files and Mini Apps are separate surfaces, never one mixed tab strip", () => {
+  // Reported after using the co-hosted build: one strip listing `AGENTS.md`
+  // beside a running expense tracker made "read a file" and "leave my app" the
+  // same gesture. Each side now owns its tab strip and its own selection.
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
+  assert.match(filesStore, /mode = \$state<"files" \| "miniapps">/);
+  assert.match(filesStore, /get fileTabs\(\): ArtifactTab\[\][\s\S]*?tab\.kind !== "miniapp"/);
+  assert.match(filesStore, /get miniAppTabs\(\): ArtifactTab\[\][\s\S]*?tab\.kind === "miniapp"/);
+  // Two selections, so switching modes returns to where you were.
+  assert.match(filesStore, /activeFileTabId = \$state\(""\)/);
+  assert.match(filesStore, /activeMiniAppTabId = \$state\(""\)/);
+
+  // No strip in the panel may iterate the mixed list.
+  assert.doesNotMatch(projectFilePanel, /\{#each store\.tabs as /);
+  assert.match(projectFilePanel, /\{#each fileTabs as openTab /);
+  assert.match(projectFilePanel, /\{#each miniAppTabs as appTab /);
+  // The switch drives the mode without disturbing either selection.
+  assert.match(projectFilePanel, /store\.setMode\("files"\)/);
+  assert.match(projectFilePanel, /store\.setMode\("miniapps"\)/);
+  assert.match(projectFilePanel, /artifactModeFiles/);
+  assert.match(projectFilePanel, /artifactModeMiniApps/);
+
+  // The switch lives INSIDE the single head, not on a band of its own: the
+  // panel is ~380px wide, so vertical space is the scarce axis and a row of its
+  // own pushed the content down while repeating the app name the tab strip
+  // already shows. One head serves both surfaces.
+  const head = projectFilePanel.slice(
+    projectFilePanel.indexOf('<div class="file-panel-head">'),
+    projectFilePanel.indexOf('class="file-panel-close"')
+  );
+  assert.ok(head.length > 0, "the mode switch must be inside the panel head");
+  assert.equal(projectFilePanel.match(/class="file-panel-head"/g)?.length, 1);
+
+  // It is a quiet menu, not a segmented control: switching surfaces is rare
+  // next to the reading done inside one, so the trigger names the current
+  // surface and adds a caret rather than restating both choices permanently.
+  assert.match(head, /<OverflowMenu variant="inline" label=\{copy\.artifactModeSwitch\}>/);
+  assert.match(head, /class="artifact-mode-trigger" slot="trigger"/);
+  assert.match(head, /ph-caret-down artifact-mode-caret/);
+  assert.doesNotMatch(head, /role="tablist"/);
+  // Reused, not re-implemented: OverflowMenu owns dismiss / Escape / arrow keys,
+  // and a bespoke popover here would be a fork of all three (pitfall #7).
+  assert.match(projectFilePanel, /import OverflowMenu from "\.\.\/components\/ui\/OverflowMenu\.svelte"/);
+  const overflowMenu = read("./lib/components/ui/OverflowMenu.svelte");
+  assert.match(overflowMenu, /<slot name="trigger">/);
+  assert.match(overflowMenu, /overflow-menu-\$\{variant\}/);
+  // The trigger shrinks label-first so the head's action buttons keep their
+  // natural width (pitfall #16a), and it must not become a full-width band.
+  assert.match(styles, /\.file-panel-head > \.overflow-menu-inline \{[^}]*flex: 0 1 auto/s);
+  assert.doesNotMatch(styles, /\.artifact-mode-switch/);
+
+  // Head actions stay pinned to the right edge in BOTH head states. The plain
+  // title does it with `flex: 1`; the menu trigger is content-sized, so without
+  // `margin-right: auto` nothing absorbs the slack and the buttons bunch up
+  // against the trigger on the left.
+  assert.match(styles, /\.file-panel-head > \.overflow-menu-inline \{[^}]*margin-right: auto/s);
+  assert.match(styles, /\.file-panel-head > strong \{[^}]*flex: 1/s);
+  // Direct child, not descendant: a descendant selector also captured the mode
+  // menu's own `<strong>` label, overriding its type rank and growing it inside
+  // the trigger.
+  assert.doesNotMatch(styles, /\.file-panel-head strong \{/);
+
+  // Closing the last tab of one kind must not jump to the other kind's tab.
+  assert.match(filesStore, /const siblings = isMiniApp \? this\.miniAppTabs : this\.fileTabs/);
+  // A file flood must not evict a Mini App the user still has open: the cap is
+  // applied per kind, not across the merged list.
+  assert.match(filesStore, /for \(const kind of \["file", "miniapp"\] as const\)/);
+});
+
+test("an open Mini App survives a trip to the file surface", () => {
+  // The bug this fixes: `{#if miniAppActive}` and the file branch were siblings,
+  // so clicking a file destroyed every MiniAppPanel and its iframe - the app
+  // reloaded to its start screen and any in-progress input was gone. Hiding
+  // with `display: none` keeps the iframe's document alive; removing the node
+  // does not, so this must never go back to an `{#if}`.
+  assert.match(projectFilePanel, /class="project-viewer artifact-miniapp-viewer"\s*\n\s*class:is-hidden=\{!miniAppActive\}/);
+  assert.match(projectFilePanel, /class="artifact-file-surface" class:is-hidden=\{miniAppActive\}/);
+  // Every open app is mounted at once; only the selected one is visible.
+  assert.match(
+    projectFilePanel,
+    /\{#each miniAppTabs as appTab \(appTab\.id\)\}\s*\n\s*<div class="artifact-miniapp-slot" class:is-hidden=\{appTab\.id !== store\.activeMiniAppTabId\}>\s*\n\s*<MiniAppPanel/
+  );
+  // Exactly one MiniAppPanel mount remains in the panel: a second one would be
+  // a per-scope copy that reintroduces the destroy-on-switch behaviour.
+  assert.equal(projectFilePanel.match(/<MiniAppPanel\b/g)?.length, 1);
+  // `display: none` is the mechanism, so the rule must exist for all three slots.
+  assert.match(styles, /\.artifact-file-surface\.is-hidden,\s*\n\.artifact-miniapp-viewer\.is-hidden,\s*\n\.artifact-miniapp-slot\.is-hidden \{\s*\n\s*display: none;/);
 });
 
 test("the Mini App panel obeys the shared panel layout rules", () => {
@@ -2461,9 +2789,14 @@ test("the Mini App panel obeys the shared panel layout rules", () => {
   assert.doesNotMatch(panelBlock, /\d+vw/);
   assert.doesNotMatch(panelBlock, /position:\s*fixed/);
   assert.match(panelBlock, /\.miniapp-panel \{[^}]*min-width: 0/s);
-  // The head must clear the window drag mask (z-index 30) like the file panel.
-  assert.match(panelBlock, /\.miniapp-panel-head \{[^}]*z-index: 31/s);
   assert.match(panelBlock, /\.miniapp-frame \{[^}]*flex: 1 1 auto/s);
+  // Both surfaces now share `.file-panel-head`, so that is the one head that
+  // must clear the window-drag mask (pitfall #18): under the z-index 30 mask its
+  // close/refresh buttons go dead with nothing in the console. The old
+  // `.miniapp-panel-head` rule this used to assert is gone with its markup - a
+  // guard pointed at a dead rule protects nothing.
+  assert.doesNotMatch(styles, /\.miniapp-panel-head/);
+  assert.match(styles, /\.file-panel-head \{[^}]*z-index: 31/s);
 });
 
 test("Mini Apps are reachable as a primary destination and a recent-first app section", () => {
@@ -2501,7 +2834,9 @@ test("the sidebar destination and the Settings group mount one manager component
 test("Mini App icons are inlined so no CSP or path leak is needed", () => {
   // A URL-based icon would need `img-src molibot-miniapp:` in the app CSP and a
   // resolvable asset path in the Desktop contract; a data URI keeps both closed.
-  for (const source of [miniAppManager, miniAppSidebar, miniAppPanel]) {
+  // The Mini App tab's head lives in the Artifact Panel now, so the icon-bearing
+  // surfaces are the manager, the sidebar, and the Artifact Panel (not the frame).
+  for (const source of [miniAppManager, miniAppSidebar, projectFilePanel]) {
     assert.match(source, /<MiniAppIcon/);
     assert.match(source, /iconDataUri/);
   }

@@ -5,6 +5,13 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.39 Pre-flight context size gate (2026-08-06)
+
+- **Priority / Status**: P2 / Planned (local PRD only, no GitHub issue).
+- **Problem**: every context-overflow defence is reactive. The request is assembled and sent; if it does not fit, we depend on `isContextOverflowError` recognising the provider's wording — ~25 hand-collected phrasings, plus a usage-based check for the endpoints that never report the error at all (z.ai answers normally past the window, MiMo truncates and stops on `length`). A gateway with wording nobody has seen yet is an unhandled hard failure, and every miss costs a full round trip.
+- **Decision**: before dispatching, estimate the assembled context (`estimateContextTokens`, already CJK-aware) against `selectedModel.contextWindow || compaction.defaultContextWindow`. Over budget ⇒ force a compaction pass; still over ⇒ apply `capOversizedMessages` to the largest kept message and re-check. The reactive path stays as the backstop — a pre-flight estimate is an estimate — but it stops being the primary mechanism.
+- **Acceptance**: a context that cannot fit never reaches the provider; the gate is measured with a real oversized transcript, not a synthetic message list; a model with no configured `contextWindow` uses the default rather than skipping the gate; no extra model call is added on the ordinary in-budget path. Covers CLAUDE.md pitfall 27 (e).
+
 ## 3.38 Unified Artifact Panel: viewer registry, HTML preview, CSV tables (2026-08-05)
 
 - **Priority / Status**: P0-P2 slices / Planned (local PRD only, no GitHub issue).

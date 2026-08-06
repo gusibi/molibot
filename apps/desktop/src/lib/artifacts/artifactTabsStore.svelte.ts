@@ -1,5 +1,7 @@
 import {
+  desktopFileContentUrl,
   desktopProjectRawFileUrl,
+  fetchDesktopFileBlob,
   loadDesktopProjectFile,
   loadDesktopProjectGitDiff,
   loadDesktopProjectGitStatus,
@@ -14,6 +16,9 @@ import {
   type DesktopProjectSearchResult,
   type DesktopProjectTreeEntry
 } from "../api";
+import type { DesktopSessionFile } from "@molibot/desktop-contract";
+import type { ArtifactScope, ArtifactTabKind } from "./viewerRegistry";
+import { matchViewer, needsTextContent } from "./viewerRegistry";
 
 /** One directory level of the tree, keyed in `dirs` by its Project-relative path ("" is the root). */
 export interface TreeLevel {
@@ -23,12 +28,23 @@ export interface TreeLevel {
   error: string;
 }
 
-export type OpenTabKind = "file" | "diff";
-
-export interface OpenTab {
+/**
+ * One open Artifact Panel tab. File and diff tabs carry loaded content from the
+ * Project inspection API; Mini App tabs carry only an appId (the iframe loads
+ * itself). Session-scope file tabs (Slice 1b) additionally hold a blob URL the
+ * container revokes on close.
+ */
+export interface ArtifactTab {
   id: string;
-  kind: OpenTabKind;
+  kind: ArtifactTabKind;
+  scope: ArtifactScope;
+  /**
+   * The artifact's path inside its own root: Project-relative for a project
+   * tab, workspace-relative for a session attachment, empty for a Mini App.
+   */
   path: string;
+  /** Mini App id (miniapp) or empty (file/diff). */
+  appId: string;
   name: string;
   loading: boolean;
   error: string;
@@ -40,6 +56,15 @@ export interface OpenTab {
   loadingMore: boolean;
   /** Byte position the next window starts at; equals `sizeBytes` once fully loaded. */
   loadedBytes: number;
+  /** Blob URL for a session-scope file tab; revoked on close (test seam #5). */
+  blobUrl: string;
+  /** Session-file identity (session scope only); empty for project/miniapp tabs. */
+  fileId: string;
+  mediaType: string;
+  mimeType: string;
+  size: number;
+  /** Decoded text for session-scope code/csv tabs (project tabs use `preview`). */
+  textContent: string;
 }
 
 export type SearchMode = "name" | "content";
@@ -55,7 +80,7 @@ export interface FlatTreeRow {
 /**
  * Flattens the loaded tree levels into the rows the panel actually renders, in
  * visual order. Keyboard navigation walks this list, so it must be derived from
- * `dirs` and `expanded` explicitly — a template helper that read them itself
+ * `dirs` and `expanded` explicitly - a template helper that read them itself
  * would not re-run when either changes.
  */
 export function flattenTree(
@@ -79,8 +104,8 @@ export function flattenTree(
 
 const MAX_OPEN_TABS = 12;
 
-function tabId(kind: OpenTabKind, path: string): string {
-  return `${kind}:${path}`;
+function tabId(kind: ArtifactTabKind, key: string): string {
+  return `${kind}:${key}`;
 }
 
 function baseName(path: string): string {
@@ -93,24 +118,41 @@ function parentDir(path: string): string {
 }
 
 /**
- * Owns everything the Project file panel shows: the lazily expanded tree, the
- * open-file tab strip, Git status, search, and the file-change subscription.
+ * Owns everything the Artifact Panel shows: the unified tab strip (file / diff /
+ * Mini App) and, for Project scope, the lazily expanded tree, Git status, search
+ * and the file-change subscription.
  *
  * Every async load carries a generation counter plus its owner key (directory
  * path / tab id) and re-validates before writing, so a slow response can never
  * overwrite what the user selected in the meantime.
  */
-export class ProjectFilesStore {
+export class ArtifactTabsStore {
   endpoint = $state("");
   projectId = $state("");
+  scope = $state<ArtifactScope>("project");
+  /** Session-scope identity for fetching attachment blobs (empty in project scope). */
+  profileId = $state("");
+  sessionId = $state("");
 
   dirs = $state<Record<string, TreeLevel>>({});
   expanded = $state<Record<string, boolean>>({});
   /** Row the tree's roving focus sits on; drives arrow-key navigation. */
   cursorPath = $state("");
 
-  tabs = $state<OpenTab[]>([]);
-  activeTabId = $state("");
+  tabs = $state<ArtifactTab[]>([]);
+
+  /**
+   * Which half of the panel is on screen. Files and Mini Apps are different
+   * kinds of thing and no longer share a tab strip: one strip listing
+   * `AGENTS.md` next to a running expense tracker made "go read a file" and
+   * "leave my app" look like the same gesture.
+   *
+   * Each side keeps its own selection, so switching modes returns to whatever
+   * was last open there instead of resetting.
+   */
+  mode = $state<"files" | "miniapps">("files");
+  activeFileTabId = $state("");
+  activeMiniAppTabId = $state("");
 
   git = $state<DesktopProjectGitStatus | null>(null);
   gitLoading = $state(false);
@@ -133,25 +175,81 @@ export class ProjectFilesStore {
   #watchAbort: AbortController | null = null;
   #gitRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
-  get activeTab(): OpenTab | null {
+  /** File and diff tabs, in open order. */
+  get fileTabs(): ArtifactTab[] {
+    return this.tabs.filter((tab) => tab.kind !== "miniapp");
+  }
+
+  /** Mini App tabs, in open order. All stay mounted; only one is visible. */
+  get miniAppTabs(): ArtifactTab[] {
+    return this.tabs.filter((tab) => tab.kind === "miniapp");
+  }
+
+  /** The selected tab id for the mode currently on screen. */
+  get activeTabId(): string {
+    return this.mode === "miniapps" ? this.activeMiniAppTabId : this.activeFileTabId;
+  }
+
+  get activeTab(): ArtifactTab | null {
     return this.tabs.find((tab) => tab.id === this.activeTabId) ?? null;
   }
 
+  /** The Mini App tab on screen, or null when the panel is showing files. */
+  get activeMiniAppTab(): ArtifactTab | null {
+    return this.tabs.find((tab) => tab.id === this.activeMiniAppTabId && tab.kind === "miniapp") ?? null;
+  }
+
   /**
-   * Points the store at a Project. Resets all view state and restarts the change
-   * stream; the generation bump invalidates every in-flight request from the
-   * previous Project.
+   * Selects a tab and switches to the mode that owns it.
+   *
+   * Takes the kind explicitly rather than looking it up: every `open*` method
+   * activates the tab before appending it, so at that moment it is not in
+   * `tabs` yet and a lookup would silently select nothing.
    */
-  connect(endpoint: string, projectId: string): void {
-    if (this.endpoint === endpoint && this.projectId === projectId) return;
+  selectTab(id: string, kind: ArtifactTabKind): void {
+    if (kind === "miniapp") {
+      this.activeMiniAppTabId = id;
+      this.mode = "miniapps";
+    } else {
+      this.activeFileTabId = id;
+      this.mode = "files";
+    }
+  }
+
+  /** Switches modes without changing either side's selection. */
+  setMode(mode: "files" | "miniapps"): void {
+    this.mode = mode;
+  }
+
+  /**
+   * Points the store at a Project (or a non-Project session). Resets all view
+   * state and, for Project scope, restarts the change stream; the generation
+   * bump invalidates every in-flight request from the previous context. Mini App
+   * tabs are cleared too - they belong to the previous mount session.
+   */
+  connect(endpoint: string, projectId: string, scope: ArtifactScope, profileId = "", sessionId = ""): void {
+    if (
+      this.endpoint === endpoint &&
+      this.projectId === projectId &&
+      this.scope === scope &&
+      this.profileId === profileId &&
+      this.sessionId === sessionId
+    )
+      return;
     this.#generation += 1;
     this.endpoint = endpoint;
     this.projectId = projectId;
+    this.scope = scope;
+    this.profileId = profileId;
+    this.sessionId = sessionId;
+    this.#revokeBlobUrls();
     this.dirs = {};
     this.expanded = {};
     this.cursorPath = "";
     this.tabs = [];
-    this.activeTabId = "";
+    this.activeFileTabId = "";
+    this.activeMiniAppTabId = "";
+    this.mode = "files";
     this.git = null;
     this.gitError = "";
     this.searchQuery = "";
@@ -159,7 +257,7 @@ export class ProjectFilesStore {
     this.searchError = "";
     this.searchOpen = false;
     this.#restartWatch();
-    if (projectId) {
+    if (scope === "project" && projectId) {
       void this.loadDir("", { force: true });
       void this.loadGit();
     }
@@ -167,6 +265,7 @@ export class ProjectFilesStore {
 
   dispose(): void {
     this.#generation += 1;
+    this.#revokeBlobUrls();
     this.#watchAbort?.abort();
     this.#watchAbort = null;
     this.#searchAbort?.abort();
@@ -174,6 +273,45 @@ export class ProjectFilesStore {
     if (this.#searchTimer) clearTimeout(this.#searchTimer);
     if (this.#gitRefreshTimer) clearTimeout(this.#gitRefreshTimer);
     this.watching = false;
+  }
+
+  #revokeBlobUrls(): void {
+    for (const tab of this.tabs) {
+      if (tab.blobUrl) URL.revokeObjectURL(tab.blobUrl);
+      tab.blobUrl = "";
+    }
+  }
+
+  /**
+   * Commits a new tab list, capping each kind at `MAX_OPEN_TABS` independently.
+   *
+   * Per kind, not overall: the two sides are separate surfaces now, so browsing
+   * a dozen files must not silently evict a running Mini App the user still has
+   * open in the other mode.
+   *
+   * Eviction is a close: a tab that falls off the front owns a blob URL that
+   * nothing else will ever release, so it must be revoked here. Every open path
+   * goes through this one helper rather than slicing inline - three separate
+   * `slice` calls is how one of them silently stopped releasing (test seam #5).
+   */
+  #commitTabs(next: ArtifactTab[]): void {
+    const evicted: ArtifactTab[] = [];
+    const keep = new Set<ArtifactTab>();
+    for (const kind of ["file", "miniapp"] as const) {
+      // File and diff tabs share one budget; Mini Apps have their own.
+      const group = next.filter((tab) => (kind === "miniapp" ? tab.kind === "miniapp" : tab.kind !== "miniapp"));
+      const overflow = group.length - MAX_OPEN_TABS;
+      group.forEach((tab, index) => (index < overflow ? evicted.push(tab) : keep.add(tab)));
+    }
+    if (evicted.length === 0) {
+      this.tabs = next;
+      return;
+    }
+    for (const tab of evicted) {
+      if (tab.blobUrl) URL.revokeObjectURL(tab.blobUrl);
+    }
+    // Rebuild from `next` so the surviving tabs keep their original open order.
+    this.tabs = next.filter((tab) => keep.has(tab));
   }
 
   // ── Tree ────────────────────────────────────────────────────────────────
@@ -262,29 +400,126 @@ export class ProjectFilesStore {
   // ── Tabs ────────────────────────────────────────────────────────────────
 
   async openFile(path: string, options: { revealLine?: number } = {}): Promise<void> {
-    await this.#openTab("file", path, options.revealLine ?? 0);
+    await this.#openFileTab("file", path, options.revealLine ?? 0);
   }
 
   async openDiff(path: string): Promise<void> {
-    await this.#openTab("diff", path, 0);
+    await this.#openFileTab("diff", path, 0);
   }
 
-  async #openTab(kind: OpenTabKind, path: string, revealLine: number): Promise<void> {
+  /**
+   * Opens a Mini App tab. The iframe owns its own loading and state, so the store
+   * only records the tab and activates it - no content fetch, no generation risk.
+   * Re-opening an app that is already a tab just activates it.
+   */
+  openMiniApp(appId: string): void {
+    const id = tabId("miniapp", appId);
+    const existing = this.tabs.find((tab) => tab.id === id);
+    this.selectTab(id, "miniapp");
+    if (existing) return;
+    const tab: ArtifactTab = {
+      id, kind: "miniapp", scope: this.scope, path: "", appId,
+      name: appId, loading: false, error: "", preview: null, diff: null,
+      revealLine: 0, loadingMore: false, loadedBytes: 0, blobUrl: "",
+      fileId: "", mediaType: "", mimeType: "", size: 0, textContent: ""
+    };
+    this.#commitTabs([...this.tabs, tab]);
+  }
+
+  /**
+   * Opens a chat session attachment as a session-scope file tab (PRD §3.38
+   * Slice 1b). Media (image/audio/video/pdf) streams straight from the desktop
+   * file route so video can seek; text (code/csv) and HTML are fetched as a blob
+   * so the viewer gets decodable content or a renderable URL. The blob URL is
+   * stored on the tab and revoked on close (test seam #5).
+   */
+  async openSessionFile(file: DesktopSessionFile): Promise<void> {
+    const id = tabId("file", `session:${file.id}`);
+    const existing = this.tabs.find((tab) => tab.id === id);
+    this.selectTab(id, "file");
+    if (existing) return;
+    const tab: ArtifactTab = {
+      // `path` is the artifact's location inside its own root in both scopes -
+      // Project-relative there, workspace-relative here. One path string means
+      // one thing everywhere it is read (pitfall #6 corollary).
+      id, kind: "file", scope: "session", path: file.local ?? "", appId: "",
+      name: file.original, loading: true, error: "", preview: null, diff: null,
+      revealLine: 0, loadingMore: false, loadedBytes: 0, blobUrl: "",
+      fileId: file.id, mediaType: file.mediaType, mimeType: file.mimeType ?? "",
+      size: file.size, textContent: ""
+    };
+    this.#commitTabs([...this.tabs, tab]);
+    await this.#loadSessionFileTab(id, file);
+  }
+
+  /** Streaming URL for a session attachment (Range-supported, so video seeks). */
+  sessionFileUrl(fileId: string): string {
+    return desktopFileContentUrl(this.endpoint, this.profileId, this.sessionId, fileId, false, this.projectId || undefined);
+  }
+
+  async #loadSessionFileTab(id: string, file: DesktopSessionFile): Promise<void> {
+    const generation = this.#generation;
+    const target = this.tabs.find((tab) => tab.id === id);
+    if (!target) return;
+    target.loading = true;
+    target.error = "";
+    try {
+      const viewer = matchViewer({
+        name: file.original,
+        mimeType: file.mimeType,
+        mediaType: file.mediaType,
+        scope: "session"
+      });
+      // Media streams directly - no blob to manage or revoke. Which viewers need
+      // decoded text is a registry fact (`needsTextContent`), not a list
+      // maintained here: adding a viewer must not require editing the loader.
+      if (viewer === "html" || needsTextContent(viewer)) {
+        const blob = await fetchDesktopFileBlob(
+          this.endpoint,
+          this.profileId,
+          this.sessionId,
+          file.id,
+          false,
+          this.projectId || undefined
+        );
+        if (generation !== this.#generation) return;
+        const current = this.tabs.find((tab) => tab.id === id);
+        if (!current) return;
+        if (viewer === "html") {
+          current.blobUrl = URL.createObjectURL(blob);
+        } else {
+          // code/csv/markdown/json/svg: decode once; the viewer reads text.
+          current.textContent = await blob.text();
+        }
+      }
+    } catch (cause) {
+      if (generation !== this.#generation) return;
+      const current = this.tabs.find((tab) => tab.id === id);
+      if (current) current.error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (generation === this.#generation) {
+        const current = this.tabs.find((tab) => tab.id === id);
+        if (current) current.loading = false;
+      }
+    }
+  }
+
+  async #openFileTab(kind: "file" | "diff", path: string, revealLine: number): Promise<void> {
     const id = tabId(kind, path);
     const existing = this.tabs.find((tab) => tab.id === id);
-    this.activeTabId = id;
+    this.selectTab(id, kind);
     if (existing) {
       existing.revealLine = revealLine;
       if (!existing.loading && !existing.error && (existing.preview || existing.diff)) return;
     } else {
-      const tab: OpenTab = {
-        id, kind, path, name: baseName(path),
+      const tab: ArtifactTab = {
+        id, kind, scope: this.scope, path, appId: "", name: baseName(path),
         loading: true, error: "", preview: null, diff: null, revealLine,
-        loadingMore: false, loadedBytes: 0
+        loadingMore: false, loadedBytes: 0, blobUrl: "",
+        fileId: "", mediaType: "", mimeType: "", size: 0, textContent: ""
       };
-      const next = [...this.tabs, tab];
-      // Drop the least-recently-opened tab that is not the one being opened.
-      this.tabs = next.length > MAX_OPEN_TABS ? next.slice(next.length - MAX_OPEN_TABS) : next;
+      // Drops the least-recently-opened tab, releasing whatever it held.
+      this.#commitTabs([...this.tabs, tab]);
     }
     await this.reloadTab(id);
   }
@@ -292,7 +527,7 @@ export class ProjectFilesStore {
   async reloadTab(id: string): Promise<void> {
     const generation = this.#generation;
     const target = this.tabs.find((tab) => tab.id === id);
-    if (!target) return;
+    if (!target || target.kind === "miniapp") return;
     target.loading = true;
     target.error = "";
     try {
@@ -324,17 +559,48 @@ export class ProjectFilesStore {
     }
   }
 
+  /**
+   * Closes one tab and, if it was the selected one, falls back within its own
+   * kind. Closing the last file must not jump the panel into a Mini App, and
+   * closing a Mini App must not drag it into the file tree.
+   */
   closeTab(id: string): void {
     const index = this.tabs.findIndex((tab) => tab.id === id);
     if (index < 0) return;
-    this.tabs = this.tabs.filter((tab) => tab.id !== id);
-    if (this.activeTabId !== id) return;
-    this.activeTabId = this.tabs[Math.min(index, this.tabs.length - 1)]?.id ?? "";
+    const removed = this.tabs[index];
+    const isMiniApp = removed.kind === "miniapp";
+    const siblings = isMiniApp ? this.miniAppTabs : this.fileTabs;
+    const siblingIndex = siblings.findIndex((tab) => tab.id === id);
+
+    this.tabs.splice(index, 1);
+    if (removed.blobUrl) URL.revokeObjectURL(removed.blobUrl);
+    this.tabs = [...this.tabs];
+
+    const remaining = isMiniApp ? this.miniAppTabs : this.fileTabs;
+    const fallback = remaining[Math.min(siblingIndex, remaining.length - 1)]?.id ?? "";
+    if (isMiniApp) {
+      if (this.activeMiniAppTabId === id) this.activeMiniAppTabId = fallback;
+      // Nothing left to show on this side: fall back to the file surface.
+      if (remaining.length === 0) this.mode = "files";
+    } else if (this.activeFileTabId === id) {
+      this.activeFileTabId = fallback;
+    }
   }
 
+  /** Closes every tab in the mode currently on screen, leaving the other intact. */
   closeAllTabs(): void {
-    this.tabs = [];
-    this.activeTabId = "";
+    const closing = this.mode === "miniapps" ? this.miniAppTabs : this.fileTabs;
+    const closingIds = new Set(closing.map((tab) => tab.id));
+    for (const tab of closing) {
+      if (tab.blobUrl) URL.revokeObjectURL(tab.blobUrl);
+    }
+    this.tabs = this.tabs.filter((tab) => !closingIds.has(tab.id));
+    if (this.mode === "miniapps") {
+      this.activeMiniAppTabId = "";
+      this.mode = "files";
+    } else {
+      this.activeFileTabId = "";
+    }
   }
 
   clearReveal(id: string): void {
@@ -475,7 +741,7 @@ export class ProjectFilesStore {
   #restartWatch(): void {
     this.#watchAbort?.abort();
     this.watching = false;
-    if (!this.projectId || !this.endpoint) return;
+    if (!this.projectId || !this.endpoint || this.scope !== "project") return;
     const abort = new AbortController();
     this.#watchAbort = abort;
     const generation = this.#generation;
@@ -511,7 +777,7 @@ export class ProjectFilesStore {
     this.#scheduleGitRefresh();
     if (batch.overflow) {
       for (const path of Object.keys(this.dirs)) void this.loadDir(path, { force: true });
-      for (const tab of this.tabs) void this.reloadTab(tab.id);
+      for (const tab of this.tabs) if (tab.kind !== "miniapp") void this.reloadTab(tab.id);
       return;
     }
     const dirtyDirs = new Set<string>();
@@ -521,7 +787,7 @@ export class ProjectFilesStore {
     }
     const changed = new Set(batch.paths);
     for (const tab of this.tabs) {
-      if (changed.has(tab.path)) void this.reloadTab(tab.id);
+      if (tab.kind !== "miniapp" && changed.has(tab.path)) void this.reloadTab(tab.id);
     }
   }
 
@@ -530,10 +796,10 @@ export class ProjectFilesStore {
     this.#gitRefreshTimer = setTimeout(() => void this.loadGit(), 400);
   }
 
-  /** Reloads every visible surface — the refresh button and the manual fallback. */
+  /** Reloads every visible surface - the refresh button and the manual fallback. */
   refreshAll(): void {
     for (const path of Object.keys(this.dirs)) void this.loadDir(path, { force: true });
-    for (const tab of this.tabs) void this.reloadTab(tab.id);
+    for (const tab of this.tabs) if (tab.kind !== "miniapp") void this.reloadTab(tab.id);
     void this.loadGit();
   }
 }

@@ -4,6 +4,7 @@ import { convertToLlm, generateSummaryWithUsage, serializeConversation } from "@
 import { streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
 import { isRetryableModelError } from "$lib/server/agent/core/runnerRetryState.js";
 import type { CompactionSettings } from "$lib/server/settings/index.js";
+import { formatSize, sliceToBytes, truncateHead } from "$lib/server/agent/tools/truncate.js";
 import {
   appendFileOperations,
   createFileOps,
@@ -229,6 +230,84 @@ function findManualFirstKeptIndex(messages: AgentMessage[], keepRecentTokens: nu
   return findFirstKeptIndex(messages, Math.max(1, Math.floor(totalTokens / 2)));
 }
 
+/**
+ * A byte budget that stays under `maxTokens` for any script.
+ *
+ * `countTextTokens` charges 1 token per CJK character (3 bytes in UTF-8) and 1
+ * per 4 ASCII characters, so 2 bytes per token is below the real cost either
+ * way — deliberately conservative, because the whole point of this cap is that
+ * the result must fit on the next request, not merely be smaller.
+ */
+function tokenBudgetToBytes(maxTokens: number): number {
+  return Math.max(1, Math.floor(maxTokens * 2));
+}
+
+function capText(text: string, maxBytes: number): string | null {
+  if (Buffer.byteLength(text, "utf-8") <= maxBytes) return null;
+  const truncation = truncateHead(text, { maxBytes, maxLines: Number.MAX_SAFE_INTEGER });
+  const kept = truncation.firstLineExceedsLimit ? sliceToBytes(text, maxBytes) : truncation.content;
+  return `${kept}\n[... truncated by compaction: original was ${formatSize(truncation.totalBytes)} ...]`;
+}
+
+/**
+ * Shrink any single message that is larger than the whole keep-recent budget.
+ *
+ * Without this, compaction has a hole it can never climb out of: the kept slice
+ * always starts from the newest message (`findFirstKeptIndex` seeds with it
+ * unconditionally, since dropping the message the model just produced or
+ * consumed would corrupt the turn). So when *one* message is itself bigger than
+ * the context window — a third-party MCP result, a giant paste — every
+ * compaction reports `changed: false` or shrinks to something still oversized,
+ * the overflow retry gives up, and the session is permanently unable to run:
+ * the offending message is inherited by every later turn.
+ *
+ * Rewriting the content is what makes it terminal. The compacted message list is
+ * persisted by `appendCompaction`, so the blob leaves the live context for good
+ * rather than being re-truncated on every turn.
+ */
+export function capOversizedMessages(
+  messages: AgentMessage[],
+  maxTokensPerMessage: number
+): { messages: AgentMessage[]; cappedCount: number } {
+  const maxBytes = tokenBudgetToBytes(maxTokensPerMessage);
+  let cappedCount = 0;
+
+  const capped = messages.map((message) => {
+    if (estimateMessageTokens(message) <= maxTokensPerMessage) return message;
+    const content = (message as unknown as { content?: unknown }).content;
+
+    if (typeof content === "string") {
+      const next = capText(content, maxBytes);
+      if (next === null) return message;
+      cappedCount += 1;
+      return { ...message, content: next } as AgentMessage;
+    }
+
+    if (!Array.isArray(content)) return message;
+
+    let changedBlock = false;
+    const nextContent = content.map((part) => {
+      if (!part || typeof part !== "object") return part;
+      const item = part as Record<string, unknown>;
+      // Only free-form text is capped. A `toolCall` block carries the arguments
+      // a later `toolResult` is matched against, and an image block is not text
+      // at all — mangling either breaks the transcript rather than shrinking it.
+      const field = item.type === "text" ? "text" : item.type === "thinking" ? "thinking" : null;
+      if (!field || typeof item[field] !== "string") return part;
+      const next = capText(item[field] as string, maxBytes);
+      if (next === null) return part;
+      changedBlock = true;
+      return { ...item, [field]: next };
+    });
+
+    if (!changedBlock) return message;
+    cappedCount += 1;
+    return { ...message, content: nextContent } as AgentMessage;
+  });
+
+  return { messages: cappedCount > 0 ? capped : messages, cappedCount };
+}
+
 function serializedLength(messages: AgentMessage[]): number {
   return serializeConversation(convertToLlm(messages)).length;
 }
@@ -268,6 +347,14 @@ function extractPreviousSummary(messages: AgentMessage[]): string | undefined {
     return text.slice(SUMMARY_PREFIX.length).trim() || undefined;
   }
   return undefined;
+}
+
+function oversizedCapSummary(cappedCount: number): string {
+  return [
+    "## Summary",
+    `- ${cappedCount} oversized message(s) in this conversation were truncated to fit the model context window.`,
+    "- No earlier history was summarized; only the oversized content was shortened."
+  ].join("\n");
 }
 
 function buildFallbackSummary(messages: AgentMessage[]): string {
@@ -475,18 +562,45 @@ export async function compactContextMessages(options: {
   const turnPrefixMessages = span.isSplitTurn
     ? options.messages.slice(span.turnStartIndex, firstKeptIndex)
     : [];
-  const keptMessages = options.messages.slice(firstKeptIndex);
+  const capped = capOversizedMessages(
+    options.messages.slice(firstKeptIndex),
+    options.settings.keepRecentTokens
+  );
+  const keptMessages = capped.messages;
 
   if ((messagesToSummarize.length === 0 && turnPrefixMessages.length === 0) || keptMessages.length === 0) {
+    if (capped.cappedCount === 0) {
+      return {
+        changed: false,
+        reason: options.reason,
+        summary: "",
+        beforeTokens,
+        afterTokens: beforeTokens,
+        summarizedMessages: 0,
+        keptMessages: options.messages.length,
+        messages: options.messages
+      };
+    }
+
+    // There was no history to summarize, but a kept message was over the
+    // per-message cap and has been shrunk. That still has to be reported as a
+    // real compaction: the caller persists `messages[0]` as the summary and
+    // `slice(1)` as the new context, so returning the capped list without a
+    // summary message here would silently drop its first message.
+    const note = oversizedCapSummary(capped.cappedCount);
+    const compacted = [
+      { role: "user", content: `${SUMMARY_PREFIX}\n${note}`, timestamp: Date.now() } as AgentMessage,
+      ...keptMessages
+    ];
     return {
-      changed: false,
+      changed: true,
       reason: options.reason,
-      summary: "",
+      summary: note,
       beforeTokens,
-      afterTokens: beforeTokens,
+      afterTokens: estimateContextTokens(compacted),
       summarizedMessages: 0,
-      keptMessages: options.messages.length,
-      messages: options.messages
+      keptMessages: keptMessages.length,
+      messages: compacted
     };
   }
 

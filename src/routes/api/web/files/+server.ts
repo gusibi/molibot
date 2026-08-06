@@ -4,16 +4,11 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import type { ConversationAttachment, ConversationMessage } from "$lib/shared/types/message";
 import { classifyFilePreview, mediaTypeFromName, mimeFromFilename } from "$lib/shared/filePreview";
-import { getRuntime } from "$lib/server/app/runtime";
 import { config } from "$lib/server/app/env.js";
 import { decodeExternalSessionId } from "$lib/server/app/externalSessionsFromContexts.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
-import {
-  sanitizeWebProfileId,
-  sanitizeWebUserId,
-  toWebExternalUserId
-} from "$lib/server/web/identity";
-import { getProjectRuntimeContext, getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import { sanitizeWebProfileId, sanitizeWebUserId } from "$lib/server/web/identity";
+import { resolveAuthorizedConversation } from "$lib/server/web/sessionWorkspace";
 import { streamFileWithRange } from "$lib/server/http/rangeResponse";
 
 interface SessionFileRecord {
@@ -85,34 +80,6 @@ function buildConversationFiles(workspaceDir: string, messages: ConversationMess
     if (a.createdAt !== b.createdAt) return b.createdAt.localeCompare(a.createdAt);
     return a.original.localeCompare(b.original);
   });
-}
-
-function resolveAuthorizedConversation(input: {
-  profileId: string;
-  userId: string;
-  sessionId: string;
-  projectId?: string;
-}) {
-  const runtime = getRuntime();
-  if (input.projectId) {
-    const conversation = runtime.sessions.getProjectConversation(input.projectId, input.sessionId);
-    if (!conversation) return null;
-    return {
-      externalUserId: conversation.externalUserId,
-      conversation,
-      messages: runtime.sessions.listMessages(conversation.id),
-      workspaceDir: getProjectRuntimeContext(input.projectId).store.getWorkspaceDir()
-    };
-  }
-  const externalUserId = toWebExternalUserId(input.userId, input.profileId);
-  const conversation = runtime.sessions.getConversationById(input.sessionId, "web", externalUserId);
-  if (!conversation) return null;
-  return {
-    externalUserId,
-    conversation,
-    messages: runtime.sessions.listMessages(conversation.id),
-    workspaceDir: getWebRuntimeContext(input.profileId).store.getWorkspaceDir()
-  };
 }
 
 function scanDirectoryFiles(dir: string, baseDir: string): { relativePath: string; stats: any }[] {

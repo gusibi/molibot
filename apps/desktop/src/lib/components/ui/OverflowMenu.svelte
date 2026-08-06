@@ -2,6 +2,13 @@
   import { tick } from "svelte";
 
   export let label: string;
+  /**
+   * Optional visible trigger content, via the `trigger` slot. The default is the
+   * bare `⋯` glyph; callers that need a labelled trigger (a quiet "current
+   * value ▾" control) pass their own so they get this component's dismiss,
+   * Escape and arrow-key behaviour instead of re-implementing it.
+   */
+  export let variant: "icon" | "inline" = "icon";
 
   let menu: HTMLDetailsElement;
   let trigger: HTMLElement;
@@ -46,7 +53,9 @@
   }
 </script>
 
-<details class="overflow-menu" bind:this={menu} ontoggle={(event) => (open = event.currentTarget.open)}>
-  <summary bind:this={trigger} aria-label={label} title={label} onkeydown={onTriggerKeydown}><i class="ph ph-dots-three" aria-hidden="true"></i></summary>
+<details class={`overflow-menu overflow-menu-${variant}`} bind:this={menu} ontoggle={(event) => (open = event.currentTarget.open)}>
+  <summary bind:this={trigger} aria-label={label} title={label} onkeydown={onTriggerKeydown}>
+    <slot name="trigger"><i class="ph ph-dots-three" aria-hidden="true"></i></slot>
+  </summary>
   {#if open}<div class="overflow-menu-popover" role="menu" tabindex="-1" onkeydown={onMenuKeydown} onclick={onMenuClick}><slot /></div>{/if}
 </details>

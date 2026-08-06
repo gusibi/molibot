@@ -169,6 +169,42 @@ Agent 路径上 Mini App 工具的风险由 manifest hint 推导并可能进审�
 4. 手工构造一个引用 destructive 工具的 manifest：App 在 Manager 中显示为 error，错误文案指明原因。
 5. `svelte-check` 0/0、`vite build`、桌面 UI 测试、agent 侧 `tsc` + 相关套件全绿。
 
-## 8. 后续方向（本期不做，仅记录）
+## 8. Phase 2：附件动作与选区动作（已确认需求，作为第二个 slice 交付）
 
-按与本方案共享基建的程度排序：选区/附件动作（capture 契约已预留）→ 渠道侧同构动作（共享层实现，渠道只搬运）→ App 作为 Agent 上下文提供者（收藏"存"变"用"的价值闭环）→ App 面板反向发起对话 → App 声明定时任务（等调度层再稳定一段时间）。
+Phase 1 验收通过后实施。两者共享 Phase 1 的全部基建（贡献点、invoke 路由、注入式 UI），只扩展契约与入口。
+
+### 8.1 契约扩展
+
+`messageActions` 每条新增可选字段 `accepts`（默认 `["text"]`）：
+
+```jsonc
+{ "tool": "add", "label": {...}, "accepts": ["text", "image"] }
+```
+
+`MessageCaptureContext` 新增：
+
+```ts
+resources?: Array<{
+  kind: "image" | "file";
+  name: string;
+  mime: string;
+  /** Path RELATIVE to the app's own dataDir (host stages a copy into `<dataDir>/incoming/`). */
+  path: string;
+  bytes: number;
+}>;
+```
+
+**文件传递方式**：宿主把附件**复制**进目标 App 自己的数据目录（`miniapps/data/<appId>/incoming/<uuid>.<ext>`），负载里只传相对路径——App 的 dataDir 本来就归 App 读写，不产生新的路径越界面；工具调用是 in-process 的，不经 HTTP，1 MiB body 限制无关。staged 文件的生命周期归 App 管（用了就挪走或删掉）；宿主在 `incoming/` 超过 256 MiB 时按 mtime 淘汰并记 warn 日志。单文件上限 64 MiB。
+
+### 8.2 入口
+
+- **图片/附件右键**：`TranscriptAttachments` 已有 `attachmentActions` 注入位，把 `accepts` 含 `image`（或 `file`）的动作映射进去。典型场景：Agent 生成的图片右键 →"用 XX 编辑"→ App 面板打开即可处理该图。
+- **选区动作**：消息文本上有活动选区时触发右键菜单，列出 `accepts` 含 `text` 的动作，`capture.selection` 填选中片段（Phase 1 已定义该字段）。同时把消息动作扩展到 user 消息（Phase 1 仅 assistant）。
+
+### 8.3 测试补充
+
+staging 复制的路径包含性与淘汰策略（`messageActions.test.ts`）；`accepts` 过滤逻辑（不含 `image` 的动作绝不出现在图片右键里）；invoke 路由对 `resources.path` 做**只读校验**——必须落在该 App dataDir 的 `incoming/` 内，防止客户端伪造路径让 App 读到别处（pitfall #6）。
+
+## 9. 后续方向（本期不做，见 `miniapp-platform-extension-roadmap.md`）
+
+渠道侧同构动作 → App 作为 Agent 上下文提供者 → App 面板反向发起对话（composer 桥，另有方案）→ AI 能力门面（另有 PRD）→ App 声明定时任务。
