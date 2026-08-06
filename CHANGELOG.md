@@ -7,6 +7,9 @@
 ---
 ## 2026-08-06
 
+### Release: v2.9.7 / Desktop v0.9.4
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Fixed: opening a Mini App and then switching conversations lost the app, and the panel's Files side was empty in a chat
 
 Reported together, and they turned out to be one seam plus its consequence.
