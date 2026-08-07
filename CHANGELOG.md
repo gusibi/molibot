@@ -7,6 +7,9 @@
 ---
 ## 2026-08-07
 
+### Release: v2.9.10 / Desktop v0.9.7
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Improved: Added icon for Note "Insert into composer" menu and brought the feature to Todo
 
 - **Note Mini App**: Added the missing SVG icon for the "Insert into composer" item in the note dropdown menu, aligning its visual appearance with Archive and Delete actions.

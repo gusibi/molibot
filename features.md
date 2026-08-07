@@ -7,6 +7,10 @@
 ---
 ## 2026-08-07
 
+### Release v2.9.10 / Desktop v0.9.7
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，同步发布 Mini App Redesign 与微信孤儿进程租约隔离机制。
+
 ### Mini App 填充至输入框（composer.insert）菜单图标补全（优化，P1）
 
 - **Note Mini App**：为下拉菜单中的「填入输入框 / Insert into composer」补全 Material SVG 图标 `SVG_ICONS.composer`，与「归档」「删除」选项的图标呈现统一视觉规范。
