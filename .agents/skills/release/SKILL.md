@@ -37,16 +37,18 @@ Find the current versions inside the following packages:
 - Root [package.json](file:///Users/gusi/Github/molipibot/package.json) (under `"version"`)
 - Desktop [package.json](file:///Users/gusi/Github/molipibot/apps/desktop/package.json) (under `"version"`)
 
-#### 2. Increment Versions (Carry-over / Base-10 Rule)
-For both root and desktop apps, increment the version numbers. The segments are `major.minor.patch`. Each segment has a maximum value of `9` (no two-digit segments are allowed). When incrementing:
+#### 2. Increment Versions (Base-100 Carry-over Rule)
+For both root and desktop apps, increment the version numbers. The segments are `major.minor.patch`. Each segment can have up to two digits (maximum value of `99`). When incrementing:
 - Add 1 to the `patch` version.
-- If `patch > 9`, reset `patch` to `0` and increment `minor` by 1.
-- If `minor > 9`, reset `minor` to `0` and increment `major` by 1.
+- If `patch > 99`, reset `patch` to `0` (or `00` for presentation) and increment `minor` by 1.
+- If `minor > 99`, reset `minor` to `0` and increment `major` by 1.
 
 Example mappings:
-- `2.3.9` -> `2.4.0`
-- `0.3.6` -> `0.3.7`
-- `2.9.9` -> `3.0.0`
+- `2.3.9` -> `2.3.10`
+- `2.3.99` -> `2.4.00` (or `2.4.0`)
+- `0.9.9` -> `0.9.10`
+- `0.9.99` -> `0.10.00` (or `0.10.0`)
+- `2.9.99` -> `2.10.00` (or `2.10.0`)
 
 Write these updated versions back to their respective package files.
 
