@@ -31,6 +31,12 @@ export type TranscriptAttachmentActions = {
   canPreview: (file: DesktopSessionFile) => boolean;
   preview: (file: DesktopSessionFile) => void;
   download: (file: DesktopSessionFile) => void;
+  contributions?: TranscriptContributionAction[];
+  onRunContribution?: (
+    action: TranscriptContributionAction,
+    message: TranscriptMessage,
+    file: DesktopSessionFile
+  ) => void;
 };
 
 /**
@@ -54,6 +60,23 @@ export type TranscriptMessageActions = {
   onForkUser?: (message: TranscriptMessage) => void;
   forkingId?: string;
   onOpenMemoryTrace?: (traceId: string) => void;
+  contributions?: TranscriptContributionAction[];
+  pendingContributionKey?: string;
+  successfulContributionKey?: string;
+  onRunContribution?: (
+    action: TranscriptContributionAction,
+    message: TranscriptMessage,
+    selection?: string
+  ) => void;
+};
+
+export type TranscriptContributionAction = {
+  id: string;
+  label: string;
+  icon?: string;
+  appId: string;
+  tool: string;
+  accepts: Array<"text" | "image" | "file">;
 };
 
 /**

@@ -17,7 +17,8 @@
   import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import { projectChatStore } from "./projectChatStore.svelte";
-  import { appendReference, composerInsertion } from "./composerBridge";
+  import { appendReference, composerInsertion, insertComposerText, miniAppComposerInsertion, requestMiniAppDeepLinkOpen, type MiniAppComposerInsertion } from "./composerBridge";
+  import MiniAppResultCard from "../miniapps/MiniAppResultCard.svelte";
   import {
     fetchDesktopFileBlob,
     forkDesktopSession,
@@ -31,11 +32,15 @@
   } from "../api";
   import type {
     TranscriptAttachmentActions,
+    TranscriptContributionAction,
     TranscriptMessage,
     TranscriptMessageActions
   } from "../chat/transcript";
   import { lastTranscriptModelKey } from "../chat/modelSelection";
   import { projectsStore, projectsView, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
+  import { session } from "../stores/session.svelte";
+  import { miniAppsCatalog } from "../stores/miniapps.svelte";
+  import { catalogMessageActions, invokeTranscriptMessageAction } from "../miniapps/messageActions";
 
   export let copy: Translation;
   export let searchMatchIds: string[] = [];
@@ -44,6 +49,7 @@
   // Last file reference consumed from the panel. Guards the reactive block
   // below from re-appending the same reference when it re-runs for other reasons.
   let appliedInsertionId = 0;
+  let appliedMiniAppInsertionId = 0;
   let pendingFiles: File[] = [];
   let fileInput: HTMLInputElement;
   let thinkingLevel: DesktopThinkingLevel = "medium";
@@ -57,6 +63,11 @@
   // button cannot create two sibling Sessions from the same point.
   let forkingMessageId = "";
   let copiedMessageId = "";
+  let miniAppActionPendingKey = "";
+  let miniAppActionSuccessKey = "";
+  let miniAppActionFeedback = "";
+  let miniAppActionCard: import("@molibot/desktop-contract").DesktopMiniAppResultCard | null = null;
+  let miniAppActionFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let modelOptions: DesktopModelOption[] = [];
   let activeModelKey = "";
@@ -303,6 +314,19 @@
     message = appendReference(message, request.reference);
   }
 
+  $: applyMiniAppComposerInsertion($miniAppComposerInsertion);
+  function applyMiniAppComposerInsertion(request: MiniAppComposerInsertion | null): void {
+    if (!request || request.scope !== "project" || request.id === appliedMiniAppInsertionId) return;
+    appliedMiniAppInsertionId = request.id;
+    if (editingMessageId) {
+      miniAppActionFeedback = copy.miniAppComposerEditing;
+      return;
+    }
+    message = insertComposerText(message, request.text, request.mode);
+    miniAppActionFeedback = copy.miniAppComposerInserted;
+    focusComposerAtEnd();
+  }
+
   function inferAttachmentKind(file: File): "image" | "audio" | "video" | "file" {
     const type = file.type.toLowerCase();
     if (type.startsWith("image/")) return "image";
@@ -544,6 +568,53 @@
     id: option.id,
     label: approvalOptionLabel(option)
   })) ?? [];
+  $: contributedMessageActions = catalogMessageActions($miniAppsCatalog, session.locale);
+
+  async function runMiniAppMessageAction(
+    action: TranscriptContributionAction,
+    transcriptMessage: TranscriptMessage,
+    selection?: string,
+    file?: DesktopSessionFile
+  ): Promise<void> {
+    if (!projectsStore.endpoint) return;
+    const key = `${transcriptMessage.id ?? transcriptMessage.content}:${action.id}`;
+    miniAppActionPendingKey = key;
+    miniAppActionSuccessKey = "";
+    try {
+      const outcome = await invokeTranscriptMessageAction(
+        projectsStore.endpoint,
+        action,
+        transcriptMessage,
+        {
+          selection,
+          sessionTitle: projectsStore.sessions.find((item) => item.conversationId === projectsStore.selectedSessionId)?.title,
+          ...(file ? {
+            resource: {
+              profileId: "personal",
+              sessionId: projectsStore.selectedSessionId,
+              projectId: projectsStore.selectedProjectId,
+              fileId: file.id
+            }
+          } : {})
+        }
+      );
+      miniAppActionFeedback = outcome.text;
+      miniAppActionCard = outcome.card;
+      miniAppActionSuccessKey = key;
+    } catch (cause) {
+      miniAppActionFeedback = cause instanceof Error ? cause.message : String(cause);
+      miniAppActionCard = null;
+    } finally {
+      miniAppActionPendingKey = "";
+      if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
+      miniAppActionFeedbackTimer = setTimeout(() => {
+        miniAppActionFeedback = "";
+        miniAppActionCard = null;
+        miniAppActionSuccessKey = "";
+        miniAppActionFeedbackTimer = null;
+      }, miniAppActionCard ? 8000 : 3000);
+    }
+  }
   $: messageActions = messages.length === 0
     ? null
     : {
@@ -552,7 +623,11 @@
         onEditUser: sending ? undefined : (m: TranscriptMessage) => startEditUserMessage(m),
         onForkUser: sending ? undefined : (m: TranscriptMessage) => void forkFromUserMessage(m),
         editingId: editingMessageId,
-        forkingId: forkingMessageId
+        forkingId: forkingMessageId,
+        contributions: contributedMessageActions,
+        pendingContributionKey: miniAppActionPendingKey,
+        successfulContributionKey: miniAppActionSuccessKey,
+        onRunContribution: (action, transcriptMessage, selection) => void runMiniAppMessageAction(action, transcriptMessage, selection)
       } satisfies TranscriptMessageActions;
   $: if (editingMessageId && editingSessionId && view.selectedSessionId !== editingSessionId) {
     editingMessageId = "";
@@ -594,7 +669,9 @@
     loadMedia: (file) => void loadProjectMessageMedia(file),
     canPreview: canPreviewProjectFile,
     preview: (file) => void openProjectPreview(file),
-    download: (file) => void downloadProjectFile(file)
+    download: (file) => void downloadProjectFile(file),
+    contributions: contributedMessageActions,
+    onRunContribution: (action, transcriptMessage, file) => void runMiniAppMessageAction(action, transcriptMessage, undefined, file)
   } satisfies TranscriptAttachmentActions;
 
   async function refreshProjectSessionFiles(endpoint: string, sessionId: string, projectId: string | undefined): Promise<void> {
@@ -891,6 +968,14 @@
   </ChatMessagesPane>
 
   <input bind:this={fileInput} type="file" multiple hidden onchange={onFilesPicked} />
+  {#if miniAppActionFeedback}
+    <div class="chat-action-toast" role="status">
+      <span>{miniAppActionFeedback}</span>
+      {#if miniAppActionCard}
+        <MiniAppResultCard card={miniAppActionCard} openLabel={copy.miniAppCardOpen} onOpenLink={requestMiniAppDeepLinkOpen} />
+      {/if}
+    </div>
+  {/if}
   <ChatInputArea
     bind:value={message}
     thinkingLevel={clampedThinkingLevel}

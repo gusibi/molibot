@@ -66,6 +66,14 @@ node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs expenses "Expenses" 
 - 只能用相对路径 `./api/*` 访问自己的 API。
 - 内联 `<script>` 不会执行（CSP），代码必须放在 `.js` 文件里。
 - 语言和主题从 `location.search` 的 `locale` / `theme` 读，启动时读一次就够（切换会重载 iframe）。
+- App 要把内容送回聊天草稿时，只使用模板的 `molibotBridge.insertToComposer(text, mode)`。v1 只允许 `append | replace`，不会自动发送；宿主不支持或拒绝时 App 的核心功能仍必须可用。
+
+### 5.1 跨边界声明与长任务
+
+- 消息/选区/附件入口写进 `contributions.messageActions`；工具同时接受 Agent 参数和宿主 `{ capture }`，不要写两套领域逻辑。`accepts` 只声明真实支持的 `text | image | file`。
+- 模型能力只通过 `context.ai.generateText()` / `transcribe()` 使用，先在 `ai.capabilities` 声明。凭据、Provider 和最终模型不属于 App；结构化错误码只有 `capability_not_declared`、`capability_unavailable`、`invalid_request`、`rate_limited`、`provider_failed`、`aborted`。
+- raw 上传必须逐路由声明 `ai.uploadLimits`，路径为 `/api/*`，硬顶 25 MiB；JSON 路由保持 JSON。转写音频每段还必须 ≤10 分钟。
+- 长任务把 job/segment 状态先落 SQLite；每个后台 Promise 都有 `catch`；Runtime 重建时把 `recording/transcribing/summarizing` 终态化为 `interrupted`。重试要幂等，原始输入保留到用户明确删除。
 
 #### UI 铁律（每条都对应一个真实翻过车的 bug，违反一条就会出「点击没反应」类故障）
 

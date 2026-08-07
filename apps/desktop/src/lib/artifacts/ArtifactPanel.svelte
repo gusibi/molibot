@@ -16,7 +16,12 @@
   import { miniAppsStore } from "../stores/miniapps.svelte";
   import { fileIconName, fileIconStyle, formatSize } from "../projects/fileIcons";
   import type { FileMenuItem } from "../projects/fileMenu";
-  import { requestComposerInsertion } from "../projects/composerBridge";
+  import {
+    requestComposerInsertion,
+    requestMiniAppComposerAttachment,
+    requestMiniAppComposerInsertion,
+    requestMiniAppSessionOpen
+  } from "../projects/composerBridge";
   import type { SessionFileTouches } from "../projects/sessionFileTouches";
   import { ArtifactTabsStore, flattenTree, type ArtifactTab } from "./artifactTabsStore.svelte";
   import { matchViewer, hasSourceToggle, type ArtifactScope } from "./viewerRegistry";
@@ -55,6 +60,7 @@
     touches,
     miniApp = "",
     miniAppNonce = 0,
+    miniAppDeepLinkPath = "",
     sessionFile = null,
     sessionFileNonce = 0,
     locale,
@@ -73,6 +79,8 @@
     miniApp?: string;
     /** Bumped by the host to re-open `miniApp` even when the id is unchanged. */
     miniAppNonce?: number;
+    /** App-defined locator when `miniApp` was opened from a deep link. */
+    miniAppDeepLinkPath?: string;
     /** A chat attachment to open as a session-scope tab (Slice 1b). */
     sessionFile?: DesktopSessionFile | null;
     /** Bumped by the host so re-opening the same attachment re-activates its tab. */
@@ -556,10 +564,11 @@
   $effect(() => {
     const nonce = miniAppNonce;
     const appId = miniApp;
+    const deepLinkPath = miniAppDeepLinkPath;
     if (!appId) return;
     untrack(() => {
       nonce;
-      store.openMiniApp(appId);
+      store.openMiniApp(appId, deepLinkPath);
     });
   });
 
@@ -785,7 +794,16 @@
           <div class="project-viewer-body miniapp-viewer-body">
             {#each miniAppTabs as appTab (appTab.id)}
               <div class="artifact-miniapp-slot" class:is-hidden={appTab.id !== store.activeMiniAppTabId}>
-                <MiniAppPanel appId={appTab.appId} {locale} {theme} {copy} />
+                <MiniAppPanel
+                  appId={appTab.appId}
+                  {locale}
+                  {theme}
+                  {copy}
+                  deepLinkPath={appTab.deepLinkPath}
+                  onComposerInsert={(text, mode) => requestMiniAppComposerInsertion(text, mode, scope)}
+                  onComposerAttach={(path, name) => requestMiniAppComposerAttachment(appTab.appId, path, name, scope)}
+                  onOpenSession={(sessionId) => requestMiniAppSessionOpen(sessionId, scope)}
+                />
               </div>
             {/each}
           </div>

@@ -46,6 +46,9 @@ import type {
   DesktopPluginsSummary,
   DesktopPluginsUpdateRequest,
   DesktopMiniAppItem,
+  DesktopMiniAppBuiltinItem,
+  DesktopMiniAppBuiltinInstallRequest,
+  DesktopMiniAppBuiltinInstallResponse,
   DesktopMiniAppsResponse,
   DesktopMiniAppToggleRequest,
   DesktopMiniAppUninstallRequest,
@@ -53,6 +56,13 @@ import type {
   DesktopMiniAppUpdateResponse,
   DesktopMiniAppInstallRequest,
   DesktopMiniAppInstallResponse,
+  DesktopMiniAppInvokeRequest,
+  DesktopMiniAppInvokeResponse,
+  DesktopMiniAppAttachRequest,
+  DesktopMiniAppAttachResponse,
+  DesktopMiniAppBadgeClearRequest,
+  DesktopMiniAppAiSettings,
+  DesktopMiniAppAiSettingsResponse,
   DailyMaterialsBackfillResponse,
   DailyMaterialsBackfillStatus,
   DesktopProfileFilesResponse,
@@ -1234,9 +1244,114 @@ export async function saveDesktopPlugins(endpoint: string, input: DesktopPlugins
   return payload.summary;
 }
 
-export async function loadDesktopMiniApps(endpoint: string): Promise<DesktopMiniAppItem[]> {
-  const payload = await requestJson<DesktopMiniAppsResponse>(endpoint, "/api/desktop/miniapps");
-  return payload.items;
+/**
+ * The installed catalog and the built-in catalog always travel together.
+ *
+ * They are two views of one state: installing, updating or uninstalling changes
+ * both, so returning only one is how a list ends up showing what was true
+ * before the click.
+ */
+export interface DesktopMiniAppCatalogs {
+  items: DesktopMiniAppItem[];
+  builtin: DesktopMiniAppBuiltinItem[];
+}
+
+function miniAppCatalogs(payload: {
+  items: DesktopMiniAppItem[];
+  builtin?: DesktopMiniAppBuiltinItem[];
+}): DesktopMiniAppCatalogs {
+  // `builtin` is tolerated as absent so a desktop build talking to an older
+  // service degrades to "no built-ins on offer" instead of throwing.
+  return { items: payload.items, builtin: payload.builtin ?? [] };
+}
+
+export async function loadDesktopMiniApps(endpoint: string): Promise<DesktopMiniAppCatalogs> {
+  return miniAppCatalogs(
+    await requestJson<DesktopMiniAppsResponse>(endpoint, "/api/desktop/miniapps")
+  );
+}
+
+/**
+ * Installs (or reinstalls) a built-in from the copy this Molibot build ships.
+ *
+ * No source to choose and nothing to confirm: the code shipped inside the app
+ * the owner is already running, and the app's data directory is never touched.
+ */
+export async function installDesktopBuiltinMiniApp(
+  endpoint: string,
+  appId: string
+): Promise<DesktopMiniAppBuiltinInstallResponse> {
+  return requestJson<DesktopMiniAppBuiltinInstallResponse>(endpoint, "/api/desktop/miniapps/builtin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ appId } satisfies DesktopMiniAppBuiltinInstallRequest)
+  });
+}
+
+export async function invokeDesktopMiniAppAction(
+  endpoint: string,
+  input: DesktopMiniAppInvokeRequest
+): Promise<DesktopMiniAppInvokeResponse> {
+  return requestJson<DesktopMiniAppInvokeResponse>(endpoint, "/api/desktop/miniapps/invoke", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+}
+
+/**
+ * Fetches a file out of a Mini App's data directory and rebuilds it as a `File`
+ * for the composer (bridge v2 `composer.attach`).
+ *
+ * The WebView never learns where the file really lives: it sends the
+ * app-relative locator its own iframe supplied and receives bytes.
+ */
+export async function fetchDesktopMiniAppAttachment(
+  endpoint: string,
+  input: DesktopMiniAppAttachRequest,
+  mimeType: string
+): Promise<File> {
+  const result = await requestJson<DesktopMiniAppAttachResponse>(endpoint, "/api/desktop/miniapps/attach", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  const binary = atob(result.base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new File([bytes.buffer as ArrayBuffer], result.name, { type: mimeType });
+}
+
+/** Clears an app's sidebar badge and returns the refreshed catalogs. */
+export async function clearDesktopMiniAppBadge(
+  endpoint: string,
+  appId: string
+): Promise<DesktopMiniAppCatalogs> {
+  const result = await requestJson<{ items: DesktopMiniAppItem[]; builtin: DesktopMiniAppBuiltinItem[] }>(
+    endpoint,
+    "/api/desktop/miniapps/badge",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appId } satisfies DesktopMiniAppBadgeClearRequest)
+    }
+  );
+  return { items: result.items, builtin: result.builtin };
+}
+
+export async function loadDesktopMiniAppAi(endpoint: string): Promise<DesktopMiniAppAiSettingsResponse> {
+  return requestJson<DesktopMiniAppAiSettingsResponse>(endpoint, "/api/desktop/miniapps/ai");
+}
+
+export async function saveDesktopMiniAppAiSettings(
+  endpoint: string,
+  settings: DesktopMiniAppAiSettings
+): Promise<DesktopMiniAppAiSettings> {
+  return (await requestJson<DesktopMiniAppAiSettingsResponse>(endpoint, "/api/desktop/miniapps/ai", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(settings)
+  })).settings;
 }
 
 /**
@@ -1247,26 +1362,28 @@ export async function setDesktopMiniAppEnabled(
   endpoint: string,
   appId: string,
   enabled: boolean
-): Promise<DesktopMiniAppItem[]> {
-  const payload = await requestJson<DesktopMiniAppsResponse>(endpoint, "/api/desktop/miniapps", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ appId, enabled } satisfies DesktopMiniAppToggleRequest)
-  });
-  return payload.items;
+): Promise<DesktopMiniAppCatalogs> {
+  return miniAppCatalogs(
+    await requestJson<DesktopMiniAppsResponse>(endpoint, "/api/desktop/miniapps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appId, enabled } satisfies DesktopMiniAppToggleRequest)
+    })
+  );
 }
 
 export async function uninstallDesktopMiniApp(
   endpoint: string,
   appId: string,
   deleteData: boolean
-): Promise<DesktopMiniAppItem[]> {
-  const payload = await requestJson<DesktopMiniAppsResponse>(endpoint, "/api/desktop/miniapps", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ appId, deleteData } satisfies DesktopMiniAppUninstallRequest)
-  });
-  return payload.items;
+): Promise<DesktopMiniAppCatalogs> {
+  return miniAppCatalogs(
+    await requestJson<DesktopMiniAppsResponse>(endpoint, "/api/desktop/miniapps", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appId, deleteData } satisfies DesktopMiniAppUninstallRequest)
+    })
+  );
 }
 
 /**
@@ -1313,8 +1430,18 @@ export async function installDesktopMiniApp(
  * port. `locale` and `theme` are non-sensitive display hints the app reads at
  * startup.
  */
-export function miniAppPanelUrl(appId: string, locale: string, theme: "light" | "dark"): string {
+export function miniAppPanelUrl(
+  appId: string,
+  locale: string,
+  theme: "light" | "dark",
+  deepLinkPath = ""
+): string {
   const params = new URLSearchParams({ locale, theme });
+  // A deep link's path is an App-defined locator. It rides along as a query
+  // hint exactly like locale/theme so the App reads it at startup, and it is
+  // never joined into the URL's path — the transport's traversal rules apply to
+  // asset paths, and this value is not one.
+  if (deepLinkPath) params.set("path", deepLinkPath);
   return `molibot-miniapp://${appId}/index.html?${params.toString()}`;
 }
 

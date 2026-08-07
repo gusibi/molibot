@@ -25,6 +25,9 @@ interface SttOptions {
   mimeType?: string;
   maxAttempts?: number;
   retryDelayMs?: number;
+  signal?: AbortSignal;
+  language?: string;
+  metadata?: Record<string, unknown>;
 }
 
 const STT_DIAGNOSTIC_RESPONSE_HEADERS = new Set([
@@ -144,7 +147,10 @@ export async function transcribeAudioViaConfiguredProvider({
   filename,
   mimeType,
   maxAttempts = 1,
-  retryDelayMs = 0
+  retryDelayMs = 0,
+  signal,
+  language,
+  metadata
 }: SttOptions): Promise<TranscriptionResult> {
   const target = resolveSttTarget(settings);
   if (!target) {
@@ -171,13 +177,14 @@ export async function transcribeAudioViaConfiguredProvider({
       mimeType: safeMimeType,
       audioBytes: data.byteLength,
       attempt,
-      maxAttempts
+      maxAttempts,
+      ...(metadata ?? {})
     });
 
     const form = new FormData();
     form.append("model", target.model);
-    if (config.telegramSttLanguage) {
-      form.append("language", config.telegramSttLanguage);
+    if (language || config.telegramSttLanguage) {
+      form.append("language", language || config.telegramSttLanguage);
     }
     if (config.telegramSttPrompt) {
       form.append("prompt", config.telegramSttPrompt);
@@ -195,7 +202,8 @@ export async function transcribeAudioViaConfiguredProvider({
         headers: {
           Authorization: `Bearer ${target.apiKey}`
         },
-        body: form
+        body: form,
+        signal
       });
 
       if (!resp.ok) {

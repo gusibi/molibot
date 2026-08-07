@@ -14,6 +14,12 @@ export interface AiUsageRecord {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
+  appId?: string;
+  capability?: "text" | "transcription";
+  status?: "success" | "error";
+  durationMs?: number;
+  audioSeconds?: number;
+  errorCode?: string;
 }
 
 export interface UsageTotals {
@@ -68,6 +74,18 @@ export interface UsageStatsResponse {
     weekly: BucketSummary[];
     monthly: BucketSummary[];
   };
+}
+
+export interface MiniAppUsageSummary {
+  appId: string;
+  requests: number;
+  successes: number;
+  failures: number;
+  textRequests: number;
+  transcriptionRequests: number;
+  totalTokens: number;
+  audioSeconds: number;
+  durationMs: number;
 }
 
 function emptyTotals(): UsageTotals {
@@ -223,8 +241,8 @@ export class AiUsageTracker {
   private readonly usageDir: string;
   private readonly usageFile: string;
 
-  constructor() {
-    this.usageDir = path.join(storagePaths.dataDir, "usage");
+  constructor(options: { usageDir?: string } = {}) {
+    this.usageDir = options.usageDir ?? path.join(storagePaths.dataDir, "usage");
     this.usageFile = path.join(this.usageDir, "ai-usage.jsonl");
   }
 
@@ -239,6 +257,12 @@ export class AiUsageTracker {
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
     totalTokens?: number;
+    appId?: string;
+    capability?: "text" | "transcription";
+    status?: "success" | "error";
+    durationMs?: number;
+    audioSeconds?: number;
+    errorCode?: string;
   }): void {
     const record: AiUsageRecord = {
       ts: new Date().toISOString(),
@@ -251,7 +275,13 @@ export class AiUsageTracker {
       outputTokens: toInt(input.outputTokens),
       cacheReadTokens: toInt(input.cacheReadTokens),
       cacheWriteTokens: toInt(input.cacheWriteTokens),
-      totalTokens: toInt(input.totalTokens)
+      totalTokens: toInt(input.totalTokens),
+      ...(input.appId ? { appId: String(input.appId).trim() } : {}),
+      ...(input.capability ? { capability: input.capability } : {}),
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.durationMs !== undefined ? { durationMs: toInt(input.durationMs) } : {}),
+      ...(input.audioSeconds !== undefined ? { audioSeconds: Math.max(0, Number(input.audioSeconds) || 0) } : {}),
+      ...(input.errorCode ? { errorCode: String(input.errorCode).trim() } : {})
     };
 
     if (record.totalTokens === 0) {
@@ -290,7 +320,17 @@ export class AiUsageTracker {
           outputTokens: toInt(parsed.outputTokens),
           cacheReadTokens: toInt(parsed.cacheReadTokens),
           cacheWriteTokens: toInt(parsed.cacheWriteTokens),
-          totalTokens: toInt(parsed.totalTokens)
+          totalTokens: toInt(parsed.totalTokens),
+          ...((parsed as { appId?: unknown }).appId ? { appId: String((parsed as { appId?: unknown }).appId) } : {}),
+          ...((parsed as { capability?: unknown }).capability === "text" || (parsed as { capability?: unknown }).capability === "transcription"
+            ? { capability: (parsed as { capability: "text" | "transcription" }).capability }
+            : {}),
+          ...((parsed as { status?: unknown }).status === "success" || (parsed as { status?: unknown }).status === "error"
+            ? { status: (parsed as { status: "success" | "error" }).status }
+            : {}),
+          ...((parsed as { durationMs?: unknown }).durationMs !== undefined ? { durationMs: toInt((parsed as { durationMs?: unknown }).durationMs) } : {}),
+          ...((parsed as { audioSeconds?: unknown }).audioSeconds !== undefined ? { audioSeconds: Math.max(0, Number((parsed as { audioSeconds?: unknown }).audioSeconds) || 0) } : {}),
+          ...((parsed as { errorCode?: unknown }).errorCode ? { errorCode: String((parsed as { errorCode?: unknown }).errorCode) } : {})
         });
       } catch {
         // ignore malformed lines
@@ -381,5 +421,28 @@ export class AiUsageTracker {
         monthly
       }
     };
+  }
+
+  getMiniAppUsageLast30Days(timeZone: string): MiniAppUsageSummary[] {
+    const allowedDates = new Set(buildDateRange(localDateKey(new Date(), timeZone), 30));
+    const grouped = new Map<string, MiniAppUsageSummary>();
+    for (const record of this.list()) {
+      if (record.channel !== "miniapp" || !allowedDates.has(localDateKey(new Date(record.ts), timeZone))) continue;
+      const appId = record.appId?.trim() || "unknown";
+      let row = grouped.get(appId);
+      if (!row) {
+        row = { appId, requests: 0, successes: 0, failures: 0, textRequests: 0, transcriptionRequests: 0, totalTokens: 0, audioSeconds: 0, durationMs: 0 };
+        grouped.set(appId, row);
+      }
+      row.requests += 1;
+      if (record.status === "error") row.failures += 1;
+      else row.successes += 1;
+      if (record.capability === "transcription") row.transcriptionRequests += 1;
+      else row.textRequests += 1;
+      row.totalTokens += record.totalTokens;
+      row.audioSeconds += record.audioSeconds ?? 0;
+      row.durationMs += record.durationMs ?? 0;
+    }
+    return [...grouped.values()].sort((a, b) => b.requests - a.requests || a.appId.localeCompare(b.appId));
   }
 }

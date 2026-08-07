@@ -4,9 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import manifestSource from "$lib/server/miniapps/builtin/todo/manifest.json?raw";
-import { ensureBuiltinMiniApps, getBuiltinMiniApp } from "$lib/server/miniapps/bootstrap.js";
-import { builtinMiniAppVersion } from "$lib/server/miniapps/builtinPackage.js";
+import {
+  builtinMiniAppIds,
+  ensureBuiltinMiniApps,
+  getBuiltinMiniApp,
+  listBuiltinMiniApps
+} from "$lib/server/miniapps/bootstrap.js";
+import { builtinMiniAppMeta, builtinMiniAppVersion } from "$lib/server/miniapps/builtinPackage.js";
+import { BUILTIN_MINI_APP_IDS } from "$lib/server/miniapps/registry.js";
 import { createMiniAppHost, type MiniAppEnablementEntry } from "$lib/server/miniapps/host.js";
+import { invokeMessageAction } from "$lib/server/miniapps/messageActions.js";
 
 /**
  * Built-in bootstrap, plus the Todo app's own end-to-end behaviour.
@@ -60,7 +67,13 @@ test("bootstrap never overwrites an owner's own copy of a built-in", () => {
   const result = ensureBuiltinMiniApps({ codeRoot, getEnablement: () => ({}) });
 
   assert.deepEqual(result.installed, []);
-  assert.deepEqual(result.skipped, [{ id: "todo", reason: "already-installed" }]);
+  // Asserted per app rather than over the whole array: every built-in this
+  // build ships reports a reason here, and shipping one more must not fail a
+  // test about Todo.
+  assert.deepEqual(result.skipped.find((row) => row.id === "todo"), {
+    id: "todo",
+    reason: "already-installed"
+  });
   assert.equal(readFileSync(join(codeRoot, "todo", "manifest.json"), "utf8"), "{\"mine\":true}");
 });
 
@@ -72,7 +85,10 @@ test("an uninstalled built-in is not silently reinstalled on the next start", ()
   });
 
   assert.deepEqual(result.installed, []);
-  assert.deepEqual(result.skipped, [{ id: "todo", reason: "removed-by-owner" }]);
+  assert.deepEqual(result.skipped.find((row) => row.id === "todo"), {
+    id: "todo",
+    reason: "removed-by-owner"
+  });
   assert.equal(existsSync(join(codeRoot, "todo")), false);
 });
 
@@ -116,6 +132,25 @@ test("Todo supports add / list / complete / delete through the agent tools", asy
   await call("remove", { id });
   const all = await call("list", { status: "all" }) as any;
   assert.deepEqual(all.structuredContent, []);
+});
+
+test("Todo's contributed message action stores the selected text as a todo", async () => {
+  const { codeRoot, dataRoot } = makeRoots();
+  ensureBuiltinMiniApps({ codeRoot, getEnablement: () => ({}) });
+  const host = hostOver(codeRoot, dataRoot, {});
+
+  await invokeMessageAction(host, {
+    appId: "todo",
+    tool: "add",
+    capture: {
+      text: "long assistant answer",
+      selection: "buy milk",
+      role: "assistant"
+    }
+  }, { channel: "desktop" });
+
+  const listed = await host.invokeTool("miniapp__todo__list", { status: "all" }, { toolCallId: "list" });
+  assert.deepEqual((listed.structuredContent as any[]).map((row) => row.title), ["buy milk"]);
 });
 
 test("Todo's agent tools and HTTP API read and write the same list", async () => {
@@ -231,4 +266,157 @@ test("the destructive Todo tool is the delete, and only the delete", () => {
   assert.equal(byName.get("complete")?.destructiveHint, false, "completing is not destructive");
   assert.equal(byName.get("add")?.destructiveHint, false);
   assert.equal(byName.get("list")?.readOnlyHint, true);
+});
+
+/**
+ * The built-in catalog — what the manager's Built-in tab is built on.
+ *
+ * The invariant under test is that a built-in is an *offer*: it may be listed
+ * without being installed, installed on request, uninstalled, and installed
+ * again. A built-in that can only be described once it exists on disk is one
+ * the owner can never get back after removing it.
+ */
+
+function builtinHostOver(
+  codeRoot: string,
+  dataRoot: string,
+  enablement: Record<string, MiniAppEnablementEntry>
+) {
+  return createMiniAppHost({
+    codeRoot,
+    dataRoot,
+    getEnablement: () => enablement,
+    setEnablement: (appId, entry) => {
+      if (entry === null) delete enablement[appId];
+      else enablement[appId] = entry;
+    },
+    builtinAppIds: builtinMiniAppIds(),
+    getBuiltinApp: getBuiltinMiniApp
+  });
+}
+
+test("the built-in ids the host labels are the ids the bundle actually ships", () => {
+  // One hand-written list is how an app ends up shipped but not labelled
+  // built-in: no update offered, no bundled reinstall, wrong provenance.
+  assert.deepEqual([...BUILTIN_MINI_APP_IDS], builtinMiniAppIds());
+  assert.deepEqual(builtinMiniAppIds(), listBuiltinMiniApps().map((app) => app.id));
+  assert.ok(builtinMiniAppIds().includes("note"), "Note ships as a built-in");
+  assert.ok(builtinMiniAppIds().includes("todo"), "Todo ships as a built-in");
+});
+
+test("a built-in without autoInstall is offered rather than planted in the workspace", () => {
+  const { codeRoot, dataRoot } = makeRoots();
+  const result = ensureBuiltinMiniApps({ codeRoot, getEnablement: () => ({}) });
+
+  assert.deepEqual(result.skipped.find((row) => row.id === "note"), { id: "note", reason: "opt-in" });
+  assert.equal(existsSync(join(codeRoot, "note")), false, "an upgrade must not plant a new app");
+
+  // Not installed, yet fully describable: name, description, version and icon
+  // come from the bundled copy, which is what makes the row installable.
+  const host = builtinHostOver(codeRoot, dataRoot, {});
+  const note = host.listBuiltinCatalog().find((row) => row.id === "note");
+  assert.equal(note?.installed, false);
+  assert.equal(note?.status, "not-installed");
+  assert.equal(note?.installedVersion, "");
+  assert.equal(note?.updateAvailable, false, "there is nothing installed to update");
+  assert.equal(note?.availableVersion, builtinMiniAppVersion(getBuiltinMiniApp("note")!));
+  assert.equal(note?.name, builtinMiniAppMeta(getBuiltinMiniApp("note")!).name);
+  assert.ok(note?.iconDataUri.startsWith("data:image/svg+xml;base64,"), "the row can show an icon");
+  assert.ok((note?.toolNames.length ?? 0) > 0, "the row can say what the app contributes");
+
+  // The installed catalog stays a list of what is installed.
+  assert.deepEqual(host.listCatalog().map((row) => row.id), ["todo"]);
+});
+
+test("installing a built-in writes the shipped copy and the app loads", async () => {
+  const { codeRoot, dataRoot } = makeRoots();
+  const enablement: Record<string, MiniAppEnablementEntry> = {};
+  const host = builtinHostOver(codeRoot, dataRoot, enablement);
+
+  await host.installBuiltin("note");
+
+  const note = host.listBuiltinCatalog().find((row) => row.id === "note");
+  assert.equal(note?.installed, true);
+  assert.equal(note?.enabled, true);
+  assert.equal(note?.status, "active", note?.error);
+  assert.equal(note?.updateAvailable, false, "the copy just written is the shipped one");
+  assert.equal(note?.installedVersion, note?.availableVersion);
+  assert.equal(
+    host.listCatalog().find((row) => row.id === "note")?.source.kind,
+    "builtin",
+    "provenance says where it came from"
+  );
+
+  // The point of a built-in is that it works after one click, so the runtime
+  // must actually load — a manifest that lists a handler the code lacks is a
+  // failure this test has to catch, not the owner.
+  await host.smokeTest("note");
+});
+
+test("a built-in the owner uninstalled can be installed again, tombstone and all", async () => {
+  const { codeRoot, dataRoot } = makeRoots();
+  ensureBuiltinMiniApps({ codeRoot, getEnablement: () => ({}) });
+  const enablement: Record<string, MiniAppEnablementEntry> = {};
+  const host = builtinHostOver(codeRoot, dataRoot, enablement);
+
+  await host.uninstall("todo", { deleteData: false });
+  assert.equal(enablement.todo?.removedBuiltin, true, "uninstall records the owner's intent");
+  const removed = host.listBuiltinCatalog().find((row) => row.id === "todo");
+  assert.equal(removed?.installed, false);
+  assert.equal(removed?.removedByOwner, true, "the row says why it is gone");
+
+  await host.installBuiltin("todo");
+
+  const restored = host.listBuiltinCatalog().find((row) => row.id === "todo");
+  assert.equal(restored?.installed, true);
+  assert.equal(restored?.enabled, true);
+  assert.equal(restored?.status, "active", restored?.error);
+  // The tombstone must be cleared, or the next start deletes what the owner
+  // just asked for — the failure would only show up after a restart.
+  assert.notEqual(enablement.todo?.removedBuiltin, true);
+  assert.deepEqual(
+    ensureBuiltinMiniApps({ codeRoot, getEnablement: () => enablement }).skipped.find((row) => row.id === "todo"),
+    { id: "todo", reason: "already-installed" }
+  );
+});
+
+test("installing a built-in over a stale copy updates it and keeps the owner's data", async () => {
+  const { codeRoot, dataRoot } = makeRoots();
+  ensureBuiltinMiniApps({ codeRoot, getEnablement: () => ({}) });
+  const enablement: Record<string, MiniAppEnablementEntry> = { todo: { enabled: false } };
+  const host = builtinHostOver(codeRoot, dataRoot, enablement);
+
+  const stale = JSON.parse(readFileSync(join(codeRoot, "todo", "manifest.json"), "utf8"));
+  stale.version = "0.0.1";
+  writeFileSync(join(codeRoot, "todo", "manifest.json"), JSON.stringify(stale), "utf8");
+  host.refresh();
+
+  const before = host.listBuiltinCatalog().find((row) => row.id === "todo");
+  assert.equal(before?.installed, true);
+  assert.equal(before?.installedVersion, "0.0.1");
+  assert.equal(before?.updateAvailable, true, "an older installed copy is offered an update");
+
+  await host.installBuiltin("todo");
+
+  const after = host.listBuiltinCatalog().find((row) => row.id === "todo");
+  assert.equal(after?.installedVersion, builtinMiniAppVersion(getBuiltinMiniApp("todo")!));
+  assert.equal(after?.updateAvailable, false);
+  // An owner who switched the app off gets the new code, still switched off.
+  assert.equal(enablement.todo?.enabled, false);
+  assert.equal(after?.enabled, false);
+});
+
+test("every built-in this build ships loads with the tools its manifest declares", async () => {
+  // Generic on purpose: adding a built-in must not require remembering to add
+  // a test, and "it appears in the catalog" is not the same as "it runs".
+  for (const app of listBuiltinMiniApps()) {
+    const { codeRoot, dataRoot } = makeRoots();
+    const host = builtinHostOver(codeRoot, dataRoot, {});
+    await host.installBuiltin(app.id);
+
+    const entry = host.listCatalog().find((row) => row.id === app.id);
+    assert.equal(entry?.status, "active", `${app.id}: ${entry?.error ?? "not installed"}`);
+    assert.deepEqual(entry?.toolNames, builtinMiniAppMeta(app).toolNames, `${app.id} tool names`);
+    await host.smokeTest(app.id);
+  }
 });

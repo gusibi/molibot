@@ -990,6 +990,7 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .automation-task-technical code { display: inline; max-width: none; white-space: normal; }
 .settings-action-toast { position: sticky; z-index: 8; bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; width: min(calc(100% - 48px), 640px); min-height: 42px; margin: 12px auto 0; padding: 8px 12px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); box-shadow: var(--popover-shadow); color: var(--label-primary); font-size: 12px; }
 .settings-action-toast button { min-height: 28px; padding: 0 7px; border: 0; background: transparent; color: var(--accent); font-weight: 600; cursor: pointer; }
+.chat-action-toast { position: absolute; z-index: 12; right: 16px; bottom: 88px; max-width: min(420px, calc(100% - 32px)); padding: 9px 12px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--card-bg); box-shadow: var(--popover-shadow); color: var(--label-primary); font-size: 12px; }
 
 .file-panel {
   display: flex;
@@ -1139,6 +1140,87 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .miniapps-item.active { background: var(--accent-soft); color: var(--label-primary); font-weight: 500; }
 .miniapps-item:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--sidebar-bg), 0 0 0 4px var(--accent); }
 .miniapps-item-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/*
+ * The app badge. `flex: 0 0 auto` so the name (which owns the slack) is what
+ * truncates - a count must never be the thing that gets ellipsised away.
+ */
+.miniapps-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  /* `#fff` matches every other on-accent surface here; there is no token for
+     it, and inventing one would leave this the only caller. */
+  color: #fff;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  font-variant-numeric: tabular-nums;
+}
+.miniapps-badge.is-dot { min-width: 8px; width: 8px; height: 8px; padding: 0; border-radius: 4px; }
+
+/* Mini App result card (roadmap §2.3) — display only, one deep link out. */
+.miniapp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  background: var(--card-bg);
+}
+.miniapp-card-head { display: flex; align-items: flex-start; gap: 8px; }
+.miniapp-card-icon { flex: 0 0 auto; margin-top: 1px; color: var(--accent); font-size: var(--icon-md); }
+.miniapp-card-heading { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.miniapp-card-title {
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
+  font-weight: 600;
+  color: var(--label-primary);
+}
+.miniapp-card-subtitle { font-size: var(--fs-meta); line-height: var(--lh-meta); color: var(--label-secondary); }
+.miniapp-card-fields { display: grid; gap: 4px; margin: 0; }
+.miniapp-card-field { display: flex; gap: 8px; min-width: 0; }
+.miniapp-card-field dt {
+  flex: 0 0 auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  color: var(--label-tertiary);
+}
+.miniapp-card-field dd {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  color: var(--label-primary);
+  overflow-wrap: anywhere;
+}
+.miniapp-card-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  cursor: pointer;
+}
+.miniapp-card-link:hover { text-decoration: underline; }
+.miniapp-card-link .ph { font-size: var(--icon-xs); }
+.miniapp-card-link:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
 .miniapps-empty { margin: 4px 8px; color: var(--label-tertiary); font-size: 12px; }
 .miniapps-see-all {
   display: block;
@@ -1237,10 +1319,75 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 
 /* Mini Apps group in Settings */
 .miniapps-card { width: var(--settings-col); margin: 16px auto 0; }
+/*
+ * Signpost to the AI capability settings, which live in Settings. A row, not a
+ * card: it holds no state and must not read as a section you can edit here.
+ */
+.miniapps-ai-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--rounded-sm);
+  background: var(--card-bg);
+  color: var(--label-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.miniapps-ai-link:hover { background: var(--fill); }
+.miniapps-ai-link:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
+.miniapps-ai-link > span[aria-hidden] {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: var(--rounded-sm);
+  background: var(--fill);
+  color: var(--label-secondary);
+}
+.miniapps-ai-link-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.miniapps-ai-link-text strong { font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 600; }
+.miniapps-ai-link-text small { color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.miniapps-ai-link-arrow { flex: 0 0 auto; color: var(--label-tertiary); font-size: var(--icon-sm); }
+
 .miniapps-library { overflow: visible; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); }
+.miniapps-ai-usage { padding: 0 16px 16px; }
+.miniapps-ai-usage > strong { font-size: 12px; }
+.miniapps-ai-usage > p { margin: 7px 0 0; color: var(--label-secondary); font-size: 12px; }
+.miniapps-ai-usage ul { display: grid; gap: 7px; margin: 8px 0 0; padding: 0; list-style: none; }
+.miniapps-ai-usage li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: var(--rounded-sm); background: var(--surface-secondary); color: var(--label-secondary); font-size: 12px; }
+.miniapps-ai-usage li > span:first-child { display: grid; gap: 2px; color: var(--label-primary); }
+.miniapps-ai-usage small { color: var(--label-secondary); font-weight: 400; }
 .miniapps-library-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 0 16px; border-bottom: 0.5px solid var(--separator); }
 .miniapps-library-head > strong { font-size: 13px; font-weight: 600; }
 .miniapps-library > .miniapps-note { margin: 0; padding: 24px 16px; text-align: center; }
+/* Built-in tab. Same three-column grid as an installed row, so an app the owner
+   has and one they don't read as the same kind of thing; the card already sets
+   the surface, so the list only draws its own separators. */
+.miniapps-builtin-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--rounded-sm);
+  background: var(--fill);
+}
+.miniapps-builtin-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border-top: 0.5px solid var(--hairline);
+}
+.miniapps-builtin-row:first-child { border-top: 0; }
+
 .miniapps-settings-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .miniapps-settings-row {
   display: grid;

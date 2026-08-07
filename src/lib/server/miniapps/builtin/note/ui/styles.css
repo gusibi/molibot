@@ -1,0 +1,594 @@
+[hidden] {
+  display: none !important;
+}
+
+.hidden {
+  display: none !important;
+}
+
+:root {
+  --bg-color: #ffffff;
+  --card-bg: #ffffff;
+  --text-main: #202124;
+  --text-sub: #5f6368;
+  --border-color: #e0e0e0;
+  --primary-color: #1a73e8;
+
+  --card-yellow: #fff475;
+  --card-blue: #cbf0f8;
+  --card-green: #ccff90;
+  --card-red: #f28b82;
+  --card-purple: #d7aefb;
+  --card-gray: #e8eaed;
+
+  --card-text-color: #202124;
+  --card-sub-color: #5f6368;
+  --card-tag-bg: rgba(0, 0, 0, 0.08);
+  --btn-hover-bg: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] {
+  --bg-color: #202124;
+  --card-bg: #202124;
+  --text-main: #e8eaed;
+  --text-sub: #9aa0a6;
+  --border-color: #5f6368;
+  --primary-color: #8ab4f8;
+
+  /* Google Keep 原生暗色调配色 - 优雅舒适防刺眼 */
+  --card-yellow: #635d19;
+  --card-blue: #16504b;
+  --card-green: #2d555e;
+  --card-red: #5c2b29;
+  --card-purple: #42275d;
+  --card-gray: #3c4043;
+
+  --card-text-color: #e8eaed;
+  --card-sub-color: #9aa0a6;
+  --card-tag-bg: rgba(255, 255, 255, 0.12);
+  --btn-hover-bg: rgba(255, 255, 255, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Google Sans", Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg-color);
+  color: var(--text-main);
+  padding: 12px;
+}
+
+.note-app {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Header */
+.note-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.note-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.note-heading {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text-sub);
+}
+
+.note-search-wrapper {
+  flex: 1;
+  max-width: 400px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-sub);
+}
+
+.note-search {
+  width: 100%;
+  padding: 6px 12px 6px 32px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: rgba(0,0,0,0.05);
+  color: var(--text-main);
+  font-size: 0.88rem;
+  outline: none;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+[data-theme="dark"] .note-search {
+  background: rgba(255,255,255,0.08);
+}
+
+.note-search:focus {
+  background: var(--card-bg);
+  border-color: var(--border-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-sub);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.icon-btn:hover {
+  background: var(--btn-hover-bg);
+}
+
+.icon-btn-sm {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, opacity 0.15s;
+  opacity: 0.75;
+}
+
+.icon-btn-sm:hover {
+  background: var(--btn-hover-bg);
+  opacity: 1;
+}
+
+/* Composer */
+.composer-container {
+  max-width: 520px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.composer-collapsed {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  color: var(--text-sub);
+  font-size: 0.88rem;
+  font-weight: 500;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.composer-collapsed:hover {
+  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.35);
+}
+
+.note-composer {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.35);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.note-composer[data-color="yellow"], .modal-card[data-color="yellow"] { background-color: var(--card-yellow); color: var(--card-text-color); }
+.note-composer[data-color="blue"], .modal-card[data-color="blue"] { background-color: var(--card-blue); color: var(--card-text-color); }
+.note-composer[data-color="green"], .modal-card[data-color="green"] { background-color: var(--card-green); color: var(--card-text-color); }
+.note-composer[data-color="red"], .modal-card[data-color="red"] { background-color: var(--card-red); color: var(--card-text-color); }
+.note-composer[data-color="purple"], .modal-card[data-color="purple"] { background-color: var(--card-purple); color: var(--card-text-color); }
+.note-composer[data-color="gray"], .modal-card[data-color="gray"] { background-color: var(--card-gray); color: var(--card-text-color); }
+
+.composer-header, .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.note-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  color: inherit;
+  font-size: 0.88rem;
+  font-family: inherit;
+  width: 100%;
+}
+
+.note-input::placeholder {
+  color: var(--text-sub);
+  opacity: 0.8;
+}
+
+.note-input-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.note-input-content {
+  resize: none;
+  line-height: 1.4;
+}
+
+.composer-pin-toggle {
+  opacity: 0.6;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.composer-pin-toggle.active {
+  opacity: 1;
+  color: var(--primary-color);
+}
+
+.composer-labels-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  border-top: 1px dashed var(--border-color);
+}
+
+.label-icon {
+  color: var(--text-sub);
+  opacity: 0.75;
+}
+
+.note-input-labels {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 0.8rem;
+  color: inherit;
+  width: 100%;
+}
+
+.composer-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.composer-color-palette {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.color-dot, .modal-color-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-color);
+  cursor: pointer;
+  background-color: var(--card-bg);
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.color-dot:hover, .modal-color-dot:hover {
+  transform: scale(1.15);
+}
+
+.color-dot.active, .modal-color-dot.active {
+  border-color: var(--text-main);
+  transform: scale(1.15);
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.note-btn-text {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 0.82rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.note-btn-text:hover {
+  background: var(--btn-hover-bg);
+}
+
+.note-submit {
+  background: transparent;
+  color: inherit;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.note-submit:hover {
+  background: var(--btn-hover-bg);
+}
+
+.note-status {
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.note-status[data-tone="error"] {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+[data-theme="dark"] .note-status[data-tone="error"] {
+  background: #5c1410;
+  color: #f28b82;
+}
+
+.note-status[data-tone="info"] {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+[data-theme="dark"] .note-status[data-tone="info"] {
+  background: #004b5c;
+  color: #8ab4f8;
+}
+
+/* Tabs */
+.note-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.note-tab {
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  color: var(--text-sub);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  font-weight: 500;
+}
+
+.note-tab.active {
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
+}
+
+/* 笔记列表卡片 - 暗色模式深色质感适配 */
+.note-group-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-sub);
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+
+.note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.note-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  background-color: var(--card-bg);
+  color: var(--card-text-color);
+  word-break: break-word;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  position: relative;
+  transition: box-shadow 0.2s, border-color 0.2s, background-color 0.2s ease, color 0.2s ease;
+}
+
+.note-card:hover {
+  box-shadow: 0 2px 6px 0 rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.note-card[data-color="yellow"] { background-color: var(--card-yellow); color: var(--card-text-color); }
+.note-card[data-color="blue"] { background-color: var(--card-blue); color: var(--card-text-color); }
+.note-card[data-color="green"] { background-color: var(--card-green); color: var(--card-text-color); }
+.note-card[data-color="red"] { background-color: var(--card-red); color: var(--card-text-color); }
+.note-card[data-color="purple"] { background-color: var(--card-purple); color: var(--card-text-color); }
+.note-card[data-color="gray"] { background-color: var(--card-gray); color: var(--card-text-color); }
+
+/* 顶栏与交互按钮 */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.card-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  flex: 1;
+}
+
+.card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.note-card:hover .card-header-actions,
+.card-header-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.card-header-actions .composer-pin-toggle.active {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.card-more-container {
+  position: relative;
+}
+
+.card-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  min-width: 110px;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-dropdown.hidden {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+.dropdown-item {
+  background: transparent;
+  border: none;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s;
+}
+
+.dropdown-item:hover {
+  background: var(--btn-hover-bg);
+}
+
+.dropdown-item-del:hover {
+  background: rgba(242, 139, 130, 0.2);
+  color: #f28b82;
+}
+
+.card-content {
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  line-height: 1.35;
+}
+
+.card-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.card-label-tag {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  background: var(--card-tag-bg);
+  border-radius: 10px;
+  color: inherit;
+  font-weight: 500;
+}
+
+.note-empty {
+  color: var(--text-sub);
+  font-size: 0.88rem;
+  text-align: center;
+  padding: 24px 0;
+}
+
+/* 模态弹窗 Modal 样式 */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-backdrop.hidden {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+.modal-card {
+  background: var(--card-bg);
+  color: var(--card-text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Deep-link landing: brief highlight on the note a molibot:// link named. */
+.note-card.deep-link-target {
+  animation: deep-link-flash 2s ease-out;
+}
+@keyframes deep-link-flash {
+  0%, 40% { box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .note-card.deep-link-target { animation: none; box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.55); }
+}

@@ -5,7 +5,47 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-08-07
+
+### Mini App 展示面：结果卡片、深链、侧栏徽标与 Composer 桥 v2（新增，P1）
+
+roadmap §2.2–§2.5 四条能力一起交付。它们补上了前几个切片留下的缺口：App 已经能接收消息、能调宿主模型，但产出回到用户面前时只有一行纯文本，没有任何办法指向它刚做出来的东西。
+
+- **Composer 桥 v2**：新增 `composer.attach` 与 `chat.openSession`。`composer.attach` 是缝 4 Phase 2 附件去程的**回程**——App 处理完的图或导出的纪要可以填回聊天草稿。`path` 是 App 自己数据目录内的相对路径，宿主 `readDataFile()` 跟随符号链接后证明包含性再读取（≤32 MiB），响应只有 basename 和字节，WebView 全程拿不到宿主路径。**v1 App 不受影响**：两个版本同时受支持，且每个版本的动作集冻结——v1 消息请求 v2 动作得到 `unsupported_action`，不会被静默升级。桥依旧只搬运 UI 意图，没有任何动作能发送消息或触发 Agent 轮次，这条纪律有结构守卫。
+- **结果卡片**：工具结果可带 `card`（标题、副标题、≤6 条 label/value、Phosphor 图标、一个深链），在 Chat 与 Project Chat 的消息动作反馈处渲染。**刻意偏离** roadmap 原文的「复用 iframe/CSP 边界」：卡片出现在滚动的 transcript 里，每张一个 iframe 就是不设上限的活文档；更关键的是 iframe 什么都能做，与同一段话自己的约束「卡片是展示、交互一律跳面板」直接冲突。固定的声明式结构让这条约束由构造成立。`content` 仍是权威文本——模型只读它，非桌面端也只显示它。
+- **深链** `molibot://miniapp/<id>/<path>`：解析成意图后在进程内路由，永不交给 WebView 导航（卡片上是 `<button>` 而非 `<a>`）。定位符作为 `?path=` 启动参数随 `locale`/`theme` 交给 App，语义完全归 App。解析**不走 `new URL()`**：URL 解析器会先把 `..` 规范化掉，`molibot://miniapp/notes/../../etc/passwd` 会变成指向 `etc` 这个 App——一个声称打开 A 的链接静默打开了 B。**本期未做** OS 级 scheme 注册；当前消费方都在应用内，将来只需把同一个解析函数接到系统入口。
+- **侧栏徽标** `ctx.badge`：计数（上限 99）或一个无标签圆点；`count <= 0` 等同清除，而不是渲染一个 "0"。刻意做小——没有系统通知，没有打断式弹窗。**只存在内存里**：重启后不可能还有进行中的工作，恢复一个没有依据的计数正是 pitfall #23a/#23d 那一类错误。写入方只有 App 服务端（桌面路由只能 `clear`），用户打开面板即清除，且应用服务端返回的整份 catalog 而不在本地猜。被停用/加载失败的 App 不再对外报告徽标。
+- Creator 模板与 `reference.md` 覆盖四条契约（含老宿主要用 `ctx.badge?.` 的说明），模板 `engines.molibot` 提到 `>=2.9.9`。模板已通过真实宿主加载验证：卡片被 sanitize、徽标进入 catalog、深链限定在声明它的 App。
+- 顺带修复：`apps/desktop/src/lib/miniapps/messageActions.test.ts` 从未被列入 desktop `test` 脚本，上一个切片自己的桌面测试一直没有在门禁里跑过。
+- 版本：服务端 2.9.9、Desktop 0.9.6。未打 tag、未推送、未发 Release。
+- 验证：Mini App 服务端 + 路由套件 187/187（新增深链 10、卡片 10、桥 v2 10、attach 7、badge 4），desktop unit 145/145 + 结构 173/173 + Rust 52/52，`svelte-check` 0 errors / 0 warnings，根与 desktop `vite build` 均通过。新守卫在交付前抓到并修掉两个真实缺陷：上面那个 `..` 规范化导致的跨 App 路由问题，以及一个未定义的 `--radius-medium` token（pitfall #5，由既有 CSS 变量守卫发现）。
+
+---
 ## 2026-08-06
+
+### Mini App ↔ 主程序通信平台（新增，P0/P1）
+
+- 消息、选区和附件现在可由 Desktop 通过 manifest `contributions.messageActions` 确定性送入 Mini App，不经过模型。服务端重建时间/来源/截断状态，正文按 UTF-8 64 KiB 安全截断；附件从真实会话 locator 解析后以不透明文件名暂存到目标 App `incoming/`，不暴露会话 id、宿主路径或原路径。
+- Bridge v1 只接受来自当前 iframe 的 `molibot-miniapp` / `composer.insert`，32 KiB 上限，支持 append/replace；填入并聚焦 Session/Project 当前草稿，但不发送、不改模型/附件/队列，历史编辑态和只读 external view 会拒绝并保留原草稿。
+- Runtime 新增 `ctx.ai.generateText()` / `transcribe()`：能力声明、实时模型路由、宿主凭据、无工具非流式文本、App dataDir realpath、25 MiB/10 分钟音频、BCP-47、Abort、每 App 并发 2 + 30/min、稳定脱敏错误和成功/失败 JSONL 计量。Manager 提供细粒度模型设置、费用/不可用提示及近 30 天按 App 汇总；设置已做 fresh-store round-trip。
+- HTTP raw body 只在 manifest 明确允许的 `/api/*` 路由开放，路径段匹配并在 Runtime 前 413；Tauri transport 绝对硬顶 25 MiB。第三方 AI App 初装默认 disabled，须用户看过费用提示后显式启用。
+- Todo v1.0.2 增加「存为待办」活体动作；新增按需安装的 Meeting Notes v1.0.0，按 60 秒永久保存音频分段、独立转写/重试、失败不中断后续段、尾段完成后生成 Markdown 纪要，支持重启 interrupted、失败段重试、重新生成、重命名和不可恢复删除。
+- `miniapp-creator` Skill/Agent 模板升级到 1.3.0，模板与作者指南覆盖 message actions、bridge、`ctx.ai`、raw 上传和 restart-safe job。
+- 机器证据：消息/bridge/manifest/AI/settings/resources 聚焦测试 23/23；HTTP、built-in 与 Meeting 测试 32/32；用量/settings/manifest 16/16；Desktop `svelte-check` 0/0；服务端生产构建通过。真实 macOS `desktop:dev` + 打包态麦克风权限矩阵仍是发布前人工验收项，未把静态证据冒充 spike A/B/C 结论。
+
+### 内置小程序独立成 tab：可安装 / 可更新 / 可卸载（新增，P1）
+
+此前「内置」只是一个标签，不是一类可管理的东西：管理页只列**已安装**的应用，于是被卸载的内置应用会从产品里彻底消失（卸载墓碑正确地阻止了下次启动自动装回），而这个版本自带、但从未安装过的应用根本无从发现。而且内置应用是不问自取地装进工作区的。
+
+- **「管理小程序 › 安装小应用 › 内置应用」新增一个 tab**，排在四个安装来源的第一位。每行直接回答用户真正会问的两个问题——*装了没有？有没有新版？*——名称、描述、图标、版本、工具列表都从**打包进构建的那份副本**里读，所以磁盘上有没有东西都能显示一行。状态：`未安装` / `已卸载`（用户主动删的）/ `已是最新` / `有新版本 v1.2.0`。
+- **安装、更新、卸载都在这一行完成。** 安装与更新在宿主里是同一个操作（`installBuiltin`），区别只在于「之前有没有」；同样遵守 挂起 → 排空 → dispose → 覆盖 的顺序，因为正在运行的应用可能持有被替换目录里的 SQLite 句柄。只覆盖代码：应用数据目录从不触碰，启用状态保留（关着的应用拿到新代码，仍然是关着的）。安装会清除卸载墓碑，否则下次启动就会把用户刚要回来的东西再删一遍。
+- **`Note` 作为内置应用发布**；并且新增内置应用一律「按需安装」：`autoInstall` 按应用声明，`todo` 保留（空工作区首次启动仍自带这个参考应用，行为不变），其余只在列表里作为「可安装项」出现。升级不会往用户工作区里塞新应用。
+- 内置 id 列表改为从打包清单推导（`builtinMiniAppIds()`），不再在 `registry.ts` 里手写第二份——正是 pitfall #22 的形状：漏登记会让某个应用「发布了但不被认作内置」，没有更新、没有内置重装、provenance 还写成 `directory`。
+- 所有 Mini App 路由现在统一通过 `buildDesktopMiniAppsPayload()` 返回**两份目录**（`{ items, builtin }`），store 也成对赋值：安装/更新/卸载会同时改变两份列表，只返回其中一份就会让另一份停留在点击前的状态。桌面端遇到不返回 `builtin` 的旧服务，降级为「没有可装的内置应用」而不是抛错。
+- 新增路由 `GET/POST /api/desktop/miniapps/builtin`。它不并入 `/install`：这里没有需要用户判断是否可信的来源，因此该 tab 不重复第三方信任警告（在自家应用上重复这句话，只会训练用户忽略它）。
+- 机器防护：`src/lib/server/miniapps/bootstrap.test.ts` 覆盖内置目录、按需安装、墓碑往返、旧副本更新、id 推导；`src/lib/server/app/desktopMiniApps.test.ts` 覆盖双目录投影；`apps/desktop/src/chat-ui.test.mjs` 断言 tab 与 `applyCatalogs`。其中一条通用用例会安装并 smoke test **每一个**打包的内置应用，新增内置应用不可能只在目录里出现却加载失败。
+- 附带：Todo 图标按 Note 的风格重画（24×24、无底板、同色系三阶平涂）。
+- 验证：Mini App bootstrap 17/17、host/install/manifest 48/48、投影 5/5、desktop UI 168/168 + unit 143/143 + Rust 52/52，`svelte-check` 0/0，`vite build` 与 desktop `vite build` 均通过。并对着临时数据目录上的真实服务走了一遍 HTTP：列出 → 安装（`note` 出现并加载）→ 卸载（写入墓碑）→ 重新安装（清除墓碑）→ 改旧版本号后重启（`updateAvailable: true`）→ 更新（回到打包版本）。
 
 ### 打开小程序后切换会话丢失小程序、会话里「文件面板」为空（已修复，P1）
 

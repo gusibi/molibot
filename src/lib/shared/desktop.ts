@@ -1466,6 +1466,7 @@ export type DesktopMiniAppInstallRequest =
 export interface DesktopMiniAppInstallResponse {
   ok: true;
   items: DesktopMiniAppItem[];
+  builtin: DesktopMiniAppBuiltinItem[];
   /** The app that was just installed, so the UI can point at it. */
   installedId: string;
   /** True when the install replaced an existing app rather than adding one. */
@@ -1487,6 +1488,20 @@ export interface DesktopMiniAppItem {
   enabled: boolean;
   builtin: boolean;
   toolNames: string[];
+  messageActions: Array<{
+    tool: string;
+    label: { zh: string; en: string };
+    icon?: string;
+    accepts: Array<"text" | "image" | "file">;
+  }>;
+  aiCapabilities: Array<"text" | "transcription">;
+  /**
+   * Live sidebar badge the app set on itself, or null.
+   *
+   * Not persisted anywhere: it describes work in this service process, so it is
+   * absent after a restart rather than resurrected (pitfall #23d).
+   */
+  badge: { kind: "count"; count: number } | { kind: "dot" } | null;
   /** Icon inlined as a `data:` URI, or empty when the app declares none. */
   iconDataUri: string;
   source: DesktopMiniAppSource;
@@ -1497,9 +1512,134 @@ export interface DesktopMiniAppItem {
   error: string;
 }
 
+/**
+ * A built-in app as the manager's built-in tab sees it: what this Molibot build
+ * ships, plus whether the owner has it and whether a newer copy is on offer.
+ *
+ * Separate from {@link DesktopMiniAppItem} because it describes an app that may
+ * not be installed at all — identity comes from the bundled copy.
+ */
+export interface DesktopMiniAppBuiltinItem {
+  id: string;
+  name: string;
+  description: string;
+  /** The version this Molibot build ships. */
+  availableVersion: string;
+  iconDataUri: string;
+  toolNames: string[];
+  installed: boolean;
+  /** The version on disk; empty when not installed. */
+  installedVersion: string;
+  updateAvailable: boolean;
+  enabled: boolean;
+  status: DesktopMiniAppStatus | "not-installed";
+  /** True when the owner uninstalled it, so it is not restored automatically. */
+  removedByOwner: boolean;
+  error: string;
+}
+
 export interface DesktopMiniAppsResponse {
   ok: true;
   items: DesktopMiniAppItem[];
+  /** Every built-in this build ships, installed or not. */
+  builtin: DesktopMiniAppBuiltinItem[];
+}
+
+/** Installs (or reinstalls) a built-in from the copy this build ships. */
+export interface DesktopMiniAppBuiltinInstallRequest {
+  appId: string;
+}
+
+export interface DesktopMiniAppBuiltinInstallResponse {
+  ok: true;
+  items: DesktopMiniAppItem[];
+  builtin: DesktopMiniAppBuiltinItem[];
+  /** The version now on disk. */
+  version: string;
+  /** V1 has no hot reload: the new code only runs after a service restart. */
+  restartRequired: true;
+}
+
+export interface DesktopMiniAppInvokeRequest {
+  appId: string;
+  tool: string;
+  capture: {
+    text: string;
+    selection?: string;
+    role: "assistant" | "user";
+    source?: { sessionTitle?: string };
+  };
+  resources?: DesktopMiniAppResourceLocator[];
+}
+
+export interface DesktopMiniAppResourceLocator {
+  profileId: string;
+  sessionId: string;
+  projectId?: string;
+  fileId: string;
+}
+
+export interface DesktopMiniAppAiSettings {
+  textModelKey: string;
+  transcriptionModelKey: string;
+}
+
+export interface DesktopMiniAppAiSettingsResponse {
+  ok: true;
+  settings: DesktopMiniAppAiSettings;
+  usage: DesktopMiniAppAiUsage[];
+}
+
+export interface DesktopMiniAppAiUsage {
+  appId: string;
+  requests: number;
+  successes: number;
+  failures: number;
+  textRequests: number;
+  transcriptionRequests: number;
+  totalTokens: number;
+  audioSeconds: number;
+  durationMs: number;
+}
+
+export interface DesktopMiniAppInvokeResponse {
+  ok: true;
+  content: Array<{ type: "text"; text: string }>;
+  structuredContent?: unknown;
+  /**
+   * Optional summary card the App returned, already sanitized host-side.
+   *
+   * A presentation extra only: `content` remains the authoritative text, so a
+   * surface that renders no cards loses nothing but polish.
+   */
+  card?: DesktopMiniAppResultCard;
+}
+
+/** Mirrors `MiniAppResultCard`; see `src/lib/shared/miniappCard.ts`. */
+export interface DesktopMiniAppResultCard {
+  title: string;
+  subtitle?: string;
+  fields: Array<{ label: string; value: string }>;
+  icon?: string;
+  /** Always a `molibot://miniapp/<appId>/...` link into the declaring app. */
+  link?: string;
+}
+
+export interface DesktopMiniAppAttachRequest {
+  appId: string;
+  /** Path relative to the App's own data directory. */
+  path: string;
+}
+
+export interface DesktopMiniAppAttachResponse {
+  ok: true;
+  name: string;
+  /** File bytes; the desktop rebuilds a `File` from these. */
+  base64: string;
+}
+
+export interface DesktopMiniAppBadgeClearRequest {
+  appId: string;
 }
 
 export interface DesktopMiniAppToggleRequest {
@@ -1518,6 +1658,7 @@ export interface DesktopMiniAppUpdateRequest {
 export interface DesktopMiniAppUpdateResponse {
   ok: true;
   items: DesktopMiniAppItem[];
+  builtin: DesktopMiniAppBuiltinItem[];
   /** The version now on disk. */
   version: string;
   /** V1 has no hot reload: the new code only runs after a service restart. */

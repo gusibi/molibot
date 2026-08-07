@@ -288,6 +288,12 @@ export interface MiniAppEntrySettings {
 
 export interface MiniAppsSettings {
   entries: Record<string, MiniAppEntrySettings>;
+  ai: {
+    /** Empty follows the global text route. */
+    textModelKey: string;
+    /** Empty follows the global STT route. */
+    transcriptionModelKey: string;
+  };
 }
 
 export interface PluginSettings {

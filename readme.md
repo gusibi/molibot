@@ -49,6 +49,9 @@ Molibot now runs **Mini Apps** inside the desktop client and Agent loop, letting
 - **Hosted UI & Unified Runtimes:** Mini Apps run inside a highly locked-down iframe sandbox on a custom local origin, sharing the same state module and SQLite database as their background agent tools.
 - **Automated Installation & Provenance:** Install instantly from local folders, `.zip` archives, or GitHub repositories. Manifest and directory checks protect the host system during install and upgrade.
 - **Unified Composer Integration:** Call installed apps using `@app-id` in the composer (with syntax-highlighted pills) or check the Sidebar's Mini Apps section to view and open recent apps.
+- **Explicit Host Bridges:** Apps can contribute message/selection/attachment actions, fill an editable chat draft or attach a file to it without ever sending, jump to a conversation, and use host-routed text/transcription through `ctx.ai` while credentials stay inside Molibot.
+- **Results You Can Act On:** A tool result can carry a compact summary card, deep-link back into its own app panel (`molibot://miniapp/<id>/<path>`), and set a quiet unread count or dot on its sidebar row — no system notifications, no interrupting popups.
+- **Working Reference Apps:** Todo demonstrates deterministic capture, and the opt-in Meeting Notes app demonstrates retained audio segments, restart recovery, transcription, and generated notes.
 - **Developer Scaffolding:** Includes a built-in `miniapp-creator` Skill and Agent template with a runnable template, database WAL mutation, and code scaffolds.
 
 ## Why Molibot?
@@ -154,7 +157,7 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 | [Channels and Surfaces](docs/features/channels-and-surfaces.md) | One local runtime across browser, macOS Desktop, chat channels, and the terminal. |
 | [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior and controlled access to reusable workflows and external tools. |
 | [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | Connect third-party services with secure runtime tokens and dynamic remote MCP integration. |
-| [Mini App Platform](docs/guides/miniapps/authoring.md) | Install and run local-first applications with custom agent tools, hosted UI, and database isolation. |
+| [Mini App Platform](docs/guides/miniapps/authoring.md) | Build local-first apps with tools, hosted UI, message actions, the composer bridge, controlled uploads and host AI. |
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
 | [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with one stable live reply per Project turn and Finder-style native sidebar materials. |
 

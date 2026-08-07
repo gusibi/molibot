@@ -1,6 +1,11 @@
 import { discoverPlugins } from "$lib/server/plugins/discovery.js";
 import type { ChannelManager, ChannelRuntimeDeps } from "$lib/server/channels/registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import {
+  describeServiceOwnership,
+  ensureServiceOwnership,
+  verifyServiceOwnership
+} from "$lib/server/app/serviceOwnership.js";
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_BOLD = "\x1b[1m";
@@ -62,6 +67,66 @@ export function logChannelPluginApplication(state: any, applied: Array<{ key: st
   console.log(`${runtimeLabel("runtime")} channel_plugins_applied ${summary || "(none)"}`);
 }
 
+/**
+ * How often the runtime re-checks that it still holds the data directory's
+ * lease. Acquiring ownership once is not enough: the lock can be swept with a
+ * `/tmp` data dir, deleted by an operator, or taken over by a replacement
+ * instance, and a channel that keeps polling after that is precisely the
+ * invisible orphan §3.41 describes.
+ */
+const OWNERSHIP_WATCHDOG_INTERVAL_MS = 30_000;
+
+let ownershipWatchdog: NodeJS.Timeout | null = null;
+let lastOwnershipVerdict: boolean | null = null;
+
+function armOwnershipWatchdog(
+  state: any,
+  applySettingsPatch: (patch: Partial<RuntimeSettings>) => RuntimeSettings
+): void {
+  lastOwnershipVerdict = verifyServiceOwnership();
+  if (ownershipWatchdog) return;
+  ownershipWatchdog = setInterval(() => {
+    const stillOwned = verifyServiceOwnership();
+    if (stillOwned === lastOwnershipVerdict) return;
+    lastOwnershipVerdict = stillOwned;
+    if (stillOwned) return;
+    console.error(
+      `${runtimeLabel("runtime")} ${color("service_lease_lost", `${ANSI_BOLD}${ANSI_RED}`)} ` +
+        `stopping live channels; another process now owns this data directory.`
+    );
+    // Re-running the shared apply path is the whole teardown: ownership is
+    // re-evaluated, every ownership-requiring plugin yields an empty instance
+    // list, and the reconcile loop stops and drops its managers.
+    applyChannelPlugins(state, applySettingsPatch);
+  }, OWNERSHIP_WATCHDOG_INTERVAL_MS);
+  // Never hold the process open for this: a supervisor shutdown must not wait
+  // on a diagnostic timer.
+  ownershipWatchdog.unref?.();
+}
+
+/**
+ * Whether one channel plugin may run in this process.
+ *
+ * Fails closed by default: a plugin that does not declare
+ * `requiresServiceOwnership` is treated as carrying an external bot identity,
+ * so a third-party channel cannot opt itself into running unowned by omission.
+ */
+export function channelPluginMayRun(
+  plugin: { requiresServiceOwnership?: boolean },
+  ownership: { owned: boolean }
+): boolean {
+  if (ownership.owned) return true;
+  return plugin.requiresServiceOwnership === false;
+}
+
+/** Test seam: stop the watchdog so a test run can exit. */
+export function stopOwnershipWatchdog(): void {
+  if (!ownershipWatchdog) return;
+  clearInterval(ownershipWatchdog);
+  ownershipWatchdog = null;
+  lastOwnershipVerdict = null;
+}
+
 export function applyChannelPlugins(state: any, applySettingsPatch: (patch: Partial<RuntimeSettings>) => RuntimeSettings): void {
   const deps: ChannelRuntimeDeps = {
     getSettings: () => state.settings,
@@ -80,8 +145,27 @@ export function applyChannelPlugins(state: any, applySettingsPatch: (patch: Part
 
   const applied: Array<{ key: string; instances: string[] }> = [];
 
+  // One gate for every channel, present and future. A plugin that reaches an
+  // external network as this deployment's bot identity may only run in the
+  // process that owns the data directory; anything else is a second voice on
+  // the same account (prd.md §3.41). The exemption is declared by the plugin,
+  // so this stays a shared rule with the difference injected by the caller
+  // rather than a per-channel conditional (CLAUDE.md pitfall 7).
+  const ownership = ensureServiceOwnership();
+  if (!ownership.owned) {
+    console.error(
+      `${runtimeLabel("runtime")} ${color("channel_plugins_suppressed", `${ANSI_BOLD}${ANSI_RED}`)} ` +
+        `${describeServiceOwnership(ownership)} — live channels stay stopped in this process.`
+    );
+  }
+  armOwnershipWatchdog(state, applySettingsPatch);
+
   for (const plugin of loaded.channelPlugins) {
-    const instances = plugin.listInstances(state.settings);
+    const mayRun = channelPluginMayRun(plugin, ownership);
+    // An empty instance list drives the existing reconcile loop below, so an
+    // ownership loss tears live managers down through the same path a settings
+    // change uses — no second shutdown implementation.
+    const instances = mayRun ? plugin.listInstances(state.settings) : [];
     const expectedIds = new Set(instances.map((instance) => instance.id));
     const managers = state.channelManagers.get(plugin.key) ?? new Map<string, ChannelManager>();
     state.channelManagers.set(plugin.key, managers);

@@ -2084,3 +2084,11 @@
 - Second live follow-up found the upstream semantic cause: `/v1/apps/authenticated` filters only query-supplied service ids, so an empty query always yields zero. Switched to `/v1/apps`, filtered `status: active`, mapped safe connection labels, made configuration default-collapsed, and promoted category metadata into a visible counted category bar.
 
 ---
+
+# Mini App communication platform progress (2026-08-06)
+
+- Delivered strict message actions, capture/resources, composer bridge v1, AI text/transcription facade, settings/usage UI, controlled raw uploads, Todo v1.0.2, Meeting Notes v1.0.0, and creator contract v1.3.0.
+- Verification: Mini App/settings suite 125/125; Desktop JS/UI 168/168; Rust 52/52; skill bootstrap 14/14; Svelte diagnostics 0/0; Desktop and server production builds pass.
+- Corrected adversarial findings: undefined Desktop token, iframe `confirm()`, recorder rollover buffer race, and audio-device-loss handling.
+- Pending manual acceptance: real macOS `desktop:dev` and packaged microphone permission/device matrix. No A/B/C conclusion is claimed.
+- Known unrelated failing test: isolated Session FTS lifecycle test reports SQLite `bm25` context error.

@@ -1,8 +1,15 @@
 import path from "node:path";
 import os from "node:os";
 import dotenv from "dotenv";
+import { ALLOW_EXTERNAL_PATHS_ENV, createDataDirScope } from "$lib/server/app/dataDirScope.js";
 
+// Snapshot the OS environment before any `.env` file is merged in. Which layer
+// a variable came from is the only thing that distinguishes "this run wants its
+// data elsewhere" from "the repository happens to pin a path" — see
+// dataDirScope.ts for why that distinction is load-bearing.
+const osEnvKeys = new Set(Object.keys(process.env));
 dotenv.config();
+const cwdEnvKeys = new Set(Object.keys(process.env).filter((key) => !osEnvKeys.has(key)));
 
 function intFromEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -19,6 +26,17 @@ function expandHomePath(input: string): string {
 
 const defaultDataDir = path.join(os.homedir(), ".molibot");
 const resolvedDataDir = expandHomePath(process.env.DATA_DIR ?? defaultDataDir);
+
+const dataDirScope = createDataDirScope({
+  dataDir: resolvedDataDir,
+  dataDirFromOsEnv: osEnvKeys.has("DATA_DIR"),
+  dataDirIsDefault: process.env.DATA_DIR === undefined,
+  // Only the cwd `.env` layer can be out of scope: `<dataDir>/.env` lives
+  // inside the data directory and is loaded below, after this snapshot.
+  isCwdEnvOnly: (name) => cwdEnvKeys.has(name),
+  allowExternal: /^(1|true|yes|on)$/i.test(String(process.env[ALLOW_EXTERNAL_PATHS_ENV] ?? "").trim()),
+  expandHomePath
+});
 
 // Load the persistent data-dir `.env` so all runtime secrets (tokens, API
 // keys) live in one place. Runs after DATA_DIR is resolved (DATA_DIR itself
@@ -49,10 +67,17 @@ process.env.PI_OFFLINE = process.env.PI_OFFLINE ?? "1";
 // Set before anything imports pi: `tools-manager.ts` evaluates
 // `const TOOLS_DIR = getBinDir()` at module load, so a later assignment would
 // not be seen. This is also why it lives in env.ts rather than at a call site.
-process.env.PI_CODING_AGENT_DIR =
-  process.env.PI_CODING_AGENT_DIR ?? path.join(resolvedDataDir, "pi");
+process.env.PI_CODING_AGENT_DIR = dataDirScope.resolve(
+  "PI_CODING_AGENT_DIR",
+  process.env.PI_CODING_AGENT_DIR,
+  path.join(resolvedDataDir, "pi")
+);
 
-const resolvedDatabaseDir = expandHomePath(process.env.DB_DIR ?? path.join(resolvedDataDir, "db"));
+const resolvedDatabaseDir = dataDirScope.resolve(
+  "DB_DIR",
+  process.env.DB_DIR,
+  path.join(resolvedDataDir, "db")
+);
 
 // True when the runtime must not start live network services (channel
 // websockets, the task scheduler, the periodic memory-sync interval). These
@@ -74,12 +99,30 @@ export const config = {
   port: intFromEnv("PORT", 3000),
   dataDir: resolvedDataDir,
   databaseDir: resolvedDatabaseDir,
-  settingsFile: expandHomePath(process.env.SETTINGS_FILE ?? path.join(resolvedDataDir, "settings.json")),
-  settingsDbFile: expandHomePath(process.env.SETTINGS_DB_FILE ?? path.join(resolvedDatabaseDir, "settings.sqlite")),
-  webWorkspaceDir: expandHomePath(process.env.WEB_WORKSPACE_DIR ?? path.join(resolvedDataDir, "moli-w")),
-  sessionsDir: expandHomePath(process.env.SESSIONS_DIR ?? path.join(resolvedDataDir, "sessions")),
-  sessionsIndexFile: expandHomePath(
-    process.env.SESSIONS_INDEX_FILE ?? path.join(resolvedDataDir, "sessions", "index.json")
+  settingsFile: dataDirScope.resolve(
+    "SETTINGS_FILE",
+    process.env.SETTINGS_FILE,
+    path.join(resolvedDataDir, "settings.json")
+  ),
+  settingsDbFile: dataDirScope.resolve(
+    "SETTINGS_DB_FILE",
+    process.env.SETTINGS_DB_FILE,
+    path.join(resolvedDatabaseDir, "settings.sqlite")
+  ),
+  webWorkspaceDir: dataDirScope.resolve(
+    "WEB_WORKSPACE_DIR",
+    process.env.WEB_WORKSPACE_DIR,
+    path.join(resolvedDataDir, "moli-w")
+  ),
+  sessionsDir: dataDirScope.resolve(
+    "SESSIONS_DIR",
+    process.env.SESSIONS_DIR,
+    path.join(resolvedDataDir, "sessions")
+  ),
+  sessionsIndexFile: dataDirScope.resolve(
+    "SESSIONS_INDEX_FILE",
+    process.env.SESSIONS_INDEX_FILE,
+    path.join(resolvedDataDir, "sessions", "index.json")
   ),
   telegramSttBaseUrl:
     (process.env.TELEGRAM_STT_BASE_URL ??
@@ -96,3 +139,15 @@ export const config = {
   rateLimitPerMinute: intFromEnv("RATE_LIMIT_PER_MINUTE", 30),
   maxMessageChars: intFromEnv("MAX_MESSAGE_CHARS", 4000)
 };
+
+/** Overrides dropped because they came from the repository `.env` rather than
+ * from the same layer as an explicit `DATA_DIR`. Exported for the runtime-env
+ * diagnostics surface; announced here because a silently relocated database is
+ * exactly the failure this guard exists to prevent. */
+export const ignoredDataPathOverrides = dataDirScope.ignoredOverrides();
+if (ignoredDataPathOverrides.length > 0) {
+  console.warn(
+    `[molibot] DATA_DIR=${resolvedDataDir} was set explicitly; ignoring ` +
+      `${ignoredDataPathOverrides.join(", ")} from the repository .env so data stays inside it.`
+  );
+}

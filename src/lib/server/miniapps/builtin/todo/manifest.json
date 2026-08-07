@@ -2,10 +2,10 @@
   "manifestVersion": 1,
   "id": "todo",
   "name": "Todo",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Multi-list todo with priority, search, and pinning. Managed from chat and the desktop panel.",
   "engines": {
-    "molibot": ">=2.8.0 <4"
+    "molibot": ">=2.9.9 <4"
   },
   "runtime": {
     "entry": "server/index.mjs"
@@ -30,11 +30,27 @@
         "type": "object",
         "properties": {
           "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "What needs to be done, in the user's own words." },
+          "capture": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string", "minLength": 1 },
+              "selection": { "type": "string" },
+              "role": { "type": "string", "enum": ["assistant", "user"] },
+              "truncated": { "type": "boolean" },
+              "capturedAt": { "type": "string" },
+              "source": { "type": "object" }
+            },
+            "required": ["text", "role", "capturedAt", "source"],
+            "additionalProperties": false
+          },
           "listId": { "type": "string", "description": "Which list to add to. Defaults to 'inbox'. Use list_all to see available lists." },
           "priority": { "type": "integer", "enum": [1, 2, 3], "description": "1=high, 2=normal (default), 3=low." },
           "pinned": { "type": "boolean", "description": "Pin to top of the list. Default false." }
         },
-        "required": ["title"],
+        "anyOf": [
+          { "required": ["title"] },
+          { "required": ["capture"] }
+        ],
         "additionalProperties": false
       },
       "readOnlyHint": false,
@@ -235,5 +251,15 @@
       "readOnlyHint": false,
       "destructiveHint": true
     }
-  ]
+  ],
+  "contributions": {
+    "messageActions": [
+      {
+        "tool": "add",
+        "label": { "zh": "存为待办", "en": "Save as Todo" },
+        "icon": "check-square",
+        "accepts": ["text"]
+      }
+    ]
+  }
 }

@@ -420,7 +420,8 @@ function initializeRuntime(): RuntimeState {
     // channels or the scheduler.
     configureMiniAppSettings({
       getSettings: () => currentSettings.value,
-      updateSettings: applySettingsPatch
+      updateSettings: applySettingsPatch,
+      usageTracker
     });
     // Bootstrap has to run *before* discovery, or the shipped Todo app would
     // only appear on the second start.

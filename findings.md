@@ -2500,3 +2500,14 @@ Final conclusion: the voice path is operational inside Molibot and fails because
 - The public Console uses `/providers` and upstream source confirms stable detail deep links at `/providers/:service`.
 
 ---
+
+# Mini App communication platform findings (2026-08-06)
+
+- The existing Host/catalog/transcript/composer/model/STT/usage seams were sufficient; no second host or Channel-specific orchestration was needed.
+- Authority must be reconstructed server-side: timestamps, channel, truncation and staged paths never come from the Desktop request.
+- Raw uploads remain JSON by default and become bytes only on a normalized, manifest-declared path-segment prefix.
+- The iframe bridge security boundary is the exact iframe window plus protocol/version/action/payload validation; v1 has no send action.
+- AI routing is resolved on every call, with per-App concurrency/rate guards and credentials retained in the host.
+- Adversarial review caught iframe modal misuse in Meeting Notes and replaced it with inline destructive confirmation.
+- Static/build tests cannot answer the real macOS microphone permission question; the dev and packaged device matrix remains an explicit release gate.
+- An unrelated existing Session search test fails under the current Node SQLite with `unable to use function bm25 in the requested context`; it reproduces in isolation and no search code was touched.

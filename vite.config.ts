@@ -14,6 +14,11 @@ export default defineConfig({
       async configureServer(server) {
         const { acquireServiceLease, resolveDataDir } = await import("./scripts/runtime/service-lease.mjs");
         const lease = acquireServiceLease({ dataDir: resolveDataDir() });
+        // Publish the owner id the same way `start-server.mjs` does: the
+        // runtime asserts ownership itself before starting live channels, and
+        // without this it would treat the dev server's own lease as a conflict
+        // and refuse to run any bot (prd.md §3.41).
+        process.env.MOLIBOT_SERVICE_OWNER_ID = lease.ownerId;
         server.httpServer?.once("close", () => lease.release());
       }
     },

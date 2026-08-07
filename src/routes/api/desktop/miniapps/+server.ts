@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { buildDesktopMiniApps } from "$lib/server/app/desktopMiniApps";
+import { buildDesktopMiniAppsPayload } from "$lib/server/app/desktopMiniApps";
 import { getMiniAppHost } from "$lib/server/miniapps/registry";
 import { MiniAppError } from "$lib/server/miniapps/types";
 import type {
@@ -22,7 +22,7 @@ import type {
  */
 
 function payload(): DesktopMiniAppsResponse {
-  return { ok: true, items: buildDesktopMiniApps(getMiniAppHost().listCatalog()) };
+  return { ok: true, ...buildDesktopMiniAppsPayload(getMiniAppHost()) };
 }
 
 function failure(cause: unknown) {

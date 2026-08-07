@@ -78,6 +78,7 @@
     clampTranscriptSearchIndex,
     findTranscriptMatches,
     type TranscriptAttachmentActions,
+    type TranscriptContributionAction,
     type TranscriptMessage,
     type TranscriptMessageActions
   } from "./lib/chat/transcript";
@@ -91,6 +92,7 @@
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
   import ArtifactPanel from "./lib/artifacts/ArtifactPanel.svelte";
+  import MiniAppResultCard from "./lib/miniapps/MiniAppResultCard.svelte";
   import { markMiniAppUsed } from "./lib/stores/miniapps.svelte";
   import { projectsStore } from "./lib/stores/projects.svelte";
   import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
@@ -100,6 +102,15 @@
   import BotMention from "./lib/chat/BotMention.svelte";
   import { ChatSessionStore } from "./lib/chat/chatSessionStore.svelte";
   import { projectChatStore } from "./lib/projects/projectChatStore.svelte";
+  import {
+    insertComposerText,
+    miniAppComposerAttachment,
+    miniAppComposerInsertion,
+    miniAppDeepLinkOpenRequest,
+    miniAppSessionOpenRequest
+  } from "./lib/projects/composerBridge";
+  import { parseMiniAppDeepLink } from "@molibot/shared/miniappDeepLink";
+  import { mimeFromFilename } from "@molibot/shared/filePreview";
   // Files the active Project session has touched, projected for the file panel.
   const sessionFileTouches = projectChatStore.sessionFiles;
   import type { SessionFileTouches } from "./lib/projects/sessionFileTouches";
@@ -126,6 +137,10 @@
   import { DirectManipulation } from "./lib/native/directManipulation";
   import { ActivityScheduler, backgroundActivityPolicy, documentActivityVisibility, reconnectActivityPolicy } from "./lib/native/activityScheduler";
   import MemoryTraceDrawer from "./lib/chat/MemoryTraceDrawer.svelte";
+  import { miniAppsCatalog } from "./lib/stores/miniapps.svelte";
+  import { catalogMessageActions, invokeTranscriptMessageAction } from "./lib/miniapps/messageActions";
+  import { fetchDesktopMiniAppAttachment } from "./lib/api";
+  import { clearMiniAppBadge } from "./lib/stores/miniapps.svelte";
 
   export let copy: Translation;
   export let locale: "zh-CN" | "en";
@@ -211,6 +226,15 @@
   // button cannot create two sibling Sessions from the same point.
   let forkingMessageId = "";
   let copiedMessageId = "";
+  let miniAppActionPendingKey = "";
+  let miniAppActionSuccessKey = "";
+  let miniAppActionFeedback = "";
+  let miniAppActionCard: import("@molibot/desktop-contract").DesktopMiniAppResultCard | null = null;
+  let miniAppActionFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let appliedMiniAppInsertionId = 0;
+  let appliedMiniAppAttachmentId = 0;
+  let appliedMiniAppSessionOpenId = 0;
+  let appliedMiniAppDeepLinkId = 0;
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let memoryTraceId = "";
   let memoryTrace: DesktopMemoryTraceResponse["trace"] | null = null;
@@ -515,6 +539,8 @@
     miniApp?: string;
     /** Bumped so a repeat open of the same app re-activates its tab. */
     miniAppNonce?: number;
+    /** App-defined locator when the app was opened from a deep link (§2.4). */
+    miniAppDeepLinkPath?: string;
     /** A chat attachment to open as a session-scope tab (Slice 1b). */
     sessionFile?: DesktopSessionFile;
     /** Bumped so re-opening the same attachment re-activates its tab. */
@@ -1497,8 +1523,54 @@
     loadMedia: (file) => void loadMessageMedia(file),
     canPreview,
     preview: (file) => void openPreview(file),
-    download: (file) => void downloadFile(file)
+    download: (file) => void downloadFile(file),
+    contributions: contributedMessageActions,
+    onRunContribution: (action, transcriptMessage, file) => void runMiniAppMessageAction(action, transcriptMessage, undefined, file)
   } satisfies TranscriptAttachmentActions;
+  $: contributedMessageActions = catalogMessageActions($miniAppsCatalog, locale);
+
+  async function runMiniAppMessageAction(
+    action: TranscriptContributionAction,
+    message: TranscriptMessage,
+    selection?: string,
+    file?: DesktopSessionFile
+  ): Promise<void> {
+    const endpoint = connectedEndpoint || serviceEndpoint || "";
+    if (!endpoint) return;
+    const key = `${message.id ?? message.content}:${action.id}`;
+    miniAppActionPendingKey = key;
+    miniAppActionSuccessKey = "";
+    try {
+      const outcome = await invokeTranscriptMessageAction(endpoint, action, message, {
+        selection,
+        sessionTitle: activeHeaderTitle,
+        ...(file ? {
+          resource: {
+            profileId: inspectorProfileId,
+            sessionId: inspectorSessionId,
+            fileId: file.id
+          }
+        } : {})
+      });
+      miniAppActionFeedback = outcome.text;
+      miniAppActionCard = outcome.card;
+      miniAppActionSuccessKey = key;
+    } catch (cause) {
+      miniAppActionFeedback = cause instanceof Error ? cause.message : String(cause);
+      miniAppActionCard = null;
+    } finally {
+      miniAppActionPendingKey = "";
+      if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
+      // A card carries more to read than a sentence, so it gets longer before
+      // it disappears; the owner should not have to race it.
+      miniAppActionFeedbackTimer = setTimeout(() => {
+        miniAppActionFeedback = "";
+        miniAppActionCard = null;
+        miniAppActionSuccessKey = "";
+        miniAppActionFeedbackTimer = null;
+      }, miniAppActionCard ? 8000 : 3000);
+    }
+  }
   $: messageActions = messages.length === 0
     ? null
     : {
@@ -1512,7 +1584,11 @@
           : (m: TranscriptMessage) => void forkFromUserMessage(m),
         editingId: editingMessageId,
         forkingId: forkingMessageId,
-        onOpenMemoryTrace: (traceId: string) => void openMemoryTrace(traceId)
+        onOpenMemoryTrace: (traceId: string) => void openMemoryTrace(traceId),
+        contributions: contributedMessageActions,
+        pendingContributionKey: miniAppActionPendingKey,
+        successfulContributionKey: miniAppActionSuccessKey,
+        onRunContribution: (action, message, selection) => void runMiniAppMessageAction(action, message, selection)
       } satisfies TranscriptMessageActions;
   // Read-only external transcript supports copy-only (no edit); bind its own
   // actions so the clipboard still works there even when `messageActions`
@@ -1520,7 +1596,11 @@
   $: externalMessageActions = externalTranscript?.messages?.length
     ? {
         copiedId: copiedMessageId,
-        onCopy: (m: TranscriptMessage) => void copyMessageContent(m)
+        onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
+        contributions: contributedMessageActions,
+        pendingContributionKey: miniAppActionPendingKey,
+        successfulContributionKey: miniAppActionSuccessKey,
+        onRunContribution: (action, message, selection) => void runMiniAppMessageAction(action, message, selection)
       } satisfies TranscriptMessageActions
     : null;
   // Reset the editing banner when the active session changes underneath us;
@@ -1651,6 +1731,94 @@
         textarea.setSelectionRange(length, length);
       }
     });
+  }
+
+  $: applyMiniAppComposerInsertion($miniAppComposerInsertion);
+  function applyMiniAppComposerInsertion(request: import("./lib/projects/composerBridge").MiniAppComposerInsertion | null): void {
+    if (!request || request.scope !== "session" || request.id === appliedMiniAppInsertionId) return;
+    appliedMiniAppInsertionId = request.id;
+    if (viewMode === "external") {
+      miniAppActionFeedback = copy.miniAppComposerReadOnly;
+      return;
+    }
+    if (editingMessageId) {
+      miniAppActionFeedback = copy.miniAppComposerEditing;
+      return;
+    }
+    workspacePane = "chat";
+    messageInput = insertComposerText(messageInput, request.text, request.mode);
+    miniAppActionFeedback = copy.miniAppComposerInserted;
+    focusComposerAtEnd();
+  }
+
+  $: applyMiniAppComposerAttachment($miniAppComposerAttachment);
+  async function applyMiniAppComposerAttachment(
+    request: import("./lib/projects/composerBridge").MiniAppComposerAttachment | null
+  ): Promise<void> {
+    if (!request || request.scope !== "session" || request.id === appliedMiniAppAttachmentId) return;
+    // Claimed before the await so a second store tick during the fetch cannot
+    // start the same attachment again (pitfall #3).
+    appliedMiniAppAttachmentId = request.id;
+    if (viewMode === "external") { miniAppActionFeedback = copy.miniAppComposerReadOnly; return; }
+    if (editingMessageId) { miniAppActionFeedback = copy.miniAppComposerEditing; return; }
+    if (!connectedEndpoint) return;
+    try {
+      const file = await fetchDesktopMiniAppAttachment(
+        connectedEndpoint,
+        { appId: request.appId, path: request.path },
+        // Reuse the shared classifier rather than a local guess: an empty or
+        // wrong MIME is exactly what made uploaded screenshots stop being
+        // treated as images (pitfall #26e).
+        mimeFromFilename(request.name) ?? "application/octet-stream"
+      );
+      workspacePane = "chat";
+      pendingFiles = [...pendingFiles, file];
+      miniAppActionFeedback = copy.miniAppComposerAttached.replace("{name}", file.name);
+    } catch (cause) {
+      // Never silent: "the button did nothing" is the worst failure shape.
+      miniAppActionFeedback = copy.miniAppComposerAttachFailed.replace(
+        "{reason}",
+        cause instanceof Error ? cause.message : String(cause)
+      );
+    }
+  }
+
+  $: applyMiniAppSessionOpen($miniAppSessionOpenRequest);
+  function applyMiniAppSessionOpen(
+    request: import("./lib/projects/composerBridge").MiniAppSessionOpen | null
+  ): void {
+    if (!request || request.scope !== "session" || request.id === appliedMiniAppSessionOpenId) return;
+    appliedMiniAppSessionOpenId = request.id;
+    const match = Object.values(channelItems)
+      .flat()
+      .find((item) => item.sessionId === request.sessionId);
+    // An App may hold a session id that has since been deleted; say so rather
+    // than leaving the click looking ignored.
+    if (!match) { miniAppActionFeedback = copy.miniAppSessionNotFound; return; }
+    openSession(match);
+  }
+
+  /**
+   * Follows a `molibot://miniapp/<id>/<path>` link from a result card.
+   *
+   * Resolved in-process: the URL is parsed into an intent and routed, never
+   * handed to the WebView as something to navigate to.
+   */
+  function openMiniAppDeepLink(link: string): void {
+    const parsed = parseMiniAppDeepLink(link);
+    if (!parsed) return;
+    openMiniAppInspector(parsed.appId, parsed.path);
+  }
+
+  // Deep links raised from surfaces that do not own the inspector (a card
+  // rendered inside Project Chat) arrive here.
+  $: applyMiniAppDeepLinkOpen($miniAppDeepLinkOpenRequest);
+  function applyMiniAppDeepLinkOpen(
+    request: import("./lib/projects/composerBridge").MiniAppDeepLinkOpen | null
+  ): void {
+    if (!request || request.id === appliedMiniAppDeepLinkId) return;
+    appliedMiniAppDeepLinkId = request.id;
+    openMiniAppDeepLink(request.link);
   }
 
   function startEditUserMessage(message: TranscriptMessage): void {
@@ -2042,10 +2210,13 @@
     inspector = inspector?.kind === "artifact" ? null : { kind: "artifact", scope: projectPaneActive ? "project" : "session" };
   }
 
-  function openMiniAppInspector(appId: string): void {
+  function openMiniAppInspector(appId: string, deepLinkPath = ""): void {
     // Recency drives the sidebar's short list, so it is recorded even when the
     // app is already open — reopening is still a use.
     markMiniAppUsed(appId);
+    // Opening the panel is the owner seeing whatever the badge was announcing,
+    // so the badge is retired here rather than by the app guessing.
+    void clearMiniAppBadge(appId);
     // Opening an app panel returns to Chat: the panel is an inspector beside a
     // conversation, not something to show next to the manager.
     workspacePane = "chat";
@@ -2053,7 +2224,8 @@
       kind: "artifact",
       scope: projectPaneActive ? "project" : "session",
       miniApp: appId,
-      miniAppNonce: ++miniAppSeq
+      miniAppNonce: ++miniAppSeq,
+      miniAppDeepLinkPath: deepLinkPath
     };
   }
 
@@ -2413,6 +2585,7 @@
         onOpenAgentSettings={() => openSettings("agents")}
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
         onOpenMiniApp={openMiniAppInspector}
+        onOpenMiniAppAiSettings={() => openSettings("plugins")}
       />
     {:else}
     <header class:searching={searchOpen} class="chat-header" data-tauri-drag-region>
@@ -2639,6 +2812,14 @@
       </ChatInputArea>
     {/if}
     {/if}
+    {#if miniAppActionFeedback}
+      <div class="chat-action-toast" role="status">
+        <span>{miniAppActionFeedback}</span>
+        {#if miniAppActionCard}
+          <MiniAppResultCard card={miniAppActionCard} openLabel={copy.miniAppCardOpen} onOpenLink={openMiniAppDeepLink} />
+        {/if}
+      </div>
+    {/if}
   </section>
   {/if}
 
@@ -2673,6 +2854,7 @@
       touches={projectPaneActive ? $sessionFileTouches : EMPTY_TOUCHES}
       miniApp={inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : ""}
       miniAppNonce={inspector?.kind === "artifact" ? (inspector.miniAppNonce ?? 0) : 0}
+      miniAppDeepLinkPath={inspector?.kind === "artifact" ? (inspector.miniAppDeepLinkPath ?? "") : ""}
       {locale}
       theme={resolvedTheme}
       {copy}

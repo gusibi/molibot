@@ -3,10 +3,13 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import semver from "semver";
 import {
+  builtinMiniAppMeta,
   builtinMiniAppVersion,
   materializeBuiltinMiniApp,
   type BuiltinMiniApp
 } from "$lib/server/miniapps/builtinPackage.js";
+import { sanitizeMiniAppResultCard } from "$lib/shared/miniappCard.js";
+import { MINIAPP_BADGE_MAX_COUNT } from "$lib/server/miniapps/types.js";
 import {
   hasMiniAppManifestFile,
   readMiniAppManifest,
@@ -23,12 +26,16 @@ import {
   MiniAppError,
   miniAppToolId,
   parseMiniAppToolId,
+  type MiniAppBuiltinEntry,
   type MiniAppCatalogEntry,
   type MiniAppHttpMethod,
   type MiniAppHttpRequest,
   type MiniAppHttpResult,
   type MiniAppInstallSource,
   type MiniAppLogger,
+  type MiniAppAiFacade,
+  type MiniAppBadge,
+  type MiniAppBadgeFacade,
   type MiniAppRuntime,
   type MiniAppServerModule,
   type MiniAppStatus,
@@ -60,6 +67,7 @@ import {
 const UNINSTALL_DRAIN_TIMEOUT_MS = 5_000;
 const HOST_STATE_FILENAME = "_host.json";
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
+const MAX_BINARY_BODY_BYTES = 25 * 1024 * 1024;
 
 const UI_CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -105,6 +113,7 @@ export interface MiniAppHostOptions {
    * never offers one).
    */
   getBuiltinApp?: (appId: string) => BuiltinMiniApp | null;
+  createAiFacade?: (appId: string, capabilities: import("$lib/server/miniapps/types.js").MiniAppAiCapability[], dataDir: string) => MiniAppAiFacade;
 }
 
 interface AppSlot {
@@ -119,6 +128,12 @@ interface AppSlot {
   runtimeError: string | null;
   revision: number;
   inFlight: number;
+  /**
+   * Live sidebar badge. Held in memory rather than persisted on purpose: after
+   * a restart no app can still be doing the work its badge described, so a
+   * restored count would be a claim nothing backs (pitfall #23a/#23d).
+   */
+  badge: MiniAppBadge;
   uninstalling: boolean;
   /**
    * Set while the app's code directory is being replaced by an update. Like
@@ -138,6 +153,22 @@ const noopLogger: MiniAppLogger = {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/**
+ * Bounds whatever an app passed to `badge.set()`.
+ *
+ * A non-integer, negative or zero count clears the badge instead of rendering
+ * "0" or "NaN" on the sidebar — an app counting down to nothing should end with
+ * no badge, and that is the reading that needs no app-side special case.
+ */
+function normalizeBadge(badge: MiniAppBadge): MiniAppBadge {
+  if (!badge || typeof badge !== "object") return null;
+  if (badge.kind === "dot") return { kind: "dot" };
+  if (badge.kind !== "count") return null;
+  const count = Math.floor(Number(badge.count));
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return { kind: "count", count: Math.min(count, MINIAPP_BADGE_MAX_COUNT) };
 }
 
 /**
@@ -247,6 +278,9 @@ export class MiniAppHost {
         runtimeError: unchanged ? existing!.runtimeError : null,
         revision: existing?.revision ?? 0,
         inFlight: existing?.inFlight ?? 0,
+        // A rediscovered slot that kept its runtime kept the work behind its
+        // badge too; a reloaded one starts clean.
+        badge: unchanged ? (existing?.badge ?? null) : null,
         uninstalling: false,
         updating: false
       });
@@ -267,6 +301,7 @@ export class MiniAppHost {
       runtimeError: null,
       revision: 0,
       inFlight: 0,
+      badge: null,
       uninstalling: false,
       updating: false
     };
@@ -341,6 +376,15 @@ export class MiniAppHost {
         builtin: this.builtinAppIds.has(slot.id),
         hasUi: Boolean(slot.descriptor),
         toolNames: slot.descriptor?.manifest.tools.map((tool) => tool.name) ?? [],
+        messageActions: slot.descriptor?.manifest.contributions?.messageActions.map((action) => ({
+          ...action,
+          label: { ...action.label },
+          accepts: [...action.accepts]
+        })) ?? [],
+        aiCapabilities: [...(slot.descriptor?.manifest.ai?.capabilities ?? [])],
+        // A disabled or failed app must not keep advertising a badge: the
+        // sidebar would show a count for something the owner cannot open.
+        badge: this.statusOf(slot) === "active" && this.isEnabled(slot.id) ? slot.badge : null,
         iconDataUri: slot.iconDataUri,
         source: this.sourceOf(slot.id),
         updateAvailable: this.updateAvailableFor(slot),
@@ -348,6 +392,45 @@ export class MiniAppHost {
         error: slot.loadError ?? slot.runtimeError ?? undefined
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /**
+   * Every built-in this build ships, installed or not, with the state the
+   * manager needs to offer install / update / uninstall.
+   *
+   * Reads identity from the *bundled* copy rather than from disk, because a
+   * built-in the owner never installed (or deliberately removed) has nothing on
+   * disk to read — and an app that cannot be listed cannot be installed back.
+   */
+  listBuiltinCatalog(): MiniAppBuiltinEntry[] {
+    const entries: MiniAppBuiltinEntry[] = [];
+    for (const appId of this.builtinAppIds) {
+      const bundled = this.options.getBuiltinApp?.(appId);
+      // No bundled copy means this host cannot install or describe the app;
+      // listing it would offer a button that can only fail.
+      if (!bundled) continue;
+      const meta = builtinMiniAppMeta(bundled);
+      const slot = this.slots.get(appId);
+      const enablement = this.options.getEnablement()[appId];
+      entries.push({
+        id: meta.id,
+        name: meta.name,
+        description: meta.description,
+        availableVersion: meta.version,
+        // The installed copy's icon may be an owner-edited one; the bundled
+        // icon is what the row is describing, so it wins here.
+        iconDataUri: meta.iconDataUri || (slot?.iconDataUri ?? ""),
+        toolNames: slot?.descriptor?.manifest.tools.map((tool) => tool.name) ?? meta.toolNames,
+        installed: Boolean(slot),
+        installedVersion: slot?.descriptor?.manifest.version ?? "",
+        updateAvailable: slot ? this.updateAvailableFor(slot) : false,
+        enabled: slot ? this.isEnabled(appId) : false,
+        status: slot ? this.statusOf(slot) : "not-installed",
+        removedByOwner: enablement?.removedBuiltin === true,
+        error: slot ? (slot.loadError ?? slot.runtimeError ?? undefined) : undefined
+      });
+    }
+    return entries;
   }
 
   /**
@@ -409,6 +492,66 @@ export class MiniAppHost {
     return this.slots.get(appId)?.revision ?? 0;
   }
 
+  // ----------------------------------------------------------------- badges
+
+  /**
+   * The badge handle handed to one app's runtime.
+   *
+   * Closes over the slot rather than the id so a badge written by a runtime
+   * that has since been replaced lands on the object that is being discarded,
+   * not on its successor.
+   */
+  private createBadgeFacade(slot: AppSlot): MiniAppBadgeFacade {
+    return {
+      set: (badge) => {
+        slot.badge = normalizeBadge(badge);
+      },
+      get: () => slot.badge,
+      clear: () => {
+        slot.badge = null;
+      }
+    };
+  }
+
+  /**
+   * Clears a badge on the owner's behalf — used when they open the app, which
+   * is the act of "having seen it".
+   *
+   * The host owns this rather than the app because the host is what knows the
+   * panel was opened; an app polling to discover it would be a worse contract.
+   */
+  clearBadge(appId: string): void {
+    const slot = this.slots.get(appId);
+    if (slot) slot.badge = null;
+  }
+
+  // -------------------------------------------------------- data file access
+
+  /**
+   * Reads a file the app placed in its own data directory, for the
+   * `composer.attach` bridge action.
+   *
+   * The relative path arrives from the app's UI, so it is untrusted input about
+   * a directory the app legitimately owns: containment is proven against the
+   * real dataDir after following symlinks (pitfall #6 — a UI-supplied marker is
+   * not a filesystem path until the owner of that directory validates it).
+   * Nothing outside dataDir is reachable, and no host path is ever returned.
+   */
+  readDataFile(appId: string, relativePath: string, maxBytes: number): { bytes: Buffer; name: string } {
+    const slot = this.requireCallableSlot(appId);
+    const dataDir = appDataDirPath(this.options.dataRoot, slot.id);
+    if (!dataDir) throw new MiniAppError("Invalid Mini App id.", "bad_request");
+
+    const filePath = resolveContainedPath(dataDir, relativePath, { requireFile: true });
+    if (!filePath) throw new MiniAppError("File not found in this Mini App's data directory.", "not_found");
+
+    const stats = fs.statSync(filePath);
+    if (stats.size > maxBytes) {
+      throw new MiniAppError(`File exceeds the ${Math.floor(maxBytes / (1024 * 1024))} MiB attachment limit.`, "invalid_input");
+    }
+    return { bytes: fs.readFileSync(filePath), name: path.basename(filePath) };
+  }
+
   /**
    * Loads an app runtime without invoking one of its domain tools.
    *
@@ -444,19 +587,21 @@ export class MiniAppHost {
   }
 
   /**
-   * Reinstalls a built-in from the copy this build ships, replacing the code
-   * directory wholesale and leaving the app's data directory untouched.
+   * Writes the shipped copy of a built-in into the code root — the one
+   * operation behind both "install" and "update", because they differ only in
+   * whether something was there before.
    *
    * Same ordering discipline as uninstall — suspend, drain, dispose, then touch
-   * the filesystem — because the app may hold an open SQLite handle on files
-   * inside the directory being replaced.
+   * the filesystem — because an installed app may hold an open SQLite handle on
+   * files inside the directory being replaced. The app's *data* directory is
+   * never touched, which is what makes an update safe to offer.
    *
    * Enablement is preserved: an owner who had the app switched off gets the new
-   * code, still switched off.
+   * code, still switched off. A removal tombstone is cleared, because an owner
+   * asking for the app back is exactly the intent the tombstone records the
+   * absence of.
    */
-  async updateBuiltin(appId: string): Promise<void> {
-    const slot = this.slots.get(appId);
-    if (!slot) throw new MiniAppError(`Unknown Mini App: ${appId}`, "not_found");
+  async installBuiltin(appId: string): Promise<void> {
     if (!this.builtinAppIds.has(appId)) {
       throw new MiniAppError(`Mini App "${appId}" is not a built-in app.`, "bad_request");
     }
@@ -465,38 +610,58 @@ export class MiniAppHost {
       throw new MiniAppError(`No bundled copy of "${appId}" is available.`, "not_found");
     }
 
-    slot.updating = true;
+    const slot = this.slots.get(appId);
+    if (slot) slot.updating = true;
     try {
-      const drainedAt = Date.now() + UNINSTALL_DRAIN_TIMEOUT_MS;
-      while (slot.inFlight > 0) {
-        if (Date.now() > drainedAt) {
-          throw new MiniAppError(
-            `Mini App "${appId}" still has ${slot.inFlight} call(s) running; try again shortly.`,
-            "busy"
-          );
+      if (slot) {
+        const drainedAt = Date.now() + UNINSTALL_DRAIN_TIMEOUT_MS;
+        while (slot.inFlight > 0) {
+          if (Date.now() > drainedAt) {
+            throw new MiniAppError(
+              `Mini App "${appId}" still has ${slot.inFlight} call(s) running; try again shortly.`,
+              "busy"
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
         }
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
 
-      if (slot.runtime?.dispose) {
-        await slot.runtime.dispose();
+        if (slot.runtime?.dispose) {
+          await slot.runtime.dispose();
+        }
+        slot.runtime = null;
+        slot.loading = null;
       }
-      slot.runtime = null;
-      slot.loading = null;
 
       materializeBuiltinMiniApp(this.options.codeRoot, bundled);
     } catch (cause) {
       if (cause instanceof MiniAppError) throw cause;
       throw new MiniAppError(sanitizeOutwardMessage(errorMessage(cause)), "load_failed");
     } finally {
-      slot.updating = false;
+      if (slot) slot.updating = false;
     }
 
-    this.logger.info("miniapp_updated", {
+    const enablement = this.options.getEnablement()[appId];
+    if (!enablement || enablement.removedBuiltin) {
+      this.options.setEnablement(appId, { ...enablement, enabled: true, removedBuiltin: false });
+    }
+
+    this.logger.info(slot ? "miniapp_updated" : "miniapp_builtin_installed", {
       appId,
       version: builtinMiniAppVersion(bundled)
     });
     this.refresh();
+  }
+
+  /**
+   * Reinstalls an *installed* built-in from the shipped copy.
+   *
+   * Only the precondition differs from {@link installBuiltin}: an update names
+   * something the owner already has, so an unknown id is a 404 rather than a
+   * silent first install.
+   */
+  async updateBuiltin(appId: string): Promise<void> {
+    if (!this.slots.has(appId)) throw new MiniAppError(`Unknown Mini App: ${appId}`, "not_found");
+    await this.installBuiltin(appId);
   }
 
   /**
@@ -604,9 +769,15 @@ export class MiniAppHost {
       throw new MiniAppError("runtime.entry must default-export a factory function.", "load_failed");
     }
 
+    const unavailableAi: MiniAppAiFacade = {
+      generateText: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); },
+      transcribe: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); }
+    };
     const runtime = await factory({
       appId: slot.id,
       dataDir,
+      badge: this.createBadgeFacade(slot),
+      ai: this.options.createAiFacade?.(slot.id, descriptor.manifest.ai?.capabilities ?? [], dataDir) ?? unavailableAi,
       logger: {
         info: (event, detail) => this.logger.info(`miniapp:${slot.id}:${event}`, detail),
         warn: (event, detail) => this.logger.warn(`miniapp:${slot.id}:${event}`, detail),
@@ -716,10 +887,15 @@ export class MiniAppHost {
     try {
       const result = await handler(input ?? {}, context);
       if (result?.changed) slot.revision += 1;
+      // The card is sanitized here rather than at the render site so every
+      // consumer — desktop transcript, message-action route, any later surface
+      // — receives the same already-bounded shape (pitfall #7).
+      const card = sanitizeMiniAppResultCard(result?.card, parsed.appId);
       return {
         content: Array.isArray(result?.content) ? result.content : [],
         structuredContent: result?.structuredContent,
-        changed: result?.changed === true
+        changed: result?.changed === true,
+        ...(card ? { card } : {})
       };
     } catch (cause) {
       // The stack stays in the service log; the agent gets a stable sentence.
@@ -801,15 +977,33 @@ export class MiniAppHost {
     }
 
     let body: unknown = undefined;
+    let contentType: string | undefined;
     if (method !== "GET") {
-      try {
-        const raw = await request.text();
-        if (raw.length > MAX_JSON_BODY_BYTES) {
+      const mountedPath = `/api${normalizedPath}`;
+      const declaredUpload = slot.descriptor?.manifest.ai?.uploadLimits.find((limit) =>
+        mountedPath === limit.path || mountedPath.startsWith(`${limit.path}/`)
+      );
+      const requestContentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() || "";
+      if (declaredUpload && requestContentType !== "application/json") {
+        const allowedBytes = Math.min(MAX_BINARY_BODY_BYTES, declaredUpload.maxBytes);
+        const declaredLength = Number(request.headers.get("content-length") ?? 0);
+        if (Number.isFinite(declaredLength) && declaredLength > allowedBytes) {
           return jsonResponse(413, { error: "Request body too large." });
         }
-        body = raw.length > 0 ? JSON.parse(raw) : undefined;
-      } catch {
-        return jsonResponse(400, { error: "Request body must be JSON." });
+        const bytes = new Uint8Array(await request.arrayBuffer());
+        if (bytes.byteLength > allowedBytes) return jsonResponse(413, { error: "Request body too large." });
+        body = bytes;
+        contentType = requestContentType || "application/octet-stream";
+      } else {
+        try {
+          const raw = await request.text();
+          if (Buffer.byteLength(raw, "utf8") > MAX_JSON_BODY_BYTES) {
+            return jsonResponse(413, { error: "Request body too large." });
+          }
+          body = raw.length > 0 ? JSON.parse(raw) : undefined;
+        } catch {
+          return jsonResponse(400, { error: "Request body must be JSON." });
+        }
       }
     }
 
@@ -823,6 +1017,7 @@ export class MiniAppHost {
       path: normalizedPath,
       query,
       body,
+      ...(contentType ? { contentType } : {}),
       signal: request.signal
     };
 
@@ -882,6 +1077,8 @@ export function miniAppErrorResponse(cause: unknown): Response {
       ? 404
       : cause.code === "disabled"
         ? 403
+        : cause.code === "forbidden"
+          ? 403
         : cause.code === "bad_request" || cause.code === "invalid_input"
           ? 400
           : cause.code === "busy"

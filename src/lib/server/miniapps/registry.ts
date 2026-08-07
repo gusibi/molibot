@@ -1,10 +1,12 @@
 import { momLog } from "$lib/server/agent/common/log.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
-import { getBuiltinMiniApp } from "$lib/server/miniapps/bootstrap.js";
+import { builtinMiniAppIds, getBuiltinMiniApp } from "$lib/server/miniapps/bootstrap.js";
 import { createMiniAppHost, type MiniAppEnablementEntry, type MiniAppHost } from "$lib/server/miniapps/host.js";
 import { createMiniAppInstaller, type MiniAppInstaller } from "$lib/server/miniapps/install.js";
 import type { MiniAppInstallSource } from "$lib/server/miniapps/types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
+import { createMiniAppAiFacade } from "$lib/server/miniapps/aiFacade.js";
 
 /**
  * Process-wide MiniAppHost singleton.
@@ -15,17 +17,28 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
  * which `getRuntime()` calls before discovery.
  */
 
-/** Apps Molibot ships and bootstraps into an empty owner workspace. */
-export const BUILTIN_MINI_APP_IDS = ["todo"] as const;
+/**
+ * Apps Molibot ships.
+ *
+ * Derived from the bundle rather than listed again here: a second hand-written
+ * list is how an app ends up shipped but not labelled built-in — offered no
+ * update, no bundled reinstall, and a `directory` provenance it never had.
+ */
+export const BUILTIN_MINI_APP_IDS: readonly string[] = builtinMiniAppIds();
 
 interface MiniAppSettingsAccessor {
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
+  usageTracker?: AiUsageTracker;
 }
 
 let accessor: MiniAppSettingsAccessor | null = null;
 let host: MiniAppHost | null = null;
 let installer: MiniAppInstaller | null = null;
+
+export function initialMiniAppEnabled(source: MiniAppInstallSource, usesAi: boolean): boolean {
+  return source.kind === "builtin" || !usesAi;
+}
 
 export function configureMiniAppSettings(next: MiniAppSettingsAccessor): void {
   accessor = next;
@@ -53,7 +66,7 @@ function writeEnablement(appId: string, entry: MiniAppEnablementEntry | null): v
   accessor.updateSettings({
     plugins: {
       ...accessor.getSettings().plugins,
-      miniApps: { entries }
+      miniApps: { ...accessor.getSettings().plugins.miniApps, entries }
     }
   } as Partial<RuntimeSettings>);
 }
@@ -70,6 +83,16 @@ export function getMiniAppHost(): MiniAppHost {
       // Lets the host compare an installed built-in against the copy this build
       // ships, and reinstall it on request.
       getBuiltinApp: getBuiltinMiniApp,
+      createAiFacade: (appId, capabilities, dataDir) => createMiniAppAiFacade({
+        appId,
+        dataDir,
+        capabilities,
+        getSettings: () => {
+          if (!accessor) throw new Error("Mini App settings accessor is not configured.");
+          return accessor.getSettings();
+        },
+        usageTracker: accessor?.usageTracker
+      }),
       logger: {
         info: (event, detail) => momLog("miniapps", event, detail ?? {}),
         warn: (event, detail) => momLog("miniapps", event, { level: "warn", ...(detail ?? {}) }),
@@ -80,6 +103,10 @@ export function getMiniAppHost(): MiniAppHost {
   return host;
 }
 
+export function getMiniAppDataRoot(): string {
+  return storagePaths.miniAppDataDir;
+}
+
 /**
  * The installer shares the host's code root and records provenance into the
  * same settings block the host reads it from.
@@ -88,14 +115,14 @@ export function getMiniAppInstaller(): MiniAppInstaller {
   if (!installer) {
     installer = createMiniAppInstaller({
       codeRoot: storagePaths.miniAppCodeDir,
-      recordSource: (appId, source) => {
+      recordSource: (appId, source, detail) => {
         if (!accessor) throw new Error("Mini App settings accessor is not configured.");
         const current = accessor.getSettings().plugins?.miniApps?.entries ?? {};
         const existing = current[appId];
         writeEnablement(appId, {
           // A reinstall must clear a built-in's removal tombstone, or the app
           // would be wiped again on the next start.
-          enabled: existing?.enabled ?? true,
+          enabled: existing?.enabled ?? initialMiniAppEnabled(source, detail.usesAi),
           ...(source.kind === "builtin" ? {} : { source })
         } as MiniAppEnablementEntry);
       }

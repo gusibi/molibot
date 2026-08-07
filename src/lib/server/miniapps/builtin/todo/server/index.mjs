@@ -320,7 +320,35 @@ function describe(row) {
   return `${pin}${row.completed ? "[done]" : "[open]"} ${pri}${row.title}${list} (id: ${row.id})`;
 }
 
+function titleFromAddInput(input) {
+  if (typeof input?.title === "string" && input.title.trim()) return input.title;
+  const capture = input?.capture;
+  const selected = typeof capture?.selection === "string" ? capture.selection.trim() : "";
+  const text = selected || (typeof capture?.text === "string" ? capture.text.trim() : "");
+  return text.slice(0, 300);
+}
+
 // — App factory — -------------------------------------------------------------
+
+/**
+ * Display-only summary card rendered beside the tool result.
+ *
+ * Its one affordance is a deep link into this app's own panel — a card never
+ * writes anything. The tool's text stays authoritative: the model reads that,
+ * and it is all a non-desktop surface shows.
+ */
+function todoCard(appId, row) {
+  return {
+    title: row.title,
+    subtitle: "Saved to Todo",
+    icon: "check-square",
+    fields: [
+      { label: "List", value: row.listId || "inbox" },
+      { label: "Priority", value: PRIORITY_LABELS[row.priority] || "normal" }
+    ],
+    link: `molibot://miniapp/${appId}/item/${encodeURIComponent(row.id)}`
+  };
+}
 
 export default function createTodoApp(context) {
   const store = new TodoStore(context.dataDir);
@@ -330,12 +358,17 @@ export default function createTodoApp(context) {
     tools: {
       add: async (input) => {
         const row = store.add(
-          input.title,
+          titleFromAddInput(input),
           input.listId,
           input.priority,
           input.pinned
         );
-        return { ...text(`Added: ${row.title}`), structuredContent: row, changed: true };
+        return {
+          ...text(`Added: ${row.title}`),
+          structuredContent: row,
+          changed: true,
+          card: todoCard(context.appId, row)
+        };
       },
 
       list: async (input) => {

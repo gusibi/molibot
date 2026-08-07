@@ -40,6 +40,15 @@ const STRINGS = {
 const params = new URLSearchParams(location.search);
 const locale = String(params.get("locale") ?? "en").toLowerCase().startsWith("zh") ? "zh" : "en";
 const theme = params.get("theme") === "dark" ? "dark" : "light";
+/**
+ * Deep-link locator from `molibot://miniapp/todo/<path>`, handed over as a
+ * startup hint beside locale/theme. The host never interprets it — this app
+ * defines the shape, which here is `item/<id>`.
+ *
+ * Consumed once: after the first render lands on the item, following it again
+ * on every later refresh would keep yanking the list back.
+ */
+let pendingDeepLink = params.get("path") ?? "";
 const t = STRINGS[locale];
 document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
 document.documentElement.dataset.theme = theme;
@@ -477,6 +486,26 @@ function updateTopbar() {
   }
 }
 
+/**
+ * Scrolls to and briefly highlights the item a deep link named.
+ *
+ * Silently does nothing when the item is not in the current view (a filter is
+ * on, or it was deleted): a link into a Mini App is a convenience, and failing
+ * loudly over a stale id would be worse than simply opening the app.
+ */
+function followDeepLink() {
+  if (!pendingDeepLink) return;
+  const [kind, rawId] = pendingDeepLink.split("/");
+  // Cleared even when nothing matches, so a stale id is not retried forever.
+  pendingDeepLink = "";
+  if (kind !== "item" || !rawId) return;
+  const target = document.querySelector(`.todo-item[data-id="${CSS.escape(rawId)}"]`);
+  if (!target) return;
+  target.scrollIntoView({ block: "center", behavior: "smooth" });
+  target.classList.add("deep-link-target");
+  setTimeout(() => target.classList.remove("deep-link-target"), 2000);
+}
+
 async function loadList() {
   const sp = new URLSearchParams();
   sp.set("status", "all");
@@ -501,6 +530,8 @@ async function loadList() {
     // Count
     el.openCount.textContent = open.length > 0 ? open.length : "";
     el.openCount.style.visibility = open.length > 0 ? "" : "hidden";
+
+    followDeepLink();
 
     setStatus(null);
   } catch (err) {

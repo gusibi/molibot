@@ -23,20 +23,22 @@ interface Harness {
   root: string;
   codeRoot: string;
   sources: Record<string, MiniAppInstallSource>;
+  usesAi: Record<string, boolean>;
 }
 
 function makeHarness(): Harness {
   const root = mkdtempSync(join(tmpdir(), "molibot-miniapp-install-"));
   const codeRoot = join(root, "apps");
   mkdirSync(codeRoot, { recursive: true });
-  return { root, codeRoot, sources: {} };
+  return { root, codeRoot, sources: {}, usesAi: {} };
 }
 
 function installerFor(harness: Harness, downloadArchive?: (url: string) => Promise<Buffer>) {
   return createMiniAppInstaller({
     codeRoot: harness.codeRoot,
-    recordSource: (appId, source) => {
+    recordSource: (appId, source, detail) => {
       harness.sources[appId] = source;
+      harness.usesAi[appId] = detail.usesAi;
     },
     downloadArchive
   });
@@ -50,7 +52,7 @@ const APP_SOURCE = `export default function create() {
 }
 `;
 
-function manifestFor(id: string, version = "1.0.0"): string {
+function manifestFor(id: string, version = "1.0.0", usesAi = false): string {
   return JSON.stringify({
     manifestVersion: 1,
     id,
@@ -60,6 +62,7 @@ function manifestFor(id: string, version = "1.0.0"): string {
     runtime: { entry: "server/index.mjs" },
     ui: { entry: "ui/index.html" },
     data: { schemaVersion: 1 },
+    ...(usesAi ? { ai: { capabilities: ["text"] } } : {}),
     tools: [{
       name: "ping",
       description: "Ping the app.",
@@ -70,10 +73,10 @@ function manifestFor(id: string, version = "1.0.0"): string {
 }
 
 /** Writes a complete, valid app into `dir`. */
-function writeAppInto(dir: string, id: string, version = "1.0.0"): void {
+function writeAppInto(dir: string, id: string, version = "1.0.0", usesAi = false): void {
   mkdirSync(join(dir, "server"), { recursive: true });
   mkdirSync(join(dir, "ui"), { recursive: true });
-  writeFileSync(join(dir, "manifest.json"), manifestFor(id, version), "utf8");
+  writeFileSync(join(dir, "manifest.json"), manifestFor(id, version, usesAi), "utf8");
   writeFileSync(join(dir, "server", "index.mjs"), APP_SOURCE, "utf8");
   writeFileSync(join(dir, "ui", "index.html"), "<!doctype html><title>app</title>", "utf8");
 }
@@ -98,6 +101,14 @@ test("installs from a local directory and records its provenance", async () => {
   assert.deepEqual(harness.sources.notes, { kind: "directory", label: "my-notes" });
   // Staging must leave nothing behind.
   assert.deepEqual(readdirSync(harness.codeRoot).filter((name) => name !== "notes"), []);
+});
+
+test("reports declared AI use to the enablement policy before a third-party app is activated", async () => {
+  const harness = makeHarness();
+  const source = join(harness.root, "ai-writer");
+  writeAppInto(source, "ai-writer", "1.0.0", true);
+  await installerFor(harness).install({ source: "directory", path: source });
+  assert.equal(harness.usesAi["ai-writer"], true);
 });
 
 test("installs from a ZIP, including one wrapped in its own folder", async () => {

@@ -166,6 +166,10 @@ test("Mini App enable state and built-in tombstones survive a settings store res
       plugins: {
         ...defaultRuntimeSettings.plugins,
         miniApps: {
+          ai: {
+            textModelKey: "custom|local|small-text",
+            transcriptionModelKey: "custom|local|whisper"
+          },
           entries: {
             todo: { enabled: false, removedBuiltin: true },
             expenses: { enabled: true },
@@ -181,6 +185,10 @@ test("Mini App enable state and built-in tombstones survive a settings store res
     assert.deepEqual(restarted.plugins.miniApps.entries.todo, { enabled: false, removedBuiltin: true });
     assert.deepEqual(restarted.plugins.miniApps.entries.expenses, { enabled: true });
     assert.deepEqual(restarted.plugins.miniApps.entries.budget, { enabled: false });
+    assert.deepEqual(restarted.plugins.miniApps.ai, {
+      textModelKey: "custom|local|small-text",
+      transcriptionModelKey: "custom|local|whisper"
+    });
   } finally {
     storagePaths.settingsFile = originalSettingsFile;
     storagePaths.settingsDbFile = originalSettingsDbFile;

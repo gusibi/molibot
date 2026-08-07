@@ -70,9 +70,8 @@ export interface BuiltinSkill {
 const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     id: "miniapp-creator",
-    // 1.2.0: hyphenated ids get SQL-safe identifiers, and authoring now builds
-    // in scratch before evidence-producing validate/install/inspect calls.
-    version: "1.2.0",
+    // 1.3.0: host actions, bridge, AI, raw uploads and restart-safe jobs.
+    version: "1.3.0",
     files: {
       "SKILL.md": miniappCreatorSkill,
       "reference.md": miniappCreatorReference,

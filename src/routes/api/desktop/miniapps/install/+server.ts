@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { buildDesktopMiniApps } from "$lib/server/app/desktopMiniApps";
+import { buildDesktopMiniAppsPayload } from "$lib/server/app/desktopMiniApps";
 import { getMiniAppHost, getMiniAppInstaller } from "$lib/server/miniapps/registry";
 import { MiniAppError } from "$lib/server/miniapps/types";
 import type { MiniAppInstallRequest } from "$lib/server/miniapps/install";
@@ -42,7 +42,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     return json({
       ok: true,
-      items: buildDesktopMiniApps(getMiniAppHost().listCatalog()),
+      ...buildDesktopMiniAppsPayload(getMiniAppHost()),
       installedId: result.appId,
       replaced: result.replaced,
       restartRequired: true

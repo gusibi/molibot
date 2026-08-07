@@ -10,6 +10,10 @@
  * path safety, revision tracking and lifecycle stay inside `host.ts`.
  */
 
+import type { MiniAppResultCard } from "$lib/shared/miniappCard.js";
+
+export type { MiniAppResultCard };
+
 /** Risk hints an app declares per tool; the host maps them to a runtime risk. */
 export interface MiniAppToolManifest {
   name: string;
@@ -20,6 +24,54 @@ export interface MiniAppToolManifest {
   inputSchema: Record<string, unknown>;
   readOnlyHint?: boolean;
   destructiveHint?: boolean;
+}
+
+export type MiniAppMessageActionAccept = "text" | "image" | "file";
+
+export interface MiniAppMessageActionManifest {
+  tool: string;
+  label: { zh: string; en: string };
+  icon?: string;
+  /** Message text is accepted when omitted. */
+  accepts: MiniAppMessageActionAccept[];
+}
+
+export interface MiniAppContributionsManifest {
+  messageActions: MiniAppMessageActionManifest[];
+}
+
+export type MiniAppAiCapability = "text" | "transcription";
+
+export interface MiniAppUploadLimitManifest {
+  path: string;
+  maxBytes: number;
+}
+
+export interface MiniAppAiManifest {
+  capabilities: MiniAppAiCapability[];
+  uploadLimits: MiniAppUploadLimitManifest[];
+}
+
+export interface MessageCaptureResource {
+  kind: "image" | "file";
+  name: string;
+  mime: string;
+  /** Path relative to this App's dataDir. */
+  path: string;
+  bytes: number;
+}
+
+export interface MessageCaptureContext {
+  text: string;
+  selection?: string;
+  role: "assistant" | "user";
+  truncated: boolean;
+  capturedAt: string;
+  source: {
+    sessionTitle?: string;
+    channel: string;
+  };
+  resources?: MessageCaptureResource[];
 }
 
 export interface MiniAppManifest {
@@ -33,6 +85,8 @@ export interface MiniAppManifest {
   ui: { entry: string; /** Optional SVG/PNG shown in the sidebar and manager. */ icon?: string };
   data: { schemaVersion: number };
   tools: MiniAppToolManifest[];
+  contributions?: MiniAppContributionsManifest;
+  ai?: MiniAppAiManifest;
 }
 
 /**
@@ -63,6 +117,10 @@ export interface MiniAppCatalogEntry {
   builtin: boolean;
   hasUi: boolean;
   toolNames: string[];
+  messageActions: MiniAppMessageActionManifest[];
+  aiCapabilities: MiniAppAiCapability[];
+  /** Live sidebar badge; null when the app has not set one. */
+  badge: MiniAppBadge;
   /**
    * The app's icon inlined as a `data:` URI, or empty.
    *
@@ -82,6 +140,39 @@ export interface MiniAppCatalogEntry {
   updateAvailable: boolean;
   /** The version the bundle carries, or empty when there is no bundled copy. */
   availableVersion: string;
+  error?: string;
+}
+
+/**
+ * A built-in app as the manager's built-in tab sees it.
+ *
+ * Deliberately not a {@link MiniAppCatalogEntry}: that describes something
+ * *installed*, and the whole job here is to describe an app the owner may not
+ * have — so identity, description and icon come from the bundled copy, and the
+ * installed side is optional. Keeping them apart is what stops the installed
+ * list from having to grow a "maybe not really installed" row.
+ */
+export interface MiniAppBuiltinEntry {
+  id: string;
+  name: string;
+  description: string;
+  /** The version this Molibot build ships. */
+  availableVersion: string;
+  iconDataUri: string;
+  toolNames: string[];
+  installed: boolean;
+  /** The version on disk; empty when not installed. */
+  installedVersion: string;
+  /** True when the shipped copy is newer than the installed one. */
+  updateAvailable: boolean;
+  /** Enablement of the installed copy; false when not installed. */
+  enabled: boolean;
+  status: MiniAppStatus | "not-installed";
+  /**
+   * True when the owner uninstalled this built-in. Purely informational: the
+   * tombstone stops *automatic* reinstallation, never a deliberate one.
+   */
+  removedByOwner: boolean;
   error?: string;
 }
 
@@ -110,6 +201,15 @@ export interface MiniAppToolResult {
   structuredContent?: unknown;
   /** Set by the app when the call mutated data; bumps the app's revision. */
   changed?: boolean;
+  /**
+   * Optional summary card rendered beside the result.
+   *
+   * Never a substitute for `content`: the text is what the *model* reads and
+   * what every non-desktop surface shows, while the card is a desktop
+   * presentation extra. An app that puts information only in the card has
+   * hidden it from the agent.
+   */
+  card?: MiniAppResultCard;
 }
 
 export type MiniAppHttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -120,6 +220,8 @@ export interface MiniAppHttpRequest {
   path: string;
   query: Record<string, string[]>;
   body: unknown;
+  /** Present for controlled raw upload routes; JSON routes omit it. */
+  contentType?: string;
   signal?: AbortSignal;
 }
 
@@ -140,11 +242,73 @@ export interface MiniAppLogger {
   error(event: string, detail?: Record<string, unknown>): void;
 }
 
+export type MiniAppAiErrorCode =
+  | "capability_not_declared"
+  | "capability_unavailable"
+  | "invalid_request"
+  | "rate_limited"
+  | "provider_failed"
+  | "aborted";
+
+export class MiniAppAiError extends Error {
+  constructor(readonly code: MiniAppAiErrorCode, message: string) {
+    super(message);
+    this.name = "MiniAppAiError";
+  }
+}
+
+export interface MiniAppAiTextResult {
+  text: string;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+}
+
+export interface MiniAppAiFacade {
+  generateText(input: {
+    prompt: string;
+    system?: string;
+    maxTokens?: number;
+    signal?: AbortSignal;
+  }): Promise<MiniAppAiTextResult>;
+  transcribe(input: {
+    path: string;
+    language?: string;
+    signal?: AbortSignal;
+  }): Promise<{ text: string; durationSeconds: number }>;
+}
+
+/**
+ * The sidebar badge an app may set on its own icon.
+ *
+ * `count` shows a number, `dot` shows an unlabelled marker for "something
+ * changed", and `null` clears it. Deliberately the whole vocabulary: the
+ * roadmap keeps this small on purpose — no system notification, no interrupting
+ * popup, no severity levels. An app that needs to say something in a
+ * conversation uses the event seam, not a louder badge.
+ */
+export type MiniAppBadge = { kind: "count"; count: number } | { kind: "dot" } | null;
+
+/** Above this the badge reads as "a lot" rather than a number worth showing. */
+export const MINIAPP_BADGE_MAX_COUNT = 99;
+
+export interface MiniAppBadgeFacade {
+  /**
+   * Sets or clears this app's badge. Synchronous and in-memory: a badge is
+   * live state about work in progress, so it resets when the service restarts
+   * rather than resurrecting a stale count the app can no longer explain
+   * (pitfall #23d — a stored field is not a status).
+   */
+  set(badge: MiniAppBadge): void;
+  get(): MiniAppBadge;
+  clear(): void;
+}
+
 /** What the host hands an app's factory. Deliberately tiny. */
 export interface MiniAppRuntimeContext {
   appId: string;
   dataDir: string;
   logger: MiniAppLogger;
+  ai: MiniAppAiFacade;
+  badge: MiniAppBadgeFacade;
 }
 
 export interface MiniAppRuntime {
@@ -167,6 +331,7 @@ export class MiniAppError extends Error {
       | "invalid_input"
       | "load_failed"
       | "busy"
+      | "forbidden"
       | "bad_request"
   ) {
     super(message);

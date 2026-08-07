@@ -1,0 +1,286 @@
+{
+  "manifestVersion": 1,
+  "id": "note",
+  "name": "Note",
+  "version": "1.1.0",
+  "description": "A card-style note Mini App for Molibot with text notes, checklist items, card colors, pin, archive, search, and labels.",
+  "engines": {
+    "molibot": ">=2.9.9 <4"
+  },
+  "runtime": {
+    "entry": "server/index.mjs"
+  },
+  "ui": {
+    "entry": "ui/index.html",
+    "icon": "ui/icon.svg"
+  },
+  "data": {
+    "schemaVersion": 1
+  },
+  "tools": [
+    {
+      "name": "create_note",
+      "title": "Create Note",
+      "description": "Create a new text note or checklist note in Note. Use when the user asks to save a note, memo, card, list, or reminder.",
+      "keywords": [
+        "note",
+        "create_note",
+        "memo",
+        "checklist",
+        "笔记",
+        "记一下",
+        "新建笔记",
+        "便签",
+        "添加笔记"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "Title of the note."
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 5000,
+            "description": "Content of the note. For text notes, it is body text. For checklist notes, pass lines or JSON array of {text, checked}."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["text", "checklist"],
+            "description": "Note type. Defaults to text."
+          },
+          "color": {
+            "type": "string",
+            "enum": ["default", "yellow", "blue", "green", "red", "purple", "gray"],
+            "description": "Card background color."
+          },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string", "maxLength": 50 },
+            "description": "Tags or categories for the note."
+          },
+          "is_pinned": {
+            "type": "boolean",
+            "description": "Whether to pin this note to the top."
+          },
+          "capture": {
+            "type": "object",
+            "description": "Host-supplied message capture. Present when the note came from the chat message action rather than from the agent.",
+            "properties": {
+              "text": { "type": "string", "minLength": 1 },
+              "selection": { "type": "string" },
+              "role": { "type": "string", "enum": ["assistant", "user"] },
+              "truncated": { "type": "boolean" },
+              "capturedAt": { "type": "string" },
+              "source": { "type": "object" },
+              "resources": { "type": "array" }
+            },
+            "required": ["text", "role", "capturedAt", "source"],
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "list_notes",
+      "title": "List / Search Notes",
+      "description": "Search or list notes with filters like query string, label, color, pinned state, or archive state.",
+      "keywords": [
+        "note",
+        "list_notes",
+        "search_notes",
+        "笔记",
+        "查看笔记",
+        "搜索笔记",
+        "查找便签",
+        "有哪些笔记"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Keyword search across title and content."
+          },
+          "label": {
+            "type": "string",
+            "description": "Filter by a specific label."
+          },
+          "color": {
+            "type": "string",
+            "enum": ["default", "yellow", "blue", "green", "red", "purple", "gray"],
+            "description": "Filter by card color."
+          },
+          "pinned_only": {
+            "type": "boolean",
+            "description": "Only return pinned notes."
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Return archived notes if true; active notes if false or omitted."
+          }
+        },
+        "additionalProperties": false
+      },
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "update_note",
+      "title": "Update Note",
+      "description": "Update note title, content, type, color, labels, pinned state, or archived state.",
+      "keywords": [
+        "note",
+        "update_note",
+        "edit_note",
+        "笔记",
+        "修改笔记",
+        "更新便签",
+        "改笔记"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The note ID."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 5000
+          },
+          "type": {
+            "type": "string",
+            "enum": ["text", "checklist"]
+          },
+          "color": {
+            "type": "string",
+            "enum": ["default", "yellow", "blue", "green", "red", "purple", "gray"]
+          },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string", "maxLength": 50 }
+          },
+          "is_pinned": {
+            "type": "boolean"
+          },
+          "is_archived": {
+            "type": "boolean"
+          }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "pin_note",
+      "title": "Pin / Unpin Note",
+      "description": "Pin or unpin a note to prioritize it at top.",
+      "keywords": [
+        "note",
+        "pin_note",
+        "unpin_note",
+        "笔记",
+        "置顶",
+        "取消置顶"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The note ID."
+          },
+          "is_pinned": {
+            "type": "boolean",
+            "description": "True to pin, false to unpin."
+          }
+        },
+        "required": ["id", "is_pinned"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "archive_note",
+      "title": "Archive / Unarchive Note",
+      "description": "Archive or unarchive a note.",
+      "keywords": [
+        "note",
+        "archive_note",
+        "笔记",
+        "归档",
+        "取消归档"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The note ID."
+          },
+          "is_archived": {
+            "type": "boolean",
+            "description": "True to archive, false to unarchive."
+          }
+        },
+        "required": ["id", "is_archived"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "delete_note",
+      "title": "Delete Note",
+      "description": "Permanently delete a note by ID. This operation cannot be undone.",
+      "keywords": [
+        "note",
+        "delete_note",
+        "remove_note",
+        "笔记",
+        "删除笔记",
+        "删除便签"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The note ID to delete."
+          }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": true
+    }
+  ],
+  "contributions": {
+    "messageActions": [
+      {
+        "tool": "create_note",
+        "label": { "zh": "存为笔记", "en": "Save as Note" },
+        "icon": "note-blank",
+        "accepts": ["text"]
+      }
+    ]
+  }
+}

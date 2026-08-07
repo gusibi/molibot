@@ -1,0 +1,49 @@
+{
+  "manifestVersion": 1,
+  "id": "meeting-notes",
+  "name": "Meeting Notes",
+  "version": "1.1.0",
+  "description": "Record a meeting in minute-long segments, transcribe it, and generate structured notes.",
+  "engines": { "molibot": ">=2.9.9 <4" },
+  "runtime": { "entry": "server/index.mjs" },
+  "ui": { "entry": "ui/index.html", "icon": "ui/icon.svg" },
+  "data": { "schemaVersion": 1 },
+  "ai": {
+    "capabilities": ["text", "transcription"],
+    "uploadLimits": [{ "path": "/api/segments", "maxBytes": 26214400 }]
+  },
+  "tools": [
+    {
+      "name": "list",
+      "description": "List recorded meetings and their current processing status.",
+      "keywords": ["meeting", "notes", "transcript", "会议", "纪要", "转写"],
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "get",
+      "description": "Get one meeting, its generated notes, and every segment transcript.",
+      "keywords": ["meeting", "notes", "transcript", "会议", "纪要"],
+      "inputSchema": { "type": "object", "properties": { "id": { "type": "string", "minLength": 1 } }, "required": ["id"], "additionalProperties": false },
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "regenerate",
+      "description": "Regenerate structured notes from the existing successful segment transcripts.",
+      "keywords": ["regenerate", "summary", "重新生成", "纪要"],
+      "inputSchema": { "type": "object", "properties": { "id": { "type": "string", "minLength": 1 } }, "required": ["id"], "additionalProperties": false },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "delete",
+      "description": "Permanently delete a meeting, all transcripts, notes, and retained original audio.",
+      "keywords": ["delete meeting", "删除会议"],
+      "inputSchema": { "type": "object", "properties": { "id": { "type": "string", "minLength": 1 } }, "required": ["id"], "additionalProperties": false },
+      "readOnlyHint": false,
+      "destructiveHint": true
+    }
+  ]
+}

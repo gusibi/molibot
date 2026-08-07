@@ -1,13 +1,15 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
   import { renderMarkdown } from "../markdown";
-  import { finalizeTranscriptActivities, transcriptDisplayContent, type TranscriptAttachmentActions, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
+  import { finalizeTranscriptActivities, transcriptDisplayContent, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
   import TranscriptAttachments from "./TranscriptAttachments.svelte";
   import RunActivity from "./RunActivity.svelte";
   import ThinkingCard from "./ThinkingCard.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
   import { humanizeModelOption } from "../presentation";
   import { handleMarkdownBodyClick } from "../markdownInteractions";
+  import OverflowMenu from "../components/ui/OverflowMenu.svelte";
+  import FileContextMenu from "../projects/FileContextMenu.svelte";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -20,6 +22,7 @@
   export let messageActions: TranscriptMessageActions | null = null;
 
   let expandedMessages = new Set<string>();
+  let selectionMenu: { x: number; y: number; message: TranscriptMessage; selection: string } | null = null;
 
   function messageKey(message: TranscriptMessage, index: number): string {
     return message.id ?? `${index}-${message.role}`;
@@ -38,6 +41,38 @@
   async function handleMarkdownClick(event: MouseEvent): Promise<void> {
     await handleMarkdownBodyClick(event, copy);
   }
+
+  function contributionKey(message: TranscriptMessage, action: TranscriptContributionAction): string {
+    return `${message.id ?? message.content}:${action.id}`;
+  }
+
+  function selectedTextInMessage(event: MouseEvent): string | undefined {
+    const article = (event.currentTarget as HTMLElement).closest<HTMLElement>(".message-row");
+    const selection = window.getSelection();
+    if (!article || !selection || selection.rangeCount === 0 || selection.isCollapsed) return undefined;
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? range.commonAncestorContainer as Element
+      : range.commonAncestorContainer.parentElement;
+    if (!container || !article.contains(container)) return undefined;
+    return selection.toString().trim() || undefined;
+  }
+
+  function runContribution(
+    event: MouseEvent,
+    action: TranscriptContributionAction,
+    message: TranscriptMessage
+  ): void {
+    messageActions?.onRunContribution?.(action, message, selectedTextInMessage(event));
+  }
+
+  function openSelectionMenu(event: MouseEvent, message: TranscriptMessage): void {
+    if (message.role !== "user") return;
+    const selection = selectedTextInMessage(event);
+    if (!selection || !messageActions?.contributions?.some((action) => action.accepts.includes("text"))) return;
+    event.preventDefault();
+    selectionMenu = { x: event.clientX, y: event.clientY, message, selection };
+  }
 </script>
 
 {#each messages as message, index (message.id ?? `${index}-${message.role}`)}
@@ -50,6 +85,7 @@
   {@const key = messageKey(message, index)}
   {@const isLongUserMessage = message.role === "user" && (displayContent.split(/\r?\n/).length > 20 || displayContent.length > 1000)}
   {@const isExpanded = expandedMessages.has(key)}
+  {@const textContributions = messageActions?.contributions?.filter((action) => action.accepts.includes("text")) ?? []}
   {@const assistantStatus = message.role !== "assistant"
     ? ""
     : message.stopReason === "error"
@@ -89,7 +125,7 @@
         {:else}
           <div class="user-message-shell">
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <div class:collapsed={isLongUserMessage && !isExpanded} class="message-bubble markdown-body user-message-content" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>
+            <div class:collapsed={isLongUserMessage && !isExpanded} class="message-bubble markdown-body user-message-content" onclick={handleMarkdownClick} oncontextmenu={(event) => openSelectionMenu(event, message)}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>
             {#if isLongUserMessage}
               <button class="message-expand" type="button" aria-expanded={isExpanded} onclick={() => toggleMessage(key)}>{isExpanded ? copy.collapseMessage : copy.expandMessage}</button>
             {/if}
@@ -139,7 +175,7 @@
         </div>
       {/if}
       {#if message.attachments?.length}
-        <TranscriptAttachments attachments={message.attachments} {copy} actions={attachmentActions} />
+        <TranscriptAttachments attachments={message.attachments} {message} {copy} actions={attachmentActions} />
       {/if}
       {#if message.thinking}
         <ThinkingCard text={message.thinking} label={copy.thinking} />
@@ -190,15 +226,59 @@
                   title={copy.copyMessage}
                   onclick={() => messageActions.onCopy(message)}
                 ><i class={`ph ${isCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i></button>
+                {#if textContributions.length && messageActions.onRunContribution}
+                  {#if textContributions.length <= 2}
+                    {#each textContributions as action (action.id)}
+                      {@const actionKey = contributionKey(message, action)}
+                      {@const pending = messageActions.pendingContributionKey === actionKey}
+                      {@const succeeded = messageActions.successfulContributionKey === actionKey}
+                      <button
+                        type="button"
+                        class="message-action"
+                        aria-label={action.label}
+                        title={action.label}
+                        disabled={pending}
+                        onclick={(event) => runContribution(event, action, message)}
+                      ><i class={`ph ${pending ? "ph-circle-notch message-action-spin" : succeeded ? "ph-check" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i></button>
+                    {/each}
+                  {:else}
+                    <OverflowMenu label={copy.miniAppsNav}>
+                      <svelte:fragment slot="trigger"><i class="ph ph-paper-plane-tilt" aria-hidden="true"></i></svelte:fragment>
+                      {#each textContributions as action (action.id)}
+                        {@const actionKey = contributionKey(message, action)}
+                        {@const pending = messageActions.pendingContributionKey === actionKey}
+                        <button type="button" role="menuitem" disabled={pending} onclick={(event) => runContribution(event, action, message)}>
+                          <i class={`ph ${pending ? "ph-circle-notch message-action-spin" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i>
+                          <span>{action.label}</span>
+                        </button>
+                      {/each}
+                    </OverflowMenu>
+                  {/if}
+                {/if}
               </div>
             {/if}
           </div>
         {/if}
         {#if message.attachments?.length}
-          <TranscriptAttachments attachments={message.attachments} {copy} actions={attachmentActions} />
+          <TranscriptAttachments attachments={message.attachments} {message} {copy} actions={attachmentActions} />
         {/if}
         </div>
       </div>
     {/if}
   </article>
 {/each}
+
+{#if selectionMenu && messageActions?.contributions}
+  <FileContextMenu
+    x={selectionMenu.x}
+    y={selectionMenu.y}
+    items={messageActions.contributions
+      .filter((action) => action.accepts.includes("text"))
+      .map((action) => ({ id: action.id, label: action.label, icon: `ph-${action.icon || "paper-plane-tilt"}` }))}
+    onSelect={(id) => {
+      const action = messageActions?.contributions?.find((candidate) => candidate.id === id);
+      if (action && selectionMenu) messageActions?.onRunContribution?.(action, selectionMenu.message, selectionMenu.selection);
+    }}
+    onClose={() => (selectionMenu = null)}
+  />
+{/if}

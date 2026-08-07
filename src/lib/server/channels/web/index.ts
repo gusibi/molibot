@@ -19,6 +19,10 @@ export const webChannelPlugin: ChannelPlugin<WebConfig> = {
   name: "Web",
   version: "built-in",
   description: "Built-in Web profile runtime for scheduled tasks and reminders.",
+  // Served by this process to its own UI: it opens no outbound connection and
+  // carries no external bot identity, so a second instance cannot answer
+  // someone else's message with it.
+  requiresServiceOwnership: false,
   listInstances,
   createManager: (instance, deps) =>
     new WebManager(deps.getSettings, deps.updateSettings, deps, {

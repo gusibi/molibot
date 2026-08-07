@@ -67,6 +67,20 @@
               >
                 <MiniAppIcon src={app.iconDataUri} label={app.name} size="sidebar" />
                 <span class="miniapps-item-name">{app.name}</span>
+                <!--
+                  Deliberately quiet (roadmap §2.5): a count or an unlabelled
+                  dot on the icon row, never a system notification or a modal.
+                  Opening the app clears it.
+                -->
+                {#if app.badge}
+                  <span
+                    class="miniapps-badge"
+                    class:is-dot={app.badge.kind === "dot"}
+                    aria-label={app.badge.kind === "count"
+                      ? copy.miniAppBadgeCount.replace("{count}", String(app.badge.count))
+                      : copy.miniAppBadgeDot}
+                  >{app.badge.kind === "count" ? app.badge.count : ""}</span>
+                {/if}
               </button>
             </li>
           {/each}

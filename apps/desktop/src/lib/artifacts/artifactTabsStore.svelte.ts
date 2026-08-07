@@ -45,6 +45,11 @@ export interface ArtifactTab {
   path: string;
   /** Mini App id (miniapp) or empty (file/diff). */
   appId: string;
+  /**
+   * App-defined locator from a deep link, handed to the App UI as a startup
+   * hint. Empty for a plain open and for every non-Mini-App tab.
+   */
+  deepLinkPath: string;
   name: string;
   loading: boolean;
   error: string;
@@ -425,13 +430,23 @@ export class ArtifactTabsStore {
    * only records the tab and activates it - no content fetch, no generation risk.
    * Re-opening an app that is already a tab just activates it.
    */
-  openMiniApp(appId: string): void {
+  openMiniApp(appId: string, deepLinkPath = ""): void {
     const id = tabId("miniapp", appId);
     const existing = this.tabs.find((tab) => tab.id === id);
     this.selectTab(id, "miniapp");
-    if (existing) return;
+    if (existing) {
+      // A deep link into an app that is already open must still navigate, so the
+      // locator is updated in place; the panel keys its iframe on the resulting
+      // URL and reloads. An ordinary re-open carries no path and must NOT clear
+      // one the app is currently showing, or clicking the sidebar icon would
+      // silently undo the link the owner just followed.
+      if (deepLinkPath && existing.deepLinkPath !== deepLinkPath) {
+        this.#commitTabs(this.tabs.map((tab) => (tab.id === id ? { ...tab, deepLinkPath } : tab)));
+      }
+      return;
+    }
     const tab: ArtifactTab = {
-      id, kind: "miniapp", scope: this.scope, path: "", appId,
+      id, kind: "miniapp", scope: this.scope, path: "", appId, deepLinkPath,
       name: appId, loading: false, error: "", preview: null, diff: null,
       revealLine: 0, loadingMore: false, loadedBytes: 0, blobUrl: "",
       fileId: "", mediaType: "", mimeType: "", size: 0, textContent: ""
@@ -455,7 +470,7 @@ export class ArtifactTabsStore {
       // `path` is the artifact's location inside its own root in both scopes -
       // Project-relative there, workspace-relative here. One path string means
       // one thing everywhere it is read (pitfall #6 corollary).
-      id, kind: "file", scope: "session", path: file.local ?? "", appId: "",
+      id, kind: "file", scope: "session", path: file.local ?? "", appId: "", deepLinkPath: "",
       name: file.original, loading: true, error: "", preview: null, diff: null,
       revealLine: 0, loadingMore: false, loadedBytes: 0, blobUrl: "",
       fileId: file.id, mediaType: file.mediaType, mimeType: file.mimeType ?? "",
@@ -526,7 +541,7 @@ export class ArtifactTabsStore {
       if (!existing.loading && !existing.error && (existing.preview || existing.diff)) return;
     } else {
       const tab: ArtifactTab = {
-        id, kind, scope: this.scope, path, appId: "", name: baseName(path),
+        id, kind, scope: this.scope, path, appId: "", deepLinkPath: "", name: baseName(path),
         loading: true, error: "", preview: null, diff: null, revealLine,
         loadingMore: false, loadedBytes: 0, blobUrl: "",
         fileId: "", mediaType: "", mimeType: "", size: 0, textContent: ""

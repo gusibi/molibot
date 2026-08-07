@@ -2908,3 +2908,26 @@ Integrate the deployed OpenConnector runtime at `https://opc.eztoolab.com` as a 
 - UI guards caught an undefined accent contrast token and a 10px category counter below the 11px typography floor; both were corrected using existing Desktop conventions before delivery.
 
 ---
+
+# Mini App ↔ Host Communication Platform (2026-08-06)
+
+## Goal
+Deliver deterministic message/resource actions, composer bridge v1, host text/transcription AI facade, and Todo/Meeting Notes reference apps.
+
+## Status
+Implementation and automated verification complete. The real macOS microphone permission matrix remains a release gate because this environment cannot operate Tauri system permission prompts or physical audio devices.
+
+## Completed phases
+1. Service 2.9.8 / Desktop 0.9.5 contracts and strict manifest validation — complete
+2. Message, selection, attachment actions and secure incoming staging — complete
+3. Composer bridge v1 for Session/Project editable drafts — complete
+4. AI settings, text/transcription facade, raw upload and usage accounting — complete
+5. Todo action, Meeting Notes, creator 1.3.0, docs and adversarial review — complete
+6. Automated tests/checks/builds/Rust — complete
+7. macOS desktop:dev + packaged microphone permission/device matrix — pending manual acceptance
+
+## Locked decisions
+- No compatibility layer, migrations, tag, push, or GitHub Release.
+- Meeting audio remains until the meeting is deleted.
+- The pre-existing untracked built-in Note source is preserved.
+- A/B/C microphone routing is not declared until real device evidence exists.

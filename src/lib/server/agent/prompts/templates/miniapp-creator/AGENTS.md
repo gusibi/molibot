@@ -3,7 +3,7 @@ name: "Mini App Creator"
 description: "带你从零做出一个 Molibot Mini App：Agent 工具 + 桌面面板 UI + 一份私有数据，全部基于现成模板改，不从零写。"
 category: "设计与开发"
 source: "MolipiBot"
-version: "1.0.0"
+version: "1.3.0"
 title: "Mini App 开发工作规则"
 summary: "用于设计、生成、安装和验证 Mini App 的工作模板。"
 read_when:
@@ -36,7 +36,9 @@ read_when:
 7. **交付前必须冷启动验证。** 装完要重启服务（V1 无热更新），然后真的打开面板首屏、让 Agent 写一条看面板是否 2 秒内刷新、在面板改一条看 Agent 是否读得到、禁用后看面板是否优雅降级。测试通过不等于链路通。
 8. **不引入需要 `npm install` 的依赖。** 宿主不编译 TypeScript、不跑安装脚本；SQLite 用 Node 内置的 `node:sqlite`，第三方依赖必须自带。
 9. **说清信任边界。** App 服务端代码在 Molibot 进程内运行且完全不做沙箱。为用户安装第三方 App 前必须明说：这等于用自己的权限运行别人的代码。
-10. **UI 铁律（每条都对应真实事故，违反即出「点击没反应」类故障）：**
+10. **跨边界能力必须声明。** 消息动作写进 `contributions.messageActions`；AI 调用写进 `ai.capabilities`；二进制上传逐路由写进 `ai.uploadLimits`。使用任一新字段时 `engines.molibot` 至少为 `>=2.9.8`，不要写兼容字段。
+11. **桥只填草稿，绝不发送。** UI 只能发 v1 `composer.insert`，并且 App 在宿主忽略桥时仍须可用。长任务必须捕获每个后台 Promise，并在 Runtime 重建时把进行中状态终态化为 `interrupted`。
+12. **UI 铁律（每条都对应真实事故，违反即出「点击没反应」类故障）：**
    - styles.css 第一条规则永远是 `[hidden] { display: none !important; }`。作者样式里的任何 `display: flex/block` 都会覆盖 `hidden` 属性的默认隐藏——真实案例：todo 的列表选择器因此以透明状态盖住输入框，吃掉了所有点击。
    - 透明 ≠ 不可点：`opacity: 0` 照样参与命中测试。弹层/遮罩关闭态必须落在 `display: none` 或 `pointer-events: none` 上。
    - 关闭动画的 `setTimeout` 要存句柄、重开时 `clearTimeout`，否则快速开关会把刚打开的面板重新藏掉。
@@ -44,7 +46,7 @@ read_when:
    - 全屏透明遮罩（`.backdrop { position: fixed; inset: 0 }`）关闭态必须 `pointer-events: none`，否则 `opacity:0` 的它会变成盖住整个视口的点击黑洞--todo 的遮罩因此在淡出窗口里吞掉了搜索框和输入框的所有点击。
    - 弹层关闭时主动 `.blur()` 里面持焦的元素：弹层内的输入框关闭后仍持焦点，键盘事件会继续落进去，直到 `hidden` 生效；WebKitGTK 会把这段延迟拉长，表现为「点搜索框没反应、打字却进了弹层输入框」。
    - `overflow: hidden` 会裁掉容器内绝对定位的下拉菜单（`top: 100%`）：承载下拉的容器别用 `overflow: hidden`，圆角改用首/尾子元素 `border-radius` 补；下拉靠近滚动容器底部时量剩余空间、不够就向上翻（`bottom: 100%`）。
-11. **交互失灵先怀疑 App 自己，不怀疑运行时。** 宿主样式进不了 iframe（独立 origin + sandbox + CSP）。排查顺序：① devtools 里 `document.elementFromPoint(x, y)` 找出谁在吃点击（命中看不见的元素 = 隐形浮层遮挡）；② console 查 CSP 静默拒绝；③ 把 ui/ 放进普通浏览器同样 sandbox 属性的 iframe + stub API 复现——浏览器里也坏 = 代码 bug，仅 Tauri 里坏才查 WebView 差异（见「跨平台 WebView 差异」）。
+13. **交互失灵先怀疑 App 自己，不怀疑运行时。** 宿主样式进不了 iframe（独立 origin + sandbox + CSP）。排查顺序：① devtools 里 `document.elementFromPoint(x, y)` 找出谁在吃点击（命中看不见的元素 = 隐形浮层遮挡）；② console 查 CSP 静默拒绝；③ 把 ui/ 放进普通浏览器同样 sandbox 属性的 iframe + stub API 复现——浏览器里也坏 = 代码 bug，仅 Tauri 里坏才查 WebView 差异（见「跨平台 WebView 差异」）。
 
 ## 跨平台 WebView 差异
 

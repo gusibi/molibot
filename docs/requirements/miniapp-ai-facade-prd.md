@@ -1,6 +1,6 @@
 # Mini App AI 能力门面（Host AI Facade）PRD
 
-> 状态：待实施（含一个必须先做的前置 spike，见 §7）
+> 状态：平台、转写链路与内置 meeting-notes 已实施（2026-08-06）；macOS dev/打包态麦克风人工矩阵仍待验收，见 §7
 > 前置阅读：`AGENTS.md`、`CLAUDE.md`（尤其 pitfalls #6/#11/#13/#21d/#23f）、`docs/requirements/miniapp-platform-implementation-plan.md`
 > 关联：`miniapp-message-actions-plan.md`、`miniapp-composer-bridge-plan.md`
 > 量级提示：这是平台级能力，建议独立排期，不与前两份方案混在一个 slice。
@@ -29,7 +29,7 @@ Mini App 目前是"带 UI 和工具的私有数据库"。本方案让 App 的服
 ```
 
 - `ai` 加入 manifest 顶层白名单；内部同样白名单校验。
-- `capabilities` 非空数组、枚举校验、去重。声明了 `ai` 的 App 必须相应提升 `engines.molibot`（与 `contributions` 同一兼容策略：老宿主整 App 拒装，失败落在语义清晰的引擎检查处）。
+- `capabilities` 非空数组、枚举校验、去重。声明了 `ai` 的 App 必须把 `engines.molibot` 提升到 `>=2.9.8`（与 `contributions` 同一兼容策略：老宿主整 App 拒装，失败落在语义清晰的引擎检查处）。
 - 未声明某能力的 App 在运行时调用该能力 → 结构化错误 `capability_not_declared`（能力是声明制不是权限制——见立场 2——但声明让 Manager 能向用户如实展示"这个 App 会用你的模型"）。
 
 ### 2.2 运行时门面
@@ -133,6 +133,8 @@ export interface MiniAppRuntimeContext {
 | 设置失效 | 改模型后门面下一次调用用新模型（事件驱动，无缓存） |
 
 ## 7. 前置 spike（实施前必须先验证，结论写回本文档）
+
+> 2026-08-06 实施记录：iframe 已按 transcription capability 条件添加 `allow="microphone"`，Meeting Notes 已使用 60 秒 `MediaRecorder` 分段，并通过生产构建与无麦克风依赖的恢复/幂等测试。当前执行环境无法操作 Tauri 系统权限弹窗和真实音频设备，因此 **A/B/C 尚未定论**；不得把这些机器证据写成真实麦克风验收。发布前仍须分别在 `desktop:dev` 与打包 App 完成下述人工矩阵；若结果为 B/C，按本节路线回到 bridge/native 规划，不把 direct-iframe 录音作为已验证能力。
 
 **Tauri WebView + `molibot-miniapp://` 自定义协议 iframe 内的 `getUserMedia` 麦克风权限行为**——这是会议记录场景唯一无把握的技术点。验证矩阵：macOS 打包态 + `pnpm desktop:dev` 两种形态。可能结论与对应路线：
 

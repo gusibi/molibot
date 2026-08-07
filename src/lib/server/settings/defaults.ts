@@ -527,7 +527,11 @@ export const defaultRuntimeSettings: RuntimeSettings = {
       entries: {}
     },
     miniApps: {
-      entries: {}
+      entries: {},
+      ai: {
+        textModelKey: "",
+        transcriptionModelKey: ""
+      }
     }
   },
   telegramBotToken: defaultTelegramBotToken,

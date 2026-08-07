@@ -198,8 +198,28 @@ export default function createApp(context) {
     // fails the whole app load with a visible error in Settings.
     tools: {
       add: async (input) => {
-        const record = store.add(input.title, input.note);
-        return { ...text(`Added: ${record.title}`), structuredContent: record, changed: true };
+        // The same tool accepts an Agent-authored title or a host-owned message
+        // capture. Selection wins because that is what the owner highlighted.
+        const capturedTitle = input.capture?.selection || input.capture?.text;
+        const record = store.add(input.title ?? capturedTitle, input.note);
+        // Optional sidebar badge. `?.` because an older host has no `badge`.
+        context.badge?.set({ kind: "count", count: store.list("open").length });
+        return {
+          // `content` stays the authoritative text: it is what the model reads
+          // and the only thing non-desktop surfaces show. The card is extra.
+          ...text(`Added: ${record.title}`),
+          structuredContent: record,
+          changed: true,
+          card: {
+            title: record.title,
+            subtitle: "Saved to Starter",
+            fields: [{ label: "Status", value: record.done ? "Done" : "Open" }],
+            icon: "bookmark-simple",
+            // A card's only affordance is a deep link back into THIS app; a
+            // link to any other app is dropped by the host.
+            link: `molibot://miniapp/${context.appId}/record/${encodeURIComponent(record.id)}`
+          }
+        };
       },
 
       list: async (input) => {

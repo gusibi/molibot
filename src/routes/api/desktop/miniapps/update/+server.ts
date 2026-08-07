@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { buildDesktopMiniApps } from "$lib/server/app/desktopMiniApps";
+import { buildDesktopMiniAppsPayload } from "$lib/server/app/desktopMiniApps";
 import { getMiniAppHost } from "$lib/server/miniapps/registry";
 import { MiniAppError } from "$lib/server/miniapps/types";
 import type { DesktopMiniAppUpdateRequest, DesktopMiniAppUpdateResponse } from "$lib/shared/desktop";
@@ -25,11 +25,11 @@ export const POST: RequestHandler = async ({ request }) => {
 
     const host = getMiniAppHost();
     await host.updateBuiltin(body.appId);
-    const items = buildDesktopMiniApps(host.listCatalog());
+    const payload = buildDesktopMiniAppsPayload(host);
     const response: DesktopMiniAppUpdateResponse = {
       ok: true,
-      items,
-      version: items.find((item) => item.id === body.appId)?.version ?? "",
+      ...payload,
+      version: payload.items.find((item) => item.id === body.appId)?.version ?? "",
       restartRequired: true
     };
     return json(response);

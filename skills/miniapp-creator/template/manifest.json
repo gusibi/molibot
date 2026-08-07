@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "A working Mini App skeleton: one record list, managed from chat and from the desktop panel.",
   "engines": {
-    "molibot": ">=2.8.0 <4"
+    "molibot": ">=2.9.9 <4"
   },
   "runtime": {
     "entry": "server/index.mjs"
@@ -16,6 +16,16 @@
   },
   "data": {
     "schemaVersion": 1
+  },
+  "contributions": {
+    "messageActions": [
+      {
+        "tool": "add",
+        "label": { "zh": "存为记录", "en": "Save as Record" },
+        "icon": "bookmark-simple",
+        "accepts": ["text"]
+      }
+    ]
   },
   "tools": [
     {
@@ -44,10 +54,25 @@
             "type": "string",
             "maxLength": 2000,
             "description": "Optional longer detail."
+          },
+          "capture": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "selection": { "type": "string" },
+              "role": { "type": "string", "enum": ["assistant", "user"] },
+              "truncated": { "type": "boolean" },
+              "capturedAt": { "type": "string" },
+              "source": { "type": "object" },
+              "resources": { "type": "array" }
+            },
+            "required": ["text", "role", "truncated", "capturedAt", "source"],
+            "additionalProperties": false
           }
         },
-        "required": [
-          "title"
+        "anyOf": [
+          { "required": ["title"] },
+          { "required": ["capture"] }
         ],
         "additionalProperties": false
       },

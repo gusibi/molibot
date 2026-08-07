@@ -15,6 +15,8 @@
   export let onOpenAgentSettings: () => void;
   export let onAutomationUnreadChange: (count: number) => void = () => {};
   export let onOpenMiniApp: (appId: string) => void = () => {};
+  /** Opens Settings at the Mini App AI section; the pane only signposts it. */
+  export let onOpenMiniAppAiSettings: () => void = () => {};
 
   interface AgentStudioProps {
     copy: Translation;
@@ -51,7 +53,7 @@
   {:else if pane === "skills"}
     <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />
   {:else if pane === "miniapps"}
-    <MiniAppsManager onOpenApp={onOpenMiniApp} />
+    <MiniAppsManager onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
   {:else if AgentStudioComponent}
     <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} />
   {:else}

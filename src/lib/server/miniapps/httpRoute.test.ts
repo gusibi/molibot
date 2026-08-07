@@ -50,6 +50,9 @@ export default function create(context) {
       if (request.path === "/echo") {
         return { body: { method: request.method, path: request.path, query: request.query, body: request.body } };
       }
+      if (request.path.startsWith("/upload")) {
+        return { body: { bytes: request.body.byteLength, contentType: request.contentType } };
+      }
       if (request.path === "/leak") {
         return { body: { dataDir: context.dataDir } };
       }
@@ -71,6 +74,10 @@ const MANIFEST = {
   runtime: { entry: "server/index.mjs" },
   ui: { entry: "ui/index.html" },
   data: { schemaVersion: 1 },
+  ai: {
+    capabilities: ["transcription"],
+    uploadLimits: [{ path: "/api/upload", maxBytes: 8 }]
+  },
   tools: [
     {
       name: "add",
@@ -250,6 +257,43 @@ test("a non-JSON body is rejected", async () => {
     proxied("http://127.0.0.1:3000/miniapps/todo/api/todos", { method: "POST", body: "not json at all" })
   );
   assert.equal(response.status, 400);
+});
+
+test("only a declared upload path receives raw bytes and its route limit runs before the app", async () => {
+  const harness = makeHarness();
+  const accepted = await call(
+    harness,
+    "api/upload/chunk",
+    proxied("http://127.0.0.1:3000/miniapps/todo/api/upload/chunk", {
+      method: "POST",
+      headers: { "content-type": "audio/webm" },
+      body: new Uint8Array([1, 2, 3])
+    })
+  );
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(await accepted.json(), { bytes: 3, contentType: "audio/webm" });
+
+  const overLimit = await call(
+    harness,
+    "api/upload",
+    proxied("http://127.0.0.1:3000/miniapps/todo/api/upload", {
+      method: "POST",
+      headers: { "content-type": "audio/webm" },
+      body: new Uint8Array(9)
+    })
+  );
+  assert.equal(overLimit.status, 413);
+
+  const undeclared = await call(
+    harness,
+    "api/echo",
+    proxied("http://127.0.0.1:3000/miniapps/todo/api/echo", {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: new Uint8Array([1])
+    })
+  );
+  assert.equal(undeclared.status, 400);
 });
 
 test("tool writes are visible to the API and API writes are visible to tools", async () => {

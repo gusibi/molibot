@@ -147,3 +147,16 @@ export function writeServiceState(lease, state) {
 export function readServiceState(dataDir) {
   return readJson(runtimePaths(dataDir).statePath);
 }
+
+/**
+ * The current lock holder, or `null` when the data directory is unowned.
+ *
+ * Ownership is a runtime concern, not a launcher concern: a process that
+ * bypasses `start-server.mjs` acquires no lease at all, and five such processes
+ * once ran one WeChat bot identity in parallel for twelve days. The runtime
+ * reads this to decide whether it may start live channels, and re-reads it to
+ * notice a lease it no longer holds (prd.md §3.41).
+ */
+export function readServiceLease(dataDir) {
+  return readJson(runtimePaths(dataDir).lockPath);
+}

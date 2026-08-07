@@ -11,9 +11,14 @@
     toggleMiniApp,
     uninstallMiniApp,
     updateMiniApp,
-    installMiniApp
+    installMiniApp,
+    installBuiltinMiniApp
   } from "../stores/miniapps.svelte";
-  import type { DesktopMiniAppItem, DesktopMiniAppSource } from "@molibot/desktop-contract";
+  import type {
+    DesktopMiniAppBuiltinItem,
+    DesktopMiniAppItem,
+    DesktopMiniAppSource
+  } from "@molibot/desktop-contract";
 
   /**
    * The Mini App management surface: install, inspect, enable/disable, uninstall.
@@ -24,15 +29,26 @@
    * Every control here commits immediately through its own route — a toggle
    * must never also submit unsaved fields belonging to the Plugins editor.
    */
-  let { onOpenApp }: { onOpenApp?: (appId: string) => void } = $props();
+  let {
+    onOpenApp,
+    onOpenAiSettings
+  }: {
+    onOpenApp?: (appId: string) => void;
+    /**
+     * Opens Settings at the Mini App AI section. Absent on the Settings mount,
+     * where that section is already on screen.
+     */
+    onOpenAiSettings?: () => void;
+  } = $props();
 
-  type InstallTab = "directory" | "zip" | "github";
+  type InstallTab = "builtin" | "directory" | "zip" | "github";
 
   let lastEndpoint = $state("");
-  let installTab = $state<InstallTab>("directory");
+  // Built-ins first: they are the apps this build can install with one click,
+  // and the tab answers "do I have it, and is there a newer one?".
+  let installTab = $state<InstallTab>("builtin");
   let githubRepo = $state("");
   let githubRef = $state("");
-
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== lastEndpoint) {
       lastEndpoint = session.endpoint;
@@ -94,12 +110,35 @@
     }
   }
 
-  function confirmUninstall(app: DesktopMiniAppItem, deleteData: boolean): void {
+  function confirmUninstall(app: { id: string; name: string }, deleteData: boolean): void {
     const template = deleteData
       ? session.text.miniAppDeleteDataConfirm
       : session.text.miniAppUninstallConfirm;
     if (!window.confirm(template.replace("{name}", app.name))) return;
     void uninstallMiniApp(app.id, deleteData);
+  }
+
+  /**
+   * What a built-in row says about itself, in one sentence: the owner's two
+   * questions on this tab are "do I have it?" and "is there a newer one?".
+   */
+  function builtinStateLabel(app: DesktopMiniAppBuiltinItem): string {
+    if (!app.installed) {
+      return app.removedByOwner
+        ? session.text.miniAppBuiltinRemoved
+        : session.text.miniAppBuiltinNotInstalled;
+    }
+    if (app.status === "error") return session.text.miniAppErrorStatus;
+    if (app.updateAvailable) {
+      return session.text.miniAppUpdateAvailable.replace("{version}", app.availableVersion);
+    }
+    return session.text.miniAppBuiltinUpToDate;
+  }
+
+  function builtinStateTone(app: DesktopMiniAppBuiltinItem): "ready" | "error" | "disconnected" {
+    if (!app.installed) return "disconnected";
+    if (app.status === "error") return "error";
+    return app.updateAvailable ? "disconnected" : "ready";
   }
 
   const installedCount = $derived(miniAppsStore.items.length);
@@ -123,7 +162,7 @@
       <strong>{session.text.miniAppInstallTitle}</strong>
     </div>
     <div class="miniapps-install-tabs" role="tablist" aria-label={session.text.miniAppInstallTitle}>
-      {#each [["directory", session.text.miniAppInstallDirectory], ["zip", session.text.miniAppInstallZip], ["github", session.text.miniAppInstallGithub]] as [value, label] (value)}
+      {#each [["builtin", session.text.miniAppInstallBuiltin], ["directory", session.text.miniAppInstallDirectory], ["zip", session.text.miniAppInstallZip], ["github", session.text.miniAppInstallGithub]] as [value, label] (value)}
         <button
           type="button"
           role="tab"
@@ -135,7 +174,80 @@
     </div>
 
     <div class="miniapps-install-body">
-      {#if installTab === "github"}
+      {#if installTab === "builtin"}
+        <p class="miniapps-install-hint">{session.text.miniAppInstallBuiltinHint}</p>
+        {#if miniAppsStore.builtin.length === 0}
+          <p class="miniapps-note">{session.text.miniAppBuiltinEmpty}</p>
+        {:else}
+          <ul class="miniapps-builtin-list">
+            {#each miniAppsStore.builtin as app (app.id)}
+              <li class="miniapps-builtin-row">
+                <MiniAppIcon src={app.iconDataUri} label={app.name} />
+
+                <div class="miniapps-settings-info">
+                  <strong>
+                    {app.name}
+                    <span class="miniapps-version">
+                      {app.installed ? `v${app.installedVersion}` : `v${app.availableVersion}`}
+                    </span>
+                    {#if app.installed && app.updateAvailable}
+                      <span class="miniapps-update-badge">
+                        {session.text.miniAppUpdateAvailable.replace("{version}", app.availableVersion)}
+                      </span>
+                    {/if}
+                  </strong>
+                  {#if app.description}<p>{app.description}</p>{/if}
+                  {#if app.error}<p class="miniapps-error">{app.error}</p>{/if}
+                </div>
+
+                <div class="settings-row-actions">
+                  <StatusBadge label={builtinStateLabel(app)} state={builtinStateTone(app)} />
+                  {#if !app.installed}
+                    <button
+                      class="primary-button"
+                      type="button"
+                      disabled={miniAppsStore.busyId.length > 0}
+                      onclick={() => void installBuiltinMiniApp(app.id)}
+                    >
+                      {miniAppsStore.busyId === app.id
+                        ? session.text.miniAppInstalling
+                        : session.text.miniAppInstallAction}
+                    </button>
+                  {:else}
+                    {#if app.updateAvailable}
+                      <button
+                        class="primary-button"
+                        type="button"
+                        disabled={miniAppsStore.busyId.length > 0}
+                        onclick={() => void updateMiniApp(app.id)}
+                      >
+                        {miniAppsStore.busyId === app.id
+                          ? session.text.miniAppUpdating
+                          : session.text.miniAppUpdate}
+                      </button>
+                    {/if}
+                    <OverflowMenu label={session.text.miniAppUninstall}>
+                      <button
+                        role="menuitem"
+                        type="button"
+                        onclick={() => void installBuiltinMiniApp(app.id)}
+                      >
+                        <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>{session.text.miniAppBuiltinReinstall}
+                      </button>
+                      <button role="menuitem" type="button" onclick={() => confirmUninstall(app, false)}>
+                        <i class="ph ph-archive" aria-hidden="true"></i>{session.text.miniAppUninstallKeepData}
+                      </button>
+                      <button role="menuitem" type="button" class="danger-action" onclick={() => confirmUninstall(app, true)}>
+                        <i class="ph ph-trash" aria-hidden="true"></i>{session.text.miniAppUninstallDeleteData}
+                      </button>
+                    </OverflowMenu>
+                  {/if}
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      {:else if installTab === "github"}
         <div class="miniapps-install-row">
           <input
             class="miniapps-install-input"
@@ -172,12 +284,35 @@
         </div>
       {/if}
 
-      <p class="miniapps-trust"><i class="ph ph-shield-warning" aria-hidden="true"></i><span>{session.text.miniAppInstallTrustWarning}</span></p>
+      {#if installTab !== "builtin"}
+        <!-- The trust warning is about running code from somewhere else. A
+             built-in shipped inside the app the owner is already running, so
+             repeating it there would only teach people to ignore it. -->
+        <p class="miniapps-trust"><i class="ph ph-shield-warning" aria-hidden="true"></i><span>{session.text.miniAppInstallTrustWarning}</span></p>
+      {/if}
     </div>
   </div>
 
   {#if miniAppsStore.restartRequired}
     <p class="miniapps-restart" role="status">{session.text.miniAppRestartRequired}</p>
+  {/if}
+
+  {#if onOpenAiSettings}
+    <!--
+      The AI capability settings themselves live in Settings (one global
+      decision about the owner's model configuration, edited in one place).
+      This row is only a signpost, and it is rendered ONLY when a caller injects
+      a way to get there — the Settings mount shows the real section instead,
+      so the component needs no "am I inside Settings?" branch (pitfall #7).
+    -->
+    <button type="button" class="miniapps-ai-link" onclick={onOpenAiSettings}>
+      <span aria-hidden="true"><i class="ph ph-sliders-horizontal"></i></span>
+      <span class="miniapps-ai-link-text">
+        <strong>{session.text.miniAppAiTitle}</strong>
+        <small>{session.text.miniAppAiHint}</small>
+      </span>
+      <i class="ph ph-arrow-right miniapps-ai-link-arrow" aria-hidden="true"></i>
+    </button>
   {/if}
 
   <section class="miniapps-library" aria-labelledby="miniapps-library-title">
@@ -216,6 +351,17 @@
                 <p class="miniapps-tools">
                   {session.text.miniAppToolsLabel}: {app.toolNames.map((tool) => `${app.id}.${tool}`).join(", ")}
                 </p>
+              {/if}
+              {#if app.aiCapabilities.length > 0}
+                <p class="miniapps-tools">{session.text.miniAppAiCapabilities}: {app.aiCapabilities.join(", ")}</p>
+                <!--
+                  Availability comes from the shared store, not a second fetch:
+                  this warning and the model selector in Settings must never
+                  disagree about what is configured.
+                -->
+                {#if (app.aiCapabilities.includes("text") && !miniAppsStore.aiAvailability.text) || (app.aiCapabilities.includes("transcription") && !miniAppsStore.aiAvailability.transcription)}
+                  <p class="miniapps-error">{session.text.miniAppAiUnavailable}</p>
+                {/if}
               {/if}
               {#if app.error}<p class="miniapps-error">{app.error}</p>{/if}
             </div>

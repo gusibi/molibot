@@ -490,6 +490,15 @@ html, body {
   color: var(--text-tertiary); font-size: 15px; font-weight: 300;
 }
 
+/* Deep-link landing: brief highlight on the item a molibot:// link named. */
+.todo-item.deep-link-target {
+  animation: deep-link-flash 2s ease-out;
+}
+@keyframes deep-link-flash {
+  0%, 40% { background: rgba(0, 122, 255, 0.18); }
+  100% { background: transparent; }
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

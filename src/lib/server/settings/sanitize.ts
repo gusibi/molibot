@@ -443,7 +443,16 @@ export function sanitizeMiniAppSettings(
     };
   }
 
-  return { entries };
+  const rawAi = source.ai && typeof source.ai === "object" && !Array.isArray(source.ai)
+    ? source.ai as Record<string, unknown>
+    : {};
+  return {
+    entries,
+    ai: {
+      textModelKey: String(rawAi.textModelKey ?? current?.ai?.textModelKey ?? "").trim(),
+      transcriptionModelKey: String(rawAi.transcriptionModelKey ?? current?.ai?.transcriptionModelKey ?? "").trim()
+    }
+  };
 }
 
 /**

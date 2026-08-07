@@ -20,7 +20,9 @@ use tauri::UriSchemeResponder;
 /// comes from the supervisor's own state — never from anything the iframe says.
 const PROXY_HEADER: &str = "x-molibot-miniapp-proxy";
 const PROXY_VALUE: &str = "v1";
-const MAX_REQUEST_BYTES: usize = 1024 * 1024;
+// Transport ceiling only. The server applies the manifest's per-App/per-route
+// allowance before the Mini App runtime sees any bytes.
+const MAX_REQUEST_BYTES: usize = 25 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 

@@ -122,7 +122,12 @@ rather than a silently missing app:
 | `data.schemaVersion` | Integer ≥ 1. See §6. |
 | `tools[].name` | `^[a-z][a-z0-9_-]{0,63}$`, unique within the app. |
 | `tools[].inputSchema` | An object JSON Schema. Compiled with Ajv at discovery. |
+| `contributions.messageActions` | Optional host actions with bilingual labels, a non-destructive declared tool, and `text/image/file` accepts. |
+| `ai.capabilities` | Optional host AI facade; v1 supports `text` and `transcription`. |
+| `ai.uploadLimits` | Transcription apps only; explicit `/api/*` raw-body routes, capped at 25 MiB. |
 | unknown top-level keys | **Rejected** — a typo must not be silently ignored. |
+
+Apps using `contributions` or `ai` must require `engines.molibot >=2.9.8`. Older hosts reject the manifest; there are no compatibility aliases.
 
 ### Tool naming and risk
 
@@ -221,6 +226,15 @@ CORS or CSP. It also reserves `/_host/state`, which returns
 tool handlers and your HTTP handler must call the same functions. If `todo.add`
 and `POST /todos` each write their own SQL, the agent and the UI will eventually
 disagree, and the bug will only appear for users who use both.
+
+### Host actions, composer bridge, AI, and jobs
+
+- Message actions invoke a declared non-destructive tool with `{ capture }` directly, without a model. Captures never contain conversation ids or host paths; resources are opaque paths relative to the app's `incoming/` directory.
+- The v1 UI bridge posts `{ protocol: "molibot-miniapp", version: 1, action: "composer.insert", payload: { text, mode } }`. It can append or replace at most 32 KiB in an editable draft, never send it. Keep the app useful if the host ignores the bridge.
+- `context.ai.generateText()` and `.transcribe()` use the owner's live host routing and credentials. The app declares capabilities, but never chooses a Provider or sees a key. Transcription accepts only a real file contained by the app data directory, at most 25 MiB and 10 minutes.
+- A declared non-JSON upload route receives `Uint8Array` in `request.body` and normalized `request.contentType`; undeclared routes retain the 1 MiB JSON contract.
+- Stable AI errors are `capability_not_declared`, `capability_unavailable`, `invalid_request`, `rate_limited`, `provider_failed`, and `aborted`.
+- Persist jobs and segment states before starting asynchronous work. Catch every background promise, make repeated segment requests idempotent, and convert active states to `interrupted` when the runtime starts after a service restart.
 
 ---
 

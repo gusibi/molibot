@@ -85,6 +85,7 @@ html, body {
 
 .starter-input:focus-visible,
 .starter-submit:focus-visible,
+.starter-secondary:focus-visible,
 .starter-toggle:focus-visible,
 .starter-delete:focus-visible {
   outline: 2px solid var(--accent);
@@ -101,6 +102,15 @@ html, body {
   font: inherit;
   font-weight: 500;
   cursor: pointer;
+}
+
+.starter-secondary {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  padding: 0 12px;
 }
 
 .starter-submit:hover { filter: brightness(1.08); }

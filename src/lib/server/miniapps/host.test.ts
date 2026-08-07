@@ -665,3 +665,217 @@ test("catalog entries report provenance, with built-ins labelled as such", () =>
     { kind: "directory", label: "" }
   );
 });
+
+// --------------------------------------------------------- badges (§2.5)
+
+/** An app that drives its own badge and returns a result card. */
+const BADGE_CARD_SOURCE = `export default function create(context) {
+  return {
+    tools: {
+      add: async (input) => {
+        context.badge.set({ kind: "count", count: Number(input.text) });
+        return {
+          content: [{ type: "text", text: "added" }],
+          changed: true,
+          card: {
+            title: "Saved",
+            fields: [{ label: "Text", value: input.text }],
+            icon: "star",
+            link: "molibot://miniapp/notes/entry/1"
+          }
+        };
+      },
+      list: async () => {
+        context.badge.clear();
+        return { content: [{ type: "text", text: "cleared" }] };
+      }
+    },
+    async handleHttp() { return { status: 404, body: {} }; }
+  };
+}
+`;
+
+test("an app can set a badge that reaches the catalog, and opening clears it", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes", { source: BADGE_CARD_SOURCE });
+  const host = hostFor(fixture);
+
+  assert.equal(host.listCatalog()[0].badge, null);
+
+  await host.invokeTool("miniapp__notes__add", { text: "4" }, { toolCallId: "t1" });
+  assert.deepEqual(host.listCatalog()[0].badge, { kind: "count", count: 4 });
+
+  // The host clears on the owner's behalf when they open the panel.
+  host.clearBadge("notes");
+  assert.equal(host.listCatalog()[0].badge, null);
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+test("an app can clear its own badge", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes", { source: BADGE_CARD_SOURCE });
+  const host = hostFor(fixture);
+
+  await host.invokeTool("miniapp__notes__add", { text: "2" }, { toolCallId: "t1" });
+  await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t2" });
+  assert.equal(host.listCatalog()[0].badge, null);
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+test("a count is bounded, and a meaningless one clears rather than rendering", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes", { source: BADGE_CARD_SOURCE });
+  const host = hostFor(fixture);
+
+  await host.invokeTool("miniapp__notes__add", { text: "5000" }, { toolCallId: "t1" });
+  assert.deepEqual(host.listCatalog()[0].badge, { kind: "count", count: 99 });
+
+  // Counting down to nothing should end with no badge, not a "0" chip.
+  await host.invokeTool("miniapp__notes__add", { text: "0" }, { toolCallId: "t2" });
+  assert.equal(host.listCatalog()[0].badge, null);
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+test("a disabled app stops advertising its badge", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes", { source: BADGE_CARD_SOURCE });
+  const host = hostFor(fixture);
+
+  await host.invokeTool("miniapp__notes__add", { text: "3" }, { toolCallId: "t1" });
+  assert.deepEqual(host.listCatalog()[0].badge, { kind: "count", count: 3 });
+
+  // The sidebar must not show a count for something the owner cannot open.
+  fixture.enablement.notes = { enabled: false };
+  assert.equal(host.listCatalog()[0].badge, null);
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------- result cards (§2.3)
+
+test("a tool result card is sanitized by the host before it leaves", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes", { source: BADGE_CARD_SOURCE });
+  const host = hostFor(fixture);
+
+  const result = await host.invokeTool("miniapp__notes__add", { text: "hello" }, { toolCallId: "t1" });
+  assert.deepEqual(result.card, {
+    title: "Saved",
+    fields: [{ label: "Text", value: "hello" }],
+    icon: "star",
+    link: "molibot://miniapp/notes/entry/1"
+  });
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+test("a card linking to another app loses the link rather than the whole result", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes", {
+    source: `export default function create() {
+      return {
+        tools: {
+          add: async () => ({
+            content: [{ type: "text", text: "ok" }],
+            card: { title: "Saved", link: "molibot://miniapp/other/entry/1" }
+          }),
+          list: async () => ({ content: [] })
+        },
+        async handleHttp() { return { status: 404, body: {} }; }
+      };
+    }`
+  });
+  const host = hostFor(fixture);
+
+  const result = await host.invokeTool("miniapp__notes__add", { text: "x" }, { toolCallId: "t1" });
+  assert.equal(result.card?.title, "Saved");
+  assert.equal(result.card?.link, undefined);
+  // The text the model reads is untouched by card handling.
+  assert.deepEqual(result.content, [{ type: "text", text: "ok" }]);
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+test("an app returning no card produces a result with no card key", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes");
+  const host = hostFor(fixture);
+
+  const result = await host.invokeTool("miniapp__notes__add", { text: "x" }, { toolCallId: "t1" });
+  assert.equal("card" in result, false);
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+// ------------------------------------------------ data file reads (§2.2)
+
+test("readDataFile returns a file inside the app's own data directory", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes");
+  const host = hostFor(fixture);
+  // Force the runtime to load so the data directory exists.
+  await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t0" });
+
+  const exportsDir = join(fixture.dataRoot, "notes", "exports");
+  mkdirSync(exportsDir, { recursive: true });
+  writeFileSync(join(exportsDir, "chart.png"), "PNGDATA", "utf8");
+
+  const file = host.readDataFile("notes", "exports/chart.png", 1024);
+  assert.equal(file.name, "chart.png");
+  assert.equal(file.bytes.toString("utf8"), "PNGDATA");
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+test("readDataFile refuses to escape the app's data directory", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes");
+  const host = hostFor(fixture);
+  await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t0" });
+
+  // A sibling app's data is as off-limits as anything else on the host.
+  mkdirSync(join(fixture.dataRoot, "other"), { recursive: true });
+  writeFileSync(join(fixture.dataRoot, "other", "secret.txt"), "nope", "utf8");
+
+  for (const relative of ["../other/secret.txt", "/etc/passwd", "missing.png"]) {
+    assert.throws(
+      () => host.readDataFile("notes", relative, 1024),
+      MiniAppError,
+      `expected ${relative} to be refused`
+    );
+  }
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+test("readDataFile refuses a symlink pointing outside the data directory", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes");
+  const host = hostFor(fixture);
+  await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t0" });
+
+  const outside = join(fixture.root, "outside.txt");
+  writeFileSync(outside, "secret", "utf8");
+  // Containment is proven after following symlinks — the check a plain
+  // join + startsWith would miss.
+  symlinkSync(outside, join(fixture.dataRoot, "notes", "link.txt"));
+
+  assert.throws(() => host.readDataFile("notes", "link.txt", 1024), MiniAppError);
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});
+
+test("readDataFile enforces the size ceiling before returning bytes", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes");
+  const host = hostFor(fixture);
+  await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t0" });
+
+  writeFileSync(join(fixture.dataRoot, "notes", "big.bin"), "x".repeat(2048), "utf8");
+  assert.throws(() => host.readDataFile("notes", "big.bin", 1024), MiniAppError);
+
+  rmSync(fixture.root, { recursive: true, force: true });
+});

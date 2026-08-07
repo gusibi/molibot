@@ -1,6 +1,6 @@
 # Mini App 消息动作（Message Actions）技术方案
 
-> 状态：待实施
+> 状态：✅ 已实施（2026-08-06，Phase 1 + Phase 2，最低 Molibot 2.9.8）
 > 前置阅读：`AGENTS.md`、`CLAUDE.md`（尤其 Recurring Pitfalls #2/#6/#7/#11/#13/#19）、`docs/requirements/miniapp-platform-implementation-plan.md`
 > 交付纪律：完成后按仓库规则更新 `features.md` 与 `CHANGELOG.md`，验证方式遵循 pitfall #9/#10。
 
@@ -38,7 +38,7 @@
 {
   "manifestVersion": 1,
   "id": "favorites",
-  "engines": { "molibot": ">=2.10.0" },
+  "engines": { "molibot": ">=2.9.8" },
   // ...既有字段...
   "contributions": {
     "messageActions": [
@@ -205,6 +205,10 @@ resources?: Array<{
 
 staging 复制的路径包含性与淘汰策略（`messageActions.test.ts`）；`accepts` 过滤逻辑（不含 `image` 的动作绝不出现在图片右键里）；invoke 路由对 `resources.path` 做**只读校验**——必须落在该 App dataDir 的 `incoming/` 内，防止客户端伪造路径让 App 读到别处（pitfall #6）。
 
-## 9. 后续方向（本期不做，见 `miniapp-platform-extension-roadmap.md`）
+## 9. 后续方向（见 `miniapp-platform-extension-roadmap.md`）
 
-渠道侧同构动作 → App 作为 Agent 上下文提供者 → App 面板反向发起对话（composer 桥，另有方案）→ AI 能力门面（另有 PRD）→ App 声明定时任务。
+已交付：App 面板反向发起对话（Composer 桥 v1/v2）、AI 能力门面、结果卡片 / 深链 / 徽标（roadmap §2.3–2.5，2026-08-07）。
+
+**结果卡片与本方案的关系**：消息动作的成功反馈原本只有 App 返回的那一句 `content`。现在工具结果可以附带一张 `card`，`/api/desktop/miniapps/invoke` 原样透传（宿主已 sanitize），桌面端在同一个反馈位渲染。`content` 仍是权威文本——卡片是桌面端的展示增强，缺席不构成降级。
+
+未动工：渠道侧同构动作（§2.1）、App 作为 Agent 上下文提供者（§3.1）、App 声明定时任务（§3.3）。

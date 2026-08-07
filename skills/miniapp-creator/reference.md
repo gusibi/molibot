@@ -67,7 +67,12 @@
 | `data.schemaVersion` | 整数 ≥ 1 |
 | `tools[].name` | `^[a-z][a-z0-9_-]{0,63}$`，App 内唯一 |
 | `tools[].inputSchema` | object 型 JSON Schema，发现阶段用 Ajv 预编译；编译不过 = 整个 App 失败 |
+| `contributions.messageActions` | 可选宿主消息动作；中英 label、已声明且非 destructive 的 tool、`accepts` 为 `text/image/file` |
+| `ai.capabilities` | 可选；v1 仅 `text` / `transcription` |
+| `ai.uploadLimits` | 仅 transcription App；逐 `/api/*` 路由声明，单路由 ≤25 MiB |
 | 未知顶层字段 | **拒绝**——拼错的键不能被静默忽略 |
+
+使用 `contributions` 或 `ai` 时，`engines.molibot` 必须至少声明 `>=2.9.8`。旧宿主会拒绝整个 manifest；不写兼容层或 fallback 字段。
 
 ### 工具命名与风险
 
@@ -135,13 +140,56 @@ async handleHttp(request) {
 
 宿主负责响应封装，所以 header、cookie、CORS、CSP 既不需要也无法设置。宿主保留 `/_host/state`，返回 `{ appId, enabled, revision, schemaVersion }`，不会进入 App 代码。请求体上限由宿主强制，超限返回 413。
 
+### 消息动作、Composer 桥与 AI
+
+- `contributions.messageActions` 把宿主消息、选区或附件确定性传给工具，不经过模型。工具收到 `{ capture }`；`capture.source` 没有 session id/宿主路径，附件只给目标 App `incoming/` 下的相对路径。
+- **Composer 桥**：UI 向 `window.parent` postMessage `{ protocol:"molibot-miniapp", version, action, payload }`。宿主同时接受 v1 与 v2，但**动作集按版本冻结**——v1 只有 `composer.insert`，用 v2 动作必须发 `version: 2`（Molibot >= 2.9.9）。老宿主收到不认识的动作会带日志丢弃，App 不能依赖桥完成关键功能。
+
+  | action | version | payload | 说明 |
+  | --- | --- | --- | --- |
+  | `composer.insert` | 1+ | `{ text, mode? }` | 32 KiB 上限；`mode` 为 `append`（默认）\| `replace` |
+  | `composer.attach` | 2 | `{ path, name? }` | `path` 是**本 App dataDir 内的相对路径**；宿主校验包含性后读取，≤32 MiB；`name` 缺省取 basename |
+  | `chat.openSession` | 2 | `{ sessionId }` | 切到已有会话；会话不存在时宿主提示，不静默 |
+
+  三个动作都只搬运 UI 意图：**永远不会自动发送、不会触发 Agent 轮次**，最后一次回车始终在用户手里。编辑历史消息时宿主会拒绝并提示，草稿不受破坏。
+
+- **结果卡片（可选）**：工具 handler 可在返回值里带 `card`，宿主在消息动作反馈处渲染一张小卡片。
+
+  ```js
+  return {
+    content: [{ type: "text", text: "已收藏：架构笔记" }],   // 模型读的仍是这句
+    changed: true,
+    card: {
+      title: "已收藏",
+      subtitle: "来自今天的对话",
+      fields: [{ label: "标签", value: "架构" }],           // 最多 6 条
+      icon: "star",                                        // Phosphor 名，不带 ph-
+      link: `molibot://miniapp/<你的 appId>/entry/7`        // 只能指向自己
+    }
+  };
+  ```
+
+  纪律：卡片是**展示**，里面没有任何写操作，唯一出口是 `link`（深链，打开自己的面板）。`link` 指向别的 App 会被静默丢掉，卡片照常渲染。**不要把信息只放在卡片里**——`content` 才是模型能读到的内容，也是非桌面端唯一会显示的东西。超长文本被截断、第 7 条 field 被丢弃，宿主不会因此让已经成功的工具调用失败。
+
+- **深链**：`molibot://miniapp/<appId>/<path>`。宿主只负责「打开该 App 面板 + 把 `<path>` 交给 UI」，语义完全归 App。UI 侧从 `?path=` 读取（和 `locale`/`theme` 同样是启动参数）。`<path>` 每段单独百分号编码，`..` 一律拒绝。
+
+- **徽标（可选）**：`context.badge.set({ kind:"count", count:3 })` / `{ kind:"dot" }` / `context.badge.clear()`。显示在侧栏该 App 图标上；用户打开面板即自动清除。刻意做小：**没有**系统通知、没有打断式弹窗。计数上限 99，`count <= 0` 等同清除。徽标只存在内存里，服务重启后消失（重启后不可能还有进行中的工作）。老宿主上 `context.badge` 是 `undefined`，所以要写 `context.badge?.set(...)`。
+- `context.badge`（Molibot >= 2.9.9，老宿主为 `undefined`，用 `?.` 调用）：`set(badge)` / `get()` / `clear()`。
+- `context.ai.generateText({ prompt, system?, maxTokens?, signal? })` 返回 `{ text, usage }`；`context.ai.transcribe({ path, language?, signal? })` 只接受 App dataDir 内真实文件，≤25 MiB 且 ≤10 分钟。能力必须在 manifest 声明，模型与凭据由宿主实时解析。
+- 声明上传路由后，非 JSON 请求的 `request.body` 是 `Uint8Array`，`request.contentType` 是规范化 MIME；未声明路由仍保持 1 MiB JSON 契约。
+- AI 稳定错误码：`capability_not_declared`、`capability_unavailable`、`invalid_request`、`rate_limited`、`provider_failed`、`aborted`。不要按错误 message 猜 Provider。
+
+长任务应把 job/segment 状态持久化，序号或业务 key 保证重复请求幂等；每个后台 Promise 都显式捕获失败；Runtime 创建时将遗留的进行中状态改为 `interrupted`，再向用户提供重试/重新生成入口。
+
 ## UI 契约
 
 宿主在 `/miniapps/<app-id>/` 托管 `ui/`，桌面端用自定义协议在 sandboxed iframe 中加载：
 
 ```
-molibot-miniapp://todo/index.html?locale=zh-CN&theme=dark
+molibot-miniapp://todo/index.html?locale=zh-CN&theme=dark&path=entry%2F7
 ```
+
+`path` 只在深链打开时出现，是 App 自定义的定位符。
 
 - 拿不到父页面 DOM、Tauri IPC、其他 App 的 origin。
 - 只能用相对 URL `./api/*` 访问自己的 API。

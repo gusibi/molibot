@@ -792,10 +792,11 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   assert.doesNotMatch(styles, /--purple-700/);
   // Pitfall 12: the catalog now carries Mini Apps, so every catalog mutation
   // must invalidate the composer's cache or `@` keeps advertising a stale set.
-  // One per catalog mutation: toggle, install, update, uninstall. An update can
-  // add or remove tools, so it invalidates exactly like the other three.
+  // One per catalog mutation: toggle, install, built-in install, update,
+  // uninstall. An update can add or remove tools, so it invalidates exactly
+  // like the others.
   const miniAppsStore = read("./lib/stores/miniapps.svelte.ts");
-  assert.equal(miniAppsStore.match(/invalidateComposerSuggestions\(\)/g)?.length, 4);
+  assert.equal(miniAppsStore.match(/invalidateComposerSuggestions\(\)/g)?.length, 5);
 });
 
 test("composer bottom bar owns the agent mention and keeps selectors quiet", () => {
@@ -2696,6 +2697,32 @@ test("Mini App panels load from a fixed custom origin, never a loopback port ran
   );
 });
 
+test("built-in Mini Apps are an offer with install / update / uninstall in one place", () => {
+  // A built-in that only exists as an installed row cannot be got back once
+  // removed, so the manager gets its own source tab fed by the built-in
+  // catalog rather than by the installed list.
+  assert.match(miniAppManager, /type InstallTab = "builtin" \| "directory" \| "zip" \| "github"/);
+  assert.match(miniAppManager, /installTab = \$state<InstallTab>\("builtin"\)/);
+  assert.match(miniAppManager, /\{#each miniAppsStore\.builtin as app \(app\.id\)\}/);
+  // The three lifecycle actions the owner asked for, all on the row.
+  assert.match(miniAppManager, /installBuiltinMiniApp\(app\.id\)/);
+  assert.match(miniAppManager, /updateMiniApp\(app\.id\)/);
+  assert.match(miniAppManager, /confirmUninstall\(app, true\)/);
+  // The trust warning is about running someone else's code; repeating it on a
+  // build's own apps only teaches people to click past it.
+  assert.match(miniAppManager, /\{#if installTab !== "builtin"\}\s*\n(?:\s*<!--[\s\S]*?-->\s*\n)?\s*<p class="miniapps-trust">/);
+
+  // Both catalogs are assigned together: a lifecycle action changes what is
+  // installed *and* what the built-in tab should say, so a route answer that
+  // updated one list would leave the other a click behind.
+  assert.match(miniAppStore, /builtin: \[\] as DesktopMiniAppBuiltinItem\[\]/);
+  assert.match(miniAppStore, /function applyCatalogs\(catalogs: DesktopMiniAppCatalogs\): void \{[\s\S]*?miniAppsStore\.items = catalogs\.items;[\s\S]*?miniAppsStore\.builtin = catalogs\.builtin;/);
+  assert.doesNotMatch(miniAppStore, /miniAppsStore\.items = (await |result\.items)/);
+  // An older service that does not send `builtin` degrades to "nothing on
+  // offer" instead of throwing inside the catalog load.
+  assert.match(desktopApi, /builtin: payload\.builtin \?\? \[\]/);
+});
+
 test("the Mini App iframe keeps a fixed, minimal sandbox", () => {
   assert.match(miniAppPanel, /sandbox="allow-scripts allow-forms allow-same-origin"/);
   // Each of these would hand a Mini App a capability the isolation boundary is
@@ -2754,7 +2781,7 @@ test("Chat mounts one Artifact Panel hosting two separate surfaces", () => {
   assert.doesNotMatch(view, /<MiniAppPanel\b/);
   assert.doesNotMatch(view, /<ProjectFilePanel\b/);
   // Opening a Mini App keeps any open files alive rather than replacing them.
-  assert.match(view, /inspector = \{\s*kind: "artifact",\s*scope: projectPaneActive \? "project" : "session",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq\s*\}/);
+  assert.match(view, /inspector = \{\s*kind: "artifact",\s*scope: projectPaneActive \? "project" : "session",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq,\s*miniAppDeepLinkPath: deepLinkPath\s*\}/);
   assert.match(view, /inspector = inspector\?\.kind === "artifact" \? null : \{ kind: "artifact", scope: projectPaneActive \? "project" : "session" \}/);
 });
 
@@ -2930,6 +2957,38 @@ test("the sidebar destination and the Settings group mount one manager component
   assert.doesNotMatch(miniAppSettings, /onOpenApp=\{/);
 });
 
+test("Mini App AI settings are edited in exactly one place, and the app page only links there", () => {
+  const aiSettings = read("./lib/miniapps/MiniAppsAiSettings.svelte");
+  // The real controls live in Settings and nowhere else: two surfaces editing
+  // one global model choice is how they end up disagreeing.
+  assert.match(miniAppSettings, /<MiniAppsAiSettings \/>/);
+  assert.match(aiSettings, /saveDesktopMiniAppAiSettings/);
+  assert.match(aiSettings, /miniAppAiTextModel/);
+  assert.match(aiSettings, /miniAppAiTranscriptionModel/);
+  assert.match(aiSettings, /miniAppAiUsageTitle/);
+
+  // The manager keeps no copy of the controls, the loader, or the saver.
+  assert.doesNotMatch(miniAppManager, /saveDesktopMiniAppAiSettings|loadDesktopMiniAppAi/);
+  assert.doesNotMatch(miniAppManager, /miniAppAiTextModel|miniAppAiTranscriptionModel|miniAppAiUsage/);
+  assert.doesNotMatch(miniAppManager, /<SelectControl/);
+
+  // It renders a signpost only when a caller injects a way to get there, so the
+  // component needs no "am I inside Settings?" branch (pitfall #7)...
+  assert.match(miniAppManager, /\{#if onOpenAiSettings\}/);
+  assert.match(miniAppManager, /class="miniapps-ai-link"[\s\S]{0,200}onclick=\{onOpenAiSettings\}/);
+  // ...and the Settings mount injects none, because the section is already there.
+  assert.doesNotMatch(miniAppSettings, /onOpenAiSettings=\{/);
+  // The sidebar destination does inject one, wired to Settings › Plugins.
+  assert.match(workspacePane, /onOpenAiSettings=\{onOpenMiniAppAiSettings\}/);
+  assert.match(view, /onOpenMiniAppAiSettings=\{\(\) => openSettings\("plugins"\)\}/);
+
+  // The signpost is a row, not a card: it holds no state and must not read as
+  // something editable in place.
+  assert.match(styles, /\.miniapps-ai-link \{[^}]*cursor: pointer/s);
+  assert.match(styles, /\.miniapps-ai-link:focus-visible \{[^}]*var\(--accent\)/s);
+  assert.match(styles, /\.miniapps-ai-link-text strong \{[^}]*font-size: var\(--fs-label\)/s);
+});
+
 test("Mini App icons are inlined so no CSP or path leak is needed", () => {
   // A URL-based icon would need `img-src molibot-miniapp:` in the app CSP and a
   // resolvable asset path in the Desktop contract; a data URI keeps both closed.
@@ -3084,4 +3143,100 @@ test("an interrupted turn keeps its answer and shows why it stopped as a separat
   assert.match(transcript, /copy\.assistantStatusAborted/);
   assert.match(styles, /\.assistant-error-note \{/);
   assert.match(styles, /\.assistant-status\.aborted \{/);
+});
+
+// ------------------------------------------- Mini App platform §2.2-§2.5
+
+test("the panel routes every bridge action through injected callbacks, source-checked first", () => {
+  // The `event.source` comparison is the primary check: it binds a message to
+  // the iframe this panel owns, which is what makes the appId trustworthy.
+  const handler = miniAppPanel.match(/function onMessage\(event: MessageEvent\): void \{[\s\S]*?\n  \}/)?.[0] ?? "";
+  assert.ok(handler, "MiniAppPanel must keep a message handler");
+  const sourceCheck = handler.indexOf("event.source !== frame.contentWindow");
+  const parseCall = handler.indexOf("parseMiniAppBridgeMessage");
+  assert.ok(sourceCheck > -1, "the source comparison must be present");
+  assert.ok(sourceCheck < parseCall, "the source comparison must run before parsing");
+
+  // Every v2 action is routed, and each one leaves through a prop rather than
+  // an import: the panel must stay usable outside a Chat host (pitfall #7).
+  for (const action of ["composer.insert", "composer.attach", "chat.openSession"]) {
+    assert.match(handler, new RegExp(`case "${action}":`), `${action} must be routed`);
+  }
+  assert.match(handler, /onComposerInsert\(/);
+  assert.match(handler, /onComposerAttach\(/);
+  assert.match(handler, /onOpenSession\(/);
+  // A labelled default, never a silent fallthrough (pitfall #26a).
+  assert.match(handler, /default: \{[\s\S]*?console\.warn\("\[miniapp-bridge\]/);
+  // No composer/conversation module may be imported here.
+  assert.doesNotMatch(miniAppPanel, /from "\.\.\/projects\/composerBridge"/);
+  assert.doesNotMatch(miniAppPanel, /from "\.\.\/chat\//);
+});
+
+test("a Mini App deep link is resolved in-process, never navigated to", () => {
+  // The link is parsed into an intent and routed; it never becomes an href, a
+  // window.open, or an iframe src.
+  assert.match(view, /function openMiniAppDeepLink\(link: string\): void \{[\s\S]*?parseMiniAppDeepLink\(link\)[\s\S]*?openMiniAppInspector\(parsed\.appId, parsed\.path\)/);
+  const card = read("./lib/miniapps/MiniAppResultCard.svelte");
+  assert.doesNotMatch(card, /<a\b/, "a card link must be a button, not an anchor the WebView can follow");
+  assert.doesNotMatch(card, /window\.open|location\.href/);
+  assert.match(card, /onclick=\{\(\) => onOpenLink\(link\)\}/);
+
+  // The locator rides as a query hint beside locale/theme; it is never joined
+  // into the asset path the transport resolves.
+  assert.match(desktopApi, /if \(deepLinkPath\) params\.set\("path", deepLinkPath\)/);
+  assert.doesNotMatch(desktopApi, /molibot-miniapp:\/\/\$\{appId\}\/\$\{deepLinkPath\}/);
+});
+
+test("a result card is display-only and cannot write anything", () => {
+  // Roadmap §2.3's constraint expressed structurally: the single affordance is
+  // the deep link out to the App's own panel.
+  const card = read("./lib/miniapps/MiniAppResultCard.svelte");
+  assert.doesNotMatch(card, /<input\b|<textarea\b|<form\b/);
+  assert.doesNotMatch(card, /fetch\(|invoke\(|requestJson/);
+  // Index-keyed: a static host-truncated list may legitimately repeat a label
+  // or a value, and a value key would throw `each_key_duplicate` (pitfall #31a).
+  assert.match(card, /\{#each card\.fields as field, index \(index\)\}/);
+  // Domain-agnostic: no app's vocabulary in a surface every app shares.
+  assert.doesNotMatch(card, /\btodo\b|\bfavorite|\bamount\b|\bexpense/i);
+});
+
+test("an app badge is host-owned, quiet, and cleared by opening the app", () => {
+  // §2.5 is deliberately small: a count or a dot on the sidebar row. No system
+  // notification and no interrupting popup.
+  assert.match(miniAppSidebar, /\{#if app\.badge\}/);
+  assert.match(miniAppSidebar, /app\.badge\.kind === "count" \? app\.badge\.count : ""/);
+  assert.doesNotMatch(miniAppSidebar, /Notification\(|requestPermission|alert\(/);
+  // The count must not be what gets ellipsised when the row is tight.
+  assert.match(styles, /\.miniapps-badge \{[^}]*flex: 0 0 auto/s);
+  assert.match(styles, /\.miniapps-badge \{[^}]*font-size: var\(--fs-meta\)[^}]*line-height: var\(--lh-meta\)/s);
+
+  // Opening the panel is what retires the badge, and the server's answer is
+  // applied rather than the count being cleared locally.
+  assert.match(view, /function openMiniAppInspector\(appId: string, deepLinkPath = ""\): void \{[\s\S]*?void clearMiniAppBadge\(appId\)/);
+  assert.match(miniAppStore, /export async function clearMiniAppBadge/);
+  assert.match(miniAppStore, /applyCatalogs\(await clearDesktopMiniAppBadge\(endpoint, appId\)\)/);
+  assert.doesNotMatch(miniAppStore, /\.badge = null/, "the store must not guess the cleared state locally");
+});
+
+test("a bridge attachment is fetched by app id and never trusts a client-side limit", () => {
+  // The panel supplies an app-relative locator; the host resolves it against
+  // that app's own data directory (pitfall #6: a UI marker is not a path).
+  assert.match(desktopApi, /export async function fetchDesktopMiniAppAttachment/);
+  assert.match(desktopApi, /"\/api\/desktop\/miniapps\/attach"/);
+  const bridge = read("./lib/projects/composerBridge.ts");
+  assert.match(bridge, /export interface MiniAppComposerAttachment \{[\s\S]*?appId: string;[\s\S]*?path: string;/);
+
+  // The claim happens before the await, so a second store tick during the
+  // fetch cannot start the same attachment twice (pitfall #3).
+  const handler = view.match(/async function applyMiniAppComposerAttachment\([\s\S]*?\n  \}/)?.[0] ?? "";
+  assert.ok(handler, "ChatView must handle composer.attach");
+  assert.ok(
+    handler.indexOf("appliedMiniAppAttachmentId = request.id") < handler.indexOf("await fetchDesktopMiniAppAttachment"),
+    "the request id must be claimed before the await"
+  );
+  // Failure is always visible; "the button did nothing" is the worst outcome.
+  assert.match(handler, /catch \(cause\) \{[\s\S]*?miniAppComposerAttachFailed/);
+  // Editing history and read-only conversations are refused, as for insert.
+  assert.match(handler, /miniAppComposerReadOnly/);
+  assert.match(handler, /miniAppComposerEditing/);
 });

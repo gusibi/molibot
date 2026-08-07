@@ -22,6 +22,7 @@ const STRINGS = {
     heading: "Starter",
     placeholder: "Add a record",
     add: "Add",
+    fillComposer: "Use in chat",
     open: "Open",
     done: "Done",
     noOpen: "Nothing open.",
@@ -37,6 +38,7 @@ const STRINGS = {
     heading: "Starter",
     placeholder: "添加一条记录",
     add: "添加",
+    fillComposer: "填入聊天",
     open: "进行中",
     done: "已完成",
     noOpen: "暂无记录。",
@@ -64,12 +66,55 @@ const elements = {
   composer: document.getElementById("composer"),
   title: document.getElementById("title"),
   submit: document.querySelector(".starter-submit"),
+  fillComposer: document.getElementById("fill-composer"),
   status: document.getElementById("status"),
   openGroup: document.getElementById("open-group"),
   openList: document.getElementById("open-list"),
   doneGroup: document.getElementById("done-group"),
   doneList: document.getElementById("done-list")
 };
+
+/**
+ * Optional host bridge. Apps must remain useful when an older host ignores it.
+ * The bridge only fills a draft; it never sends a chat message.
+ */
+const molibotBridge = {
+  /**
+   * `targetOrigin: "*"` is fine here: the iframe cannot know the host WebView's
+   * origin, no message carries a secret, and the real boundary is the host's
+   * own `event.source` check on the receiving side.
+   */
+  send(action, payload, version = 2) {
+    window.parent.postMessage({ protocol: "molibot-miniapp", version, action, payload }, "*");
+  },
+  /** Fills the chat draft. Never sends — the final keypress stays with the user. */
+  insertToComposer(text, mode = "append") {
+    this.send("composer.insert", { text: String(text), mode }, 1);
+  },
+  /**
+   * Attaches a file from THIS app's data directory to the chat composer.
+   * `path` is relative to the app's own dataDir; the host validates containment
+   * and refuses anything that escapes it. Bridge v2 (Molibot >= 2.9.9).
+   */
+  attachToComposer(path, name) {
+    this.send("composer.attach", { path: String(path), ...(name ? { name: String(name) } : {}) });
+  },
+  /** Switches the host to an existing conversation. Bridge v2. */
+  openSession(sessionId) {
+    this.send("chat.openSession", { sessionId: String(sessionId) });
+  },
+  /** A deep link back into this app, for a tool result card's `link`. */
+  deepLink(appId, path = "") {
+    const encoded = String(path).replace(/^\/+/, "").split("/").filter(Boolean).map(encodeURIComponent).join("/");
+    return encoded ? `molibot://miniapp/${appId}/${encoded}` : `molibot://miniapp/${appId}`;
+  }
+};
+
+/**
+ * A deep link's locator arrives as `?path=` alongside locale/theme. Its meaning
+ * belongs entirely to this app — the host only opens the panel and passes it on.
+ */
+const deepLinkPath = new URLSearchParams(location.search).get("path") ?? "";
 
 for (const node of document.querySelectorAll("[data-i18n]")) {
   node.textContent = t[node.dataset.i18n] ?? node.textContent;
@@ -220,6 +265,11 @@ elements.composer.addEventListener("submit", (event) => {
       elements.submit.disabled = false;
       elements.title.focus();
     });
+});
+
+elements.fillComposer.addEventListener("click", () => {
+  const text = elements.title.value.trim();
+  if (text) molibotBridge.insertToComposer(text);
 });
 
 // Polling pauses while the panel is hidden and catches up the moment it returns,
