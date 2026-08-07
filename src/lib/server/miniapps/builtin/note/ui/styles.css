@@ -1,8 +1,8 @@
 /*
- * Note Mini App — Material Design 3 (Google Keep flavour).
+ * Note Mini App — macOS / Geist (DESIGN.md).
  *
  * The panel runs in an isolated iframe origin, so it cannot inherit Molibot's
- * design tokens: it ships the shared Mini App M3 baseline below and receives
+ * design tokens: it ships the shared Mini App design baseline below (the --md-* namespace is historical, kept for the drift test; values resolve to macOS roles) and receives
  * the active theme as `data-theme` on <html>, set from the iframe URL hint.
  *
  * The baseline block (`--md-*`) is duplicated verbatim in every built-in Mini
@@ -19,53 +19,53 @@
 .hidden { display: none !important; }
 
 /* ===========================================================================
- * Shared M3 baseline — tokens
+ * Shared design baseline — tokens
  * ======================================================================== */
 
 :root {
   color-scheme: light;
 
-  /* Primary — Google Blue */
-  --md-primary: #0b57d0;
+  /* Primary - macOS accent (controlAccentColor #007aff). */
+  --md-primary: #007aff;
   --md-on-primary: #ffffff;
-  --md-primary-container: #d3e3fd;
-  --md-on-primary-container: #041e49;
+  --md-primary-container: rgb(0 122 255 / 10%);
+  --md-on-primary-container: #0040a0;
 
-  /* Secondary */
-  --md-secondary-container: #c2e7ff;
-  --md-on-secondary-container: #001d35;
+  /* Secondary - neutral fill (count badges, active chips). */
+  --md-secondary-container: rgb(0 0 0 / 6%);
+  --md-on-secondary-container: rgb(0 0 0 / 84.7%);
 
-  /* Tertiary — Google Green */
-  --md-tertiary: #146c2e;
-  --md-tertiary-container: #c4eed0;
-  --md-on-tertiary-container: #072711;
+  /* Tertiary - macOS success green. */
+  --md-tertiary: #34c759;
+  --md-tertiary-container: rgb(52 199 89 / 12%);
+  --md-on-tertiary-container: #1a7a36;
 
-  /* Error */
-  --md-error: #b3261e;
+  /* Error - macOS danger red. */
+  --md-error: #ff383c;
   --md-on-error: #ffffff;
-  --md-error-container: #fce8e6;
-  --md-on-error-container: #410e0b;
+  --md-error-container: rgb(255 56 60 / 10%);
+  --md-on-error-container: #c2000a;
 
-  /* Neutral surfaces. Elevation is tint first, shadow second. */
-  --md-surface: #ffffff;
+  /* Neutral surfaces - opaque and quiet; one elevation step (card over window). */
+  --md-surface: #f6f6f6;
   --md-surface-container-lowest: #ffffff;
-  --md-surface-container-low: #f8fafd;
-  --md-surface-container: #f0f4f9;
-  --md-surface-container-high: #e9eef6;
-  --md-surface-container-highest: #dde3ea;
-  --md-on-surface: #1f1f1f;
-  --md-on-surface-variant: #444746;
-  --md-outline: #747775;
-  --md-outline-variant: #c4c7c5;
+  --md-surface-container-low: #ffffff;
+  --md-surface-container: #ececec;
+  --md-surface-container-high: #e6e6e6;
+  --md-surface-container-highest: #dcdcdc;
+  --md-on-surface: rgb(0 0 0 / 84.7%);
+  --md-on-surface-variant: rgb(0 0 0 / 49.8%);
+  --md-outline: rgb(0 0 0 / 24%);
+  --md-outline-variant: rgb(0 0 0 / 9.8%);
   --md-scrim: rgba(0, 0, 0, 0.32);
 
   /* The one accent outside the scheme: "starred / pinned" is a product
      signal, not a scheme role, and must read the same in both themes. */
   --md-star: #e37400;
 
-  /* Type scale. Size and line-height are declared as PAIRS — setting one
+  /* Type scale. Size and line-height are declared as PAIRS - setting one
      without the other is how a rank drifts back apart. */
-  --md-font: "Google Sans Text", "Google Sans", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --md-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
   --md-title-lg-size: 22px;   --md-title-lg-lh: 28px;
   --md-title-md-size: 16px;   --md-title-md-lh: 24px;
   --md-title-sm-size: 14px;   --md-title-sm-lh: 20px;
@@ -76,12 +76,12 @@
   --md-label-md-size: 12px;   --md-label-md-lh: 16px;
   --md-label-sm-size: 11px;   --md-label-sm-lh: 16px;
 
-  /* Shape scale */
-  --md-shape-xs: 4px;
+  /* Shape scale - 6 compact, 8 control, 12 card/menu, full pill. */
+  --md-shape-xs: 6px;
   --md-shape-sm: 8px;
   --md-shape-md: 12px;
-  --md-shape-lg: 16px;
-  --md-shape-xl: 28px;
+  --md-shape-lg: 12px;
+  --md-shape-xl: 12px;
   --md-shape-full: 9999px;
 
   /* Motion */
@@ -91,53 +91,54 @@
   --md-dur-medium: 250ms;
   --md-dur-long: 400ms;
 
-  /* Elevation. M3 shadows are soft and low-contrast; the tint does the work. */
-  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.1);
-  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.1);
-  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.1);
+  /* Elevation - shadows reserved for floating overlays (DESIGN.md). Cards stay
+     flat and rely on the separator border; elev-2 is a menu, elev-3 a dialog. */
+  --md-elev-1: none;
+  --md-elev-2: 0 2px 8px -2px rgba(0, 0, 0, 0.10), 0 4px 12px -4px rgba(0, 0, 0, 0.08);
+  --md-elev-3: 0 8px 16px -4px rgba(0, 0, 0, 0.10), 0 24px 32px -8px rgba(0, 0, 0, 0.12);
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --md-primary: #a8c7fa;
-  --md-on-primary: #062e6f;
-  --md-primary-container: #0842a0;
-  --md-on-primary-container: #d3e3fd;
+  --md-primary: #007aff;
+  --md-on-primary: #ffffff;
+  --md-primary-container: rgb(0 122 255 / 18%);
+  --md-on-primary-container: #419cff;
 
-  --md-secondary-container: #004a77;
-  --md-on-secondary-container: #c2e7ff;
+  --md-secondary-container: rgb(255 255 255 / 8%);
+  --md-on-secondary-container: rgb(255 255 255 / 84.7%);
 
-  --md-tertiary: #6dd58c;
-  --md-tertiary-container: #0f5223;
-  --md-on-tertiary-container: #c4eed0;
+  --md-tertiary: #30d158;
+  --md-tertiary-container: rgb(48 209 88 / 16%);
+  --md-on-tertiary-container: #30d158;
 
-  --md-error: #f2b8b5;
-  --md-on-error: #601410;
-  --md-error-container: #8c1d18;
-  --md-on-error-container: #f9dedc;
+  --md-error: #ff4245;
+  --md-on-error: #ffffff;
+  --md-error-container: rgb(255 66 69 / 14%);
+  --md-on-error-container: #ff6b6e;
 
-  --md-surface: #131314;
-  --md-surface-container-lowest: #0e0e0e;
-  --md-surface-container-low: #1b1b1b;
-  --md-surface-container: #1e1f20;
-  --md-surface-container-high: #282a2c;
-  --md-surface-container-highest: #333438;
-  --md-on-surface: #e3e3e3;
-  --md-on-surface-variant: #c4c7c5;
-  --md-outline: #8e918f;
-  --md-outline-variant: #444746;
+  --md-surface: #1e1e1e;
+  --md-surface-container-lowest: #1e1e1e;
+  --md-surface-container-low: #2c2c2e;
+  --md-surface-container: #282828;
+  --md-surface-container-high: #343436;
+  --md-surface-container-highest: #3a3a3c;
+  --md-on-surface: rgb(255 255 255 / 84.7%);
+  --md-on-surface-variant: rgb(255 255 255 / 54.9%);
+  --md-outline: rgb(255 255 255 / 24%);
+  --md-outline-variant: rgb(255 255 255 / 9.8%);
   --md-scrim: rgba(0, 0, 0, 0.6);
 
   --md-star: #fdd663;
 
-  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 1px 3px 1px rgba(0, 0, 0, 0.3);
-  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 2px 6px 2px rgba(0, 0, 0, 0.3);
-  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 4px 8px 3px rgba(0, 0, 0, 0.3);
+  --md-elev-1: none;
+  --md-elev-2: 0 2px 8px -2px rgba(0, 0, 0, 0.40), 0 4px 12px -4px rgba(0, 0, 0, 0.32);
+  --md-elev-3: 0 8px 16px -4px rgba(0, 0, 0, 0.40), 0 24px 32px -8px rgba(0, 0, 0, 0.36);
 }
 
 /* ===========================================================================
- * Shared M3 baseline — interaction physics
+ * Shared design baseline — interaction physics
  *
  * A state layer is a translucent wash of the element's own content colour, not
  * a different background: hover 8%, focus/press 12%. Elements that already
@@ -146,13 +147,6 @@
  * composites above the fill and below the label with no stacking-context war.
  * ======================================================================== */
 
-/* The ripple is applied to the controls that carry no absolutely positioned
-   children — a dropdown anchored inside would be clipped by the
-   `overflow: hidden` the ripple needs. See `.icon-btn` / `.icon-btn-sm`. */
-@keyframes m3-ripple {
-  0% { opacity: 0.16; transform: translate(-50%, -50%) scale(0); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.4); }
-}
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -166,33 +160,33 @@ body {
 }
 
 /* ===========================================================================
- * Note colours — the app's own expressive set, mirrored from Google Keep.
+ * Note colours — the app's own expressive set, soft tints derived from the Geist scale.
  * Applied through `data-color`, so the swatches and the surfaces they paint
  * can never disagree.
  * ======================================================================== */
 
 :root {
-  --note-default: var(--md-surface);
-  --note-yellow: #fff8b8;
-  --note-blue: #d4e4ed;
-  --note-green: #e2f6d3;
-  --note-red: #faafa8;
-  --note-purple: #d3bfdb;
+  --note-default: var(--md-surface-container-low);
+  --note-yellow: #fdf3c8;
+  --note-blue: #e3eef9;
+  --note-green: #e4f3e1;
+  --note-red: #f8e3df;
+  --note-purple: #ece3f3;
   --note-gray: #efeff1;
-  --note-on: #1f1f1f;
-  --note-wash: rgba(0, 0, 0, 0.08);
+  --note-on: var(--md-on-surface);
+  --note-wash: rgb(0 0 0 / 6%);
 }
 
 [data-theme="dark"] {
   --note-default: var(--md-surface-container-low);
-  --note-yellow: #7c4a03;
-  --note-blue: #256377;
-  --note-green: #264d3b;
-  --note-red: #77172e;
-  --note-purple: #472e5b;
-  --note-gray: #3c4043;
-  --note-on: #e3e3e3;
-  --note-wash: rgba(255, 255, 255, 0.12);
+  --note-yellow: #5c4a1e;
+  --note-blue: #1f3a52;
+  --note-green: #1f3d2c;
+  --note-red: #52252e;
+  --note-purple: #3a2747;
+  --note-gray: #3a3a3c;
+  --note-on: var(--md-on-surface);
+  --note-wash: rgb(255 255 255 / 8%);
 }
 
 [data-color="yellow"] { --note-surface: var(--note-yellow); }
@@ -214,6 +208,7 @@ body { padding: 16px 16px 32px; }
   display: flex;
   flex-direction: column;
   gap: 16px;
+  position: relative;
 }
 
 /* — Top app bar ————————————————————————————————————————————— */
@@ -224,28 +219,65 @@ body { padding: 16px 16px 32px; }
   gap: 8px;
 }
 
-.note-brand {
+.note-icon {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
 }
 
 .keep-icon { flex-shrink: 0; }
 
-.note-heading {
+.note-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  flex-shrink: 0;
+  max-width: 55%;
+  padding: 0 6px 0 10px;
+  border: none;
+  border-radius: var(--md-shape-sm);
+  background: transparent;
+  color: var(--md-on-surface);
+  font: inherit;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard);
+}
+
+.note-trigger:hover {
+  background-color: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.note-trigger:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
+}
+
+.note-trigger-title {
   font-size: var(--md-title-md-size);
   line-height: var(--md-title-md-lh);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--md-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* M3 search bar: full-round, container-tinted, no border. */
+.note-chevron {
+  flex-shrink: 0;
+  color: var(--md-on-surface-variant);
+  transition: transform var(--md-dur-medium) var(--md-ease-emphasized);
+}
+
+.note-chevron.rotate {
+  transform: rotate(180deg);
+}
+
+/* Search bar: full-round, container-tinted, no border. */
 .note-search-wrapper {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: 480px;
   position: relative;
   display: flex;
   align-items: center;
@@ -253,22 +285,22 @@ body { padding: 16px 16px 32px; }
 
 .search-icon {
   position: absolute;
-  left: 16px;
+  left: 10px;
   color: var(--md-on-surface-variant);
   pointer-events: none;
 }
 
 .note-search {
   width: 100%;
-  height: 44px;
-  padding: 0 16px 0 48px;
+  height: 32px;
+  padding: 0 12px 0 34px;
   border: none;
   border-radius: var(--md-shape-full);
   background: var(--md-surface-container-high);
   color: var(--md-on-surface);
   font: inherit;
-  font-size: var(--md-body-lg-size);
-  line-height: var(--md-body-lg-lh);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
   outline: none;
   transition: background-color var(--md-dur-short) var(--md-ease-standard),
               box-shadow var(--md-dur-short) var(--md-ease-standard);
@@ -277,8 +309,79 @@ body { padding: 16px 16px 32px; }
 .note-search::placeholder { color: var(--md-on-surface-variant); }
 .note-search:hover { background: var(--md-surface-container-highest); }
 .note-search:focus {
-  background: var(--md-surface-container-high);
-  box-shadow: var(--md-elev-1);
+  background: var(--md-surface-container-low);
+  box-shadow: 0 0 0 3px var(--md-primary-container);
+}
+
+/* - Backdrop + tab picker (dropdown menu) ------------------- */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: transparent;
+  transition: background-color var(--md-dur-medium) var(--md-ease-standard);
+  pointer-events: none;
+}
+
+.backdrop.show {
+  background: var(--md-scrim);
+  pointer-events: auto;
+}
+
+.tab-picker {
+  position: absolute;
+  top: 40px;
+  left: 12px;
+  z-index: 100;
+  min-width: 180px;
+  padding: 6px 0;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container-low);
+  border: 1px solid var(--md-outline-variant);
+  box-shadow: var(--md-elev-2);
+  opacity: 0;
+  transform: scaleY(0.92) translateY(-4px);
+  transform-origin: top left;
+  transition: opacity var(--md-dur-medium) var(--md-ease-emphasized),
+              transform var(--md-dur-medium) var(--md-ease-emphasized);
+  pointer-events: none;
+}
+
+.tab-picker.open {
+  opacity: 1;
+  transform: scaleY(1) translateY(0);
+  pointer-events: auto;
+}
+
+.tp-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 12px);
+  min-height: 34px;
+  margin: 2px 6px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--md-shape-sm);
+  background: transparent;
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard);
+}
+
+.tp-item:hover { background-color: color-mix(in srgb, currentColor 6%, transparent); }
+.tp-item:active { background-color: color-mix(in srgb, currentColor 10%, transparent); }
+.tp-item:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
+
+.tp-item.active {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-weight: 500;
 }
 
 /* — Icon buttons ————————————————————————————————————————————— */
@@ -328,22 +431,6 @@ body { padding: 16px 16px 32px; }
   outline-offset: 2px;
 }
 
-.icon-btn::after,
-.icon-btn-sm::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 100%;
-  padding-bottom: 100%;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(0);
-  pointer-events: none;
-}
-.icon-btn:active::after,
-.icon-btn-sm:active::after { animation: m3-ripple 400ms var(--md-ease-emphasized); }
 
 /* — Composer ————————————————————————————————————————————————— */
 
@@ -358,21 +445,20 @@ body { padding: 16px 16px 32px; }
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 8px 0 20px;
-  height: 56px;
+  padding: 0 8px 0 16px;
+  height: 40px;
   border-radius: var(--md-shape-lg);
   background: var(--md-surface-container-low);
   box-shadow: var(--md-elev-1);
   color: var(--md-on-surface-variant);
-  font-size: var(--md-body-lg-size);
-  line-height: var(--md-body-lg-lh);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
   cursor: text;
   transition: box-shadow var(--md-dur-medium) var(--md-ease-standard),
               background-color var(--md-dur-short) var(--md-ease-standard);
 }
 
 .composer-collapsed:hover {
-  box-shadow: var(--md-elev-2);
   background: var(--md-surface-container);
 }
 
@@ -411,8 +497,8 @@ body { padding: 16px 16px 32px; }
   outline: none;
   color: inherit;
   font-family: inherit;
-  font-size: var(--md-body-lg-size);
-  line-height: var(--md-body-lg-lh);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
   width: 100%;
 }
 
@@ -589,51 +675,6 @@ body { padding: 16px 16px 32px; }
   color: var(--md-on-secondary-container);
 }
 
-/* — Tabs ——————————————————————————————————————————————————————— */
-
-.note-tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--md-outline-variant);
-}
-
-.note-tab {
-  height: 48px;
-  padding: 0 16px;
-  border: none;
-  background: transparent;
-  color: var(--md-on-surface-variant);
-  font-family: inherit;
-  font-size: var(--md-title-sm-size);
-  line-height: var(--md-title-sm-lh);
-  font-weight: 500;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  transition: color var(--md-dur-short) var(--md-ease-standard),
-              background-color var(--md-dur-short) var(--md-ease-standard);
-}
-
-.note-tab:hover { background-color: color-mix(in srgb, currentColor 8%, transparent); }
-.note-tab:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
-.note-tab.active { color: var(--md-primary); }
-
-/* 3dp rounded indicator, animated on selection change. */
-.note-tab::before {
-  content: "";
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 0;
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-  background: var(--md-primary);
-  transform: scaleX(0);
-  transition: transform var(--md-dur-medium) var(--md-ease-emphasized);
-}
-
-.note-tab.active::before { transform: scaleX(1); }
-
 /* — Note grid ——————————————————————————————————————————————————— */
 
 .note-group {
@@ -675,14 +716,14 @@ body { padding: 16px 16px 32px; }
               color var(--md-dur-medium) var(--md-ease-standard);
 }
 
-/* Default notes are outlined cards — the only card rank M3 draws a border on. */
+/* Default notes are outlined cards — the only card rank carries a border. */
 .note-card[data-color="default"] {
-  background: var(--md-surface);
+  background: var(--md-surface-container-low);
   color: var(--md-on-surface);
   border-color: var(--md-outline-variant);
 }
 
-.note-card:hover { box-shadow: var(--md-elev-2); }
+.note-card:hover { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
 .note-card:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
 
 .card-header {
@@ -691,6 +732,15 @@ body { padding: 16px 16px 32px; }
   justify-content: space-between;
   gap: 8px;
   min-height: 24px;
+}
+
+/* No title: float the action buttons to the top-right so the content body is
+   not pushed down by an empty title row. */
+.note-card.no-title .card-header {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-height: 0;
 }
 
 .card-title {
@@ -725,7 +775,7 @@ body { padding: 16px 16px 32px; }
 
 .card-more-container { position: relative; }
 
-/* M3 menu: container tint + elevation 2, never a hairline border. */
+/* Menu: container tint + elevation 2, never a hairline border. */
 .card-dropdown {
   position: absolute;
   top: calc(100% + 4px);
@@ -788,7 +838,7 @@ body { padding: 16px 16px 32px; }
   gap: 4px;
 }
 
-/* M3 assist chip, small. */
+/* Assist chip, small. */
 .card-label-tag {
   height: 24px;
   display: inline-flex;
@@ -831,7 +881,7 @@ body { padding: 16px 16px 32px; }
   pointer-events: none !important;
 }
 
-/* M3 dialog: extra-large corner, container-high tint, elevation 3. */
+/* Dialog: 12px corner, container-high tint, elevation 3. */
 .modal-card {
   width: 100%;
   max-width: 560px;

@@ -4,8 +4,35 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-08
+
+### Release: v2.9.11 / Desktop v0.9.8
+- Synchronized the root and Desktop package versions for the new release.
+
 ---
 ## 2026-08-07
+
+### Changed: Mini App AI settings moved to Settings › Models; Settings › Plugins drops its Mini App manager
+
+Settings › Plugins carried a full second copy of the Mini App management surface (install tabs, built-in offers, the installed list) plus the Mini App AI model selectors. Neither belonged there: browsing and installing apps already has a home in the sidebar's Mini Apps destination, and the AI selectors are a *model route* like every other one on the Models page.
+- **Removed** `MiniAppsSettingsGroup.svelte` and its `.miniapps-card` wrapper; Plugins now renders only memory backend + feature plugins. `MiniAppsManager` is mounted from exactly one place (`ChatWorkspacePane`), asserted across every Settings section.
+- **Moved** `MiniAppsAiSettings` into `ModelsSection`, and re-rendered it with that page's own `SettingGroup` / `SettingRow` / `SelectControl` primitives (bespoke `settings-card` + `settings-form` markup removed) so it reads as part of the screen instead of a transplant. Both selectors gained the page's `technicalId` disclosure; the cost note and 30-day usage block were re-inset to match `SettingRow`'s 16px gutter.
+- **Rewired** the Mini Apps page signpost from `openSettings("plugins")` to `openSettings("models")`.
+- The controls still commit immediately through their own route, and the Models page has no `<form>` — a change here can neither be swept into the advanced-routing save nor block it (guarded).
+- Verification: `chat-ui.test.mjs` 173/173, `svelte-check` 0 errors / 0 warnings, `vite build` OK.
+
+### Improved: Unified Todo/Note header layout and tightened sizes
+
+Both Mini Apps now share one header pattern: app icon, a dropdown trigger, and the search box in a single row. Todo's dropdown opens the task-list picker (the redundant hamburger button is gone); Note's dropdown opens the Notes/Archive view switcher, so the old tab bar moved into the dropdown and the manual refresh button was replaced with auto-refresh on panel focus. Sized the header to DESIGN.md's compact toolbar tier: 32px search/trigger controls, 14px body text, 16px titles (Todo's title dropped from 22px), and a 40px collapsed composer. Drift guard stays green (4/4).
+- **Note cards without a title** no longer reserve an empty title row: the action buttons float to the top-right and the content starts at the card's top padding instead of below a blank header.
+
+### Improved: Built-in Mini Apps restyled to the macOS / Geist design system
+
+The Todo and Note Mini Apps shipped a Material Design 3 baseline (Google Blue, Google Sans, M3 ripples/elevation tints, Google Keep palette) that read as a different product from the macOS/Geist desktop app. Repointed the shared `--md-*` baseline in all four style sheets (todo, note, meeting-notes, miniapp-creator template) to the Molibot macOS product layer from DESIGN.md: accent `#007aff`, `-apple-system` font, AppKit semantic surfaces/labels/separators, 6/8/12/999 radii, and shadows reserved for floating overlays (cards stay flat on a separator border). The `--md-*` namespace is kept (pinned by `uiDesignBaseline.test.ts`); only the values change, so the drift guard stays green.
+- **Todo**: removed M3 ripple pseudo-elements, refocused composer/search on border + accent focus rings instead of elevation shadows, and made list/move dropdowns white popovers.
+- **Note**: retuned the seven card colors from Keep-saturated to soft Geist-scale tints, and dropped ripples for subtle hover/focus states. The Note lightbulb icon was left as-is.
+- **Versions**: Todo 1.5.0 -> 1.6.0, Note 1.2.0 -> 1.3.0, Meeting Notes 1.1.0 -> 1.2.0 (baseline mirror) so on-disk installs update.
+- Verification: `uiDesignBaseline.test.ts` 4/4, `bootstrap.test.ts` 17/17.
 
 ### Release: v2.9.10 / Desktop v0.9.7
 - Synchronized the root and Desktop package versions for the new release.

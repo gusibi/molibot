@@ -98,10 +98,13 @@ const elements = {
   pinCheckbox: document.getElementById("pin-checkbox"),
   submit: document.querySelector(".note-submit"),
   searchInput: document.getElementById("search-input"),
-  refreshBtn: document.getElementById("refresh-btn"),
+  tabSelectorTrigger: document.getElementById("tab-selector-trigger"),
+  tabPicker: document.getElementById("tab-picker"),
+  currentTabName: document.getElementById("current-tab-name"),
+  noteChevron: document.getElementById("note-chevron"),
+  backdrop: document.getElementById("backdrop"),
+  tabItems: document.querySelectorAll(".tp-item"),
   status: document.getElementById("status"),
-  tabActive: document.getElementById("tab-active"),
-  tabArchived: document.getElementById("tab-archived"),
   pinnedGroup: document.getElementById("pinned-group"),
   pinnedList: document.getElementById("pinned-list"),
   otherGroupTitle: document.getElementById("other-group-title"),
@@ -302,6 +305,9 @@ function renderCard(note) {
   card.dataset.color = note.color || "default";
   // Lets a deep link find this card after the list renders.
   card.dataset.id = note.id;
+  // No title: collapse the header row so content starts at the top; the
+  // action buttons float to the top-right via the .no-title CSS rule.
+  if (!note.title) card.classList.add("no-title");
 
   // 点击卡片本体直接唤起编辑弹窗
   card.addEventListener("click", (event) => {
@@ -313,10 +319,12 @@ function renderCard(note) {
   const header = document.createElement("div");
   header.className = "card-header";
 
-  const title = document.createElement("div");
-  title.className = "card-title";
-  title.textContent = note.title || "";
-  header.append(title);
+  if (note.title) {
+    const title = document.createElement("div");
+    title.className = "card-title";
+    title.textContent = note.title;
+    header.append(title);
+  }
 
   const headerActions = document.createElement("div");
   headerActions.className = "card-header-actions";
@@ -512,31 +520,68 @@ elements.composer.addEventListener("submit", (event) => {
     });
 });
 
-elements.refreshBtn.addEventListener("click", () => {
-  void loadNotes();
-});
-
 let searchTimer = null;
 elements.searchInput.addEventListener("input", () => {
   if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(() => void loadNotes(), 200);
 });
 
-elements.tabActive.addEventListener("click", () => {
-  if (currentTab === "active") return;
-  currentTab = "active";
-  elements.tabActive.classList.add("active");
-  elements.tabArchived.classList.remove("active");
-  void loadNotes();
+// - Tab picker (dropdown) -
+let tabPickerOpen = false;
+
+function updateTabTrigger() {
+  elements.currentTabName.textContent = currentTab === "active" ? t.tabActive : t.tabArchived;
+  elements.tabItems.forEach((item) => {
+    item.classList.toggle("active", item.dataset.tab === currentTab);
+  });
+}
+
+function toggleTabPicker(force) {
+  tabPickerOpen = force ?? !tabPickerOpen;
+  elements.noteChevron.classList.toggle("rotate", tabPickerOpen);
+  if (tabPickerOpen) {
+    elements.tabPicker.hidden = false;
+    elements.backdrop.hidden = false;
+    requestAnimationFrame(() => {
+      elements.tabPicker.classList.add("open");
+      elements.backdrop.classList.add("show");
+    });
+  } else {
+    elements.tabPicker.classList.remove("open");
+    elements.backdrop.classList.remove("show");
+    if (elements.tabPicker.contains(document.activeElement)) document.activeElement.blur();
+    setTimeout(() => {
+      elements.tabPicker.hidden = true;
+      elements.backdrop.hidden = true;
+    }, 300);
+  }
+}
+
+elements.tabSelectorTrigger.addEventListener("click", (e) => { e.stopPropagation(); toggleTabPicker(); });
+elements.backdrop.addEventListener("click", () => toggleTabPicker(false));
+
+elements.tabItems.forEach((item) => {
+  item.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const tab = item.dataset.tab;
+    toggleTabPicker(false);
+    if (currentTab === tab) return;
+    currentTab = tab;
+    updateTabTrigger();
+    void loadNotes();
+  });
 });
 
-elements.tabArchived.addEventListener("click", () => {
-  if (currentTab === "archived") return;
-  currentTab = "archived";
-  elements.tabArchived.classList.add("active");
-  elements.tabActive.classList.remove("active");
-  void loadNotes();
+document.addEventListener("click", (e) => {
+  if (tabPickerOpen && !e.target.closest(".tab-picker") && !e.target.closest(".note-trigger")) {
+    toggleTabPicker(false);
+  }
 });
+
+// Auto-refresh when the panel returns to the foreground (replaces the manual
+// refresh button so the header stays [icon] [view dropdown] [search]).
+document.addEventListener("visibilitychange", () => { if (!document.hidden) void loadNotes(); });
+window.addEventListener("focus", () => void loadNotes());
 
 async function start() {
   try {

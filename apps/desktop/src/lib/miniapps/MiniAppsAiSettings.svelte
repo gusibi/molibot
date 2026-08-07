@@ -1,5 +1,7 @@
 <script lang="ts">
   import SelectControl from "../components/ui/SelectControl.svelte";
+  import SettingGroup from "../components/ui/SettingGroup.svelte";
+  import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
   import type {
     DesktopMiniAppAiSettings,
@@ -11,11 +13,15 @@
   /**
    * Which host models Mini Apps may use, plus their recent spend.
    *
-   * Lives in Settings rather than on the Mini Apps page: this is one global
-   * decision about the owner's own model configuration, not something you tune
+   * Lives in Settings › Models rather than on the Mini Apps page: this is one
+   * global decision about the owner's own model configuration — the same kind
+   * of decision as every other route on that screen — not something you tune
    * while browsing installed apps. The Mini Apps page links here instead of
    * repeating the controls, so there is exactly one place the value is edited
    * and no chance of two surfaces disagreeing.
+   *
+   * It is rendered with the Models page's own `SettingGroup`/`SettingRow`
+   * primitives so it reads as part of that screen rather than a transplant.
    *
    * Every control commits immediately through its own route — this is not part
    * of any surrounding settings form, and must never be submitted by one.
@@ -66,36 +72,30 @@
   }
 </script>
 
-<section class="settings-card miniapps-ai-settings" aria-labelledby="miniapps-ai-title">
-  <div class="settings-row">
-    <div>
-      <strong id="miniapps-ai-title">{session.text.miniAppAiTitle}</strong>
-      <p>{session.text.miniAppAiHint}</p>
-    </div>
-  </div>
-  <div class="settings-form">
-    <label class="settings-field">
-      <span>{session.text.miniAppAiTextModel}</span>
-      <SelectControl
-        value={settings.textModelKey}
-        ariaLabel={session.text.miniAppAiTextModel}
-        disabled={busy}
-        options={modelOptions(textModels)}
-        onChange={(value) => void updateSetting("textModelKey", value)}
-      />
-    </label>
-    <label class="settings-field">
-      <span>{session.text.miniAppAiTranscriptionModel}</span>
-      <SelectControl
-        value={settings.transcriptionModelKey}
-        ariaLabel={session.text.miniAppAiTranscriptionModel}
-        disabled={busy}
-        options={modelOptions(transcriptionModels)}
-        onChange={(value) => void updateSetting("transcriptionModelKey", value)}
-      />
-    </label>
-  </div>
-  <p class="miniapps-trust"><i class="ph ph-coins" aria-hidden="true"></i><span>{session.text.miniAppAiCostWarning}</span></p>
+<SettingGroup title={session.text.miniAppAiTitle} description={session.text.miniAppAiHint}>
+  <SettingRow title={session.text.miniAppAiTextModel}>
+    <SelectControl
+      value={settings.textModelKey}
+      ariaLabel={session.text.miniAppAiTextModel}
+      disabled={busy}
+      options={modelOptions(textModels)}
+      technicalId={settings.textModelKey}
+      technicalLabel={session.text.technicalDetails}
+      onChange={(value) => void updateSetting("textModelKey", value)}
+    />
+  </SettingRow>
+  <SettingRow title={session.text.miniAppAiTranscriptionModel}>
+    <SelectControl
+      value={settings.transcriptionModelKey}
+      ariaLabel={session.text.miniAppAiTranscriptionModel}
+      disabled={busy}
+      options={modelOptions(transcriptionModels)}
+      technicalId={settings.transcriptionModelKey}
+      technicalLabel={session.text.technicalDetails}
+      onChange={(value) => void updateSetting("transcriptionModelKey", value)}
+    />
+  </SettingRow>
+  <p class="miniapps-trust miniapps-ai-note"><i class="ph ph-coins" aria-hidden="true"></i><span>{session.text.miniAppAiCostWarning}</span></p>
   <div class="miniapps-ai-usage">
     <strong>{session.text.miniAppAiUsageTitle}</strong>
     {#if usage.length === 0}
@@ -111,4 +111,4 @@
       </ul>
     {/if}
   </div>
-</section>
+</SettingGroup>

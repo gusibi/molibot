@@ -2660,7 +2660,7 @@ test("OpenConnector is a first-class peer to MCP with a safe catalog and fixed s
 
 const miniAppPanel = read("./lib/miniapps/MiniAppPanel.svelte");
 const miniAppSidebar = read("./lib/miniapps/MiniAppsSidebarSection.svelte");
-const miniAppSettings = read("./lib/settings/MiniAppsSettingsGroup.svelte");
+const modelsSection = read("./lib/settings/ModelsSection.svelte");
 const miniAppManager = read("./lib/miniapps/MiniAppsManager.svelte");
 const miniAppIcon = read("./lib/miniapps/MiniAppIcon.svelte");
 const miniAppInstall = read("../../../src/lib/server/miniapps/install.ts");
@@ -2948,24 +2948,43 @@ test("Mini Apps are reachable as a primary destination and a recent-first app se
   assert.match(miniAppStore, /item\.enabled && item\.status === "active" && !item\.error/);
 });
 
-test("the sidebar destination and the Settings group mount one manager component", () => {
-  // Two management surfaces implemented twice would drift; both mount the same
-  // component instead.
-  assert.match(miniAppSettings, /<MiniAppsManager/);
+test("browsing and installing Mini Apps has exactly one home: the sidebar destination", () => {
+  // A second management surface in Settings could only drift from this one, so
+  // the manager is mounted from the workspace pane and nowhere else.
   assert.match(workspacePane, /<MiniAppsManager/);
-  // Opening a panel belongs to Chat, so the Settings mount passes no handler.
-  assert.doesNotMatch(miniAppSettings, /onOpenApp=\{/);
+  for (const [name, source] of Object.entries(sections)) {
+    assert.doesNotMatch(source, /<MiniAppsManager/, `Settings › ${name} must not mount the Mini App manager`);
+  }
+  assert.doesNotMatch(modelsSection, /<MiniAppsManager/);
 });
 
 test("Mini App AI settings are edited in exactly one place, and the app page only links there", () => {
   const aiSettings = read("./lib/miniapps/MiniAppsAiSettings.svelte");
-  // The real controls live in Settings and nowhere else: two surfaces editing
-  // one global model choice is how they end up disagreeing.
-  assert.match(miniAppSettings, /<MiniAppsAiSettings \/>/);
+  // The real controls live in Settings › Models and nowhere else: two surfaces
+  // editing one global model choice is how they end up disagreeing. They belong
+  // to Models because a Mini App capability is a model route like every other
+  // one on that page — not a plugin.
+  assert.match(modelsSection, /<MiniAppsAiSettings \/>/);
+  assert.doesNotMatch(sections.plugins, /MiniAppsAiSettings|MiniAppsSettingsGroup/);
+  // ...and it is rendered with that page's own primitives, so it does not read
+  // as a transplant from another screen.
+  assert.match(aiSettings, /<SettingGroup title=\{session\.text\.miniAppAiTitle\} description=\{session\.text\.miniAppAiHint\}>/);
+  assert.equal(aiSettings.match(/<SettingRow /g)?.length, 2);
+  assert.doesNotMatch(aiSettings, /class="settings-card/);
   assert.match(aiSettings, /saveDesktopMiniAppAiSettings/);
   assert.match(aiSettings, /miniAppAiTextModel/);
   assert.match(aiSettings, /miniAppAiTranscriptionModel/);
   assert.match(aiSettings, /miniAppAiUsageTitle/);
+
+  // Each control commits immediately through its own route, so it must never be
+  // reachable by a surrounding save: the Models page has no <form>, and its
+  // footbar buttons commit the advanced routing draft explicitly.
+  assert.doesNotMatch(modelsSection.replace(/<!--[\s\S]*?-->/g, ""), /<form\b/);
+  // Mounted inside a SettingGroup card, the two trailing blocks match the
+  // 16px inset SettingRow already carries.
+  assert.match(styles, /\.miniapps-ai-note \{[^}]*margin: 12px 16px 0/s);
+  assert.match(styles, /\.miniapps-ai-usage \{[^}]*padding: 12px 16px 16px/s);
+  assert.doesNotMatch(styles, /\.miniapps-card\b/);
 
   // The manager keeps no copy of the controls, the loader, or the saver.
   assert.doesNotMatch(miniAppManager, /saveDesktopMiniAppAiSettings|loadDesktopMiniAppAi/);
@@ -2976,11 +2995,10 @@ test("Mini App AI settings are edited in exactly one place, and the app page onl
   // component needs no "am I inside Settings?" branch (pitfall #7)...
   assert.match(miniAppManager, /\{#if onOpenAiSettings\}/);
   assert.match(miniAppManager, /class="miniapps-ai-link"[\s\S]{0,200}onclick=\{onOpenAiSettings\}/);
-  // ...and the Settings mount injects none, because the section is already there.
-  assert.doesNotMatch(miniAppSettings, /onOpenAiSettings=\{/);
-  // The sidebar destination does inject one, wired to Settings › Plugins.
+  // The sidebar destination injects one, wired to Settings › Models — the
+  // screen that actually holds the controls.
   assert.match(workspacePane, /onOpenAiSettings=\{onOpenMiniAppAiSettings\}/);
-  assert.match(view, /onOpenMiniAppAiSettings=\{\(\) => openSettings\("plugins"\)\}/);
+  assert.match(view, /onOpenMiniAppAiSettings=\{\(\) => openSettings\("models"\)\}/);
 
   // The signpost is a row, not a card: it holds no state and must not read as
   // something editable in place.
@@ -3015,9 +3033,6 @@ test("the Mini App manager follows the bounded data-page layout", () => {
 test("Mini App toggle and uninstall use fine-grained routes, not the Plugins editor PUT", () => {
   assert.match(desktopApi, /"\/api\/desktop\/miniapps", \{\s*method: "PATCH"/s);
   assert.match(desktopApi, /"\/api\/desktop\/miniapps", \{\s*method: "DELETE"/s);
-  // A toggle must not also commit whatever else is unsaved on the Plugins page,
-  // so the group renders outside that form.
-  assert.match(sections.plugins, /<\/form>[\s\S]*<MiniAppsSettingsGroup \/>/);
   assert.match(miniAppManager, /toggleMiniApp\(app\.id, checked\)/);
   // Toggles must use IosSwitch, never the generic Switch.
   assert.match(miniAppManager, /<IosSwitch/);

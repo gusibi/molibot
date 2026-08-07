@@ -2594,7 +2594,7 @@
         onOpenAgentSettings={() => openSettings("agents")}
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
         onOpenMiniApp={openMiniAppInspector}
-        onOpenMiniAppAiSettings={() => openSettings("plugins")}
+        onOpenMiniAppAiSettings={() => openSettings("models")}
       />
     {:else}
     <header class:searching={searchOpen} class="chat-header" data-tauri-drag-region>

@@ -82,7 +82,6 @@ const $ = (id) => document.getElementById(id);
 
 const el = {
   backdrop: $("backdrop"),
-  listPickerBtn: $("list-picker-btn"),
   currentListName: $("current-list-name"),
   openCount: $("open-count"),
   listPicker: $("list-picker"),
@@ -346,7 +345,6 @@ function togglePicker(force) {
   }
 }
 
-el.listPickerBtn.addEventListener("click", (e) => { e.stopPropagation(); togglePicker(); });
 $("list-selector-trigger")?.addEventListener("click", (e) => { e.stopPropagation(); togglePicker(); });
 el.backdrop.addEventListener("click", () => togglePicker(false));
 

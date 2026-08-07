@@ -6,6 +6,7 @@
     type DesktopThinkingLevel
   } from "@molibot/desktop-contract";
   import EmptyState from "../components/ui/EmptyState.svelte";
+  import MiniAppsAiSettings from "../miniapps/MiniAppsAiSettings.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
@@ -205,6 +206,13 @@
     {/if}
     {#if modelsStore.routingMessage}<p class="settings-action-message" role="status">{modelsStore.routingMessage}</p>{/if}
   {/if}
+
+  <!-- Mini App AI is a model route like every other one on this page, so it
+       lives here rather than beside the app list. Its controls commit
+       immediately through their own route: this page has no <form>, and the
+       routing footbar below saves only the advanced routing draft, so a change
+       here can never be swept into that save (or block it). -->
+  <MiniAppsAiSettings />
 {/if}
 
 {#if modelsStore.routingDirty}

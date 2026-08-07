@@ -70,8 +70,8 @@ export interface BuiltinSkill {
 const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     id: "miniapp-creator",
-    // 1.3.1: Material 3 visual and styling layout rules updates.
-    version: "1.3.1",
+    // 1.3.2: Geist visual layout and styling updates.
+    version: "1.3.2",
     files: {
       "SKILL.md": miniappCreatorSkill,
       "reference.md": miniappCreatorReference,

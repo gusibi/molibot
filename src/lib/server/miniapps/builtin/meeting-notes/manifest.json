@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "meeting-notes",
   "name": "Meeting Notes",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Record a meeting in minute-long segments, transcribe it, and generate structured notes.",
   "engines": { "molibot": ">=2.9.9 <4" },
   "runtime": { "entry": "server/index.mjs" },

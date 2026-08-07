@@ -4,8 +4,38 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-08
+
+### Release v2.9.11 / Desktop v0.9.8
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布对齐 macOS Geist 设计规范的内置小程序以及小程序 AI 模型设置页面重构。
+
 ---
 ## 2026-08-07
+
+### 小程序 AI 设置迁至「设置 › 模型」，插件页去掉小程序管理（调整，P1）
+
+「设置 › 插件」原本挂了一整套小程序管理界面（安装小应用的四个 tab、内置应用列表、已安装列表）加上小程序 AI 模型下拉。两者都不该在这里：浏览/安装小程序在侧边栏的 Mini Apps 入口已经有归属，而 AI 下拉本质上就是一条**模型路由**，和模型页上的其它路由是同一类决定。
+- **删除** `MiniAppsSettingsGroup.svelte` 及其 `.miniapps-card` 包裹层；插件页现在只剩记忆后端 + 功能插件。`MiniAppsManager` 只在 `ChatWorkspacePane` 一处挂载，测试对所有 Settings section 断言不得再出现第二份。
+- **迁移** `MiniAppsAiSettings` 到 `ModelsSection`，并改用模型页自己的 `SettingGroup` / `SettingRow` / `SelectControl` 原语重写（去掉自制的 `settings-card` + `settings-form` 结构），保证与新页面 UI 一致而不是"贴过来的一块"。两个下拉补上该页统一的 `technicalId` 技术详情折叠；费用提示与近 30 天用量块重新按 `SettingRow` 的 16px 内边距对齐。
+- **改线** 小程序页的 AI 设置指路行由 `openSettings("plugins")` 改为 `openSettings("models")`。
+- 控件仍各自即时提交，且模型页没有 `<form>` —— 这里的改动既不会被"高级路由"的保存顺手带走，也不会挡住它（已加守卫断言）。
+- 改动文件：`apps/desktop/src/lib/settings/{ModelsSection,PluginsSection}.svelte`、`apps/desktop/src/lib/miniapps/{MiniAppsAiSettings,MiniAppsManager}.svelte`、`apps/desktop/src/ChatView.svelte`、`apps/desktop/src/styles.css`（删除 `MiniAppsSettingsGroup.svelte`）。
+- 验证：`chat-ui.test.mjs` 173/173、`svelte-check` 0 errors / 0 warnings、`vite build` 通过。
+
+### Todo/Note Mini App 头部布局统一 + 字号收紧（优化，P1）
+
+两个 Mini App 共享同一 header 布局：应用图标 + 下拉菜单触发器 + 搜索框（单行）。Todo 下拉打开任务列表选择器（去掉冗余的汉堡按钮）；Note 下拉打开「笔记/归档」视图切换（原 tab 栏移入下拉，手动刷新按钮改为面板聚焦时自动刷新）。按 DESIGN.md 紧凑工具栏档收紧字号：搜索/触发器 32px、正文 14px、标题 16px（Todo 标题由 22px 下调）、折叠态 composer 40px。drift 守卫保持 4/4。
+- **Note 无标题卡片**：不再为空标题预留标题行（操作按钮浮到右上角，内容从卡片顶部 padding 起排，消除上方空白）。
+
+### 内置 Mini App UI 对齐 macOS / Geist 设计系统（优化，P1）
+
+Todo / Note 两个内置 Mini App 原本沿用 Material Design 3 基线（Google Blue、Google Sans、M3 水波纹/阴影分层、Google Keep 调色），与桌面 App 的 macOS/Geist 风格明显不同。将 4 份 styles.css（todo / note / meeting-notes / miniapp-creator 模板）共享的 `--md-*` 基线重指为 DESIGN.md 的 macOS 产品层：accent `#007aff`、`-apple-system` 字体、AppKit 语义 surface/label/separator、6/8/12/999 圆角、阴影仅留给浮层（卡片靠边框扁平表达）。`--md-*` 命名保留（drift 测试 pin），仅改值，`uiDesignBaseline.test.ts` 4/4 守卫保持通过。
+- **Todo**：移除 M3 水波纹，composer/search 聚焦改为边框 + accent 聚焦环（不再靠 elevation 阴影），列表/移动下拉改为白色 popover。
+- **Note**：7 色卡片从 Keep 饱和色重调为 Geist 软色阶，移除水波纹改用细微 hover/focus（Note 灯泡图标保留不动）。
+- **版本**：Todo 1.5.0 -> 1.6.0、Note 1.2.0 -> 1.3.0、Meeting Notes 1.1.0 -> 1.2.0（基线镜像，已装副本随版本更新）。
+- 改动文件：`src/lib/server/miniapps/builtin/{todo,note,meeting-notes}/ui/styles.css`、`.../note/ui/{index.html,icon.svg}`、`skills/miniapp-creator/template/ui/styles.css`、3 个 `manifest.json`。
+- 测试：`uiDesignBaseline.test.ts` 4/4、`bootstrap.test.ts` 17/17。
 
 ### Release v2.9.10 / Desktop v0.9.7
 

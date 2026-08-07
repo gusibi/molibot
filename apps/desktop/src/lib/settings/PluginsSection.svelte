@@ -1,6 +1,5 @@
 <script lang="ts">
   import IosSwitch from "../components/ui/IosSwitch.svelte";
-  import MiniAppsSettingsGroup from "./MiniAppsSettingsGroup.svelte";
   import NativeTimeInput from "../components/ui/NativeTimeInput.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import { session } from "../stores/session.svelte";
@@ -207,14 +206,9 @@
   </form>
 {/if}
 
-{#if session.serviceReady}
-  <!-- Mini Apps sit outside the Plugins form on purpose: each control commits
-       immediately through its own route, so a toggle here never submits the
-       editor's other unsaved fields. -->
-  <div class="miniapps-card">
-    <MiniAppsSettingsGroup />
-  </div>
-{/if}
+<!-- No Mini App surfaces here. Browsing and installing apps belongs to the
+     sidebar's Mini Apps destination, and the AI capability settings are a model
+     route, so they live in Settings › Models with the others. -->
 
 {#if pluginsDirty}
   <footer class="settings-footbar">

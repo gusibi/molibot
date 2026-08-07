@@ -1,8 +1,8 @@
 /*
- * Meeting Notes Mini App — Material Design 3.
+ * Meeting Notes Mini App — macOS / Geist (DESIGN.md).
  *
  * The panel runs in an isolated iframe origin, so it cannot inherit Molibot's
- * design tokens: it ships the shared Mini App M3 baseline below and receives
+ * design tokens: it ships the shared Mini App design baseline below (the --md-* namespace is historical, kept for the drift test; values resolve to macOS roles) and receives
  * the active theme as `data-theme` on <html>, set from the iframe URL hint.
  *
  * The baseline block (`--md-*`) is duplicated verbatim in every built-in Mini
@@ -18,53 +18,53 @@
 [hidden] { display: none !important; }
 
 /* ===========================================================================
- * Shared M3 baseline — tokens
+ * Shared design baseline — tokens
  * ======================================================================== */
 
 :root {
   color-scheme: light;
 
-  /* Primary — Google Blue */
-  --md-primary: #0b57d0;
+  /* Primary - macOS accent (controlAccentColor #007aff). */
+  --md-primary: #007aff;
   --md-on-primary: #ffffff;
-  --md-primary-container: #d3e3fd;
-  --md-on-primary-container: #041e49;
+  --md-primary-container: rgb(0 122 255 / 10%);
+  --md-on-primary-container: #0040a0;
 
-  /* Secondary */
-  --md-secondary-container: #c2e7ff;
-  --md-on-secondary-container: #001d35;
+  /* Secondary - neutral fill (count badges, active chips). */
+  --md-secondary-container: rgb(0 0 0 / 6%);
+  --md-on-secondary-container: rgb(0 0 0 / 84.7%);
 
-  /* Tertiary — Google Green */
-  --md-tertiary: #146c2e;
-  --md-tertiary-container: #c4eed0;
-  --md-on-tertiary-container: #072711;
+  /* Tertiary - macOS success green. */
+  --md-tertiary: #34c759;
+  --md-tertiary-container: rgb(52 199 89 / 12%);
+  --md-on-tertiary-container: #1a7a36;
 
-  /* Error */
-  --md-error: #b3261e;
+  /* Error - macOS danger red. */
+  --md-error: #ff383c;
   --md-on-error: #ffffff;
-  --md-error-container: #fce8e6;
-  --md-on-error-container: #410e0b;
+  --md-error-container: rgb(255 56 60 / 10%);
+  --md-on-error-container: #c2000a;
 
-  /* Neutral surfaces. Elevation is tint first, shadow second. */
-  --md-surface: #ffffff;
+  /* Neutral surfaces - opaque and quiet; one elevation step (card over window). */
+  --md-surface: #f6f6f6;
   --md-surface-container-lowest: #ffffff;
-  --md-surface-container-low: #f8fafd;
-  --md-surface-container: #f0f4f9;
-  --md-surface-container-high: #e9eef6;
-  --md-surface-container-highest: #dde3ea;
-  --md-on-surface: #1f1f1f;
-  --md-on-surface-variant: #444746;
-  --md-outline: #747775;
-  --md-outline-variant: #c4c7c5;
+  --md-surface-container-low: #ffffff;
+  --md-surface-container: #ececec;
+  --md-surface-container-high: #e6e6e6;
+  --md-surface-container-highest: #dcdcdc;
+  --md-on-surface: rgb(0 0 0 / 84.7%);
+  --md-on-surface-variant: rgb(0 0 0 / 49.8%);
+  --md-outline: rgb(0 0 0 / 24%);
+  --md-outline-variant: rgb(0 0 0 / 9.8%);
   --md-scrim: rgba(0, 0, 0, 0.32);
 
   /* The one accent outside the scheme: "starred / pinned" is a product
      signal, not a scheme role, and must read the same in both themes. */
   --md-star: #e37400;
 
-  /* Type scale. Size and line-height are declared as PAIRS — setting one
+  /* Type scale. Size and line-height are declared as PAIRS - setting one
      without the other is how a rank drifts back apart. */
-  --md-font: "Google Sans Text", "Google Sans", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --md-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
   --md-title-lg-size: 22px;   --md-title-lg-lh: 28px;
   --md-title-md-size: 16px;   --md-title-md-lh: 24px;
   --md-title-sm-size: 14px;   --md-title-sm-lh: 20px;
@@ -75,12 +75,12 @@
   --md-label-md-size: 12px;   --md-label-md-lh: 16px;
   --md-label-sm-size: 11px;   --md-label-sm-lh: 16px;
 
-  /* Shape scale */
-  --md-shape-xs: 4px;
+  /* Shape scale - 6 compact, 8 control, 12 card/menu, full pill. */
+  --md-shape-xs: 6px;
   --md-shape-sm: 8px;
   --md-shape-md: 12px;
-  --md-shape-lg: 16px;
-  --md-shape-xl: 28px;
+  --md-shape-lg: 12px;
+  --md-shape-xl: 12px;
   --md-shape-full: 9999px;
 
   /* Motion */
@@ -90,49 +90,50 @@
   --md-dur-medium: 250ms;
   --md-dur-long: 400ms;
 
-  /* Elevation. M3 shadows are soft and low-contrast; the tint does the work. */
-  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.1);
-  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.1);
-  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.1);
+  /* Elevation - shadows reserved for floating overlays (DESIGN.md). Cards stay
+     flat and rely on the separator border; elev-2 is a menu, elev-3 a dialog. */
+  --md-elev-1: none;
+  --md-elev-2: 0 2px 8px -2px rgba(0, 0, 0, 0.10), 0 4px 12px -4px rgba(0, 0, 0, 0.08);
+  --md-elev-3: 0 8px 16px -4px rgba(0, 0, 0, 0.10), 0 24px 32px -8px rgba(0, 0, 0, 0.12);
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --md-primary: #a8c7fa;
-  --md-on-primary: #062e6f;
-  --md-primary-container: #0842a0;
-  --md-on-primary-container: #d3e3fd;
+  --md-primary: #007aff;
+  --md-on-primary: #ffffff;
+  --md-primary-container: rgb(0 122 255 / 18%);
+  --md-on-primary-container: #419cff;
 
-  --md-secondary-container: #004a77;
-  --md-on-secondary-container: #c2e7ff;
+  --md-secondary-container: rgb(255 255 255 / 8%);
+  --md-on-secondary-container: rgb(255 255 255 / 84.7%);
 
-  --md-tertiary: #6dd58c;
-  --md-tertiary-container: #0f5223;
-  --md-on-tertiary-container: #c4eed0;
+  --md-tertiary: #30d158;
+  --md-tertiary-container: rgb(48 209 88 / 16%);
+  --md-on-tertiary-container: #30d158;
 
-  --md-error: #f2b8b5;
-  --md-on-error: #601410;
-  --md-error-container: #8c1d18;
-  --md-on-error-container: #f9dedc;
+  --md-error: #ff4245;
+  --md-on-error: #ffffff;
+  --md-error-container: rgb(255 66 69 / 14%);
+  --md-on-error-container: #ff6b6e;
 
-  --md-surface: #131314;
-  --md-surface-container-lowest: #0e0e0e;
-  --md-surface-container-low: #1b1b1b;
-  --md-surface-container: #1e1f20;
-  --md-surface-container-high: #282a2c;
-  --md-surface-container-highest: #333438;
-  --md-on-surface: #e3e3e3;
-  --md-on-surface-variant: #c4c7c5;
-  --md-outline: #8e918f;
-  --md-outline-variant: #444746;
+  --md-surface: #1e1e1e;
+  --md-surface-container-lowest: #1e1e1e;
+  --md-surface-container-low: #2c2c2e;
+  --md-surface-container: #282828;
+  --md-surface-container-high: #343436;
+  --md-surface-container-highest: #3a3a3c;
+  --md-on-surface: rgb(255 255 255 / 84.7%);
+  --md-on-surface-variant: rgb(255 255 255 / 54.9%);
+  --md-outline: rgb(255 255 255 / 24%);
+  --md-outline-variant: rgb(255 255 255 / 9.8%);
   --md-scrim: rgba(0, 0, 0, 0.6);
 
   --md-star: #fdd663;
 
-  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 1px 3px 1px rgba(0, 0, 0, 0.3);
-  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 2px 6px 2px rgba(0, 0, 0, 0.3);
-  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 4px 8px 3px rgba(0, 0, 0, 0.3);
+  --md-elev-1: none;
+  --md-elev-2: 0 2px 8px -2px rgba(0, 0, 0, 0.40), 0 4px 12px -4px rgba(0, 0, 0, 0.32);
+  --md-elev-3: 0 8px 16px -4px rgba(0, 0, 0, 0.40), 0 24px 32px -8px rgba(0, 0, 0, 0.36);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

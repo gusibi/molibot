@@ -299,11 +299,11 @@
 
   {#if onOpenAiSettings}
     <!--
-      The AI capability settings themselves live in Settings (one global
-      decision about the owner's model configuration, edited in one place).
-      This row is only a signpost, and it is rendered ONLY when a caller injects
-      a way to get there — the Settings mount shows the real section instead,
-      so the component needs no "am I inside Settings?" branch (pitfall #7).
+      The AI capability settings themselves live in Settings › Models (one
+      global decision about the owner's model configuration, edited in one
+      place, next to every other route). This row is only a signpost, and it is
+      rendered ONLY when a caller injects a way to get there, so the component
+      needs no "am I inside Settings?" branch (pitfall #7).
     -->
     <button type="button" class="miniapps-ai-link" onclick={onOpenAiSettings}>
       <span aria-hidden="true"><i class="ph ph-sliders-horizontal"></i></span>
