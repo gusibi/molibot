@@ -1,55 +1,166 @@
 /*
- * Starter Mini App styles.
+ * Starter Mini App styles — Material Design 3.
  *
  * The panel runs in an isolated iframe origin, so it cannot inherit Molibot's
- * design tokens — it ships its own light/dark palette and receives the active
- * theme as a `data-theme` attribute set from the iframe URL hint. Status is
- * never signalled by colour alone: a done item also carries a checked control
- * and strike-through text.
+ * design tokens: it ships the shared Mini App M3 baseline below and receives
+ * the active theme as `data-theme` on <html>, set from the iframe URL hint.
+ *
+ * The baseline block (`--md-*`) is duplicated verbatim in this template and in
+ * every built-in Mini App (note / todo / meeting-notes). Change it in one
+ * place and mirror it into the others — the CSP is `default-src 'self'` per
+ * app, so there is no shared stylesheet to import. `npm run test:miniapps`
+ * fails if the copies drift.
+ *
+ * Build your app out of these tokens, not raw values. Status is never
+ * signalled by colour alone: a done item also carries a checked control and
+ * strike-through text.
  */
+
+/* Keep first among element rules and never remove: an author `display:` on an
+   element silently defeats the `hidden` attribute (the UA sheet's
+   `[hidden]{display:none}` loses to any author display), leaving an invisible
+   layer that still swallows every click. The same applies to an inline
+   `style="display:none"` versus a class that is meant to reveal the element. */
+[hidden] { display: none !important; }
+
+/* ===========================================================================
+ * Shared M3 baseline — tokens
+ * ======================================================================== */
 
 :root {
   color-scheme: light;
-  --bg: #ffffff;
-  --surface: #ffffff;
-  --surface-hover: #f5f5f5;
-  --border: #ebebeb;
-  --text: #171717;
-  --text-muted: #666666;
-  --accent: #0070f3;
-  --danger: #d93025;
-  --radius: 8px;
+
+  /* Primary — Google Blue */
+  --md-primary: #0b57d0;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #d3e3fd;
+  --md-on-primary-container: #041e49;
+
+  /* Secondary */
+  --md-secondary-container: #c2e7ff;
+  --md-on-secondary-container: #001d35;
+
+  /* Tertiary — Google Green */
+  --md-tertiary: #146c2e;
+  --md-tertiary-container: #c4eed0;
+  --md-on-tertiary-container: #072711;
+
+  /* Error */
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #fce8e6;
+  --md-on-error-container: #410e0b;
+
+  /* Neutral surfaces. Elevation is tint first, shadow second. */
+  --md-surface: #ffffff;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f8fafd;
+  --md-surface-container: #f0f4f9;
+  --md-surface-container-high: #e9eef6;
+  --md-surface-container-highest: #dde3ea;
+  --md-on-surface: #1f1f1f;
+  --md-on-surface-variant: #444746;
+  --md-outline: #747775;
+  --md-outline-variant: #c4c7c5;
+  --md-scrim: rgba(0, 0, 0, 0.32);
+
+  /* The one accent outside the scheme: "starred / pinned" is a product
+     signal, not a scheme role, and must read the same in both themes. */
+  --md-star: #e37400;
+
+  /* Type scale. Size and line-height are declared as PAIRS — setting one
+     without the other is how a rank drifts back apart. */
+  --md-font: "Google Sans Text", "Google Sans", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --md-title-lg-size: 22px;   --md-title-lg-lh: 28px;
+  --md-title-md-size: 16px;   --md-title-md-lh: 24px;
+  --md-title-sm-size: 14px;   --md-title-sm-lh: 20px;
+  --md-body-lg-size: 16px;    --md-body-lg-lh: 24px;
+  --md-body-md-size: 14px;    --md-body-md-lh: 20px;
+  --md-body-sm-size: 12px;    --md-body-sm-lh: 16px;
+  --md-label-lg-size: 14px;   --md-label-lg-lh: 20px;
+  --md-label-md-size: 12px;   --md-label-md-lh: 16px;
+  --md-label-sm-size: 11px;   --md-label-sm-lh: 16px;
+
+  /* Shape scale */
+  --md-shape-xs: 4px;
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
+  --md-shape-full: 9999px;
+
+  /* Motion */
+  --md-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-dur-short: 150ms;
+  --md-dur-medium: 250ms;
+  --md-dur-long: 400ms;
+
+  /* Elevation. M3 shadows are soft and low-contrast; the tint does the work. */
+  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.1);
+  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.1);
+  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.1);
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0a0a0a;
-  --surface: #111111;
-  --surface-hover: #1a1a1a;
-  --border: #2e2e2e;
-  --text: #ededed;
-  --text-muted: #a1a1a1;
-  --accent: #3291ff;
-  --danger: #ff6166;
+
+  --md-primary: #a8c7fa;
+  --md-on-primary: #062e6f;
+  --md-primary-container: #0842a0;
+  --md-on-primary-container: #d3e3fd;
+
+  --md-secondary-container: #004a77;
+  --md-on-secondary-container: #c2e7ff;
+
+  --md-tertiary: #6dd58c;
+  --md-tertiary-container: #0f5223;
+  --md-on-tertiary-container: #c4eed0;
+
+  --md-error: #f2b8b5;
+  --md-on-error: #601410;
+  --md-error-container: #8c1d18;
+  --md-on-error-container: #f9dedc;
+
+  --md-surface: #131314;
+  --md-surface-container-lowest: #0e0e0e;
+  --md-surface-container-low: #1b1b1b;
+  --md-surface-container: #1e1f20;
+  --md-surface-container-high: #282a2c;
+  --md-surface-container-highest: #333438;
+  --md-on-surface: #e3e3e3;
+  --md-on-surface-variant: #c4c7c5;
+  --md-outline: #8e918f;
+  --md-outline-variant: #444746;
+  --md-scrim: rgba(0, 0, 0, 0.6);
+
+  --md-star: #fdd663;
+
+  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 1px 3px 1px rgba(0, 0, 0, 0.3);
+  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 2px 6px 2px rgba(0, 0, 0, 0.3);
+  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 4px 8px 3px rgba(0, 0, 0, 0.3);
 }
 
-* { box-sizing: border-box; }
-
-/* Keep this rule first among element rules and never remove it: an author
-   `display: flex/block/grid` on an element silently defeats the `hidden`
-   attribute (the UA sheet's `[hidden]{display:none}` loses to any author
-   display), leaving an invisible layer that still swallows every click. */
-[hidden] { display: none !important; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  margin: 0;
   height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  font-family: var(--md-font);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ===========================================================================
+ * App
+ *
+ * Interaction is a state layer — a translucent wash of the element's own
+ * content colour (hover 8%, focus/press 12%) — never a different background.
+ * Elements that already carry a fill express hover through elevation and
+ * brightness instead, since `background-color` is taken.
+ * ======================================================================== */
 
 .starter-app {
   display: flex;
@@ -61,10 +172,9 @@ html, body {
 }
 
 .starter-heading {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--md-title-lg-size);
+  line-height: var(--md-title-lg-lh);
+  font-weight: 400;
 }
 
 .starter-composer {
@@ -72,102 +182,113 @@ html, body {
   gap: 8px;
 }
 
+/* M3 search-bar-shaped input: full-round, container-tinted, no border. */
 .starter-input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text);
+  height: 40px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface);
   font: inherit;
+  font-size: var(--md-body-md-size);
+  outline: none;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              box-shadow var(--md-dur-short) var(--md-ease-standard);
 }
+
+.starter-input::placeholder { color: var(--md-on-surface-variant); }
+.starter-input:hover { background: var(--md-surface-container-highest); }
+.starter-input:focus { box-shadow: inset 0 0 0 2px var(--md-primary); }
 
 .starter-input:focus-visible,
 .starter-submit:focus-visible,
 .starter-secondary:focus-visible,
 .starter-toggle:focus-visible,
 .starter-delete:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--md-primary);
   outline-offset: 2px;
 }
 
-.starter-submit {
+/* Buttons are pills at every rank; the fill says how loud each one is. */
+.starter-submit,
+.starter-secondary {
   flex: 0 0 auto;
-  padding: 8px 16px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: #ffffff;
+  height: 40px;
+  padding: 0 24px;
+  border: none;
+  border-radius: var(--md-shape-full);
   font: inherit;
+  font-size: var(--md-label-lg-size);
+  line-height: var(--md-label-lg-lh);
   font-weight: 500;
   cursor: pointer;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              box-shadow var(--md-dur-short) var(--md-ease-standard),
+              filter var(--md-dur-short) var(--md-ease-standard);
 }
 
-.starter-secondary {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  padding: 0 12px;
-}
+.starter-submit { background: var(--md-primary); color: var(--md-on-primary); }
+.starter-submit:hover { box-shadow: var(--md-elev-1); filter: brightness(1.08); }
+.starter-submit:active { filter: brightness(0.94); }
+.starter-submit:disabled { opacity: 0.38; cursor: default; box-shadow: none; filter: none; }
 
-.starter-submit:hover { filter: brightness(1.08); }
-.starter-submit:disabled { opacity: 0.5; cursor: default; }
+.starter-secondary { background: transparent; color: var(--md-primary); padding: 0 16px; }
+.starter-secondary:hover { background-color: color-mix(in srgb, currentColor 8%, transparent); }
+.starter-secondary:active { background-color: color-mix(in srgb, currentColor 12%, transparent); }
 
 .starter-status {
-  margin: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-muted);
+  padding: 12px 16px;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
 }
 
 .starter-status[data-tone="error"] {
-  border-color: var(--danger);
-  color: var(--danger);
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
 }
 
 .starter-group { display: flex; flex-direction: column; gap: 8px; }
 
 .starter-group-title {
-  margin: 0;
-  font-size: 12px;
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  color: var(--md-on-surface-variant);
+  padding-left: 4px;
 }
 
+/* One tinted card holding the rows, the M3 list-in-container pattern. */
 .starter-list {
-  margin: 0;
-  padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container-low);
+  overflow: hidden;
 }
 
 .starter-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  gap: 12px;
+  min-height: 56px;
+  padding: 12px 16px;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard);
 }
 
-.starter-item:hover { background: var(--surface-hover); }
+.starter-item:hover { background-color: color-mix(in srgb, currentColor 8%, transparent); }
 
 .starter-toggle {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   margin: 3px 0 0;
-  accent-color: var(--accent);
+  accent-color: var(--md-primary);
   cursor: pointer;
 }
 
@@ -179,40 +300,54 @@ html, body {
   min-width: 0;
 }
 
-.starter-title { overflow-wrap: anywhere; }
+.starter-title {
+  font-size: var(--md-body-lg-size);
+  line-height: var(--md-body-lg-lh);
+  overflow-wrap: anywhere;
+}
 
 .starter-note {
-  color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--md-body-sm-size);
+  line-height: var(--md-body-sm-lh);
+  color: var(--md-on-surface-variant);
   overflow-wrap: anywhere;
 }
 
 .starter-item[data-done="true"] .starter-title {
-  color: var(--text-muted);
+  color: var(--md-on-surface-variant);
   text-decoration: line-through;
 }
 
 .starter-delete {
   flex: 0 0 auto;
-  padding: 2px 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--md-shape-full);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--md-on-surface-variant);
   font: inherit;
   cursor: pointer;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              color var(--md-dur-short) var(--md-ease-standard);
 }
 
-.starter-delete:hover { border-color: var(--danger); color: var(--danger); }
+.starter-delete:hover {
+  background-color: color-mix(in srgb, var(--md-error) 12%, transparent);
+  color: var(--md-error);
+}
 
 .starter-empty {
-  margin: 0;
-  color: var(--text-muted);
+  padding: 24px 4px;
+  color: var(--md-on-surface-variant);
 }
 
 .starter-group[data-empty="false"] .starter-empty { display: none; }
 .starter-group[data-empty="true"] .starter-list { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }

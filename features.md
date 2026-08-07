@@ -7,6 +7,54 @@
 ---
 ## 2026-08-07
 
+### Mini App 填充至输入框（composer.insert）菜单图标补全（优化，P1）
+
+- **Note Mini App**：为下拉菜单中的「填入输入框 / Insert into composer」补全 Material SVG 图标 `SVG_ICONS.composer`，与「归档」「删除」选项的图标呈现统一视觉规范。
+- **Todo Mini App**：新增「填入输入框 / Insert into composer」操作按钮及 `insertIntoComposer` 宿主桥通信（`composer.insert`），点击即可将待办标题快速填充至聊天草稿输入框。
+
+- 改动文件：`builtin/note/ui/app.js`、`builtin/todo/ui/app.js`
+
+### Todo Mini App UI 精细化排版与视觉重构（优化，P1）
+
+重构 Todo Mini App 视觉表现，在保持 Material Design 3 基线（`uiDesignBaseline.test.ts` 4/4 守卫完全通过）前提下解决视觉杂乱、元素拥挤问题：
+- **行左侧精简**：隐藏普通优先级（pri-normal）的冗余双圈图标，仅保留主 Checkbox；仅高/低优先级渲染彩色警示环，彻底解决「每行像有两个复选框」的杂乱感。移除星标负边距悬挂。
+- **分组卡片与分割线**：`.group-card` 统一应用 M3 Container 低阶层级与 `border-color: var(--md-outline-variant)` 内部分割线，呈现清晰层级。
+- **顶栏与列表切换**：顶栏标题增加下拉 Chevron 指针与平滑旋转动画，支持点击标题直接展开列表选择器；列表计数器重构为高对比度 Pill 徽章。
+- **搜索与快速添加**：搜索框与 Composer 优化边框焦点态（`var(--md-primary)` 高亮与 `elev-2` 提升），Date/Time 原生控件统一暗色/明色主题包裹层。
+- **空状态重构**：增加 SVG 绘图插画与优雅无任务提示，替换原本单薄的纯文字文本。
+
+- 改动文件：`styles.css`、`index.html`、`app.js`
+- 验证证据：`uiDesignBaseline.test.ts` 4/4、`todo.test.ts` 10/10、`host.test.ts` 42/42 全过。
+
+### Mini App schema 升级不再阻止启动（修复，P0）
+
+`host.ts` 的 `assertSchemaVersion` 原本在 `_host.json` 记录的 schemaVersion 与 manifest 声明不一致时直接抛 `load_failed`。这导致任何 bump 了 schemaVersion 的 Mini App（如 Todo v3 添加 `due_at`/`remind_at` 列）在更新后无法启动，尽管 app 自己的 `openDatabase()` 有 defensive `ALTER TABLE` 迁移。改为记录日志 + 放行，`writeHostState` 在运行时创建成功后记录新版本。如果 app 迁移失败，错误自然传播，记录版本不变。
+
+- 改动文件：`src/lib/server/miniapps/host.ts`
+- 测试更新：`src/lib/server/miniapps/host.test.ts`（42/42 通过）
+- Todo 专项测试 10/10 通过（含 v2→v3 schema 迁移）
+
+### Mini App 版本升级：Note v1.1.0 → v1.2.0，Todo v1.4.0 → v1.5.0（版本升级）
+
+Bump 版本号以触发 Mini Apps Manager 的更新检测。包含了 Note「填入输入框」菜单图标补全，以及 Todo 视觉重构与「填入输入框」快捷按钮功能。
+
+- 改动文件：`builtin/note/manifest.json`、`builtin/todo/manifest.json`
+
+
+
+### 三个内置 Mini App 统一到一套 Material 3 设计基线（改进，P1）
+
+面板里像三个不同的产品：Note 是 Google Keep，Todo 是 iOS（`-apple-system`、`#007aff`、14px 圆角、SF 风格分隔线），Meeting Notes 是压成一行的通用灰蓝，各带一套配色——三套字号体系、三套阴影、三种「按钮长什么样」。现在三者都从同一份 Material Design 3 token 渲染：Google Blue 主色、完整的中性 surface-container 阶梯、**字号与行高成对**声明的字阶、4/8/12/16/28/full 形状阶、M3 缓动曲线，层级用容器色调 + 轻阴影表达。
+
+- **基线是有意复制的，并且有守卫。** 每个 App 一个 origin、CSP 为 `default-src 'self'`（`httpRoute.ts`），三者之间不存在可以 import 的样式表——`--md-*` 这段只能逐字复制到三个 App 加 `skills/miniapp-creator/template`。某一份漂移不会报任何错，只会让面板重新变回三个产品。新增 `uiDesignBaseline.test.ts` 从四份样式表里解析 token 声明，一旦不一致就失败；同时检查 `[hidden]` 守卫是否仍在最前，以及是否出现裸 `font-size: Npx`（pitfall 24 那条漂移机制）。已用人为改坏验证过它**确实会失败**，不只是能通过。
+- **交互态改为 state layer**：hover/press 用 `color-mix(in srgb, currentColor 8%/12%, transparent)`，菜单与图标按钮带纯 CSS 涟漪，各处补上 `:focus-visible` 焦点环。实心按钮的 `background-color` 已被占用，改用海拔 + `brightness()` 表达 hover。
+- **App 自己的表达色留在 App 层**，叠在基线之上：Note 保留便签配色（换成 Keep 现行色板与其真实暗色集），Todo 保留优先级色。Note 的色点不再写行内 hex——色点和它代表的便签面由同一组 `[data-color]` 规则上色，两种主题下都不可能对不上；选中态也从「只靠颜色」改成显示对勾。
+- **图标**：三个应用图标原本是三种视觉语言（一个 64 单位蓝色方块 + 两个 24 单位字形），现统一为 Google 配色的 24 单位双色字形。应用内 SVG 换成 Material Symbols 几何与 M3 图标尺寸——Todo 的操作行此前在画 13px 图标。
+- **顺带修掉三个真实缺陷。**（a）Todo 的「已完成」分组一直在渲染但永远不可见：`index.html` 上的行内 `style="display:none"` 压过了本该显示它的 `.done-section.visible { display: block }`——与已记录的 `[hidden]` 是同一族失败，只是把作者 `display` 换成了行内样式，同样一声不吭。（b）Todo 的静态外壳（搜索占位符、New To-Do、Add、New List、No to-dos、优先级标签）从未被翻译，zh 语言下是中文内容外面套一圈英文界面——这正是「看着乱」的大部分来源；现在走另外两个 App 相同的 `data-i18n` 流程。（c）Todo 的列表强调色取自 iOS 系统色且只有一套，同一个色值同时被用作亮暗两种表面上的文字色；改为 Google 标签色板并分主题两套。
+- Meeting Notes 另外补上状态 chip 的本地化（此前两种语言都直接显示英文枚举值），并把录音条从 `error-container` 移开——录音是状态不是错误，整条红色横幅在暗色下读起来像出了故障；警示色现在只花在脉动圆点和「停止」按钮上。
+- 未升版本，未改动任何 App 的数据、工具或 API 表面。
+- 验证：Mini App 服务端 + 路由套件 127/127（含新增基线守卫 4/4）；desktop unit 145/145、结构 177/177、Rust 52/52。不靠肉眼：三个 UI 都通过 stub API 的静态 harness 实际渲染，在亮/暗两种主题下检查了 shipped `app.js` 产生的真实 DOM——Note 的网格/编辑框/调色盘、Todo 的列表/列表选择器/编辑框/已完成分组、Meeting Notes 的双栏详情/分段/录音条。
+
 ### Mini App 展示面：结果卡片、深链、侧栏徽标与 Composer 桥 v2（新增，P1）
 
 roadmap §2.2–§2.5 四条能力一起交付。它们补上了前几个切片留下的缺口：App 已经能接收消息、能调宿主模型，但产出回到用户面前时只有一行纯文本，没有任何办法指向它刚做出来的东西。

@@ -3240,3 +3240,65 @@ test("a bridge attachment is fetched by app id and never trusts a client-side li
   assert.match(handler, /miniAppComposerReadOnly/);
   assert.match(handler, /miniAppComposerEditing/);
 });
+
+test("Mini App message actions are always a labelled menu, never loose glyphs", () => {
+  // An unlabelled app icon sitting next to copy/edit/fork is unreadable, and a
+  // row that grows an icon per installed app eventually collides with the
+  // timestamp. One `⋯` menu with icon + label per entry solves both.
+  assert.doesNotMatch(transcript, /textContributions\.length <= 2/);
+  // Both roles render the menu: a message worth saving is worth saving whoever
+  // wrote it, and two action rows for one concept is a fork.
+  assert.equal(transcript.match(/<OverflowMenu label=\{copy\.miniAppMessageActionsMenu\}/g)?.length, 2);
+  // Every entry carries a real label beside its icon.
+  assert.match(transcript, /role="menuitem"[\s\S]{0,400}<span>\{action\.label\}<\/span>/);
+  // The trigger reports the outcome, because the menu has closed by the time
+  // the call settles.
+  assert.match(transcript, /busy \? "ph-circle-notch message-action-spin" : done \? "ph-check" : "ph-dots-three"/);
+  // A pending entry cannot be fired twice.
+  assert.match(transcript, /role="menuitem" disabled=\{pending\}/);
+});
+
+test("right-click with a selection offers the same actions on either role", () => {
+  // The interesting case is highlighting part of an assistant reply and saving
+  // only that; a role guard here made the common case dead.
+  assert.doesNotMatch(transcript, /if \(message\.role !== "user"\) return;/);
+  // Both bubbles open it.
+  assert.equal(transcript.match(/oncontextmenu=\{\(event\) => openSelectionMenu\(event, message\)\}/g)?.length, 2);
+  // Only the selection travels, not the whole message.
+  assert.match(transcript, /onRunContribution\?\.\(action, selectionMenu\.message, selectionMenu\.selection\)/);
+  // No selection, or no app offering a text action, falls through to the
+  // browser menu rather than swallowing the event.
+  assert.match(
+    transcript,
+    /const selection = selectedTextInMessage\(event\);\s*\n\s*if \(!selection \|\| !messageActions\?\.contributions\?\.some\([\s\S]{0,120}\) return;\s*\n\s*event\.preventDefault\(\)/
+  );
+});
+
+test("the Mini App action toast is one shared component and is always dismissible", () => {
+  const toast = read("./lib/miniapps/MiniAppActionToast.svelte");
+  const projectChat = read("./lib/projects/ProjectChat.svelte");
+  // One component, not a copy per chat surface (pitfall #7).
+  assert.match(view, /<MiniAppActionToast/);
+  assert.match(projectChat, /<MiniAppActionToast/);
+  for (const source of [view, projectChat]) {
+    assert.doesNotMatch(source, /<div class="chat-action-toast"/);
+  }
+  // The close button always exists, whether or not a card is present.
+  assert.match(toast, /class="chat-action-toast-close"[\s\S]{0,200}onclick=\{onDismiss\}/);
+  assert.match(toast, /aria-label=\{dismissLabel\}/);
+
+  // A card is read, so it waits for the owner; a bare sentence self-clears.
+  for (const source of [view, projectChat]) {
+    assert.match(source, /if \(!miniAppActionCard\) \{\s*\n\s*miniAppActionFeedbackTimer = setTimeout\(/);
+    // Dismissing clears the pending timer too, or it would fire onto a toast
+    // that is already gone and wipe a newer one.
+    assert.match(source, /function dismissMiniAppFeedback\(\)[\s\S]{0,320}clearTimeout\(miniAppActionFeedbackTimer\)/);
+  }
+
+  // Text owns the slack so the close control is never the thing truncated.
+  assert.match(styles, /\.chat-action-toast-text \{[^}]*flex: 1 1 auto/s);
+  assert.match(styles, /\.chat-action-toast-close \{[^}]*flex: 0 0 auto/s);
+  assert.match(styles, /\.chat-action-toast-close:focus-visible \{[^}]*var\(--accent\)/s);
+  // Type comes from the scale, not a hand-set px (pitfall #24).
+  assert.match(styles, /\.chat-action-toast \{[^}]*font-size: var\(--fs-label\)[^}]*line-height: var\(--lh-label\)/s);
+});

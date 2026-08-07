@@ -70,8 +70,8 @@ export interface BuiltinSkill {
 const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     id: "miniapp-creator",
-    // 1.3.0: host actions, bridge, AI, raw uploads and restart-safe jobs.
-    version: "1.3.0",
+    // 1.3.1: Material 3 visual and styling layout rules updates.
+    version: "1.3.1",
     files: {
       "SKILL.md": miniappCreatorSkill,
       "reference.md": miniappCreatorReference,

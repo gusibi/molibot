@@ -92,7 +92,7 @@
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
   import ArtifactPanel from "./lib/artifacts/ArtifactPanel.svelte";
-  import MiniAppResultCard from "./lib/miniapps/MiniAppResultCard.svelte";
+  import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
   import { markMiniAppUsed } from "./lib/stores/miniapps.svelte";
   import { projectsStore } from "./lib/stores/projects.svelte";
   import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
@@ -1561,14 +1561,14 @@
     } finally {
       miniAppActionPendingKey = "";
       if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
-      // A card carries more to read than a sentence, so it gets longer before
-      // it disappears; the owner should not have to race it.
-      miniAppActionFeedbackTimer = setTimeout(() => {
-        miniAppActionFeedback = "";
-        miniAppActionCard = null;
-        miniAppActionSuccessKey = "";
-        miniAppActionFeedbackTimer = null;
-      }, miniAppActionCard ? 8000 : 3000);
+      miniAppActionFeedbackTimer = null;
+      // A card is something to read, so it stays until dismissed; a bare
+      // sentence self-clears. Both always offer the close button.
+      if (!miniAppActionCard) {
+        miniAppActionFeedbackTimer = setTimeout(() => {
+          dismissMiniAppFeedback();
+        }, 3000);
+      }
     }
   }
   $: messageActions = messages.length === 0
@@ -1804,6 +1804,15 @@
    * Resolved in-process: the URL is parsed into an intent and routed, never
    * handed to the WebView as something to navigate to.
    */
+  /** Clears the action toast and whatever timer was going to. */
+  function dismissMiniAppFeedback(): void {
+    if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
+    miniAppActionFeedbackTimer = null;
+    miniAppActionFeedback = "";
+    miniAppActionCard = null;
+    miniAppActionSuccessKey = "";
+  }
+
   function openMiniAppDeepLink(link: string): void {
     const parsed = parseMiniAppDeepLink(link);
     if (!parsed) return;
@@ -2813,12 +2822,14 @@
     {/if}
     {/if}
     {#if miniAppActionFeedback}
-      <div class="chat-action-toast" role="status">
-        <span>{miniAppActionFeedback}</span>
-        {#if miniAppActionCard}
-          <MiniAppResultCard card={miniAppActionCard} openLabel={copy.miniAppCardOpen} onOpenLink={openMiniAppDeepLink} />
-        {/if}
-      </div>
+      <MiniAppActionToast
+        text={miniAppActionFeedback}
+        card={miniAppActionCard}
+        dismissLabel={copy.miniAppToastDismiss}
+        openLabel={copy.miniAppCardOpen}
+        onOpenLink={openMiniAppDeepLink}
+        onDismiss={dismissMiniAppFeedback}
+      />
     {/if}
   </section>
   {/if}

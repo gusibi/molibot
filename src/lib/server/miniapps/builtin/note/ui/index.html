@@ -43,7 +43,11 @@
         <div id="composer-collapsed" class="composer-collapsed">
           <span class="collapsed-placeholder" data-i18n="takeNote">添加笔记...</span>
           <div class="collapsed-actions">
-            <span class="icon-btn-sm" title="置顶">📌</span>
+            <span class="icon-btn-sm" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+              </svg>
+            </span>
           </div>
         </div>
 
@@ -88,13 +92,16 @@
           <div class="composer-toolbar">
             <!-- Material 颜色选择圆圈调色盘 -->
             <div class="composer-color-palette">
+              <!-- Swatch fills come from the shared `[data-color]` rules in
+                   styles.css, so a swatch can never disagree with the surface
+                   it paints, in either theme. -->
               <button type="button" class="color-dot active" data-color="default" title="默认"></button>
-              <button type="button" class="color-dot" data-color="yellow" title="黄色" style="background-color: #fff475;"></button>
-              <button type="button" class="color-dot" data-color="blue" title="蓝色" style="background-color: #cbf0f8;"></button>
-              <button type="button" class="color-dot" data-color="green" title="绿色" style="background-color: #ccff90;"></button>
-              <button type="button" class="color-dot" data-color="red" title="红色" style="background-color: #f28b82;"></button>
-              <button type="button" class="color-dot" data-color="purple" title="紫色" style="background-color: #d7aefb;"></button>
-              <button type="button" class="color-dot" data-color="gray" title="灰色" style="background-color: #e8eaed;"></button>
+              <button type="button" class="color-dot" data-color="yellow" title="黄色"></button>
+              <button type="button" class="color-dot" data-color="blue" title="蓝色"></button>
+              <button type="button" class="color-dot" data-color="green" title="绿色"></button>
+              <button type="button" class="color-dot" data-color="red" title="红色"></button>
+              <button type="button" class="color-dot" data-color="purple" title="紫色"></button>
+              <button type="button" class="color-dot" data-color="gray" title="灰色"></button>
               <select id="color-select" class="hidden">
                 <option value="default" selected>默认</option>
                 <option value="yellow">黄色</option>
@@ -117,19 +124,19 @@
       <p class="note-status" id="status" role="status" aria-live="polite" hidden></p>
 
       <nav class="note-tabs">
-        <button id="tab-active" class="note-tab active" data-tab="active">主页便签</button>
-        <button id="tab-archived" class="note-tab" data-tab="archived">归档箱</button>
+        <button id="tab-active" class="note-tab active" data-tab="active" data-i18n="tabActive">笔记</button>
+        <button id="tab-archived" class="note-tab" data-tab="archived" data-i18n="tabArchived">归档</button>
       </nav>
 
       <section class="note-group" id="pinned-group">
-        <h2 class="note-group-title">PINNED</h2>
+        <h2 class="note-group-title" data-i18n="pinnedSection">置顶</h2>
         <div class="note-grid" id="pinned-list"></div>
       </section>
 
       <section class="note-group" id="other-group">
-        <h2 class="note-group-title" id="other-group-title">OTHERS</h2>
+        <h2 class="note-group-title" id="other-group-title" data-i18n="notesSection">其他</h2>
         <div class="note-grid" id="other-list"></div>
-        <p class="note-empty" id="empty-msg" hidden>暂无笔记</p>
+        <p class="note-empty" id="empty-msg" data-i18n="noNotes" hidden>暂无笔记</p>
       </section>
     </main>
 
@@ -137,7 +144,7 @@
     <div id="edit-modal" class="modal-backdrop hidden">
       <div class="modal-card" id="modal-card" data-color="default">
         <div class="modal-header">
-          <input id="edit-title" class="note-input note-input-title" type="text" placeholder="标题" />
+          <input id="edit-title" class="note-input note-input-title" type="text" placeholder="标题" data-i18n-placeholder="titlePlaceholder" />
           <button type="button" id="modal-pin-btn" class="icon-btn-sm composer-pin-toggle" title="固定笔记">
             <svg class="pin-icon" viewBox="0 0 24 24" width="20" height="20">
               <path fill="currentColor" d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
@@ -145,29 +152,29 @@
           </button>
         </div>
 
-        <textarea id="edit-content" class="note-input note-input-content" rows="6" placeholder="笔记内容..."></textarea>
+        <textarea id="edit-content" class="note-input note-input-content" rows="6" placeholder="笔记内容..." data-i18n-placeholder="contentPlaceholder"></textarea>
 
         <div class="composer-labels-bar">
           <svg viewBox="0 0 24 24" width="16" height="16" class="label-icon">
             <path fill="currentColor" d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/>
           </svg>
-          <input id="edit-labels" class="note-input-labels" type="text" placeholder="标签 (逗号分隔)" />
+          <input id="edit-labels" class="note-input-labels" type="text" placeholder="标签 (逗号分隔)" data-i18n-placeholder="labelsPlaceholder" />
         </div>
 
         <div class="composer-toolbar">
           <div class="composer-color-palette" id="modal-color-palette">
             <button type="button" class="modal-color-dot active" data-color="default" title="默认"></button>
-            <button type="button" class="modal-color-dot" data-color="yellow" title="黄色" style="background-color: #fff475;"></button>
-            <button type="button" class="modal-color-dot" data-color="blue" title="蓝色" style="background-color: #cbf0f8;"></button>
-            <button type="button" class="modal-color-dot" data-color="green" title="绿色" style="background-color: #ccff90;"></button>
-            <button type="button" class="modal-color-dot" data-color="red" title="红色" style="background-color: #f28b82;"></button>
-            <button type="button" class="modal-color-dot" data-color="purple" title="紫色" style="background-color: #d7aefb;"></button>
-            <button type="button" class="modal-color-dot" data-color="gray" title="灰色" style="background-color: #e8eaed;"></button>
+            <button type="button" class="modal-color-dot" data-color="yellow" title="黄色"></button>
+            <button type="button" class="modal-color-dot" data-color="blue" title="蓝色"></button>
+            <button type="button" class="modal-color-dot" data-color="green" title="绿色"></button>
+            <button type="button" class="modal-color-dot" data-color="red" title="红色"></button>
+            <button type="button" class="modal-color-dot" data-color="purple" title="紫色"></button>
+            <button type="button" class="modal-color-dot" data-color="gray" title="灰色"></button>
           </div>
 
           <div class="composer-actions">
-            <button type="button" id="modal-cancel-btn" class="note-btn-text">取消</button>
-            <button type="button" id="modal-save-btn" class="note-submit">保存修改</button>
+            <button type="button" id="modal-cancel-btn" class="note-btn-text" data-i18n="cancel">取消</button>
+            <button type="button" id="modal-save-btn" class="note-submit" data-i18n="saveEdit">保存修改</button>
           </div>
         </div>
       </div>

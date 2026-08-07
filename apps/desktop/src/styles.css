@@ -990,7 +990,54 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .automation-task-technical code { display: inline; max-width: none; white-space: normal; }
 .settings-action-toast { position: sticky; z-index: 8; bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; width: min(calc(100% - 48px), 640px); min-height: 42px; margin: 12px auto 0; padding: 8px 12px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); box-shadow: var(--popover-shadow); color: var(--label-primary); font-size: 12px; }
 .settings-action-toast button { min-height: 28px; padding: 0 7px; border: 0; background: transparent; color: var(--accent); font-weight: 600; cursor: pointer; }
-.chat-action-toast { position: absolute; z-index: 12; right: 16px; bottom: 88px; max-width: min(420px, calc(100% - 32px)); padding: 9px 12px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--card-bg); box-shadow: var(--popover-shadow); color: var(--label-primary); font-size: 12px; }
+/*
+ * Mini App action feedback. Column-relative max-width (not `vw`): this sits
+ * inside the transcript column, which the file panel can narrow (pitfall #16a).
+ */
+.chat-action-toast {
+  position: absolute;
+  z-index: 12;
+  right: 16px;
+  bottom: 88px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 9px 12px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-panel);
+  background: var(--card-bg);
+  box-shadow: var(--popover-shadow);
+  color: var(--label-primary);
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
+  animation: popover-in 140ms var(--ease-spring);
+}
+/* A card is read, not glanced at, so it gets room to breathe. */
+.chat-action-toast.has-card { gap: 8px; }
+.chat-action-toast-head { display: flex; align-items: flex-start; gap: 8px; }
+/* The text takes the slack so the close button never gets truncated away. */
+.chat-action-toast-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.chat-action-toast-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  /* Pulls the 20px hit area back to the text's optical line without spending
+     layout height on it. */
+  margin: -1px -4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--label-tertiary);
+  font-size: var(--icon-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+.chat-action-toast-close:hover { background: var(--fill); color: var(--label-primary); }
+.chat-action-toast-close:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
 
 .file-panel {
   display: flex;

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "note",
   "name": "Note",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A card-style note Mini App for Molibot with text notes, checklist items, card colors, pin, archive, search, and labels.",
   "engines": {
     "molibot": ">=2.9.9 <4"

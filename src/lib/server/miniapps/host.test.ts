@@ -363,17 +363,20 @@ test("handlers that do not match the manifest fail the load", async () => {
   );
 });
 
-test("a mismatched data schemaVersion stops the app instead of migrating", async () => {
+test("a mismatched data schemaVersion lets the app start and updates the recorded version", async () => {
   const fixture = makeFixture();
   installApp(fixture, "notes");
   mkdirSync(join(fixture.dataRoot, "notes"), { recursive: true });
   writeFileSync(join(fixture.dataRoot, "notes", "_host.json"), JSON.stringify({ schemaVersion: 7 }), "utf8");
 
   const host = hostFor(fixture);
-  await assert.rejects(
-    () => host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t1" }),
-    /does not match app schemaVersion/
-  );
+  // The app starts successfully — the host no longer blocks on schema mismatch.
+  const result = await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t1" });
+  assert.ok(result);
+
+  // After successful startup, writeHostState records the manifest's schemaVersion.
+  const hostState = JSON.parse(readFileSync(join(fixture.dataRoot, "notes", "_host.json"), "utf8"));
+  assert.equal(hostState.schemaVersion, 1);
 });
 
 test("tool errors surface a stable message without host paths", async () => {

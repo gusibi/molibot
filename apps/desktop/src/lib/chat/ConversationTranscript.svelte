@@ -66,8 +66,17 @@
     messageActions?.onRunContribution?.(action, message, selectedTextInMessage(event));
   }
 
+  /**
+   * Right-click inside a message with text selected: offer the same Mini App
+   * actions, scoped to the selection.
+   *
+   * Deliberately not limited to one role. The interesting case is highlighting
+   * a paragraph of an *assistant* reply and saving only that — a guard that let
+   * this fire on user messages only made the common case dead. Falls through to
+   * the browser's own context menu when nothing is selected or no app offers a
+   * text action, so right-click never becomes a dead zone.
+   */
   function openSelectionMenu(event: MouseEvent, message: TranscriptMessage): void {
-    if (message.role !== "user") return;
     const selection = selectedTextInMessage(event);
     if (!selection || !messageActions?.contributions?.some((action) => action.accepts.includes("text"))) return;
     event.preventDefault();
@@ -164,6 +173,29 @@
                   onclick={() => messageActions.onForkUser!(message)}
                 ><i class={`ph ${isForking ? "ph-circle-notch message-action-spin" : "ph-git-branch"}`} aria-hidden="true"></i></button>
               {/if}
+              <!-- Same menu as the assistant row: a message worth saving is
+                   worth saving whoever wrote it, and two different action rows
+                   for one concept is the fork this component exists to avoid. -->
+              {#if textContributions.length && messageActions.onRunContribution}
+                {@const busy = textContributions.some((action) => messageActions?.pendingContributionKey === contributionKey(message, action))}
+                {@const done = textContributions.some((action) => messageActions?.successfulContributionKey === contributionKey(message, action))}
+                <OverflowMenu label={copy.miniAppMessageActionsMenu}>
+                  <svelte:fragment slot="trigger">
+                    <i
+                      class={`ph ${busy ? "ph-circle-notch message-action-spin" : done ? "ph-check" : "ph-dots-three"}`}
+                      aria-hidden="true"
+                    ></i>
+                  </svelte:fragment>
+                  {#each textContributions as action (action.id)}
+                    {@const actionKey = contributionKey(message, action)}
+                    {@const pending = messageActions.pendingContributionKey === actionKey}
+                    <button type="button" role="menuitem" disabled={pending} onclick={(event) => runContribution(event, action, message)}>
+                      <i class={`ph ${pending ? "ph-circle-notch message-action-spin" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i>
+                      <span>{action.label}</span>
+                    </button>
+                  {/each}
+                </OverflowMenu>
+              {/if}
             </div>
           {/if}
           {#if message.createdAt}
@@ -193,7 +225,7 @@
           <ThinkingCard text={message.thinking} label={copy.thinking} />
         {/if}
         {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} />{/if}
-        {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>{/if}
+        {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={handleMarkdownClick} oncontextmenu={(event) => openSelectionMenu(event, message)}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>{/if}
         {#if assistantError}
           <div class="assistant-error-note"><i class="ph ph-warning-circle" aria-hidden="true"></i><span class="assistant-error-label">{copy.assistantErrorLabel}</span><span class="assistant-error-text">{assistantError}</span></div>
         {/if}
@@ -226,34 +258,35 @@
                   title={copy.copyMessage}
                   onclick={() => messageActions.onCopy(message)}
                 ><i class={`ph ${isCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i></button>
+                <!--
+                  Always a menu, never loose icons. Two reasons: the action row
+                  sits next to copy/edit/fork, and an unlabelled app glyph there
+                  is unreadable — "what does the bookmark do?" — while the menu
+                  affords a real label per app. And the row's width stops
+                  depending on how many apps are installed, so it cannot grow
+                  into the timestamp as the owner adds them.
+                -->
                 {#if textContributions.length && messageActions.onRunContribution}
-                  {#if textContributions.length <= 2}
+                  {@const busy = textContributions.some((action) => messageActions?.pendingContributionKey === contributionKey(message, action))}
+                  {@const done = textContributions.some((action) => messageActions?.successfulContributionKey === contributionKey(message, action))}
+                  <OverflowMenu label={copy.miniAppMessageActionsMenu}>
+                    <svelte:fragment slot="trigger">
+                      <!-- The trigger carries the outcome, because the menu has
+                           closed by the time the call settles. -->
+                      <i
+                        class={`ph ${busy ? "ph-circle-notch message-action-spin" : done ? "ph-check" : "ph-dots-three"}`}
+                        aria-hidden="true"
+                      ></i>
+                    </svelte:fragment>
                     {#each textContributions as action (action.id)}
                       {@const actionKey = contributionKey(message, action)}
                       {@const pending = messageActions.pendingContributionKey === actionKey}
-                      {@const succeeded = messageActions.successfulContributionKey === actionKey}
-                      <button
-                        type="button"
-                        class="message-action"
-                        aria-label={action.label}
-                        title={action.label}
-                        disabled={pending}
-                        onclick={(event) => runContribution(event, action, message)}
-                      ><i class={`ph ${pending ? "ph-circle-notch message-action-spin" : succeeded ? "ph-check" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i></button>
+                      <button type="button" role="menuitem" disabled={pending} onclick={(event) => runContribution(event, action, message)}>
+                        <i class={`ph ${pending ? "ph-circle-notch message-action-spin" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i>
+                        <span>{action.label}</span>
+                      </button>
                     {/each}
-                  {:else}
-                    <OverflowMenu label={copy.miniAppsNav}>
-                      <svelte:fragment slot="trigger"><i class="ph ph-paper-plane-tilt" aria-hidden="true"></i></svelte:fragment>
-                      {#each textContributions as action (action.id)}
-                        {@const actionKey = contributionKey(message, action)}
-                        {@const pending = messageActions.pendingContributionKey === actionKey}
-                        <button type="button" role="menuitem" disabled={pending} onclick={(event) => runContribution(event, action, message)}>
-                          <i class={`ph ${pending ? "ph-circle-notch message-action-spin" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i>
-                          <span>{action.label}</span>
-                        </button>
-                      {/each}
-                    </OverflowMenu>
-                  {/if}
+                  </OverflowMenu>
                 {/if}
               </div>
             {/if}

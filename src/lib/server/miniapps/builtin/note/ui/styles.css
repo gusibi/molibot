@@ -1,98 +1,251 @@
-[hidden] {
-  display: none !important;
-}
+/*
+ * Note Mini App — Material Design 3 (Google Keep flavour).
+ *
+ * The panel runs in an isolated iframe origin, so it cannot inherit Molibot's
+ * design tokens: it ships the shared Mini App M3 baseline below and receives
+ * the active theme as `data-theme` on <html>, set from the iframe URL hint.
+ *
+ * The baseline block (`--md-*`) is duplicated verbatim in every built-in Mini
+ * App and in skills/miniapp-creator/template/ui/styles.css. Change it in one
+ * place and mirror it into the others — the CSP is `default-src 'self'` per
+ * app, so there is no shared stylesheet to import.
+ */
 
-.hidden {
-  display: none !important;
-}
+/* Keep first among element rules and never remove: an author `display:` on an
+   element silently defeats the `hidden` attribute (the UA sheet's
+   `[hidden]{display:none}` loses to any author display), leaving an invisible
+   layer that still swallows every click. */
+[hidden] { display: none !important; }
+.hidden { display: none !important; }
+
+/* ===========================================================================
+ * Shared M3 baseline — tokens
+ * ======================================================================== */
 
 :root {
-  --bg-color: #ffffff;
-  --card-bg: #ffffff;
-  --text-main: #202124;
-  --text-sub: #5f6368;
-  --border-color: #e0e0e0;
-  --primary-color: #1a73e8;
+  color-scheme: light;
 
-  --card-yellow: #fff475;
-  --card-blue: #cbf0f8;
-  --card-green: #ccff90;
-  --card-red: #f28b82;
-  --card-purple: #d7aefb;
-  --card-gray: #e8eaed;
+  /* Primary — Google Blue */
+  --md-primary: #0b57d0;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #d3e3fd;
+  --md-on-primary-container: #041e49;
 
-  --card-text-color: #202124;
-  --card-sub-color: #5f6368;
-  --card-tag-bg: rgba(0, 0, 0, 0.08);
-  --btn-hover-bg: rgba(0, 0, 0, 0.08);
+  /* Secondary */
+  --md-secondary-container: #c2e7ff;
+  --md-on-secondary-container: #001d35;
+
+  /* Tertiary — Google Green */
+  --md-tertiary: #146c2e;
+  --md-tertiary-container: #c4eed0;
+  --md-on-tertiary-container: #072711;
+
+  /* Error */
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #fce8e6;
+  --md-on-error-container: #410e0b;
+
+  /* Neutral surfaces. Elevation is tint first, shadow second. */
+  --md-surface: #ffffff;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f8fafd;
+  --md-surface-container: #f0f4f9;
+  --md-surface-container-high: #e9eef6;
+  --md-surface-container-highest: #dde3ea;
+  --md-on-surface: #1f1f1f;
+  --md-on-surface-variant: #444746;
+  --md-outline: #747775;
+  --md-outline-variant: #c4c7c5;
+  --md-scrim: rgba(0, 0, 0, 0.32);
+
+  /* The one accent outside the scheme: "starred / pinned" is a product
+     signal, not a scheme role, and must read the same in both themes. */
+  --md-star: #e37400;
+
+  /* Type scale. Size and line-height are declared as PAIRS — setting one
+     without the other is how a rank drifts back apart. */
+  --md-font: "Google Sans Text", "Google Sans", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --md-title-lg-size: 22px;   --md-title-lg-lh: 28px;
+  --md-title-md-size: 16px;   --md-title-md-lh: 24px;
+  --md-title-sm-size: 14px;   --md-title-sm-lh: 20px;
+  --md-body-lg-size: 16px;    --md-body-lg-lh: 24px;
+  --md-body-md-size: 14px;    --md-body-md-lh: 20px;
+  --md-body-sm-size: 12px;    --md-body-sm-lh: 16px;
+  --md-label-lg-size: 14px;   --md-label-lg-lh: 20px;
+  --md-label-md-size: 12px;   --md-label-md-lh: 16px;
+  --md-label-sm-size: 11px;   --md-label-sm-lh: 16px;
+
+  /* Shape scale */
+  --md-shape-xs: 4px;
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
+  --md-shape-full: 9999px;
+
+  /* Motion */
+  --md-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-dur-short: 150ms;
+  --md-dur-medium: 250ms;
+  --md-dur-long: 400ms;
+
+  /* Elevation. M3 shadows are soft and low-contrast; the tint does the work. */
+  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.1);
+  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.1);
+  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.1);
 }
 
 [data-theme="dark"] {
-  --bg-color: #202124;
-  --card-bg: #202124;
-  --text-main: #e8eaed;
-  --text-sub: #9aa0a6;
-  --border-color: #5f6368;
-  --primary-color: #8ab4f8;
+  color-scheme: dark;
 
-  /* Google Keep 原生暗色调配色 - 优雅舒适防刺眼 */
-  --card-yellow: #635d19;
-  --card-blue: #16504b;
-  --card-green: #2d555e;
-  --card-red: #5c2b29;
-  --card-purple: #42275d;
-  --card-gray: #3c4043;
+  --md-primary: #a8c7fa;
+  --md-on-primary: #062e6f;
+  --md-primary-container: #0842a0;
+  --md-on-primary-container: #d3e3fd;
 
-  --card-text-color: #e8eaed;
-  --card-sub-color: #9aa0a6;
-  --card-tag-bg: rgba(255, 255, 255, 0.12);
-  --btn-hover-bg: rgba(255, 255, 255, 0.12);
+  --md-secondary-container: #004a77;
+  --md-on-secondary-container: #c2e7ff;
+
+  --md-tertiary: #6dd58c;
+  --md-tertiary-container: #0f5223;
+  --md-on-tertiary-container: #c4eed0;
+
+  --md-error: #f2b8b5;
+  --md-on-error: #601410;
+  --md-error-container: #8c1d18;
+  --md-on-error-container: #f9dedc;
+
+  --md-surface: #131314;
+  --md-surface-container-lowest: #0e0e0e;
+  --md-surface-container-low: #1b1b1b;
+  --md-surface-container: #1e1f20;
+  --md-surface-container-high: #282a2c;
+  --md-surface-container-highest: #333438;
+  --md-on-surface: #e3e3e3;
+  --md-on-surface-variant: #c4c7c5;
+  --md-outline: #8e918f;
+  --md-outline-variant: #444746;
+  --md-scrim: rgba(0, 0, 0, 0.6);
+
+  --md-star: #fdd663;
+
+  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 1px 3px 1px rgba(0, 0, 0, 0.3);
+  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 2px 6px 2px rgba(0, 0, 0, 0.3);
+  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 4px 8px 3px rgba(0, 0, 0, 0.3);
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* ===========================================================================
+ * Shared M3 baseline — interaction physics
+ *
+ * A state layer is a translucent wash of the element's own content colour, not
+ * a different background: hover 8%, focus/press 12%. Elements that already
+ * carry a background (filled buttons) cannot express it through
+ * `background-color`, so those use a `background-image` wash instead — it
+ * composites above the fill and below the label with no stacking-context war.
+ * ======================================================================== */
+
+/* The ripple is applied to the controls that carry no absolutely positioned
+   children — a dropdown anchored inside would be clipped by the
+   `overflow: hidden` the ripple needs. See `.icon-btn` / `.icon-btn-sm`. */
+@keyframes m3-ripple {
+  0% { opacity: 0.16; transform: translate(-50%, -50%) scale(0); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.4); }
 }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: "Google Sans", Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: var(--bg-color);
-  color: var(--text-main);
-  padding: 12px;
+  font-family: var(--md-font);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  -webkit-font-smoothing: antialiased;
 }
 
+/* ===========================================================================
+ * Note colours — the app's own expressive set, mirrored from Google Keep.
+ * Applied through `data-color`, so the swatches and the surfaces they paint
+ * can never disagree.
+ * ======================================================================== */
+
+:root {
+  --note-default: var(--md-surface);
+  --note-yellow: #fff8b8;
+  --note-blue: #d4e4ed;
+  --note-green: #e2f6d3;
+  --note-red: #faafa8;
+  --note-purple: #d3bfdb;
+  --note-gray: #efeff1;
+  --note-on: #1f1f1f;
+  --note-wash: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] {
+  --note-default: var(--md-surface-container-low);
+  --note-yellow: #7c4a03;
+  --note-blue: #256377;
+  --note-green: #264d3b;
+  --note-red: #77172e;
+  --note-purple: #472e5b;
+  --note-gray: #3c4043;
+  --note-on: #e3e3e3;
+  --note-wash: rgba(255, 255, 255, 0.12);
+}
+
+[data-color="yellow"] { --note-surface: var(--note-yellow); }
+[data-color="blue"]   { --note-surface: var(--note-blue); }
+[data-color="green"]  { --note-surface: var(--note-green); }
+[data-color="red"]    { --note-surface: var(--note-red); }
+[data-color="purple"] { --note-surface: var(--note-purple); }
+[data-color="gray"]   { --note-surface: var(--note-gray); }
+
+/* ===========================================================================
+ * Layout
+ * ======================================================================== */
+
+body { padding: 16px 16px 32px; }
+
 .note-app {
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
-/* Header */
+/* — Top app bar ————————————————————————————————————————————— */
+
 .note-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .note-brand {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
+.keep-icon { flex-shrink: 0; }
+
 .note-heading {
-  font-size: 1.1rem;
+  font-size: var(--md-title-md-size);
+  line-height: var(--md-title-md-lh);
   font-weight: 500;
-  color: var(--text-sub);
+  color: var(--md-on-surface);
+  white-space: nowrap;
 }
 
+/* M3 search bar: full-round, container-tinted, no border. */
 .note-search-wrapper {
-  flex: 1;
-  max-width: 400px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 480px;
   position: relative;
   display: flex;
   align-items: center;
@@ -100,118 +253,154 @@ body {
 
 .search-icon {
   position: absolute;
-  left: 10px;
-  color: var(--text-sub);
+  left: 16px;
+  color: var(--md-on-surface-variant);
+  pointer-events: none;
 }
 
 .note-search {
   width: 100%;
-  padding: 6px 12px 6px 32px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: rgba(0,0,0,0.05);
-  color: var(--text-main);
-  font-size: 0.88rem;
+  height: 44px;
+  padding: 0 16px 0 48px;
+  border: none;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: var(--md-body-lg-size);
+  line-height: var(--md-body-lg-lh);
   outline: none;
-  transition: background 0.2s, box-shadow 0.2s;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              box-shadow var(--md-dur-short) var(--md-ease-standard);
 }
 
-[data-theme="dark"] .note-search {
-  background: rgba(255,255,255,0.08);
-}
-
+.note-search::placeholder { color: var(--md-on-surface-variant); }
+.note-search:hover { background: var(--md-surface-container-highest); }
 .note-search:focus {
-  background: var(--card-bg);
-  border-color: var(--border-color);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  background: var(--md-surface-container-high);
+  box-shadow: var(--md-elev-1);
 }
+
+/* — Icon buttons ————————————————————————————————————————————— */
 
 .icon-btn {
-  background: transparent;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
   border: none;
-  color: var(--text-sub);
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-on-surface-variant);
   cursor: pointer;
-  padding: 6px;
-  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.15s;
-}
-
-.icon-btn:hover {
-  background: var(--btn-hover-bg);
+  position: relative;
+  overflow: hidden;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard);
 }
 
 .icon-btn-sm {
-  background: transparent;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
   border: none;
+  border-radius: var(--md-shape-full);
+  background: transparent;
   color: inherit;
   cursor: pointer;
-  padding: 4px;
-  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, opacity 0.15s;
-  opacity: 0.75;
+  position: relative;
+  overflow: hidden;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard);
 }
 
-.icon-btn-sm:hover {
-  background: var(--btn-hover-bg);
-  opacity: 1;
+.icon-btn:hover,
+.icon-btn-sm:hover { background-color: color-mix(in srgb, currentColor 8%, transparent); }
+.icon-btn:active,
+.icon-btn-sm:active { background-color: color-mix(in srgb, currentColor 12%, transparent); }
+.icon-btn:focus-visible,
+.icon-btn-sm:focus-visible {
+  background-color: color-mix(in srgb, currentColor 12%, transparent);
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
 }
 
-/* Composer */
-.composer-container {
-  max-width: 520px;
-  margin: 0 auto;
+.icon-btn::after,
+.icon-btn-sm::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 100%;
+  padding-bottom: 100%;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0);
+  pointer-events: none;
+}
+.icon-btn:active::after,
+.icon-btn-sm:active::after { animation: m3-ripple 400ms var(--md-ease-emphasized); }
+
+/* — Composer ————————————————————————————————————————————————— */
+
+.composer-container {
+  max-width: 600px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .composer-collapsed {
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 6px 12px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
-  cursor: pointer;
-  color: var(--text-sub);
-  font-size: 0.88rem;
-  font-weight: 500;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 0 20px;
+  height: 56px;
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container-low);
+  box-shadow: var(--md-elev-1);
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-body-lg-size);
+  line-height: var(--md-body-lg-lh);
+  cursor: text;
+  transition: box-shadow var(--md-dur-medium) var(--md-ease-standard),
+              background-color var(--md-dur-short) var(--md-ease-standard);
 }
 
 .composer-collapsed:hover {
-  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.35);
+  box-shadow: var(--md-elev-2);
+  background: var(--md-surface-container);
+}
+
+.collapsed-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--md-on-surface-variant);
 }
 
 .note-composer {
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 10px 12px;
+  background: var(--note-surface, var(--note-default));
+  color: var(--note-on);
+  border-radius: var(--md-shape-lg);
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.35);
-  transition: background-color 0.2s ease, color 0.2s ease;
+  gap: 12px;
+  box-shadow: var(--md-elev-2);
+  transition: background-color var(--md-dur-medium) var(--md-ease-standard),
+              color var(--md-dur-medium) var(--md-ease-standard);
 }
 
-.note-composer[data-color="yellow"], .modal-card[data-color="yellow"] { background-color: var(--card-yellow); color: var(--card-text-color); }
-.note-composer[data-color="blue"], .modal-card[data-color="blue"] { background-color: var(--card-blue); color: var(--card-text-color); }
-.note-composer[data-color="green"], .modal-card[data-color="green"] { background-color: var(--card-green); color: var(--card-text-color); }
-.note-composer[data-color="red"], .modal-card[data-color="red"] { background-color: var(--card-red); color: var(--card-text-color); }
-.note-composer[data-color="purple"], .modal-card[data-color="purple"] { background-color: var(--card-purple); color: var(--card-text-color); }
-.note-composer[data-color="gray"], .modal-card[data-color="gray"] { background-color: var(--card-gray); color: var(--card-text-color); }
+.note-composer[data-color="default"] { background: var(--md-surface-container-low); color: var(--md-on-surface); }
 
-.composer-header, .modal-header {
+.composer-header,
+.modal-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 8px;
 }
@@ -221,244 +410,305 @@ body {
   background: transparent;
   outline: none;
   color: inherit;
-  font-size: 0.88rem;
   font-family: inherit;
+  font-size: var(--md-body-lg-size);
+  line-height: var(--md-body-lg-lh);
   width: 100%;
 }
 
 .note-input::placeholder {
-  color: var(--text-sub);
-  opacity: 0.8;
+  color: currentColor;
+  opacity: 0.62;
 }
 
 .note-input-title {
-  font-weight: 600;
-  font-size: 0.95rem;
+  font-size: var(--md-title-md-size);
+  line-height: var(--md-title-md-lh);
+  font-weight: 500;
 }
 
 .note-input-content {
   resize: none;
-  line-height: 1.4;
+  min-height: 72px;
 }
 
-.composer-pin-toggle {
-  opacity: 0.6;
-  transition: opacity 0.15s, transform 0.15s;
-}
-
-.composer-pin-toggle.active {
-  opacity: 1;
-  color: var(--primary-color);
-}
+.composer-pin-toggle { opacity: 0.72; transition: opacity var(--md-dur-short) var(--md-ease-standard); }
+.composer-pin-toggle:hover { opacity: 1; }
+.composer-pin-toggle.active { opacity: 1; color: var(--md-primary); }
 
 .composer-labels-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-  border-top: 1px dashed var(--border-color);
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, currentColor 16%, transparent);
 }
 
-.label-icon {
-  color: var(--text-sub);
-  opacity: 0.75;
-}
+.label-icon { color: currentColor; opacity: 0.62; flex-shrink: 0; }
 
 .note-input-labels {
   border: none;
   background: transparent;
   outline: none;
-  font-size: 0.8rem;
   color: inherit;
+  font-family: inherit;
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
   width: 100%;
 }
 
+.note-input-labels::placeholder { color: currentColor; opacity: 0.62; }
+
 .composer-toolbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  padding-top: 4px;
 }
+
+/* — Colour palette ——————————————————————————————————————————— */
 
 .composer-color-palette {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
 }
 
-.color-dot, .modal-color-dot {
-  width: 18px;
-  height: 18px;
+.color-dot,
+.modal-color-dot {
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  border: 1.5px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+  background-color: var(--note-surface, var(--md-surface));
   cursor: pointer;
-  background-color: var(--card-bg);
-  transition: transform 0.15s, border-color 0.15s;
+  position: relative;
+  transition: transform var(--md-dur-short) var(--md-ease-emphasized),
+              box-shadow var(--md-dur-short) var(--md-ease-standard);
 }
 
-.color-dot:hover, .modal-color-dot:hover {
-  transform: scale(1.15);
+.color-dot:hover,
+.modal-color-dot:hover { transform: scale(1.12); }
+
+.color-dot:focus-visible,
+.modal-color-dot:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
 }
 
-.color-dot.active, .modal-color-dot.active {
-  border-color: var(--text-main);
-  transform: scale(1.15);
+/* Selection is a checkmark, not a colour change — colour alone never carries
+   state (the palette is entirely colour). */
+.color-dot.active,
+.modal-color-dot.active { border-color: var(--md-primary); border-width: 2px; }
+.color-dot.active::after,
+.modal-color-dot.active::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 3px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--note-on);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
+[data-color="default"].color-dot.active::after,
+[data-color="default"].modal-color-dot.active::after { border-color: var(--md-on-surface); }
+
+/* — Buttons ——————————————————————————————————————————————————— */
 
 .composer-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-left: auto;
 }
 
 .note-btn-text {
-  background: transparent;
+  height: 36px;
+  padding: 0 12px;
   border: none;
+  border-radius: var(--md-shape-full);
+  background: transparent;
   color: inherit;
-  font-size: 0.82rem;
-  padding: 4px 10px;
-  border-radius: 4px;
-  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--md-label-lg-size);
+  line-height: var(--md-label-lg-lh);
   font-weight: 500;
-}
-
-.note-btn-text:hover {
-  background: var(--btn-hover-bg);
-}
-
-.note-submit {
-  background: transparent;
-  color: inherit;
-  border: none;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-weight: 600;
-  font-size: 0.82rem;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard);
 }
 
-.note-submit:hover {
-  background: var(--btn-hover-bg);
+.note-btn-text:hover { background-color: color-mix(in srgb, currentColor 8%, transparent); }
+.note-btn-text:active { background-color: color-mix(in srgb, currentColor 12%, transparent); }
+.note-btn-text:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+
+/* Filled tonal button — the composer's confirming action. */
+.note-submit {
+  height: 36px;
+  padding: 0 20px;
+  border: none;
+  border-radius: var(--md-shape-full);
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  font-family: inherit;
+  font-size: var(--md-label-lg-size);
+  line-height: var(--md-label-lg-lh);
+  font-weight: 500;
+  cursor: pointer;
+  transition: box-shadow var(--md-dur-short) var(--md-ease-standard),
+              filter var(--md-dur-short) var(--md-ease-standard);
 }
+
+.note-submit:hover { box-shadow: var(--md-elev-1); filter: brightness(1.08); }
+.note-submit:active { filter: brightness(0.94); }
+.note-submit:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+.note-submit:disabled { opacity: 0.38; cursor: default; box-shadow: none; filter: none; }
+
+/* — Status ————————————————————————————————————————————————————— */
 
 .note-status {
-  padding: 6px 10px;
-  border-radius: 4px;
-  font-size: 0.8rem;
+  padding: 12px 16px;
+  border-radius: var(--md-shape-sm);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
 }
 
 .note-status[data-tone="error"] {
-  background: #fce8e6;
-  color: #c5221f;
-}
-
-[data-theme="dark"] .note-status[data-tone="error"] {
-  background: #5c1410;
-  color: #f28b82;
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
 }
 
 .note-status[data-tone="info"] {
-  background: #e8f0fe;
-  color: #1a73e8;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
 }
 
-[data-theme="dark"] .note-status[data-tone="info"] {
-  background: #004b5c;
-  color: #8ab4f8;
-}
+/* — Tabs ——————————————————————————————————————————————————————— */
 
-/* Tabs */
 .note-tabs {
   display: flex;
-  gap: 8px;
-  border-bottom: 1px solid var(--border-color);
+  gap: 0;
+  border-bottom: 1px solid var(--md-outline-variant);
 }
 
 .note-tab {
-  background: transparent;
+  height: 48px;
+  padding: 0 16px;
   border: none;
-  padding: 4px 10px;
-  font-size: 0.85rem;
-  color: var(--text-sub);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-family: inherit;
+  font-size: var(--md-title-sm-size);
+  line-height: var(--md-title-sm-lh);
   font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: color var(--md-dur-short) var(--md-ease-standard),
+              background-color var(--md-dur-short) var(--md-ease-standard);
 }
 
-.note-tab.active {
-  color: var(--primary-color);
-  border-bottom-color: var(--primary-color);
+.note-tab:hover { background-color: color-mix(in srgb, currentColor 8%, transparent); }
+.note-tab:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
+.note-tab.active { color: var(--md-primary); }
+
+/* 3dp rounded indicator, animated on selection change. */
+.note-tab::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--md-primary);
+  transform: scaleX(0);
+  transition: transform var(--md-dur-medium) var(--md-ease-emphasized);
 }
 
-/* 笔记列表卡片 - 暗色模式深色质感适配 */
+.note-tab.active::before { transform: scaleX(1); }
+
+/* — Note grid ——————————————————————————————————————————————————— */
+
+.note-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .note-group-title {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--text-sub);
-  letter-spacing: 0.8px;
-  margin-bottom: 8px;
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--md-on-surface-variant);
+  padding-left: 4px;
 }
 
 .note-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
+  align-items: start;
 }
 
 .note-card {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px;
+  position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   gap: 8px;
-  background-color: var(--card-bg);
-  color: var(--card-text-color);
+  padding: 16px;
+  border-radius: var(--md-shape-md);
+  border: 1px solid transparent;
+  background-color: var(--note-surface, var(--note-default));
+  color: var(--note-on);
   word-break: break-word;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.15);
   cursor: pointer;
-  position: relative;
-  transition: box-shadow 0.2s, border-color 0.2s, background-color 0.2s ease, color 0.2s ease;
+  transition: box-shadow var(--md-dur-medium) var(--md-ease-standard),
+              background-color var(--md-dur-medium) var(--md-ease-standard),
+              color var(--md-dur-medium) var(--md-ease-standard);
 }
 
-.note-card:hover {
-  box-shadow: 0 2px 6px 0 rgba(0, 0, 0, 0.35);
-  border-color: rgba(255, 255, 255, 0.2);
+/* Default notes are outlined cards — the only card rank M3 draws a border on. */
+.note-card[data-color="default"] {
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  border-color: var(--md-outline-variant);
 }
 
-.note-card[data-color="yellow"] { background-color: var(--card-yellow); color: var(--card-text-color); }
-.note-card[data-color="blue"] { background-color: var(--card-blue); color: var(--card-text-color); }
-.note-card[data-color="green"] { background-color: var(--card-green); color: var(--card-text-color); }
-.note-card[data-color="red"] { background-color: var(--card-red); color: var(--card-text-color); }
-.note-card[data-color="purple"] { background-color: var(--card-purple); color: var(--card-text-color); }
-.note-card[data-color="gray"] { background-color: var(--card-gray); color: var(--card-text-color); }
+.note-card:hover { box-shadow: var(--md-elev-2); }
+.note-card:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
 
-/* 顶栏与交互按钮 */
 .card-header {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
   min-height: 24px;
 }
 
 .card-title {
-  font-weight: 600;
-  font-size: 0.95rem;
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--md-title-sm-size);
+  line-height: var(--md-title-sm-lh);
+  font-weight: 500;
 }
 
 .card-header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
+  flex-shrink: 0;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--md-dur-short) var(--md-ease-standard);
 }
 
 .note-card:hover .card-header-actions,
@@ -467,29 +717,33 @@ body {
   pointer-events: auto;
 }
 
+/* A pinned note must stay legible without hovering — pin is state, not chrome. */
 .card-header-actions .composer-pin-toggle.active {
   opacity: 1 !important;
   pointer-events: auto !important;
 }
 
-.card-more-container {
-  position: relative;
-}
+.card-more-container { position: relative; }
 
+/* M3 menu: container tint + elevation 2, never a hairline border. */
 .card-dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 4px);
   right: 0;
-  margin-top: 4px;
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   z-index: 100;
-  min-width: 110px;
-  padding: 4px 0;
+  min-width: 140px;
+  padding: 8px 0;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container);
+  box-shadow: var(--md-elev-2);
   display: flex;
   flex-direction: column;
+  animation: menu-enter var(--md-dur-medium) var(--md-ease-emphasized);
+}
+
+@keyframes menu-enter {
+  from { opacity: 0; transform: scaleY(0.8); transform-origin: top; }
+  to { opacity: 1; transform: scaleY(1); }
 }
 
 .card-dropdown.hidden {
@@ -498,33 +752,34 @@ body {
 }
 
 .dropdown-item {
-  background: transparent;
-  border: none;
-  padding: 6px 12px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
-  color: var(--text-main);
-  cursor: pointer;
-  text-align: left;
+  gap: 12px;
   width: 100%;
-  transition: background 0.12s;
+  min-height: 40px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface);
+  font-family: inherit;
+  font-size: var(--md-label-lg-size);
+  line-height: var(--md-label-lg-lh);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard);
 }
 
-.dropdown-item:hover {
-  background: var(--btn-hover-bg);
-}
+.dropdown-item:hover { background-color: color-mix(in srgb, currentColor 8%, transparent); }
+.dropdown-item:active { background-color: color-mix(in srgb, currentColor 12%, transparent); }
+.dropdown-item:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
+.dropdown-item-del { color: var(--md-error); }
 
-.dropdown-item-del:hover {
-  background: rgba(242, 139, 130, 0.2);
-  color: #f28b82;
-}
+.action-icon { flex-shrink: 0; }
 
 .card-content {
-  font-size: 0.88rem;
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
   white-space: pre-wrap;
-  line-height: 1.35;
 }
 
 .card-labels {
@@ -533,62 +788,87 @@ body {
   gap: 4px;
 }
 
+/* M3 assist chip, small. */
 .card-label-tag {
-  font-size: 0.7rem;
-  padding: 1px 6px;
-  background: var(--card-tag-bg);
-  border-radius: 10px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: var(--md-shape-sm);
+  background: var(--note-wash);
   color: inherit;
+  font-size: var(--md-label-sm-size);
+  line-height: var(--md-label-sm-lh);
   font-weight: 500;
 }
 
 .note-empty {
-  color: var(--text-sub);
-  font-size: 0.88rem;
+  padding: 48px 0;
   text-align: center;
-  padding: 24px 0;
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
 }
 
-/* 模态弹窗 Modal 样式 */
+/* — Dialog ————————————————————————————————————————————————————— */
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  padding: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
-  padding: 16px;
+  background: var(--md-scrim);
+  animation: scrim-enter var(--md-dur-medium) var(--md-ease-standard);
 }
+
+@keyframes scrim-enter { from { opacity: 0; } to { opacity: 1; } }
 
 .modal-backdrop.hidden {
   display: none !important;
   pointer-events: none !important;
 }
 
+/* M3 dialog: extra-large corner, container-high tint, elevation 3. */
 .modal-card {
-  background: var(--card-bg);
-  color: var(--card-text-color);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
   width: 100%;
   max-width: 560px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-  transition: background-color 0.2s ease, color 0.2s ease;
+  gap: 16px;
+  border-radius: var(--md-shape-xl);
+  background: var(--note-surface, var(--md-surface-container-high));
+  color: var(--note-on);
+  box-shadow: var(--md-elev-3);
+  animation: dialog-enter var(--md-dur-long) var(--md-ease-emphasized);
+  transition: background-color var(--md-dur-medium) var(--md-ease-standard),
+              color var(--md-dur-medium) var(--md-ease-standard);
+}
+
+.modal-card[data-color="default"] {
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface);
+}
+
+@keyframes dialog-enter {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 /* Deep-link landing: brief highlight on the note a molibot:// link named. */
-.note-card.deep-link-target {
-  animation: deep-link-flash 2s ease-out;
-}
+.note-card.deep-link-target { animation: deep-link-flash 2s var(--md-ease-standard); }
+
 @keyframes deep-link-flash {
-  0%, 40% { box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.55); }
-  100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0); }
+  0%, 40% { box-shadow: 0 0 0 3px var(--md-primary); }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
+
 @media (prefers-reduced-motion: reduce) {
-  .note-card.deep-link-target { animation: none; box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.55); }
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+  .note-card.deep-link-target { box-shadow: 0 0 0 3px var(--md-primary); }
 }

@@ -24,6 +24,10 @@ const STRINGS = {
     disabled: "This Mini App is switched off.",
     unavailable: "Todo could not start.", offline: "Reconnecting…",
     high: "High", normal: "Normal", low: "Low", star: "Star", moveTo: "Move",
+    setDate: "Date", dueLabel: "Deadline", remindLabel: "Remind",
+    clearDate: "Clear", schedule: "Deadline and reminder",
+    today: "Today", tomorrow: "Tomorrow", yesterday: "Yesterday",
+    overdue: "Overdue", noDate: "No date", insertIntoComposer: "Insert into composer",
   },
   zh: {
     all: "全部", inbox: "收件箱", search: "搜索", newTodo: "新建待办",
@@ -34,6 +38,10 @@ const STRINGS = {
     disabled: "该应用已被禁用。",
     unavailable: "应用启动失败。", offline: "重新连接中…",
     high: "高", normal: "普通", low: "低", star: "星标", moveTo: "移动",
+    setDate: "日期", dueLabel: "截止", remindLabel: "提醒",
+    clearDate: "清除", schedule: "截止与提醒",
+    today: "今天", tomorrow: "明天", yesterday: "昨天",
+    overdue: "已逾期", noDate: "无日期", insertIntoComposer: "填入输入框",
   },
 };
 
@@ -53,6 +61,23 @@ const t = STRINGS[locale];
 document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
 document.documentElement.dataset.theme = theme;
 
+/**
+ * Static copy in index.html carries the English default and a `data-i18n*`
+ * key; the markup and STRINGS are the single pair to keep in sync. Without
+ * this pass the shell stayed English under a zh locale while everything the
+ * renderers produced was translated — which is most of what read as
+ * "inconsistent" in the panel.
+ */
+for (const node of document.querySelectorAll("[data-i18n]")) {
+  node.textContent = t[node.dataset.i18n] ?? node.textContent;
+}
+for (const node of document.querySelectorAll("[data-i18n-placeholder]")) {
+  node.placeholder = t[node.dataset.i18nPlaceholder] ?? node.placeholder;
+}
+for (const node of document.querySelectorAll("[data-i18n-title]")) {
+  node.title = t[node.dataset.i18nTitle] ?? node.title;
+}
+
 const $ = (id) => document.getElementById(id);
 
 const el = {
@@ -71,6 +96,13 @@ const el = {
   priDot: $("pri-dot"),
   priLabel: $("pri-label"),
   optPin: $("opt-pin"),
+  optSchedule: $("opt-schedule"),
+  scheduleLabel: $("schedule-label"),
+  composerSchedule: $("composer-schedule"),
+  dueDate: $("due-date"),
+  dueTime: $("due-time"),
+  remindAt: $("remind-at"),
+  scheduleClear: $("schedule-clear"),
   collapseBtn: $("composer-collapse"),
   status: $("status"),
   openList: $("open-list"),
@@ -91,10 +123,80 @@ let pickerOpen = false;
 
 const PRIORITY_CYCLE = [2, 1, 3];
 const PRIORITY_META = {
-  1: { cls: "pri-high", label: t.high, color: "#ff3b30" },
-  2: { cls: "pri-normal", label: t.normal, color: "#c7c7cc" },
-  3: { cls: "pri-low", label: t.low, color: "#007aff" },
+  1: { cls: "pri-high", label: t.high },
+  2: { cls: "pri-normal", label: t.normal },
+  3: { cls: "pri-low", label: t.low },
 };
+
+/* — Dates —
+ *
+ * Two shapes, mirroring the server: a deadline is either a floating calendar
+ * date (`YYYY-MM-DD`) or an instant, while a reminder is always an instant.
+ * The native controls speak local wall-clock time with no offset, which is
+ * exactly what the server reads as local — so nothing here converts anything.
+ * The one rule: never hand a bare `YYYY-MM-DD` to `new Date()`, which parses
+ * it as UTC and lands on the wrong day for most of the world.
+ */
+
+const pad2 = (value) => String(value).padStart(2, "0");
+
+/** Local `YYYY-MM-DD` for a Date — the day a person would call it. */
+function localDateValue(at) {
+  return `${at.getFullYear()}-${pad2(at.getMonth() + 1)}-${pad2(at.getDate())}`;
+}
+
+/** Local `YYYY-MM-DDTHH:MM`, the value shape of `<input type=datetime-local>`. */
+function localDateTimeValue(at) {
+  return `${localDateValue(at)}T${pad2(at.getHours())}:${pad2(at.getMinutes())}`;
+}
+
+/** A stored deadline as a Date, without ever parsing a bare date as UTC. */
+function dueToDate(row) {
+  if (!row.dueAt) return null;
+  if (row.dueAllDay) {
+    const [y, m, d] = row.dueAt.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(row.dueAt);
+}
+
+const DAY_LABEL_FORMAT = new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
+  month: "short",
+  day: "numeric",
+});
+const TIME_LABEL_FORMAT = new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** "Today" / "Tomorrow" / "Mar 4" — relative where that reads better. */
+function dayLabel(at, now = new Date()) {
+  const days = Math.round(
+    (new Date(at.getFullYear(), at.getMonth(), at.getDate()) -
+      new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000
+  );
+  if (days === 0) return t.today;
+  if (days === 1) return t.tomorrow;
+  if (days === -1) return t.yesterday;
+  return DAY_LABEL_FORMAT.format(at);
+}
+
+/** The chip text and tone for a row's deadline, or null when it has none. */
+function dueChipMeta(row, now = Date.now()) {
+  const at = dueToDate(row);
+  if (!at) return null;
+  const label = row.dueAllDay
+    ? dayLabel(at)
+    : `${dayLabel(at)} ${TIME_LABEL_FORMAT.format(at)}`;
+  if (row.completed) return { label, tone: "done" };
+  if (row.dueMs !== null && row.dueMs < now) return { label, tone: "overdue" };
+  // "Soon" is the rest of today — the window where a deadline stops being a
+  // date and starts being a thing to act on.
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
+  if (row.dueMs !== null && row.dueMs <= endOfToday.getTime()) return { label, tone: "soon" };
+  return { label, tone: "upcoming" };
+}
 
 // — API —
 async function api(path, init) {
@@ -123,6 +225,65 @@ el.collapseBtn.addEventListener("click", () => {
   el.composerForm.classList.toggle("collapsed");
 });
 
+// — Composer schedule —
+
+/**
+ * The composer's deadline as the server wants it: a bare date when no time was
+ * given (an all-day deadline), `YYYY-MM-DDTHH:MM` when one was. A time with no
+ * date is not a deadline and is ignored rather than silently assumed to mean
+ * today.
+ */
+function composerDueValue() {
+  const date = el.dueDate.value;
+  if (!date) return "";
+  return el.dueTime.value ? `${date}T${el.dueTime.value}` : date;
+}
+
+function syncScheduleChip() {
+  const due = composerDueValue();
+  const remind = el.remindAt.value;
+  el.optSchedule.classList.toggle("active", Boolean(due || remind));
+
+  if (!due && !remind) {
+    el.scheduleLabel.textContent = t.setDate;
+    return;
+  }
+  // The chip shows the deadline when there is one, otherwise the reminder —
+  // whichever the user actually set, never an empty "Date".
+  const shown = due
+    ? { at: el.dueTime.value ? new Date(due) : null, date: el.dueDate.value, timed: Boolean(el.dueTime.value) }
+    : { at: new Date(remind), date: remind.slice(0, 10), timed: true };
+  const [y, m, d] = shown.date.split("-").map(Number);
+  const day = dayLabel(new Date(y, m - 1, d));
+  el.scheduleLabel.textContent = shown.timed && shown.at
+    ? `${day} ${TIME_LABEL_FORMAT.format(shown.at)}`
+    : day;
+}
+
+function resetComposerSchedule() {
+  el.dueDate.value = "";
+  el.dueTime.value = "";
+  el.remindAt.value = "";
+  el.composerSchedule.hidden = true;
+  syncScheduleChip();
+}
+
+el.optSchedule.addEventListener("click", () => {
+  el.composerSchedule.hidden = !el.composerSchedule.hidden;
+  if (!el.composerSchedule.hidden) el.dueDate.focus();
+});
+
+for (const input of [el.dueDate, el.dueTime, el.remindAt]) {
+  input.addEventListener("change", syncScheduleChip);
+}
+
+el.scheduleClear.addEventListener("click", () => {
+  el.dueDate.value = "";
+  el.dueTime.value = "";
+  el.remindAt.value = "";
+  syncScheduleChip();
+});
+
 // — Composer form submit —
 el.composerForm.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -131,6 +292,9 @@ el.composerForm.addEventListener("submit", (e) => {
 
   const payload = { title, priority: composerPriority, pinned: composerPinned };
   if (activeList) payload.listId = activeList;
+  const dueAt = composerDueValue();
+  if (dueAt) payload.dueAt = dueAt;
+  if (el.remindAt.value) payload.remindAt = el.remindAt.value;
 
   void mutate(() => api("/todos", { method: "POST", body: JSON.stringify(payload) }))
     .then(() => {
@@ -139,6 +303,7 @@ el.composerForm.addEventListener("submit", (e) => {
       el.priDot.className = "opt-dot pri-normal";
       el.priLabel.textContent = t.normal;
       el.optPin.classList.remove("active");
+      resetComposerSchedule();
       el.title.focus();
     });
 });
@@ -159,6 +324,8 @@ el.optPin.addEventListener("click", () => {
 // — List picker —
 function togglePicker(force) {
   pickerOpen = force ?? !pickerOpen;
+  const chevron = $("topbar-chevron");
+  if (chevron) chevron.classList.toggle("rotate", pickerOpen);
   if (pickerOpen) {
     el.listPicker.hidden = false;
     el.backdrop.hidden = false;
@@ -180,9 +347,20 @@ function togglePicker(force) {
 }
 
 el.listPickerBtn.addEventListener("click", (e) => { e.stopPropagation(); togglePicker(); });
+$("list-selector-trigger")?.addEventListener("click", (e) => { e.stopPropagation(); togglePicker(); });
 el.backdrop.addEventListener("click", () => togglePicker(false));
 
-const LIST_COLORS = ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#5ac8fa", "#007aff", "#5856d6", "#af52de"];
+/**
+ * Per-list accent, from the Google label palette.
+ *
+ * Two sets, not one: the value is applied as a *text* colour on a surface, so
+ * the light-theme tones fail contrast on the dark surfaces and vice versa.
+ * The theme is fixed for the lifetime of the frame (a change reloads it), so
+ * picking once here is enough.
+ */
+const LIST_COLORS = theme === "dark"
+  ? ["#f28b82", "#fcad70", "#fdd663", "#81c995", "#78d9ec", "#8ab4f8", "#c58af9", "#d7aefb"]
+  : ["#c5221f", "#e8710a", "#a8710a", "#188038", "#007b83", "#1a73e8", "#7627bb", "#9334e6"];
 function listColor(id) {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
@@ -190,7 +368,7 @@ function listColor(id) {
 }
 
 function lpIconSVG(color) {
-  return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" fill="${color}" opacity="0.2"/><circle cx="8" cy="8" r="6" stroke="${color}" stroke-width="1.5"/></svg>`;
+  return `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" fill="${color}" opacity="0.2"/><circle cx="10" cy="10" r="7" stroke="${color}" stroke-width="2"/></svg>`;
 }
 
 function renderPicker() {
@@ -313,11 +491,43 @@ function confirmDeleteList(id, name, itemEl) {
   no.addEventListener("click", () => loadLists());
 }
 
+function insertIntoComposer(text) {
+  window.parent.postMessage({
+    protocol: "molibot-miniapp",
+    version: 1,
+    action: "composer.insert",
+    payload: { text: String(text), mode: "append" }
+  }, "*");
+}
+
 // — SVG helpers —
-const SVG_CHECK_EMPTY = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9.5" stroke="currentColor" stroke-width="1.5" opacity="0.4"/></svg>`;
-const SVG_CHECK_DONE = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9.5" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.15"/><path class="check-mark" d="M7 11.5l2.8 2.8L15 8.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const SVG_STAR_FILLED = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5l1.8 4.2 4.5.4-3.4 3 1 4.4-3.9-2.3-3.9 2.3 1-4.4-3.4-3 4.5-.4z"/></svg>`;
-const SVG_STAR_OUTLINE = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 1.5l1.8 4.2 4.5.4-3.4 3 1 4.4-3.9-2.3-3.9 2.3 1-4.4-3.4-3 4.5-.4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
+// Material Symbols geometry at the M3 icon sizes: 24dp for the primary
+// control, 18dp inside the dense hover action row.
+const SVG_CHECK_EMPTY = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/></svg>`;
+const SVG_CHECK_DONE = `<svg width="24" height="24" viewBox="0 0 24 24"><path class="check-mark" fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`;
+const SVG_STAR_FILLED = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>`;
+const SVG_STAR_OUTLINE = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M22 9.24l-7.19-.62L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.04 4.38.38-3.32 2.88 1 4.28L12 15.4z"/></svg>`;
+const SVG_CALENDAR = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 18H5V9h14v12z"/></svg>`;
+const SVG_BELL = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>`;
+const SVG_SCHEDULE = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 18H5V9h14v12z"/></svg>`;
+const SVG_COMPOSER = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
+
+/**
+ * A small leading-icon chip. Built as nodes rather than one innerHTML string:
+ * the icon is static markup but the label is user text, and the two must not
+ * share a parsing path.
+ */
+function iconChip(className, iconSvg, label) {
+  const chip = document.createElement("span");
+  chip.className = className;
+  const icon = document.createElement("span");
+  icon.className = "chip-icon";
+  icon.innerHTML = iconSvg;
+  const text = document.createElement("span");
+  text.textContent = label;
+  chip.append(icon, text);
+  return chip;
+}
 
 // — Render item —
 function renderItem(todo, index) {
@@ -370,12 +580,42 @@ function renderItem(todo, index) {
   titleSpan.textContent = todo.title;
   textWrap.appendChild(titleSpan);
 
-  // Meta (only list tag, priority is shown by the badge)
+  // Meta (list tag, deadline, reminder; priority is shown by the badge)
   const metaParts = [];
   if (!activeList && todo.listId && todo.listId !== "inbox") {
     const listDef = lists.find((l) => l.id === todo.listId);
     metaParts.push({ label: listDef ? listDef.name : todo.listId, color: listColor(todo.listId) });
   }
+
+  const dueChip = dueChipMeta(todo);
+  if (dueChip || todo.remindAt) {
+    const meta = document.createElement("div");
+    meta.className = "item-meta";
+
+    if (dueChip) {
+      // The tone is reinforced by an icon and, when late, by the word itself —
+      // an overdue item must not be distinguishable by colour alone.
+      const text = dueChip.tone === "overdue" ? `${dueChip.label} · ${t.overdue}` : dueChip.label;
+      const chip = iconChip("due-chip", SVG_CALENDAR, text);
+      chip.dataset.tone = dueChip.tone;
+      chip.title = `${t.dueLabel}: ${text}`;
+      meta.appendChild(chip);
+    }
+
+    if (todo.remindAt) {
+      const at = new Date(todo.remindAt);
+      const text = `${dayLabel(at)} ${TIME_LABEL_FORMAT.format(at)}`;
+      const bell = iconChip("remind-chip", SVG_BELL, text);
+      bell.title = `${t.remindLabel}: ${text}`;
+      if (!todo.completed && todo.remindMs !== null && todo.remindMs <= Date.now()) {
+        bell.dataset.tone = "due";
+      }
+      meta.appendChild(bell);
+    }
+
+    textWrap.appendChild(meta);
+  }
+
   if (metaParts.length > 0) {
     const meta = document.createElement("div");
     meta.className = "item-meta";
@@ -398,6 +638,115 @@ function renderItem(todo, index) {
   const actions = document.createElement("div");
   actions.className = "item-actions";
 
+  // Schedule (deadline + reminder). Same anchored-menu shape as Move, so it
+  // inherits the flip-up behaviour near the bottom of the scroll container.
+  const schedWrap = document.createElement("div");
+  schedWrap.className = "move-wrap";
+  const schedBtn = document.createElement("button");
+  schedBtn.type = "button";
+  schedBtn.className = "action-btn sched-btn";
+  schedBtn.title = t.schedule;
+  schedBtn.innerHTML = SVG_SCHEDULE;
+  if (todo.dueAt || todo.remindAt) schedBtn.classList.add("active");
+
+  const schedMenu = document.createElement("div");
+  schedMenu.className = "move-menu schedule-menu";
+
+  const dueDate = document.createElement("input");
+  dueDate.type = "date";
+  dueDate.className = "sched-input";
+  const dueTime = document.createElement("input");
+  dueTime.type = "time";
+  dueTime.className = "sched-input sched-input-time";
+  if (todo.dueAt) {
+    const at = dueToDate(todo);
+    dueDate.value = localDateValue(at);
+    if (!todo.dueAllDay) dueTime.value = localDateTimeValue(at).slice(11);
+  }
+
+  const remindInput = document.createElement("input");
+  remindInput.type = "datetime-local";
+  remindInput.className = "sched-input";
+  if (todo.remindAt) remindInput.value = localDateTimeValue(new Date(todo.remindAt));
+
+  const dueRow = document.createElement("div");
+  dueRow.className = "sched-row";
+  const dueLabelEl = document.createElement("span");
+  dueLabelEl.className = "sched-label";
+  dueLabelEl.textContent = t.dueLabel;
+  dueRow.append(dueLabelEl, dueDate, dueTime);
+
+  const remindRow = document.createElement("div");
+  remindRow.className = "sched-row";
+  const remindLabelEl = document.createElement("span");
+  remindLabelEl.className = "sched-label";
+  remindLabelEl.textContent = t.remindLabel;
+  remindRow.append(remindLabelEl, remindInput);
+
+  const clearBtn = document.createElement("button");
+  clearBtn.type = "button";
+  clearBtn.className = "sched-clear";
+  clearBtn.textContent = t.clearDate;
+
+  const schedActions = document.createElement("div");
+  schedActions.className = "sched-actions";
+  schedActions.append(clearBtn);
+  schedMenu.append(dueRow, remindRow, schedActions);
+
+  /**
+   * Sends both fields on every commit. `""` clears, and sending both together
+   * means the row can never end up with a deadline the menu no longer shows.
+   */
+  const commitSchedule = (due, remind) => {
+    schedMenu.classList.remove("open");
+    void mutate(() => api(`/todos/${encodeURIComponent(todo.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ dueAt: due, remindAt: remind }),
+    }));
+  };
+
+  for (const input of [dueDate, dueTime, remindInput]) {
+    // A picker click lands inside the menu; without this the document-level
+    // outside-click handler would close it mid-interaction.
+    input.addEventListener("click", (event) => event.stopPropagation());
+    input.addEventListener("change", () => {
+      const due = dueDate.value ? (dueTime.value ? `${dueDate.value}T${dueTime.value}` : dueDate.value) : "";
+      commitSchedule(due, remindInput.value);
+    });
+  }
+
+  clearBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    commitSchedule("", "");
+  });
+
+  schedMenu.addEventListener("click", (event) => event.stopPropagation());
+
+  schedWrap.append(schedBtn, schedMenu);
+  schedBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const willOpen = !schedMenu.classList.contains("open");
+    schedMenu.classList.toggle("open", willOpen);
+    if (willOpen) {
+      const rect = schedBtn.getBoundingClientRect();
+      schedMenu.classList.toggle("up", window.innerHeight - rect.bottom < schedMenu.offsetHeight + 8);
+    }
+    li.classList.toggle("menu-open", willOpen);
+  });
+  actions.appendChild(schedWrap);
+
+  // Insert into composer (fill into chat draft)
+  const composerBtn = document.createElement("button");
+  composerBtn.type = "button";
+  composerBtn.className = "action-btn composer-btn";
+  composerBtn.title = t.insertIntoComposer;
+  composerBtn.innerHTML = SVG_COMPOSER;
+  composerBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    insertIntoComposer(todo.title);
+  });
+  actions.appendChild(composerBtn);
+
   // Star toggle
   const starBtn = document.createElement("button");
   starBtn.type = "button";
@@ -418,7 +767,7 @@ function renderItem(todo, index) {
     const moveBtn = document.createElement("button");
     moveBtn.type = "button";
     moveBtn.className = "action-btn move-btn";
-    moveBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M5 6l3-3 3 3M5 10l3 3 3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    moveBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5.83L15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17z"/></svg>`;
     moveBtn.title = t.moveTo;
     const moveMenu = document.createElement("div");
     moveMenu.className = "move-menu";
@@ -448,6 +797,7 @@ function renderItem(todo, index) {
         const spaceBelow = window.innerHeight - rect.bottom;
         moveMenu.classList.toggle("up", spaceBelow < moveMenu.offsetHeight + 8);
       }
+      li.classList.toggle("menu-open", willOpen);
     });
     actions.appendChild(moveWrap);
   }
@@ -457,7 +807,7 @@ function renderItem(todo, index) {
   delBtn.type = "button";
   delBtn.className = "action-btn del-btn";
   delBtn.title = t.delete;
-  delBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+  delBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`;
   delBtn.addEventListener("click", () => {
     void mutate(() => api(`/todos/${encodeURIComponent(todo.id)}`, { method: "DELETE" }));
   });
@@ -579,16 +929,37 @@ el.search.addEventListener("input", () => {
   searchDebounce = setTimeout(() => void loadList(), 250);
 });
 
-// — Close move menus on outside click —
+// — Close anchored menus on outside click —
 document.addEventListener("click", (e) => {
   document.querySelectorAll(".move-menu.open").forEach((m) => {
-    if (!m.parentElement.contains(e.target)) m.classList.remove("open");
+    if (m.parentElement.contains(e.target)) return;
+    m.classList.remove("open");
+    // The action row is only visible on hover, so an item whose menu is open
+    // has to be pinned visible or the menu vanishes the moment the pointer
+    // leaves the row on its way to it.
+    m.closest(".todo-item")?.classList.remove("menu-open");
   });
 });
 
+/**
+ * Reports that the reminders currently on screen have been seen.
+ *
+ * This is the only thing that clears the app's sidebar badge — the server
+ * never infers it from a poll, because being *able* to see the list is what
+ * "acknowledged" means. Failure is silent on purpose: an unacknowledged badge
+ * is a stale count, not something worth a red banner over the user's list.
+ */
+function acknowledgeReminders() {
+  void api("/reminders", { method: "POST" }).catch(() => {});
+}
+
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) void poll();
+  if (document.hidden) return;
+  void poll();
+  acknowledgeReminders();
 });
+
+window.addEventListener("focus", acknowledgeReminders);
 
 // — Start —
 async function start() {
@@ -597,6 +968,7 @@ async function start() {
     await loadList();
     lastRevision = await currentRevision();
     setStatus(null);
+    acknowledgeReminders();
   } catch (err) {
     if (!halted) setStatus(err.message, "error");
   }

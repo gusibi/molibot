@@ -7,10 +7,14 @@ const STRINGS = {
     labelsPlaceholder: "Add labels...",
     add: "Save",
     close: "Close",
+    cancel: "Cancel",
+    saveEdit: "Save changes",
     takeNote: "Take a note...",
-    pinnedSection: "PINNED",
-    notesSection: "OTHERS",
-    archivedSection: "ARCHIVE",
+    tabActive: "Notes",
+    tabArchived: "Archive",
+    pinnedSection: "Pinned",
+    notesSection: "Others",
+    archivedSection: "Archive",
     noNotes: "No notes found",
     disabled: "This Mini App is switched off.",
     unavailable: "The app could not start.",
@@ -24,10 +28,14 @@ const STRINGS = {
     labelsPlaceholder: "添加标签...",
     add: "保存",
     close: "关闭",
+    cancel: "取消",
+    saveEdit: "保存修改",
     takeNote: "添加笔记...",
-    pinnedSection: "📌 置顶",
-    notesSection: "笔记",
-    archivedSection: "📦 归档箱",
+    tabActive: "笔记",
+    tabArchived: "归档",
+    pinnedSection: "置顶",
+    notesSection: "其他",
+    archivedSection: "归档",
     noNotes: "暂无笔记",
     disabled: "该 Mini App 已被禁用。",
     unavailable: "应用启动失败。",
@@ -72,6 +80,7 @@ document.documentElement.dataset.theme = theme;
 const SVG_ICONS = {
   pin: `<svg class="action-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>`,
   more: `<svg class="action-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>`,
+  composer: `<svg class="action-icon" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`,
   archive: `<svg class="action-icon" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.21 3 17.5 3h-11c-.71 0-1.38.21-1.65.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM6.24 5h11.52l.83 1H5.41l.83-1zM12 18l-4.5-4.5h3V11h3v2.5h3L12 18z"/></svg>`,
   unarchive: `<svg class="action-icon" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.21 3 17.5 3h-11c-.71 0-1.38.21-1.65.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM6.24 5h11.52l.83 1H5.41l.83-1zM12 11l4.5 4.5h-3V18h-3v-2.5h-3L12 11z"/></svg>`,
   delete: `<svg class="action-icon" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`
@@ -353,7 +362,7 @@ function renderCard(note) {
   const composerItem = document.createElement("button");
   composerItem.type = "button";
   composerItem.className = "dropdown-item";
-  composerItem.innerHTML = `<span>${locale === "zh" ? "填入输入框" : "Insert into composer"}</span>`;
+  composerItem.innerHTML = `${SVG_ICONS.composer} <span>${locale === "zh" ? "填入输入框" : "Insert into composer"}</span>`;
   composerItem.addEventListener("click", (e) => {
     e.stopPropagation();
     closeAllDropdowns();

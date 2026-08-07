@@ -18,7 +18,7 @@
   import Dialog from "../components/ui/Dialog.svelte";
   import { projectChatStore } from "./projectChatStore.svelte";
   import { appendReference, composerInsertion, insertComposerText, miniAppComposerInsertion, requestMiniAppDeepLinkOpen, type MiniAppComposerInsertion } from "./composerBridge";
-  import MiniAppResultCard from "../miniapps/MiniAppResultCard.svelte";
+  import MiniAppActionToast from "../miniapps/MiniAppActionToast.svelte";
   import {
     fetchDesktopFileBlob,
     forkDesktopSession,
@@ -570,6 +570,15 @@
   })) ?? [];
   $: contributedMessageActions = catalogMessageActions($miniAppsCatalog, session.locale);
 
+  /** Clears the action toast and whatever timer was going to. */
+  function dismissMiniAppFeedback() {
+    if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
+    miniAppActionFeedbackTimer = null;
+    miniAppActionFeedback = "";
+    miniAppActionCard = null;
+    miniAppActionSuccessKey = "";
+  }
+
   async function runMiniAppMessageAction(
     action: TranscriptContributionAction,
     transcriptMessage: TranscriptMessage,
@@ -607,12 +616,14 @@
     } finally {
       miniAppActionPendingKey = "";
       if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
-      miniAppActionFeedbackTimer = setTimeout(() => {
-        miniAppActionFeedback = "";
-        miniAppActionCard = null;
-        miniAppActionSuccessKey = "";
-        miniAppActionFeedbackTimer = null;
-      }, miniAppActionCard ? 8000 : 3000);
+      miniAppActionFeedbackTimer = null;
+      // A card is something to read, so it stays until dismissed; a bare
+      // sentence self-clears. Both always offer the close button.
+      if (!miniAppActionCard) {
+        miniAppActionFeedbackTimer = setTimeout(() => {
+          dismissMiniAppFeedback();
+        }, 3000);
+      }
     }
   }
   $: messageActions = messages.length === 0
@@ -969,12 +980,14 @@
 
   <input bind:this={fileInput} type="file" multiple hidden onchange={onFilesPicked} />
   {#if miniAppActionFeedback}
-    <div class="chat-action-toast" role="status">
-      <span>{miniAppActionFeedback}</span>
-      {#if miniAppActionCard}
-        <MiniAppResultCard card={miniAppActionCard} openLabel={copy.miniAppCardOpen} onOpenLink={requestMiniAppDeepLinkOpen} />
-      {/if}
-    </div>
+    <MiniAppActionToast
+      text={miniAppActionFeedback}
+      card={miniAppActionCard}
+      dismissLabel={copy.miniAppToastDismiss}
+      openLabel={copy.miniAppCardOpen}
+      onOpenLink={requestMiniAppDeepLinkOpen}
+      onDismiss={dismissMiniAppFeedback}
+    />
   {/if}
   <ChatInputArea
     bind:value={message}

@@ -7,6 +7,43 @@
 ---
 ## 2026-08-07
 
+### Improved: Added icon for Note "Insert into composer" menu and brought the feature to Todo
+
+- **Note Mini App**: Added the missing SVG icon for the "Insert into composer" item in the note dropdown menu, aligning its visual appearance with Archive and Delete actions.
+- **Todo Mini App**: Added the "Insert into composer" action button to Todo item action rows using the `composer.insert` bridge protocol, allowing users to instantly push task titles into the chat draft area.
+
+### Improved: Todo Mini App UI redesigned for crisp Material 3 elegance
+
+Redesigned the Todo Mini App interface to resolve layout clutter and visual noise while strictly preserving the Material Design 3 design baseline (`uiDesignBaseline.test.ts` 4/4 passing):
+- **De-cluttered item rows**: Removed the redundant normal-priority ring indicator that previously appeared beside every check circle (which gave every row two side-by-side circles). High and low priority tasks now use clean colored rings, while normal tasks show only the clean check circle.
+- **Card boundaries and inner dividers**: Enclosed task groups in M3 container cards (`surface-container-low`) with subtle `outline-variant` row dividers.
+- **Header & list dropdown**: Added a subtle chevron with animated 180° rotation on dropdown open; list title is now an interactive trigger for the list picker dropdown.
+- **Search & Composer elevation**: Added smooth focus state layers, `elev-2` shadow transitions, and styled date/time inputs.
+- **Illustration Empty State**: Replaced raw text empty states with an M3 SVG check illustration and friendly task status messaging.
+
+### Fixed: Mini App schema upgrades no longer block app startup
+
+`assertSchemaVersion` in `host.ts` threw `load_failed` when `_host.json` recorded a different `schemaVersion` than the manifest declared — which meant any Mini App that bumped its schema (e.g. Todo v3 adding `due_at`/`remind_at` columns) could never start after an update, even though the app's own `openDatabase()` ran defensive `ALTER TABLE` migrations. The host now logs the version change and lets the app start; `writeHostState` records the new version after successful runtime creation. If the app's migration fails, the error propagates and the recorded version stays unchanged.
+
+### Changed: Mini App version bumps — Note v1.1.0 → v1.2.0, Todo v1.4.0 → v1.5.0
+
+Version bumps to trigger update-available detection in the Mini Apps Manager for the new Note menu icon fix and Todo "Insert into composer" feature & UI overhaul.
+
+
+
+### Changed: the three built-in Mini Apps now share one Material 3 design baseline
+
+The panel looked like three different products. Note was Google Keep, Todo was iOS (`-apple-system`, `#007aff`, 14px radii, SF-style separators), and Meeting Notes was a single minified line of generic grey-and-blue with its own third palette — three type scales, three shadow systems, three ideas of what a button is. All three now render from one Material Design 3 token set: Google Blue primary, the full neutral surface-container ramp, a type scale declared as size/line-height **pairs**, the 4/8/12/16/28/full shape scale, M3 easing curves, and elevation expressed as container tint plus a soft shadow.
+
+- **The baseline is duplicated on purpose, and guarded.** Each App is served from its own origin under `default-src 'self'` (`httpRoute.ts`), so there is no stylesheet the three could import — the `--md-*` block has to be copied into all three plus `skills/miniapp-creator/template`. Nothing errors when one copy drifts; it just makes the panel look like three products again. New `uiDesignBaseline.test.ts` parses the token declarations out of all four sheets and fails on any difference, on a missing `[hidden]` guard, and on a raw `font-size: Npx` anywhere (the drift mechanism from pitfall 24). Confirmed to fail on an induced drift, not only to pass.
+- **Interaction is now a state layer**, not a background swap: `color-mix(in srgb, currentColor 8%/12%, transparent)` for hover/press, a CSS-only ripple on menus and icon buttons, and `:focus-visible` rings everywhere. Filled buttons express hover through elevation and brightness, since `background-color` is already spent.
+- **App-level expressive colour stays app-level**, layered over the baseline: Note keeps a note palette (refreshed to Keep's current tones, with Keep's real dark set), Todo keeps priority colours. Note's swatches no longer carry inline hexes — both palettes are driven by the same `[data-color]` rules that paint the surfaces, so a swatch cannot disagree with the note it represents in either theme, and swatch selection now shows a checkmark rather than colour alone.
+- **Icons**: the three app icons were three visual languages (a 64-unit blue tile, two 24-unit glyphs); all three are now Google-palette two-tone 24-unit glyphs. In-app SVGs moved to Material Symbols geometry at the M3 icon sizes — Todo's action row was drawing 13px icons.
+- **Three real defects surfaced while doing this and are fixed.** (a) Todo's Completed section was rendered but permanently invisible: `index.html` carried an inline `style="display:none"` that beat the `.done-section.visible { display: block }` rule meant to reveal it — the same family as the documented `[hidden]` failure, with an inline style instead of an author `display`, and equally silent. (b) Todo's static shell (search placeholder, "New To-Do", "Add", "New List", "No to-dos", the priority label) was never translated, so a zh locale showed English chrome around Chinese content — most of what read as "messy". It now runs the same `data-i18n` pass the other two Apps use. (c) Todo's per-list accent came from the iOS system palette in a single set, so the same tone was used as text colour on both light and dark surfaces; it is now the Google label palette with a per-theme set.
+- Meeting Notes also gained localized status chips (its statuses were raw English enum values in both locales) and its recording banner moved off `error-container` — recording is a state, not an error, and a full-width red band read as a failure in dark theme. The alert tone is now spent only on the pulsing dot and the Stop button.
+- No version bump, no behaviour change to any App's data, tools, or API surface.
+- Verification: Mini App server + route suites 127/127 including the new baseline guard 4/4; desktop unit 145/145, structural 177/177, Rust 52/52. Rendered verification rather than by eye — all three UIs were served through a stub-API harness and checked in light and dark, at the real DOM the shipped `app.js` produces: Note's grid/composer/palette, Todo's list/picker/composer/completed section, Meeting Notes' two-pane detail, segments, and recording banner.
+
 ### Fixed: one WeChat question got five answers — the runtime now owns its data directory, and `DATA_DIR` really isolates
 
 Five `node build/index.js` processes left over from smoke and upgrade-probe runs on 2026-07-26 and 08-05 had been long-polling the production WeChat bot for twelve days. One message received five replies, each reporting a different session list (`s-20260807-xpjk` / `kaoh` / `bsxv`) that existed nowhere in `~/.molibot`, so the owner could neither find the sessions nor identify the responders. The processes served no HTTP port, held no lease, and appeared in no UI — only `ps` could see them. Two independent defects had to line up for this, and each is now closed.

@@ -1,1 +1,558 @@
-[hidden]{display:none!important}:root{color-scheme:light;--bg:#fff;--surface:#f7f7f8;--border:#e5e5e7;--text:#19191b;--muted:#6b6b70;--accent:#2367d1;--danger:#b42318} [data-theme=dark]{color-scheme:dark;--bg:#111113;--surface:#1a1a1d;--border:#303034;--text:#f2f2f3;--muted:#a1a1a7;--accent:#65a0ff;--danger:#ff7b72}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.meeting-app{padding:16px;min-height:100vh}header,.detail-head,.recording-line{display:flex;justify-content:space-between;align-items:center;gap:12px}h1,h2,p{margin:0}header p,.storage{color:var(--muted)}button,input{font:inherit}button{border:1px solid var(--border);border-radius:8px;padding:7px 10px;background:var(--surface);color:var(--text);cursor:pointer}.primary{background:var(--accent);color:#fff;border-color:transparent}.danger{color:var(--danger)}#status,.warning{margin:12px 0;padding:9px 12px;border:1px solid var(--border);border-radius:8px}#status[data-error=true],.warning{color:var(--danger)}#recording{margin:16px 0;padding:12px;background:var(--surface);border-radius:10px;display:flex;justify-content:space-between;align-items:center}.record-dot{width:9px;height:9px;border-radius:50%;background:#e5484d}.layout{display:grid;grid-template-columns:minmax(150px,34%) 1fr;gap:12px;margin-top:16px}nav,#detail{border:1px solid var(--border);border-radius:10px;min-height:320px;overflow:auto}nav ul{list-style:none;margin:0;padding:6px}nav button{display:flex;width:100%;flex-direction:column;align-items:flex-start;border:0;background:transparent}nav button.active{background:var(--surface)}nav span,.placeholder{color:var(--muted)}#empty,.placeholder{padding:16px}#detail{padding:14px}.detail-head input{border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);font-weight:600}.badge{margin-left:8px;color:var(--muted)}.summary pre{white-space:pre-wrap;font:inherit}.segments{padding-left:24px}.segments li{padding:8px;border-bottom:1px solid var(--border)}.segments span+span{margin-left:10px;color:var(--muted)}.segments p{white-space:pre-wrap}@media(max-width:520px){.layout{grid-template-columns:1fr}nav{min-height:120px;max-height:180px}header{align-items:flex-start}#recording{align-items:flex-start;gap:8px}.detail-head{align-items:flex-start;flex-direction:column}}
+/*
+ * Meeting Notes Mini App — Material Design 3.
+ *
+ * The panel runs in an isolated iframe origin, so it cannot inherit Molibot's
+ * design tokens: it ships the shared Mini App M3 baseline below and receives
+ * the active theme as `data-theme` on <html>, set from the iframe URL hint.
+ *
+ * The baseline block (`--md-*`) is duplicated verbatim in every built-in Mini
+ * App and in skills/miniapp-creator/template/ui/styles.css. Change it in one
+ * place and mirror it into the others — the CSP is `default-src 'self'` per
+ * app, so there is no shared stylesheet to import.
+ */
+
+/* Keep first among element rules and never remove: an author `display:` on an
+   element silently defeats the `hidden` attribute (the UA sheet's
+   `[hidden]{display:none}` loses to any author display), leaving an invisible
+   layer that still swallows every click. */
+[hidden] { display: none !important; }
+
+/* ===========================================================================
+ * Shared M3 baseline — tokens
+ * ======================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* Primary — Google Blue */
+  --md-primary: #0b57d0;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #d3e3fd;
+  --md-on-primary-container: #041e49;
+
+  /* Secondary */
+  --md-secondary-container: #c2e7ff;
+  --md-on-secondary-container: #001d35;
+
+  /* Tertiary — Google Green */
+  --md-tertiary: #146c2e;
+  --md-tertiary-container: #c4eed0;
+  --md-on-tertiary-container: #072711;
+
+  /* Error */
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #fce8e6;
+  --md-on-error-container: #410e0b;
+
+  /* Neutral surfaces. Elevation is tint first, shadow second. */
+  --md-surface: #ffffff;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f8fafd;
+  --md-surface-container: #f0f4f9;
+  --md-surface-container-high: #e9eef6;
+  --md-surface-container-highest: #dde3ea;
+  --md-on-surface: #1f1f1f;
+  --md-on-surface-variant: #444746;
+  --md-outline: #747775;
+  --md-outline-variant: #c4c7c5;
+  --md-scrim: rgba(0, 0, 0, 0.32);
+
+  /* The one accent outside the scheme: "starred / pinned" is a product
+     signal, not a scheme role, and must read the same in both themes. */
+  --md-star: #e37400;
+
+  /* Type scale. Size and line-height are declared as PAIRS — setting one
+     without the other is how a rank drifts back apart. */
+  --md-font: "Google Sans Text", "Google Sans", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --md-title-lg-size: 22px;   --md-title-lg-lh: 28px;
+  --md-title-md-size: 16px;   --md-title-md-lh: 24px;
+  --md-title-sm-size: 14px;   --md-title-sm-lh: 20px;
+  --md-body-lg-size: 16px;    --md-body-lg-lh: 24px;
+  --md-body-md-size: 14px;    --md-body-md-lh: 20px;
+  --md-body-sm-size: 12px;    --md-body-sm-lh: 16px;
+  --md-label-lg-size: 14px;   --md-label-lg-lh: 20px;
+  --md-label-md-size: 12px;   --md-label-md-lh: 16px;
+  --md-label-sm-size: 11px;   --md-label-sm-lh: 16px;
+
+  /* Shape scale */
+  --md-shape-xs: 4px;
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
+  --md-shape-full: 9999px;
+
+  /* Motion */
+  --md-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-dur-short: 150ms;
+  --md-dur-medium: 250ms;
+  --md-dur-long: 400ms;
+
+  /* Elevation. M3 shadows are soft and low-contrast; the tint does the work. */
+  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.1);
+  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.1);
+  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --md-primary: #a8c7fa;
+  --md-on-primary: #062e6f;
+  --md-primary-container: #0842a0;
+  --md-on-primary-container: #d3e3fd;
+
+  --md-secondary-container: #004a77;
+  --md-on-secondary-container: #c2e7ff;
+
+  --md-tertiary: #6dd58c;
+  --md-tertiary-container: #0f5223;
+  --md-on-tertiary-container: #c4eed0;
+
+  --md-error: #f2b8b5;
+  --md-on-error: #601410;
+  --md-error-container: #8c1d18;
+  --md-on-error-container: #f9dedc;
+
+  --md-surface: #131314;
+  --md-surface-container-lowest: #0e0e0e;
+  --md-surface-container-low: #1b1b1b;
+  --md-surface-container: #1e1f20;
+  --md-surface-container-high: #282a2c;
+  --md-surface-container-highest: #333438;
+  --md-on-surface: #e3e3e3;
+  --md-on-surface-variant: #c4c7c5;
+  --md-outline: #8e918f;
+  --md-outline-variant: #444746;
+  --md-scrim: rgba(0, 0, 0, 0.6);
+
+  --md-star: #fdd663;
+
+  --md-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 1px 3px 1px rgba(0, 0, 0, 0.3);
+  --md-elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.5), 0 2px 6px 2px rgba(0, 0, 0, 0.3);
+  --md-elev-3: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 4px 8px 3px rgba(0, 0, 0, 0.3);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  font-family: var(--md-font);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+  -webkit-font-smoothing: antialiased;
+}
+
+.meeting-app {
+  min-height: 100vh;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 16px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ===========================================================================
+ * Top app bar
+ * ======================================================================== */
+
+.app-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.app-bar-text { min-width: 0; }
+
+.app-bar-title {
+  font-size: var(--md-title-lg-size);
+  line-height: var(--md-title-lg-lh);
+  font-weight: 400;
+}
+
+.app-bar-subtitle {
+  margin-top: 4px;
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+  color: var(--md-on-surface-variant);
+}
+
+/* ===========================================================================
+ * Buttons — every rank is a pill; the fill says how loud it is.
+ * ======================================================================== */
+
+.btn {
+  height: 40px;
+  padding: 0 24px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-primary);
+  font-family: inherit;
+  font-size: var(--md-label-lg-size);
+  line-height: var(--md-label-lg-lh);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              box-shadow var(--md-dur-short) var(--md-ease-standard),
+              filter var(--md-dur-short) var(--md-ease-standard);
+}
+
+.btn:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+.btn:disabled { opacity: 0.38; cursor: default; box-shadow: none; filter: none; }
+
+.btn-filled { background: var(--md-primary); color: var(--md-on-primary); }
+.btn-filled:hover { box-shadow: var(--md-elev-1); filter: brightness(1.08); }
+.btn-filled:active { filter: brightness(0.94); }
+
+.btn-tonal { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.btn-tonal:hover { box-shadow: var(--md-elev-1); }
+
+.btn-text { padding: 0 12px; }
+.btn-text:hover { background-color: color-mix(in srgb, currentColor 8%, transparent); }
+.btn-text:active { background-color: color-mix(in srgb, currentColor 12%, transparent); }
+
+.btn-danger { color: var(--md-error); }
+
+/* ===========================================================================
+ * Status banner
+ * ======================================================================== */
+
+.banner {
+  padding: 12px 16px;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+}
+
+.banner[data-error="true"] {
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
+}
+
+/* ===========================================================================
+ * Recording card
+ * ======================================================================== */
+
+.recording-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--md-shape-lg);
+  /* Recording is a state, not an error: the card stays on a neutral surface
+     and the alert tone is spent only where it means something — the pulsing
+     dot and the one destructive action. A full-width error-container band
+     reads as "something went wrong" in dark theme. */
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface);
+}
+
+.recording-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.record-dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--md-error);
+  animation: record-pulse 1.6s var(--md-ease-standard) infinite;
+}
+
+@keyframes record-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.recording-title {
+  font-size: var(--md-title-sm-size);
+  line-height: var(--md-title-sm-lh);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recording-timer {
+  font-size: var(--md-title-md-size);
+  line-height: var(--md-title-md-lh);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inside the tonal recording card the stop action is the loud one. */
+.recording-card .btn-danger {
+  background: var(--md-error);
+  color: var(--md-on-error);
+  padding: 0 24px;
+}
+
+.recording-card .btn-danger:hover { box-shadow: var(--md-elev-1); filter: brightness(1.08); }
+
+/* ===========================================================================
+ * Two-pane layout
+ * ======================================================================== */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 32%) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.pane {
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container-low);
+  min-height: 360px;
+  overflow: auto;
+}
+
+.pane-list { padding: 8px 0; }
+.pane-detail { padding: 24px; }
+
+.placeholder {
+  padding: 24px 16px;
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+}
+
+/* ===========================================================================
+ * Meeting list (M3 two-line list items)
+ * ======================================================================== */
+
+.meeting-list { list-style: none; }
+
+.meeting-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface);
+  font-family: inherit;
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard);
+}
+
+.meeting-item:hover { background-color: color-mix(in srgb, currentColor 8%, transparent); }
+.meeting-item:active { background-color: color-mix(in srgb, currentColor 12%, transparent); }
+.meeting-item:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
+
+.meeting-item.active {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+}
+
+.meeting-item-title {
+  width: 100%;
+  font-size: var(--md-body-lg-size);
+  line-height: var(--md-body-lg-lh);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===========================================================================
+ * Status chip — label + tone; colour never carries meaning alone.
+ * ======================================================================== */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container-highest);
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chip-sm {
+  height: 20px;
+  font-size: var(--md-label-sm-size);
+  line-height: var(--md-label-sm-lh);
+}
+
+.chip[data-tone="done"] { background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
+.chip[data-tone="busy"] { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.chip[data-tone="alert"] { background: var(--md-error-container); color: var(--md-on-error-container); }
+
+/* On a selected row the chip is already inside a secondary container — reuse
+   the row's own colour so the two tints cannot collide. */
+.meeting-item.active .chip {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  color: inherit;
+}
+
+/* ===========================================================================
+ * Detail pane
+ * ======================================================================== */
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.detail-head-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+/* M3 filled text field, resting until hovered or focused. */
+.title-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: none;
+  border-bottom: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-xs) var(--md-shape-xs) 0 0;
+  background: transparent;
+  color: var(--md-on-surface);
+  font-family: inherit;
+  font-size: var(--md-title-md-size);
+  line-height: var(--md-title-md-lh);
+  font-weight: 500;
+  outline: none;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              border-color var(--md-dur-short) var(--md-ease-standard);
+}
+
+.title-field:hover { background: var(--md-surface-container); }
+.title-field:focus {
+  background: var(--md-surface-container);
+  border-bottom-color: var(--md-primary);
+  box-shadow: inset 0 -1px 0 0 var(--md-primary);
+}
+
+.detail-actions { display: flex; align-items: center; gap: 4px; }
+
+.storage {
+  margin-bottom: 16px;
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-body-sm-size);
+  line-height: var(--md-body-sm-lh);
+}
+
+.summary:not(:empty) {
+  padding: 16px;
+  margin-bottom: 24px;
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface-container);
+}
+
+.summary pre {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-lg-lh);
+}
+
+.section-title {
+  margin-bottom: 8px;
+  font-size: var(--md-title-sm-size);
+  line-height: var(--md-title-sm-lh);
+  font-weight: 500;
+  color: var(--md-on-surface-variant);
+}
+
+/* ===========================================================================
+ * Segments
+ * ======================================================================== */
+
+.segments { list-style: none; }
+
+.segment {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 0;
+}
+
+.segment + .segment { border-top: 1px solid var(--md-outline-variant); }
+
+/* Leading monogram — the M3 list-item avatar rank. */
+.segment-index {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.segment-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.segment-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-lg-lh);
+}
+
+.segment .btn-text { height: 32px; align-self: flex-start; }
+
+/* ===========================================================================
+ * Compact
+ * ======================================================================== */
+
+@media (max-width: 560px) {
+  .layout { grid-template-columns: 1fr; }
+  .pane { min-height: 0; }
+  .pane-list { max-height: 200px; }
+  .pane-detail { padding: 16px; }
+  .app-bar { flex-direction: column; align-items: stretch; }
+  .recording-card { align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

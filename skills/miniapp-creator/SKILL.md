@@ -63,6 +63,11 @@ node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs expenses "Expenses" 
 `ui/app.js` 已经接好了轮询、错误降级和中英文表；改 `STRINGS`、`renderItem()` 和请求的 API 路径即可。
 
 - 界面在独立 origin 的 sandboxed iframe 里，**拿不到宿主 DOM、Tauri IPC、Molibot 的设计 token**，这是设计如此，不可配置。
+- **视觉走 Material Design 3（Google 风格），不要自己发明一套。** 模板 `ui/styles.css` 顶部那段 `--md-*` 基线（配色角色、字号/行高成对、形状、动效曲线、海拔）在模板和三个内置 App 里是**逐字复制**的同一份——每个 App 各自一个 origin，CSP 是 `default-src 'self'`，没有可共享的样式表，只能复制。所以：**只改基线就要四处同步**（`src/lib/server/miniapps/uiDesignBaseline.test.ts` 会在漂移时报错），而 App 自己的表达色（Note 的便签配色、Todo 的优先级色）以另一层变量叠在基线之上，不要动基线里的值。
+  - 一切尺寸、字号、圆角、动效都用 token，不要写裸 `font-size: 13px`（同一个测试会拦）。字号必须和行高成对取用。
+  - 交互态是 **state layer**：`background-color: color-mix(in srgb, currentColor 8%, transparent)`（hover）/ `12%`（focus、press），不是换一个背景色。已经有底色的实心按钮改用海拔 + `filter: brightness()`。
+  - 层级用**色调 + 轻阴影**（`--md-surface-container-*` / `--md-elev-*`），不要描边分隔、不要毛玻璃、不要浓重投影。按钮一律胶囊形（`--md-shape-full`）。
+  - 状态**不能只靠颜色**：chip 要带文字，完成项要有勾选控件 + 删除线。
 - 只能用相对路径 `./api/*` 访问自己的 API。
 - 内联 `<script>` 不会执行（CSP），代码必须放在 `.js` 文件里。
 - 语言和主题从 `location.search` 的 `locale` / `theme` 读，启动时读一次就够（切换会重载 iframe）。
@@ -77,7 +82,7 @@ node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs expenses "Expenses" 
 
 #### UI 铁律（每条都对应一个真实翻过车的 bug，违反一条就会出「点击没反应」类故障）
 
-1. **styles.css 第一条规则永远是 `[hidden] { display: none !important; }`**（模板已带）。原因：`hidden` 属性只是浏览器默认样式表里的 `[hidden]{display:none}`，**任何作者样式里的 `display: flex/block/grid` 都会覆盖它**。真实案例：todo 的列表选择器写了 `.list-picker { display: flex }`，`hidden` 从此失效，它以 `opacity: 0` 的透明状态一直盖在搜索框和输入框上，把所有点击吃掉——用户看到的就是「输入框点了没反应」。
+1. **styles.css 第一条规则永远是 `[hidden] { display: none !important; }`**（模板已带）。原因：`hidden` 属性只是浏览器默认样式表里的 `[hidden]{display:none}`，**任何作者样式里的 `display: flex/block/grid` 都会覆盖它**。真实案例：todo 的列表选择器写了 `.list-picker { display: flex }`，`hidden` 从此失效，它以 `opacity: 0` 的透明状态一直盖在搜索框和输入框上，把所有点击吃掉——用户看到的就是「输入框点了没反应」。**同一族的第二种写法同样要禁**：HTML 里的行内 `style="display:none"` 会盖过用来显示它的 class 规则（`.done-section.visible { display: block }`），元素照常渲染、永远不可见、控制台一声不吭——todo 的「已完成」分组就这样隐身了很久。显隐只由一处决定：class 或 `hidden` 属性，不要两者混用，更不要加行内 display。
 2. **透明 ≠ 不可点。** `opacity: 0` 的元素照样参与命中测试。任何弹层/遮罩/菜单的关闭态必须落在 `display: none`（或 `visibility: hidden` / `pointer-events: none`）上，不能只靠 opacity + transform 做「视觉上消失」。
 3. **带出场动画的关闭要管好 timer。** 「先移除 class、300ms 后再设 `hidden`」的模式必须把 `setTimeout` 的句柄存下来，重新打开时 `clearTimeout`，否则快速开→关→开会让残留的 timeout 把刚打开的面板重新藏掉。
 4. **不要用 `prompt()` / `confirm()` / `alert()`。** iframe 没有 `allow-modals`，它们静默无效（不报错、不弹窗）。确认类交互一律用内联 DOM（把行内容替换成「确认/取消」按钮）。

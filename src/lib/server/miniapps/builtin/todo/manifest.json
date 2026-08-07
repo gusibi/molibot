@@ -2,8 +2,8 @@
   "manifestVersion": 1,
   "id": "todo",
   "name": "Todo",
-  "version": "1.1.0",
-  "description": "Multi-list todo with priority, search, and pinning. Managed from chat and the desktop panel.",
+  "version": "1.5.0",
+  "description": "Multi-list todo with priority, deadlines, reminders, search, and pinning. Managed from chat and the desktop panel.",
   "engines": {
     "molibot": ">=2.9.9 <4"
   },
@@ -15,16 +15,16 @@
     "icon": "ui/icon.svg"
   },
   "data": {
-    "schemaVersion": 2
+    "schemaVersion": 3
   },
   "tools": [
     {
       "name": "add",
       "title": "Add Todo",
-      "description": "Add one item to a todo list. Use this whenever the user asks to remember, track, or be reminded of a task. Optionally specify listId, priority (1=high, 2=normal, 3=low), and pinned.",
+      "description": "Add one item to a todo list. Use this whenever the user asks to remember, track, or be reminded of a task. Optionally specify listId, priority (1=high, 2=normal, 3=low), pinned, a dueAt deadline, and a remindAt reminder time.",
       "keywords": [
-        "todo", "todos", "task", "tasks", "reminder", "checklist",
-        "待办", "任务", "清单", "记一下", "添加", "新增"
+        "todo", "todos", "task", "tasks", "reminder", "checklist", "remind me", "due", "deadline",
+        "待办", "任务", "清单", "记一下", "添加", "新增", "提醒", "提醒我", "截止", "到期", "明天", "下周"
       ],
       "inputSchema": {
         "type": "object",
@@ -45,7 +45,9 @@
           },
           "listId": { "type": "string", "description": "Which list to add to. Defaults to 'inbox'. Use list_all to see available lists." },
           "priority": { "type": "integer", "enum": [1, 2, 3], "description": "1=high, 2=normal (default), 3=low." },
-          "pinned": { "type": "boolean", "description": "Pin to top of the list. Default false." }
+          "pinned": { "type": "boolean", "description": "Pin to top of the list. Default false." },
+          "dueAt": { "type": "string", "description": "Deadline, ISO 8601. Use YYYY-MM-DD for an all-day deadline (\"due Monday\") or YYYY-MM-DDTHH:MM for a timed one. Resolve relative wording like \"tomorrow\" / \"next Monday\" / \"下周一\" against today's date before calling; never pass the phrase itself. Pass an empty string to clear." },
+          "remindAt": { "type": "string", "description": "When to raise the reminder, ISO 8601 YYYY-MM-DDTHH:MM in the user's local time. A date with no time reminds at 09:00 local. Resolve relative wording before calling. This badges the Todo app icon; it does not send a system notification. Pass an empty string to clear." }
         },
         "anyOf": [
           { "required": ["title"] },
@@ -59,10 +61,10 @@
     {
       "name": "list",
       "title": "List Todos",
-      "description": "List todo items with optional filters: by status, list, priority, pinned, and text search. Returns items sorted by pinned first, then priority, then creation time.",
+      "description": "List todo items with optional filters: by status, list, priority, pinned, deadline window, and text search. Returns items sorted by pinned first, then soonest deadline, then priority. Use due=\"overdue\" to answer \"what did I miss\".",
       "keywords": [
-        "todo", "todos", "task", "tasks", "list", "pending", "search", "filter",
-        "待办", "任务", "列表", "还有什么", "搜索", "查找", "筛选"
+        "todo", "todos", "task", "tasks", "list", "pending", "search", "filter", "due", "overdue", "today", "deadline",
+        "待办", "任务", "列表", "还有什么", "搜索", "查找", "筛选", "今天", "逾期", "快到期", "有什么要做"
       ],
       "inputSchema": {
         "type": "object",
@@ -71,7 +73,8 @@
           "listId": { "type": "string", "description": "Filter to a specific list. Omit for all lists." },
           "priority": { "type": "integer", "enum": [1, 2, 3], "description": "Filter by priority level." },
           "pinned": { "type": "boolean", "description": "If true, return only pinned items." },
-          "search": { "type": "string", "description": "Case-insensitive text search on title." }
+          "search": { "type": "string", "description": "Case-insensitive text search on title." },
+          "due": { "type": "string", "enum": ["overdue", "today", "week", "none", "any"], "description": "Filter by deadline: overdue = past due, today = due by end of today, week = due within 7 days, none = no deadline set, any = has a deadline." }
         },
         "additionalProperties": false
       },
@@ -101,10 +104,10 @@
     {
       "name": "update",
       "title": "Update Todo",
-      "description": "Update a todo item's title, priority, or pinned status. Only provided fields are changed.",
+      "description": "Update a todo item's title, priority, pinned status, deadline, or reminder time. Only provided fields are changed; pass an empty string to dueAt or remindAt to clear it.",
       "keywords": [
-        "todo", "update", "edit", "rename", "priority", "pin",
-        "待办", "更新", "修改", "编辑", "优先级", "置顶"
+        "todo", "update", "edit", "rename", "priority", "pin", "reschedule", "postpone", "snooze", "due", "remind",
+        "待办", "更新", "修改", "编辑", "优先级", "置顶", "改时间", "改期", "推迟", "取消提醒", "提醒"
       ],
       "inputSchema": {
         "type": "object",
@@ -112,7 +115,9 @@
           "id": { "type": "string", "minLength": 1, "description": "Item id from list." },
           "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "New title." },
           "priority": { "type": "integer", "enum": [1, 2, 3], "description": "1=high, 2=normal, 3=low." },
-          "pinned": { "type": "boolean", "description": "Pin or unpin." }
+          "pinned": { "type": "boolean", "description": "Pin or unpin." },
+          "dueAt": { "type": "string", "description": "Deadline, ISO 8601. Use YYYY-MM-DD for an all-day deadline (\"due Monday\") or YYYY-MM-DDTHH:MM for a timed one. Resolve relative wording like \"tomorrow\" / \"next Monday\" / \"下周一\" against today's date before calling; never pass the phrase itself. Pass an empty string to clear." },
+          "remindAt": { "type": "string", "description": "When to raise the reminder, ISO 8601 YYYY-MM-DDTHH:MM in the user's local time. A date with no time reminds at 09:00 local. Resolve relative wording before calling. This badges the Todo app icon; it does not send a system notification. Pass an empty string to clear." }
         },
         "required": ["id"],
         "additionalProperties": false

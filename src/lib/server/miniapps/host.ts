@@ -812,8 +812,17 @@ export class MiniAppHost {
   }
 
   /**
-   * V1 has no data migration. A schemaVersion the data directory does not
-   * recognise stops the app instead of guessing at the owner's data.
+   * Checks the data directory's recorded schemaVersion against the manifest.
+   *
+   * When they differ — an update shipped a new schema — the host logs a
+   * warning and lets the app start anyway. The app's own server module is
+   * responsible for running its SQL migration (e.g. ALTER TABLE) inside
+   * `openDatabase()`. After a successful startup, {@link writeHostState}
+   * records the new schemaVersion; if the app's migration fails, the error
+   * propagates naturally and the recorded version stays unchanged.
+   *
+   * A downgrade (new < recorded) is treated identically: the app chose to
+   * accept it in its manifest, and blocking would prevent a rollback.
    */
   private assertSchemaVersion(appId: string, dataDir: string, schemaVersion: number): void {
     const statePath = path.join(dataDir, HOST_STATE_FILENAME);
@@ -825,10 +834,11 @@ export class MiniAppHost {
       recorded = null;
     }
     if (recorded !== null && recorded !== schemaVersion) {
-      throw new MiniAppError(
-        `Data schemaVersion ${recorded} does not match app schemaVersion ${schemaVersion}. Molibot does not migrate Mini App data automatically.`,
-        "load_failed"
-      );
+      this.logger.info("miniapp_schema_version_changed", {
+        appId,
+        from: recorded,
+        to: schemaVersion
+      });
     }
   }
 
