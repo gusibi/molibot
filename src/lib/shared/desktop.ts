@@ -1471,8 +1471,6 @@ export interface DesktopMiniAppInstallResponse {
   installedId: string;
   /** True when the install replaced an existing app rather than adding one. */
   replaced: boolean;
-  /** V1 has no hot reload: installed code only runs after a service restart. */
-  restartRequired: true;
 }
 
 /**
@@ -1556,8 +1554,6 @@ export interface DesktopMiniAppBuiltinInstallResponse {
   builtin: DesktopMiniAppBuiltinItem[];
   /** The version now on disk. */
   version: string;
-  /** V1 has no hot reload: the new code only runs after a service restart. */
-  restartRequired: true;
 }
 
 export interface DesktopMiniAppInvokeRequest {
@@ -1661,8 +1657,6 @@ export interface DesktopMiniAppUpdateResponse {
   builtin: DesktopMiniAppBuiltinItem[];
   /** The version now on disk. */
   version: string;
-  /** V1 has no hot reload: the new code only runs after a service restart. */
-  restartRequired: true;
 }
 
 export interface DesktopMiniAppUninstallRequest {

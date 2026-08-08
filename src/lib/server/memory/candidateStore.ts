@@ -237,14 +237,23 @@ export class MemoryCandidateStore {
   }
 
   ignore(id: string): MemoryCandidate | null {
-    const current = this.get(id);
-    if (!current || current.status !== "pending") return null;
     const now = new Date().toISOString();
     this.db.exec("BEGIN IMMEDIATE");
     try {
+      const row = this.db.prepare("SELECT * FROM memory_candidates WHERE id = ?").get(id) as CandidateRow | undefined;
+      if (!row || row.status !== "pending") {
+        this.db.exec("COMMIT");
+        return row ? parseRow(row) : null;
+      }
+      const current = parseRow(row);
+      const changed = this.db.prepare("UPDATE memory_candidates SET status = 'ignored', updated_at = ? WHERE id = ? AND status = 'pending'")
+        .run(now, id);
+      if (Number(changed.changes) === 0) {
+        this.db.exec("COMMIT");
+        return this.get(id);
+      }
       this.db.prepare("INSERT OR IGNORE INTO memory_candidate_suppressions (suppression_key, created_at) VALUES (?, ?)")
         .run(candidateSuppressionKey(current), now);
-      this.db.prepare("UPDATE memory_candidates SET status = 'ignored', updated_at = ? WHERE id = ? AND status = 'pending'").run(now, id);
       this.db.exec("COMMIT");
     } catch (cause) {
       this.db.exec("ROLLBACK");

@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
 import { TelegramManager } from "$lib/server/channels/telegram/runtime.js";
+import { buildTelegramMemoryReviewKeyboard, parseTelegramMemoryReviewCallback } from "$lib/server/channels/telegram/memoryReview.js";
+import { buildTelegramQueuedControlKeyboard, parseTelegramQueuedControlCallback } from "$lib/server/channels/telegram/queuedControl.js";
 
 // Mock dependencies for TelegramManager instantiation
 const mockGetSettings = () => ({}) as any;
@@ -17,6 +19,7 @@ function createMockDeps() {
     workspaceDir,
     queueDbFile: join(workspaceDir, "inbound-queue.sqlite"),
     memory: {} as any,
+    memoryReview: { decide: async () => ({ status: "stale" }) } as any,
     usageTracker: {} as any,
     modelErrorTracker: {} as any,
     hookManager: {
@@ -46,6 +49,9 @@ class TestTelegramManager extends TelegramManager {
   public testResolveAttachmentUploadName(filePath: string, title?: string) {
     return (this as any).resolveAttachmentUploadName(filePath, title);
   }
+  public setTestBot(bot: unknown) {
+    (this as any).bot = bot;
+  }
 }
 
 test("telegram registers shared live-control, queue, and host-tool commands", () => {
@@ -58,6 +64,29 @@ test("telegram registers shared live-control, queue, and host-tool commands", ()
       `expected /${command} to be handled before busy-message enqueue`
     );
   }
+});
+
+test("telegram memory review callbacks stay compact and parse only known actions", () => {
+  const candidateId = "123e4567-e89b-12d3-a456-426614174000";
+  assert.deepEqual(parseTelegramMemoryReviewCallback(`mrv:k:${candidateId}`), { action: "keep", candidateId });
+  assert.deepEqual(parseTelegramMemoryReviewCallback(`mrv:i:${candidateId}`), { action: "ignore", candidateId });
+  assert.equal(parseTelegramMemoryReviewCallback(`mrv:x:${candidateId}`), null);
+  assert.equal(parseTelegramMemoryReviewCallback("mrv:k:not-a-uuid"), null);
+  const keyboard = buildTelegramMemoryReviewKeyboard(candidateId);
+  const callbacks = keyboard.inline_keyboard.flatMap((row) => row.map((button) => "callback_data" in button ? button.callback_data : ""));
+  assert.deepEqual(callbacks, [`mrv:k:${candidateId}`, `mrv:i:${candidateId}`]);
+  assert.equal(callbacks.every((value) => Buffer.byteLength(value, "utf8") <= 64), true);
+});
+
+test("telegram queued-control callbacks stay compact and bind both actions to one queue item", () => {
+  assert.deepEqual(parseTelegramQueuedControlCallback("qctl:x:12"), { action: "stop", queueId: 12 });
+  assert.deepEqual(parseTelegramQueuedControlCallback("qctl:s:12"), { action: "steer", queueId: 12 });
+  assert.equal(parseTelegramQueuedControlCallback("qctl:s:0"), null);
+  assert.equal(parseTelegramQueuedControlCallback("qctl:z:12"), null);
+  const keyboard = buildTelegramQueuedControlKeyboard(12);
+  const callbacks = keyboard.inline_keyboard.flatMap((row) => row.map((button) => "callback_data" in button ? button.callback_data : ""));
+  assert.deepEqual(callbacks, ["qctl:x:12", "qctl:s:12"]);
+  assert.equal(callbacks.every((value) => Buffer.byteLength(value, "utf8") <= 64), true);
 });
 
 test("telegram MIME detection for audio and video files", () => {
@@ -98,4 +127,25 @@ test("telegram media upload name preserves source extension when title omits it"
     manager.testResolveAttachmentUploadName("/workspace/scratch/2026/06/06/aerobics_practice.mp4", "custom-name.mp4"),
     "custom-name.mp4"
   );
+});
+
+test("telegram sends memory review buttons only to private chats", async () => {
+  const manager = new TestTelegramManager();
+  const sends: unknown[] = [];
+  let chatType: "private" | "group" = "private";
+  manager.setTestBot({
+    api: {
+      getChat: async () => ({ type: chatType }),
+      sendMessage: async (chatId: string, text: string, options: unknown) => {
+        sends.push({ chatId, text, options });
+        return { message_id: 42 };
+      }
+    }
+  });
+  const item = { batchId: "batch", candidateId: "123e4567-e89b-12d3-a456-426614174000", ordinal: 1, value: "主人希望回答简短直接" };
+  assert.deepEqual(await manager.sendMemoryReviewItem("chat-1", item), { messageId: "42" });
+  assert.equal(sends.length, 1);
+  chatType = "group";
+  assert.equal(await manager.sendMemoryReviewItem("chat-2", item), null);
+  assert.equal(sends.length, 1);
 });

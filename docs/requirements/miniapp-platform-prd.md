@@ -67,7 +67,7 @@
     data/<app-id>/          # App 数据，独立生命周期（卸载可保留，升级不触碰）
   ```
 
-  `<owner-workspace>` 即 `config.dataDir`（`~/.molibot`），路径经由现有 storagePaths 统一派生；**禁止**用调用上下文传入的 per-channel `workspaceDir` 推导安装根。扫描器只把 `apps/` 下的目录当候选 App，`data/` 下的孤立目录不产生 error 条目。新增或替换 App 代码后需重启服务生效（V1 无热更新；数据不受影响）。
+  `<owner-workspace>` 即 `config.dataDir`（`~/.molibot`），路径经由现有 storagePaths 统一派生；**禁止**用调用上下文传入的 per-channel `workspaceDir` 推导安装根。扫描器只把 `apps/` 下的目录当候选 App，`data/` 下的孤立目录不产生 error 条目。安装或替换成功后，Host 在当前服务进程内销毁旧 Runtime 并立即激活新代码；数据不受影响。
 - **信任模型（措辞必须准确）**：owner 自装 App 的服务端代码是**完全可信代码**，进程内运行，不做沙箱（依据既有原则：owner 自有内容不设防护门禁）。"App 只碰自己的 `data/`"是目录**约定**并只在 HTTP 路由边界强制（app-id 作用域、路径校验），不是对 App 服务端代码的安全承诺。强隔离面是 UI 的 sandboxed iframe。未来支持市场/第三方来源时，再引入子进程沙箱、签名与权限系统。
 - **manifest 声明**：`manifestVersion`、`engines.molibot`（宿主版本兼容范围）、id/name/version/description、`runtime.entry`（服务端模块入口）、`ui.entry`、工具列表（名称、JSON Schema 参数、描述、`readOnlyHint`/`destructiveHint` 风险提示）、数据 `schemaVersion`。宿主据此生成 Agent 工具定义并在 catalog/审批 UI 直接展示；实现模块只提供同名 handler。
 - **工具命名与分类**：内部注册名为 `miniapp__<appId>__<toolName>`（与既有 `mcp__server__tool` 规范化约定同形，避免与 MCP 工具冲突）；UI/文档展示名为 `<appId>.<toolName>`。工具分类新增 miniapp 分支，归 `source: plugin`，风险由 manifest hints 决定（缺省 medium）——不允许落进未知工具的 low/builtin 兜底。经过既有 toolPolicy/审批管线。

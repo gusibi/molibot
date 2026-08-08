@@ -3050,9 +3050,9 @@ test("a built-in update is offered only when one exists, and never confirms away
   // way uninstall does; a confirm here would teach the owner to fear the button.
   assert.doesNotMatch(miniAppStore, /updateMiniApp[\s\S]{0,400}confirm/);
   assert.doesNotMatch(miniAppStore, /updateMiniApp[\s\S]{0,400}deleteData/);
-  // Replaced module code is already in the ESM cache, so the same restart
-  // notice install raises must be raised here.
-  assert.match(miniAppStore, /updateMiniApp[\s\S]{0,600}restartRequired = true/);
+  // A successful update is already active; no stale restart contract may leak
+  // back into the store.
+  assert.doesNotMatch(miniAppStore, /restartRequired/);
   // One lifecycle action per row at a time.
   assert.match(miniAppStore, /export async function updateMiniApp[\s\S]{0,200}if \(!endpoint \|\| miniAppsStore\.busyId\) return;/);
 });
@@ -3073,9 +3073,9 @@ test("installing states the trust consequence before it happens, and names the s
   assert.match(miniAppManager, /function sourceLabel/);
   assert.match(miniAppManager, /class="miniapps-provenance"/);
 
-  // V1 has no hot reload: the UI must say so rather than imply the app is live.
-  assert.match(miniAppManager, /miniAppRestartRequired/);
-  assert.match(miniAppStore, /restartRequired = true/);
+  // Install success means the runtime is active in this service process.
+  assert.doesNotMatch(miniAppManager, /miniAppRestartRequired/);
+  assert.doesNotMatch(miniAppStore, /restartRequired/);
 });
 
 test("the installer contains archive extraction, not just path checks", () => {
@@ -3132,8 +3132,7 @@ test("Mini App copy exists in both locales", () => {
     "miniAppInstallDirectory",
     "miniAppInstallZip",
     "miniAppInstallGithub",
-    "miniAppInstallTrustWarning",
-    "miniAppRestartRequired"
+    "miniAppInstallTrustWarning"
   ];
   for (const key of keys) {
     const occurrences = [...i18n.matchAll(new RegExp(`\\b${key}:`, "g"))].length;

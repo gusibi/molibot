@@ -29,8 +29,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const response: DesktopMiniAppUpdateResponse = {
       ok: true,
       ...payload,
-      version: payload.items.find((item) => item.id === body.appId)?.version ?? "",
-      restartRequired: true
+      version: payload.items.find((item) => item.id === body.appId)?.version ?? ""
     };
     return json(response);
   } catch (cause) {

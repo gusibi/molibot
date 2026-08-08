@@ -8,8 +8,8 @@ import { ensureBuiltinSkills } from "$lib/server/agent/skills/bootstrap.js";
 import { getToolSandboxEnvStartupReport } from "$lib/server/agent/tools/sandbox.js";
 import { config, liveServicesDisabled } from "$lib/server/app/env.js";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
-import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternals, deliverMemoryTaskNotification, formatDailyMaterialsNotification, TaskScheduler, type InternalTaskExecutionResult } from "$lib/server/agent/taskScheduler.js";
-import { executeOwnerMemoryReflection } from "$lib/server/agent/ownerMemoryReflection.js";
+import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternals, deliverMemoryReviewBatch, deliverMemoryTaskNotification, formatDailyMaterialsNotification, resolveMemoryReflectionNotificationTarget, TaskScheduler, type InternalTaskExecutionResult } from "$lib/server/agent/taskScheduler.js";
+import { executeOwnerMemoryReflection, formatOwnerMemoryReflectionNotification, OwnerMemoryReflectionError, type OwnerMemoryReflectionResult } from "$lib/server/agent/ownerMemoryReflection.js";
 import { MessageRouter } from "$lib/server/channels/shared/messageRouter.js";
 import { initDb, storagePaths } from "$lib/server/infra/db/storage.js";
 import { recordRuntimeInitFailure, recordRuntimeReady } from "$lib/server/app/runtimeHealth.js";
@@ -26,7 +26,8 @@ import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 import { getTurnOrchestrator, SqliteTurnCleanupStore } from "$lib/server/agent/core/turnOrchestrator.js";
 import { createDefaultHookManager, type HookManager } from "$lib/server/agent/hooks/index.js";
 import { ensureGlobalProfileDefaults } from "$lib/server/agent/prompts/profiles.js";
-import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, recommendedCandidateNamespace, type ReflectionExtractor, type ReflectionTarget } from "$lib/server/memory/reflection.js";
+import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, previousReflectionLocalDate, recommendedCandidateNamespace, type ReflectionExtractor, type ReflectionTarget } from "$lib/server/memory/reflection.js";
+import { MemoryCandidateReview, MemoryReviewStore } from "$lib/server/memory/review.js";
 import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInternal } from "$lib/server/memory/dailyMaterials.js";
 import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfill.js";
 import { MemoryMaintenanceService, MemoryMaintenanceStore, type MemoryMaintenanceTarget } from "$lib/server/memory/maintenance.js";
@@ -44,6 +45,8 @@ interface RuntimeState {
   pluginCatalog: PluginCatalog;
   providerPlugins: ProviderPlugin[];
   memory: MemoryGateway;
+  memoryReviewStore: MemoryReviewStore;
+  memoryReview: MemoryCandidateReview;
   memorySyncTimer: ReturnType<typeof setInterval> | null;
   settingsStore: SettingsStore;
   hostBashStore: HostBashStore;
@@ -218,6 +221,8 @@ function initializeRuntime(): RuntimeState {
     };
 
     const reflectionState = new ReflectionStateStore(storagePaths.moryDbFile);
+    const memoryReviewStore = new MemoryReviewStore(storagePaths.moryDbFile);
+    const memoryReview = new MemoryCandidateReview(memory, memoryReviewStore);
     const reflectionExtractor: ReflectionExtractor = {
       extract: async ({ target, projection, relatedMemories }) => {
         const transcript = projection.messages.map((message) => `${message.role}: ${message.content}`).join("\n");
@@ -293,6 +298,25 @@ function initializeRuntime(): RuntimeState {
     ): Promise<void> => {
       await deliverMemoryTaskNotification(state.channelManagers, currentSettings.value, text, { kind, filename });
     };
+    const deliverReflectionReview = async (result: OwnerMemoryReflectionResult, filename: string): Promise<void> => {
+      const target = resolveMemoryReflectionNotificationTarget(currentSettings.value);
+      if (!target) return;
+      const localDate = result.localDate || previousReflectionLocalDate(new Date(), currentSettings.value.timezone);
+      const batch = memoryReview.createDailyBatch({
+        ownerId: "owner",
+        localDate,
+        target,
+        candidateIds: result.pendingReviewCandidateIds
+      });
+      await sendMemoryNotice(formatOwnerMemoryReflectionNotification(result, {
+        pendingReviewCount: batch.items.length,
+        skillDraftCount: batch.skillDraftCount
+      }), "memory-reflection", filename);
+      const delivery = await deliverMemoryReviewBatch(state.channelManagers, memoryReview, batch);
+      console.log(
+        `${memoryLabel("reflection-review")} date=${localDate} delivered=${delivery.delivered} existing=${delivery.alreadyDelivered} skipped=${delivery.skipped} skill_drafts=${batch.skillDraftCount}`
+      );
+    };
     const runInternalEvent = async (event: MomEvent, filename: string): Promise<InternalTaskExecutionResult | void> => {
       if (event.internal?.kind === "memory-reflection") {
         if (event.internal.target) {
@@ -300,7 +324,15 @@ function initializeRuntime(): RuntimeState {
           await maintenanceService.run(event.internal.target as MemoryMaintenanceTarget, { triggerKey: `reflection:${filename}:${event.internal.target.botId}` });
           console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
           if (currentSettings.value.plugins.memory.reflectionNotifications) {
-            await sendMemoryNotice(`记忆反思完成：扫描 ${result.scannedMessages} 条消息，新增 ${result.createdCandidates} 条待确认记忆。`, "memory-reflection", filename);
+            await deliverReflectionReview({
+              completedTargets: 1,
+              scannedConversations: result.scannedConversations,
+              scannedMessages: result.scannedMessages,
+              createdCandidates: result.createdCandidates,
+              pendingReviewCandidateIds: result.pendingReviewCandidateIds,
+              localDate: result.localDate,
+              failedTargets: 0
+            }, filename);
           }
           return {
             kind: "memory-reflection",
@@ -310,19 +342,31 @@ function initializeRuntime(): RuntimeState {
             createdCandidates: result.createdCandidates
           };
         }
-        const result = await executeOwnerMemoryReflection(
-          collectMemoryReflectionInternals(currentSettings.value),
-          async (internal) => {
-            const result = await reflectionService.run(internal.target as ReflectionTarget);
-            if (internal.target) await maintenanceService.run(internal.target as MemoryMaintenanceTarget, { triggerKey: `reflection:${filename}:${internal.target.botId}` });
-            console.log(`${memoryLabel("reflection")} completed file=${filename} target=${internal.target?.botId} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
-            return result;
-          },
-          currentSettings.value.plugins.memory.reflectionNotifications
-            ? (text) => sendMemoryNotice(text, "memory-reflection", filename)
-            : undefined
-        );
-        return { kind: "memory-reflection", ...result };
+        let result: OwnerMemoryReflectionResult;
+        try {
+          result = await executeOwnerMemoryReflection(
+            collectMemoryReflectionInternals(currentSettings.value),
+            async (internal) => {
+              const targetResult = await reflectionService.run(internal.target as ReflectionTarget);
+              if (internal.target) await maintenanceService.run(internal.target as MemoryMaintenanceTarget, { triggerKey: `reflection:${filename}:${internal.target.botId}` });
+              console.log(`${memoryLabel("reflection")} completed file=${filename} target=${internal.target?.botId} candidates=${targetResult.createdCandidates} messages=${targetResult.scannedMessages}`);
+              return targetResult;
+            }
+          );
+        } catch (cause) {
+          if (cause instanceof OwnerMemoryReflectionError && currentSettings.value.plugins.memory.reflectionNotifications) {
+            await deliverReflectionReview(cause.result, filename);
+          }
+          throw cause;
+        }
+        if (currentSettings.value.plugins.memory.reflectionNotifications) await deliverReflectionReview(result, filename);
+        return {
+          kind: "memory-reflection",
+          completedTargets: result.completedTargets,
+          scannedConversations: result.scannedConversations,
+          scannedMessages: result.scannedMessages,
+          createdCandidates: result.createdCandidates
+        };
       }
       if (event.internal?.kind === "memory-maintenance") {
         const internals = event.internal.target ? [event.internal] : collectMemoryReflectionInternals(currentSettings.value);
@@ -393,6 +437,8 @@ function initializeRuntime(): RuntimeState {
       pluginCatalog: { channels: [], providers: [], features: [], memoryBackends: [], extensions: [], miniApps: [] },
       providerPlugins: [],
       memory,
+      memoryReviewStore,
+      memoryReview,
       memorySyncTimer: null,
       settingsStore,
       hostBashStore,

@@ -125,6 +125,38 @@ test("gateway confirmation is the only transition that writes the backend", () =
   assert.equal(writes.length, 1);
 }));
 
+test("ignore cannot add suppression after confirmation has reserved the candidate", () => withStore(async (store) => {
+  let releaseWrite: (() => void) | undefined;
+  let writeStarted: (() => void) | undefined;
+  const started = new Promise<void>((resolve) => { writeStarted = resolve; });
+  const gate = new Promise<void>((resolve) => { releaseWrite = resolve; });
+  const backend: MemoryBackend = {
+    capabilities: () => ({ supportsHybridSearch: true, supportsVectorSearch: false, supportsIncrementalFlush: true, supportsLayeredMemory: true, supportsCandidates: true }),
+    add: async (_scope, input) => {
+      writeStarted?.();
+      await gate;
+      return { id: "memory-race", channel: "web", externalUserId: "session-1", content: input.content, tags: [], layer: input.layer ?? "long_term", state: "active", version: 1, accessCount: 0, injectionCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    },
+    get: async () => null, search: async () => [], searchAll: async () => [], delete: async () => false, update: async () => null,
+    flush: async () => ({ scannedMessages: 0, addedCount: 0, memories: [], updatedCursorConversations: 0 }),
+    compact: async () => ({ scannedCount: 0, removedCount: 0, scopesAffected: 0 })
+  };
+  const gateway = new MemoryGateway(
+    () => ({ plugins: { memory: { enabled: true, backend: "mory" } } }) as any,
+    {} as any,
+    undefined,
+    { candidateStore: store, backends: { mory: backend }, backendDefinitions: [{ key: "mory", name: "mory", description: "test", create: () => backend }], importers: [] }
+  );
+  const pending = gateway.createCandidate(candidate());
+  assert.ok(pending);
+  const confirmation = gateway.confirmCandidate(pending.id);
+  await started;
+  gateway.ignoreCandidate(pending.id);
+  assert.equal(store.isSuppressed(pending), false);
+  releaseWrite?.();
+  assert.equal((await confirmation)?.status, "confirmed");
+}));
+
 test("auto-confirm is default-off and only accepts repeated low-sensitivity preferences", () => withStore(async (store) => {
   const writes: MemoryRecord[] = [];
   const backend: MemoryBackend = {

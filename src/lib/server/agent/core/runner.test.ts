@@ -871,6 +871,108 @@ test("runner persists user and assistant error when a run throws before output",
   );
 });
 
+test("runner replays an accepted steer after a whole-attempt retry rolls back its consumed message", async () => {
+  const settings = createRunnerTestSettings();
+  const appendedMessages: any[] = [];
+  const store = {
+    getWorkspaceDir: () => process.cwd(),
+    getScratchDir: () => process.cwd(),
+    getSessionEntriesPath: () => "entries.jsonl",
+    appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
+    appendRunSummary: () => {},
+    appendRunDetail: () => {},
+    appendRuntimeEvent: () => {},
+    loadContext: () => appendedMessages,
+    getSessionSandboxOverride: () => null
+  };
+  const runner = new MomRunner(
+    "telegram",
+    "chat-1",
+    `session-steer-retry-${Date.now()}-${Math.random()}`,
+    store as any,
+    () => settings,
+    () => settings,
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any
+  );
+
+  let subscriber: ((event: any) => void) | undefined;
+  let promptCalls = 0;
+  let queuedSteering: any[] = [];
+  const requestUserTexts: string[][] = [];
+  const agent = {
+    state: {
+      messages: [] as any[],
+      tools: [],
+      systemPrompt: "test",
+      model: resolveModelSelection(settings, "text").model,
+      thinkingLevel: settings.defaultThinkingLevel
+    },
+    sessionId: "test",
+    transport: "responses",
+    subscribe: (fn: (event: any) => void) => { subscriber = fn; return () => {}; },
+    abort: () => {},
+    clearAllQueues: () => { queuedSteering = []; },
+    clearSteeringQueue: () => { queuedSteering = []; },
+    steer: (message: any) => { queuedSteering.push(message); },
+    followUp: () => {},
+    prompt: async (text: string) => {
+      promptCalls += 1;
+      const promptMessage = {
+        role: "user",
+        content: [{ type: "text", text }],
+        timestamp: Date.now()
+      };
+      agent.state.messages.push(promptMessage);
+
+      // Reproduce the production order: the first request is already in flight
+      // when Steer is accepted. The next attempt drains it before its model call.
+      if (promptCalls === 1) {
+        assert.equal(runner.steer("天气如何"), true);
+      } else {
+        const steering = queuedSteering.splice(0);
+        for (const message of steering) {
+          subscriber?.({ type: "message_start", message });
+          subscriber?.({ type: "message_end", message });
+          agent.state.messages.push(message);
+        }
+      }
+      requestUserTexts.push(
+        agent.state.messages
+          .filter((message) => message.role === "user")
+          .map((message) => message.content?.[0]?.text ?? "")
+      );
+
+      const failed = promptCalls < 3;
+      const assistantMessage = {
+        role: "assistant",
+        stopReason: failed ? "error" : "stop",
+        errorMessage: failed ? "Model stream timed out before the first token." : undefined,
+        content: [{ type: "text", text: failed ? "" : "已结合插入消息回答" }],
+        timestamp: Date.now()
+      };
+      agent.state.messages.push(assistantMessage);
+      subscriber?.({ type: "message_end", message: assistantMessage });
+    }
+  };
+  (runner as any).agent = agent;
+
+  const result = await runner.run(createRunnerContext("今天深圳"));
+
+  assert.equal(result.stopReason, "stop");
+  assert.equal(promptCalls, 3);
+  assert.deepEqual(
+    requestUserTexts.map((texts) => texts.includes("天气如何")),
+    [false, true, true]
+  );
+  assert.doesNotMatch(
+    JSON.stringify(appendedMessages.filter((message) => message.role === "user")),
+    /天气如何/,
+    "Steer is a transient runtime control and must not become an ordinary Session turn"
+  );
+});
+
 test("runner compacts and retries a successful-looking response whose usage exceeds the context window", async () => {
   const settings = createRunnerTestSettings();
   const appendedMessages: any[] = [];

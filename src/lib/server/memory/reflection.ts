@@ -217,9 +217,11 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
 export interface ReflectionRunResult {
   targetId: string;
   runKey: string;
+  localDate: string;
   scannedConversations: number;
   scannedMessages: number;
   createdCandidates: number;
+  pendingReviewCandidateIds: string[];
 }
 
 export class MemoryReflectionService {
@@ -237,6 +239,7 @@ export class MemoryReflectionService {
     const projections = await this.reader.read(target, localDate);
     let scannedMessages = 0;
     let createdCandidates = 0;
+    const pendingReviewCandidateIds = new Set<string>();
     for (const projection of projections) {
       if (options.signal?.aborted) throw options.signal.reason ?? new Error("Reflection aborted.");
       scannedMessages += projection.messages.length;
@@ -311,7 +314,8 @@ export class MemoryReflectionService {
           });
           if (created) {
             createdCandidates += 1;
-            await this.gateway.maybeAutoConfirmCandidate(created.id);
+            const finalCandidate = await this.gateway.maybeAutoConfirmCandidate(created.id);
+            if (finalCandidate?.status === "pending") pendingReviewCandidateIds.add(created.id);
           }
         } catch (cause) {
           // LLM extraction is untrusted; one malformed candidate must not block
@@ -323,7 +327,15 @@ export class MemoryReflectionService {
       const last = projection.messages.at(-1);
       if (last) this.state.set(targetId, projection.conversationId, `${last.createdAt}:${last.id}`, runKey);
     }
-    return { targetId, runKey, scannedConversations: projections.length, scannedMessages, createdCandidates };
+    return {
+      targetId,
+      runKey,
+      localDate,
+      scannedConversations: projections.length,
+      scannedMessages,
+      createdCandidates,
+      pendingReviewCandidateIds: [...pendingReviewCandidateIds]
+    };
   }
 }
 

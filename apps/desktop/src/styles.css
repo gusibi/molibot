@@ -1353,15 +1353,6 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .miniapps-install-hint { flex: 1 1 auto; margin: 0; color: var(--label-secondary); font-size: 12px; }
 .miniapps-trust { display: flex; align-items: flex-start; gap: 7px; margin: 0; color: var(--label-tertiary); font-size: 11px; line-height: 1.45; }
 .miniapps-trust .ph { flex: none; margin-top: 2px; color: var(--warning-text); font-size: 13px; }
-.miniapps-restart {
-  margin: 0;
-  padding: 8px 12px;
-  border: 0.5px solid color-mix(in srgb, var(--warning-text) 24%, var(--separator));
-  border-radius: var(--rounded-sm);
-  background: color-mix(in srgb, var(--warning-text) 7%, var(--card-bg));
-  color: var(--label-secondary);
-  font-size: 12px;
-}
 .miniapps-provenance { color: var(--label-tertiary); font-size: 11px; }
 
 /*

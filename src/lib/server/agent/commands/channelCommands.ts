@@ -88,6 +88,13 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   setActiveProject?: (scopeId: string, projectId: string | null) => ProjectRecord | null;
 }
 
+export type QueuedControlAction = "stop" | "steer";
+
+export interface QueuedControlActionResult {
+  status: "stopped" | "steered" | "stale" | "not_running" | "failed";
+  message: string;
+}
+
 interface CommandTableRow {
   label: string;
   value: string;
@@ -113,8 +120,11 @@ interface BooleanLayerStatus {
 }
 
 export class SharedRuntimeCommandService<TTarget> {
+  private static readonly QUEUED_CONTROL_RESULT_CACHE_LIMIT = 256;
   private readonly thinkingLevels = new Set<string>(RUNTIME_THINKING_LEVELS);
   private readonly hostBashStore: HostBashStore;
+  private readonly queuedControlActions = new Map<string, Promise<QueuedControlActionResult>>();
+  private readonly queuedControlResults = new Map<string, QueuedControlActionResult>();
 
   constructor(private readonly options: SharedRuntimeCommandOptions<TTarget>) {
     this.hostBashStore = options.hostBashStore ?? getHostBashStore();
@@ -126,6 +136,79 @@ export class SharedRuntimeCommandService<TTarget> {
 
   private get isChinese(): boolean {
     return isChineseLocale(this.options.getSettings().locale);
+  }
+
+  async handleQueuedControlAction(
+    scopeId: string,
+    queueId: number,
+    action: QueuedControlAction
+  ): Promise<QueuedControlActionResult> {
+    const key = `${scopeId}:${queueId}`;
+    const completed = this.queuedControlResults.get(key);
+    if (completed) return completed;
+    const existing = this.queuedControlActions.get(key);
+    if (existing) return existing;
+
+    const pending = this.executeQueuedControlAction(scopeId, queueId, action);
+    this.queuedControlActions.set(key, pending);
+    try {
+      const result = await pending;
+      this.queuedControlResults.set(key, result);
+      while (this.queuedControlResults.size > SharedRuntimeCommandService.QUEUED_CONTROL_RESULT_CACHE_LIMIT) {
+        const oldest = this.queuedControlResults.keys().next().value;
+        if (oldest === undefined) break;
+        this.queuedControlResults.delete(oldest);
+      }
+      return result;
+    } finally {
+      if (this.queuedControlActions.get(key) === pending) this.queuedControlActions.delete(key);
+    }
+  }
+
+  private async executeQueuedControlAction(
+    scopeId: string,
+    queueId: number,
+    action: QueuedControlAction
+  ): Promise<QueuedControlActionResult> {
+    if (!Number.isSafeInteger(queueId) || queueId <= 0 || !this.options.getQueuedPreview) {
+      return { status: "stale", message: this.text("This queued-message action is no longer available.", "这条排队消息操作已失效。") };
+    }
+    const queued = await this.options.getQueuedPreview(scopeId, queueId);
+    if (queued.status !== "pending") {
+      return { status: "stale", message: this.text("This queued message is no longer pending.", "这条消息已不在等待队列中。") };
+    }
+
+    if (action === "stop") {
+      const stopped = this.options.stopRun(scopeId);
+      const cancelled = (await this.options.cancelQueuedPending?.(scopeId)) ?? 0;
+      if (stopped.aborted || stopped.clearedStale || cancelled > 0) {
+        const clearedText = cancelled > 0
+          ? this.text(` Cleared ${cancelled} queued task(s).`, `并清除 ${cancelled} 条排队消息。`)
+          : "";
+        return { status: "stopped", message: `${this.text("Stopped the current task.", "已停止当前任务。")}${clearedText}` };
+      }
+      return { status: "stale", message: this.text("The task already finished.", "当前任务已经结束。") };
+    }
+
+    const preview = String(queued.preview ?? "").trim();
+    if (!preview || !this.options.steerRun || !this.options.deleteQueued) {
+      return { status: "failed", message: this.text("This queued message cannot be injected.", "这条排队消息无法插入当前任务。") };
+    }
+    const steered = this.options.steerRun(scopeId, preview);
+    if (!steered.queued) {
+      return { status: "not_running", message: this.text("The current task already finished; the message remains queued.", "当前任务已经结束，这条消息会继续留在队列中。") };
+    }
+    const deleted = await this.options.deleteQueued(scopeId, queueId);
+    if (deleted !== "deleted") {
+      return {
+        status: "failed",
+        message: this.text(
+          `Injected the message, but queue item ${queueId} could not be removed. Check /queue to avoid a duplicate run.`,
+          `消息已插入，但队列项 #${queueId} 未能移除；请检查 /queue，避免重复执行。`
+        )
+      };
+    }
+    return { status: "steered", message: this.text("Injected this message into the current task.", "已将这条消息插入当前任务。") };
   }
 
   // Run ids are `${chatId}-${sessionId}-${messageId}`, so an active run must be

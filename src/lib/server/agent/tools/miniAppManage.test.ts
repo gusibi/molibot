@@ -89,7 +89,7 @@ test("miniAppManage validates, atomically installs, and inspects an exact receip
     assert.equal((validated.details as any).version, "1.1.0");
 
     const installed = await fixture.tool.execute("install-1", { action: "install", path: build });
-    assert.equal((installed.details as any).restartRequired, true);
+    assert.equal((installed.details as any).activated, true);
     assert.equal((installed.details as any).replaced, false);
     assert.equal((installed.details as any).version, "1.1.0");
     assert.ok((installed.details as any).manifestHash);

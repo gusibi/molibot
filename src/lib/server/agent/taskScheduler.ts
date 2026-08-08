@@ -9,6 +9,7 @@ import type { ChannelManager } from "$lib/server/channels/registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryReflectionNotificationTarget } from "$lib/server/settings/schema.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
+import type { MemoryCandidateReview, MemoryReviewBatch } from "$lib/server/memory/review.js";
 
 export interface InternalTaskExecutionResult {
   notificationText?: string;
@@ -103,6 +104,35 @@ export async function deliverMemoryTaskNotification(
   }
   await manager.sendInternalNotice(target.chatId, text, metadata);
   return true;
+}
+
+export async function deliverMemoryReviewBatch(
+  channelManagers: Map<string, Map<string, ChannelManager>>,
+  review: MemoryCandidateReview,
+  batch: MemoryReviewBatch
+): Promise<{ delivered: number; alreadyDelivered: number; skipped: number }> {
+  const manager = channelManagers.get(batch.target.channel)?.get(batch.target.botId);
+  if (!manager?.sendMemoryReviewItem) {
+    return { delivered: 0, alreadyDelivered: batch.items.filter((item) => item.messageId).length, skipped: batch.items.filter((item) => !item.messageId).length };
+  }
+  let delivered = 0;
+  let alreadyDelivered = 0;
+  let skipped = 0;
+  const pending = batch.items.filter((item) => {
+    if (!item.messageId) return true;
+    alreadyDelivered += 1;
+    return false;
+  });
+  for (const [index, item] of pending.entries()) {
+    const sent = await manager.sendMemoryReviewItem(batch.target.chatId, item);
+    if (!sent) {
+      skipped += pending.length - index;
+      break;
+    }
+    review.recordDelivery({ batchId: batch.id, candidateId: item.candidateId, messageId: sent.messageId });
+    delivered += 1;
+  }
+  return { delivered, alreadyDelivered, skipped };
 }
 
 export function formatDailyMaterialsNotification(createdFiles: string[]): string | undefined {

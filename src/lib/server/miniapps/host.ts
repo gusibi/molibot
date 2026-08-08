@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import semver from "semver";
 import {
   builtinMiniAppMeta,
@@ -43,6 +42,7 @@ import {
   type MiniAppToolDescriptor,
   type MiniAppToolResult
 } from "$lib/server/miniapps/types.js";
+import { bundleMiniAppRuntime } from "$lib/server/miniapps/runtimeBundle.js";
 
 /**
  * MiniAppHost — the single seam between installed Mini Apps and the rest of
@@ -587,6 +587,49 @@ export class MiniAppHost {
   }
 
   /**
+   * Makes code that was just installed on disk live in this service process.
+   *
+   * Calls already inside the old runtime finish first. The old instance then
+   * disposes, discovery reads the replacement manifest, and an enabled app is
+   * eagerly loaded so the install request cannot report success for code that
+   * only fails on its first later invocation.
+   */
+  async activateInstalled(appId: string): Promise<void> {
+    const previous = this.slots.get(appId);
+    if (previous) {
+      previous.updating = true;
+      try {
+        const drainedAt = Date.now() + UNINSTALL_DRAIN_TIMEOUT_MS;
+        while (previous.inFlight > 0) {
+          if (Date.now() > drainedAt) {
+            throw new MiniAppError(
+              `Mini App "${appId}" still has ${previous.inFlight} call(s) running; try again shortly.`,
+              "busy"
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        if (previous.runtime?.dispose) await previous.runtime.dispose();
+        previous.runtime = null;
+        previous.loading = null;
+      } catch (cause) {
+        previous.updating = false;
+        if (cause instanceof MiniAppError) throw cause;
+        throw new MiniAppError(sanitizeOutwardMessage(errorMessage(cause)), "load_failed");
+      }
+    }
+
+    this.refresh();
+    const active = this.slots.get(appId);
+    if (!active) throw new MiniAppError(`Unknown Mini App: ${appId}`, "not_found");
+    if (!active.descriptor) {
+      throw new MiniAppError(active.loadError ?? "Mini App failed to load.", "load_failed");
+    }
+    if (this.isEnabled(appId)) await this.ensureRuntime(active);
+    this.logger.info("miniapp_activated", { appId, version: active.descriptor.manifest.version });
+  }
+
+  /**
    * Writes the shipped copy of a built-in into the code root — the one
    * operation behind both "install" and "update", because they differ only in
    * whether something was there before.
@@ -649,7 +692,7 @@ export class MiniAppHost {
       appId,
       version: builtinMiniAppVersion(bundled)
     });
-    this.refresh();
+    await this.activateInstalled(appId);
   }
 
   /**
@@ -700,6 +743,7 @@ export class MiniAppHost {
       if (codeDir) {
         fs.rmSync(codeDir, { recursive: true, force: true });
       }
+      fs.rmSync(path.join(this.options.codeRoot, ".runtime", appId), { recursive: true, force: true });
       if (options.deleteData) {
         // Only remove a real directory we resolved under our own data root.
         const realDataDir = resolveContainedPath(this.options.dataRoot, appId);
@@ -761,9 +805,13 @@ export class MiniAppHost {
     fs.mkdirSync(dataDir, { recursive: true });
     this.assertSchemaVersion(slot.id, dataDir, descriptor.manifest.data.schemaVersion);
 
-    const importModule = this.options.importModule
-      ?? ((entryPath: string) => import(/* @vite-ignore */ pathToFileURL(entryPath).href));
-    const loaded = (await importModule(descriptor.entryPath)) as MiniAppServerModule;
+    const loaded = (await (this.options.importModule
+      ? this.options.importModule(descriptor.entryPath)
+      : bundleMiniAppRuntime({
+        appId: slot.id,
+        entryPath: descriptor.entryPath,
+        cacheRoot: path.join(this.options.codeRoot, ".runtime")
+      }).then((bundle) => import(/* @vite-ignore */ bundle.moduleUrl)))) as MiniAppServerModule;
     const factory = loaded?.default;
     if (typeof factory !== "function") {
       throw new MiniAppError("runtime.entry must default-export a factory function.", "load_failed");
@@ -887,38 +935,40 @@ export class MiniAppHost {
       throw new MiniAppError(`Invalid input for ${parsed.appId}.${parsed.toolName}: ${detail}`, "invalid_input");
     }
 
-    const runtime = await this.ensureRuntime(slot);
-    const handler = runtime.tools[parsed.toolName];
-    if (!handler) {
-      throw new MiniAppError(`Mini App "${parsed.appId}" has no handler for "${parsed.toolName}".`, "load_failed");
-    }
-
     slot.inFlight += 1;
     try {
-      const result = await handler(input ?? {}, context);
-      if (result?.changed) slot.revision += 1;
-      // The card is sanitized here rather than at the render site so every
-      // consumer — desktop transcript, message-action route, any later surface
-      // — receives the same already-bounded shape (pitfall #7).
-      const card = sanitizeMiniAppResultCard(result?.card, parsed.appId);
-      return {
-        content: Array.isArray(result?.content) ? result.content : [],
-        structuredContent: result?.structuredContent,
-        changed: result?.changed === true,
-        ...(card ? { card } : {})
-      };
-    } catch (cause) {
-      // The stack stays in the service log; the agent gets a stable sentence.
-      this.logger.error("miniapp_tool_failed", {
-        appId: parsed.appId,
-        toolName: parsed.toolName,
-        error: errorMessage(cause),
-        stack: cause instanceof Error ? cause.stack : undefined
-      });
-      throw new MiniAppError(
-        `${parsed.appId}.${parsed.toolName} failed: ${sanitizeOutwardMessage(errorMessage(cause))}`,
-        "load_failed"
-      );
+      const runtime = await this.ensureRuntime(slot);
+      const handler = runtime.tools[parsed.toolName];
+      if (!handler) {
+        throw new MiniAppError(`Mini App "${parsed.appId}" has no handler for "${parsed.toolName}".`, "load_failed");
+      }
+
+      try {
+        const result = await handler(input ?? {}, context);
+        if (result?.changed) slot.revision += 1;
+        // The card is sanitized here rather than at the render site so every
+        // consumer — desktop transcript, message-action route, any later surface
+        // — receives the same already-bounded shape (pitfall #7).
+        const card = sanitizeMiniAppResultCard(result?.card, parsed.appId);
+        return {
+          content: Array.isArray(result?.content) ? result.content : [],
+          structuredContent: result?.structuredContent,
+          changed: result?.changed === true,
+          ...(card ? { card } : {})
+        };
+      } catch (cause) {
+        // The stack stays in the service log; the agent gets a stable sentence.
+        this.logger.error("miniapp_tool_failed", {
+          appId: parsed.appId,
+          toolName: parsed.toolName,
+          error: errorMessage(cause),
+          stack: cause instanceof Error ? cause.stack : undefined
+        });
+        throw new MiniAppError(
+          `${parsed.appId}.${parsed.toolName} failed: ${sanitizeOutwardMessage(errorMessage(cause))}`,
+          "load_failed"
+        );
+      }
     } finally {
       slot.inFlight -= 1;
     }

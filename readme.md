@@ -32,7 +32,7 @@ Molibot is a local-first personal AI Agent for people who want more than a new c
 - **Current release.** v2.8.6 (Desktop v0.8.3)
 
 - **Easy to start.** Download the macOS app, pick a model provider, and start chatting — one runtime serves the Desktop app, Web, Telegram, Feishu, Weixin, QQ, and the CLI.
-- **Grows with you.** Governed long-term memory, daily memory reflection, and reviewable automations mean the Agent learns your preferences, projects, and habits over time — and you always see and control what it remembers.
+- **Grows with you.** Governed long-term memory, daily memory reflection, and reviewable automations mean the Agent learns your preferences, projects, and habits over time — and you can keep or reject each daily candidate directly from private Telegram or Feishu buttons without opening the app.
 
 ## 🚀 Major Features in Latest Upgrade (V2.8+)
 
@@ -47,7 +47,7 @@ OpenConnector integrates Cloudflare and Molibot to connect external services sea
 ### 📦 Mini App Platform: Local-First Application Runtime
 Molibot now runs **Mini Apps** inside the desktop client and Agent loop, letting you extend the agent's tools and UI.
 - **Hosted UI & Unified Runtimes:** Mini Apps run inside a highly locked-down iframe sandbox on a custom local origin, sharing the same state module and SQLite database as their background agent tools.
-- **Automated Installation & Provenance:** Install instantly from local folders, `.zip` archives, or GitHub repositories. Manifest and directory checks protect the host system during install and upgrade.
+- **Automated Installation & Provenance:** Install instantly from local folders, `.zip` archives, or GitHub repositories. Manifest and directory checks protect the host system during install and upgrade, and new code activates without restarting Molibot.
 - **Unified Composer Integration:** Call installed apps using `@app-id` in the composer (with syntax-highlighted pills) or check the Sidebar's Mini Apps section to view and open recent apps.
 - **Explicit Host Bridges:** Apps can contribute message/selection/attachment actions, fill an editable chat draft or attach a file to it without ever sending, jump to a conversation, and use host-routed text/transcription through `ctx.ai` while credentials stay inside Molibot.
 - **Results You Can Act On:** A tool result can carry a compact summary card, deep-link back into its own app panel (`molibot://miniapp/<id>/<path>`), and set a quiet unread count or dot on its sidebar row — no system notifications, no interrupting popups.
@@ -74,7 +74,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Navigate long conversations by turn.** Desktop Chat, Project Chat, and external transcripts gain a quiet left-edge user-prompt rail after five turns, with immediate Dock-style hover, a readable user/reply preview, keyboard access, and history-safe streaming.
 - **Use each model's real thinking depths.** Built-in models follow pi 0.82's per-model levels; custom models and built-ins without capability metadata expose all seven canonical choices (`off / minimal / low / medium / high / xhigh / max`) without guessed remapping.
 - **Configure providers without losing context.** Web and Desktop use the same searchable provider-first workspace, with connection/auth status and a scan-friendly model inventory in one place; newly saved models appear in the Desktop Chat selector immediately without restarting.
-- **Recover local MCP tools without restarting Molibot.** Web and Desktop distinguish enabled configuration from the live connection, show disconnect/error details, and provide immediate enable, disable, reconnect, and delete controls; restarted MCP services reconnect with a fresh client while Agent tool exposure remains explicitly gated.
+- **Recover local MCP tools without restarting Molibot.** Web and Desktop distinguish enabled configuration from the live connection, show disconnect/error details, and provide immediate enable, disable, reconnect, and delete controls. Explicit reconnect now fails honestly when that server remains unavailable, and Session loading checks the requested server rather than aggregate connection counts; Agent tool exposure remains explicitly gated.
 - **Explore without destroying history.** Editing and resending an earlier turn in main Chat creates a visible child Session, leaving the original conversation intact.
 - **Work where you already are.** Use one local runtime from Web, macOS Desktop, Telegram, Feishu, Weixin, QQ, or the CLI.
 - **Diagnose media failures at the shared boundary.** Voice-transcription errors carry safe provider/model, audio, timing, and upstream trace details across every channel without logging credentials or cookies.
@@ -83,6 +83,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Fail closed when isolation is unavailable.** With Bash sandbox enabled, a missing or failed sandbox blocks the command instead of running it on the host. Host execution requires either an explicit sandbox-off choice or Host Bash approval.
 - **Filter and inspect operational logs without reading a wall of text.** Desktop Service Logs separates LLM calls, tool use, Subagent work, severity, status, and Run correlation; every row opens full pretty JSON or original text while long IDs stay compact in the list. The active file rolls automatically at 20 MiB with five retained archives, independently of SQLite Trace.
 - **Let long work fail safely.** Parent and delegated budgets are separate, completed tool results survive context recovery, and interrupted inbound tasks wait for an explicit retry instead of disappearing or replaying side effects automatically.
+- **Control messages sent during a running task with one tap.** Telegram and Feishu queue the new message and show Stop / Steer buttons: stop the current work or inject that exact message immediately, without copying queue IDs or typing commands. Feishu immediately acknowledges the click and replaces the card with the final result, falling back to a text receipt if card updating fails. Once accepted, the injected text also survives provider timeouts and whole-attempt retries instead of disappearing before the successful response.
 - **Keep every completed reply.** When one Agent run produces a primary answer plus terminal supplements, Chat displays each one instead of letting the last message hide an earlier complete result; tool-loop progress remains compact.
 - **Keep the data local.** Your runtime, configuration, conversations, and operational state stay on infrastructure you control.
 
@@ -127,7 +128,7 @@ Every Agent gets a place in Agent City — see at a glance who is on duty and wo
 
 ### An Agent that learns you, on a schedule
 
-System tasks like **Daily Memory Reflection** review recent conversations and distill durable memories — so the Agent gets more useful the more you use it. Your own automations and one-time tasks live alongside them, with full run history.
+System tasks like **Daily Memory Reflection** review recent conversations and distill durable memories — so the Agent gets more useful the more you use it. The configured private Telegram or Feishu destination receives the usual summary followed by numbered Keep / Don't keep cards; other channels and group chats never receive candidate content. Your own automations and one-time tasks live alongside them, with full run history.
 
 <p align="center">
   <img src="./assets/screenshots/auto-tasks.png" alt="Auto tasks — automations and system tasks" width="800" />

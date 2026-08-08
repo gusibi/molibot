@@ -2511,3 +2511,111 @@ Final conclusion: the voice path is operational inside Molibot and fails because
 - Adversarial review caught iframe modal misuse in Meeting Notes and replaced it with inline destructive confirmation.
 - Static/build tests cannot answer the real macOS microphone permission question; the dev and packaged device matrix remains an explicit release gate.
 - An unrelated existing Session search test fails under the current Node SQLite with `unable to use function bm25 in the requested context`; it reproduces in isolation and no search code was touched.
+# Interactive daily memory review — findings (2026-08-08)
+
+## Requirements
+- Keep the existing aggregate daily reflection notice and follow it with numbered memory candidates.
+- Each ordinary pending candidate exposes Keep and Don't keep buttons; no typed reply is required.
+- Support only Telegram and Feishu interactive processing.
+- Preserve the shared-layer architecture: reflection aggregation, review batching, decisions, retries, and authorization stay above Channel adapters.
+- Reuse `confirmCandidate` as the only memory-ingest path and `ignoreCandidate` as the existing reject/suppression path.
+
+## Baseline findings
+- `MemoryReflectionService.run` currently returns counts and a run key, not candidate IDs.
+- Candidate creation can enrich an older pending row, so querying the newest N pending candidates after a run is incorrect.
+- Auto-confirm runs immediately after candidate creation, so the notification must inspect the final candidate state.
+- Owner reflection currently aggregates counts and calls a text-only notifier once.
+- `ChannelManager` only exposes text `sendInternalNotice`; Telegram and Feishu already have working Host Bash interactive patterns.
+- Telegram Host Bash action tokens are process-memory only and unsuitable for daily review buttons that must survive restart; a candidate UUID plus action fits the platform callback-data limit.
+- Feishu callback processing already supports immediate processing cards and asynchronous message edits.
+- Current `ignore` reads pending state before beginning its transaction and does not require the conditional status update to change a row; it can race with confirmation and insert suppression despite losing the decision.
+- Maintenance can convert some Skill candidates into `skillDraftSuggestion`, whose Keep path must use a separate draft flow; v1 excludes those from quick review.
+- Existing notification-target settings authorize a Chat, not an operator. V1 therefore requires verifiable private-chat delivery for actionable cards.
+- Both adapters can fail closed on chat mode at send time: Telegram exposes `getChat(...).type`; Feishu's installed SDK documents `im.chat.get` as the group-info endpoint, so a successful non-`p2p` lookup proves the target is a group and blocks candidate delivery, a controlled API rejection identifies a non-group target, and a transport failure remains unverifiable and is skipped.
+- The same `mory.sqlite` file already hosts candidate, reflection, maintenance, and backend state through separate SQLite connections, so a dedicated review-store module can use the established local-substitutable pattern without exposing candidate-store internals.
+- No changelog/archive/CLAUDE history describes a previous confirm-vs-ignore concurrency fix; the missing atomic ignore transition is therefore a first-occurrence guard that should be fixed and covered now.
+
+---
+
+# Telegram / Feishu queued-control buttons — findings (2026-08-08)
+
+- Both channels already persist a second inbound message as a pending queue item and reply with `Queued as #N. Send /steer N...`.
+- `/steer N` reads the queued preview, injects that text into the active Runner, then deletes the queue item; `/stop` aborts the active run and clears all pending items.
+- `SharedRuntimeCommandService` already owns stop/steer semantics. The new button API belongs there; Telegram/Feishu should only verify platform callback identity, invoke it, and update the notice.
+- The queue ID plus callback chat/scope is sufficient authorization only if the referenced item is still pending. Requiring that state prevents forwarded or late Stop buttons from cancelling an unrelated later run.
+- The current queued-steer command has a possible double-click race because preview and delete are separate async calls. Buttons make that race more likely, so the shared queue needs an atomic claim/take seam before injection rather than two Channel-specific guards.
+- Busy notices are runtime control UI and must remain outside `SessionStore.appendMessage` and the Agent prompt.
+- Telegram can derive the exact callback scope, including topics, from the callback message; a compact `queueId + action` payload therefore stays below its callback limit without trusting a payload chat ID.
+- Feishu WebSocket callbacks provide a verified chat ID, while HTTP card callbacks do not. The Feishu card must carry Bot/chat/scope identity like the existing Host Bash card, disable forwarding, and still require that the referenced queue item is pending in that exact scope.
+- A shared in-flight action map keyed by scope + queue ID is sufficient for rapid duplicate/opposite clicks because service ownership guarantees one live channel runtime. After completion the queue transition itself makes later clicks stale.
+- Stop validates ownership from the referenced pending item, then applies the existing atomic user-visible behavior: abort the active run and clear all pending items. Steer injects first and deletes only on success so a run that ends at the boundary leaves the queued message intact.
+- Adversarial review found a delayed opposite-click window after the first action completed but before platform UI removal. A bounded shared terminal-result cache (256 recent notices) makes the first click authoritative across both concurrent and immediately repeated callbacks without persistent control-state pollution.
+
+---
+
+# MCP target-accurate dynamic loading follow-up — findings (2026-08-08)
+
+- The lifecycle registry already retries disconnected/error entries and reconnects changed configurations; a normal service restart is not part of the intended MCP lifecycle.
+- `McpToolRegistry.ensureServer` intentionally absorbs connection errors for background reconciliation, but explicit `reconnect` reuses it without checking the final target state, so HTTP reconnect can return success while the server remains `error`.
+- `loadMcp` checks aggregate `serverCount`; if server A is connected and requested server B fails, B is falsely reported as loaded.
+- Desktop/Web save and enable call `reconcile(..., connectEnabled: true)` immediately. Persistence should remain successful when the connection attempt fails, with live error state in the response.
+- Settings connections use the settings workspace while Agent connections are keyed by the Session workspace. The registry must keep that isolation; target status must be read in the same workspace that attempted the load.
+- Issue #25 tests covered dead-process recovery, force-attempt timestamps, and scope isolation, but not explicit reconnect rejection or a failed target beside another connected server.
+
+---
+
+# Mini App install/update hot activation — findings (2026-08-08)
+
+- Installation already atomically replaces the code directory and calls `host.refresh()`, so brand-new apps are discoverable immediately; the restart contract is currently hard-coded in server responses and Desktop state.
+- `MiniAppHost.refresh()` preserves a runtime when only `manifest.version` and `entryPath` match. A same-version code replacement therefore keeps the old runtime indefinitely.
+- Even when a version change clears the runtime, Node imports the same file URL and returns the cached ESM module. Query-busting only the entry is insufficient because unchanged relative child URLs retain their own cache entries.
+- Existing Host lifecycle already owns `updating`, `inFlight`, `loading`, `runtime`, and optional `dispose`; the correct seam is one async activation method on Host, not route-level conditions.
+- Vite already brings esbuild transitively, but runtime bundling must declare esbuild as a direct production dependency. Bundling into one content-addressed `.mjs` gives the entire module graph a new URL; Node built-ins remain external while app-local packages are included so moving the output into `.runtime` does not break package resolution.
+- Mini App UI assets already return `Cache-Control: no-store`; no WebView cache change is needed, only panel/catalog refresh after the lifecycle response.
+- Tool invocation originally incremented `inFlight` only after `ensureRuntime()`. An update during first Runtime creation could therefore see zero active calls, replace the slot, and leave the old load/call crossing the activation boundary. Counting before Runtime creation fixes the lifecycle class for both update and uninstall.
+
+## Technical decisions
+| Decision | Rationale |
+| --- | --- |
+| Add one shared memory-review module with a small batch/decision interface | Two real channel adapters vary at the seam; domain logic remains local and testable. |
+| Persist daily batch/items in the existing mory SQLite database | Stable numbering, restart-safe callbacks, retry recovery, and temporary-DB tests without another datastore. |
+| Store platform delivery identity per item | Callback authorization can be based on the sent message rather than untrusted button payload fields. |
+| Return exact pending candidate IDs from reflection | Handles enriched existing candidates, deduplication, and auto-confirm accurately. |
+| One candidate per message/card | Independent updates, bounded payload size, and simpler retry/idempotency behavior. |
+| Reuse the existing notification target/toggle | Minimum product surface; no speculative settings. |
+| Verify private-chat mode through each platform before sending items | Current settings lack an operator identity; fail-closed private delivery is the approved v1 safety line. |
+| Use a dedicated `MemoryReviewStore` connection to the existing mory DB | Keeps the batch interface deep and testable while matching existing reflection/maintenance store practice. |
+
+## Resources
+- `src/lib/server/memory/reflection.ts`
+- `src/lib/server/memory/candidateStore.ts`
+- `src/lib/server/memory/gateway.ts`
+- `src/lib/server/agent/ownerMemoryReflection.ts`
+- `src/lib/server/agent/taskScheduler.ts`
+- `src/lib/server/channels/telegram/runtime.ts`
+- `src/lib/server/channels/feishu/runtime.ts`
+
+---
+
+# Feishu queued-control feedback diagnosis (2026-08-08)
+
+- The reported Session contains only the original user text `今天深圳`; `天气如何` was not persisted as a normal conversation turn, which is consistent with a runtime steer control remaining outside model history.
+- The production queue database's `sqlite_sequence` ends at exactly `4166840`, matching the card. That row is gone. Combined with the absent second user turn, this is strong evidence that Steer consumed and deleted the queued item rather than letting it drain as a normal follow-up.
+- The final answer's weather content is not independent proof of Steer because the first model turn already issued a `深圳天气` search.
+- The reported run lasted from 15:37:08 to 15:38:53 and included a first-token timeout plus retry. No `card_action_received` line exists because that log is emitted only on the WebSocket callback path; an HTTP card callback can currently execute without the equivalent boundary log.
+- Queue control currently returns the final card only through the callback response. It does not use the established Feishu approval/memory pattern: immediate processing response, delayed API edit of the original message, and text fallback when editing fails. Therefore a successfully executed action can remain visually unchanged if Feishu does not apply the callback response.
+- The narrow root fix is Feishu-only presentation/delivery: acknowledge immediately, perform the shared action once in the existing card-action coordinator, update the original card by message ID, and fall back to a human-readable text receipt. Shared queue/Runner semantics remain unchanged.
+
+---
+
+# Accepted steer lost across Runner retry (2026-08-08)
+
+- At 16:20:34 the original request started with model `messageCount=1` and then hit a 60-second first-token timeout.
+- The Steer card was completed at 16:20:38. On attempt 1, the model request had `messageCount=2`, proving the queued text reached the correct live Agent instance and eliminating Feishu scope/RunnerPool routing as the cause.
+- Attempt 1 also timed out. Attempt 2 then regressed to `messageCount=1`; the accepted live message had been consumed by the prior Agent attempt but was not retained when Runner rebuilt/reset retry state.
+- Attempt 2 succeeded and produced a weather answer using only the original `今天深圳` turn. The Session correctly contains no ordinary persisted `天气如何` user turn.
+- Root-cause class: retry-state loss at the shared Runner/Agent boundary. The fix belongs in Runner retry orchestration, not Feishu or Telegram.
+- The shared Runner now owns a runtime-only list of accepted external Steer messages. Every whole-attempt rollback clears the pi Agent steering queue and restores that list, covering both already-drained and not-yet-drained queue states without duplication.
+- Agent `message_end` events for those tracked controls are excluded from Session persistence, and the replay list plus any residual steering queue are cleared when the run finishes.
+
+---

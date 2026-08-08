@@ -38,8 +38,6 @@ export const miniAppsStore = $state({
   busyId: "",
   actionMessage: "",
   installing: false,
-  /** Set after a successful install: the new code only runs after a restart. */
-  restartRequired: false,
   /**
    * Whether the host has any model that can serve each Mini App AI capability.
    *
@@ -193,7 +191,6 @@ export async function installMiniApp(request: DesktopMiniAppInstallRequest): Pro
     const result = await installDesktopMiniApp(endpoint, request);
     applyCatalogs(result);
     invalidateComposerSuggestions();
-    miniAppsStore.restartRequired = true;
     miniAppsStore.actionMessage = result.replaced
       ? session.text.miniAppReplacedMessage
       : session.text.miniAppInstalledMessage;
@@ -222,9 +219,6 @@ export async function updateMiniApp(appId: string): Promise<void> {
     const result = await updateDesktopMiniApp(endpoint, appId);
     applyCatalogs(result);
     invalidateComposerSuggestions();
-    // Same as an install: the replaced module is already in the ESM cache, so
-    // the new code only runs after the service restarts.
-    miniAppsStore.restartRequired = true;
     miniAppsStore.actionMessage = session.text.miniAppUpdatedMessage.replace("{version}", result.version);
   } catch (cause) {
     setError(cause);
@@ -252,9 +246,6 @@ export async function installBuiltinMiniApp(appId: string): Promise<void> {
     const result = await installDesktopBuiltinMiniApp(endpoint, appId);
     applyCatalogs(result);
     invalidateComposerSuggestions();
-    // Same as any other install: the code is on disk, but the service loads app
-    // modules once, so it runs after a restart.
-    miniAppsStore.restartRequired = true;
     miniAppsStore.actionMessage = session.text.miniAppInstalledMessage;
   } catch (cause) {
     setError(cause);

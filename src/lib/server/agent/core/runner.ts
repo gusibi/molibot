@@ -250,6 +250,12 @@ export class MomRunner implements RunnerLike {
   private submittedVideoTaskId: string | undefined;
   private activeMemoryWriteReceipts: MemoryWriteReceipt[] = [];
   private activeMemoryToolHits: MemoryReferencedItem[] = [];
+  // Runtime-only replay buffer for externally accepted Steer messages. The pi
+  // agent drains its queue before a model call, while a whole-attempt retry
+  // rolls the resulting user message out of state. Keep the accepted controls
+  // here so rollback can restore the queue without persisting them as Session
+  // conversation turns.
+  private activeRunAcceptedSteering: AgentMessage[] = [];
 
   private readonly hookManager: HookManager;
 
@@ -620,6 +626,7 @@ export class MomRunner implements RunnerLike {
 
     if (mode === "steer") {
       this.agent.steer(message);
+      this.activeRunAcceptedSteering.push(message);
     } else {
       this.agent.followUp(message);
     }
@@ -819,6 +826,7 @@ export class MomRunner implements RunnerLike {
           tasks: subagentTaskRecords
         }
         : undefined;
+    this.activeRunAcceptedSteering = [];
     this.running = true;
     this.abortRequested = false;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
@@ -1069,7 +1077,10 @@ export class MomRunner implements RunnerLike {
 
     let localTools: ReturnType<typeof createMomTools> = [];
     let loadedMcpTools: Awaited<ReturnType<typeof getMcpToolsForRuntime>> = [];
-    const refreshLoadedMcpTools = async (): Promise<{ serverCount: number; toolCount: number; lastError?: string }> => {
+    const refreshLoadedMcpTools = async (): Promise<{
+      statuses: ReturnType<typeof getMcpServerStatuses>;
+      toolCount: number;
+    }> => {
       const scoped = resolveScopedMcpServers();
       const mcpTools = await getMcpToolsForRuntime(scoped, {
         workspaceDir: this.store.getWorkspaceDir(),
@@ -1090,9 +1101,8 @@ export class MomRunner implements RunnerLike {
       this.agent.state.tools = [...localTools, ...wrappedMcpTools];
       const statuses = getMcpServerStatuses(scoped, this.store.getWorkspaceDir());
       return {
-        serverCount: statuses.filter((status) => status.state === "connected").length,
-        toolCount: mcpTools.length,
-        lastError: statuses.find((status) => status.state === "error")?.lastError
+        statuses,
+        toolCount: mcpTools.length
       };
     };
 
@@ -1505,7 +1515,8 @@ export class MomRunner implements RunnerLike {
           );
           const isCurrentPrompt = getMessageText(message).trim() === currentModelPromptMessage.trim();
           const isTransientRuntimeNotice = stripTransientRuntimeNoticesFromMessages([message]).length === 0;
-          if (!isCurrentPrompt && !isTransientRuntimeNotice) {
+          const isAcceptedRuntimeSteer = this.activeRunAcceptedSteering.includes(message);
+          if (!isCurrentPrompt && !isTransientRuntimeNotice && !isAcceptedRuntimeSteer) {
             appendRunContextMessage(persisted);
           }
         } else if (message.role === "assistant" || message.role === "toolResult") {
@@ -1863,21 +1874,37 @@ export class MomRunner implements RunnerLike {
         // leaves no residue in either place.
         const rollbackAttempt = () => {
           this.agent.state.messages = [...beforeAttempt];
-          if (!attemptCheckpoint) return;
-          try {
-            const dropped = this.store.restoreContextCheckpoint?.(
-              this.chatId,
-              attemptCheckpoint,
-              this.sessionId
-            ) ?? 0;
-            if (dropped > 0) {
-              // The persisted assistant message (if any) was just discarded, so a
-              // later terminal error must be free to append its own error entry.
-              assistantMessagePersisted = false;
+          if (attemptCheckpoint) {
+            try {
+              const dropped = this.store.restoreContextCheckpoint?.(
+                this.chatId,
+                attemptCheckpoint,
+                this.sessionId
+              ) ?? 0;
+              if (dropped > 0) {
+                // The persisted assistant message (if any) was just discarded, so a
+                // later terminal error must be free to append its own error entry.
+                assistantMessagePersisted = false;
+              }
+            } catch {
+              // A rollback failure must never abort the run; the finally reload will
+              // still fall back to whatever the store holds.
             }
-          } catch {
-            // A rollback failure must never abort the run; the finally reload will
-            // still fall back to whatever the store holds.
+          }
+          if (this.activeRunAcceptedSteering.length > 0) {
+            // The queue may contain a not-yet-consumed message or may already be
+            // empty because the failed model attempt consumed it. Reset first,
+            // then restore every accepted Steer exactly once for the next attempt.
+            this.agent.clearSteeringQueue();
+            for (const message of this.activeRunAcceptedSteering) {
+              this.agent.steer(message);
+            }
+            momLog("runner", "accepted_steering_replayed", {
+              runId,
+              chatId: this.chatId,
+              sessionId: this.sessionId,
+              count: this.activeRunAcceptedSteering.length
+            });
           }
         };
         let attemptCount = 0;
@@ -2966,6 +2993,10 @@ export class MomRunner implements RunnerLike {
       this.submittedVideoTaskId = undefined;
       this.activeProject = undefined;
       this.abortRequested = false;
+      if (this.activeRunAcceptedSteering.length > 0) {
+        this.agent.clearSteeringQueue();
+        this.activeRunAcceptedSteering = [];
+      }
       this.running = false;
     }
   }

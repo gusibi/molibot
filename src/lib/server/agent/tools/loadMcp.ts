@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
+import type { McpServerStatus } from "$lib/server/agent/tools/mcp.js";
 
 const loadMcpSchema = Type.Object({
   action: Type.Union([
@@ -39,7 +40,7 @@ export function createLoadMcpTool(options: {
   getSettings: () => RuntimeSettings;
   getSelectedServerIds: () => Set<string>;
   setSelectedServerIds: (next: Set<string>) => void;
-  refreshLoadedMcpTools: () => Promise<{ serverCount: number; toolCount: number; lastError?: string }>;
+  refreshLoadedMcpTools: () => Promise<{ statuses: McpServerStatus[]; toolCount: number }>;
 }): AgentTool<typeof loadMcpSchema> {
   return {
     name: "loadMcp",
@@ -60,14 +61,15 @@ export function createLoadMcpTool(options: {
       if (action === "clear") {
         options.setSelectedServerIds(new Set<string>());
         const refreshed = await options.refreshLoadedMcpTools();
+        const connectedCount = refreshed.statuses.filter((status) => status.state === "connected").length;
         return {
           content: [{
             type: "text",
-            text: `Cleared loaded MCP servers.\nLoaded servers: ${refreshed.serverCount}\nLoaded MCP tools: ${refreshed.toolCount}`
+            text: `Cleared loaded MCP servers.\nLoaded servers: ${connectedCount}\nLoaded MCP tools: ${refreshed.toolCount}`
           }],
           details: {
             action,
-            loadedServerCount: refreshed.serverCount,
+            loadedServerCount: connectedCount,
             loadedToolCount: refreshed.toolCount
           }
         };
@@ -97,10 +99,12 @@ export function createLoadMcpTool(options: {
 
       options.setSelectedServerIds(next);
       const refreshed = await options.refreshLoadedMcpTools();
-      if (action === "load" && refreshed.serverCount === 0) {
+      const connectedCount = refreshed.statuses.filter((status) => status.state === "connected").length;
+      const targetStatus = refreshed.statuses.find((status) => status.serverId === serverId);
+      if (action === "load" && targetStatus?.state !== "connected") {
         throw new Error([
           `MCP server could not be connected: ${serverId}.`,
-          refreshed.lastError || "The service is unavailable. Restart it, then call loadMcp(action=\"load\") again or use Reconnect in Settings."
+          targetStatus?.lastError || `Connection state: ${targetStatus?.state ?? "unknown"}. Use Reconnect in Settings or call loadMcp(action=\"load\") again.`
         ].join(" "));
       }
       return {
@@ -108,7 +112,7 @@ export function createLoadMcpTool(options: {
           type: "text",
           text: [
             `${action === "load" ? "Loaded" : "Unloaded"} MCP server: ${serverId}`,
-            `Loaded servers: ${refreshed.serverCount}`,
+            `Loaded servers: ${connectedCount}`,
             `Loaded MCP tools: ${refreshed.toolCount}`,
             action === "load" && refreshed.toolCount > 0
               ? "Next, call mcpInvoke(action=\"listTools\") to inspect available MCP tools, then mcpInvoke(action=\"call\", ...) to invoke one."
@@ -118,7 +122,7 @@ export function createLoadMcpTool(options: {
         details: {
           action,
           serverId,
-          loadedServerCount: refreshed.serverCount,
+          loadedServerCount: connectedCount,
           loadedToolCount: refreshed.toolCount
         }
       };

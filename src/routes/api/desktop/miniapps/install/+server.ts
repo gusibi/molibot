@@ -11,9 +11,8 @@ import type { DesktopMiniAppInstallRequest } from "$lib/shared/desktop";
  * Installs a Mini App from a local directory, a local ZIP, or a GitHub
  * repository.
  *
- * The installed code does **not** run until the service restarts (V1 has no hot
- * reload), which is why the response says so explicitly rather than leaving the
- * desktop to imply the app is live.
+ * The request succeeds only after the installed runtime has been activated in
+ * the current service process.
  */
 export const POST: RequestHandler = async ({ request }) => {
   try {
@@ -36,16 +35,14 @@ export const POST: RequestHandler = async ({ request }) => {
     }
 
     const result = await getMiniAppInstaller().install(installRequest);
-    // Rescan so the new app appears in the catalog immediately, even though its
-    // code will not be loaded until the restart.
-    getMiniAppHost().refresh();
+    const host = getMiniAppHost();
+    await host.activateInstalled(result.appId);
 
     return json({
       ok: true,
-      ...buildDesktopMiniAppsPayload(getMiniAppHost()),
+      ...buildDesktopMiniAppsPayload(host),
       installedId: result.appId,
-      replaced: result.replaced,
-      restartRequired: true
+      replaced: result.replaced
     });
   } catch (cause) {
     const status = cause instanceof MiniAppError ? 400 : 500;

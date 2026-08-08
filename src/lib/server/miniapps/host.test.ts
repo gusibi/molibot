@@ -336,6 +336,97 @@ test("concurrent first calls share one runtime instance", async () => {
   assert.equal(factoryCalls, 1);
 });
 
+test("a newly installed app activates immediately in the existing host", async () => {
+  const fixture = makeFixture();
+  const host = hostFor(fixture);
+
+  installApp(fixture, "notes");
+  await host.activateInstalled("notes");
+
+  const result = await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t1" });
+  assert.deepEqual(result.structuredContent, []);
+  assert.equal(host.listCatalog().find((row) => row.id === "notes")?.status, "active");
+});
+
+test("same-version replacement disposes the loaded runtime and activates the new one", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes");
+  let generation = 0;
+  let disposed = 0;
+  const host = hostFor(fixture, {
+    importModule: async () => {
+      generation += 1;
+      const label = generation === 1 ? "old" : "new";
+      return {
+        default: () => ({
+          tools: {
+            add: async () => ({ content: [{ type: "text", text: label }] }),
+            list: async () => ({ content: [{ type: "text", text: label }] })
+          },
+          async handleHttp() { return { body: { label } }; },
+          async dispose() { disposed += 1; }
+        })
+      };
+    }
+  });
+
+  const before = await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t1" });
+  assert.equal(before.content[0]?.text, "old");
+
+  installApp(fixture, "notes");
+  await host.activateInstalled("notes");
+  const after = await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t2" });
+
+  assert.equal(disposed, 1);
+  assert.equal(after.content[0]?.text, "new");
+  assert.equal(generation, 2);
+});
+
+test("activation waits for a first tool call that is still loading its runtime", async () => {
+  const fixture = makeFixture();
+  installApp(fixture, "notes");
+  let releaseFirstLoad!: () => void;
+  let reportFirstLoad!: () => void;
+  const firstLoad = new Promise<void>((resolve) => { releaseFirstLoad = resolve; });
+  const firstLoadStarted = new Promise<void>((resolve) => { reportFirstLoad = resolve; });
+  let generation = 0;
+  let disposed = 0;
+  const host = hostFor(fixture, {
+    importModule: async () => {
+      generation += 1;
+      const current = generation;
+      if (current === 1) {
+        reportFirstLoad();
+        await firstLoad;
+      }
+      return {
+        default: () => ({
+          tools: {
+            add: async () => ({ content: [] }),
+            list: async () => ({ content: [{ type: "text", text: current === 1 ? "old" : "new" }] })
+          },
+          async handleHttp() { return { body: null }; },
+          async dispose() { disposed += 1; }
+        })
+      };
+    }
+  });
+
+  const oldCall = host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t1" });
+  await firstLoadStarted;
+  installApp(fixture, "notes");
+  let activated = false;
+  const activation = host.activateInstalled("notes").then(() => { activated = true; });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(activated, false, "replacement must not pass a call still loading the old runtime");
+
+  releaseFirstLoad();
+  assert.equal((await oldCall).content[0]?.text, "old");
+  await activation;
+  assert.equal(disposed, 1);
+  assert.equal((await host.invokeTool("miniapp__notes__list", {}, { toolCallId: "t2" })).content[0]?.text, "new");
+});
+
 test("a failing runtime load turns the app into an error entry", async () => {
   const fixture = makeFixture();
   installApp(fixture, "notes", { source: "export default () => { throw new Error('boom'); };" });
@@ -508,7 +599,10 @@ test("a broken built-in can be repaired by updating, and no staging directory is
   const entry = host.listCatalog().find((row) => row.id === "todo");
   assert.equal(entry?.status, "active");
   assert.equal(entry?.error, undefined);
-  assert.deepEqual(readdirSync(fixture.codeRoot).sort(), ["todo"]);
+  assert.deepEqual(
+    readdirSync(fixture.codeRoot).filter((name) => name !== ".runtime").sort(),
+    ["todo"]
+  );
 });
 
 test("updating refuses for an app that is not a bundled built-in", async () => {

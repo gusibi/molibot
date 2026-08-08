@@ -1,4 +1,5 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
+import { formatMemoryReviewDecision, formatMemoryReviewItem, type MemoryReviewDecision, type MemoryReviewItem } from "$lib/server/memory/review.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +7,7 @@ import { basename, extname } from "node:path";
 import { momWarn } from "$lib/server/agent/common/log.js";
 import { markdownToFeishuMarkdown, parseFeishuRichTextSegments, type FeishuRichTextSegment } from "$lib/server/channels/feishu/formatting.js";
 import { transcodeAudio } from "$lib/server/channels/shared/audio.js";
+import type { QueuedControlActionResult } from "$lib/server/agent/commands/channelCommands.js";
 
 const FEISHU_CARD_MARKDOWN_LIMIT = 3500;
 const FEISHU_POST_MARKDOWN_LIMIT = 4000;
@@ -319,6 +321,107 @@ export function buildFeishuHostToolApprovalProcessingCard(
   return buildFeishuStatusCard({
     title: "审批处理中",
     body: `${prompt.body}\n\n已收到审批操作，正在执行并等待当前任务结束。`.trim(),
+    tone: "blue"
+  });
+}
+
+export function buildFeishuMemoryReviewCard(item: MemoryReviewItem): lark.InteractiveCard {
+  return {
+    config: {
+      wide_screen_mode: true,
+      enable_forward: false,
+      update_multi: false
+    },
+    header: {
+      template: "blue",
+      title: { tag: "plain_text", content: `记忆 ${item.ordinal}` }
+    },
+    elements: [
+      { tag: "markdown", content: markdownToFeishuMarkdown(formatMemoryReviewItem(item)) },
+      {
+        tag: "action",
+        layout: "flow",
+        actions: [
+          {
+            tag: "button",
+            type: "primary",
+            text: { tag: "plain_text", content: "保留" },
+            value: { kind: "memory_review", action: "keep", candidateId: item.candidateId }
+          },
+          {
+            tag: "button",
+            type: "danger",
+            text: { tag: "plain_text", content: "不保留" },
+            value: { kind: "memory_review", action: "ignore", candidateId: item.candidateId }
+          }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildFeishuMemoryReviewProcessingCard(): lark.InteractiveCard {
+  return buildFeishuStatusCard({
+    title: "记忆处理中",
+    body: "已收到操作，正在更新记忆状态。",
+    tone: "blue"
+  });
+}
+
+export function buildFeishuMemoryReviewResultCard(decision: MemoryReviewDecision): lark.InteractiveCard {
+  const success = decision.status === "kept" || decision.status === "already_kept"
+    || decision.status === "ignored" || decision.status === "already_ignored";
+  return buildFeishuStatusCard({
+    title: success ? "记忆已处理" : "记忆处理结果",
+    body: formatMemoryReviewDecision(decision),
+    tone: success ? "green" : decision.status === "processing" ? "blue" : "red"
+  });
+}
+
+export function buildFeishuQueuedControlCard(input: {
+  botId: string;
+  chatId: string;
+  scopeId: string;
+  queueId: number;
+}): lark.InteractiveCard {
+  const value = (action: "stop" | "steer") => ({
+    kind: "queued_control",
+    action,
+    botId: input.botId,
+    chatId: input.chatId,
+    scopeId: input.scopeId,
+    queueId: input.queueId
+  });
+  return {
+    config: { wide_screen_mode: true, enable_forward: false, update_multi: false },
+    header: { template: "blue", title: { tag: "plain_text", content: "消息已排队" } },
+    elements: [
+      { tag: "markdown", content: `当前任务仍在处理中，这条消息已排队为 **#${input.queueId}**。` },
+      {
+        tag: "action",
+        layout: "flow",
+        actions: [
+          { tag: "button", type: "danger", text: { tag: "plain_text", content: "停止 Stop" }, value: value("stop") },
+          { tag: "button", type: "primary", text: { tag: "plain_text", content: "插入 Steer" }, value: value("steer") }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildFeishuQueuedControlResultCard(result: QueuedControlActionResult): lark.InteractiveCard {
+  const success = result.status === "stopped" || result.status === "steered";
+  return buildFeishuStatusCard({
+    title: success ? "操作已完成" : "操作未执行",
+    body: result.message,
+    tone: success ? "green" : result.status === "not_running" || result.status === "stale" ? "grey" : "red"
+  });
+}
+
+export function buildFeishuQueuedControlProcessingCard(): lark.InteractiveCard {
+  return buildFeishuStatusCard({
+    title: "操作处理中",
+    body: "已收到操作，正在更新当前任务。",
     tone: "blue"
   });
 }

@@ -235,7 +235,7 @@ export class McpToolRegistry {
   private readonly servers = new Map<string, ConnectedServer>();
   private syncQueue: Promise<void> = Promise.resolve();
 
-  private enqueueSync(task: () => Promise<void>): Promise<void> {
+  private enqueueSync<T>(task: () => Promise<T>): Promise<T> {
     const next = this.syncQueue.then(task, task);
     this.syncQueue = next.then(() => undefined, () => undefined);
     return next;
@@ -435,8 +435,13 @@ export class McpToolRegistry {
     });
   }
 
-  async reconnect(server: McpServerConfig, options: McpRegistryOptions): Promise<void> {
+  async reconnect(server: McpServerConfig, options: McpRegistryOptions): Promise<McpServerStatus> {
     await this.enqueueSync(() => this.ensureServer(server, options, true));
+    const status = this.getStatuses([server], options.workspaceDir)[0];
+    if (!status || status.state !== "connected") {
+      throw new Error(status?.lastError || `MCP server could not be connected: ${server.id}`);
+    }
+    return status;
   }
 
   async reconcile(
@@ -520,6 +525,6 @@ export async function reconcileMcpServers(
   await registry.reconcile(servers, options);
 }
 
-export async function reconnectMcpServer(server: McpServerConfig, options: McpRegistryOptions): Promise<void> {
-  await registry.reconnect(server, options);
+export async function reconnectMcpServer(server: McpServerConfig, options: McpRegistryOptions): Promise<McpServerStatus> {
+  return registry.reconnect(server, options);
 }

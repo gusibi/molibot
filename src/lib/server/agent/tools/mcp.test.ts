@@ -114,7 +114,10 @@ test("reports connection errors and force reconnect attempts a fresh connection"
   const firstAttempt = failed?.lastAttemptAt;
 
   await new Promise((resolve) => setTimeout(resolve, 5));
-  await registry.reconnect(missing, { workspaceDir: process.cwd() });
+  await assert.rejects(
+    registry.reconnect(missing, { workspaceDir: process.cwd() }),
+    /ENOENT|not found|spawn/i
+  );
   const retried = registry.getStatuses([missing], process.cwd())[0];
   assert.equal(retried?.state, "error");
   assert.notEqual(retried?.lastAttemptAt, firstAttempt);

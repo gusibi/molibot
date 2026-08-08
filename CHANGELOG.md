@@ -6,6 +6,29 @@
 
 ## 2026-08-08
 
+### Release: v2.9.12 / Desktop v0.9.9
+- Synchronized the root and Desktop package versions for the new release.
+
+### Added: Mini App installs and updates activate immediately
+
+Installing or replacing a Mini App now makes its new server code callable in the current Molibot process—no App or service restart. The shared Host drains active calls, disposes the previous Runtime, refreshes discovery, and eagerly activates a content-addressed bundle of the complete server module graph. This invalidates Node's cache for changed child modules and same-version replacements while preserving app data and enablement. Desktop and Agent install paths now share that lifecycle, and the obsolete restart-required response/UI state is gone.
+
+### Improved: Telegram and Feishu queued messages now have Stop and Steer buttons
+
+When another message arrives while an Agent task is running, its queue notice now includes one-click Stop and Steer actions instead of requiring `/stop` or `/steer <queueId>`. Steer injects that exact queued message into the active task; Stop aborts the task and clears pending work. Shared scope and queue-state validation prevents stale, forwarded, duplicate, or opposite clicks from affecting another run, and these runtime controls never enter conversation history or model context.
+
+Feishu now acknowledges those clicks with an immediate processing card and then explicitly updates the original card to the final Stop/Steer result. If the card update API fails, Molibot sends the same result as a text receipt, so a successful, stale, or failed action is never left without visible feedback. HTTP and WebSocket card callbacks are both observable in service logs.
+
+Accepted Steer messages now survive whole-attempt model retries. If a provider times out after the Agent has consumed the injected text, the shared Runner restores that runtime-only message before the next attempt instead of silently reverting to the original prompt; replay remains exactly once per attempt and does not create a normal Session turn.
+
+### Added: Review daily memory candidates from Telegram and Feishu
+
+Daily Memory Reflection now keeps its aggregate completion notice and follows it with individually numbered candidates in the configured private Telegram or Feishu chat. Each candidate can be kept or rejected with one button click. Review batches, delivery identity, numbering, and decisions survive restarts and remain idempotent; group targets receive no candidate content, Skill draft suggestions stay App-only, and channel callbacks never enter Agent conversation history. Telegram edits the source message after a decision, while Feishu uses a prompt processing response and asynchronous card update with retry buttons restored after transient failures.
+
+### Fixed: MCP dynamic loading reports the requested server's real outcome
+
+MCP save and enable still reconcile immediately without restarting Molibot, but explicit Reconnect now fails when its target remains unavailable instead of returning a false success. Agent `loadMcp` now consumes workspace-scoped per-server states and validates the requested server id, so an already connected MCP can no longer hide another MCP's connection failure. Failed selections remain active for a direct retry on the next turn; existing disconnect recovery and cross-Session isolation are unchanged.
+
 ### Release: v2.9.11 / Desktop v0.9.8
 - Synchronized the root and Desktop package versions for the new release.
 
@@ -225,7 +248,7 @@ An owner whose installed built-in is older than the one this Molibot build ships
 - `MiniAppHost.updateBuiltin()` applies it with the same ordering discipline as uninstall (suspend → drain in-flight → `dispose()` → touch the filesystem), because the app may hold an open SQLite handle inside the directory being replaced. The code directory is replaced **wholesale**, so a file the old build had and the new one doesn't is gone; the data root is never touched, and enablement is preserved (an app that was off stays off).
 - Writing a package is now one shared helper (`builtinPackage.ts`), used by both first-install and update, staged under a dot-prefixed sibling and renamed into place. Dot-prefixed matters: discovery skips dotted entries, so a staging directory can never surface as a broken catalog row mid-write.
 - New route `POST /api/desktop/miniapps/update`, separate from `/install` because the payload differs in kind — install takes a source the owner must be warned about, this takes only an app id and always writes code that shipped inside the app they are already running. Correspondingly there is no trust confirm and no data prompt on this button.
-- Settings › Mini Apps shows a "v1.0.1 available" badge next to the installed version and an Update button on that row only. As with install, the new code is only live after a service restart (the replaced module is already in the ESM cache), so the same restart notice is raised.
+- Settings › Mini Apps shows a "v1.0.1 available" badge next to the installed version and an Update button on that row only. Updates now activate immediately through the shared Host lifecycle; no restart notice is shown.
 - Guards: version-comparison and update cases in `src/lib/server/miniapps/host.test.ts` (newer/equal/older/unbundled, data + enablement survival, repair of a broken built-in, refusal for a non-built-in), a real Todo end-to-end update in `bootstrap.test.ts`, a new `src/lib/server/app/desktopMiniApps.test.ts` pinning the projection field-for-field (pitfall 11 — this mapper enumerates rather than spreads, so a new field is dropped silently unless asserted), and the update-affordance guard in `apps/desktop/src/chat-ui.test.mjs`.
 - Verification: Mini App + projection suites 91/91, desktop UI tests 142/142, `svelte-check` 0 errors / 0 warnings, both `vite build`s clean. Exercised on a real service against a scratch `DATA_DIR`: a downgraded install with a deleted `ui/styles.css` reported the update, `POST /update` returned v1.0.1, the missing file came back, the todo written beforehand was still there afterwards, and no staging directory was left behind.
 
@@ -603,7 +626,7 @@ Follow-up to the entry above, after the platform shipped with no visible way in.
 
 - **Mini Apps are now a primary sidebar destination**, alongside Automations, Skills and Agents — previously the only management surface was the bottom of Settings › Plugins, where nobody would find it. That destination is the full manager: install, enable/disable, inspect status and errors, open, uninstall. Settings › Plugins mounts the *same component*, so the two entry points cannot drift apart.
 - The sidebar's Mini Apps tree section now lists **recently used** apps (up to five, newest first, tracked on open) with an **All** link into the manager, instead of an unbounded list of everything installed.
-- **Graphical installation from three sources**: a local folder, a `.zip` archive, or a GitHub repo (`owner/repo` or a github.com URL, with an optional branch/tag). Installs stage into a temporary directory and validate the manifest *before* anything reaches the install root, so a bad source installs nothing and a failed replace leaves the previous version untouched. The response states plainly that the new code only runs after a service restart, rather than implying the app is already live.
+- **Graphical installation from three sources**: a local folder, a `.zip` archive, or a GitHub repo (`owner/repo` or a github.com URL, with an optional branch/tag). Installs stage into a temporary directory and validate the manifest *before* anything reaches the install root, so a bad source installs nothing and a failed replace leaves the previous version untouched. Successful installs now activate immediately in the current service process.
 - Archive extraction is hardened where it actually matters: entries that traverse out of the extraction root are refused (including the case yauzl reports as a generic stream error, which would otherwise surface as a misleading "corrupt archive"), as are symlink entries, oversized archives, zip bombs by total unpacked size, and absurd entry counts. Repo and ref are pattern-checked before any URL is built, so a malformed repo never reaches the network. A source directory's `.git` and `node_modules` are skipped and its symlinks are never followed.
 - **Provenance is recorded and shown.** Each app's catalog row states whether it is built-in, from a local folder, from a ZIP, or from a specific GitHub repo and ref, and that record survives a restart.
 - **Manifests may declare `ui.icon`** (SVG or PNG under `ui/`, ≤64 KB). Icons appear in the sidebar and the manager, inlined into the catalog as `data:` URIs — serving them as URLs would have required widening the app CSP's `img-src` to the custom scheme and putting a resolvable asset path into the Desktop contract. A declared-but-unloadable icon is a visible error, not a silent fallback. Todo ships one.

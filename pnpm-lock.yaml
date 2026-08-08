@@ -41,6 +41,9 @@ importers:
       dotenv:
         specifier: ^16.5.0
         version: 16.6.1
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
       grammy:
         specifier: ^1.44.0
         version: 1.44.0

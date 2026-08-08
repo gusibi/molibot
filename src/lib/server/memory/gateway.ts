@@ -206,6 +206,11 @@ export class MemoryGateway {
     return this.candidates.list(status, limit);
   }
 
+  getCandidate(id: string): MemoryCandidate | null {
+    if (!this.isEnabled()) return null;
+    return this.candidates.get(id);
+  }
+
   async confirmCandidate(id: string, edit?: MemoryCandidateEdit): Promise<MemoryCandidate | null> {
     if (!this.isEnabled() || this.getActiveBackendKey() !== "mory") return null;
     const reserved = this.candidates.reserveConfirmation(id);

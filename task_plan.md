@@ -23,6 +23,10 @@ Complete
 ## Errors encountered
 | Error | Attempt | Resolution |
 | --- | --- | --- |
+| Shared queued-control API and Telegram/Feishu builders are absent | 1 | Expected red baseline: 28 pass / 5 intended failures. Implement only the locked contracts next. |
+| Focused red suite failed on the new atomic-ignore, reflection-result, and missing review-module contracts | 1 | Expected pre-implementation failures; implement only the shared contracts that make these exact regressions green. |
+| Adapter red suite failed on the intentionally missing Telegram helper and Feishu card exports | 1 | Expected adapter baseline; add the two narrow platform render/parser implementations. |
+| Parallel focused run hit the pre-existing global HostBash SQLite lock in Telegram runtime tests | 1 | Re-ran Telegram and scheduler suites in their normal isolated processes; both passed. Do not treat a shared-real-store parallel harness as an authoritative gate. |
 | Initial combined inventory pattern had an unmatched shell quote | 1 | Split the search into simpler single-quoted patterns; do not repeat the compound quote construction. |
 | `cargo tree` was invoked from the repository root, which has no Cargo manifest | 1 | Run Rust dependency inspection from `apps/desktop/src-tauri`; the source/tests and whitespace checks in the same command already completed successfully. |
 | Planning completion helper reported 2/7 because this accumulated file contains many historical task formats | 1 | Do not rewrite prior task history; this isolated section explicitly marks all five phases complete and is the authoritative completion record. |
@@ -32,6 +36,79 @@ Complete
 | Root `node_modules/.bin` does not expose `svelte-check` | 1 | Run the package-scoped `pnpm exec svelte-check` command instead of repeating the missing root binary path. |
 | Existing dialog structure test required `aria-label` on the memory form itself | 1 | Restored the form label while keeping the enclosing semantic dialog; no product behavior changed. |
 | New projection regression test initially called the fixture helper by the wrong name | 1 | Replaced `item(...)` with the existing `memory(...)` fixture and reran the unchanged assertion; 4/4 projection tests pass. |
+
+---
+
+# MCP target-accurate dynamic loading follow-up (2026-08-08)
+
+## Goal
+Make MCP save/enable/reconnect/load take effect without a service restart and report the requested server's real connection outcome.
+
+## Current phase
+Complete — target-accurate lifecycle, verification, records, and adversarial review finished
+
+## Phases
+1. Add target-specific load and explicit reconnect failure regressions — complete
+2. Make the shared registry expose an honest reconnect outcome — complete
+3. Make Runner/loadMcp judge the requested server rather than aggregate counts — complete
+4. Verify focused lifecycle/API/type checks and update product records — complete
+
+## Verification gates
+- Explicit reconnect rejects when the target remains in `error` and exposes only the redacted safe error.
+- Loading server B fails when B fails even if server A is already connected.
+- Saving/enabling still persists configuration and immediately attempts connection without requiring restart.
+- A successful target load refreshes the current Runner's MCP tools in the same turn.
+- Existing cross-Session connection isolation and disconnect recovery remain green.
+
+## Assumptions
+- This slice fixes runtime lifecycle truthfulness; changing how the desktop service discovers newly installed executables would alter the command-execution environment and is out of scope.
+- Save remains successful when persistence succeeds but connection fails; the returned summary shows `error`. Only the explicit Reconnect action and Agent `loadMcp` fail as operations.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Three new lifecycle assertions failed against the old implementation | 1 | Expected red baseline; implemented target-state reporting and reconnect rejection without weakening the assertions. |
+| Multi-server error assertion expected the target id before the failure phrase | 1 | The product error correctly includes both in the opposite order; tightened the regex to the actual stable sentence rather than changing runtime wording. |
+| Project-wide TypeScript check exposed the old aggregate refresh type in `createMomTools` plus many unrelated repository errors | 1 | Updated the shared tool-factory contract to the new per-server status shape; use focused diagnostics to confirm no touched-file errors remain and record the unrelated baseline separately. |
+| Planning completion helper reported 2/7 from the accumulated multi-task plan | 1 | The helper counts historical `### Phase` headings but this shared file contains several completed formats; preserve prior task history and use this section's explicit Complete state plus green verification as the authoritative result. |
+
+---
+
+# Mini App install/update hot activation (2026-08-08)
+
+## Goal
+Make every successful Mini App install or update immediately activate its new server code and UI without restarting the Molibot App or service.
+
+## Current phase
+Complete
+
+## Phases
+1. Lock first-install, same-version replacement, transitive-module update, and disposal ordering with red tests — complete
+2. Add a content-addressed bundled runtime loader behind MiniAppHost — complete
+3. Add one host activation seam and route every install/update path through it — complete
+4. Remove restart-only response/UI contracts and refresh installed tools/surfaces — complete
+5. Run focused Mini App/Runner/Desktop checks, production builds, docs, and adversarial review — complete
+
+## Verification gates
+- A newly installed app can execute a tool immediately in the same service process.
+- Replacing an already loaded app with the same manifest version executes the new entry and changed relative imports.
+- Activation refuses new calls, drains in-flight work, calls the old runtime's `dispose`, then exposes the new runtime.
+- Failed activation is visible as an app load error and never reports a restart requirement or false success.
+- UI assets remain no-store and an already open panel can reload the new files without restarting the App.
+- Existing data directories, enablement, badges, schema state, uninstall, AI facade, and tool gating remain unchanged.
+
+## Assumptions
+- Mini App code remains owner-trusted and in-process; this slice adds cache-safe hot activation, not permission isolation.
+- Node built-ins remain external; app-local packages are bundled with relative modules so moving the generated entry into the Host cache does not change package resolution.
+- Disabled apps are rediscovered immediately but are not executed until re-enabled.
+
+## Final verification
+- Host/runtime focused tests: 48/48.
+- Full Mini App slice: 154/154.
+- Desktop structural tests: 173/173.
+- `desktop:check`: 0 errors / 0 warnings.
+- Root production build and `git diff --check`: pass.
+- Adversarial review added a first-load race guard: tool calls enter `inFlight` before Runtime creation, so update/uninstall cannot strand a loading old Runtime.
 
 ---
 
@@ -2931,3 +3008,124 @@ Implementation and automated verification complete. The real macOS microphone pe
 - Meeting audio remains until the meeting is deleted.
 - The pre-existing untracked built-in Note source is preserved.
 - A/B/C microphone routing is not declared until real device evidence exists.
+# Interactive daily memory review in Telegram and Feishu (2026-08-08)
+
+## Goal
+Deliver every actionable daily memory-reflection candidate to the selected Telegram or Feishu private chat with stable numbering and durable Keep / Don't keep buttons, while keeping decision logic, authorization, idempotency, and persistence in the shared memory layer.
+
+## Current phase
+Complete
+
+## Phases
+1. Inspect current candidate/reflection/channel contracts, prior memory fixes, private-chat evidence, and existing dependencies; add focused red tests — complete
+2. Implement the shared durable review batch and atomic candidate decision module — complete
+3. Add Telegram and Feishu review adapters and callback handling without entering Agent/session context — complete
+4. Integrate Owner reflection aggregation, partial failures, retries, and execution records — complete
+5. Run focused/full verification, private-chat cold paths, adversarial review, and update README/prd/features/CHANGELOG — complete
+
+## Verification gates
+- Each reflection run returns the exact still-pending candidate IDs touched by that run, including enriched older candidates and excluding auto-confirmed candidates.
+- One Owner/date review batch deduplicates candidate IDs, preserves stable 1/N numbering across retries/restarts, and records delivery identity without real user databases in tests.
+- Keep and Don't keep compete through one atomic pending decision; double-clicks, opposite concurrent clicks, retries, and stale cards never create contradictory confirmation/suppression state.
+- Only the configured Telegram/Feishu private-chat target receives actionable content; callback Bot/Chat/message/candidate identity is revalidated in the shared layer.
+- Telegram answers callback queries promptly and edits the original message; Feishu returns a processing card within its callback window and asynchronously edits the original card.
+- Skill draft suggestions remain app-only and are counted separately; ordinary conflicts display a warning.
+- Interactive controls never enter session/model context, and no QQ/Weixin/Web channel receives them.
+- Focused tests, Agent suite, supported type/build checks, isolated restart/reconnect smoke, docs, and adversarial review pass.
+
+## Assumptions
+- “不保留” keeps the existing `ignoreCandidate` semantics: ignore the candidate and suppress the same proposition from being proposed again.
+- Actionable memory review is limited to private chats in v1; non-private or unverifiable targets receive only the aggregate text notice.
+- Existing selected reflection notification target and notification toggle are reused; no new settings switch is introduced.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Direct `tsx --test` could not import bundled `.md` prompt resources | 1 | Re-ran through the repository's `register-loader.js`; all 30 focused tests passed. |
+| Final-build wrapper assigned zsh's read-only `status` variable after the build | 1 | Inspected the completed build log directly; both Vite builds and adapter output completed successfully. |
+
+---
+
+# Telegram / Feishu queued-message control buttons (2026-08-08)
+
+## Goal
+Replace the busy queue notice's command-only `/stop` and `/steer <queueId>` workflow with authenticated Stop and “inject this queued message” buttons in Telegram and Feishu, while preserving the shared queue/control semantics and preventing duplicate injection.
+
+## Current phase
+Complete
+
+## Phases
+1. Trace the busy-message → persistent queue → stop/steer path and lock product semantics — complete
+2. Add one shared queued-control action API with duplicate-click ownership and regression tests — complete
+3. Render Telegram inline buttons and Feishu action cards; adapt callbacks only at Channel boundaries — complete
+4. Verify stop, steer, duplicate/stale callbacks, topics/private/group routing, and session non-pollution — complete
+5. Run focused/full checks, adversarial review, and update README/prd/features/CHANGELOG — complete
+
+## Locked behavior
+- The “Steer” button injects the exact newly queued message attached to that busy notice; no second text entry is required.
+- The “Stop” button keeps the existing `/stop` meaning: abort the active run and clear pending queued tasks, including the message whose notice was clicked.
+- A button is valid only while its referenced queue item is still pending in the callback's verified chat/scope; late or forwarded callbacks are stale and cannot affect a different run.
+- Callback actions are runtime controls, not conversation messages, and must never enter Session/model context.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+
+---
+
+# Feishu queued-control click feedback fix (2026-08-08)
+
+## Goal
+Make every Feishu Stop/Steer button click visibly resolve to an explicit success, stale, or failure result while preserving exactly-once shared runtime control behavior.
+
+## Current phase
+Complete — production evidence, regression, two-phase feedback, fallback, records, and adversarial review finished
+
+## Phases
+1. Correlate the reported Session, queue item, service logs, and Feishu callback transport — complete
+2. Add a deterministic regression for the exact no-visible-feedback path — complete
+3. Fix the narrow callback/update boundary and preserve shared Stop/Steer semantics — complete
+4. Verify success, stale, failure, duplicate clicks, and Session non-pollution — complete
+5. Update product records and run adversarial review — complete
+
+## Verification gates
+- A successful Steer click visibly changes the Feishu card to “已插入当前任务”.
+- A successful Stop click visibly changes the Feishu card to “已停止当前任务”.
+- Stale and failed actions also produce an explicit visible result; no click silently disappears.
+- The queued message is injected at most once and runtime controls never enter Session/model history.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| The original implementation returned the final card directly, so the new two-phase feedback assertion failed | 1 | Expected red baseline; return processing immediately, then edit the original card and fall back to text. |
+| Project-wide `tsc --noEmit` is blocked by accumulated third-party, QQ plugin, UI declaration, and unrelated source/test diagnostics | 1 | Confirmed no diagnostic names the touched Feishu files; focused runtime tests and the production SvelteKit/Vite build are authoritative for this slice. |
+
+---
+
+# Shared Runner steer consumption fix (2026-08-08)
+
+## Goal
+Ensure a queued message acknowledged as Steered is consumed by the active Agent run exactly once, including across provider timeout/retry and tool-loop boundaries.
+
+## Current phase
+Complete — production trace, red regression, shared Runner repair, records, and adversarial review finished
+
+## Phases
+1. Correlate card action, queue deletion, Runner identity, retry state, and Session output — complete
+2. Add a deterministic red test for accepted-but-unconsumed steer — complete
+3. Fix the shared Runner/orchestrator seam without Channel-specific gating — complete
+4. Verify timeout/retry, tool loop, duplicate delivery, completion race, and Session non-pollution — complete
+5. Update records and complete adversarial review — complete
+
+## Verification gates
+- A `steer()` call returning true changes the next model request in the same active run.
+- Provider retry cannot discard or strand accepted steering.
+- The steered text is consumed once and is not persisted as an ordinary user turn.
+- Feishu and Telegram keep using the same shared behavior.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Accepted Steer appeared in attempt 1 but disappeared from attempt 2 after consecutive first-token timeouts | 1 | Reproduced the pi Agent drain + MomRunner rollback boundary; added an outer-run replay list and exact three-attempt guard. |
+
+---

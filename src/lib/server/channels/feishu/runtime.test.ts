@@ -24,10 +24,11 @@ function createHookManagerMock() {
   } as any;
 }
 
-function createFeishuManagerTestHarness() {
+function createFeishuManagerTestHarness(memoryReview: any = { decide: async () => ({ status: "stale" }) }) {
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-feishu-runtime-test-"));
   const replyCalls: any[] = [];
   const createCalls: any[] = [];
+  const patchCalls: any[] = [];
 
   const client = {
     cardkit: {
@@ -52,8 +53,13 @@ function createFeishuManagerTestHarness() {
           createCalls.push(payload);
           return { data: { message_id: `om_create_${createCalls.length}` } };
         },
-        update: async () => ({ data: { message_id: "om_updated" } })
-      }
+        update: async () => ({ data: { message_id: "om_updated" } }),
+        patch: async (payload: any) => {
+          patchCalls.push(payload);
+          return { data: { message_id: "om_updated" } };
+        }
+      },
+      chat: { get: async () => ({ code: 0, data: { chat_type: "p2p" } }) }
     }
   };
 
@@ -78,6 +84,7 @@ function createFeishuManagerTestHarness() {
       queueDbFile: join(workspaceDir, "inbound-queue.sqlite"),
       outboxDbFile: join(workspaceDir, "outbox.sqlite"),
       memory: {} as any,
+      memoryReview,
       usageTracker: {} as any,
       modelErrorTracker: {} as any,
       hookManager: createHookManagerMock()
@@ -85,7 +92,7 @@ function createFeishuManagerTestHarness() {
   );
 
   (manager as any).client = client;
-  return { manager, replyCalls, createCalls };
+  return { manager, replyCalls, createCalls, patchCalls, client };
 }
 
 test("normalizeFeishuWsCardActionEvent converts card.action.trigger payloads", () => {
@@ -277,4 +284,102 @@ test("resolveFeishuUploadFilename preserves the real extension over a label titl
 
   // Empty path with no title uses the provided fallback.
   assert.equal(resolveFeishuUploadFilename("", undefined, "runlog.txt"), "runlog.txt");
+});
+
+test("Feishu sends memory review cards only to p2p chats", async () => {
+  const { manager, createCalls, client } = createFeishuManagerTestHarness();
+  const item = { batchId: "batch", candidateId: "123e4567-e89b-12d3-a456-426614174000", ordinal: 1, value: "主人希望回答简短直接" };
+  client.im.chat.get = async () => ({ code: 230001, msg: "not a group chat" });
+  assert.deepEqual(await manager.sendMemoryReviewItem("oc_private", item), { messageId: "om_create_1" });
+  assert.equal(createCalls.length, 1);
+  client.im.chat.get = async () => ({ code: 0, data: { chat_type: "group" } });
+  assert.equal(await manager.sendMemoryReviewItem("oc_group", item), null);
+  assert.equal(createCalls.length, 1);
+  client.im.chat.get = async () => { throw new Error("network unavailable"); };
+  assert.equal(await manager.sendMemoryReviewItem("oc_unverifiable", item), null);
+  assert.equal(createCalls.length, 1);
+});
+
+test("Feishu restores memory review buttons when a decision fails", async () => {
+  const item = { batchId: "batch", candidateId: "123e4567-e89b-12d3-a456-426614174000", ordinal: 1, value: "主人希望回答简短直接" };
+  const { manager, patchCalls } = createFeishuManagerTestHarness({
+    decide: async () => { throw new Error("temporary backend failure"); },
+    getDeliveredItem: () => item
+  });
+  const outcome = await (manager as any).resolveCardAction({
+    open_message_id: "om_review",
+    action: { value: { kind: "memory_review", action: "keep", candidateId: item.candidateId } }
+  }, "oc_private");
+  assert.equal(outcome.message, "processing");
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  assert.equal(patchCalls.length, 1);
+  const restored = JSON.parse(patchCalls[0].data.content);
+  assert.equal(restored.elements.at(-1).tag, "action");
+  assert.equal(restored.elements.at(-1).actions.length, 2);
+});
+
+test("Feishu queued-control callback acknowledges immediately, updates the card, and rejects a different verified chat", async () => {
+  const { manager, patchCalls } = createFeishuManagerTestHarness();
+  const calls: unknown[] = [];
+  (manager as any).commandService.handleQueuedControlAction = async (scopeId: string, queueId: number, action: string) => {
+    calls.push({ scopeId, queueId, action });
+    return { status: "steered", message: "已将这条消息插入当前任务。" };
+  };
+  const event = {
+    open_message_id: "om_queue",
+    action: {
+      value: {
+        kind: "queued_control",
+        action: "steer",
+        botId: "test-bot",
+        chatId: "oc_chat",
+        scopeId: "oc_chat__thread_1",
+        queueId: 12
+      }
+    }
+  };
+
+  assert.equal(await (manager as any).resolveCardAction(event, "oc_other"), undefined);
+  const outcome = await (manager as any).resolveCardAction(event, "oc_chat");
+  assert.equal(outcome.message, "processing");
+  assert.equal(outcome.card.header.title.content, "操作处理中");
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  assert.deepEqual(calls, [{ scopeId: "oc_chat__thread_1", queueId: 12, action: "steer" }]);
+  assert.equal(patchCalls.length, 1);
+  const updated = JSON.parse(patchCalls[0].data.content);
+  assert.equal(updated.header.title.content, "操作已完成");
+  assert.equal(updated.elements.some((element: any) => element.tag === "action"), false);
+  assert.match(updated.elements[0].content, /已将这条消息插入当前任务/);
+});
+
+test("Feishu queued-control callback sends a text receipt when the card update fails", async () => {
+  const { manager, client } = createFeishuManagerTestHarness();
+  const receipts: Array<{ chatId: string; text: string }> = [];
+  client.im.message.patch = async () => { throw new Error("card update unavailable"); };
+  (manager as any).sendText = async (chatId: string, text: string) => {
+    receipts.push({ chatId, text });
+    return { message_id: "om_receipt" };
+  };
+  (manager as any).commandService.handleQueuedControlAction = async () => ({
+    status: "stopped",
+    message: "已停止当前任务。"
+  });
+
+  const outcome = await (manager as any).resolveCardAction({
+    open_message_id: "om_queue_stop",
+    action: {
+      value: {
+        kind: "queued_control",
+        action: "stop",
+        botId: "test-bot",
+        chatId: "oc_chat",
+        scopeId: "oc_chat",
+        queueId: 13
+      }
+    }
+  }, "oc_chat");
+
+  assert.equal(outcome.card.header.title.content, "操作处理中");
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  assert.deepEqual(receipts, [{ chatId: "oc_chat", text: "已停止当前任务。" }]);
 });

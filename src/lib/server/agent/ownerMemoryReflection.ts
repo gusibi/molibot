@@ -1,24 +1,57 @@
 import type { MomEvent } from "$lib/server/agent/events.js";
 
 type ReflectionInternal = NonNullable<MomEvent["internal"]>;
-type ReflectionResult = { scannedConversations?: number; scannedMessages: number; createdCandidates: number };
+type ReflectionResult = {
+  localDate: string;
+  scannedConversations?: number;
+  scannedMessages: number;
+  createdCandidates: number;
+  pendingReviewCandidateIds: string[];
+};
 
 export interface OwnerMemoryReflectionResult {
   completedTargets: number;
   scannedConversations: number;
   scannedMessages: number;
   createdCandidates: number;
+  pendingReviewCandidateIds: string[];
+  localDate: string;
+  failedTargets: number;
+}
+
+export class OwnerMemoryReflectionError extends AggregateError {
+  constructor(errors: unknown[], readonly result: OwnerMemoryReflectionResult) {
+    super(errors, `${errors.length} memory reflection target(s) failed.`);
+    this.name = "OwnerMemoryReflectionError";
+  }
+}
+
+export function formatOwnerMemoryReflectionNotification(
+  result: OwnerMemoryReflectionResult,
+  review: { pendingReviewCount: number; skillDraftCount: number }
+): string {
+  const prefix = result.failedTargets > 0
+    ? `每日记忆反思执行失败：${result.completedTargets} 个 Bot 已完成，${result.failedTargets} 个 Bot 失败；`
+    : `每日记忆反思已执行：${result.completedTargets} 个 Bot，`;
+  const reviewText = review.skillDraftCount > 0
+    ? `新增 ${result.createdCandidates} 条候选；本次有 ${review.pendingReviewCount} 条待确认记忆，${review.skillDraftCount} 条技能草稿需在 APP 审核。`
+    : result.createdCandidates === review.pendingReviewCount
+      ? `新增 ${review.pendingReviewCount} 条待确认记忆。`
+      : `新增 ${result.createdCandidates} 条候选；本次有 ${review.pendingReviewCount} 条待确认记忆。`;
+  const suffix = result.failedTargets > 0 ? "请查看自动任务历史。" : "";
+  return `${prefix}扫描 ${result.scannedMessages} 条消息，${reviewText}${suffix}`;
 }
 
 export async function executeOwnerMemoryReflection(
   internals: ReflectionInternal[],
-  run: (internal: ReflectionInternal) => Promise<ReflectionResult>,
-  notify?: (text: string) => Promise<void>
+  run: (internal: ReflectionInternal) => Promise<ReflectionResult>
 ): Promise<OwnerMemoryReflectionResult> {
   let completedBots = 0;
   let scannedConversations = 0;
   let scannedMessages = 0;
   let createdCandidates = 0;
+  let localDate = "";
+  const pendingReviewCandidateIds = new Set<string>();
   const failures: unknown[] = [];
 
   for (const internal of internals) {
@@ -28,20 +61,22 @@ export async function executeOwnerMemoryReflection(
       scannedConversations += result.scannedConversations ?? 0;
       scannedMessages += result.scannedMessages;
       createdCandidates += result.createdCandidates;
+      localDate ||= result.localDate;
+      for (const candidateId of result.pendingReviewCandidateIds) pendingReviewCandidateIds.add(candidateId);
     } catch (cause) {
       failures.push(cause);
     }
   }
 
-  if (failures.length > 0) {
-    if (notify) {
-      await notify(`每日记忆反思执行失败：${completedBots} 个 Bot 已完成，${failures.length} 个 Bot 失败；扫描 ${scannedMessages} 条消息，新增 ${createdCandidates} 条待确认记忆。请查看自动任务历史。`);
-    }
-    throw new AggregateError(failures, `${failures.length} memory reflection target(s) failed.`);
-  }
-
-  if (notify) {
-    await notify(`每日记忆反思已执行：${completedBots} 个 Bot，扫描 ${scannedMessages} 条消息，新增 ${createdCandidates} 条待确认记忆。`);
-  }
-  return { completedTargets: completedBots, scannedConversations, scannedMessages, createdCandidates };
+  const result = {
+    completedTargets: completedBots,
+    scannedConversations,
+    scannedMessages,
+    createdCandidates,
+    pendingReviewCandidateIds: [...pendingReviewCandidateIds],
+    localDate,
+    failedTargets: failures.length
+  };
+  if (failures.length > 0) throw new OwnerMemoryReflectionError(failures, result);
+  return result;
 }

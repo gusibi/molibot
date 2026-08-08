@@ -29,6 +29,9 @@ import type { ParsedRelativeReminder, StatusSession } from "$lib/server/channels
 import { TELEGRAM_MENU_COMMANDS, TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
 import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 import { isTelegramBotMention, stripTelegramBotMention, type TelegramMessageEntityLike } from "$lib/server/channels/telegram/mentions.js";
+import { buildTelegramMemoryReviewKeyboard, parseTelegramMemoryReviewCallback } from "$lib/server/channels/telegram/memoryReview.js";
+import { buildTelegramQueuedControlKeyboard, parseTelegramQueuedControlCallback } from "$lib/server/channels/telegram/queuedControl.js";
+import { formatMemoryReviewDecision, formatMemoryReviewItem, type MemoryCandidateReview, type MemoryReviewItem } from "$lib/server/memory/review.js";
 
 export interface TelegramConfig {
   token: string;
@@ -56,6 +59,7 @@ export class TelegramManager extends BaseChannelRuntime {
   ] as const;
   private readonly commandService: SharedRuntimeCommandService<TelegramCommandTarget>;
   private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, TelegramCommandTarget>;
+  private readonly memoryReview: MemoryCandidateReview;
   private bot: Bot | undefined;
   private currentToken = "";
   private currentAllowedChatIdsKey = "";
@@ -143,6 +147,7 @@ export class TelegramManager extends BaseChannelRuntime {
       instanceId?: string;
       queueDbFile?: string;
       memory: MemoryGateway;
+      memoryReview: MemoryCandidateReview;
       usageTracker: AiUsageTracker;
       modelErrorTracker: ModelErrorTracker;
     }
@@ -155,6 +160,8 @@ export class TelegramManager extends BaseChannelRuntime {
       sessionStore,
       options
     });
+    if (!options?.memoryReview) throw new Error("Telegram runtime requires MemoryCandidateReview.");
+    this.memoryReview = options.memoryReview;
     this.inboundTasks = new InboundTaskCoordinator<ChannelInboundMessage, TelegramCommandTarget>({
       channel: "telegram",
       instanceId: this.instanceId,
@@ -477,6 +484,98 @@ export class TelegramManager extends BaseChannelRuntime {
       }
     });
 
+    bot.callbackQuery(/^mrv:/, async (ctx) => {
+      const parsed = parseTelegramMemoryReviewCallback(ctx.callbackQuery.data);
+      const callbackMessage = ctx.callbackQuery.message;
+      const chatId = String(callbackMessage?.chat.id ?? "");
+      const messageId = callbackMessage?.message_id;
+      const isPrivate = callbackMessage?.chat.type === "private";
+      const answer = async (text: string): Promise<void> => {
+        try {
+          await ctx.answerCallbackQuery({ text });
+        } catch (error) {
+          momWarn("telegram", "memory_review_callback_answer_failed", {
+            chatId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      };
+      if (!parsed || !chatId || !messageId || !isPrivate || (allowed.size > 0 && !allowed.has(chatId))) {
+        await answer("这条记忆审核操作无效。");
+        return;
+      }
+      await answer("正在处理…");
+      try {
+        const decision = await this.memoryReview.decide({
+          channel: "telegram",
+          botId: this.instanceId,
+          chatId,
+          messageId: String(messageId),
+          candidateId: parsed.candidateId,
+          action: parsed.action
+        });
+        await editTelegramMessage(
+          bot,
+          chatId,
+          messageId,
+          formatMemoryReviewDecision(decision),
+          { reply_markup: undefined }
+        );
+      } catch (error) {
+        momWarn("telegram", "memory_review_action_failed", {
+          botId: this.instanceId,
+          chatId,
+          messageId,
+          candidateId: parsed.candidateId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        await sendTelegramText(bot, chatId, "记忆处理失败，请稍后重试。");
+      }
+    });
+
+    bot.callbackQuery(/^qctl:/, async (ctx) => {
+      const parsed = parseTelegramQueuedControlCallback(ctx.callbackQuery.data);
+      const callbackMessage = ctx.callbackQuery.message;
+      const chatId = String(callbackMessage?.chat.id ?? "");
+      const messageId = callbackMessage?.message_id;
+      const messageThreadId = callbackMessage && "message_thread_id" in callbackMessage && Number.isFinite(callbackMessage.message_thread_id)
+        ? Number(callbackMessage.message_thread_id)
+        : undefined;
+      const scopeId = this.buildChatScopeId(chatId, messageThreadId);
+      const answer = async (text: string): Promise<void> => {
+        try {
+          await ctx.answerCallbackQuery({ text });
+        } catch (error) {
+          momWarn("telegram", "queued_control_callback_answer_failed", {
+            chatId,
+            scopeId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      };
+      if (!parsed || !chatId || !messageId || (allowed.size > 0 && !allowed.has(chatId))) {
+        await answer("这条排队消息操作无效。");
+        return;
+      }
+      await answer("正在处理…");
+      const result = await this.commandService.handleQueuedControlAction(scopeId, parsed.queueId, parsed.action);
+      try {
+        await editTelegramMessage(bot, chatId, messageId, result.message, {
+          ...this.buildTelegramSendOptions(messageThreadId),
+          reply_markup: undefined
+        });
+      } catch (error) {
+        momWarn("telegram", "queued_control_edit_failed", {
+          chatId,
+          scopeId,
+          queueId: parsed.queueId,
+          action: parsed.action,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        await sendTelegramText(bot, chatId, result.message, this.buildTelegramSendOptions(messageThreadId));
+      }
+    });
+
     bot.on("message", async (ctx) => {
       const chatId = String(ctx.chat.id);
       const messageThreadId = Number.isFinite(ctx.msg?.message_thread_id) ? Number(ctx.msg.message_thread_id) : undefined;
@@ -648,7 +747,9 @@ export class TelegramManager extends BaseChannelRuntime {
           scopeId: eventScopeId,
           queueId
         });
-        await ctx.reply(this.buildQueuedBusyNotice(queueId));
+        await ctx.reply(this.buildQueuedBusyNotice(queueId), {
+          reply_markup: buildTelegramQueuedControlKeyboard(queueId)
+        });
       }
     });
 
@@ -1016,6 +1117,29 @@ export class TelegramManager extends BaseChannelRuntime {
       messageId: sent.message_id,
       textLength: text.length
     });
+  }
+
+  async sendMemoryReviewItem(chatId: string, item: MemoryReviewItem): Promise<{ messageId: string } | null> {
+    if (!this.bot) throw new Error("Telegram bot is not running.");
+    const target = this.parseChatScopeId(chatId);
+    try {
+      const chat = await this.bot.api.getChat(target.chatId);
+      if (chat.type !== "private") {
+        momWarn("telegram", "memory_review_skipped_non_private_chat", { botId: this.instanceId, chatId });
+        return null;
+      }
+    } catch (error) {
+      momWarn("telegram", "memory_review_chat_type_failed", {
+        botId: this.instanceId,
+        chatId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+    const sent = await sendTelegramText(this.bot, target.chatId, formatMemoryReviewItem(item), {
+      reply_markup: buildTelegramMemoryReviewKeyboard(item.candidateId)
+    });
+    return { messageId: String(sent.message_id) };
   }
 
   private async deliverDirectEventMessage(event: MomEvent, runId: string, filename: string): Promise<void> {

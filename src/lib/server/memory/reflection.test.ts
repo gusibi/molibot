@@ -45,9 +45,75 @@ test("reflection creates pending candidate once and advances watermark only afte
     const first = await service.run(h.target, { now: new Date("2026-07-11T12:00:00.000Z") });
     const second = await service.run(h.target, { now: new Date("2026-07-11T12:00:00.000Z") });
     assert.equal(first.createdCandidates, 1);
+    assert.equal(first.localDate, "2026-07-10");
+    assert.deepEqual(first.pendingReviewCandidateIds, [h.candidates.list("pending")[0]?.id]);
     assert.equal(second.createdCandidates, 0);
+    assert.deepEqual(second.pendingReviewCandidateIds, []);
     assert.equal(h.candidates.list("pending").length, 1);
     assert.ok(h.state.get(h.targetId, "session-1"));
+  } finally { h.cleanup(); }
+});
+
+test("reflection returns an enriched older pending candidate exactly once", async () => {
+  const h = harness();
+  try {
+    const older = h.gateway.createCandidate({
+      runKey: "older-run",
+      namespace: "owner:owner",
+      domain: "owner",
+      type: "user_preference",
+      subject: "answer_length",
+      path: "mory://user_preference/answer_length",
+      value: "主人明确希望回答更加简短直接",
+      confidence: 0.88,
+      reason: "older evidence",
+      sources: [{ channel: "web", sessionId: "older-session", conversationMessageId: "older-message", observedAt: "2026-07-09T02:00:00.000Z" }],
+      layer: "long_term"
+    });
+    assert.ok(older);
+    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
+      extract: async () => [{
+        namespace: "owner:owner" as const,
+        domain: "owner" as const,
+        type: "user_preference" as const,
+        subject: "answer_length",
+        path: "mory://user_preference/answer_length",
+        value: "主人明确希望回答更加简短直接",
+        confidence: 0.92,
+        reason: "new evidence",
+        layer: "long_term" as const
+      }]
+    });
+    const result = await service.run(h.target, { now: new Date("2026-07-11T12:00:00.000Z") });
+    assert.equal(result.createdCandidates, 1);
+    assert.deepEqual(result.pendingReviewCandidateIds, [older.id]);
+  } finally { h.cleanup(); }
+});
+
+test("reflection excludes a candidate that auto-confirmed before notification", async () => {
+  const h = harness();
+  try {
+    h.gateway.maybeAutoConfirmCandidate = (async (id: string) => ({
+      ...h.candidates.get(id)!,
+      status: "confirmed" as const,
+      confirmedMemoryId: "memory-auto"
+    })) as typeof h.gateway.maybeAutoConfirmCandidate;
+    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
+      extract: async () => [{
+        namespace: "owner:owner" as const,
+        domain: "owner" as const,
+        type: "user_preference" as const,
+        subject: "answer_length",
+        path: "mory://user_preference/answer_length",
+        value: "主人明确希望回答更加简短直接",
+        confidence: 0.92,
+        reason: "new evidence",
+        layer: "long_term" as const
+      }]
+    });
+    const result = await service.run(h.target, { now: new Date("2026-07-11T12:00:00.000Z") });
+    assert.equal(result.createdCandidates, 1);
+    assert.deepEqual(result.pendingReviewCandidateIds, []);
   } finally { h.cleanup(); }
 });
 

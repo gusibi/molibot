@@ -6,7 +6,11 @@ import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { buildHostBashApprovalPrompt, getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import { resolveEventSessionMode, type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
-import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
+import {
+    SharedRuntimeCommandService,
+    type QueuedControlAction,
+    type QueuedControlActionResult
+} from "$lib/server/agent/commands/channelCommands.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
 import type { ChannelInboundMessage, MomContext, RunResult } from "$lib/server/agent/core/types.js";
@@ -19,6 +23,12 @@ import {
     buildFeishuHostToolApprovalCard,
     buildFeishuHostToolApprovalProcessingCard,
     buildFeishuHostToolApprovalResultCard,
+    buildFeishuMemoryReviewCard,
+    buildFeishuMemoryReviewProcessingCard,
+    buildFeishuMemoryReviewResultCard,
+    buildFeishuQueuedControlCard,
+    buildFeishuQueuedControlProcessingCard,
+    buildFeishuQueuedControlResultCard,
     deleteFeishuMessage,
     editFeishuCard,
     editFeishuText,
@@ -34,6 +44,7 @@ import { FeishuCardActionCoordinator, normalizeFeishuWsCardActionEvent } from "$
 import { FeishuStreamingSession } from "$lib/server/channels/feishu/streamingSession.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
+import type { MemoryCandidateReview, MemoryReviewAction, MemoryReviewItem } from "$lib/server/memory/review.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -77,6 +88,7 @@ export class FeishuManager extends BaseChannelRuntime {
     private readonly commandService: SharedRuntimeCommandService<string>;
     private readonly outbox: SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>;
     private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, string>;
+    private readonly memoryReview: MemoryCandidateReview;
     private readonly cardActions = new FeishuCardActionCoordinator<FeishuCardActionOutcome | undefined>();
     private readonly threadRegistry: FeishuThreadRegistry;
 
@@ -103,6 +115,7 @@ export class FeishuManager extends BaseChannelRuntime {
             queueDbFile?: string;
             outboxDbFile?: string;
             memory: MemoryGateway;
+            memoryReview: MemoryCandidateReview;
             usageTracker: AiUsageTracker;
             modelErrorTracker: ModelErrorTracker;
             hookManager: HookManager;
@@ -116,6 +129,8 @@ export class FeishuManager extends BaseChannelRuntime {
             sessionStore,
             options
         });
+        if (!options?.memoryReview) throw new Error("Feishu runtime requires MemoryCandidateReview.");
+        this.memoryReview = options.memoryReview;
         this.threadRegistry = new FeishuThreadRegistry(this.workspaceDir);
         this.inboundTasks = new InboundTaskCoordinator<ChannelInboundMessage, string>({
             channel: "feishu",
@@ -466,6 +481,7 @@ export class FeishuManager extends BaseChannelRuntime {
     }
 
     private async handleCardActionEvent(event: lark.InteractiveCardActionEvent): Promise<lark.InteractiveCard | undefined> {
+        momLog("feishu", "card_action_received", { transport: "http" });
         const outcome = await this.resolveCardAction(event);
         return outcome?.card;
     }
@@ -482,7 +498,7 @@ export class FeishuManager extends BaseChannelRuntime {
             return undefined;
         }
 
-        const outcome = await this.resolveCardAction(normalized.event);
+        const outcome = await this.resolveCardAction(normalized.event, normalized.chatId);
         return outcome?.card;
     }
 
@@ -560,9 +576,133 @@ export class FeishuManager extends BaseChannelRuntime {
         return { ok: false, message: `Unsupported action: ${action}` };
     }
 
-    private async resolveCardAction(event: lark.InteractiveCardActionEvent): Promise<FeishuCardActionOutcome | undefined> {
+    private async resolveCardAction(event: lark.InteractiveCardActionEvent, verifiedChatId?: string): Promise<FeishuCardActionOutcome | undefined> {
         const rawValue = event.action?.value;
         const value = rawValue && typeof rawValue === "object" ? rawValue as Record<string, unknown> : {};
+        if (String(value.kind ?? "").trim() === "queued_control") {
+            if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
+            const chatId = String(value.chatId ?? "").trim();
+            const scopeId = String(value.scopeId ?? chatId).trim() || chatId;
+            const queueId = Number(value.queueId);
+            const rawAction = String(value.action ?? "").trim();
+            const action: QueuedControlAction | null = rawAction === "stop" || rawAction === "steer" ? rawAction : null;
+            if (!chatId || !scopeId || !Number.isSafeInteger(queueId) || queueId <= 0 || !action) return undefined;
+            if (verifiedChatId && verifiedChatId !== chatId) return undefined;
+            const messageId = String(event.open_message_id ?? "").trim();
+            const key = `queued-control:${messageId || chatId}:${scopeId}:${queueId}`;
+            const state = this.cardActions.start(key, async () => {
+                let result: QueuedControlActionResult;
+                try {
+                    result = await this.commandService.handleQueuedControlAction(scopeId, queueId, action);
+                } catch (error) {
+                    result = {
+                        status: "failed",
+                        message: `操作失败：${error instanceof Error ? error.message : String(error)}`
+                    };
+                }
+                const card = buildFeishuQueuedControlResultCard(result);
+                await waitForFeishuCardCallbackResponse();
+                const edited = messageId ? await editFeishuCard(this.client, messageId, card) : null;
+                if (edited) {
+                    momLog("feishu", "queued_control_card_updated", {
+                        botId: this.instanceId,
+                        chatId,
+                        messageId: edited,
+                        scopeId,
+                        queueId,
+                        action,
+                        status: result.status
+                    });
+                } else {
+                    await this.sendText(chatId, result.message);
+                    momWarn("feishu", "queued_control_card_update_fallback_text", {
+                        botId: this.instanceId,
+                        chatId,
+                        messageId,
+                        scopeId,
+                        queueId,
+                        action,
+                        status: result.status
+                    });
+                }
+                return { chatId, message: result.message, card };
+            });
+            if (state.status === "completed") return state.value;
+            void state.promise.catch((error) => {
+                momWarn("feishu", "queued_control_background_failed", {
+                    botId: this.instanceId,
+                    chatId,
+                    messageId,
+                    scopeId,
+                    queueId,
+                    action,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            });
+            return {
+                chatId,
+                message: "processing",
+                card: buildFeishuQueuedControlProcessingCard()
+            };
+        }
+        if (String(value.kind ?? "").trim() === "memory_review") {
+            const candidateId = String(value.candidateId ?? "").trim();
+            const rawAction = String(value.action ?? "").trim();
+            const action: MemoryReviewAction | null = rawAction === "keep" || rawAction === "ignore" ? rawAction : null;
+            const messageId = String(event.open_message_id ?? "").trim();
+            if (!candidateId || !action || !messageId) return undefined;
+            const key = `memory-review:${messageId}:${candidateId}:${action}`;
+            const state = this.cardActions.start(key, async () => {
+                await waitForFeishuCardCallbackResponse();
+                try {
+                    const decision = await this.memoryReview.decide({
+                        channel: "feishu",
+                        botId: this.instanceId,
+                        chatId: verifiedChatId,
+                        messageId,
+                        candidateId,
+                        action
+                    });
+                    const card = buildFeishuMemoryReviewResultCard(decision);
+                    await editFeishuCard(this.client, messageId, card);
+                    return { chatId: verifiedChatId ?? "", message: decision.status, card };
+                } catch (error) {
+                    const item = this.memoryReview.getDeliveredItem({
+                        channel: "feishu",
+                        botId: this.instanceId,
+                        chatId: verifiedChatId,
+                        messageId,
+                        candidateId
+                    });
+                    const card = item
+                        ? buildFeishuMemoryReviewCard(item)
+                        : buildFeishuMemoryReviewResultCard({ status: "stale" });
+                    await editFeishuCard(this.client, messageId, card);
+                    momWarn("feishu", "memory_review_action_failed", {
+                        botId: this.instanceId,
+                        chatId: verifiedChatId,
+                        messageId,
+                        candidateId,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
+                    return { chatId: verifiedChatId ?? "", message: "failed", card };
+                }
+            });
+            if (state.status === "completed") return state.value;
+            void state.promise.catch((error) => {
+                momWarn("feishu", "memory_review_background_failed", {
+                    botId: this.instanceId,
+                    messageId,
+                    candidateId,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            });
+            return {
+                chatId: verifiedChatId ?? "",
+                message: "processing",
+                card: buildFeishuMemoryReviewProcessingCard()
+            };
+        }
         if (String(value.kind ?? "").trim() === "host_bash_approval") {
             if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
             const chatId = String(value.chatId ?? "").trim();
@@ -753,7 +893,12 @@ export class FeishuManager extends BaseChannelRuntime {
         const queueState = this.inboundTasks.peek(scopeId, queueId);
         if (queueState.status === "pending") {
             momLog("feishu", "message_queued_while_busy", { runId, chatId, scopeId, queueId });
-            await sendFeishuText(this.client, chatId, this.buildQueuedBusyNotice(queueId), this.replyOptionsForEvent(event));
+            await sendFeishuCard(this.client, chatId, buildFeishuQueuedControlCard({
+                botId: this.instanceId,
+                chatId,
+                scopeId,
+                queueId
+            }), this.replyOptionsForEvent(event));
         }
     }
 
@@ -1113,6 +1258,26 @@ export class FeishuManager extends BaseChannelRuntime {
             messageId: sent?.message_id,
             textLength: text.length
         });
+    }
+
+    async sendMemoryReviewItem(chatId: string, item: MemoryReviewItem): Promise<{ messageId: string } | null> {
+        if (!this.client) throw new Error("Feishu bot is not running.");
+        try {
+            const response = await this.client.im.chat.get({ path: { chat_id: chatId } });
+            if ((!response.code || response.code === 0) && response.data?.chat_type !== "p2p") {
+                momWarn("feishu", "memory_review_skipped_non_private_chat", { botId: this.instanceId, chatId });
+                return null;
+            }
+        } catch (error) {
+            momWarn("feishu", "memory_review_chat_type_unverifiable", {
+                botId: this.instanceId,
+                chatId,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            return null;
+        }
+        const sent = await sendFeishuCard(this.client, chatId, buildFeishuMemoryReviewCard(item));
+        return sent?.message_id ? { messageId: sent.message_id } : null;
     }
 
 }

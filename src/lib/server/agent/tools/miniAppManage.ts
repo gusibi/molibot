@@ -175,19 +175,19 @@ export function createMiniAppManageTool(options: MiniAppManageOptions): AgentToo
       const installer = options.installer ?? getMiniAppInstaller();
       const result = await installer.install({ source: "directory", path: sourceDir });
       const host = options.host ?? getMiniAppHost();
-      host.refresh();
+      await host.activateInstalled(result.appId);
       const entry = host.listCatalog().find((item) => item.id === result.appId);
       const receipt = installedReceipt(codeRoot, result.appId, entry);
       return {
         content: [{
           type: "text" as const,
-          text: `Installed Mini App receipt: ${receipt.appId} v${receipt.version}; replaced=${result.replaced}; manifest=${receipt.manifestHash}. Restart Molibot before runtime/UI verification.`
+          text: `Installed and activated Mini App receipt: ${receipt.appId} v${receipt.version}; replaced=${result.replaced}; manifest=${receipt.manifestHash}.`
         }],
         details: {
           action: "install",
           ...receipt,
           replaced: result.replaced,
-          restartRequired: true,
+          activated: true,
           validatedManifestHash: validation.manifestHash
         }
       };

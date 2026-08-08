@@ -7,6 +7,7 @@ import type { MomEvent } from "./events";
 import {
   collectMemoryReflectionInternals,
   deliverMemoryTaskNotification,
+  deliverMemoryReviewBatch,
   dispatchTaskEvent,
   ensureOwnerDailyMaterialsEvent,
   ensureOwnerMemoryMaintenanceEvent,
@@ -17,7 +18,7 @@ import {
   migrateLegacyWebTaskEvents,
   resolveMemoryReflectionNotificationTarget
 } from "./taskScheduler";
-import { executeOwnerMemoryReflection } from "./ownerMemoryReflection";
+import { executeOwnerMemoryReflection, formatOwnerMemoryReflectionNotification, OwnerMemoryReflectionError } from "./ownerMemoryReflection";
 
 test("migrates legacy Web scratch events into the bot-level watched directory", () => {
   const botsRoot = mkdtempSync(join(tmpdir(), "molibot-web-events-"));
@@ -182,44 +183,70 @@ test("daily materials completion notice is aggregated and deduplicates output pa
   );
 });
 
-test("owner reflection always sends one aggregate completion notice, including zero output", async () => {
-  const notices: string[] = [];
-  await executeOwnerMemoryReflection(
+test("owner reflection formats one aggregate completion notice, including zero output", async () => {
+  const result = await executeOwnerMemoryReflection(
     [{ kind: "memory-reflection", target: { ownerId: "owner", botId: "a", timezone: "Asia/Shanghai", sourceScopes: [] } } as any],
-    async () => ({ scannedMessages: 0, createdCandidates: 0 }),
-    async (text) => { notices.push(text); }
+    async () => ({ localDate: "2026-08-07", scannedMessages: 0, createdCandidates: 0, pendingReviewCandidateIds: [] })
   );
-  assert.equal(notices.length, 1);
-  assert.match(notices[0], /0 条消息/);
-  assert.match(notices[0], /新增 0 条/);
+  const notice = formatOwnerMemoryReflectionNotification(result, { pendingReviewCount: 0, skillDraftCount: 0 });
+  assert.match(notice, /0 条消息/);
+  assert.match(notice, /新增 0 条/);
 });
 
 test("owner reflection aggregates Bot results into one notice and reports terminal failure", async () => {
-  const successNotices: string[] = [];
-  await executeOwnerMemoryReflection(
+  const success = await executeOwnerMemoryReflection(
     [{ target: { botId: "a" } } as any, { target: { botId: "b" } } as any],
     async (internal) => internal.target?.botId === "a"
-      ? { scannedMessages: 3, createdCandidates: 1 }
-      : { scannedMessages: 4, createdCandidates: 2 },
-    async (text) => { successNotices.push(text); }
+      ? { localDate: "2026-08-07", scannedMessages: 3, createdCandidates: 1, pendingReviewCandidateIds: ["candidate-1"] }
+      : { localDate: "2026-08-07", scannedMessages: 4, createdCandidates: 2, pendingReviewCandidateIds: ["candidate-1", "candidate-2"] }
   );
-  assert.equal(successNotices.length, 1);
-  assert.match(successNotices[0], /2 个 Bot/);
-  assert.match(successNotices[0], /7 条消息/);
-  assert.match(successNotices[0], /新增 3 条/);
+  assert.deepEqual(success.pendingReviewCandidateIds, ["candidate-1", "candidate-2"]);
+  const successNotice = formatOwnerMemoryReflectionNotification(success, { pendingReviewCount: 2, skillDraftCount: 0 });
+  assert.match(successNotice, /2 个 Bot/);
+  assert.match(successNotice, /7 条消息/);
+  assert.match(successNotice, /新增 3 条候选/);
+  assert.match(successNotice, /本次有 2 条待确认记忆/);
 
-  const failureNotices: string[] = [];
   await assert.rejects(() => executeOwnerMemoryReflection(
     [{ target: { botId: "a" } } as any, { target: { botId: "b" } } as any],
     async (internal) => {
       if (internal.target?.botId === "b") throw new Error("boom");
-      return { scannedMessages: 2, createdCandidates: 1 };
-    },
-    async (text) => { failureNotices.push(text); }
-  ), AggregateError);
-  assert.equal(failureNotices.length, 1);
-  assert.match(failureNotices[0], /执行失败/);
-  assert.match(failureNotices[0], /1 个 Bot/);
+      return { localDate: "2026-08-07", scannedMessages: 2, createdCandidates: 1, pendingReviewCandidateIds: ["candidate-1"] };
+    }
+  ), (error: unknown) => {
+    assert.ok(error instanceof OwnerMemoryReflectionError);
+    assert.deepEqual(error.result.pendingReviewCandidateIds, ["candidate-1"]);
+    const notice = formatOwnerMemoryReflectionNotification(error.result, { pendingReviewCount: 1, skillDraftCount: 0 });
+    assert.match(notice, /执行失败/);
+    assert.match(notice, /1 个 Bot/);
+    return true;
+  });
+});
+
+test("memory review delivery skips recorded items and stops when a target is not private", async () => {
+  const recorded: unknown[] = [];
+  const sent: string[] = [];
+  const review = { recordDelivery: (input: unknown) => { recorded.push(input); return true; } } as any;
+  const batch = {
+    id: "batch-1",
+    localDate: "2026-08-07",
+    target: { channel: "telegram", botId: "momo", chatId: "chat-1" },
+    skillDraftCount: 0,
+    items: [
+      { batchId: "batch-1", candidateId: "c1", ordinal: 1, value: "one", messageId: "10" },
+      { batchId: "batch-1", candidateId: "c2", ordinal: 2, value: "two" },
+      { batchId: "batch-1", candidateId: "c3", ordinal: 3, value: "three" }
+    ]
+  } as any;
+  const managers = new Map([["telegram", new Map([["momo", {
+    sendMemoryReviewItem: async (_chatId: string, item: { candidateId: string }) => {
+      sent.push(item.candidateId);
+      return item.candidateId === "c2" ? { messageId: "20" } : null;
+    }
+  }]])]]) as any;
+  assert.deepEqual(await deliverMemoryReviewBatch(managers, review, batch), { delivered: 1, alreadyDelivered: 1, skipped: 1 });
+  assert.deepEqual(sent, ["c2", "c3"]);
+  assert.deepEqual(recorded, [{ batchId: "batch-1", candidateId: "c2", messageId: "20" }]);
 });
 
 test("owner managed event comparison ignores JSON object key order", () => {

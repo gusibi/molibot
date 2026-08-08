@@ -56,8 +56,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const response: DesktopMiniAppBuiltinInstallResponse = {
       ok: true,
       ...payload,
-      version: payload.builtin.find((item) => item.id === body.appId)?.installedVersion ?? "",
-      restartRequired: true
+      version: payload.builtin.find((item) => item.id === body.appId)?.installedVersion ?? ""
     };
     return json(response);
   } catch (cause) {

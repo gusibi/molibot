@@ -12,6 +12,7 @@ import { createFileSearchTools } from "$lib/server/agent/tools/fileSearch.js";
 import { createEventTool } from "$lib/server/agent/tools/event.js";
 import { createMcpInvokeTool } from "$lib/server/agent/tools/mcpInvoke.js";
 import { createLoadMcpTool } from "$lib/server/agent/tools/loadMcp.js";
+import type { McpServerStatus } from "$lib/server/agent/tools/mcp.js";
 import { createMemoryTool } from "$lib/server/agent/tools/memory.js";
 import { createConversationSearchTool } from "$lib/server/agent/tools/conversationSearch.js";
 import { createProfileFilesTool } from "$lib/server/agent/tools/profileFiles.js";
@@ -150,7 +151,7 @@ export function createMomTools(options: {
   getSelectedMcpServerIds: () => Set<string>;
   setSelectedMcpServerIds: (next: Set<string>) => void;
   getLoadedMcpTools: () => AgentTool<any>[];
-  refreshLoadedMcpTools: () => Promise<{ serverCount: number; toolCount: number }>;
+  refreshLoadedMcpTools: () => Promise<{ statuses: McpServerStatus[]; toolCount: number }>;
   onLocalToolsChanged?: (tools: AgentTool<any>[]) => void;
   exposeLoadMcpTool?: boolean;
   /** A leading @mini-app selector preloads and exclusively exposes that app. */

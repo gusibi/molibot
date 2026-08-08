@@ -1406,9 +1406,7 @@ export async function updateDesktopMiniApp(
 /**
  * Installs a Mini App from a local directory, a local ZIP, or a GitHub repo.
  *
- * The installed code does not run until the service restarts (V1 has no hot
- * reload), so the response reports that explicitly instead of leaving the UI to
- * imply the app is already live.
+ * Success means the new runtime is already active in the current service.
  */
 export async function installDesktopMiniApp(
   endpoint: string,

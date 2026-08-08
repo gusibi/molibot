@@ -349,4 +349,5 @@ Before you call an app done:
 - [ ] The UI polls `_host/state` and handles 403, 503 and connection loss.
 - [ ] No absolute paths or secrets in any HTTP response.
 - [ ] `ui.icon` points at a real SVG/PNG under `ui/` (or is omitted entirely).
+- [ ] Install or update the app and open it immediately — the new code must be active without restarting Molibot.
 - [ ] Restart Molibot and open the panel cold — first open must not be blank.

@@ -293,10 +293,6 @@
     </div>
   </div>
 
-  {#if miniAppsStore.restartRequired}
-    <p class="miniapps-restart" role="status">{session.text.miniAppRestartRequired}</p>
-  {/if}
-
   {#if onOpenAiSettings}
     <!--
       The AI capability settings themselves live in Settings › Models (one

@@ -4,6 +4,7 @@ import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import type { HookManager } from "$lib/server/agent/hooks/index.js";
+import type { MemoryCandidateReview, MemoryReviewItem } from "$lib/server/memory/review.js";
 import { feishuChannelPlugin } from "$lib/server/channels/feishu/index.js";
 import { qqChannelPlugin } from "$lib/server/channels/qq/index.js";
 import { telegramChannelPlugin } from "$lib/server/channels/telegram/index.js";
@@ -19,6 +20,7 @@ export interface ChannelManager {
   abortRun?(chatId: string, sessionId: string, reason?: string): { aborted: boolean };
   triggerTask?(event: unknown, filename: string): Promise<void>;
   sendInternalNotice?(chatId: string, text: string, metadata: { kind: string; filename: string }): Promise<void>;
+  sendMemoryReviewItem?(chatId: string, item: MemoryReviewItem): Promise<{ messageId: string } | null>;
 }
 
 export interface ChannelRuntimeDeps {
@@ -26,6 +28,7 @@ export interface ChannelRuntimeDeps {
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
   sessions: SessionStore;
   memory: MemoryGateway;
+  memoryReview: MemoryCandidateReview;
   usageTracker: AiUsageTracker;
   modelErrorTracker: ModelErrorTracker;
   hookManager: HookManager;

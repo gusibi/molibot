@@ -133,6 +133,7 @@ export function applyChannelPlugins(state: any, applySettingsPatch: (patch: Part
     updateSettings: applySettingsPatch,
     sessions: state.sessions,
     memory: state.memory,
+    memoryReview: state.memoryReview,
     usageTracker: state.usageTracker,
     modelErrorTracker: state.modelErrorTracker,
     hookManager: state.hookManager

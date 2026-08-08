@@ -47,7 +47,7 @@ App 数据               ~/.molibot/miniapps/data/<app-id>
 - WebSocket / SSE；V1 使用 revision 轮询。
 - TypeScript 现场编译、安装脚本或宿主代执行 npm install。
 - 数据 schema 自动迁移。schema 不匹配时停用并报错，不冒险修改用户数据。
-- App 代码热更新。新增或替换 App 代码后需重启 Molibot Server；数据不受影响。
+- 文件监听式开发热重载（安装/更新后的显式热激活已交付；见 `prd.md` §3.44）。
 
 ---
 

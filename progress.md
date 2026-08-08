@@ -2092,3 +2092,116 @@
 - Corrected adversarial findings: undefined Desktop token, iframe `confirm()`, recorder rollover buffer race, and audio-device-loss handling.
 - Pending manual acceptance: real macOS `desktop:dev` and packaged microphone permission/device matrix. No A/B/C conclusion is claimed.
 - Known unrelated failing test: isolated Session FTS lifecycle test reports SQLite `bm25` context error.
+# 2026-08-08 — Interactive daily memory review
+
+## Phase 1: baseline and red contracts
+- **Status:** in progress
+- Loaded the codebase-design and file-planning procedures.
+- Confirmed the approved product interaction, shared-layer seam, existing candidate governance paths, and both channel interaction implementations.
+- Preserved the accumulated planning history and dirty worktree; no product source has been changed yet.
+- Confirmed both platform adapters can verify private-chat mode before disclosing candidate content and that the existing mory database is the correct local-substitutable store.
+- Searched changelog archives and recurring pitfalls; no prior confirm-vs-ignore concurrency fix exists, so this slice must add the first machine guard.
+- Added focused red contracts for exact reflection candidate IDs/local date, enriched older candidates, auto-confirm exclusion, restart-stable review numbering, delivery authorization/idempotency, Skill draft exclusion, and confirm-vs-ignore concurrency.
+- The red suite produced the intended five failures: one real suppression race, three missing reflection result fields, and the intentionally missing review module.
+- Implemented exact post-auto-confirm reflection IDs/local date, restart-stable daily review batches in the existing mory SQLite, delivery-identity authorization, Skill draft exclusion, shared formatting, and atomic ignore semantics.
+- Shared domain suite is green at 22/22.
+- Next: add pure adapter payload/card contracts, then wire Telegram and Feishu send/callback paths through the shared review module.
+- Added adapter red contracts for Telegram's 64-byte callback payload/parser and Feishu's non-forwardable action/result cards; both fail only because the new adapter helpers are not implemented yet.
+- Wired both managers to the shared review module, added private-chat verification, Telegram callback acknowledgement/editing, Feishu processing/final card updates, restart-safe delivery recording, Owner aggregation, partial-failure delivery, and retry reuse.
+- Focused combined run passed 60/61; the only failure was the existing Telegram test harness colliding on its global HostBash SQLite when run in parallel. Normal isolated Telegram 4/4 and scheduler 15/15 reruns pass.
+- Root production build passed with only the repository's existing Vite dynamic/static import warnings.
+- Adversarial review corrected Feishu private-chat detection: `im.chat.get` is the SDK's documented group-info endpoint, so a successful non-`p2p` lookup proves a group and blocks candidate delivery; only a controlled non-group response proceeds, while transport failures remain unverifiable and fail closed.
+- Adversarial review also restored the original Feishu review buttons after a transient decision failure instead of leaving a terminal-looking stale card, and fixed memory-card blank-line formatting.
+- Focused shared, Telegram, and Feishu suites passed 30/30 through the repository loader, including the transient-failure retry-card test.
+- Updated README, PRD, features, and changelog with the delivered private-chat workflow and safety boundary.
+- Full shared Agent regression passed 76/76 test files; final root production build completed successfully, and `git diff --check` is clean.
+- Final status inspection found a coherent unrelated MCP/Runner change set that appeared during this task and was absent from the opening worktree inventory. It was preserved untouched; the memory-review delivery does not claim those files.
+
+## Test results
+| Test | Expected | Actual | Status |
+| --- | --- | --- | --- |
+| Shared domain red suite | New contracts fail on old behavior | 15 pass / 5 intended failures | red confirmed |
+| Shared domain green suite | Reflection, store, review, and race contracts pass | 22/22 pass | pass |
+| Adapter + integration focused suites | Shared/channel/task contracts pass | 60 pass; one parallel harness lock, then isolated 19/19 pass | pass with harness caveat |
+| Post-review channel/domain suite | Private routing, callbacks, retry card, persistence pass | 30/30 pass | pass |
+| Shared Agent regression | All Agent test files pass serially | 76/76 files | pass |
+| Root production build | SSR, client, and adapter build complete | pass; existing chunking warnings only | pass |
+
+## Error log
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| 2026-08-08 | New shared review tests failed before implementation | 1 | Treat as the locked red baseline; implement the missing contracts without weakening assertions. |
+| 2026-08-08 | Telegram helper module and Feishu card exports missing | 1 | Expected adapter red baseline; implement those exact exports next. |
+| 2026-08-08 | Telegram runtime test hit `database is locked` only in a multi-file parallel run | 1 | Isolated the file and scheduler in separate processes; 4/4 and 15/15 pass, confirming no product failure. |
+| 2026-08-08 | Direct `tsx --test` could not load the repository's `.md` prompt import | 1 | Used `node --import ./scripts/register-loader.js --import tsx --test`; focused suite passed 30/30. |
+| 2026-08-08 | Build wrapper reused zsh's read-only `status` variable after a completed build | 1 | Read the captured log directly; both build phases and adapter output ended successfully. |
+
+---
+
+# 2026-08-08 — Telegram / Feishu queued-control buttons
+
+- Loaded the Agent runtime review and file-planning procedures.
+- Traced Telegram and Feishu busy intake into `InboundTaskCoordinator`, `PersistentTaskQueue`, `SharedRuntimeCommandService`, and Runner live steer/stop controls.
+- Locked the button semantics: Stop aborts and clears pending work; Steer injects the exact queued message; stale/forwarded callbacks cannot operate after that queue item ceases to be pending.
+- Identified the required machine guard: atomic queue-item claim before live injection to prevent a rapid double click from steering the same text twice.
+- Added red contracts for shared Stop/Steer behavior, duplicate/stale clicks, compact Telegram callback data, and non-forwardable Feishu cards. Baseline: 28 pass / 5 intended failures because the new APIs do not exist yet.
+- Implemented the shared `handleQueuedControlAction` seam with pending-item authorization and one in-flight decision per scope/queue ID; helper/card contracts are green at 50/50.
+- Wired Telegram busy replies to inline buttons and callback message edits; wired Feishu busy replies to non-forwardable action cards and shared callback decisions.
+- Adversarial review closed the delayed opposite-click overwrite window with a bounded shared terminal-result cache; the first button decision now remains authoritative after completion as well as while in flight.
+- Focused shared/channel verification passed 61/61, including Topic-scoped payloads, wrong-chat rejection, duplicate/opposite clicks, button removal, and existing memory-review behavior.
+- Root production build passed with the repository's existing chunking warnings. Updated README, PRD, features, and changelog.
+- A separate Mini App/runtime-bundle dependency change set appeared concurrently during the build and was preserved untouched.
+- Final shared Agent regression passed 76/76 test files; no runtime-control, queue, command, prompt, or tool regression remains in the automated suite.
+
+---
+
+# 2026-08-08 — MCP target-accurate dynamic loading follow-up
+
+- Started from the completed Issue #25 lifecycle implementation and rechecked current MCP registry, Runner refresh, Agent load tool, Desktop/Web APIs, and historical guards.
+- Locked scope: explicit reconnect truthfulness and per-target Agent load status; no command PATH or shell trust-boundary changes.
+- Added the missing red regressions: explicit reconnect, single failed target, and a failed target beside another connected server all failed against the old implementation as expected.
+- Implemented an explicit registry reconnect outcome and changed Runner/loadMcp refresh data from aggregate counts to workspace-scoped per-server statuses.
+- First green run passed 11/12; the remaining assertion was only a regex word-order mismatch while the product error contained the correct target and safe connection error. Corrected the assertion for the next run.
+- Wider MCP lifecycle/projection suite passed 21/21. Project-wide `tsc --noEmit` exposed the expected accumulated unrelated baseline and two local aggregate-contract references; updated the shared `createMomTools` option to the per-server status contract before focused recheck.
+- Focused TypeScript filtering then exposed `enqueueSync`'s old `void` signature even though `getTools` returns a tool array; generalized the private queue helper over its task result while preserving serialized execution.
+- Final verification: MCP lifecycle/projection suite 21/21, Runner/tool-factory suite 42/42, no TypeScript diagnostics in touched MCP/Runner source, and root production build passed with only existing Vite import warnings.
+- Updated README, PRD, features, changelog, and recurring pitfalls. Adversarial review confirmed background save remains failure-tolerant, explicit reconnect is target-strict, errors stay redacted, workspace isolation is preserved, and unload/clear behavior is unchanged.
+- `git diff --check` passed. The planning helper still reports the known accumulated-file 2/7 mismatch because historical sections use multiple formats; no current MCP phase remains pending.
+
+---
+
+# 2026-08-08 — Mini App install/update hot activation
+
+- User clarified the requirement is cache-safe immediate activation, not third-party permission isolation.
+- Rechecked Host/install/built-in routes, Desktop contracts/state/copy, dependency inventory, and prior restart assumptions.
+- Selected the minimum complete design: content-addressed single-file server bundle plus one Host-owned drain/dispose/refresh/activate seam; no worker, child process, container, or permission work.
+- Added red guards for new-app activation, same-version replacement, entry/child module cache invalidation, fresh same-byte module scope, and app-local dependency resolution; all failed at the missing lifecycle/bundler seam as intended.
+- Implemented direct production `esbuild` bundling into an app-scoped content-addressed `.runtime` cache and a shared Host activation method that drains, disposes, refreshes, and eagerly loads enabled apps.
+- Wired external/built-in/Agent install paths to activation and removed every Desktop/API `restartRequired` field, state, notice, and stale bilingual copy.
+- Initial Host run was 45/46 because an old staging-cleanup assertion counted the new host-owned `.runtime` directory; narrowed it to actual install entries and reran green.
+- Adversarial review found tool calls were not counted while their first Runtime was loading. Moved `inFlight` ownership ahead of Runtime creation and added a race regression proving activation waits, disposes once, and then serves the new generation.
+- Final verification: Host/runtime 48/48; full Mini App slice 154/154; Desktop structural 173/173; Svelte check 0/0; production build passed with existing Vite chunk warnings only; docs updated; diff check clean.
+
+---
+
+# 2026-08-08 — Feishu queued-control click feedback fix
+
+- Correlated the supplied Session with the production queue and runtime log: queue sequence `4166840` matches the reported card and its row is gone, while `天气如何` never became a normal Session turn. This strongly indicates Steer executed; the final weather answer alone was not proof because the original request had already triggered a weather search.
+- Reproduced the exact presentation defect with a red runtime test: the old callback returned a final card but never explicitly edited the source message or provided a fallback receipt.
+- Changed only the Feishu delivery boundary: immediate processing card, exactly-once shared action, delayed final source-card edit, and text receipt fallback when editing fails. Added HTTP callback arrival logging alongside the existing WebSocket log.
+- Focused shared/Feishu suites pass 56/56, including Steer final-card update and Stop text fallback. Production build passes with existing chunk warnings; `git diff --check` passes.
+- Project-wide TypeScript remains red on the repository's accumulated unrelated baseline; no diagnostic references the touched Feishu files.
+- Adversarial review checked action-before-delay timing, first-action-wins keys, missing message IDs, stale/failed results, update failure, callback transport visibility, and Session non-pollution. No shared queue or Runner behavior changed.
+
+---
+
+# 2026-08-08 — Shared Runner accepted-Steer retry fix
+
+- Correlated the 16:20 production run across card time, queue deletion, model request counts, and Session: request message counts changed `1 → 2 → 1`, proving the correct Runner accepted and consumed Steer before a second timeout rollback lost it.
+- Added a red three-attempt Runner regression that reproduces pi Agent queue draining and asserts the injected text remains present after consecutive whole-attempt retries without becoming a normal Session user entry.
+- Added a per-run, runtime-only accepted-Steer replay list. Rollback clears the SDK steering queue and restores the list exactly once; run teardown clears residual state.
+- Shared Runner suite passes 34/34; combined shared commands, Runner, Feishu messaging/runtime, and Telegram runtime suite passes 96/96.
+- Root production build passes with only the existing Vite chunking warnings. Project-wide `tsc --noEmit` remains blocked by the repository's accumulated dependency, QQ plugin, Svelte declaration, and unrelated source/test diagnostics; none names this Runner change.
+- Adversarial review covered drained vs undrained SDK queues, consecutive retries, multiple accepted Steers, fallback candidates, abort/final cleanup, order, duplication, and Session non-pollution. The repair stays entirely above Channels.
+
+---
