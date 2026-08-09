@@ -14,6 +14,8 @@
     type DesktopConversationChannel,
     type DesktopConversationItem,
     type DesktopConversationMessage,
+    type DesktopDurableExecutionItem,
+    type DesktopDurableExecutionStatus,
     type DesktopExternalTranscript,
     type DesktopMessageAttachment,
     type DesktopMemoryFeedbackValue,
@@ -46,6 +48,7 @@
     loadDesktopExternalTranscript,
     loadDesktopModels,
     loadDesktopMemoryTrace,
+    loadDesktopDurableExecutions,
     loadDesktopTaskUnreadCount,
     loadDesktopRuntimeEnv,
     loadDesktopSession,
@@ -92,6 +95,8 @@
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
   import ArtifactPanel from "./lib/artifacts/ArtifactPanel.svelte";
+  import DurableExecutionCard from "./lib/chat/DurableExecutionCard.svelte";
+  import DurableExecutionInspector from "./lib/chat/DurableExecutionInspector.svelte";
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
   import { markMiniAppUsed } from "./lib/stores/miniapps.svelte";
   import { projectsStore } from "./lib/stores/projects.svelte";
@@ -142,6 +147,7 @@
   import { catalogMessageActions, invokeTranscriptMessageAction } from "./lib/miniapps/messageActions";
   import { fetchDesktopMiniAppAttachment } from "./lib/api";
   import { clearMiniAppBadge } from "./lib/stores/miniapps.svelte";
+  import type { FeedbackEvent } from "./lib/native/feedbackCoordinator";
 
   export let copy: Translation;
   export let locale: "zh-CN" | "en";
@@ -158,6 +164,7 @@
   export let setLaunchAtLogin: (enabled: boolean) => Promise<boolean>;
   export let onHapticCommit: (gestureId: string) => void = () => {};
   export let onCommandResult: (result: CommandExecution) => void = () => {};
+  export let onFeedback: (event: FeedbackEvent) => void = () => {};
   export let openSettings: (section?: string) => void;
   export let requestedWorkspacePane: ChatWorkspacePaneName = "chat";
 
@@ -309,7 +316,53 @@
   let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let automationUnreadCount = 0;
   let automationUnreadScheduler: ActivityScheduler | null = null;
+  let durableExecutions: DesktopDurableExecutionItem[] = [];
+  let durableExecutionError = "";
+  let durableExecutionScheduler: ActivityScheduler | null = null;
+  let observedDurableExecutionStatuses = new Map<string, DesktopDurableExecutionStatus>();
   let reconnectScheduler: ActivityScheduler | null = null;
+
+  const durableFeedbackStatuses = new Set<DesktopDurableExecutionStatus>([
+    "waiting_for_user",
+    "waiting_for_approval",
+    "recovery_required",
+    "partial",
+    "completed",
+    "failed",
+    "cancelled"
+  ]);
+
+  function durableStatusLabel(status: DesktopDurableExecutionStatus): string {
+    if (status === "planned") return copy.durableStatusPlanned;
+    if (status === "queued") return copy.durableStatusQueued;
+    if (status === "running") return copy.durableStatusRunning;
+    if (status === "verifying") return copy.durableStatusVerifying;
+    if (status === "waiting_for_user") return copy.durableStatusWaitingForUser;
+    if (status === "waiting_for_approval") return copy.durableStatusWaitingForApproval;
+    if (status === "paused") return copy.durableStatusPaused;
+    if (status === "recovery_required") return copy.durableStatusRecoveryRequired;
+    if (status === "partial") return copy.durableStatusPartial;
+    if (status === "completed") return copy.durableStatusCompleted;
+    if (status === "failed") return copy.durableStatusFailed;
+    return copy.durableStatusCancelled;
+  }
+
+  function observeDurableExecutionTransitions(items: DesktopDurableExecutionItem[]): void {
+    for (const item of items) {
+      const status = item.execution.status;
+      const previous = observedDurableExecutionStatuses.get(item.execution.id);
+      if (previous && previous !== status && durableFeedbackStatuses.has(status)) {
+        onFeedback({
+          id: `durable-execution:${item.execution.id}:${item.execution.version}:${status}`,
+          kind: "task",
+          terminal: true,
+          title: copy.durableExecution,
+          body: `${durableStatusLabel(status)} · ${item.execution.goal}`
+        });
+      }
+      observedDurableExecutionStatuses.set(item.execution.id, status);
+    }
+  }
 
   async function refreshAutomationUnread(): Promise<void> {
     const endpoint = connectedEndpoint;
@@ -338,6 +391,37 @@
   function stopAutomationUnreadPolling(): void {
     automationUnreadScheduler?.dispose();
     automationUnreadScheduler = null;
+  }
+
+  async function refreshDurableExecutions(): Promise<void> {
+    const endpoint = connectedEndpoint;
+    const generation = connectionGeneration;
+    if (!connectionReady || !endpoint) return;
+    try {
+      const items = await loadDesktopDurableExecutions(endpoint);
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      observeDurableExecutionTransitions(items);
+      durableExecutions = items;
+      durableExecutionError = "";
+    } catch (cause) {
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
+      durableExecutionError = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  function startDurableExecutionPolling(): void {
+    durableExecutionScheduler?.dispose();
+    durableExecutionScheduler = new ActivityScheduler(
+      backgroundActivityPolicy,
+      refreshDurableExecutions,
+      documentActivityVisibility
+    );
+    durableExecutionScheduler.start();
+  }
+
+  function stopDurableExecutionPolling(): void {
+    durableExecutionScheduler?.dispose();
+    durableExecutionScheduler = null;
   }
 
   // Mirrors `--chat-min-w` / `--files-min-w` / `--sidebar-min-w` in styles.css.
@@ -482,6 +566,7 @@
   // what the statement itself references, so folding this into a helper would
   // freeze the budget at its first value.
   $: filePanelOpen = inspector?.kind === "artifact";
+  $: durablePanelOpen = inspector?.kind === "durable-execution";
   $: miniAppPanelAppId = inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : "";
   // One inspector for every scope: the Artifact Panel hosts Project files,
   // Session artifacts and Mini App tabs. A second right-hand aside for the
@@ -490,7 +575,8 @@
   // Scope comes from the live pane, not from the (open-time) `inspector.scope`,
   // so it can never disagree with the props the panel is actually given.
   $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0);
-  $: inspectorVisible = artifactPanelVisible;
+  $: durablePanelVisible = durablePanelOpen && serviceState === "ready" && Boolean(connectedEndpoint);
+  $: inspectorVisible = artifactPanelVisible || durablePanelVisible;
   $: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH;
   // Below NARROW_WIDTH the sidebar is hidden and only two tracks share the
   // window, so the budget drops the sidebar term and uses the lower floor the
@@ -551,6 +637,9 @@
     openPath?: string;
     openPathNonce?: number;
     openPathAsDiff?: boolean;
+  } | {
+    kind: "durable-execution";
+    executionId: string;
   } | null;
   let inspector: ChatInspector = null;
   let miniAppSeq = 0;
@@ -762,6 +851,10 @@
   $: activeHeaderSourceInitial = ({ web: "W", telegram: "T", feishu: "F", qq: "Q", weixin: "W" } as Record<string, string>)[activeHeaderChannel] ?? activeHeaderSourceLabel.trim().charAt(0).toUpperCase();
   $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (activeSessionItem?.title || copy.chat);
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
+  $: activeDurableExecution = viewMode === "local" && activeSessionId
+    ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId) ?? null)
+    : null;
+  $: durableActiveCount = durableExecutions.filter((item) => !["partial", "completed", "failed", "cancelled"].includes(item.execution.status)).length;
   $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
   $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "", copy.chatAssistantError);
   $: if (searchMatchIds.length !== previousSearchMatchCount) {
@@ -786,7 +879,11 @@
     connectedEndpoint = "";
     connectionReady = false;
     stopAutomationUnreadPolling();
+    stopDurableExecutionPolling();
     stopReconnectPoll();
+    durableExecutions = [];
+    durableExecutionError = "";
+    observedDurableExecutionStatuses = new Map();
     profiles = [];
     onboardingProfiles = [];
     onboardingAgents = [];
@@ -1026,6 +1123,7 @@
       connectionReady = true;
       loading = false;
       startAutomationUnreadPolling();
+      startDurableExecutionPolling();
       void selectDefaultSession(generation);
       void chatStore.reconnect();
       startReconnectPoll();
@@ -2268,6 +2366,13 @@
     };
   }
 
+  function openDurableExecutionInspector(executionId: string): void {
+    workspacePane = "chat";
+    searchOpen = false;
+    inspector = { kind: "durable-execution", executionId };
+    durableExecutionScheduler?.wake("manual");
+  }
+
   function openMiniAppInspector(appId: string, deepLinkPath = ""): void {
     // Recency drives the sidebar's short list, so it is recorded even when the
     // app is already open — reopening is still a use.
@@ -2503,6 +2608,7 @@
     stopSidebarResize();
     stopReconnectPoll();
     stopAutomationUnreadPolling();
+    stopDurableExecutionPolling();
     chatStore.disposeAll();
     projectChatStore.disposeAll();
     stopRecordingTimer();
@@ -2580,6 +2686,8 @@
     endpoint={connectedEndpoint}
     serviceState={serviceState}
     {statusDots}
+    {durableExecutions}
+    onOpenDurableExecution={openDurableExecutionInspector}
     formatTime={formatListTime}
     onNewConversation={newConversation}
     onOpenAutoTasks={() => openWorkspacePane("automations")}
@@ -2655,6 +2763,18 @@
         </div>
       </div>
       <div class="header-actions">
+        {#if durableActiveCount > 0}
+          <button
+            type="button"
+            class="durable-header-badge"
+            aria-label={copy.durableInProgress}
+            title={copy.durableInProgress}
+            onclick={() => openDurableExecutionInspector(activeDurableExecution?.execution.id ?? durableExecutions[0]?.execution.id ?? "")}
+          >
+            <i class="ph ph-stack-simple" aria-hidden="true"></i>
+            <span>{durableActiveCount > 99 ? "99+" : durableActiveCount}</span>
+          </button>
+        {/if}
         {#if serviceState === "ready" && profiles.length > 0}
           <TranscriptSearch
             bind:value={searchQuery}
@@ -2806,6 +2926,14 @@
             />
           </div>
         {/if}
+        {#if activeDurableExecution}
+          <DurableExecutionCard
+            item={activeDurableExecution}
+            {copy}
+            formatTime={formatListTime}
+            onOpen={openDurableExecutionInspector}
+          />
+        {/if}
       </ChatMessagesPane>
       <input
         bind:this={fileInput}
@@ -2933,6 +3061,15 @@
       theme={resolvedTheme}
       {copy}
       onClose={closeInspector}
+    />
+  {/if}
+  {#if durablePanelVisible && inspector?.kind === "durable-execution"}
+    <DurableExecutionInspector
+      endpoint={connectedEndpoint}
+      executionId={inspector.executionId}
+      {copy}
+      onClose={closeInspector}
+      onChanged={() => void refreshDurableExecutions()}
     />
   {/if}
 

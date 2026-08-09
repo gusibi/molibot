@@ -14,6 +14,7 @@ import {
   projectRuntimeWorkspaceDir
 } from "$lib/server/projects/runtimeCache.js";
 import type { Channel } from "$lib/shared/types/message.js";
+import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 
 export interface ResolvedRunnerTarget {
   pool: RunnerPool;
@@ -56,6 +57,14 @@ export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
     }
   ) {}
 
+  readRunDetail(chatId: string, sessionId: string | undefined, projectId: string | undefined, runId: string): RunDetailEntry[] {
+    if (!projectId) return this.options.botStore.readRunDetail(chatId, runId);
+    if (!sessionId) return [];
+    const projectChatId = `bot:${this.options.instanceId}:chat:${chatId}:${sessionId}`;
+    const projectStore = new MomRuntimeStore(projectRuntimeWorkspaceDir(projectId));
+    return projectStore.readRunDetail(projectChatId, runId);
+  }
+
   /**
    * Same runtime handle the Desktop/Web router resolves (shared process-wide
    * cache), so both surfaces drive one MomRunner per project conversation.
@@ -79,7 +88,7 @@ export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
     });
   }
 
-  resolveTarget(scopeId: string, sessionId: string): ResolvedRunnerTarget {
+  resolveTarget(scopeId: string, sessionId: string, explicitProjectId?: string): ResolvedRunnerTarget {
     const conversationKey = `bot:${this.options.instanceId}:chat:${scopeId}:${sessionId}`;
     const botTarget: ResolvedRunnerTarget = {
       pool: this.base,
@@ -90,11 +99,13 @@ export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
       conversationKey,
       conversationId: null
     };
-    if (isTaskSessionId(sessionId)) return botTarget;
+    if (isTaskSessionId(sessionId) && !explicitProjectId) return botTarget;
 
     let project: ProjectRecord | null = null;
     try {
-      project = getProjectStore().getChannelBinding(this.options.channel, this.options.instanceId, scopeId);
+      project = explicitProjectId
+        ? getProjectStore().get(explicitProjectId)
+        : getProjectStore().getChannelBinding(this.options.channel, this.options.instanceId, scopeId);
     } catch {
       return botTarget;
     }
@@ -104,7 +115,7 @@ export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
       this.options.channel as Channel,
       conversationKey,
       undefined,
-      { projectId: project.id }
+      { projectId: project.id, origin: "automation" }
     );
     const { store, pool } = this.getProjectRuntime(project.id);
     this.touchedProjectPools.set(project.id, pool);

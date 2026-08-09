@@ -64,6 +64,126 @@ test("ToolRuntime executes allowed tools and emits audit events", async () => {
   assert.equal(events[0]?.workspaceId, "personal");
 });
 
+test("ToolRuntime records a non-pure tool boundary before and after the handler", async () => {
+  const registry = new ToolRegistry();
+  const phases: string[] = [];
+  registry.register(tool({
+    id: "write",
+    handler: async () => {
+      phases.push("handler");
+      return { ok: true, content: "written" };
+    }
+  }));
+
+  const result = await new ToolRuntime(registry).executeToolCall({
+    toolId: "write",
+    input: { file_path: "notes/today.md", content: "hello" },
+    context: {
+      ...context(),
+      onSideEffectPreflight: async (effect) => {
+        phases.push(`intent:${effect.sideEffectClass}`);
+        assert.equal(effect.targetSummary, "write:notes/today.md");
+      },
+      onSideEffectReceipt: async (effect, receipt) => {
+        phases.push(`receipt:${effect.sideEffectClass}`);
+        assert.equal(receipt.ok, true);
+      }
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(phases, ["intent:idempotent", "handler", "receipt:idempotent"]);
+});
+
+test("ToolRuntime terminates before a promoted side effect reaches the handler", async () => {
+  const registry = new ToolRegistry();
+  let executed = false;
+  let receiptCalled = false;
+  registry.register(tool({
+    id: "write",
+    handler: async () => {
+      executed = true;
+      return { ok: true, content: "must not run" };
+    }
+  }));
+
+  const result = await new ToolRuntime(registry).executeToolCall({
+    toolId: "write",
+    input: { file_path: "notes/today.md", content: "hello" },
+    context: {
+      ...context(),
+      onSideEffectPreflight: async () => ({ terminate: true, reason: "promoted" }),
+      onSideEffectReceipt: async () => {
+        receiptCalled = true;
+      }
+    }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.terminate, true);
+  assert.equal(result.error, "promoted");
+  assert.equal(result.details?.durablePromotion, true);
+  assert.equal(executed, false);
+  assert.equal(receiptCalled, false);
+});
+
+test("ToolRuntime serializes side-effect preflight through receipt", async () => {
+  const registry = new ToolRegistry();
+  const phases: string[] = [];
+  let activeHandlers = 0;
+  let maxActiveHandlers = 0;
+  registry.register(tool({
+    id: "write",
+    handler: async () => {
+      activeHandlers += 1;
+      maxActiveHandlers = Math.max(maxActiveHandlers, activeHandlers);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeHandlers -= 1;
+      return { ok: true, content: "written" };
+    }
+  }));
+
+  const runtime = new ToolRuntime(registry);
+  const call = (toolCallId: string) => runtime.executeToolCall({
+    toolId: "write",
+    input: { file_path: `${toolCallId}.md`, content: "hello" },
+    context: {
+      ...context(),
+      toolCallId,
+      onSideEffectPreflight: async (effect) => {
+        phases.push(`intent:${effect.toolCallId}`);
+      },
+      onSideEffectReceipt: async (effect) => {
+        phases.push(`receipt:${effect.toolCallId}`);
+      }
+    }
+  });
+
+  await Promise.all([call("first"), call("second")]);
+
+  assert.equal(maxActiveHandlers, 1);
+  assert.deepEqual(phases, ["intent:first", "receipt:first", "intent:second", "receipt:second"]);
+});
+
+test("ToolRuntime leaves pure tools outside the side-effect boundary", async () => {
+  const registry = new ToolRegistry();
+  registry.register(tool({ id: "read" }));
+  let called = false;
+
+  const result = await new ToolRuntime(registry).executeToolCall({
+    toolId: "read",
+    input: { path: "notes/today.md" },
+    context: {
+      ...context(),
+      onSideEffectPreflight: async () => { called = true; },
+      onSideEffectReceipt: async () => { called = true; }
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(called, false);
+});
+
 test("ToolRuntime blocks high-risk tool and executes when approved", async () => {
   const registry = new ToolRegistry();
   let executed = false;
@@ -210,6 +330,38 @@ test("ToolRuntime uses existing approval grant to execute high-risk tool", async
 
   assert.equal(result.ok, true);
   assert.equal(result.content, "ran");
+});
+
+test("ToolRuntime consumes a durable approval before running a high-risk handler", async () => {
+  const registry = new ToolRegistry();
+  let executed = false;
+  let actionKey = "";
+  registry.register(tool({
+    id: "host-bash",
+    name: "Host Bash",
+    risk: "high",
+    source: "host",
+    handler: async () => {
+      executed = true;
+      return { ok: true, content: "ran once" };
+    }
+  }));
+
+  const result = await new ToolRuntime(registry).executeToolCall({
+    toolId: "host-bash",
+    input: { command: "git status" },
+    context: {
+      ...context(),
+      consumeDurableApproval: async (request) => {
+        actionKey = request.actionKey;
+        return "once";
+      }
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(executed, true);
+  assert.equal(actionKey, "host-bash:git status:ephemeral");
 });
 
 test("ToolRuntime blocks tool execution if not in workspace whitelist", async () => {

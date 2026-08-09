@@ -38,6 +38,7 @@ import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { listPiExtensionCommands, runPiExtensionCommand } from "$lib/server/plugins/piExtensions/commandBridge.js";
 import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
 import { formatMiniAppList } from "$lib/server/miniapps/invocation.js";
+import { DurableChannelCommandService } from "$lib/server/agent/durable/channelCommands.js";
 
 const ACP_DISABLED_MESSAGE = "ACP has been removed from the active runtime path. Use the normal Agent workflow instead.";
 
@@ -53,6 +54,7 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   instanceId: string;
   workspaceDir: string;
   authScopePrefix: string;
+  durableOwnerId?: string;
   store: MomRuntimeStore;
   runners: ChannelRunnerPoolLike;
   getSettings: () => RuntimeSettings;
@@ -123,11 +125,19 @@ export class SharedRuntimeCommandService<TTarget> {
   private static readonly QUEUED_CONTROL_RESULT_CACHE_LIMIT = 256;
   private readonly thinkingLevels = new Set<string>(RUNTIME_THINKING_LEVELS);
   private readonly hostBashStore: HostBashStore;
+  private readonly durableCommands: DurableChannelCommandService;
   private readonly queuedControlActions = new Map<string, Promise<QueuedControlActionResult>>();
   private readonly queuedControlResults = new Map<string, QueuedControlActionResult>();
 
   constructor(private readonly options: SharedRuntimeCommandOptions<TTarget>) {
     this.hostBashStore = options.hostBashStore ?? getHostBashStore();
+    this.durableCommands = new DurableChannelCommandService({
+      ownerId: options.durableOwnerId,
+      channel: options.channel,
+      botId: options.instanceId,
+      getSettings: options.getSettings,
+      hostBashStore: this.hostBashStore
+    });
   }
 
   private text(english: string, chinese: string): string {
@@ -521,6 +531,14 @@ export class SharedRuntimeCommandService<TTarget> {
     const parts = text.split(/\s+/);
     const cmd = parts[0]?.toLowerCase() || "";
     const rawArg = parts.slice(1).join(" ").trim();
+
+    if (["/durable", "/long-task", "/longtask", "/execution"].includes(cmd)) {
+      return this.durableCommands.handle({
+        scopeId: input.scopeId,
+        text,
+        sendText: (message) => this.options.sendText(input.target, message)
+      });
+    }
 
     if (cmd === "/miniapps" || cmd === "/mini-apps" || cmd === "/apps") {
       await this.options.sendText(input.target, formatMiniAppList(getMiniAppHost().listCatalog(), this.isChinese));
@@ -1622,7 +1640,13 @@ export class SharedRuntimeCommandService<TTarget> {
       // approval-requiring tool may be. Text replies are the only way to answer
       // on channels without interactive buttons (QQ, WeChat).
       const brokerPending = this.listPendingBrokerRequests(input.scopeId);
-      if (brokerPending.length === 0) return false;
+      if (brokerPending.length === 0) {
+        return this.durableCommands.handleNaturalApproval({
+          scopeId: input.scopeId,
+          text,
+          sendText: (message) => this.options.sendText(input.target, message)
+        });
+      }
       if (brokerPending.length > 1) {
         await this.options.sendText(
           input.target,
@@ -2353,6 +2377,9 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/queue", value: d("list current running and queued tasks", "查看当前运行中和排队中的任务") },
       { label: "/queue front <text>", value: d("insert a text task at the front of queue", "将文本任务插入队列最前方") },
       { label: "/queue delete <queueId>", value: d("delete a pending queued task by id", "按 ID 删除排队任务") },
+      { label: "/durable list|status #N", value: d("list or inspect long-running executions", "查看或检查长任务") },
+      { label: "/durable approve|reject #N", value: d("resolve a long-task approval from this chat", "在当前会话处理长任务审批") },
+      { label: "/durable pause|resume|cancel #N", value: d("control one long-running execution", "控制一个长任务的暂停、恢复或取消") },
       { label: "/delete_sessions [index|sessionId]", value: d("list sessions, or delete one by selector", "查看会话列表，或按选择器删除会话") },
       { label: "/compact [instructions]", value: d("summarize older context of current session", "压缩当前会话的较早上下文") },
       { label: "/skills <id>", value: d("show details for one loaded skill", "查看单个技能详情") },

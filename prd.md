@@ -5,6 +5,23 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.65 Automatic Durable Execution 基础主链路（2026-08-09）
+
+- **Priority / Status**: P1 / Partially delivered. Detailed scope: [Automatic Durable Execution PRD](docs/requirements/automatic-durable-execution-prd.md).
+- **Delivered**: shared Agent-layer Durable Execution aggregate with dedicated `durable-execution.sqlite`; deterministic activation and per-request override; versioned plan/step/criterion/attempt/decision/evidence/side-effect records; CAS and leases; watched-event JSON/runtime internal continuation; fresh hidden automation attempts; intent/receipt callbacks around non-pure tools; verifier-gated terminal states; cumulative token/attempt/lifetime guards; unfinished-task quota; creation-order queue position; shared one-shot catch-up handling with `recovery_required` on missed continuations; tiered structured model preflight with lazy promotion, executed-prefix absorption, and pre-handler termination; Desktop transcript card, shared task inspector, sidebar projection, and terminal/waiting feedback.
+- **Not yet release-complete**: queryable external-state probes, evidence reader, full approval/source-channel rendering, cross-channel short-handle commands, and real Chat API + restart acceptance. The offline event seam is covered by temporary-directory tests, but the live restart matrix remains pending; these boundaries are not treated as delivered by store/unit tests alone.
+
+---
+## 3.64 Session permission modes (Plan / Manual / Accept edits / Auto) (2026-08-09)
+
+- **Priority / Status**: P1 / Proposed (2026-08-09). Not started.
+- **Full PRD**: [Permission Modes PRD](docs/requirements/permission-modes-prd.md).
+- **Problem**: "要不要问用户" 和 "跑在哪个盒子里" today collapse into one boolean — `bashPolicy.ts:62` returns `allow` whenever the sandbox is off, `write`/`edit` are never gated at all, and `toolSandbox.filesystem.denyWrite` has no effect on the file tools (they use `createPathGuard`, not the sandbox config). There is no read-only planning state.
+- **Decision**: add a session-scoped permission mode as a second axis, orthogonal to the sandbox. Four modes, strictly monotone: `Plan ⊂ Manual ⊂ Accept edits (default) ⊂ Auto`. **Bypass is explicitly not built** (product decision) — its use case is served by Auto plus an owner-scoped persistent grant. Tool classification gains an `effect` dimension (`read | write | execute | network | third_party | manage`); `risk` keeps only display/audit duty. `manage` (extension / Mini App install) asks in every mode, including Auto.
+- **Acceptance**: a pure `decidePermission(mode, effect, containment)` with a full 4×6×containment matrix test; sandbox-off + Manual yields `ask`, never `allow`; `denyWrite` binds `write`/`edit` and `bash` identically; Plan is proven by asserting the tool list handed to the Provider excludes `write`/`edit`/`bash` (never by counting denials, pitfall #14a); automation leases never stall in `running`; settings round-trip and the desktop structural guards pass.
+- **Open**: automation's default behaviour (suspend-and-resume vs. fixed Auto with hard failure); whether Manual is exposed on messaging channels; whether third-party MCP `readOnlyHint` may relax a call.
+
+---
 ## 3.62 Current work/life assistant capability status (2026-08-09)
 
 - **Priority / Status**: P2 / Delivered (2026-08-09).
@@ -17,8 +34,8 @@
 
 - **Priority / Status**: P2 / Delivered (2026-08-09).
 - **Problem**: the macOS Desktop Chat navigation rail used a `260px` default while Settings used `228px`, making the same left navigation surface visibly change width between pages.
-- **Decision**: make Settings' `228px` rail the shared desktop baseline and use one `170px` narrow-window token for both shells. Chat remains user-resizable and preserves an existing saved width; only the unset default changes.
-- **Acceptance**: Chat and Settings resolve to the same navigation track at desktop and narrow widths; a machine guard covers both CSS shells and Chat's default fallback; Desktop UI, full Desktop tests, `svelte-check`, and production build pass.
+- **Decision**: make Settings' `228px` rail the shared desktop baseline and use one `170px` narrow-window token for both shells. Chat remains user-resizable, preserves saved widths at or above the baseline, and clamps stale narrower values to the baseline.
+- **Acceptance**: Chat and Settings resolve to the same navigation track at desktop and narrow widths; CSS and runtime guards cover the shared baseline plus persisted-width clamping; Desktop UI, full Desktop tests, `svelte-check`, and production build pass.
 
 ---
 ## 3.61 DOCX/XLSX/PDF deliverable export (2026-08-09)

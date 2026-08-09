@@ -163,6 +163,10 @@ export function createMomTools(options: {
   miniAppId?: string;
   uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+  onSideEffectPreflight?: ToolExecutionContext["onSideEffectPreflight"];
+  onSideEffectReceipt?: ToolExecutionContext["onSideEffectReceipt"];
+  onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
+  consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
 }): AgentTool<any>[] {
   const datedArtifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
   const artifactDir = options.project
@@ -418,7 +422,11 @@ export function createMomTools(options: {
             hostBashApproval: (detailEntry as any).hostBashApproval
           } as any);
         }
-      }
+      },
+      onSideEffectPreflight: options.onSideEffectPreflight,
+      onSideEffectReceipt: options.onSideEffectReceipt,
+      onApprovalRequest: options.onApprovalRequest,
+      consumeDurableApproval: options.consumeDurableApproval
     };
   };
 
@@ -444,7 +452,8 @@ export function createMomTools(options: {
             content: res.content,
             error: res.error,
             metadata: res.metadata,
-            details: res.details
+            details: res.details,
+            terminate: res.terminate
           };
         }
       };
@@ -467,7 +476,8 @@ export function createMomTools(options: {
             : [{ type: "text", text: String(result.content ?? result.error ?? "") }],
           error: result.ok ? undefined : result.error,
           metadata: result.metadata,
-          details: result.details
+          details: result.details,
+          terminate: result.terminate
         };
       }
     };
@@ -493,7 +503,8 @@ export function createMomTools(options: {
             : [{ type: "text", text: String(result.content ?? result.error ?? "") }],
           error: result.ok ? undefined : result.error,
           metadata: result.metadata,
-          details: result.details
+          details: result.details,
+          terminate: result.terminate
         };
       }
     };

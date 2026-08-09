@@ -26,7 +26,7 @@ export interface EventStatus {
 
 export type EventDeliveryMode = "text" | "agent";
 export type EventExecutionMode = "channel" | "internal";
-export type InternalEventKind = "memory-reflection" | "memory-maintenance" | "daily-materials";
+export type InternalEventKind = "memory-reflection" | "memory-maintenance" | "daily-materials" | "durable-execution";
 
 export interface ManagedEventMetadata {
   by: "molibot";
@@ -74,6 +74,7 @@ interface EventBase {
     output?: { projectId: string; dir?: string };
     // daily-materials: token budget for the assembled transcript before batching.
     scanTokenBudget?: number;
+    durable?: { executionId: string; expectedVersion: number };
   };
   sessionMode?: EventSessionMode;
   status?: EventStatus;
@@ -283,6 +284,8 @@ export interface EventsWatcherOptions {
    * and waits for its next slot or a manual retry.
    */
   catchUpWindowMs?: number;
+  /** Called after a one-shot event is skipped because it missed the window. */
+  onSkip?: (context: { event: MomEvent; filename: string; reason: string }) => void;
 }
 
 export class EventsWatcher {
@@ -981,6 +984,7 @@ export class EventsWatcher {
     }));
     this.cancel(filename);
     this.knownFiles.add(filename);
+    this.options.onSkip?.({ event, filename, reason });
   }
 
   private markError(filename: string, message: string, slotKey?: string, runId?: string): void {

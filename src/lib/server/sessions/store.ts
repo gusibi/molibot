@@ -407,10 +407,10 @@ export class SessionStore {
 
     if (projectId) {
       conversation.projectId = projectId;
-      conversation.origin = externalUserId;
+      conversation.origin = origin ?? externalUserId;
       const index = readProjectIndex(projectId);
       index.order = [...index.order.filter((item) => item !== id), id];
-      index.byConversationId[id] = { origin: externalUserId };
+      index.byConversationId[id] = { origin: conversation.origin };
       writeProjectSession(projectId, { conversation, messageMetadata: [], messageCount: 0 });
       writeProjectIndex(projectId, index);
       return conversation;

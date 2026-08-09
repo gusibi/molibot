@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { generateDiffString, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { generateDiffString, generateUnifiedPatch, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
@@ -39,6 +39,7 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
     inputSchema: editSchema,
     risk: "medium",
     source: "builtin",
+    sideEffectClass: "idempotent",
     handler: async (params: any, ctx) => {
       const filePath = resolveToolPath(ctx.cwd, params.path);
       ensureAllowedPath(filePath);
@@ -94,6 +95,11 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
           }],
           details: {
             diff: buildDiff(content, replaced),
+            // `diff` above is pi's display format (`+12 line`), which is for a
+            // terminal and is not a patch. A UI that renders diffs needs a real
+            // unified patch, so both are produced rather than one being
+            // reinterpreted as the other.
+            unifiedDiff: generateUnifiedPatch(params.path, content, replaced),
             ...(options.outputLayout
               ? describeFileToolResult(options.outputLayout, filePath, "modified", params.path, Buffer.byteLength(replaced, "utf8"))
               : {})

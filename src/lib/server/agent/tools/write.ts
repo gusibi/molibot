@@ -54,6 +54,7 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
     inputSchema: writeSchema,
     risk: "medium",
     source: "builtin",
+    sideEffectClass: "idempotent",
     handler: async (params: any, ctx) => {
       const requestedPath = String(params.path ?? "").trim();
       const requestedTarget = params.target === "project" || params.target === "scratch" ? params.target : undefined;

@@ -551,6 +551,225 @@ export interface DesktopTaskActionResponse extends DesktopTaskResponse {
   history?: DesktopTaskExecutionPage;
 }
 
+export type DesktopDurableExecutionStatus = "planned" | "queued" | "running" | "verifying" | "waiting_for_user" | "waiting_for_approval" | "paused" | "recovery_required" | "partial" | "completed" | "failed" | "cancelled";
+export type DesktopDurableExecutionStepStatus = "pending" | "running" | "completed" | "uncertain" | "blocked" | "skipped" | "failed";
+
+export interface DesktopDurableExecutionItem {
+  execution: {
+    id: string;
+    shortHandle: string;
+    ownerId: string;
+    botId: string;
+    sourceChannel: string;
+    sourceChatId?: string;
+    sourceUiSessionId?: string;
+    sourceProjectId?: string;
+    goal: string;
+    constraints: string[];
+    status: DesktopDurableExecutionStatus;
+    version: number;
+    currentPlanVersion: number;
+    tokensUsed: number;
+    attemptsUsed: number;
+    createdAt: string;
+    startedAt?: string;
+    updatedAt: string;
+    terminalAt?: string;
+    waitingKind?: "user" | "approval" | "recovery";
+    waitingReason?: string;
+    nextRunAt?: string;
+    lastError?: string;
+    activationPath: "deterministic" | "lazy_promotion" | "forced";
+    activationReason?: string;
+  };
+  projection: {
+    displayStatus: DesktopDurableExecutionStatus;
+    progress: { completed: number; total: number; currentIndex?: number };
+    queuePosition?: number;
+    nextStep?: { id: string; title: string; status: DesktopDurableExecutionStepStatus };
+    requiredCriteria: { total: number; passed: number; unproven: number; failed: number };
+    waiting?: { kind: "user" | "approval" | "recovery"; reason: string };
+    active: boolean;
+  };
+}
+
+export interface DesktopDurableExecutionInspection extends DesktopDurableExecutionItem {
+  plans: DesktopDurableExecutionPlan[];
+  steps: DesktopDurableExecutionStep[];
+  acceptanceCriteria: DesktopDurableExecutionCriterion[];
+  sideEffects: DesktopDurableExecutionSideEffect[];
+  evidenceRefs: DesktopDurableExecutionEvidence[];
+  decisions: DesktopDurableExecutionDecision[];
+  approvals: DesktopDurableExecutionApproval[];
+  attempts: DesktopDurableExecutionAttempt[];
+}
+
+export interface DesktopDurableExecutionPlan {
+  executionId: string;
+  version: number;
+  reason: string;
+  author: "model" | "user";
+  createdAt: string;
+}
+
+export interface DesktopDurableExecutionStep {
+    id: string;
+    executionId: string;
+    planVersion: number;
+    index: number;
+    title: string;
+    description: string;
+    status: DesktopDurableExecutionStepStatus;
+    sideEffectClass: "pure" | "idempotent" | "queryable" | "non_idempotent";
+    idempotencyKey?: string;
+    inputSummary?: string;
+    outputSummary?: string;
+    outputRef?: string;
+    evidenceSummary?: string;
+    attemptCount: number;
+    startedAt?: string;
+    completedAt?: string;
+    lastError?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface DesktopDurableExecutionCriterion {
+  id: string;
+  executionId: string;
+  planVersion: number;
+  description: string;
+  required: boolean;
+  checkerType: "deterministic" | "subjective";
+  checkerKey?: string;
+  author: "model" | "user";
+  result: "unproven" | "passed" | "failed";
+  evidenceRefId?: string;
+  userEdited: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopDurableExecutionSideEffect {
+  id: string;
+  executionId: string;
+  stepId: string;
+  attemptId?: string;
+  phase: "intent" | "receipt";
+  sideEffectClass: "pure" | "idempotent" | "queryable" | "non_idempotent";
+  idempotencyKey: string;
+  targetSummary: string;
+  contentSummary: string;
+  externalId?: string;
+  payload?: unknown;
+  createdAt: string;
+}
+
+export interface DesktopDurableExecutionEvidence {
+  id: string;
+  executionId: string;
+  stepId?: string;
+  attemptId?: string;
+  referenceType: string;
+  referenceId: string;
+  summary: string;
+  status: "available" | "unavailable";
+  unavailableReason?: string;
+  createdAt: string;
+}
+
+export interface DesktopDurableExecutionDecision {
+  id: string;
+  executionId: string;
+  planVersion: number;
+  question: string;
+  options: string[];
+  status: "open" | "answered" | "cancelled";
+  answer?: string;
+  answeredBy?: string;
+  createdAt: string;
+  answeredAt?: string;
+}
+
+export interface DesktopDurableExecutionApproval {
+  id: string;
+  executionId: string;
+  attemptId?: string;
+  requestId: string;
+  backend: "approval_broker" | "host_bash";
+  actionKey: string;
+  toolId: string;
+  title: string;
+  summary: string;
+  options: string[];
+  status: "pending" | "approved" | "rejected" | "expired";
+  repeatCount: number;
+  requestedAt: string;
+  resolvedAt?: string;
+  selectedScope?: string;
+}
+
+export interface DesktopDurableExecutionAttempt {
+  id: string;
+  executionId: string;
+  ownerId: string;
+  runId: string;
+  contextSessionId: string;
+  planVersion: number;
+  status: "running" | "completed" | "failed" | "interrupted" | "waiting";
+  startedAt: string;
+  finishedAt?: string;
+  endReason?: string;
+  tokensUsed: number;
+}
+
+export interface DesktopDurableExecutionResponse {
+  ok: true;
+  items: DesktopDurableExecutionItem[];
+}
+
+export interface DesktopDurableExecutionInspectionResponse {
+  ok: true;
+  item: DesktopDurableExecutionInspection;
+}
+
+export interface DesktopDurableExecutionEvidenceReadResponse {
+  ok: true;
+  evidence: DesktopDurableExecutionEvidenceRead;
+}
+
+export interface DesktopDurableExecutionEvidenceRead extends DesktopDurableExecutionEvidence {
+  content?: string;
+  truncated: boolean;
+  untrusted: true;
+}
+
+export type DesktopDurableExecutionActionRequest =
+  | {
+      action: "create";
+      ownerId?: string;
+      botId: string;
+      sourceChannel?: string;
+      sourceChatId?: string;
+      sourceUiSessionId?: string;
+      sourceProjectId?: string;
+      goal: string;
+      constraints?: string[];
+      steps: Array<{ title: string; description?: string; sideEffectClass?: "pure" | "idempotent" | "queryable" | "non_idempotent"; idempotencyKey?: string; inputSummary?: string }>;
+      acceptanceCriteria: Array<{ description: string; required?: boolean; checkerType?: "deterministic" | "subjective"; checkerKey?: string; author?: "model" | "user" }>;
+      activationPath?: "deterministic" | "lazy_promotion" | "forced";
+      activationReason?: string;
+      budget?: { tokenLimit?: number; attemptLimit?: number; lifetimeDays?: number };
+    }
+  | { action: "pause" | "resume" | "cancel"; ownerId?: string; executionId: string; expectedVersion: number; actionId: string; reason?: string }
+  | { action: "answer_decision"; ownerId?: string; executionId: string; decisionId: string; answer: string; expectedVersion: number; actionId: string }
+  | { action: "resolve_approval"; ownerId?: string; executionId: string; approvalId: string; status: "approved" | "rejected" | "expired"; selectedScope?: string; expectedVersion: number; actionId: string };
+
+export interface DesktopDurableExecutionActionResponse {
+  ok: true;
+  item: DesktopDurableExecutionItem;
+}
+
 export interface DesktopModelOption {
   key: string;
   label: string;

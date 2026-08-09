@@ -96,6 +96,7 @@ export class QQManager extends BaseChannelRuntime {
   private gatewayRunning = false;
   private aborted = false;
   private sdkAccount: ResolvedQQBotAccount | null = null;
+  private readonly sourceTargets = new Map<string, SendTarget>();
 
   constructor(
     getSettings: () => RuntimeSettings,
@@ -243,6 +244,24 @@ export class QQManager extends BaseChannelRuntime {
     });
   }
 
+  async sendInternalNotice(
+    chatId: string,
+    text: string,
+    metadata: { kind: string; filename: string }
+  ): Promise<void> {
+    const remembered = this.sourceTargets.get(chatId);
+    const target = remembered ?? { mode: "c2c", id: chatId };
+    const result = await this.sendText({ ...target, replyToId: undefined }, text);
+    if (result.error) throw new Error(result.error);
+    momLog("qq", "internal_notice_sent", {
+      botId: this.instanceId,
+      chatId,
+      kind: metadata.kind,
+      filename: metadata.filename,
+      textLength: text.length
+    });
+  }
+
   private async sendTextNow(target: SendTarget, text: string, replyToId?: string): Promise<OutboundResult> {
     if (!this.sdkAccount) {
       return { channel: "qqbot", error: "SDK account not initialized" };
@@ -337,6 +356,8 @@ export class QQManager extends BaseChannelRuntime {
       attachments: attachmentResult.attachments,
       imageContents: attachmentResult.imageContents
     };
+    const sourceTarget = this.toSendTarget(event);
+    this.sourceTargets.set(chatId, { mode: sourceTarget.mode, id: sourceTarget.id });
 
     const lowered = text.toLowerCase();
     const commandText = lowered === "stop" ? "/stop" : text;

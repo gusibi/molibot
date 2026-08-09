@@ -106,6 +106,13 @@ import { buildReferencedItems, memoryToolHitsFromToolCall } from "$lib/server/me
 import { detectImmediateMemoryCorrections } from "$lib/server/memory/correctionDetector.js";
 import { memoryWriteReceiptsFromToolCall } from "$lib/server/memory/writeReceipt.js";
 import { classifyTurnRetention, retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
+import {
+  DurableExecutionPromotionHandoff,
+  DurablePreflightTracker,
+  evaluateDurablePreflightWithModel
+} from "$lib/server/agent/durable/preflight.js";
+import type { DurablePrefixEntry } from "$lib/server/agent/durable/types.js";
+import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
 
 // Imported helpers from extracted runnerHelpers.ts and runnerInputEnricher.ts
 import {
@@ -264,6 +271,7 @@ export class MomRunner implements RunnerLike {
   // here so rollback can restore the queue without persisting them as Session
   // conversation turns.
   private activeRunAcceptedSteering: AgentMessage[] = [];
+  private activeDurablePrefix: DurablePrefixEntry[] = [];
 
   private readonly hookManager: HookManager;
 
@@ -455,6 +463,25 @@ export class MomRunner implements RunnerLike {
               result: context.result
             }
           );
+        }
+        let inputSummary = "";
+        try {
+          inputSummary = JSON.stringify(context.args ?? {}).slice(0, 1600);
+        } catch {
+          inputSummary = String(context.args ?? "").slice(0, 1600);
+        }
+        const resultDetails = context.result.details as Record<string, unknown> | undefined;
+        if (!resultDetails?.durablePromotion) {
+          this.activeDurablePrefix.push({
+            runId: this.activeHookContext?.runId ?? this.chatId,
+            toolId: context.toolCall.name,
+            toolCallId: context.toolCall.id,
+            inputSummary,
+            effect: classifyToolSideEffect(context.toolCall.name, context.args, context.toolCall.id),
+            result: context.result as any,
+            isError: Boolean(context.isError),
+            occurredAt: new Date().toISOString()
+          });
         }
         this.emitSkillLoadedForReadTool(context);
         this.emitSkillSearchMatches(context);
@@ -777,6 +804,7 @@ export class MomRunner implements RunnerLike {
     });
     let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
     let errorMessage: string | undefined;
+    let promotionHandoff: DurableExecutionPromotionHandoff | undefined;
     let hookRunFinished = false;
     const finishHookRun = async (): Promise<void> => {
       const hookContext = this.activeHookContext;
@@ -801,6 +829,54 @@ export class MomRunner implements RunnerLike {
         workspaceId
       });
     };
+    const durablePreflightTracker = new DurablePreflightTracker(async (input) =>
+      evaluateDurablePreflightWithModel(input, { model: this.agent.state.model })
+    );
+    const sideEffectPreflight = ctx.onToolSideEffectPreflight ?? (async (effect) => {
+      const result = await durablePreflightTracker.evaluate({ message: ctx.message.text, effect });
+      if (!result.evaluated || result.preflightIndex === undefined) return;
+      logRunDetail({
+        type: "info",
+        summary: JSON.stringify({
+          kind: "durable_preflight",
+          sideEffectClass: result.sideEffectClass,
+          mode: result.mode,
+          reason: result.reason,
+          preflightIndex: result.preflightIndex,
+          goal: result.goal,
+          acceptanceCriteria: result.acceptanceCriteria,
+          expectedWait: result.expectedWait,
+          sideEffectRisk: result.sideEffectRisk
+        })
+      });
+      await ctx.onRunnerEvent?.({
+        type: "durable_preflight",
+        sideEffectClass: result.sideEffectClass,
+        mode: result.mode,
+        reason: result.reason,
+        preflightIndex: result.preflightIndex
+      });
+      if (result.mode === "promote") {
+        if (!ctx.onDurablePromotion) {
+          const notice = "Durable preflight requested promotion, but the shared runtime has no promotion handler.";
+          promotionHandoff = new DurableExecutionPromotionHandoff(notice);
+          return { terminate: true, reason: notice };
+        }
+        const promotion = await ctx.onDurablePromotion({
+          message: ctx.message.text,
+          runId,
+          effect,
+          decision: result,
+          prefix: [...this.activeDurablePrefix]
+        });
+        promotionHandoff = new DurableExecutionPromotionHandoff(promotion.notice);
+        return {
+          terminate: true,
+          reason: promotion.notice,
+          details: { durablePromotion: true }
+        };
+      }
+    });
     const appendRunContextMessage = (message: AgentMessage): string =>
       this.store.appendContextMessage(this.chatId, message, this.sessionId, { runId, retention: turnRetention });
     const respondInThread = async (text: string): Promise<void> => {
@@ -857,6 +933,7 @@ export class MomRunner implements RunnerLike {
         }
         : undefined;
     this.activeRunAcceptedSteering = [];
+    this.activeDurablePrefix = [];
     this.running = true;
     this.abortRequested = false;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
@@ -1248,6 +1325,10 @@ export class MomRunner implements RunnerLike {
           enqueue(() => ctx.respond(`_→ ${formatSubagentProgressLabel(event)}_`, false));
         }
       },
+      onSideEffectPreflight: sideEffectPreflight,
+      onSideEffectReceipt: ctx.onToolSideEffectReceipt,
+      onApprovalRequest: ctx.onApprovalRequest,
+      consumeDurableApproval: ctx.consumeDurableApproval,
     });
     const scopedMcpServers = resolveScopedMcpServers();
 
@@ -1601,12 +1682,19 @@ export class MomRunner implements RunnerLike {
           usage: msg.usage,
         });
         if (msg.usage) {
-          finalUsage = {
+          const usage = {
             inputTokens: Number(msg.usage.input ?? 0),
             outputTokens: Number(msg.usage.output ?? 0),
             cacheReadTokens: Number(msg.usage.cacheRead ?? 0),
             cacheWriteTokens: Number(msg.usage.cacheWrite ?? 0),
-            totalTokens: Number(msg.usage.totalTokens ?? 0)
+            totalTokens: Number(msg.usage.totalTokens ?? (Number(msg.usage.input ?? 0) + Number(msg.usage.output ?? 0)))
+          };
+          finalUsage = {
+            inputTokens: finalUsage.inputTokens + usage.inputTokens,
+            outputTokens: finalUsage.outputTokens + usage.outputTokens,
+            cacheReadTokens: finalUsage.cacheReadTokens + usage.cacheReadTokens,
+            cacheWriteTokens: finalUsage.cacheWriteTokens + usage.cacheWriteTokens,
+            totalTokens: finalUsage.totalTokens + usage.totalTokens
           };
           this.usageTracker.record({
             channel: this.channel,
@@ -2141,6 +2229,11 @@ export class MomRunner implements RunnerLike {
                   : undefined,
               );
             }
+            if (promotionHandoff) {
+              stopReason = "stop";
+              rollbackAttempt();
+              break;
+            }
             if (this.abortRequested) {
               stopReason = "aborted";
             }
@@ -2647,6 +2740,13 @@ export class MomRunner implements RunnerLike {
             attemptCount += 1;
           }
         } catch (error) {
+          if (error instanceof DurableExecutionPromotionHandoff) {
+            promotionHandoff = error;
+            stopReason = "stop";
+            errorMessage = undefined;
+            rollbackAttempt();
+            break;
+          }
           const message = error instanceof Error ? error.message : String(error);
           if (!overflowRetryUsed && isContextOverflowError(message)) {
             rollbackAttempt();
@@ -2687,6 +2787,7 @@ export class MomRunner implements RunnerLike {
           );
         }
 
+        if (promotionHandoff) break;
         finalAttemptCount = attemptCount;
         if (runAborted) {
           break;
@@ -2716,6 +2817,12 @@ export class MomRunner implements RunnerLike {
           });
         }
         rollbackAttempt();
+      }
+
+      if (promotionHandoff) {
+        await ctx.setWorking(false);
+        logRunDetail({ type: "final", summary: "Ordinary Run handed off to Durable Execution." });
+        return { runId, workspaceId, stopReason: "stop", usage: finalUsage };
       }
 
       if (successfulCandidateIndex >= 0 && pendingModelErrorEvents.length > 0) {
@@ -3013,7 +3120,7 @@ export class MomRunner implements RunnerLike {
           });
         }
       }
-      return { runId, workspaceId, assistantSourceEntryId, stopReason, errorMessage };
+      return { runId, workspaceId, assistantSourceEntryId, stopReason, errorMessage, usage: finalUsage };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const partialText = stripMemoryCitations(streamedAssistantText.trim()).text;
@@ -3070,7 +3177,7 @@ export class MomRunner implements RunnerLike {
       } catch {
         // ignore secondary UI errors
       }
-      return { runId, workspaceId, stopReason: "error", errorMessage: message };
+      return { runId, workspaceId, stopReason: "error", errorMessage: message, usage: finalUsage };
     } finally {
       stopTurnHeartbeat?.();
       unsubscribe();
@@ -3092,6 +3199,7 @@ export class MomRunner implements RunnerLike {
         }
       }
       this.activeRunBudget = undefined;
+      this.activeDurablePrefix = [];
       this.activeRunnerEventSink = undefined;
       this.activePayloadContext = undefined;
       this.activeRunSkillManifest.clear();

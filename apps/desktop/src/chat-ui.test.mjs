@@ -252,6 +252,10 @@ test("native feedback requests permission only on explicit enablement and observ
   assert.match(taskStore, /function observeTasks\(/);
   assert.match(taskStore, /observeTasks\(summary, false\)/);
   assert.match(taskStore, /observeTasks\(summary, true\)/);
+  assert.match(view, /export let onFeedback: \(event: FeedbackEvent\) => void/);
+  assert.match(view, /observedDurableExecutionStatuses = new Map/);
+  assert.match(view, /durable-execution:\$\{item\.execution\.id\}:\$\{item\.execution\.version\}:\$\{status\}/);
+  assert.match(view, /onFeedback\(\{[\s\S]*kind: "task"[\s\S]*terminal: true/);
 });
 
 test("native haptics are opt-in system feedback only at committed gestures", () => {
@@ -3059,18 +3063,17 @@ test("the Mini App panel is generic chrome with no per-app knowledge", () => {
   assert.match(miniAppPanel, /miniAppLoadFailed/);
 });
 
-test("Chat mounts one Artifact Panel hosting two separate surfaces", () => {
+test("Chat mounts one shared inspector host for artifact and durable surfaces", () => {
   // The old discriminated union (`files` | `miniapp`) is gone: one Artifact
   // Panel hosts both, so there is still exactly one inspector column, one
   // resizer and one width budget. The two surfaces inside it are separate
   // (see the tab-separation guard below) but the mount seam is single.
   assert.match(view, /type ChatInspector =[\s\S]*?kind: "artifact"[\s\S]*?scope: "project" \| "session"[\s\S]*?miniApp\?: string[\s\S]*?miniAppNonce\?: number[\s\S]*?\} \| null/);
   assert.match(view, /\$: filePanelOpen = inspector\?\.kind === "artifact"/);
-  // ONE inspector, every scope. A second right-hand aside for the session file
-  // list is what made the artifact list unreachable while a Mini App was open —
-  // the host could only render one of the two, so switching the panel back to
-  // Files landed on an empty surface. The panel owns the Session list now.
-  assert.match(view, /\$: inspectorVisible = artifactPanelVisible;/);
+  // ONE inspector host, every surface. Durable Execution is a third mode in the
+  // same right-hand host, so it cannot introduce a second aside or width budget.
+  assert.match(view, /\$: inspectorVisible = artifactPanelVisible \|\| durablePanelVisible;/);
+  assert.match(view, /kind: "durable-execution"/);
   assert.doesNotMatch(view, /sessionFilesAsideVisible/);
   assert.doesNotMatch(view, /class="file-list"/);
   // Scope and identity come from the live pane, never from the open-time
@@ -3083,9 +3086,11 @@ test("Chat mounts one Artifact Panel hosting two separate surfaces", () => {
   assert.match(view, /\$: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH/);
   assert.match(view, /\$: filesMaxWidth = !inspectorVisible/);
   assert.match(view, /\{#if inspectorVisible\}[\s\S]{0,400}class="files-resizer"/);
-  // ChatView mounts exactly one Artifact Panel; MiniAppPanel and ProjectFilePanel
+  // ChatView mounts exactly one Artifact Panel plus the Durable Execution adapter;
+  // both render inside the shared inspector host. MiniAppPanel and ProjectFilePanel
   // no longer appear as direct mounts (PRD test seam #4).
   assert.match(view, /<ArtifactPanel/);
+  assert.match(view, /<DurableExecutionInspector/);
   assert.doesNotMatch(view, /<MiniAppPanel\b/);
   assert.doesNotMatch(view, /<ProjectFilePanel\b/);
   // Opening a Mini App keeps any open files alive rather than replacing them.

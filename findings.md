@@ -87,3 +87,35 @@
 - `/api/desktop/tasks` 是专门的 Runtime Task projection/action 路由，内部复用 Settings tasks handler、event lease store 和 automation transcript；Durable Execution 应有独立 API/contract，不能把 action union 或状态类型污染到 Runtime Task。
 - Desktop shared contracts 位于 `src/lib/shared/desktop.ts`，当前右侧 inspector 在 `ChatView.svelte` 以 `ChatInspector`/artifact 模式管理；长任务 inspector 需要进入同一 host，不能另加并列 aside。
 - 现有 Desktop API 以 `endpoint` + JSON request helper 为主；后续可新增 `loadDurableExecutions`/action helper，但要保持 no-store、版本/CAS 错误可见和不暴露绝对路径。
+
+## Desktop host 细节
+
+- 任务专用类型目前在 shared desktop contract 的 415–552 行；可以新增平行 `DesktopDurableExecution*` 类型，保持 Runtime Task union 不变。
+- `ChatView.svelte` 的当前 `ChatInspector` 只有 `artifact` kind，`artifactPanelVisible`、`inspectorVisible` 和 `ArtifactPanel` 是唯一右侧 host；任务模式应扩展该 host 的 union/props，不能新增第二个 panel。
+- `ChatSidebar.svelte` 在 nav 后、conversation tree 前已有可插入的共享 section；长任务“进行中”分组应作为独立组件/props 进入这里，不要混入 `ChannelAccordion` 的会话列表数据。
+
+## 第一刀已落地
+
+- 新 store 使用一个库内聚合和事务写入；计划、步骤、验收、side effect、evidence、decision、attempt 都不依赖 Project 文件或 Runtime Task JSON。
+- `short_handle` 是 owner 作用域内稳定的 `#N`，只用于定位；后续共享 coordinator 仍必须按 owner/Bot/版本做鉴权和 CAS。
+- 当前 store 已将所有状态机字段建为列，并提供显式 transition/lease/conflict 错误；后续需要补 task-level queue/concurrency、plan revision、verifier、continuation 与 Runner activation。
+
+## Store 校验
+
+- `npx tsc --noEmit` 全仓仍被既存依赖/类型错误阻塞，但过滤新增路径 `src/lib/server/agent/durable` 与 `storage.ts` 后无错误。
+- `git diff --check` 通过；下一步用临时 SQLite 测试真实执行事务，不把全仓类型失败误判为本切片通过。
+
+## Runner/调度接缝确认（2026-08-09）
+
+- `MomRunner.run()` 已支持 `isEvent + sessionMode: "fresh"` 的空上下文自动化 attempt，以及 `contextRunId` 的共享自动化 archive 恢复；Durable Execution 应通过该 seam 创建 fresh attempt，不应把临时控制提示追加为普通 Session 消息。
+- `TaskScheduler` 只认 watched event JSON；`EventsWatcher` 已负责 lease、catch-up、超时和 stale recovery。Durable continuation 的事件文件应只持有 `executionId + expectedVersion` 等触发所需最小 payload，真正状态仍从专用 SQLite 读取。
+- Web Chat API 当前没有 Durable 字段，显式创建可先走独立 `/api/desktop/durable-executions`；把普通聊天正文自动解释成长任务需要单独的确定性 parser/激活策略，不能在 runner 内做每轮模型分类。
+- Durable store 当前的动作回执是“状态变更后再写 receipt”，存在进程在两步之间退出时的 crash window；交付前需把 actionId 与状态变更放进同一 SQLite 事务，或为每类共享动作提供原子内部实现。
+
+## 2026-08-09 — 当前切片完成边界
+
+- side-effect boundary 已下沉到共享 ToolRuntime，而不是 Channel；intent/receipt 写入由 Durable runtime 以版本 CAS 串行化，外部 handler 不被数据库锁包住。handler 后的 receipt 写入失败会进入 `recovery_required`，不会假装成功。
+- 任务级预算采用累计 Run usage；Runner 现在汇总一个 Run 内所有 Provider 响应，Durable verifier lease 明确不计入 Agent attempt 配额。过期 lease 不再永久占用 owner 并发槽位。
+- 队列事件只唤醒同一 owner 最早的 queued execution，verifying 优先；control action 仍通过共享 action receipt 幂等。`continue_work` 生成新 plan version，避免终态旧计划自循环。
+- `DurablePreflightTracker` 现在按副作用等级限次触发结构化模型 preflight；升级路径由 coordinator 吸收普通 Run 的已执行前缀、证据和回执，并在 handler 前返回 pi agent 可识别的终止标记。仍待的是可重启 Chat API 的 live 验收，以及 queryable/evidence/approval/channel 等更高层能力。
+- Durable continuation 现在使用 one-shot watched event 的共享 catch-up window；事件超窗被跳过时，runtime 通过最小内部 payload 将 `planned/queued` execution 转为 `recovery_required`，不会重放未知副作用。临时目录回归已覆盖，服务重启后的 live acceptance 仍待补齐。

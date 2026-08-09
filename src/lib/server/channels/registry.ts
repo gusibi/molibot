@@ -1,10 +1,12 @@
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
+import type { ChannelInboundMessage, DurableAttemptHooks, DurableAttemptResult } from "$lib/server/agent/core/types.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import type { HookManager } from "$lib/server/agent/hooks/index.js";
 import type { MemoryCandidateReview, MemoryReviewItem } from "$lib/server/memory/review.js";
+import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import { feishuChannelPlugin } from "$lib/server/channels/feishu/index.js";
 import { qqChannelPlugin } from "$lib/server/channels/qq/index.js";
 import { telegramChannelPlugin } from "$lib/server/channels/telegram/index.js";
@@ -19,6 +21,8 @@ export interface ChannelManager {
   snapshotRuns?(): Array<{ chatId: string; sessionId: string }>;
   abortRun?(chatId: string, sessionId: string, reason?: string): { aborted: boolean };
   triggerTask?(event: unknown, filename: string): Promise<void>;
+  runDurableAttempt?(event: ChannelInboundMessage, hooks?: DurableAttemptHooks): Promise<DurableAttemptResult>;
+  readDurableRunDetail?(input: { chatId: string; runId: string; sessionId?: string; projectId?: string }): RunDetailEntry[];
   sendInternalNotice?(chatId: string, text: string, metadata: { kind: string; filename: string }): Promise<void>;
   sendMemoryReviewItem?(chatId: string, item: MemoryReviewItem): Promise<{ messageId: string } | null>;
 }

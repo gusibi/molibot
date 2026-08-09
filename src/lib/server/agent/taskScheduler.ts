@@ -13,7 +13,7 @@ import type { MemoryCandidateReview, MemoryReviewBatch } from "$lib/server/memor
 
 export interface InternalTaskExecutionResult {
   notificationText?: string;
-  kind?: "memory-reflection" | "memory-maintenance" | "daily-materials";
+  kind?: "memory-reflection" | "memory-maintenance" | "daily-materials" | "durable-execution";
   completedTargets?: number;
   scannedConversations?: number;
   scannedMessages?: number;
@@ -359,7 +359,10 @@ export function migrateLegacyWebTaskEvents(botsRoot: string): string[] {
 export class TaskScheduler {
   private watchers: EventsWatcher[] = [];
 
-  constructor(private readonly runInternalEvent?: (event: import("$lib/server/agent/events.js").MomEvent, filename: string) => Promise<InternalTaskExecutionResult | void>) {}
+  constructor(
+    private readonly runInternalEvent?: (event: import("$lib/server/agent/events.js").MomEvent, filename: string) => Promise<InternalTaskExecutionResult | void>,
+    private readonly onInternalEventSkipped?: (event: import("$lib/server/agent/events.js").MomEvent, filename: string, reason: string) => void
+  ) {}
 
   start(channelManagers: Map<string, Map<string, ChannelManager>>, settings?: RuntimeSettings): void {
     this.stop();
@@ -381,7 +384,10 @@ export class TaskScheduler {
       {
         channel: SYSTEM_TASK_CHANNEL,
         leaseScope: `${SYSTEM_TASK_CHANNEL}:${SYSTEM_TASK_OWNER_ID}`,
-        getExecutionSettings: () => settings?.events ?? { executionTimeoutMs: 600_000, maxAttempts: 3, retryDelayMs: 5000 }
+        getExecutionSettings: () => settings?.events ?? { executionTimeoutMs: 600_000, maxAttempts: 3, retryDelayMs: 5000 },
+        onSkip: ({ event, filename, reason }) => {
+          if (event.execution === "internal") this.onInternalEventSkipped?.(event, filename, reason);
+        }
       }
     );
     ownerWatcher.start();

@@ -750,6 +750,7 @@
     setLaunchAtLogin={setLoginStart}
     onHapticCommit={commitHaptic}
     onCommandResult={publishCommandResult}
+    onFeedback={publishFeedback}
     {openSettings}
     requestedWorkspacePane={requestedChatPane}
   />

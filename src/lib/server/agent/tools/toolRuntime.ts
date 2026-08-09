@@ -5,12 +5,14 @@ import type {
   ToolCallInput,
   ToolDefinition,
   ToolExecutionContext,
+  ToolPreflightOutcome,
   ToolResult
 } from "$lib/server/agent/tools/toolTypes.js";
 import { getWorkspaceStore, type WorkspaceStore } from "$lib/server/workspaces/store.js";
 import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import type { HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
 import { BrokerApprovalService, type ApprovalService } from "$lib/server/approval/approvalService.js";
+import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
 
 /**
  * Build the Host-Bash-shaped approval record the ApprovalBroker path reuses to
@@ -80,6 +82,7 @@ const activeDebounceBatches = new Map<string, DebounceBatch>();
 
 export class ToolRuntime {
   private readonly approvalService?: ApprovalService;
+  private sideEffectTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly registry: ToolRegistry,
@@ -131,12 +134,51 @@ export class ToolRuntime {
         actionFingerprint: decision.request.actionFingerprint
       });
 
-      if (!grant) {
+      const durableApprovalScope = !grant
+        ? await call.context.consumeDurableApproval?.({
+            backend: "approval_broker",
+            actionKey: [
+              tool.id,
+              decision.request.action.command ?? decision.request.action.path ?? tool.name,
+              "ephemeral"
+            ].join(":"),
+            toolId: tool.id,
+            command: decision.request.action.command ?? decision.request.action.path ?? tool.name
+          })
+        : false;
+
+      if (!grant && !durableApprovalScope) {
         let resolution: "approved" | "rejected" | "expired";
         const isHighRisk = tool.risk === "high" || tool.risk === "critical";
 
         if (isHighRisk) {
           this.approvalService?.createRequest(decision.request);
+          const approvalPrompt = buildHostBashApprovalPrompt(buildBrokerApprovalRecord({
+            request: decision.request,
+            actorId: call.context.actorId,
+            toolId: tool.id,
+            displayName: tool.name,
+            command: decision.request.action.command ?? decision.request.action.path ?? tool.name,
+            status: "pending"
+          }));
+          const approvalDisposition = await call.context.onApprovalRequest?.({
+            backend: "approval_broker",
+            requestId: decision.request.id,
+            prompt: approvalPrompt,
+            request: decision.request
+          });
+          if (approvalDisposition === "defer") {
+            return {
+              ok: false,
+              error: "Tool execution is waiting for user approval.",
+              metadata: {
+                approvalRequestId: decision.request.id,
+                status: "waiting_for_approval"
+              },
+              details: { hostBashApproval: approvalPrompt },
+              terminate: true
+            };
+          }
           resolution = await this.pollApprovalRequest(decision.request, call.context);
         } else {
           // Low/medium risk debounce aggregation (1.5 seconds)
@@ -216,6 +258,28 @@ export class ToolRuntime {
       }
     }
 
+    const sideEffect = classifyToolSideEffect(tool.id, call.input, call.context.toolCallId, tool.sideEffectClass);
+    const hasSideEffectBoundary = sideEffect.sideEffectClass !== "pure";
+    const releaseSideEffectSlot = hasSideEffectBoundary
+      ? await this.acquireSideEffectSlot()
+      : undefined;
+    try {
+      let preflight: ToolPreflightOutcome | void = undefined;
+      if (hasSideEffectBoundary) {
+        preflight = await call.context.onSideEffectPreflight?.(sideEffect);
+      }
+      if (preflight?.terminate) {
+        return {
+          ok: false,
+          error: preflight.reason ?? `Tool ${tool.id} was stopped before execution.`,
+          details: {
+            ...(preflight.details ?? {}),
+            durablePromotion: true
+          },
+          terminate: true
+        };
+      }
+
     call.context.emit({
       timestamp: new Date().toISOString(),
       workspaceId: call.context.workspaceId,
@@ -260,6 +324,12 @@ export class ToolRuntime {
     if (settled.type === "result") {
       result = settled.value;
     } else if (settled.type === "error") {
+      if (hasSideEffectBoundary) {
+        await call.context.onSideEffectReceipt?.(sideEffect, {
+          ok: false,
+          error: settled.error instanceof Error ? settled.error.message : String(settled.error)
+        });
+      }
       throw settled.error;
     } else {
       result = {
@@ -268,6 +338,9 @@ export class ToolRuntime {
           ? `Tool ${tool.id} timed out after ${timeoutMs}ms.`
           : `Tool ${tool.id} was aborted.`
       };
+    }
+    if (hasSideEffectBoundary) {
+      await call.context.onSideEffectReceipt?.(sideEffect, result);
     }
     call.context.emit({
       timestamp: new Date().toISOString(),
@@ -278,7 +351,20 @@ export class ToolRuntime {
       summary: result.ok ? `Tool finished: ${tool.name}` : result.error ?? `Tool failed: ${tool.name}`,
       isError: !result.ok
     });
-    return result;
+      return result;
+    } finally {
+      releaseSideEffectSlot?.();
+    }
+  }
+
+  private async acquireSideEffectSlot(): Promise<() => void> {
+    const previous = this.sideEffectTail;
+    let release!: () => void;
+    this.sideEffectTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    return release;
   }
 
   private async pollApprovalRequest(

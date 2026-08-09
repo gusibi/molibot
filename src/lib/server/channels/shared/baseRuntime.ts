@@ -8,6 +8,7 @@ import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { resolveSessionWorkingDir } from "$lib/server/agent/core/runner.js";
 import { buildRunnerProjectContext } from "$lib/server/projects/context.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
 import { resolveEventSessionMode, resolveEventTargetSessionId, taskSessionRetentionMs, type MomEvent } from "$lib/server/agent/events.js";
@@ -20,7 +21,7 @@ import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { SharedRuntimeCommandService, type SharedRuntimeCommandOptions } from "$lib/server/agent/commands/channelCommands.js";
 import { buildTextChannelContext, type ChannelResponseHandle, type ContextSentMessageRef } from "$lib/server/channels/shared/contextBuilder.js";
-import type { ChannelInboundMessage, RunnerUiEvent } from "$lib/server/agent/core/types.js";
+import type { ChannelInboundMessage, DurableAttemptHooks, DurableAttemptResult, RunResult, RunnerUiEvent } from "$lib/server/agent/core/types.js";
 import {
   retryApprovalAutoResume,
   APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
@@ -31,6 +32,13 @@ import type { PromptChannel } from "$lib/server/agent/prompts/prompt-channel.js"
 import type { Channel } from "$lib/shared/types/message.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
 import { ProjectAwareRunnerPool } from "$lib/server/channels/shared/projectRunnerRouter.js";
+import {
+  activateDurableExecution,
+  formatDurableActivationAcknowledgement,
+  promoteDurableExecution
+} from "$lib/server/agent/durable/activation.js";
+import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
+import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 
 import type { HookManager } from "$lib/server/agent/hooks/index.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -334,10 +342,12 @@ export abstract class BaseChannelRuntime {
   ): void {
     const retry = this.getApprovalAutoResumeRetryConfig();
     void retryApprovalAutoResume({
-      run: () => this.runSharedTextTask(scopeId, event, {
-        createBotMessageId: options.createBotMessageId,
-        response: options.response
-      }),
+      run: async () => {
+        await this.runSharedTextTask(scopeId, event, {
+          createBotMessageId: options.createBotMessageId,
+          response: options.response
+        });
+      },
       maxAttempts: retry.maxAttempts,
       delayMs: retry.delayMs,
       onWarn: (warningCode, meta) => {
@@ -546,18 +556,18 @@ export abstract class BaseChannelRuntime {
       deleteWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["deleteWithoutHandle"];
       uploadWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["uploadWithoutHandle"];
       onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
-      onRunComplete?: (result: {
-        runId?: string;
-        stopReason: "stop" | "aborted" | "error" | "waiting_for_approval";
-        errorMessage?: string;
-      }, meta: {
+      onToolSideEffectPreflight?: DurableAttemptHooks["onToolSideEffectPreflight"];
+      onToolSideEffectReceipt?: DurableAttemptHooks["onToolSideEffectReceipt"];
+      onApprovalRequest?: DurableAttemptHooks["onApprovalRequest"];
+      consumeDurableApproval?: DurableAttemptHooks["consumeDurableApproval"];
+      onRunComplete?: (result: RunResult, meta: {
         activeSessionId: string;
         threadEventCount: number;
       }) => Promise<void>;
       onSessionAppendWarning?: (error: unknown) => void;
       role?: "user" | "system";
     }
-  ): Promise<void> {
+  ): Promise<RunResult> {
     event.workspaceId = event.workspaceId || this.workspaceId;
     const previousActiveSessionId = event.isEvent && event.sessionMode === "fresh"
       ? this.store.getActiveSession(scopeId)
@@ -593,7 +603,7 @@ export abstract class BaseChannelRuntime {
 
     this.running.add(scopeId);
 
-    const target = this.runners.resolveTarget(scopeId, activeSessionId);
+    const target = this.runners.resolveTarget(scopeId, activeSessionId, event.projectId);
     const selectedProject = target.project;
 
     this.appendConversationMessage(
@@ -609,6 +619,62 @@ export abstract class BaseChannelRuntime {
         ? { projectId: selectedProject.id, conversationId: target.conversationId }
         : undefined
     );
+
+    // Non-web channels enter through this shared seam. Apply the same narrow
+    // deterministic activation used by the Web API before creating a normal
+    // Runner turn; lazy promotion remains a tool-boundary concern.
+    if (!event.isEvent) {
+      let durable;
+      try {
+        durable = activateDurableExecution({
+          message: event.text,
+          ownerId: "owner",
+          botId: this.instanceId,
+          sourceChannel: this.channelName,
+          sourceChatId: scopeId,
+          sourceUiSessionId: activeSessionId,
+          sourceProjectId: selectedProject?.id
+        });
+      } catch (error) {
+        if (!(error instanceof DurableExecutionQuotaError)) throw error;
+        const notice = "Unfinished durable-execution quota reached. Finish or cancel an existing task before starting another automatic task.";
+        this.appendConversationMessage(
+          this.channelName,
+          target.conversationKey,
+          "assistant",
+          notice,
+          "durable_activation_quota_notice_failed",
+          { chatId: scopeId, scopeId },
+          undefined,
+          undefined,
+          selectedProject && target.conversationId
+            ? { projectId: selectedProject.id, conversationId: target.conversationId }
+            : undefined
+        );
+        await options.response.sendText(notice);
+        this.running.delete(scopeId);
+        return { stopReason: "error", errorMessage: notice };
+      }
+      if (durable) {
+        const notice = formatDurableActivationAcknowledgement(durable.item, isChineseLocale(this.getSettings().locale));
+        this.appendConversationMessage(
+          this.channelName,
+          target.conversationKey,
+          "assistant",
+          notice,
+          "durable_activation_notice_failed",
+          { chatId: scopeId, scopeId },
+          undefined,
+          undefined,
+          selectedProject && target.conversationId
+            ? { projectId: selectedProject.id, conversationId: target.conversationId }
+            : undefined
+        );
+        await options.response.sendText(notice);
+        this.running.delete(scopeId);
+        return { stopReason: "stop" };
+      }
+    }
 
     const runner = target.pool.get(target.chatId, target.sessionId);
     let threadEventCount = 0;
@@ -643,12 +709,76 @@ export abstract class BaseChannelRuntime {
       deleteWithoutHandle: options.deleteWithoutHandle,
       uploadWithoutHandle: options.uploadWithoutHandle,
       onRunnerEvent: options.onRunnerEvent,
+      onToolSideEffectPreflight: options.onToolSideEffectPreflight,
+      onToolSideEffectReceipt: options.onToolSideEffectReceipt,
+      onApprovalRequest: options.onApprovalRequest,
+      consumeDurableApproval: options.consumeDurableApproval,
+      onDurablePromotion: event.isEvent
+        ? undefined
+        : async (input) => {
+            let promoted;
+            try {
+              promoted = promoteDurableExecution({
+                message: event.text,
+                ownerId: "owner",
+                botId: this.instanceId,
+                sourceChannel: this.channelName,
+                sourceChatId: scopeId,
+                sourceUiSessionId: activeSessionId,
+                sourceProjectId: selectedProject?.id,
+                decision: input.decision,
+                prefix: input.prefix,
+                currentEffect: input.effect
+              });
+            } catch (error) {
+              if (!(error instanceof DurableExecutionQuotaError)) throw error;
+              const notice = isChineseLocale(this.getSettings().locale)
+                ? "当前未完成长任务数量已达到上限；本次动作已在产生副作用前停止，请先完成、暂停或取消已有长任务。"
+                : "The unfinished durable-execution limit has been reached. This action stopped before its side effect; finish, pause, or cancel an existing task first.";
+              this.appendConversationMessage(
+                this.channelName,
+                target.conversationKey,
+                "assistant",
+                notice,
+                "durable_lazy_promotion_quota_notice_failed",
+                { chatId: scopeId, scopeId },
+                undefined,
+                undefined,
+                selectedProject && target.conversationId
+                  ? { projectId: selectedProject.id, conversationId: target.conversationId }
+                  : undefined
+              );
+              await options.response.sendText(notice);
+              return { notice };
+            }
+            const notice = formatDurableActivationAcknowledgement(
+              promoted.item,
+              isChineseLocale(this.getSettings().locale)
+            );
+            this.appendConversationMessage(
+              this.channelName,
+              target.conversationKey,
+              "assistant",
+              notice,
+              "durable_lazy_promotion_notice_failed",
+              { chatId: scopeId, scopeId },
+              undefined,
+              undefined,
+              selectedProject && target.conversationId
+                ? { projectId: selectedProject.id, conversationId: target.conversationId }
+                : undefined
+            );
+            await options.response.sendText(notice);
+            return { notice, executionId: promoted.item.execution.id };
+          },
       onSessionAppendWarning: options.onSessionAppendWarning
     });
 
     let runStopReason: "stop" | "aborted" | "error" | "waiting_for_approval" | undefined;
+    let runResult: RunResult | undefined;
     try {
       const result = await runner.run(ctx);
+      runResult = result;
       runStopReason = result.stopReason;
       await options.onRunComplete?.(result, { activeSessionId, threadEventCount });
     } finally {
@@ -669,5 +799,50 @@ export abstract class BaseChannelRuntime {
         }
       }
     }
+    if (!runResult) throw new Error("Durable runner returned without a result.");
+    return runResult;
+  }
+
+  /**
+   * Shared runtime entry for Durable Execution attempts. The channel adapter
+   * owns no state machine here; it only supplies the existing runner context
+   * with a silent response handle so the automation archive stays hidden from
+   * channel conversation lists.
+   */
+  public runDurableAttempt(
+    event: ChannelInboundMessage,
+    hooks: DurableAttemptHooks = {}
+  ): Promise<DurableAttemptResult> {
+    let contextSessionId = "";
+    let approval: DurableAttemptResult["approval"];
+    return this.runSharedTextTask<{ messageId: number }>(event.chatId, event, {
+      createBotMessageId: () => Date.now(),
+      response: {
+        sendText: async () => null,
+        respondInThread: async () => {}
+      },
+      onRunnerEvent: hooks.onRunnerEvent,
+      onToolSideEffectPreflight: hooks.onToolSideEffectPreflight,
+      onToolSideEffectReceipt: hooks.onToolSideEffectReceipt,
+      onApprovalRequest: async (request) => {
+        approval = request;
+        return (await hooks.onApprovalRequest?.(request)) ?? "defer";
+      },
+      consumeDurableApproval: hooks.consumeDurableApproval,
+      onRunComplete: async (_result, meta) => {
+        contextSessionId = meta.activeSessionId;
+      },
+      onSessionAppendWarning: (error) => {
+        momWarn(this.channelName, "durable_session_append_failed", {
+          chatId: event.chatId,
+          executionId: event.taskId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }).then((result) => ({ result, contextSessionId, approval }));
+  }
+
+  public readDurableRunDetail(input: { chatId: string; runId: string; sessionId?: string; projectId?: string }): RunDetailEntry[] {
+    return this.runners.readRunDetail(input.chatId, input.sessionId, input.projectId, input.runId);
   }
 }

@@ -2,6 +2,9 @@ import type { AssistantMessageEvent, ImageContent } from "@earendil-works/pi-ai"
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js";
+import type { ToolApprovalRequest, ToolExecutionContext, ToolResult, ToolSideEffect } from "$lib/server/agent/tools/toolTypes.js";
+import type { DurablePrefixEntry } from "$lib/server/agent/durable/types.js";
+import type { DurablePreflightDecision } from "$lib/server/agent/durable/preflight.js";
 
 export type AttachmentMediaType = "image" | "audio" | "video" | "file";
 
@@ -69,6 +72,40 @@ export interface RunResult {
   assistantSourceEntryId?: string;
   stopReason: "stop" | "aborted" | "error" | "waiting_for_approval";
   errorMessage?: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalTokens: number;
+  };
+}
+
+export interface DurableAttemptResult {
+  result: RunResult;
+  contextSessionId: string;
+  approval?: ToolApprovalRequest;
+}
+
+export interface DurablePromotionRequest {
+  message: string;
+  runId: string;
+  effect: ToolSideEffect;
+  decision: DurablePreflightDecision;
+  prefix: DurablePrefixEntry[];
+}
+
+export interface DurablePromotionResult {
+  notice: string;
+  executionId?: string;
+}
+
+export interface DurableAttemptHooks {
+  onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+  onToolSideEffectPreflight?: ToolExecutionContext["onSideEffectPreflight"];
+  onToolSideEffectReceipt?: (effect: ToolSideEffect, result: ToolResult) => Promise<void>;
+  onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
+  consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
 }
 
 export type RunnerUiEvent =
@@ -119,6 +156,13 @@ export type RunnerUiEvent =
       hostBashApproval?: HostBashApprovalPrompt;
     }
   | {
+      type: "durable_preflight";
+      sideEffectClass: "idempotent" | "queryable" | "non_idempotent";
+      mode: "ordinary" | "promote";
+      reason: string;
+      preflightIndex: number;
+    }
+  | {
       type: "subagent_execution";
       phase: "start" | "task_start" | "task_end" | "end";
       mode: "single" | "parallel" | "chain";
@@ -162,6 +206,11 @@ export interface MomContext {
   deleteMessage: () => Promise<void>;
   uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
   onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+  onToolSideEffectPreflight?: ToolExecutionContext["onSideEffectPreflight"];
+  onToolSideEffectReceipt?: (effect: ToolSideEffect, result: ToolResult) => Promise<void>;
+  onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
+  consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
+  onDurablePromotion?: (input: DurablePromotionRequest) => Promise<DurablePromotionResult>;
 }
 
 export interface RunnerLike {

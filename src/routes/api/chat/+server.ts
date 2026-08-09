@@ -53,6 +53,13 @@ import { getProjectStore } from "$lib/server/projects/store";
 import { WEB_COMMAND_DEFINITIONS } from "$lib/server/app/composerSuggestions";
 import { getMiniAppHost } from "$lib/server/miniapps/registry";
 import { formatMiniAppList } from "$lib/server/miniapps/invocation";
+import {
+  activateDurableExecution,
+  formatDurableActivationAcknowledgement,
+  parseDurableRequestMode,
+  type DurableRequestMode
+} from "$lib/server/agent/durable/activation.js";
+import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
 
 interface ChatBody {
   userId?: string;
@@ -62,6 +69,7 @@ interface ChatBody {
   thinkingLevel?: string;
   projectId?: string;
   modelKey?: string;
+  durableMode?: string;
 }
 
 interface ParsedWebChatRequest {
@@ -73,6 +81,7 @@ interface ParsedWebChatRequest {
   thinkingLevel?: RuntimeThinkingLevel;
   projectId?: string;
   modelKey?: string;
+  durableMode?: DurableRequestMode;
 }
 
 interface WebCommandResult {
@@ -549,7 +558,8 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
       files,
       thinkingLevel: sanitizeOptionalRuntimeThinkingLevel(form.get("thinkingLevel")),
       projectId: String(form.get("projectId") ?? "").trim() || undefined,
-      modelKey: String(form.get("modelKey") ?? "").trim() || undefined
+      modelKey: String(form.get("modelKey") ?? "").trim() || undefined,
+      durableMode: parseDurableRequestMode(form.get("durableMode"))
     };
   }
 
@@ -562,7 +572,8 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
     files: [],
     thinkingLevel: sanitizeOptionalRuntimeThinkingLevel(body.thinkingLevel),
     projectId: String(body.projectId ?? "").trim() || undefined,
-    modelKey: String(body.modelKey ?? "").trim() || undefined
+    modelKey: String(body.modelKey ?? "").trim() || undefined,
+    durableMode: parseDurableRequestMode(body.durableMode)
   };
 }
 
@@ -675,6 +686,40 @@ export const POST: RequestHandler = async ({ request }) => {
     retention: turnRetention
   });
 
+  let durable;
+  try {
+    durable = activateDurableExecution({
+      message: inboundText,
+      mode: parsed.durableMode,
+      ownerId: "owner",
+      botId: parsed.profileId,
+      sourceChannel: "web",
+      sourceChatId: runnerChatId,
+      sourceUiSessionId: conversation.id,
+      sourceProjectId: project?.id
+    });
+  } catch (error) {
+    if (error instanceof DurableExecutionQuotaError) {
+      return json({ ok: false, error: "Unfinished durable-execution quota reached. Finish or cancel an existing task before starting another automatic task." }, { status: 429 });
+    }
+    throw error;
+  }
+  if (durable) {
+    const response = formatDurableActivationAcknowledgement(
+      durable.item,
+      isChineseLocale(runtime.getSettings().locale)
+    );
+    return json({
+      ok: true,
+      response,
+      conversationId: conversation.id,
+      profileId: parsed.profileId,
+      stopReason: "stop",
+      durableExecution: durable.item,
+      diagnostics: [`activation=${durable.decision.activationPath}`, `reason=${durable.decision.reason}`]
+    });
+  }
+
   let finalText = "";
   const threadNotes: string[] = [];
   const runnerDiagnostics: string[] = [];
@@ -722,6 +767,10 @@ export const POST: RequestHandler = async ({ request }) => {
           preview ? `summary=${preview}` : ""
         ].filter(Boolean).join(", ")
       );
+      return;
+    }
+    if (event.type === "durable_preflight") {
+      runnerDiagnostics.push(`durable_preflight=tier:${event.sideEffectClass}, mode=${event.mode}, index=${event.preflightIndex}, reason=${event.reason}`);
       return;
     }
     if (event.type === "subagent_execution") {

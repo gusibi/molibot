@@ -11,6 +11,7 @@ export const storagePaths = {
   inboundQueueDbFile: path.resolve(config.databaseDir, "inbound-queue.sqlite"),
   outboxDbFile: path.resolve(config.databaseDir, "outbox.sqlite"),
   moryDbFile: path.resolve(config.databaseDir, "mory.sqlite"),
+  durableExecutionDbFile: path.resolve(config.databaseDir, "durable-execution.sqlite"),
   memoryDir: path.resolve(config.dataDir, "memory"),
   projectsDir: path.resolve(config.dataDir, "projects"),
   webWorkspaceDir: path.resolve(config.webWorkspaceDir),

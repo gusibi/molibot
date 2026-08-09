@@ -5,6 +5,8 @@
   import ProjectTree from "../projects/ProjectTree.svelte";
   import MiniAppsSidebarSection from "../miniapps/MiniAppsSidebarSection.svelte";
   import type { Translation } from "../i18n";
+  import DurableExecutionSidebarSection from "./DurableExecutionSidebarSection.svelte";
+  import type { DesktopDurableExecutionItem } from "@molibot/desktop-contract";
 
   let {
     copy,
@@ -36,6 +38,8 @@
     onRenameSession,
     onDeleteSession,
     onActivateProjectSession,
+    durableExecutions = [],
+    onOpenDurableExecution,
     miniAppsExpanded = true,
     activeMiniAppId = "",
     onToggleMiniApps,
@@ -71,6 +75,8 @@
     onRenameSession: (item: DesktopConversationItem, title: string) => void;
     onDeleteSession: (item: DesktopConversationItem) => void;
     onActivateProjectSession: () => void;
+    durableExecutions?: DesktopDurableExecutionItem[];
+    onOpenDurableExecution: (executionId: string) => void;
     miniAppsExpanded?: boolean;
     activeMiniAppId?: string;
     onToggleMiniApps: () => void;
@@ -161,6 +167,7 @@
   </nav>
 
   <div class="sidebar-channels" use:trackStickySectionHeads>
+    <DurableExecutionSidebarSection items={durableExecutions} {copy} onOpen={onOpenDurableExecution} />
     <section class="sidebar-tree-section">
       <button type="button" class="sidebar-section-head sidebar-section-toggle" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>
         <span>{copy.chat}</span><i class="ph ph-caret-right sidebar-section-caret" class:open={conversationsExpanded} aria-hidden="true"></i>

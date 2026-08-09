@@ -40,6 +40,7 @@ export function getReadToolDefinition(options: { cwd: string; workspaceDir: stri
     inputSchema: readSchema,
     risk: "low",
     source: "builtin",
+    sideEffectClass: "pure",
     handler: async (params: any, ctx) => {
       const { path, offset, limit } = params;
       const filePath = resolveToolPath(ctx.cwd, path);

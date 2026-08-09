@@ -518,8 +518,9 @@ the base to pure black (`#000000`/`#0A0A0A`).
   exposing a wall of editable fields. Show model capability/status as compact
   metadata, keep technical Provider/model identifiers secondary, and collapse the
   rail above the detail when two columns no longer leave a usable model pane.
-- Chat uses the shared 228px default resizable sidebar, flat assistant messages with Agent
-  identity, hover/focus actions, and one compact auto-growing composer.
+- Chat uses the shared 228px baseline resizable sidebar; persisted widths below that
+  baseline clamp to it. Flat assistant messages have Agent identity, hover/focus
+  actions, and one compact auto-growing composer.
 - Chat headers identify the active source with a quiet `#` + initial micro-tag
   (for example W, F, T, or P), not a large avatar. The accessible label and title
   expose the full source name. A quiet slash expresses the source/title hierarchy;

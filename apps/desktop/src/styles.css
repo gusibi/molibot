@@ -853,6 +853,21 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .header-actions { pointer-events: none; }
 .header-actions > * { pointer-events: auto; }
 .header-actions .secondary-button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.durable-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--separator));
+  border-radius: var(--rounded-full);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 600 var(--fs-meta)/var(--lh-meta) var(--font-mono);
+  cursor: pointer;
+}
+.durable-header-badge:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.durable-header-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--chrome-header-bg), 0 0 0 4px var(--accent); }
 .workspace-header { flex: 0 0 auto; }
 .workspace-page-title { margin: 0; font-size: var(--fs-page); line-height: var(--lh-page); font-weight: 600; letter-spacing: -.02em; }
 .workspace-scroll { flex: 1; min-height: 0; overflow: auto; padding: 22px 0 40px; scrollbar-gutter: stable; }

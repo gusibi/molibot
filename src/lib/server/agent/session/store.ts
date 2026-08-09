@@ -89,6 +89,13 @@ export interface SessionOriginMetadata {
   createdAt?: string;
 }
 
+export function taskArchiveSessionId(taskId: string): string | undefined {
+  const stableTaskId = String(taskId ?? "").trim();
+  if (!stableTaskId) return undefined;
+  const digest = createHash("sha256").update(stableTaskId).digest("hex").slice(0, 16);
+  return `t-archive-${digest}`;
+}
+
 export class MomRuntimeStore {
   private readonly dedupe = new Map<string, number>();
   private readonly defaultSessionId = "default";
@@ -512,8 +519,7 @@ export class MomRuntimeStore {
     const stableTaskId = String(taskId ?? "").trim();
     if (!stableTaskId) return this.beginTaskSession(chatId, retentionMs);
 
-    const digest = createHash("sha256").update(stableTaskId).digest("hex").slice(0, 16);
-    const id = `t-archive-${digest}`;
+    const id = taskArchiveSessionId(stableTaskId)!;
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
     if (!this.readSessionOrigin(chatId, id)) {

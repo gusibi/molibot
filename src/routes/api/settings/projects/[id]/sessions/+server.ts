@@ -5,12 +5,14 @@ import { getProjectStore } from "$lib/server/projects/store.js";
 
 export const GET: RequestHandler = ({ params }) => {
   if (!getProjectStore().get(params.id)) return json({ ok: false, error: "Unknown project" }, { status: 404 });
-  const sessions = getRuntime().sessions.listProjectConversations(params.id).map((conversation) => ({
+  const sessions = getRuntime().sessions.listProjectConversations(params.id)
+    .filter((conversation) => conversation.origin !== "automation" && !conversation.origin?.startsWith("internal:"))
+    .map((conversation) => ({
     conversationId: conversation.id,
     title: conversation.title,
     updatedAt: conversation.updatedAt,
     origin: conversation.origin ?? conversation.externalUserId
-  }));
+    }));
   return json({ ok: true, sessions });
 };
 

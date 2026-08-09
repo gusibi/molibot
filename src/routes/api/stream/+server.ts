@@ -16,6 +16,12 @@ import type { ConversationAttachment } from "$lib/shared/types/message";
 import { classifyTurnRetention } from "$lib/server/sessions/retentionPolicy";
 import { buildRunnerProjectContext, resolveProjectContext } from "$lib/server/projects/context";
 import { parseStreamRequest, type ParsedStreamRequest } from "./request";
+import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
+import {
+  activateDurableExecution,
+  formatDurableActivationAcknowledgement
+} from "$lib/server/agent/durable/activation.js";
+import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
 
 function writeEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
@@ -63,6 +69,9 @@ function buildRunnerDiagnostic(event: RunnerUiEvent): string | null {
       `status=${event.isError ? "error" : "ok"}`,
       preview ? `summary=${preview}` : ""
     ].filter(Boolean).join(", ");
+  }
+  if (event.type === "durable_preflight") {
+    return `durable_preflight=tier:${event.sideEffectClass}, mode=${event.mode}, index=${event.preflightIndex}, reason=${event.reason}`;
   }
   if (event.type === "subagent_execution") {
     return buildSubagentDiagnostic(event);
@@ -171,6 +180,76 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const encoder = new TextEncoder();
 
+  let durable;
+  try {
+    durable = activateDurableExecution({
+      message: inboundText,
+      mode: body.durableMode,
+      ownerId: "owner",
+      botId: profileId,
+      sourceChannel: "web",
+      sourceChatId: runnerChatId,
+      sourceUiSessionId: conversation.id,
+      sourceProjectId: project?.id
+    });
+  } catch (error) {
+    if (error instanceof DurableExecutionQuotaError) {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const message = "Unfinished durable-execution quota reached. Finish or cancel an existing task before starting another automatic task.";
+          writeEvent(controller, encoder, "token", { delta: message });
+          writeEvent(controller, encoder, "done", {
+            ok: false,
+            error: message,
+            conversationId: conversation.id,
+            profileId,
+            stopReason: "error",
+            thinkingText: ""
+          });
+          controller.close();
+        }
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive"
+        },
+        status: 429
+      });
+    }
+    throw error;
+  }
+  if (durable) {
+    const response = formatDurableActivationAcknowledgement(
+      durable.item,
+      isChineseLocale(runtime.getSettings().locale)
+    );
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        writeEvent(controller, encoder, "token", { delta: response });
+        writeEvent(controller, encoder, "done", {
+          ok: true,
+          response,
+          conversationId: conversation.id,
+          profileId,
+          stopReason: "stop",
+          durableExecution: durable.item,
+          diagnostics: [`activation=${durable.decision.activationPath}`, `reason=${durable.decision.reason}`],
+          thinkingText: ""
+        });
+        controller.close();
+      }
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive"
+      }
+    });
+  }
+
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       void (async () => {
@@ -271,6 +350,10 @@ export const POST: RequestHandler = async ({ request }) => {
               if (event.type === "payload") {
                 if (!responseModel) responseModel = [event.provider, event.model].filter(Boolean).join("/");
                 writeEvent(controller, encoder, "payload", event);
+                return;
+              }
+              if (event.type === "durable_preflight") {
+                writeEvent(controller, encoder, "runner_event", { diagnostic: diagnostic ?? "", activity: undefined, preflight: event });
                 return;
               }
               if (event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "subagent_execution") {

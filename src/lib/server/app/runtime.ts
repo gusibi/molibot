@@ -32,6 +32,7 @@ import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInter
 import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfill.js";
 import { MemoryMaintenanceService, MemoryMaintenanceStore, type MemoryMaintenanceTarget } from "$lib/server/memory/maintenance.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
+import { DurableExecutionRuntime } from "$lib/server/agent/durable/runtime.js";
 import { getMemoryTraceStore } from "$lib/server/memory/traceStore.js";
 import {
   configureConversationProjectionRuntime,
@@ -291,6 +292,7 @@ function initializeRuntime(): RuntimeState {
       }], prompt, "", { modelKey: currentSettings.value.plugins.memory.dailyMaterials.scanModelKey })
     );
     let state!: RuntimeState;
+    let durableExecutionRuntime!: DurableExecutionRuntime;
     const sendMemoryNotice = async (
       text: string,
       kind: "memory-reflection" | "daily-materials",
@@ -318,6 +320,9 @@ function initializeRuntime(): RuntimeState {
       );
     };
     const runInternalEvent = async (event: MomEvent, filename: string): Promise<InternalTaskExecutionResult | void> => {
+      if (event.internal?.kind === "durable-execution") {
+        return durableExecutionRuntime.run(event, filename);
+      }
       if (event.internal?.kind === "memory-reflection") {
         if (event.internal.target) {
           const result = await reflectionService.run(event.internal.target as ReflectionTarget);
@@ -429,7 +434,10 @@ function initializeRuntime(): RuntimeState {
       throw new Error("Unsupported internal event.");
     };
     const dailyMaterialsBackfill = new DailyMaterialsBackfillJob(dailyMaterialsService);
-    const taskScheduler = new TaskScheduler(runInternalEvent);
+    const taskScheduler = new TaskScheduler(runInternalEvent, (event, filename, reason) => {
+      durableExecutionRuntime?.handleSkippedEvent(event, reason);
+      momLog("runtime", "internal_event_skipped", { filename, reason, kind: event.internal?.kind });
+    });
     state = {
       sessions,
       router,
@@ -456,6 +464,16 @@ function initializeRuntime(): RuntimeState {
       getSettings: () => state.settings,
       updateSettings: applySettingsPatch
     };
+
+    durableExecutionRuntime = new DurableExecutionRuntime({
+      channelManagers: state.channelManagers,
+      leaseDurationMs: state.settings.events.executionTimeoutMs
+    });
+    const recoveredDurableAttempts = durableExecutionRuntime.reconcile();
+    const queuedDurableEvents = durableExecutionRuntime.ensureQueuedEvents("owner");
+    if (recoveredDurableAttempts > 0 || queuedDurableEvents > 0) {
+      console.log(`[runtime] durable_execution_reconciled attempts=${recoveredDurableAttempts} queued_events=${queuedDurableEvents}`);
+    }
 
     state.settings = sanitizeSettings({}, state.settings);
     currentSettings.value = state.settings;

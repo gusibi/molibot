@@ -10,7 +10,9 @@ import { buildDesktopModelState } from "$lib/server/app/desktopModels.js";
 export const GET: RequestHandler = ({ params }) => {
   const project = getProjectStore().get(params.id);
   if (!project) return json({ ok: false, error: "Unknown project" }, { status: 404 });
-  const sessionCount = getRuntime().sessions.listProjectConversations(project.id).length;
+  const sessionCount = getRuntime().sessions.listProjectConversations(project.id)
+    .filter((conversation) => conversation.origin !== "automation" && !conversation.origin?.startsWith("internal:"))
+    .length;
   return json({ ok: true, project, sessionCount });
 };
 

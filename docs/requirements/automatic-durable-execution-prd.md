@@ -1,12 +1,18 @@
 # 自动持久化长任务与多日执行 PRD
 
-> 状态：待产品负责人确认，未开始实施（2026-08-09 修订：启用路径、状态模型、预算配额、桌面端展示）
+> 状态：实施中，Slices 1–6 部分交付（2026-08-09）
 >
 > 优先级：P1
 >
 > 产品名称：长任务（用户可见）/ Durable Execution（架构术语）
 >
-> 测试 seam 待确认：通过真实 Chat API 和可重启的临时服务验证完整行为
+> 主验收 seam：通过真实 Chat API 和可重启的临时服务验证完整行为；当前仍待补齐该 live acceptance
+
+### 当前实施状态
+
+已交付的基础主链路：确定性启用与 per-request `auto/force/suppress`、专用 `durable-execution.sqlite` 聚合、版本 CAS/lease、watched event JSON + runtime internal event 续跑、fresh automation attempt、步骤/证据/decision 状态、副作用 intent/receipt、共享 verifier、任务级预算/未终结配额/队列顺序、共享 one-shot catch-up window 与 missed-event recovery，以及 Desktop 会话卡片、单一右侧 inspector、进行中侧栏和反馈/通知链路。普通 Run 的首次非纯工具边界现在还会经过分层限次、结构化模型 preflight；确认升级后会吸收已执行前缀、证据和回执，并在当前副作用执行前安全交接到 Durable Execution。
+
+仍待交付的关键验收项：证据读取器与 queryable 外部探针、完整 approval/多渠道短句柄适配、可重启 Chat API live suite，以及完整的冷启动/跨渠道验收矩阵。离线事件超窗现在会进入 `recovery_required`，但仍需在可重启服务的 live suite 中验收整条恢复链路；当前实现不会把这些未完成部分伪装成已完成能力。
 
 ## Problem Statement
 

@@ -1,3 +1,5 @@
+import { parseDurableRequestMode, type DurableRequestMode } from "$lib/server/agent/durable/activation.js";
+
 interface StreamBody {
   userId?: string;
   message?: string;
@@ -6,15 +8,18 @@ interface StreamBody {
   thinkingLevel?: string;
   projectId?: string;
   modelKey?: string;
+  durableMode?: string;
 }
 
-export interface ParsedStreamRequest extends StreamBody {
+export interface ParsedStreamRequest extends Omit<StreamBody, "durableMode"> {
+  durableMode?: DurableRequestMode;
   files: File[];
 }
 
 export async function parseStreamRequest(request: Request): Promise<ParsedStreamRequest> {
   if (!request.headers.get("content-type")?.includes("multipart/form-data")) {
-    return { ...(await request.json()) as StreamBody, files: [] };
+    const body = await request.json() as StreamBody;
+    return { ...body, durableMode: parseDurableRequestMode(body.durableMode), files: [] };
   }
   const form = await request.formData();
   return {
@@ -25,6 +30,7 @@ export async function parseStreamRequest(request: Request): Promise<ParsedStream
     thinkingLevel: String(form.get("thinkingLevel") ?? ""),
     projectId: String(form.get("projectId") ?? ""),
     modelKey: String(form.get("modelKey") ?? "").trim() || undefined,
+    durableMode: parseDurableRequestMode(form.get("durableMode")),
     files: form.getAll("files").filter((entry): entry is File => entry instanceof File && entry.size > 0)
   };
 }

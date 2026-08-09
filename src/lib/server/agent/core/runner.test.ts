@@ -1033,8 +1033,8 @@ test("runner compacts and retries a successful-looking response whose usage exce
         stopReason: "stop",
         content: [{ type: "text", text: promptCalls === 1 ? "suspect answer" : "answer after compaction" }],
         usage: promptCalls === 1
-          ? { input: 999_999, output: 2, cacheRead: 0, cacheWrite: 0 }
-          : { input: 1_000, output: 3, cacheRead: 0, cacheWrite: 0 },
+          ? { input: 999_999, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 1_000_001 }
+          : { input: 1_000, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 1_003 },
         timestamp: Date.now()
       };
       (runner as any).agent.state.messages.push(assistantMessage);
@@ -1051,6 +1051,13 @@ test("runner compacts and retries a successful-looking response whose usage exce
   assert.deepEqual(replacements, ["answer after compaction"]);
   assert.equal(promptCalls, 2);
   assert.equal(compactCalls, 2);
+  assert.deepEqual(result.usage, {
+    inputTokens: 1_000_999,
+    outputTokens: 5,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 1_001_004
+  });
 });
 
 test("runner preserves completed tool results, compacts, and continues after a post-tool context overflow", async () => {

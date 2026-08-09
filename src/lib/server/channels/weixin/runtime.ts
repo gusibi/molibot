@@ -113,6 +113,7 @@ export class WeixinManager extends BaseChannelRuntime {
   private stopped = true;
   private readonly outbox: SqliteOutbox<WeixinTextOutboxPayload, { delivered: true }>;
   private readonly inboundTasks: InboundTaskCoordinator<WeixinQueuedTaskPayload, IncomingMessage>;
+  private readonly sourceMessages = new Map<string, IncomingMessage>();
 
   constructor(
     getSettings: () => RuntimeSettings,
@@ -321,6 +322,7 @@ export class WeixinManager extends BaseChannelRuntime {
       momWarn("weixin", "message_dedup_skipped_raw", { botId: this.instanceId, chatId, messageId });
       return;
     }
+    this.sourceMessages.set(chatId, message);
 
     const { attachments, imageContents } = await extractWeixinAttachments({
       chatId,
@@ -665,6 +667,29 @@ export class WeixinManager extends BaseChannelRuntime {
       contextToken: String(sourceMessage._contextToken ?? "")
     };
     await this.outbox.enqueue(chatId, payload);
+  }
+
+  async sendInternalNotice(
+    chatId: string,
+    text: string,
+    metadata: { kind: string; filename: string }
+  ): Promise<void> {
+    const sourceMessage = this.sourceMessages.get(chatId) ?? {
+      userId: chatId,
+      text: "",
+      type: "text",
+      raw: { message_id: Date.now() } as unknown as IncomingMessage["raw"],
+      _contextToken: this.bot?.getContextToken(chatId) ?? "",
+      timestamp: new Date()
+    };
+    await this.sendText(chatId, sourceMessage, text, false);
+    momLog("weixin", "internal_notice_sent", {
+      botId: this.instanceId,
+      chatId,
+      kind: metadata.kind,
+      filename: metadata.filename,
+      textLength: text.length
+    });
   }
 
   private async deliverTextNow(payload: WeixinTextOutboxPayload, queueId: number): Promise<void> {

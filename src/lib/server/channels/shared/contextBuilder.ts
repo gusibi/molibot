@@ -1,5 +1,5 @@
 import type { MomContext, ChannelInboundMessage } from "$lib/server/agent/core/types.js";
-import type { RunnerUiEvent } from "$lib/server/agent/core/types.js";
+import type { DurableAttemptHooks, DurablePromotionRequest, DurablePromotionResult, RunnerUiEvent } from "$lib/server/agent/core/types.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { Channel } from "$lib/shared/types/message.js";
@@ -48,6 +48,11 @@ interface BuildTextChannelContextOptions<TSent extends ContextSentMessageRef> {
   deleteWithoutHandle?: (state: ContextBuilderState<TSent>) => Promise<void>;
   uploadWithoutHandle?: (filePath: string, title: string | undefined, text: string | undefined, ctx: MomContext) => Promise<void>;
   onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+  onToolSideEffectPreflight?: DurableAttemptHooks["onToolSideEffectPreflight"];
+  onToolSideEffectReceipt?: DurableAttemptHooks["onToolSideEffectReceipt"];
+  onApprovalRequest?: DurableAttemptHooks["onApprovalRequest"];
+  consumeDurableApproval?: DurableAttemptHooks["consumeDurableApproval"];
+  onDurablePromotion?: (input: DurablePromotionRequest) => Promise<DurablePromotionResult>;
 }
 
 export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
@@ -211,7 +216,12 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
         await options.uploadWithoutHandle(filePath, title, text, ctx);
       }
     },
-    onRunnerEvent: options.onRunnerEvent
+    onRunnerEvent: options.onRunnerEvent,
+    onToolSideEffectPreflight: options.onToolSideEffectPreflight,
+    onToolSideEffectReceipt: options.onToolSideEffectReceipt,
+    onApprovalRequest: options.onApprovalRequest,
+    consumeDurableApproval: options.consumeDurableApproval,
+    onDurablePromotion: options.onDurablePromotion
   };
 
   return ctx;

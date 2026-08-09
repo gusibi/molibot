@@ -415,20 +415,39 @@ const HOST_APPROVAL_POLL_INTERVAL_MS = 500;
 async function waitForHostBashApprovalAndExecute(input: {
   store: HostBashStore;
   prompt: HostBashApprovalPrompt;
+  scopeId: string;
   requestText: string;
   ctx: ToolExecutionContext;
   fallbackDetails?: BashToolDetails;
   waitTimeoutMs?: number;
 }): Promise<ToolResult> {
   const { store, prompt, ctx } = input;
-  const buildFallbackResult = (): ToolResult => ({
+  const buildFallbackResult = (terminate = false): ToolResult => ({
     ok: false,
     error: input.requestText || "Tool execution is waiting for approval.",
     metadata: {
       status: "waiting_for_approval"
     },
-    details: { ...input.fallbackDetails, hostBashApproval: prompt }
+    details: { ...input.fallbackDetails, hostBashApproval: prompt },
+    ...(terminate ? { terminate: true } : {})
   });
+  const durableApprovalScope = await ctx.consumeDurableApproval?.({
+    backend: "host_bash",
+    actionKey: [prompt.request.toolId, prompt.request.command, prompt.request.approvalMode].join(":"),
+    toolId: prompt.request.toolId,
+    command: prompt.request.command
+  });
+  if (durableApprovalScope) {
+    const approved = store.approve(input.scopeId, prompt.requestId, { scope: durableApprovalScope });
+    if (!approved) return buildFallbackResult(true);
+  } else {
+    const approvalDisposition = await ctx.onApprovalRequest?.({
+      backend: "host_bash",
+      requestId: prompt.requestId,
+      prompt
+    });
+    if (approvalDisposition === "defer") return buildFallbackResult(true);
+  }
   // Partial store doubles (tests) cannot be polled; keep the async approve flow.
   if (typeof store.getApprovalRecord !== "function") {
     return buildFallbackResult();
@@ -605,6 +624,7 @@ export function getBashToolDefinition(
     inputSchema: bashSchema,
     risk: "high",
     source: "host",
+    sideEffectClass: "non_idempotent",
     handler: async (params: any, ctx) => {
       const hostBashStore = options.hostApproval?.hostBashStore ?? getHostBashStore();
       const hostBashClassification = options.hostApproval
@@ -649,6 +669,7 @@ export function getBashToolDefinition(
         return waitForHostBashApprovalAndExecute({
           store: hostBashStore,
           prompt: requested.prompt,
+          scopeId: options.hostApproval.scopeId,
           requestText: requested.text,
           ctx,
           waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs
@@ -760,6 +781,7 @@ export function getBashToolDefinition(
             return waitForHostBashApprovalAndExecute({
               store: hostBashStore,
               prompt: requested.prompt,
+              scopeId: options.hostApproval.scopeId,
               requestText: "Sandbox blocked this command and host approval was requested automatically.",
               ctx,
               fallbackDetails: details,

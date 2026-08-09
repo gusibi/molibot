@@ -9,6 +9,7 @@ dist/
 .svelte-kit/
 target/
 .molibot-test
+handoff
 
 # local env files
 .env

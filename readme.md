@@ -66,7 +66,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Use consistent controls everywhere.** Desktop settings, Project settings, and onboarding share one accessible, theme-aware macOS-style selection menu with independently clickable rows, keyboard navigation, checked state, and enough width for long model names.
 - **Verify a model where you configure it.** Each Provider model editor tests its saved connection and keeps the passed/failed result beside the test action inside the dialog, without leaking transient feedback onto the Provider page behind it.
 - **Turn repeated Project prompts into readable shortcuts.** Project settings keeps custom commands in one aligned, labeled editor; typing `/` in Project Chat lists them without auto-sending, and controls use a quiet neutral focus treatment instead of blue or nested outlines.
-- **Keep Chat context visible without visual noise.** A vertically aligned `# source / title` header distinguishes Web, Feishu, Telegram, QQ, Weixin, and Project conversations; its full passive surface drags the native window, the safely inset compact sidebar shares Settings' `228px` default navigation width, and contextual timestamps add yesterday or the date once a message is no longer from today.
+- **Keep Chat context visible without visual noise.** A vertically aligned `# source / title` header distinguishes Web, Feishu, Telegram, QQ, Weixin, and Project conversations; its full passive surface drags the native window, the safely inset compact sidebar shares Settings' `228px` navigation baseline (older narrower saved widths clamp to it), and contextual timestamps add yesterday or the date once a message is no longer from today.
 - **Inspect external conversations without duplicated chrome.** Read-only Telegram, Feishu, QQ, and Weixin transcripts combine their source and Desktop read-only state into one quiet footer line.
 - **Inspect code like a repository.** The right-side Artifact Inspector now follows a GitHub / Primer workspace language: a source tree on a neutral canvas, flat file tabs, a path/action header, GitHub-colored code/preview surfaces, and recognizable language/media file icons without any online icon fetch. JSON opens as the original highlighted source by default; parsing into a collapsible tree is an explicit action, with bounded fallbacks for large or invalid documents. CSV/TSV and XLS/XLSX files use read-only tables with sheet tabs where applicable, while DOCX and PPTX use lazy read-only document/slide previews. Project file rows stay on one line, Agent-touched files use filename color instead of a separate status dot, Changes rows show per-file `+added / −deleted` counts, and diff gutters scroll with their code.
 - **Stay oriented in long sidebars.** Conversation and Project share one sticky first-level title slot, so the visible heading follows the section currently being scrolled without stacking extra chrome.
@@ -165,6 +165,7 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 | [Channels and Surfaces](docs/features/channels-and-surfaces.md) | One local runtime across browser, macOS Desktop, chat channels, and the terminal. |
 | [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior, guarded web access, route-driven image/OCR analysis, PDF/DOCX/XLSX extraction, and controlled access to reusable workflows and external tools. |
 | [Assistant Capability Matrix](docs/requirements/personal-assistant-capability-matrix.md) | The single current four-state view of delivered, partial, pending-verification, and not-started work/life assistant capabilities. |
+| [Automatic Durable Execution](docs/requirements/automatic-durable-execution-prd.md) | Persistent, inspectable long-task foundation with tiered lazy promotion, versioned progress, side-effect receipts, bounded recovery, and Desktop status surfaces; live restart, evidence, and cross-channel acceptance remains in progress. |
 | [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | Connect third-party services with secure runtime tokens and dynamic remote MCP integration. |
 | [Mini App Platform](docs/guides/miniapps/authoring.md) | Build local-first apps with tools, hosted UI, message actions, the composer bridge, controlled uploads and host AI. |
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
@@ -216,6 +217,7 @@ Conversations follow you: a chat started on the Web can continue on Desktop, and
 - [Environment reference](.env.example)
 - [Daily materials guide](docs/guides/daily-materials.md)
 - [Session control commands](docs/guides/session-control/session-control-commands.md)
+- [Automatic Durable Execution PRD](docs/requirements/automatic-durable-execution-prd.md)
 
 ### Build and extend
 

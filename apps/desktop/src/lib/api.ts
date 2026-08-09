@@ -131,6 +131,14 @@ import type {
   DesktopTaskSummary,
   DesktopTaskActionRequest,
   DesktopTaskActionResponse,
+  DesktopDurableExecutionActionRequest,
+  DesktopDurableExecutionActionResponse,
+  DesktopDurableExecutionEvidenceRead,
+  DesktopDurableExecutionEvidenceReadResponse,
+  DesktopDurableExecutionInspection,
+  DesktopDurableExecutionInspectionResponse,
+  DesktopDurableExecutionItem,
+  DesktopDurableExecutionResponse,
   DesktopThinkingLevel,
   DesktopTraceFactType,
   DesktopTraceRange,
@@ -858,6 +866,34 @@ export async function loadDesktopTaskUnreadCount(endpoint: string): Promise<numb
 
 export async function runDesktopTaskAction(endpoint: string, input: DesktopTaskActionRequest): Promise<DesktopTaskActionResponse> {
   return requestJson<DesktopTaskActionResponse>(endpoint, "/api/desktop/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+}
+
+export async function loadDesktopDurableExecutions(endpoint: string): Promise<DesktopDurableExecutionItem[]> {
+  const payload = await requestJson<DesktopDurableExecutionResponse>(endpoint, "/api/desktop/durable-executions");
+  return payload.items;
+}
+
+export async function loadDesktopDurableExecution(endpoint: string, executionId: string): Promise<DesktopDurableExecutionInspection> {
+  const route = "/api/desktop/durable-executions?id=" + encodeURIComponent(executionId);
+  const payload = await requestJson<DesktopDurableExecutionInspectionResponse>(endpoint, route);
+  return payload.item;
+}
+
+export async function loadDesktopDurableEvidence(endpoint: string, executionId: string, evidenceId: string): Promise<DesktopDurableExecutionEvidenceRead> {
+  const route = "/api/desktop/durable-executions?id=" + encodeURIComponent(executionId) + "&evidenceId=" + encodeURIComponent(evidenceId);
+  const payload = await requestJson<DesktopDurableExecutionEvidenceReadResponse>(endpoint, route);
+  return payload.evidence;
+}
+
+export async function runDesktopDurableExecutionAction(
+  endpoint: string,
+  input: DesktopDurableExecutionActionRequest
+): Promise<DesktopDurableExecutionActionResponse> {
+  return requestJson<DesktopDurableExecutionActionResponse>(endpoint, "/api/desktop/durable-executions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
 }
 
 export async function loadDesktopTaskHistory(endpoint: string, id: string, page: number, pageSize = 10) {
