@@ -4,6 +4,11 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-10
+
+### Release: v2.9.14 / Desktop v0.9.11
+- Synchronized the root and Desktop package versions for the new release.
+
 ## 2026-08-09
 
 ### Improved: a streaming reply renders block-by-block and keeps your selection
@@ -47,6 +52,11 @@
 
 ### Release: v2.9.13 / Desktop v0.9.10
 - Synchronized the root and Desktop package versions for the new release.
+
+### Added: Durable Execution foundation for multi-day work
+
+- Added the shared Agent-layer Durable Execution foundation: dedicated SQLite state, versioned plans and leases, watched-event continuation, fresh automation attempts, side-effect intent/receipt records, verifier-gated completion, budgets, quotas, queue projection, and Desktop task surfaces/notifications.
+- This is a partial foundation release. Tiered structured model preflight now promotes ordinary Runs lazily, absorbs their executed prefix and side-effect receipts, and stops the current tool before its handler when the Durable handoff is committed. External probes/evidence reading, full approval/channel adapters, cross-channel commands, and restart-level Chat API acceptance remain pending. Durable one-shot events now use the shared catch-up window and move to explicit `recovery_required` when the window is missed.
 
 ### Improved: Chat and Settings navigation now share one width baseline
 

@@ -4,6 +4,12 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-10
+
+### Release v2.9.14 / Desktop v0.9.11
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布流式回复增量渲染（选区存活）、一轮多图画廊展示、审批提示条、代码/宽表横向滚动及工具活动卡渲染器分类优化。
+
 ## 2026-08-09
 
 ### 流式回复改为按块增量渲染，保留选区（优化，P2）
@@ -48,6 +54,14 @@
 ### Release v2.9.13 / Desktop v0.9.10
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，发布 Office 文档（DOCX/PPTX/Excel）及 PDF 导出与本地预览、定时提醒 Catch-up 修复以及新一轮核心稳定性优化。
+
+### Automatic Durable Execution 基础主链路（部分交付，P1）
+
+- 新增共享 Agent 层 Durable Execution 聚合与独立 `durable-execution.sqlite`，持久化线性计划、步骤、验收标准、attempt、证据、副作用 intent/receipt、decision 和 action receipt；共享层使用版本 CAS、lease 与 owner/Bot/Project 边界。
+- 确定性长任务信号、`auto/force/suppress` 请求覆盖、watched event JSON/runtime internal event 续跑、fresh 隐藏 automation attempt、任务级 token/attempt/lifetime 预算、未终结配额和创建顺序排队已接入；非纯工具在 handler 前后统一经过 side-effect boundary。
+- Desktop 已接入会话内原地任务卡、既有右侧 inspector 的任务模式、侧栏“进行中”投影和等待/终态反馈通知；普通聊天仍保持快速路径，验证器才能决定 `completed`。
+- 普通 Run 的首次非纯工具边界已接入分层限次的结构化模型 preflight；升级时会把已执行前缀、证据摘要和副作用回执吸收到 Durable SQLite，并在当前副作用 handler 前以 `terminate` 交接，避免误执行或重放。离线事件已复用共享 catch-up window，超窗会明确进入 `recovery_required`。
+- 当前仍属部分交付：queryable 探针、证据读取器、完整 approval/跨渠道命令，以及真实 Chat API 重启验收尚未完成。定向 Durable/tool 回归 42/42，Runner + Durable 回归 49/49，Desktop `svelte-check` 0 错误/0 警告，生产构建通过。
 
 ### Desktop Chat 与 Settings 导航宽度统一（优化，P2）
 
