@@ -6,6 +6,10 @@
 
 ## 2026-08-09
 
+### Release v2.9.13 / Desktop v0.9.10
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布 Office 文档（DOCX/PPTX/Excel）及 PDF 导出与本地预览、定时提醒 Catch-up 修复以及新一轮核心稳定性优化。
+
 ### 个人助理状态源统一与安全旧数据清理（P2）
 
 - 新增唯一的 [个人助理能力矩阵](docs/requirements/personal-assistant-capability-matrix.md)，只使用“已交付 / 部分交付 / 待验证 / 未开始”四种当前状态。`prd.md` 下方历史章节只保留设计和交付上下文，不再具有覆盖矩阵或直接生成任务的权威。

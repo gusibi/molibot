@@ -6,6 +6,9 @@
 
 ## 2026-08-09
 
+### Release: v2.9.13 / Desktop v0.9.10
+- Synchronized the root and Desktop package versions for the new release.
+
 ### Maintained: one current assistant capability matrix and a clean data root
 
 - Added one four-state capability matrix as the only current status source. Historical PRD sections and delivery logs no longer override it or regenerate already-completed work; H2, `add_content`, document export, Runtime Todo, and the owner-verified Mini App microphone are recorded as delivered.
