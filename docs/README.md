@@ -11,6 +11,7 @@ This directory is organized by document purpose first, then by topic. Start with
 | `features/` | User-facing capability explanations, starting points, and current boundaries. |
 | `guides/` | Operator and developer guides for using, configuring, deploying, and extending Molibot. |
 | `requirements/` | Planned product scope, MVP boundaries, and acceptance-oriented requirements. |
+| `adr/` | Accepted architecture decisions and the reasoning behind them, for decisions that outlive any one feature. |
 | `designs/` | Durable architecture, technical designs, and system proposals. |
 | `research/` | External research, market notes, competitor analysis, and background investigation. |
 | `reviews/` | Durable technical review conclusions and post-analysis reports. |
@@ -35,6 +36,7 @@ This directory is organized by document purpose first, then by topic. Start with
 
 ### Architecture and operation
 
+- [Architecture decisions (ADR)](adr/)
 - [V1 architecture](designs/architecture/v1-architecture.md)
 - [Agent redesign](designs/architecture/agent-redesign-v2.2.md)
 - [Prompt designs](designs/prompt/)
