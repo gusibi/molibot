@@ -13,6 +13,14 @@
 - The superseded session PRD is reduced to a redirect notice. `features.md` and `CHANGELOG.md` remain delivery logs rather than alternative status sources.
 
 ---
+## 3.63 Desktop Chat/Settings navigation width unification (2026-08-09)
+
+- **Priority / Status**: P2 / Delivered (2026-08-09).
+- **Problem**: the macOS Desktop Chat navigation rail used a `260px` default while Settings used `228px`, making the same left navigation surface visibly change width between pages.
+- **Decision**: make Settings' `228px` rail the shared desktop baseline and use one `170px` narrow-window token for both shells. Chat remains user-resizable and preserves an existing saved width; only the unset default changes.
+- **Acceptance**: Chat and Settings resolve to the same navigation track at desktop and narrow widths; a machine guard covers both CSS shells and Chat's default fallback; Desktop UI, full Desktop tests, `svelte-check`, and production build pass.
+
+---
 ## 3.61 DOCX/XLSX/PDF deliverable export (2026-08-09)
 
 - **Priority / Status**: P1 / Delivered (2026-08-09). PPTX export deferred; browser capability explicitly out of scope.

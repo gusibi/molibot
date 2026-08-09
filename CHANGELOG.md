@@ -9,6 +9,12 @@
 ### Release: v2.9.13 / Desktop v0.9.10
 - Synchronized the root and Desktop package versions for the new release.
 
+### Improved: Chat and Settings navigation now share one width baseline
+
+- Desktop Chat and Settings now use the Settings navigation rail as their shared `228px` desktop baseline, with the same `170px` narrow-window width.
+- Chat remains resizable and keeps an existing saved width; the change only updates the default and removes the CSS width drift between the two shells.
+- Verification: Desktop UI 177/177, full Desktop tests 160 + 181 + 55, `svelte-check` clean, and production build passed.
+
 ### Maintained: one current assistant capability matrix and a clean data root
 
 - Added one four-state capability matrix as the only current status source. Historical PRD sections and delivery logs no longer override it or regenerate already-completed work; H2, `add_content`, document export, Runtime Todo, and the owner-verified Mini App microphone are recorded as delivered.

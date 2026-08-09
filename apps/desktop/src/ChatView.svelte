@@ -351,10 +351,11 @@
   let viewportWidth = window.innerWidth;
 
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
+  const SIDEBAR_DEFAULT = 228;
   const SIDEBAR_MIN = 220;
   const SIDEBAR_MAX = 420;
   let sidebarMaxWidth = SIDEBAR_MAX;
-  let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || 260);
+  let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || SIDEBAR_DEFAULT);
   let resizingSidebar = false;
   let sidebarGestureId = "";
   let sidebarResizer: HTMLDivElement | null = null;

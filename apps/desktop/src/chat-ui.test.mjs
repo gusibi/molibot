@@ -324,7 +324,17 @@ test("Settings and Chat expose one edge-to-edge native macOS sidebar material", 
   assert.match(systemDark, /--sidebar-material-tint:\s*transparent/);
   assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: 0[\s\S]*border-radius: 0[\s\S]*background: var\(--sidebar-material-tint\)[\s\S]*backdrop-filter: none/);
   assert.match(styles, /html\[data-reduced-transparency="true"\][^}]*--sidebar-material-bg:\s*var\(--chrome-sidebar-bg\)/s);
-  assert.match(styles, /left: var\(--sidebar-w, 260px\)/);
+  assert.match(styles, /left: var\(--sidebar-w, var\(--sidebar-nav-w\)\)/);
+});
+
+test("Chat and Settings share the Settings navigation width baseline", () => {
+  assert.match(styles, /--sidebar-nav-w:\s*228px/);
+  assert.match(styles, /\.chat-layout\s*\{[^}]*var\(--sidebar-w, var\(--sidebar-nav-w\)\)/s);
+  assert.match(styles, /\.settings-layout\s*\{[^}]*grid-template-columns:\s*var\(--sidebar-nav-w\)/s);
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.chat-layout\s*\{\s*grid-template-columns:\s*var\(--sidebar-nav-w-narrow\)/s);
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.settings-layout\s*\{\s*grid-template-columns:\s*var\(--sidebar-nav-w-narrow\)/s);
+  assert.match(view, /const SIDEBAR_DEFAULT = 228/);
+  assert.match(view, /\|\| SIDEBAR_DEFAULT\)/);
 });
 
 test("macOS semantic palette keeps dark workspace surfaces distinct from pure black", () => {
@@ -1443,7 +1453,7 @@ test("chat workspace design constraints cover skills, errors, focus, and reachab
   assert.doesNotMatch(view, /messageMediaFailed = failed;\s*error = cause instanceof Error/s);
   assert.match(styles, /button:focus-visible,[\s\S]*box-shadow:\s*0 0 0 2px var\(--card-bg\), 0 0 0 4px var\(--accent\)/);
   assert.match(styles, /@media \(max-width: 820px\)/);
-  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.chat-layout \{ grid-template-columns: 180px minmax\(0, 1fr\); \}/);
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.chat-layout \{ grid-template-columns: var\(--sidebar-nav-w-narrow\) minmax\(0, 1fr\); \}/);
   assert.doesNotMatch(styles, /@media \(max-width: 820px\)[\s\S]{0,80}--sidebar-w:/);
 });
 

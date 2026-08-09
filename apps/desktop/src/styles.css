@@ -108,6 +108,9 @@
   --chat-min-w: 460px;
   --files-min-w: 300px;
   --sidebar-min-w: 200px;
+  /* Settings is the reference rail; Chat may still be resized from this base. */
+  --sidebar-nav-w: 228px;
+  --sidebar-nav-w-narrow: 170px;
   --settings-content-width: 720px;
   --data-content-width: 720px;
   /* Shared centered content column: every settings block aligns to this. */
@@ -260,7 +263,7 @@ a:focus-visible {
   width: 100%;
   height: 100%;
 }
-.chat-layout { grid-template-columns: minmax(var(--sidebar-min-w), var(--sidebar-w, 260px)) minmax(0, 1fr); background: transparent; }
+.chat-layout { grid-template-columns: minmax(var(--sidebar-min-w), var(--sidebar-w, var(--sidebar-nav-w))) minmax(0, 1fr); background: transparent; }
 /* Nothing declares a document font-size, so anything that never set one was
    inheriting the UA's 16px — a rank that appears nowhere in the design. Anchor
    the whole Chat surface (sidebar + content) on the `label` rank, so an element
@@ -272,7 +275,7 @@ a:focus-visible {
    widths to the same budget so the drag handles stay on the real track edges. */
 .chat-layout.with-files {
   grid-template-columns:
-    minmax(var(--sidebar-min-w), var(--sidebar-w, 260px))
+    minmax(var(--sidebar-min-w), var(--sidebar-w, var(--sidebar-nav-w)))
     minmax(var(--chat-min-w), 1fr)
     minmax(var(--files-min-w), var(--files-w, 380px));
 }
@@ -297,14 +300,14 @@ a:focus-visible {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: var(--sidebar-w, 260px);
+  left: var(--sidebar-w, var(--sidebar-nav-w));
   width: 8px;
   margin-left: -4px;
   cursor: col-resize;
   z-index: 6;
   touch-action: none;
 }
-.settings-layout { grid-template-columns: 228px minmax(0, 1fr); overflow: hidden; isolation: isolate; background: transparent; }
+.settings-layout { grid-template-columns: var(--sidebar-nav-w) minmax(0, 1fr); overflow: hidden; isolation: isolate; background: transparent; }
 .settings-layout > * { position: relative; z-index: 1; }
 /* Settings render as a full-window overlay above the live chat window so the
    conversation underneath stays mounted (see App.svelte). The overlay itself
@@ -4455,13 +4458,13 @@ html[data-increased-contrast="true"] .settings-sidebar {
 }
 
 @media (max-width: 820px) {
-  .chat-layout { grid-template-columns: 180px minmax(0, 1fr); }
-  .chat-layout .sidebar-resizer { left: 180px; }
+  .chat-layout { grid-template-columns: var(--sidebar-nav-w-narrow) minmax(0, 1fr); }
+  .chat-layout .sidebar-resizer { left: var(--sidebar-nav-w-narrow); }
   /* Sidebar hiding and the two-column split are owned by the 1000px tier; this
      tier only tightens the floors. Re-declaring the whole `with-files` grid
      here is what previously fought that tier and left an empty panel track. */
   .chat-layout.with-files { grid-template-columns: minmax(280px, 1fr) minmax(var(--files-min-w), var(--files-w, 380px)); }
-  .settings-layout { grid-template-columns: 170px 1fr; }
+  .settings-layout { grid-template-columns: var(--sidebar-nav-w-narrow) 1fr; }
   .chat-header, .page-header { padding-inline: 18px; }
   .chat-layout.with-files .chat-header { padding-left: 84px; }
   .settings-search { margin-inline: 10px; }

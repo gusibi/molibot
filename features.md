@@ -10,6 +10,12 @@
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，发布 Office 文档（DOCX/PPTX/Excel）及 PDF 导出与本地预览、定时提醒 Catch-up 修复以及新一轮核心稳定性优化。
 
+### Desktop Chat 与 Settings 导航宽度统一（优化，P2）
+
+- Chat 与 Settings 左侧导航现在共用 Settings 的 `228px` 桌面基准宽度；窄窗口统一使用 `170px`，宽度来源收敛为共享 CSS token。
+- Chat 仍保留拖拽和键盘调整能力；已有用户保存过的自定义 Chat 宽度继续保留，只有没有保存偏好的 Chat 使用新的默认值。
+- 验证：Desktop UI 177/177、Desktop 全量测试 160 + 181 + 55、`svelte-check` 0 错误/0 警告、生产构建通过。
+
 ### 个人助理状态源统一与安全旧数据清理（P2）
 
 - 新增唯一的 [个人助理能力矩阵](docs/requirements/personal-assistant-capability-matrix.md)，只使用“已交付 / 部分交付 / 待验证 / 未开始”四种当前状态。`prd.md` 下方历史章节只保留设计和交付上下文，不再具有覆盖矩阵或直接生成任务的权威。
