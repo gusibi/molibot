@@ -17,8 +17,10 @@
 - [in_progress] 4. 接入运行时恢复、调度与用户可见状态
   - 已完成：启动 reconcile、fresh automation attempt、队列位置/创建顺序、暂停/恢复/取消/继续决策、Desktop 卡片/单一 inspector/侧栏/通知反馈。
 - 已完成：真实模型 lazy promotion、按副作用等级限次 preflight、普通 Run 前缀吸收和当前副作用 handler 前的安全交接；离线 catch-up 的事件窗口与 `recovery_required` 状态 seam 也已完成。
-- 待完成：queryable 外部探针、证据读取器、approval/source-channel 投影和 live restart acceptance。
-- 验证：定向 Durable/tool 回归 42/42；Runner + Durable 回归 49/49；Desktop `svelte-check` 与生产构建通过，UI guard 仅剩既有 `RunActivity` 断言不匹配。
+- 已完成：queryable 外部探针的 fail-closed 恢复、证据读取器与 Durable attempt 只读入口、approval/source-channel 投影、共享 `/durable` 短句柄命令和 QQ/微信来源消息通知。
+- 已完成：真实 `/api/chat` + 本地 OpenAI-compatible provider + 同一 `DATA_DIR` 服务重启 acceptance；虚拟 `personal` profile 已验证路由到 `default` Web manager，并恢复为 `recovery_required`。
+- 待完成：完整冷启动/跨渠道验收矩阵，以及外部 provider 下的等价 live 验收。
+- 验证：当前 Durable/runtime/evidence/approval/channel focused suite 通过；Desktop `svelte-check` 与生产构建通过，Desktop UI guard 183/183 通过。全仓 TypeScript 仍有与本切片无关的既有诊断，受影响的 `runnerHelpers.test.ts` 已清零。
 - [completed] 5. 文档与版本交付同步
   - 已同步 `docs/requirements/automatic-durable-execution-prd.md`、`features.md`、`prd.md`、`CHANGELOG.md`、`readme.md`、`readme.zh-CN.md`，并明确已交付与待验收边界。
 
@@ -41,3 +43,4 @@
 | store 测试从入口导入错误类失败 | 1 | 从 `store.ts` 重新导出领域错误类，保留类型定义单一来源 |
 | store round-trip 测试假定同一时间戳的 criterion 排序 | 1 | 按 criterion 描述定位记录，避免依赖 SQLite 对同时间行的隐含顺序 |
 | Desktop 守卫测试仍断言单一 Artifact inspector 可见性 | 1 | 将断言更新为同一 inspector host 下的 Artifact/Durable 两种模式，保留单 host/单 resizer 约束 |
+| `runnerHelpers.test.ts` 的 custom provider fixture 被推断为 `string[]` | 1 | 给 fixture 加上 `typeof defaultRuntimeSettings` 上下文类型，让 `tags` / `supportedRoles` 继续受 canonical capability union 约束；未改生产逻辑 |

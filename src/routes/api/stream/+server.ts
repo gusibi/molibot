@@ -7,6 +7,7 @@ import { sanitizeOptionalRuntimeThinkingLevel } from "$lib/server/settings";
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,
+  resolveWebDurableBotId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
 import { resolveRuntimeContext } from "$lib/server/web/runtimeContext";
@@ -180,13 +181,14 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const encoder = new TextEncoder();
 
+  const durableBotId = resolveWebDurableBotId(profileId, runtime.channelManagers);
   let durable;
   try {
     durable = activateDurableExecution({
       message: inboundText,
       mode: body.durableMode,
       ownerId: "owner",
-      botId: profileId,
+      botId: durableBotId,
       sourceChannel: "web",
       sourceChatId: runnerChatId,
       sourceUiSessionId: conversation.id,

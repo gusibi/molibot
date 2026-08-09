@@ -1329,6 +1329,7 @@ export class MomRunner implements RunnerLike {
       onSideEffectReceipt: ctx.onToolSideEffectReceipt,
       onApprovalRequest: ctx.onApprovalRequest,
       consumeDurableApproval: ctx.consumeDurableApproval,
+      readDurableEvidence: ctx.readDurableEvidence,
     });
     const scopedMcpServers = resolveScopedMcpServers();
 

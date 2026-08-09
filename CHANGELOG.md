@@ -9,6 +9,17 @@
 ### Release: v2.9.14 / Desktop v0.9.11
 - Synchronized the root and Desktop package versions for the new release.
 
+### Fixed: runner helper fixtures retain canonical model capability types
+- The two unsupported-developer-role fixtures now use the canonical `RuntimeSettings` shape. This keeps custom provider `tags` and `supportedRoles` as their literal capability types, so settings-shape drift is caught by the type guard without producing a false production failure.
+- Verification: `runnerHelpers.test.ts` 5/5, Desktop structural guards 183/183, no remaining root type-check diagnostic points at `runnerHelpers.test.ts`, and `git diff --check` clean. The repository-wide TypeScript baseline still contains unrelated pre-existing diagnostics outside this fix.
+
+### Improved: Durable Execution recovery, evidence, and channel controls
+- Queryable recovery now probes external state before deciding whether to retry; missing, failed, or unknown probes open an explicit recovery review instead of replaying a possible side effect.
+- Durable attempts can read only their own attached evidence through a bounded `durableEvidence` tool. Run-detail reads enforce the source chat/Project/Session boundary, fail soft when the target is gone, and label returned content as untrusted.
+- Approval requests, repeat counts, one-time/session/persistent scopes, source-channel notices, and shared `/durable` short-handle commands now use the Durable aggregate. QQ and Weixin route replies through the remembered source message; Desktop uses the same inspector state.
+- Web Chat requests whose profile id is not a materialized channel instance now resolve to an active Web manager before Durable activation. A real `/api/chat` request with a virtual `personal` profile reached the local provider and recovered as `recovery_required` after same-database service restart.
+- Focused recovery/evidence/approval/channel tests pass. Full cold-start/cross-channel acceptance and equivalent external-provider live coverage remain the release gate.
+
 ## 2026-08-09
 
 ### Improved: a streaming reply renders block-by-block and keeps your selection

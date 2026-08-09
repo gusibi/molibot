@@ -21,6 +21,7 @@ import {
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,
+  resolveWebDurableBotId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
 import {
@@ -686,13 +687,14 @@ export const POST: RequestHandler = async ({ request }) => {
     retention: turnRetention
   });
 
+  const durableBotId = resolveWebDurableBotId(parsed.profileId, runtime.channelManagers);
   let durable;
   try {
     durable = activateDurableExecution({
       message: inboundText,
       mode: parsed.durableMode,
       ownerId: "owner",
-      botId: parsed.profileId,
+      botId: durableBotId,
       sourceChannel: "web",
       sourceChatId: runnerChatId,
       sourceUiSessionId: conversation.id,

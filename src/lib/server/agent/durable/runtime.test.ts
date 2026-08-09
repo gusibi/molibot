@@ -69,6 +69,43 @@ test("watched durable event claims one fresh attempt and leaves verification exp
   }
 });
 
+test("durable attempts expose only attached evidence through the read-only hook", async () => {
+  const { root, store, input } = fixture();
+  try {
+    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const created = coordinator.create(input);
+    const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
+    const evidence = store.addEvidence({
+      executionId: created.execution.id,
+      referenceType: "durable-verifier",
+      referenceId: "verifier:summary",
+      summary: "The stored verifier summary is available to this attempt."
+    });
+    const eventFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${activated.execution.version}.json`);
+    const runtime = new DurableExecutionRuntime({
+      store,
+      processOwnerId: "process-a",
+      dataDir: root,
+      channelManagers: new Map([
+        ["web", new Map([["bot-1", {
+          runDurableAttempt: async (_message: ChannelInboundMessage, hooks: any) => {
+            const read = await hooks.readDurableEvidence(evidence.id);
+            assert.equal(read.untrusted, true);
+            assert.match(read.content, /stored verifier summary/);
+            return { result: { stopReason: "stop" as const }, contextSessionId: "t-archive-evidence-attempt" };
+          }
+        }]])]
+      ]) as any
+    });
+
+    await runtime.run(JSON.parse(readFileSync(eventFile, "utf8")) as MomEvent, eventFile);
+    assert.equal(store.getDetail(created.execution.id)?.attempts[0]?.contextSessionId, "t-archive-evidence-attempt");
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a missed durable continuation enters recovery_required without replaying work", () => {
   const { root, store, input } = fixture();
   try {
@@ -310,6 +347,56 @@ test("queryable recovery reconciles completed external state before verification
     assert.equal(detail.steps[0]?.status, "completed");
     assert.equal(detail.sideEffects.some((effect) => effect.phase === "receipt" && effect.externalId === "report-42"), true);
     assert.equal(detail.evidenceRefs.some((evidence) => evidence.referenceType === "durable-queryable-probe"), true);
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("queryable recovery without a probe waits for an explicit review instead of retrying", async () => {
+  const { root, store, input } = fixture();
+  try {
+    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const created = coordinator.create({
+      ...input,
+      steps: [{ title: "Publish report", sideEffectClass: "queryable", idempotencyKey: "report:weekly" }]
+    });
+    const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
+    const claimed = store.claimAttempt({
+      executionId: created.execution.id,
+      expectedVersion: activated.execution.version,
+      processOwnerId: "process-a",
+      runId: "run-queryable-no-probe",
+      contextSessionId: "session-queryable-no-probe",
+      leaseDurationMs: 60_000
+    });
+    const step = store.getDetail(created.execution.id)!.steps[0]!;
+    store.markStepRunning(created.execution.id, step.id, claimed.execution.version, "process-a");
+    store.reconcileOrphanedAttempts("process-b");
+    const recovered = store.getById(created.execution.id)!;
+    let attempted = false;
+    const runtime = new DurableExecutionRuntime({
+      store,
+      processOwnerId: "process-a",
+      dataDir: root,
+      channelManagers: new Map([
+        ["web", new Map([["bot-1", {
+          runDurableAttempt: async () => {
+            attempted = true;
+            throw new Error("a queryable step without a probe must not be retried");
+          }
+        }]])]
+      ]) as any
+    });
+
+    await runtime.run({
+      internal: { kind: "durable-execution", durable: { executionId: created.execution.id, expectedVersion: recovered.version } }
+    } as MomEvent, join(root, "queryable-no-probe.json"));
+    const detail = store.getDetail(created.execution.id)!;
+    assert.equal(attempted, false);
+    assert.equal(detail.execution.status, "waiting_for_user");
+    assert.equal(detail.execution.waitingKind, "recovery");
+    assert.match(detail.decisions[0]?.question ?? "", /no external-state probe/);
   } finally {
     store.close();
     rmSync(root, { recursive: true, force: true });

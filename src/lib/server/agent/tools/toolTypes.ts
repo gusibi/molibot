@@ -1,6 +1,7 @@
 import type { ApprovalRequest } from "$lib/server/approval/approvalTypes.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import type { SideEffectClass } from "$lib/server/agent/durable/types.js";
+import type { DurableEvidenceRead } from "$lib/server/agent/durable/evidence.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/types.js";
 
 export type ToolRiskLevel = "low" | "medium" | "high" | "critical";
@@ -84,6 +85,8 @@ export interface ToolExecutionContext {
   onApprovalRequest?: (request: ToolApprovalRequest) => Promise<"defer" | "wait" | void>;
   /** Durable retries may consume an already approved, execution-scoped action exactly once. */
   consumeDurableApproval?: (request: ToolApprovalConsumptionRequest) => Promise<false | "once" | "session" | "persistent">;
+  /** Durable attempts may read only evidence references already attached to their execution. */
+  readDurableEvidence?: (evidenceId: string) => Promise<DurableEvidenceRead>;
 }
 
 export interface ToolSideEffect {

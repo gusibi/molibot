@@ -29,7 +29,7 @@
 
 Molibot 是一个本地优先的个人 AI 智能体，适合那些不仅想要一个新聊天窗口的人。它基于两个承诺构建：
 
-- **当前版本**：v2.8.6 (Desktop v0.8.3)
+- **当前版本**：v2.9.14 (Desktop v0.9.11)
 
 - **易于上手**：下载 macOS 应用，选择一个模型提供商即可开始聊天——一个运行时即可服务于桌面端、网页端、Telegram、飞书、微信、QQ 和命令行界面。
 - **与您共同成长**：受管辖的长期记忆、每日记忆反思以及可审查的自动化任务，意味着智能体随着时间的推移学习您的偏好、项目和习惯——并且您始终能查看和控制它所记住的内容。
@@ -148,7 +148,7 @@ Agent City (智能体城市) 为每个智能体提供一席之地——您可以
 | 能力 | 带来的价值 |
 | --- | --- |
 | [个人智能体和记忆](docs/features/personal-agent-and-memory.md) | Momo 作为默认智能体，内置多种模板（如职场英文教练），受管辖的长期记忆，以及隔离的项目或智能体上下文。 |
-| [自动持久化长任务](docs/requirements/automatic-durable-execution-prd.md) | 可持久化、可检查的长任务基础能力，包含分层惰性升级、版本化进度、副作用回执、受限恢复和桌面端状态展示；在线重启、证据与跨渠道验收仍在实施中。 |
+| [自动持久化长任务](docs/requirements/automatic-durable-execution-prd.md) | 可持久化、可检查的长任务基础能力，包含分层惰性升级、虚拟 Web profile 路由、版本化进度、副作用回执、失败关闭式恢复、受限且标记为不可信的证据读取、来源渠道审批、短句柄控制和桌面端状态展示；完整冷启动/跨渠道验收仍待完成。 |
 | [渠道与界面](docs/features/channels-and-surfaces.md) | 统一的本地运行时，同时支持浏览器、macOS 桌面端、各类聊天渠道和终端。 |
 | [工具、技能与 MCP](docs/features/tools-skills-and-mcp.md) | 可配置的智能体行为，控制对可复用工作流 and 外部工具的访问。 |
 | [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | 使用安全的运行时令牌连接第三方服务，并支持动态的远程 MCP 集成。 |

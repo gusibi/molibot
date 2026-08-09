@@ -52,6 +52,7 @@ interface BuildTextChannelContextOptions<TSent extends ContextSentMessageRef> {
   onToolSideEffectReceipt?: DurableAttemptHooks["onToolSideEffectReceipt"];
   onApprovalRequest?: DurableAttemptHooks["onApprovalRequest"];
   consumeDurableApproval?: DurableAttemptHooks["consumeDurableApproval"];
+  readDurableEvidence?: DurableAttemptHooks["readDurableEvidence"];
   onDurablePromotion?: (input: DurablePromotionRequest) => Promise<DurablePromotionResult>;
 }
 
@@ -221,6 +222,7 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
     onToolSideEffectReceipt: options.onToolSideEffectReceipt,
     onApprovalRequest: options.onApprovalRequest,
     consumeDurableApproval: options.consumeDurableApproval,
+    readDurableEvidence: options.readDurableEvidence,
     onDurablePromotion: options.onDurablePromotion
   };
 

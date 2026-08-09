@@ -106,6 +106,7 @@ export interface DurableAttemptHooks {
   onToolSideEffectReceipt?: (effect: ToolSideEffect, result: ToolResult) => Promise<void>;
   onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
   consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
+  readDurableEvidence?: ToolExecutionContext["readDurableEvidence"];
 }
 
 export type RunnerUiEvent =
@@ -210,6 +211,7 @@ export interface MomContext {
   onToolSideEffectReceipt?: (effect: ToolSideEffect, result: ToolResult) => Promise<void>;
   onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
   consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
+  readDurableEvidence?: ToolExecutionContext["readDurableEvidence"];
   onDurablePromotion?: (input: DurablePromotionRequest) => Promise<DurablePromotionResult>;
 }
 

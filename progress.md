@@ -33,3 +33,22 @@
 - 普通 Run 首次遇到非纯工具时，按 `idempotent` / `queryable` / `non_idempotent` 等级最多各做一次结构化模型 preflight；低等级判断为 ordinary 后不重复收费，首次进入更高等级会重新判断。
 - preflight 选择升级时，coordinator 在专用 SQLite 内吸收已执行前缀、证据摘要和副作用回执，只把当前动作作为下一步排队；ToolRuntime 用 pi agent loop 的 `terminate` 标记在 handler 前停止当前普通 Run。
 - 验证：Durable/tool 42/42、Runner 34/34、Runner + Durable store/runtime 49/49；改动范围 TypeScript 过滤检查仅剩既有 `runnerHelpers.test.ts` 两处错误。
+
+## 2026-08-10 — Durable recovery/evidence/approval/channel slice
+
+- Queryable 恢复现在按 step 幂等键查找外部状态探针；没有探针、探针抛错或返回 `unknown` 时进入 `waiting_for_user` recovery decision，新增回归证明不会调用来源 Runner。
+- 证据读取闭环已完成：按 execution 授权的 evidence ref 解引用精确 source chat、Project、attempt Session 和 run id；run-detail 输出最多 24KB、标记 `untrusted`，目标消失时 fail soft。Durable attempt 只在自身工具集加载 `durableEvidence`，普通对话不增加该工具。
+- 审批闭环已完成：请求和 repeat count 持久化，选择 once/session/persistent 后由共享 Durable runtime 消费；隐藏 attempt 的审批通过来源渠道 internal notice 暴露，QQ/微信复用来源消息，`/durable` 短句柄服务按 owner/Bot/channel/chat 鉴权。
+- 验证：Durable 全套（activation/channel/coordinator/events/evidence/preflight/runtime/store）与 `durableEvidence` 工具共 37/37；新增 `durableEvidence` 工具与 queryable 无探针守卫均通过；受影响路径 TypeScript 过滤检查仅剩既有 `runnerHelpers.test.ts` 两处错误。该阶段先完成了临时 DATA_DIR 的直接重启冒烟；下方记录随后补齐了真实 Chat API + 同库重启 seam，完整冷启动/跨渠道矩阵仍是未完成的 release gate。
+
+## 2026-08-10 — Chat API 重启 seam 与虚拟 Web profile 路由
+
+- 修复真实 `/api/chat` Durable 激活的 manager 路由：Web API 允许使用未物化 profile，但 Durable attempt 必须落到实际 Web channel manager；现在按请求 profile、`default`、配置顺序首个 manager 解析，并在没有 manager 时保留清洗后的 id 让运行时显式失败。
+- 新增 `src/lib/server/web/identity.test.ts` 3 项路由守卫。使用临时 `DATA_DIR`、本地 OpenAI-compatible provider 和真实 `scripts/start-server.mjs` 做了完整 HTTP 冒烟：`profileId=personal` 入队后收到 1 次 provider 请求，停止服务并用同一目录重启，Desktop API 读回 `status=recovery_required`、`attemptStatuses=[interrupted]`，持久化 `botId=default`。
+- 这次 live seam 不等同于完整发布验收：真实 Telegram/飞书/QQ/微信 transport、重启后的来源通知和恢复后的 Agent 证据读取仍需冷启动/跨渠道矩阵；外部 provider 也尚未纳入该临时 fixture。
+
+## 2026-08-10 — Runner helper 类型守卫修复
+
+- 根因属于测试 fixture 的推断漂移：未标注类型的 settings 对象把 custom provider 的 `tags` 与 `supportedRoles` 推断成 `string[]`，而 `RuntimeSettings` 要求 canonical capability literal unions；这是类型守卫失去上下文，不是运行时路由逻辑错误。
+- 修复只给两个 fixture 加上 `typeof defaultRuntimeSettings` 上下文类型，没有在生产代码中加入 cast、兼容层或 fallback。
+- 机器守卫：`runnerHelpers.test.ts` 5/5；全仓 `tsc` 输出不再命中该文件；Desktop structural guard 183/183；`git diff --check` 通过。全仓 TypeScript 仍有其它既有诊断，未把它们误报为本次已清零。

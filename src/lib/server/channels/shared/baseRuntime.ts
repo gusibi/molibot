@@ -560,6 +560,7 @@ export abstract class BaseChannelRuntime {
       onToolSideEffectReceipt?: DurableAttemptHooks["onToolSideEffectReceipt"];
       onApprovalRequest?: DurableAttemptHooks["onApprovalRequest"];
       consumeDurableApproval?: DurableAttemptHooks["consumeDurableApproval"];
+      readDurableEvidence?: DurableAttemptHooks["readDurableEvidence"];
       onRunComplete?: (result: RunResult, meta: {
         activeSessionId: string;
         threadEventCount: number;
@@ -713,6 +714,7 @@ export abstract class BaseChannelRuntime {
       onToolSideEffectReceipt: options.onToolSideEffectReceipt,
       onApprovalRequest: options.onApprovalRequest,
       consumeDurableApproval: options.consumeDurableApproval,
+      readDurableEvidence: options.readDurableEvidence,
       onDurablePromotion: event.isEvent
         ? undefined
         : async (input) => {
@@ -829,6 +831,7 @@ export abstract class BaseChannelRuntime {
         return (await hooks.onApprovalRequest?.(request)) ?? "defer";
       },
       consumeDurableApproval: hooks.consumeDurableApproval,
+      readDurableEvidence: hooks.readDurableEvidence,
       onRunComplete: async (_result, meta) => {
         contextSessionId = meta.activeSessionId;
       },

@@ -28,7 +28,7 @@ test("explicit Skill invocation persists as a readable Markdown reference withou
 });
 
 test("unsupported developer role keeps system instructions out of the message transcript", () => {
-  const settings = {
+  const settings: typeof defaultRuntimeSettings = {
     ...defaultRuntimeSettings,
     providerMode: "custom" as const,
     defaultCustomProviderId: "custom-test",
@@ -67,7 +67,7 @@ test("unsupported developer role keeps system instructions out of the message tr
 });
 
 test("unsupported developer messages are folded into the top-level system prompt", () => {
-  const settings = {
+  const settings: typeof defaultRuntimeSettings = {
     ...defaultRuntimeSettings,
     providerMode: "custom" as const,
     defaultCustomProviderId: "custom-test",

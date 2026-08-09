@@ -29,7 +29,7 @@
 
 Molibot is a local-first personal AI Agent for people who want more than a new chat window. It is built around two promises:
 
-- **Current release.** v2.9.12 (Desktop v0.9.9)
+- **Current release.** v2.9.14 (Desktop v0.9.11)
 
 - **Easy to start.** Download the macOS app, pick a model provider, and start chatting — one runtime serves the Desktop app, Web, Telegram, Feishu, Weixin, QQ, and the CLI.
 - **Grows with you.** Governed long-term memory, daily memory reflection, and reviewable automations mean the Agent learns your preferences, projects, and habits over time — and you can keep or reject each daily candidate directly from private Telegram or Feishu buttons without opening the app.
@@ -165,7 +165,7 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 | [Channels and Surfaces](docs/features/channels-and-surfaces.md) | One local runtime across browser, macOS Desktop, chat channels, and the terminal. |
 | [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior, guarded web access, route-driven image/OCR analysis, PDF/DOCX/XLSX extraction, and controlled access to reusable workflows and external tools. |
 | [Assistant Capability Matrix](docs/requirements/personal-assistant-capability-matrix.md) | The single current four-state view of delivered, partial, pending-verification, and not-started work/life assistant capabilities. |
-| [Automatic Durable Execution](docs/requirements/automatic-durable-execution-prd.md) | Persistent, inspectable long-task foundation with tiered lazy promotion, versioned progress, side-effect receipts, bounded recovery, and Desktop status surfaces; live restart, evidence, and cross-channel acceptance remains in progress. |
+| [Automatic Durable Execution](docs/requirements/automatic-durable-execution-prd.md) | Persistent, inspectable long-task foundation with tiered lazy promotion, virtual Web profile routing, versioned progress, side-effect receipts, fail-closed recovery, bounded untrusted evidence reads, source-channel approvals, short-handle controls, and Desktop status surfaces; full cold-start/cross-channel acceptance remains in progress. |
 | [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | Connect third-party services with secure runtime tokens and dynamic remote MCP integration. |
 | [Mini App Platform](docs/guides/miniapps/authoring.md) | Build local-first apps with tools, hosted UI, message actions, the composer bridge, controlled uploads and host AI. |
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |

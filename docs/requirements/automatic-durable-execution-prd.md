@@ -1,18 +1,18 @@
 # 自动持久化长任务与多日执行 PRD
 
-> 状态：实施中，Slices 1–6 部分交付（2026-08-09）
+> 状态：实施中，Slices 1–6 部分交付（2026-08-10）
 >
 > 优先级：P1
 >
 > 产品名称：长任务（用户可见）/ Durable Execution（架构术语）
 >
-> 主验收 seam：通过真实 Chat API 和可重启的临时服务验证完整行为；当前仍待补齐该 live acceptance
+> 主验收 seam：通过真实 Chat API 和可重启的临时服务验证完整行为；本地 OpenAI-compatible provider fixture 的 live suite 已通过，外部渠道/冷启动矩阵仍待完成
 
 ### 当前实施状态
 
-已交付的基础主链路：确定性启用与 per-request `auto/force/suppress`、专用 `durable-execution.sqlite` 聚合、版本 CAS/lease、watched event JSON + runtime internal event 续跑、fresh automation attempt、步骤/证据/decision 状态、副作用 intent/receipt、共享 verifier、任务级预算/未终结配额/队列顺序、共享 one-shot catch-up window 与 missed-event recovery，以及 Desktop 会话卡片、单一右侧 inspector、进行中侧栏和反馈/通知链路。普通 Run 的首次非纯工具边界现在还会经过分层限次、结构化模型 preflight；确认升级后会吸收已执行前缀、证据和回执，并在当前副作用执行前安全交接到 Durable Execution。
+已交付的基础主链路：确定性启用与 per-request `auto/force/suppress`、专用 `durable-execution.sqlite` 聚合、版本 CAS/lease、watched event JSON + runtime internal event 续跑、fresh automation attempt、步骤/证据/decision 状态、副作用 intent/receipt、共享 verifier、任务级预算/未终结配额/队列顺序、共享 one-shot catch-up window 与 missed-event recovery，以及 Desktop 会话卡片、单一右侧 inspector、进行中侧栏和反馈/通知链路。普通 Run 的首次非纯工具边界现在还会经过分层限次、结构化模型 preflight；确认升级后会吸收已执行前缀、证据和回执，并在当前副作用执行前安全交接到 Durable Execution。恢复路径已接入 queryable 外部状态探针注册表，并在没有探针或结果不确定时 fail closed；证据读取器只解引用当前任务已授权的 run-detail，带 owner/Project/Session 边界、24KB 上限和不可信标记；审批请求、重复次数、来源渠道通知以及共享 `/durable` 短句柄动作也已落到同一 Durable 聚合。Web API 的虚拟 profile 会在入队前解析为实际可用的 Web manager，避免任务入队后因 manager id 不存在而失败。
 
-仍待交付的关键验收项：证据读取器与 queryable 外部探针、完整 approval/多渠道短句柄适配、可重启 Chat API live suite，以及完整的冷启动/跨渠道验收矩阵。离线事件超窗现在会进入 `recovery_required`，但仍需在可重启服务的 live suite 中验收整条恢复链路；当前实现不会把这些未完成部分伪装成已完成能力。
+仍待交付的关键验收项：完整的冷启动/跨渠道验收矩阵（包括真实渠道 transport、重启后的来源通知和恢复后的 Agent 证据读取），以及外部 provider 下的同等 live 验收。本次已用真实 `/api/chat`、临时 `DATA_DIR`、本地 OpenAI-compatible provider 和同库服务重启验证：`profileId=personal` 成功路由到 `default` Web manager，provider 请求已发出，重启后公开 API 返回 `recovery_required` 与 `interrupted` attempt。离线事件超窗、queryable 无探针、证据目标丢失和审批越权已有临时库/单元守卫；这些测试不能替代剩余的冷启动/跨渠道验收。
 
 ## Problem Statement
 
@@ -430,7 +430,7 @@ Settings 里现有的任务列表是 Runtime Task（定时、提醒、周期自�
 - The recovery harness must be able to stop the scratch service at a declared fault point, restart it with the same temporary data directory, and continue through the public API. This seam proves persistence, process ownership, event dispatch, Runner continuation and user-visible status together.
 - Fault points are reached by **observation, not by instrumentation**: the harness polls task/step state through the public read API and uses a controllable external fixture for side-effect windows. The fixture records the external mutation and exposes a query endpoint before deliberately withholding the tool response; once the harness observes that external state, it sends `SIGKILL` to Molibot. This deterministically creates “副作用已发生、回执尚未落库” without adding a fault-injection hook, test-only branch or dynamic import seam to service code. Other fault points are killed after their public state becomes observable.
 - Two limits of that fixture are part of the harness contract, not incidental detail. First, withholding the response leaves the tool call hanging, so the scenario is only valid if `SIGKILL` lands before the tool's own timeout fires; the harness declares a poll interval and asserts the kill happened inside that window, otherwise the run is a timeout scenario wearing the wrong name. Second, the fixture only covers network-shaped side effects. File-shaped steps get the equivalent treatment by polling the filesystem for the written path and killing once it exists, and any side-effect class that has neither an interceptable transport nor an observable artifact cannot be tested at this seam and must say so explicitly rather than being silently omitted.
-- This primary seam is intentionally proposed as the one product-level seam for user confirmation. Implementation must not begin until the product owner confirms that real Chat API plus service restart matches expected acceptance behavior.
+- This primary seam is intentionally the one product-level seam for user confirmation. The product owner confirmed the real Chat API plus service restart boundary before implementation began; the local provider fixture now covers that seam and the remaining external/cross-channel matrix stays explicit.
 - Add focused state-machine/store tests only for invariants that are difficult to isolate through the product seam: version conflicts, lease ownership, legal transitions, atomic intent/receipt writes, decision idempotency and retention.
 - Reuse existing prior art: golden-set state/trace assertions, scratch-service isolation, Agent Context checkpoint tests, persistent inbound queue recovery tests, execution lease recovery tests, Runner receipt guards and cooperative timeout tests.
 - A good completion test asserts world state and acceptance evidence. Matching the words “done”, observing a tool name, or inspecting a private helper is insufficient.
@@ -481,4 +481,4 @@ Settings 里现有的任务列表是 Runtime Task（定时、提醒、周期自�
 - Offline behaviour is a product statement, not only an engineering limit: “多日执行” means the task survives days, not that it progresses while the Mac is asleep or the app is closed. Every surface that shows a long task must be able to say which of the two it is currently doing.
 - A plan that lives in a Markdown or JSON file is the single most likely way this feature quietly fails: it looks friendlier, it is readable in a diff, and it invites the model to edit it. But the moment the plan is a file the model can rewrite, "已完成步骤不能因计划改写而失去证据" and "模型不能自己宣布完成" stop being enforceable. See [ADR 0004](../adr/0004-per-domain-databases-and-state-representation.md) for the general form of this decision.
 - Per-attempt approval expiry and per-tier preflight are the two places where V1 deliberately pays a recurring user cost to keep a safety property. Both are instrumented (repeat-count metric, preflight-count and latency metric) so the cost is measured rather than argued about, and either can be revisited with data.
-- Product-owner confirmation requested before implementation: approve the V1 boundary, the `Durable Execution` terminology, the two activation paths (deterministic signal + lazy promotion with per-tier preflight caps) and their trade-off, the database-only state representation with Markdown as export, the per-attempt approval scope with its repeat cost, the task-level budget/quota ceilings, and the real Chat API plus service restart test seam.
+- Product-owner confirmation received before implementation: the V1 boundary, the `Durable Execution` terminology, the two activation paths (deterministic signal + lazy promotion with per-tier preflight caps) and their trade-off, the database-only state representation with Markdown as export, the per-attempt approval scope with its repeat cost, the task-level budget/quota ceilings, and the real Chat API plus service restart test seam.

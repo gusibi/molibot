@@ -20,6 +20,7 @@ import { createDocumentExportTool } from "$lib/server/agent/tools/documentExport
 import { createImageAnalyzeTool } from "$lib/server/agent/tools/imageAnalyze.js";
 import { createProfileFilesTool } from "$lib/server/agent/tools/profileFiles.js";
 import { getReadToolDefinition } from "$lib/server/agent/tools/read.js";
+import { getDurableEvidenceToolDefinition } from "$lib/server/agent/tools/durableEvidence.js";
 import { createSkillManageTool } from "$lib/server/agent/tools/skillManage.js";
 import { createSkillSearchTool } from "$lib/server/agent/tools/skillSearch.js";
 import { createSubagentTool } from "$lib/server/agent/tools/subagent.js";
@@ -167,6 +168,7 @@ export function createMomTools(options: {
   onSideEffectReceipt?: ToolExecutionContext["onSideEffectReceipt"];
   onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
   consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
+  readDurableEvidence?: ToolExecutionContext["readDurableEvidence"];
 }): AgentTool<any>[] {
   const datedArtifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
   const artifactDir = options.project
@@ -426,7 +428,8 @@ export function createMomTools(options: {
       onSideEffectPreflight: options.onSideEffectPreflight,
       onSideEffectReceipt: options.onSideEffectReceipt,
       onApprovalRequest: options.onApprovalRequest,
-      consumeDurableApproval: options.consumeDurableApproval
+      consumeDurableApproval: options.consumeDurableApproval,
+      readDurableEvidence: options.readDurableEvidence
     };
   };
 
@@ -511,6 +514,15 @@ export function createMomTools(options: {
   };
 
   // Register built-in tool definitions in registry
+  const durableEvidenceToolDef = options.readDurableEvidence
+    ? getDurableEvidenceToolDefinition()
+    : undefined;
+  if (durableEvidenceToolDef) registry.register(durableEvidenceToolDef);
+
+  const durableEvidenceTool = durableEvidenceToolDef
+    ? toAgentTool(durableEvidenceToolDef)
+    : undefined;
+
   const readToolDef = getReadToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir });
   registry.register(readToolDef);
 
@@ -834,6 +846,7 @@ export function createMomTools(options: {
       loadDeferredTools
     }),
     ...deferredEntries.flatMap((item) => item.stub ? [item.stub] : []),
+    ...(durableEvidenceTool ? [durableEvidenceTool] : []),
     toAgentTool(readToolDef),
     toAgentTool(bashToolDef),
     toAgentTool(editToolDef),

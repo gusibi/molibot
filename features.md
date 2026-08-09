@@ -10,6 +10,11 @@
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，发布流式回复增量渲染（选区存活）、一轮多图画廊展示、审批提示条、代码/宽表横向滚动及工具活动卡渲染器分类优化。
 
+### Runner helper 类型守卫修复（维护）
+
+- 两个 unsupported-developer-role 测试 fixture 现在直接使用 canonical `RuntimeSettings` 上下文类型，避免自定义 Provider 的 `tags` / `supportedRoles` 被推断成宽泛 `string[]`，让类型守卫真正覆盖配置结构变化。
+- 验证：`runnerHelpers.test.ts` 5/5、Desktop 结构守卫 183/183，`git diff --check` 通过；全仓 TypeScript 仍有与本修复无关的既有诊断。
+
 ## 2026-08-09
 
 ### 流式回复改为按块增量渲染，保留选区（优化，P2）
@@ -61,7 +66,10 @@
 - 确定性长任务信号、`auto/force/suppress` 请求覆盖、watched event JSON/runtime internal event 续跑、fresh 隐藏 automation attempt、任务级 token/attempt/lifetime 预算、未终结配额和创建顺序排队已接入；非纯工具在 handler 前后统一经过 side-effect boundary。
 - Desktop 已接入会话内原地任务卡、既有右侧 inspector 的任务模式、侧栏“进行中”投影和等待/终态反馈通知；普通聊天仍保持快速路径，验证器才能决定 `completed`。
 - 普通 Run 的首次非纯工具边界已接入分层限次的结构化模型 preflight；升级时会把已执行前缀、证据摘要和副作用回执吸收到 Durable SQLite，并在当前副作用 handler 前以 `terminate` 交接，避免误执行或重放。离线事件已复用共享 catch-up window，超窗会明确进入 `recovery_required`。
-- 当前仍属部分交付：queryable 探针、证据读取器、完整 approval/跨渠道命令，以及真实 Chat API 重启验收尚未完成。定向 Durable/tool 回归 42/42，Runner + Durable 回归 49/49，Desktop `svelte-check` 0 错误/0 警告，生产构建通过。
+- 恢复现在会先调用按幂等键注册的 queryable 探针；无探针、探针失败或结果不确定时只创建 `recovery_required` 决策，不会盲重试。证据读取器只解引用当前任务授权的 run-detail，按来源聊天/Project/Session 校验，24KB 截断并标记为不可信；Durable attempt 通过仅在该上下文加载的 `durableEvidence` 只读工具按 evidence id 取回它。
+- 审批请求会持久化到 Durable SQLite，记录重复次数并从隐藏 attempt 投影回来源渠道；共享 `/durable` 命令按 owner/Bot/channel/chat 做鉴权，支持 `approve|reject|answer|pause|resume|cancel` 和 `#N` 短句柄，QQ/微信使用来源消息回传，Desktop 使用同一 inspector。
+- Web API 的虚拟 profile 会在 Durable 入队前解析到已启用的真实 Web manager；因此 `personal` 这类未单独物化的 profile 不会创建一个必然找不到执行器的队列项。真实 `/api/chat` + 临时 provider + 同库服务重启已验证请求发出后恢复为 `recovery_required`，attempt 为 `interrupted`。
+- 当前仍属部分交付：完整冷启动/跨渠道验收矩阵和外部 provider live 验收尚未完成。已验证的当前切片包括 Durable/tool、Runner/runtime、证据、审批和渠道命令定向回归；Desktop `svelte-check` 0 错误/0 警告，生产构建通过。
 
 ### Desktop Chat 与 Settings 导航宽度统一（优化，P2）
 

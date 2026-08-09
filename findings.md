@@ -119,3 +119,23 @@
 - 队列事件只唤醒同一 owner 最早的 queued execution，verifying 优先；control action 仍通过共享 action receipt 幂等。`continue_work` 生成新 plan version，避免终态旧计划自循环。
 - `DurablePreflightTracker` 现在按副作用等级限次触发结构化模型 preflight；升级路径由 coordinator 吸收普通 Run 的已执行前缀、证据和回执，并在 handler 前返回 pi agent 可识别的终止标记。仍待的是可重启 Chat API 的 live 验收，以及 queryable/evidence/approval/channel 等更高层能力。
 - Durable continuation 现在使用 one-shot watched event 的共享 catch-up window；事件超窗被跳过时，runtime 通过最小内部 payload 将 `planned/queued` execution 转为 `recovery_required`，不会重放未知副作用。临时目录回归已覆盖，服务重启后的 live acceptance 仍待补齐。
+
+## 2026-08-10 — 高风险边界收口
+
+- Queryable 恢复的安全默认是“没有探针就不猜”：探针缺失、失败或返回 `unknown` 都只创建 recovery decision；只有明确的 `completed` 才补 receipt 并进入 verification，明确的 `not_found` 才重新排队。
+- 证据读取器同时服务 Desktop inspector 和 Durable attempt，但两者都经过同一个 `readDurableEvidence` 边界。它只接受当前 execution 的 evidence id，按 attempt/run/source chat/Project/Session 校验，run-detail 有 24KB 上限并持续标记为不可信；不可用目标返回可见状态，不让执行误失败。
+- 隐藏 automation Session 不能承载唯一审批入口。审批请求先写 Durable SQLite，再通过来源 Channel 的 `sendInternalNotice` 和共享 `/durable` command service 暴露；命令解析先按 owner/Bot/channel/sourceChat 筛选，再进行版本化共享动作，避免猜 handle 越权。
+- `durableEvidence` 只在 Durable attempt 的 ToolRuntime 中加载，避免给普通对话增加工具说明和调用面；其输出显式写入 `[UNTRUSTED EVIDENCE]`，不允许外部证据改变系统控制语义。
+- 真实进程冒烟已验证专用 Durable SQLite 的重启恢复边界：临时 `DATA_DIR` 内先写入 running attempt，服务停止后用同一目录启动第二个进程，启动 reconcile 将其标为 `recovery_required`，原 attempt 为 `interrupted`。这条记录只覆盖直接持久化/启动恢复；下方已补充真实 Chat API seam，仍不替代跨渠道冷启动验收。
+
+## 2026-08-10 — Web virtual profile routing seam
+
+- 根因：`/api/chat`/`/api/stream` 把 Web 请求的 profile id 直接作为 Durable `botId`，但 Web profile 可以是虚拟 id，`channelManagers` 只含已启用的具体实例；任务入队后才在 runtime manager lookup 失败。
+- 修法：在 Web identity 共享层把请求 id 解析为同名 manager、`default` 或首个已启用 manager，创建 Durable 聚合时保存解析后的 id；这保持了 manager 查找的单一共享路径，没有在 Durable runtime 里添加按面板特判。
+- 机器守卫：identity 路由 3 项单测覆盖精确命中、默认/首个 manager 和无 manager；真实临时服务测试使用 `profileId=personal`，验证 provider 请求、同库重启、`recovery_required` 和 `interrupted`。
+
+## 2026-08-10 — Runner helper 类型回归
+
+- 复现时只有 `runnerHelpers.test.ts` 的两个 fixture 报 `tags` / `supportedRoles` 为 `string[]`；production `mapUnsupportedDeveloperRole` 没有行为回归。根因是对象字面量缺少 `RuntimeSettings` 上下文，数组元素因此被宽化。
+- 最小修法是让两个 fixture 使用 `typeof defaultRuntimeSettings` 类型上下文。这样保留现有默认值与 literal union 校验，不增加生产分支或类型断言。
+- 守卫已验证：测试 5/5、Desktop UI guard 183/183、该文件从全仓 `tsc` 诊断中消失。剩余全仓类型错误分布在其它旧有 UI/server/test 路径，属于独立基线，不在本修复范围内。
