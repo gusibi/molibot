@@ -4,12 +4,12 @@
 
   /**
    * Terminal card for files with no inline renderer (PRD §3.38 Slice 3):
-   * Office documents, unknown binaries, and text too large to decode.
+   * legacy PPT/unknown binaries and text too large to decode.
    *
-   * Office formats deliberately get no embedded preview - the conversion chain
-   * is heavy and the payoff small - so the product answer is the system app. The
-   * rule this card enforces is that no file is a dead end: every unsupported
-   * type still offers a way out.
+   * Unsupported formats deliberately get no embedded preview when no safe,
+   * maintained viewer exists, so the product answer is the system app. DOCX is
+   * handled by DocxPreview before this card. The rule this card enforces is that
+   * no file is a dead end: every unsupported type still offers a way out.
    *
    * `onReveal` / `onOpenExternally` are omitted in Session scope, where an
    * attachment has no stable host path to reveal; download always applies.

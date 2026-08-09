@@ -6,6 +6,7 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import {
   EventsWatcher,
+  isDirectEventDelivery,
   resolveEventSessionMode,
   type MomEvent,
   type EventDeliveryMode
@@ -1021,7 +1022,7 @@ export class TelegramManager extends BaseChannelRuntime {
   }
 
   private handleSyntheticEvent(event: MomEvent, filename: string): Promise<void> {
-    if (!this.bot) return Promise.resolve();
+    if (!this.bot) return Promise.reject(new Error("Telegram bot is not running; reminder was not delivered."));
 
     const queue = this.getQueue(event.chatId);
     if (queue.size() >= 5) {
@@ -1049,7 +1050,7 @@ export class TelegramManager extends BaseChannelRuntime {
       queue.enqueue(async () => {
         momLog("telegram", "event_job_start", { runId, chatId: event.chatId, filename, delivery });
         try {
-          if (delivery === "text" && (event.type === "one-shot" || event.type === "immediate")) {
+          if (isDirectEventDelivery(delivery)) {
             await this.deliverDirectEventMessage(event, runId, filename);
           } else {
             const synthetic: ChannelInboundMessage = {
@@ -1143,7 +1144,7 @@ export class TelegramManager extends BaseChannelRuntime {
   }
 
   private async deliverDirectEventMessage(event: MomEvent, runId: string, filename: string): Promise<void> {
-    if (!this.bot) return;
+    if (!this.bot) throw new Error("Telegram bot is not running; reminder was not delivered.");
     const target = this.parseChatScopeId(event.chatId);
     const sent = await sendTelegramText(
       this.bot,

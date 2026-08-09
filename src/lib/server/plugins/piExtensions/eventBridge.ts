@@ -50,7 +50,32 @@ function handlersFor(
 ): Array<{ extension: LoadedPiExtension; handler: HandlerFn }> {
   const out: Array<{ extension: LoadedPiExtension; handler: HandlerFn }> = [];
   for (const extension of extensions) {
-    for (const handler of extension.extension.handlers.get(event) ?? []) {
+    if (extension.client && extension.eventNames.includes(event)) {
+      const count = Math.max(1, extension.eventHandlerCounts?.[event] ?? 1);
+      for (let handlerIndex = 0; handlerIndex < count; handlerIndex += 1) {
+        out.push({ extension, handler: async (payload, ctx: any) => {
+          const result = await extension.client!.request("invokeEvent", {
+            extensionId: extension.id,
+            event,
+            handlerIndex,
+            payload,
+            cwd: ctx.cwd,
+            systemPrompt: ctx.getSystemPrompt?.() ?? ""
+          }, ctx.signal);
+          if (payload && typeof payload === "object" && result.payload && typeof result.payload === "object") {
+            const current = payload as Record<string, unknown>;
+            const returned = result.payload as Record<string, unknown>;
+            if (current.input && typeof current.input === "object" && returned.input && typeof returned.input === "object") {
+              Object.assign(current.input as Record<string, unknown>, returned.input as Record<string, unknown>);
+            }
+            Object.assign(current, { ...returned, ...(current.input ? { input: current.input } : {}) });
+          }
+          return result.results?.[0];
+        }});
+      }
+      continue;
+    }
+    for (const handler of extension.extension?.handlers.get(event) ?? []) {
       out.push({ extension, handler: handler as HandlerFn });
     }
   }

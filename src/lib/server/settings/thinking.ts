@@ -44,6 +44,20 @@ export function sanitizeRuntimeThinkingLevel(
     : fallback;
 }
 
+/**
+ * A request-level thinking value is an override, not a second default.
+ * Missing or invalid input must stay absent so the runner can use the runtime
+ * setting instead of silently replacing it with `off`.
+ */
+export function sanitizeOptionalRuntimeThinkingLevel(
+  value: unknown
+): RuntimeThinkingLevel | undefined {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return THINKING_LEVEL_SET.has(normalized)
+    ? normalized as RuntimeThinkingLevel
+    : undefined;
+}
+
 export function sanitizeOptionalThinkingFormat(
   value: unknown
 ): CustomProviderThinkingFormat | undefined {

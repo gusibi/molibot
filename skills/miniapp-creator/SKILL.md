@@ -149,4 +149,4 @@ node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs expenses "Expenses" 
 
 - 不要为 App 引入需要 `npm install` 的依赖：宿主不编译 TypeScript、不跑安装脚本，第三方依赖必须自带。SQLite 用 Node 内置的 `node:sqlite`。
 - 不要试图让 UI 调 Agent 工具或走 MCP bridge——UI 直连自己的 API 是既定架构。
-- App 服务端代码在 Molibot 进程内运行且**完全不做沙箱**。给用户装第三方 App 前必须说明：这等于用自己的权限运行别人的代码。
+- App 服务端代码在独立子进程运行，崩溃、退出和卡死不会带走 Molibot 服务；但这只是**故障隔离，不是权限沙箱**。它仍以 owner 的系统权限运行，给用户装第三方 App 前必须说明：这等于用自己的权限运行别人的代码。

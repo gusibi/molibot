@@ -58,10 +58,10 @@ test("prompt source requires host tool approval instead of sandbox bypass", () =
 
 test("prompt source trims deferred tool and event duplication", () => {
   assert.match(promptSource, /Deferred tools appear by name in <available-deferred-tools> but are not callable until loaded\./);
-  // Routing reminders to createEvent (and loading it first) is stated once, in
+  // Routing reminders to runtimeTask (and loading it first) is stated once, in
   // the outcome table; this section only keeps what is unique to events.
-  assert.match(promptSource, /- reminders, timers, schedules, recurring summaries → `createEvent`/);
-  assert.match(promptSource, /`createEvent` owns them\./);
+  assert.match(promptSource, /- reminders, timers, todos, schedules, recurring summaries → `runtimeTask`/);
+  assert.match(promptSource, /`runtimeTask` owns them\./);
   assert.doesNotMatch(promptSource, /Result format: each matched tool appears as one <function>/);
   assert.doesNotMatch(promptSource, /When `createEvent` succeeds, the tool will return the exact confirmation text/);
   assert.doesNotMatch(promptSource, /Use `one-shot` for a single future datetime, `periodic` for cron-like recurring tasks/);
@@ -135,7 +135,7 @@ test("rendered prompt stays under a broad size budget while preserving routing a
     assert.match(prompt, /<inviolable-safety>/);
     assert.match(prompt, /<paths>/);
     assert.match(prompt, /<available-deferred-tools>/);
-    assert.match(prompt, /createEvent/);
+    assert.match(prompt, /runtimeTask/);
     assert.match(prompt, /skillSearch/);
     assert.match(prompt, /<skills-protocol>/);
     assert.doesNotMatch(prompt, /Skill Routing \(Mandatory\)/);
@@ -604,7 +604,7 @@ const PROMPT_RULES: Array<{
     keeps: [/real-time/, /stale/i]
   },
   {
-    id: "reminders-use-createEvent-not-sleep",
+    id: "reminders-use-runtimeTask-not-sleep",
     keeps: [/bash `sleep`/],
     ownerTag: "events",
     statedOnce: /`sleep`/g

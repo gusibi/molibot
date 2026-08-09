@@ -82,6 +82,25 @@ test("a tool_call handler patches arguments by mutating input in place", async (
   assert.equal(args.command, "deploy --dry-run");
 });
 
+test("production event handlers execute through the subprocess client and preserve input mutation", async () => {
+  const extension: LoadedPiExtension = {
+    id: "remote", name: "remote", version: "1", entryPath: "/remote/index.ts",
+    client: { request: async (_method: string, input: any) => ({
+      results: [undefined],
+      payload: { ...input.payload, input: { ...input.payload.input, command: "remote-patched" } }
+    }) } as any,
+    toolNames: [], eventNames: ["tool_call"], eventHandlerCounts: { tool_call: 1 },
+    commandNames: [], flagNames: [], unsupported: []
+  };
+  const manager = managerWith([extension]);
+  const args = { command: "original" };
+  const decision = await manager.gate("tool.call.before", hookContext(), {
+    toolName: "bash", toolCallId: "remote-1", args
+  });
+  assert.equal(decision.type, "allow");
+  assert.equal(args.command, "remote-patched");
+});
+
 test("a throwing tool_call handler blocks the call, as it does in pi", async () => {
   const manager = managerWith([
     fakeExtension("broken", {

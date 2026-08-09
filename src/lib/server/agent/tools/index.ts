@@ -9,12 +9,15 @@ import { resolveHostBashOwner } from "$lib/server/hostBash/index.js";
 import { decideBashToolPolicy } from "$lib/server/agent/tools/bashPolicy.js";
 import { getEditToolDefinition } from "$lib/server/agent/tools/edit.js";
 import { createFileSearchTools } from "$lib/server/agent/tools/fileSearch.js";
-import { createEventTool } from "$lib/server/agent/tools/event.js";
+import { createRuntimeTaskTool } from "$lib/server/agent/tools/runtimeTask.js";
 import { createMcpInvokeTool } from "$lib/server/agent/tools/mcpInvoke.js";
 import { createLoadMcpTool } from "$lib/server/agent/tools/loadMcp.js";
 import type { McpServerStatus } from "$lib/server/agent/tools/mcp.js";
 import { createMemoryTool } from "$lib/server/agent/tools/memory.js";
 import { createConversationSearchTool } from "$lib/server/agent/tools/conversationSearch.js";
+import { createDocExtractTool } from "$lib/server/agent/tools/docExtract.js";
+import { createDocumentExportTool } from "$lib/server/agent/tools/documentExport.js";
+import { createImageAnalyzeTool } from "$lib/server/agent/tools/imageAnalyze.js";
 import { createProfileFilesTool } from "$lib/server/agent/tools/profileFiles.js";
 import { getReadToolDefinition } from "$lib/server/agent/tools/read.js";
 import { createSkillManageTool } from "$lib/server/agent/tools/skillManage.js";
@@ -26,6 +29,7 @@ import { createMiniAppManageTool } from "$lib/server/agent/tools/miniAppManage.j
 import { createToolSearchTool, type DeferredToolEntry } from "$lib/server/agent/tools/toolSearch.js";
 import { getWriteToolDefinition } from "$lib/server/agent/tools/write.js";
 import { createWebSearchTool } from "$lib/server/agent/search/webSearchTool.js";
+import { createWebFetchTool } from "$lib/server/agent/webFetch/webFetchTool.js";
 import { createImageGenerateTool } from "$lib/server/agent/imageGenerate/imageGenerateTool.js";
 import { createVideoGenerateTool } from "$lib/server/agent/videoGenerate/videoGenerateTool.js";
 import { createTtsGenerateTool } from "$lib/server/agent/ttsGenerate/ttsGenerateTool.js";
@@ -146,6 +150,7 @@ export function createMomTools(options: {
   project?: { id?: string; name?: string; rootPath: string; scratchDir: string; sandboxEnabled?: boolean };
   store: MomRuntimeStore;
   memory: MemoryGateway;
+  memoryWritesAllowed?: boolean;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
   getSelectedMcpServerIds: () => Set<string>;
@@ -184,7 +189,7 @@ export function createMomTools(options: {
     projectOverride: options.project?.sandboxEnabled
   });
   const loadedDeferredToolNames = new Set<string>();
-  const createEventRuntimeTool = wrapSerializedTool(createEventTool({
+  const runtimeTaskTool = wrapSerializedTool(createRuntimeTaskTool({
     workspaceDir: options.workspaceDir,
     chatId: options.chatId,
     sessionId: options.sessionId,
@@ -212,6 +217,30 @@ export function createMomTools(options: {
     getSettings: options.getSettings
   }));
   const webSearchRuntimeTool = wrapSerializedTool(createWebSearchTool({
+    getSettings: options.getSettings
+  }));
+  const webFetchRuntimeTool = wrapSerializedTool(createWebFetchTool());
+  const docExtractRuntimeTool = wrapSerializedTool(createDocExtractTool({
+    channel: options.channel,
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir,
+    spillDir: toolOutputDir ?? join(options.cwd, ".mom-tool-output"),
+    getSettings: options.getSettings
+  }));
+  const documentExportRuntimeTool = wrapSerializedTool(createDocumentExportTool({
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir,
+    artifactDir,
+    outputLayout: outputLayout ?? {
+      scratchRoot: join(options.cwd, artifactDir)
+    },
+    uploadFile: options.uploadFile
+  }));
+  const imageAnalyzeRuntimeTool = wrapSerializedTool(createImageAnalyzeTool({
+    channel: options.channel,
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir,
+    spillDir: toolOutputDir ?? join(options.cwd, ".mom-tool-output"),
     getSettings: options.getSettings
   }));
   const imageGenerateRuntimeTool = wrapSerializedTool(createImageGenerateTool({
@@ -548,10 +577,16 @@ export function createMomTools(options: {
 
   const deferredEntries = [
     createDeferredToolEntry({
-      name: "createEvent",
-      description: "Schedule one-shot, recurring, or immediate messages and reminders.",
+      name: "runtimeTask",
+      description: "Create, list, inspect, update, and delete Runtime reminders and automations.",
       keywords: [
         "create",
+        "list",
+        "get",
+        "update",
+        "delete",
+        "task",
+        "todo",
         "event",
         "events",
         "schedule",
@@ -565,7 +600,7 @@ export function createMomTools(options: {
         "later",
         "tomorrow"
       ],
-      tool: createEventRuntimeTool,
+      tool: runtimeTaskTool,
       loadDeferredTools
     }),
     createDeferredToolEntry({
@@ -632,6 +667,34 @@ export function createMomTools(options: {
       description: "Search current web information with configured providers, citations, and fallback diagnostics.",
       keywords: ["web", "search", "current", "latest", "news", "docs", "source", "citations", "internet"],
       tool: webSearchRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "webFetch",
+      description: "Fetch and extract readable Markdown from a public webpage URL with network and output-size safeguards.",
+      keywords: ["web", "fetch", "url", "link", "page", "website", "html", "markdown", "content", "article"],
+      tool: webFetchRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "docExtract",
+      description: "Extract readable text and tables from PDF, DOCX, and XLSX workspace documents.",
+      keywords: ["document", "extract", "pdf", "docx", "xlsx", "word", "excel", "invoice", "contract", "report", "paper", "attachment"],
+      tool: docExtractRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "documentExport",
+      description: "Generate and re-read verify deliverable DOCX, XLSX, or PDF files; PPTX is intentionally unsupported.",
+      keywords: ["document", "export", "generate", "docx", "xlsx", "pdf", "word", "excel", "report", "contract", "deliverable", "文档", "导出", "报告", "报表", "合同"],
+      tool: documentExportRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "imageAnalyze",
+      description: "Analyze workspace images with the configured vision route for OCR and general visual understanding.",
+      keywords: ["image", "analyze", "vision", "ocr", "screenshot", "invoice", "chart", "picture", "recognize", "图片", "识别"],
+      tool: imageAnalyzeRuntimeTool,
       loadDeferredTools
     }),
     createDeferredToolEntry({
@@ -730,6 +793,7 @@ export function createMomTools(options: {
   tools = [
     createMemoryTool({
       memory: options.memory,
+      writesAllowed: options.memoryWritesAllowed !== false,
       scope: {
         channel: options.channel,
         externalUserId: options.chatId,

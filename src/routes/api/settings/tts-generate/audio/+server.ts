@@ -2,9 +2,9 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { settingsTestRoot } from "$lib/server/infra/db/storage.js";
 
-const TEST_ROOT = resolve(`${storagePaths.dataDir}/settings-tts-tests`);
+const TEST_ROOT = resolve(settingsTestRoot("tts"));
 
 export const GET: RequestHandler = async ({ url }) => {
   const filePath = url.searchParams.get("file");

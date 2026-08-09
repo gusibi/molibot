@@ -22,25 +22,74 @@ const FILE_ICON_BY_EXT: Record<string, string> = {
   txt: "ph-file-txt", log: "ph-file-txt", lock: "ph-file-lock"
 };
 
+const FILE_ICON_BY_NAME: Record<string, string> = {
+  "dockerfile": "ph-file-code",
+  "makefile": "ph-file-code",
+  "cmakelists.txt": "ph-file-code",
+  "readme": "ph-file-md",
+  "readme.md": "ph-file-md",
+  "changelog.md": "ph-file-md",
+  "license": "ph-file-text",
+  "license.md": "ph-file-md",
+  ".gitignore": "ph-file-dotted",
+  ".gitattributes": "ph-file-dotted",
+  ".editorconfig": "ph-file-ini",
+  ".env": "ph-file-ini",
+  ".env.local": "ph-file-ini",
+  "package.json": "ph-file-code",
+  "package-lock.json": "ph-file-lock",
+  "pnpm-lock.yaml": "ph-file-lock",
+  "yarn.lock": "ph-file-lock"
+};
+
+/*
+ * These are the familiar language colours used by repository/code browsers.
+ * They are intentionally data, not extension-specific CSS rules, so the same
+ * result is shared by the tree, search hits, open tabs, and system card.
+ */
 const FILE_ICON_COLOR_BY_EXT: Record<string, string> = {
   ts: "#3178c6", tsx: "#3178c6", mts: "#3178c6", cts: "#3178c6",
-  js: "#e8d44d", jsx: "#e8d44d", mjs: "#e8d44d", cjs: "#e8d44d",
-  vue: "#41b883", svelte: "#ff3e00", astro: "#a371f7",
-  py: "#3776ab", rs: "#dea584",
-  c: "#519aba", h: "#519aba", cpp: "#519aba", cc: "#519aba", cxx: "#519aba", hpp: "#519aba", hh: "#519aba",
-  cs: "#178600", java: "#5382a1", kt: "#a97bff", go: "#00add8", rb: "#cc342d", php: "#777bb4", swift: "#f05138",
-  css: "#2965f1", scss: "#c6538c", sass: "#cd6799", less: "#2965f1",
+  js: "#f1e05a", jsx: "#f1e05a", mjs: "#f1e05a", cjs: "#f1e05a",
+  vue: "#41b883", svelte: "#ff3e00", astro: "#ff5d01",
+  py: "#3776ab", pyw: "#3776ab", rs: "#dea584",
+  c: "#555555", h: "#555555", cpp: "#f34b7d", cc: "#f34b7d", cxx: "#f34b7d", hpp: "#f34b7d", hh: "#f34b7d",
+  cs: "#178600", java: "#b07219", kt: "#a97bff", go: "#00add8", rb: "#701516", php: "#4f5d95", swift: "#f05138",
+  css: "#563d7c", scss: "#c6538c", sass: "#c6538c", less: "#1d365d",
   html: "#e34c26", htm: "#e34c26",
-  md: "#519aba", mdx: "#519aba",
-  json: "#519aba", json5: "#519aba", yaml: "#cb171e", yml: "#cb171e", toml: "#9c4221", xml: "#e37933",
-  sql: "#e38c00", svg: "#ffb13b", pdf: "#e53935",
-  png: "#a371f7", jpg: "#a371f7", jpeg: "#a371f7", gif: "#a371f7", bmp: "#a371f7", webp: "#a371f7", ico: "#a371f7",
+  md: "#0969da", mdx: "#0969da",
+  json: "#cbcb41", json5: "#cbcb41", yaml: "#cb171e", yml: "#cb171e", toml: "#9c4221", xml: "#e37933",
+  sql: "#e38c00", graphql: "#e10098", prisma: "#2d3748",
+  sh: "#89e051", bash: "#89e051", zsh: "#89e051",
+  ini: "#6d8086", conf: "#6d8086", cfg: "#6d8086", env: "#ecd53f",
+  csv: "#237346", tsv: "#237346",
+  svg: "#ffb13b", pdf: "#f40f02",
+  png: "#a074c4", jpg: "#a074c4", jpeg: "#a074c4", gif: "#a074c4", bmp: "#a074c4", webp: "#a074c4", ico: "#a074c4",
   mp3: "#e879f9", wav: "#e879f9", flac: "#e879f9", m4a: "#e879f9", ogg: "#e879f9", aac: "#e879f9",
-  mp4: "#e879f9", mov: "#e879f9", webm: "#e879f9", avi: "#e879f9", mkv: "#e879f9",
-  zip: "#737373", tar: "#737373", gz: "#737373", rar: "#737373",
-  xls: "#1d6f42", xlsx: "#1d6f42", csv: "#1d6f42", tsv: "#1d6f42",
-  doc: "#2b579a", docx: "#2b579a", ppt: "#c43e1c", pptx: "#c43e1c", lock: "#a371f7"
+  mp4: "#8c8c8c", mov: "#8c8c8c", webm: "#8c8c8c", avi: "#8c8c8c", mkv: "#8c8c8c",
+  zip: "#737373", tar: "#737373", gz: "#737373", tgz: "#737373", rar: "#737373", "7z": "#737373",
+  xls: "#1d6f42", xlsx: "#1d6f42", doc: "#2b579a", docx: "#2b579a", ppt: "#c43e1c", pptx: "#c43e1c",
+  txt: "#6e7781", log: "#6e7781", lock: "#8b949e"
 };
+
+const FILE_ICON_COLOR_BY_NAME: Record<string, string> = {
+  dockerfile: "#2496ed",
+  makefile: "#6e7781",
+  "package.json": "#cb3837",
+  "package-lock.json": "#cb3837",
+  "pnpm-lock.yaml": "#f69220",
+  "yarn.lock": "#2c8ebb",
+  "readme.md": "#0969da",
+  "changelog.md": "#0969da",
+  license: "#6e7781",
+  "license.md": "#0969da",
+  ".gitignore": "#f05032",
+  ".gitattributes": "#f05032",
+  ".editorconfig": "#6d8086",
+  ".env": "#ecd53f",
+  ".env.local": "#ecd53f"
+};
+
+const DIRECTORY_ICON_COLOR = "#54aeff";
 
 function extensionOf(name: string): string {
   return name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
@@ -49,12 +98,16 @@ function extensionOf(name: string): string {
 export function fileIconName(name: string, kind: string, expanded = false): string {
   if (kind === "directory") return expanded ? "ph-folder-open" : "ph-folder-simple";
   if (kind === "symlink") return "ph-link";
+  const namedIcon = FILE_ICON_BY_NAME[name.toLowerCase()];
+  if (namedIcon) return namedIcon;
   return FILE_ICON_BY_EXT[extensionOf(name)] || "ph-file-text";
 }
 
 export function fileIconStyle(name: string, kind: string): string {
+  if (kind === "directory") return `--file-color: ${DIRECTORY_ICON_COLOR};`;
   if (kind !== "file") return "";
-  const color = FILE_ICON_COLOR_BY_EXT[extensionOf(name)];
+  const normalizedName = name.toLowerCase();
+  const color = FILE_ICON_COLOR_BY_NAME[normalizedName] || FILE_ICON_COLOR_BY_EXT[extensionOf(normalizedName)];
   return color ? `--file-color: ${color};` : "";
 }
 

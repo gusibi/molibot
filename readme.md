@@ -29,7 +29,7 @@
 
 Molibot is a local-first personal AI Agent for people who want more than a new chat window. It is built around two promises:
 
-- **Current release.** v2.8.6 (Desktop v0.8.3)
+- **Current release.** v2.9.12 (Desktop v0.9.9)
 
 - **Easy to start.** Download the macOS app, pick a model provider, and start chatting — one runtime serves the Desktop app, Web, Telegram, Feishu, Weixin, QQ, and the CLI.
 - **Grows with you.** Governed long-term memory, daily memory reflection, and reviewable automations mean the Agent learns your preferences, projects, and habits over time — and you can keep or reject each daily candidate directly from private Telegram or Feishu buttons without opening the app.
@@ -59,6 +59,7 @@ Molibot now runs **Mini Apps** inside the desktop client and Agent loop, letting
 Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 
 - **Remember what matters.** Governed memory keeps useful preferences and project context available, while giving you visibility and control over what is saved and injected.
+- **Choose what survives a turn.** Explicit “do not remember”, “not searchable”, and “this turn only” instructions independently control memory, conversation search, and future model context; deleting data remains a separate, target-specific action.
 - **Shape your own Agent.** Profiles, Skills, tools, and model routes let you define how an Agent should work instead of relying on one fixed assistant.
 - **Keep each conversation on its chosen model.** Chat model selection is Session-scoped and restart-persistent, while Settings remains the explicit place for changing global defaults.
 - **Choose model and thinking depth without leaving the composer.** One compact, themed menu replaces separate native dropdowns in Desktop Chat and Project Chat while keeping each Session's model choice intact.
@@ -67,6 +68,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Turn repeated Project prompts into readable shortcuts.** Project settings keeps custom commands in one aligned, labeled editor; typing `/` in Project Chat lists them without auto-sending, and controls use a quiet neutral focus treatment instead of blue or nested outlines.
 - **Keep Chat context visible without visual noise.** A vertically aligned `# source / title` header distinguishes Web, Feishu, Telegram, QQ, Weixin, and Project conversations; its full passive surface drags the native window, the safely inset compact sidebar keeps frequent destinations close, and contextual timestamps add yesterday or the date once a message is no longer from today.
 - **Inspect external conversations without duplicated chrome.** Read-only Telegram, Feishu, QQ, and Weixin transcripts combine their source and Desktop read-only state into one quiet footer line.
+- **Inspect code like a repository.** The right-side Artifact Inspector now follows a GitHub / Primer workspace language: a source tree on a neutral canvas, flat file tabs, a path/action header, GitHub-colored code/preview surfaces, and recognizable language/media file icons without any online icon fetch. JSON opens as the original highlighted source by default; parsing into a collapsible tree is an explicit action, with bounded fallbacks for large or invalid documents. CSV/TSV and XLS/XLSX files use read-only tables with sheet tabs where applicable, while DOCX and PPTX use lazy read-only document/slide previews. Project file rows stay on one line, Agent-touched files use filename color instead of a separate status dot, Changes rows show per-file `+added / −deleted` counts, and diff gutters scroll with their code.
 - **Stay oriented in long sidebars.** Conversation and Project share one sticky first-level title slot, so the visible heading follows the section currently being scrolled without stacking extra chrome.
 - **Open Mini Apps like real applications.** Desktop presents manifest icons in the bounded Mini App manager, the recent-first 10-item sidebar section, and Inspector chrome; its sidebar section uses the same compact header rhythm as Conversation and Project, staying transparent in normal flow and showing edge-faded glass only while pinned, while installation, enablement, opening, and removal stay together in one discoverable application-library surface.
 - **Build Mini Apps with receipts, not promises.** The Creator builds in Session scratch, runtime-smokes against temporary data, atomically installs through the shared manager, and reads back the installed version and manifest hash before it can report completion.
@@ -78,11 +80,16 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Explore without destroying history.** Editing and resending an earlier turn in main Chat creates a visible child Session, leaving the original conversation intact.
 - **Work where you already are.** Use one local runtime from Web, macOS Desktop, Telegram, Feishu, Weixin, QQ, or the CLI.
 - **Diagnose media failures at the shared boundary.** Voice-transcription errors carry safe provider/model, audio, timing, and upstream trace details across every channel without logging credentials or cookies.
-- **Keep execution in your hands.** Tasks, approvals, sandbox policy, and run records make automation visible rather than opaque.
+- **Keep execution in your hands.** Tasks, approvals, sandbox policy, and run records make automation visible rather than opaque; Desktop resolves Host Bash and high-risk Agent-tool approvals through the same Session-scoped card flow.
+- **Manage Agent todos, reminders, and automations as real resources.** Runtime Tasks support create, list, inspect, update, and delete by stable id; unscheduled todos never trigger, and the optional Todo Mini App keeps its own data and never becomes a dependency of the base Agent.
+- **Deliver formal documents with a verification receipt.** The Agent can generate DOCX, XLSX, and PDF files in Project or Session scratch, then re-open and validate their text, sheets, and typed cells before it reports success or attaches them; PPTX export remains deferred.
+- **Treat a reminder as delivered only when the channel agrees.** Short restart gaps catch up once, expired reminders skip explicitly, offline transports fail visibly, and the live acceptance probe covers Desktop/Web, Telegram, and Feishu without coupling Runtime Tasks to the optional Todo Mini App.
+- **Contain third-party runtime failures.** Mini Apps—including Agent-side scratch validation before install—and installed Pi extensions execute outside the service process with memory limits, deadlines, cancellation, and process-tree termination, so an extension exit or infinite loop cannot take down every channel; this is fault isolation, not an OS permission sandbox.
 - **Reference Project files without turning UI syntax into a path.** Composer references display as `@[file](path)`, resolve against the registered Project root at runtime, and file-change claims require a successful write/edit receipt.
 - **Fail closed when isolation is unavailable.** With Bash sandbox enabled, a missing or failed sandbox blocks the command instead of running it on the host. Host execution requires either an explicit sandbox-off choice or Host Bash approval.
 - **Filter and inspect operational logs without reading a wall of text.** Desktop Service Logs separates LLM calls, tool use, Subagent work, severity, status, and Run correlation; every row opens full pretty JSON or original text while long IDs stay compact in the list. The active file rolls automatically at 20 MiB with five retained archives, independently of SQLite Trace.
 - **Let long work fail safely.** Parent and delegated budgets are separate, completed tool results survive context recovery, and interrupted inbound tasks wait for an explicit retry instead of disappearing or replaying side effects automatically.
+- **Reject oversized context before it reaches a model.** The Runtime budgets the final system prompt, tools, history, and current turn, compacts or caps only the model-facing copy when needed, and preserves the user's original message for audit.
 - **Control messages sent during a running task with one tap.** Telegram and Feishu queue the new message and show Stop / Steer buttons: stop the current work or inject that exact message immediately, without copying queue IDs or typing commands. Feishu immediately acknowledges the click and replaces the card with the final result, falling back to a text receipt if card updating fails. Once accepted, the injected text also survives provider timeouts and whole-attempt retries instead of disappearing before the successful response.
 - **Keep every completed reply.** When one Agent run produces a primary answer plus terminal supplements, Chat displays each one instead of letting the last message hide an earlier complete result; tool-loop progress remains compact.
 - **Keep the data local.** Your runtime, configuration, conversations, and operational state stay on infrastructure you control.
@@ -156,7 +163,8 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 | --- | --- |
 | [Personal Agent and Memory](docs/features/personal-agent-and-memory.md) | Momo as the first-use default, built-in Agent templates including Workplace English Coach, governed long-term memory, and isolated project or Agent context. |
 | [Channels and Surfaces](docs/features/channels-and-surfaces.md) | One local runtime across browser, macOS Desktop, chat channels, and the terminal. |
-| [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior and controlled access to reusable workflows and external tools. |
+| [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior, guarded web access, route-driven image/OCR analysis, PDF/DOCX/XLSX extraction, and controlled access to reusable workflows and external tools. |
+| [Assistant Capability Matrix](docs/requirements/personal-assistant-capability-matrix.md) | The single current four-state view of delivered, partial, pending-verification, and not-started work/life assistant capabilities. |
 | [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | Connect third-party services with secure runtime tokens and dynamic remote MCP integration. |
 | [Mini App Platform](docs/guides/miniapps/authoring.md) | Build local-first apps with tools, hosted UI, message actions, the composer bridge, controlled uploads and host AI. |
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
@@ -213,6 +221,7 @@ Conversations follow you: a chat started on the Web can continue on Desktop, and
 
 - [Architecture](docs/designs/architecture/v1-architecture.md)
 - [Agent runtime design](docs/designs/architecture/agent-redesign-v2.2.md)
+- [Memory namespace and turn-retention decision](docs/adr/0001-memory-namespace-and-turn-retention.md)
 - [Plugin authoring](docs/guides/plugins/plugin-authoring.md)
 - [Mini App authoring](docs/guides/miniapps/authoring.md) — build in scratch, validate the Runtime, and atomically install an app with its own agent tools, UI and data
 - [Mini App shortcuts](docs/guides/miniapps/authoring.md#using-an-installed-mini-app) — use `/miniapps` to list apps, then `@app-id` to target one directly for a turn

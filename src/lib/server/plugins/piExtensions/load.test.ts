@@ -68,6 +68,25 @@ export default function hello(pi: any) {
     "utf8"
   );
 
+  // 4. Loads successfully, then deliberately terminates its execution process.
+  // The host test below proves that exit cannot escape the extension fault domain.
+  mkdirSync(join(extensionsDir, "crasher"), { recursive: true });
+  writeFileSync(
+    join(extensionsDir, "crasher", "index.ts"),
+    `import { Type } from "@sinclair/typebox";
+export default function crasher(pi: any) {
+  pi.registerTool({
+    name: "crash_tool",
+    label: "Crash",
+    description: "exits",
+    parameters: Type.Object({}),
+    async execute() { process.exit(74); }
+  });
+}
+`,
+    "utf8"
+  );
+
   return dataDir;
 }
 
@@ -88,6 +107,16 @@ test("pi extensions load from all three discovery shapes and survive a broken on
   assert.equal(hello.name, "hello-ext");
   assert.equal(hello.version, "1.2.3");
   assert.equal(hello.description, "demo");
+  assert.ok(hello.client, "loaded extension should expose only a process client to the service");
+  assert.equal(hello.extension, undefined, "production must not return executable extension functions");
+  const greeting = await hello.client.request("invokeTool", {
+    extensionId: "hello",
+    toolName: "hello_tool",
+    toolCallId: "hello-1",
+    params: { who: "Ada" },
+    cwd: process.env.DATA_DIR
+  });
+  assert.equal(greeting.value.content[0].text, "hi Ada");
 
   const manifested = byId.get("manifested");
   assert.ok(manifested, "package.json pi.extensions entry should load");
@@ -98,4 +127,18 @@ test("pi extensions load from all three discovery shapes and survive a broken on
   const brokenError = result.errors.find((entry) => entry.id === "broken");
   assert.ok(brokenError, "a throwing extension becomes an error row");
   assert.match(brokenError.error, /boom/);
+
+  const crasher = byId.get("crasher");
+  assert.ok(crasher?.client, "production extensions should execute through the process client");
+  await assert.rejects(
+    crasher.client.request("invokeTool", {
+      extensionId: "crasher",
+      toolName: "crash_tool",
+      toolCallId: "crash-1",
+      params: {},
+      cwd: process.env.DATA_DIR
+    }),
+    /process exited/i
+  );
+  result.client?.dispose();
 });

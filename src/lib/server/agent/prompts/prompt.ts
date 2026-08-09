@@ -300,7 +300,8 @@ function buildInstalledMiniAppsSection(apps: readonly PromptMiniApp[] | undefine
 
 function buildAvailableDeferredToolsSection(): string {
   return xmlBlock("available-deferred-tools", [
-    "createEvent",
+    "runtimeTask",
+    "documentExport",
     "switchModel",
     "skillManage",
     "profileFiles",
@@ -327,8 +328,8 @@ function buildToolSearchProtocolSection(): string {
 function buildEventsSection(): string {
   return xmlBlock("events", [
     "## Events",
-    "- Do not implement reminders, timers, scheduled messages, or recurring summaries with bash `sleep`, OS schedulers, memory, or manual event JSON files. `createEvent` owns them.",
-    "- `createEvent` is deferred: load it with `toolSearch` using `select:createEvent` before the first call.",
+    "- Do not implement reminders, timers, scheduled messages, todos, or recurring summaries with bash `sleep`, OS schedulers, memory, or manual event JSON files. `runtimeTask` owns them.",
+    "- `runtimeTask` is deferred: load it with `toolSearch` using `select:runtimeTask` before the first call.",
     "- Inspect the event files listed in `paths` only when the user explicitly asks to audit runtime event state.",
   ].join("\n"));
 }
@@ -367,7 +368,8 @@ function buildToolsSection(): string {
     "  - video generation or progress checks → `videoGenerate`; submission returns taskId: report it and end the turn because runtime rejects a second submission this turn. For status, call with taskId+engine from history. Input images must be public HTTP(S) Remote URLs, never Base64/data URLs/local paths",
     "  - speech, narration, voiceover, spoken audio → `ttsGenerate`, not OS speech commands such as macOS `say`",
     "  - current web information → `webSearch`, not curl, browser search, or search skills",
-    "  - reminders, timers, schedules, recurring summaries → `createEvent`, following the `events` contract below",
+    "  - reminders, timers, todos, schedules, recurring summaries → `runtimeTask`; use its formal CRUD instead of editing event files",
+    "  - formal documents → `documentExport` (verified DOCX/XLSX/PDF)",
     "- Use bash for shell-native work: scripts, builds, tests, package installs, data processing, and commands with no dedicated tool.",
     "- Do not bypass managed tools by manually editing event JSON files, bot profile files, or deferred-tool state.",
     "- Use subagent for file/shell-heavy work — codebase investigation, multi-file implementation or review, log/data analysis, long document processing in the scratch workspace — that would otherwise consume many parent-run tool calls.",

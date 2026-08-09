@@ -288,13 +288,14 @@ Handle the two terminal statuses so a switched-off app does not look broken:
 
 ## 5. Trust model
 
-App server code is **owner-installed, fully trusted code** that runs inside the
-Molibot process. There is no server-side sandbox in V1, and the directory
-convention ("an app only touches its own `data/`") is enforced at the HTTP
-routing boundary — it is not a security guarantee about your server code.
+App server code is **owner-installed, fully trusted code** that runs in a
+dedicated child process. Exits, crashes, OOMs, and synchronous stalls are
+contained there, but this is not a permission sandbox: the code still has the
+owner's OS permissions. The directory convention ("an app only touches its own
+`data/`") is enforced at the HTTP routing boundary, not as a security guarantee.
 
-The hard isolation boundary is the **UI**: a separate origin, a sandboxed
-iframe, no host APIs.
+The UI has a separate isolation boundary: a distinct origin, sandboxed iframe,
+and no host APIs.
 
 Two obligations follow for you as an author:
 

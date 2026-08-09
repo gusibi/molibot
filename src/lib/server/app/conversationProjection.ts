@@ -98,7 +98,8 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
         conversationId,
         role: "user",
         content,
-        createdAt: entry.timestamp
+        createdAt: entry.timestamp,
+        retention: entry.retention
       });
       continue;
     }
@@ -121,6 +122,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
         role: "assistant",
         content,
         createdAt: entry.timestamp,
+        retention: entry.retention,
         model: modelLabel(entry.message),
         thinking: thinking || undefined,
         ...status
@@ -233,7 +235,8 @@ export function projectConversationMessages(input: {
       model: metadata.model || source.model,
       platformMessageId: metadata.platformMessageId,
       attachments: metadata.attachments,
-      activities: metadata.activities
+      activities: metadata.activities,
+      retention: metadata.retention ?? source.retention
     });
   }
 

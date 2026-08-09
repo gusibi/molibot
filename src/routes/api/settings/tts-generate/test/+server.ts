@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { createTtsGenerateTool } from "$lib/server/agent/ttsGenerate/ttsGenerateTool.js";
 import { getRuntime } from "$lib/server/app/runtime";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { settingsTestRoot } from "$lib/server/infra/db/storage.js";
 import { sanitizeTtsGenerateSettings } from "$lib/server/settings/sanitize.js";
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -16,7 +16,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const runtime = getRuntime();
   const baseSettings = runtime.getSettings().ttsGenerate;
   const ttsGenerate = sanitizeTtsGenerateSettings(body.ttsGenerate ?? baseSettings, baseSettings);
-  const testRoot = `${storagePaths.dataDir}/settings-tts-tests`;
+  const testRoot = settingsTestRoot("tts");
 
   try {
     const tool = createTtsGenerateTool({

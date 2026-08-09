@@ -51,6 +51,15 @@ test("file preview and diff report binary states without rendering bytes", async
     git(root, "commit", "-m", "initial");
     writeFileSync(join(root, "binary.bin"), Buffer.from([0, 4, 5, 6]));
     writeFileSync(join(root, "large.txt"), "y".repeat(300 * 1024));
+    const status = await getProjectGitStatus(fixture(root));
+    assert.equal(status.status, "ok");
+    if (status.status === "ok") {
+      const binary = status.entries.find((entry) => entry.path === "binary.bin");
+      assert.deepEqual(
+        binary && { additions: binary.additions, deletions: binary.deletions, binary: binary.binary },
+        { additions: null, deletions: null, binary: true }
+      );
+    }
     assert.equal((await getProjectGitDiff(fixture(root), { path: "binary.bin" })).status, "binary");
     // A file past the old 256 KB preview cap is now diffable like any other.
     assert.equal((await getProjectGitDiff(fixture(root), { path: "large.txt" })).status, "diff");
@@ -227,13 +236,52 @@ test("git status and diff cover staged, unstaged, untracked, spaces, and deleted
     if (status.status !== "ok") return;
     assert.ok(status.entries.some((entry) => entry.path === "tracked file.txt"));
     assert.ok(status.entries.some((entry) => entry.path === "deleted.txt"));
-    assert.ok(status.entries.some((entry) => entry.path === "new file.txt" && entry.untracked));
+    const trackedStatus = status.entries.find((entry) => entry.path === "tracked file.txt");
+    assert.deepEqual(
+      trackedStatus && { additions: trackedStatus.additions, deletions: trackedStatus.deletions, binary: trackedStatus.binary },
+      { additions: 1, deletions: 1, binary: false }
+    );
+    const deletedStatus = status.entries.find((entry) => entry.path === "deleted.txt");
+    assert.deepEqual(
+      deletedStatus && { additions: deletedStatus.additions, deletions: deletedStatus.deletions, binary: deletedStatus.binary },
+      { additions: 0, deletions: 1, binary: false }
+    );
+    const untrackedStatus = status.entries.find((entry) => entry.path === "new file.txt");
+    assert.deepEqual(
+      untrackedStatus && { additions: untrackedStatus.additions, deletions: untrackedStatus.deletions, binary: untrackedStatus.binary },
+      { additions: 1, deletions: 0, binary: false }
+    );
+    assert.ok(untrackedStatus?.untracked);
     const tracked = await getProjectGitDiff(fixture(root), { path: "tracked file.txt" });
     assert.equal(tracked.status, "diff");
     const deleted = await getProjectGitDiff(fixture(root), { path: "deleted.txt" });
     assert.equal(deleted.status, "diff");
     const untracked = await getProjectGitDiff(fixture(root), { path: "new file.txt" });
     assert.equal(untracked.status, "untracked");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Git numstat attaches a staged rename's stats to the new project-relative path", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-inspection-rename-stats-"));
+  try {
+    git(root, "init");
+    git(root, "config", "user.email", "test@example.com");
+    git(root, "config", "user.name", "Test");
+    writeFileSync(join(root, "old name.txt"), "one\ntwo\n");
+    git(root, "add", ".");
+    git(root, "commit", "-m", "initial");
+    git(root, "mv", "old name.txt", "new name.txt");
+    git(root, "add", "-A");
+
+    const status = await getProjectGitStatus(fixture(root));
+    assert.equal(status.status, "ok");
+    if (status.status !== "ok") return;
+    const renamed = status.entries.find((entry) => entry.path === "new name.txt");
+    assert.deepEqual(
+      renamed && { additions: renamed.additions, deletions: renamed.deletions, binary: renamed.binary },
+      { additions: 0, deletions: 0, binary: false }
+    );
+    assert.equal(renamed?.indexStatus, "R");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

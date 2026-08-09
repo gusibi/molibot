@@ -117,6 +117,44 @@ test("tools index registers imageGenerate as a deferred tool with concise Englis
   assert.doesNotMatch(indexSource, /"图像生成"/);
 });
 
+test("tools index registers webFetch as a deferred public-page reader", () => {
+  assert.match(indexSource, /createWebFetchTool/);
+  assert.match(indexSource, /name: "webFetch"/);
+  assert.match(indexSource, /tool: webFetchRuntimeTool/);
+  assert.match(indexSource, /"fetch"/);
+  assert.match(indexSource, /"url"/);
+  assert.match(indexSource, /"article"/);
+});
+
+test("tools index registers docExtract as the deferred binary-document reader", () => {
+  assert.match(indexSource, /createDocExtractTool/);
+  assert.match(indexSource, /name: "docExtract"/);
+  assert.match(indexSource, /tool: docExtractRuntimeTool/);
+  assert.match(indexSource, /"pdf"/);
+  assert.match(indexSource, /"invoice"/);
+  assert.match(indexSource, /"attachment"/);
+});
+
+test("tools index registers documentExport as the verified deliverable writer", () => {
+  assert.match(indexSource, /name: "documentExport"/);
+  assert.match(indexSource, /tool: documentExportRuntimeTool/);
+  assert.match(indexSource, /Generate and re-read verify deliverable DOCX, XLSX, or PDF/);
+});
+
+test("tools index registers imageAnalyze as the deferred configured-vision reader", () => {
+  assert.match(indexSource, /name: "imageAnalyze"/);
+  assert.match(indexSource, /tool: imageAnalyzeRuntimeTool/);
+});
+
+test("tools index registers runtimeTask as the only Agent todo and scheduling CRUD surface", () => {
+  assert.match(indexSource, /createRuntimeTaskTool/);
+  assert.match(indexSource, /name: "runtimeTask"/);
+  assert.match(indexSource, /tool: runtimeTaskTool/);
+  assert.match(indexSource, /"todo"/);
+  assert.match(indexSource, /"delete"/);
+  assert.doesNotMatch(indexSource, /createEventTool/);
+});
+
 test("tools index registers videoGenerate as a deferred tool with concise English discovery keywords", () => {
   assert.match(indexSource, /createVideoGenerateTool/);
   assert.match(indexSource, /name: "videoGenerate"/);

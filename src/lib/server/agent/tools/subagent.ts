@@ -29,7 +29,7 @@ import {
 } from "$lib/server/providers/customProtocol.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
 import { isSameModelFamily } from "$lib/server/agent/tools/modelFamily.js";
-import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { CustomProviderConfig, RuntimeSettings } from "$lib/server/settings/index.js";
 import { isKnownProvider } from "$lib/server/settings/index.js";
 import { KNOWN_PROVIDER_LIST } from "$lib/server/settings/schema.js";
 import { resolveProviderApiKey } from "$lib/server/agent/identity/auth.js";
@@ -519,7 +519,9 @@ async function buildModelFromRoute(
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: configuredModel?.contextWindow || 200000,
       maxTokens: 8192,
-      compat: protocol === "anthropic" ? undefined : buildCustomProviderCompat(customProvider)
+      compat: protocol === "anthropic"
+        ? undefined
+        : buildSubagentCustomCompat(customProvider, configuredModel)
     };
     modelRuntime.registerProvider(customProvider.id, {
       name: customProvider.name || customProvider.id,
@@ -546,6 +548,16 @@ async function buildModelFromRoute(
   }
 
   return null;
+}
+
+export function buildSubagentCustomCompat(
+  provider: Pick<CustomProviderConfig, "thinkingFormat">,
+  configuredModel?: CustomProviderConfig["models"][number]
+): Model<"openai-completions">["compat"] {
+  return {
+    ...buildCustomProviderCompat(provider),
+    supportsDeveloperRole: configuredModel?.supportedRoles?.includes("developer") === true
+  };
 }
 
 async function buildSubagentFallbackModel(

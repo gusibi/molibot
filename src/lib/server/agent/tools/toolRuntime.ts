@@ -88,6 +88,8 @@ export class ToolRuntime {
       approvalService?: ApprovalService;
       decidePolicy?: ToolPolicyDecider;
       workspaceStore?: WorkspaceStore;
+      /** Hard upper bound for one handler promise. Process-backed tools are also killed through the derived signal. */
+      executionTimeoutMs?: number;
     } = {}
   ) {
     // Phase 2 façade: talk to the unified ApprovalService. Existing callers keep
@@ -223,7 +225,50 @@ export class ToolRuntime {
       summary: `Tool started: ${tool.name}`
     });
 
-    const result = await tool.handler(call.input, call.context);
+    const timeoutMs = Math.max(1, this.options.executionTimeoutMs ?? 5 * 60 * 1000);
+    const timeoutController = new AbortController();
+    const executionSignal = call.context.signal
+      ? AbortSignal.any([call.context.signal, timeoutController.signal])
+      : timeoutController.signal;
+    const executionContext: ToolExecutionContext = { ...call.context, signal: executionSignal };
+    let timer: NodeJS.Timeout | undefined;
+    let cleanupAbort: (() => void) | undefined;
+    const handler = tool.handler(call.input, executionContext).then(
+      (value) => ({ type: "result" as const, value }),
+      (error) => ({ type: "error" as const, error })
+    );
+    const deadline = new Promise<{ type: "timeout" }>((resolve) => {
+      timer = setTimeout(() => {
+        timeoutController.abort(new Error(`Tool ${tool.id} timed out after ${timeoutMs}ms.`));
+        resolve({ type: "timeout" });
+      }, timeoutMs);
+    });
+    const aborted = new Promise<{ type: "aborted" }>((resolve) => {
+      const upstream = call.context.signal;
+      if (!upstream) return;
+      const onAbort = () => resolve({ type: "aborted" });
+      if (upstream.aborted) onAbort();
+      else {
+        upstream.addEventListener("abort", onAbort, { once: true });
+        cleanupAbort = () => upstream.removeEventListener("abort", onAbort);
+      }
+    });
+    const settled = await Promise.race([handler, deadline, aborted]);
+    if (timer) clearTimeout(timer);
+    cleanupAbort?.();
+    let result: ToolResult;
+    if (settled.type === "result") {
+      result = settled.value;
+    } else if (settled.type === "error") {
+      throw settled.error;
+    } else {
+      result = {
+        ok: false,
+        error: settled.type === "timeout"
+          ? `Tool ${tool.id} timed out after ${timeoutMs}ms.`
+          : `Tool ${tool.id} was aborted.`
+      };
+    }
     call.context.emit({
       timestamp: new Date().toISOString(),
       workspaceId: call.context.workspaceId,

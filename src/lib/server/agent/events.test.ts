@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { EventsWatcher, markOneShotReminderReadFile, type MomEvent } from "$lib/server/agent/events.js";
+import { EventsWatcher, isDirectEventDelivery, markOneShotReminderReadFile, type MomEvent } from "$lib/server/agent/events.js";
 import { EventExecutionLeaseStore, type EventExecutionLease } from "$lib/server/agent/eventsLeaseStore.js";
 
 function createPeriodicEvent(): MomEvent {
@@ -15,6 +15,11 @@ function createPeriodicEvent(): MomEvent {
     timezone: "Asia/Shanghai"
   };
 }
+
+test("explicit text delivery stays direct for periodic and manually triggered tasks", () => {
+  assert.equal(isDirectEventDelivery("text"), true);
+  assert.equal(isDirectEventDelivery("agent"), false);
+});
 
 function createLease(store: EventExecutionLeaseStore, timeoutMs: number): EventExecutionLease {
   const lease = store.acquire({
@@ -324,6 +329,101 @@ test("disabled periodic events never enter the scheduler dispatch loop", async (
     watcher.tickPeriodic();
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(calls, 0);
+  } finally {
+    watcher.stop();
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});
+
+test("plain Runtime todos are retained but never enter the event dispatch loop", async () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-todo-"));
+  const filename = "todo.json";
+  writeFileSync(join(eventsDir, filename), JSON.stringify({ type: "todo", chatId: "chat-1", text: "Buy milk" }), "utf8");
+
+  let calls = 0;
+  const watcher = new EventsWatcher(eventsDir, async () => { calls += 1; }, { leaseStore: store }) as unknown as {
+    handleFile: (filename: string) => void;
+    tickPeriodic: () => void;
+    stop: () => void;
+  };
+  try {
+    watcher.handleFile(filename);
+    watcher.tickPeriodic();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const persisted = JSON.parse(readFileSync(join(eventsDir, filename), "utf8")) as MomEvent;
+    assert.equal(calls, 0);
+    assert.equal(persisted.type, "todo");
+    assert.ok(persisted.taskId);
+    assert.equal(persisted.delivery, undefined);
+  } finally {
+    watcher.stop();
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});
+
+test("a one-shot missed during a short restart is delivered once inside the catch-up window", async () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-one-shot-catchup-"));
+  const filename = "reminder.json";
+  const eventPath = join(eventsDir, filename);
+  writeFileSync(eventPath, JSON.stringify({
+    type: "one-shot",
+    taskId: "drink-water-abcd",
+    chatId: "chat-1",
+    text: "Drink water",
+    delivery: "text",
+    at: new Date(Date.now() - 2_000).toISOString()
+  }), "utf8");
+  let calls = 0;
+  const watcher = new EventsWatcher(eventsDir, async () => { calls += 1; }, {
+    leaseStore: store,
+    channel: "web",
+    leaseScope: "web:test",
+    catchUpWindowMs: 30_000
+  });
+  try {
+    watcher.start();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(calls, 1);
+    assert.equal(JSON.parse(readFileSync(eventPath, "utf8")).status.state, "completed");
+    // Re-reading the completed file must not deliver the same trigger again.
+    (watcher as any).handleFile(filename);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(calls, 1);
+    assert.equal(store.listForTask("drink-water-abcd").filter((item) => item.status === "completed").length, 1);
+  } finally {
+    watcher.stop();
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});
+
+test("a one-shot missed beyond the catch-up window is skipped instead of delivered late", async () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-one-shot-expired-"));
+  const filename = "reminder.json";
+  const eventPath = join(eventsDir, filename);
+  writeFileSync(eventPath, JSON.stringify({
+    type: "one-shot",
+    chatId: "chat-1",
+    text: "Old reminder",
+    at: new Date(Date.now() - 60_000).toISOString()
+  }), "utf8");
+  let calls = 0;
+  const watcher = new EventsWatcher(eventsDir, async () => { calls += 1; }, {
+    leaseStore: store,
+    catchUpWindowMs: 1_000
+  });
+  try {
+    watcher.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(calls, 0);
+    const status = JSON.parse(readFileSync(eventPath, "utf8")).status;
+    assert.equal(status.state, "skipped");
+    assert.equal(status.reason, "expired_or_invalid_time");
   } finally {
     watcher.stop();
     rmSync(eventsDir, { recursive: true, force: true });

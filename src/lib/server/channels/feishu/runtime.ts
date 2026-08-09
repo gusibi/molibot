@@ -4,7 +4,7 @@ import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { buildHostBashApprovalPrompt, getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
-import { resolveEventSessionMode, type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
+import { isDirectEventDelivery, resolveEventSessionMode, type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import {
     SharedRuntimeCommandService,
@@ -1206,7 +1206,7 @@ export class FeishuManager extends BaseChannelRuntime {
         });
 
         try {
-            if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
+            if (isDirectEventDelivery(delivery)) {
                 await this.sendText(task.chatId, task.text);
                 this.persistDirectEventMessage(task, task.status?.runId);
                 momLog("feishu", "trigger_task_text_done", { filename: _filename, chatId: task.chatId });

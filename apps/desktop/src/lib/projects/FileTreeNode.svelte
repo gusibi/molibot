@@ -75,9 +75,6 @@
               aria-hidden="true"
             ></i>
             <span class="file-tree-name">{entry.name}</span>
-            {#if touchedPaths.has(entry.path)}
-              <span class="file-tree-touched" title={copy.projectTouchedThisSession} aria-hidden="true"></span>
-            {/if}
             {#if entry.sizeBytes !== undefined}<small class="file-tree-size">{formatSize(entry.sizeBytes)}</small>{/if}
           </button>
           {#if entry.kind !== "symlink"}

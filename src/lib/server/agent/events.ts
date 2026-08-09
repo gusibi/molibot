@@ -46,6 +46,10 @@ export interface InternalEventTarget {
 // chat: append to the chat's active session (legacy behavior).
 export type EventSessionMode = "fresh" | "chat";
 
+export function isDirectEventDelivery(delivery: EventDeliveryMode): boolean {
+  return delivery === "text";
+}
+
 interface EventBase {
   taskId?: string;
   managed?: ManagedEventMetadata;
@@ -79,6 +83,10 @@ export interface ImmediateEvent {
   type: "immediate";
 }
 
+export interface TodoEvent {
+  type: "todo";
+}
+
 export interface OneShotEvent {
   type: "one-shot";
   at: string;
@@ -90,7 +98,7 @@ export interface PeriodicEvent {
   timezone: string;
 }
 
-export type MomEvent = (ImmediateEvent | OneShotEvent | PeriodicEvent) & EventBase;
+export type MomEvent = (TodoEvent | ImmediateEvent | OneShotEvent | PeriodicEvent) & EventBase;
 
 export function markOneShotReminderReadFile(filePath: string): void {
   const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
@@ -124,8 +132,8 @@ function randomTaskIdSuffix(length = 4): string {
 
 // Globally-unique-ish taskId in the readable form `<slug>-<4 char random>`,
 // e.g. "ai-news-daily-8x2k". Callers that can see sibling events should route
-// through a uniqueness check (see createEventTool) to guarantee no duplicates.
-export function createEventTaskId(slug?: string): string {
+// through a uniqueness check (see createRuntimeTaskTool) to guarantee no duplicates.
+export function createRuntimeTaskId(slug?: string): string {
   return `${slugifyTaskId(slug)}-${randomTaskIdSuffix()}`;
 }
 
@@ -440,6 +448,16 @@ export class EventsWatcher {
       if (!parsed || typeof parsed !== "object") {
         throw new Error("Invalid JSON object");
       }
+      // Plain Runtime todos are durable user tasks, not executable events.
+      // Give manually imported rows an id, then keep them out of every
+      // delivery, recovery, and scheduling path.
+      if (parsed.type === "todo") {
+        const identified = this.ensureTaskId(parsed);
+        if (identified.taskId !== parsed.taskId) this.updateEventFile(filename, () => identified);
+        this.cancel(filename);
+        this.knownFiles.add(filename);
+        return;
+      }
       const normalized = this.normalizeEventDelivery(parsed);
       const identified = this.ensureTaskId(normalized);
       if (identified.delivery !== parsed.delivery || identified.taskId !== parsed.taskId) {
@@ -467,7 +485,21 @@ export class EventsWatcher {
         this.dispatchEvent(identified, filename);
       } else if (identified.type === "one-shot") {
         const at = new Date(identified.at).getTime();
-        if (!Number.isFinite(at) || at <= Date.now()) {
+        if (!Number.isFinite(at)) {
+          this.markSkipped(filename, identified, "expired_or_invalid_time");
+          return;
+        }
+        if (at <= Date.now()) {
+          if (Date.now() - at <= this.catchUpWindowMs) {
+            momLog("eventsWatcher", "missed_one_shot_caught_up", {
+              filename,
+              scheduledAt: identified.at,
+              delayMs: Date.now() - at
+            });
+            this.dispatchEvent(identified, filename, this.buildTriggerSlot(identified, filename));
+            this.knownFiles.add(filename);
+            return;
+          }
           this.markSkipped(filename, identified, "expired_or_invalid_time");
           return;
         }
@@ -795,7 +827,7 @@ export class EventsWatcher {
   private ensureTaskId(event: MomEvent): MomEvent {
     const raw = String(event.taskId ?? "").trim();
     if (raw) return { ...event, taskId: raw };
-    return { ...event, taskId: createEventTaskId() };
+    return { ...event, taskId: createRuntimeTaskId() };
   }
 
   private markDone(filename: string, event: MomEvent, reason: string, slotKey?: string, runId?: string): void {

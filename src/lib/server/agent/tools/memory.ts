@@ -37,17 +37,43 @@ type MemoryAction = "add" | "search" | "list" | "update" | "delete" | "flush" | 
 export function createMemoryTool(options: {
   memory: MemoryGateway;
   scope: MemoryScope;
+  writesAllowed?: boolean;
 }): AgentTool<typeof memorySchema> {
   return {
     name: "memory",
     label: "memory",
-    description:
-      "Manage memory via gateway. Use this instead of reading/writing MEMORY.md files directly. WARNING: DO NOT use this tool for scheduling reminders or future tasks; use toolSearch to load createEvent first.",
+    // Every action is documented here because the names alone are misleading in
+    // one specific, damaging way: `add_content` reads as "add this content" and
+    // is the obvious pick for "remember this", but it writes to the published-
+    // content corpus, which conversational recall never reads (prd.md §3.49).
+    description: [
+      "Manage long-term memory. Use this instead of reading/writing MEMORY.md files directly.",
+      "",
+      "To remember something about the user, use action=add. That is almost always the right one.",
+      "  add           remember a fact/preference about the user; recalled automatically in later conversations",
+      "  search        find remembered items (this scope)",
+      "  list          list remembered items",
+      "  update        change a remembered item by id",
+      "  delete        remove one remembered item by id; deletion is not the same as do-not-remember",
+      "  compact       deduplicate; flush persists pending writes; sync re-imports memory files",
+      "",
+      "NOT conversational memory — do not use these to remember things about the user:",
+      "  add_content / search_content   a separate corpus of the user's PUBLISHED CONTENT, used only for",
+      "                                 writing-style reference. Items written here are NEVER recalled in",
+      "                                 conversation. add_content requires type=world_knowledge and rejects",
+      "                                 missing/other types; use add for every user fact or preference.",
+      "  set_agent_self                 facts about the agent itself, not about the user",
+      "",
+      "WARNING: DO NOT use this tool for scheduling reminders or future tasks; use toolSearch to load runtimeTask first."
+    ].join("\n"),
     parameters: memorySchema,
     execute: async (_toolCallId, params) => {
       const action = params.action as MemoryAction;
       const scope = options.scope;
       const allScopes = Boolean(params.allScopes);
+      if (options.writesAllowed === false && ["add", "update", "flush", "sync", "compact", "add_content", "set_agent_self"].includes(action)) {
+        throw new Error("This turn is not eligible for memory writes. Search and explicit deletion remain available.");
+      }
 
       if (action === "search_content") {
         const rows = await options.memory.searchContent(String(params.botId ?? scope.botId ?? "default"), { query: String(params.query ?? ""), limit: params.limit ?? 10, mode: "hybrid" });
@@ -58,8 +84,27 @@ export function createMemoryTool(options: {
         const content = String(params.content ?? "").trim();
         const subject = String(params.subject ?? "").trim();
         if (!content || !subject) throw new Error("content and subject are required");
+        // The content corpus is write-only as far as conversation is concerned:
+        // `content:<botId>` is deliberately absent from `promptMemoryNamespaces`,
+        // so anything landing here can never be recalled in a later turn. It
+        // used to *default* to `user_fact`, which is exactly the record type
+        // that does not belong in it — and a model asked to "remember that I
+        // use Obsidian" reasonably picked `add_content`, got "Saved", and the
+        // fact was gone forever (prd.md §3.49).
+        if (action === "add_content" && params.type !== "world_knowledge") {
+          throw new Error(
+            `add_content requires the explicit published-content type "world_knowledge" and writes to a corpus ` +
+              `that is never recalled in conversation. To remember anything about the user, call this tool again ` +
+              `with action="add".`
+          );
+        }
         const botId = String(params.botId ?? scope.botId ?? "default");
-        const input = { content, type: (params.type ?? (action === "add_content" ? "user_fact" : "task")) as any, subject, reason: "user_explicit" };
+        const input = {
+          content,
+          type: (params.type ?? "task") as any,
+          subject,
+          reason: "user_explicit"
+        };
         const item = action === "add_content" ? await options.memory.addContentMemory(botId, input) : await options.memory.setAgentSelfMemory(botId, input);
         return { content: [{ type: "text", text: `Saved ${action}: ${item?.id ?? "(disabled)"}` }], details: { item } };
       }

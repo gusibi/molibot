@@ -111,12 +111,33 @@ function armOwnershipWatchdog(
  * `requiresServiceOwnership` is treated as carrying an external bot identity,
  * so a third-party channel cannot opt itself into running unowned by omission.
  */
+/**
+ * Explicit kill switch for channels that speak as this deployment's identity.
+ *
+ * The ownership gate below asks "does this process own the data directory",
+ * which is the right question for an orphaned duplicate but the wrong one for a
+ * throwaway run: an eval or smoke instance seeded from a real data directory
+ * carries real bot tokens *and* legitimately owns its own temporary directory,
+ * so ownership says yes and the bot answers from a scratch process.
+ *
+ * This says "never speak outward from here" independently of whose credentials
+ * ended up in the settings. Local surfaces (Web, CLI — the plugins that declare
+ * `requiresServiceOwnership: false`) keep running, because they are how such a
+ * run is driven in the first place.
+ */
+export function externalChannelsDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return String(env.MOLIBOT_DISABLE_EXTERNAL_CHANNELS ?? "").trim() === "1";
+}
+
 export function channelPluginMayRun(
   plugin: { requiresServiceOwnership?: boolean },
-  ownership: { owned: boolean }
+  ownership: { owned: boolean },
+  options: { externalChannelsDisabled?: boolean } = {}
 ): boolean {
+  const localOnly = plugin.requiresServiceOwnership === false;
+  if (options.externalChannelsDisabled ?? externalChannelsDisabled()) return localOnly;
   if (ownership.owned) return true;
-  return plugin.requiresServiceOwnership === false;
+  return localOnly;
 }
 
 /** Test seam: stop the watchdog so a test run can exit. */
@@ -153,6 +174,13 @@ export function applyChannelPlugins(state: any, applySettingsPatch: (patch: Part
   // so this stays a shared rule with the difference injected by the caller
   // rather than a per-channel conditional (CLAUDE.md pitfall 7).
   const ownership = ensureServiceOwnership();
+  const channelsSuppressed = externalChannelsDisabled();
+  if (channelsSuppressed) {
+    console.warn(
+      `${runtimeLabel("runtime")} ${color("external_channels_disabled", `${ANSI_BOLD}${ANSI_RED}`)} ` +
+        "MOLIBOT_DISABLE_EXTERNAL_CHANNELS=1 — only local surfaces run in this process."
+    );
+  }
   if (!ownership.owned) {
     console.error(
       `${runtimeLabel("runtime")} ${color("channel_plugins_suppressed", `${ANSI_BOLD}${ANSI_RED}`)} ` +
@@ -162,7 +190,9 @@ export function applyChannelPlugins(state: any, applySettingsPatch: (patch: Part
   armOwnershipWatchdog(state, applySettingsPatch);
 
   for (const plugin of loaded.channelPlugins) {
-    const mayRun = channelPluginMayRun(plugin, ownership);
+    const mayRun = channelPluginMayRun(plugin, ownership, {
+      externalChannelsDisabled: channelsSuppressed
+    });
     // An empty instance list drives the existing reconcile loop below, so an
     // ownership loss tears live managers down through the same path a settings
     // change uses — no second shutdown implementation.

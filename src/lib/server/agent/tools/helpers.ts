@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import os from "node:os";
-import { config } from "$lib/server/app/env.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 
 export function resolvePath(p: string): string {
   const trimmed = p.trim();
@@ -19,6 +19,19 @@ export function getSandboxVenvDir(): string {
   return join(getPythonToolingDir(), "venv");
 }
 
+/**
+ * Root for Agent-installed tool dependencies.
+ *
+ * The default comes from `storagePaths.toolingDir` rather than being spelled
+ * out here, so the bootstrap that creates the directory and the code that puts
+ * it on the Agent's PATH can never drift apart. `MOLIBOT_TOOLING_DIR` remains
+ * the documented override.
+ */
+export function getToolingDir(): string {
+  const customTooling = process.env.MOLIBOT_TOOLING_DIR;
+  return customTooling ? resolvePath(customTooling) : storagePaths.toolingDir;
+}
+
 export function getPythonToolingDir(): string {
   const customPythonTooling = process.env.MOLIBOT_PYTHON_TOOLING_DIR;
   if (customPythonTooling) {
@@ -28,11 +41,8 @@ export function getPythonToolingDir(): string {
   if (customTooling) {
     return join(resolvePath(customTooling), "python");
   }
-  return join(config.dataDir, "tooling", "python");
+  return storagePaths.toolingPythonDir;
 }
-
-// Deprecated: use getSandboxVenvDir() instead, kept for interface compatibility
-export const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "python", "venv");
 
 export function wrapCommandWithVenv(command: string): string {
   const pythonToolingDir = getPythonToolingDir();
@@ -43,13 +53,15 @@ export function wrapCommandWithVenv(command: string): string {
   const uvCacheDir = join(pythonToolingDir, "uv-cache");
   const tmpDir = join(pythonToolingDir, "tmp");
   
-  const customToolingDir = process.env.MOLIBOT_TOOLING_DIR;
-  const goEnvLines = customToolingDir
-    ? [
-        `export GOPATH=${shellEscape(join(resolvePath(customToolingDir), "go"))}`,
-        `export GOCACHE=${shellEscape(join(resolvePath(customToolingDir), "go-cache"))}`
-      ]
-    : [];
+  // Go isolation used to apply only when MOLIBOT_TOOLING_DIR was set, which
+  // meant the default install let `go install` write into the owner's ~/go —
+  // the one thing the tooling directory exists to prevent. It now follows the
+  // same resolved root as Python.
+  const toolingDir = getToolingDir();
+  const goEnvLines = [
+    `export GOPATH=${shellEscape(join(toolingDir, "go"))}`,
+    `export GOCACHE=${shellEscape(join(toolingDir, "go-cache"))}`
+  ];
 
   return [
     `mkdir -p ${shellEscape(venvDir)} ${shellEscape(pipCacheDir)} ${shellEscape(uvCacheDir)} ${shellEscape(tmpDir)}`,

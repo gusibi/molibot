@@ -27,6 +27,9 @@
   import { matchViewer, hasSourceToggle, type ArtifactScope } from "./viewerRegistry";
   import HtmlPreview from "./HtmlPreview.svelte";
   import CsvTable from "./CsvTable.svelte";
+  import SpreadsheetTable from "./SpreadsheetTable.svelte";
+  import DocxPreview from "./DocxPreview.svelte";
+  import PptxPreview from "./PptxPreview.svelte";
   import MarkdownPreview from "./MarkdownPreview.svelte";
   import JsonTree from "./JsonTree.svelte";
   import SvgViewer from "./SvgViewer.svelte";
@@ -219,6 +222,17 @@
     const token = sessionArtifactToken({ profileId, sessionId, projectId: projectId || undefined });
     return artifactPreviewUrl("session", token, activeTab.path, locale, theme);
   });
+
+  /** Loads binary document bytes through the authorized desktop transport. */
+  async function loadActiveBinaryBytes(): Promise<Blob> {
+    const tab = store.activeTab;
+    if (!tab || tab.kind !== "file") throw new Error("No binary document is selected.");
+    if (tab.scope === "project") {
+      return await fetchDesktopProjectRawBlob(endpoint, projectId, tab.path);
+    }
+    if (!tab.fileId) throw new Error("The binary attachment is unavailable.");
+    return await fetchDesktopFileBlob(endpoint, profileId || "personal", sessionId, tab.fileId, false, projectId || undefined);
+  }
   /**
    * The Session artifact list - every file this conversation produced or
    * received. It is the Files surface in Session scope, where there is no
@@ -282,6 +296,13 @@
       modified: copy.projectFileModified
     };
     return labels[statusType(entry)];
+  }
+
+  function changeStatsLabel(entry: { additions: number | null; deletions: number | null; binary: boolean }): string {
+    if (entry.binary) return copy.projectDiffBinary;
+    const additions = entry.additions === null ? "—" : `+${entry.additions}`;
+    const deletions = entry.deletions === null ? "—" : `−${entry.deletions}`;
+    return `${additions} ${deletions}`;
   }
 
   function mentionInChat(path: string, line = 0): void {
@@ -881,6 +902,14 @@
                       >
                         <span class={`project-change-status status-${statusType(entry)}`}>{statusLabel(entry)}</span>
                         <span title={entry.path}>{entry.path}</span>
+                        <small class="project-change-stats" title={changeStatsLabel(entry)}>
+                          {#if entry.binary}
+                            {copy.projectDiffBinary}
+                          {:else}
+                            <span class="project-change-additions">+{entry.additions === null ? "—" : entry.additions}</span>
+                            <span class="project-change-deletions">−{entry.deletions === null ? "—" : entry.deletions}</span>
+                          {/if}
+                        </small>
                       </button>
                       <button
                         type="button"
@@ -1087,6 +1116,32 @@
                 {:else if activeTab.kind === "file" && activeTab.preview}
                   {#if viewer === "html" && htmlPreviewSrc}
                     <HtmlPreview src={htmlPreviewSrc} refreshKey={htmlRefreshKey} />
+                  {:else if viewer === "spreadsheet"}
+                    <SpreadsheetTable
+                      name={activeTab.name}
+                      {copy}
+                      sourceKey={activeTab.id}
+                      version={activeTab.preview}
+                      loadBytes={loadActiveBinaryBytes}
+                    />
+                  {:else if viewer === "docx"}
+                    <DocxPreview
+                      name={activeTab.name}
+                      {copy}
+                      {theme}
+                      sourceKey={activeTab.id}
+                      version={activeTab.preview}
+                      loadBytes={loadActiveBinaryBytes}
+                    />
+                  {:else if viewer === "pptx"}
+                    <PptxPreview
+                      name={activeTab.name}
+                      {copy}
+                      {theme}
+                      sourceKey={activeTab.id}
+                      version={activeTab.preview}
+                      loadBytes={loadActiveBinaryBytes}
+                    />
                   {:else if viewer === "svg"}
                     <SvgViewer src={rawUrl} source={activeText} name={activeTab.name} {showSource} {copy} />
                   {:else if viewer === "csv" && activeTab.preview.status === "text"}
@@ -1094,7 +1149,16 @@
                   {:else if viewer === "markdown" && activeTab.preview.status === "text"}
                     <MarkdownPreview content={activeTab.preview.content} name={activeTab.name} {copy} {theme} {showSource} />
                   {:else if viewer === "json" && activeTab.preview.status === "text"}
-                    <JsonTree content={activeTab.preview.content} {copy} />
+                    <JsonTree
+                      content={activeTab.preview.content}
+                      name={activeTab.name}
+                      {copy}
+                      hasMoreBytes={activeTab.preview.truncated}
+                      loadingMore={activeTab.loadingMore}
+                      loadedBytes={activeTab.loadedBytes}
+                      sizeBytes={activeTab.preview.sizeBytes}
+                      onLoadMoreBytes={() => void store.loadMoreBytes(activeTab.id)}
+                    />
                   {:else if viewer !== "system" && activeTab.preview.status === "text"}
                     <CodeViewer
                       content={activeTab.preview.content}
@@ -1161,7 +1225,12 @@
         <div class="project-browser artifact-session-browser" aria-busy={attachmentsLoading}>
           <div class="file-filters">
             {#each sessionFilters as [value, label] (value)}
-              <button type="button" class:active={sessionFilter === value} onclick={() => (sessionFilter = value)}>{label}</button>
+              <button
+                type="button"
+                class:active={sessionFilter === value}
+                aria-pressed={sessionFilter === value}
+                onclick={() => (sessionFilter = value)}
+              >{label}</button>
             {/each}
           </div>
           {#if attachmentsError}
@@ -1304,6 +1373,32 @@
                          would not resolve. The blob is the external-transcript
                          fallback, where the route declines to serve. -->
                     <HtmlPreview src={htmlPreviewSrc || activeTab.blobUrl} refreshKey={htmlRefreshKey} />
+                  {:else if viewer === "spreadsheet"}
+                    <SpreadsheetTable
+                      name={activeTab.name}
+                      {copy}
+                      sourceKey={activeTab.id}
+                      version={activeTab.size}
+                      loadBytes={loadActiveBinaryBytes}
+                    />
+                  {:else if viewer === "docx"}
+                    <DocxPreview
+                      name={activeTab.name}
+                      {copy}
+                      {theme}
+                      sourceKey={activeTab.id}
+                      version={activeTab.size}
+                      loadBytes={loadActiveBinaryBytes}
+                    />
+                  {:else if viewer === "pptx"}
+                    <PptxPreview
+                      name={activeTab.name}
+                      {copy}
+                      {theme}
+                      sourceKey={activeTab.id}
+                      version={activeTab.size}
+                      loadBytes={loadActiveBinaryBytes}
+                    />
                   {:else if viewer === "svg" && sessionStreamUrl}
                     <SvgViewer src={sessionStreamUrl} source={activeTab.textContent} name={activeTab.name} {showSource} {copy} />
                   {:else if viewer === "csv" && activeTab.textContent}
@@ -1311,15 +1406,15 @@
                   {:else if viewer === "markdown" && activeTab.textContent}
                     <MarkdownPreview content={activeTab.textContent} name={activeTab.name} {copy} {theme} {showSource} />
                   {:else if viewer === "json" && activeTab.textContent}
-                    <JsonTree content={activeTab.textContent} {copy} />
+                    <JsonTree content={activeTab.textContent} name={activeTab.name} sizeBytes={activeTab.size} {copy} />
                   {:else if viewer === "media" && sessionStreamUrl}
                     <!-- Streamed from the desktop file route so video can seek. -->
                     <MediaViewer kind={rawKind} src={sessionStreamUrl} name={activeTab.name} sizeBytes={activeTab.size} {copy} />
                   {:else if viewer === "code" && activeTab.textContent}
                     <CodeViewer content={activeTab.textContent} filePath={activeTab.name} {copy} />
                   {:else}
-                    <!-- An attachment does live in the Session workspace, so a
-                         .docx gets the system app here too, not only download. -->
+                    <!-- An attachment does live in the Session workspace, so an
+                         unsupported binary gets the system app here too, not only download. -->
                     <SystemOpenCard
                       name={activeTab.name}
                       sizeBytes={activeTab.size}

@@ -31,6 +31,12 @@ interface Fixture {
   enablement: Record<string, MiniAppEnablementEntry>;
 }
 
+const activeHosts = new Set<MiniAppHost>();
+test.afterEach(async () => {
+  await Promise.all([...activeHosts].map((host) => host.dispose()));
+  activeHosts.clear();
+});
+
 function makeFixture(): Fixture {
   const root = mkdtempSync(join(tmpdir(), "molibot-miniapp-"));
   const codeRoot = join(root, "miniapps", "apps");
@@ -41,7 +47,7 @@ function makeFixture(): Fixture {
 }
 
 function hostFor(fixture: Fixture, overrides: Partial<MiniAppHostOptions> = {}): MiniAppHost {
-  return createMiniAppHost({
+  const host = createMiniAppHost({
     codeRoot: fixture.codeRoot,
     dataRoot: fixture.dataRoot,
     getEnablement: () => fixture.enablement,
@@ -51,6 +57,8 @@ function hostFor(fixture: Fixture, overrides: Partial<MiniAppHostOptions> = {}):
     },
     ...overrides
   });
+  activeHosts.add(host);
+  return host;
 }
 
 function baseManifest(id: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {

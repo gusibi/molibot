@@ -43,6 +43,7 @@ import {
   type MiniAppToolResult
 } from "$lib/server/miniapps/types.js";
 import { bundleMiniAppRuntime } from "$lib/server/miniapps/runtimeBundle.js";
+import { createMiniAppProcessRuntime } from "$lib/server/miniapps/processRuntime.js";
 
 /**
  * MiniAppHost — the single seam between installed Mini Apps and the rest of
@@ -105,7 +106,7 @@ export interface MiniAppHostOptions {
   builtinAppIds?: string[];
   /** Where each app came from, for display. Absent = unknown local directory. */
   getInstallSources?: () => Record<string, MiniAppInstallSource>;
-  /** Test seam for ESM loading. Production uses a plain dynamic import. */
+  /** Test-only seam for ESM loading. Production runs bundled code in a child process. */
   importModule?: (entryPath: string) => Promise<unknown>;
   /**
    * The bundled copy of a built-in app, used to offer and apply an update.
@@ -114,6 +115,8 @@ export interface MiniAppHostOptions {
    */
   getBuiltinApp?: (appId: string) => BuiltinMiniApp | null;
   createAiFacade?: (appId: string, capabilities: import("$lib/server/miniapps/types.js").MiniAppAiCapability[], dataDir: string) => MiniAppAiFacade;
+  /** Test seam for process watchdogs. Production defaults to 60 seconds. */
+  processCallTimeoutMs?: number;
 }
 
 interface AppSlot {
@@ -211,6 +214,16 @@ export class MiniAppHost {
     this.logger = options.logger ?? noopLogger;
     this.builtinAppIds = new Set(options.builtinAppIds ?? []);
     this.refresh();
+  }
+
+  /** Stop every loaded App process. Used by orderly service/test teardown. */
+  async dispose(): Promise<void> {
+    await Promise.all([...this.slots.values()].map(async (slot) => {
+      const runtime = slot.runtime ?? await slot.loading?.catch(() => null) ?? null;
+      slot.runtime = null;
+      slot.loading = null;
+      if (runtime?.dispose) await runtime.dispose();
+    }));
   }
 
   // ---------------------------------------------------------------- discovery
@@ -805,33 +818,46 @@ export class MiniAppHost {
     fs.mkdirSync(dataDir, { recursive: true });
     this.assertSchemaVersion(slot.id, dataDir, descriptor.manifest.data.schemaVersion);
 
-    const loaded = (await (this.options.importModule
-      ? this.options.importModule(descriptor.entryPath)
-      : bundleMiniAppRuntime({
-        appId: slot.id,
-        entryPath: descriptor.entryPath,
-        cacheRoot: path.join(this.options.codeRoot, ".runtime")
-      }).then((bundle) => import(/* @vite-ignore */ bundle.moduleUrl)))) as MiniAppServerModule;
-    const factory = loaded?.default;
-    if (typeof factory !== "function") {
-      throw new MiniAppError("runtime.entry must default-export a factory function.", "load_failed");
-    }
-
     const unavailableAi: MiniAppAiFacade = {
       generateText: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); },
       transcribe: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); }
     };
-    const runtime = await factory({
-      appId: slot.id,
-      dataDir,
-      badge: this.createBadgeFacade(slot),
-      ai: this.options.createAiFacade?.(slot.id, descriptor.manifest.ai?.capabilities ?? [], dataDir) ?? unavailableAi,
-      logger: {
-        info: (event, detail) => this.logger.info(`miniapp:${slot.id}:${event}`, detail),
-        warn: (event, detail) => this.logger.warn(`miniapp:${slot.id}:${event}`, detail),
-        error: (event, detail) => this.logger.error(`miniapp:${slot.id}:${event}`, detail)
+    const badge = this.createBadgeFacade(slot);
+    const ai = this.options.createAiFacade?.(slot.id, descriptor.manifest.ai?.capabilities ?? [], dataDir) ?? unavailableAi;
+    const appLogger: MiniAppLogger = {
+      info: (event, detail) => this.logger.info(`miniapp:${slot.id}:${event}`, detail),
+      warn: (event, detail) => this.logger.warn(`miniapp:${slot.id}:${event}`, detail),
+      error: (event, detail) => this.logger.error(`miniapp:${slot.id}:${event}`, detail)
+    };
+    let runtime: MiniAppRuntime;
+    if (this.options.importModule) {
+      const loaded = await this.options.importModule(descriptor.entryPath) as MiniAppServerModule;
+      const factory = loaded?.default;
+      if (typeof factory !== "function") {
+        throw new MiniAppError("runtime.entry must default-export a factory function.", "load_failed");
       }
-    });
+      runtime = await factory({ appId: slot.id, dataDir, badge, ai, logger: appLogger });
+    } else {
+      const bundle = await bundleMiniAppRuntime({
+        appId: slot.id,
+        entryPath: descriptor.entryPath,
+        cacheRoot: path.join(this.options.codeRoot, ".runtime")
+      });
+      runtime = await createMiniAppProcessRuntime({
+        appId: slot.id,
+        moduleUrl: bundle.moduleUrl,
+        dataDir,
+        toolNames: descriptor.manifest.tools.map((tool) => tool.name),
+        badge,
+        ai,
+        logger: appLogger,
+        callTimeoutMs: this.options.processCallTimeoutMs,
+        onFault: (error) => {
+          slot.runtime = null;
+          this.logger.warn("miniapp_runtime_process_failed", { appId: slot.id, error: error.message });
+        }
+      });
+    }
 
     if (!runtime || typeof runtime !== "object") {
       throw new MiniAppError("runtime factory did not return a runtime object.", "load_failed");

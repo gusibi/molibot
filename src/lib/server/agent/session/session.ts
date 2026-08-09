@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
+import { retentionCapabilities, type TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
 
 export interface SessionPreferences {
   thinkingLevelOverride?: RuntimeThinkingLevel | null;
@@ -33,6 +34,7 @@ export interface SessionMessageEntry extends SessionEntryBase {
   type: "message";
   /** Owning execution when multiple fresh runs share one automation archive. */
   runId?: string;
+  retention?: TurnRetentionPolicy;
   message: AgentMessage;
 }
 
@@ -111,7 +113,7 @@ export function buildMessagesFromSessionEntries(entries: SessionFileEntry[]): Se
   if (latestCompactionIndex < 0) {
     return {
       messages: body
-        .filter((entry): entry is SessionMessageEntry => entry.type === "message")
+        .filter((entry): entry is SessionMessageEntry => entry.type === "message" && retentionCapabilities(entry.retention).futureContext)
         .map((entry) => entry.message),
       entries: body
     };
@@ -120,7 +122,7 @@ export function buildMessagesFromSessionEntries(entries: SessionFileEntry[]): Se
   const latestCompaction = body[latestCompactionIndex] as SessionCompactionEntry;
   const trailingMessages = body
     .slice(latestCompactionIndex + 1)
-    .filter((entry): entry is SessionMessageEntry => entry.type === "message")
+    .filter((entry): entry is SessionMessageEntry => entry.type === "message" && retentionCapabilities(entry.retention).futureContext)
     .map((entry) => entry.message);
 
   return {

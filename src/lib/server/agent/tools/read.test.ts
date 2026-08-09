@@ -66,6 +66,19 @@ test("read rejects binary files", async () => {
   }
 });
 
+test("read routes supported binary documents to docExtract", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-read-"));
+  try {
+    writeFileSync(join(cwd, "report.pdf"), Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00]));
+    await assert.rejects(
+      makeTool(cwd).execute("t1", { label: "read", path: "report.pdf" }),
+      /Use docExtract for this document/
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("read rejects an oversized image it cannot decode", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-read-"));
   try {

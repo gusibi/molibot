@@ -13,7 +13,7 @@ const SERIALIZED_TOOL_NAMES = new Set([
   "profileFiles",
   "miniAppManage",
   "loadMcp",
-  "createEvent",
+  "runtimeTask",
   "attach",
   "subagent",
   "publishHtml"
@@ -131,7 +131,7 @@ export function validateToolCallPreflight(
   if (toolName === "memory") {
     const action = String(args.action ?? "").trim().toLowerCase();
     if ((action === "add" || action === "update") && typeof args.content === "string" && matchesReminderIntent(args.content)) {
-      return "Scheduling or reminder-like content should use toolSearch to load createEvent, not memory.";
+      return "Scheduling or reminder-like content should use toolSearch to load runtimeTask, not memory.";
     }
   }
 

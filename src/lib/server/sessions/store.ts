@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { createRuntimeSessionId } from "$lib/server/agent/session/ids.js";
 import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import type { ConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
+import { retentionCapabilities, type TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
 import type {
   Channel,
   Conversation,
@@ -361,7 +362,7 @@ export class SessionStore {
   private indexConversationMessage(conversation: Conversation, message: ConversationMessage): void {
     const configured = this.conversationSearch;
     const source = this.searchSource(conversation);
-    if (!configured || !source || (message.role !== "user" && message.role !== "assistant")) return;
+    if (!configured || !source || !retentionCapabilities(message.retention).searchable || (message.role !== "user" && message.role !== "assistant")) return;
     try {
       configured.index.enqueueUpsert({
         messageId: message.id,
@@ -668,7 +669,7 @@ export class SessionStore {
     conversationId: string,
     role: Role,
     content: string,
-    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; platformMessageId?: string; model?: string; contextBacked?: boolean; sourceEntryId?: string }
+    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; platformMessageId?: string; model?: string; contextBacked?: boolean; sourceEntryId?: string; retention?: TurnRetentionPolicy }
   ): ConversationMessage {
     const createdAt = new Date().toISOString();
     const message: ConversationMessage = {
@@ -680,7 +681,8 @@ export class SessionStore {
       model: options?.model,
       platformMessageId: options?.platformMessageId,
       attachments: options?.attachments?.length ? options.attachments : undefined,
-      activities: options?.activities?.length ? options.activities : undefined
+      activities: options?.activities?.length ? options.activities : undefined,
+      retention: options?.retention
     };
 
     const located = this.resolveSessionStorage(conversationId);
@@ -708,6 +710,7 @@ export class SessionStore {
       platformMessageId: message.platformMessageId,
       attachments: message.attachments,
       activities: message.activities,
+      retention: message.retention,
       contextBacked: options?.contextBacked === true,
       sourceEntryId: options?.sourceEntryId,
       content: options?.contextBacked === true ? undefined : content

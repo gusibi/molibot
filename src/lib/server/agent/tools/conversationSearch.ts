@@ -3,6 +3,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { decodeExternalSessionId, listExternalSessionsFromContexts, readExternalTranscriptFromContexts } from "$lib/server/app/externalSessionsFromContexts.js";
 import { listAuthorizedConversationSources, isAuthorizedConversationSource, type ConversationAuthorizationScope } from "$lib/server/sessions/conversationAuthorization.js";
 import type { ConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
+import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 
 const schema = Type.Object({
   query: Type.String({ minLength: 1 }),
@@ -30,7 +31,7 @@ export function syncAuthorizedExternalConversationIndex(options: {
     const sourceKey = `${ref.channel}:${ref.botId}:${ref.chatId}:${ref.sessionId}`;
     const current = new Set<string>();
     for (const message of transcript.messages) {
-      if (message.role !== "user" && message.role !== "assistant") continue;
+      if ((message.role !== "user" && message.role !== "assistant") || !retentionCapabilities(message.retention).searchable) continue;
       current.add(message.id);
       options.index.enqueueUpsert({
         messageId: message.id,

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MemoryCandidateStore } from "./candidateStore.js";
 import { MemoryGateway } from "./gateway.js";
-import { MemoryReflectionService, ReflectionStateStore, reflectionTargetId, type ReflectionSourceProjection, type ReflectionTarget } from "./reflection.js";
+import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, reflectionTargetId, type ReflectionSourceProjection, type ReflectionTarget } from "./reflection.js";
 import type { MemoryBackend, MemoryRecord } from "./types.js";
 
 function harness() {
@@ -35,6 +35,32 @@ function harness() {
   const cleanup = () => { candidates.close(); state.close(); rmSync(dir, { recursive: true, force: true }); };
   return { candidates, state, gateway, backend, target, targetId, projection, cleanup };
 }
+
+test("reflection source excludes every policy that is not memory-eligible", async () => {
+  const state = new ReflectionStateStore(":memory:");
+  try {
+    const base = { conversationId: "session-retention", role: "user" as const, createdAt: "2026-08-09T02:00:00.000Z" };
+    const sessions = {
+      listConversations: () => [{ id: "session-retention" }],
+      listMessages: () => [
+        { ...base, id: "standard", content: "可以记忆", retention: "standard" },
+        { ...base, id: "no-memory", content: "不要记忆", retention: "no_memory" },
+        { ...base, id: "no-search", content: "不可搜索", retention: "not_searchable" },
+        { ...base, id: "turn-only", content: "仅本轮", retention: "turn_only" }
+      ]
+    };
+    const target: ReflectionTarget = {
+      ownerId: "owner",
+      botId: "momo",
+      timezone: "Asia/Shanghai",
+      sourceScopes: [{ channel: "web", externalUserId: "profile-1", botId: "momo" }]
+    };
+    const projections = await new SessionReflectionSourceReader(sessions as any, state).read(target, "2026-08-09");
+    assert.deepEqual(projections.flatMap((projection) => projection.messages.map((message) => message.id)), ["standard"]);
+  } finally {
+    state.close();
+  }
+});
 
 test("reflection creates pending candidate once and advances watermark only after success", async () => {
   const h = harness();

@@ -2205,3 +2205,54 @@
 - Adversarial review covered drained vs undrained SDK queues, consecutive retries, multiple accepted Steers, fallback candidates, abort/final cleanup, order, duplication, and Session non-pollution. The repair stays entirely above Channels.
 
 ---
+
+---
+
+# Artifact Inspector redesign progress (2026-08-09)
+
+## Session log
+- Read `frontend-design` and `planning-with-files` instructions before implementation.
+- Audited the existing Artifact Inspector and compared the code browsing hierarchy with official GitHub/Primer references.
+- Added a scoped GitHub/Primer token and surface layer to `apps/desktop/src/styles.css`, covering repository tabs, source tree, path header, CodeViewer, Markdown, JSON, CSV, diff, SVG, media, search, attachments, and system-card states.
+- Updated `DESIGN.md`, `features.md`, `prd.md`, `CHANGELOG.md`, and `readme.md` with the delivered visual direction.
+
+## Verification log
+| Check | Result |
+| --- | --- |
+| `svelte-check` | 0 errors / 0 warnings |
+| `vite build` | Passed; existing chunk-size warnings only |
+| `chat-ui.test.mjs` | 173 passed |
+| Artifact viewer tests | 43 passed |
+| `git diff --check` | Passed |
+
+## Adversarial review
+- Scoped every new color role beneath `.artifact-panel`; no global Chat/Settings token was changed by the GitHub palette.
+- Kept the existing vertical split, `clientY` resize path, browser-collapse rules, viewer registry, and file-action markup intact, so the visual pass cannot strand the original interaction seam.
+- Rechecked the overlooked secondary surfaces (change-scope tabs, inline previews, loading/empty/error states, HTML frame, and untracked status) and added explicit Artifact tokens for each.
+- Confirmed the only build output is the repository's existing Vite dynamic-import and chunk-size warnings; no new runtime or Svelte diagnostics remain.
+- Cold-path smoke reached the running Desktop shell and its reconnect/diagnostic state, but the local service stayed offline, so the real file panel could not be populated for a click-through screenshot; no service process was restarted or user data touched.
+
+---
+
+# Artifact file icon colour pass (2026-08-09)
+
+## Session log
+- Audited the existing Phosphor glyph map and confirmed the grey result came from `fileIconStyle()` returning an empty style, not from a missing icon family.
+- Compared maintained Iconify/VSCode Icons data with older file-icon font packages. Chose the already bundled Phosphor family to preserve offline startup, bundle stability, and the current `<i class="ph ...">` markup.
+- Added special filename precedence plus language/media/archive/Office colours; routed `--file-color` through tree, search, tabs, Session attachments, and the system card while preserving status colours.
+- Updated `DESIGN.md`, product records, and the planning notes.
+
+## Verification log
+| Check | Result |
+| --- | --- |
+| `fileIcons.test.ts` | 3 passed |
+| `chat-ui.test.mjs` | 173 passed |
+| Artifact viewer tests | 43 passed |
+| `svelte-check` | 0 errors / 0 warnings |
+| Vite build | Passed; existing warnings only |
+| `git diff --check` | Passed |
+
+## Adversarial review
+- Selected rows retain their file-type colour because the Artifact focus rule now excludes the icon from the white-text override.
+- Special names are normalized before extension lookup, so `.env`, `README.md`, and lock files cannot fall through to a generic colour.
+- Unknown files and symlinks keep the neutral fallback; no new network request or icon font is introduced.

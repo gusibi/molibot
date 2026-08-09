@@ -21,12 +21,34 @@ export interface LoadedPiExtension {
   description?: string;
   /** Entry path as reported by pi's loader. */
   entryPath: string;
-  extension: Extension;
+  /** Present only for unit-test fixtures. Production code lives in `client`'s subprocess. */
+  extension?: Extension;
+  client?: PiExtensionProcessClient;
+  tools?: PiExtensionToolDescriptor[];
+  commands?: Array<{ name: string; description?: string }>;
   toolNames: string[];
   eventNames: string[];
+  eventHandlerCounts?: Record<string, number>;
   commandNames: string[];
   flagNames: string[];
   unsupported: UnsupportedPiCapability[];
+}
+
+export interface PiExtensionToolDescriptor {
+  name: string;
+  label: string;
+  description: string;
+  parameters: unknown;
+  executionMode?: string;
+}
+
+export interface PiExtensionProcessDescriptor extends Omit<LoadedPiExtension, "extension" | "client"> {}
+
+export interface PiExtensionProcessClient {
+  request(method: string, input: unknown, signal?: AbortSignal): Promise<any>;
+  setFlags(flags: Record<string, unknown>): void;
+  onFault(listener: (error: Error) => void): void;
+  dispose(): void;
 }
 
 export interface PiExtensionLoadError {
@@ -39,11 +61,11 @@ export interface PiExtensionLoadResult {
   extensions: LoadedPiExtension[];
   errors: PiExtensionLoadError[];
   /**
-   * Shared runtime created by pi's loader. Its action methods are throwing
-   * stubs; Molibot binds the ones it supports per run. `flagValues` is the
-   * backing store `api.getFlag` reads from.
+   * In-process runtime retained only for injected unit-test fixtures. Production
+   * keeps pi's runtime inside `client`'s child process.
    */
   runtime: ExtensionRuntime | null;
+  client?: PiExtensionProcessClient;
 }
 
 /** One row of the settings-page extension list. */

@@ -4,11 +4,195 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-09
+
+### 个人助理状态源统一与安全旧数据清理（P2）
+
+- 新增唯一的 [个人助理能力矩阵](docs/requirements/personal-assistant-capability-matrix.md)，只使用“已交付 / 部分交付 / 待验证 / 未开始”四种当前状态。`prd.md` 下方历史章节只保留设计和交付上下文，不再具有覆盖矩阵或直接生成任务的权威。
+- 矩阵修正了临时 PRD 的过期结论：文档导出、Runtime Todo、`add_content` 边界、H2 和 Mini App 麦克风均已交付；PPTX 生成及日历/联系人/邮件/浏览器仍按明确产品边界保持未开始，其中外部集成和浏览器不会自动转成内置开发任务。
+- 产品负责人已在真实 App 中确认 Mini App 麦克风可用；原“macOS microphone acceptance pending”不再作为发布阻塞。拒绝权限、设备丢失等自动化只保留为测试加固方向。
+- 经只读复扫后执行 `node scripts/maintenance/clean-data-dir.mjs --apply`，删除 11 个明确 safe 的旧位置并回收 326MB；复扫 safe=0。`response.json*`、两份设置备份、`event.log` 和 Skill 备份共 2.9MB 仍为 review-only，未删除。
+
+### 可交付文档导出、提醒真实链路与 H2 最终绿测（新增/修复，P1）
+
+- 新增延迟加载的 `documentExport`：可从 Markdown 生成 DOCX/PDF，从带类型的二维数据生成多工作表 XLSX；输出仅允许写入 Project 或 Session scratch，扩展名、路径、内容和工作簿规模都有边界。PPTX 导出按决策后置，未引入浏览器。
+- “生成成功”现在是强凭证：DOCX 用 Mammoth 重读，PDF 用 `pdf-parse` 重读，XLSX 用 SheetJS 重开并逐表/逐单元格校验；只有临时文件从磁盘重读验证通过后才原子改名和附件投递。中文 PDF 使用随包 Noto Sans SC 子集字体，不依赖系统字体。
+- 提醒恢复补齐短时错过的一次性任务：重启后仍在 catch-up window 内会按稳定 trigger slot 补投，过期任务明确 skipped；completed lease 与 completed 文件状态共同抑制重复投递。Telegram/飞书离线时不再返回假成功，显式 `delivery=text` 对周期任务和手动触发也统一走直接通知，不再误进 Agent 队列。
+- 真实环境矩阵通过 Desktop/Web、Telegram、飞书三条链路的 watched-event create、正式 CRUD update、scheduled trigger、completed execution receipt 和 delete；失效的 Telegram 旧群组目标返回 provider error，未被吞掉。重启补偿、超窗跳过、离线失败和重复抑制由临时数据库/目录回归覆盖。
+- H2 最终 live 为 1/1（280 秒）：安装目录和 manifest 存在，trace 中 `miniAppManage` validate/install/inspect 全部结束，安装后模型继续完成回答，服务没有在工具调用处退出。结果见 `evals/results/2026-08-09T07-49-11-671Z.json`，保留数据目录由运行结果打印。
+- 验证：文档/工具/prompt/事件定向回归 67/67；Runtime Task/渠道定向回归 40/40；提醒共享/渠道回归 34/34；生产构建通过。
+
+### Artifact Inspector PPTX 演示文稿预览（新增，P1）
+
+- `.pptx` 文件和 PowerPoint MIME 现在进入独立的 `pptx` viewer，不再直接落到系统应用兜底；扩展名/MIME 分发仍由共享 registry 负责，Project 和 Session 两个入口保持一致。
+- 使用 MIT 授权的 `@silurus/ooxml` 浏览器端 Canvas/WASM viewer，首次打开时才懒加载解析器和 WASM；演示文稿按幻灯片连续滚动显示，提供页数、文字选择和统一操作条，保持只读，不启用外链跳转或 Google Fonts 请求。
+- 输入限制为 50 MiB，OOXML 解包还有条目数和膨胀体积上限；损坏、超限或不兼容文件显示可重试错误，不会冻结面板。旧 `.ppt` 和未知二进制继续使用系统应用卡片。
+- 回归覆盖 PPTX 扩展名/MIME 分发、字节窗口复制与 50 MiB 上限、两个 artifact scope、懒加载/只读/资源限制结构守卫；artifact 定向测试 19/19，Desktop UI 176/176，`svelte-check` 0/0，生产构建通过，PPTX JS/WASM 保持独立懒加载 chunk。
+
+### Artifact Inspector DOCX 文档预览（新增，P1）
+
+- `.docx` 文件现在进入独立的 `docx` viewer，不再直接落到“格式无法预览”的系统应用兜底卡片；扩展名和 Word MIME 都由共享 registry 处理。
+- 复用现有授权的 Project/session 文件字节通道和随包 Mammoth 1.12.0，首次打开时懒加载并转换为 Markdown，再交给已有 Markdown/DOMPurify 渲染链；关闭外部文件访问与嵌入图片资源，面板只提供只读内容预览和统一下载/外部打开操作。
+- 转换警告以非阻塞状态提示，损坏文档显示可重试错误；旧 `.ppt`/未知二进制仍走系统应用，PPTX 由独立 viewer 处理。回归覆盖真实 DOCX fixture、损坏输入、扩展名/MIME 分发和 Project/Session 两个入口；DOCX/registry 定向测试 18/18，Desktop UI 175/175，`svelte-check` 0/0，生产构建通过。
+
+### 三项个人助理 P0 可靠性闭环（修复）
+
+- `add_content` 只再接受显式 `world_knowledge`，用于用户已发布内容语料；个人事实、偏好或缺失类型会明确失败并要求改用 `add`，避免“工具返回保存成功、以后对话永远召回不到”。
+- Runner 在 Provider 调用前计算最终 system prompt、工具 schema、历史和当前消息的总预算；超限先按当前模型窗口压缩历史，再只裁剪送模副本，原始用户消息仍完整持久化。最终 transport 边界会再次 fail closed，超限请求不会到达 Provider。
+- Web Chat/Stream 未传思考等级时不再强制覆盖为 `off`，保留 Runtime 默认；自定义 Subagent 同步模型的 developer-role 能力，避免主 Agent 能调用而子 Agent 首次请求 400。
+- eval 长请求改用 15 分钟 headers/body timeout。完整基线 `2026-08-09T06-21-19-850Z` 为 24/31 且没有 Provider 请求链错误；随后受影响用例 C1/C4/D1/D2/H2 为 5/5，H2 运行 429 秒、服务未退出。剩余 A5/F2 属于后续行为质量问题，不在本次三个 P0 范围。
+- 日历、联系人、邮件及浏览器能力未加入；前三者保持 Skill / MCP / Connector 外置集成边界，浏览器留待 P1。
+
+### Artifact Inspector XLS/XLSX 表格预览（新增，P1）
+
+- `.xls` / `.xlsx` 文件现在进入独立的 `spreadsheet` viewer，不再误落到“格式无法预览”的系统应用兜底卡片；扩展名和 Excel MIME 都由共享 registry 处理。
+- 复用现有授权的 Project/session 文件字节通道和随包 SheetJS 0.20.3，懒加载解析每个工作表；面板显示工作表标签、固定表头、行号和只读单元格，保持 GitHub/Primer 数据表面与共享下载/外部打开操作条。
+- 每个工作表最多展示 5,000 行，超出明确提示，避免把巨型表格一次性挂进 WebView DOM；不执行公式，损坏工作簿显示可重试错误态，旧 `.ppt`/未知二进制仍走系统应用，DOCX/PPTX 由独立 viewer 处理。
+- 回归覆盖 registry 扩展名/MIME 分发、多工作表/重复值/空表/截断解析，以及 Project 和 Session 两个入口；artifact 定向测试 18/18，Desktop UI 174/174，`svelte-check` 0/0，生产构建通过。
+
+### Artifact Inspector Git 变更统计与 Diff 行号滚动同步（优化，P1）
+
+- Project Changes 列表现在沿用 `git diff HEAD --numstat -z` 为每个文件展示 `+新增 / −删除` 行数，统计覆盖 staged、unstaged、删除、重命名和路径含空格/CJK 的文件；二进制或无法统计的文件明确显示状态，不再要求逐个打开 Diff 才能判断改动规模。
+- 未跟踪文本文件按完整内容统计新增行，二进制文件不伪造行数；服务端沿用现有 Git 根目录与路径归一化边界，统计不会把项目外文件带入面板。
+- Diff2html 的行号 gutter 由渲染 Diff 自身建立 containing block，和代码行共享滚动坐标；行号不再固定在查看器视口中，保留原有 GitHub（Primer）颜色与 line-by-line / side-by-side 布局。
+- 回归守卫覆盖服务端 staged/unstaged/deleted/untracked 统计、Desktop Changes 行结构与 gutter CSS；Desktop UI 173/173，项目 inspection 13/13。
+
+### ImageAnalyze 与共享视觉/OCR 能力（新增，P0）
+
+- 新增延迟加载的 `imageAnalyze(path, prompt?)`：Agent 可在运行过程中主动分析工作区 PNG/JPEG/GIF/WebP，用于 OCR、发票/票据、截图、图表、UI 状态和通用图片理解，不再局限于 Channel 入站消息刚好携带的图片。
+- 工具不接受任意 Provider/模型名；模型固定复用当前 Agent 覆盖后的 `visionModelKey`，未覆盖时跟随全局视觉路由。调用结果记录实际 Provider、模型与 usage，图片和识别文本均标记为不可信证据。
+- Channel 入站 fallback 与新工具统一复用共享 `VisionAnalysis` 深模块，支持 pi 内置与 custom Provider transport；Channel 只保留附件下载、保存和统一消息结构转换。
+- `docExtract` 增加 PDF OCR policy：默认 `auto` 仅识别原生文字少且确实含嵌入图片的页面，`force` 识别全部页面，`never` 禁止模型调用；页面先渲染为 1600px PNG，再走同一个视觉模块。单次最多 OCR 20 页，串行执行，避免意外费用和内存峰值。
+- `imageAnalyze` 与 OCR 输出复用 pitfall 27 的共享截断/UTF-8/全文落盘模块；路径与 symlink 真实目标受工作区约束，源图片限制 20 MiB，送模前限制 5 MiB并按需缩放。
+- 验证：视觉/工具/文档/路由/eval 定向回归 85/85，生产构建通过；真实隔离服务 B6 1/1（14 秒），第二轮无入站图片时由 Agent 加载并调用 `imageAnalyze`，识别结果与 trace 均通过。
+
+### DocExtract：PDF、DOCX、XLSX 文档摄入（新增，P0）
+
+- 新增延迟加载的 `docExtract(path)` 内置工具，和基础 `read` 分层：`read` 继续负责文本/图片文件，PDF、DOCX、XLSX 的格式解析独立承载；`read` 的描述与二进制错误会把支持的文档明确导向 `docExtract`。
+- PDF 通过 `pdf-parse` v2 解释内容流并在结束后释放 parser；DOCX 通过 Mammoth 从 Buffer 转语义 HTML，再复用 WebFetch 的共享 HTML→Markdown 清理器，外部文件访问保持关闭且不内联图片；XLSX 使用正式随包的 SheetJS 0.20.3，逐工作表输出带标题的 CSV 文本，不执行公式。
+- 资源与上下文边界：文件及其真实路径必须位于允许的工作区根内且不超过 50 MiB，DOCX/XLSX 解包总量限制 256 MiB/10,000 entries，XLSX 每表最多读取 100,000 行；提取结果复用 `DEFAULT_MAX_BYTES` / `DEFAULT_MAX_LINES`、UTF-8 安全单行回退和 `outputSpill` 全文落盘。文档正文统一标为不可信证据；扫描/纯图片 PDF 现可通过共享视觉路由 OCR。
+- eval B2 改用真正的 `/FlateDecode` 压缩流 fixture，秘密编号不以明文存在于 PDF 原始字节，并新增 `tool_used: docExtract` 守卫。验证：文档/工具/eval 定向测试 61/61；真实隔离服务 B2 1/1（5 秒）；生产构建通过。
+
+### Agent Runtime Task 正式 CRUD 与 Mini App Todo 边界（新增，P0）
+
+- Agent 的用户可管理对象统一为 Runtime Task：`todo` 是不会触发的普通待办，`one-shot` 是提醒，`periodic` 是自动化；Runtime Event 只表示触发/执行，Notification 只表示投递结果，不再各自形成重复任务库。
+- 原仅能创建的 `createEvent` 延迟工具替换为 `runtimeTask`，正式支持 create/list/get/update/delete；按稳定 `taskId` 管理，修改提醒时间会恢复 pending，删除只命中当前 Bot 的用户任务。
+- watcher 对普通 `todo` 只保留、不派发，避免无时间待办变成通知；immediate 执行事件与 Molibot Owner 系统任务不进入用户 CRUD；Desktop 的 opaque-id 管理路径补齐 one-shot 的更新、删除、历史和 execution Session 查询。
+- 可选 Mini App Todo 保持独立 bounded context：Runtime Task 不读取、不投影、不修改 Mini App 数据，Mini App 未安装时 Runtime 能力仍完整。未来如需联动，只开放窄的通知请求能力，不共享 Todo 数据或级联。
+- 契约见 `CONTEXT.md` 与 [ADR 0003](docs/adr/0003-runtime-tasks-and-mini-app-todo-boundary.md)；定向测试覆盖完整 CRUD、类型字段校验、internal/immediate 排除和 one-shot Desktop 路径解析。
+
+### Mini App、Pi 扩展与失控工具进程故障隔离（新增，P0）
+
+- Mini App server runtime 改为每 App 一个独立 Node 子进程；工具与 HTTP 走有界 IPC，AI、badge、日志走显式双向桥接。第三方代码 `process.exit`、同步死循环、V8 heap OOM、超时或取消只终止对应 App 进程，不再带走 Molibot 服务；下次调用会重建运行时。
+- Agent `miniAppManage` 的 scratch-build validate/smoke/install 复用同一子进程边界，不再通过 `importModule` 把尚未安装的候选代码载回服务；临时 Host 会显式 dispose 后再清理验证数据目录。
+- 修复 H2 暴露的审批假死：Desktop 的 pending/resolve 接口现在同时处理 Host Bash 与 ApprovalBroker 工具请求，按 Session 隔离并保留 once/session/persistent/reject 语义。此前 `miniAppManage` 请求能显示成审批卡却无法由该卡解决，运行时等待五分钟后被 HTTP 客户端报成 `fetch failed`，并非服务崩溃。
+- H2 的 `auto_approve` 是 eval YAML 的显式选项，通过正式 Desktop API 选择「仅此一次」；生产运行时不自动批准 critical 工具，也没有测试专用的策略后门。
+- Pi 扩展不再把可执行函数加载进服务进程：发现、注册、tool/event/command 执行统一进入独立扩展进程，服务只保留可序列化元数据和 IPC client。扩展进程异常后标记 host 失效，下次加载重建。
+- 两类不受信任进程都设置 256 MiB old-space 上限、60 秒调用 watchdog 和进程组强杀；共享 `ToolRuntime` 增加五分钟最终截止时间，异步 handler 即使忽略取消也会稳定收口，进程型工具同时收到 abort。
+- 隔离边界与权限边界明确分开：这次防止故障扩散，不限制第三方代码的 owner 权限；内置工具仍是主进程内可信代码。
+- 回归测试真实覆盖已安装 Mini App `process.exit`、同步无限循环后的自动重建、Agent 安装候选模块顶层 `process.exit(73)`、Desktop Broker 审批的会话/范围语义、eval 并发批准恢复原 turn、Pi 扩展工具主动退出，以及永不 settle 的普通异步工具。架构决策见 [ADR 0002](docs/adr/0002-untrusted-runtime-process-boundaries.md)。
+
+### Artifact Inspector 文件类型图标与颜色（优化，P1）
+
+- 恢复并扩展现有 `@phosphor-icons/web` 文件 glyph：TypeScript、JavaScript、Python、Rust、Go、Vue、Svelte、CSS、Markdown、JSON、YAML、SQL、图片、音频、视频、压缩包和 Office 文件分别使用对应图标。
+- 增加 README、Dockerfile、`.gitignore`、`.env`、`package.json`、锁文件等仓库特殊文件名识别；目录统一使用文件树 folder 色，未知文件仍保持中性回退。
+- 文件类型色通过 `--file-color` 贯穿文件树、搜索结果、打开文件 tab、Session 附件和系统打开卡；选中、脏文件、修改/新增/删除状态继续使用独立语义色，不会覆盖类型色。
+- 评估过 `@iconify/svelte` + `@iconify-json/vscode-icons`、`@exuanbo/file-icons-js` 等方案：Iconify 数据完整但桌面离线需要额外打包整套 SVG，旧 file-icons 包多年未更新；当前 Phosphor 已在项目内，复用它更小、更稳定、无需远程请求。
+- 验证：新增 `fileIcons.test.ts` 3/3，现有 Chat UI、Artifact viewer、Svelte check、Vite build 与 diff check 保持通过。
+
+### JSON 文件改为源码优先、树形按需解析（修复，P0/P1）
+
+- JSON 文件打开后默认显示原始内容，使用共享 `CodeViewer` 提供 GitHub 风格语法高亮、行号、查找、换行和分块加载；不会在打开 tab 时自动 `JSON.parse` 或构建树。
+- 工具栏提供显式“解析为树形”按钮；只有用户主动点击且文件内容完整时才进入可折叠树，树形视图可随时“查看原文件”返回源码。
+- 树形解析沿用 1 MiB 字节上限并增加 5,000 行预算，超限、非法 JSON、深层递归异常均回退到带说明的源码，不再让整个右侧面板卡死。对象键使用 JSON Pointer 转义，避免 `/` 键造成重复行 key。
+- Project 文件树的每一行现在固定单行：移除会占用额外 grid 单元的独立更新圆点，文件大小强制不换行；本次会话被 Agent 修改过的文件只通过文件名语义色标记，详细变更仍在 Git Changes 面板展示。
+- 验证：`jsonTree.test.ts` 13/13、`chat-ui.test.mjs` 173/173、`svelte-check` 0 errors / 0 warnings、`vite build` 通过。
+
+### 记忆 namespace 与整轮留存语义统一（新增，P0）
+
+- 用户事实/偏好统一写入 `owner:`，Project 事实写入 `project:`；`chat:` 仅作为会话授权/召回边界，`content:` 与 `agent:` 保持专用语义，避免“保存成功、下轮不可达”。
+- 新增 `standard / no_memory / not_searchable / turn_only` 四种持久策略，覆盖用户消息、本轮回答和工具过程；分别控制未来 Agent Context、会话搜索与记忆/反思资格。
+- “仅本轮”仍可在 transcript 中审计，但不会重进上下文；“不可搜索”不会进入或被回填进会话索引；“不记忆”阻止显式与自动记忆写入，但仍允许查已有记忆和明确删除。
+- 删除明确为针对记忆、消息/轮次或 Session 的独立操作；会话删除/截断继续写搜索 tombstone。
+- 契约记录于 `CONTEXT.md` 与 ADR 0001；定向回归覆盖语义优先级、namespace、上下文重建、索引、反思及工具写守卫。
+
+### WebFetch：Agent 可直接读取公开网页正文（新增，P0）
+
+- 新增延迟加载的 `webFetch(url, prompt)` 内置工具：用户贴链接或 `webSearch` 找到目标页面后，Agent 可抓取完整文本正文；HTML 通过成熟的 `turndown` 转为 Markdown，脚本、样式与页面头部不会进入上下文。
+- 公网边界在共享 Agent 工具层实现：仅允许 HTTP(S)，拒绝带凭据 URL、本机/局域网/链路本地/高风险保留 IP，DNS 结果和每一跳重定向都重新校验；Clash/TUN 的 DNS fake-IP 仅对公网域名做窄例外，直接访问该地址段仍拒绝。同站点及 `www` 变体可跟随，跨站点跳转返回目标 URL 并要求下一次显式调用。
+- 资源边界：60 秒超时、10 MiB 下载上限、最多 10 次同站跳转、15 分钟/50 MiB 进程内 LRU 缓存；二进制明确拒绝，交给独立的文档摄入能力。
+- 返回正文复用 `DEFAULT_MAX_BYTES` / `DEFAULT_MAX_LINES` 与 UTF-8 安全单行回退，避免一个超大网页永久撑爆会话；工具结果把网页标为不可信证据，防止页面中的 prompt 注入被当作系统指令。
+- 验证：WebFetch 定向测试 7/7、工具注册测试 10/10、生产构建通过。
+
+### 修复：会话里记住的东西，换个会话读不回来（P0）
+
+- 现象：eval C 组在干净环境 0/4——`memory` 工具答「Added memory: mem-…」，换会话后 Agent 却答「记忆里没有记录」，两边都说的是真话。
+- 根因（`buildMoryWritePlan` 里两个默认都偏离日常读取路径）：无结构 `add`（不带 `type`/`subject`，即绝大多数「顺手记一下」）默认类型是 `task`，被 `chat` 检索 intent 的 `memoryTypes` 硬过滤排除、注入 profile 时又只进受时间窗约束的 `currentFocus` 桶；默认 namespace 是每渠道每用户独立的 `chat:...`，换会话就换 key。
+- 修复：新增 `defaultMemoryTypeForLayer`（长期 `user_fact`、每日 `event`，都在日常读取集内；path 前缀从同一 type 派生）；无结构写入 namespace 改走 `namespaceForDomain` → 个人域 `owner:owner`（跨所有渠道/会话共享，`promptMemoryNamespaces` 第一项）。
+- 守卫：`moryCore.plan.test.ts` 断言默认类型可被普通一轮检索到、默认 namespace＝`owner:owner`、path 前缀与 type 一致，全部不依赖线上模型。C 组转 4/4。
+- 后续同日已关闭 `add_content` 误路由：只有显式发布内容 `world_knowledge` 可以写入 `content:`，个人事实与缺失类型会被工具拒绝并引导到 `add`。存量分裂行（真实库 1229 行分布在 11 种 `user_id` 形状）仍按决策不迁移。
+
+### Eval golden set：把「能不能干活」变成一个数字（新增，P0）
+
+- 新增 `evals/`：31 条真实任务（A 基础工具 6 / B 输入摄入 6 / C 记忆 4 / D 任务调度 3 / E 会话 2 / F 失败姿态 6 / G 代码改动 2 / H 扩展面 2），每条带 `why` 和 `baseline` 预期。
+- 判定分三档，优先用高档：state（`file_exists` / `file_contains` / `file_absent` / `sqlite`）> trace（`tool_used` / `tool_not_used`）> text（`reply_*` / `judge`）。没有配置 judge 模型时 `judge` 断言记为 **unproven**，既不算通过也不算失败，单独计数。
+- 加载期严格校验：未知断言键、无断言的任务、非法正则一律在调用模型之前失败——否则一个拼写错误会让任务什么都不断言并报告通过。
+- 报告双向标注与 `baseline` 不符的结果：`pass → fail` 是回归，`fail → pass` 说明能力补上了、YAML 该更新。
+- 隔离：每次运行使用全新临时 `DATA_DIR`，通过 `scripts/start-server.mjs` 启动（绝不 `node build/index.js`，prd.md §3.41）。Provider 配置从 `~/.molibot` 复制，因此必然带上渠道凭据，`MOLIBOT_DISABLE_EXTERNAL_CHANNELS=1` 强制设置并在启动前断言，日志可见 `telegram(0) feishu(0) qq(0) weixin(0)`。
+- PDF / PNG / CSV 附件 fixture 由 `evals/fixtures/build-fixtures.mjs` 生成而非提交二进制，「Agent 应该看到什么」可以从代码读出来。
+- 命令：`node evals/run.mjs`（`--group` / `--id` / `--skip-tag` / `--seed-from` / `--keep-data-dir` / `--list`），结果落 `evals/results/<ts>.json`。
+- 验证：`evals/harness.test.mjs` 17/17。
+
+### 修复：纯 HTTP 同源上传被当成跨站表单拒绝（P0）
+
+- `adapter-node` 在 `ORIGIN` 未设置时从请求头推导自身 origin，且**协议默认 `https`**，于是服务认为自己是 `https://127.0.0.1:<port>`，而浏览器在 `http://localhost:3000` 发来的是 `http` origin，两者永不相等——所有同源 multipart POST（Web 端发附件）都被拒绝。
+- 这是 CLAUDE.md pitfall 25 的第三个出现面，而且被前两个盖住了：`tauri://localhost` 在信任列表里，所以打包桌面端正常，只有纯 Web 面是坏的。
+- 修法不是再加一个信任 origin（这个 origin 本来就是合法同源），而是让服务说清楚自己是谁：`start-server.mjs` 通过 `resolveServiceOrigin()` 声明真实 origin；操作者已设置 `ORIGIN` 或 `PROTOCOL_HEADER`、或绑定非回环地址时不接管。
+
+### 修复：启动器擦掉了 `DATA_DIR` 隔离依赖的环境层次（P0）
+
+- `dataDirScope.ts` 的规则是：`DATA_DIR` 来自 OS 环境时，只在仓库 `.env` 里出现的 `DB_DIR` 应被丢弃。但 `start-server.mjs` 必须先读仓库 `.env` 才能解析 `DATA_DIR` 和端口，这次 merge 发生在 `env.ts` 快照 `process.env` **之前**，仓库值与操作者导出的值再也分不开。
+- 后果：源码安装用 `DATA_DIR=/tmp/...` 启动会直接拒绝启动（守卫误判为「刻意指向外部目录」），而设计意图是丢弃这个覆盖。
+- 启动器现在在第一次 `dotenv.config()` 之前把真实 OS key 集合发布到 `MOLIBOT_OS_ENV_KEYS`，`env.ts` 优先读它；新增源码顺序测试锁住这两条语句的先后。
+
+### 新增：`MOLIBOT_DISABLE_EXTERNAL_CHANNELS` 对外渠道总闸（P1）
+
+- 归属守卫问的是「本进程是否拥有该数据目录」，这对孤儿进程是对的问题，对一次性运行是错的：eval 实例从真实数据目录 seed，既带着真实 bot token，又合法拥有自己的临时目录。
+- 总闸优先级高于归属：凡未声明 `requiresServiceOwnership: false` 的插件一律停跑，Web / CLI 保留；停跑通过已有的 reconcile 空实例列表完成，不新增第二条关停路径（pitfall 7）。
+
+### 修复：桌面运行时旧代目录从不回收（P1）
+
+- 每次升级解压一个约 300 MB 的 `runtime/desktop-runtime-<version>`，旧代永不删除——一台升级过几次的机器上躺着数 GB 不可达的服务代码（v2.9.12 的安装里还留着 v2.6.3）。
+- supervisor 现在在「命中缓存」和「新解压」两条路径上都做回收，保留当前代 + 一代（被 adopt 的上一版 sidecar 可能仍在懒加载它的 chunk）。无 `.molibot-runtime-version` 标记的 `desktop-runtime-<uuid>` 解压残留一律删除。
+- 尽力而为：删不掉的目录只损失磁盘空间，不会导致启动失败。
+
+### 优化：runtime / tooling 目录的单一来源与数据目录清理工具（P1）
+
+- `<dataDir>/runtime`（服务私有：lock、state、日志、崩溃报告、运行时代目录，0700）与 `<dataDir>/tooling`（Agent 依赖：Python venv 与缓存、GOPATH/GOCACHE）此前在四处各写一遍路径字面量，现在每种语言各一处：`storagePaths`、`scripts/runtime/runtime-paths.mjs`、Rust supervisor。
+- 新增测试断言两棵树互不包含（双向）：把 Agent 可写的工作目录塞进 supervisor 私有目录，等于让正在运行的服务代码离一次 `rm -rf "$TMPDIR/../.."` 只有一步之遥。
+- Go 隔离不再依赖 `MOLIBOT_TOOLING_DIR`：默认安装此前会让 `go install` 写进用户的 `~/go`，正是 tooling 目录要防的污染。
+- Settings 的 provider 测试产物从三个顶层目录收进 `cache/settings-tests/`。
+- 新增 `node scripts/maintenance/clean-data-dir.mjs`：按名列出可回收项（含体积与原因），默认只报告，`--apply` 才删除，`--include-review` 才处理需人工确认的项；已迁移的数据库只有在 `db/` 副本存在时才会被提议删除。
+- 验证：`storage.test.ts` 9/9、`helpers.test.ts` 6/6、`serviceOwnership.test.ts` 7/7、`dataDirScope.test.ts` 11/11、`csrf-trusted-origins.test.mjs` 7/7、`clean-data-dir.test.mjs` 5/5、Rust `cargo test --lib supervisor` 21/21。
+
+### Artifact Inspector GitHub / Primer 工作区重构（优化，P1）
+
+- 右侧 File / Artifact Inspector 统一为仓库画布、源文件树和编辑器预览三层结构，保留原有文件切换、搜索、diff、附件、下载和可调整分栏行为。
+- 项目 tab、打开文件 tab、路径栏和工具栏改为扁平 GitHub 风格：底部 accent 选中线、细边框、紧凑工具控件，去掉漂浮分段卡片和重复阴影。
+- 文件树、搜索结果、变更列表与附件列表使用 Primer 语义 surface / border / selection token；文件名使用 UI 字体，路径、行号、标识符与表格使用 Mono。
+- CodeViewer、Markdown、JSON、CSV、Diff、SVG 和媒体预览共享 GitHub 风格的 Light / Dark 配色，保留脏文件、修改、添加、删除等语义色；颜色仅作用于 Artifact Inspector，不污染 Chat 与 Settings。
+- 验证：`svelte-check` 0 errors / 0 warnings、`vite build` 通过、`chat-ui.test.mjs` 173/173、Artifact viewer tests 43/43、`git diff --check` 通过。
+
 ## 2026-08-08
 
 ### Release v2.9.12 / Desktop v0.9.9
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，发布即时生效的小程序安装与更新机制、Telegram/飞书每日记忆按钮审核与任务排队按钮控制。
+
+### Desktop 工件面板对齐 DESIGN.md（优化，P1）
+
+- 右侧 File / Artifact Inspector 的文件名改用系统 UI 字体，路径、大小和代码继续使用等宽字体；文件类型图标统一为语义中性色，脏文件、触达和错误状态保留颜色表达。
+- 项目 tab、变更范围、搜索模式和附件筛选统一为紧凑 macOS 分段控件：8px 外层、6px 分段、分隔线选中态，无浮层阴影；附件筛选补充 `aria-pressed`，窄屏文件栏与共享 300px 最小宽度保持一致。
 
 ### Mini App 安装与更新即时生效（新增，P0）
 
@@ -149,7 +333,7 @@ roadmap §2.2–§2.5 四条能力一起交付。它们补上了前几个切片�
 - HTTP raw body 只在 manifest 明确允许的 `/api/*` 路由开放，路径段匹配并在 Runtime 前 413；Tauri transport 绝对硬顶 25 MiB。第三方 AI App 初装默认 disabled，须用户看过费用提示后显式启用。
 - Todo v1.0.2 增加「存为待办」活体动作；新增按需安装的 Meeting Notes v1.0.0，按 60 秒永久保存音频分段、独立转写/重试、失败不中断后续段、尾段完成后生成 Markdown 纪要，支持重启 interrupted、失败段重试、重新生成、重命名和不可恢复删除。
 - `miniapp-creator` Skill/Agent 模板升级到 1.3.0，模板与作者指南覆盖 message actions、bridge、`ctx.ai`、raw 上传和 restart-safe job。
-- 机器证据：消息/bridge/manifest/AI/settings/resources 聚焦测试 23/23；HTTP、built-in 与 Meeting 测试 32/32；用量/settings/manifest 16/16；Desktop `svelte-check` 0/0；服务端生产构建通过。真实 macOS `desktop:dev` + 打包态麦克风权限矩阵仍是发布前人工验收项，未把静态证据冒充 spike A/B/C 结论。
+- 机器证据：消息/bridge/manifest/AI/settings/resources 聚焦测试 23/23；HTTP、built-in 与 Meeting 测试 32/32；用量/settings/manifest 16/16；Desktop `svelte-check` 0/0；服务端生产构建通过。该切片当时尚缺真实验收；产品负责人已于 2026-08-09 在真实 App 确认麦克风可用，当前状态以能力矩阵为准。
 
 ### 内置小程序独立成 tab：可安装 / 可更新 / 可卸载（新增，P1）
 
@@ -240,7 +424,7 @@ PRD §3.38 Slice 2、Slice 3。右侧统一工件面板的容器（Slice 0：一
 
 - **Markdown** 复用聊天转录自己的 `renderMarkdown`（同一套 marked + highlight.js + DOMPurify），不新起第二条渲染链路，Agent 写的报告在面板里和在对话里读起来完全一致。外链跳转与代码块复制按钮的点击行为原本要被复制一份，因此抽到共享的 `lib/markdownInteractions.ts`，转录与面板共用（pitfall 7）；面板以 action 形式挂载，避免给纯布局容器编造 ARIA role。
 - **mermaid** 图表在 Markdown 内渲染，用动态 `import()` 且以「文档里确实有图」为前提加载——库约 590 kB，始终是独立 chunk，不进初始包。`securityLevel: "strict"`，因为图表文本是 Agent 生成内容。渲染失败只回退该图的源码，不会让整个 tab 空白。主题切换会重新渲染，因为 mermaid 把配色烘进 SVG 而不是读 CSS。
-- **JSON** 以可折叠树打开，超过两层的容器默认折叠。两种失败都可见且回退源码：解析失败显示解析器的报错，超过 1 MB 上限则明确说明。上限按 UTF-8 字节计，不按字符数——按字符数会把中文少算约 3 倍（pitfall 8）。
+- **JSON** 默认以原始源码打开，使用 CodeViewer 高亮和分块加载；点击显式操作后才进入可折叠树，超过两层的容器默认折叠。解析失败、超过 1 MB 或超过行数预算都可见且回退源码。上限按 UTF-8 字节计，不按字符数——按字符数会把中文少算约 3 倍（pitfall 8）。
 - **SVG** 拥有独立 viewer 且排在媒体判定之前，因此在两种 scope 下都能「渲染 + 一键看源码」。渲染走 `<img src=…>` 而非内联标记：`<img>` 文档无法执行脚本，也无法拉取外部资源。
 - **音频**此前已由 `MediaViewer` 支持，现在通过同一套注册表分发，Session scope 同样可用。
 - **无法预览的格式**（Office、未知二进制、超大文本）给出真正的卡片：图标、文件名、大小、原因，以及「用系统应用打开 / 在 Finder 中显示 / 下载」。Office 明确不做内嵌预览——转换链路重、收益低，产品答案就是系统应用。Session scope 下附件没有宿主路径，故不显示前两项，下载始终可用。
@@ -598,7 +782,7 @@ Agent City 里所有浮层——悬浮卡、详情卡、搜索框、提示条、
 ### Mini App Creator 可信交付链：从 scratch 构建到安装凭证（已完成，P0）
 
 - 修复 scaffold 把合法连字符 App ID 直接写进 SQLite 标识符的问题：`expense-tracker` 的目录、manifest 与 CSS 仍保留原 id，表名独立规范化为 `expense_tracker_records`；脚本拒绝直接生成到正式安装根，强制先在 Session scratch 构建。
-- 新增共享 Agent 工具 `miniAppManage`：`validate` 在临时数据目录真实加载 Runtime，提前捕获 SQL、工厂导出及 manifest/handler 不一致；`install` 复用 Desktop 已有 staging + 原子替换 installer；`inspect` 从正式目录回读 app id、version、schemaVersion 与 manifest sha256。只有 install receipt 才是正式目录已变化的机器证据；因前两项会在进程内加载 owner 选择的代码，它们按 critical 走审批，纯读 inspect 直接放行。
+- 新增共享 Agent 工具 `miniAppManage`：`validate` 在临时数据目录和独立子进程中真实加载 Runtime，提前捕获 SQL、工厂导出及 manifest/handler 不一致；`install` 复用 Desktop 已有 staging + 原子替换 installer；`inspect` 从正式目录回读 app id、version、schemaVersion 与 manifest sha256。只有 install receipt 才是正式目录已变化的机器证据；因前两项会运行 owner 选择的代码，它们按 critical 走审批，纯读 inspect 直接放行。
 - Mini App Creator Agent/Skill 改为 scratch → 文件修改 → validate → install → inspect；内置 Skill bump 到 1.2.0，使现有安装在启动时通过可回滚升级拿到新流程。没有真实重启/开面板能力时只能报告等待冷启动验证。
 - Runner 增加完成声明守卫：模型若未执行任何工具却声称 Mini App 已安装/更新，会回滚该回答并用瞬时 runtime control 重试一次；执行过 scratch 文件工具但没有成功 install receipt 时，运行时会在最终回答中附加不可伪造的「尚未确认正式安装」警告，而不会重放副作用。
 - 机器回归覆盖连字符 scaffold、禁止直写 live root、坏 SQL 校验失败、原子安装与精确凭证回读、Session 原始虚假措辞识别；所有 SQLite 测试均使用临时目录。
@@ -706,7 +890,7 @@ Agent City 里所有浮层——悬浮卡、详情卡、搜索框、提示条、
   - manifest 新增可选 `ui.icon`（`ui/` 下的 SVG/PNG，≤64 KB），侧边栏与管理页显示。图标以 `data:` URI 内联进 catalog——若改为 URL 提供，就必须把应用 CSP 的 `img-src` 放宽到自定义协议，并把可解析的资源路径放进 Desktop 契约。声明了却加载不到的图标是显式错误，不做静默兜底。Todo 已附带图标。
   - **修复：Agent 发现不了已安装的应用**。`<available-deferred-tools>` 是固定的内置工具名单，Mini App 工具不在其中，模型唯一的线索是提示词规则里恰好写死的 "todo / 待办" 举例——Todo 能用纯属巧合，之后装的记账、书单之类根本不会被搜到。现在提示词新增 `<installed-mini-apps>` 段落，列出每个已启用应用的名称、id、描述与工具 id（只有名字，没有 schema，schema 仍通过 `toolSearch` 获取）。该段落位于与 `available-skills` 同区的易变尾部，安装应用不会让可缓存的提示词前缀失效。
   - 应用列表由调用方传入提示词构造函数，而不是在其中读取 host 单例。读单例会让提示词内容取决于当前用户真实 `~/.molibot` 里装了什么——在装有应用的机器上提示词体积测试会失败，在干净机器上却通过。
-  - **安全说明**：远程安装是对 PRD 信任模型的主动扩展——原模型假设所有应用都是 owner 自己写的。小应用服务端代码在 Molibot 进程内**无沙箱**运行，可读写你的文件，GitHub 安装与手放目录在这一点上完全相同。界面在每次安装前明示这一后果并要求确认（确认框中会写明来源）。签名、权限粒度与子进程隔离仍未实现；在它们落地之前，只安装你自己写过或读过的应用。
+  - **安全说明**：远程安装是对 PRD 信任模型的主动扩展——原模型假设所有应用都是 owner 自己写的。小应用服务端代码有独立子进程故障隔离，但没有权限沙箱，仍可用 owner 权限读写文件；GitHub 安装与手放目录在这一点上完全相同。界面在每次安装前明示这一后果并要求确认（确认框中会写明来源）。签名与权限粒度仍未实现；在它们落地之前，只安装你自己写过或读过的应用。
 - 需求与实施方案：[miniapp-platform-prd.md](docs/requirements/miniapp-platform-prd.md)、[miniapp-platform-implementation-plan.md](docs/requirements/miniapp-platform-implementation-plan.md)。
 
 ---
@@ -2095,7 +2279,7 @@ Agent City 里所有浮层——悬浮卡、详情卡、搜索框、提示条、
 - 验证：新增 `events.test.ts`（跳过时释放文件运行锁）、`eventsLeaseStore.test.ts`（回收超期 `retry_wait`、低于下限时钳制并告警）回归用例；`events`+`eventsLeaseStore`+`tools/event` 三个测试文件共 16/16 全部通过。
 
 ### 任务 taskId 全局唯一且可读
-- taskId 生成格式改为可读的 `<slug>-<4位随机>`（如 `ai-news-daily-8x2k`），取代原 `task_<uuid>`；`createEventTaskId(slug?)` 会对可选名称做 slug 化并追加随机后缀。
+- taskId 生成格式改为可读的 `<slug>-<4位随机>`（如 `ai-news-daily-8x2k`），取代原 `task_<uuid>`；`createRuntimeTaskId(slug?)` 会对可选名称做 slug 化并追加随机后缀。
 - `createEvent` 工具现在为每个新建事件盖上唯一 `taskId`，并保证与同一 Bot `events/` 目录下已有事件不重复；新增可选 `name` 参数用于指定可读 slug；按 chatId+schedule+timezone 命中的周期任务更新时保留原 `taskId`，保持执行历史关联。
 - `createEvent` 文件名改为带随机后缀（`event-<ts>-<rand>.json`），避免同一毫秒创建的两个事件互相覆盖。
 - 将现有 `moli_news_bot` 任务从共享/通用标签迁移到唯一 id：`explicit`/`explicit`/`news` → `ai-news-daily-*`、`ai-daily-report-*`、`news-daily-*`（旧 id 下的历史执行记录仍在租约库中，但不再归属到改名后的任务）。

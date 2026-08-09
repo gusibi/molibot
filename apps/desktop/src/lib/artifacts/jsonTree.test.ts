@@ -5,6 +5,7 @@ import {
   visibleJsonRows,
   jsonByteLength,
   JSON_TREE_MAX_BYTES,
+  JSON_TREE_MAX_ROWS,
   JSON_TREE_DEFAULT_DEPTH,
   type JsonTreeRow
 } from "./jsonTree";
@@ -86,6 +87,16 @@ test("a sibling whose path shares a prefix is not hidden by string matching", ()
   assert.equal(visible.some((row) => row.path === "/a/x"), false);
 });
 
+test("object keys are escaped in paths so keyed rows remain unique", () => {
+  const result = buildJsonTree('{"a/b":1,"a":{"b":2}}');
+  assert.equal(result.status, "ok");
+  if (result.status !== "ok") return;
+  const paths = result.rows.map((row) => row.path);
+  assert.equal(new Set(paths).size, paths.length);
+  assert.equal(paths.includes("/a~1b"), true);
+  assert.equal(paths.includes("/a/b"), true);
+});
+
 test("invalid JSON reports a message instead of throwing", () => {
   const result = buildJsonTree("{ not json");
   assert.equal(result.status, "invalid");
@@ -97,6 +108,13 @@ test("a document over the ceiling reports too-large instead of building a tree",
   const result = buildJsonTree(huge);
   assert.equal(result.status, "too-large");
   if (result.status === "too-large") assert.ok(result.sizeBytes > JSON_TREE_MAX_BYTES);
+});
+
+test("an opt-in tree over the row budget falls back to source", () => {
+  const source = JSON.stringify(Array.from({ length: JSON_TREE_MAX_ROWS + 1 }, (_, index) => index));
+  const result = buildJsonTree(source);
+  assert.equal(result.status, "too-many-rows");
+  if (result.status === "too-many-rows") assert.equal(result.rowCount, JSON_TREE_MAX_ROWS);
 });
 
 test("the size ceiling counts UTF-8 bytes, so CJK is not undercounted", () => {

@@ -1684,6 +1684,7 @@ test("project detail reuses the chat header chrome for a single visual language"
 
 test("project file panel exposes live files, Git changes, and session attachments", () => {
   const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
+  const desktopApi = read("./lib/api.ts");
   assert.match(view, /<ArtifactPanel/);
   assert.match(projectFilePanel, /tab = "files"/);
   assert.match(projectFilePanel, /tab = "changes"/);
@@ -1691,6 +1692,11 @@ test("project file panel exposes live files, Git changes, and session attachment
   // Tree, Git and search now load through the shared store, not the component.
   assert.match(filesStore, /loadDesktopProjectTree/);
   assert.match(filesStore, /loadDesktopProjectGitStatus/);
+  assert.match(desktopApi, /additions: number \| null/);
+  assert.match(desktopApi, /deletions: number \| null/);
+  assert.match(projectFilePanel, /class="project-change-stats"/);
+  assert.match(projectFilePanel, /project-change-additions/);
+  assert.match(projectFilePanel, /project-change-deletions/);
   // A Project session belongs to the personal profile, a plain conversation to
   // the bot that owns it; reading the wrong profile returns an empty list with
   // no error, which is indistinguishable from "this session has no files".
@@ -1719,6 +1725,8 @@ test("project file panel exposes live files, Git changes, and session attachment
   assert.match(styles, /--diff-add-line: #e6ffec;[\s\S]*--diff-del-word: #fdb8c0;/);
   assert.match(styles, /--diff-add-line: rgba\(46,160,67,0\.15\)/);
   assert.match(styles, /\.project-diff-preview \.d2h-code-linenumber\.d2h-ins[\s\S]*var\(--diff-add-num\)/);
+  assert.match(styles, /\.project-diff-preview \{[\s\S]*position: relative;/);
+  assert.match(styles, /\.artifact-panel \.project-diff-preview \{[\s\S]*position: relative;/);
   // Both dark paths (explicit and system) must carry the palette.
   assert.equal(styles.match(/--diff-add-line: rgba\(46,160,67,0\.15\)/g).length, 2);
   assert.doesNotMatch(styles, /\.d2h-(ins|del|code-line ins|code-line del) \{ background: color-mix/);
@@ -1893,15 +1901,15 @@ test("every Slice 2/3 viewer is reachable from both artifact scopes", () => {
   );
   const sessionBranch = projectFilePanel.slice(projectFilePanel.indexOf('{:else if scope === "session"}'));
   assert.ok(projectBranch.length > 0 && sessionBranch.length > 0);
-  for (const component of ["HtmlPreview", "CsvTable", "MarkdownPreview", "JsonTree", "SvgViewer", "SystemOpenCard"]) {
+  for (const component of ["HtmlPreview", "CsvTable", "SpreadsheetTable", "DocxPreview", "PptxPreview", "MarkdownPreview", "JsonTree", "SvgViewer", "SystemOpenCard"]) {
     assert.match(projectBranch, new RegExp(`<${component}\\b`), `${component} missing from project scope`);
     assert.match(sessionBranch, new RegExp(`<${component}\\b`), `${component} missing from session scope`);
   }
 });
 
 test("no file is a dead end: the system card always offers a way out", () => {
-  // PRD §3.38 Slice 3. Office formats deliberately get no embedded preview, so
-  // the fallback must be an action, not a sentence.
+  // Legacy PPT and unknown binaries still use the system card; DOCX, PPTX and
+  // XLS/XLSX are handled by dedicated viewers first.
   const card = read("./lib/artifacts/SystemOpenCard.svelte");
   assert.match(card, /projectOpenExternally/);
   assert.match(card, /projectRevealInFinder/);
@@ -1912,6 +1920,44 @@ test("no file is a dead end: the system card always offers a way out", () => {
   assert.match(card, /onOpenExternally\?:/);
   assert.match(card, /onDownload: \(\) => void;/);
   assert.doesNotMatch(card, /\{#if onDownload\}/);
+});
+
+test("SpreadsheetTable keeps workbook parsing lazy, bounded, and read-only", () => {
+  const component = read("./lib/artifacts/SpreadsheetTable.svelte");
+  const parser = read("./lib/artifacts/spreadsheet.ts");
+  assert.match(component, /import \{[\s\S]*parseSpreadsheet/);
+  assert.match(parser, /await import\("xlsx"\)/);
+  assert.match(parser, /SPREADSHEET_MAX_ROWS = 5_000/);
+  assert.match(component, /role="tablist"/);
+  assert.match(component, /position: sticky/);
+  assert.doesNotMatch(component, /contenteditable/);
+});
+
+test("DocxPreview keeps conversion lazy, sanitized, and read-only", () => {
+  const component = read("./lib/artifacts/DocxPreview.svelte");
+  const parser = read("./lib/artifacts/docx.ts");
+  assert.match(component, /import MarkdownPreview/);
+  assert.match(parser, /await import\("mammoth\/mammoth\.browser\.js"\)/);
+  assert.match(parser, /convertToMarkdown/);
+  assert.match(parser, /externalFileAccess: false/);
+  assert.doesNotMatch(component, /\{@html/);
+  assert.doesNotMatch(component, /contenteditable/);
+});
+
+test("PptxPreview keeps slide rendering lazy, bounded, and read-only", () => {
+  const component = read("./lib/artifacts/PptxPreview.svelte");
+  const parser = read("./lib/artifacts/pptx.ts");
+  assert.match(component, /await import\("@silurus\/ooxml\/pptx"\)/);
+  assert.match(component, /new PptxScrollViewer/);
+  assert.match(component, /enableTextSelection: true/);
+  assert.match(component, /enableHyperlinks: false/);
+  assert.match(component, /maxZipEntryBytes: PPTX_MAX_BYTES/);
+  assert.match(component, /resourceLimits:/);
+  assert.match(component, /if \(loadFailure\)/);
+  assert.match(component, /next\.destroy\(\)/);
+  assert.match(parser, /PPTX_MAX_BYTES = 50 \* 1024 \* 1024/);
+  assert.match(parser, /bytes\.slice\(\)\.buffer/);
+  assert.doesNotMatch(component, /contenteditable/);
 });
 
 test("the source toggle is a registry fact and is offered in both scopes", () => {
@@ -1963,18 +2009,27 @@ test("the Markdown viewer reuses the transcript renderer and its click behaviour
   assert.match(preview, /use:markdownBody=\{copy\}/);
 });
 
-test("the JSON tree fails visibly and counts UTF-8 bytes", () => {
+test("the JSON viewer is source-first and keeps opt-in trees bounded", () => {
   // Pitfall #8: a character-length ceiling under-counts CJK ~3x, so a document
   // well over the render budget would still try to build a tree.
   const jsonTree = read("./lib/artifacts/jsonTree.ts");
   assert.match(jsonTree, /new TextEncoder\(\)\.encode/);
   assert.match(jsonTree, /status: "too-large"/);
+  assert.match(jsonTree, /JSON_TREE_MAX_ROWS/);
+  assert.match(jsonTree, /status: "too-many-rows"/);
   assert.match(jsonTree, /status: "invalid"/);
-  // Both failure modes render the source rather than an empty pane.
+  assert.match(jsonTree, /replaceAll\("\/", "~1"\)/);
+  // Opening a file does not parse it; the user explicitly opts into the tree.
   const component = read("./lib/artifacts/JsonTree.svelte");
+  assert.match(component, /import CodeViewer from "\.\.\/projects\/CodeViewer\.svelte"/);
+  assert.match(component, /let treeMode = \$state\(false\)/);
+  assert.match(component, /artifactJsonTree/);
+  assert.match(component, /artifactJsonSource/);
+  assert.match(component, /<CodeViewer/);
+  assert.doesNotMatch(component, /const tree = \$derived\(buildJsonTree\(content\)\)/);
   assert.match(component, /artifactJsonTooLarge/);
+  assert.match(component, /artifactJsonTooManyRows/);
   assert.match(component, /artifactJsonInvalid/);
-  assert.match(component, /<pre class="json-tree-raw">\{content\}<\/pre>/);
 });
 
 test("the SVG viewer renders through an img element, never inlined markup", () => {
@@ -2046,6 +2101,24 @@ test("every new artifact copy key exists in both locales", () => {
     "artifactJsonInvalid",
     "artifactJsonTooLarge",
     "artifactMermaidFailed",
+    "artifactSpreadsheetLoading",
+    "artifactSpreadsheetFailed",
+    "artifactSpreadsheetEmpty",
+    "artifactSpreadsheetTruncated",
+    "artifactSpreadsheetSheet",
+    "artifactSpreadsheetColumn",
+    "artifactSpreadsheetRows",
+    "artifactDocxLoading",
+    "artifactDocxFailed",
+    "artifactDocxEmpty",
+    "artifactDocxReadOnly",
+    "artifactDocxWarnings",
+    "artifactPptxLoading",
+    "artifactPptxFailed",
+    "artifactPptxEmpty",
+    "artifactPptxReadOnly",
+    "artifactPptxSlides",
+    "artifactPptxWarnings",
     "artifactUnsupportedFormat"
   ];
   for (const key of keys) {
@@ -2096,10 +2169,12 @@ test("agent-written files are marked in the tree and scope the Changes tab", () 
   assert.match(chatStore, /readonly sessionFiles = toStore<SessionFileTouches>/);
   assert.match(view, /touches=\{projectPaneActive \? \$sessionFileTouches : EMPTY_TOUCHES\}/);
   assert.match(treeNode, /class:touched=\{touchedPaths\.has\(entry\.path\)\}/);
+  assert.doesNotMatch(treeNode, /file-tree-touched/);
   assert.match(projectFilePanel, /touches\.written\.has\(entry\.path\)/);
   assert.match(projectFilePanel, /changeScope === "session" \? sessionEntries : gitEntries/);
   assert.match(styles, /\.project-change-scope/);
-  assert.match(styles, /\.file-tree-row\.touched/);
+  assert.match(styles, /\.file-tree-row\.touched \.file-tree-name \{ color: var\(--warning-text\)/);
+  assert.match(styles, /\.file-tree-size \{[^}]*white-space: nowrap/);
 });
 
 test("project file panel follows file changes live and stays resizable", () => {

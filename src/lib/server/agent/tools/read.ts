@@ -36,7 +36,7 @@ export function getReadToolDefinition(options: { cwd: string; workspaceDir: stri
     id: "read",
     name: "read",
     description:
-      `Read text/image files from workspace. Supports offset/limit for partial reads of large files. Text output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+      `Read text/image files from workspace. Use docExtract instead for PDF, DOCX, and XLSX documents. Supports offset/limit for partial reads of large files. Text output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     inputSchema: readSchema,
     risk: "low",
     source: "builtin",
@@ -96,7 +96,11 @@ export function getReadToolDefinition(options: { cwd: string; workspaceDir: stri
       }
 
       if (buffer.subarray(0, 8192).includes(0)) {
-        return { ok: false, error: `${path} appears to be a binary file. Use bash with a format-appropriate tool instead.` };
+        const extension = extname(filePath).toLowerCase();
+        const hint = [".pdf", ".docx", ".xlsx"].includes(extension)
+          ? "Use docExtract for this document."
+          : "Use bash with a format-appropriate tool instead.";
+        return { ok: false, error: `${path} appears to be a binary file. ${hint}` };
       }
 
       const allLines = buffer.toString("utf-8").split("\n");

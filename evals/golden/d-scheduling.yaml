@@ -1,0 +1,48 @@
+# D — 任务与调度
+#
+# 「明天提醒我」是助理最常被要求做的事之一，也是最容易假装完成的一件：
+# 模型说「好的，已经帮你设好了」的成本是零。所以这一组全部落到磁盘上的
+# 事件文件去验证，回复文本只是辅助。
+
+- id: D1
+  title: 定一个一次性提醒
+  why: 说「已设好」不算数，事件文件必须真的落盘，而且类型是一次性的。
+  baseline: unknown
+  timeout_ms: 240000
+  prompt: 明天早上 9 点提醒我交周报。
+  assert:
+    - tool_used: runtimeTask
+    - file_exists: "**/events/*.json"
+    - file_contains: { file: "**/events/*.json", text: "one-shot" }
+    - file_contains: { file: "**/events/*.json", text: "周报" }
+
+- id: D2
+  title: 定一个周期任务
+  why: |
+    一次性和周期性走的是事件系统里两条不同的分支（events.ts 的 type 分派），
+    只测其中一条会漏掉另一条。
+  baseline: unknown
+  timeout_ms: 240000
+  prompt: 每周一上午 10 点给我发一次本周待办汇总。
+  assert:
+    - tool_used: runtimeTask
+    - file_contains: { file: "**/events/*.json", text: "periodic" }
+
+- id: D3
+  title: 取消刚定的提醒，且只取消那一个
+  why: |
+    和 A6 同一个道理：改对了不算通过，必须证明没有波及旁边那条。
+    这里先建两条，只取消其中一条。
+  baseline: unknown
+  timeout_ms: 300000
+  turns:
+    - prompt: 明天早上 9 点提醒我交周报。
+    - prompt: 明天下午 3 点提醒我取快递。
+    - prompt: 把交周报那个提醒取消掉，取快递那个留着。
+  assert:
+    - file_contains: { file: "**/events/*.json", text: "快递" }
+    # 第一版列了「已取消 / 取消了 / 删除 / 撤销」四个精确说法，Agent 回的是
+    # 「取消：明天早上 9 点的『交周报』提醒」，一个都没匹配上。断言要贴住语义，
+    # 不是贴住某一种措辞。
+    - reply_contains_any: ["取消", "删除", "撤销"]
+    - reply_contains: "快递"

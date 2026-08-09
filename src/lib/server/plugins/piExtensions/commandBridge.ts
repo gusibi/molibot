@@ -36,7 +36,8 @@ export async function runPiExtensionCommand(
   if (!name) return { handled: false };
 
   for (const extension of options.extensions) {
-    const command = extension.extension.commands.get(name);
+    const command = extension.extension?.commands.get(name)
+      ?? extension.commands?.find((candidate) => candidate.name === name);
     if (!command) continue;
 
     const lines: string[] = [];
@@ -52,7 +53,19 @@ export async function runPiExtensionCommand(
     };
 
     try {
-      await command.handler(args, ctx as any);
+      if (extension.client) {
+        const result = await extension.client.request("invokeCommand", {
+          extensionId: extension.id,
+          command: name,
+          args,
+          cwd: options.cwd
+        }, options.signal);
+        for (const notification of result.notifications ?? []) {
+          ctx.ui.notify(notification.message, notification.type);
+        }
+      } else {
+        await (command as any).handler(args, ctx as any);
+      }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       momError("plugins", "pi_extension_command_failed", {
@@ -80,7 +93,11 @@ export function listPiExtensionCommands(
   const seen = new Set<string>();
   const out: Array<{ name: string; description?: string; extensionId: string }> = [];
   for (const extension of extensions) {
-    for (const [name, command] of extension.extension.commands) {
+    const commands = extension.extension
+      ? [...extension.extension.commands.entries()].map(([name, command]) => ({ name, description: command.description }))
+      : extension.commands ?? [];
+    for (const command of commands) {
+      const { name } = command;
       if (seen.has(name)) continue;
       seen.add(name);
       out.push({ name, description: command.description, extensionId: extension.id });

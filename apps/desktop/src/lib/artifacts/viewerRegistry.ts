@@ -16,9 +16,11 @@ import {
  * re-deriving the rules.
  *
  * Slice 0 registered code, diff, media and system; Slice 1 added `html` and
- * `csv`; Slice 2 added `markdown`, `json` and `svg`. Every addition is a branch
- * here, never a new `if` in the panel template: the panel only asks which viewer
- * to mount.
+ * `csv`; Slice 2 added `markdown`, `json` and `svg`; the spreadsheet and document
+ * viewers add binary XLS/XLSX tables, sanitized DOCX rendering, and read-only
+ * PPTX slides without making the panel parse formats itself. Every addition is
+ * a branch here, never a new per-format rule in the panel template: the panel
+ * only asks which viewer to mount.
  */
 
 export type ArtifactTabKind = "file" | "diff" | "miniapp";
@@ -31,6 +33,9 @@ export type ArtifactViewerId =
   | "media"
   | "html"
   | "csv"
+  | "spreadsheet"
+  | "docx"
+  | "pptx"
   | "markdown"
   | "json"
   | "svg"
@@ -52,6 +57,15 @@ const HTML_EXTENSIONS = new Set([".html", ".htm", ".xhtml"]);
 
 /** CSV/TSV extensions render as a scrollable table with a raw-text toggle. */
 const CSV_EXTENSIONS = new Set([".csv", ".tsv"]);
+
+/** Excel workbooks render as a bounded, read-only table with sheet tabs. */
+const SPREADSHEET_EXTENSIONS = new Set([".xls", ".xlsx"]);
+
+/** DOCX documents render as a sanitized, read-only document surface. */
+const DOCX_EXTENSIONS = new Set([".docx"]);
+
+/** PPTX presentations render as read-only slide canvases. */
+const PPTX_EXTENSIONS = new Set([".pptx"]);
 
 /**
  * SVG is an image, but unlike a raster it also has readable source, so it gets
@@ -100,6 +114,9 @@ export function matchViewer(meta: ArtifactMeta): ArtifactViewerId {
   const ext = extensionOf(meta.name);
   if (HTML_EXTENSIONS.has(ext)) return "html";
   if (CSV_EXTENSIONS.has(ext)) return "csv";
+  if (SPREADSHEET_EXTENSIONS.has(ext)) return "spreadsheet";
+  if (DOCX_EXTENSIONS.has(ext)) return "docx";
+  if (PPTX_EXTENSIONS.has(ext)) return "pptx";
   // Ahead of the media check: `.svg` is an image by MIME, but it renders through
   // its own viewer so the source stays one toggle away.
   if (SVG_EXTENSIONS.has(ext)) return "svg";
@@ -114,6 +131,9 @@ export function matchViewer(meta: ArtifactMeta): ArtifactViewerId {
     mediaType: meta.mediaType
   });
 
+  if (isSpreadsheetMime(meta.mimeType)) return "spreadsheet";
+  if (isDocxMime(meta.mimeType)) return "docx";
+  if (isPptxMime(meta.mimeType)) return "pptx";
   if (kind === "office") return "system";
   // A declared MIME with no matching extension still reaches the right viewer.
   if (kind === "markdown") return "markdown";
@@ -149,4 +169,22 @@ export function needsTextContent(viewer: ArtifactViewerId): boolean {
  */
 export function hasSourceToggle(viewer: ArtifactViewerId): boolean {
   return viewer === "markdown" || viewer === "svg";
+}
+
+function isSpreadsheetMime(mimeType: string | undefined): boolean {
+  const mime = String(mimeType ?? "").trim().toLowerCase();
+  return mime === "application/vnd.ms-excel"
+    || mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    || mime === "application/vnd.ms-excel.sheet.macroenabled.12"
+    || mime === "application/vnd.oasis.opendocument.spreadsheet";
+}
+
+function isDocxMime(mimeType: string | undefined): boolean {
+  const mime = String(mimeType ?? "").trim().toLowerCase();
+  return mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+}
+
+function isPptxMime(mimeType: string | undefined): boolean {
+  const mime = String(mimeType ?? "").trim().toLowerCase();
+  return mime === "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 }

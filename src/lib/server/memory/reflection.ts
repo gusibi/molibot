@@ -8,6 +8,7 @@ import type { MemoryCandidateCreateInput, MemoryRecord, MemoryScope } from "$lib
 import { MemoryCandidateValidationError, type MemoryGateway } from "$lib/server/memory/gateway.js";
 import { agentNamespace, chatNamespace, contentNamespace, ownerNamespace, projectNamespace } from "$lib/server/memory/namespaces.js";
 import { decodeExternalSessionId, listExternalSessionsFromContexts, readExternalTranscriptFromContexts } from "$lib/server/app/externalSessionsFromContexts.js";
+import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 import { listAuthorizedConversationSources } from "$lib/server/sessions/conversationAuthorization.js";
 
 export interface ReflectionSourceScope extends MemoryScope {
@@ -153,6 +154,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
           if (!transcript) continue;
           const watermark = this.state.get(targetId, entry.conversation.id);
           const messages = transcript.messages
+            .filter((message) => retentionCapabilities(message.retention).memoryEligible)
             .filter((message) => dateInTimezone(message.createdAt, target.timezone) === localDate)
             .filter((message) => !watermark || `${message.createdAt}:${message.id}` > watermark)
             .map((message) => ({ ...message, channel: scope.channel, sessionId: entry.conversation.id }));
@@ -166,6 +168,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
       for (const conversation of conversations) {
         const watermark = this.state.get(targetId, conversation.id);
         const messages = this.sessions.listMessages(conversation.id)
+          .filter((message) => retentionCapabilities(message.retention).memoryEligible)
           .filter((message) => dateInTimezone(message.createdAt, target.timezone) === localDate)
           .filter((message) => !watermark || `${message.createdAt}:${message.id}` > watermark)
           .map((message) => ({ ...message, channel: scope.channel, sessionId: conversation.id }));

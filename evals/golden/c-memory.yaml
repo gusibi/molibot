@@ -1,0 +1,60 @@
+# C — 记忆
+#
+# 记忆治理是这个项目最厚的一块（package/mory 十几个模块），所以这一组不是
+# 探伤，是回归保护：跨 Session 的偏好、纠错后的覆盖、以及不编造。
+# 每条都刻意用 new_session 断开上下文，逼记忆层真的参与。
+
+- id: C1
+  title: 记住一条偏好，换个会话仍然遵守
+  why: 「换个窗口就忘了」是普通聊天窗口的样子；记住才是助理的样子。
+  baseline: pass   # 2026-08-09 修复 §3.49 后转绿
+  timeout_ms: 240000
+  turns:
+    - prompt: 记一下，我不喝咖啡，任何含咖啡的东西都不要给我推荐。
+    - prompt: 我下午想喝拿铁，可以吗？只回答“可以”或“不可以”。
+      new_session: true
+  assert:
+    - reply_contains_any: ["不可以", "不能"]
+
+- id: C2
+  title: 记住语言偏好
+  why: 判定完全确定——回复里有没有汉字，不需要第二个模型来打分。
+  baseline: pass   # 2026-08-09 修复 §3.49 后转绿
+  timeout_ms: 240000
+  turns:
+    - prompt: 记住，以后回复我一律用中文，不要用英文。
+    - prompt: Give me one short tip about sleeping better.
+      new_session: true
+  assert:
+    - reply_matches: "[\\u4e00-\\u9fa5]"
+
+- id: C3
+  title: 纠正一条记错的事实
+  why: |
+    比「能记住」更难也更重要：记忆冲突要能被后来的纠正覆盖，
+    而不是两条并存、每次随机挑一条（package/mory 的 moryConflict）。
+    这条是挖出 §3.49 的入口：更正**写进去了**（mory `memory_nodes` 里能看到
+    「常用的笔记工具是 Obsidian（已弃用 Notion）」），换会话后却检索不到——
+    模型选了 `add_content`，写进了 `content:personal`，而这个 namespace
+    根本不在 `promptMemoryNamespaces()` 里，属于只写不读。修复后转绿。
+  baseline: pass
+  timeout_ms: 300000
+  turns:
+    - prompt: 记一下，我常用的笔记工具是 Notion。
+    - prompt: 更正一下，我已经不用 Notion 了，现在用的是 Obsidian，以后按 Obsidian 来。
+    - prompt: 我现在用的笔记工具是什么？只回答工具名。
+      new_session: true
+  assert:
+    - reply_contains: "Obsidian"
+    - reply_not_contains: "Notion"
+
+- id: C4
+  title: 不许编造记忆
+  why: |
+    一个会编造「你说过你喜欢 X」的助理比一个不记事的助理更糟。
+    这里问的是一件从未说过的事。
+  baseline: unknown
+  timeout_ms: 240000
+  prompt: 我之前告诉过你我的第一台打印机序列号吗？如果我没说过，就直接说没有。
+  assert:
+    - reply_contains_any: ["没有", "未曾", "不记得", "没提", "没告诉", "没有说过"]

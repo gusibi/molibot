@@ -38,6 +38,7 @@ import {
 } from "$lib/server/agent/session/workspace.js";
 import { estimateContextTokens } from "$lib/server/agent/session/compaction.js";
 import { createRuntimeSessionId, isTaskSessionId } from "$lib/server/agent/session/ids.js";
+import type { TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
@@ -758,7 +759,7 @@ export class MomRuntimeStore {
     const id = this.sanitizeSessionId(sessionId);
     const run = String(runId ?? "").trim();
     const messages = this.readSessionFileEntries(chatId, id)
-      .filter((entry): entry is SessionMessageEntry => entry.type === "message" && entry.runId === run)
+      .filter((entry): entry is SessionMessageEntry => entry.type === "message" && entry.runId === run && entry.retention !== "turn_only")
       .map((entry) => entry.message);
     if (messages.length > 0 || this.readSessionOrigin(chatId, id)?.archiveMode === "shared") {
       return messages;
@@ -975,7 +976,7 @@ export class MomRuntimeStore {
     chatId: string,
     message: AgentMessage,
     sessionId?: string,
-    options?: { runId?: string }
+    options?: { runId?: string; retention?: TurnRetentionPolicy }
   ): string {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     const entryId = createEntryId();
@@ -989,6 +990,7 @@ export class MomRuntimeStore {
           : Date.now()
       ).toISOString(),
       runId: String(options?.runId ?? "").trim() || undefined,
+      retention: options?.retention,
       message
     });
     if (this.readSessionOrigin(chatId, id)?.archiveMode === "shared") {

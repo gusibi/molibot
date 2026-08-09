@@ -307,7 +307,8 @@ function buildMessages(ref: ExternalSessionRef, entries: SessionFileEntry[], wor
       role,
       content: displayContent,
       createdAt: entry.timestamp,
-      attachments: attachments.length > 0 ? attachments : undefined
+      attachments: attachments.length > 0 ? attachments : undefined,
+      retention: entry.retention
     });
   }
   if (pendingAttachments.length) {

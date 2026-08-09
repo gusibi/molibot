@@ -56,6 +56,15 @@ export interface GitStatusEntry {
   indexStatus: string;
   worktreeStatus: string;
   untracked: boolean;
+  additions: number | null;
+  deletions: number | null;
+  binary: boolean;
+}
+
+interface GitChangeStats {
+  additions: number | null;
+  deletions: number | null;
+  binary: boolean;
 }
 
 export type GitStatusResult =
@@ -277,6 +286,66 @@ async function runGit(projectRoot: string, args: string[]): Promise<{ ok: true; 
   });
 }
 
+function parseNumstatCount(value: string): number | null {
+  const count = Number.parseInt(value, 10);
+  return Number.isFinite(count) ? count : null;
+}
+
+/**
+ * Parses `git diff --numstat -z` without losing paths containing tabs,
+ * newlines, or non-ASCII characters. Rename records leave the path field
+ * empty and put the old/new paths in the next two NUL-delimited fields; the
+ * latter is the path represented by the status list.
+ */
+function parseGitNumstat(buffer: Buffer, normalizePath: (gitPath: string) => string | undefined): Map<string, GitChangeStats> {
+  const fields = buffer.toString("utf8").split("\0");
+  const stats = new Map<string, GitChangeStats>();
+  for (let index = 0; index < fields.length; index += 1) {
+    const match = /^([^\t]+)\t([^\t]+)\t([\s\S]*)$/.exec(fields[index]);
+    if (!match) continue;
+    const additions = parseNumstatCount(match[1]);
+    const deletions = parseNumstatCount(match[2]);
+    let gitPath = match[3];
+    if (!gitPath) {
+      const oldPath = fields[++index] || "";
+      const newPath = fields[++index] || "";
+      gitPath = newPath || oldPath;
+    }
+    const normalized = normalizePath(gitPath);
+    if (!normalized) continue;
+    stats.set(normalized, { additions, deletions, binary: additions === null || deletions === null });
+  }
+  return stats;
+}
+
+function countTextLines(content: string): number {
+  if (!content) return 0;
+  const normalized = content.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  return normalized.endsWith("\n") ? normalized.slice(0, -1).split("\n").length : normalized.split("\n").length;
+}
+
+async function getUntrackedChangeStats(project: ProjectRecord, entryPath: string): Promise<GitChangeStats> {
+  const unknown: GitChangeStats = { additions: null, deletions: null, binary: false };
+  try {
+    const resolved = await resolveProjectPath(project, entryPath, false, true);
+    const stat = await fs.stat(resolved.target);
+    if (!stat.isFile() || stat.size > MAX_TEXT_PREVIEW_BYTES) return unknown;
+    const content = await fs.readFile(resolved.target);
+    const encoding = detectTextEncoding(content);
+    if (encoding === "binary") return { additions: null, deletions: null, binary: true };
+    const text = encoding === "utf16be"
+      ? (() => {
+          const start = utf16BomOf(content) ? 2 : 0;
+          const evenLength = content.length - start - ((content.length - start) % 2);
+          return Buffer.from(content.subarray(start, start + evenLength)).swap16().toString("utf16le");
+        })()
+      : content.toString(encoding === "utf16le" ? "utf16le" : "utf8");
+    return { additions: countTextLines(text), deletions: 0, binary: false };
+  } catch {
+    return unknown;
+  }
+}
+
 function treeSortKey(entry: { name: string; isDirectory(): boolean }): string {
   return `${entry.isDirectory() ? "0" : "1"}:${entry.name}`;
 }
@@ -425,7 +494,7 @@ export async function getProjectGitStatus(project: ProjectRecord): Promise<GitSt
     if (!record || record.startsWith("# ")) continue;
     if (record.startsWith("? ")) {
       const entryPath = normalizeStatusPath(record.slice(2));
-      if (entryPath) entries.push({ path: entryPath, indexStatus: "?", worktreeStatus: "?", untracked: true });
+      if (entryPath) entries.push({ path: entryPath, indexStatus: "?", worktreeStatus: "?", untracked: true, additions: null, deletions: null, binary: false });
       continue;
     }
     const parts = record.split(" ");
@@ -434,13 +503,39 @@ export async function getProjectGitStatus(project: ProjectRecord): Promise<GitSt
     const xy = parts[1];
     const entryPath = normalizeStatusPath(parts.slice(pathIndex).join(" "));
     if (!entryPath) continue;
-    const entry: GitStatusEntry = { path: entryPath, indexStatus: xy[0], worktreeStatus: xy[1], untracked: false };
+    const entry: GitStatusEntry = { path: entryPath, indexStatus: xy[0], worktreeStatus: xy[1], untracked: false, additions: null, deletions: null, binary: false };
     if (record.startsWith("2 ")) {
       const previous = fields[++index] || "";
       entry.previousPath = normalizeStatusPath(previous);
       entry.previousOutsideProject = Boolean(previous && !entry.previousPath);
     }
     entries.push(entry);
+  }
+
+  const numstat = await runGit(root, [
+    "diff",
+    "HEAD",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-color",
+    "--numstat",
+    "-z",
+    "--",
+    "."
+  ]);
+  const statsByPath = numstat.ok ? parseGitNumstat(numstat.stdout, normalizeStatusPath) : new Map<string, GitChangeStats>();
+  for (const entry of entries) {
+    const trackedStats = statsByPath.get(entry.path);
+    if (trackedStats) {
+      entry.additions = trackedStats.additions;
+      entry.deletions = trackedStats.deletions;
+      entry.binary = trackedStats.binary;
+    } else if (entry.untracked) {
+      const untrackedStats = await getUntrackedChangeStats(project, entry.path);
+      entry.additions = untrackedStats.additions;
+      entry.deletions = untrackedStats.deletions;
+      entry.binary = untrackedStats.binary;
+    }
   }
   return { status: "ok", entries, truncated: result.truncated };
 }

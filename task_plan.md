@@ -3129,3 +3129,50 @@ Complete — production trace, red regression, shared Runner repair, records, an
 | Accepted Steer appeared in attempt 1 but disappeared from attempt 2 after consecutive first-token timeouts | 1 | Reproduced the pi Agent drain + MomRunner rollback boundary; added an outer-run replay list and exact three-attempt guard. |
 
 ---
+
+---
+
+# GitHub-style Artifact Inspector redesign (2026-08-09)
+
+## Goal
+Turn the Desktop right-side File / Artifact Inspector into a cohesive GitHub/Primer-inspired code workspace while preserving existing file, diff, search, preview, download, and responsive behavior.
+
+## Current phase
+Complete — scoped visual redesign, documentation, and verification finished.
+
+## Decisions
+- Keep the existing vertical browser/preview split, file stores, viewer registry, tabs, search, diff, attachments, downloads, source toggles, and narrow-panel seam.
+- Treat the Inspector as three visual planes: neutral repository canvas, inset source tree, and opaque editor/preview surface.
+- Scope Primer semantic tokens to `.artifact-panel` so Chat and Settings keep their current product language.
+- Use UI font for human-readable names and Mono for paths, identifiers, line numbers, tables, and code.
+- Use GitHub-like light/dark syntax and diff roles, with semantic colors reserved for dirty, modified, added, deleted, warning, and failure states.
+
+## Verification
+- `svelte-check`: 0 errors / 0 warnings.
+- `vite build`: passed; existing chunk-size warnings only.
+- `chat-ui.test.mjs`: 173/173.
+- Artifact viewer tests: 43/43.
+- `git diff --check`: passed.
+
+---
+
+# Artifact file icon colour pass (2026-08-09)
+
+## Goal
+Give repository files recognizable glyphs and stable language/media colours without adding an offline-hostile icon runtime or changing Artifact behavior.
+
+## Current phase
+Complete — existing Phosphor glyphs, shared colour resolver, viewer surfaces, docs, and tests finished.
+
+## Decisions
+- Reuse `@phosphor-icons/web`; do not add Iconify or an old standalone file-icon font for this focused pass.
+- Resolve special filenames before extensions (`README`, Dockerfile, lock files, `.env`, `.gitignore`, package manifests).
+- Return `--file-color` from `fileIconStyle` so the same colour travels through tree, search, tabs, Session files, and the system card.
+- Keep file-type colour independent from selection, dirty/touched, warning, and failure states.
+
+## Verification
+- `fileIcons.test.ts`: 3/3.
+- Existing `chat-ui.test.mjs`: 173/173.
+- Artifact viewer tests: 43/43.
+- `svelte-check`: 0 errors / 0 warnings.
+- Vite build and `git diff --check`: passed.

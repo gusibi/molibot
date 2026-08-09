@@ -89,3 +89,14 @@ test("help listing dedupes command names across extensions", () => {
     { name: "other", description: undefined, extensionId: "third" }
   ]);
 });
+
+test("production extension commands return subprocess notifications", async () => {
+  const extension: LoadedPiExtension = {
+    id: "remote", name: "remote", version: "1", entryPath: "/remote/index.ts",
+    client: { request: async () => ({ notifications: [{ message: "done", type: "info" }] }) } as any,
+    commands: [{ name: "remote", description: "remote command" }],
+    toolNames: [], eventNames: [], commandNames: ["remote"], flagNames: [], unsupported: []
+  };
+  const result = await runPiExtensionCommand("/remote", "", { extensions: [extension], cwd: "/tmp" });
+  assert.deepEqual(result, { handled: true, output: "done" });
+});

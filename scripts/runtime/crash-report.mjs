@@ -1,5 +1,6 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import path from "node:path";
+import { runtimePaths } from "./runtime-paths.mjs";
 
 /**
  * Crash capture for the service process.
@@ -20,12 +21,11 @@ import path from "node:path";
  * truncated buffer is worse than none — it looks like the process vanished.
  */
 
-const CRASH_DIR_NAME = "crashes";
 /** Reports kept on disk. Enough to see a crash loop, bounded for an app dir. */
 const MAX_CRASH_REPORTS = 20;
 
 export function crashDir(dataDir) {
-  return path.join(dataDir, "runtime", CRASH_DIR_NAME);
+  return runtimePaths(dataDir).crashesDir;
 }
 
 function describe(error) {

@@ -541,6 +541,46 @@ the base to pure black (`#000000`/`#0A0A0A`).
   column. Both are laid out in flow — a narrow window drops the sidebar and keeps the
   Inspector in the grid rather than turning it into a `position: fixed` overlay above
   Chat or the composer.
+- The File / Artifact Inspector is the app's GitHub/Primer-inspired repository
+  workspace: a neutral repository canvas, an inset source tree, and an opaque
+  editor/preview surface. Keep the browser/preview split in flow and resizable;
+  the visual hierarchy comes from borders and surface transitions rather than
+  nested rounded cards.
+- Inspector navigation uses flat repository tabs and file tabs with a 2px accent
+  underline, a 42px path/action header, and compact utility controls. Selection
+  uses accent-muted surfaces plus a visible border/inset cue; states are also
+  exposed with `aria-selected`/`aria-pressed`.
+- Use Primer semantic roles for the Inspector: light `#f6f8fa` / `#fff` /
+  `#d1d9e0` canvas/surface/border and dark `#161b22` / `#0d1117` / `#30363d`,
+  with `#0969da` (light) / `#58a6ff` (dark) accent. Human-readable names remain
+  UI font; paths, identifiers, tabular data, and code use Mono.
+- Code and Markdown syntax use GitHub-like light/dark token roles; diff additions
+  and deletions use the existing Primer green/red palette. File glyphs use the
+  existing Phosphor file family with stable language/media colours (TypeScript
+  blue, JavaScript yellow, Python blue, Rust orange, media purple, and so on).
+  Selection, dirty, touched, warning, and failure states remain separate from
+  file-type colour; selected rows must not flatten the glyph back to grey. The
+  Changes list carries compact trailing `+added / −deleted` counts per file
+  (binary files stay explicit), and a diff gutter scrolls with its code rows
+  rather than becoming a vertically fixed rail.
+- Excel workbooks (`.xls` / `.xlsx`) use a read-only GitHub-like data surface:
+  sheet names are compact tabs, the header stays sticky, row numbers are quiet
+  metadata, and cells use Mono with horizontal overflow contained inside the
+  viewer. Parsing/rendering is lazy and capped at 5,000 rows per sheet; malformed data shows a recoverable error
+  state while the shared action bar still offers download/open externally.
+- DOCX documents use a read-only content surface aligned with the Markdown
+  transcript renderer: headings, lists, links, and tables remain readable while
+  Word-specific pagination and editing stay out of scope. Mammoth conversion is
+  lazy, external resources are disabled, and malformed files show a recoverable
+  error state while the shared action bar still offers download/open externally.
+- PPTX presentations use a read-only slide desk on the same Inspector canvas:
+  each slide is centered on a neutral GitHub/Primer surface with consistent
+  spacing, a quiet paper shadow, continuous vertical scrolling, and optional
+  text selection. The Canvas/WASM renderer is lazy and bounded before archive
+  expansion; external hyperlinks and remote font loading stay disabled, while
+  malformed or over-budget decks show a recoverable error state. Editing,
+  animations, presenter controls, and legacy `.ppt` conversion remain out of
+  scope.
 - Mini Apps have two coordinated entry points: a primary navigation destination for
   installation and management, plus a peer first-level sidebar section alongside the
   conversation and Project trees for opening apps quickly. The sidebar section is named

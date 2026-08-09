@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   ALLOW_EXTERNAL_PATHS_ENV,
   DataDirScopeError,
+  OS_ENV_KEYS_VAR,
   createDataDirScope,
-  isInsideDir
+  isInsideDir,
+  resolveOsEnvKeys
 } from "$lib/server/app/dataDirScope.js";
 
 const HOME = os.homedir();
@@ -140,4 +143,69 @@ test("isInsideDir rejects a sibling that merely shares a prefix", () => {
   assert.equal(isInsideDir("/tmp/molibot", "/tmp/molibot"), true);
   assert.equal(isInsideDir("/tmp/molibot", "/tmp/molibot-smoke/db"), false);
   assert.equal(isInsideDir("/tmp/molibot", "/tmp/molibot/../other"), false);
+});
+
+/**
+ * The launcher hand-off. `scripts/start-server.mjs` merges the repository
+ * `.env` before the runtime loads — it needs DATA_DIR and the port to take the
+ * lease — so a snapshot taken inside `env.ts` sees a `DB_DIR` the repository
+ * pinned as though the operator had exported it. That is the erasure this
+ * module exists to prevent, happening one level above the guard: a scoped run
+ * with `DATA_DIR=/tmp/...` refused to start because the repository's
+ * `DB_DIR=~/.molibot/db` looked like a deliberate layer-0 decision.
+ */
+test("a launcher's published OS layer outranks the local snapshot", () => {
+  const env = {
+    DATA_DIR: "/tmp/scoped",
+    DB_DIR: "/Users/someone/.molibot/db",
+    [OS_ENV_KEYS_VAR]: JSON.stringify(["DATA_DIR", "PATH"])
+  };
+  const keys = resolveOsEnvKeys(env);
+  assert.equal(keys.has("DATA_DIR"), true);
+  assert.equal(keys.has("DB_DIR"), false, "DB_DIR came from the repository .env, not the OS");
+
+  const scope = createDataDirScope({
+    dataDir: "/tmp/scoped",
+    dataDirFromOsEnv: keys.has("DATA_DIR"),
+    dataDirIsDefault: false,
+    isCwdEnvOnly: (name) => !keys.has(name),
+    allowExternal: false,
+    expandHomePath: (input) => input
+  });
+  assert.equal(scope.resolve("DB_DIR", env.DB_DIR, "/tmp/scoped/db"), "/tmp/scoped/db");
+  assert.deepEqual(scope.ignoredOverrides(), ["DB_DIR"]);
+});
+
+test("a malformed hand-off falls back to the local snapshot instead of an empty layer", () => {
+  const warnings = [];
+  const env = { DATA_DIR: "/tmp/scoped", DB_DIR: "/elsewhere", [OS_ENV_KEYS_VAR]: "not json" };
+  const keys = resolveOsEnvKeys(env, (message) => warnings.push(message));
+  // An empty layer-0 would look like "everything came from the repository" and
+  // silently drop overrides the operator really did export.
+  assert.equal(keys.has("DATA_DIR"), true);
+  assert.equal(keys.has("DB_DIR"), true);
+  assert.equal(warnings.length, 1);
+
+  assert.equal(resolveOsEnvKeys({ ...env, [OS_ENV_KEYS_VAR]: '{"a":1}' }, () => {}).has("DB_DIR"), true);
+});
+
+/**
+ * Source-order guard: the snapshot is only correct if it happens before the
+ * first merge, and nothing about the two statements makes that obvious to the
+ * next person editing the launcher.
+ */
+test("start-server.mjs publishes the OS layer before it loads any .env", () => {
+  const launcher = readFileSync(
+    new URL("../../../../scripts/start-server.mjs", import.meta.url),
+    "utf8"
+  );
+  const publishAt = launcher.indexOf(OS_ENV_KEYS_VAR);
+  const firstDotenvAt = launcher.indexOf("dotenv.config(");
+  assert.notEqual(publishAt, -1, `start-server.mjs must publish ${OS_ENV_KEYS_VAR}`);
+  assert.notEqual(firstDotenvAt, -1);
+  assert.equal(
+    publishAt < firstDotenvAt,
+    true,
+    "the OS environment snapshot must be taken before the first dotenv.config() call"
+  );
 });

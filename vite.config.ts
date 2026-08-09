@@ -4,6 +4,7 @@ import { defineConfig } from "vite";
 import dotenv from "dotenv";
 
 dotenv.config();
+process.env.MOLIBOT_APP_ROOT ||= process.cwd();
 
 export default defineConfig({
   plugins: [

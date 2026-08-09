@@ -37,6 +37,44 @@ export class DataDirScopeError extends Error {
 
 export const ALLOW_EXTERNAL_PATHS_ENV = "MOLIBOT_ALLOW_EXTERNAL_DATA_PATHS";
 
+/**
+ * Where a launcher hands over the layer-0 key set it saw before merging `.env`.
+ *
+ * `scripts/start-server.mjs` must read the repository `.env` to resolve
+ * `DATA_DIR` and the port before the runtime loads, and that merge erases the
+ * very distinction this module is built on: afterwards, a `DB_DIR` the
+ * repository pinned looks exactly like one the operator exported. So the
+ * launcher records `Object.keys(process.env)` on its side of the merge and
+ * publishes it here.
+ */
+export const OS_ENV_KEYS_VAR = "MOLIBOT_OS_ENV_KEYS";
+
+/**
+ * The OS environment layer, preferring a launcher's hand-off over a local
+ * snapshot that may already be contaminated.
+ *
+ * A malformed hand-off falls back to the local snapshot rather than throwing or
+ * treating the layer as empty: too-permissive is what the code did before this
+ * existed, while an empty layer-0 would make every variable look repository-
+ * scoped and silently drop overrides the operator really did set.
+ */
+export function resolveOsEnvKeys(
+  env: NodeJS.ProcessEnv,
+  onWarn: (message: string) => void = () => {}
+): Set<string> {
+  const published = env[OS_ENV_KEYS_VAR];
+  if (published) {
+    try {
+      const parsed = JSON.parse(published);
+      if (Array.isArray(parsed)) return new Set(parsed.map(String));
+      onWarn(`${OS_ENV_KEYS_VAR} is not a list of names; falling back to the local snapshot`);
+    } catch {
+      onWarn(`${OS_ENV_KEYS_VAR} is not valid JSON; falling back to the local snapshot`);
+    }
+  }
+  return new Set(Object.keys(env));
+}
+
 export function isInsideDir(parent: string, target: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(target));
   if (relative === "") return true;

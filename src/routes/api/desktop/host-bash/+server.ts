@@ -10,6 +10,8 @@ import type {
 import { sanitizeWebProfileId, toWebExternalUserId } from "$lib/server/web/identity";
 import { resolveRunnerChatId } from "$lib/server/web/runtimeContext";
 import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index";
+import { getApprovalBroker } from "$lib/server/approval/approvalBroker";
+import { listDesktopBrokerApprovals, resolveDesktopBrokerApproval } from "$lib/server/app/desktopApprovals";
 import { _handleWebHostToolsCommand } from "../../chat/+server";
 
 const APPROVAL_SUBCOMMANDS: Record<DesktopApprovalDecision, string> = {
@@ -63,10 +65,12 @@ export const POST: RequestHandler = async ({ request }) => {
     const scopeId = resolveRunnerChatId(sessionId, externalUserId);
     // listPending ORs scope and session, so narrow to this session explicitly —
     // another session in the same scope must not steal this one's card.
-    const approvals = runtime.hostBashStore
+    const hostBashApprovals = runtime.hostBashStore
       .listPending(scopeId, sessionId)
       .filter((record) => !record.sessionId || record.sessionId === sessionId)
       .map((record) => buildHostBashApprovalPrompt(record));
+    const brokerApprovals = listDesktopBrokerApprovals(getApprovalBroker(), sessionId);
+    const approvals = [...hostBashApprovals, ...brokerApprovals];
     return json({ ok: true, approvals }, { headers: { "Cache-Control": "no-store" } });
   }
 
@@ -82,6 +86,17 @@ export const POST: RequestHandler = async ({ request }) => {
     const owner = runtime.sessions.getWebConversationOwner(sessionId);
     if (owner?.startsWith(`web:${profileId}:`) === false) {
       return json({ ok: false, error: "Session does not belong to the selected profile" }, { status: 403 });
+    }
+    const brokerResolution = resolveDesktopBrokerApproval(getApprovalBroker(), { sessionId, requestId, decision });
+    if (brokerResolution) {
+      const status = brokerResolution.status;
+      return json({
+        ok: true,
+        response: status === "approved"
+          ? `Approved tool request ${requestId}.`
+          : `Rejected tool request ${requestId}.`,
+        approval: { status }
+      }, { headers: { "Cache-Control": "no-store" } });
     }
     const externalUserId = owner ?? toWebExternalUserId("web-anonymous", profileId);
     const result = await _handleWebHostToolsCommand(

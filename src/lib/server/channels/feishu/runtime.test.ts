@@ -24,7 +24,10 @@ function createHookManagerMock() {
   } as any;
 }
 
-function createFeishuManagerTestHarness(memoryReview: any = { decide: async () => ({ status: "stale" }) }) {
+function createFeishuManagerTestHarness(
+  memoryReview: any = { decide: async () => ({ status: "stale" }) },
+  connectClient = true
+) {
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-feishu-runtime-test-"));
   const replyCalls: any[] = [];
   const createCalls: any[] = [];
@@ -91,9 +94,22 @@ function createFeishuManagerTestHarness(memoryReview: any = { decide: async () =
     }
   );
 
-  (manager as any).client = client;
+  if (connectClient) (manager as any).client = client;
   return { manager, replyCalls, createCalls, patchCalls, client };
 }
+
+test("feishu reminder delivery fails closed while the client is offline", async () => {
+  const { manager } = createFeishuManagerTestHarness(undefined, false);
+  await assert.rejects(
+    () => manager.triggerTask({
+      type: "one-shot",
+      chatId: "chat-1",
+      text: "Offline reminder",
+      delivery: "text"
+    }, "offline-reminder.json"),
+    /Feishu bot is not running/
+  );
+});
 
 test("normalizeFeishuWsCardActionEvent converts card.action.trigger payloads", () => {
   const normalized = normalizeFeishuWsCardActionEvent({

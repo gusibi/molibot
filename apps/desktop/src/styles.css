@@ -1510,10 +1510,10 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 }
 .file-panel-close .ph { font-size: 15px; }
 .file-panel-close:hover { background: var(--fill); color: var(--label-primary); }
-.file-filters { display: flex; gap: 7px; padding: 12px 14px 8px; flex-wrap: wrap; flex: 0 0 auto; }
-.file-filters button { padding: 4px 11px; border: 0; border-radius: var(--rounded-full); background: var(--fill); color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+.file-filters { display: flex; gap: 8px; padding: 8px 12px 6px; flex-wrap: wrap; flex: 0 0 auto; }
+.file-filters button { padding: 4px 10px; border: 1px solid transparent; border-radius: var(--radius-full); background: var(--fill); color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; transition: background var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
 .file-filters button:hover { background: var(--fill-hover); color: inherit; }
-.file-filters button.active { color: #fff; background: var(--accent); font-weight: 600; }
+.file-filters button.active { border-color: color-mix(in srgb, var(--accent) 42%, transparent); color: var(--accent); background: var(--accent-soft); font-weight: 600; }
 .file-empty { margin: 24px 12px; color: var(--label-secondary); font-size: 12px; text-align: center; }
 /* macOS status bar: a low, quiet strip, not a full control row. */
 .file-panel-footer {
@@ -1530,10 +1530,10 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 /* AppKit segmented control proportions: a 24px track with a 2px inset, one
    selected segment lifted onto the control surface. The previous 32px pill row
    read as an iOS tab bar rather than a macOS inspector switcher. */
-.project-file-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; margin: 10px 12px 8px; padding: 2px; border-radius: 7px; background: var(--fill); }
-.project-file-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 22px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.project-file-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; margin: 10px 12px 8px; padding: 2px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--fill); }
+.project-file-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 22px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-small); background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .project-file-tabs button:hover:not(.active) { color: var(--label-primary); }
-.project-file-tabs button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: 0 0 0 .5px var(--gray-alpha-300), var(--soft-shadow); }
+.project-file-tabs button.active { border-color: var(--separator); background: var(--card-bg); color: var(--label-primary); }
 .project-panel-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .project-panel-content { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: auto; }
 .project-panel-error { margin: 0 12px 8px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger); font-size: 12px; line-height: 16px; }
@@ -1552,8 +1552,9 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .project-entry-list .project-entry-button.selected { background: var(--mac-unemphasized-selection); }
 .project-entry-list .project-entry-button:disabled { color: var(--label-tertiary); cursor: default; }
 .project-entry-list .project-entry-button > .ph:first-child { color: var(--file-color, var(--label-secondary)); font-size: 16px; }
-.project-entry-list .project-entry-button > span { overflow: hidden; font: 12px/18px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.project-entry-list .project-entry-button > span { overflow: hidden; font: var(--fs-label) / var(--lh-label) var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
 .project-entry-list .project-entry-button > small { color: var(--label-tertiary); font: 12px var(--font-mono); }
+.project-change-list .project-entry-button > span:not(.project-change-status) { font: 12px/18px var(--font-mono); }
 .project-entry-caret { justify-self: end; font-size: 12px; color: var(--label-tertiary); transition: transform var(--duration-instant) var(--ease-standard); }
 .project-entry-caret.open { transform: rotate(90deg); }
 .project-load-more { align-self: center; min-height: 32px; margin: 4px 12px 12px; padding: 0 12px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-secondary); font-size: 12px; cursor: pointer; }
@@ -1583,6 +1584,9 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .project-change-status.status-deleted { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 .project-change-status.status-renamed { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 .project-change-status.status-untracked { background: var(--fill); color: var(--label-tertiary); }
+.project-change-stats { display: inline-flex; gap: 6px; min-width: 58px; justify-content: flex-end; color: var(--label-tertiary); font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.project-change-additions { color: var(--online); }
+.project-change-deletions { color: var(--danger); }
 .project-attachment-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 32px 32px; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; min-height: 40px; padding: 4px 8px; border-radius: var(--rounded-sm); }
 .project-attachment-row:hover { background: var(--fill); }
 .project-attachment-row > span { display: grid; min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1604,6 +1608,10 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
    theme-aware `--diff-*` tokens, so the palette is correct no matter which
    colour-scheme class diff2html emits (it defaults to `light`). */
 .project-diff-preview {
+  /* diff2html positions each gutter cell absolutely. Making the rendered diff
+     its containing block keeps those cells in the same scroll coordinate space
+     as their code rows instead of anchoring them to the viewer viewport. */
+  position: relative;
   margin: 0;
   background: transparent;
   font-size: 12px;
@@ -1711,7 +1719,7 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 /* Finder and Xcode set file names in the system font; the monospace stack is
    reserved for full paths, identifiers and code (DESIGN.md § Foundations). */
 .file-tree-name { overflow: hidden; font: 13px/16px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
-.file-tree-size { color: var(--label-tertiary); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.file-tree-size { color: var(--label-tertiary); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Same treatment as the change list: the row actions float over the right edge
    instead of holding a permanent slot, so the file name and its size get the
    full row width at rest rather than sitting beside a wide empty gutter. The
@@ -1828,9 +1836,9 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 /* macOS tab bar: the selected tab is lifted onto the content surface. The
    previous accent underline was a code-editor idiom, not an AppKit one. */
 .project-viewer-tabs { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; padding: 4px 6px; overflow-x: auto; border-bottom: 1px solid var(--separator); background: var(--surface-secondary); }
-.project-viewer-tab { display: flex; align-items: center; flex: none; border-radius: var(--radius-small); background: transparent; }
+.project-viewer-tab { display: flex; align-items: center; flex: none; border: 1px solid transparent; border-radius: var(--radius-small); background: transparent; }
 .project-viewer-tab:hover:not(.active) { background: var(--fill); }
-.project-viewer-tab.active { background: var(--card-bg); box-shadow: 0 0 0 .5px var(--gray-alpha-300), var(--soft-shadow); }
+.project-viewer-tab.active { border-color: var(--separator); background: var(--card-bg); }
 .project-viewer-tab > button:first-child { display: flex; align-items: center; gap: 6px; max-width: 160px; min-height: 24px; padding: 0 4px 0 8px; border: 0; background: transparent; color: var(--label-secondary); cursor: pointer; }
 .project-viewer-tab.active > button:first-child { color: var(--label-primary); }
 .project-viewer-tab > button:first-child span { overflow: hidden; font: 12px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
@@ -1840,6 +1848,7 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .project-viewer-tab-clear:hover { background: var(--fill-hover); color: var(--label-primary); }
 .project-viewer-path { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 4px 8px; border-bottom: 1px solid var(--separator); color: var(--label-tertiary); font: 11px var(--font-mono); }
 .project-viewer-path > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.artifact-session-name { color: var(--label-primary); font: 600 var(--fs-label) / var(--lh-label) var(--font-ui); }
 .project-viewer-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 .project-viewer-note { margin: 16px; color: var(--label-secondary); font-size: 12px; text-align: center; }
 
@@ -1881,16 +1890,16 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .file-search-field input:focus { outline: none; }
 .file-search-field button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
 .file-search-field button:hover { background: var(--fill-hover); color: var(--label-primary); }
-.file-search-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 0 12px 8px; padding: 4px; border-radius: var(--rounded-sm); background: var(--fill); }
-.file-search-modes button { min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
-.file-search-modes button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: var(--soft-shadow); }
+.file-search-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 0 12px 8px; padding: 4px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--fill); }
+.file-search-modes button { min-width: 0; height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-small); background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
+.file-search-modes button.active { border-color: var(--separator); background: var(--card-bg); color: var(--label-primary); }
 .file-search-results { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .file-search-hint { margin: 0; padding: 8px 14px; color: var(--label-tertiary); font-size: 12px; line-height: 18px; }
 .file-search-list { margin: 0; padding: 0 8px 12px; list-style: none; }
 .file-search-hit { display: grid; grid-template-columns: 16px auto minmax(0, 1fr); align-items: baseline; gap: 8px; width: 100%; min-height: 30px; padding: 4px 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; text-align: left; cursor: pointer; }
 .file-search-hit:hover, .file-search-hit.cursor { background: var(--fill); }
 .file-search-hit > .ph { color: var(--file-color, var(--label-secondary)); font-size: 15px; }
-.file-search-hit-name { color: var(--label-primary); font: 12px var(--font-mono); }
+.file-search-hit-name { color: var(--label-primary); font: var(--fs-label) / var(--lh-label) var(--font-ui); }
 .file-search-hit-path { overflow: hidden; color: var(--label-tertiary); font: 11px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .file-search-group { margin-bottom: 8px; }
 .file-search-group-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 8px; color: var(--label-secondary); font: 11px var(--font-mono); }
@@ -1904,11 +1913,10 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 /* P2: session-scoped changes, agent-touched marks, chat references */
 .project-tab-badge.is-session { background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning-text); }
 /* Same segmented-control geometry as the panel's tab switcher. */
-.project-change-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; margin: 0 12px 8px; padding: 2px; border-radius: 7px; background: var(--fill); }
-.project-change-scope button { min-width: 0; height: 22px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.project-change-scope button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: 0 0 0 .5px var(--gray-alpha-300), var(--soft-shadow); }
-.file-tree-row.touched .file-tree-name { color: var(--label-primary); font-weight: 600; }
-.file-tree-touched { justify-self: end; width: 6px; height: 6px; border-radius: 50%; background: var(--warning-text); }
+.project-change-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; margin: 0 12px 8px; padding: 2px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--fill); }
+.project-change-scope button { min-width: 0; height: 22px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-small); background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.project-change-scope button.active { border-color: var(--separator); background: var(--card-bg); color: var(--label-primary); }
+.file-tree-row.touched .file-tree-name { color: var(--warning-text); font-weight: 500; }
 .file-search-row { display: flex; align-items: center; gap: 2px; min-width: 0; border-radius: var(--rounded-sm); }
 .file-search-row:hover { background: var(--fill); }
 .file-search-row .file-search-hit, .file-search-row .file-search-line { flex: 1 1 auto; min-width: 0; }
@@ -4452,7 +4460,7 @@ html[data-increased-contrast="true"] .settings-sidebar {
   /* Sidebar hiding and the two-column split are owned by the 1000px tier; this
      tier only tightens the floors. Re-declaring the whole `with-files` grid
      here is what previously fought that tier and left an empty panel track. */
-  .chat-layout.with-files { grid-template-columns: minmax(280px, 1fr) minmax(260px, var(--files-w, 380px)); }
+  .chat-layout.with-files { grid-template-columns: minmax(280px, 1fr) minmax(var(--files-min-w), var(--files-w, 380px)); }
   .settings-layout { grid-template-columns: 170px 1fr; }
   .chat-header, .page-header { padding-inline: 18px; }
   .chat-layout.with-files .chat-header { padding-left: 84px; }
@@ -4890,4 +4898,464 @@ html[data-increased-contrast="true"] .settings-sidebar {
   .memory-record { grid-template-columns: 1fr; padding-bottom: 10px; }
   .memory-record-actions { justify-content: flex-start; }
   .memory-candidate-list article { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   Artifact Inspector — GitHub / Primer repository workspace
+
+   The rest of Desktop keeps its macOS surface language. The Inspector is the
+   one place where a repository canvas, tree chrome, and editor surface are the
+   product: keep that identity scoped here instead of leaking GitHub's palette
+   into Chat or Settings. The values mirror Primer's semantic roles so Light,
+   Dark, and System themes change as one coherent surface. */
+.artifact-panel {
+  --artifact-canvas: #f6f8fa;
+  --artifact-surface: #ffffff;
+  --artifact-inset: #f6f8fa;
+  --artifact-hover: #f3f4f6;
+  --artifact-border: #d1d9e0;
+  --artifact-border-muted: #d8dee4;
+  --artifact-fg: #1f2328;
+  --artifact-fg-muted: #59636e;
+  --artifact-fg-subtle: #818b98;
+  --artifact-accent: #0969da;
+  --artifact-accent-muted: #ddf4ff;
+  --artifact-success: #1a7f37;
+  --artifact-attention: #9a6700;
+  --artifact-danger: #d1242f;
+  --artifact-code-bg: #ffffff;
+  --artifact-code-gutter: #f6f8fa;
+  --artifact-code-fg: #1f2328;
+  --artifact-code-keyword: #cf222e;
+  --artifact-code-string: #0a3069;
+  --artifact-code-title: #8250df;
+  --artifact-code-number: #0550ae;
+  --artifact-code-comment: #6e7781;
+  --artifact-code-variable: #953800;
+  --artifact-code-attr: #116329;
+  --artifact-code-built-in: #6639ba;
+  background: var(--artifact-canvas);
+  border-left-color: var(--artifact-border);
+  color: var(--artifact-fg);
+  font-family: var(--font-ui);
+}
+
+:root[data-theme="dark"] .artifact-panel {
+  --artifact-canvas: #161b22;
+  --artifact-surface: #0d1117;
+  --artifact-inset: #161b22;
+  --artifact-hover: #21262d;
+  --artifact-border: #30363d;
+  --artifact-border-muted: #21262d;
+  --artifact-fg: #e6edf3;
+  --artifact-fg-muted: #8b949e;
+  --artifact-fg-subtle: #7d8590;
+  --artifact-accent: #58a6ff;
+  --artifact-accent-muted: rgb(56 139 253 / 15%);
+  --artifact-success: #3fb950;
+  --artifact-attention: #d29922;
+  --artifact-danger: #f85149;
+  --artifact-code-bg: #0d1117;
+  --artifact-code-gutter: #161b22;
+  --artifact-code-fg: #e6edf3;
+  --artifact-code-keyword: #ff7b72;
+  --artifact-code-string: #a5d6ff;
+  --artifact-code-title: #d2a8ff;
+  --artifact-code-number: #79c0ff;
+  --artifact-code-comment: #8b949e;
+  --artifact-code-variable: #ffa657;
+  --artifact-code-attr: #7ee787;
+  --artifact-code-built-in: #d2a8ff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .artifact-panel {
+    --artifact-canvas: #161b22;
+    --artifact-surface: #0d1117;
+    --artifact-inset: #161b22;
+    --artifact-hover: #21262d;
+    --artifact-border: #30363d;
+    --artifact-border-muted: #21262d;
+    --artifact-fg: #e6edf3;
+    --artifact-fg-muted: #8b949e;
+    --artifact-fg-subtle: #7d8590;
+    --artifact-accent: #58a6ff;
+    --artifact-accent-muted: rgb(56 139 253 / 15%);
+    --artifact-success: #3fb950;
+    --artifact-attention: #d29922;
+    --artifact-danger: #f85149;
+    --artifact-code-bg: #0d1117;
+    --artifact-code-gutter: #161b22;
+    --artifact-code-fg: #e6edf3;
+    --artifact-code-keyword: #ff7b72;
+    --artifact-code-string: #a5d6ff;
+    --artifact-code-title: #d2a8ff;
+    --artifact-code-number: #79c0ff;
+    --artifact-code-comment: #8b949e;
+    --artifact-code-variable: #ffa657;
+    --artifact-code-attr: #7ee787;
+    --artifact-code-built-in: #d2a8ff;
+  }
+}
+
+/* Panel chrome: GitHub keeps the repository canvas flat and lets the editor
+   surface carry the strongest contrast. */
+.artifact-panel .file-panel-head {
+  height: 52px;
+  padding: 0 12px;
+  gap: 6px;
+  background: var(--artifact-canvas);
+  border-bottom-color: var(--artifact-border);
+}
+.artifact-panel .file-panel-icon { color: var(--artifact-fg-muted); font-size: 16px; }
+.artifact-panel .file-panel-head > strong {
+  color: var(--artifact-fg);
+  font: 600 13px/18px var(--font-ui);
+  letter-spacing: 0;
+}
+.artifact-panel .file-panel-head > .overflow-menu-inline { margin-left: -4px; }
+.artifact-panel .overflow-menu-inline > summary {
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--artifact-fg);
+}
+.artifact-panel .overflow-menu-inline > summary:hover,
+.artifact-panel .overflow-menu-inline[open] > summary {
+  background: var(--artifact-hover);
+  border-color: var(--artifact-border);
+}
+.artifact-panel .artifact-mode-trigger > .ph { color: var(--artifact-fg-muted); }
+.artifact-panel .artifact-mode-current { color: var(--artifact-fg); font-size: 13px; }
+.artifact-panel .artifact-mode-tick { color: var(--artifact-accent); }
+.artifact-panel .artifact-mode-count { background: var(--artifact-inset); color: var(--artifact-fg-muted); }
+.artifact-panel .file-panel-close,
+.artifact-panel .project-panel-refresh {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--artifact-fg-muted);
+}
+.artifact-panel .file-panel-close:hover,
+.artifact-panel .project-panel-refresh:hover,
+.artifact-panel .project-panel-refresh.active {
+  background: var(--artifact-hover);
+  color: var(--artifact-fg);
+}
+
+/* Repository navigation: flat tabs with a GitHub-like active underline, not a
+   floating macOS segmented pill. */
+.artifact-panel .project-file-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 1px solid var(--artifact-border);
+  border-radius: 0;
+  background: var(--artifact-canvas);
+}
+.artifact-panel .project-file-tabs button {
+  position: relative;
+  flex: 0 0 auto;
+  height: 40px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--artifact-fg-muted);
+  font: 500 12px/18px var(--font-ui);
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.artifact-panel .project-file-tabs button:hover:not(.active) { background: var(--artifact-hover); color: var(--artifact-fg); }
+.artifact-panel .project-file-tabs button.active { border-bottom-color: var(--artifact-accent); background: transparent; color: var(--artifact-fg); font-weight: 600; }
+.artifact-panel .project-tab-badge { background: var(--artifact-accent-muted); color: var(--artifact-accent); font: 600 11px/16px var(--font-mono); }
+.artifact-panel .project-change-scope {
+  display: flex;
+  gap: 0;
+  margin: 0 10px 8px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--artifact-border);
+  border-radius: 0;
+  background: transparent;
+}
+.artifact-panel .project-change-scope button {
+  flex: 1 1 0;
+  height: 34px;
+  padding: 0 7px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--artifact-fg-muted);
+  font: 500 11px/16px var(--font-ui);
+}
+.artifact-panel .project-change-scope button:hover:not(.active) { background: var(--artifact-hover); color: var(--artifact-fg); }
+.artifact-panel .project-change-scope button.active { border-bottom-color: var(--artifact-accent); background: transparent; color: var(--artifact-fg); }
+
+/* The source list is a repository canvas, with rows inset like GitHub's tree
+   pane. Selection keeps its blue tint even when the tree is not focused. */
+.artifact-panel .project-panel-body,
+.artifact-panel .artifact-file-surface,
+.artifact-panel .project-browser { background: var(--artifact-canvas); }
+.artifact-panel .project-browser-actions { padding: 4px 10px; background: var(--artifact-canvas); border-bottom-color: var(--artifact-border); }
+.artifact-panel .project-browser-actions button { min-height: 24px; padding: 0 7px; border-radius: 6px; color: var(--artifact-fg-muted); font: 500 11px/16px var(--font-ui); }
+.artifact-panel .project-browser-actions button:hover { background: var(--artifact-hover); color: var(--artifact-fg); }
+.artifact-panel .project-browser > .file-tree-level { padding: 6px 6px 12px; }
+.artifact-panel .file-tree-row { min-height: 28px; margin: 1px 0; border-radius: 4px; }
+.artifact-panel .file-tree-row:hover { background: var(--artifact-hover); }
+.artifact-panel .file-tree-row.selected,
+.artifact-panel .project-browser:focus-within .file-tree-row.selected { background: var(--artifact-accent-muted); box-shadow: inset 2px 0 0 var(--artifact-accent); }
+.artifact-panel .project-browser:focus-within .file-tree-row.selected .file-tree-button,
+.artifact-panel .project-browser:focus-within .file-tree-row.selected .file-tree-name,
+.artifact-panel .project-browser:focus-within .file-tree-row.selected .file-tree-caret,
+.artifact-panel .project-browser:focus-within .file-tree-row.selected .file-tree-size,
+.artifact-panel .project-browser:focus-within .file-tree-row.selected .file-tree-action { color: var(--artifact-fg); }
+.artifact-panel .project-browser:focus-within .file-tree-row.selected .file-tree-icon { color: var(--file-color, var(--artifact-fg-muted)); }
+.artifact-panel .project-browser:focus-within .file-tree-row.selected.dirty .file-tree-name,
+.artifact-panel .project-browser:focus-within .file-tree-row.selected.touched .file-tree-name { color: var(--artifact-attention); }
+.artifact-panel .file-tree-button { min-height: 28px; padding-left: calc(7px + var(--depth, 0) * 14px); color: var(--artifact-fg); }
+.artifact-panel .file-tree-name { font: 13px/18px var(--font-ui); }
+.artifact-panel .file-tree-icon { color: var(--file-color, var(--artifact-fg-muted)); }
+.artifact-panel .file-tree-caret,
+.artifact-panel .file-tree-size { color: var(--artifact-fg-subtle); }
+.artifact-panel .file-tree-action:hover { background: var(--artifact-border-muted); color: var(--artifact-fg); }
+.artifact-panel .file-tree-row.cursor:not(.selected) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--artifact-accent) 60%, transparent); }
+
+/* Preview surface: one editor canvas, with a stable file-tab strip and a
+   breadcrumb/action header above every renderer. */
+.artifact-panel .project-split-handle { background: var(--artifact-canvas); }
+.artifact-panel .project-split-handle::after { background: var(--artifact-border); }
+.artifact-panel .project-split-handle:hover::after,
+.artifact-panel.splitting .project-split-handle::after { background: var(--artifact-accent); }
+.artifact-panel .project-viewer { background: var(--artifact-surface); border-top-color: var(--artifact-border); }
+.artifact-panel .project-viewer-tabs { min-height: 36px; gap: 0; padding: 0 8px; background: var(--artifact-canvas); border-bottom-color: var(--artifact-border); }
+.artifact-panel .project-viewer-tab { height: 36px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; }
+.artifact-panel .project-viewer-tab:hover:not(.active) { background: var(--artifact-hover); }
+.artifact-panel .project-viewer-tab.active { border-bottom-color: var(--artifact-accent); background: transparent; }
+.artifact-panel .project-viewer-tab > button:first-child { min-height: 36px; padding-left: 9px; color: var(--artifact-fg-muted); font: 500 12px/18px var(--font-ui); }
+.artifact-panel .project-viewer-tab.active > button:first-child { color: var(--artifact-fg); }
+.artifact-panel .project-viewer-tab > button:first-child > .ph { color: var(--file-color, var(--artifact-fg-muted)); }
+.artifact-panel .project-viewer-tab > button:first-child > .ph.ph-git-diff { color: var(--artifact-accent); }
+.artifact-panel .project-viewer-tab-close,
+.artifact-panel .project-viewer-tab-clear { border-radius: 4px; color: var(--artifact-fg-subtle); }
+.artifact-panel .project-viewer-tab-close:hover,
+.artifact-panel .project-viewer-tab-clear:hover { background: var(--artifact-hover); color: var(--artifact-fg); }
+.artifact-panel .project-viewer-path { min-height: 42px; padding: 6px 10px; background: var(--artifact-surface); border-bottom-color: var(--artifact-border); color: var(--artifact-fg-muted); }
+.artifact-panel .project-breadcrumb-crumb { min-height: 26px; padding: 0 5px; border-radius: 4px; color: var(--artifact-fg-muted); font: 12px/18px var(--font-ui); }
+.artifact-panel .project-breadcrumb-crumb:hover { background: var(--artifact-hover); color: var(--artifact-accent); }
+.artifact-panel .project-breadcrumb-crumb.is-last { color: var(--artifact-fg); font-weight: 600; }
+.artifact-panel .project-breadcrumb-sep { color: var(--artifact-fg-subtle); }
+.artifact-panel .artifact-session-name { color: var(--artifact-fg); font: 600 13px/18px var(--font-ui); }
+.artifact-panel .project-viewer-body { background: var(--artifact-surface); }
+
+/* Code editor: GitHub's light/dark syntax roles, line gutter, and find bar. */
+.artifact-panel .code-viewer { background: var(--artifact-code-bg); color: var(--artifact-code-fg); }
+.artifact-panel .code-viewer-toolbar { position: sticky; top: 0; z-index: 1; min-height: 34px; padding: 3px 8px; background: var(--artifact-canvas); border-bottom: 1px solid var(--artifact-border); }
+.artifact-panel .code-viewer-meta { color: var(--artifact-fg-muted); font: 11px/16px var(--font-ui); }
+.artifact-panel .code-viewer-toggle { min-width: 28px; height: 28px; border: 1px solid transparent; border-radius: 5px; color: var(--artifact-fg-muted); font: 500 11px/16px var(--font-ui); transition: background 120ms ease, border-color 120ms ease, color 120ms ease; }
+.artifact-panel .code-viewer-toggle:hover,
+.artifact-panel .code-viewer-toggle.active { background: var(--artifact-accent-muted); border-color: color-mix(in srgb, var(--artifact-accent) 35%, transparent); color: var(--artifact-accent); }
+.artifact-panel .code-viewer-find { position: sticky; top: 34px; z-index: 1; padding: 5px 8px; background: var(--artifact-canvas); border-bottom-color: var(--artifact-border); }
+.artifact-panel .code-viewer-find input { height: 28px; border-color: var(--artifact-border); border-radius: 5px; background: var(--artifact-surface); color: var(--artifact-fg); font: 12px/18px var(--font-mono); }
+.artifact-panel .code-viewer-find input:focus { border-color: var(--artifact-accent); }
+.artifact-panel .code-viewer-find-count { color: var(--artifact-fg-muted); }
+.artifact-panel .code-viewer-scroll { background: var(--artifact-code-bg); }
+.artifact-panel .code-lines { padding: 8px 0 16px; }
+.artifact-panel .code-line { min-height: 20px; grid-template-columns: calc(var(--code-gutter, 3ch) + 24px) minmax(0, 1fr); }
+.artifact-panel .code-line:hover { background: var(--artifact-hover); }
+.artifact-panel .code-line.is-match { background: color-mix(in srgb, var(--artifact-attention) 12%, transparent); }
+.artifact-panel .code-line.is-current { background: color-mix(in srgb, var(--artifact-attention) 22%, transparent); }
+.artifact-panel .code-line.is-revealed { background: var(--artifact-accent-muted); }
+.artifact-panel .code-line-number { padding-right: 12px; background: var(--artifact-code-gutter); color: var(--artifact-fg-subtle); font: 12px/20px var(--font-mono); }
+.artifact-panel .code-line-number:hover { color: var(--artifact-accent); }
+.artifact-panel .code-line-text { padding-right: 16px; color: var(--artifact-code-fg); font: 12px/20px var(--font-mono); }
+.artifact-panel .code-line-text mark { border-radius: 2px; background: color-mix(in srgb, var(--artifact-attention) 35%, transparent); color: inherit; }
+.artifact-panel .code-viewer-more { border-color: var(--artifact-border); border-radius: 5px; background: var(--artifact-surface); color: var(--artifact-accent); }
+.artifact-panel .code-viewer-more:hover { border-color: var(--artifact-accent); }
+
+/* Syntax token roles are shared by CodeViewer and Markdown code blocks. */
+.artifact-panel .hljs-keyword,
+.artifact-panel .hljs-selector-tag,
+.artifact-panel .hljs-literal,
+.artifact-panel .hljs-section,
+.artifact-panel .hljs-link { color: var(--artifact-code-keyword); }
+.artifact-panel .hljs-string,
+.artifact-panel .hljs-symbol,
+.artifact-panel .hljs-bullet,
+.artifact-panel .hljs-addition { color: var(--artifact-code-string); }
+.artifact-panel .hljs-title { color: var(--artifact-code-title); }
+.artifact-panel .hljs-name,
+.artifact-panel .hljs-type,
+.artifact-panel .hljs-attribute,
+.artifact-panel .hljs-attr { color: var(--artifact-code-attr); }
+.artifact-panel .hljs-number,
+.artifact-panel .hljs-meta,
+.artifact-panel .hljs-built_in,
+.artifact-panel .hljs-builtin-name { color: var(--artifact-code-number); }
+.artifact-panel .hljs-comment,
+.artifact-panel .hljs-quote,
+.artifact-panel .hljs-deletion { color: var(--artifact-code-comment); }
+.artifact-panel .hljs-variable,
+.artifact-panel .hljs-template-variable,
+.artifact-panel .hljs-regexp { color: var(--artifact-code-variable); }
+
+/* Markdown preview: GitHub's readable document rhythm inside the same editor
+   surface, including muted inline code, bordered blocks, links, and tables. */
+.artifact-panel .markdown-preview { background: var(--artifact-surface); color: var(--artifact-fg); padding: 20px 18px 28px; }
+.artifact-panel .markdown-body { max-width: 760px; margin: 0 auto; color: var(--artifact-fg); font: var(--fs-body)/var(--lh-body) var(--font-ui); }
+.artifact-panel .markdown-body h1,
+.artifact-panel .markdown-body h2,
+.artifact-panel .markdown-body h3,
+.artifact-panel .markdown-body h4 { color: var(--artifact-fg); border-bottom: 0; font-family: var(--font-ui); }
+.artifact-panel .markdown-body h1 { font-size: 1.55em; }
+.artifact-panel .markdown-body h2 { font-size: 1.3em; }
+.artifact-panel .markdown-body h3,
+.artifact-panel .markdown-body h4 { font-size: 1.08em; }
+.artifact-panel .markdown-body a { color: var(--artifact-accent); text-decoration: underline; }
+.artifact-panel .markdown-body code { border: 1px solid var(--artifact-border-muted); border-radius: 4px; background: var(--artifact-inset); color: var(--artifact-fg); font: .9em var(--font-mono); }
+.artifact-panel .markdown-body .code-block,
+.artifact-panel .markdown-body pre { border-color: var(--artifact-border); border-radius: 6px; background: var(--artifact-inset); color: var(--artifact-code-fg); }
+.artifact-panel .markdown-body .code-block-head { background: var(--artifact-canvas); border-bottom-color: var(--artifact-border); color: var(--artifact-fg-muted); }
+.artifact-panel .markdown-body blockquote { border-left-color: var(--artifact-border); background: var(--artifact-inset); color: var(--artifact-fg-muted); }
+.artifact-panel .markdown-body th,
+.artifact-panel .markdown-body td { border-color: var(--artifact-border); }
+.artifact-panel .markdown-body th { background: var(--artifact-canvas); color: var(--artifact-fg); }
+.artifact-panel .markdown-body hr { background: var(--artifact-border); }
+
+/* Structured and binary viewers use the same editor chrome, so switching a
+   tab never changes the surrounding visual grammar. */
+.artifact-panel .json-tree-toolbar,
+.artifact-panel .csv-toolbar,
+.artifact-panel .media-viewer-toolbar { background: var(--artifact-canvas); border-bottom-color: var(--artifact-border); color: var(--artifact-fg-muted); }
+.artifact-panel .json-tree-toolbar button { border-color: var(--artifact-border); border-radius: 5px; color: var(--artifact-fg-muted); }
+.artifact-panel .json-tree-toolbar button:hover { background: var(--artifact-hover); color: var(--artifact-fg); }
+.artifact-panel .json-tree-scroll,
+.artifact-panel .csv-scroll { background: var(--artifact-surface); }
+.artifact-panel .json-tree-row { color: var(--artifact-code-fg); font: 12px/20px var(--font-mono); }
+.artifact-panel .json-tree-row:hover { background: var(--artifact-hover); }
+.artifact-panel .json-tree-key { color: var(--artifact-code-attr); }
+.artifact-panel .json-tree-colon,
+.artifact-panel .json-tree-summary { color: var(--artifact-fg-muted); }
+.artifact-panel .json-tree-value.is-string { color: var(--artifact-code-string); }
+.artifact-panel .json-tree-value.is-number,
+.artifact-panel .json-tree-value.is-boolean { color: var(--artifact-code-number); }
+.artifact-panel .json-tree-value.is-null { color: var(--artifact-code-comment); }
+.artifact-panel .csv-table { color: var(--artifact-code-fg); font: 12px/20px var(--font-mono); }
+.artifact-panel .csv-table th,
+.artifact-panel .csv-table td { border-color: var(--artifact-border); }
+.artifact-panel .csv-table th { background: var(--artifact-canvas); color: var(--artifact-fg); }
+.artifact-panel .csv-table tbody tr:nth-child(even) { background: var(--artifact-inset); }
+.artifact-panel .media-viewer-meta { color: var(--artifact-fg-muted); }
+.artifact-panel .media-viewer-stage,
+.artifact-panel .svg-viewer-stage {
+  background-color: var(--artifact-inset);
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, var(--artifact-border) 34%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--artifact-border) 34%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--artifact-border) 34%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--artifact-border) 34%, transparent) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.artifact-panel .system-open-card { align-items: flex-start; justify-content: center; padding: 32px 24px; background: var(--artifact-surface); text-align: left; }
+.artifact-panel .system-open-icon { color: var(--file-color, var(--artifact-fg-muted)); }
+.artifact-panel .system-open-name { color: var(--artifact-fg); font: 600 13px/18px var(--font-ui); }
+.artifact-panel .system-open-meta { color: var(--artifact-fg-muted); }
+.artifact-panel .system-open-actions { justify-content: flex-start; }
+.artifact-panel .system-open-actions button { border-color: var(--artifact-border); border-radius: 5px; background: var(--artifact-surface); color: var(--artifact-fg-muted); }
+.artifact-panel .system-open-actions button:hover { background: var(--artifact-hover); color: var(--artifact-fg); }
+.artifact-panel .system-open-actions .system-open-primary { border-color: var(--artifact-accent); color: var(--artifact-accent); }
+
+/* Search and session attachment lists are repository utilities, not floating
+   chips. */
+.artifact-panel .file-search,
+.artifact-panel .artifact-session-browser { background: var(--artifact-canvas); }
+.artifact-panel .file-search-field { margin: 10px 10px 8px; border-color: var(--artifact-border); border-radius: 6px; background: var(--artifact-surface); }
+.artifact-panel .file-search-field:focus-within { border-color: var(--artifact-accent); box-shadow: 0 0 0 3px var(--artifact-accent-muted); }
+.artifact-panel .file-search-field input { color: var(--artifact-fg); font: 12px/18px var(--font-mono); }
+.artifact-panel .file-search-modes { margin: 0 10px 8px; padding: 0; border: 0; border-bottom: 1px solid var(--artifact-border); border-radius: 0; background: transparent; }
+.artifact-panel .file-search-modes button { height: 34px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--artifact-fg-muted); }
+.artifact-panel .file-search-modes button.active { border-bottom-color: var(--artifact-accent); background: transparent; color: var(--artifact-fg); }
+.artifact-panel .file-search-hit:hover,
+.artifact-panel .file-search-hit.cursor,
+.artifact-panel .file-search-line:hover,
+.artifact-panel .file-search-line.cursor { background: var(--artifact-hover); }
+.artifact-panel .file-search-hit-name { color: var(--artifact-fg); font: 13px/18px var(--font-ui); }
+.artifact-panel .file-search-hit-path,
+.artifact-panel .file-search-line-number,
+.artifact-panel .file-search-group-head { color: var(--artifact-fg-muted); font-family: var(--font-mono); }
+.artifact-panel .file-search-line code { color: var(--artifact-code-fg); font: 12px/20px var(--font-mono); }
+.artifact-panel .file-search-line mark { background: color-mix(in srgb, var(--artifact-attention) 35%, transparent); }
+.artifact-panel .file-filters { background: var(--artifact-canvas); border-bottom: 1px solid var(--artifact-border); }
+.artifact-panel .file-filters button { border-color: var(--artifact-border); border-radius: 6px; background: var(--artifact-surface); color: var(--artifact-fg-muted); }
+.artifact-panel .file-filters button:hover { background: var(--artifact-hover); color: var(--artifact-fg); }
+.artifact-panel .file-filters button.active { border-color: color-mix(in srgb, var(--artifact-accent) 42%, transparent); background: var(--artifact-accent-muted); color: var(--artifact-accent); }
+.artifact-panel .project-entry-list { padding-inline: 6px; }
+.artifact-panel .project-entry-list .project-entry-button:hover,
+.artifact-panel .project-attachment-row:hover { background: var(--artifact-hover); }
+.artifact-panel .project-entry-list .project-entry-button.selected { background: var(--artifact-accent-muted); box-shadow: inset 2px 0 0 var(--artifact-accent); }
+.artifact-panel .project-entry-list .project-entry-button > .ph:first-child { color: var(--file-color, var(--artifact-fg-muted)); }
+.artifact-panel .project-entry-list .project-entry-button > span { color: var(--artifact-fg); font: 13px/18px var(--font-ui); }
+.artifact-panel .project-entry-list .project-entry-button > small { color: var(--artifact-fg-subtle); }
+.artifact-panel .project-change-list .project-entry-button > span:not(.project-change-status) { color: var(--artifact-fg); font: 12px/18px var(--font-mono); }
+.artifact-panel .project-change-status.status-modified { background: color-mix(in srgb, var(--artifact-attention) 15%, transparent); color: var(--artifact-attention); }
+.artifact-panel .project-change-status.status-added { background: color-mix(in srgb, var(--artifact-success) 15%, transparent); color: var(--artifact-success); }
+.artifact-panel .project-change-status.status-deleted { background: color-mix(in srgb, var(--artifact-danger) 15%, transparent); color: var(--artifact-danger); }
+.artifact-panel .project-change-status.status-renamed { background: var(--artifact-accent-muted); color: var(--artifact-accent); }
+.artifact-panel .project-change-status.status-untracked { background: var(--artifact-inset); color: var(--artifact-fg-muted); }
+.artifact-panel .project-change-stats { color: var(--artifact-fg-muted); }
+.artifact-panel .project-change-additions { color: var(--artifact-success); }
+.artifact-panel .project-change-deletions { color: var(--artifact-danger); }
+.artifact-panel .project-inline-preview { border: 1px solid var(--artifact-border); border-radius: 6px; background: var(--artifact-inset); }
+.artifact-panel .project-inline-preview > p { color: var(--artifact-fg-muted); }
+.artifact-panel .project-inline-preview pre { color: var(--artifact-code-fg); }
+.artifact-panel .project-panel-scope,
+.artifact-panel .project-truncated-note,
+.artifact-panel .file-empty { color: var(--artifact-fg-muted); }
+.artifact-panel .project-preview-label,
+.artifact-panel .project-viewer-note,
+.artifact-panel .project-panel-loading { color: var(--artifact-fg-muted); }
+.artifact-panel .project-preview-label { border-bottom-color: var(--artifact-border); }
+.artifact-panel .project-panel-loading { background: var(--artifact-surface); }
+.artifact-panel .project-panel-error { border-color: color-mix(in srgb, var(--artifact-danger) 38%, transparent); background: color-mix(in srgb, var(--artifact-danger) 10%, transparent); color: var(--artifact-danger); }
+.artifact-panel .file-panel-footer { background: var(--artifact-canvas); border-top-color: var(--artifact-border); color: var(--artifact-fg-muted); }
+.artifact-panel .artifact-html-frame { background: var(--artifact-surface); }
+
+/* Diff2html receives the same Primer roles as the hand-rendered code view. */
+.artifact-panel .project-diff-preview {
+  position: relative;
+  background: var(--artifact-surface);
+  color: var(--artifact-fg);
+  --d2h-bg-color: var(--artifact-surface);
+  --d2h-border-color: var(--artifact-border);
+  --d2h-line-border-color: var(--artifact-border-muted);
+  --d2h-dim-color: var(--artifact-fg-muted);
+  --d2h-file-header-bg-color: var(--artifact-canvas);
+  --d2h-file-header-border-color: var(--artifact-border);
+  --d2h-empty-placeholder-bg-color: var(--artifact-inset);
+  --d2h-empty-placeholder-border-color: var(--artifact-border);
+  --d2h-selected-color: var(--artifact-accent-muted);
+  --d2h-info-bg-color: var(--artifact-inset);
+  --d2h-info-border-color: var(--artifact-border);
+}
+.artifact-panel .project-diff-preview .d2h-file-wrapper { border-color: var(--artifact-border); border-radius: 6px; background: var(--artifact-surface); }
+.artifact-panel .project-diff-preview .d2h-file-header { background: var(--artifact-canvas); border-color: var(--artifact-border); color: var(--artifact-fg); }
+.artifact-panel .project-diff-preview .d2h-file-diff,
+.artifact-panel .project-diff-preview .d2h-diff-tbody { background: var(--artifact-surface); color: var(--artifact-fg); }
+.artifact-panel .project-diff-preview .d2h-code-line,
+.artifact-panel .project-diff-preview .d2h-code-side-line { color: var(--artifact-code-fg); font: 12px/20px var(--font-mono); }
+.artifact-panel .project-diff-preview .d2h-code-linenumber { color: var(--artifact-fg-subtle); font: 12px/20px var(--font-mono); }
+.artifact-panel .file-panel-footer > .ph { color: var(--artifact-fg-muted); }
+
+@media (max-width: 520px) {
+  .artifact-panel .project-file-tabs button { padding-inline: 7px; }
+  .artifact-panel .project-viewer-tab > button:first-child { max-width: 130px; }
+  .artifact-panel .markdown-preview { padding-inline: 12px; }
 }

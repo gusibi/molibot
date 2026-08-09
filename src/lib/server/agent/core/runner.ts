@@ -28,7 +28,13 @@ import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
 import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
 import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
-import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
+import { estimateContextTokens, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
+import {
+  assertModelContextFits,
+  assessModelContextPreflight,
+  capModelPromptToTokens,
+  contextMessageBudget
+} from "$lib/server/agent/session/contextPreflight.js";
 import {
   describesUnexecutedMiniAppChange,
   getFileMutationReceipt,
@@ -99,6 +105,7 @@ import { createMemoryCitationStreamFilter, stripMemoryCitations } from "$lib/ser
 import { buildReferencedItems, memoryToolHitsFromToolCall } from "$lib/server/memory/referenced.js";
 import { detectImmediateMemoryCorrections } from "$lib/server/memory/correctionDetector.js";
 import { memoryWriteReceiptsFromToolCall } from "$lib/server/memory/writeReceipt.js";
+import { classifyTurnRetention, retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 
 // Imported helpers from extracted runnerHelpers.ts and runnerInputEnricher.ts
 import {
@@ -492,6 +499,13 @@ export class MomRunner implements RunnerLike {
           selectedModel as Model<any>,
           contextWithoutOrphanTools,
         );
+        const contextWindow = selectedModel.contextWindow || settingsNow.compaction.defaultContextWindow;
+        const contextAssessment = assertModelContextFits({
+          systemPrompt: patchedContext.systemPrompt ?? "",
+          messages: patchedContext.messages as AgentMessage[],
+          tools: patchedContext.tools ?? [],
+          contextWindow
+        });
         momLog("runner", "llm_stream_start", {
           runId: this.activeHookContext?.runId,
           chatId: this.chatId,
@@ -506,6 +520,8 @@ export class MomRunner implements RunnerLike {
           hasTools:
             Array.isArray(patchedContext.tools) &&
             patchedContext.tools.length > 0,
+          estimatedContextTokens: contextAssessment.estimatedTokens,
+          contextWindow
         });
         momLog("runner", "llm_request_sent", {
           runId: this.activeHookContext?.runId,
@@ -645,6 +661,7 @@ export class MomRunner implements RunnerLike {
     customInstructions?: string;
     notify?: (text: string) => Promise<void>;
     signal?: AbortSignal;
+    keepRecentTokens?: number;
   }): Promise<{
     changed: boolean;
     summary: string;
@@ -660,13 +677,23 @@ export class MomRunner implements RunnerLike {
       }
     }
 
+    const settings = this.getSettings();
+    const compactSettings = options?.keepRecentTokens === undefined
+      ? settings
+      : {
+          ...settings,
+          compaction: {
+            ...settings.compaction,
+            keepRecentTokens: Math.max(1, Math.floor(options.keepRecentTokens))
+          }
+        };
     const result = await getTurnOrchestrator().compactSessionContext({
       channel: this.channel,
       chatId: this.chatId,
       sessionId: this.sessionId,
       currentMessages: [...(this.agent.state.messages as AgentMessage[])],
       store: this.store,
-      settings: this.getSettings(),
+      settings: compactSettings,
       options
     });
 
@@ -703,6 +730,8 @@ export class MomRunner implements RunnerLike {
     }
 
     const isIsolatedAutomationRun = ctx.message.isEvent === true && ctx.message.sessionMode === "fresh";
+    const turnRetention = classifyTurnRetention(ctx.message.text);
+    const turnCapabilities = retentionCapabilities(turnRetention);
     const contextRunId = String(ctx.message.contextRunId ?? "").trim();
     const isRunScopedAutomation = isIsolatedAutomationRun || Boolean(contextRunId);
     const executionScopeSessionId = isRunScopedAutomation ? runId : this.sessionId;
@@ -772,7 +801,7 @@ export class MomRunner implements RunnerLike {
       });
     };
     const appendRunContextMessage = (message: AgentMessage): string =>
-      this.store.appendContextMessage(this.chatId, message, this.sessionId, { runId });
+      this.store.appendContextMessage(this.chatId, message, this.sessionId, { runId, retention: turnRetention });
     const respondInThread = async (text: string): Promise<void> => {
       const normalized = String(text ?? "").trim();
       if (!normalized) return;
@@ -941,7 +970,7 @@ export class MomRunner implements RunnerLike {
       enrichedText,
       getMemoryTraceStore().getLatestForSession(this.sessionId)
     );
-    if (correctionMemoryIds.length > 0) {
+    if (turnCapabilities.memoryEligible && correctionMemoryIds.length > 0) {
       await this.memory.disputeFromImmediateCorrection(memoryScope, correctionMemoryIds);
     }
     const memorySnapshot = await getTurnOrchestrator().prepareTurnMemory(
@@ -1141,6 +1170,7 @@ export class MomRunner implements RunnerLike {
       project: this.activeProject,
       store: this.store,
       memory: this.memory,
+      memoryWritesAllowed: turnCapabilities.memoryEligible,
       getSettings: this.getSettings,
       updateSettings: this.updateSettings,
       getSelectedMcpServerIds: () => new Set(this.selectedMcpServerIds),
@@ -1988,6 +2018,82 @@ export class MomRunner implements RunnerLike {
               await new Promise((resolve) => setTimeout(resolve, 1000));
             }
 
+            const contextWindow = selectedModel.contextWindow || settings.compaction.defaultContextWindow;
+            const prospectiveMessage = {
+              role: "user",
+              content: [{ type: "text", text: activeUserMessage }],
+              timestamp: Date.now()
+            } as AgentMessage;
+            const promptBeforePreflight = activeUserMessage;
+            let preflight = assessModelContextPreflight({
+              systemPrompt: this.agent.state.systemPrompt,
+              messages: [...(this.agent.state.messages as AgentMessage[]), prospectiveMessage],
+              tools: this.agent.state.tools,
+              contextWindow
+            });
+            if (!preflight.fits) {
+              const totalMessageBudget = contextMessageBudget(contextWindow, preflight.fixedTokens);
+              const promptTokens = estimateContextTokens([prospectiveMessage]);
+              const summaryReserve = Math.min(2_000, Math.floor(totalMessageBudget / 4));
+              const historyBudget = Math.max(
+                1,
+                totalMessageBudget - Math.min(promptTokens, totalMessageBudget) - summaryReserve
+              );
+              const compacted = await this.compact({
+                reason: "manual",
+                keepRecentTokens: historyBudget
+              });
+              const history = this.agent.state.messages as AgentMessage[];
+              const historyAssessment = assessModelContextPreflight({
+                systemPrompt: this.agent.state.systemPrompt,
+                messages: history,
+                tools: this.agent.state.tools,
+                contextWindow
+              });
+              const availablePromptTokens = contextMessageBudget(
+                contextWindow,
+                historyAssessment.fixedTokens + historyAssessment.messageTokens
+              );
+              if (availablePromptTokens > 0 && promptTokens > availablePromptTokens) {
+                activeUserMessage = capModelPromptToTokens(activeUserMessage, availablePromptTokens);
+                currentModelPromptMessage = activeUserMessage;
+              }
+              preflight = assessModelContextPreflight({
+                systemPrompt: this.agent.state.systemPrompt,
+                messages: [
+                  ...(this.agent.state.messages as AgentMessage[]),
+                  {
+                    role: "user",
+                    content: [{ type: "text", text: activeUserMessage }],
+                    timestamp: Date.now()
+                  } as AgentMessage
+                ],
+                tools: this.agent.state.tools,
+                contextWindow
+              });
+              momLog("runner", "context_preflight_compacted", {
+                runId,
+                chatId: this.chatId,
+                sessionId: this.sessionId,
+                provider: selectedModel.provider,
+                model: selectedModel.id,
+                candidateIndex,
+                attempt: attemptCount,
+                changed: compacted.changed,
+                beforeTokens: compacted.beforeTokens,
+                afterTokens: compacted.afterTokens,
+                estimatedContextTokens: preflight.estimatedTokens,
+                contextWindow,
+                promptCapped: activeUserMessage !== promptBeforePreflight
+              });
+              if (!preflight.fits) {
+                throw new Error(
+                  `Context length exceeded before provider request after compaction: estimated ` +
+                    `${preflight.estimatedTokens} tokens for a ${contextWindow}-token model window.`
+                );
+              }
+            }
+
             momLog("runner", "prompt_start", {
               runId,
               chatId: this.chatId,
@@ -2781,6 +2887,7 @@ export class MomRunner implements RunnerLike {
       }
 
       if (
+        turnCapabilities.memoryEligible &&
         shouldSuggestSkillDraft({
           stopReason,
           finalText,
@@ -2823,7 +2930,7 @@ export class MomRunner implements RunnerLike {
         sessionId: this.sessionId,
         stopReason,
         durationMs: Date.now() - runStartedAt,
-        finalText,
+        finalText: turnCapabilities.futureContext ? finalText : "",
         toolNames: usedToolNames,
         failedToolNames,
         explicitSkillNames: explicitlyInvokedSkills.map((skill) => skill.name),
@@ -2842,14 +2949,14 @@ export class MomRunner implements RunnerLike {
         },
         subagent: buildSubagentSummary(),
         skillDraft: savedSkillDraft,
-        reflection: buildRunReflection({
+        reflection: turnCapabilities.memoryEligible ? buildRunReflection({
           stopReason,
           finalText,
           failedToolNames,
           usedFallbackModel: successfulCandidateIndex > 0,
           errorMessage,
           skillDraftSaved: Boolean(savedSkillDraft)
-        }),
+        }) : undefined,
         errorMessage
       };
       getTurnOrchestrator().commitTurn(this.chatId, runSummary, this.store);
@@ -2869,7 +2976,7 @@ export class MomRunner implements RunnerLike {
         citedShortIds: [...citedShortIds],
         toolHits: this.activeMemoryToolHits
       });
-      if (stopReason === "stop" && assistantSourceEntryId && (promptInput.memoryInjection.items.length > 0 || referencedItems.length > 0 || this.activeMemoryWriteReceipts.length > 0)) {
+      if (turnCapabilities.memoryEligible && stopReason === "stop" && assistantSourceEntryId && (promptInput.memoryInjection.items.length > 0 || referencedItems.length > 0 || this.activeMemoryWriteReceipts.length > 0)) {
         try {
           const trace = getMemoryTraceStore().save({
             runId,
@@ -2930,7 +3037,7 @@ export class MomRunner implements RunnerLike {
         sessionId: this.sessionId,
         stopReason: "error",
         durationMs: Date.now() - runStartedAt,
-        finalText: partialText,
+        finalText: turnCapabilities.futureContext ? partialText : "",
         toolNames: usedToolNames,
         failedToolNames,
         explicitSkillNames: [],
@@ -2940,14 +3047,14 @@ export class MomRunner implements RunnerLike {
         budgetLimits: budget.limitsSnapshot(),
         usage: finalUsage,
         subagent: buildSubagentSummary(),
-        reflection: buildRunReflection({
+        reflection: turnCapabilities.memoryEligible ? buildRunReflection({
           stopReason: "error",
           finalText: "",
           failedToolNames,
           usedFallbackModel: false,
           errorMessage: message,
           skillDraftSaved: false
-        }),
+        }) : undefined,
         errorMessage: message
       };
       getTurnOrchestrator().commitTurn(this.chatId, failedSummary, this.store);

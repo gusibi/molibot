@@ -1,5 +1,6 @@
 export type Channel = "telegram" | "cli" | "web" | "feishu" | "qq" | "weixin";
 export type Role = "user" | "assistant" | "system";
+export type TurnRetentionPolicy = "standard" | "no_memory" | "not_searchable" | "turn_only";
 
 /**
  * External-channel session metadata (plan §7.2). Populated by channel adapters
@@ -61,6 +62,8 @@ export interface ConversationMessage {
   platformMessageId?: string;
   attachments?: ConversationAttachment[];
   activities?: ConversationActivity[];
+  /** Durable handling policy for the whole user turn. Missing means standard. */
+  retention?: TurnRetentionPolicy;
   memoryTrace?: {
     traceId: string;
     injectedCount: number;

@@ -3,13 +3,16 @@
  * Slice 2).
  *
  * The parsing and row projection live here rather than in the component so the
- * collapse rules, the depth default and the size ceiling are unit-testable
- * without a DOM. The viewer only renders rows and toggles a set of collapsed
- * paths.
+ * collapse rules, the depth default, and the render budgets are unit-testable
+ * without a DOM. The source viewer does not call this module until the user
+ * explicitly asks for the tree.
  */
 
 /** Above this the tree is not worth building: the caller falls back to source. */
 export const JSON_TREE_MAX_BYTES = 1024 * 1024;
+
+/** Keep the opt-in tree bounded; the source viewer remains available for larger documents. */
+export const JSON_TREE_MAX_ROWS = 5_000;
 
 /** Containers deeper than this start collapsed, so a big document opens readable. */
 export const JSON_TREE_DEFAULT_DEPTH = 2;
@@ -17,7 +20,7 @@ export const JSON_TREE_DEFAULT_DEPTH = 2;
 export type JsonValueKind = "object" | "array" | "string" | "number" | "boolean" | "null";
 
 export interface JsonTreeRow {
-  /** Stable identity: the JSON Pointer-ish path from the root. */
+  /** Stable identity: an escaped JSON Pointer-ish path from the root. */
   path: string;
   /** Nesting level; the root's children are level 0. */
   depth: number;
@@ -35,6 +38,7 @@ export interface JsonTreeRow {
 export type JsonTreeResult =
   | { status: "ok"; rows: JsonTreeRow[]; collapsedByDefault: string[] }
   | { status: "too-large"; sizeBytes: number }
+  | { status: "too-many-rows"; rowCount: number }
   | { status: "invalid"; message: string };
 
 function kindOf(value: unknown): JsonValueKind {
@@ -52,6 +56,11 @@ function scalarText(value: unknown, kind: JsonValueKind): string {
   if (kind === "null") return "null";
   if (kind === "number" || kind === "boolean") return String(value);
   return "";
+}
+
+/** Escape a JSON Pointer segment so object keys containing `/` stay unique. */
+function escapePathSegment(segment: string): string {
+  return segment.replaceAll("~", "~0").replaceAll("/", "~1");
 }
 
 /**
@@ -82,8 +91,13 @@ export function buildJsonTree(content: string): JsonTreeResult {
 
   const rows: JsonTreeRow[] = [];
   const collapsedByDefault: string[] = [];
+  let rowLimitReached = false;
 
   const walk = (value: unknown, key: string, path: string, depth: number): void => {
+    if (rows.length >= JSON_TREE_MAX_ROWS) {
+      rowLimitReached = true;
+      return;
+    }
     const kind = kindOf(value);
     const entries: Array<[string, unknown]> =
       kind === "object"
@@ -108,11 +122,13 @@ export function buildJsonTree(content: string): JsonTreeResult {
     // can see that something is there and open it.
     if (depth >= JSON_TREE_DEFAULT_DEPTH && entries.length > 0) collapsedByDefault.push(path);
     for (const [childKey, childValue] of entries) {
-      walk(childValue, childKey, `${path}/${childKey}`, depth + 1);
+      walk(childValue, childKey, `${path}/${escapePathSegment(childKey)}`, depth + 1);
+      if (rowLimitReached) return;
     }
   };
 
   walk(parsed, "", "", 0);
+  if (rowLimitReached) return { status: "too-many-rows", rowCount: rows.length };
   return { status: "ok", rows, collapsedByDefault };
 }
 
@@ -123,11 +139,20 @@ export function buildJsonTree(content: string): JsonTreeResult {
  */
 export function visibleJsonRows(rows: JsonTreeRow[], collapsed: ReadonlySet<string>): JsonTreeRow[] {
   if (collapsed.size === 0) return rows;
-  return rows.filter((row) => {
-    for (const path of collapsed) {
-      // A collapsed container hides its descendants, never itself.
-      if (row.path !== path && row.path.startsWith(`${path}/`)) return false;
+  const visible: JsonTreeRow[] = [];
+  // The rows are pre-order, so this stack contains only collapsed ancestors
+  // of the current row. Each depth is pushed and popped once: projection stays
+  // linear even when a user collapses a deeply nested container.
+  const collapsedAncestors: number[] = [];
+
+  for (const row of rows) {
+    while (collapsedAncestors.length && collapsedAncestors[collapsedAncestors.length - 1] >= row.depth) {
+      collapsedAncestors.pop();
     }
-    return true;
-  });
+    const hidden = collapsedAncestors.length > 0;
+    if (!hidden) visible.push(row);
+    if (row.expandable && collapsed.has(row.path)) collapsedAncestors.push(row.depth);
+  }
+
+  return visible;
 }

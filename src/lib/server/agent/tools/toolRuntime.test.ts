@@ -310,3 +310,15 @@ test("buildBrokerApprovalRecord passes through a one-time pending action", () =>
   assert.equal(record.pendingAction?.kind, "run_one_time_host_script");
   assert.equal(record.pendingAction?.originalCommand, "do x");
 });
+
+test("a tool that ignores cancellation is released by the shared execution watchdog", async () => {
+  const registry = new ToolRegistry();
+  registry.register(tool({
+    id: "stuck",
+    handler: async () => new Promise(() => undefined)
+  }));
+  const runtime = new ToolRuntime(registry, { executionTimeoutMs: 20 });
+  const result = await runtime.executeToolCall({ toolId: "stuck", input: {}, context: context() });
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /timed out after 20ms/i);
+});

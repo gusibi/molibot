@@ -9,6 +9,7 @@ import {
   writeServiceState
 } from "./runtime/service-lease.mjs";
 import { findAvailableServicePort, readConfiguredServicePort } from "./runtime/service-port.mjs";
+import { resolveServiceOrigin } from "./runtime/csrf-trusted-origins.mjs";
 
 // Observability modules are loaded dynamically on purpose: they are diagnostics,
 // not boot dependencies. A static import made a module missing from the release
@@ -27,7 +28,21 @@ async function loadOptionalRuntimeModule(specifier, exportName) {
 const installFileLogger = await loadOptionalRuntimeModule("./runtime/file-logger.mjs", "installFileLogger");
 const installCrashHandlers = await loadOptionalRuntimeModule("./runtime/crash-report.mjs", "installCrashHandlers");
 
+// Publish the OS environment layer before merging any `.env`.
+//
+// The launcher has to read the repository `.env` here — it needs DATA_DIR and
+// the port before it can take the lease — but that merge is also what destroys
+// the layer information `dataDirScope.ts` depends on: after it, a `DB_DIR` the
+// repository happens to pin is indistinguishable from one this run asked for,
+// and the override that should have been dropped is honoured (or, as it
+// happened, makes a scoped run refuse to start). The snapshot has to be taken
+// on this side of the merge, so `env.ts` reads it back from here.
+process.env.MOLIBOT_OS_ENV_KEYS = JSON.stringify(Object.keys(process.env));
+
 const releaseRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Child-process fault domains resolve their packaged worker entry points from
+// this root instead of assuming the service was launched from its own cwd.
+process.env.MOLIBOT_APP_ROOT = releaseRoot;
 dotenv.config({ path: path.join(releaseRoot, ".env") });
 
 const dataDir = resolveDataDir();
@@ -50,6 +65,12 @@ process.env.HOST ||= "127.0.0.1";
 const preferredPort = process.env.PORT || readConfiguredServicePort(dataDir);
 process.env.PORT = String(await findAvailableServicePort(preferredPort, process.env.HOST));
 process.env.MOLIBOT_VERSION ||= String(packageInfo.version || "0.0.0");
+
+// Tell the server what origin it is actually serving. adapter-node otherwise
+// assumes `https` and rejects every same-origin multipart POST from a plain
+// HTTP page as a cross-site form submission — see resolveServiceOrigin().
+const serviceOrigin = resolveServiceOrigin(process.env);
+if (serviceOrigin) process.env.ORIGIN = serviceOrigin;
 
 let lease;
 try {

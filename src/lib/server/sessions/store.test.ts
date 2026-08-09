@@ -509,6 +509,32 @@ test("SessionStore incrementally indexes and tombstones truncated or deleted mes
   }
 });
 
+test("SessionStore persists retention policy and never indexes non-searchable turns", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-session-retention-"));
+  const original = { webWorkspaceDir: storagePaths.webWorkspaceDir, sessionsDir: storagePaths.sessionsDir, sessionsIndexFile: storagePaths.sessionsIndexFile };
+  const indexed: Array<{ content: string }> = [];
+  const index = { enqueueUpsert: (document: { content: string }) => { indexed.push(document); } };
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    const store = new SessionStore();
+    store.setConversationSearchIndex(index as unknown as ConversationSearchIndex, "web");
+    const externalUserId = "web:personal:web-anonymous";
+    const conversation = store.createWebConversation(externalUserId);
+    store.appendMessage(conversation.id, "user", "公开的火星计划", { retention: "standard" });
+    store.appendMessage(conversation.id, "user", "私密的木星计划", { retention: "not_searchable" });
+    assert.deepEqual(indexed.map((document) => document.content), ["公开的火星计划"]);
+    assert.deepEqual(
+      new SessionStore().listMessageMetadata(conversation.id).map((message) => message.retention),
+      ["standard", "not_searchable"]
+    );
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("per-session model override round-trips through disk and clears on empty", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-session-model-"));
   const original = { ...storagePaths };

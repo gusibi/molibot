@@ -1,4 +1,4 @@
-import { resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
+import { isDirectEventDelivery, resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
 import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
@@ -97,7 +97,7 @@ export class WebManager extends BaseChannelRuntime {
     });
 
     try {
-      if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
+      if (isDirectEventDelivery(delivery)) {
         this.appendDirectEventMessage(task, runId, filename);
         momLog("web", "trigger_task_text_done", { runId, filename, chatId: task.chatId });
         return;

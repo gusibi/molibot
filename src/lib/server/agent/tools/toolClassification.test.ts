@@ -26,6 +26,29 @@ test("getRuntimeToolClassification: webSearch => medium risk, builtin source", (
   assert.equal(result.source, "builtin");
 });
 
+test("getRuntimeToolClassification: webFetch => medium risk, builtin source", () => {
+  const result = getRuntimeToolClassification("webFetch");
+  assert.equal(result.risk, "medium");
+  assert.equal(result.source, "builtin");
+});
+
+test("getRuntimeToolClassification: docExtract => medium risk, builtin source", () => {
+  const result = getRuntimeToolClassification("docExtract");
+  assert.equal(result.risk, "medium");
+  assert.equal(result.source, "builtin");
+});
+
+test("getRuntimeToolClassification: documentExport => medium risk, builtin source", () => {
+  const result = getRuntimeToolClassification("documentExport");
+  assert.equal(result.risk, "medium");
+  assert.equal(result.source, "builtin");
+});
+
+test("getRuntimeToolClassification: imageAnalyze => medium risk, builtin source", () => {
+  const result = getRuntimeToolClassification("imageAnalyze");
+  assert.deepEqual(result, { risk: "medium", source: "builtin" });
+});
+
 test("getRuntimeToolClassification: mcp__ tool => medium risk, mcp source", () => {
   const result = getRuntimeToolClassification("mcp__some_server__some_tool");
   assert.equal(result.risk, "medium", "MCP tools should have medium risk");
@@ -72,7 +95,7 @@ test("host execution and code installers carry an approval-triggering risk level
   );
 
   for (const name of [
-    "read", "write", "edit", "webSearch", "subagent", "attach", "event",
+    "read", "write", "edit", "webSearch", "webFetch", "docExtract", "imageAnalyze", "subagent", "attach", "event",
     "memory", "skillSearch", "skillManage", "switchModel", "imageGenerate",
     "ttsGenerate", "videoGenerate", "mcpInvoke", "loadMcp",
     "mcp__server__tool", "anyUnknownToolName",

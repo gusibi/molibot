@@ -6,7 +6,7 @@ import { getRuntime } from "$lib/server/app/runtime.js";
 import { promises as fs } from "node:fs";
 import { dirname } from "node:path";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { settingsTestArtifactDir, storagePaths } from "$lib/server/infra/db/storage.js";
 
 function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { requestedPath: string; path: string; routed: boolean } {
   const requestedPath = inputPath.trim();
@@ -41,7 +41,7 @@ export const GET: RequestHandler = async () => {
 
     const cwd = storagePaths.dataDir;
     const workspaceDir = storagePaths.dataDir;
-    const artifactDir = "settings-video-downloads";
+    const artifactDir = settingsTestArtifactDir("video");
     const ensureAllowedPath = createPathGuard(cwd, workspaceDir);
 
     for (const task of tasks) {

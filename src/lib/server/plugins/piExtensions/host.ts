@@ -42,6 +42,15 @@ export class PiExtensionHost {
         .then((result) => {
           this.result = result;
           this.loaded = true;
+          result.client?.onFault((error) => {
+            this.result = {
+              extensions: [],
+              errors: [{ id: "extension-runtime", entryPath: "", error: error.message }],
+              runtime: null
+            };
+            this.loaded = false;
+            this.toolConflicts.clear();
+          });
         })
         .finally(() => {
           this.loading = null;
@@ -51,11 +60,20 @@ export class PiExtensionHost {
   }
 
   async reload(): Promise<void> {
+    this.result.client?.dispose();
     this.loaded = false;
     this.result = EMPTY_RESULT;
     this.toolConflicts.clear();
     await this.load();
     momLog("plugins", "pi_extensions_reloaded", { count: this.result.extensions.length });
+  }
+
+  dispose(): void {
+    this.result.client?.dispose();
+    this.result = EMPTY_RESULT;
+    this.loaded = false;
+    this.loading = null;
+    this.toolConflicts.clear();
   }
 
   /** True once the initial load finished; callers must not block a turn on loading. */
@@ -91,6 +109,17 @@ export class PiExtensionHost {
 
   /** Flag values an extension declared, overlaid with the configured ones. */
   applyFlagValues(settings: RuntimeSettings): void {
+    if (this.result.client) {
+      const flags: Record<string, unknown> = {};
+      for (const extension of this.result.extensions) {
+        const configured = entryFor(settings, extension.id).flags ?? {};
+        for (const [name, value] of Object.entries(configured)) {
+          if (extension.flagNames.includes(name)) flags[name] = value;
+        }
+      }
+      this.result.client.setFlags(flags);
+      return;
+    }
     const runtime = this.result.runtime;
     if (!runtime) return;
     for (const extension of this.result.extensions) {
@@ -153,5 +182,6 @@ export function getPiExtensionHost(): PiExtensionHost {
 
 /** Test seam: drops the singleton so a fresh host loads from disk again. */
 export function resetPiExtensionHost(): void {
+  host?.dispose();
   host = null;
 }

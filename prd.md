@@ -5,6 +5,181 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.62 Current work/life assistant capability status (2026-08-09)
+
+- **Priority / Status**: P2 / Delivered (2026-08-09).
+- **Single current source**: [Personal Assistant Capability Matrix](docs/requirements/personal-assistant-capability-matrix.md).
+- All lower `prd.md` sections are design and delivery history. Their historical words such as planned, pending, or unresolved do not override the matrix and must not be used alone to generate tasks.
+- The superseded session PRD is reduced to a redirect notice. `features.md` and `CHANGELOG.md` remain delivery logs rather than alternative status sources.
+
+---
+## 3.61 DOCX/XLSX/PDF deliverable export (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09). PPTX export deferred; browser capability explicitly out of scope.
+- **Problem**: ingestion alone cannot finish reports, workbooks, contracts, or summaries; a raw file write is not evidence that the artifact can be opened or contains the requested content.
+- **Decision**: add deferred `documentExport`. DOCX/PDF accept bounded Markdown; XLSX accepts bounded, typed sheets. Outputs remain inside Project or Session scratch and are written atomically.
+- **Acceptance**: DOCX is re-read with Mammoth, PDF with `pdf-parse`, and XLSX with SheetJS after the temporary file is read back from disk. Missing source text, wrong sheet/cell values, invalid extensions, path escapes, or oversized inputs fail before rename/attachment. CJK PDF generation uses packaged fonts. Targeted tests and production build pass.
+
+---
+## 3.60 Reminder and notification real-environment acceptance matrix (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09).
+- **Problem**: Runtime Task CRUD proved persistence but not end-to-end delivery, restart catch-up, offline honesty, or duplicate suppression.
+- **Decision**: short-missed one-shot events are caught up within the existing window using a stable trigger slot; older events are skipped. Explicit `delivery=text` is one shared direct-delivery rule for every channel and task type. Telegram and Feishu reject when their transport is offline. A repeatable live probe creates watched events, updates them through formal CRUD, waits for scheduled delivery and a completed execution receipt, then deletes them.
+- **Acceptance**: Desktop/Web, Telegram, and Feishu live chains pass create/update/trigger/receipt/delete. Deterministic guards cover restart recovery, missed-window expiry, offline transports, and duplicate completion suppression using temporary storage. Provider delivery errors remain visible and are never converted to success. Exact external delivery across the crash-after-provider-send/before-local-ack window remains at-least-once because Telegram/Feishu do not expose a shared idempotency key.
+
+---
+## 3.59 Mini App H2 final live gate (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09), completing §3.48's live evidence.
+- **Acceptance result**: `node evals/run.mjs --id H2 --keep-data-dir` passed 1/1 in 280 seconds. `eval-water` exists under the isolated install root with manifest/server/UI files; the trace contains completed `miniAppManage` validate, install, and inspect receipts; model work continued after installation, proving service survival. Result: `evals/results/2026-08-09T07-49-11-671Z.json`.
+
+---
+## 3.58 Artifact Inspector PPTX read-only slide preview (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09).
+- **Problem**: `.pptx` files were still classified as `system`, so the right panel stopped at the external-app card even though the user expected the same in-app inspection path as DOCX/XLSX.
+- **Decision**: register `.pptx` and the PowerPoint MIME type as a lazy `pptx` viewer. Fetch bytes through the existing authorized Project/session transport and render slides with the MIT-licensed `@silurus/ooxml` Canvas/WASM browser entry in a continuous, read-only slide desk.
+- **Guardrails**: reject inputs above 50 MiB before parsing; pass archive entry, total inflated-byte, and entry-count limits to the OOXML parser; keep parser/WASM in a separate lazy chunk; disable external hyperlinks and Google Fonts; stale tab loads destroy their viewer; malformed/over-budget/render failures are retryable or non-blocking and never blank/freeze the panel. Legacy `.ppt` and unknown binaries remain SystemOpen fallbacks.
+- **Acceptance**: extension/MIME registry tests pass; byte-window copy and size budget are covered; Project/Session branches mount the same viewer; `svelte-check`, Desktop UI tests, targeted artifact tests, and production build pass with PPTX parser/WASM emitted separately from the initial bundle.
+
+---
+## 3.57 Artifact Inspector DOCX read-only preview (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09).
+- **Problem**: `.docx` files were intentionally classified as `system`, so the right panel showed only the external-app card even though the server already had Mammoth-based DOCX extraction for the Agent.
+- **Decision**: register `.docx` and the Word MIME type as a lazy `docx` viewer. Fetch bytes through the existing authorized Project/session transport, convert with Mammoth to Markdown, and reuse the existing sanitized Markdown renderer for the read-only document surface.
+- **Guardrails**: external file access and embedded image resource loads are disabled; malformed documents enter a retryable error state; conversion warnings are visible but non-blocking; no Word layout-faithful editor, formula-like execution, or in-panel mutation is added. Legacy `.ppt` and unknown binaries remain SystemOpen fallbacks; PPTX is covered by §3.58.
+- **Acceptance**: registry tests cover extension/MIME paths; a real DOCX fixture converts to Markdown; the viewer is reachable from Project and Session branches; Mammoth is lazy-loaded and the existing Markdown/DOMPurify path owns final rendering; `svelte-check`, targeted tests, full desktop tests, and production build pass.
+
+---
+## 3.56 Artifact Inspector XLS/XLSX table preview (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09).
+- **Problem**: the Artifact Inspector's existing table viewer only registered CSV/TSV. `.xlsx` files were classified as `system`, so the panel showed the unsupported-format card before any parser ran, even though SheetJS already powered the Agent's `docExtract` tool.
+- **Decision**: register `.xls`/`.xlsx` and spreadsheet MIME types as a lazy `spreadsheet` viewer. Fetch bytes through the existing authorized Project/session transport, parse with the packaged SheetJS dependency, show every worksheet as a read-only table with sheet tabs and sticky headers, and keep the shared action bar for download/open externally.
+- **Guardrails**: parsing/rendering is bounded to 5,000 data rows per sheet so a large workbook cannot freeze the WebView, reports truncation, never executes formulas, and rejects malformed workbooks into a retryable error state. The viewer is shared by Project files and Session attachments; legacy `.ppt` and unknown binaries remain system-open fallbacks while DOCX/PPTX are covered by §3.57/§3.58.
+- **Acceptance**: registry dispatch tests cover extension and MIME paths; parser tests cover multiple sheets, duplicate values, empty sheets, and truncation; Desktop UI structural tests include both artifact scopes; `svelte-check`, production build, and targeted artifact tests pass.
+
+---
+## 3.55 Artifact Inspector Git change stats and synchronized diff gutters (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09).
+- **Problem**: the Project Changes list exposed only a status and path, so users had to open every file to estimate its impact. In the diff viewer, diff2html's absolutely positioned line-number cells were not anchored to the rendered diff's scroll coordinate space, so the gutter could remain visually fixed while the code moved.
+- **Decision**: return `git diff HEAD --numstat -z` statistics with every Git status entry and render GitHub-style `+additions` / `−deletions` metadata beside each path; binary and unavailable counts remain explicit. Make the diff surface the containing block for diff2html's gutter so line numbers and code share one vertical scroll surface without replacing the maintained renderer.
+- **Acceptance**: every Changes row shows additions/deletions or an explicit binary/unknown state; staged, unstaged, deleted, renamed, untracked, CJK, and spaced paths retain correct stats; line numbers move vertically with their diff rows in line-by-line and side-by-side layouts; light/dark Artifact tokens, list actions, and existing diff rendering remain intact.
+
+---
+## 3.54 Artifact Inspector source-list row status language (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09).
+- **Problem**: the Project file tree rendered an agent-touched marker as an extra grid child. The four-column row then created an implicit fifth grid row, so a size such as `5.5 KB` wrapped below the filename. The separate red/orange dot also duplicated the existing Changes surface and did not explain its meaning well.
+- **Decision**: keep every file-tree row single-line and nowrap the size column. Remove the standalone touched dot. A touched file is identified by the filename's warning/attention color, matching Git's modified-file treatment; the Changes tab remains the detailed update surface.
+- **Acceptance**: filename, icon, and size remain in one horizontal row at the Inspector's minimum width; touched files have no `.file-tree-touched` element; touched filenames use a semantic color in light/dark/system themes; selected/focused rows remain legible; existing tree, search, and artifact tests stay green.
+
+---
+## 3.53 Runtime Task CRUD and Mini App Todo isolation (2026-08-09)
+
+- **Priority / Status**: P0 / Delivered (2026-08-09).
+- **Problem**: watched events already powered reminders and automations, but the Agent only had a create tool; Event, reminder, notification, and todo terminology implied multiple competing resources. The optional Todo Mini App is a separate product domain and cannot be a dependency or source of truth for the base Runtime.
+- **Decision**: make Runtime Task the sole user CRUD aggregate (`todo` unscheduled item, `one-shot` reminder, `periodic` automation), with formal create/list/get/update/delete through `runtimeTask`. Runtime Events remain trigger/execution occurrences and Notifications remain delivery outcomes. The watcher retains but never dispatches `todo`; immediate execution events and Molibot-managed system tasks are excluded from user CRUD.
+- **Isolation**: Mini App Todo owns its database, CRUD, and rules. Runtime discovery and mutation never import or inspect Mini App Todo data; installing/removing the app does not alter Runtime Tasks. A future Mini App notification bridge must be an explicit narrow capability and must not synchronize records.
+- **Acceptance**: Runtime Task CRUD works without any Mini App installed; stable task ids address reads/updates/deletes; an unscheduled todo requires no invented time and never triggers; one-shot and periodic validation is type-safe; Desktop opaque-id management accepts reminders as well as automations; immediate/internal events remain unreachable through user CRUD; prompt routing loads `runtimeTask` rather than writing event files.
+- **Architecture**: [ADR 0003](docs/adr/0003-runtime-tasks-and-mini-app-todo-boundary.md).
+
+---
+## 3.52 Artifact Inspector JSON source-first viewer and freeze guard (2026-08-09)
+
+- **Priority / Status**: P0/P1 / Delivered (2026-08-09).
+- **Problem**: opening a JSON artifact immediately parsed and flattened the whole document on the WebView main thread. Large, deeply nested, or high-row-count JSON could make every right-panel button appear frozen, even though the user only wanted to inspect the original file.
+- **Decision**: JSON opens in the existing `CodeViewer` by default, preserving the original text, syntax highlighting, line numbers, find, wrapping, and chunked loading. A visible “Parse as tree” action is the only entry into the structured view; the source/tree mode resets when the file or content changes. Tree parsing requires the complete file, keeps the existing 1 MiB byte ceiling, and stops at a 5,000-row budget. JSON Pointer-style path escaping keeps object keys containing `/` unique, while visible-row projection is linear in the flattened row list.
+- **Failure posture**: invalid JSON, oversized JSON, row-budget overflow, and caught deep-recursion errors remain visible as a highlighted source view with a localized explanation. A partial Project preview disables tree parsing until the user loads the remaining bytes.
+- **Acceptance**: opening a JSON file renders source without invoking `buildJsonTree`; the explicit action enters a bounded, collapsible tree; “View source” returns to the exact source viewer; large/deep documents cannot permanently block panel controls; JSON tree unit tests, Desktop UI structural tests, `svelte-check`, and production build pass.
+
+---
+## 3.51 Untrusted runtime process fault isolation (2026-08-09)
+
+- **Priority / Status**: P0 / Delivered (2026-08-09).
+- **Problem**: Mini App and Pi extension code shared the service process. Exceptions were catchable, but explicit exits, native aborts, OOM, and synchronous loops could kill or freeze every Agent/channel. A Promise timeout in that same event loop was not a fault boundary. Async tool handlers could also ignore cancellation forever.
+- **Decision**: run each Mini App in its own bounded child process; run installed Pi extensions in a dedicated extension child process; expose only serializable IPC contracts and explicit AI/badge/log bridges. Abort, deadline, and abnormal exit kill the process group and invalidate the runtime. Add a shared final deadline to `ToolRuntime` for asynchronous non-settling handlers.
+- **Acceptance**: a fixture calling `process.exit` or entering `while(true)` cannot terminate/block the test host; the Mini App can be called successfully after automatic reconstruction; a crashing extension tool cannot terminate the service-side test; a never-settling async tool returns a typed timeout; existing Mini App and extension bridge behavior plus production build remain green.
+- **Boundary**: fault isolation is not a permissions sandbox. Pi extensions currently share one extension process, so one crash temporarily invalidates all extensions but never the service. Trusted built-in synchronous code remains in-process and must be fixed as a service bug.
+- **Architecture**: [ADR 0002](docs/adr/0002-untrusted-runtime-process-boundaries.md).
+
+---
+## 3.50 Artifact Inspector file-type icons (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09).
+- **Problem**: the GitHub-style Inspector deliberately made every file glyph neutral, which removed the fast visual recognition users expect from a repository tree.
+- **Decision**: reuse the existing Phosphor file glyph family and add one shared filename/extension resolver with `--file-color`. Special repository files win over generic extensions; unknown files stay neutral; no remote icon API or new runtime dependency is introduced.
+- **Acceptance**: tree rows, search hits, open tabs, Session files, and the system card agree on icon and color; selected/dirty/touched/error states remain distinguishable; Light/Dark themes keep the same type identity; offline startup has no icon fetch.
+
+---
+## 3.49 Memory: write path and read path disagree on what is retrievable (2026-08-09)
+
+**统一收口（已交付，2026-08-09）：** 无结构个人记忆不再默认写入 `chat:`，而是按 domain 统一落到 `owner:`（Project 内落 `project:`）；`content:` 只承载已发布内容，`agent:` 只承载 Agent 自身知识。新增整轮留存策略并贯穿 Agent entry、UI metadata、会话索引、跨渠道 transcript、自动 flush、每日 reflection 和记忆工具写入口：`standard`、`no_memory`、`not_searchable`、`turn_only` 的能力矩阵见 [ADR 0001](docs/adr/0001-memory-namespace-and-turn-retention.md)。删除保持为必须指定目标的独立操作，不再与“不记忆”混称。存量 namespace 不迁移。
+
+**`add_content` 误路由已关闭（已交付，2026-08-09）：** `add_content` 的工具说明现在明确限定为“用户已发布内容语料”，并强调它永不参与普通对话召回；工具层只接受显式 `type=world_knowledge`，缺失类型或任何个人事实/偏好类型都会失败并要求改用 `action=add`。不把 `content:` 放进日常读取集，也不静默重路由，从而保持 namespace 的真实语义并让模型错误可见。回归覆盖个人事实、有意省略类型、合法发布内容及普通 `add` 路径。
+
+现象：eval C 组（C1 偏好、C2 语言、C3 纠错）在干净环境里 0/3。挖下去发现不是一个 bug，而是「写进去的东西，日常对话读不到」这一类问题的两个独立实例。两者都会让写入侧和读取侧各自报告成功。
+
+**（一）已修：无结构 `memory add` 同时落在读不到的类型和读不到的 namespace 上（两个杠杆）。**
+- `memory` 工具的 `add` 动作既不带 `type` 也不带 `subject`，所以绝大多数「顺手记一下」走的是默认路径，而 `buildMoryWritePlan` 对这条路径原来给了两个都偏离日常读取的默认值：
+  - **类型** 原为 `task`。读取侧两条路都把 `task` 排除在日常之外：(a) `moryPlanner` 的 `chat` intent（普通一轮的默认 intent）只查 `user_preference | user_fact | event`，而 `memoryTypes`/`pathPrefixes` 在 `moryRetrieval` 里是硬 SQL 过滤不是排序权重——不在集合里就不进候选池；(b) 注入 prompt 的 `profileBuilder` 把 `task` 只放进受时间窗约束、且要求 `chat:` namespace 的 `currentFocus` 桶，`user_fact` 则无条件进更稳的 `profileFacts` 桶。
+  - **namespace** 原为 `chatNamespace(scope)`＝`chat:<bot>:<channel>:<externalUserId>`，是每渠道每用户独立的。它虽在 `promptMemoryNamespaces` 里，但一旦换渠道/换会话 key 就换了一份，天然不跨会话共享。
+- 修复（两处一起改，都在 `buildMoryWritePlan`）：类型走新的 `defaultMemoryTypeForLayer`（长期 `user_fact`、每日 `event`，都在上述读取路里），path 前缀从同一个 `type` 派生（原来 `task`/`event` 硬编码，type 与 path 不一致会两头都被过滤）；namespace 改走 `namespaceForDomain(scope, domain)`，个人域即 `owner:owner`——它是 `promptMemoryNamespaces` 的第一项、跨所有渠道/会话共享，正对「跨会话记住」。
+- 取舍：把无结构记忆默认放进 `owner:owner` 意味着任意一处随口记的东西会对该 owner 全局可见。对「单用户、本地优先的个人助理」这是符合定位的默认；若将来要区分「某个会话内的临时记忆」，需要显式类型/namespace 而不是回退到窄默认。
+- 守卫：`moryCore.plan.test.ts` 断言默认写入类型 ∈ 普通一轮的检索计划、默认 namespace＝`owner:owner`、path 前缀与 type 一致，均不依赖线上模型。C 组现在 4/4。
+
+**（二）已修：`add_content` 写进一个日常读不到的 namespace。**
+- C3 最初红时，模型选的是 `add_content` 而不是 `add`。证据：临时 `DATA_DIR` 的 `memory_nodes` 里确实有更正后的记录（`l0_title`＝「常用的笔记工具是 Obsidian（已弃用 Notion）」），但 `user_id` 是 `content:personal`。
+- 而 `contentNamespace` 只有在 `deriveMemoryAccessScope({ includeContent: true })` 时才进授权集，`promptMemoryNamespaces()` 从不包含它——`add_content` 对普通对话是只写不读的。
+- 这是 pitfall 19 家族的变体：弱模型把「记一条个人事实」误路由到本为「已发布内容去重」设计的 `add_content`。C3 现在能过，是因为这几次模型改用了 `add`+`update`；换成 `add_content` 会再次静默失败。
+- 采用边界最清晰的方案：保留发布内容能力，但收窄工具描述并在执行层强制 `type=world_knowledge`；个人事实、偏好和缺省类型全部拒绝并指向 `add`。不扩大普通对话授权读取面，也不把模型的错误选择静默改写成另一类操作。
+
+**存量数据仍然分裂（两者的共同背景）：** 真实库 `~/.molibot/db/mory.sqlite` 的 1229 行分布在 11 种 `user_id` 形状上——`telegram::7706709760`（1167，`domain` 为 null）、`chat:momo_body_bot:telegram:7706709760`（29）、`owner:owner`（13）、`content:momo_body_bot`（1，`domain` 竟是 `owner|project|agent_self|content` 拼接串）等。（一）只改了新写入的默认类型，没有迁移这些历史行；是否迁移/兼容读需单独决定。
+
+补充症状：eval E2（换会话后不该记得的临时编号）在多次运行之间来回翻。它和 C 组是同一条会话/记忆边界的两个方向，说明边界本身缺少确定性，值得连带排查。
+
+优先级：P0（记忆优先是核心定位）。新写入、工具路由与留存语义已落地并有机器守卫；存量 namespace 明确不迁移。
+
+## 3.48 Mini App install through the Agent appeared to kill the service (2026-08-09)
+
+**已解决（2026-08-09）：** H2 的原始现象不是服务崩溃。`miniAppManage` 作为 critical 工具创建了 Broker 审批请求，但 Desktop 的统一审批卡接口只查询/解决 `hostBashStore`，无法解决同一张卡所代表的 Broker 请求。运行时因此等待完整五分钟；随后 Node/Undici 的 response-headers timeout 把 `/api/chat` 报成 `fetch failed`，eval 的 `finally` 再终止它自己启动的服务。数据库里保留的 `builtin:miniAppManage / pending` 请求、约 300 秒的固定时长、`serviceExit: null` 和没有 crash report 都与这条链一致。
+
+- 根修审批链：Desktop `list_pending` 现在合并当前 Session 的 Host Bash 与 Broker 请求；`resolve_approval` 可按同一个 `requestId` 对 Broker 执行 once/session/persistent/reject，并严格拒绝跨 Session 请求。H2 以显式 `auto_approve: true` 通过真实 Desktop API 选择「仅此一次」，不修改生产风险策略，也不提供隐式免审批通道。
+- 同时修掉一个真实但并非本次 300 秒现象主因的故障域漏洞：`miniAppManage.validateBuild()` 曾通过 `importModule` 测试 seam 把 scratch 候选模块动态载回服务进程。现在候选 validate/smoke 与正式运行统一走每 App 子进程；Agent 工具入口的 `process.exit(73)` 回归证明候选只会终止自己的进程。完整边界见 §3.51 / [ADR 0002](docs/adr/0002-untrusted-runtime-process-boundaries.md)。
+- 机器守卫：(1) `desktopApprovals.test.ts` 覆盖当前 Session 列表、四种决策与跨 Session 拒绝；(2) `evals/client.test.mjs` 用并发假服务证明 `auto_approve` 读取卡片的 `requestId` 并调用真实同形 API 后原 turn 才完成；(3) `miniAppManage.processIsolation.test.ts` 锁住安装入口故障域。
+- Provider/eval 路径也完成根修：Web Chat/Stream 未传思考等级时保持“无覆盖”，由 Runtime 默认值接管，不再被请求解析器强制改成 `off`；自定义 Subagent 按模型 `supportedRoles` 声明 developer-role 兼容性；eval 使用 15 分钟 Undici headers/body timeout，长任务不再被 Node 默认 300 秒响应头超时截断。
+- live 证据：单独 H2 首次复跑 1/1（258 秒）；修正传输超时和 Subagent 角色映射后的受影响回归 C1/C4/D1/D2/H2 为 5/5，H2 用时 429 秒且 `serviceExit=null`。结果分别见 `evals/results/2026-08-09T06-16-48-064Z.json` 与 `evals/results/2026-08-09T06-53-55-944Z.json`。
+- 优先级：P0 / Delivered。
+
+## 3.47 Agent capability breadth: fetch, documents, calendar (2026-08-09)
+
+- 背景：2026-08-09 的能力盘点结论是「深度够、宽度不够」。除 `bash` 与 MCP 之外，Agent 对外部世界几乎只读，且读不全。
+- P0-1 `webFetch`（已交付 2026-08-09）：Agent 可按 `url + prompt` 读取公开 HTTP(S) 文本页面，HTML 转 Markdown，并复用 pitfall 27 的共享截断预算。实现同时限制 URL、超时、响应体、重定向和 15 分钟缓存；阻断凭据 URL、本机/内网/高风险保留地址，兼容公网域名经本机代理映射到 DNS fake-IP 的环境，跨域跳转要求再次显式抓取。认证页与 PDF/图片等二进制仍归后续专用连接器/文档摄入能力。
+- P0-2 文档摄入（已交付 2026-08-09）：新增独立延迟工具 `docExtract`，从工作区 PDF、DOCX、XLSX 提取可读文本/表格；`read` 遇到这三种二进制会明确路由到它。PDF 使用 `pdf-parse` v2，DOCX 使用 Mammoth 且关闭外部文件访问，XLSX 使用正式随包的 SheetJS 0.20.3。输入及 symlink 真实目标限制在工作区和 50 MiB，Office 解包另有限额；输出复用 pitfall 27 的共享行/字节预算、UTF-8 单行回退和全文落盘。eval B2 已换成答案不以明文存在的 FlateDecode 压缩流 PDF，并要求 trace 中真实调用 `docExtract`；真实 Agent eval 通过。
+- P0-2a 通用视觉/OCR（已交付 2026-08-09）：新增 `imageAnalyze(path, prompt?)` 延迟工具，覆盖 OCR、截图、票据、图表与通用图片分析。Agent 不直接指定模型，统一走当前 Agent 覆盖后的 `visionModelKey`，再跟随全局配置；入站图片 fallback、工具分析和 PDF OCR 复用同一共享视觉模块。`docExtract` 的 PDF OCR 支持 `auto/force/never`，auto 只处理低文本且含图片的页面，单次最多 20 页并串行调用。后续若真实 eval 证明复杂版面准确率不足，再评估专用版面/OCR模型，不预先引入第二套 Provider 配置。
+- 外置能力边界：日历、联系人、邮件不进入 Runtime 内置能力；后续通过 Skill / MCP / Connector 按需集成。Runtime Task 只管理 Agent 自己的 todo、提醒与自动化，不冒充用户的日历或邮箱。
+- P1：无头浏览器；第一方待办账本；xlsx/docx/pdf 导出。
+- 验收：以 `evals/` B 组转绿为准。
+
+## 3.46 Artifact Inspector GitHub / Primer workspace (2026-08-09)
+
+- **Priority / Status**: P1 / Delivered (2026-08-09).
+- **Problem**: the right-side File / Artifact Inspector still read as a lightly styled macOS file panel, while file browsing and previews needed the stronger information hierarchy of a real code workspace.
+- **Decision**: keep the existing narrow Inspector seam and vertical resizable split, but restyle its complete surface as a GitHub/Primer repository workspace: neutral canvas, inset tree, opaque editor surface, flat tabs, path header, semantic light/dark tokens, and GitHub-like syntax/diff colors.
+- **Acceptance**: files, changes, attachments, search, downloads, source toggles, viewer tabs, and resizing keep their existing behavior; all viewer types share the same surface grammar; selection/focus remains visible without shadow-only cues; Artifact colors remain scoped away from Chat and Settings.
+
+---
+## 3.45 Desktop Artifact Inspector design alignment (2026-08-08)
+
+- **Priority / Status**: P1 / Delivered (2026-08-08).
+- **Problem**: the right-side File / Artifact Inspector still mixed monospace filenames, extension-specific icon colors, elevated segmented controls, and a narrow-screen width floor that disagreed with the shared layout contract.
+- **Decision**: apply the `DESIGN.md` source-list/detail language: system UI typography for human-readable names, monochrome file glyphs, compact 8px/6px segmented controls with tonal + border selection, semantic attachment filter state, and the shared 300px Inspector minimum.
+- **Acceptance**: filenames remain readable at normal density, status colors are reserved for status, selected controls remain distinguishable without shadow, `aria-pressed`/`aria-selected` expose state, and the File Inspector keeps its grid seam in narrow layouts.
+
+---
 ## 3.44 Mini App install/update hot activation (2026-08-08)
 
 - **Priority / Status**: P0 / Delivered (2026-08-08).
@@ -52,23 +227,23 @@
 ---
 ## 3.40 Mini App ↔ host communication platform (2026-08-06)
 
-- **Priority / Status**: P0/P1 / Platform delivered; macOS microphone acceptance pending.
+- **Priority / Status**: P0/P1 / Delivered; owner live microphone acceptance completed 2026-08-09.
 - **Delivered**: strict `messageActions` + capture/resources; deterministic invoke; composer bridge v1; host AI text/transcription facade; fine-grained routing settings and 30-day usage; controlled raw uploads; Todo action; opt-in built-in Meeting Notes; creator contract v1.3.0. Server target is 2.9.8 and Desktop 0.9.5; no tag or release was created.
-- **Remaining release gate**: run the real microphone matrix in both `desktop:dev` and a packaged macOS app (permission prompt/repeat grant, 60-second rollover, background/foreground, stop, deny, device loss). A/B/C remains undecided until that evidence exists. B requires bridge v2 host recording; C returns native recording to planning. Text, actions, resources and bridge v1 are independent of this gate.
+- **Live acceptance**: the product owner confirmed that the Mini App microphone works in the real app on 2026-08-09. Permission denial, device loss, and rollover automation remain optional test hardening; they are not a blocker or an unverified product capability.
 - **Deferred v2**: streaming text, images/embeddings, active send, channel emoji/commands, app-to-app calls, per-App model overrides and composer attachments remain out of scope.
 
 ## 3.39 Pre-flight context size gate (2026-08-06)
 
-- **Priority / Status**: P2 / Planned (local PRD only, no GitHub issue).
+- **Priority / Status**: P0 / Delivered (2026-08-09).
 - **Problem**: every context-overflow defence is reactive. The request is assembled and sent; if it does not fit, we depend on `isContextOverflowError` recognising the provider's wording — ~25 hand-collected phrasings, plus a usage-based check for the endpoints that never report the error at all (z.ai answers normally past the window, MiMo truncates and stops on `length`). A gateway with wording nobody has seen yet is an unhandled hard failure, and every miss costs a full round trip.
-- **Decision**: before dispatching, estimate the assembled context (`estimateContextTokens`, already CJK-aware) against `selectedModel.contextWindow || compaction.defaultContextWindow`. Over budget ⇒ force a compaction pass; still over ⇒ apply `capOversizedMessages` to the largest kept message and re-check. The reactive path stays as the backstop — a pre-flight estimate is an estimate — but it stops being the primary mechanism.
-- **Acceptance**: a context that cannot fit never reaches the provider; the gate is measured with a real oversized transcript, not a synthetic message list; a model with no configured `contextWindow` uses the default rather than skipping the gate; no extra model call is added on the ordinary in-budget path. Covers CLAUDE.md pitfall 27 (e).
+- **Decision**: before dispatching, estimate the complete assembled context—system prompt、serialized tool schemas、history 和当前 user/tool-result message—against `selectedModel.contextWindow || compaction.defaultContextWindow`. Over budget ⇒ force compaction with a budget derived from the current model; if the newest prompt itself is too large, cap only its model-facing copy while preserving the raw persisted user message. The actual `streamFn` performs a final fail-closed check after role mapping、orphan tool-result cleanup and image routing, before any provider request/log event. The reactive path remains a backstop because token estimation is conservative rather than provider-tokenizer exact.
+- **Acceptance**: delivered. Unit/integration coverage locks CJK-aware counts, tool/system overhead, base64 image exclusion, default windows, prompt capping without source mutation, and “provider callback is never invoked” for oversized final context. Ordinary in-budget requests add no model call. Covers CLAUDE.md pitfall 27 (e).
 
 ## 3.38 Unified Artifact Panel: viewer registry, HTML preview, CSV tables (2026-08-05)
 
 - **Priority / Status**: P0-P2 slices / Planned (local PRD only, no GitHub issue).
 - **Problem**: the right side is three unrelated surfaces — ProjectFilePanel (code/diff/MediaViewer, Projects only), MiniAppPanel (its own container), and a chat-side modal that previews only image/audio/video. HTML preview does not exist anywhere, ordinary chats cannot preview PDFs or code in a panel, CSV/JSON/Markdown/SVG render as raw text, and every new format would have to be built twice (pitfall #7 fork).
-- **Decision**: converge the right side into one Artifact Panel — a tab container plus a shared viewer registry keyed on MIME + extension (empty-MIME fallback per `resolveWebInboundFileMeta()`); Mini Apps become an iframe-type tab with their internals untouched. Slice 0 is a behavior-preserving container refactor; Slice 1 (P0) adds sandboxed same-pattern-as-miniapp HTML preview (no `allow-same-origin`, root-validated, fail-closed), routes chat attachments into the panel viewers, and adds a CSV/TSV table viewer with raw toggle; Slice 2 (P1) adds Markdown (reusing `markdown.ts`), JSON tree, SVG, and audio; Slice 3 (P2) adds mermaid and a system-app fallback card for unsupported types. Every file tab shares one action bar: reveal, open-with-system, copy path, save-as, insert-as-`@`-reference (via §3.35 validated syntax). Explicitly out of scope: embedded editor, file management ops, a general browser, Office inline rendering, CSV/JSON editing.
+- **Decision**: converge the right side into one Artifact Panel — a tab container plus a shared viewer registry keyed on MIME + extension (empty-MIME fallback per `resolveWebInboundFileMeta()`); Mini Apps become an iframe-type tab with their internals untouched. Slice 0 is a behavior-preserving container refactor; Slice 1 (P0) adds sandboxed same-pattern-as-miniapp HTML preview (no `allow-same-origin`, root-validated, fail-closed), routes chat attachments into the panel viewers, and adds a CSV/TSV table viewer with raw toggle; Slice 2 (P1) adds Markdown (reusing `markdown.ts`), **source-first JSON with explicit tree parsing**, SVG, audio, lazy XLS/XLSX tables, lazy DOCX content, and lazy PPTX slides; Slice 3 (P2) adds mermaid and a system-app fallback card for unsupported types. Every file tab shares one action bar: reveal, open-with-system, copy path, save-as, insert-as-`@`-reference (via §3.35 validated syntax). Explicitly out of scope: embedded editor, file management ops, a general browser, PPTX editing/animation/presenter controls, CSV/JSON editing, Word layout-faithful editing, and spreadsheet editing/formula execution.
 - **Acceptance**: full PRD with user stories, per-slice acceptance, and mandatory test seams (registry dispatch, HTML route escape/fail-closed, CSV parsing incl. CJK, single-mount + sandbox + three-theme structural guards, blob URL lifecycle, cold-start smoke walk) in [docs/requirements/artifact-panel-prd.md](docs/requirements/artifact-panel-prd.md).
 
 ## 3.37 Model verification feedback belongs to the model dialog (2026-08-05)
@@ -103,7 +278,7 @@
 
 - **Priority / Status**: P0 / Delivered (2026-08-02).
 - **Problem**: the Creator scaffold accepted hyphenated ids but copied them verbatim into SQLite identifiers; generic file tools could previously miss the live code root; and later turns could claim an install/update with zero tool calls. The prompt required cold verification without providing a machine-owned install receipt.
-- **Decision**: builds live in Session scratch until a shared `miniAppManage` tool validates the manifest and actually loads the Runtime against temporary data, then delegates installation to the existing staged atomic installer and reads an exact receipt back from the live directory. Validate/install are critical owner-approved actions because they load selected server code in-process; inspect is read-only. App ids and SQL identifiers are distinct generated values. Prompt evidence rules are backed by a Runner retry when a zero-tool attempt fabricates a Mini App completion claim, plus a runtime-authored warning when some tools ran but no successful install receipt exists.
+- **Decision**: builds live in Session scratch until a shared `miniAppManage` tool validates the manifest and actually loads the Runtime against temporary data, then delegates installation to the existing staged atomic installer and reads an exact receipt back from the live directory. Validate/install are critical owner-approved actions because they execute selected server code with owner permissions in an isolated child process; inspect is read-only. App ids and SQL identifiers are distinct generated values. Prompt evidence rules are backed by a Runner retry when a zero-tool attempt fabricates a Mini App completion claim, plus a runtime-authored warning when some tools ran but no successful install receipt exists.
 - **Acceptance**: `expense-tracker` scaffolds with SQL-safe identifiers; direct scaffold into `miniapps/apps` is refused; invalid SQL installs nothing; successful install/inspect returns matching app id, version and manifest hash; completion prose without a successful install receipt is never presented without a runtime correction; bundled `miniapp-creator` is versioned so existing owner workspaces receive the workflow safely.
 
 ## 3.32 Shared readable Session and Task context IDs (2026-08-02)
@@ -115,12 +290,12 @@
 
 ## 3.31 Mini App platform: workspace-installed apps with agent tools + hosted UI (2026-08-02)
 
-- **Priority / Status**: P1 / **Delivered 2026-08-02** (GitHub Issue [#26](https://github.com/gusibi/molibot/issues/26)). Slices 0-6 complete; see `features.md` for the delivered scope. **Scope expanded 2026-08-02 after review**: Mini Apps became a primary sidebar destination with a full manager (the original Settings-only entry was undiscoverable); the peer sidebar section keeps the product name while prioritizing the 10 most recently used apps; manifests gained an optional `ui.icon` rendered consistently in the manager, quick list, and Inspector; and graphical installation from a local folder / ZIP / GitHub repo was added. Remote install deliberately relaxes the original trust model — app server code still runs in-process **unsandboxed** — so the UI confirms provenance before every install and the catalog records where each app came from. Hot activation was delivered in §3.44. Still deferred: SSE push (V1 polls a revision), an app marketplace with signing/permission scopes/subprocess sandboxing, per-agent or per-project app instances, app-to-app calls, automatic data-schema migration.
+- **Priority / Status**: P1 / **Delivered 2026-08-02** (GitHub Issue [#26](https://github.com/gusibi/molibot/issues/26)). Slices 0-6 complete; see `features.md` for the delivered scope. **Scope expanded 2026-08-02 after review**: Mini Apps became a primary sidebar destination with a full manager (the original Settings-only entry was undiscoverable); the peer sidebar section keeps the product name while prioritizing the 10 most recently used apps; manifests gained an optional `ui.icon` rendered consistently in the manager, quick list, and Inspector; and graphical installation from a local folder / ZIP / GitHub repo was added. Remote install deliberately relaxes the original trust model — app server code runs in a fault-isolated child process but remains **unsandboxed for owner permissions** — so the UI confirms provenance before every install and the catalog records where each app came from. Hot activation was delivered in §3.44 and process fault isolation in §3.51. Still deferred: SSE push (V1 polls a revision), an app marketplace with signing/permission scopes, per-agent or per-project app instances, app-to-app calls, automatic data-schema migration.
 - **Delivered follow-up**: every channel supports `/miniapps` (aliases `/mini-apps`, `/apps`) to list the active catalog and the exact `@<app-id>` invocation form. A leading `@todo` / `@<installed-app>` narrows that turn's Mini App tool catalog to the selected app. The selector is a transient runtime control, stripped before persistence and never replayed in later turns.
 - **Delivered UI follow-up**: Conversation, Project, and Mini App sidebar sections share one global 32px sticky header contract. Mini Apps must not depend on a parent component's scoped CSS. Headers remain transparent in normal flow; only the title actually pinned to the scroll container reveals an extended, masked glass pseudo-element whose blur and tint fade vertically. Dark mode lifts the material rather than laying down a dark rectangle, with no-blur accessibility/performance fallbacks.
 - **Reliability guard**: explicit `@<app-id>` calls preload only the selected Mini App's Agent tools into the first loop snapshot and exclude generic fallback tools. Deferred discovery refreshes the active loop snapshot between model turns, so a toolSearch result is genuinely callable in that same run.
 - **Problem**: agent-managed daily data (todos, expenses, schedules) has no visual surface — it lives in memory or files and is only reachable by asking in chat; building bespoke UI per domain would bloat the main app indefinitely.
-- **Decision** (v2 after review): introduce Mini Apps as a new plugin kind reusing the existing manifest/discovery/catalog/enable patterns, installed owner-globally under the fixed owner workspace root — `miniapps/apps/<app-id>/` (replaceable code) separated from `miniapps/data/<app-id>/` (independent-lifecycle data, the single source of truth shared by all channels); never derive the install root from a per-channel `workspaceDir`. Agent tools and the app's own UI API handlers share one domain module over the app's database — no host-provided file-level data API and no MCP/postMessage bridge for the UI (both explicitly rejected as too heavy; full MCP Apps host protocol stays out of scope, concept alignment only). Tools register internally as `miniapp__<appId>__<tool>` (display `<appId>.<tool>`), classify as `source: plugin` with manifest risk hints, and enforce enablement at invoke time (disabled apps also 403 their routes). App server code is owner-trusted in-process code — `data/` scoping is an HTTP-boundary convention, the sandboxed iframe is the isolation boundary. v3 pins: owner workspace = `config.dataDir` (`~/.molibot`); iframe transport uses the fixed custom protocol `molibot-miniapp://` forwarded by a Tauri adapter (Slice 0 WKWebView spike gates it; never widen CSP to localhost port ranges); installs and replacements hot-activate through the shared Host without restarting Molibot; Mini App tools load via toolSearch deferral; Ajv + SemVer + esbuild are production dependencies. MVP ships a Todo reference app (SQLite + polling revision); SSE later. Implementation plan: [docs/requirements/miniapp-platform-implementation-plan.md](docs/requirements/miniapp-platform-implementation-plan.md).
+- **Decision** (v2 after review, fault boundary superseded by §3.51): introduce Mini Apps as a new plugin kind reusing the existing manifest/discovery/catalog/enable patterns, installed owner-globally under the fixed owner workspace root — `miniapps/apps/<app-id>/` (replaceable code) separated from `miniapps/data/<app-id>/` (independent-lifecycle data, the single source of truth shared by all channels); never derive the install root from a per-channel `workspaceDir`. Agent tools and the app's own UI API handlers share one domain module over the app's database — no host-provided file-level data API and no MCP/postMessage bridge for the UI (both explicitly rejected as too heavy; full MCP Apps host protocol stays out of scope, concept alignment only). Tools register internally as `miniapp__<appId>__<tool>` (display `<appId>.<tool>`), classify as `source: plugin` with manifest risk hints, and enforce enablement at invoke time (disabled apps also 403 their routes). App server code is owner-trusted but executes in a per-App child process; this contains crashes but does not restrict owner permissions. The UI iframe remains a separate browser isolation boundary. v3 pins: owner workspace = `config.dataDir` (`~/.molibot`); iframe transport uses the fixed custom protocol `molibot-miniapp://` forwarded by a Tauri adapter (Slice 0 WKWebView spike gates it; never widen CSP to localhost port ranges); installs and replacements hot-activate through the shared Host without restarting Molibot; Mini App tools load via toolSearch deferral; Ajv + SemVer + esbuild are production dependencies. MVP ships a Todo reference app (SQLite + polling revision); SSE later. Implementation plan: [docs/requirements/miniapp-platform-implementation-plan.md](docs/requirements/miniapp-platform-implementation-plan.md).
 - **Acceptance**: full PRD v2 with user stories, four test seams (discovery/settings round-trip, tool executor incl. classification and invoke-time disable, HTTP scoping incl. bidirectional round-trip/concurrency/uninstall-reinstall, desktop structural guards) and out-of-scope list in Issue #26 and [docs/requirements/miniapp-platform-prd.md](docs/requirements/miniapp-platform-prd.md).
 
 ## 3.30 OpenConnector Cloudflare gateway and connector catalog (2026-08-01)
@@ -1096,7 +1271,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-208 | Feishu multi-bot mention ownership | P1 | Delivered (2026-06-11) | In Feishu groups with multiple bots, each Molibot Feishu instance should respond only when the incoming message mentions that instance's resolved bot identity. Identity probing should prefer `bot/v1/openclaw_bot/ping` and fall back to `bot/v3/info`; mentions of other bots must be ignored, and an unresolved bot identity must not fall back to accepting arbitrary group mentions. Startup queue recovery must not duplicate inbound tasks when a stale/busy run blocks processing, and completed or discarded inbound tasks must be removed from SQLite instead of accumulating terminal rows. Private chat and known bot thread continuation remain unchanged. |
 | P1-209 | Centralized database directory | P1 | Delivered (2026-06-11) | Default runtime SQLite files should live under `${DATA_DIR}/db` instead of scattering across the data root or memory directories. Startup should migrate legacy default DB files and their WAL/SHM sidecars into the DB directory when the new target does not already exist, while preserving explicit operator/test database paths. |
 | P1-210 | Long-task bounded recovery and Subagent runtime isolation | P0 | Delivered (2026-07-26) | Parent and Subagent budgets must be persisted independently; delegated work must have bounded fan-out/deadline, pi compaction, optional workspace-local session persistence, and observable child session ids. Post-tool context overflow must retain completed tool results and continue without replay. Interrupted inbound tasks must enter explicit `recovery_required` quarantine with claim leases/checkpoints instead of being deleted or blindly replayed. Event/Subagent timeout callers must return after a bounded cancellation grace period even when work ignores abort. |
-| P1-211 | Hard-isolated and resumable unattended execution | P1 | Planned | Add a durable executable-plan/checkpoint protocol for safe cross-run continuation, idempotency-aware side-effect recovery, worker/process isolation for providers or tools that ignore abort, parent post-first-token idle deadlines, and age/size retention for persisted Subagent transcripts. Do not implement this as blind prompt replay or `running -> pending`; exact continuation requires a declared idempotency boundary. |
+| P1-211 | Automatic Durable Execution for long tasks and multi-day work | P1 | PRD ready for owner confirmation | Automatically classify requests that need cross-Run state and create a shared Durable Execution before side effects. Persist the goal and acceptance criteria, versioned linear plan, step evidence, side-effect intent/receipts, open user decisions, and safe resume point; resume only across declared idempotency or external-state boundaries, and allow `completed` only after task-level verification. Keep this separate from Runtime Task scheduling and Channel code. Detailed scope and acceptance: [automatic durable execution PRD](docs/requirements/automatic-durable-execution-prd.md). |
 | P1-188 | Concise sandbox labels and readable Weixin tool batches | P1 | Delivered (2026-05-13) | User-facing tool progress should prefer concise sandbox labels (`Sandbox` / `Sandbox disabled`) over repetitive `bash (...)` wording, and Weixin grouped tool-progress deliveries must render each tool call on its own line instead of collapsing a batch into a single dense line |
 | P1-184 | Telegram live-control commands bypass busy enqueue | P1 | Delivered (2026-05-11) | Telegram slash-command registration must include shared `/steer`, `/followup`, `/follow_up`, and `/queue` commands so they reach shared runtime command handling before ordinary busy-message queuing. In particular, `/steer <queueId>` must promote the referenced pending queue item instead of being queued as a new task. |
 | P1-185 | Chat-first host tool approval | P1 | Delivered (2026-05-12) | When a skill or task needs a host-only external tool, the agent should request a specific host capability through the `bash` entry itself instead of trying to bypass sandbox with plain shell retries; Telegram/Feishu/QQ/Weixin operators can approve a single pending request from chat by replying `安装` / `批准` / `approve`, and the result is persisted as an approved host tool registry entry that can only run its fixed command through structured argv, not through a general host shell. |

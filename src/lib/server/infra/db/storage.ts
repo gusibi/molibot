@@ -27,8 +27,65 @@ export const storagePaths = {
   // survives install, upgrade and — at the owner's choice — uninstall.
   miniAppsDir: path.resolve(config.dataDir, "miniapps"),
   miniAppCodeDir: path.resolve(config.dataDir, "miniapps", "apps"),
-  miniAppDataDir: path.resolve(config.dataDir, "miniapps", "data")
+  miniAppDataDir: path.resolve(config.dataDir, "miniapps", "data"),
+  /**
+   * Service-owned runtime state: the ownership lock, the state file the desktop
+   * supervisor reads, rolled service logs, crash reports, and the extracted
+   * runtime generations. Private to the service (mode 0700).
+   *
+   * The Rust supervisor and `scripts/runtime/runtime-paths.mjs` derive the same
+   * layout independently — they run before, and partly outside, this module.
+   * Whenever one of the three changes, all three change.
+   */
+  runtimeDir: path.resolve(config.dataDir, "runtime"),
+  /**
+   * Agent tool dependencies: the Python venv and its caches, plus GOPATH and
+   * GOCACHE when `MOLIBOT_TOOLING_DIR` is set. This is a *working* directory —
+   * `wrapCommandWithVenv` puts it on the Agent's PATH and points TMPDIR at it,
+   * so the Agent has full write access here by design.
+   *
+   * That is precisely why it is a sibling of `runtimeDir` and must never become
+   * a child of it: the two have opposite owners (Agent vs supervisor), opposite
+   * lifecycles (accumulates across versions vs replaced per version) and
+   * opposite exposure. Nesting them would put `service.lock`, the service's own
+   * state and the running runtime code inside a tree the Agent may delete.
+   * `storage.test.ts` asserts the separation so a future tidy-up cannot undo it.
+   */
+  toolingDir: path.resolve(config.dataDir, "tooling"),
+  toolingPythonDir: path.resolve(config.dataDir, "tooling", "python"),
+  /**
+   * Throwaway artifacts produced by the Settings pages' "test this provider"
+   * actions (generated images, TTS samples, video downloads). They used to be
+   * written as three separate top-level directories in the data dir, which is
+   * how `~/.molibot` accumulated entries that look like real user data.
+   */
+  settingsTestsDir: path.resolve(config.dataDir, "cache", "settings-tests")
 };
+
+/**
+ * Directories that need a mode other than the process default. Applied at
+ * creation only, so this never fights whoever already owns an existing
+ * directory (the service lease creates `runtimeDir` at 0700 before the runtime
+ * boots, and chmods it on every acquisition).
+ */
+const DIR_MODES: Partial<Record<keyof typeof storagePaths, number>> = {
+  runtimeDir: 0o700
+};
+
+/**
+ * Where one Settings provider-test action writes its throwaway output.
+ *
+ * A single entry point for all three kinds so they cannot drift back into
+ * separate top-level directories; `clean-data-dir.mjs` knows the legacy names.
+ */
+export function settingsTestRoot(kind: "image" | "tts" | "video"): string {
+  return path.resolve(storagePaths.settingsTestsDir, kind);
+}
+
+/** The same location as a data-dir-relative artifact segment. */
+export function settingsTestArtifactDir(kind: "image" | "tts" | "video"): string {
+  return path.relative(storagePaths.dataDir, settingsTestRoot(kind)).split(path.sep).join("/");
+}
 
 const SQLITE_SIDE_SUFFIXES = ["-wal", "-shm"];
 
@@ -54,7 +111,11 @@ const REQUIRED_DIR_KEYS = [
   "globalSkillsDir",
   "miniAppsDir",
   "miniAppCodeDir",
-  "miniAppDataDir"
+  "miniAppDataDir",
+  "runtimeDir",
+  "toolingDir",
+  "toolingPythonDir",
+  "settingsTestsDir"
 ] as const satisfies ReadonlyArray<keyof typeof storagePaths>;
 
 /** Test seam: the same list the bootstrap walks, as absolute paths. */
@@ -78,12 +139,16 @@ export interface EnsureStorageDirsResult {
  */
 export function ensureStorageDirs(): EnsureStorageDirsResult {
   const result: EnsureStorageDirsResult = { created: [], failed: [] };
-  for (const dir of requiredStorageDirs()) {
+  for (const key of REQUIRED_DIR_KEYS) {
+    const dir = storagePaths[key];
     try {
       // `recursive` returns the first path it had to create, or undefined when
       // the directory already existed — exactly the "what changed" signal we
       // want to log on an upgrade.
-      const created = fs.mkdirSync(dir, { recursive: true });
+      const mode = DIR_MODES[key];
+      const created = mode === undefined
+        ? fs.mkdirSync(dir, { recursive: true })
+        : fs.mkdirSync(dir, { recursive: true, mode });
       if (created) result.created.push(dir);
     } catch (error) {
       result.failed.push({ path: dir, error: error instanceof Error ? error.message : String(error) });

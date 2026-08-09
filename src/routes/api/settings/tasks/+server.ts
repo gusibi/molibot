@@ -4,7 +4,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
-import { createEventTaskId, markOneShotReminderReadFile, type MomEvent } from "$lib/server/agent/events";
+import { createRuntimeTaskId, markOneShotReminderReadFile, type MomEvent } from "$lib/server/agent/events";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
 import { SYSTEM_TASK_BOTS_DIR, SYSTEM_TASK_CHANNEL, TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
 import { buildDesktopTaskTargets } from "$lib/server/app/desktopTasks";
@@ -190,7 +190,7 @@ function readTaskFile(
     const raw = readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw) as RawEventTask;
     if (parsed && typeof parsed === "object" && parsed.type === "periodic" && !String(parsed.taskId ?? "").trim()) {
-      parsed.taskId = createEventTaskId();
+      parsed.taskId = createRuntimeTaskId();
       writeFileSync(filePath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
     }
     return toTaskItem(parsed, channel, botId, fallbackChatId, scope, filePath);
@@ -379,7 +379,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const now = Date.now();
     const filePath = join(eventsDir, `periodic-${now}-${Math.random().toString(36).slice(2, 8)}.json`);
     const event: RawEventTask = {
-      taskId: createEventTaskId(),
+      taskId: createRuntimeTaskId(),
       enabled: true,
       type: "periodic",
       ...(chatId ? { chatId } : {}),
@@ -643,7 +643,7 @@ export const POST: RequestHandler = async ({ request }) => {
         };
 
         if (parsed.type === "periodic") {
-          const taskId = String(parsed.taskId ?? item.taskId ?? "").trim() || createEventTaskId();
+          const taskId = String(parsed.taskId ?? item.taskId ?? "").trim() || createRuntimeTaskId();
           parsed.taskId = taskId;
           writeFileSync(resolvedPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
           const leaseScope = `${item.channel}:${item.botId}`;

@@ -1,13 +1,28 @@
 import path from "node:path";
 import os from "node:os";
 import dotenv from "dotenv";
-import { ALLOW_EXTERNAL_PATHS_ENV, createDataDirScope } from "$lib/server/app/dataDirScope.js";
+import {
+  ALLOW_EXTERNAL_PATHS_ENV,
+  createDataDirScope,
+  resolveOsEnvKeys
+} from "$lib/server/app/dataDirScope.js";
 
-// Snapshot the OS environment before any `.env` file is merged in. Which layer
-// a variable came from is the only thing that distinguishes "this run wants its
-// data elsewhere" from "the repository happens to pin a path" — see
-// dataDirScope.ts for why that distinction is load-bearing.
-const osEnvKeys = new Set(Object.keys(process.env));
+/**
+ * Snapshot the OS environment before any `.env` file is merged in. Which layer
+ * a variable came from is the only thing that distinguishes "this run wants its
+ * data elsewhere" from "the repository happens to pin a path" — see
+ * dataDirScope.ts for why that distinction is load-bearing.
+ *
+ * Taking the snapshot here is not enough on its own. `scripts/start-server.mjs`
+ * must read the repository `.env` before it can resolve `DATA_DIR` and acquire
+ * the lease, so by the time this module loads the launcher has already merged
+ * that layer into `process.env` and the distinction is gone — the exact erasure
+ * dataDirScope.ts warns about, one level above where the guard lives. The
+ * launcher therefore publishes the real OS key set first, and it wins when
+ * present. Any other entry point (`vite.config.ts`, a bare import) still gets
+ * the correct answer from the local snapshot.
+ */
+const osEnvKeys = resolveOsEnvKeys(process.env, (message) => console.warn(`[env] ${message}`));
 dotenv.config();
 const cwdEnvKeys = new Set(Object.keys(process.env).filter((key) => !osEnvKeys.has(key)));
 

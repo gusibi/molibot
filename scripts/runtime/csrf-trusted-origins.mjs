@@ -20,6 +20,41 @@
 export const DESKTOP_DEV_PORT = 1420;
 
 /**
+ * The origin the service should believe it is serving.
+ *
+ * `adapter-node` derives its own origin from the request headers when `ORIGIN`
+ * is unset, and **defaults the scheme to `https`** (`get_origin` in
+ * `build/handler.js`). The service listens on plain HTTP, so its computed
+ * origin was `https://127.0.0.1:<port>` while a browser at
+ * `http://localhost:3000` sends `Origin: http://localhost:3000` — the two never
+ * match, and SvelteKit rejects every same-origin multipart POST with
+ * "Cross-site POST form submissions are forbidden".
+ *
+ * That is the same failure as the two WebView origins above (CLAUDE.md pitfall
+ * 25), which is why it hid for so long: `tauri://localhost` is explicitly
+ * trusted, so the packaged desktop app worked and only the *plain Web* surface
+ * was broken. Trusting more origins cannot fix it — the origin is legitimate
+ * and same-site; what was wrong is the scheme the server assumed about itself.
+ *
+ * Left alone when the operator has said something about the deployment: an
+ * explicit `ORIGIN`, or a `PROTOCOL_HEADER` naming the header a TLS-terminating
+ * proxy sets.
+ */
+export function resolveServiceOrigin(env = process.env) {
+  if (String(env.ORIGIN ?? "").trim()) return null;
+  if (String(env.PROTOCOL_HEADER ?? "").trim()) return null;
+  const host = String(env.HOST ?? "").trim() || "127.0.0.1";
+  const port = String(env.PORT ?? "").trim();
+  if (!/^\d+$/.test(port)) return null;
+  // Only for a loopback bind. A service reachable from the network may well be
+  // fronted by TLS, and guessing `http` there would be the wrong assumption in
+  // the more dangerous direction.
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") return null;
+  const authority = host === "::1" ? "[::1]" : host;
+  return `http://${authority}:${port}`;
+}
+
+/**
  * @param {{ tauriDevHost?: string }} [options]
  * @returns {string[]}
  */

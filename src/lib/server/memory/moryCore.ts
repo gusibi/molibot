@@ -9,7 +9,7 @@ import {
   planForgetting,
   scoreLexical
 } from "#mory";
-import type { PersistedMemoryNode, SqliteStorageAdapter } from "#mory";
+import type { MemoryType, PersistedMemoryNode, SqliteStorageAdapter } from "#mory";
 import type {
   MemoryAddInput,
   MemoryBackend,
@@ -27,6 +27,7 @@ import type {
   MemoryUpdateInput
 } from "$lib/server/memory/types.js";
 import { chatNamespace, contentNamespace, namespaceForDomain, promptMemoryNamespaces } from "$lib/server/memory/namespaces.js";
+import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 import {
   classifyAutoMemoryCandidate,
   inferFactKey
@@ -137,6 +138,30 @@ function normalizeSubject(input: string, fallback = "memory"): string {
   return subject || fallback;
 }
 
+/**
+ * The type an unstructured `memory add` gets when the caller names none.
+ *
+ * This used to be `task` for anything long-term, and that single word made
+ * conversational memory a write-only feature. The `memory` tool's `add` action
+ * sends no `type` and no `subject`, so *every* ordinary "remember this" landed
+ * as `mory://task/…`; meanwhile `buildRetrievalPlan`'s `chat` intent — the plan
+ * used for an ordinary turn — asks the storage layer for
+ * `user_preference | user_fact | event` only, and `memoryTypes`/`pathPrefixes`
+ * are a hard SQL filter (`moryRetrieval` → `storage.list`), not a ranking hint.
+ * The row never entered the candidate pool, so scoring never ran and no amount
+ * of lexical or semantic relevance could surface it. Both halves reported
+ * success: the tool answered "Added memory: mem-…", and the next session
+ * answered "记忆里没有记录".
+ *
+ * A bare "remember this" from the owner is a fact about the owner, so
+ * `user_fact` is both the honest classification and one the chat plan reads.
+ * `defaultWriteTypeIsRetrievable` in `moryCore.test.ts` asserts the agreement
+ * rather than trusting this comment.
+ */
+export function defaultMemoryTypeForLayer(layer: MemoryLayer): MemoryType {
+  return layer === "daily" ? "event" : "user_fact";
+}
+
 export function buildMoryWritePlan(
   scope: MemoryScope,
   input: MemoryAddInput,
@@ -146,10 +171,17 @@ export function buildMoryWritePlan(
 ): MoryWritePlan {
   const structured = Boolean(input.type && input.subject?.trim());
   const domain: MemoryDomain = input.domain ?? (scope.projectId ? "project" : "owner");
-  const namespace = input.namespace ?? (structured
-    ? namespaceForDomain(scope, domain)
-    : chatNamespace(scope));
-  const type = input.type ?? (layer === "daily" ? "event" : "task");
+  // Unstructured "remember this" defaults to the owner-wide namespace so a fact
+  // stated in one chat is recalled in the next (prd.md §3.49) — but only when
+  // the scope is willing to share. A `shareOwner: false` scope has opted out of
+  // the owner namespace in `promptMemoryNamespaces`, so writing there would put
+  // the row somewhere the writer itself cannot read back; it stays chat-scoped.
+  // Structured writes keep going to their declared domain namespace.
+  const unstructuredNamespace =
+    scope.shareOwner === false ? chatNamespace(scope) : namespaceForDomain(scope, domain);
+  const namespace =
+    input.namespace ?? (structured ? namespaceForDomain(scope, domain) : unstructuredNamespace);
+  const type = input.type ?? defaultMemoryTypeForLayer(layer);
   const subject = structured ? normalizeSubject(input.subject!, "memory") : slugify(content);
   if (structured) {
     return { namespace, domain, type, subject, path: `mory://${type}/${subject}`, lowConfidencePath: false, updatedPolicy: "overwrite" };
@@ -157,9 +189,12 @@ export function buildMoryWritePlan(
   const stamp = nowIso.replace(/[-:.TZ]/g, "").slice(0, 14);
   const scopeSlug = slugify(`${scope.channel}-${scope.externalUserId}`, "scope");
   const contentSlug = slugify(content, "memory");
-  const path = layer === "daily"
-    ? `mory://event/${nowIso.slice(0, 10)}.${scopeSlug}.${contentSlug}.${stamp}`
-    : `mory://task/${scopeSlug}.${contentSlug}.${stamp}`;
+  // The path prefix is filtered alongside the type (`plan.pathPrefixes` in
+  // moryRetrieval), so it has to be derived from the same `type` rather than
+  // hard-coded — a row whose type and path disagree is unreachable under either
+  // filter.
+  const datePrefix = layer === "daily" ? `${nowIso.slice(0, 10)}.` : "";
+  const path = `mory://${type}/${datePrefix}${scopeSlug}.${contentSlug}.${stamp}`;
   return { namespace, domain, type, subject, path, lowConfidencePath: true, updatedPolicy: "merge_append" };
 }
 
@@ -766,7 +801,7 @@ export class MoryMemoryBackend implements MemoryBackend {
       const start = Math.max(0, Math.min(cursors[cursorKey] ?? 0, messages.length));
       for (const msg of messages.slice(start)) {
         scannedMessages += 1;
-        if (msg.role !== "user") continue;
+        if (msg.role !== "user" || !retentionCapabilities(msg.retention).memoryEligible) continue;
         const classified = classifyAutoMemoryCandidate(msg.content);
         if (!classified) continue;
         const memory = await this.add(scope, {

@@ -29,9 +29,10 @@ import {
   resolveRunnerChatId,
   resolveRuntimeContext
 } from "$lib/server/web/runtimeContext";
-import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
+import { sanitizeOptionalRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
 import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import type { ConversationAttachment } from "$lib/shared/types/message";
+import { classifyTurnRetention } from "$lib/server/sessions/retentionPolicy";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec";
 import {
@@ -69,7 +70,7 @@ interface ParsedWebChatRequest {
   conversationId?: string;
   profileId: string;
   files: File[];
-  thinkingLevel: RuntimeThinkingLevel;
+  thinkingLevel?: RuntimeThinkingLevel;
   projectId?: string;
   modelKey?: string;
 }
@@ -546,7 +547,7 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
       conversationId: conversationRaw || undefined,
       profileId,
       files,
-      thinkingLevel: sanitizeRuntimeThinkingLevel(String(form.get("thinkingLevel") ?? "")),
+      thinkingLevel: sanitizeOptionalRuntimeThinkingLevel(form.get("thinkingLevel")),
       projectId: String(form.get("projectId") ?? "").trim() || undefined,
       modelKey: String(form.get("modelKey") ?? "").trim() || undefined
     };
@@ -559,7 +560,7 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
     conversationId: String(body.conversationId ?? "").trim() || undefined,
     profileId: sanitizeWebProfileId(body.profileId),
     files: [],
-    thinkingLevel: sanitizeRuntimeThinkingLevel(body.thinkingLevel),
+    thinkingLevel: sanitizeOptionalRuntimeThinkingLevel(body.thinkingLevel),
     projectId: String(body.projectId ?? "").trim() || undefined,
     modelKey: String(body.modelKey ?? "").trim() || undefined
   };
@@ -653,6 +654,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const inboundText = parsed.message || (attachments.length > 0 ? "(attachment)" : "");
+  const turnRetention = classifyTurnRetention(inboundText);
   const sessionAttachments: ConversationAttachment[] = attachments.map((attachment) => ({
     original: attachment.original,
     local: attachment.local,
@@ -669,7 +671,8 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
     attachments: sessionAttachments,
-    contextBacked: true
+    contextBacked: true,
+    retention: turnRetention
   });
 
   let finalText = "";
@@ -789,7 +792,8 @@ export const POST: RequestHandler = async ({ request }) => {
       activities: activityCollector.finalSnapshot(),
       model: responseModel || undefined,
       contextBacked: true,
-      sourceEntryId: result.assistantSourceEntryId
+      sourceEntryId: result.assistantSourceEntryId,
+      retention: turnRetention
     });
   }
 

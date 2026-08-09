@@ -6,8 +6,15 @@ import path from "node:path";
 import {
   ensureStorageDirs,
   requiredStorageDirs,
+  settingsTestArtifactDir,
+  settingsTestRoot,
   storagePaths
 } from "./storage.js";
+
+function isInside(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
 
 /**
  * The failure this guards against is silent and only appears on an upgraded
@@ -26,6 +33,37 @@ test("every directory in storagePaths is bootstrapped", () => {
       true,
       `storagePaths.${key} (${value}) is not created by ensureStorageDirs — add it to REQUIRED_DIR_KEYS`
     );
+  }
+});
+
+/**
+ * `tooling/` is the Agent's own working directory: `wrapCommandWithVenv` puts
+ * it on the Agent's PATH and points TMPDIR at it, so anything the Agent runs
+ * may create and delete files anywhere inside it. `runtime/` holds the
+ * ownership lock, the supervisor's state file, crash reports and the extracted
+ * service code.
+ *
+ * Tidying the data directory by folding one into the other is a recurring
+ * temptation — they do look like two flavours of "machine-generated state" —
+ * and it would put the running service's own code one `rm -rf "$TMPDIR/../.."`
+ * away from a Skill. Neither may contain the other, in either direction.
+ */
+test("agent tooling and service runtime stay disjoint trees", () => {
+  assert.equal(isInside(storagePaths.runtimeDir, storagePaths.toolingDir), false);
+  assert.equal(isInside(storagePaths.toolingDir, storagePaths.runtimeDir), false);
+  assert.notEqual(storagePaths.runtimeDir, storagePaths.toolingDir);
+  assert.equal(isInside(storagePaths.toolingDir, storagePaths.toolingPythonDir), true);
+});
+
+test("settings provider-test artifacts stay under one cache root", () => {
+  for (const kind of ["image", "tts", "video"] as const) {
+    assert.equal(isInside(storagePaths.settingsTestsDir, settingsTestRoot(kind)), true);
+    // The video poller passes this as a data-dir-relative artifact segment, so
+    // it must be relative and use forward slashes on every platform.
+    const relative = settingsTestArtifactDir(kind);
+    assert.equal(path.isAbsolute(relative), false);
+    assert.equal(relative.includes("\\"), false);
+    assert.equal(path.resolve(storagePaths.dataDir, relative), settingsTestRoot(kind));
   }
 });
 

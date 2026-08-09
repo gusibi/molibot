@@ -50,7 +50,7 @@ export function getRuntimeToolClassification(
   if (["write", "edit"].includes(toolName)) {
     return { risk: "medium", source: "builtin" };
   }
-  if (toolName === "webSearch") {
+  if (toolName === "webSearch" || toolName === "webFetch" || toolName === "docExtract" || toolName === "documentExport" || toolName === "imageAnalyze") {
     return { risk: "medium", source: "builtin" };
   }
   if (toolName.startsWith("mcp__")) {

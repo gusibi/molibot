@@ -18,6 +18,12 @@ export default defineConfig({
     }
   },
   clearScreen: false,
+  // The viewer ships real WASM assets next to its lazy browser entry. Vite 7's
+  // dependency optimizer rewrites those asset URLs in dev, so leave the entry
+  // external and let the normal module graph preserve the package-relative WASM.
+  optimizeDeps: {
+    exclude: ["@silurus/ooxml"]
+  },
   server: {
     host: host || "127.0.0.1",
     port: 1420,

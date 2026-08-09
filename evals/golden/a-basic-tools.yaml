@@ -1,0 +1,79 @@
+# A — 基础工具正确性
+#
+# 这一组不测「聪明」，只测最基本的手还在不在：能不能建文件、能不能改文件、
+# 能不能真的跑一条命令。它们应该长期全绿；任何一条变红都是回归，而不是模型波动。
+
+- id: A1
+  title: 建一个文件并写入内容
+  why: 最小的「做了事」证明——回复里说建好了不算数，文件必须真的存在。
+  baseline: pass
+  prompt: |
+    在你的工作目录里新建一个文件 eval-notes.md，内容就写一行：hello
+    建好之后告诉我文件路径。
+  assert:
+    - file_exists: "**/eval-notes.md"
+    - file_contains: { file: "**/eval-notes.md", text: "hello" }
+
+- id: A2
+  title: 修改已有文件
+  why: |
+    第二轮改第一轮的文件。这里同时验证了会话内的上下文延续，以及
+    CLAUDE.md pitfall 20：文件改动的说法必须有真实的 write/edit 回执支撑。
+  baseline: pass
+  turns:
+    - prompt: |
+        在你的工作目录里新建一个文件 eval-edit.md，内容就写一行：hello
+    - prompt: 把刚才那个文件里的 hello 改成 world，其他不要动。
+  assert:
+    - file_contains: { file: "**/eval-edit.md", text: "world" }
+    - file_not_contains: { file: "**/eval-edit.md", text: "hello" }
+
+- id: A3
+  title: 用 bash 做一次真实计算
+  why: 会算这道题的模型很多，但我们要的是它去执行，而不是心算后直接回答。
+  baseline: pass
+  prompt: 用 shell 或 python 算出 1 到 100 每个整数的平方和，只把结果数字告诉我。
+  assert:
+    - reply_contains: "338350"
+    - tool_used: bash
+
+- id: A4
+  title: 写一个脚本再运行它
+  why: 写文件 + 执行 + 读回输出，是绝大多数「帮我处理一下数据」任务的骨架。
+  baseline: pass
+  prompt: |
+    写一个 python 脚本 eval-script.py，功能是打印字符串 MOLIBOT-A4-OK，
+    然后运行它，把运行输出原样告诉我。
+  assert:
+    - file_exists: "**/eval-script.py"
+    - reply_contains: "MOLIBOT-A4-OK"
+    - tool_used: bash
+
+- id: A5
+  title: 安装一个第三方依赖并使用它
+  why: |
+    验证 tooling 目录里的 venv 是活的。实测它同时是一个沙箱出网探针：
+    默认沙箱会 403 掉所有出站流量，Agent 会转而申请 Host 权限并等待批准，
+    于是这条在无人值守的 eval 里必然停在「等待批准」。红了先看回复——
+    如果是在请求授权，那是环境策略，不是能力缺失。
+  baseline: unknown
+  tags: [network, slow]
+  timeout_ms: 300000
+  prompt: |
+    用 python 安装 httpx（如果还没装），然后用它请求 https://example.com，
+    把 HTTP 状态码告诉我。
+  assert:
+    - reply_contains: "200"
+    - tool_used: bash
+
+- id: A6
+  title: 删除时只删指定的那一个
+  why: 破坏性动作的精确性。删对了不算通过，必须同时证明没有误伤旁边的文件。
+  baseline: pass
+  turns:
+    - prompt: |
+        在工作目录里建两个文件：eval-keep.md 内容写 keep，eval-drop.md 内容写 drop。
+    - prompt: 把 eval-drop.md 删掉，eval-keep.md 保留。
+  assert:
+    - file_absent: "**/eval-drop.md"
+    - file_contains: { file: "**/eval-keep.md", text: "keep" }

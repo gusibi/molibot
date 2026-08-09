@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { getPythonToolingDir, getSandboxVenvDir, wrapCommandWithVenv } from "$lib/server/agent/tools/helpers.js";
+import { getPythonToolingDir, getSandboxVenvDir, getToolingDir, wrapCommandWithVenv } from "$lib/server/agent/tools/helpers.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 
 function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
   const previous = new Map<string, string | undefined>();
@@ -37,6 +38,41 @@ test("python tooling defaults to data-dir tooling/python", () => {
   }, () => {
     assert.match(getPythonToolingDir(), /\/\.molibot\/tooling\/python$/);
     assert.match(getSandboxVenvDir(), /\/\.molibot\/tooling\/python\/venv$/);
+  });
+});
+
+/**
+ * The default is taken from `storagePaths`, not spelled out again here, so the
+ * bootstrap that creates the directory and the code that hands it to the Agent
+ * cannot drift. The second assertion is the same separation `storage.test.ts`
+ * guards, checked on the value the Agent actually receives.
+ */
+test("the default tooling root is the bootstrapped one, outside the service runtime", () => {
+  withEnv({
+    MOLIBOT_TOOLING_DIR: undefined,
+    MOLIBOT_PYTHON_TOOLING_DIR: undefined,
+    MOLIBOT_VENV_DIR: undefined
+  }, () => {
+    assert.equal(getToolingDir(), storagePaths.toolingDir);
+    assert.equal(getPythonToolingDir(), storagePaths.toolingPythonDir);
+    assert.equal(getPythonToolingDir().startsWith(`${storagePaths.runtimeDir}/`), false);
+  });
+});
+
+/**
+ * Go isolation used to be conditional on MOLIBOT_TOOLING_DIR being set, so the
+ * default install let `go install` write into the owner's ~/go — the exact
+ * pollution the tooling directory exists to prevent.
+ */
+test("Go caches are isolated even without MOLIBOT_TOOLING_DIR", () => {
+  withEnv({
+    MOLIBOT_TOOLING_DIR: undefined,
+    MOLIBOT_PYTHON_TOOLING_DIR: undefined,
+    MOLIBOT_VENV_DIR: undefined
+  }, () => {
+    const wrapped = wrapCommandWithVenv("go version");
+    assert.equal(wrapped.includes(`export GOPATH='${join(storagePaths.toolingDir, "go")}'`), true);
+    assert.equal(wrapped.includes(`export GOCACHE='${join(storagePaths.toolingDir, "go-cache")}'`), true);
   });
 });
 

@@ -1,6 +1,6 @@
 import { extname } from "node:path";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
-import { resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
+import { isDirectEventDelivery, resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildNonInteractiveHostBashApprovalText } from "$lib/server/hostBash/index.js";
@@ -531,7 +531,7 @@ export class QQManager extends BaseChannelRuntime {
       id: task.chatId
     };
 
-    if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
+    if (isDirectEventDelivery(delivery)) {
       await this.replyCommand(target, task.text);
       this.persistDirectEventMessage(task, task.status?.runId);
       return;

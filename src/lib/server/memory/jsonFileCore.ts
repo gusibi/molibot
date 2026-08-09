@@ -5,6 +5,7 @@ import { scoreLexical } from "#mory";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import type { Channel } from "$lib/shared/types/message.js";
+import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 import type {
   MemoryAddInput,
   MemoryBackend,
@@ -370,7 +371,7 @@ export class JsonFileMemoryBackend implements MemoryBackend {
       const start = Math.max(0, Math.min(cursorState.cursors[cursorKey] ?? 0, messages.length));
       for (const msg of messages.slice(start)) {
         scannedMessages += 1;
-        if (msg.role !== "user") continue;
+        if (msg.role !== "user" || !retentionCapabilities(msg.retention).memoryEligible) continue;
         const classified = classifyAutoMemoryCandidate(msg.content);
         if (!classified) continue;
         const memory = await this.add(scope, {

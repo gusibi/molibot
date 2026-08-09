@@ -92,10 +92,11 @@ export interface MiniAppManifest {
 /**
  * Where an installed app came from.
  *
- * This is a provenance record, not a permission boundary: app server code runs
- * in-process with no sandbox regardless of source. It exists so the manager can
- * tell the owner what they are running, and so a remote install can be
- * confirmed explicitly rather than silently.
+ * This is a provenance record, not a permission boundary: app server code has
+ * a child-process fault boundary but still runs with the owner's OS permissions
+ * regardless of source. It exists so the manager can tell the owner what they
+ * are running, and so a remote install can be confirmed explicitly rather than
+ * silently.
  */
 export type MiniAppInstallSource =
   | { kind: "builtin" }

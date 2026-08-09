@@ -1,0 +1,76 @@
+# G / H — 代码改动与扩展面
+#
+# G 证明「说改了就是真改了」，H 证明多媒体与 Mini App 的路由是通的。
+# H 两条都慢且依赖网络，日常回归可以用 --skip-tag slow 排除。
+- id: G1
+  title: 在自己写的代码里定位一个定义
+  why: |
+    先写、再读、再定位——这是「在项目里干活」的最小闭环。
+    不依赖外部仓库，所以它测的是能力，不是环境。
+  baseline: pass
+  timeout_ms: 240000
+  turns:
+    - prompt: |
+        建一个文件 eval-lib.py，内容如下，一字不差：
+
+        def alpha():
+            return 1
+
+        def beta():
+            return 2
+
+        def gamma():
+            return 3
+    - prompt: eval-lib.py 里的 beta 函数定义在第几行？只回答数字。
+  assert:
+    - file_contains: { file: "**/eval-lib.py", text: "def gamma" }
+    - reply_contains: "4"
+
+- id: G2
+  title: 修改代码要留下真实痕迹
+  why: |
+    CLAUDE.md pitfall 20 的正面版本：说加了函数，文件里就得真的有。
+    同时验证原有内容没被整篇重写覆盖掉。
+  baseline: pass
+  timeout_ms: 240000
+  turns:
+    - prompt: |
+        建一个文件 eval-mod.py，内容就两行：
+
+        def alpha():
+            return 1
+    - prompt: 给 eval-mod.py 再加一个函数 delta，返回 4。alpha 保持不动。
+  assert:
+    - file_contains: { file: "**/eval-mod.py", text: "def delta" }
+    - file_contains: { file: "**/eval-mod.py", text: "def alpha" }
+
+# H — 扩展面
+- id: H1
+  title: 生成图片走的是图片工具
+  why: |
+    验证多媒体路由：明确的生成请求应该落到 imageGenerate，
+    而不是绕去 skillSearch 找一圈再告诉你它没有这个能力。
+  baseline: unknown
+  tags: [network, slow]
+  timeout_ms: 300000
+  prompt: 画一张简单的图：一只坐着的橘猫，扁平插画风格。
+  assert:
+    - tool_used_any: [imageGenerate]
+
+- id: H2
+  title: 造一个 Mini App 并真的装上
+  why: |
+    最重的一条，也是这套平台最独特的能力。收货标准不是模型说装好了，
+    而是 miniapps/apps 下真的出现了这个应用的目录（prd.md §3.33 的收据要求）。
+  baseline: unknown
+  tags: [slow, network]
+  timeout_ms: 900000
+  # The production flow requires an owner click before candidate code runs.
+  # This throwaway, external-channel-disabled eval clicks "approve once" via
+  # the same Desktop approval endpoint so it tests creation/install, not UI latency.
+  auto_approve: true
+  prompt: |
+    帮我做一个最简单的 Mini App，id 用 eval-water，功能是记录每天喝了多少水：
+    一个 add 工具（参数是毫升数）和一个 list 工具。做完之后装上。
+  assert:
+    - file_exists: "**/miniapps/apps/eval-water/manifest.json"

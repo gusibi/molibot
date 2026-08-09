@@ -8,13 +8,10 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { RUNTIME_DIR_MODE, resolveDataDir, runtimePaths } from "./runtime-paths.mjs";
 
-const RUNTIME_DIR_NAME = "runtime";
-const LOCK_FILE_NAME = "service.lock";
-const STATE_FILE_NAME = "service-state.json";
+export { resolveDataDir };
 
 export class ServiceLeaseConflictError extends Error {
   constructor(message, owner = null) {
@@ -23,26 +20,6 @@ export class ServiceLeaseConflictError extends Error {
     this.code = "MOLIBOT_SERVICE_LEASE_CONFLICT";
     this.owner = owner;
   }
-}
-
-function expandHome(input, homeDir = os.homedir()) {
-  if (input === "~") return homeDir;
-  if (input.startsWith("~/")) return path.join(homeDir, input.slice(2));
-  return input;
-}
-
-export function resolveDataDir(env = process.env, homeDir = os.homedir()) {
-  const raw = String(env.DATA_DIR || path.join(homeDir, ".molibot")).trim();
-  return path.resolve(expandHome(raw || path.join(homeDir, ".molibot"), homeDir));
-}
-
-function runtimePaths(dataDir) {
-  const runtimeDir = path.join(dataDir, RUNTIME_DIR_NAME);
-  return {
-    runtimeDir,
-    lockPath: path.join(runtimeDir, LOCK_FILE_NAME),
-    statePath: path.join(runtimeDir, STATE_FILE_NAME)
-  };
 }
 
 function readJson(pathname) {
@@ -83,8 +60,8 @@ export function acquireServiceLease({
   processRunning = isProcessRunning
 }) {
   const { runtimeDir, lockPath, statePath } = runtimePaths(dataDir);
-  mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
-  chmodSync(runtimeDir, 0o700);
+  mkdirSync(runtimeDir, { recursive: true, mode: RUNTIME_DIR_MODE });
+  chmodSync(runtimeDir, RUNTIME_DIR_MODE);
 
   const owner = { ownerId, pid, startedAt };
   for (let attempt = 0; attempt < 2; attempt += 1) {

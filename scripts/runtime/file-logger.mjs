@@ -1,5 +1,6 @@
 import { openSync, writeSync, closeSync, fstatSync, mkdirSync, renameSync, rmSync, existsSync } from "node:fs";
 import path from "node:path";
+import { runtimeDir } from "./runtime-paths.mjs";
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAX_FILES = 5;
@@ -21,7 +22,7 @@ export function installFileLogger({
   maxFiles = DEFAULT_MAX_FILES
 } = {}) {
   if (!dataDir) throw new Error("installFileLogger requires a dataDir");
-  const logDir = path.join(dataDir, "runtime");
+  const logDir = runtimeDir(dataDir);
   mkdirSync(logDir, { recursive: true });
   const logPath = path.join(logDir, fileName);
 

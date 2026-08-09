@@ -280,7 +280,7 @@ export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: Deskt
 export function resolveDesktopTaskPaths(items: SharedTaskItem[], ids: string[]): Map<string, string> {
   const requested = new Set(ids);
   const result = new Map<string, string>();
-  for (const item of items.filter((entry) => entry.type === "periodic")) {
+  for (const item of items.filter((entry) => entry.type === "periodic" || entry.type === "one-shot")) {
     const id = desktopTaskId(item.filePath);
     if (requested.has(id)) result.set(id, item.filePath);
   }

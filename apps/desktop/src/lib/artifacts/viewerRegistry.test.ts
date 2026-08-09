@@ -48,6 +48,15 @@ test("CSV and TSV map to the table viewer", () => {
   assert.equal(matchViewer(meta("rows.csv", { mimeType: "text/csv" })), "csv");
 });
 
+test("XLSX workbooks map to the spreadsheet viewer", () => {
+  assert.equal(matchViewer(meta("legacy.xls")), "spreadsheet");
+  assert.equal(matchViewer(meta("rows.xlsx")), "spreadsheet");
+  assert.equal(
+    matchViewer(meta("rows", { mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })),
+    "spreadsheet"
+  );
+});
+
 test("HTML maps to the sandboxed preview viewer, not source", () => {
   assert.equal(matchViewer(meta("page.html")), "html");
   assert.equal(matchViewer(meta("page.htm")), "html");
@@ -56,11 +65,22 @@ test("HTML maps to the sandboxed preview viewer, not source", () => {
   assert.equal(matchViewer(meta("page.html", { mimeType: "" })), "html");
 });
 
-test("office and unrecognized binary formats fall through to the system card", () => {
-  assert.equal(matchViewer(meta("report.docx")), "system");
-  assert.equal(matchViewer(meta("sheet.xlsx")), "system");
-  assert.equal(matchViewer(meta("deck.pptx")), "system");
+test("Office formats without an inline viewer fall through to the system card", () => {
+  assert.equal(matchViewer(meta("legacy.ppt")), "system");
   assert.equal(matchViewer(meta("blob.unknownext")), "system");
+});
+
+test("PPTX presentations map to the presentation viewer", () => {
+  assert.equal(matchViewer(meta("deck.pptx")), "pptx");
+  assert.equal(
+    matchViewer(meta("deck", { mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" })),
+    "pptx"
+  );
+});
+
+test("DOCX documents map to the document viewer", () => {
+  assert.equal(matchViewer(meta("report.docx")), "docx");
+  assert.equal(matchViewer(meta("report", { mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })), "docx");
 });
 
 test("text dotfiles such as .gitignore open as code, not the system card (issue #31 bug 3)", () => {
@@ -93,7 +113,7 @@ test("declared MIME wins over a misleading extension", () => {
 
 test("project and session scopes dispatch identically", () => {
   // The scope only affects the action bar / @-reference target, never the viewer.
-  for (const name of ["photo.png", "app.ts", "doc.pdf", "report.docx", "logo.svg"]) {
+  for (const name of ["photo.png", "app.ts", "doc.pdf", "report.docx", "deck.pptx", "logo.svg"]) {
     assert.equal(
       matchViewer(meta(name, { scope: "project" })),
       matchViewer(meta(name, { scope: "session" })),
@@ -108,6 +128,9 @@ test("isInlineViewer flags everything except the system card", () => {
   assert.equal(isInlineViewer("markdown"), true);
   assert.equal(isInlineViewer("json"), true);
   assert.equal(isInlineViewer("svg"), true);
+  assert.equal(isInlineViewer("spreadsheet"), true);
+  assert.equal(isInlineViewer("docx"), true);
+  assert.equal(isInlineViewer("pptx"), true);
   assert.equal(isInlineViewer("system"), false);
 });
 
@@ -116,7 +139,7 @@ test("needsTextContent covers exactly the viewers that render decoded text", () 
   for (const viewer of ["code", "csv", "markdown", "json", "svg"] as const) {
     assert.equal(needsTextContent(viewer), true, `${viewer} needs text`);
   }
-  for (const viewer of ["media", "html", "system", "diff"] as const) {
+  for (const viewer of ["media", "html", "spreadsheet", "docx", "pptx", "system", "diff"] as const) {
     assert.equal(needsTextContent(viewer), false, `${viewer} must not need text`);
   }
 });

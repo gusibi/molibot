@@ -33,9 +33,10 @@ function toAgentTool(
   toolName: string,
   options: PiExtensionToolOptions
 ): AgentTool<any> | null {
-  const registered = extension.extension.tools.get(toolName);
-  if (!registered) return null;
-  const definition = registered.definition as any;
+  const registered = extension.extension?.tools.get(toolName);
+  const definition = registered?.definition as any
+    ?? extension.tools?.find((tool) => tool.name === toolName);
+  if (!definition) return null;
 
   return {
     name: definition.name,
@@ -45,6 +46,18 @@ function toAgentTool(
     ...(definition.prepareArguments ? { prepareArguments: definition.prepareArguments } : {}),
     ...(definition.executionMode ? { executionMode: definition.executionMode } : {}),
     execute: async (toolCallId, params, signal, onUpdate) => {
+      if (extension.client) {
+        const result = await extension.client.request("invokeTool", {
+          extensionId: extension.id,
+          toolName,
+          toolCallId,
+          params,
+          cwd: options.cwd,
+          systemPrompt: options.systemPrompt?.() ?? ""
+        }, signal);
+        for (const update of result.updates ?? []) onUpdate?.(update);
+        return result.value;
+      }
       const ctx = createHeadlessExtensionContext({
         cwd: options.cwd,
         signal,

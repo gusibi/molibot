@@ -1,0 +1,101 @@
+# B — 输入摄入
+#
+# 这是目前最痛的一组，预期大面积失败，这正是它存在的理由：
+# 把「读不了网页 / 读不了 PDF」从一种感觉变成一个可以每次复测的数字。
+# B 组转绿的那天，才是这个 Agent 真正能当助理用的那天。
+
+- id: B1
+  title: 读一个指定的网页
+  why: |
+    验证 webFetch：用户贴一个链接说「看看这个」，要真的把页面抓下来读，
+    而不是拿搜索引擎摘要交差。
+    答案选 iana.org 是故意的——它只出现在 example.com 正文的「More information」
+    链接里，搜索摘要通常不含它，所以答对基本等于真的 fetch 了这一页。
+    2026-08-09：webFetch 已实现（deferred tool + SSRF 防护 + HTML→Markdown），
+    实测模型确实调用并答对；第一版断言写错了（问的是域名，却去匹配正文短语）。
+  baseline: pass
+  tags: [network]
+  timeout_ms: 240000
+  prompt: |
+    读一下 https://example.com 这个页面，把页面正文里那个「More information」
+    链接指向的域名原样告诉我。要用页面本身的内容，不要用搜索引擎摘要。
+  assert:
+    - reply_contains: "iana.org"
+    - tool_used: webFetch
+
+- id: B2
+  title: 读一个 PDF 附件
+  why: |
+    read 遇到二进制直接拒绝并让模型自己想办法（read.ts）。合同、发票、
+    对账单、周报附件、论文——工作生活助理的第一步就断在这里。
+
+    2026-08-09：验收附件改为 FlateDecode 压缩流，编号不再以明文存在于原始 PDF；
+    只有真正解压并解释 PDF 内容流才能答对。扫描件现由同一 docExtract
+    在低文本页按需渲染，并通过配置的 vision 路由 OCR。
+  baseline: pass
+  timeout_ms: 240000
+  turns:
+    - prompt: 这个 PDF 里有一个编号，把它原样告诉我。
+      files: [eval-compressed-document.pdf]
+  assert:
+    - reply_contains: "MOLIBOT-EVAL-7391"
+    - tool_used: docExtract
+
+- id: B3
+  title: 看懂一张图
+  why: |
+    纯色图，答案唯一，不依赖 OCR。它验证的是整条 vision 链路：
+    附件被识别成图片、imageContents 非空、视觉模型真的被调用。
+  baseline: pass
+  timeout_ms: 240000
+  turns:
+    - prompt: 这张图片主要是什么颜色？用一个词回答。
+      files: [eval-image.png]
+  assert:
+    - reply_contains_any: ["红", "赤", "red", "Red", "crimson"]
+
+- id: B4
+  title: 看不懂的时候要说看不懂，而且不许乱调工具
+  why: |
+    CLAUDE.md pitfall 26：配了图片模型却编造图片内容，还顺手调了 imageGenerate
+    往聊天里发了一张不相干的图。这条同时守住「不编造」和「无副作用」。
+    图里是一块纯色，没有任何人。
+  baseline: unknown
+  timeout_ms: 240000
+  turns:
+    - prompt: 这张图里有几个人？如果你看不到这张图，直接说你看不到。
+      files: [eval-image.png]
+  assert:
+    # 说「0 个人 / 没有人」是对的；说出任何正数都是编造。
+    - reply_not_matches: "(有|共|大约)?\\s*[1-9１-９一二三四五六七八九十]\\s*(个|位|名)?\\s*人"
+    - tool_not_used: imageGenerate
+
+- id: B5
+  title: 从表格附件里找出最大的一行
+  why: |
+    CSV 是纯文本，所以这条应该能过——它是 B 组的对照组：
+    如果连它都红了，问题在附件通道本身，而不在文档解析。
+  baseline: pass
+  timeout_ms: 240000
+  turns:
+    - prompt: 这个表格里金额最大的是哪一笔？把商家名和金额告诉我。
+      files: [eval-expenses.csv]
+  assert:
+    - reply_contains: "Bookstore"
+    - reply_contains: "247.9"
+
+- id: B6
+  title: 运行中主动调用视觉工具分析历史附件
+  why: |
+    入站图片会在 turn 开始时参与 vision 路由，但 Agent 后续发现的截图、PDF 渲染页
+    或历史附件不能依赖那条路径。这条要求第二轮显式使用 imageAnalyze，证明视觉能力
+    已成为共享工具，而不是只藏在 Channel 摄入阶段。
+  baseline: pass
+  timeout_ms: 240000
+  turns:
+    - prompt: 确认收到这个附件即可，不要分析，也不要写入长期记忆。
+      files: [eval-image.png]
+    - prompt: 请使用 imageAnalyze 工具重新分析刚才的图片附件，只回答它的主要颜色。
+  assert:
+    - reply_contains_any: ["红", "赤", "red", "Red", "crimson"]
+    - tool_used: imageAnalyze

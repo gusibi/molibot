@@ -129,6 +129,19 @@ test("telegram media upload name preserves source extension when title omits it"
   );
 });
 
+test("telegram reminder delivery fails closed while the bot is offline", async () => {
+  const manager = new TestTelegramManager();
+  await assert.rejects(
+    () => manager.triggerTask({
+      type: "one-shot",
+      chatId: "chat-1",
+      text: "Offline reminder",
+      delivery: "text"
+    }, "offline-reminder.json"),
+    /not running; reminder was not delivered/
+  );
+});
+
 test("telegram sends memory review buttons only to private chats", async () => {
   const manager = new TestTelegramManager();
   const sends: unknown[] = [];

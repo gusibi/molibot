@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "corepack pnpm exec tsx --test src/lib/chat/agentCityProjection.test.ts src/lib/chat/agentCityScene.test.ts src/lib/chat/agentCityCamera.test.ts src/lib/chat/agentCityPugAnimation.test.ts src/lib/chat/conversationNavigation.test.ts src/lib/chat/messageTime.test.ts src/lib/chat/modelSelection.test.ts src/lib/chat/transcript.test.ts src/lib/chat/turnAbort.test.ts src/lib/settings/memoryCenter.test.ts src/lib/native/commandSystem.test.ts src/lib/native/startupCoordinator.test.ts src/lib/native/directManipulation.test.ts src/lib/native/commandPalette.test.ts src/lib/native/windowState.test.ts src/lib/native/feedbackCoordinator.test.ts src/lib/native/hapticCoordinator.test.ts src/lib/projects/sessionFileTouches.test.ts src/lib/miniapps/messageActions.test.ts src/lib/artifacts/viewerRegistry.test.ts src/lib/artifacts/csvTable.test.ts src/lib/artifacts/jsonTree.test.ts src/lib/artifacts/mermaidBlocks.test.ts && node --test src/chat-ui.test.mjs src/http-scope.test.mjs src/reactive-statement-guard.test.mjs src/runes-store-reactivity-guard.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "corepack pnpm exec tsx --test src/lib/chat/agentCityProjection.test.ts src/lib/chat/agentCityScene.test.ts src/lib/chat/agentCityCamera.test.ts src/lib/chat/agentCityPugAnimation.test.ts src/lib/chat/conversationNavigation.test.ts src/lib/chat/messageTime.test.ts src/lib/chat/modelSelection.test.ts src/lib/chat/transcript.test.ts src/lib/chat/turnAbort.test.ts src/lib/settings/memoryCenter.test.ts src/lib/native/commandSystem.test.ts src/lib/native/startupCoordinator.test.ts src/lib/native/directManipulation.test.ts src/lib/native/commandPalette.test.ts src/lib/native/windowState.test.ts src/lib/native/feedbackCoordinator.test.ts src/lib/native/hapticCoordinator.test.ts src/lib/projects/sessionFileTouches.test.ts src/lib/projects/fileIcons.test.ts src/lib/miniapps/messageActions.test.ts src/lib/artifacts/viewerRegistry.test.ts src/lib/artifacts/csvTable.test.ts src/lib/artifacts/docx.test.ts src/lib/artifacts/pptx.test.ts src/lib/artifacts/jsonTree.test.ts src/lib/artifacts/spreadsheet.test.ts src/lib/artifacts/mermaidBlocks.test.ts && node --test src/chat-ui.test.mjs src/http-scope.test.mjs src/reactive-statement-guard.test.mjs src/runes-store-reactivity-guard.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
     "sync:version": "node ../../scripts/sync-desktop-version.mjs",
     "prepare:runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "tauri": "tauri",
@@ -18,6 +18,7 @@
     "@fontsource/geist-mono": "^5.2.8",
     "@fontsource/geist-sans": "^5.2.5",
     "@phosphor-icons/web": "^2.1.2",
+    "@silurus/ooxml": "0.76.2",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-http": "^2.5.9",
@@ -26,11 +27,13 @@
     "diff2html": "^3.4.56",
     "dompurify": "^3.4.11",
     "highlight.js": "^11.11.1",
+    "mammoth": "1.12.0",
     "marked": "^18.0.5",
     "mermaid": "^11.16.1",
     "qrcode": "^1.5.4",
     "svelte": "^5.38.10",
-    "three": "0.185.1"
+    "three": "0.185.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",

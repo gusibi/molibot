@@ -42,6 +42,17 @@ test("runtime event entries stay out of rebuilt model messages", () => {
   assert.equal(built.entries[0]?.type, "runtime_event");
 });
 
+test("turn-only entries remain in the transcript log but not future Agent Context", () => {
+  const entries: SessionFileEntry[] = [
+    createSessionHeader("session-retention"),
+    { type: "message", id: "u1", parentId: null, timestamp: "2026-08-09T00:00:00.000Z", retention: "turn_only", message: { role: "user", content: "TMP-4821", timestamp: 1 } },
+    { type: "message", id: "a1", parentId: "u1", timestamp: "2026-08-09T00:00:01.000Z", retention: "turn_only", message: { role: "assistant", content: [{ type: "text", text: "收到" }], timestamp: 2 } as any },
+    { type: "message", id: "u2", parentId: "a1", timestamp: "2026-08-09T00:00:02.000Z", retention: "standard", message: { role: "user", content: "下一轮", timestamp: 3 } }
+  ];
+  assert.equal(entries.filter((entry) => entry.type === "message").length, 3);
+  assert.deepEqual(buildMessagesFromSessionEntries(entries).messages.map((message) => message.role), ["user"]);
+});
+
 test("transient tool-budget runtime notice is stripped from prompt history", () => {
   const messages: AgentMessage[] = [
     {

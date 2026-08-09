@@ -3,7 +3,7 @@ import { extname, join } from "node:path";
 import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
 import { type IncomingMessage, WeixinBot } from "$lib/server/channels/weixin/client.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
-import { resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
+import { isDirectEventDelivery, resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildNonInteractiveHostBashApprovalText } from "$lib/server/hostBash/index.js";
 import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
@@ -613,7 +613,7 @@ export class WeixinManager extends BaseChannelRuntime {
         timestamp: new Date(now)
       };
 
-      if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
+      if (isDirectEventDelivery(delivery)) {
         await this.sendText(task.chatId, syntheticMessage, task.text, false);
         this.persistDirectEventMessage(task, task.status?.runId);
         momLog("weixin", "trigger_task_text_done", { filename: _filename, chatId: task.chatId });

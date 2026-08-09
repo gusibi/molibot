@@ -3,7 +3,7 @@ name: "Mini App Creator"
 description: "带你从零做出一个 Molibot Mini App：Agent 工具 + 桌面面板 UI + 一份私有数据，全部基于现成模板改，不从零写。"
 category: "设计与开发"
 source: "MolipiBot"
-version: "1.3.0"
+version: "1.3.1"
 title: "Mini App 开发工作规则"
 summary: "用于设计、生成、安装和验证 Mini App 的工作模板。"
 read_when:
@@ -35,7 +35,7 @@ read_when:
 6. **不可逆操作必须标 `destructiveHint: true`**，它决定每次调用是否需要 owner 审批。风险只来自语义提示，永远不来自工具名。
 7. **交付前必须冷启动验证。** 装完要重启服务（V1 无热更新），然后真的打开面板首屏、让 Agent 写一条看面板是否 2 秒内刷新、在面板改一条看 Agent 是否读得到、禁用后看面板是否优雅降级。测试通过不等于链路通。
 8. **不引入需要 `npm install` 的依赖。** 宿主不编译 TypeScript、不跑安装脚本；SQLite 用 Node 内置的 `node:sqlite`，第三方依赖必须自带。
-9. **说清信任边界。** App 服务端代码在 Molibot 进程内运行且完全不做沙箱。为用户安装第三方 App 前必须明说：这等于用自己的权限运行别人的代码。
+9. **说清信任边界。** App 服务端代码在每 App 独立子进程运行，退出或卡死不会带走 Molibot 服务；但这不是权限沙箱，代码仍以 owner 的系统权限运行。为用户安装第三方 App 前必须明说：这等于用自己的权限运行别人的代码。
 10. **跨边界能力必须声明。** 消息动作写进 `contributions.messageActions`；AI 调用写进 `ai.capabilities`；二进制上传逐路由写进 `ai.uploadLimits`。使用任一新字段时 `engines.molibot` 至少为 `>=2.9.8`，不要写兼容字段。
 11. **桥只填草稿，绝不发送。** UI 只能发 v1 `composer.insert`，并且 App 在宿主忽略桥时仍须可用。长任务必须捕获每个后台 Promise，并在 Runtime 重建时把进行中状态终态化为 `interrupted`。
 12. **UI 铁律（每条都对应真实事故，违反即出「点击没反应」类故障）：**

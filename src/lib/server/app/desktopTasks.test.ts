@@ -272,4 +272,5 @@ test("task ids resolve to server-side paths and reject unknown ids", () => {
   const reminderId = buildDesktopTaskItem(reminder).id;
   assert.equal(resolveDesktopOneShotTaskPaths([source, reminder], [reminderId]).get(reminderId), reminder.filePath);
   assert.throws(() => resolveDesktopOneShotTaskPaths([source], [id]), /Unknown one-shot task/);
+  assert.equal(resolveDesktopTaskPaths([source, reminder], [reminderId]).get(reminderId), reminder.filePath);
 });

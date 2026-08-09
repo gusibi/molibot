@@ -3,7 +3,7 @@ import test from "node:test";
 import { convertMessages } from "@earendil-works/pi-ai/api/openai-completions";
 import { defaultRuntimeSettings, type RuntimeSettings } from "$lib/server/settings/index.js";
 import { resolveSttTarget } from "$lib/server/agent/routing/stt.js";
-import { resolveVisionFallbackTarget } from "$lib/server/agent/routing/vision-fallback.js";
+import { resolveVisionAnalysisTarget } from "$lib/server/agent/vision/visionAnalysis.js";
 import {
   applyAgentModelRoutingOverride,
   applyTurnModelOverride,
@@ -73,7 +73,7 @@ test("vision fallback route ignores disabled providers", () => {
     ]
   });
 
-  assert.equal(resolveVisionFallbackTarget(settings), null);
+  assert.equal(resolveVisionAnalysisTarget(settings), null);
 });
 
 function settingsWithBoundAgent(agentModelRouting: RuntimeSettings["agents"][number]["modelRouting"]): RuntimeSettings {

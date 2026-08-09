@@ -2619,3 +2619,45 @@ Final conclusion: the voice path is operational inside Molibot and fails because
 - Agent `message_end` events for those tracked controls are excluded from Session persistence, and the replay list plus any residual steering queue are cleared when the run finishes.
 
 ---
+
+---
+
+# Artifact Inspector redesign findings (2026-08-09)
+
+## Requirements
+- The right panel and file preview should feel complete and consistent with GitHub's editor/code browsing experience.
+- Preserve current file browsing and preview behavior; change the visual language, layout hierarchy, and preview palette.
+
+## Existing seams retained
+- `ArtifactPanel.svelte` already owns the file tree, project/session scopes, open-file tabs, search, diff, attachment list, viewer dispatch, downloads, and resizable vertical split.
+- `CodeViewer.svelte` renders line-numbered code and highlight.js token classes; global scoped selectors can theme all viewers from the Artifact root.
+- Markdown, JSON, CSV, SVG, media, HTML, and system-card viewers expose stable classes for the same shared chrome.
+
+## Reference research
+- [GitHub code browsing](https://github.blog/changelog/2022-11-09-introducing-an-all-new-code-search-and-code-browsing-experience/) emphasizes a tree pane, file search, sticky code headers, and symbol/diff context.
+- [Primer color usage](https://primer.style/product/getting-started/foundations/color-usage/) recommends semantic, theme-aware foreground/background/border/focus roles.
+- [Primer color primitives](https://www.primer.style/product/primitives/color/) provides the light/dark values used by the scoped Inspector token layer.
+- [GitHub editing files](https://docs.github.com/en/repositories/working-with-files/managing-files/editing-files) reinforces a file path/action header above the editor surface.
+
+## Implemented visual system
+- Repository canvas: `#f6f8fa / #161b22`.
+- Editor surface: `#fff / #0d1117`.
+- Borders: `#d1d9e0 / #30363d`.
+- Accent: `#0969da / #58a6ff`.
+- Flat tabs with 2px accent underline, 42px breadcrumb/action header, compact utility controls, inset selection cue, and border-led surfaces.
+- GitHub-like syntax tokens for CodeViewer and Markdown; Primer diff roles for additions/deletions.
+
+---
+
+# Artifact file icon research (2026-08-09)
+
+## Candidate libraries
+
+| Option | Strength | Cost / reason not selected |
+| --- | --- | --- |
+| `@iconify/svelte` + `@iconify-json/vscode-icons` | Current, broad VS Code filename coverage and SVG output | Default component loads from Iconify API; offline Desktop would need the full collection bundled or a custom subset pipeline |
+| `@exuanbo/file-icons-js` | Direct filename-to-colour class API | Last published six years ago; ships a second icon font stack and does not match the existing Phosphor runtime |
+| Existing `@phosphor-icons/web` | Already bundled, offline, accessible as the current `ph-file-*` classes, no new runtime | Needs a small filename/extension colour resolver, which is now shared in `fileIcons.ts` |
+
+## Decision
+Reuse Phosphor and restore type colours through `--file-color`. The resolver handles special repository names before extensions and is consumed by every existing file icon surface. This keeps the desktop local-first contract, avoids another icon font or remote fetch, and leaves Iconify as a future option only if the product later needs its full VS Code icon artwork rather than the current Phosphor family.

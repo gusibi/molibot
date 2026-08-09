@@ -245,6 +245,9 @@ export interface DesktopProjectGitEntry {
   indexStatus: string;
   worktreeStatus: string;
   untracked: boolean;
+  additions: number | null;
+  deletions: number | null;
+  binary: boolean;
 }
 
 export type DesktopProjectGitStatus =

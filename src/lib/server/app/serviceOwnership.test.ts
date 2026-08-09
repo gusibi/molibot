@@ -117,3 +117,19 @@ test("channels requiring ownership stay stopped when unowned; local ones keep ru
   assert.equal(channelPluginMayRun({ requiresServiceOwnership: true }, owned), true);
   assert.equal(channelPluginMayRun({}, owned), true);
 });
+
+/**
+ * The ownership gate cannot protect a throwaway run: an eval instance seeded
+ * from a real data directory holds real bot tokens and legitimately owns its
+ * own temporary directory, so ownership answers "yes" and the owner's bot
+ * replies from a scratch process. The kill switch has to outrank ownership.
+ */
+test("MOLIBOT_DISABLE_EXTERNAL_CHANNELS outranks ownership for outward channels", () => {
+  const owned = { owned: true as const };
+  const disabled = { externalChannelsDisabled: true };
+
+  assert.equal(channelPluginMayRun({ requiresServiceOwnership: true }, owned, disabled), false);
+  assert.equal(channelPluginMayRun({}, owned, disabled), false);
+  // Web and CLI are how such a run is driven, so they must survive it.
+  assert.equal(channelPluginMayRun({ requiresServiceOwnership: false }, owned, disabled), true);
+});

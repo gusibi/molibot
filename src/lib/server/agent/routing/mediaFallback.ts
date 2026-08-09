@@ -8,9 +8,9 @@ import {
   type ResolvedModelSelection
 } from "$lib/server/agent/routing/modelRouting.js";
 import {
-  resolveVisionFallbackTarget,
-  describeImageViaConfiguredProvider
-} from "$lib/server/agent/routing/vision-fallback.js";
+  analyzeImageWithConfiguredVision,
+  resolveVisionAnalysisTarget
+} from "$lib/server/agent/vision/visionAnalysis.js";
 import {
   resolveSttTarget,
   transcribeAudioViaConfiguredProvider
@@ -200,7 +200,7 @@ export function decideImageFallbackRouting(
     };
   }
 
-  const target = resolveVisionFallbackTarget(settings);
+  const target = resolveVisionAnalysisTarget(settings);
   if (!target) {
     return {
       shouldAnalyze: false,
@@ -378,7 +378,7 @@ export async function enrichMessageTextWithImages(
     const attachment = imageAttachments[index];
     const image = imageContents[index];
     const label = attachment?.original?.trim() || `image-${index + 1}`;
-    const analysis = await describeImageViaConfiguredProvider({
+    const analysis = await analyzeImageWithConfiguredVision({
       channel: ctx.channel,
       settings,
       image,

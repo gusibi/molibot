@@ -3,7 +3,7 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
 import type { ChannelInboundMessage, FileAttachment, RunnerUiEvent } from "$lib/server/agent/core/types";
-import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings";
+import { sanitizeOptionalRuntimeThinkingLevel } from "$lib/server/settings";
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,
@@ -13,6 +13,7 @@ import { resolveRuntimeContext } from "$lib/server/web/runtimeContext";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { resolveWebInboundFileMeta, saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment } from "$lib/shared/types/message";
+import { classifyTurnRetention } from "$lib/server/sessions/retentionPolicy";
 import { buildRunnerProjectContext, resolveProjectContext } from "$lib/server/projects/context";
 import { parseStreamRequest, type ParsedStreamRequest } from "./request";
 
@@ -84,7 +85,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const profileId = sanitizeWebProfileId(body.profileId);
   const message = String(body.message ?? "").trim();
   const conversationId = String(body.conversationId ?? "").trim() || undefined;
-  const thinkingLevel = sanitizeRuntimeThinkingLevel(body.thinkingLevel);
+  const thinkingLevel = sanitizeOptionalRuntimeThinkingLevel(body.thinkingLevel);
   const projectResult = resolveProjectContext(body.projectId);
   if (!projectResult.ok) {
     return new Response(JSON.stringify({ ok: false, error: projectResult.error }), {
@@ -146,6 +147,7 @@ export const POST: RequestHandler = async ({ request }) => {
     }
   }
   const inboundText = message || "(attachment)";
+  const turnRetention = classifyTurnRetention(inboundText);
   const sessionAttachments: ConversationAttachment[] = attachments.map((attachment) => ({
     original: attachment.original,
     local: attachment.local,
@@ -155,7 +157,8 @@ export const POST: RequestHandler = async ({ request }) => {
   }));
   runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
     attachments: sessionAttachments,
-    contextBacked: true
+    contextBacked: true,
+    retention: turnRetention
   });
 
   request.signal.addEventListener(
@@ -319,7 +322,8 @@ export const POST: RequestHandler = async ({ request }) => {
               activities: activityCollector.finalSnapshot(),
               model: responseModel || undefined,
               contextBacked: true,
-              sourceEntryId: result.assistantSourceEntryId
+              sourceEntryId: result.assistantSourceEntryId,
+              retention: turnRetention
             });
             assistantPersisted = true;
           }
@@ -346,7 +350,7 @@ export const POST: RequestHandler = async ({ request }) => {
                 conversation.id,
                 "assistant",
                 partial ? `${partial}\n\n${notice}` : notice,
-                { attachments: responseAttachments, activities, model: responseModel || undefined, contextBacked: true }
+                { attachments: responseAttachments, activities, model: responseModel || undefined, contextBacked: true, retention: turnRetention }
               );
             }
           } catch {

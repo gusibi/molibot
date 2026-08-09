@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { createImageGenerateTool } from "$lib/server/agent/imageGenerate/imageGenerateTool.js";
 import { getRuntime } from "$lib/server/app/runtime";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { settingsTestRoot } from "$lib/server/infra/db/storage.js";
 import { sanitizeImageGenerateSettings } from "$lib/server/settings/sanitize.js";
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -22,8 +22,8 @@ export const POST: RequestHandler = async ({ request }) => {
       ...runtime.getSettings(),
       imageGenerate
     }),
-    cwd: `${storagePaths.dataDir}/settings-image-tests`,
-    workspaceDir: `${storagePaths.dataDir}/settings-image-tests`,
+    cwd: settingsTestRoot("image"),
+    workspaceDir: settingsTestRoot("image"),
     artifactDir: "test-images"
   };
 

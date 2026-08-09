@@ -7,6 +7,7 @@ import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
 import {
   buildSubagentModelCandidates,
+  buildSubagentCustomCompat,
   buildSubagentPiSettings,
   createSubagentSessionManager,
   createSubagentTool,
@@ -19,6 +20,23 @@ import {
   summarizeSubagentStopReason,
   summarizeSubagentResultsForParent
 } from "$lib/server/agent/tools/subagent.js";
+
+test("custom subagent models declare unsupported developer roles", () => {
+  assert.equal(
+    buildSubagentCustomCompat(
+      { thinkingFormat: undefined },
+      { id: "model", supportedRoles: ["system", "user", "assistant", "tool"] }
+    )?.supportsDeveloperRole,
+    false
+  );
+  assert.equal(
+    buildSubagentCustomCompat(
+      { thinkingFormat: undefined },
+      { id: "model", supportedRoles: ["system", "user", "assistant", "tool", "developer"] }
+    )?.supportsDeveloperRole,
+    true
+  );
+});
 
 test("Subagent pi settings inherit bounded compaction values from runtime settings", () => {
   const settings = structuredClone(defaultRuntimeSettings);

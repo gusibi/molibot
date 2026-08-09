@@ -14,3 +14,4 @@ minimumReleaseAgeExclude:
   - '@earendil-works/pi-ai@0.81.0'
   - '@earendil-works/pi-coding-agent@0.81.0'
   - '@earendil-works/pi-tui@0.81.0'
+  - '@silurus/ooxml@0.76.2'

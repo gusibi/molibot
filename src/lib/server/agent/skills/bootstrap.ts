@@ -70,8 +70,8 @@ export interface BuiltinSkill {
 const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     id: "miniapp-creator",
-    // 1.3.2: Geist visual layout and styling updates.
-    version: "1.3.2",
+    // 1.3.3: describe child-process fault isolation without claiming a permission sandbox.
+    version: "1.3.3",
     files: {
       "SKILL.md": miniappCreatorSkill,
       "reference.md": miniappCreatorReference,

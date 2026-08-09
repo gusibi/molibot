@@ -37,6 +37,16 @@ const HEALTHY_RESET_AFTER: Duration = Duration::from_secs(60);
 const MAX_CONSECUTIVE_FAILURES: usize = 5;
 /// Longest gap between restart attempts once the service keeps failing.
 const MAX_BACKOFF_SECS: u64 = 60;
+/// Service-owned state directory inside the data directory. Mirrors
+/// `scripts/runtime/runtime-paths.mjs` and `storagePaths.runtimeDir`.
+const RUNTIME_DIR_NAME: &str = "runtime";
+const STATE_FILE_NAME: &str = "service-state.json";
+const SIDECAR_LOG_NAME: &str = "desktop-sidecar.log";
+const GENERATION_PREFIX: &str = "desktop-runtime-";
+const RUNTIME_VERSION_MARKER: &str = ".molibot-runtime-version";
+/// Superseded runtime generations kept after an upgrade. One, for an adopted
+/// sidecar from the previous build that is still lazy-loading its chunks.
+const KEEP_SUPERSEDED_GENERATIONS: usize = 1;
 /// How often a *running*, handshake-answering service is asked whether its
 /// runtime actually works.
 const HEALTH_PROBE_INTERVAL: Duration = Duration::from_secs(15);
@@ -455,6 +465,107 @@ fn strip_ansi(input: &str) -> String {
     out
 }
 
+/// Service-owned runtime state under the data directory.
+///
+/// The Node side derives the same layout from `scripts/runtime/runtime-paths.mjs`
+/// and the TypeScript side from `storagePaths.runtimeDir`. Rust cannot import
+/// either, so this is the third and last copy — change one, change all three.
+fn runtime_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join(RUNTIME_DIR_NAME)
+}
+
+fn runtime_generation_dir(data_dir: &Path, version_slug: &str) -> PathBuf {
+    runtime_dir(data_dir).join(format!("{GENERATION_PREFIX}{version_slug}"))
+}
+
+fn runtime_state_path(data_dir: &Path) -> PathBuf {
+    runtime_dir(data_dir).join(STATE_FILE_NAME)
+}
+
+/// How a `desktop-runtime-*` entry under `runtime/` should be treated.
+#[derive(Debug, PartialEq, Eq)]
+enum GenerationKind {
+    /// Carries a `.molibot-runtime-version` marker — a real, usable generation.
+    Generation(String),
+    /// A `desktop-runtime-<uuid>` extraction directory. `materialize_bundled_runtime`
+    /// removes its own on both success and failure, so anything still here is
+    /// from a process that died mid-extract and can never be in use.
+    Staging,
+}
+
+fn classify_generation(entry: &Path) -> Option<GenerationKind> {
+    let name = entry.file_name()?.to_str()?;
+    if !name.starts_with(GENERATION_PREFIX) || !entry.is_dir() {
+        return None;
+    }
+    match read_to_string(entry.join(RUNTIME_VERSION_MARKER)) {
+        Ok(slug) => Some(GenerationKind::Generation(slug.trim().to_string())),
+        Err(_) => Some(GenerationKind::Staging),
+    }
+}
+
+/// Reclaims superseded runtime generations.
+///
+/// Every upgrade extracts a new ~300 MB `desktop-runtime-<version>` directory,
+/// and nothing ever removed the old ones: an install that had been updated a
+/// few times was carrying several gigabytes of dead service code, with only the
+/// current one reachable.
+///
+/// One previous generation is deliberately kept. Generations are immutable
+/// because an adopted sidecar from the *previous* build may still lazy-load its
+/// hashed chunks after the new Desktop app starts (see
+/// `bundled_runtime_upgrade_keeps_chunks_used_by_the_previous_generation`);
+/// deleting it would break that live process with ERR_MODULE_NOT_FOUND. Two
+/// generations back cannot be running, because reaching this code means the
+/// supervisor has already replaced whatever it adopted at least once since.
+///
+/// Best-effort by construction: a directory that will not delete (a file still
+/// open, a permission change) costs disk space, never a failed start.
+fn prune_runtime_generations(runtime_parent: &Path, current_slug: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(runtime_parent) else {
+        return Vec::new();
+    };
+    let mut superseded: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    let mut removable: Vec<PathBuf> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        match classify_generation(&path) {
+            Some(GenerationKind::Generation(slug)) if slug == current_slug => {}
+            Some(GenerationKind::Generation(_)) => {
+                let modified = metadata(&path)
+                    .and_then(|meta| meta.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                superseded.push((modified, path));
+            }
+            Some(GenerationKind::Staging) => removable.push(path),
+            None => {}
+        }
+    }
+
+    // Newest first, so the one kept for an adopted sidecar is the most recent
+    // superseded build rather than an arbitrary directory-order entry.
+    superseded.sort_by(|left, right| right.0.cmp(&left.0));
+    removable.extend(
+        superseded
+            .into_iter()
+            .skip(KEEP_SUPERSEDED_GENERATIONS)
+            .map(|(_, path)| path),
+    );
+
+    let mut removed = Vec::new();
+    for path in removable {
+        match remove_dir_all(&path) {
+            Ok(()) => removed.push(path),
+            Err(error) => eprintln!(
+                "[desktop] failed to remove superseded runtime {}: {error}",
+                path.display()
+            ),
+        }
+    }
+    removed
+}
+
 fn materialize_bundled_runtime(resource_dir: &Path, data_dir: &Path) -> Result<PathBuf, String> {
     let archive = resource_dir.join("molibot-runtime.tar.gz");
     let version = read_to_string(resource_dir.join("molibot-runtime.version"))
@@ -471,21 +582,23 @@ fn materialize_bundled_runtime(resource_dir: &Path, data_dir: &Path) -> Result<P
     // previous manifest in memory and lazy-load its hashed chunks after the new
     // Desktop app starts, so replacing a shared directory would break that live
     // process with ERR_MODULE_NOT_FOUND.
-    let runtime_cache = data_dir
-        .join("runtime")
-        .join(format!("desktop-runtime-{version_slug}"));
-    let marker = runtime_cache.join(".molibot-runtime-version");
+    let runtime_parent = runtime_dir(data_dir);
+    let runtime_cache = runtime_generation_dir(data_dir, version_slug);
+    let marker = runtime_cache.join(RUNTIME_VERSION_MARKER);
     if read_to_string(&marker).ok().as_deref() == Some(version_slug)
         && runtime_cache.join("scripts/start-server.mjs").is_file()
         && runtime_cache
             .join("node_modules/dotenv/package.json")
             .is_file()
     {
+        // Also on the cached path: an owner who upgrades and never hits the
+        // extraction branch again would otherwise keep every old generation
+        // forever, which is exactly how this went unnoticed.
+        prune_runtime_generations(&runtime_parent, version_slug);
         return Ok(runtime_cache);
     }
 
-    let runtime_parent = data_dir.join("runtime");
-    let staging_parent = runtime_parent.join(format!("desktop-runtime-{}", Uuid::new_v4()));
+    let staging_parent = runtime_parent.join(format!("{GENERATION_PREFIX}{}", Uuid::new_v4()));
     create_dir_all(&staging_parent).map_err(|error| error.to_string())?;
     let result = Command::new("/usr/bin/tar")
         .args(["-xzf"])
@@ -514,11 +627,12 @@ fn materialize_bundled_runtime(resource_dir: &Path, data_dir: &Path) -> Result<P
         let _ = remove_dir_all(&staging_parent);
         return Err("bundled runtime archive is incomplete".into());
     }
-    std::fs::write(staged_runtime.join(".molibot-runtime-version"), version_slug)
+    std::fs::write(staged_runtime.join(RUNTIME_VERSION_MARKER), version_slug)
         .map_err(|error| error.to_string())?;
     let _ = remove_dir_all(&runtime_cache);
     rename(&staged_runtime, &runtime_cache).map_err(|error| error.to_string())?;
     let _ = remove_dir_all(&staging_parent);
+    prune_runtime_generations(&runtime_parent, version_slug);
     Ok(runtime_cache)
 }
 
@@ -593,7 +707,7 @@ fn runtime_layout(app: &AppHandle, data_dir: &Path) -> Result<RuntimeLayout, Str
 }
 
 fn read_runtime_state(data_dir: &Path) -> Option<RuntimeStateFile> {
-    let contents = read_to_string(data_dir.join("runtime/service-state.json")).ok()?;
+    let contents = read_to_string(runtime_state_path(data_dir)).ok()?;
     serde_json::from_str(&contents).ok()
 }
 
@@ -899,9 +1013,9 @@ fn open_rolling_log(
     if max_bytes == 0 {
         return Err("service log maximum size must be greater than zero".into());
     }
-    let runtime_dir = data_dir.join("runtime");
-    create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
-    let path = runtime_dir.join("desktop-sidecar.log");
+    let log_dir = runtime_dir(data_dir);
+    create_dir_all(&log_dir).map_err(|error| error.to_string())?;
+    let path = log_dir.join(SIDECAR_LOG_NAME);
     // Fail service startup with a useful error if the log path is not writable.
     // FileRotate opens lazily and otherwise treats open failures as dropped output.
     OpenOptions::new()
@@ -1998,5 +2112,74 @@ mod tests {
             "the running v1 manifest still needs its old chunk"
         );
         remove_dir_all(temp_dir).expect("remove temp dir");
+    }
+
+    /// Generations are created oldest-first; the marker write sets each
+    /// directory's mtime, so creation order is the recency order the GC reads.
+    /// The sleep keeps the two stamps apart on filesystems with coarse mtimes.
+    fn write_generation(runtime_parent: &Path, slug: &str) -> PathBuf {
+        let dir = runtime_parent.join(format!("{GENERATION_PREFIX}{slug}"));
+        create_dir_all(&dir).expect("create generation fixture");
+        write(dir.join(RUNTIME_VERSION_MARKER), slug).expect("write marker");
+        thread::sleep(Duration::from_millis(20));
+        dir
+    }
+
+    /// Every upgrade extracts a new ~300 MB generation. Nothing removed the old
+    /// ones, so a long-lived install carried several gigabytes of dead service
+    /// code with only the newest directory reachable.
+    #[test]
+    fn superseded_runtime_generations_are_reclaimed_keeping_one() {
+        let runtime_parent =
+            env::temp_dir().join(format!("molibot-runtime-gc-{}", Uuid::new_v4()));
+        create_dir_all(&runtime_parent).expect("create runtime parent");
+
+        let ancient = write_generation(&runtime_parent, "2.6.3");
+        let previous = write_generation(&runtime_parent, "2.9.0");
+        let current = write_generation(&runtime_parent, "3.0.0");
+        // A process that died mid-extract: no marker, so it can never be in use.
+        let staging = runtime_parent.join(format!("{GENERATION_PREFIX}{}", Uuid::new_v4()));
+        create_dir_all(staging.join("molibot-runtime")).expect("create staging fixture");
+        // Anything not named like a generation is none of the GC's business.
+        let logs = runtime_parent.join("crashes");
+        create_dir_all(&logs).expect("create crashes fixture");
+        write(runtime_parent.join(STATE_FILE_NAME), "{}").expect("write state fixture");
+
+        let removed = prune_runtime_generations(&runtime_parent, "3.0.0");
+
+        assert!(current.is_dir(), "the current generation must survive");
+        assert!(
+            previous.is_dir(),
+            "an adopted sidecar may still be lazy-loading the previous generation"
+        );
+        assert!(!ancient.exists(), "two generations back cannot be running");
+        assert!(!staging.exists(), "abandoned extraction dirs are always dead");
+        assert!(logs.is_dir(), "crash reports are not runtime generations");
+        assert!(runtime_parent.join(STATE_FILE_NAME).is_file());
+        assert_eq!(removed.len(), 2);
+
+        remove_dir_all(runtime_parent).expect("remove temp dir");
+    }
+
+    /// The first upgrade after this ships sees the current generation plus one
+    /// old one and must delete nothing — the reclaim only starts on the second.
+    #[test]
+    fn runtime_generation_gc_is_a_no_op_for_a_single_previous_build() {
+        let runtime_parent =
+            env::temp_dir().join(format!("molibot-runtime-gc-noop-{}", Uuid::new_v4()));
+        create_dir_all(&runtime_parent).expect("create runtime parent");
+        write_generation(&runtime_parent, "2.9.0");
+        write_generation(&runtime_parent, "3.0.0");
+
+        assert!(prune_runtime_generations(&runtime_parent, "3.0.0").is_empty());
+
+        remove_dir_all(runtime_parent).expect("remove temp dir");
+    }
+
+    /// A missing runtime directory is the fresh-install case, not an error.
+    #[test]
+    fn runtime_generation_gc_tolerates_a_missing_runtime_dir() {
+        let missing = env::temp_dir().join(format!("molibot-runtime-absent-{}", Uuid::new_v4()));
+        assert!(prune_runtime_generations(&missing, "3.0.0").is_empty());
     }
 }

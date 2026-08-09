@@ -1,0 +1,35 @@
+# E — 会话
+#
+# 只放能通过 HTTP 判定的两条。Stop / Steer / 排队消息是流式控制面的行为，
+# 走 /api/stream 而不是 /api/chat，已经由 turnAbort.test.ts、
+# routes/api/stream/steer/server.test.ts 和桌面端结构测试守住，
+# 在这里重复一遍只会得到一个更慢、更不稳的副本。
+
+- id: E1
+  title: 同一会话内的上下文延续
+  why: 最基本的会话属性。断了的话，所有多轮任务的失败原因都会被误判。
+  baseline: pass
+  timeout_ms: 180000
+  turns:
+    - prompt: 记住这个词：紫罗兰。先不用做别的，回一个「好」就行。
+    - prompt: 我刚才让你记的那个词是什么？只回答那个词。
+  assert:
+    - reply_contains: "紫罗兰"
+
+- id: E2
+  title: 新会话不继承上一轮的临时上下文
+  why: |
+    和 C 组正好相反的方向：偏好应该跨会话活下来，但一次性的临时内容不该。
+    两者混淆就会变成「上一个会话的半截任务莫名其妙冒出来」。
+
+    ⚠️ 这条在 2026-08-09 的多次运行之间来回翻（一次绿一次红），而同一批 C 组
+    始终是红的——同一个会话/记忆边界，两个方向的结果互相矛盾且不稳定。
+    先别把它当能力指标，它现在是 prd.md §3.49 的一个补充症状。
+  baseline: unknown
+  timeout_ms: 240000
+  turns:
+    - prompt: 这一轮我随口给你一个临时编号 TMP-4821，不用记住它，也不用写进记忆。
+    - prompt: 我上一条消息里提到的那个临时编号是多少？如果你不知道就说不知道。
+      new_session: true
+  assert:
+    - reply_not_contains: "TMP-4821"

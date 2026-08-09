@@ -118,3 +118,26 @@ test("touching a pi-only registry names the extension instead of failing as unde
     /pi extension "nosy" used ctx.sessionManager/
   );
 });
+
+test("production extension tools execute through the subprocess client metadata", async () => {
+  const calls: any[] = [];
+  const extension: LoadedPiExtension = {
+    id: "remote",
+    name: "remote",
+    version: "1.0.0",
+    entryPath: "/remote/index.ts",
+    client: { request: async (method: string, input: unknown) => {
+      calls.push({ method, input });
+      return { value: { content: [{ type: "text", text: "remote result" }] }, updates: [{ content: [] }] };
+    }} as any,
+    tools: [{ name: "remote_tool", label: "Remote", description: "remote", parameters: Type.Object({}) }],
+    toolNames: ["remote_tool"],
+    eventNames: [], commandNames: [], flagNames: [], unsupported: []
+  };
+  const { tools } = createPiExtensionTools([extension], { cwd: "/workspace", reservedToolNames: new Set() });
+  const updates: unknown[] = [];
+  const result = await tools[0].execute("call-remote", {}, undefined, (update) => updates.push(update));
+  assert.equal(result.content[0].text, "remote result");
+  assert.equal(calls[0].method, "invokeTool");
+  assert.deepEqual(updates, [{ content: [] }]);
+});

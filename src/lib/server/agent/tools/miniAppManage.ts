@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
@@ -35,7 +34,7 @@ interface MiniAppManageOptions {
   workspaceDir: string;
   codeRoot?: string;
   installer?: Pick<MiniAppInstaller, "install">;
-  host?: Pick<MiniAppHost, "refresh" | "listCatalog">;
+  host?: Pick<MiniAppHost, "refresh" | "listCatalog" | "activateInstalled">;
 }
 
 interface ValidationReceipt {
@@ -62,15 +61,16 @@ async function validateBuild(sourceDir: string): Promise<ValidationReceipt> {
     codeRoot: path.dirname(sourceDir),
     dataRoot,
     getEnablement: () => ({}),
-    setEnablement: () => undefined,
-    importModule: (entryPath) => import(
-      /* @vite-ignore */ `${pathToFileURL(entryPath).href}?miniapp_validate=${Date.now()}-${Math.random().toString(36).slice(2)}`
-    )
+    setEnablement: () => undefined
   });
   try {
     await host.smokeTest(appId);
   } finally {
-    fs.rmSync(dataRoot, { recursive: true, force: true });
+    try {
+      await host.dispose();
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
   }
 
   const manifest = manifestResult.value.manifest;
@@ -131,7 +131,7 @@ export function createMiniAppManageTool(options: MiniAppManageOptions): AgentToo
       "Validate, install/update, or inspect a Molibot Mini App.",
       "For creation and upgrades, build in session scratch, validate it, then install it atomically.",
       "Only a successful install receipt proves that the live app directory changed.",
-      "Validate/install load owner-selected server code in-process and require owner approval; inspect is read-only."
+      "Validate/install run owner-selected server code in a fault-isolated child process and require owner approval; inspect is read-only."
     ].join(" "),
     parameters: miniAppManageSchema,
     executionMode: "sequential",
