@@ -2,6 +2,16 @@ import type { ActionReturn } from "svelte/action";
 
 const SUSPEND_FOLLOW_EVENT = "molibot:suspend-scroll-follow";
 const RESUME_FOLLOW_EVENT = "molibot:resume-scroll-follow";
+/**
+ * Fired on the scroll container whenever following turns on or off, with
+ * `detail.pinned`.
+ *
+ * The action owns this state and nothing else can derive it correctly — a
+ * consumer computing "am I at the bottom" from its own scroll listener would
+ * disagree with the action across the programmatic jumps, which is exactly the
+ * window in which a jump-to-latest affordance must not flicker.
+ */
+export const SCROLL_PINNED_EVENT = "molibot:scroll-pinned";
 
 /** Immediately hands scroll ownership to the reader before a history jump. */
 export function suspendStickToBottom(node: HTMLElement): void {
@@ -40,6 +50,11 @@ export function stickToBottom(node: HTMLElement, key: unknown): ActionReturn<unk
   let secondLayoutFrame = 0;
 
   const distanceFromBottom = (): number => node.scrollHeight - node.scrollTop - node.clientHeight;
+  const announce = (next: boolean): void => {
+    if (next === pinned) return;
+    pinned = next;
+    node.dispatchEvent(new CustomEvent(SCROLL_PINNED_EVENT, { detail: { pinned } }));
+  };
   const toBottom = (): void => {
     node.scrollTop = node.scrollHeight;
   };
@@ -65,14 +80,14 @@ export function stickToBottom(node: HTMLElement, key: unknown): ActionReturn<unk
   // The reader's own scrolling is the single source of truth for whether we
   // follow. Our programmatic jumps land within THRESHOLD, so they keep us armed.
   const onScroll = (): void => {
-    pinned = distanceFromBottom() <= THRESHOLD;
+    announce(distanceFromBottom() <= THRESHOLD);
   };
   const suspendFollowing = (): void => {
-    pinned = false;
+    announce(false);
     cancelScheduledBottom();
   };
   const resumeFollowing = (): void => {
-    pinned = true;
+    announce(true);
     scheduleToBottom();
   };
   node.addEventListener("scroll", onScroll, { passive: true });
@@ -92,7 +107,7 @@ export function stickToBottom(node: HTMLElement, key: unknown): ActionReturn<unk
     update(nextKey: unknown) {
       if (nextKey === currentKey) return;
       currentKey = nextKey;
-      pinned = true;
+      announce(true);
       scheduleToBottom();
     },
     destroy() {

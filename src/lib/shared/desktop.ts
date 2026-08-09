@@ -701,9 +701,13 @@ export interface DesktopMemoryTraceResponse {
 export interface DesktopConversationActivity {
   key: string;
   kind: "tool" | "subagent" | "note";
+  /** Tool id, so the transcript can pick a renderer for `summary`/`diff`. */
+  tool?: string;
   label: string;
   state: "running" | "success" | "error" | "info";
   summary?: string;
+  /** Unified patch when the call changed a file (see `ConversationActivity`). */
+  diff?: string;
   /** Project-relative paths the tool call touched (see `ConversationActivity`). */
   paths?: string[];
   /** True when the tool wrote to those paths rather than reading them. */

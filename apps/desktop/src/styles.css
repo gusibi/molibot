@@ -107,7 +107,7 @@
      once even that is not enough). */
   --chat-min-w: 460px;
   --files-min-w: 300px;
-  --sidebar-min-w: 200px;
+  --sidebar-min-w: var(--sidebar-nav-w);
   /* Settings is the reference rail; Chat may still be resized from this base. */
   --sidebar-nav-w: 228px;
   --sidebar-nav-w-narrow: 170px;
@@ -2041,6 +2041,49 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
   transition: opacity var(--duration-fast) var(--ease-standard);
 }
 .chat-messages-frame:hover .conversation-prompt-navigator { opacity: .72; }
+
+/* Transcript dock — jump-to-latest and the blocked-turn pill. Centred over the
+   transcript's bottom edge, above the prompt navigator (z-index 4) so it is
+   never covered by it, and clear of the navigator's left rail. */
+.transcript-dock {
+  position: absolute;
+  z-index: 6;
+  bottom: 14px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(92%, 460px);
+  padding: 7px 12px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--rounded-full);
+  background: var(--card-bg);
+  box-shadow: var(--popover-shadow);
+  color: var(--label-primary);
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
+  transform: translateX(-50%);
+  animation: transcript-dock-in var(--duration-fast) var(--ease-standard);
+}
+.transcript-dock .ph { flex: 0 0 auto; font-size: var(--icon-sm); }
+.transcript-dock-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transcript-dock-jump { cursor: pointer; }
+.transcript-dock-jump:hover { background: var(--fill); }
+.transcript-dock-attention { border-color: color-mix(in srgb, var(--warning) 46%, var(--chrome-border)); }
+.transcript-dock-attention > .ph { color: var(--warning); }
+.transcript-dock-action {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: var(--rounded-full);
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.transcript-dock-action:hover { filter: brightness(1.06); }
+@keyframes transcript-dock-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .conversation-prompt-navigator:hover,
 .conversation-prompt-navigator:focus-within { opacity: 1; }
 .prompt-navigation-marker {
@@ -2129,7 +2172,13 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .message-row.mine .message-bubble { max-width: 88%; }
 .message-row.assistant { display: block; width: 100%; }
 /* Avatar sits to the LEFT of the assistant message; the stack takes the rest. */
-.assistant-layout { display: flex; align-items: flex-start; gap: 10px; }
+/* Fills its row rather than sizing to content. A block-level flex container
+   whose width is left to `auto` shrink-to-fits here, so the moment the
+   transcript gained a block wider than the column — a code block that
+   scrolls instead of reflowing — the whole assistant row grew past the
+   720px message column and the transcript scrolled sideways (pitfall #16:
+   the column is not the viewport). */
+.assistant-layout { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-width: 0; }
 .assistant-avatar { flex: none; width: 28px; height: 28px; margin-top: 1px; border-radius: var(--radius-full); object-fit: cover; }
 .assistant-layout .message-stack { display: flex; flex: 1; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; }
 .message-row.assistant .message-bubble { max-width: 100%; }
@@ -2297,8 +2346,31 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .transcript-attachments { display: grid; gap: 8px; max-width: min(100%, 560px); }
 .message-row.mine .transcript-attachments { justify-items: end; }
 .transcript-media { width: min(100%, 480px); margin: 0; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--soft-shadow); }
-.transcript-image > button:first-child { display: block; width: 100%; padding: 0; border: 0; background: var(--surface-secondary); cursor: zoom-in; }
+.transcript-image-open, .transcript-image > button:first-child { display: block; width: 100%; padding: 0; border: 0; background: var(--surface-secondary); cursor: zoom-in; }
 .transcript-image img { display: block; width: 100%; max-height: 360px; object-fit: contain; }
+
+/* Image gallery. A turn that produced six pictures used to stack six full-width
+   cards, pushing the rest of the conversation off screen; the grid keeps the
+   block's height roughly constant as the number of results grows.
+
+   The column count is a real layout switch, not a `minmax` that happens to land
+   on three: a lone result must keep its full-width card (shrinking it to a
+   thumbnail loses the thing the turn was about) and a pair should split the
+   width evenly rather than leave a third column's worth of hole. */
+.transcript-gallery { display: grid; gap: 6px; min-width: 0; }
+.transcript-gallery[data-columns="1"] { grid-template-columns: minmax(0, 1fr); }
+.transcript-gallery[data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.transcript-gallery[data-columns="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* In a grid the cards are cells, so they drop the standalone card's width cap
+   and elevation and become plain tiles. */
+.transcript-gallery:not([data-columns="1"]) .transcript-media { width: 100%; box-shadow: none; }
+/* `cover` inside a fixed ratio is what makes a row of thumbnails read as a row:
+   with `contain`, a portrait and a landscape result produce two different
+   heights and the grid looks broken. The full image is one click away. */
+.transcript-gallery[data-columns="2"] .transcript-image img { aspect-ratio: 4 / 3; max-height: none; object-fit: cover; }
+.transcript-gallery[data-columns="3"] .transcript-image img { aspect-ratio: 1; max-height: none; object-fit: cover; }
+.transcript-gallery:not([data-columns="1"]) .transcript-image-open:hover img { opacity: .86; }
+.transcript-gallery:not([data-columns="1"]) .transcript-media-loading { min-height: 0; aspect-ratio: 1; }
 .transcript-video video { display: block; width: 100%; max-height: 360px; background: #000; }
 .transcript-media figcaption, .transcript-media-heading { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 7px 10px; color: var(--label-secondary); font-size: var(--fs-meta); }
 .transcript-media figcaption span, .transcript-media-heading span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2314,6 +2386,11 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .markdown-body { min-width: 0; }
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }
+/* A streaming reply renders each top-level block inside a layout-transparent
+   .md-stream-block wrapper (ConversationLiveView), so the reset above now
+   reaches the wrapper rather than the block. Carry the zero through to the
+   wrapper's own last child, or the bubble gains a trailing margin. */
+.markdown-body > .md-stream-block:last-child > :last-child { margin-bottom: 0; }
 .markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body pre, .markdown-body blockquote { margin: 0 0 10px; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { margin: 18px 0 8px; line-height: 1.3; letter-spacing: -.01em; }
 .markdown-body h1 { font-size: 1.35em; }
@@ -2322,8 +2399,13 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .markdown-body ul, .markdown-body ol { padding-left: 20px; }
 .markdown-body li + li { margin-top: 3px; }
 .markdown-body code { padding: 1px 4px; border-radius: var(--rounded-sm); background: var(--fill); font-family: var(--font-mono); font-size: .9em; overflow-wrap: anywhere; }
+/* Code scrolls, it does not reflow: forcing `pre-wrap` on a code block breaks
+   the indentation that carries its structure, and a long log line or minified
+   payload becomes an unreadable brick. The per-block wrap toggle in
+   `.code-block-head` is the way back for the cases that want it. */
 .markdown-body pre {
-  overflow-x: hidden;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   max-width: 100%;
   min-width: 0;
   padding: 11px 13px;
@@ -2333,10 +2415,13 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
   font-size: var(--fs-label);
   line-height: 1.5;
 }
-.markdown-body pre code { display: block; max-width: 100%; padding: 0; background: transparent; color: inherit; font-size: inherit; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.markdown-body pre code { display: block; min-width: max-content; padding: 0; background: transparent; color: inherit; font-size: inherit; white-space: pre; }
+.code-block[data-wrap="on"] pre code { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.code-block[data-wrap="on"] pre { overflow-x: hidden; }
 .code-block { max-width: 100%; margin: 0 0 10px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--code-text) 14%, transparent); border-radius: var(--rounded-md); background: var(--code-bg); }
 .code-block-head { display: flex; align-items: center; min-height: 32px; padding: 0 8px 0 12px; border-bottom: 1px solid color-mix(in srgb, var(--code-text) 12%, transparent); color: color-mix(in srgb, var(--code-text) 68%, transparent); font: var(--fs-meta)/1 var(--font-mono); }
 .code-block-head span { margin-right: auto; text-transform: lowercase; }
+.code-block-head button[data-wrap-code][aria-pressed="true"] { background: color-mix(in srgb, var(--code-text) 16%, transparent); color: var(--code-text); }
 .code-block-head button { padding: 4px 7px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .code-block-head button:hover { background: color-mix(in srgb, var(--code-text) 10%, transparent); color: var(--code-text); }
 .markdown-body .code-block pre { margin: 0; border-radius: 0; }
@@ -2347,11 +2432,83 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .hljs-variable, .hljs-template-variable, .hljs-regexp { color: #ffa657; }
 .markdown-body a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .markdown-body blockquote { padding: 4px 10px; border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; background: var(--fill); color: var(--label-secondary); }
-.markdown-body table { width: 100%; margin: 0 0 10px; border-collapse: collapse; table-layout: fixed; font-size: .92em; }
-.markdown-body th, .markdown-body td { padding: 6px 8px; border: 1px solid var(--separator); overflow-wrap: anywhere; text-align: left; vertical-align: top; }
-.markdown-body th { background: var(--fill); font-weight: 600; }
+/* The wrapper owns the overflow so the table can take its natural width. Sizing
+   the table itself to the column (`width: 100%` + `table-layout: fixed`) split
+   every column evenly, which crushes a wide table into stacks of one character
+   per line — the column a transcript sits in is not the viewport (pitfall #16). */
+.markdown-table-wrap { max-width: 100%; margin: 0 0 10px; overflow-x: auto; overscroll-behavior-x: contain; }
+/* `width: max-content` lets each column take the width its content needs and
+   the wrapper scroll; `min-width: 100%` keeps a narrow table filling the
+   column instead of floating at its left edge. */
+.markdown-body table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: .92em; }
+.markdown-body th, .markdown-body td { padding: 6px 8px; border: 1px solid var(--separator); text-align: left; vertical-align: top; }
+.markdown-body td { overflow-wrap: break-word; }
+.markdown-body th { background: var(--fill); font-weight: 600; white-space: nowrap; }
 .markdown-body hr { height: 1px; margin: 14px 0; border: 0; background: var(--separator); }
-.markdown-body img { display: block; max-width: 100%; height: auto; border-radius: var(--rounded-md); }
+.markdown-body img { display: block; max-width: 100%; height: auto; border-radius: var(--rounded-md); cursor: zoom-in; }
+.markdown-body a img { cursor: pointer; }
+
+/* Image viewer. Attached to <body> by `imageLightbox`, so it is never clipped
+   by the transcript's overflow or trapped inside a panel's stacking context.
+   Above the window drag mask (z-index 30, pitfall #18). */
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px;
+  background: color-mix(in srgb, #000 78%, transparent);
+  cursor: zoom-out;
+  animation: lightbox-in var(--duration-fast) var(--ease-standard);
+}
+.image-lightbox-stage { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; min-width: 0; }
+.image-lightbox img { max-width: 100%; max-height: 100%; border-radius: var(--rounded-md); object-fit: contain; cursor: default; }
+.image-lightbox-close,
+.image-lightbox-nav,
+.image-lightbox-download {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--rounded-full);
+  background: color-mix(in srgb, #fff 16%, transparent);
+  color: #fff;
+  cursor: pointer;
+}
+.image-lightbox-close:hover,
+.image-lightbox-nav:hover,
+.image-lightbox-download:hover { background: color-mix(in srgb, #fff 28%, transparent); }
+.image-lightbox-close { top: 16px; right: 16px; width: 32px; height: 32px; font-size: var(--icon-md); }
+.image-lightbox-nav { top: 50%; width: 40px; height: 40px; font-size: var(--icon-lg); transform: translateY(-50%); }
+.image-lightbox-nav.is-prev { left: 16px; }
+.image-lightbox-nav.is-next { right: 16px; }
+.image-lightbox-nav[hidden] { display: none; }
+/* The bar sits inside the padded inset, not over the image, so a portrait
+   result never has its own caption painted across it. */
+.image-lightbox-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px 5px 14px;
+  border-radius: var(--rounded-full);
+  background: color-mix(in srgb, #000 46%, transparent);
+  color: #fff;
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+  cursor: default;
+}
+.image-lightbox-counter[hidden] { display: none; }
+.image-lightbox-download { position: static; width: 26px; height: 26px; font-size: var(--icon-sm); }
+.image-lightbox-download[hidden] { display: none; }
+@keyframes lightbox-in { from { opacity: 0; } to { opacity: 1; } }
 .streaming-message .message-bubble:empty::after { content: "…"; }
 /* Host Bash approval prompt. A neutral elevated card, not a warning banner —
    the alarm colour was carrying meaning the buttons already carry, and it made
@@ -2374,6 +2531,9 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
   .approval-card { opacity: 0; transform: translateY(8px) scale(.985); }
 }
 .approval-head { display: grid; gap: 4px; }
+/* States its own age, so a blocked run never reads as a hung service. */
+.approval-waiting { display: inline-flex; align-items: center; gap: 5px; color: var(--warning); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.approval-waiting .ph { font-size: var(--icon-xs); }
 .approval-title { font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 600; letter-spacing: -.01em; }
 .approval-subtitle { color: var(--label-secondary); font-size: var(--fs-label); }
 .approval-command {
@@ -2440,6 +2600,44 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .run-activity-item-caret { color: var(--label-tertiary); transition: transform var(--duration-fast) var(--ease-standard); }
 .run-activity-item[open] .run-activity-item-caret { transform: rotate(90deg); }
 .run-activity-item pre { max-height: 220px; margin: 0 4px 8px 29px; padding: 9px 10px; overflow: auto; border-radius: var(--rounded-sm); background: var(--code-bg); color: var(--code-text); font: var(--fs-meta)/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Head: which step, not just how many. `flex` order is icon, status word, step
+   counter, the step's own label (takes the slack and truncates), count, caret. */
+.run-activity-step { flex: 0 0 auto; color: var(--label-tertiary); font-variant-numeric: tabular-nums; }
+.run-activity-current { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--label-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.run-activity-head > span:nth-of-type(1) { flex: 0 0 auto; }
+.run-activity-head .run-activity-count { flex: 0 0 auto; margin-left: auto; }
+.run-activity-head .run-activity-caret { margin-left: 0; }
+
+/* Files this turn touched, from `paths`/`mutates`. */
+.run-activity-block { min-width: 0; }
+.run-activity-files { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 2px 0 6px 23px; }
+.run-activity-files-label { display: inline-flex; align-items: center; gap: 4px; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.run-activity-files-label[data-mutates="true"] { color: var(--warning); }
+.run-activity-files-label .ph { font-size: var(--icon-xs); }
+.run-activity-file {
+  max-width: 200px;
+  padding: 2px 8px;
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: var(--rounded-full);
+  background: transparent;
+  color: var(--label-secondary);
+  font: var(--fs-meta)/var(--lh-meta) var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.run-activity-file:disabled { cursor: default; }
+.run-activity-file:not(:disabled):hover { border-color: var(--accent); color: var(--label-primary); }
+.run-activity-file[data-mutates="true"] { border-color: color-mix(in srgb, var(--warning) 42%, var(--separator)); color: var(--label-primary); }
+
+/* Per-payload renderers. The viewers are panel-scale components, so the row
+   caps their height and lets them own the scrolling inside it. */
+.run-activity-body { min-width: 0; }
+.run-activity-viewer { display: flex; flex-direction: column; max-height: 300px; min-height: 0; margin: 0 4px 8px 29px; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--rounded-sm); }
+.run-activity-diff { max-height: 300px; margin: 0 4px 8px 29px; overflow: auto; border: 1px solid var(--separator); border-radius: var(--rounded-sm); font-size: var(--fs-meta); }
+/* Shell output keeps its columns: alignment is the content in a terminal. */
+.run-activity-item pre.run-activity-terminal { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
 .thinking-card { max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--label-secondary); font-size: var(--fs-label); }
 .thinking-card summary { width: fit-content; cursor: pointer; color: var(--label-tertiary); font-weight: 500; }
 .thinking-card pre { margin: 8px 0 2px; padding-left: 12px; border-left: 1px solid var(--separator); font: inherit; line-height: 1.6; white-space: pre-wrap; transition: opacity var(--duration-fast) var(--ease-standard); }
@@ -4416,7 +4614,7 @@ select.provider-input { padding-right: 6px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
-  .recording-indicator, .run-activity .spin, .transcript-media-loading .ph, .service-starting-spinner span, .message-status-pulse, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .row-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble { animation: none !important; }
+  .recording-indicator, .run-activity .spin, .transcript-media-loading .ph, .service-starting-spinner span, .message-status-pulse, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .row-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble, .image-lightbox, .transcript-dock { animation: none !important; }
   .agent-studio-spinner { animation: none !important; }
   .sandbox-preset-card:hover { transform: none; }
   .modal-card, .entity-editor, .provider-editor, .memory-detail-form, .memory-trace-drawer { transform: none !important; animation-duration: 150ms !important; animation-timing-function: linear !important; }

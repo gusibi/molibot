@@ -125,6 +125,7 @@ import {
   isContextOverflowResponse,
   extractTextFromResult,
   extractHostBashApprovalPrompt,
+  extractToolDiff,
   mapUnsupportedDeveloperRole,
   moveAnthropicSystemMessagesToTopLevel
 } from "$lib/server/agent/core/runnerHelpers.js";
@@ -1462,6 +1463,7 @@ export class MomRunner implements RunnerLike {
             displayName,
             isError: event.isError,
             summary: body,
+            diff: extractToolDiff(event.result),
             hostBashApproval: forwardHostBashApproval ? hostBashApproval : undefined
           }));
         }

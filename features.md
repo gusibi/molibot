@@ -6,6 +6,45 @@
 
 ## 2026-08-09
 
+### 流式回复改为按块增量渲染，保留选区（优化，P2）
+
+- 流式回复每帧都 `renderMarkdown(streamingText)` 再整体替换 `{@html}` 树，带来三个问题：每帧 O(全文) parse+sanitize+DOM 替换，几千字时明显卡顿；整棵 `innerHTML` 被替换会清空读者选中的文本，边生成边复制做不到；未闭合代码围栏期间 marked 会把后续内容全吞进代码块，画面剧烈跳变。
+- 现在按顶层 block 切分（空行为边界，**fence-aware**：围栏内的空行不分），渲染成 keyed `{#each}`、每块一个 `.md-stream-block` 包裹的 `{@html}`。已封口 block（最后一条空行之前、流式期间不可变）只 parse 一次并缓存 html，每帧只有仍在生长的末块重新 parse -- 帧成本从 O(全文) 降到 O(活动块)。
+- 选区得以保留，是因为 Svelte 5 的 `{@html}` 运行时有值守卫 `value === (value = get_value())`，值不变就跳过 `innerHTML` 写入（`svelte/src/runtime/client/dom/blocks/html.js`）；sealed block 每帧返回同一份缓存 html 字符串，其 DOM 节点永不被触碰。末块若处于打开的 fence，parse 前虚拟补一个闭合标记，挡掉「后续全被吞」。
+- 缓存的是 html **字符串**而非 wrapper 对象：Svelte 的 `{#each}` 对任何对象 item 都判定为变更（`safe_not_equal` 对对象恒为 true），缓存对象零收益，还会误导后人以为「引用稳定是机制」。wrapper 每帧是新对象，只有其 html 值被钉死不变。
+- 验证：`streamingMarkdown` 15/15、`chat-ui` 结构守卫 183/183、`svelte-check` 0 错误/0 警告、生产构建通过。选区保留机制已从 Svelte 5 运行时源码核实（`{@html}` 值守卫 + keyed `{#each}` 按 index 复用 wrapper div，并用真实模板编译验证）；剩余运行时 gate 为冷启走查（流一条多段回复、在早期段落选中文本确认存活、确认未闭合围栏不吞内容，pitfall #10）。
+
+### 一轮多图改为画廊网格展示（优化，P2）
+
+- 一轮生成 6 张图时，过去会渲染 6 张纵向堆叠的全宽卡片，把后面的对话整个挤出屏幕。现在连续的图片附件合并为一个网格，块高度不再随图片数量增长。
+- 列数是真正的布局切换，而不是碰巧落在 3 列的 auto-fit：1 张保留原来的全宽卡片（把唯一的结果缩成缩略图会丢掉这一轮的主体），2 张左右并排，3 张及以上走三列方形 `cover` 缩略图 —— 用 `contain` 的话，竖图和横图会产生两种高度，整行看起来就是坏的。
+- 点击任意图片打开全屏画廊：←/→ 按钮与方向键、可循环的位置计数、Escape 与点击背景关闭、下载按钮。Markdown 里的图片打开同一个查看器，并在该块内的所有图片间翻页，两个面不会各自长出一套。
+- 分组按**连续段**进行，图片之间夹着文件时不会被重排；只有已加载完成的图片进入查看器，箭头不会翻到空白页。
+- 同时修掉了「图片永远停在只有文件名的占位」的两个独立原因：(a) `{#each}` 遍历的分组只依赖 `attachments`，因此在 `{@const}` 里通过无参 helper 解析文件，会在编译器看不见的地方读 `actions`，记录与 blob URL 到达后单元格不会重渲染 —— 这两个 Map 是**首次渲染之后**才被填充的，所以这不是轻微的过期，而是画廊永久空白（CLAUDE.md pitfall #2）。现在解析放在显式引用 `actions` 的 `$:` 里。(b) 一轮结束后没有任何地方重新拉取 Session 文件列表，本轮刚生成的文件要等到下次切换会话才有记录；`ChatView` 现在实现了共享 controller 一直在调用的 `afterMutate` 钩子。
+- 验证：Desktop UI 184/184、`attachmentGroups` 6/6、`svelte-check` 0 错误/0 警告、生产构建通过；并在真实渲染中（深/浅色）走查了 1/2/3/6 张与混合排列、箭头与键盘翻页、循环、单图时控件隐藏、Markdown 图片翻页，以及**从空 Map 开始**（真实的事件顺序）的 占位 → 加载中 → 图片 三段转换。
+
+### Chat 阻塞态可见性：审批卡不再被滚动位置藏起来（修复，P1）
+
+- 审批卡渲染在转录末尾，而 `stickToBottom` 在用户上翻历史时会正确交出滚动权。两个都正确的行为相乘的结果是：这一轮静默挂起，决定在屏幕外，界面上没有任何提示 —— 即 CLAUDE.md 记录的「审批等待伪装成服务崩溃」。
+- 新增共享 `TranscriptDock`：跟随被挂起时显示「回到最新」；被阻塞的卡片滚出视口时显示 `role="alert"` 的「有一条审批在等待你的决定 · 查看」。Dock 接收的是一个元素而不是「有没有审批」的布尔标记，因此下一张阻塞卡（Plan 提案）可以原样复用（pitfall #7）。
+- 审批卡自报等待时长（超过 10 秒后显示「等待你的决定 · N 秒/分钟」），阻塞的运行不会再看起来像死掉的服务；其 window 级数字键 / ⌘⏎ 快捷键改为仅在卡片真正可见时才生效。
+- Chat 与 Project Chat 两个聊天面都已接入。
+
+### 工具活动按结果类型分渲染器（优化，P1）
+
+- 过去所有工具的结果都打进同一个 `<pre>`，补丁、文件内容、Shell 输出和 MCP JSON 长得完全一样。现在活动体经由纯函数 `classifyActivityBody` 分派：unified diff 走 diff2html，文件内容与 JSON 走 `CodeViewer`，Shell 输出走保留列对齐的终端块，失败一律回落纯文本（失败时的载荷是错误信息，不是工具产物）。
+- `edit` 在 pi 的展示型 diff 之外额外产出真正的 unified patch（`generateUnifiedPatch`），经新增的 `ConversationActivity.diff`（带字节上限）送到转录；活动同时记录自己的 `tool` id，不再让消费方从去重用的 `key` 里反解。
+- 折叠头改为点名当前步骤（「第 3/5 步 · npm test」）而不只报数量，且优先点名失败的那一步。
+- 运行时一直记录却从没被渲染的 `paths`/`mutates` 终于露出：「改动 / 读取 N 个文件」chip 行，点击在 Artifact Panel 打开该文件的 diff 或内容；请求经既有 composer bridge 转发，通用组件内部不含任何 scope 条件。
+
+### Markdown 复杂内容：代码与宽表在列内滚动而不是被压毁（修复，P2）
+
+- 代码块不再强制 `pre-wrap`（那会破坏承载结构的缩进），改为在钳制到列宽的盒子里横向滚动，并在代码块头部提供逐块「折行」开关，供长日志行使用。Markdown 表格去掉 `table-layout: fixed`（它会把宽表压成每列一个字的竖排），改为 `width: max-content` + 滚动包裹层。
+- 顺带修掉由此暴露的布局回归：`.assistant-layout` 是 `width: auto` 的块级 flex 容器，会 shrink-to-fit 到内容宽度 —— 只要转录里出现一个比列宽的块，整个助手行就会超出 720px 消息列，转录开始横向滚动（pitfall #16）。
+- 渲染后的 Markdown 中的图片支持灯箱预览，挂在 `<body>` 上，因此不会被转录的 overflow 裁掉或困在面板的层叠上下文里。
+- 删除流式气泡里私有的 copy-code 实现，所有渲染 Markdown 的面统一走同一个委托 handler，折行开关与灯箱在正在生成的那条回复上同样可用（pitfall #7）。
+- 验证：Desktop UI 180/180、`activityView` 12/12、`test:projects` 71/71、edit/runner/projection 54/54、`svelte-check` 0 错误/0 警告、生产构建通过；并在真实渲染中（深/浅色）逐项走查了审批提示条、各工具渲染器、折行开关、图片灯箱，以及转录零横向溢出。
+
 ### Release v2.9.13 / Desktop v0.9.10
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，发布 Office 文档（DOCX/PPTX/Excel）及 PDF 导出与本地预览、定时提醒 Catch-up 修复以及新一轮核心稳定性优化。
@@ -13,7 +52,7 @@
 ### Desktop Chat 与 Settings 导航宽度统一（优化，P2）
 
 - Chat 与 Settings 左侧导航现在共用 Settings 的 `228px` 桌面基准宽度；窄窗口统一使用 `170px`，宽度来源收敛为共享 CSS token。
-- Chat 仍保留拖拽和键盘调整能力；已有用户保存过的自定义 Chat 宽度继续保留，只有没有保存偏好的 Chat 使用新的默认值。
+- Chat 仍保留拖拽和键盘调整能力；已有用户保存过且不小于基线的自定义宽度继续保留，低于 `228px` 的旧值会在加载时钳回 Settings 基线。
 - 验证：Desktop UI 177/177、Desktop 全量测试 160 + 181 + 55、`svelte-check` 0 错误/0 警告、生产构建通过。
 
 ### 个人助理状态源统一与安全旧数据清理（P2）

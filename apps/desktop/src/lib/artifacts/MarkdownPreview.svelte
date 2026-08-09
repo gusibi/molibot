@@ -42,7 +42,9 @@
   let renderToken = 0;
 
   function markdownHtml(segment: MarkdownSegment): string {
-    return segment.kind === "markdown" ? renderMarkdown(segment.content, copy.copyCode) : "";
+    return segment.kind === "markdown"
+      ? renderMarkdown(segment.content, copy.copyCode, { labels: { wrapLines: copy.wrapLines } })
+      : "";
   }
 
 

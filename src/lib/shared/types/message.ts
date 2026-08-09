@@ -32,9 +32,22 @@ export interface ConversationAttachment {
 export interface ConversationActivity {
   key: string;
   kind: "tool" | "subagent" | "note";
+  /**
+   * The tool's id (`read`, `bash`, `miniapp__x__y`). Recorded rather than
+   * derived from `key`, whose `<tool>-<sequence>` shape exists only to pair a
+   * start event with its end event; a renderer that dispatches on the tool must
+   * not be coupled to that. Absent on activities written before this field.
+   */
+  tool?: string;
   label: string;
   state: "running" | "success" | "error" | "info";
   summary?: string;
+  /**
+   * Unified patch when the call changed a file. Distinct from `summary`, which
+   * is the sentence the model was given ("Updated src/x.ts") — the patch is for
+   * the person reading the transcript.
+   */
+  diff?: string;
   /**
    * Project-relative paths this tool call touched, recorded from the tool's own
    * arguments rather than parsed back out of `label`. Lets a surface answer

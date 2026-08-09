@@ -38,6 +38,8 @@ export interface ChannelInboundMessage {
   hasInlineAudioTranscript?: boolean;
   isEvent?: boolean;
   taskId?: string;
+  /** Explicit Project owner for a shared automation attempt. */
+  projectId?: string;
   // fresh: scheduled-event run should start a new task session instead of the chat's active session.
   sessionMode?: "fresh" | "chat";
   sessionId?: string;
@@ -107,6 +109,13 @@ export type RunnerUiEvent =
       displayName?: string;
       isError: boolean;
       summary: string;
+      /**
+       * Unified patch for a call that changed a file, when the tool produced
+       * one. Carried separately from `summary` because the summary is the text
+       * the *model* reads ("Updated src/x.ts") while this is what a person needs
+       * to see; collapsing them would make one of the two readers worse.
+       */
+      diff?: string;
       hostBashApproval?: HostBashApprovalPrompt;
     }
   | {

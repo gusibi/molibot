@@ -86,6 +86,15 @@ const conversationController = read("./lib/chat/conversationController.svelte.ts
 const chatSessionStore = read("./lib/chat/chatSessionStore.svelte.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
 const markdown = read("./lib/markdown.ts");
+const markdownInteractions = read("./lib/markdownInteractions.ts");
+const imageLightbox = read("./lib/imageLightbox.ts");
+const attachmentGroups = read("./lib/chat/attachmentGroups.ts");
+const transcriptAttachmentsSource = read("./lib/chat/TranscriptAttachments.svelte");
+const conversationActivity = read("../../../src/lib/server/app/conversationActivity.ts");
+const activityView = read("./lib/chat/activityView.ts");
+const streamingMarkdown = read("./lib/chat/streamingMarkdown.ts");
+const transcriptDock = read("./lib/chat/TranscriptDock.svelte");
+const approvalCard = read("./lib/chat/ApprovalCard.svelte");
 const markdownLinks = read("./lib/chat/markdownLinks.ts");
 const queuedMessagesBar = read("./lib/chat/QueuedMessagesBar.svelte");
 const logsSection = read("./lib/settings/LogsSection.svelte");
@@ -329,11 +338,13 @@ test("Settings and Chat expose one edge-to-edge native macOS sidebar material", 
 
 test("Chat and Settings share the Settings navigation width baseline", () => {
   assert.match(styles, /--sidebar-nav-w:\s*228px/);
+  assert.match(styles, /--sidebar-min-w:\s*var\(--sidebar-nav-w\)/);
   assert.match(styles, /\.chat-layout\s*\{[^}]*var\(--sidebar-w, var\(--sidebar-nav-w\)\)/s);
   assert.match(styles, /\.settings-layout\s*\{[^}]*grid-template-columns:\s*var\(--sidebar-nav-w\)/s);
   assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.chat-layout\s*\{\s*grid-template-columns:\s*var\(--sidebar-nav-w-narrow\)/s);
   assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.settings-layout\s*\{\s*grid-template-columns:\s*var\(--sidebar-nav-w-narrow\)/s);
   assert.match(view, /const SIDEBAR_DEFAULT = 228/);
+  assert.match(view, /const SIDEBAR_MIN = 228/);
   assert.match(view, /\|\| SIDEBAR_DEFAULT\)/);
 });
 
@@ -869,11 +880,223 @@ test("microphone control starts recording and exposes a timer bar", () => {
   assert.match(infoPlist, /<key>NSMicrophoneUsageDescription<\/key>/);
 });
 
-test("assistant code blocks wrap without horizontal scrolling", () => {
-  assert.match(styles, /\.markdown-body pre\s*\{[^}]*overflow-x:\s*hidden/s);
-  assert.match(styles, /\.markdown-body pre code\s*\{[^}]*white-space:\s*pre-wrap/s);
-  assert.match(styles, /\.markdown-body pre code\s*\{[^}]*overflow-wrap:\s*anywhere/s);
-  assert.match(styles, /\.markdown-body table\s*\{[^}]*table-layout:\s*fixed/s);
+// Rendered Markdown must never widen the transcript column, but "does not
+// widen the column" and "reflows" are different claims, and the second one
+// destroys content: forcing `pre-wrap` on code breaks the indentation that
+// carries its structure, and `table-layout: fixed` splits an 8-column table
+// into eight stacks of one character (pitfall #16 — the column is not the
+// viewport). Both now scroll *inside* a box clamped to the column.
+test("code and tables scroll inside the column instead of reflowing", () => {
+  // Contained: `max-width: 100%` is what keeps the column from growing.
+  assert.match(styles, /\.markdown-body pre\s*\{[^}]*overflow-x:\s*auto/s);
+  assert.match(styles, /\.markdown-body pre\s*\{[^}]*max-width:\s*100%/s);
+  assert.match(styles, /\.markdown-body pre code\s*\{[^}]*white-space:\s*pre[;\s}]/s);
+  assert.doesNotMatch(styles, /\.markdown-body pre code\s*\{[^}]*white-space:\s*pre-wrap/s);
+
+  // Wrapping stays available per block, so a long log line is still readable.
+  assert.match(styles, /\.code-block\[data-wrap="on"\] pre code\s*\{[^}]*white-space:\s*pre-wrap/s);
+  assert.match(markdown, /data-wrap-code/);
+  assert.match(markdownInteractions, /data-wrap-code/);
+  assert.match(markdownInteractions, /setAttribute\("data-wrap"/);
+
+  // The wrapper owns the overflow so the table can take its natural width.
+  assert.match(markdown, /markdown-table-wrap/);
+  assert.match(styles, /\.markdown-table-wrap\s*\{[^}]*overflow-x:\s*auto/s);
+  assert.doesNotMatch(styles, /\.markdown-body table\s*\{[^}]*table-layout:\s*fixed/s);
+});
+
+// One handler for every surface that mounts `renderMarkdown` output. The
+// streaming bubble used to carry its own copy-code implementation, which is
+// exactly how a new affordance ships dead for the reply being generated.
+test("every rendered-Markdown surface shares one click handler", () => {
+  assert.match(conversationLiveView, /import \{ handleMarkdownBodyClick \}/);
+  assert.match(conversationLiveView, /handleMarkdownBodyClick\(event, copy\)/);
+  assert.doesNotMatch(conversationLiveView, /data-copy-code/);
+  assert.match(transcript, /handleMarkdownBodyClick\(event, copy\)/);
+  // The image viewer is one shared module attached to <body>, so it is never
+  // clipped by a transcript's overflow or a panel's stacking context.
+  assert.match(markdownInteractions, /openImageLightbox/);
+  assert.match(imageLightbox, /document\.body\.appendChild/);
+  assert.match(styles, /\.image-lightbox\s*\{[^}]*position:\s*fixed/s);
+});
+
+// A streaming reply used to call `renderMarkdown(streamingText)` on every frame
+// and swap the whole `{@html}` tree - O(whole source) per frame, and the full
+// innerHTML replace blew away any text the reader had selected. The reply is
+// now split into top-level blocks and rendered as a keyed `{#each}`: sealed
+// blocks hand back the same cached html string (so Svelte 5's `{@html}` value
+// guard skips the innerHTML write and a selection in them survives) and only
+// the active tail is re-parsed.
+test("a streaming reply renders as keyed per-block fragments, not one swapped tree", () => {
+  // The old whole-source swap is gone.
+  assert.doesNotMatch(conversationLiveView, /\{@html renderMarkdown\(streamingText/);
+  // The split / cache / fence logic lives in one shared module, not inlined.
+  assert.match(conversationLiveView, /import \{ createStreamingRenderer \} from "\.\/streamingMarkdown"/);
+  assert.match(streamingMarkdown, /export function splitMarkdownBlocks/);
+  assert.match(streamingMarkdown, /export function createStreamingRenderer/);
+  // Keyed by index: the list is append-only (streaming only appends), so an
+  // index key is what lets Svelte keep each sealed block's DOM node untouched.
+  assert.match(conversationLiveView, /\{#each streamBlocks as block, i \(i\)\}/);
+  // Each block is its own {@html} inside a layout-transparent wrapper, not one
+  // merged blob - that is the whole reason a sealed block can stay untouched.
+  assert.match(conversationLiveView, /<div class="md-stream-block">\{@html block\.html\}<\/div>/);
+  // Only the active (last) block is re-parsed; sealed blocks come out of a
+  // cache. Without this, long replies re-parse the whole source every frame.
+  assert.match(streamingMarkdown, /i === lastIndex/);
+  assert.match(streamingMarkdown, /new Map<string, string>/);
+  assert.match(streamingMarkdown, /cache\.get/);
+  // The cache holds the html *string* and a sealed block re-wraps that same
+  // string. The selection survives because Svelte 5's `{@html}` runtime guards
+  // `value === (value = get_value())` and skips the innerHTML write when the
+  // value is unchanged - so the wrapper object may be fresh each frame, but
+  // its html value must be identical. Caching the wrapper object instead would
+  // buy nothing: Svelte's each treats every object item as changed
+  // (`safe_not_equal` returns true for any object), so it would not skip the
+  // effect and would mislead readers into thinking reference identity is the
+  // mechanism. This assertion pins the string-cache choice against that
+  // well-meaning "optimization".
+  assert.match(streamingMarkdown, /blocks\.push\(\{ html: cached \}\)/);
+  // An open code fence at the end of the stream is synthetically closed, so
+  // marked does not swallow the lines that follow into the code block.
+  assert.match(streamingMarkdown, /openFenceMarker/);
+  assert.match(streamingMarkdown, /\.repeat\(3\)/);
+  // The wrapper is now a direct child of .markdown-body, so the existing
+  // last-child margin reset reaches the wrapper; carry the zero through to the
+  // wrapper's own last child or the bubble gains trailing space.
+  assert.match(styles, /\.md-stream-block:last-child > :last-child\s*\{[^}]*margin-bottom:\s*0/s);
+});
+
+// A turn that produced six images used to render six full-width cards stacked
+// vertically, which pushed the rest of the conversation off screen.
+test("consecutive images render as a gallery and open one shared viewer", () => {
+  // Grouping and column count are tested pure functions, not template logic.
+  assert.match(transcriptAttachmentsSource, /groupTranscriptAttachments/);
+  assert.match(transcriptAttachmentsSource, /galleryColumns/);
+  // The column count is a real layout switch: a lone result keeps its
+  // full-width card, a pair splits the width, three or more grid.
+  for (const columns of ["1", "2", "3"]) {
+    assert.match(styles, new RegExp(`\\.transcript-gallery\\[data-columns="${columns}"\\]`));
+  }
+  // `cover` inside a fixed ratio is what makes a row of thumbnails read as a
+  // row; with `contain` a portrait and a landscape produce different heights.
+  assert.match(styles, /\.transcript-gallery\[data-columns="3"\] \.transcript-image img\s*\{[^}]*object-fit:\s*cover/s);
+
+  // Both image surfaces open the same viewer rather than each growing its own.
+  assert.match(transcriptAttachmentsSource, /from "\.\.\/imageLightbox"/);
+  assert.match(markdownInteractions, /from "\.\/imageLightbox"/);
+  // A single image is not a gallery: arrows and a "1 / 1" readout would be
+  // controls that do nothing.
+  assert.match(imageLightbox, /const multiple = gallery\.length > 1/);
+  assert.match(imageLightbox, /ArrowLeft/);
+  assert.match(imageLightbox, /ArrowRight/);
+  // A placeholder has no src; including it would give the arrows a blank slide.
+  assert.match(transcriptAttachmentsSource, /items\.filter\(\(item\) => item\.mediaUrl\)/);
+  // Grouping is by consecutive run, so attachment order is never rearranged.
+  assert.match(attachmentGroups, /consecutive/i);
+});
+
+// Shipped bug: every image in a gallery stayed a name-only chip forever. Two
+// independent causes, both of which have to stay fixed.
+test("an attachment's file record reaches the transcript after it arrives", () => {
+  // (a) `{#each}` iterates groups derived from `attachments` alone, so looking
+  // a file up through a bare helper called from a `{@const}` reads `actions`
+  // where the compiler cannot see it and the cells never re-render. The `$:`
+  // must name `actions` explicitly (CLAUDE.md pitfall #2).
+  assert.match(transcriptAttachmentsSource, /\$:\s*groups = resolveGroups\(actions, attachments\)/);
+  assert.doesNotMatch(transcriptAttachmentsSource, /\{@const file = fileOf\(/);
+  assert.doesNotMatch(transcriptAttachmentsSource, /\{@const mediaUrl = mediaUrlOf\(/);
+
+  // (b) Nothing refetched the Session file list after a turn, so a file the run
+  // had just produced had no record until the next session switch. The shared
+  // controller already calls `afterMutate` for exactly this.
+  assert.match(conversationController, /afterMutate\?\(\): void/);
+  assert.match(view, /afterMutate: \(\) => \{[\s\S]*?refreshFiles\(activeProfileId, activeSessionId\)/);
+
+  // A record that never arrives must not spin forever; the name is the useful part.
+  assert.match(transcriptAttachmentsSource, /No file record for this attachment/);
+});
+
+// A turn can be *blocked* on a card at the end of the transcript while
+// `stickToBottom` has correctly handed scroll ownership to a reader who paged
+// up. Multiplied together that is a run that hangs with the decision off screen
+// and nothing anywhere saying so — the failure the pitfalls file records as an
+// approval wait masquerading as a crash.
+test("a blocked turn is visible from anywhere in the transcript", () => {
+  // The action owns `pinned`; a consumer recomputing it would disagree with the
+  // action across its own programmatic jumps.
+  assert.match(stickToBottom, /SCROLL_PINNED_EVENT/);
+  assert.match(stickToBottom, /dispatchEvent\(new CustomEvent\(SCROLL_PINNED_EVENT/);
+  assert.match(transcriptDock, /SCROLL_PINNED_EVENT/);
+  // Off-screen-ness is measured, not assumed, and against the transcript as
+  // scroll root rather than the viewport.
+  assert.match(transcriptDock, /new IntersectionObserver/);
+  assert.match(transcriptDock, /root: root \?\? null/);
+  assert.match(transcriptDock, /role="alert"/);
+  assert.match(transcriptDock, /aria-live="assertive"/);
+  // Generic: the dock is handed an element, never an approval-shaped flag, so
+  // the next blocking card (a Plan proposal) reuses it (pitfall #7). Checked
+  // against the code, not the prose, which names approvals as the example.
+  const dockCode = transcriptDock
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(dockCode, /approval/i);
+  assert.match(chatMessagesPane, /<TranscriptDock/);
+  assert.match(chatMessagesPane, /export let attentionElement/);
+
+  // Both chat surfaces hand over their approval card, not just the one that
+  // happened to be tested when the dock was added.
+  for (const [surface, source] of [["chat", view], ["project", projectChat]]) {
+    assert.match(source, /bind:this=\{approvalElement\}/, surface);
+    assert.match(source, /attentionElement=\{approvalElement\}/, surface);
+    assert.match(source, /attentionLabel=\{copy\.pendingApprovalNotice\}/, surface);
+  }
+
+  // Window-level digit shortcuts must not decide for someone reading history,
+  // and must not fight a second card once one exists.
+  assert.match(approvalCard, /!onScreen/);
+  assert.match(approvalCard, /new IntersectionObserver/);
+  // A waiting approval states its own age, so it never reads as a dead service.
+  assert.match(approvalCard, /approval-waiting/);
+  assert.match(approvalCard, /waitingLabel/);
+});
+
+// Every tool used to print into one `<pre>`, so a patch, a file, a shell
+// transcript and an MCP payload were indistinguishable blocks of grey mono.
+test("tool activity dispatches a renderer per payload and surfaces touched files", () => {
+  // Dispatch is a tested pure function, never an if-chain in the template.
+  assert.match(runActivity, /classifyActivityBody/);
+  assert.match(runActivity, /activityHeadline/);
+  assert.match(runActivity, /activityFileSummary/);
+  // The renderers are the Artifact Panel's, not chat-local forks (pitfall #7).
+  assert.match(runActivity, /import CodeViewer from "\.\.\/projects\/CodeViewer\.svelte"/);
+  assert.match(runActivity, /from "diff2html"/);
+  // diff2html is themed through `--d2h-*` under one selector; a second selector
+  // family would silently drift from it (pitfall #17), so the transcript's diff
+  // box carries the file panel's own class rather than redeclaring the palette.
+  assert.match(runActivity, /class="project-diff-preview run-activity-diff"/);
+  assert.match(styles, /\.project-diff-preview\s*\{[^}]*--d2h-bg-color/s);
+  // JsonTree's styles exist only under `.artifact-panel`, so mounting it in the
+  // transcript would render unstyled markup with nothing in the console.
+  // Checked against the code, not the prose, which explains the choice.
+  const activityCode = runActivity
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(activityCode, /JsonTree/);
+  // The tool id is recorded, not parsed back out of a dedup key; the key parse
+  // exists only for activities persisted before the field did.
+  assert.match(activityView, /activity\.tool\?\.trim\(\)/);
+  assert.match(conversationActivity, /tool: event\.toolName/);
+  // The head names a step. "23 actions happened" is not progress.
+  assert.match(runActivity, /run-activity-current/);
+  assert.match(runActivity, /copy\.runActivityStep/);
+  // `paths`/`mutates` have been on the contract for ages and nothing read them.
+  assert.match(runActivity, /run-activity-file/);
+  assert.match(runActivity, /onOpenPath/);
+  // Generic component: the host injects how to open a path.
+  assert.doesNotMatch(runActivity, /projectPaneActive|inspector/);
+  assert.match(projectChat, /onOpenActivityPath=\{requestArtifactPathOpen\}/);
 });
 
 test("sidebar channel groups are independently collapsible with balanced list density", () => {
@@ -1281,7 +1504,7 @@ test("automation session detail renders a chat-style transcript", () => {
   assert.doesNotMatch(transcript, /class="message-avatar"/);
   assert.match(transcript, /class="message-stack"/);
   assert.match(transcript, /class="message-bubble markdown-body"/);
-  assert.match(transcript, /renderMarkdown\(displayContent, copy\.copyCode\)/);
+  assert.match(transcript, /renderMarkdown\(displayContent, copy\.copyCode, markdownOptions\)/);
   assert.match(styles, /\.message-row\.assistant \.message-bubble \{[^}]*background: transparent/s);
   // The assistant turn has no bubble, so the user turn is the only card in the
   // transcript: keep it a full step above the background plus tier-1 elevation,

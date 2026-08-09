@@ -107,7 +107,8 @@
     miniAppComposerAttachment,
     miniAppComposerInsertion,
     miniAppDeepLinkOpenRequest,
-    miniAppSessionOpenRequest
+    miniAppSessionOpenRequest,
+    artifactPathOpenRequest
   } from "./lib/projects/composerBridge";
   import { parseMiniAppDeepLink } from "@molibot/shared/miniappDeepLink";
   import { mimeFromFilename } from "@molibot/shared/filePreview";
@@ -352,7 +353,7 @@
 
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_DEFAULT = 228;
-  const SIDEBAR_MIN = 220;
+  const SIDEBAR_MIN = 228;
   const SIDEBAR_MAX = 420;
   let sidebarMaxWidth = SIDEBAR_MAX;
   let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || SIDEBAR_DEFAULT);
@@ -546,10 +547,15 @@
     sessionFile?: DesktopSessionFile;
     /** Bumped so re-opening the same attachment re-activates its tab. */
     sessionFileNonce?: number;
+    /** Project-relative path requested from a transcript file chip. */
+    openPath?: string;
+    openPathNonce?: number;
+    openPathAsDiff?: boolean;
   } | null;
   let inspector: ChatInspector = null;
   let miniAppSeq = 0;
   let sessionFileSeq = 0;
+  let openPathSeq = 0;
   let miniAppsExpanded = localStorage.getItem(MINIAPPS_EXPANDED_KEY) !== "0";
 
   // A Mini App runs on its own origin and cannot inherit our CSS variables, so
@@ -670,6 +676,8 @@
   $: activity = chatState.activity;
   $: activityEntries = chatState.activities;
   $: pendingApproval = chatState.pendingApproval;
+  /** Node the transcript dock watches; Svelte clears it when the card unmounts. */
+  let approvalElement: HTMLElement | null = null;
   $: queuedMessages = chatState.queue;
   $: chatError = chatState.error;
   $: activeSessionId = chatState.activeSessionId;
@@ -1003,6 +1011,15 @@
           localStorage.setItem(LAST_BOT_KEY, profileId);
           void loadChannel("web");
           void refreshFiles(profileId, sessionId);
+        },
+        // A turn can produce files — a generated image, an exported document —
+        // and the transcript renders an attachment through its Session file
+        // record. Without this the record only arrived on the next session
+        // switch, so images the run had just made sat as name-only chips until
+        // the user navigated away and back.
+        afterMutate: () => {
+          if (viewMode === "external" || !activeProfileId || !activeSessionId) return;
+          void refreshFiles(activeProfileId, activeSessionId);
         }
       });
 
@@ -1822,6 +1839,16 @@
 
   // Deep links raised from surfaces that do not own the inspector (a card
   // rendered inside Project Chat) arrive here.
+  let appliedArtifactPathId = 0;
+  $: applyArtifactPathOpen($artifactPathOpenRequest);
+  function applyArtifactPathOpen(
+    request: import("./lib/projects/composerBridge").ArtifactPathOpen | null
+  ): void {
+    if (!request || request.id === appliedArtifactPathId) return;
+    appliedArtifactPathId = request.id;
+    openActivityPath(request.path, request.mutates);
+  }
+
   $: applyMiniAppDeepLinkOpen($miniAppDeepLinkOpenRequest);
   function applyMiniAppDeepLinkOpen(
     request: import("./lib/projects/composerBridge").MiniAppDeepLinkOpen | null
@@ -2218,6 +2245,27 @@
   // already shown is a no-op, which keeps its iframe (and its state) alive.
   function toggleFilesInspector(): void {
     inspector = inspector?.kind === "artifact" ? null : { kind: "artifact", scope: projectPaneActive ? "project" : "session" };
+  }
+
+  /**
+   * A file chip on a turn's tool-activity list, raised through the shared
+   * bridge because the chips live inside `ProjectChat` while the panel they
+   * open is owned here.
+   *
+   * Project scope only: a plain conversation's tool paths are workspace
+   * scratch, which the panel addresses by file id rather than by path, so those
+   * chips stay inert rather than silently opening the wrong thing.
+   */
+  function openActivityPath(path: string, mutates: boolean): void {
+    workspacePane = "chat";
+    inspector = {
+      kind: "artifact",
+      scope: "project",
+      openPath: path,
+      openPathNonce: ++openPathSeq,
+      // A written file is interesting for what changed; a read file for what it says.
+      openPathAsDiff: mutates
+    };
   }
 
   function openMiniAppInspector(appId: string, deepLinkPath = ""): void {
@@ -2734,18 +2782,29 @@
         showReadReceipt={true}
         attachmentActions={transcriptAttachmentActions}
         messageActions={messageActions}
+        attentionElement={approvalElement}
+        attentionLabel={copy.pendingApprovalNotice}
+        attentionAction={copy.pendingApprovalJump}
       >
         {#if pendingApproval}
-          <ApprovalCard
-            title={copy.approvalTitle}
-            subtitle={pendingApproval.displayName ?? ""}
-            reasonLabel={copy.approvalReason}
-            command={pendingApproval.command}
-            reason={pendingApproval.reason}
-            options={approvalOptions}
-            defaultOptionId="approve_once"
-            onResolve={resolveApprovalId}
-          />
+          <!-- The wrapper exists so the pane can watch this card without knowing
+               what it is; `bind:this` on the component would hand over the
+               instance, not a node an IntersectionObserver can take. -->
+          <div bind:this={approvalElement}>
+            <ApprovalCard
+              title={copy.approvalTitle}
+              subtitle={pendingApproval.displayName ?? ""}
+              reasonLabel={copy.approvalReason}
+              command={pendingApproval.command}
+              reason={pendingApproval.reason}
+              options={approvalOptions}
+              defaultOptionId="approve_once"
+              waitingLabel={copy.approvalWaiting}
+              secondsLabel={copy.approvalWaitingSeconds}
+              minutesLabel={copy.approvalWaitingMinutes}
+              onResolve={resolveApprovalId}
+            />
+          </div>
         {/if}
       </ChatMessagesPane>
       <input
@@ -2867,6 +2926,9 @@
       miniApp={inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : ""}
       miniAppNonce={inspector?.kind === "artifact" ? (inspector.miniAppNonce ?? 0) : 0}
       miniAppDeepLinkPath={inspector?.kind === "artifact" ? (inspector.miniAppDeepLinkPath ?? "") : ""}
+      openPath={inspector?.kind === "artifact" ? (inspector.openPath ?? "") : ""}
+      openPathNonce={inspector?.kind === "artifact" ? (inspector.openPathNonce ?? 0) : 0}
+      openPathAsDiff={inspector?.kind === "artifact" ? (inspector.openPathAsDiff ?? false) : false}
       {locale}
       theme={resolvedTheme}
       {copy}

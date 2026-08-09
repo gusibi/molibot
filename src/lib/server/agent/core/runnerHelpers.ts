@@ -409,6 +409,26 @@ export function extractTextFromResult(result: unknown): string {
   return parts.join("\n") || JSON.stringify(result);
 }
 
+/**
+ * Byte cap for a diff carried into the transcript. A patch is bounded by the
+ * edit that produced it, but "bounded by something we do not control" is not a
+ * bound (pitfall #27) — and unlike a tool summary this is persisted into every
+ * later read of the session's metadata.
+ */
+const MAX_ACTIVITY_DIFF_BYTES = 64 * 1024;
+
+/** Unified patch a file-mutating tool produced, if any, capped for the transcript. */
+export function extractToolDiff(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const details = (result as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return undefined;
+  const diff = (details as { unifiedDiff?: unknown }).unifiedDiff;
+  if (typeof diff !== "string" || !diff.trim()) return undefined;
+  return Buffer.byteLength(diff, "utf8") > MAX_ACTIVITY_DIFF_BYTES
+    ? undefined
+    : diff;
+}
+
 export function extractHostBashApprovalPrompt(result: unknown): HostBashApprovalPrompt | undefined {
   if (!result || typeof result !== "object") return undefined;
   const details = (result as { details?: unknown }).details;

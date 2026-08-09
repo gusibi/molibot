@@ -66,6 +66,9 @@
     miniAppDeepLinkPath = "",
     sessionFile = null,
     sessionFileNonce = 0,
+    openPath = "",
+    openPathNonce = 0,
+    openPathAsDiff = false,
     locale,
     theme,
     copy,
@@ -88,6 +91,15 @@
     sessionFile?: DesktopSessionFile | null;
     /** Bumped by the host so re-opening the same attachment re-activates its tab. */
     sessionFileNonce?: number;
+    /**
+     * Project-relative path to open as a tab, requested from outside the panel
+     * (today: a file chip on a transcript's tool-activity list).
+     */
+    openPath?: string;
+    /** Bumped by the host so re-requesting the same path re-activates its tab. */
+    openPathNonce?: number;
+    /** Open the path's diff rather than its contents — used for a written file. */
+    openPathAsDiff?: boolean;
     locale: string;
     theme: "light" | "dark";
     copy: Translation;
@@ -590,6 +602,23 @@
     untrack(() => {
       nonce;
       store.openMiniApp(appId, deepLinkPath);
+    });
+  });
+
+  // A live "open this path" request from a surface outside the panel. Mirrors
+  // the Mini App effect above rather than inventing a second mechanism: the
+  // nonce is what makes a repeat request for the same path re-activate its tab.
+  $effect(() => {
+    const nonce = openPathNonce;
+    const path = openPath;
+    const asDiff = openPathAsDiff;
+    if (!path || scope !== "project") return;
+    untrack(() => {
+      nonce;
+      store.setMode("files");
+      void (asDiff ? store.openDiff(path) : store.openFile(path));
+      void store.revealPath(path);
+      store.cursorPath = path;
     });
   });
 

@@ -6,13 +6,52 @@
 
 ## 2026-08-09
 
+### Improved: a streaming reply renders block-by-block and keeps your selection
+
+- A reply being generated used to call `renderMarkdown(streamingText)` on every frame and swap the whole `{@html}` tree. That was O(whole source) per frame (parse + sanitize + DOM replace), and because the entire `innerHTML` was replaced each frame it blew away any text the reader had selected - copy-while-generating was impossible. An unclosed code fence mid-stream also let marked swallow everything after it into the code block, so the picture lurched until the fence closed.
+- The reply is now split into top-level blocks - blank-line boundaries, fence-aware so a blank line inside a code block does not split - and rendered as a keyed `{#each}` of one `{@html}` per block inside a `.md-stream-block` wrapper. Sealed blocks (everything before the final boundary, immutable for the rest of the stream) are parsed once and their html cached; only the still-growing last block is re-parsed per frame, so per-frame cost drops from O(whole source) to O(active block).
+- Selection survives because Svelte 5's `{@html}` runtime guards `value === (value = get_value())` and skips the `innerHTML` write when the value is unchanged (`svelte/src/runtime/client/dom/blocks/html.js`); a sealed block hands back the same cached html string each frame, so its DOM node is never touched. An open code fence at the end of the stream is synthetically closed before parsing, so the lines that follow are not swallowed while the fence is still open.
+- The cache holds the html *string*, not the wrapper object: Svelte's `{#each}` treats every object item as changed (`safe_not_equal` returns true for any object), so caching the object would buy nothing and mislead readers into thinking reference identity is the mechanism. The wrapper object is fresh each frame; only its html value is pinned.
+- Verification: `streamingMarkdown` 15/15, `chat-ui` structural guards 183/183, `svelte-check` 0 errors / 0 warnings, production build passed. The selection-preservation mechanism is verified from the Svelte 5 runtime source (the `{@html}` value guard plus keyed-`{#each}` index reuse of the wrapper div, confirmed by compiling the exact template); a cold-start smoke walk - stream a multi-block reply, select text in an early block and confirm it survives, and confirm an unclosed fence does not swallow - is the remaining runtime gate (CLAUDE.md pitfall #10).
+
+### Improved: several images in one turn render as a gallery, not a vertical stack
+
+- A turn that produced six pictures rendered six full-width cards stacked vertically, pushing the rest of the conversation off screen. Consecutive image attachments now collapse into one grid whose height stops growing with the number of results.
+- The column count is a real layout switch rather than an auto-fit that happens to land on three: one image keeps its full-width card (shrinking a lone result to a thumbnail loses the thing the turn was about), two split the width side by side, three or more use a three-column grid with square `cover` thumbnails — with `contain`, a portrait and a landscape result produce two different heights and the row reads as broken.
+- Clicking any image opens a full-screen gallery with ←/→ arrows and keys, a wrap-around position readout, Escape and backdrop dismissal, and a download button. Images inside rendered Markdown open the same viewer, paging across every image in that block, so the two surfaces cannot drift apart.
+- Grouping is by *consecutive* run, so a file between two images never causes the attachments to be reordered; only images that have finished loading enter the viewer, so the arrows can never page onto a blank slide.
+- Fixed, in the same change, two independent reasons an attachment could stay a name-only chip forever. (a) The `{#each}` iterates groups derived from `attachments` alone, so resolving a file through a bare helper called from a `{@const}` read `actions` where the compiler could not see it and the cells never re-rendered when the record and blob URL arrived — the maps are populated *after* first render, so this was not subtle staleness but a permanently blank gallery (CLAUDE.md pitfall #2). Resolution now happens in a `$:` that names `actions` explicitly. (b) Nothing refetched the Session file list after a turn, so a file the run had just produced had no record until the next session switch; `ChatView` now implements the `afterMutate` hook the shared controller already calls.
+- Verification: Desktop UI 184/184, `attachmentGroups` 6/6, `svelte-check` clean, production build passed. Exercised in a live render (dark and light): 1/2/3/6-image galleries plus mixed runs, arrow and keyboard navigation, wrap-around, single-image control hiding, Markdown-image paging, and — starting from empty maps, which is the real order of events — the chip → loading → image transition as records and then bytes arrive.
+
+### Fixed: a turn blocked on an approval is now visible from anywhere in the transcript
+
+- The Host Bash approval card renders at the end of the transcript, while `stickToBottom` deliberately hands scroll ownership to a reader who has paged up. Together those two correct behaviours produced a run that hung with the decision off screen and nothing anywhere saying so.
+- Added a shared transcript dock: a jump-to-latest button whenever following is suspended, and an assertive "an approval is waiting for you / Review" pill whenever the blocked card is off screen. The dock is handed an element, never an approval-shaped flag, so the next blocking card (a Plan proposal) reuses it unchanged.
+- The approval card now states how long it has been waiting, so a blocked run never reads as a dead service, and its window-level digit/⌘⏎ shortcuts only fire while the card is actually on screen.
+- Both chat surfaces (Chat and Project Chat) are wired, not just the one the dock was written against.
+
+### Improved: tool activity renders per payload instead of one grey `<pre>`
+
+- Every tool used to print into the same `<pre>`, so a patch, a file, a shell transcript and an MCP payload were indistinguishable. Activity bodies now dispatch through a tested pure classifier: unified diffs render through diff2html, file contents and JSON through `CodeViewer`, shell output as a terminal block that keeps its columns.
+- `edit` now also emits a real unified patch (`generateUnifiedPatch`) alongside pi's display diff, carried to the transcript on a new capped `ConversationActivity.diff`; the activity also records its own `tool` id rather than leaving surfaces to parse it back out of the dedup key.
+- The collapsed head names a step ("Step 3 of 5 · npm test") instead of only counting them, preferring a failed step over the merely latest.
+- The `paths`/`mutates` the runtime has always recorded are finally surfaced: a "N files changed / read" chip row that opens the file's diff or contents in the Artifact Panel, raised through the existing composer bridge so the generic component stays free of scope conditionals.
+
+### Fixed: code and wide tables scroll inside the chat column instead of being destroyed
+
+- Code blocks no longer force `pre-wrap`, which broke the indentation carrying their structure; they scroll horizontally inside a box clamped to the column, with a per-block wrap toggle for prose-shaped output. Markdown tables lost `table-layout: fixed`, which split a wide table into stacks of one character per column, in favour of a scrolling wrapper.
+- Fixed the layout regression this exposed: `.assistant-layout` was a block-level flex container with `width: auto`, so it shrink-to-fit to its content — the first block wider than the column made the whole assistant row exceed the 720px message column and the transcript scrolled sideways.
+- Images in rendered Markdown open in a lightbox attached to `<body>`, so it is never clipped by the transcript's overflow or a panel's stacking context.
+- Removed the streaming bubble's private copy-code handler; every rendered-Markdown surface now shares one delegated handler, so the wrap toggle and lightbox work on the reply being generated too.
+- Verification: Desktop UI 180/180, `activityView` 12/12, `test:projects` 71/71, edit/runner/projection 54/54, `svelte-check` clean, production build passed, and all three behaviours exercised in a live render (dark and light) — approval pill, per-tool renderers, wrap toggle, lightbox, and zero transcript overflow.
+
 ### Release: v2.9.13 / Desktop v0.9.10
 - Synchronized the root and Desktop package versions for the new release.
 
 ### Improved: Chat and Settings navigation now share one width baseline
 
 - Desktop Chat and Settings now use the Settings navigation rail as their shared `228px` desktop baseline, with the same `170px` narrow-window width.
-- Chat remains resizable and keeps an existing saved width; the change only updates the default and removes the CSS width drift between the two shells.
+- Chat remains resizable and keeps saved widths at or above the baseline; stale narrower saved widths are clamped to `228px`, removing the runtime width drift between the two shells.
 - Verification: Desktop UI 177/177, full Desktop tests 160 + 181 + 55, `svelte-check` clean, and production build passed.
 
 ### Maintained: one current assistant capability matrix and a clean data root

@@ -20,9 +20,15 @@
   export let showReadReceipt = false;
   export let attachmentActions: TranscriptAttachmentActions | null = null;
   export let messageActions: TranscriptMessageActions | null = null;
+  /** Opens a path a tool touched in the Artifact Panel; injected by the host. */
+  export let onOpenActivityPath: ((path: string, mutates: boolean) => void) | null = null;
 
   let expandedMessages = new Set<string>();
   let selectionMenu: { x: number; y: number; message: TranscriptMessage; selection: string } | null = null;
+
+  // Controls the renderer emits into every code block. Declared once so the
+  // cache key stays stable across renders of the same message.
+  $: markdownOptions = { labels: { wrapLines: copy.wrapLines } };
 
   function messageKey(message: TranscriptMessage, index: number): string {
     return message.id ?? `${index}-${message.role}`;
@@ -129,12 +135,12 @@
         {#if invocation}
           <div class="message-bubble invocation-message" data-kind={invocation.kind}>
             <div class="invocation-kicker"><i class={`ph ${invocation.kind === "command" ? "ph-terminal-window" : invocation.kind === "skill" ? "ph-sparkle" : "ph-squares-four"}`} aria-hidden="true"></i><span>{invocation.kind === "command" ? "COMMAND" : invocation.kind === "skill" ? "SKILL" : "MINI APP"}</span><code>{invocation.token}</code></div>
-            {#if displayContent.slice(invocation.token.length).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.token.length).trim(), copy.copyCode)}</div>{/if}
+            {#if displayContent.slice(invocation.token.length).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.token.length).trim(), copy.copyCode, markdownOptions)}</div>{/if}
           </div>
         {:else}
           <div class="user-message-shell">
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <div class:collapsed={isLongUserMessage && !isExpanded} class="message-bubble markdown-body user-message-content" onclick={handleMarkdownClick} oncontextmenu={(event) => openSelectionMenu(event, message)}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>
+            <div class:collapsed={isLongUserMessage && !isExpanded} class="message-bubble markdown-body user-message-content" onclick={handleMarkdownClick} oncontextmenu={(event) => openSelectionMenu(event, message)}>{@html renderMarkdown(displayContent, copy.copyCode, markdownOptions)}</div>
             {#if isLongUserMessage}
               <button class="message-expand" type="button" aria-expanded={isExpanded} onclick={() => toggleMessage(key)}>{isExpanded ? copy.collapseMessage : copy.expandMessage}</button>
             {/if}
@@ -224,8 +230,8 @@
         {#if message.thinking}
           <ThinkingCard text={message.thinking} label={copy.thinking} />
         {/if}
-        {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} />{/if}
-        {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={handleMarkdownClick} oncontextmenu={(event) => openSelectionMenu(event, message)}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>{/if}
+        {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} onOpenPath={onOpenActivityPath} />{/if}
+        {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={handleMarkdownClick} oncontextmenu={(event) => openSelectionMenu(event, message)}>{@html renderMarkdown(displayContent, copy.copyCode, markdownOptions)}</div>{/if}
         {#if assistantError}
           <div class="assistant-error-note"><i class="ph ph-warning-circle" aria-hidden="true"></i><span class="assistant-error-label">{copy.assistantErrorLabel}</span><span class="assistant-error-text">{assistantError}</span></div>
         {/if}

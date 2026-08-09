@@ -82,7 +82,29 @@ export interface MiniAppDeepLinkOpen {
 const miniAppDeepLinkOpen = writable<MiniAppDeepLinkOpen | null>(null);
 export const miniAppDeepLinkOpenRequest = { subscribe: miniAppDeepLinkOpen.subscribe };
 
+/**
+ * A request to open a path a tool touched during a turn.
+ *
+ * Same seam, same reason as the deep-link request above: the Artifact Panel is
+ * owned by `ChatView`, while the file chips that raise this sit on a turn's
+ * activity list two levels down inside `ProjectChat`.
+ */
+export interface ArtifactPathOpen {
+  id: number;
+  /** Project-relative path. */
+  path: string;
+  /** The tool wrote to it, so the diff is the interesting view. */
+  mutates: boolean;
+}
+
+const artifactPathOpen = writable<ArtifactPathOpen | null>(null);
+export const artifactPathOpenRequest = { subscribe: artifactPathOpen.subscribe };
+
 let sequence = 0;
+
+export function requestArtifactPathOpen(path: string, mutates: boolean): void {
+  artifactPathOpen.set({ id: ++sequence, path, mutates });
+}
 
 /** Formats a file reference the way the composer should show it. */
 export function formatFileReference(path: string, line = 0): string {

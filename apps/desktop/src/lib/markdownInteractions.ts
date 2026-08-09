@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { externalHttpUrlFromClick } from "./chat/markdownLinks";
+import { openImageLightbox } from "./imageLightbox";
 
 /**
  * Click behaviour for any surface that renders `renderMarkdown` output.
@@ -14,6 +15,13 @@ import { externalHttpUrlFromClick } from "./chat/markdownLinks";
 export interface MarkdownClickCopy {
   copyCode: string;
   copied: string;
+  /** Label of the per-block soft-wrap toggle the renderer emits. */
+  wrapLines?: string;
+  /** Accessible name of the image lightbox's close button. */
+  closeImage?: string;
+  prevImage?: string;
+  nextImage?: string;
+  imageCounter?: string;
 }
 
 /** Copies the code block behind a `data-copy-code` button, with a transient label. */
@@ -30,6 +38,46 @@ async function copyCodeFromClick(event: MouseEvent, copy: MarkdownClickCopy): Pr
 }
 
 /**
+ * Toggles soft wrapping for one code block. The state lives on the DOM node
+ * rather than in a component: the block is `{@html}` output with no component
+ * identity, and the transcript re-renders it from a cached string, so a store
+ * keyed on "which block" would have nothing stable to key on.
+ */
+function toggleCodeWrapFromClick(event: MouseEvent): boolean {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-wrap-code]");
+  const block = button?.closest<HTMLElement>(".code-block");
+  if (!button || !block) return false;
+  const next = block.getAttribute("data-wrap") !== "on";
+  block.setAttribute("data-wrap", next ? "on" : "off");
+  button.setAttribute("aria-pressed", next ? "true" : "false");
+  return true;
+}
+
+/**
+ * Opens the image the click landed on, as a gallery over every image in the
+ * same rendered-Markdown block.
+ *
+ * A reply that returns several images is the common case, and paging between
+ * them is the same gesture as paging between chat attachments — so both go
+ * through the one shared viewer rather than each growing their own.
+ */
+function openImageFromClick(event: MouseEvent, copy: MarkdownClickCopy): boolean {
+  const image = (event.target as HTMLElement).closest<HTMLImageElement>(".markdown-body img");
+  // An image wrapped in a link is a link first; the anchor handler above owns it.
+  if (!image || image.closest("a") || (!image.currentSrc && !image.src)) return false;
+  const body = image.closest<HTMLElement>(".markdown-body");
+  const siblings = body
+    ? [...body.querySelectorAll<HTMLImageElement>("img")].filter((candidate) => !candidate.closest("a"))
+    : [image];
+  const items = siblings.map((candidate) => ({
+    src: candidate.currentSrc || candidate.src,
+    alt: candidate.alt ?? ""
+  }));
+  openImageLightbox(items, Math.max(0, siblings.indexOf(image)), copy);
+  return true;
+}
+
+/**
  * Links win over the copy button: a link inside a code block would otherwise be
  * swallowed by the copy handler.
  */
@@ -40,6 +88,8 @@ export async function handleMarkdownBodyClick(event: MouseEvent, copy: MarkdownC
     else window.open(url, "_blank", "noopener,noreferrer");
     return;
   }
+  if (toggleCodeWrapFromClick(event)) return;
+  if (openImageFromClick(event, copy)) return;
   await copyCodeFromClick(event, copy);
 }
 

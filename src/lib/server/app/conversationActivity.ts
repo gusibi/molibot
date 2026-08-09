@@ -2,6 +2,7 @@ import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import type { ConversationActivity } from "$lib/shared/types/message";
 
 const MAX_SUMMARY_LENGTH = 4_000;
+const MAX_DIFF_LENGTH = 40_000;
 
 export class ConversationActivityCollector {
   private activities: ConversationActivity[] = [];
@@ -12,6 +13,11 @@ export class ConversationActivityCollector {
       const activity: ConversationActivity = {
         key: `${event.toolName}-${++this.sequence}`,
         kind: "tool",
+        // The tool's own id, recorded rather than left to be parsed back out of
+        // `key`: a surface that renders a `read` result differently from a
+        // `bash` result must not depend on a key format that exists for
+        // deduplication.
+        tool: event.toolName,
         label: event.label || event.displayName || event.toolName,
         state: "running",
         // Only present when the tool actually takes a file path, so activities
@@ -41,12 +47,15 @@ export class ConversationActivityCollector {
     // `tool_execution_end` has no arguments, so the file target recorded at
     // start is the only place the paths exist — carry it across the merge.
     const started = index >= 0 ? this.activities[index] : undefined;
+    const diff = event.diff?.trim();
     const activity: ConversationActivity = {
       key: started?.key ?? `${event.toolName}-${++this.sequence}`,
       kind: "tool",
+      tool: event.toolName,
       label: event.displayName || event.toolName,
       state: event.isError ? "error" : "success",
       summary: summary ? summary.slice(0, MAX_SUMMARY_LENGTH) : undefined,
+      ...(diff ? { diff: diff.slice(0, MAX_DIFF_LENGTH) } : {}),
       ...(started?.paths?.length ? { paths: started.paths, mutates: started.mutates === true } : {})
     };
 

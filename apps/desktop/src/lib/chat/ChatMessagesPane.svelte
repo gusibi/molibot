@@ -5,6 +5,7 @@
   import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./transcript";
   import ConversationLiveView from "./ConversationLiveView.svelte";
   import ConversationPromptNavigator from "./ConversationPromptNavigator.svelte";
+  import TranscriptDock from "./TranscriptDock.svelte";
   import { PROMPT_NAVIGATOR_MIN_TURNS } from "./conversationNavigation";
   import { resumeStickToBottom, stickToBottom } from "./stickToBottom";
   import { settleEntrances } from "./settleEntrances";
@@ -28,7 +29,16 @@
   export let showReadReceipt = false;
   export let attachmentActions: TranscriptAttachmentActions | null = null;
   export let messageActions: TranscriptMessageActions | null = null;
+  export let onOpenActivityPath: ((path: string, mutates: boolean) => void) | null = null;
   export let messagesElement: HTMLDivElement | undefined = undefined;
+  /**
+   * A card rendered into the slot that the turn is blocked on. When it scrolls
+   * out of view the dock raises a pill pointing at it; the pane itself has no
+   * idea what kind of card it is (pitfall #7).
+   */
+  export let attentionElement: HTMLElement | null = null;
+  export let attentionLabel = "";
+  export let attentionAction = "";
   let appliedScrollFollowKey = "";
 
   $: userTurnCount = messages.filter((message) => message.role === "user" && Boolean(message.id?.trim())).length;
@@ -66,9 +76,19 @@
         {showReadReceipt}
         {attachmentActions}
         {messageActions}
+        {onOpenActivityPath}
       />
       <slot />
     {/if}
   </div>
-  {#if !loading}<ConversationPromptNavigator {messages} {copy} {formatTime} scrollElement={messagesElement} />{/if}
+  {#if !loading}
+    <ConversationPromptNavigator {messages} {copy} {formatTime} scrollElement={messagesElement} />
+    <TranscriptDock
+      scrollElement={messagesElement ?? null}
+      label={copy.scrollToLatest}
+      {attentionElement}
+      {attentionLabel}
+      {attentionAction}
+    />
+  {/if}
 </div>

@@ -17,7 +17,7 @@
   import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import { projectChatStore } from "./projectChatStore.svelte";
-  import { appendReference, composerInsertion, insertComposerText, miniAppComposerInsertion, requestMiniAppDeepLinkOpen, type MiniAppComposerInsertion } from "./composerBridge";
+  import { appendReference, composerInsertion, insertComposerText, miniAppComposerInsertion, requestArtifactPathOpen, requestMiniAppDeepLinkOpen, type MiniAppComposerInsertion } from "./composerBridge";
   import MiniAppActionToast from "../miniapps/MiniAppActionToast.svelte";
   import {
     fetchDesktopFileBlob,
@@ -302,6 +302,8 @@
   $: streamingThinking = chatState.streamingThinking;
   $: activityEntries = chatState.activities;
   $: pendingApproval = chatState.pendingApproval;
+  /** Node the transcript dock watches; Svelte clears it when the card unmounts. */
+  let approvalElement: HTMLElement | null = null;
   $: queuedMessages = chatState.queue;
   $: turnError = chatState.error;
 
@@ -961,20 +963,31 @@
     emptyHint={copy.projectEmptyChatHint}
     messageActions={messageActions}
     attachmentActions={transcriptAttachmentActions}
+    onOpenActivityPath={requestArtifactPathOpen}
     {searchMatchIds}
     {activeMatchId}
+    attentionElement={approvalElement}
+    attentionLabel={copy.pendingApprovalNotice}
+    attentionAction={copy.pendingApprovalJump}
   >
     {#if pendingApproval}
-      <ApprovalCard
-        title={copy.approvalTitle}
-        subtitle={pendingApproval.displayName ?? ""}
-        reasonLabel={copy.approvalReason}
-        command={pendingApproval.command}
-        reason={pendingApproval.reason}
-        options={approvalOptions}
-        defaultOptionId="approve_once"
-        onResolve={resolveApprovalId}
-      />
+      <!-- Wrapped so the pane can watch the card without knowing what it is;
+           see the same seam in ChatView. -->
+      <div bind:this={approvalElement}>
+        <ApprovalCard
+          title={copy.approvalTitle}
+          subtitle={pendingApproval.displayName ?? ""}
+          reasonLabel={copy.approvalReason}
+          command={pendingApproval.command}
+          reason={pendingApproval.reason}
+          options={approvalOptions}
+          defaultOptionId="approve_once"
+          waitingLabel={copy.approvalWaiting}
+          secondsLabel={copy.approvalWaitingSeconds}
+          minutesLabel={copy.approvalWaitingMinutes}
+          onResolve={resolveApprovalId}
+        />
+      </div>
     {/if}
   </ChatMessagesPane>
 
