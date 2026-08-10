@@ -6,6 +6,35 @@
 
 ## 2026-08-10
 
+### Release v2.9.17 / Desktop v0.9.14
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布消息宽度限制、Web 侧边栏快捷新建会话、长任务 Durable 计划按步推进执行与 Chat 折叠思考等优化。
+
+### Message 内容宽度隔离（修复，P1）
+
+- Desktop Chat 与 Project Chat 的消息视口现在只纵向滚动，普通文本、连续路径、链接和 inline code 会在 720px 阅读列内自动换行，任何消息都不能再把中间面板整体撑宽。
+- 表格、代码块、渲染公式等需要保留固有排版的模块继续保持原布局，但横向滚动条由模块自身承载；共享消息链路补齐 `min-width: 0` 与 `max-width: 100%` 边界。
+- 显式 Skill 调用持久化后的 `[$skill-name](.../SKILL.md)` 现在恢复为紫色 Skill 调用卡，只显示 Skill 名称与后续用户请求；本机绝对路径仍供 Agent 执行，但不会再作为普通 Markdown 链接展开到聊天正文。
+- 验证：真实浏览器布局中 760px Message 面板的 `scrollWidth` 从 1380px 恢复为 760px，1342px 宽模块保留自身滚动；新增结构守卫覆盖文本断行、消息列隔离、表格和公式内部滚动。
+
+### Web 侧栏快捷新建 Session（新增，P2）
+
+- Desktop 左侧 Web 渠道行在下拉箭头左侧新增独立加号，像 Project 操作一样默认隐藏、在整行 hover 或键盘聚焦时出现；它直接复用顶部“新对话”的同一 `newConversation()` 流程，且点击不会触发展开/收起。
+- 该动作只对 Web 渲染，Telegram、飞书、QQ、微信保持原样；按钮提供中英文无障碍名称、键盘焦点和明暗主题语义色。
+- 验证：Desktop UI 结构守卫 187/187，`svelte-check` 0 错误/0 警告。
+
+### Chat 有序运行记录、Plan 决策与复杂内容渲染（新增/优化，P1）
+
+- 对话改为持久化有序 step 流，流式与历史记录保留文本、思考、工具和 Plan 的真实交错顺序；活动新增耗时、退出码、行数、token 元数据，并提供 turn 级工具/文件/耗时/token 汇总。
+- 新增共享 `DecisionCard` 与完整 Plan 原语：Plan 模式在模型调用前收窄为只读工具 + `exitPlan`，计划落为 Session artifact，可修改、拒绝或选择 Manual/Accept edits 接受；接受后转换为同一 Session 关联的多步骤 Durable Execution，每次 attempt 只执行一个已确认步骤，逐步留下 run-detail 证据并在全部步骤完成后统一验收。
+- 四档权限模式已从模型选择器拆成独立控件，固定放在输入框左侧附件按钮右边；模型菜单只负责模型与 thinking，Desktop Chat 与 Project Chat 共用同一个权限控件及会话级持久化。
+- 审批卡支持路径、diff 与参数等结构化载荷；Desktop 投影从单个 pending 改为有序队列，共享快捷键仲裁确保只有最近且可见的决策卡响应数字键。
+- Chat Markdown 统一支持 Mermaid、KaTeX、沙箱 HTML/SVG 预览和宽表 SpreadsheetTable 入口；单换行恢复 CommonMark 语义。长工具输出采用前 32 行预览，活动展开态跨 live/final 保留。
+- 长会话按 80 条分页挂载；包含至少 3 个标题的回答显示内部大纲。
+- 完成态把最终回答之前的思考、过程说明与工具步骤统一收进一个默认折叠的“思考过程”摘要；运行中保持逐步可见，失败/中止自动展开，Plan 决策卡不被隐藏。
+- 本次 Plan/Durable 联动验证：Durable 激活、分步 runtime、状态投影 17/17，Desktop 结构守卫 186/186，`svelte-check` 0 错误/0 警告，服务端生产构建与 `git diff --check` 通过。完整 `test:desktop-chat` 为 250/252；两个失败分别是既有 Node 直跑 Svelte rune 的 `$derived is not defined` 与 SQLite FTS `bm25` 上下文错误，均不在本切片触达路径。
+- 验证：Desktop 190/190 UI/逻辑测试、55/55 Rust 测试、`svelte-check` 0/0、Desktop 与服务端生产构建通过。既有 SessionStore FTS 测试仍受 Node SQLite `bm25` 上下文错误影响，单独重跑可复现，未由本切片引入。
+
 ### Release v2.9.15 / Desktop v0.9.12
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，修复已发送提醒引起的消息上下文 `usage` 缺失导致模型调用崩溃的问题。
@@ -73,6 +102,7 @@
 - 恢复现在会先调用按幂等键注册的 queryable 探针；无探针、探针失败或结果不确定时只创建 `recovery_required` 决策，不会盲重试。证据读取器只解引用当前任务授权的 run-detail，按来源聊天/Project/Session 校验，24KB 截断并标记为不可信；Durable attempt 通过仅在该上下文加载的 `durableEvidence` 只读工具按 evidence id 取回它。
 - 审批请求会持久化到 Durable SQLite，记录重复次数并从隐藏 attempt 投影回来源渠道；共享 `/durable` 命令按 owner/Bot/channel/chat 做鉴权，支持 `approve|reject|answer|pause|resume|cancel` 和 `#N` 短句柄，QQ/微信使用来源消息回传，Desktop 使用同一 inspector。
 - Web API 的虚拟 profile 会在 Durable 入队前解析到已启用的真实 Web manager；因此 `personal` 这类未单独物化的 profile 不会创建一个必然找不到执行器的队列项。真实 `/api/chat` + 临时 provider + 同库服务重启已验证请求发出后恢复为 `recovery_required`，attempt 为 `interrupted`。
+- 用户接受的 Session Plan 现在以确定性 id 幂等转换为一个多步骤 Durable Execution；步骤状态由 Durable SQLite 投影回 Plan 卡。每个成功 attempt 只完成当前步骤、写入 run-detail evidence，再排队下一步；创建后入队前崩溃也可由重复接受安全恢复。
 - 当前仍属部分交付：完整冷启动/跨渠道验收矩阵和外部 provider live 验收尚未完成。已验证的当前切片包括 Durable/tool、Runner/runtime、证据、审批和渠道命令定向回归；Desktop `svelte-check` 0 错误/0 警告，生产构建通过。
 
 ### Desktop Chat 与 Settings 导航宽度统一（优化，P2）

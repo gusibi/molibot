@@ -6,6 +6,34 @@
 
 ## 2026-08-10
 
+### Release: v2.9.17 / Desktop v0.9.14
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: wide message content stays inside the reading column
+- Desktop Chat and Project Chat no longer let an unbreakable rendered block widen the whole transcript. Prose and paths wrap inside the bounded message column, while tables, code, math, diagrams, and diffs keep layout through their own horizontal scrollers.
+- Persisted explicit Skill references now render with the Skill invocation card instead of expanding their local `SKILL.md` path as an ordinary Markdown link; only the Skill identity and the user's remaining request are visible.
+- A real browser layout probe reduced a 760px transcript's `scrollWidth` from 1380px to 760px while preserving a 1342px module's local overflow; structural regressions cover the complete shrink chain and scroll ownership.
+
+### Added: Web sidebar shortcut for a new Session
+- The Desktop Web channel row now has its own accessible plus action immediately before the disclosure arrow; like Project actions, it stays hidden until row hover or keyboard focus and reuses the primary New chat flow without toggling the channel accordion.
+- Telegram, Feishu, QQ, and Weixin remain unchanged.
+
+### Improved: accepted Plans execute durably, one step at a time
+- Accepting an editable Session Plan now creates one idempotent, multi-step Durable Execution instead of resuming one ordinary all-at-once Run.
+- Each attempt completes only its current accepted step, records inspectable run evidence, queues the next step, and projects progress back into the Plan card; retrying acceptance cannot duplicate the task and can recover the create-before-queue crash window.
+- Plan, Manual, Accept edits, and Auto now have an independent composer control immediately to the right of Attach; the model menu is limited to model and thinking choices.
+- Focused Durable tests (17), Desktop UI structure tests (186), Svelte diagnostics, production build, and whitespace checks pass. The broader Desktop chat suite remains at 250/252 because of two pre-existing harness failures (`$derived` in direct Node execution and SQLite FTS `bm25`).
+
+### Improved: completed Chat reasoning folds into one process row
+- Once a turn finishes, its reasoning, pre-tool narration, and tool activity collapse behind one compact “Thinking · N steps · duration” disclosure, leaving the final answer immediately readable.
+- Live work remains visible, failed or aborted work opens automatically, and Plan cards stay outside the disclosure so required decisions cannot be hidden.
+
+### Added: ordered Chat runs, complete Plan workflow, and rich Markdown
+- Chat transcripts preserve the real interleaving of reasoning, tool calls, plans, and answer text, with per-step metadata and compact turn summaries.
+- Desktop Plan mode now narrows tools before inference, emits an editable artifact-backed Plan card, and continues accepted work in the same Session.
+- Approval and Plan choices share one DecisionCard; approvals carry structured diffs and support multiple pending requests.
+- Chat Markdown supports Mermaid, KaTeX, isolated HTML/SVG previews, table-viewer handoff, answer outlines, and paged long transcripts.
+
 ### Release: v2.9.16 / Desktop v0.9.13
 - Synchronized the root and Desktop package versions for the new release.
 
