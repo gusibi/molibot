@@ -6,6 +6,13 @@
 
 ## 2026-08-10
 
+### Added: a runnable cold-start acceptance for Durable Execution
+
+- PRD §430 asks for a harness that "can stop the scratch service at a declared fault point, restart it with the same temporary data directory, and continue through the public API". That walk had been done once by hand and written up in `findings.md`, which proves it worked that day and nothing about tomorrow. `node evals/durable-restart-live.mjs` is the same walk as a script: 14 checks, no model calls, reusing `evals/lib/service.mjs` so the lease, signal handling and external-channel kill switch are the real ones.
+- It leaves behind what a crash actually leaves behind — a `running` execution holding an **unexpired** lease owned by a process id that is gone — then restarts and asserts startup reconcile reclaims it by ownership: execution → `recovery_required`, orphaned attempt → `interrupted`, running step → `uncertain`. The lease being 10 minutes from expiry is the point: a timeout-based sweep would leave it pinned as `running` forever, which is the production bug pitfall #23 came from.
+- Two ordering traps are recorded in the script because both were hit while writing it. The first version left the probe in `queued` holding no lease, so it reached `recovery_required` through the missed-continuation seam instead — and every check still passed with `reconcile()` stubbed to `return 0`. A harness that stays green against a stubbed-out mechanism is asserting nothing, so the startup pass now has to report the count it reclaimed. The second: `create` + `activate` dispatches a real attempt that keeps writing after the API call returns, so the injection happens only after the service is stopped and is read back before continuing.
+- Phase 4 covers the other half of the contract — a recovered execution stays operable: it can still be cancelled through the public API, cancellation is terminal and persisted, and replaying the same `actionId` leaves it cancelled rather than producing a second transition.
+
 ### Fixed: the eval harness reported "cannot ingest documents" when only its own upload was broken
 
 - Every attachment task in the golden set (B2 PDF, B3 image, B4 unreadable-input honesty, B5 spreadsheet, B6 vision-on-history) errored in ~0s with `chat request failed: Invalid request body`, and the 2026-08-10 full run scored 23/31 with the B group at 1/6. Read at face value that is "document ingestion is dead" — a P0-shaped capability regression.
