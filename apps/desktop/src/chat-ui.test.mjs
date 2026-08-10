@@ -3629,3 +3629,44 @@ test("the Mini App action toast is one shared component and is always dismissibl
   // Type comes from the scale, not a hand-set px (pitfall #24).
   assert.match(styles, /\.chat-action-toast \{[^}]*font-size: var\(--fs-label\)[^}]*line-height: var\(--lh-label\)/s);
 });
+
+// Permission mode is the second axis of "how should this run" — the first two
+// being model and thinking level — so it lives as a third page in the existing
+// composer menu rather than as a second dropdown beside it.
+test("permission mode reuses the composer menu instead of forking a second dropdown", () => {
+  // One trigger, one popover, one set of keyboard/outside-click handling
+  // (pitfall #7). A second `<details>` menu in the composer would be the fork.
+  assert.match(composerModelMenu, /page: "overview" \| "model" \| "thinking" \| "permission"/);
+  assert.match(composerModelMenu, /showPage\("permission", true\)/);
+  assert.doesNotMatch(chatInputArea, /ComposerModeMenu|ComposerPermissionMenu/);
+
+  // The host injects the axis; the menu never reaches for global state.
+  assert.match(chatInputArea, /export let permissionMode/);
+  assert.match(chatInputArea, /export let onChangePermissionMode/);
+  assert.match(chatInputArea, /\{permissionMode\}[\s\S]{0,120}\{onChangePermissionMode\}/);
+
+  // Every mode carries a sentence saying what it actually does — the labels
+  // alone ("Auto", "Manual") do not tell a user what changes.
+  for (const key of [
+    "permissionModePlanHint",
+    "permissionModeManualHint",
+    "permissionModeAcceptEditsHint",
+    "permissionModeAutoHint"
+  ]) {
+    assert.match(composerModelMenu, new RegExp(`copy\\.${key}`), key);
+  }
+});
+
+test("a host that does not offer permission modes gets no dead menu row", () => {
+  // Messaging channels expose only two modes and no composer menu at all, so
+  // the row is absent rather than present-and-disabled.
+  assert.match(composerModelMenu, /showPermission = Boolean\(onChangePermissionMode\) && permissionModeOptions\.length > 1/);
+  assert.match(composerModelMenu, /\{#if showPermission\}/);
+});
+
+test("the composer menu pill still has no inline-size containment", () => {
+  // pitfall #16(c): `container-type: inline-size` on a content-sized flex item
+  // sizes it as if it had no contents — the label silently disappears with
+  // nothing in the console. Adding a third page must not reintroduce it.
+  assert.doesNotMatch(styles, /\.composer-model-(menu|trigger|label)[^{]*\{[^}]*container-type/s);
+});

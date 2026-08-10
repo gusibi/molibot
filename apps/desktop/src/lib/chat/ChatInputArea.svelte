@@ -63,6 +63,10 @@
   export let onOpenSettings: () => void;
   export let onChangeModel: (value: string) => void;
   export let onChangeThinking: (value: DesktopThinkingLevel) => void;
+  /** Passed through to the composer menu; absent host = no permission page. */
+  export let permissionMode: "plan" | "manual" | "accept_edits" | "auto" = "accept_edits";
+  export let permissionModeOptions: readonly ("plan" | "manual" | "accept_edits" | "auto")[] = [];
+  export let onChangePermissionMode: ((value: "plan" | "manual" | "accept_edits" | "auto") => void) | undefined = undefined;
   let activeSuggestionIndex = 0;
   let suggestionsDismissed = false;
   let shell: ChatComposerShell;
@@ -276,6 +280,9 @@
         disabled={sending || modelOptions.length === 0}
         {onChangeModel}
         {onChangeThinking}
+        {permissionMode}
+        {permissionModeOptions}
+        {onChangePermissionMode}
       />
     </div>
     <svelte:fragment slot="action">
