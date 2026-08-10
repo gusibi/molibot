@@ -46,6 +46,7 @@ import {
 import { ensureSqliteParentDir, readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import { normalizeTimeZone } from "$lib/server/time.js";
 import { deriveToolFailureBudget } from "$lib/server/agent/core/runtimeBudget.js";
+import { PERMISSION_MODES, type PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
 
 type DynamicSettingKey =
   | "customProviders"
@@ -150,6 +151,7 @@ interface RawSettings {
   videoGenerate?: unknown;
   ttsGenerate?: unknown;
   toolSandbox?: unknown;
+  permissionMode?: unknown;
   hostTools?: unknown;
   disabledSkillPaths?: unknown;
   budget?: {
@@ -823,6 +825,7 @@ function sanitizeAgents(input: unknown): AgentSettings[] {
       description: String(item.description ?? "").trim(),
       enabled: item.enabled === undefined ? true : Boolean(item.enabled),
       sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+      permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
       modelRouting: sanitizeAgentModelRouting(item.modelRouting)
     }));
   }
@@ -956,6 +959,7 @@ function sanitizeChannels(
           ),
           allowedChatIds: sanitizeList(item.allowedChatIds),
           sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+          permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
           display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined
         };
       })
@@ -1182,6 +1186,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const videoGenerate = sanitizeVideoGenerateSettings(raw.videoGenerate ?? defaultRuntimeSettings.videoGenerate);
   const ttsGenerate = sanitizeTtsGenerateSettings(raw.ttsGenerate ?? defaultRuntimeSettings.ttsGenerate);
   const toolSandbox = sanitizeToolSandboxSettings(raw.toolSandbox ?? defaultRuntimeSettings.toolSandbox);
+  const permissionMode = PERMISSION_MODES.includes(raw.permissionMode as PermissionMode)
+    ? (raw.permissionMode as PermissionMode)
+    : defaultRuntimeSettings.permissionMode;
   const hostTools = sanitizeHostToolSettings(raw.hostTools ?? defaultRuntimeSettings.hostTools);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
   const budget = sanitizeBudgetSettings(raw.budget);
@@ -1268,6 +1275,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     videoGenerate,
     ttsGenerate,
     toolSandbox,
+    permissionMode,
     hostTools,
     disabledSkillPaths,
     telegramBots: effectiveTelegramBots,
@@ -1322,6 +1330,7 @@ export class SettingsStore {
         credentials_json TEXT NOT NULL,
         allowed_chat_ids_json TEXT NOT NULL,
         sandbox_enabled INTEGER,
+        permission_mode TEXT,
         display_json TEXT,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (channel_key, id)
@@ -1416,7 +1425,17 @@ export class SettingsStore {
       // column already exists
     }
     try {
+      db.exec("ALTER TABLE settings_agents ADD COLUMN permission_mode TEXT");
+    } catch {
+      // column already exists
+    }
+    try {
       db.exec("ALTER TABLE settings_channel_instances ADD COLUMN sandbox_enabled INTEGER");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_channel_instances ADD COLUMN permission_mode TEXT");
     } catch {
       // column already exists
     }
@@ -1626,12 +1645,13 @@ export class SettingsStore {
     try {
       const legacy = this.loadLegacyDynamicSettings(db);
 
-      const agentsRows = db.prepare("SELECT id, name, description, enabled, sandbox_enabled, model_routing_json FROM settings_agents ORDER BY id ASC").all() as Array<{
+      const agentsRows = db.prepare("SELECT id, name, description, enabled, sandbox_enabled, permission_mode, model_routing_json FROM settings_agents ORDER BY id ASC").all() as Array<{
         id: string;
         name: string;
         description: string;
         enabled: number;
         sandbox_enabled: number | null;
+        permission_mode: string | null;
         model_routing_json: string | null;
       }>;
       const agents = agentsRows.map((row) => ({
@@ -1640,13 +1660,14 @@ export class SettingsStore {
         description: row.description,
         enabled: Boolean(row.enabled),
         sandboxEnabled: row.sandbox_enabled === null ? undefined : Boolean(row.sandbox_enabled),
+        permissionMode: PERMISSION_MODES.includes(row.permission_mode as PermissionMode) ? (row.permission_mode as PermissionMode) : undefined,
         modelRouting: sanitizeAgentModelRouting(
           row.model_routing_json ? this.parseDynamicValue(row.model_routing_json, undefined) : undefined
         )
       }));
 
       const channelRows = db.prepare(`
-        SELECT channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled, display_json
+        SELECT channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled, permission_mode, display_json
         FROM settings_channel_instances
         ORDER BY channel_key ASC, id ASC
       `).all() as Array<{
@@ -1658,6 +1679,7 @@ export class SettingsStore {
         credentials_json: string;
         allowed_chat_ids_json: string;
         sandbox_enabled: number | null;
+        permission_mode: string | null;
         display_json: string | null;
       }>;
       const channels: ChannelSettingsMap = {};
@@ -1671,6 +1693,7 @@ export class SettingsStore {
           credentials: this.parseDynamicValue(row.credentials_json, {}),
           allowedChatIds: this.parseDynamicValue(row.allowed_chat_ids_json, []),
           sandboxEnabled: row.sandbox_enabled === null ? undefined : Boolean(row.sandbox_enabled),
+          permissionMode: PERMISSION_MODES.includes(row.permission_mode as PermissionMode) ? (row.permission_mode as PermissionMode) : undefined,
           display: row.display_json ? this.parseDynamicValue(row.display_json, undefined) : undefined
         });
       }
@@ -1847,8 +1870,8 @@ export class SettingsStore {
       if (keys.includes("agents")) {
         db.exec("DELETE FROM settings_agents");
         const insertAgent = db.prepare(`
-          INSERT INTO settings_agents (id, name, description, enabled, sandbox_enabled, model_routing_json, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO settings_agents (id, name, description, enabled, sandbox_enabled, permission_mode, model_routing_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const agent of settings.agents) {
           insertAgent.run(
@@ -1857,6 +1880,7 @@ export class SettingsStore {
             agent.description ?? "",
             agent.enabled ? 1 : 0,
             agent.sandboxEnabled === undefined ? null : (agent.sandboxEnabled ? 1 : 0),
+            agent.permissionMode ?? null,
             agent.modelRouting ? JSON.stringify(agent.modelRouting) : null,
             now
           );
@@ -1867,8 +1891,8 @@ export class SettingsStore {
         db.exec("DELETE FROM settings_channel_instances");
         const insertChannel = db.prepare(`
           INSERT INTO settings_channel_instances
-            (channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled, display_json, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled, permission_mode, display_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const [channelKey, channel] of Object.entries(settings.channels ?? {})) {
           for (const instance of channel.instances ?? []) {
@@ -1881,6 +1905,7 @@ export class SettingsStore {
               JSON.stringify(instance.credentials ?? {}),
               JSON.stringify(instance.allowedChatIds ?? []),
               instance.sandboxEnabled === undefined ? null : (instance.sandboxEnabled ? 1 : 0),
+              instance.permissionMode ?? null,
               instance.display ? JSON.stringify(instance.display) : null,
               now
             );
@@ -2014,6 +2039,9 @@ export class SettingsStore {
       skillSearch: settings.skillSearch,
       skillDrafts: settings.skillDrafts,
       disabledSkillPaths: settings.disabledSkillPaths,
+      // Enumerated serializers are how a new field silently resets on restart
+      // (CLAUDE.md pitfall 11); the round-trip test asserts this line exists.
+      permissionMode: settings.permissionMode,
       telegramBotToken: settings.telegramBotToken,
       telegramAllowedChatIds: settings.telegramAllowedChatIds,
       budget: {

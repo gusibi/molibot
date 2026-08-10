@@ -3,6 +3,7 @@ import type {
   CustomProviderThinkingFormat,
   RuntimeThinkingLevel
 } from "$lib/server/settings/thinking.js";
+import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
 
 export type ProviderMode = "pi" | "custom";
 export type CustomProviderProtocol = "openai-compatible" | "anthropic";
@@ -142,6 +143,8 @@ export interface AgentSettings {
   description: string;
   enabled: boolean;
   sandboxEnabled?: boolean;
+  /** Undefined = inherit; never "off". Resolved by the shared override chain. */
+  permissionMode?: PermissionMode;
   modelRouting?: AgentModelRouting;
 }
 
@@ -184,6 +187,8 @@ export interface ChannelInstanceSettings {
   credentials: Record<string, string>;
   allowedChatIds: string[];
   sandboxEnabled?: boolean;
+  /** Undefined = inherit; never "off". Resolved by the shared override chain. */
+  permissionMode?: PermissionMode;
   display?: ChannelInstanceDisplaySettings;
 }
 
@@ -625,6 +630,12 @@ export interface RuntimeSettings {
   videoGenerate: VideoGenerateSettings;
   ttsGenerate: TtsGenerateSettings;
   toolSandbox: ToolSandboxSettings;
+  /**
+   * Installation default for the permission mode (the "do we ask" axis).
+   * Sits beside `toolSandbox` (the "what may it touch" axis) because the two
+   * are orthogonal halves of one decision.
+   */
+  permissionMode: PermissionMode;
   hostTools: HostToolSettings;
   disabledSkillPaths: string[];
   telegramBots: TelegramBotConfig[];

@@ -2,12 +2,23 @@ import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import { retentionCapabilities, type TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
+import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
 
 export interface SessionPreferences {
   thinkingLevelOverride?: RuntimeThinkingLevel | null;
   hostApprovalMode?: "default" | "session";
   sandboxOverride?: boolean | null;
   runLogNoticeOverride?: boolean | null;
+  /**
+   * Session-scoped permission mode. Sits beside `sandboxOverride` on purpose:
+   * they are the two axes of the same decision (what may this touch / do we ask
+   * first), they share one override chain, and keeping them in one container is
+   * what makes a single settings round-trip cover both.
+   *
+   * `null`/absent means "not set here" and falls through to the global default,
+   * never "off".
+   */
+  permissionModeOverride?: PermissionMode | null;
 }
 
 export interface SessionLineage {

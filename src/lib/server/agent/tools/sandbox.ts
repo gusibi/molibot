@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
 import { SandboxManager, type SandboxRuntimeConfig as AnthropicSandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import { resolveSessionScopedOverride } from "$lib/server/agent/permissions/overrideResolver.js";
 import { config } from "$lib/server/app/env.js";
 import type { ToolSandboxSettings, RuntimeSettings } from "$lib/server/settings/index.js";
 import { getPythonToolingDir, getSandboxVenvDir } from "$lib/server/agent/tools/helpers.js";
@@ -488,46 +489,29 @@ export function resolveEffectiveSandboxSettings(options: {
   const settings = options.getSettings();
   const baseSettings = settings.toolSandbox;
 
-  // 1. Session Override
-  if (options.store && options.chatId && options.sessionId) {
-    const sessionOverride = options.store.getSessionSandboxOverride(options.chatId, options.sessionId);
-    if (sessionOverride !== null) {
-      return { ...baseSettings, enabled: sessionOverride };
+  // The five-level precedence lives in one place and is shared with the
+  // permission mode; only the per-level lookups are sandbox-specific
+  // (Permission Modes PRD §104, CLAUDE.md pitfall 7).
+  const enabled = resolveSessionScopedOverride<boolean>(
+    settings,
+    {
+      chatId: options.chatId,
+      sessionId: options.sessionId,
+      channel: options.channel,
+      botId: options.botId,
+      agentId: options.agentId
+    },
+    {
+      session: () =>
+        options.store && options.chatId && options.sessionId
+          ? options.store.getSessionSandboxOverride(options.chatId, options.sessionId)
+          : null,
+      project: options.projectOverride,
+      instance: (instance) => instance.sandboxEnabled as boolean | undefined,
+      agent: (agent) => agent.sandboxEnabled as boolean | undefined,
+      global: () => baseSettings.enabled
     }
-  }
+  );
 
-  // Project-wide override reuses the existing Sandbox enabled/disabled behavior.
-  if (options.projectOverride !== undefined) {
-    return { ...baseSettings, enabled: options.projectOverride };
-  }
-
-  // 2. Bot Instance Override
-  const channel = options.channel;
-  const botId = options.botId;
-  if (channel && botId) {
-    const instances = settings.channels[channel]?.instances ?? [];
-    const instance = instances.find((inst) => inst.id === botId);
-    if (instance && instance.sandboxEnabled !== undefined) {
-      return { ...baseSettings, enabled: instance.sandboxEnabled };
-    }
-  }
-
-  // 3. Agent Override
-  let agentId = options.agentId;
-  if (!agentId && channel && botId) {
-    const instances = settings.channels[channel]?.instances ?? [];
-    const instance = instances.find((inst) => inst.id === botId);
-    if (instance && instance.agentId) {
-      agentId = instance.agentId;
-    }
-  }
-  if (agentId) {
-    const agent = settings.agents.find((a) => a.id === agentId);
-    if (agent && agent.sandboxEnabled !== undefined) {
-      return { ...baseSettings, enabled: agent.sandboxEnabled };
-    }
-  }
-
-  // 4. Global Default
-  return baseSettings;
+  return enabled === baseSettings.enabled ? baseSettings : { ...baseSettings, enabled };
 }

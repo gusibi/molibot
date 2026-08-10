@@ -29,6 +29,7 @@ import { defaultHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings/thinking.js";
 import { normalizeTimeZone } from "$lib/server/time.js";
 import { deriveToolFailureBudget } from "$lib/server/agent/core/runtimeBudget.js";
+import { DEFAULT_PERMISSION_MODE } from "$lib/server/agent/permissions/decidePermission.js";
 
 function listFromEnv(name: string): string[] {
   const raw = process.env[name] ?? "";
@@ -488,6 +489,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   videoGenerate: defaultVideoGenerateSettings,
   ttsGenerate: defaultTtsGenerateSettings,
   toolSandbox: defaultToolSandboxSettings,
+  permissionMode: DEFAULT_PERMISSION_MODE,
   hostTools: defaultHostToolSettings,
   disabledSkillPaths: [],
   telegramBots: defaultTelegramBots,

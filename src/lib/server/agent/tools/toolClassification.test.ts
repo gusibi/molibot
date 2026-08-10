@@ -46,7 +46,8 @@ test("getRuntimeToolClassification: documentExport => medium risk, builtin sourc
 
 test("getRuntimeToolClassification: imageAnalyze => medium risk, builtin source", () => {
   const result = getRuntimeToolClassification("imageAnalyze");
-  assert.deepEqual(result, { risk: "medium", source: "builtin" });
+  assert.equal(result.risk, "medium");
+  assert.equal(result.source, "builtin");
 });
 
 test("getRuntimeToolClassification: mcp__ tool => medium risk, mcp source", () => {
@@ -79,10 +80,9 @@ test("host execution and code installers carry an approval-triggering risk level
   assert.equal(getRuntimeToolClassification("miniAppManage").risk, "critical");
   // Extension-provided tools are medium: honest about not being built-in,
   // without prompting on every call.
-  assert.deepEqual(
-    getRuntimeToolClassification("someExtensionTool", { isExtensionTool: true }),
-    { risk: "medium", source: "plugin" }
-  );
+  const extension = getRuntimeToolClassification("someExtensionTool", { isExtensionTool: true });
+  assert.equal(extension.risk, "medium");
+  assert.equal(extension.source, "plugin");
 
   // Mini App tools reach the approval broker only when the manifest declares
   // the tool destructive. A destructive Mini App tool IS an intentional
@@ -106,4 +106,87 @@ test("host execution and code installers carry an approval-triggering risk level
     assert.notEqual(risk, "high", `${name} must not be high risk`);
     assert.notEqual(risk, "critical", `${name} must not be critical risk`);
   }
+});
+
+/**
+ * The effect dimension (Permission Modes PRD §87).
+ *
+ * `risk` cannot express the gate: `write`(medium) sits beside `webSearch`
+ * (medium), and `bash`(high) beside `miniapp__x.delete`(high), so "auto-approve
+ * file writes but keep asking before running commands" is unsayable on the risk
+ * axis. `effect` is what a permission mode is written against; `risk` keeps
+ * only its display and audit duty.
+ */
+
+test("effect: local readers are read, remote readers are network", () => {
+  for (const name of ["read", "ls", "grep", "docExtract", "imageAnalyze"]) {
+    assert.equal(getRuntimeToolClassification(name).effect, "read", name);
+  }
+  // Reaching the network is its own effect: it leaves the machine, so a mode
+  // may want to gate it even though it only reads.
+  for (const name of ["webSearch", "webFetch"]) {
+    assert.equal(getRuntimeToolClassification(name).effect, "network", name);
+  }
+});
+
+test("effect: write and edit are write, bash is execute", () => {
+  assert.equal(getRuntimeToolClassification("write").effect, "write");
+  assert.equal(getRuntimeToolClassification("edit").effect, "write");
+  assert.equal(getRuntimeToolClassification("bash").effect, "execute");
+});
+
+test("effect: install tools are manage, which no mode may auto-allow", () => {
+  assert.equal(getRuntimeToolClassification("extensionManage").effect, "manage");
+  assert.equal(getRuntimeToolClassification("miniAppManage").effect, "manage");
+});
+
+test("effect: Mini App and pi extension tools are third_party", () => {
+  assert.equal(
+    getRuntimeToolClassification("miniapp__todo__add", { miniApp: { readOnlyHint: false, destructiveHint: false } }).effect,
+    "third_party"
+  );
+  assert.equal(getRuntimeToolClassification("some_ext_tool", { isExtensionTool: true }).effect, "third_party");
+});
+
+test("effect: MCP tools are third_party, and their annotation is carried, not guessed", () => {
+  // Decision 3 (2026-08-10): a server-declared `readOnlyHint` may relax the
+  // call, but only in Auto, and only when it is actually declared.
+  const undeclared = getRuntimeToolClassification("mcp__srv__query");
+  assert.equal(undeclared.effect, "third_party");
+  assert.equal(undeclared.thirdPartyHint, "undeclared", "a missing annotation is never read as read-only");
+
+  const readOnly = getRuntimeToolClassification("mcp__srv__query", {
+    mcp: { readOnlyHint: true, destructiveHint: false }
+  });
+  assert.equal(readOnly.thirdPartyHint, "read_only");
+
+  const destructive = getRuntimeToolClassification("mcp__srv__drop", {
+    mcp: { readOnlyHint: false, destructiveHint: true }
+  });
+  assert.equal(destructive.thirdPartyHint, "destructive");
+
+  // destructiveHint always wins over a contradictory readOnlyHint.
+  const both = getRuntimeToolClassification("mcp__srv__weird", {
+    mcp: { readOnlyHint: true, destructiveHint: true }
+  });
+  assert.equal(both.thirdPartyHint, "destructive", "destructiveHint outranks readOnlyHint");
+});
+
+test("effect: a Mini App manifest hint maps the same way as an MCP annotation", () => {
+  assert.equal(
+    getRuntimeToolClassification("miniapp__a__b", { miniApp: { readOnlyHint: true, destructiveHint: false } }).thirdPartyHint,
+    "read_only"
+  );
+  assert.equal(
+    getRuntimeToolClassification("miniapp__a__b", { miniApp: { readOnlyHint: false, destructiveHint: true } }).thirdPartyHint,
+    "destructive"
+  );
+});
+
+test("effect: risk is unchanged by the new dimension", () => {
+  // The two axes are independent; adding effect must not move any risk value.
+  assert.equal(getRuntimeToolClassification("bash").risk, "high");
+  assert.equal(getRuntimeToolClassification("write").risk, "medium");
+  assert.equal(getRuntimeToolClassification("extensionManage").risk, "critical");
+  assert.equal(getRuntimeToolClassification("read").risk, "low");
 });

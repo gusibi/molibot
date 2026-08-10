@@ -40,6 +40,7 @@ import {
 } from "$lib/server/settings/index.js";
 import { isAbsolute } from "node:path";
 import { deriveToolFailureBudget } from "$lib/server/agent/core/runtimeBudget.js";
+import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, type PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
 
 /**
  * Keys of `settings.plugins` that have a dedicated sanitizer. Everything else
@@ -636,6 +637,7 @@ export function sanitizeSingleAgent(input: unknown): AgentSettings {
     description: String(item.description ?? "").trim(),
     enabled: item.enabled === undefined ? true : Boolean(item.enabled),
     sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+    permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
     modelRouting: sanitizeAgentModelRouting(item.modelRouting)
   });
 }
@@ -820,6 +822,7 @@ export function sanitizeSingleChannelInstance(input: unknown): ChannelInstanceSe
       ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
       : [],
     sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+    permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
     display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined
   };
 }
@@ -1266,6 +1269,12 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.videoGenerate = sanitizeVideoGenerateSettings(next.videoGenerate ?? current.videoGenerate, current.videoGenerate);
   next.ttsGenerate = sanitizeTtsGenerateSettings(next.ttsGenerate ?? current.ttsGenerate, current.ttsGenerate);
   next.toolSandbox = sanitizeToolSandboxSettings(next.toolSandbox ?? current.toolSandbox, current.toolSandbox);
+  // An unrecognized mode keeps the current one rather than silently becoming a
+  // stricter or looser gate: a request-level value is an override, never a
+  // second source of defaults.
+  next.permissionMode = PERMISSION_MODES.includes(next.permissionMode as PermissionMode)
+    ? (next.permissionMode as PermissionMode)
+    : (current.permissionMode ?? DEFAULT_PERMISSION_MODE);
   next.hostTools = sanitizeHostToolSettings(next.hostTools ?? current.hostTools);
   next.disabledSkillPaths = Array.isArray(next.disabledSkillPaths)
     ? next.disabledSkillPaths.map((v) => String(v).trim()).filter(Boolean)

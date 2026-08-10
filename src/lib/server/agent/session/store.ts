@@ -39,6 +39,7 @@ import {
 import { estimateContextTokens } from "$lib/server/agent/session/compaction.js";
 import { createRuntimeSessionId, isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import type { TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
+import { PERMISSION_MODES, type PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
@@ -1157,6 +1158,44 @@ export class MomRuntimeStore {
       };
     });
     return value;
+  }
+
+  /**
+   * Session-scoped permission mode. Stored beside `sandboxOverride` in the same
+   * preferences container: they are the two axes of one decision and share the
+   * override chain, so one round-trip covers both.
+   *
+   * An unrecognized persisted value resolves to `null` (fall through to the
+   * default) rather than being handed back as a mode — a settings file written
+   * by a newer build must not make an older one gate on a mode it cannot
+   * evaluate.
+   */
+  getSessionPermissionModeOverride(chatId: string, sessionId?: string): PermissionMode | null {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const val = this.readSessionHeader(chatId, id).preferences?.permissionModeOverride;
+    return PERMISSION_MODES.includes(val as PermissionMode) ? (val as PermissionMode) : null;
+  }
+
+  setSessionPermissionModeOverride(
+    chatId: string,
+    sessionId: string,
+    value: PermissionMode | null
+  ): PermissionMode | null {
+    const id = this.sanitizeSessionId(sessionId);
+    const next = PERMISSION_MODES.includes(value as PermissionMode) ? (value as PermissionMode) : null;
+    this.updateSessionHeader(chatId, id, (current) => {
+      const nextPreferences = { ...(current.preferences ?? {}) };
+      if (next === null) {
+        delete nextPreferences.permissionModeOverride;
+      } else {
+        nextPreferences.permissionModeOverride = next;
+      }
+      return {
+        ...current,
+        preferences: Object.keys(nextPreferences).length > 0 ? nextPreferences : undefined
+      };
+    });
+    return next;
   }
 
   getSessionRunLogNoticeOverride(chatId: string, sessionId?: string): boolean | null {

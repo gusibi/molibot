@@ -506,3 +506,62 @@ test("a raised tool-call budget carries the failure budget with it unless one is
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("permission mode survives a settings store restart at every level", () => {
+  // CLAUDE.md pitfall 11: a new settings field needs save -> fresh store ->
+  // load against a temporary database, because narrow serialization silently
+  // resets fields on restart. `toStaticSettings` enumerates its fields, so
+  // omitting one there is exactly how that happens.
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-permission-mode-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      permissionMode: "manual",
+      agents: defaultRuntimeSettings.agents.map((agent) =>
+        agent.id === "default" ? { ...agent, permissionMode: "plan" as const } : agent
+      )
+    });
+
+    const restarted = new SettingsStore().load();
+    assert.equal(restarted.permissionMode, "manual", "the global default must survive");
+    assert.equal(
+      restarted.agents.find((agent) => agent.id === "default")?.permissionMode,
+      "plan",
+      "the agent-level override must survive"
+    );
+    // The other axis is untouched: mode and sandbox are orthogonal.
+    assert.equal(restarted.toolSandbox.enabled, defaultRuntimeSettings.toolSandbox.enabled);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unset permission mode loads as the Accept edits default, not as undefined", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-permission-mode-default-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    // A settings file written before this field existed.
+    new SettingsStore().save({ ...defaultRuntimeSettings, permissionMode: undefined as never });
+    const restarted = new SettingsStore().load();
+    assert.equal(restarted.permissionMode, "accept_edits");
+
+    // ...and a value this build does not recognize must not become the gate.
+    new SettingsStore().save({ ...defaultRuntimeSettings, permissionMode: "bypass" as never });
+    assert.equal(new SettingsStore().load().permissionMode, "accept_edits");
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
