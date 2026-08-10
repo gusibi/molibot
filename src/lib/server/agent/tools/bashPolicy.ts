@@ -1,4 +1,6 @@
 import { findApprovedHostBash, tryParseHostBashCommand } from "$lib/server/agent/tools/bash.js";
+import { decidePermission, type PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
+import type { ApprovalRequest } from "$lib/server/approval/approvalTypes.js";
 import type { PolicyDecision, ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { getHostBashStore } from "$lib/server/hostBash/index.js";
 
@@ -43,12 +45,9 @@ export function findFileToolRedirect(command: string): string | null {
  * Where this bash call's side effects are actually fenced.
  *
  * This is the *containment* axis, and it is deliberately separate from "do we
- * ask the user" (the mode axis, Permission Modes PRD). Today every branch below
- * still ends in `allow`, so naming the axis changes no behaviour — but it moves
- * the sandbox-on/sandbox-off distinction out of a bare `if` that returned
- * `allow` and into a value a policy can be written against. Without that split,
- * turning the sandbox off silently means "never ask again", which is precisely
- * the Bypass mode the PRD refuses to ship.
+ * ask the user" (the mode axis). Keeping them apart is what stops turning the
+ * sandbox off from silently meaning "never ask again" — the Bypass mode the
+ * PRD refuses to ship.
  */
 export type BashContainment =
   /** Runs inside the tool sandbox. */
@@ -72,6 +71,14 @@ export function decideBashToolPolicy(options: {
   ctx: ToolExecutionContext;
   sandboxEnabled: boolean;
   hostBashStore?: ReturnType<typeof getHostBashStore>;
+  /**
+   * The session's permission mode. Optional so a caller that predates modes
+   * keeps the previous behaviour (always allow) rather than silently becoming
+   * stricter; `tools/index.ts` always supplies it.
+   */
+  permissionMode?: PermissionMode;
+  /** Builds the approval request when the mode says to ask. */
+  buildApprovalRequest?: () => ApprovalRequest;
 }): PolicyDecision {
   const params = options.input as { command?: string; hostApproval?: any };
 
@@ -83,24 +90,47 @@ export function decideBashToolPolicy(options: {
   const parsed = tryParseHostBashCommand(params?.command ?? "");
   const approved = findApprovedHostBash(options.hostBashStore ?? getHostBashStore(), parsed);
 
-  // Computed for every call, including the ones that return `allow` below, so
-  // the value is exercised today rather than appearing untested on the day a
-  // mode starts reading it.
+  if (approved) {
+    // An owner-scoped grant already covers this exact command; asking again
+    // would charge the user twice for one decision.
+    return { type: "allow" };
+  }
+
   const containment = resolveBashContainment({
     sandboxEnabled: options.sandboxEnabled,
-    hasApprovedHostGrant: Boolean(approved)
+    hasApprovedHostGrant: false
   });
-  void containment;
 
-  // All three containments still resolve to `allow` here: Host approval
-  // requests are gated inside the bash tool handler itself, which blocks on the
-  // Host Bash approval store and executes inline once approved. Gating them
-  // here too would make the user approve the same command twice (once for the
-  // broker request, once for the Host Bash record).
+  // Without a mode this is a caller from before permission modes existed; keep
+  // its previous behaviour rather than tightening silently.
+  if (!options.permissionMode) return { type: "allow" };
+
+  const decision = decidePermission({
+    mode: options.permissionMode,
+    effect: "execute",
+    containment
+  });
+
+  if (decision === "deny") {
+    return {
+      type: "deny",
+      reason: "Plan mode is read-only: bash cannot run until you exit Plan."
+    };
+  }
+
+  // `ask` on a HOST command is deliberately still `allow` here: the bash
+  // handler owns that conversation. It blocks on the Host Bash approval store
+  // and executes inline once approved, so gating here as well would make the
+  // user approve the same command twice — once for the broker request, once
+  // for the Host Bash record. That is the double-prompt this branch has always
+  // existed to prevent.
   //
-  // Slice 1 replaces this line with `decidePermission(mode, "execute",
-  // containment, …)`, which is the point at which `host` stops implying
-  // `allow`.
+  // A *sandboxed* command has no such second conversation, so an `ask` there
+  // has to be honoured here or Manual would silently not apply to bash at all.
+  if (decision === "ask" && containment === "sandboxed" && options.buildApprovalRequest) {
+    return { type: "approval_required", request: options.buildApprovalRequest() };
+  }
+
   return { type: "allow" };
 }
 

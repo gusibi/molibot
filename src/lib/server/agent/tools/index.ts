@@ -325,7 +325,9 @@ export function createMomTools(options: {
         tool,
         input,
         ctx,
-        sandboxEnabled: sandboxSettings.enabled
+        sandboxEnabled: sandboxSettings.enabled,
+        permissionMode,
+        buildApprovalRequest: () => createDefaultApprovalRequest(tool, input, ctx)
       });
     }
 
