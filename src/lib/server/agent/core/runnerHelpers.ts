@@ -141,6 +141,41 @@ export function createPersistedUserMessage(content: string, timestamp?: string |
   } as AgentMessage;
 }
 
+/**
+ * Usage block for an assistant message that never came from a provider.
+ *
+ * pi-ai sizes every request through `clampMaxTokensToContext` ->
+ * `estimateContextTokens` -> `calculateContextTokens(assistant.usage)`, and
+ * that last function reads `usage.totalTokens` with no null guard (the
+ * pi-agent-core copy of the same function has one). A single runtime-authored
+ * assistant message without `usage` therefore throws
+ * `Cannot read properties of undefined (reading 'totalTokens')` *before* the
+ * HTTP request, identically for every candidate model, so the whole fallback
+ * chain fails with no request ever sent.
+ */
+export function zeroAssistantUsage(): {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+} {
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+}
+
+/**
+ * Repair an assistant message that reached the model context without a usage
+ * block. History persisted before {@link zeroAssistantUsage} was applied at the
+ * write sites does not heal itself — the message is re-read on every later turn
+ * of that Session — so the shared context funnel normalizes on the way in.
+ */
+export function withAssistantContextUsage(message: AgentMessage): AgentMessage {
+  const row = message as AgentMessage & { role?: string; usage?: unknown };
+  if (row.role !== "assistant") return message;
+  if (row.usage && typeof row.usage === "object") return message;
+  return { ...(message as object), usage: zeroAssistantUsage() } as AgentMessage;
+}
+
 export function createAssistantErrorMessage(options: {
   text?: string;
   errorMessage: string;
@@ -152,13 +187,7 @@ export function createAssistantErrorMessage(options: {
     api: options.model.api,
     provider: options.model.provider,
     model: options.model.id,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0
-    },
+    usage: zeroAssistantUsage(),
     stopReason: "error",
     errorMessage: options.errorMessage,
     timestamp: Date.now()
@@ -171,7 +200,9 @@ export function shouldHideFromModelContext(message: AgentMessage): boolean {
 }
 
 export function prepareMessagesForModelContext(messages: AgentMessage[]): AgentMessage[] {
-  return stripTransientRuntimeNoticesFromMessages(messages).filter((message) => !shouldHideFromModelContext(message));
+  return stripTransientRuntimeNoticesFromMessages(messages)
+    .filter((message) => !shouldHideFromModelContext(message))
+    .map(withAssistantContextUsage);
 }
 
 export function formatPayloadReasoningSummary(payload: unknown): string {

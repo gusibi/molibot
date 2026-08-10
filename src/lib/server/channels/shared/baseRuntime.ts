@@ -6,6 +6,7 @@ import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$li
 import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/agent/prompts/prompt.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { resolveSessionWorkingDir } from "$lib/server/agent/core/runner.js";
+import { zeroAssistantUsage } from "$lib/server/agent/core/runnerHelpers.js";
 import { buildRunnerProjectContext } from "$lib/server/projects/context.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
@@ -70,6 +71,10 @@ export function appendDirectEventContextMessage(
   store.appendContextMessage(chatId, {
     role: "assistant",
     content: [{ type: "text", text }],
+    // A direct-text automation never went through a provider, but pi-ai sizes
+    // the next request from the last assistant usage block and dereferences it
+    // unguarded — see zeroAssistantUsage().
+    usage: zeroAssistantUsage(),
     timestamp
   } as AgentMessage, sessionId, { runId });
 }

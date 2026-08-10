@@ -5,7 +5,8 @@ import {
   injectExplicitSkillInvocationContext,
   isContextOverflowError,
   isContextOverflowResponse,
-  mapUnsupportedDeveloperRole
+  mapUnsupportedDeveloperRole,
+  prepareMessagesForModelContext
 } from "$lib/server/agent/core/runnerHelpers.js";
 
 test("explicit Skill invocation persists as a readable Markdown reference without inline control blocks", () => {
@@ -157,4 +158,57 @@ test("silent overflow is detected from usage when the provider reports no error"
   assert.equal(isContextOverflowResponse(healthy, 200000), false);
   assert.equal(isContextOverflowResponse(healthy, undefined), false);
   assert.equal(isContextOverflowResponse(undefined, 200000), false);
+});
+
+test("a runtime-authored assistant message cannot reach pi-ai without a usage block", async () => {
+  // pi-ai's clampMaxTokensToContext runs inside buildBaseOptions for EVERY api
+  // (openai-completions, anthropic-messages, ...), before the request is sent,
+  // and its calculateContextTokens dereferences assistant.usage unguarded. The
+  // seam is exercised against the vendor module itself so a future pi bump that
+  // changes this contract fails here rather than in production.
+  const { clampMaxTokensToContext } = await import("@earendil-works/pi-ai/api/simple-options");
+  const model = { contextWindow: 200000, maxTokens: 4096 } as any;
+  const directEvent = {
+    role: "assistant",
+    content: [{ type: "text", text: "⏱️ 每日提醒" }],
+    timestamp: 2
+  } as any;
+  const messages = [
+    { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1 } as any,
+    directEvent
+  ];
+
+  assert.throws(
+    () => clampMaxTokensToContext(model, { systemPrompt: "s", tools: [], messages } as any, 1000),
+    /totalTokens/
+  );
+
+  const prepared = prepareMessagesForModelContext(messages);
+  assert.deepEqual((prepared[1] as any).usage, {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0
+  });
+  assert.equal(
+    clampMaxTokensToContext(model, { systemPrompt: "s", tools: [], messages: prepared } as any, 1000),
+    1000
+  );
+});
+
+test("normalizing usage leaves provider-reported usage and non-assistant messages untouched", () => {
+  const provider = {
+    role: "assistant",
+    content: [{ type: "text", text: "ok" }],
+    usage: { input: 12, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 15 },
+    stopReason: "stop",
+    timestamp: 2
+  } as any;
+  const user = { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1 } as any;
+
+  const prepared = prepareMessagesForModelContext([user, provider]);
+  assert.equal(prepared[0], user);
+  assert.equal(prepared[1], provider);
+  assert.equal((prepared[1] as any).usage.totalTokens, 15);
 });
