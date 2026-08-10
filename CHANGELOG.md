@@ -6,6 +6,16 @@
 
 ## 2026-08-10
 
+### Fixed: the eval harness reported "cannot ingest documents" when only its own upload was broken
+
+- Every attachment task in the golden set (B2 PDF, B3 image, B4 unreadable-input honesty, B5 spreadsheet, B6 vision-on-history) errored in ~0s with `chat request failed: Invalid request body`, and the 2026-08-10 full run scored 23/31 with the B group at 1/6. Read at face value that is "document ingestion is dead" — a P0-shaped capability regression.
+- The product path was never broken. `sendTurn` posts through undici's `fetch` (the global one takes no `dispatcher`, which is how a run gets an HTTP timeout longer than a task — pitfall #25's transport-timeout rule), but built the body with Node's **global** `FormData`. Those come from two different undici instances, and undici detects a form body by an internal brand it stamps only on its own class. The foreign form failed that check, fell through to generic body handling, and reached the service as something `parseRequest` could not read. Proven against a live service, not by inspection: global `FormData` + undici `fetch` = 400, undici `FormData` + undici `fetch` = 200, global + global = 200.
+- The form is now built with undici's `FormData`. Only that class has to match the sender — undici does not export `Blob`, and does not need to, because it brands the *form*, not its parts. After the fix the B group re-ran 6/6 against a real provider.
+- Guarded by a new `evals/client.test.mjs` case that drives `runTaskTurns` against a real HTTP server and asserts what the wire actually carries: a `multipart/form-data; boundary=` content-type, the file's own bytes, and the `files`/`message` parts. Verified by reverting the fix and watching the guard go red, so a future upload call site cannot reintroduce the realm mismatch.
+- A2 (edit an existing file) failed on that run and passed on re-run — non-deterministic model behaviour, not a regression. A5 stays `baseline: unknown` by design: the sandbox blocks egress, so the Agent correctly asks for Host approval and an unattended run stops there.
+- Full set re-run after the fix: **30/31**, 0 errors, 0 unproven, A5 the only failure. The capability matrix now records that as the confirmed baseline instead of the 24/31 待验证 entry.
+
+
 ### Release: v2.9.14 / Desktop v0.9.11
 - Synchronized the root and Desktop package versions for the new release.
 

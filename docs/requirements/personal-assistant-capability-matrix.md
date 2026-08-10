@@ -18,7 +18,7 @@ This file is the single current-status source for Molibot's work/life assistant 
 | Area | Capability | Status | Current evidence and boundary |
 |---|---|---|---|
 | Evaluation | Deterministic golden-set harness | 已交付 | 31 tasks, strict state/trace/text assertions, isolated `DATA_DIR`, external-channel kill switch, fixture generation, and harness tests are present. |
-| Evaluation | Full baseline after all 2026-08-09 P0/P1 work | 待验证 | Latest full run is 24/31 without Provider-chain errors; affected C1/C4/D1/D2/H2 is 5/5. Run the full set before claiming a new overall score. |
+| Evaluation | Full baseline | 已交付 | Full run on 2026-08-10 after the harness upload fix: **30/31**, 0 errors, 0 unproven. The only failure is A5, which is `baseline: unknown` by design — the sandbox blocks egress, so the Agent correctly asks for Host approval and an unattended run stops there. The earlier 23/31 on the same day was a harness defect (global `FormData` through undici's `fetch`), not a capability regression; B2-B6 went 1/6 → 6/6 once the body was built in the sending realm. |
 | Memory | Owner/project namespaces and turn retention | 已交付 | `owner:` / `project:` routing and `standard`, `no_memory`, `not_searchable`, `turn_only` are enforced across context, search, reflection, and memory writes. Historical namespace rows are intentionally not migrated. |
 | Memory | `add_content` routing | 已交付 | Only explicit published-content `world_knowledge` is accepted. Personal facts, preferences, and missing types fail and direct the Agent to `add`; `content:` is not added to normal recall. |
 | Input | Public webpage reading | 已交付 | `webFetch` has SSRF, redirect, size, timeout, cache, Markdown conversion, and context-budget controls. It is not an authenticated browser. |

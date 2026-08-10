@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { Agent, fetch as undiciFetch } from "undici";
+import { Agent, FormData as UndiciFormData, fetch as undiciFetch } from "undici";
 
 /**
  * Driving one task's turns over the local HTTP API, and recovering what the
@@ -23,6 +23,29 @@ const EVAL_HTTP_DISPATCHER = new Agent({
 
 function evalFetch(input, init = {}) {
   return undiciFetch(input, { ...init, dispatcher: EVAL_HTTP_DISPATCHER });
+}
+
+/**
+ * A multipart body must be built with the SAME undici realm that sends it.
+ *
+ * `evalFetch` is undici's `fetch` (the global one cannot take a `dispatcher`,
+ * which is how the run gets a timeout longer than a task). Node's *global*
+ * `FormData`/`Blob` come from a different undici instance, and undici's fetch
+ * recognizes a form body by an internal brand it only puts on its own class —
+ * so a global `FormData` fails that check, falls through to generic body
+ * handling, and is sent as a body the server cannot parse. The server answers
+ * `400 Invalid request body` and the eval reports the task as an ERROR in ~0s.
+ *
+ * That is exactly what happened to B2/B3/B4/B5/B6 — every attachment task —
+ * which read as "the Agent cannot ingest documents" when the product path was
+ * fine and only the harness was broken. Verified against a live service: global
+ * FormData + undici fetch = 400, undici FormData + undici fetch = 200.
+ *
+ * Only the `FormData` class has to come from undici (it does not export `Blob`;
+ * the global one is fine, since it is the *form* undici brands, not its parts).
+ */
+function evalFormData() {
+  return new UndiciFormData();
 }
 
 /**
@@ -137,7 +160,7 @@ export async function sendTurn(endpoint, { prompt, files = [], conversationId, f
   let response;
 
   if (files.length > 0) {
-    const form = new FormData();
+    const form = evalFormData();
     form.set("userId", userId);
     form.set("profileId", EVAL_PROFILE_ID);
     form.set("message", prompt);
