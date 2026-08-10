@@ -102,6 +102,13 @@ export function decidePermission(input: DecidePermissionInput): PermissionDecisi
     case "network":
       return "allow";
 
+    case "installed_app":
+      // The owner installed this code deliberately, and that install was itself
+      // gated by `manage` (which asks in every mode). A destructive call is
+      // still asked about: `destructiveHint` is the app saying "this one
+      // deletes things", and an install grant does not cover that.
+      return hint === "destructive" ? "ask" : "allow";
+
     case "third_party":
       // The one difference between Accept edits and Auto (PRD §79), so both
       // modes have a reason to exist rather than differing by feel.

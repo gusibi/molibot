@@ -52,6 +52,8 @@ import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.j
 import { wrapCommandWithVenv, execCommand } from "$lib/server/agent/tools/helpers.js";
 import { prepareToolSandboxExecution, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
+import { decideToolPermission } from "$lib/server/agent/permissions/toolPermissionGate.js";
+import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { buildRunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
@@ -194,6 +196,30 @@ export function createMomTools(options: {
     botId,
     projectOverride: options.project?.sandboxEnabled
   });
+  // The second axis, resolved through the same identity and the same chain.
+  // Channels see Plan/Manual clamped away: neither has an interaction surface
+  // outside the desktop app (product decision 2026-08-10).
+  const permissionMode = clampModeForChannel(
+    resolveEffectivePermissionMode({
+      getSettings: options.getSettings,
+      chatId: options.chatId,
+      sessionId: options.sessionId,
+      store: options.store,
+      channel: options.channel,
+      botId
+    }),
+    options.channel
+  );
+  // "Allowed to write without asking" is declared, never inferred from cwd
+  // happening to sit inside something (PRD §127). The sandbox's own writable
+  // set is deliberately wider than this — it includes the whole data dir, which
+  // is right for bash and too broad for auto-approval.
+  const allowedWriteRoots = [
+    options.project?.rootPath,
+    options.project?.scratchDir,
+    options.cwd,
+    options.workspaceDir
+  ].filter((value): value is string => Boolean(value));
   const loadedDeferredToolNames = new Set<string>();
   const runtimeTaskTool = wrapSerializedTool(createRuntimeTaskTool({
     workspaceDir: options.workspaceDir,
@@ -311,6 +337,41 @@ export function createMomTools(options: {
       return { type: "allow" };
     }
 
+    const gate = decideToolPermission(
+      permissionMode,
+      {
+        toolId: tool.id,
+        input,
+        effect: tool.effect,
+        thirdPartyHint: tool.thirdPartyHint
+      },
+      {
+        sandboxEnabled: sandboxSettings.enabled,
+        allowedWriteRoots,
+        cwd: options.cwd
+      }
+    );
+
+    if (gate.decision === "deny") {
+      // Plan only. The tool list is narrowed before the model sees it, so this
+      // is the backstop rather than the mechanism — a model that bounces off
+      // denials burns its budget (pitfall 14a).
+      return {
+        type: "deny",
+        reason: `Plan mode is read-only: ${tool.id} would ${gate.effect} and is unavailable until you exit Plan.`
+      };
+    }
+    if (gate.decision === "ask") {
+      return {
+        type: "approval_required",
+        request: createDefaultApprovalRequest(tool, input, ctx)
+      };
+    }
+
+    // `risk` keeps its own duty: a high/critical tool still reaches the broker
+    // even when the mode would allow its effect, so Auto cannot silently
+    // auto-approve an installer (rule 1 of the matrix) or a destructive Mini
+    // App tool.
     if (tool.risk === "high" || tool.risk === "critical") {
       return {
         type: "approval_required",

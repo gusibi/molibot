@@ -140,12 +140,16 @@ test("effect: install tools are manage, which no mode may auto-allow", () => {
   assert.equal(getRuntimeToolClassification("miniAppManage").effect, "manage");
 });
 
-test("effect: Mini App and pi extension tools are third_party", () => {
+test("effect: Mini App and pi extension tools are installed_app, not third_party", () => {
+  // The owner installed them, and that install went through `manage`. An
+  // external MCP server is a *connection*, not installed code, so the two are
+  // trusted differently (decision 2026-08-10).
   assert.equal(
     getRuntimeToolClassification("miniapp__todo__add", { miniApp: { readOnlyHint: false, destructiveHint: false } }).effect,
-    "third_party"
+    "installed_app"
   );
-  assert.equal(getRuntimeToolClassification("some_ext_tool", { isExtensionTool: true }).effect, "third_party");
+  assert.equal(getRuntimeToolClassification("some_ext_tool", { isExtensionTool: true }).effect, "installed_app");
+  assert.equal(getRuntimeToolClassification("mcp__srv__tool").effect, "third_party");
 });
 
 test("effect: MCP tools are third_party, and their annotation is carried, not guessed", () => {

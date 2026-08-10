@@ -35,8 +35,15 @@ export function resolveEffectivePermissionMode(options: {
       agentId: options.agentId
     },
     {
+      // Feature-detected rather than assumed: a store predating this field (an
+      // older persisted runtime, or a caller's stub) has no session-level
+      // opinion, which is "keep looking" — not a crash that would take down
+      // every run through `createMomTools`.
       session: () =>
-        options.store && options.chatId && options.sessionId
+        options.store
+          && options.chatId
+          && options.sessionId
+          && typeof options.store.getSessionPermissionModeOverride === "function"
           ? options.store.getSessionPermissionModeOverride(options.chatId, options.sessionId)
           : null,
       project: options.projectOverride,

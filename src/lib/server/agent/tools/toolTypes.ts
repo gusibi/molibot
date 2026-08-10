@@ -3,6 +3,7 @@ import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import type { SideEffectClass } from "$lib/server/agent/durable/types.js";
 import type { DurableEvidenceRead } from "$lib/server/agent/durable/evidence.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/types.js";
+import type { ThirdPartyHint, ToolEffect } from "$lib/server/agent/tools/toolClassification.js";
 
 export type ToolRiskLevel = "low" | "medium" | "high" | "critical";
 export type ToolSource = "builtin" | "mcp" | "plugin" | "host" | "skill_script";
@@ -105,6 +106,15 @@ export interface ToolDefinition {
   inputSchema: unknown;
   risk: ToolRiskLevel;
   source: ToolSource;
+  /**
+   * What this call does to the world. The permission gate reads this; `risk`
+   * keeps only its display and audit duty. Optional so a tool registered before
+   * the dimension existed still loads — the gate classifies by id in that case
+   * rather than assuming anything.
+   */
+  effect?: ToolEffect;
+  /** Third party's own declaration, for `third_party` effects. */
+  thirdPartyHint?: ThirdPartyHint;
   /** Explicit recovery semantics. Omitted third-party tools are conservative. */
   sideEffectClass?: SideEffectClass;
   requiredPermissions?: string[];

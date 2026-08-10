@@ -19,7 +19,17 @@ export type ToolEffect =
   | "execute"
   /** Leaves the machine. */
   | "network"
-  /** Runs owner-installed or third-party code (Mini App, MCP, pi extension). */
+  /**
+   * Runs code the owner explicitly installed (Mini App, pi extension). The
+   * install itself already went through `manage`, which asks in every mode, so
+   * charging again for each call would bill the same decision twice.
+   */
+  | "installed_app"
+  /**
+   * Calls an external service the owner configured a *connection* to (MCP).
+   * The server's contents can change at any time and its annotations are
+   * self-reported, so this is trusted strictly less than `installed_app`.
+   */
   | "third_party"
   /** Downloads and installs third-party code. Never auto-allowed, in any mode. */
   | "manage";
@@ -118,10 +128,10 @@ export function getRuntimeToolClassification(
     const risk: ToolRiskLevel = thirdPartyHint === "destructive"
       ? "high"
       : thirdPartyHint === "read_only" ? "low" : "medium";
-    return { risk, source: "plugin", effect: "third_party", thirdPartyHint };
+    return { risk, source: "plugin", effect: "installed_app", thirdPartyHint };
   }
   if (options.isExtensionTool) {
-    return { risk: "medium", source: "plugin", effect: "third_party", thirdPartyHint: "undeclared" };
+    return { risk: "medium", source: "plugin", effect: "installed_app", thirdPartyHint: "undeclared" };
   }
   if (["write", "edit"].includes(toolName)) {
     return { risk: "medium", source: "builtin", effect: "write", thirdPartyHint: "undeclared" };

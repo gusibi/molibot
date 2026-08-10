@@ -57,9 +57,11 @@
 | bash，宿主（逃逸，未授权） | deny | ask | ask | ask |
 | bash，宿主（已有 owner-scoped grant） | deny | ask | allow | allow |
 | network（`webFetch` / MCP 网络调用） | deny | ask | allow | allow |
-| third_party 只读（`readOnlyHint` 明确声明） | deny | ask | ask | **allow** |
-| third_party 未声明（无 annotation） | deny | ask | ask | ask |
-| third_party 破坏性（`destructiveHint`） | deny | ask | ask | ask |
+| installed_app 非破坏性（机主已安装的 Mini App / pi 扩展） | deny | ask | **allow** | allow |
+| installed_app 破坏性（`destructiveHint`） | deny | ask | ask | ask |
+| third_party 只读（外部 MCP，`readOnlyHint` 明确声明） | deny | ask | ask | **allow** |
+| third_party 未声明（外部 MCP，无 annotation） | deny | ask | ask | ask |
+| third_party 破坏性（外部 MCP，`destructiveHint`） | deny | ask | ask | ask |
 | manage（`extensionManage` / `miniAppManage` 的 validate/install） | deny | ask | ask | **ask** |
 
 三条不可被模式放宽的硬规则：
@@ -79,7 +81,18 @@ Bypass 在业界产品里的存在理由是"我信任这个仓库，别再打断
 
 ### Auto 与 Accept edits 的区别是一件具体的事
 
-两档只差一行：**第三方工具（MCP / Mini App）的非破坏性调用是否需要确认。** Accept edits 要问，Auto 不问。这样两档都有明确的存在理由，不会退化成"感觉上更松一点"。
+两档只差一行：**外部 MCP 的非破坏性调用是否需要确认。** Accept edits 要问，Auto 不问（`readOnlyHint` 明确声明时）。这样两档都有明确的存在理由，不会退化成"感觉上更松一点"。
+
+### 为什么 installed_app 与 third_party 要分开（2026-08-10 定档）
+
+v1 把 Mini App 与 MCP 合并成一个 `third_party` 格，Accept edits 一律 ask。实现接入后发现这不可接受：**机主自己装的 Mini App 每次调用都要弹卡**——一个装了 3 个 App 的日常用户，每次记账、记笔记都被打断。而 PRD 的迁移章节只承认「关沙箱后首次宿主命令」一处行为变化，等于漏写了这个重大打扰。
+
+两者的信任来源根本不同，合并是分类错误：
+
+- **`installed_app`**：机主通过 `miniAppManage` / `extensionManage` **显式安装**过，安装那一刻已经过 `manage` 档的审批（任何模式都要问）。代码在机主的数据目录里，可被检查、可被卸载。再对每次调用发卡，是对同一个决定收第二次费。
+- **`third_party`**：外部 MCP 服务器，机主配置的是**连接**而非代码。服务器内容可随时改变，annotation 由它自报，Molibot 无法验证。
+
+因此 `installed_app` 的非破坏性调用在 Accept edits 直接放行；**破坏性仍然要问**——`destructiveHint` 是 App 自己声明"这次会删东西"，安装授权不覆盖它。安装环节本身（`manage`）不受影响，仍是任何模式都问。
 
 ---
 
@@ -90,12 +103,12 @@ Bypass 在业界产品里的存在理由是"我信任这个仓库，别再打断
 `getRuntimeToolClassification` 从 `{ risk, source }` 扩为 `{ risk, source, effect }`：
 
 ```
-effect: "read" | "write" | "execute" | "network" | "third_party" | "manage"
+effect: "read" | "write" | "execute" | "network" | "installed_app" | "third_party" | "manage"
 ```
 
-- Mini App：从 manifest 的 `readOnlyHint` / `destructiveHint` 映射，**不从工具名猜**（现有注释已经写明这条）。
+- Mini App / pi 扩展：effect 为 `installed_app`；破坏性判断从 manifest 的 `readOnlyHint` / `destructiveHint` 映射，**不从工具名猜**（现有注释已经写明这条）。
 - MCP：默认 `third_party`；若 server 声明了 MCP 标准的 `readOnlyHint` / `destructiveHint` annotation 则采用，**缺失时按"非破坏性但需确认"处理，不按只读处理**。`destructiveHint` 优先于 `readOnlyHint`；`readOnlyHint` 的放宽只在 Auto 档生效（2026-08-10 定档，见已决问题 3）。
-- pi 扩展工具：`third_party`。
+- pi 扩展工具：`installed_app`（与 Mini App 同源——都由机主显式安装）。
 - `risk` 保留不动，用于审批卡的展示分级与审计串，不再单独承担闸门职责。
 
 ### 2. `PermissionMode` 类型与解析链（共享层）
@@ -166,6 +179,8 @@ Plan 是四档里最贵的一档，因为它不是"每次 deny"：
 - 现有的 `sandboxEnabled`（session / project / instance / agent / 全局）语义不变，继续表示沙箱轴。
 - **行为变化**：今天关闭沙箱的会话/机器人，改动后首次执行宿主命令会被问一次；授予 persistent grant 后恢复无打扰。首次进入该状态时给一条一次性说明，指向 grant 的授予入口。
 - **行为不变**：今天开启沙箱的会话，Accept edits 下沙箱内命令与文件写入仍然直接跑，与现状一致。
+- **行为不变**：已安装 Mini App / pi 扩展的非破坏性调用在 Accept edits 下继续直接跑（2026-08-10 定档，见上文分类理由）。安装动作本身仍然任何模式都要审批。
+- **行为变化**：外部 MCP 工具在 Accept edits 下首次调用会被问一次（`readOnlyHint` 明确声明的在 Auto 档自动放行）。这是本 PRD 有意引入的唯一第三方闸门。
 
 ---
 

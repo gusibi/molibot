@@ -16,7 +16,7 @@ import type { ToolEffect } from "$lib/server/agent/tools/toolClassification.js";
  * implementation has.
  */
 
-const EFFECTS: ToolEffect[] = ["read", "write", "execute", "network", "third_party", "manage"];
+const EFFECTS: ToolEffect[] = ["read", "write", "execute", "network", "installed_app", "third_party", "manage"];
 
 type Row = { effect: ToolEffect; containment: Containment; hint?: "read_only" | "destructive" | "undeclared" };
 
@@ -32,6 +32,15 @@ const CASES: Array<Row & { plan: string; manual: string; accept_edits: string; a
   { effect: "execute", containment: "host_granted", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
 
   { effect: "network", containment: "not_applicable", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
+
+  // An installed Mini App / pi extension: the owner already approved the
+  // install through `manage`, so a non-destructive call is not asked about
+  // again (decision 2026-08-10).
+  { effect: "installed_app", containment: "not_applicable", hint: "undeclared", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
+  { effect: "installed_app", containment: "not_applicable", hint: "read_only", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
+  // ...but the app declaring "this one deletes things" is not covered by the
+  // install grant.
+  { effect: "installed_app", containment: "not_applicable", hint: "destructive", plan: "deny", manual: "ask", accept_edits: "ask", auto: "ask" },
 
   { effect: "third_party", containment: "not_applicable", hint: "read_only", plan: "deny", manual: "ask", accept_edits: "ask", auto: "allow" },
   { effect: "third_party", containment: "not_applicable", hint: "undeclared", plan: "deny", manual: "ask", accept_edits: "ask", auto: "ask" },
@@ -106,7 +115,32 @@ test("Accept edits and Auto differ on exactly one thing", () => {
       differing.push(`${row.effect}/${row.hint ?? row.containment}`);
     }
   }
-  assert.deepEqual(differing, ["third_party/read_only"]);
+  assert.deepEqual(
+    differing,
+    ["third_party/read_only"],
+    "Accept edits and Auto must differ on exactly one row, or one of them has no reason to exist"
+  );
+});
+
+test("an installed app is trusted more than an external MCP server", () => {
+  // The distinction the matrix turns on: the owner installed one and merely
+  // configured a connection to the other. Same hint, different answer.
+  const installed = decidePermission({
+    mode: "accept_edits", effect: "installed_app", containment: "not_applicable", thirdPartyHint: "undeclared"
+  });
+  const external = decidePermission({
+    mode: "accept_edits", effect: "third_party", containment: "not_applicable", thirdPartyHint: "undeclared"
+  });
+  assert.equal(installed, "allow");
+  assert.equal(external, "ask");
+});
+
+test("installing is still gated even though calling an installed app is not", () => {
+  // Otherwise the trust would be circular: anything could install itself and
+  // then run freely.
+  for (const mode of ["manual", "accept_edits", "auto"] as const) {
+    assert.equal(decidePermission({ mode, effect: "manage", containment: "not_applicable" }), "ask", mode);
+  }
 });
 
 test("a declared readOnlyHint relaxes only Auto, and destructive always wins", () => {
