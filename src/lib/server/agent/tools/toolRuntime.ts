@@ -149,36 +149,47 @@ export class ToolRuntime {
 
       if (!grant && !durableApprovalScope) {
         let resolution: "approved" | "rejected" | "expired";
+        // Risk decides *how* we ask (an individual card vs. a debounced batch),
+        // never *whether* the caller may decline to wait. Permission modes made
+        // that distinction load-bearing: Manual asks before a medium-risk
+        // `write`, and an unattended automation run must be able to suspend
+        // instead of blocking on `pollApprovalRequest` — a blocked run holds its
+        // execution lease in `running` forever (CLAUDE.md pitfall 23).
+        const pendingPrompt = buildHostBashApprovalPrompt(buildBrokerApprovalRecord({
+          request: decision.request,
+          actorId: call.context.actorId,
+          toolId: tool.id,
+          displayName: tool.name,
+          command: decision.request.action.command ?? decision.request.action.path ?? tool.name,
+          status: "pending"
+        }));
+        const deferred = await call.context.onApprovalRequest?.({
+          backend: "approval_broker",
+          requestId: decision.request.id,
+          prompt: pendingPrompt,
+          request: decision.request
+        });
+        if (deferred === "defer") {
+          // Recorded before returning, so the request the caller was handed is
+          // the one an out-of-band resolve will find.
+          this.approvalService?.createRequest(decision.request);
+          return {
+            ok: false,
+            error: "Tool execution is waiting for user approval.",
+            metadata: {
+              approvalRequestId: decision.request.id,
+              status: "waiting_for_approval"
+            },
+            details: { hostBashApproval: pendingPrompt },
+            terminate: true
+          };
+        }
+
         const isHighRisk = tool.risk === "high" || tool.risk === "critical";
 
         if (isHighRisk) {
+          // The caller chose to wait (or has no opinion): one card, one answer.
           this.approvalService?.createRequest(decision.request);
-          const approvalPrompt = buildHostBashApprovalPrompt(buildBrokerApprovalRecord({
-            request: decision.request,
-            actorId: call.context.actorId,
-            toolId: tool.id,
-            displayName: tool.name,
-            command: decision.request.action.command ?? decision.request.action.path ?? tool.name,
-            status: "pending"
-          }));
-          const approvalDisposition = await call.context.onApprovalRequest?.({
-            backend: "approval_broker",
-            requestId: decision.request.id,
-            prompt: approvalPrompt,
-            request: decision.request
-          });
-          if (approvalDisposition === "defer") {
-            return {
-              ok: false,
-              error: "Tool execution is waiting for user approval.",
-              metadata: {
-                approvalRequestId: decision.request.id,
-                status: "waiting_for_approval"
-              },
-              details: { hostBashApproval: approvalPrompt },
-              terminate: true
-            };
-          }
           resolution = await this.pollApprovalRequest(decision.request, call.context);
         } else {
           // Low/medium risk debounce aggregation (1.5 seconds)

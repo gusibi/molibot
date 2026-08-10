@@ -474,3 +474,59 @@ test("a tool that ignores cancellation is released by the shared execution watch
   assert.equal(result.ok, false);
   assert.match(result.error ?? "", /timed out after 20ms/i);
 });
+
+test("an approval_required decision is honoured for a medium-risk tool", async () => {
+  // `isHighRisk` was a safe assumption only while high/critical were the only
+  // things that could produce `approval_required` — it was effectively always
+  // true at that branch. Permission modes break that: Manual asks before a
+  // `write`, which is medium risk, so a gate that says "ask" must not fall
+  // through to execution just because the tool is not high risk.
+  const registry = new ToolRegistry();
+  let executed = false;
+  registry.register(tool({
+    id: "write",
+    risk: "medium",
+    effect: "write",
+    handler: async () => {
+      executed = true;
+      return { ok: true, content: "written" };
+    }
+  }));
+
+  const asked: string[] = [];
+  const runtime = new ToolRuntime(registry, {
+    decidePolicy: (tool, input, ctx) => ({
+      type: "approval_required",
+      request: {
+        id: "req-medium-1",
+        runId: ctx.runId,
+        sessionId: ctx.sessionId,
+        workspaceId: ctx.workspaceId,
+        actorId: ctx.actorId,
+        toolId: tool.id,
+        capability: "file.write",
+        actionFingerprint: "fp-1",
+        action: { path: "notes.md" },
+        risk: tool.risk,
+        createdAt: new Date().toISOString()
+      } as unknown as ApprovalRequest
+    })
+  });
+
+  const result = await runtime.executeToolCall({
+    toolId: "write",
+    input: { path: "notes.md" },
+    context: {
+      ...context([]),
+      onApprovalRequest: async (req) => {
+        asked.push(req.requestId);
+        return "defer";
+      }
+    }
+  });
+
+  assert.equal(executed, false, "the tool must not run before the user answers");
+  assert.equal(result.ok, false);
+  assert.equal(result.metadata?.status, "waiting_for_approval");
+  assert.deepEqual(asked, ["req-medium-1"], "the request must reach the approval surface");
+});
