@@ -5,6 +5,10 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
+import {
+  assertWriteAllowedByFilesystemPolicy,
+  type FilesystemPolicy
+} from "$lib/server/agent/tools/filesystemPolicy.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
 import type { RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 
@@ -44,7 +48,7 @@ function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { re
   };
 }
 
-export function getWriteToolDefinition(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout }): ToolDefinition {
+export function getWriteToolDefinition(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy }): ToolDefinition {
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
 
   return {
@@ -88,6 +92,11 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
         }
       }
 
+      // The operator's deny list is checked before a single byte is written —
+      // a side effect that precedes its own validation is worse than a crash
+      // (CLAUDE.md pitfall 26d).
+      assertWriteAllowedByFilesystemPolicy(filePath, options.filesystemPolicy, options.workspaceDir);
+
       // Share the edit tool's per-file lock so a write cannot land in the middle
       // of a concurrent edit's read-modify-write cycle.
       const dir = dirname(filePath);
@@ -125,7 +134,7 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
   };
 }
 
-export function createWriteTool(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout }): AgentTool<typeof writeSchema> {
+export function createWriteTool(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy }): AgentTool<typeof writeSchema> {
   const def = getWriteToolDefinition(options);
   return toolDefToAgentTool(def, options.cwd);
 }

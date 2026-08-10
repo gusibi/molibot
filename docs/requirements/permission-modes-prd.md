@@ -57,7 +57,8 @@
 | bash，宿主（逃逸，未授权） | deny | ask | ask | ask |
 | bash，宿主（已有 owner-scoped grant） | deny | ask | allow | allow |
 | network（`webFetch` / MCP 网络调用） | deny | ask | allow | allow |
-| third_party 非破坏性（MCP / Mini App，`readOnlyHint` 或未声明破坏） | deny | ask | ask | **allow** |
+| third_party 只读（`readOnlyHint` 明确声明） | deny | ask | ask | **allow** |
+| third_party 未声明（无 annotation） | deny | ask | ask | ask |
 | third_party 破坏性（`destructiveHint`） | deny | ask | ask | ask |
 | manage（`extensionManage` / `miniAppManage` 的 validate/install） | deny | ask | ask | **ask** |
 
@@ -93,7 +94,7 @@ effect: "read" | "write" | "execute" | "network" | "third_party" | "manage"
 ```
 
 - Mini App：从 manifest 的 `readOnlyHint` / `destructiveHint` 映射，**不从工具名猜**（现有注释已经写明这条）。
-- MCP：默认 `third_party`；若 server 声明了 MCP 标准的 `readOnlyHint` / `destructiveHint` annotation 则采用，**缺失时按"非破坏性但需确认"处理，不按只读处理**。
+- MCP：默认 `third_party`；若 server 声明了 MCP 标准的 `readOnlyHint` / `destructiveHint` annotation 则采用，**缺失时按"非破坏性但需确认"处理，不按只读处理**。`destructiveHint` 优先于 `readOnlyHint`；`readOnlyHint` 的放宽只在 Auto 档生效（2026-08-10 定档，见已决问题 3）。
 - pi 扩展工具：`third_party`。
 - `risk` 保留不动，用于审批卡的展示分级与审计串，不再单独承担闸门职责。
 
@@ -150,12 +151,12 @@ Plan 是四档里最贵的一档，因为它不是"每次 deny"：
 
 ### 9. 非桌面通道与 automation
 
-- **Plan 仅桌面**：飞书/微信/Telegram 没有 ExitPlan 的交互载体。通道侧的模式选择器只暴露 Manual / Accept edits / Auto。
+- **Plan 与 Manual 仅桌面**（2026-08-10 定档）：飞书/微信/Telegram 没有 ExitPlan 的交互载体，Manual 又会对每次文件写入发卡。通道侧的模式选择器只暴露 **Accept edits / Auto** 两档。
 - 通道的 ask 走已有的通道审批卡链路，且必须遵守 pitfall #32 的两阶段投递契约：回调窗口内先返回无按钮的处理中卡，执行恰好一次，再按 `open_message_id` 更新为成功/失效/失败卡；更新失败则降级为文本回执。
-- **Automation（`origin: "automation"` / `t-*` session）不进入交互式 ask。** 无人值守时挂起等待会把 execution lease 钉死（pitfall #23）。两条路径都可接受，需在实现前定档（见未决问题）：
-  - (a) 复用 `bash.ts` 已有的 `waiting_for_approval` 状态 + 异步恢复路径，lease 记为 `interrupted` 而非 `running`；
-  - (b) automation 固定走 Auto，未授权的宿主命令直接失败并把原因写进执行记录。
-  - 无论选哪条，**都不允许 automation 因为审批而让 lease 停在 `running`**。
+- **Automation（`origin: "automation"` / `t-*` session）走挂起 + 异步恢复**（2026-08-10 定档，采用下方 (a)）：
+  - (a) 复用 `bash.ts` 已有的 `waiting_for_approval` 状态 + 异步恢复路径，**并在同一步把 execution lease 记为 `interrupted`**，使挂起的任务不占用调度、也不会被 `hasActiveForTask` 判成 `task_already_running` 而抑制后续运行；
+  - 用户批准后经既有异步恢复路径续跑；恢复失败写入执行记录并可见，不得静默丢弃。
+  - **绝不允许 automation 因为审批而让 lease 停在 `running`**（pitfall #23）。
 
 ---
 
@@ -204,11 +205,34 @@ Plan 是四档里最贵的一档，因为它不是"每次 deny"：
 
 ---
 
+## 已决问题（产品负责人拍板，2026-08-10）
+
+1. **Automation 的默认行为 → (a) 挂起 + 异步恢复。** 采用 §9 的 (a)，**不是**本 PRD v1 倾向的 (b)。理由是语义与人工会话一致：无人值守时一条未授权的宿主命令不该被静默判失败，它应该等一个人来看。
+
+   代价必须由实现兜住，否则这一档就是 pitfall #23 的复发：**挂起时 lease 必须立即记为 `interrupted`，绝不允许停在 `running`。** 具体契约：
+
+   - 受限调用发生时，复用 `bash.ts` 已有的 `waiting_for_approval` 路径；
+   - 同一步把 execution lease 释放（`interrupted` + 原因），使 `hasActiveForTask` 不再把它算作占用，后续调度不被这条挂起任务堵死；
+   - 用户批准后走既有异步恢复路径续跑，恢复失败必须写进执行记录并可见，不得静默丢弃；
+   - 机器守卫（验收 §7）要断言的是"挂起后 lease 不在 `running`"且"该任务的下一次调度没有被 `task_already_running` 抑制"——两条一起才算覆盖，只断言前者会漏掉 pitfall #23(b) 那个家族。
+
+2. **Manual 在通道上 → 不暴露。Manual 仅桌面端。** 与 Plan 相同处理：通道侧的模式选择器只暴露 **Accept edits / Auto**，Plan 与 Manual 都是桌面独有。这样通道上不需要为每次文件写入发卡，§210 提的批量确认也就不必做。
+
+   注意这条把 §9 的第一行从"Plan 仅桌面"扩为"Plan 与 Manual 均仅桌面"，通道选择器因此只剩两档。
+
+3. **MCP `readOnlyHint` → 允许放宽一次调用。** 第三方 server 声明的 `readOnlyHint` 可以让该调用在 Auto 档自动放行，即采用 §96 的乐观版本而非保守版本。
+
+   边界要卡死，避免这条被读成"信任第三方自报"：
+   - 只放宽到 **Auto** 一档。Accept edits 及以下仍然 ask，Plan 仍然 deny；
+   - `destructiveHint` **永远优先于** `readOnlyHint`；两者同时声明按破坏性处理；
+   - **缺失即非只读**：未声明任何 annotation 的调用仍按"非破坏性但需确认"处理，不因缺省而放行；
+   - 放宽的是 mode 轴，不是沙箱轴——`readOnlyHint` 不改变这次调用被围在哪里。
+
+---
+
 ## 未决问题
 
-1. **Automation 的默认行为**：选 §9 的 (a) 挂起+异步恢复，还是 (b) 固定 Auto + 未授权直接失败。(a) 更接近人工会话的语义，(b) 更可预测且不依赖用户在场。倾向 (b)，但需要产品拍板。
-2. **Manual 在通道上的噪音**：飞书/微信里 Manual 会对每次文件写入发卡。是否需要一个通道侧的批量确认（复用 `ToolRuntime` 已有的 1.5s debounce 聚合逻辑），还是直接在通道 UI 上不暴露 Manual。
-3. **MCP annotation 的可信度**：`readOnlyHint` 由第三方 server 自己声明。是否允许它把一个调用降到 Auto 的自动放行档，还是所有 MCP 一律按"非破坏性但需确认"处理（当前提案取后者的保守版本）。
+（暂无。上述三项已于 2026-08-10 定档。）
 
 ---
 

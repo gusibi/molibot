@@ -3,6 +3,10 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { generateDiffString, generateUnifiedPatch, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
+import {
+  assertWriteAllowedByFilesystemPolicy,
+  type FilesystemPolicy
+} from "$lib/server/agent/tools/filesystemPolicy.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
 import { describeFileToolResult, type RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 
@@ -29,7 +33,7 @@ export function buildDiff(oldText: string, newText: string, contextLines = 4): s
   return generateDiffString(oldText, newText, contextLines).diff;
 }
 
-export function getEditToolDefinition(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout }): ToolDefinition {
+export function getEditToolDefinition(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy }): ToolDefinition {
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
 
   return {
@@ -43,6 +47,9 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
     handler: async (params: any, ctx) => {
       const filePath = resolveToolPath(ctx.cwd, params.path);
       ensureAllowedPath(filePath);
+      // Checked before the read-modify-write cycle, so a denied file is never
+      // even opened for mutation (CLAUDE.md pitfall 26d).
+      assertWriteAllowedByFilesystemPolicy(filePath, options.filesystemPolicy, options.workspaceDir);
 
       if (params.oldText === params.newText) {
         return { ok: false, error: "No changes to make: oldText and newText are exactly the same" };
@@ -110,7 +117,7 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
   };
 }
 
-export function createEditTool(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout }): AgentTool<typeof editSchema> {
+export function createEditTool(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy }): AgentTool<typeof editSchema> {
   const def = getEditToolDefinition(options);
   return toolDefToAgentTool(def, options.cwd);
 }

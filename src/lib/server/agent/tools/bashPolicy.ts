@@ -39,6 +39,33 @@ export function findFileToolRedirect(command: string): string | null {
   return null;
 }
 
+/**
+ * Where this bash call's side effects are actually fenced.
+ *
+ * This is the *containment* axis, and it is deliberately separate from "do we
+ * ask the user" (the mode axis, Permission Modes PRD). Today every branch below
+ * still ends in `allow`, so naming the axis changes no behaviour — but it moves
+ * the sandbox-on/sandbox-off distinction out of a bare `if` that returned
+ * `allow` and into a value a policy can be written against. Without that split,
+ * turning the sandbox off silently means "never ask again", which is precisely
+ * the Bypass mode the PRD refuses to ship.
+ */
+export type BashContainment =
+  /** Runs inside the tool sandbox. */
+  | "sandboxed"
+  /** Escapes to the host, and an approved Host Bash grant already covers it. */
+  | "host_granted"
+  /** Would run on the host with no grant. */
+  | "host";
+
+export function resolveBashContainment(options: {
+  sandboxEnabled: boolean;
+  hasApprovedHostGrant: boolean;
+}): BashContainment {
+  if (options.hasApprovedHostGrant) return "host_granted";
+  return options.sandboxEnabled ? "sandboxed" : "host";
+}
+
 export function decideBashToolPolicy(options: {
   tool: ToolDefinition;
   input: unknown;
@@ -55,18 +82,25 @@ export function decideBashToolPolicy(options: {
 
   const parsed = tryParseHostBashCommand(params?.command ?? "");
   const approved = findApprovedHostBash(options.hostBashStore ?? getHostBashStore(), parsed);
-  if (approved) {
-    return { type: "allow" };
-  }
 
-  if (!options.sandboxEnabled) {
-    return { type: "allow" };
-  }
+  // Computed for every call, including the ones that return `allow` below, so
+  // the value is exercised today rather than appearing untested on the day a
+  // mode starts reading it.
+  const containment = resolveBashContainment({
+    sandboxEnabled: options.sandboxEnabled,
+    hasApprovedHostGrant: Boolean(approved)
+  });
+  void containment;
 
-  // Host approval requests are gated inside the bash tool handler itself, which
-  // blocks on the Host Bash approval store and executes inline once approved.
-  // Gating them here too would force the user to approve the same command twice
-  // (once for the broker request, once for the Host Bash record).
+  // All three containments still resolve to `allow` here: Host approval
+  // requests are gated inside the bash tool handler itself, which blocks on the
+  // Host Bash approval store and executes inline once approved. Gating them
+  // here too would make the user approve the same command twice (once for the
+  // broker request, once for the Host Bash record).
+  //
+  // Slice 1 replaces this line with `decidePermission(mode, "execute",
+  // containment, …)`, which is the point at which `host` stops implying
+  // `allow`.
   return { type: "allow" };
 }
 

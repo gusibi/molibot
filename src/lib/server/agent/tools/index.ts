@@ -526,10 +526,18 @@ export function createMomTools(options: {
   const readToolDef = getReadToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir });
   registry.register(readToolDef);
 
-  const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir, outputLayout });
+  // The operator's deny list binds every tool that writes, not just `bash`.
+  // Before this, `toolSandbox.filesystem.denyWrite` was configured in Settings
+  // and silently did nothing to `write`/`edit` (Permission Modes PRD, slice 0).
+  const filesystemPolicy = {
+    denyWrite: sandboxSettings.filesystem.denyWrite,
+    allowWrite: sandboxSettings.filesystem.allowWrite
+  };
+
+  const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir, outputLayout, filesystemPolicy });
   registry.register(writeToolDef);
 
-  const editToolDef = getEditToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, outputLayout });
+  const editToolDef = getEditToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, outputLayout, filesystemPolicy });
   registry.register(editToolDef);
 
   const bashToolDef = getBashToolDefinition({
