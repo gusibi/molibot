@@ -2,7 +2,7 @@
 
 > Session-scoped permission modes that govern **whether to ask the user**, decoupled from the sandbox, which governs **what a call can touch**.
 >
-> - **Status**: Proposed (2026-08-09). Not started.
+> - **Status**: 切片 0 与切片 1 已交付（2026-08-10）。切片 2（Plan 模式）与切片 3（HostBash 收敛为 ApprovalService backend）未开始。
 > - **PRD index entry**: `prd.md` §3.64 (2026-08-09)
 > - **Revision**: v1 (2026-08-09) — initial version from product-owner discussion. Two decisions fixed by the product owner up front: **Bypass 不做**（不提供无条件放行档），**默认档为 Accept edits**。
 > - **Implementer note**: read CLAUDE.md "Recurring Pitfalls" before starting — #2（Svelte 5 reactivity，per-session 选择被全局刷新重置是同一个 bug 家族）、#7（共享模块不许 fork）、#11（settings round-trip）、#14a（guard 让 turn 收尾，不是杀掉它）、#15（沙箱 fail closed）、#16c（pill 不能加 container-type）、#21d（第三方代码的进程故障域）、#23（automation lease 不能被卡住）、#32（通道交互回执的两阶段投递）全部直接命中这个改动面。
@@ -188,8 +188,8 @@ Plan 是四档里最贵的一档，因为它不是"每次 deny"：
 
 | 切片 | 内容 | 依赖 |
 |---|---|---|
-| **0（前置）** | `bashPolicy` 两轴解耦；`write` / `edit` 接入 `toolSandbox.filesystem` 策略；显式声明"允许写的根" | 无 |
-| **1** | effect 维度；`PermissionMode` 类型 + 通用 override resolver（沙箱改为其调用方）；`decidePermission` 纯函数；桌面 `ComposerModeMenu`；审批 scope/grant 落地（含 owner）；交付 **Manual / Accept edits / Auto** 三档，Plan 占位但 disabled | 切片 0 |
+| **0（前置）** ✅ | `bashPolicy` 两轴解耦；`write` / `edit` 接入 `toolSandbox.filesystem` 策略；显式声明"允许写的根" | 无 |
+| **1** ✅ | effect 维度；`PermissionMode` 类型 + 通用 override resolver（沙箱已改为其调用方）；`decidePermission` 纯函数；权限模式作为 `ComposerModelMenu` 的第三页（不新建下拉）；`persistent` scope 落地（`manage` 除外）；automation 挂起而非阻塞 | 切片 0 |
 | **2** | **Plan 模式**：工具集收窄、`exitPlan` 确认卡、计划产物落地、退出后同 session 继续 | 切片 1 |
 | **3** | 审批链收敛：HostBash 降为 `ApprovalService` 的 backend，统一卡片的 list/resolve 覆盖同一组后端并按 session 校验 | 切片 1 |
 
