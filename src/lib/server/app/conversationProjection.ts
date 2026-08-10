@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionMessageEntry } from "$lib/server/agent/session/session.js";
-import type { ConversationMessage } from "$lib/shared/types/message.js";
+import type { ConversationActivity, ConversationMessage, ConversationPlan, ConversationStep } from "$lib/shared/types/message.js";
 import type { UiMessageMetadata } from "$lib/server/sessions/store.js";
 import { stripMemoryCitations } from "$lib/server/memory/citation.js";
 
@@ -13,6 +13,8 @@ export interface ProjectedConversationMessage extends ConversationMessage {
 interface AgentDisplayMessage extends ProjectedConversationMessage {
   sourceEntryId: string;
 }
+
+type ConversationUsage = NonNullable<ConversationMessage["usage"]>;
 
 export interface ConversationProjection {
   messages: ProjectedConversationMessage[];
@@ -39,6 +41,98 @@ function thinkingText(content: unknown): string {
     const item = part as { type?: unknown; thinking?: unknown };
     return item.type === "thinking" && typeof item.thinking === "string" ? [item.thinking.trim()] : [];
   }).filter(Boolean).join("\n\n");
+}
+
+function messageUsage(message: AgentMessage): ConversationUsage {
+  const usage = (message as AgentMessage & { usage?: Record<string, unknown> }).usage ?? {};
+  const inputTokens = Number(usage.input ?? 0);
+  const outputTokens = Number(usage.output ?? 0);
+  const cacheReadTokens = Number(usage.cacheRead ?? 0);
+  const cacheWriteTokens = Number(usage.cacheWrite ?? 0);
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    totalTokens: Number(usage.totalTokens ?? inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens)
+  };
+}
+
+function addUsage(left: ConversationUsage | undefined, right: ConversationUsage): ConversationUsage {
+  return {
+    inputTokens: (left?.inputTokens ?? 0) + right.inputTokens,
+    outputTokens: (left?.outputTokens ?? 0) + right.outputTokens,
+    cacheReadTokens: (left?.cacheReadTokens ?? 0) + right.cacheReadTokens,
+    cacheWriteTokens: (left?.cacheWriteTokens ?? 0) + right.cacheWriteTokens,
+    totalTokens: (left?.totalTokens ?? 0) + right.totalTokens
+  };
+}
+
+function orderedAssistantSteps(message: AgentMessage, entryId: string): ConversationStep[] {
+  const content = (message as AgentMessage & { content?: unknown }).content;
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((part, index): ConversationStep[] => {
+    if (!part || typeof part !== "object") return [];
+    const item = part as { type?: unknown; text?: unknown; thinking?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
+    const id = `${entryId}-${index}`;
+    if (item.type === "thinking" && typeof item.thinking === "string" && item.thinking.trim()) {
+      return [{ id, kind: "thinking", content: item.thinking.trim() }];
+    }
+    if (item.type === "text" && typeof item.text === "string") {
+      const text = displayAssistantText(item.text).trim();
+      return text ? [{ id, kind: "text", content: text }] : [];
+    }
+    if (item.type === "toolCall") {
+      const tool = typeof item.name === "string" ? item.name : "tool";
+      const key = typeof item.id === "string" && item.id ? item.id : id;
+      if (tool === "exitPlan" && item.arguments && typeof item.arguments === "object") {
+        const args = item.arguments as { title?: unknown; summary?: unknown; steps?: unknown; recommendedMode?: unknown };
+        const planId = `plan-${key}`;
+        const plan: ConversationPlan = {
+          id: planId,
+          title: String(args.title ?? "Plan").trim(),
+          summary: String(args.summary ?? "").trim(),
+          steps: (Array.isArray(args.steps) ? args.steps : []).map((text, stepIndex) => ({
+            id: `${planId}-${stepIndex + 1}`,
+            text: String(text),
+            status: "pending"
+          })),
+          status: "proposed",
+          recommendedMode: args.recommendedMode === "manual" ? "manual" : "accept_edits",
+          artifactPath: ""
+        };
+        return [{ id, kind: "plan", plan }];
+      }
+      return [{
+        id,
+        kind: "activity",
+        activity: { key, kind: "tool", tool, label: tool, state: "running" }
+      }];
+    }
+    return [];
+  });
+}
+
+function hydratePlanSteps(steps: ConversationStep[] | undefined, plan: ConversationPlan | undefined): ConversationStep[] | undefined {
+  if (!steps?.length || !plan) return steps;
+  return steps.map((step) => step.kind === "plan" ? { ...step, plan } : step);
+}
+
+function hydrateActivitySteps(
+  steps: ConversationStep[] | undefined,
+  activities: ConversationActivity[] | undefined
+): ConversationStep[] | undefined {
+  if (!steps?.length) return steps;
+  const remaining = [...(activities ?? [])];
+  return steps.map((step) => {
+    if (step.kind !== "activity") return step;
+    const exact = remaining.findIndex((activity) => activity.key === step.activity.key);
+    const byTool = remaining.findIndex((activity) => activity.tool === step.activity.tool);
+    const index = exact >= 0 ? exact : byTool;
+    if (index < 0) return step;
+    const [activity] = remaining.splice(index, 1);
+    return { ...step, activity };
+  });
 }
 
 function displayUserText(text: string): string {
@@ -79,6 +173,11 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
       // shows the answer and renders the error alongside it.
       if (!assistant.content.trim() && assistant.errorMessage?.trim()) {
         assistant.content = assistant.errorMessage.trim();
+        assistant.steps = [...(assistant.steps ?? []), {
+          id: `${assistant.sourceEntryId}-error`,
+          kind: "text",
+          content: assistant.content
+        }];
       }
       if (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim()) out.push(assistant);
     }
@@ -112,6 +211,8 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     // produced — the user lost the reply and got a bare "Request aborted".
     const content = displayAssistantText(contentText(entry.message.content).trim());
     const thinking = thinkingText(entry.message.content);
+    const steps = orderedAssistantSteps(entry.message, entry.id);
+    const usage = messageUsage(entry.message);
     const isTerminalReply = status.stopReason === "stop" && Boolean(content);
     if (isTerminalReply && terminalCommitted) flushAssistant();
     if (!assistant) {
@@ -125,6 +226,8 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
         retention: entry.retention,
         model: modelLabel(entry.message),
         thinking: thinking || undefined,
+        steps,
+        usage,
         ...status
       };
       terminalCommitted = isTerminalReply;
@@ -140,6 +243,8 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     const model = modelLabel(entry.message);
     if (model) assistant.model = model;
     if (thinking) assistant.thinking = [assistant.thinking, thinking].filter(Boolean).join("\n\n");
+    assistant.steps = [...(assistant.steps ?? []), ...steps];
+    assistant.usage = addUsage(assistant.usage, usage);
     if (status.stopReason && (!terminalCommitted || status.stopReason !== "toolUse")) {
       assistant.stopReason = status.stopReason;
     }
@@ -216,7 +321,14 @@ export function projectConversationMessages(input: {
     if (matchIndex < 0) {
       // Never silently drop a row: keep display-only content, or an empty
       // placeholder for a context-backed row whose Agent source has rotated away.
-      messages.push({ ...metadata, content: metadata.content ?? "" });
+      const content = metadata.content ?? "";
+      messages.push({
+        ...metadata,
+        content,
+        steps: metadata.role === "assistant" && content
+          ? [{ id: `${metadata.id}-text`, kind: "text", content }]
+          : undefined
+      });
       continue;
     }
 
@@ -228,6 +340,7 @@ export function projectConversationMessages(input: {
       resolvedSourceEntries.push({ id: metadata.id, sourceEntryId: source.sourceEntryId });
     }
     if (!metadata.contextBacked) migratedMetadataIds.push(metadata.id);
+    const activities = metadata.activities;
     messages.push({
       ...source,
       id: metadata.id,
@@ -235,7 +348,9 @@ export function projectConversationMessages(input: {
       model: metadata.model || source.model,
       platformMessageId: metadata.platformMessageId,
       attachments: metadata.attachments,
-      activities: metadata.activities,
+      activities,
+      steps: hydratePlanSteps(hydrateActivitySteps(source.steps, activities), metadata.plan),
+      plan: metadata.plan,
       retention: metadata.retention ?? source.retention
     });
   }

@@ -482,7 +482,7 @@ export class DurableExecutionStore {
     if (criteria.length === 0) throw new Error("At least one acceptance criterion is required.");
 
     const createdAt = nowIso(input.now);
-    const executionId = id("durable");
+    const executionId = text(input.executionId) || id("durable");
     const constraints = (input.constraints ?? []).map((value) => text(value)).filter(Boolean);
     const tokenLimit = positiveInt(input.budget?.tokenLimit);
     const attemptLimit = positiveInt(input.budget?.attemptLimit);

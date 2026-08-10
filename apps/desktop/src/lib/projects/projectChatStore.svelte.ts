@@ -11,6 +11,7 @@ import type { SessionStatusDot } from "../chat/sessionStatusDot";
 import type {
   DesktopApprovalDecision,
   DesktopApprovalPrompt,
+  DesktopConversationStep,
   DesktopThinkingLevel
 } from "@molibot/desktop-contract";
 import { loadDesktopProjectSession, type DesktopActivityEntry } from "../api";
@@ -67,7 +68,9 @@ export interface ProjectChatState {
   streamingThinking: string;
   activity: string;
   activities: DesktopActivityEntry[];
+  liveSteps: DesktopConversationStep[];
   pendingApproval: DesktopApprovalPrompt | null;
+  pendingApprovals: DesktopApprovalPrompt[];
   queue: string[];
   statusDots: Map<string, SessionStatusDot>;
 }
@@ -148,7 +151,9 @@ export class ProjectChatStore {
       streamingThinking: controller?.streamingThinking ?? "",
       activity: controller?.activity ?? "",
       activities: controller?.activities ?? [],
+      liveSteps: controller?.liveSteps ?? [],
       pendingApproval: controller?.pendingApproval ?? null,
+      pendingApprovals: controller?.pendingApprovals ?? [],
       queue: controller?.queue ?? [],
       statusDots: buildDots(this.registry.list())
     };
@@ -219,6 +224,10 @@ export class ProjectChatStore {
 
   async resolveApproval(decision: DesktopApprovalDecision): Promise<void> {
     await this.registry.active?.controller.resolveApproval(decision);
+  }
+
+  async resumeActivePlan(planId: string): Promise<void> {
+    await this.registry.active?.controller.resumePlan(planId);
   }
 
   /** Re-fetches the active session transcript; used to recover after an

@@ -14,6 +14,7 @@ import type { SessionStatusDot } from "./sessionStatusDot";
 import type {
   DesktopApprovalDecision,
   DesktopApprovalPrompt,
+  DesktopConversationStep,
   DesktopSessionRun
 } from "@molibot/desktop-contract";
 import {
@@ -77,7 +78,9 @@ export interface ChatSessionState {
   streamingThinking: string;
   activity: string;
   activities: DesktopActivityEntry[];
+  liveSteps: DesktopConversationStep[];
   pendingApproval: DesktopApprovalPrompt | null;
+  pendingApprovals: DesktopApprovalPrompt[];
   queue: string[];
   statusDots: Map<string, SessionStatusDot>;
 }
@@ -136,7 +139,9 @@ export class ChatSessionStore {
       streamingThinking: controller?.streamingThinking ?? "",
       activity: controller?.activity ?? "",
       activities: controller?.activities ?? [],
+      liveSteps: controller?.liveSteps ?? [],
       pendingApproval: controller?.pendingApproval ?? null,
+      pendingApprovals: controller?.pendingApprovals ?? [],
       queue: controller?.queue ?? [],
       statusDots: buildDots(this.registry.list())
     };
@@ -231,8 +236,16 @@ export class ChatSessionStore {
     this.registry.active?.clearError();
   }
 
+  setActiveError(message: string): void {
+    this.registry.active?.setError(message);
+  }
+
   async resolveApproval(decision: DesktopApprovalDecision): Promise<void> {
     await this.registry.active?.controller.resolveApproval(decision);
+  }
+
+  async resumeActivePlan(planId: string): Promise<void> {
+    await this.registry.active?.controller.resumePlan(planId);
   }
 
   /** Draft key the composer should be bound to right now. */

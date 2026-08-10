@@ -5,6 +5,7 @@ import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js"
 import type { ToolApprovalRequest, ToolExecutionContext, ToolResult, ToolSideEffect } from "$lib/server/agent/tools/toolTypes.js";
 import type { DurablePrefixEntry } from "$lib/server/agent/durable/types.js";
 import type { DurablePreflightDecision } from "$lib/server/agent/durable/preflight.js";
+import type { ConversationPlan } from "$lib/shared/types/message.js";
 
 export type AttachmentMediaType = "image" | "audio" | "video" | "file";
 
@@ -140,6 +141,7 @@ export type RunnerUiEvent =
       paths?: string[];
       /** True when those paths are written rather than read. */
       mutates?: boolean;
+      startedAt?: string;
     }
   | {
       type: "tool_execution_end";
@@ -154,6 +156,10 @@ export type RunnerUiEvent =
        * to see; collapsing them would make one of the two readers worse.
        */
       diff?: string;
+      finishedAt?: string;
+      exitCode?: number;
+      lineCount?: number;
+      tokenUsage?: number;
       hostBashApproval?: HostBashApprovalPrompt;
     }
   | {
@@ -162,6 +168,10 @@ export type RunnerUiEvent =
       mode: "ordinary" | "promote";
       reason: string;
       preflightIndex: number;
+    }
+  | {
+      type: "plan_proposal";
+      plan: ConversationPlan;
     }
   | {
       type: "subagent_execution";

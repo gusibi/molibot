@@ -56,7 +56,33 @@ export interface ConversationActivity {
   paths?: string[];
   /** True when the tool writes to those paths (`write`/`edit`) rather than reading them. */
   mutates?: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  exitCode?: number;
+  lineCount?: number;
+  tokenUsage?: number;
 }
+
+export type ConversationPlanStepStatus = "pending" | "in_progress" | "completed" | "blocked";
+
+export interface ConversationPlan {
+  id: string;
+  title: string;
+  summary: string;
+  steps: Array<{ id: string; text: string; status: ConversationPlanStepStatus }>;
+  status: "proposed" | "accepted" | "rejected" | "executing" | "completed" | "blocked";
+  recommendedMode: "manual" | "accept_edits";
+  artifactPath: string;
+  /** Durable Execution created from this accepted plan, if execution has started. */
+  durableExecutionId?: string;
+}
+
+export type ConversationStep =
+  | { id: string; kind: "text"; content: string }
+  | { id: string; kind: "thinking"; content: string }
+  | { id: string; kind: "activity"; activity: ConversationActivity }
+  | { id: string; kind: "plan"; plan: ConversationPlan };
 
 export interface InboundMessage {
   channel: Channel;
@@ -75,6 +101,16 @@ export interface ConversationMessage {
   platformMessageId?: string;
   attachments?: ConversationAttachment[];
   activities?: ConversationActivity[];
+  /** Ordered transcript primitives for assistant turns. */
+  steps?: ConversationStep[];
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalTokens: number;
+  };
+  plan?: ConversationPlan;
   /** Durable handling policy for the whole user turn. Missing means standard. */
   retention?: TurnRetentionPolicy;
   memoryTrace?: {

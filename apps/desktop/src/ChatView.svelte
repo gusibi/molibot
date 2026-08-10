@@ -64,6 +64,9 @@
     summarizeOnboardingDiagnostics,
     loadDesktopSessionModel,
     saveDesktopSessionModel,
+    loadDesktopSessionPermission,
+    saveDesktopSessionPermission,
+    resolveDesktopPlan,
     submitDesktopMemoryTraceFeedback,
     testDesktopProvider,
     type OnboardingChannelsView,
@@ -74,6 +77,13 @@
     type ProviderDraft,
     validateProviderDraft
   } from "./lib/api";
+
+  type PermissionMode = "plan" | "manual" | "accept_edits" | "auto";
+  const permissionModeOptions: readonly PermissionMode[] = ["plan", "manual", "accept_edits", "auto"];
+  let permissionMode: PermissionMode = "accept_edits";
+  let draftPermissionMode: PermissionMode = "accept_edits";
+  const sessionPermissionModes = new Map<string, PermissionMode>();
+  let permissionHydrationSession = "";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
   import { formatMessageTime } from "./lib/chat/messageTime";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
@@ -764,7 +774,9 @@
   $: streamingThinking = chatState.streamingThinking;
   $: activity = chatState.activity;
   $: activityEntries = chatState.activities;
+  $: liveSteps = chatState.liveSteps;
   $: pendingApproval = chatState.pendingApproval;
+  $: pendingApprovals = chatState.pendingApprovals;
   /** Node the transcript dock watches; Svelte clears it when the card unmounts. */
   let approvalElement: HTMLElement | null = null;
   $: queuedMessages = chatState.queue;
@@ -954,6 +966,28 @@
       .map((message) => ({ ...message }));
   }
 
+  async function resolvePlan(
+    message: TranscriptMessage,
+    plan: import("@molibot/desktop-contract").DesktopConversationPlan,
+    decision: "accept" | "reject" | "modify",
+    edits?: { title: string; summary: string; steps: string[]; mode?: "manual" | "accept_edits" }
+  ): Promise<void> {
+    if (!connectedEndpoint || !activeSessionId || !activeProfileId) return;
+    try {
+      await resolveDesktopPlan(connectedEndpoint, {
+        profileId: activeProfileId,
+        conversationId: activeSessionId,
+        planId: plan.id,
+        decision,
+        ...edits
+      });
+      await chatStore.reloadActive();
+      if (decision === "accept") await chatStore.resumeActivePlan(plan.id);
+    } catch (cause) {
+      chatStore.setActiveError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
   function defaultBot(): string {
     const last = localStorage.getItem(LAST_BOT_KEY) ?? "";
     if (last && profiles.some((profile) => profile.id === last)) return last;
@@ -1095,14 +1129,17 @@
         onDraftSessionCreated: async (_profileId, sessionId) => {
           // Carry the draft's model onto the freshly-created session so its first
           // turn runs on it; persist so it survives restarts.
-          if (!draftModelKey) return;
-          const key = draftModelKey;
-          await saveDesktopSessionModel(connectedEndpoint, sessionId, key);
-          draftModelKey = "";
-          sessionModelOverrides.set(sessionId, key);
-          hydratedModelSessions.add(sessionId);
-          appliedModelSessionId = sessionId;
-          activeModelKey = key;
+          if (draftModelKey) {
+            const key = draftModelKey;
+            await saveDesktopSessionModel(connectedEndpoint, sessionId, key);
+            draftModelKey = "";
+            sessionModelOverrides.set(sessionId, key);
+            hydratedModelSessions.add(sessionId);
+            appliedModelSessionId = sessionId;
+            activeModelKey = key;
+          }
+          await saveDesktopSessionPermission(connectedEndpoint, _profileId, sessionId, draftPermissionMode);
+          sessionPermissionModes.set(sessionId, draftPermissionMode);
         },
         onSessionCreated: (profileId, sessionId) => {
           localStorage.setItem(LAST_BOT_KEY, profileId);
@@ -1137,6 +1174,32 @@
         loading = false;
         if (pendingSettingsRefresh) void refreshModelsAndProfiles();
       }
+    }
+  }
+
+  $: if (draftMode) permissionMode = draftPermissionMode;
+  $: if (!draftMode && activeSessionId && activeSessionId !== permissionHydrationSession) {
+    permissionHydrationSession = activeSessionId;
+    const cached = sessionPermissionModes.get(activeSessionId);
+    if (cached) permissionMode = cached;
+    else void loadDesktopSessionPermission(connectedEndpoint, activeProfileId, activeSessionId).then((mode) => {
+      sessionPermissionModes.set(activeSessionId, mode);
+      if (activeSessionId === permissionHydrationSession) permissionMode = mode;
+    }).catch(() => undefined);
+  }
+
+  async function changePermissionMode(mode: PermissionMode): Promise<void> {
+    permissionMode = mode;
+    if (draftMode) {
+      draftPermissionMode = mode;
+      return;
+    }
+    if (!connectedEndpoint || !activeSessionId || !activeProfileId) return;
+    try {
+      const saved = await saveDesktopSessionPermission(connectedEndpoint, activeProfileId, activeSessionId, mode);
+      sessionPermissionModes.set(activeSessionId, saved);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
     }
   }
 
@@ -1705,6 +1768,7 @@
         pendingContributionKey: miniAppActionPendingKey,
         successfulContributionKey: miniAppActionSuccessKey,
         onRunContribution: (action, message, selection) => void runMiniAppMessageAction(action, message, selection)
+        ,onResolvePlan: (message, plan, decision, edits) => void resolvePlan(message, plan, decision, edits)
       } satisfies TranscriptMessageActions;
   // Read-only external transcript supports copy-only (no edit); bind its own
   // actions so the clipboard still works there even when `messageActions`
@@ -2895,6 +2959,7 @@
         {streamingThinking}
         {activity}
         activities={activityEntries}
+        {liveSteps}
         emptyTitle={copy.emptyChatTitle}
         emptyHint={copy.emptyChatHint}
         {searchMatchIds}
@@ -2912,16 +2977,19 @@
                instance, not a node an IntersectionObserver can take. -->
           <div bind:this={approvalElement}>
             <ApprovalCard
+              cardId={pendingApproval.requestId}
               title={copy.approvalTitle}
-              subtitle={pendingApproval.displayName ?? ""}
+              subtitle={[pendingApproval.displayName ?? "", pendingApprovals.length > 1 ? copy.approvalQueuePosition.replace("{index}", "1").replace("{total}", String(pendingApprovals.length)) : ""].filter(Boolean).join(" · ")}
               reasonLabel={copy.approvalReason}
               command={pendingApproval.command}
               reason={pendingApproval.reason}
+              payload={pendingApproval.payload}
               options={approvalOptions}
               defaultOptionId="approve_once"
               waitingLabel={copy.approvalWaiting}
               secondsLabel={copy.approvalWaitingSeconds}
               minutesLabel={copy.approvalWaitingMinutes}
+              moreLinesLabel={copy.approvalMoreDiffLines}
               onResolve={resolveApprovalId}
             />
           </div>
@@ -2985,6 +3053,9 @@
         onOpenSettings={() => openSettings()}
         onChangeModel={changeModel}
         onChangeThinking={changeThinking}
+        {permissionMode}
+        {permissionModeOptions}
+        onChangePermissionMode={changePermissionMode}
       >
         <svelte:fragment slot="mention">
           {#if profiles.length > 0 && (draftMode || activeSessionId)}

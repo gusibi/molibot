@@ -32,7 +32,7 @@ import {
 } from "$lib/server/web/runtimeContext";
 import { sanitizeOptionalRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
 import type { RunnerUiEvent } from "$lib/server/agent/core/types";
-import type { ConversationAttachment } from "$lib/shared/types/message";
+import type { ConversationAttachment, ConversationPlan } from "$lib/shared/types/message";
 import { classifyTurnRetention } from "$lib/server/sessions/retentionPolicy";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec";
@@ -728,6 +728,7 @@ export const POST: RequestHandler = async ({ request }) => {
   let responseModel = "";
   const responseAttachments: ConversationAttachment[] = [];
   const activityCollector = new ConversationActivityCollector();
+  let planProposal: ConversationPlan | undefined;
 
   const appendRunnerDiagnostic = (event: RunnerUiEvent): void => {
     if (event.type === "thinking_config") {
@@ -827,6 +828,7 @@ export const POST: RequestHandler = async ({ request }) => {
     },
     onRunnerEvent: async (event) => {
       appendRunnerDiagnostic(event);
+      if (event.type === "plan_proposal") planProposal = event.plan;
       activityCollector.record(event);
     }
   });
@@ -841,6 +843,7 @@ export const POST: RequestHandler = async ({ request }) => {
     runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
       attachments: responseAttachments,
       activities: activityCollector.finalSnapshot(),
+      plan: planProposal,
       model: responseModel || undefined,
       contextBacked: true,
       sourceEntryId: result.assistantSourceEntryId,

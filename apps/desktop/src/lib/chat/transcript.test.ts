@@ -3,8 +3,58 @@ import test from "node:test";
 import {
   clampTranscriptSearchIndex,
   finalizeTranscriptActivities,
-  findTranscriptMatches
+  findTranscriptMatches,
+  transcriptCompletedTurnSections,
+  transcriptProcessSummary
 } from "./transcript";
+
+test("completed turns fold every pre-answer reasoning, narration, and tool block into one process", () => {
+  const activity = { key: "read", kind: "tool" as const, label: "Read", state: "success" as const, durationMs: 1250 };
+  const blocks = [
+    { id: "thinking-1", kind: "thinking" as const, content: "Inspect the project" },
+    { id: "preamble", kind: "text" as const, content: "I will read the relevant files." },
+    { id: "read", kind: "activities" as const, activities: [activity] },
+    { id: "answer", kind: "text" as const, content: "Here is the answer." }
+  ];
+
+  const sections = transcriptCompletedTurnSections(blocks);
+  assert.deepEqual(sections.process, blocks.slice(0, 3));
+  assert.deepEqual(sections.response, blocks.slice(3));
+  assert.deepEqual(transcriptProcessSummary(sections.process), {
+    stepCount: 2,
+    durationMs: 1250,
+    hasError: false
+  });
+});
+
+test("plans and plain answers are never hidden inside the completed process disclosure", () => {
+  const plan = {
+    id: "plan-1",
+    title: "Plan",
+    summary: "Summary",
+    status: "proposed" as const,
+    steps: [],
+    recommendedMode: "manual" as const,
+    artifactPath: "plans/plan-1.md"
+  };
+  const blocks = [
+    { id: "thinking", kind: "thinking" as const, content: "Think" },
+    { id: "plan", kind: "plan" as const, plan }
+  ];
+  assert.deepEqual(transcriptCompletedTurnSections(blocks), { process: [blocks[0]], response: [blocks[1]] });
+  assert.deepEqual(transcriptCompletedTurnSections([{ id: "answer", kind: "text", content: "Done" }]), {
+    process: [],
+    response: [{ id: "answer", kind: "text", content: "Done" }]
+  });
+});
+
+test("a stale running activity keeps the completed process open as an interruption", () => {
+  assert.equal(transcriptProcessSummary([{
+    id: "stale",
+    kind: "activities",
+    activities: [{ key: "stale", kind: "tool", label: "Bash", state: "running" }]
+  }]).hasError, true);
+});
 
 test("persisted running activities become terminal without mutating the source", () => {
   const source = [

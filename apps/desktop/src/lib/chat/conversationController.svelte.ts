@@ -2,7 +2,7 @@ import { toStore } from "svelte/store";
 import type { Readable } from "svelte/store";
 import {
   addToFollowUpQueue,
-  loadDesktopPendingApproval,
+  loadDesktopPendingApprovals,
   nextFollowUp,
   resolveDesktopHostBash,
   steerDesktopChat,
@@ -16,6 +16,8 @@ import type {
   DesktopApprovalPrompt,
   DesktopApprovalResult,
   DesktopConversationMessage,
+  DesktopConversationPlan,
+  DesktopConversationStep,
   DesktopThinkingLevel
 } from "@molibot/desktop-contract";
 
@@ -29,7 +31,9 @@ export interface ConversationView {
   streamingThinking: string;
   activity: string;
   activities: DesktopActivityEntry[];
+  liveSteps: DesktopConversationStep[];
   pendingApproval: DesktopApprovalPrompt | null;
+  pendingApprovals: DesktopApprovalPrompt[];
   queue: string[];
   /**
    * The session that owns the current/last turn. Hosts whose sessionId is
@@ -100,7 +104,9 @@ export class ConversationController {
   streamingThinking = $state("");
   activity = $state("");
   activities = $state<DesktopActivityEntry[]>([]);
-  pendingApproval = $state<DesktopApprovalPrompt | null>(null);
+  liveSteps = $state<DesktopConversationStep[]>([]);
+  pendingApprovals = $state<DesktopApprovalPrompt[]>([]);
+  pendingApproval = $derived(this.pendingApprovals[0] ?? null);
   queue = $state<string[]>([]);
   turnSessionId = $state("");
 
@@ -119,7 +125,9 @@ export class ConversationController {
     streamingThinking: this.streamingThinking,
     activity: this.activity,
     activities: this.activities,
+    liveSteps: this.liveSteps,
     pendingApproval: this.pendingApproval,
+    pendingApprovals: this.pendingApprovals,
     queue: this.queue,
     turnSessionId: this.turnSessionId
   }));
@@ -139,6 +147,7 @@ export class ConversationController {
    */
   private pendingStreamText = "";
   private pendingThinking = "";
+  private nextLiveStep = 0;
   private streamFlushHandle: number | null = null;
 
   private scheduleStreamFlush(): void {
@@ -167,13 +176,38 @@ export class ConversationController {
   private flushStreamBuffers(): void {
     this.cancelStreamFlush();
     if (this.pendingStreamText) {
+      this.appendLiveText("text", this.pendingStreamText);
       this.streamingText += this.pendingStreamText;
       this.pendingStreamText = "";
     }
     if (this.pendingThinking) {
+      this.appendLiveText("thinking", this.pendingThinking);
       this.streamingThinking += this.pendingThinking;
       this.pendingThinking = "";
     }
+  }
+
+  private appendLiveText(kind: "text" | "thinking", delta: string): void {
+    if (!delta) return;
+    const previous = this.liveSteps.at(-1);
+    if (previous?.kind === kind) {
+      this.liveSteps = [...this.liveSteps.slice(0, -1), { ...previous, content: previous.content + delta }];
+      return;
+    }
+    this.liveSteps = [...this.liveSteps, { id: `live-${++this.nextLiveStep}`, kind, content: delta }];
+  }
+
+  private upsertLiveActivity(activity: DesktopActivityEntry): void {
+    const index = this.liveSteps.findIndex((step) => step.kind === "activity" && step.activity.key === activity.key);
+    if (index < 0) {
+      this.liveSteps = [...this.liveSteps, { id: `live-${++this.nextLiveStep}`, kind: "activity", activity }];
+      return;
+    }
+    this.liveSteps = this.liveSteps.map((step, position) => position === index && step.kind === "activity" ? { ...step, activity } : step);
+  }
+
+  private appendLivePlan(plan: DesktopConversationPlan): void {
+    this.liveSteps = [...this.liveSteps, { id: `live-${++this.nextLiveStep}`, kind: "plan", plan }];
   }
 
   /** Drop buffered deltas so a stale flush can't land on a later turn/session. */
@@ -206,7 +240,8 @@ export class ConversationController {
     this.streamingText = "";
     this.streamingThinking = "";
     this.activities = [];
-    this.pendingApproval = null;
+    this.liveSteps = [];
+    this.pendingApprovals = [];
   }
 
   clearQueue(): void {
@@ -272,14 +307,14 @@ export class ConversationController {
     if (next) void this.send({ message: next, sessionId: this.turnSessionId || undefined });
   }
 
-  async send({ message, files = [], sessionId: sessionIdOverride }: { message: string; files?: File[]; sessionId?: string }): Promise<void> {
+  async send({ message, files = [], sessionId: sessionIdOverride, resumePlanId }: { message: string; files?: File[]; sessionId?: string; resumePlanId?: string }): Promise<void> {
     const content = message.trim();
     const hasFiles = files.length > 0;
     const endpoint = this.host.endpoint();
     const sessionId = sessionIdOverride ?? this.host.sessionId();
     if (!endpoint || !sessionId || this.sending) return;
     if (this.host.canSend && !this.host.canSend()) return;
-    if (!content && !hasFiles) return;
+    if (!content && !hasFiles && !resumePlanId) return;
 
     // Pin the whole turn context. A queued follow-up (sessionIdOverride set)
     // lands on the SAME project/session/model as the turn it was queued behind,
@@ -305,9 +340,11 @@ export class ConversationController {
     this.streamingText = "";
     this.streamingThinking = "";
     this.activities = [];
-    this.pendingApproval = null;
+    this.liveSteps = [];
+    this.nextLiveStep = 0;
+    this.pendingApprovals = [];
     this.host.clearComposer?.();
-    this.host.appendUserMessage(content, files);
+    if (!resumePlanId) this.host.appendUserMessage(content, files);
     this.host.afterMutate?.();
 
     const abort = new AbortController();
@@ -324,6 +361,7 @@ export class ConversationController {
         thinkingLevel: context.thinkingLevel,
         files: hasFiles ? files : undefined,
         signal: abort.signal
+        ,resumePlanId
       }, {
         onUploadComplete: hasFiles ? () => (this.activity = labels.recognizingImage) : undefined,
         onToken: (delta) => {
@@ -337,6 +375,8 @@ export class ConversationController {
           this.pendingStreamText = "";
           this.flushStreamBuffers();
           this.streamingText = text;
+          this.liveSteps = this.liveSteps.filter((step) => step.kind !== "text");
+          this.appendLiveText("text", text);
         },
         onThinking: (delta) => {
           this.pendingThinking += delta;
@@ -344,7 +384,12 @@ export class ConversationController {
         },
         onStatus: (text) => { if (text) this.activity = text; },
         onActivities: (next) => (this.activities = next),
-        onApproval: (approval) => (this.pendingApproval = approval),
+        onActivity: (entry) => this.upsertLiveActivity(entry),
+        onPlan: (plan) => this.appendLivePlan(plan),
+        onApproval: (approval) => {
+          if (this.pendingApprovals.some((item) => item.requestId === approval.requestId)) return;
+          this.pendingApprovals = [...this.pendingApprovals, approval];
+        },
         onDone: (done) => {
           this.flushStreamBuffers();
           this.streamingText = done.response || this.streamingText;
@@ -383,6 +428,10 @@ export class ConversationController {
     // A concurrent stop() owns the drain (it still has a reload in flight that
     // would otherwise wipe the next turn's optimistic message).
     if (!this.stopInFlight) this.drainQueue();
+  }
+
+  resumePlan(planId: string): Promise<void> {
+    return this.send({ message: "", resumePlanId: planId });
   }
 
   async stop(): Promise<void> {
@@ -434,7 +483,7 @@ export class ConversationController {
     const requestId = this.pendingApproval.requestId;
     const sessionId = this.turnSessionId || this.host.sessionId();
     const profileId = this.turnContext?.profileId ?? this.host.profileId();
-    this.pendingApproval = null;
+    this.pendingApprovals = this.pendingApprovals.filter((approval) => approval.requestId !== requestId);
     this.host.clearError();
     this.activity = labels.resuming;
 
@@ -486,11 +535,13 @@ export class ConversationController {
    */
   private async syncPendingApproval(endpoint: string, profileId: string, sessionId: string): Promise<boolean> {
     try {
-      const approval = await loadDesktopPendingApproval(endpoint, profileId, sessionId);
-      if (!approval) return false;
+      const approvals = await loadDesktopPendingApprovals(endpoint, profileId, sessionId);
+      if (!approvals.length) return false;
       if (sessionId !== this.host.sessionId()) return false;
-      if (this.pendingApproval?.requestId === approval.requestId) return false;
-      this.pendingApproval = approval;
+      const known = new Set(this.pendingApprovals.map((approval) => approval.requestId));
+      const fresh = approvals.filter((approval) => !known.has(approval.requestId));
+      if (!fresh.length) return false;
+      this.pendingApprovals = [...this.pendingApprovals, ...fresh];
       return true;
     } catch {
       // Polling is an assist, not the primary path; a hiccup must not abort the

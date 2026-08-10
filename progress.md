@@ -1,3 +1,26 @@
+# Chat Transcript Optimization 进度日志
+
+## 2026-08-10 — 调查启动
+
+- 已完整读取用户附带的 190 行原始分析。
+- 已完整读取 `planning-with-files` 与 `frontend-design` 技能说明。
+- 已确认根目录 planning 文件属于前一项 Durable Execution 工作；采用顶部独立章节保留历史，不覆盖。
+- 当前正在逐条核对代码、设计规范、PRD 与历史前科；尚未修改产品源码。
+- 已开始时序切片：共享 conversation/desktop contract 增加 step、usage 和活动时长/退出码/行数/token 字段；服务端投影已从 raw assistant parts 构建有序 step。
+- 首轮定向测试 14/15；唯一失败是既有活动深相等期望未包含本次新增字段，属于预期 fixture 更新，下一步补固定时钟和交错顺序断言。
+
+## 2026-08-10 — Chat 优化实现与验证
+
+- 已完成有序 persisted/live step、活动元数据、turn 汇总、共享 DecisionCard、结构化审批和多 pending 队列。
+- 已完成 Plan 切片：Provider 前工具收窄、`exitPlan` artifact、可编辑 PlanCard、会话权限菜单、同 Session 无污染续跑与 checklist 状态投影。
+- 已完成 Mermaid/KaTeX、HTML/SVG 沙箱预览、宽表 SpreadsheetTable、CommonMark breaks、回答大纲、80 条分页、长活动预览和展开态保存。
+- 验证通过：Desktop 190/190 + Rust 55/55；`svelte-check` 0/0；Desktop build 与 root production build。服务端受影响定向测试 68/68；Plan artifact 与持久化 round-trip 新守卫已加入。
+- 唯一非绿项是既有 SessionStore FTS 测试的 Node SQLite `unable to use function bm25 in the requested context`，单测独跑仍复现。
+- 冷启动走查完成：全新临时 `DATA_DIR` 启动服务，首次打开 Desktop Web preview，关闭 onboarding，确认聊天首屏、模型菜单中的 Plan 权限模式、暗色主题与 390px 窄宽度；代理在服务停止时返回失败、同目录重启后重新连通。测试服务和浏览器标签均已关闭。
+- 最终回归再次通过：root production build、Desktop `svelte-check` 0/0、Desktop 190/190、Rust 55/55、Plan save → fresh store → load round-trip 1/1；`git diff --check` 通过后交付。
+
+---
+
 # Automatic Durable Execution 进度日志
 
 ## 2026-08-09

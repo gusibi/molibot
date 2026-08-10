@@ -69,6 +69,59 @@ test("watched durable event claims one fresh attempt and leaves verification exp
   }
 });
 
+test("a linear plan executes one durable step per attempt before task verification", async () => {
+  const { root, store, input } = fixture();
+  try {
+    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const created = coordinator.create({
+      ...input,
+      steps: [
+        { title: "Collect source data", sideEffectClass: "pure" },
+        { title: "Write the report", sideEffectClass: "idempotent", idempotencyKey: "weekly-report" }
+      ]
+    });
+    const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
+    let attempts = 0;
+    const runtime = new DurableExecutionRuntime({
+      store,
+      processOwnerId: "process-a",
+      dataDir: root,
+      channelManagers: new Map([
+        ["web", new Map([["bot-1", {
+          runDurableAttempt: async (message: ChannelInboundMessage) => {
+            attempts += 1;
+            return {
+              result: { stopReason: "stop" as const, runId: message.runId },
+              contextSessionId: `t-linear-${attempts}`
+            };
+          }
+        }]])]
+      ]) as any
+    });
+
+    const firstFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${activated.execution.version}.json`);
+    await runtime.run(JSON.parse(readFileSync(firstFile, "utf8")) as MomEvent, firstFile);
+    const afterFirst = store.getDetail(created.execution.id)!;
+    assert.equal(afterFirst.execution.status, "queued");
+    assert.deepEqual(afterFirst.steps.map((step) => step.status), ["completed", "pending"]);
+    assert.equal(afterFirst.evidenceRefs[0]?.referenceType, "run-detail");
+
+    const secondFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${afterFirst.execution.version}.json`);
+    await runtime.run(JSON.parse(readFileSync(secondFile, "utf8")) as MomEvent, secondFile);
+    const afterSecond = store.getDetail(created.execution.id)!;
+    assert.equal(afterSecond.execution.status, "verifying");
+    assert.deepEqual(afterSecond.steps.map((step) => step.status), ["completed", "completed"]);
+    assert.equal(attempts, 2);
+
+    const verifyFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${afterSecond.execution.version}.json`);
+    await runtime.run(JSON.parse(readFileSync(verifyFile, "utf8")) as MomEvent, verifyFile);
+    assert.equal(store.getById(created.execution.id)?.status, "completed");
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("durable attempts expose only attached evidence through the read-only hook", async () => {
   const { root, store, input } = fixture();
   try {
@@ -262,6 +315,17 @@ test("recovery_required does not retry an uncertain non-idempotent step without 
     });
     const step = store.getDetail(created.execution.id)!.steps[0]!;
     store.markStepRunning(created.execution.id, step.id, claimed.execution.version, "process-a");
+    store.recordSideEffectIntent({
+      executionId: created.execution.id,
+      stepId: step.id,
+      attemptId: claimed.attempt.id,
+      processOwnerId: "process-a",
+      expectedVersion: store.getById(created.execution.id)!.version,
+      sideEffectClass: "non_idempotent",
+      idempotencyKey: "publish-report",
+      targetSummary: "report service",
+      contentSummary: "publish report"
+    });
     store.reconcileOrphanedAttempts("process-b");
     const recovered = store.getById(created.execution.id)!;
     const runtime = new DurableExecutionRuntime({
@@ -372,6 +436,17 @@ test("queryable recovery without a probe waits for an explicit review instead of
     });
     const step = store.getDetail(created.execution.id)!.steps[0]!;
     store.markStepRunning(created.execution.id, step.id, claimed.execution.version, "process-a");
+    store.recordSideEffectIntent({
+      executionId: created.execution.id,
+      stepId: step.id,
+      attemptId: claimed.attempt.id,
+      processOwnerId: "process-a",
+      expectedVersion: store.getById(created.execution.id)!.version,
+      sideEffectClass: "queryable",
+      idempotencyKey: "report:weekly",
+      targetSummary: "report service",
+      contentSummary: "publish report"
+    });
     store.reconcileOrphanedAttempts("process-b");
     const recovered = store.getById(created.execution.id)!;
     let attempted = false;

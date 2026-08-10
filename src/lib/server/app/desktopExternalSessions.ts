@@ -150,6 +150,12 @@ export function buildDesktopExternalTranscriptMessage(
   if (Array.isArray(message.activities) && message.activities.length > 0) {
     projected.activities = message.activities.map((activity) => ({ ...activity }));
   }
+  if (Array.isArray(message.steps) && message.steps.length > 0) {
+    projected.steps = message.steps.map((step) => step.kind === "activity"
+      ? { ...step, activity: { ...step.activity } }
+      : { ...step });
+  }
+  if (message.usage) projected.usage = { ...message.usage };
   return projected;
 }
 

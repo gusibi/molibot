@@ -1,15 +1,18 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
   import { renderMarkdown } from "../markdown";
-  import { finalizeTranscriptActivities, transcriptDisplayContent, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
+  import { finalizeTranscriptActivities, transcriptCompletedTurnSections, transcriptDisplayContent, transcriptProcessSummary, transcriptRenderBlocks, transcriptTurnSummary, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
   import TranscriptAttachments from "./TranscriptAttachments.svelte";
   import RunActivity from "./RunActivity.svelte";
   import ThinkingCard from "./ThinkingCard.svelte";
+  import PlanCard from "./PlanCard.svelte";
+  import TurnProcess from "./TurnProcess.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
   import { humanizeModelOption } from "../presentation";
   import { handleMarkdownBodyClick } from "../markdownInteractions";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
+  import ChatMarkdown from "./ChatMarkdown.svelte";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -100,6 +103,10 @@
   {@const key = messageKey(message, index)}
   {@const isLongUserMessage = message.role === "user" && (displayContent.split(/\r?\n/).length > 20 || displayContent.length > 1000)}
   {@const isExpanded = expandedMessages.has(key)}
+  {@const renderBlocks = message.role === "assistant" ? transcriptRenderBlocks(message) : []}
+  {@const turnSections = message.role === "assistant" ? transcriptCompletedTurnSections(renderBlocks) : { process: [], response: [] }}
+  {@const processSummary = transcriptProcessSummary(turnSections.process)}
+  {@const turnSummary = message.role === "assistant" ? transcriptTurnSummary(message) : null}
   {@const textContributions = messageActions?.contributions?.filter((action) => action.accepts.includes("text")) ?? []}
   {@const assistantStatus = message.role !== "assistant"
     ? ""
@@ -135,12 +142,12 @@
         {#if invocation}
           <div class="message-bubble invocation-message" data-kind={invocation.kind}>
             <div class="invocation-kicker"><i class={`ph ${invocation.kind === "command" ? "ph-terminal-window" : invocation.kind === "skill" ? "ph-sparkle" : "ph-squares-four"}`} aria-hidden="true"></i><span>{invocation.kind === "command" ? "COMMAND" : invocation.kind === "skill" ? "SKILL" : "MINI APP"}</span><code>{invocation.token}</code></div>
-            {#if displayContent.slice(invocation.token.length).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.token.length).trim(), copy.copyCode, markdownOptions)}</div>{/if}
+            {#if displayContent.slice(invocation.consumedLength).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.consumedLength).trim(), copy.copyCode, markdownOptions)}</div>{/if}
           </div>
         {:else}
           <div class="user-message-shell">
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <div class:collapsed={isLongUserMessage && !isExpanded} class="message-bubble markdown-body user-message-content" onclick={handleMarkdownClick} oncontextmenu={(event) => openSelectionMenu(event, message)}>{@html renderMarkdown(displayContent, copy.copyCode, markdownOptions)}</div>
+            <ChatMarkdown source={displayContent} {copy} className={`message-bubble markdown-body user-message-content${isLongUserMessage && !isExpanded ? " collapsed" : ""}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
             {#if isLongUserMessage}
               <button class="message-expand" type="button" aria-expanded={isExpanded} onclick={() => toggleMessage(key)}>{isExpanded ? copy.collapseMessage : copy.expandMessage}</button>
             {/if}
@@ -227,17 +234,41 @@
           <span>{copy.agentRole}</span>
           {#if assistantStatus}<span class={`assistant-status ${assistantStatus}`}><i class={`ph ${assistantStatus === "error" ? "ph-warning-circle" : assistantStatus === "aborted" ? "ph-stop-circle" : "ph-check-circle"}`} aria-hidden="true"></i>{assistantStatus === "error" ? copy.assistantStatusError : assistantStatus === "aborted" ? copy.assistantStatusAborted : copy.assistantStatusComplete}</span>{/if}
         </div>
-        {#if message.thinking}
-          <ThinkingCard text={message.thinking} label={copy.thinking} />
+        {#if turnSections.process.length}
+          <TurnProcess
+            blocks={turnSections.process}
+            {copy}
+            stateKey={`${key}:process`}
+            onOpenPath={onOpenActivityPath}
+            forceOpen={assistantStatus === "error" || assistantStatus === "aborted" || processSummary.hasError}
+          />
         {/if}
-        {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} onOpenPath={onOpenActivityPath} />{/if}
-        {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={handleMarkdownClick} oncontextmenu={(event) => openSelectionMenu(event, message)}>{@html renderMarkdown(displayContent, copy.copyCode, markdownOptions)}</div>{/if}
+        {#each turnSections.response as block (block.id)}
+          {#if block.kind === "plan"}
+            <PlanCard plan={block.plan} {copy} disabled={!messageActions?.onResolvePlan} onResolve={(decision, edits) => messageActions?.onResolvePlan?.(message, block.plan, decision, edits)} />
+          {:else if block.kind === "thinking"}
+            <ThinkingCard text={block.content} label={copy.thinking} />
+          {:else if block.kind === "activities"}
+            <RunActivity activities={finalizeTranscriptActivities(block.activities) ?? []} {copy} onOpenPath={onOpenActivityPath} stateKey={`${key}:${block.id}`} />
+          {:else if block.content}
+            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+            <ChatMarkdown source={block.content} {copy} contentKey={`${key}-${block.id}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
+          {/if}
+        {/each}
         {#if assistantError}
           <div class="assistant-error-note"><i class="ph ph-warning-circle" aria-hidden="true"></i><span class="assistant-error-label">{copy.assistantErrorLabel}</span><span class="assistant-error-text">{assistantError}</span></div>
         {/if}
         {#if (canShowActions && messageActions) || message.createdAt || message.model}
           <div class="message-meta assistant-meta">
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
+            {#if turnSummary && (turnSummary.durationMs || turnSummary.toolCount || turnSummary.fileCount || turnSummary.totalTokens)}
+              <span class="turn-summary" aria-label={copy.turnSummaryLabel}>
+                {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{turnSummary.durationMs < 1000 ? `${turnSummary.durationMs}ms` : `${(turnSummary.durationMs / 1000).toFixed(1)}s`}</span>{/if}
+                {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
+                {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
+                {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", String(turnSummary.totalTokens))}</span>{/if}
+              </span>
+            {/if}
             {#if message.model}<details class="message-model technical-detail"><summary><i class="ph ph-cpu" aria-hidden="true"></i>{humanizeModelOption(message.model, message.model).label}</summary><code>{message.model}</code></details>{/if}
             <!-- Only truly-used memories earn a chip: referenced (cited or
                  tool-retrieved) and writes. Injected-but-unused memories stay

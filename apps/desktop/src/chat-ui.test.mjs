@@ -48,16 +48,19 @@ const transcript = read("./lib/chat/ConversationTranscript.svelte");
 const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
 const runActivity = read("./lib/chat/RunActivity.svelte");
 const thinkingCard = read("./lib/chat/ThinkingCard.svelte");
+const turnProcess = read("./lib/chat/TurnProcess.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
 const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
 const agentCityCanvas = read("./lib/chat/AgentCityCanvas.svelte");
 const agentCityFallback = read("./lib/chat/AgentCityFallback.svelte");
 const agentCityScene = read("./lib/chat/agentCityScene.ts");
 const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
+const channelAccordion = read("./lib/chat/ChannelAccordion.svelte");
 const chatWorkspace = read("./lib/chat/ChatWorkspacePane.svelte");
 const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
 const composerModelMenu = read("./lib/chat/ComposerModelMenu.svelte");
+const composerPermissionMenu = read("./lib/chat/ComposerPermissionMenu.svelte");
 const slashSuggestionMenu = read("./lib/chat/SlashSuggestionMenu.svelte");
 
 const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
@@ -95,6 +98,7 @@ const activityView = read("./lib/chat/activityView.ts");
 const streamingMarkdown = read("./lib/chat/streamingMarkdown.ts");
 const transcriptDock = read("./lib/chat/TranscriptDock.svelte");
 const approvalCard = read("./lib/chat/ApprovalCard.svelte");
+const decisionCard = read("./lib/chat/DecisionCard.svelte");
 const markdownLinks = read("./lib/chat/markdownLinks.ts");
 const queuedMessagesBar = read("./lib/chat/QueuedMessagesBar.svelte");
 const logsSection = read("./lib/settings/LogsSection.svelte");
@@ -638,6 +642,7 @@ test("shared composer provides keyboard slash suggestions and transcript invocat
   assert.match(chatInputArea, /event\.key === "Tab"/);
   assert.match(slashSuggestionMenu, /role="listbox"/);
   assert.match(transcript, /classifyComposerInvocation/);
+  assert.match(transcript, /displayContent\.slice\(invocation\.consumedLength\)/);
   assert.match(styles, /\.invocation-message\[data-kind="skill"\]/);
 });
 
@@ -909,6 +914,22 @@ test("code and tables scroll inside the column instead of reflowing", () => {
   assert.doesNotMatch(styles, /\.markdown-body table\s*\{[^}]*table-layout:\s*fixed/s);
 });
 
+test("long message content cannot widen the bounded reading column", () => {
+  assert.match(styles, /\.messages\s*\{[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/s);
+
+  // Every flexible box between the transcript row and rendered Markdown must
+  // be allowed to shrink below its contents' intrinsic width.
+  assert.match(styles, /\.message-row\s*\{[^}]*min-width:\s*0/s);
+  assert.match(styles, /\.message-stack\s*\{[^}]*min-width:\s*0/s);
+  assert.match(styles, /\.message-bubble\s*\{(?=[^}]*min-width:\s*0)(?=[^}]*max-width:\s*100%)[^}]*\}/s);
+
+  // Prose and inline code may break; naturally wide structures keep their
+  // layout and own the horizontal scrollbar instead of widening Chat.
+  assert.match(styles, /\.markdown-body\s*\{(?=[^}]*max-width:\s*100%)(?=[^}]*overflow-wrap:\s*anywhere)[^}]*\}/s);
+  assert.match(styles, /\.markdown-table-wrap\s*\{(?=[^}]*max-width:\s*100%)(?=[^}]*overflow-x:\s*auto)[^}]*\}/s);
+  assert.match(styles, /\.markdown-body \.katex-display\s*\{(?=[^}]*max-width:\s*100%)(?=[^}]*overflow-x:\s*auto)[^}]*\}/s);
+});
+
 // One handler for every surface that mounts `renderMarkdown` output. The
 // streaming bubble used to carry its own copy-code implementation, which is
 // exactly how a new affordance ships dead for the reply being generated.
@@ -935,15 +956,15 @@ test("a streaming reply renders as keyed per-block fragments, not one swapped tr
   // The old whole-source swap is gone.
   assert.doesNotMatch(conversationLiveView, /\{@html renderMarkdown\(streamingText/);
   // The split / cache / fence logic lives in one shared module, not inlined.
-  assert.match(conversationLiveView, /import \{ createStreamingRenderer \} from "\.\/streamingMarkdown"/);
+  assert.match(conversationLiveView, /liveSteps/);
   assert.match(streamingMarkdown, /export function splitMarkdownBlocks/);
   assert.match(streamingMarkdown, /export function createStreamingRenderer/);
   // Keyed by index: the list is append-only (streaming only appends), so an
   // index key is what lets Svelte keep each sealed block's DOM node untouched.
-  assert.match(conversationLiveView, /\{#each streamBlocks as block, i \(i\)\}/);
+  assert.match(conversationLiveView, /\{#each orderedBlocks as block \(block\.id\)\}/);
   // Each block is its own {@html} inside a layout-transparent wrapper, not one
   // merged blob - that is the whole reason a sealed block can stay untouched.
-  assert.match(conversationLiveView, /<div class="md-stream-block">\{@html block\.html\}<\/div>/);
+  assert.match(conversationLiveView, /<StreamingChatMarkdown source=\{block\.content\}/);
   // Only the active (last) block is re-parsed; sealed blocks come out of a
   // cache. Without this, long replies re-parse the whole source every frame.
   assert.match(streamingMarkdown, /i === lastIndex/);
@@ -1058,11 +1079,11 @@ test("a blocked turn is visible from anywhere in the transcript", () => {
 
   // Window-level digit shortcuts must not decide for someone reading history,
   // and must not fight a second card once one exists.
-  assert.match(approvalCard, /!onScreen/);
-  assert.match(approvalCard, /new IntersectionObserver/);
+  assert.match(decisionCard, /ownsDecisionShortcuts/);
+  assert.match(decisionCard, /registerDecisionCard/);
   // A waiting approval states its own age, so it never reads as a dead service.
-  assert.match(approvalCard, /approval-waiting/);
-  assert.match(approvalCard, /waitingLabel/);
+  assert.match(decisionCard, /approval-waiting/);
+  assert.match(decisionCard, /waitingLabel/);
 });
 
 // Every tool used to print into one `<pre>`, so a patch, a file, a shell
@@ -1131,6 +1152,14 @@ test("sidebar channel groups are independently collapsible with balanced list de
   // one flat band; ranking them is what the type scale is for.
   assert.match(row, /\.row-title\s*\{[^}]*font-size:\s*var\(--fs-label\)[^}]*line-height:\s*var\(--lh-label\)/s);
   assert.match(row, /\.row-time\s*\{[^}]*font-size:\s*var\(--fs-meta\)[^}]*line-height:\s*var\(--lh-meta\)/s);
+});
+
+test("only the Web channel exposes a new Session shortcut", () => {
+  assert.match(chatSidebar, /onNewSession=\{channel\.id === "web" \? onNewConversation : null\}/);
+  assert.match(channelAccordion, /\{#if onNewSession\}[\s\S]*class="channel-new-session"[\s\S]*aria-label=\{labels\.newChat\}[\s\S]*onclick=\{onNewSession\}/);
+  assert.match(channelAccordion, /class="channel-new-session"[\s\S]*class="channel-caret-button"/);
+  assert.match(channelAccordion, /\.channel-new-session,[\s\S]*\.channel-caret-button\s*\{[^}]*width:\s*0[^}]*opacity:\s*0[^}]*pointer-events:\s*none/s);
+  assert.match(channelAccordion, /\.channel-accordion-head:hover \.channel-new-session,[\s\S]*\.channel-accordion-head:focus-within \.channel-caret-button\s*\{[^}]*width:\s*26px[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/s);
 });
 
 test("conversation, project, and Mini App titles share a quiet material band only while stuck", () => {
@@ -1507,8 +1536,7 @@ test("automation session detail renders a chat-style transcript", () => {
   assert.match(transcript, /class="message-row"/);
   assert.doesNotMatch(transcript, /class="message-avatar"/);
   assert.match(transcript, /class="message-stack"/);
-  assert.match(transcript, /class="message-bubble markdown-body"/);
-  assert.match(transcript, /renderMarkdown\(displayContent, copy\.copyCode, markdownOptions\)/);
+  assert.match(transcript, /<ChatMarkdown/);
   assert.match(styles, /\.message-row\.assistant \.message-bubble \{[^}]*background: transparent/s);
   // The assistant turn has no bubble, so the user turn is the only card in the
   // transcript: keep it a full step above the background plus tier-1 elevation,
@@ -1700,9 +1728,18 @@ test("shared transcript renders media inline and delegates tool activity", () =>
 test("thinking and tool activity stay opt-in", () => {
   assert.match(transcript, /<ThinkingCard text=\{message\.thinking\}/);
   assert.doesNotMatch(thinkingCard, /<details class="thinking-card"[^>]*\bopen>/);
-  assert.match(conversationLiveView, /<details class="thinking-card">/);
-  assert.doesNotMatch(conversationLiveView, /<details class="thinking-card" open>/);
+  assert.match(conversationLiveView, /<ThinkingCard text=\{block\.content\}/);
   assert.doesNotMatch(runActivity, /<details class="run-activity" open=/);
+});
+
+test("a completed turn folds its whole pre-answer process behind one disclosure", () => {
+  assert.match(transcript, /transcriptCompletedTurnSections\(renderBlocks\)/);
+  assert.match(transcript, /<TurnProcess/);
+  assert.match(turnProcess, /<details class="turn-process" bind:open=\{opened\}/);
+  assert.match(turnProcess, /\{#if opened\}[\s\S]*\{#each blocks as block/);
+  assert.match(turnProcess, /copy\.turnProcessSteps/);
+  assert.match(transcript, /processSummary\.hasError/);
+  assert.doesNotMatch(conversationLiveView, /<TurnProcess/);
 });
 
 // Completed reasoning text and tool summaries are the bulk of a transcript's
@@ -1713,7 +1750,7 @@ test("thinking and tool activity stay opt-in", () => {
 test("collapsed transcript cards mount their body only once opened", () => {
   assert.match(thinkingCard, /bind:open=\{opened\}/);
   assert.match(thinkingCard, /\{#if opened\}<pre>\{text\}<\/pre>\{\/if\}/);
-  assert.match(runActivity, /<details class="run-activity" bind:open=\{opened\}>/);
+  assert.match(runActivity, /<details class="run-activity" bind:open=\{opened\} ontoggle=\{persistOpen\}>/);
   assert.match(runActivity, /\{#if opened\}[\s\S]*\{#each activities/);
 });
 
@@ -1778,7 +1815,7 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
 });
 
 test("long conversations share one user-turn navigator and preserve reader scroll ownership", () => {
-  assert.match(chatMessagesPane, /<ConversationPromptNavigator \{messages\} \{copy\} \{formatTime\}/);
+  assert.match(chatMessagesPane, /<ConversationPromptNavigator messages=\{visibleMessages\} \{copy\} \{formatTime\}/);
   assert.match(view, /viewMode === "external"[\s\S]*<ConversationPromptNavigator messages=\{externalTranscript\.messages\}/);
   assert.match(conversationNavigation, /message\.role !== "user" \|\| !messageId/);
   assert.match(conversationNavigation, /export function activePromptIndex[\s\S]*while \(low <= high\)/);
@@ -2864,7 +2901,7 @@ test("composer token pill sizes its two axes against their real budgets", () => 
 // name in the app is checked against the installed icon set.
 test("every Phosphor icon name used in the UI exists in the installed icon set", () => {
   const iconCss = readFileSync(
-    new URL("../node_modules/@phosphor-icons/.ignored_web/src/fill/style.css", import.meta.url),
+    new URL("../node_modules/@phosphor-icons/web/src/fill/style.css", import.meta.url),
     "utf8"
   );
   const available = new Set([...iconCss.matchAll(/\.(ph-[a-z0-9-]+):/g)].map((match) => match[1]));
@@ -3590,7 +3627,7 @@ test("right-click with a selection offers the same actions on either role", () =
   // only that; a role guard here made the common case dead.
   assert.doesNotMatch(transcript, /if \(message\.role !== "user"\) return;/);
   // Both bubbles open it.
-  assert.equal(transcript.match(/oncontextmenu=\{\(event\) => openSelectionMenu\(event, message\)\}/g)?.length, 2);
+  assert.equal(transcript.match(/onContextMenu=\{\(event\) => openSelectionMenu\(event, message\)\}/g)?.length, 2);
   // Only the selection travels, not the whole message.
   assert.match(transcript, /onRunContribution\?\.\(action, selectionMenu\.message, selectionMenu\.selection\)/);
   // No selection, or no app offering a text action, falls through to the
@@ -3630,43 +3667,34 @@ test("the Mini App action toast is one shared component and is always dismissibl
   assert.match(styles, /\.chat-action-toast \{[^}]*font-size: var\(--fs-label\)[^}]*line-height: var\(--lh-label\)/s);
 });
 
-// Permission mode is the second axis of "how should this run" — the first two
-// being model and thinking level — so it lives as a third page in the existing
-// composer menu rather than as a second dropdown beside it.
-test("permission mode reuses the composer menu instead of forking a second dropdown", () => {
-  // One trigger, one popover, one set of keyboard/outside-click handling
-  // (pitfall #7). A second `<details>` menu in the composer would be the fork.
-  assert.match(composerModelMenu, /page: "overview" \| "model" \| "thinking" \| "permission"/);
-  assert.match(composerModelMenu, /showPage\("permission", true\)/);
-  assert.doesNotMatch(chatInputArea, /ComposerModeMenu|ComposerPermissionMenu/);
-
-  // The host injects the axis; the menu never reaches for global state.
+test("permission mode is an independent control immediately after Attach", () => {
+  // Model and thinking remain one summary menu; execution permission is now a
+  // peer control in the left tool group, after the attachment button.
+  assert.doesNotMatch(composerModelMenu, /permissionMode|permissionModeOptions|onChangePermissionMode/);
+  assert.match(chatInputArea, /import ComposerPermissionMenu/);
+  assert.match(chatInputArea, /ph-paperclip[\s\S]{0,500}<ComposerPermissionMenu/);
   assert.match(chatInputArea, /export let permissionMode/);
   assert.match(chatInputArea, /export let onChangePermissionMode/);
-  assert.match(chatInputArea, /\{permissionMode\}[\s\S]{0,120}\{onChangePermissionMode\}/);
+  assert.match(chatInputArea, /value=\{permissionMode\}[\s\S]{0,160}onChange=\{onChangePermissionMode\}/);
 
-  // Every mode carries a sentence saying what it actually does — the labels
-  // alone ("Auto", "Manual") do not tell a user what changes.
+  // Every mode carries a sentence saying what it actually does.
   for (const key of [
     "permissionModePlanHint",
     "permissionModeManualHint",
     "permissionModeAcceptEditsHint",
     "permissionModeAutoHint"
   ]) {
-    assert.match(composerModelMenu, new RegExp(`copy\\.${key}`), key);
+    assert.match(composerPermissionMenu, new RegExp(`copy\\.${key}`), key);
   }
+  assert.match(composerPermissionMenu, /role="menuitemradio"/);
+  assert.match(composerPermissionMenu, /event\.key === "Escape"/);
+  assert.match(composerPermissionMenu, /document\.addEventListener\("pointerdown"/);
 });
 
-test("a host that does not offer permission modes gets no dead menu row", () => {
-  // Messaging channels expose only two modes and no composer menu at all, so
-  // the row is absent rather than present-and-disabled.
-  assert.match(composerModelMenu, /showPermission = Boolean\(onChangePermissionMode\) && permissionModeOptions\.length > 1/);
-  assert.match(composerModelMenu, /\{#if showPermission\}/);
-});
-
-test("the composer menu pill still has no inline-size containment", () => {
+test("composer selector pills still have no inline-size containment", () => {
   // pitfall #16(c): `container-type: inline-size` on a content-sized flex item
   // sizes it as if it had no contents — the label silently disappears with
   // nothing in the console. Adding a third page must not reintroduce it.
   assert.doesNotMatch(styles, /\.composer-model-(menu|trigger|label)[^{]*\{[^}]*container-type/s);
+  assert.doesNotMatch(styles, /\.composer-permission-(menu|trigger)[^{]*\{[^}]*container-type/s);
 });

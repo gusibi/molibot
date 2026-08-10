@@ -91,6 +91,53 @@ test("projects Agent content through UI-only metadata without duplicating text",
   assert.equal(result.sourceEntryByMessageId.get("u-ui"), "u-agent");
 });
 
+test("preserves thinking, tool and text interleaving as ordered transcript steps", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "investigate" }], 0),
+      entry("a-1", "assistant", [
+        { type: "thinking", thinking: "inspect first" },
+        { type: "toolCall", id: "call-read", name: "read", arguments: { path: "a.ts" } }
+      ], 1),
+      entry("r-1", "toolResult", [{ type: "text", text: "file" }], 2),
+      entry("a-2", "assistant", [
+        { type: "text", text: "I found the cause." },
+        { type: "toolCall", id: "call-edit", name: "edit", arguments: { path: "a.ts" } }
+      ], 3),
+      entry("r-2", "toolResult", [{ type: "text", text: "done" }], 4),
+      assistantEntry("a-3", [{ type: "text", text: "Fixed." }], 5, {
+        stopReason: "stop",
+        usage: { input: 10, output: 4, cacheRead: 2, cacheWrite: 0, totalTokens: 16 }
+      })
+    ],
+    metadata: [
+      { id: "m-u", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true },
+      {
+        id: "m-a",
+        conversationId: "session",
+        role: "assistant",
+        createdAt: "2026-07-14T10:05:00.000Z",
+        contextBacked: true,
+        activities: [
+          { key: "read-1", kind: "tool", tool: "read", label: "Read a.ts", state: "success" },
+          { key: "edit-2", kind: "tool", tool: "edit", label: "Edit a.ts", state: "success" }
+        ]
+      }
+    ]
+  });
+
+  const reply = result.messages.find((message) => message.id === "m-a");
+  assert.deepEqual(reply?.steps?.map((step) => step.kind === "activity" ? `${step.kind}:${step.activity.label}` : `${step.kind}:${step.content}`), [
+    "thinking:inspect first",
+    "activity:Read a.ts",
+    "text:I found the cause.",
+    "activity:Edit a.ts",
+    "text:Fixed."
+  ]);
+  assert.equal(reply?.usage?.totalTokens, 16);
+});
+
 test("migrates matching legacy text but preserves unmatched display-only commands", () => {
   const result = projectConversationMessages({
     conversationId: "session",

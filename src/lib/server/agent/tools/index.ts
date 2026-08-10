@@ -34,6 +34,7 @@ import { createWebFetchTool } from "$lib/server/agent/webFetch/webFetchTool.js";
 import { createImageGenerateTool } from "$lib/server/agent/imageGenerate/imageGenerateTool.js";
 import { createVideoGenerateTool } from "$lib/server/agent/videoGenerate/videoGenerateTool.js";
 import { createTtsGenerateTool } from "$lib/server/agent/ttsGenerate/ttsGenerateTool.js";
+import { createExitPlanTool } from "$lib/server/agent/tools/exitPlan.js";
 import { createFeaturePluginTools } from "$lib/server/plugins/feature-registry.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { createPiExtensionTools } from "$lib/server/plugins/piExtensions/toolBridge.js";
@@ -210,6 +211,13 @@ export function createMomTools(options: {
     }),
     options.channel
   );
+  const exitPlanTool = wrapSerializedTool(createExitPlanTool({
+    scratchDir: options.store.getScratchDir(options.chatId),
+    sessionId: options.executionSessionId ?? options.sessionId,
+    emit: async (plan) => {
+      await options.emitRunnerEvent?.({ type: "plan_proposal", plan });
+    }
+  }));
   // "Allowed to write without asking" is declared, never inferred from cwd
   // happening to sit inside something (PRD §127). The sandbox's own writable
   // set is deliberately wider than this — it includes the whole data dir, which
@@ -643,6 +651,13 @@ export function createMomTools(options: {
     const scopedTools = options.miniAppId
       ? rawTools.filter((tool) => tool.name.startsWith(`miniapp__${options.miniAppId}__`))
       : rawTools;
+    if (permissionMode === "plan") {
+      const allowed = new Set(["read", "ls", "grep", "glob", "conversationSearch", "skillSearch", "docExtract", "imageAnalyze"]);
+      return [
+        ...scopedTools.filter((tool) => allowed.has(tool.name)).map((tool) => wrapWithToolRuntime(tool)),
+        exitPlanTool
+      ];
+    }
     return scopedTools.map(tool => wrapWithToolRuntime(tool));
   };
   const loadDeferredTools = (toolNames: string[]): string[] => {

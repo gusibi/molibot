@@ -28,6 +28,9 @@
     loadDesktopModelRouting,
     loadDesktopSessionModel,
     saveDesktopSessionModel,
+    loadDesktopSessionPermission,
+    saveDesktopSessionPermission,
+    resolveDesktopPlan,
     summarizeDesktopReadiness
   } from "../api";
   import type {
@@ -45,6 +48,10 @@
   export let copy: Translation;
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
+  type PermissionMode = "plan" | "manual" | "accept_edits" | "auto";
+  const permissionModeOptions: readonly PermissionMode[] = ["plan", "manual", "accept_edits", "auto"];
+  let permissionMode: PermissionMode = "accept_edits";
+  let permissionHydrationSession = "";
   let message = "";
   // Last file reference consumed from the panel. Guards the reactive block
   // below from re-appending the same reference when it re-runs for other reasons.
@@ -146,6 +153,22 @@
     activeModelKey = modelOptions.some((option) => option.key === requestedModel) ? requestedModel : globalModelKey;
     thinkingLevel = sessionThinkingOverrides.get(appliedSessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
     void hydrateSessionModel(appliedSessionId);
+  }
+  $: if (view.endpoint && view.selectedSessionId && view.selectedSessionId !== permissionHydrationSession) {
+    permissionHydrationSession = view.selectedSessionId;
+    void loadDesktopSessionPermission(view.endpoint, "personal", view.selectedSessionId).then((mode) => {
+      if (view.selectedSessionId === permissionHydrationSession) permissionMode = mode;
+    }).catch(() => undefined);
+  }
+
+  async function changePermissionMode(mode: PermissionMode): Promise<void> {
+    if (!projectsStore.endpoint || !projectsStore.selectedSessionId) return;
+    permissionMode = mode;
+    try {
+      permissionMode = await saveDesktopSessionPermission(projectsStore.endpoint, "personal", projectsStore.selectedSessionId, mode);
+    } catch (cause) {
+      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+    }
   }
   // The composer must never contradict the transcript: with no explicit
   // per-session pick, the Session keeps the model that actually answered last
@@ -302,6 +325,8 @@
   $: streamingThinking = chatState.streamingThinking;
   $: activityEntries = chatState.activities;
   $: pendingApproval = chatState.pendingApproval;
+  $: pendingApprovals = chatState.pendingApprovals;
+  $: liveSteps = chatState.liveSteps;
   /** Node the transcript dock watches; Svelte clears it when the card unmounts. */
   let approvalElement: HTMLElement | null = null;
   $: queuedMessages = chatState.queue;
@@ -640,8 +665,31 @@
         contributions: contributedMessageActions,
         pendingContributionKey: miniAppActionPendingKey,
         successfulContributionKey: miniAppActionSuccessKey,
-        onRunContribution: (action, transcriptMessage, selection) => void runMiniAppMessageAction(action, transcriptMessage, selection)
+        onRunContribution: (action, transcriptMessage, selection) => void runMiniAppMessageAction(action, transcriptMessage, selection),
+        onResolvePlan: (transcriptMessage, plan, decision, edits) => void resolvePlan(transcriptMessage, plan, decision, edits)
       } satisfies TranscriptMessageActions;
+
+  async function resolvePlan(
+    _message: TranscriptMessage,
+    plan: import("@molibot/desktop-contract").DesktopConversationPlan,
+    decision: "accept" | "reject" | "modify",
+    edits?: { title: string; summary: string; steps: string[]; mode?: "manual" | "accept_edits" }
+  ): Promise<void> {
+    if (!projectsStore.endpoint || !projectsStore.selectedSessionId) return;
+    try {
+      await resolveDesktopPlan(projectsStore.endpoint, {
+        profileId: "personal",
+        conversationId: projectsStore.selectedSessionId,
+        planId: plan.id,
+        decision,
+        ...edits
+      });
+      await projectChatStore.reloadActive();
+      if (decision === "accept") await projectChatStore.resumeActivePlan(plan.id);
+    } catch (cause) {
+      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
   $: if (editingMessageId && editingSessionId && view.selectedSessionId !== editingSessionId) {
     editingMessageId = "";
     editingSessionId = "";
@@ -959,6 +1007,7 @@
     streamingThinking={projectShowReasoning === "off" ? "" : streamingThinking}
     {activity}
     activities={projectToolProgress === "off" ? [] : activityEntries}
+    liveSteps={projectToolProgress === "off" ? liveSteps.filter((step) => step.kind !== "activity") : liveSteps}
     emptyTitle={copy.projectEmptyChat}
     emptyHint={copy.projectEmptyChatHint}
     messageActions={messageActions}
@@ -975,16 +1024,19 @@
            see the same seam in ChatView. -->
       <div bind:this={approvalElement}>
         <ApprovalCard
+          cardId={pendingApproval.requestId}
           title={copy.approvalTitle}
-          subtitle={pendingApproval.displayName ?? ""}
+          subtitle={[pendingApproval.displayName ?? "", pendingApprovals.length > 1 ? copy.approvalQueuePosition.replace("{index}", "1").replace("{total}", String(pendingApprovals.length)) : ""].filter(Boolean).join(" · ")}
           reasonLabel={copy.approvalReason}
           command={pendingApproval.command}
           reason={pendingApproval.reason}
+          payload={pendingApproval.payload}
           options={approvalOptions}
           defaultOptionId="approve_once"
           waitingLabel={copy.approvalWaiting}
           secondsLabel={copy.approvalWaitingSeconds}
           minutesLabel={copy.approvalWaitingMinutes}
+          moreLinesLabel={copy.approvalMoreDiffLines}
           onResolve={resolveApprovalId}
         />
       </div>
@@ -1045,6 +1097,9 @@
     onOpenSettings={() => undefined}
     onChangeModel={changeModel}
     onChangeThinking={changeThinking}
+    {permissionMode}
+    {permissionModeOptions}
+    onChangePermissionMode={changePermissionMode}
   >
     {#if editingMessageId}
       <div class="composer-edit-banner" role="status">

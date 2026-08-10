@@ -1,3 +1,53 @@
+# Chat Transcript Optimization 发现记录（2026-08-10）
+
+## 用户验收清单
+
+- 核对而非盲信：交错时序、Plan 原语、DecisionCard、结构化/队列审批、Mermaid/KaTeX/HTML-SVG artifact/宽表 Spreadsheet、`breaks`、per-step 元数据、嵌套滚动、展开态、虚拟化/分页、turn 汇总、回答大纲。
+- 已声明完成的项目也要回归，尤其审批可见性、工具分类渲染、流式增量、图片灯箱与表格/代码滚动。
+- 全部实现后按项目规则做对抗式审查、真实冷路径和四份产品文档同步。
+
+## 初始约束
+
+- UI 必须遵循 `DESIGN.md`、现有 shadcn-svelte 与共享语义 CSS；中英、明暗主题和移动宽度均需覆盖。
+- 不保留旧 transcript 数据模型兼容层；直接替换当前仍在使用的内部形状。
+- 公共投影、队列、决策仲裁和运行状态属于共享上层，不下沉 Channel。
+- `planning-with-files` 影响：调查、决策、错误与验证结果持续写入根目录三份记录；前一任务内容原样保留。
+- `frontend-design` 影响：以项目现有聊天视觉语言为审美约束，追求高信息密度、克制的工具感和可访问交互，而不是引入脱离产品的全新视觉主题。
+
+## 第一轮核对
+
+- 用户关于 Permission Modes PRD “仍为 Proposed、切片 0/1 未动”的证据已过时：当前文档明确写为切片 0、1、3 已于 2026-08-10 交付，只有切片 2（Plan 模式）未开始。
+- `TranscriptMessage` 当前仍是 `content: string` + `thinking?` + `activities?`；共享 `DesktopConversationActivity` 仍缺 per-step 时长/退出码/行数/token，结构性判断初步成立。
+- `conversationController` 当前仍只有单个 `pendingApproval`；Plan/DecisionCard 在 chat 目录没有实现，初步成立。
+- Mermaid 仍只在 Artifact `MarkdownPreview.svelte` 使用，chat `markdown.ts` 尚未接入；KaTeX 也未发现。
+- 已确认先前交付有对应 UI guard：审批 attention、activity headline、共享 transcript 等；仍需读取实现确认行为而非只相信正则守卫。
+
+## 设计与源码证据
+
+- `DESIGN.md` 的 Chat 产品层要求：macOS 语义色、扁平 assistant 消息、消息/Composer 最大 720px、最多一个右侧 Inspector、状态不可只靠颜色、响应式 Inspector overlay；实现不得另造视觉体系。
+- `ConversationTranscript.svelte` 仍明确固定渲染 assistant 的 `ThinkingCard` → `RunActivity` → Markdown body，交错时序确实无法表达。
+- `DesktopConversationMessage` 与前端 `TranscriptMessage` 均没有 step 流字段；`DesktopConversationActivity` 也没有 `startedAt/finishedAt/durationMs/exitCode/lineCount/tokenUsage`。
+- chat Markdown 当前仍 `marked.use({ gfm: true, breaks: true })`，仍禁止 `style` 属性；表格包裹、代码横滚/单块 wrap 已落地。
+- Desktop 已依赖 Mermaid，但没有 KaTeX；新增数学渲染将需要成熟依赖而不是自写 parser。
+- `RunActivity` 的分类逻辑已经区分 diff/code/json/terminal/text，并使用 tool id 而非展示 label；此项已完成，不应重做。
+
+## 时序根因与可复用底座
+
+- 根因在共享服务端 `agentDisplayMessages()`：它把同一 turn 的多个 assistant entry 合并成一个聚合 assistant，并分别拼接 thinking、覆盖 content；`ConversationActivityCollector` 又独立保存活动数组。真实 raw Agent content 本来有有序 `thinking/text/toolCall` parts，但投影主动丢弃了顺序。
+- live 端 `ConversationController` 也分别维护 `streamingText`、`streamingThinking`、`activities`，不过 SSE 回调本身按事件顺序到达，可在 controller 层同步构建 live step 流。
+- 活动 collector 可直接增加 `startedAt/finishedAt/durationMs`；Runner/ToolRuntime 的 start/end `RunDetailEntry.timestamp` 已存在，可沿用，不需另造计时系统。
+- Permission Mode 的 Composer UI、effect 分类、共享 gate 与设置 round-trip 已存在；Plan 切片应只实现“暴露前收窄 + exitPlan + 计划产物/确认/同 Session 续跑”，不重做菜单。
+- 审批服务端已有统一 façade 与多个 pending 记录能力；“单 pending”主要是 Desktop API/controller 的投影限制，应在共享 Desktop contract/API 返回数组后解决，不能在 Channel 层排队。
+
+## 最终核对结论
+
+- 用户列出的未完成项除 Permission Modes PRD 的旧状态外均属实；本切片已逐项补齐。
+- Plan 接受后的控制指令只存在于当前 Runner 请求，不追加普通 user metadata，避免污染后续模型上下文。
+- `style` 清洗继续保持严格；HTML/SVG 通过 `sandbox=""` iframe 预览，宽表通过 CSV Blob 复用 SpreadsheetTable。
+- 长会话采用显式分页：默认只挂载最近 80 条，用户按需加载更早记录，保留现有滚动所有权模型。
+
+---
+
 # Automatic Durable Execution 发现记录
 
 ## 当前假设

@@ -346,7 +346,8 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
       permissions: request.permissions,
       requestedAt: request.requestedAt,
       classification: request.classification,
-      owner: request.owner
+      owner: request.owner,
+      payload: request.payload
     }
   };
 }

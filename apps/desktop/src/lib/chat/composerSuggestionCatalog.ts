@@ -15,6 +15,13 @@ export interface ComposerSegment {
   kind: DesktopComposerSuggestion["kind"] | null;
 }
 
+export interface ComposerInvocation {
+  kind: DesktopComposerSuggestion["kind"];
+  token: string;
+  /** Characters occupied by the persisted selector representation. */
+  consumedLength: number;
+}
+
 let catalog: DesktopComposerSuggestion[] = [];
 
 export function setComposerSuggestionCatalog(items: DesktopComposerSuggestion[]): void {
@@ -30,12 +37,25 @@ export function setComposerSuggestionCatalog(items: DesktopComposerSuggestion[])
 export function classifyComposerSuggestion(
   content: string,
   items: DesktopComposerSuggestion[] = catalog
-): { kind: DesktopComposerSuggestion["kind"]; token: string } | null {
+): ComposerInvocation | null {
   const trimmed = String(content ?? "").trim();
+  // The Runtime persists an explicit Skill selector as a compact Markdown
+  // reference so the model can read the authoritative SKILL.md without
+  // inlining the file. In the transcript this is still a Skill invocation,
+  // not a user-authored link: keep the path out of the visible message and
+  // consume the whole reference before rendering the remaining prose.
+  const skillReference = trimmed.match(/^\[\$([^\]\r\n]+)\]\(([^\r\n]*?\/SKILL\.md)\)/i);
+  if (skillReference) {
+    return {
+      kind: "skill",
+      token: `$${skillReference[1]}`,
+      consumedLength: skillReference[0].length
+    };
+  }
   const token = (trimmed.match(/^\/[a-z0-9][a-z0-9:_-]*/i) ?? trimmed.match(/^@[a-z0-9][a-z0-9:_-]*/i))?.[0]?.toLowerCase();
   if (!token) return null;
   const match = items.find((item) => item.label.toLowerCase() === token);
-  return match ? { kind: match.kind, token } : null;
+  return match ? { kind: match.kind, token, consumedLength: token.length } : null;
 }
 
 /**

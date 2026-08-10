@@ -521,6 +521,16 @@ the base to pure black (`#000000`/`#0A0A0A`).
 - Chat uses the shared 228px baseline resizable sidebar; persisted widths below that
   baseline clamp to it. Flat assistant messages have Agent identity, hover/focus
   actions, and one compact auto-growing composer.
+- The Chat transcript never scrolls horizontally or grows beyond its bounded reading
+  column. Ordinary prose, paths, links, and inline code wrap within the message;
+  intrinsically wide structures that must preserve layout (code blocks, tables,
+  rendered math, diagrams, and diffs) own a local horizontal scroller capped to
+  `100%`. Every flex/grid item between the transcript and those structures keeps
+  `min-width: 0`; opening the Project/File Inspector must not change this contract.
+- Runtime-authored explicit Skill references (`[$name](.../SKILL.md)`) retain their
+  machine-readable path in persisted content but render as the same Skill invocation
+  card used by a `/name` composer selection. The visible transcript shows the Skill
+  identity and following user prose, never the local `SKILL.md` path as a Markdown link.
 - Chat headers identify the active source with a quiet `#` + initial micro-tag
   (for example W, F, T, or P), not a large avatar. The accessible label and title
   expose the full source name. A quiet slash expresses the source/title hierarchy;

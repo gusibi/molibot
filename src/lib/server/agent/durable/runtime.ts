@@ -466,18 +466,37 @@ export class DurableExecutionRuntime {
           stepId: step.id,
           expectedVersion,
           processOwnerId: this.processOwnerId,
-          outputSummary: "Agent attempt returned; acceptance verification is still required.",
-          evidenceSummary: "Verifier pending."
+          outputSummary: "The bounded Agent attempt completed this plan step.",
+          outputRef: result.runId,
+          evidenceSummary: "The attempt run detail is available for inspection."
         });
         expectedVersion = this.store.getById(input.executionId)!.version;
+        if (result.runId) {
+          this.store.addEvidence({
+            executionId: input.executionId,
+            stepId: step.id,
+            attemptId: claimed.attempt.id,
+            referenceType: "run-detail",
+            referenceId: result.runId,
+            summary: `Run detail for completed step “${step.title}”.`
+          });
+        }
+        const afterStep = this.store.getDetail(input.executionId)!;
+        const hasRemainingStep = afterStep.steps.some((item) =>
+          item.planVersion === afterStep.execution.currentPlanVersion
+          && item.status !== "completed"
+          && item.status !== "skipped"
+        );
         this.store.finishAttempt({
           executionId: input.executionId,
           attemptId: claimed.attempt.id,
           expectedVersion,
           processOwnerId: this.processOwnerId,
           status: "completed",
-          nextExecutionStatus: "verifying",
-          reason: "Attempt completed; acceptance verification is pending.",
+          nextExecutionStatus: hasRemainingStep ? "queued" : "verifying",
+          reason: hasRemainingStep
+            ? "Plan step completed; the next step is queued."
+            : "All plan steps completed; acceptance verification is pending.",
           tokensUsed: result.usage?.totalTokens
         });
         this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
@@ -526,25 +545,33 @@ export class DurableExecutionRuntime {
       item.planVersion === detail.execution.currentPlanVersion
       && (item.status === "uncertain" || item.status === "running")
     );
-    if (!step || step.sideEffectClass === "pure" || step.sideEffectClass === "idempotent") {
+    if (!step) {
       return { kind: "continue", expectedVersion: detail.execution.version };
     }
 
-    if (step.sideEffectClass === "non_idempotent") {
+    const intent = [...detail.sideEffects]
+      .reverse()
+      .find((item) => item.stepId === step.id && item.phase === "intent");
+    // A step becomes `uncertain` as soon as its process dies, even when it
+    // crashed before invoking a tool. With no persisted intent there is no
+    // external action to duplicate, so the accepted plan can safely retry.
+    const effectiveClass = intent?.sideEffectClass ?? "pure";
+    if (!intent || effectiveClass === "pure" || effectiveClass === "idempotent") {
+      return { kind: "continue", expectedVersion: detail.execution.version };
+    }
+
+    if (effectiveClass === "non_idempotent") {
       this.openRecoveryDecision(detail, step, "This step may already have changed external state and cannot be retried automatically.", filename);
       return { kind: "stopped" };
     }
 
-    const probeKey = step.idempotencyKey ?? step.id;
+    const probeKey = intent.idempotencyKey || step.idempotencyKey || step.id;
     const probe = this.options.queryableProbes?.[probeKey];
     if (!probe) {
       this.openRecoveryDecision(detail, step, "This queryable step has no external-state probe, so the runtime cannot safely decide whether it already completed.", filename);
       return { kind: "stopped" };
     }
 
-    const intent = [...detail.sideEffects]
-      .reverse()
-      .find((item) => item.stepId === step.id && item.phase === "intent");
     let result: DurableQueryableProbeResult;
     try {
       result = await probe({ execution: detail.execution, step, intent });

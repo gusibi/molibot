@@ -68,6 +68,8 @@ export interface AcceptanceCriterionInput {
 }
 
 export interface CreateDurableExecutionInput {
+  /** Internal deterministic id used to make an accepted Session plan idempotent. */
+  executionId?: string;
   ownerId: string;
   botId: string;
   sourceChannel?: string;

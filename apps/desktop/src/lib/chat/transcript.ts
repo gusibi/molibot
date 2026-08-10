@@ -1,4 +1,4 @@
-import type { DesktopConversationActivity, DesktopFileMediaType, DesktopMessageMemoryTraceMeta, DesktopSessionFile } from "@molibot/desktop-contract";
+import type { DesktopConversationActivity, DesktopConversationPlan, DesktopConversationStep, DesktopConversationTokenUsage, DesktopFileMediaType, DesktopMessageMemoryTraceMeta, DesktopSessionFile } from "@molibot/desktop-contract";
 
 export type TranscriptAttachment = {
   original: string;
@@ -19,8 +19,99 @@ export type TranscriptMessage = {
   errorMessage?: string;
   attachments?: TranscriptAttachment[];
   activities?: DesktopConversationActivity[];
+  steps?: DesktopConversationStep[];
+  usage?: DesktopConversationTokenUsage;
   memoryTrace?: DesktopMessageMemoryTraceMeta;
 };
+
+export type TranscriptRenderBlock =
+  | { id: string; kind: "text"; content: string }
+  | { id: string; kind: "thinking"; content: string }
+  | { id: string; kind: "plan"; plan: DesktopConversationPlan }
+  | { id: string; kind: "activities"; activities: DesktopConversationActivity[] };
+
+export type TranscriptProcessBlock = Exclude<TranscriptRenderBlock, { kind: "plan" }>;
+
+/**
+ * A completed assistant turn has one compact process disclosure, followed by
+ * the answer. Text emitted before the last reasoning/tool step belongs to that
+ * process (models often narrate before calling a tool); text after it is the
+ * final response. Plan cards stay outside the disclosure because they require
+ * a visible user decision.
+ */
+export function transcriptCompletedTurnSections(blocks: TranscriptRenderBlock[]): {
+  process: TranscriptProcessBlock[];
+  response: TranscriptRenderBlock[];
+} {
+  const firstPlan = blocks.findIndex((block) => block.kind === "plan");
+  const processLimit = firstPlan < 0 ? blocks.length : firstPlan;
+  let processEnd = -1;
+  for (let index = 0; index < processLimit; index += 1) {
+    if (blocks[index].kind === "thinking" || blocks[index].kind === "activities") processEnd = index;
+  }
+  if (processEnd < 0) return { process: [], response: blocks };
+  return {
+    process: blocks.slice(0, processEnd + 1) as TranscriptProcessBlock[],
+    response: blocks.slice(processEnd + 1)
+  };
+}
+
+export function transcriptProcessSummary(blocks: TranscriptProcessBlock[]): {
+  stepCount: number;
+  durationMs: number;
+  hasError: boolean;
+} {
+  const activities = blocks.flatMap((block) => block.kind === "activities" ? block.activities : []);
+  const thinkingCount = blocks.filter((block) => block.kind === "thinking").length;
+  return {
+    stepCount: activities.length + thinkingCount,
+    durationMs: activities.reduce((total, activity) => total + (activity.durationMs ?? 0), 0),
+    // This helper is used only for committed messages. A persisted `running`
+    // row has lost its live owner and is an interrupted failure, matching
+    // `finalizeTranscriptActivities`; do not hide it behind a closed summary.
+    hasError: activities.some((activity) => activity.state === "error" || activity.state === "running")
+  };
+}
+
+/** Groups only adjacent activities, preserving every text/thinking boundary. */
+export function transcriptRenderBlocks(message: TranscriptMessage): TranscriptRenderBlock[] {
+  const steps = message.steps?.length
+    ? message.steps
+    : [
+        ...(message.thinking ? [{ id: `${message.id ?? "message"}-thinking`, kind: "thinking" as const, content: message.thinking }] : []),
+        ...((message.activities ?? []).map((activity) => ({ id: `${message.id ?? "message"}-${activity.key}`, kind: "activity" as const, activity }))),
+        ...(message.content ? [{ id: `${message.id ?? "message"}-text`, kind: "text" as const, content: message.content }] : [])
+      ];
+  const blocks: TranscriptRenderBlock[] = [];
+  for (const step of steps) {
+    if (step.kind !== "activity") {
+      blocks.push(step);
+      continue;
+    }
+    const previous = blocks.at(-1);
+    if (previous?.kind === "activities") previous.activities.push(step.activity);
+    else blocks.push({ id: step.id, kind: "activities", activities: [step.activity] });
+  }
+  return blocks;
+}
+
+export function transcriptTurnSummary(message: TranscriptMessage): {
+  toolCount: number;
+  fileCount: number;
+  durationMs: number;
+  totalTokens: number;
+} {
+  const activities = message.steps?.flatMap((step) => step.kind === "activity" ? [step.activity] : [])
+    ?? message.activities
+    ?? [];
+  const files = new Set(activities.flatMap((activity) => activity.mutates ? (activity.paths ?? []) : []));
+  return {
+    toolCount: activities.filter((activity) => activity.kind === "tool").length,
+    fileCount: files.size,
+    durationMs: activities.reduce((total, activity) => total + (activity.durationMs ?? 0), 0),
+    totalTokens: message.usage?.totalTokens ?? 0
+  };
+}
 
 export type TranscriptAttachmentActions = {
   filesByLocal: Map<string, DesktopSessionFile>;
@@ -67,6 +158,12 @@ export type TranscriptMessageActions = {
     action: TranscriptContributionAction,
     message: TranscriptMessage,
     selection?: string
+  ) => void;
+  onResolvePlan?: (
+    message: TranscriptMessage,
+    plan: DesktopConversationPlan,
+    decision: "accept" | "reject" | "modify",
+    edits?: { title: string; summary: string; steps: string[]; mode?: "manual" | "accept_edits" }
   ) => void;
 };
 

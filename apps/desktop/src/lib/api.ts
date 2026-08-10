@@ -23,6 +23,7 @@ import type {
   DesktopChannelTestRequest,
   DesktopChannelTestResponse,
   DesktopConversationActivity,
+  DesktopConversationPlan,
   DesktopConversationBotGroup,
   DesktopConversationChannel,
   DesktopConversationItem,
@@ -523,6 +524,48 @@ export async function saveDesktopSessionModel(
     body: JSON.stringify({ conversationId, modelKey })
   });
   return payload.modelKey;
+}
+
+export async function loadDesktopSessionPermission(
+  endpoint: string,
+  profileId: string,
+  conversationId: string
+): Promise<"plan" | "manual" | "accept_edits" | "auto"> {
+  const query = new URLSearchParams({ profileId, conversationId });
+  return (await requestJson<{ ok: true; mode: "plan" | "manual" | "accept_edits" | "auto" }>(endpoint, `/api/desktop/session-permission?${query}`)).mode;
+}
+
+export async function saveDesktopSessionPermission(
+  endpoint: string,
+  profileId: string,
+  conversationId: string,
+  mode: "plan" | "manual" | "accept_edits" | "auto"
+): Promise<typeof mode> {
+  return (await requestJson<{ ok: true; mode: typeof mode }>(endpoint, "/api/desktop/session-permission", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profileId, conversationId, mode })
+  })).mode;
+}
+
+export async function resolveDesktopPlan(
+  endpoint: string,
+  input: {
+    profileId: string;
+    conversationId: string;
+    planId: string;
+    decision: "accept" | "reject" | "modify";
+    mode?: "manual" | "accept_edits";
+    title?: string;
+    summary?: string;
+    steps?: string[];
+  }
+): Promise<{ plan: DesktopConversationPlan; mode: "plan" | "manual" | "accept_edits" }> {
+  return requestJson(endpoint, "/api/desktop/session-permission", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
 }
 
 export async function loadDesktopModelRouting(endpoint: string): Promise<DesktopModelRoutingSettings> {
@@ -2593,6 +2636,7 @@ export async function streamDesktopChat(
     projectId?: string;
     modelKey?: string;
     files?: File[];
+    resumePlanId?: string;
   },
   onEvent: SseHandler,
   signal?: AbortSignal,
@@ -2607,6 +2651,7 @@ export async function streamDesktopChat(
     body.set("thinkingLevel", input.thinkingLevel);
     if (input.projectId) body.set("projectId", input.projectId);
     if (input.modelKey) body.set("modelKey", input.modelKey);
+    if (input.resumePlanId) body.set("resumePlanId", input.resumePlanId);
     for (const file of input.files ?? []) body.append("files", file);
   }
   const response = await fetchFromDesktop(serviceUrl(endpoint, "/api/stream"), {
@@ -2620,6 +2665,7 @@ export async function streamDesktopChat(
       thinkingLevel: input.thinkingLevel,
       projectId: input.projectId,
       modelKey: input.modelKey
+      ,resumePlanId: input.resumePlanId
       })
     }),
     signal
@@ -2743,6 +2789,9 @@ export function parseDesktopApproval(data: Record<string, unknown>): DesktopAppr
     ? request.owner as Record<string, unknown>
     : null;
   const ownerId = rawOwner ? String(rawOwner.id ?? "").trim() : "";
+  const rawPayload = request.payload && typeof request.payload === "object"
+    ? request.payload as Record<string, unknown>
+    : null;
   return {
     requestId,
     command: fullCommand || command,
@@ -2755,7 +2804,14 @@ export function parseDesktopApproval(data: Record<string, unknown>): DesktopAppr
           label: String(rawOwner?.label ?? "").trim() || ownerId
         }
       : undefined,
-    options
+    options,
+    payload: rawPayload ? {
+      path: rawPayload.path ? String(rawPayload.path) : undefined,
+      diff: rawPayload.diff ? String(rawPayload.diff) : undefined,
+      parameters: rawPayload.parameters && typeof rawPayload.parameters === "object"
+        ? rawPayload.parameters as Record<string, unknown>
+        : undefined
+    } : undefined
   };
 }
 
@@ -2767,11 +2823,11 @@ export function parseDesktopApproval(data: Record<string, unknown>): DesktopAppr
  * second approval raised during it is emitted to nobody. Polling this while
  * waiting on a resumed turn is what makes that card appear at all.
  */
-export async function loadDesktopPendingApproval(
+export async function loadDesktopPendingApprovals(
   endpoint: string,
   profileId: string,
   sessionId: string
-): Promise<DesktopApprovalPrompt | null> {
+): Promise<DesktopApprovalPrompt[]> {
   const payload = await requestJson<{ ok: true; approvals: Record<string, unknown>[] }>(
     endpoint,
     "/api/desktop/host-bash",
@@ -2781,11 +2837,10 @@ export async function loadDesktopPendingApproval(
       body: JSON.stringify({ action: "list_pending", profileId, sessionId })
     }
   );
-  for (const raw of payload.approvals ?? []) {
+  return (payload.approvals ?? []).flatMap((raw) => {
     const prompt = parseDesktopApproval(raw);
-    if (prompt) return prompt;
-  }
-  return null;
+    return prompt ? [prompt] : [];
+  });
 }
 
 /**

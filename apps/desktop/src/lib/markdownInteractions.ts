@@ -53,6 +53,23 @@ function toggleCodeWrapFromClick(event: MouseEvent): boolean {
   return true;
 }
 
+function openArtifactFromClick(event: MouseEvent): boolean {
+  const preview = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-preview-artifact]");
+  if (preview) {
+    const code = preview.closest(".code-block")?.querySelector("code")?.textContent ?? "";
+    if (!code) return false;
+    window.dispatchEvent(new CustomEvent("molibot:markdown-artifact", { detail: { kind: "html", source: code } }));
+    return true;
+  }
+  const tableButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-open-table]");
+  const table = tableButton?.closest(".markdown-table-wrap")?.querySelector("table");
+  if (!tableButton || !table) return false;
+  const csv = [...table.querySelectorAll("tr")].map((row) => [...row.querySelectorAll("th,td")]
+    .map((cell) => `"${(cell.textContent ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  window.dispatchEvent(new CustomEvent("molibot:markdown-artifact", { detail: { kind: "table", source: csv } }));
+  return true;
+}
+
 /**
  * Opens the image the click landed on, as a gallery over every image in the
  * same rendered-Markdown block.
@@ -89,6 +106,7 @@ export async function handleMarkdownBodyClick(event: MouseEvent, copy: MarkdownC
     return;
   }
   if (toggleCodeWrapFromClick(event)) return;
+  if (openArtifactFromClick(event)) return;
   if (openImageFromClick(event, copy)) return;
   await copyCodeFromClick(event, copy);
 }

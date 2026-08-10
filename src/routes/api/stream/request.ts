@@ -9,6 +9,7 @@ interface StreamBody {
   projectId?: string;
   modelKey?: string;
   durableMode?: string;
+  resumePlanId?: string;
 }
 
 export interface ParsedStreamRequest extends Omit<StreamBody, "durableMode"> {
@@ -30,6 +31,7 @@ export async function parseStreamRequest(request: Request): Promise<ParsedStream
     thinkingLevel: String(form.get("thinkingLevel") ?? ""),
     projectId: String(form.get("projectId") ?? ""),
     modelKey: String(form.get("modelKey") ?? "").trim() || undefined,
+    resumePlanId: String(form.get("resumePlanId") ?? "").trim() || undefined,
     durableMode: parseDurableRequestMode(form.get("durableMode")),
     files: form.getAll("files").filter((entry): entry is File => entry instanceof File && entry.size > 0)
   };

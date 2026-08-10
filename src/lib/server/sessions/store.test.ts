@@ -614,3 +614,35 @@ test("tool activity file paths survive a save → fresh store → load round tri
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("conversation plans survive save, edit, and a fresh store", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-plan-roundtrip-"));
+  const original = { ...storagePaths };
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    const store = new SessionStore();
+    const session = store.createWebConversation("web:personal:web-anonymous");
+    store.appendMessage(session.id, "assistant", "", {
+      contextBacked: true,
+      plan: {
+        id: "plan-1",
+        title: "Initial",
+        summary: "Summary",
+        steps: [{ id: "step-1", text: "Inspect", status: "pending" }],
+        status: "proposed",
+        recommendedMode: "accept_edits",
+        artifactPath: "plans/plan-1.md"
+      }
+    });
+    store.updateConversationPlan(session.id, "plan-1", (plan) => ({ ...plan, title: "Approved", status: "accepted" }));
+    const plan = new SessionStore().listMessages(session.id)[0]?.plan;
+    assert.equal(plan?.title, "Approved");
+    assert.equal(plan?.status, "accepted");
+    assert.equal(plan?.steps[0]?.text, "Inspect");
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});

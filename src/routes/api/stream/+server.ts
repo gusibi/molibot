@@ -13,12 +13,13 @@ import {
 import { resolveRuntimeContext } from "$lib/server/web/runtimeContext";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { resolveWebInboundFileMeta, saveWebResponseAttachment } from "$lib/server/web/attachments";
-import type { ConversationAttachment } from "$lib/shared/types/message";
+import type { ConversationAttachment, ConversationPlan } from "$lib/shared/types/message";
 import { classifyTurnRetention } from "$lib/server/sessions/retentionPolicy";
 import { buildRunnerProjectContext, resolveProjectContext } from "$lib/server/projects/context";
 import { parseStreamRequest, type ParsedStreamRequest } from "./request";
 import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 import {
+  activateAcceptedPlan,
   activateDurableExecution,
   formatDurableActivationAcknowledgement
 } from "$lib/server/agent/durable/activation.js";
@@ -94,6 +95,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const userId = sanitizeWebUserId(body.userId);
   const profileId = sanitizeWebProfileId(body.profileId);
   const message = String(body.message ?? "").trim();
+  const resumePlanId = String(body.resumePlanId ?? "").trim();
   const conversationId = String(body.conversationId ?? "").trim() || undefined;
   const thinkingLevel = sanitizeOptionalRuntimeThinkingLevel(body.thinkingLevel);
   const projectResult = resolveProjectContext(body.projectId);
@@ -105,7 +107,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   const project = projectResult.project;
 
-  if (!message && body.files.length === 0) {
+  if (!message && body.files.length === 0 && !resumePlanId) {
     return new Response(JSON.stringify({ ok: false, error: "Empty message." }), {
       status: 400,
       headers: { "Content-Type": "application/json" }
@@ -121,7 +123,6 @@ export const POST: RequestHandler = async ({ request }) => {
     conversationId,
     { projectId: project?.id }
   );
-
   const { store, pool } = resolveRuntimeContext({ profileId, projectId: project?.id });
   // Project conversations may originate on a channel bot (e.g. Feishu); keying
   // the runner by the conversation's own externalUserId reopens that exact
@@ -136,6 +137,15 @@ export const POST: RequestHandler = async ({ request }) => {
         headers: { "Content-Type": "application/json" }
       }
     );
+  }
+  const acceptedPlan = resumePlanId
+    ? runtime.sessions.updateConversationPlan(conversation.id, resumePlanId, (plan) => plan)
+    : null;
+  if (resumePlanId && (!acceptedPlan || !["accepted", "executing"].includes(acceptedPlan.status))) {
+      return new Response(JSON.stringify({ ok: false, error: "Accepted plan not found." }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" }
+      });
   }
   const ts = `${Date.now() / 1000}`;
   const attachments: FileAttachment[] = [];
@@ -165,11 +175,13 @@ export const POST: RequestHandler = async ({ request }) => {
     mimeType: attachment.mimeType,
     size: attachment.size
   }));
-  runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
-    attachments: sessionAttachments,
-    contextBacked: true,
-    retention: turnRetention
-  });
+  if (!resumePlanId) {
+    runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
+      attachments: sessionAttachments,
+      contextBacked: true,
+      retention: turnRetention
+    });
+  }
 
   request.signal.addEventListener(
     "abort",
@@ -184,16 +196,26 @@ export const POST: RequestHandler = async ({ request }) => {
   const durableBotId = resolveWebDurableBotId(profileId, runtime.channelManagers);
   let durable;
   try {
-    durable = activateDurableExecution({
-      message: inboundText,
-      mode: body.durableMode,
-      ownerId: "owner",
-      botId: durableBotId,
-      sourceChannel: "web",
-      sourceChatId: runnerChatId,
-      sourceUiSessionId: conversation.id,
-      sourceProjectId: project?.id
-    });
+    durable = acceptedPlan
+      ? activateAcceptedPlan({
+          plan: acceptedPlan,
+          ownerId: "owner",
+          botId: durableBotId,
+          sourceChannel: "web",
+          sourceChatId: runnerChatId,
+          sourceUiSessionId: conversation.id,
+          sourceProjectId: project?.id
+        })
+      : activateDurableExecution({
+          message: inboundText,
+          mode: body.durableMode,
+          ownerId: "owner",
+          botId: durableBotId,
+          sourceChannel: "web",
+          sourceChatId: runnerChatId,
+          sourceUiSessionId: conversation.id,
+          sourceProjectId: project?.id
+        });
   } catch (error) {
     if (error instanceof DurableExecutionQuotaError) {
       const stream = new ReadableStream<Uint8Array>({
@@ -223,6 +245,13 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error;
   }
   if (durable) {
+    if (acceptedPlan) {
+      runtime.sessions.updateConversationPlan(conversation.id, acceptedPlan.id, (plan) => ({
+        ...plan,
+        status: "executing",
+        durableExecutionId: durable.item.execution.id
+      }));
+    }
     const response = formatDurableActivationAcknowledgement(
       durable.item,
       isChineseLocale(runtime.getSettings().locale)
@@ -262,6 +291,7 @@ export const POST: RequestHandler = async ({ request }) => {
         const diagnostics: string[] = [];
         const responseAttachments: ConversationAttachment[] = [];
         const activityCollector = new ConversationActivityCollector();
+        let planProposal: ConversationPlan | undefined;
         // Guards the transcript against a double assistant message: the catch
         // block's partial-persistence must not fire once the success path has
         // already appended.
@@ -358,6 +388,11 @@ export const POST: RequestHandler = async ({ request }) => {
                 writeEvent(controller, encoder, "runner_event", { diagnostic: diagnostic ?? "", activity: undefined, preflight: event });
                 return;
               }
+              if (event.type === "plan_proposal") {
+                planProposal = event.plan;
+                writeEvent(controller, encoder, "plan_proposal", event.plan);
+                return;
+              }
               if (event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "subagent_execution") {
                 const activity = activityCollector.record(event);
                 writeEvent(controller, encoder, "runner_event", {
@@ -405,6 +440,7 @@ export const POST: RequestHandler = async ({ request }) => {
             runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
               attachments: responseAttachments,
               activities: activityCollector.finalSnapshot(),
+              plan: planProposal,
               model: responseModel || undefined,
               contextBacked: true,
               sourceEntryId: result.assistantSourceEntryId,
@@ -414,7 +450,7 @@ export const POST: RequestHandler = async ({ request }) => {
           }
           writeEvent(controller, encoder, "done", {
             ok: true,
-            response: assistantText,
+            response: planProposal ? "" : assistantText,
             conversationId: conversation.id,
             profileId,
             stopReason: result.stopReason,

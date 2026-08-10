@@ -10,6 +10,7 @@ import "@phosphor-icons/web/bold";
 import "@phosphor-icons/web/fill";
 import "diff2html/bundles/css/diff2html.min.css";
 import "./styles.css";
+import "katex/dist/katex.min.css";
 
 mount(App, {
   target: document.getElementById("app")!

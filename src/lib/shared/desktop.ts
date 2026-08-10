@@ -862,6 +862,9 @@ export interface DesktopConversationMessage {
   errorMessage?: string;
   attachments?: DesktopMessageAttachment[];
   activities?: DesktopConversationActivity[];
+  steps?: DesktopConversationStep[];
+  usage?: DesktopConversationTokenUsage;
+  plan?: DesktopConversationPlan;
   memoryTrace?: DesktopMessageMemoryTraceMeta;
 }
 
@@ -931,6 +934,37 @@ export interface DesktopConversationActivity {
   paths?: string[];
   /** True when the tool wrote to those paths rather than reading them. */
   mutates?: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  exitCode?: number;
+  lineCount?: number;
+  tokenUsage?: number;
+}
+
+export interface DesktopConversationTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+export type DesktopConversationStep =
+  | { id: string; kind: "text"; content: string }
+  | { id: string; kind: "thinking"; content: string }
+  | { id: string; kind: "activity"; activity: DesktopConversationActivity }
+  | { id: string; kind: "plan"; plan: DesktopConversationPlan };
+
+export interface DesktopConversationPlan {
+  id: string;
+  title: string;
+  summary: string;
+  steps: Array<{ id: string; text: string; status: "pending" | "in_progress" | "completed" | "blocked" }>;
+  status: "proposed" | "accepted" | "rejected" | "executing" | "completed" | "blocked";
+  recommendedMode: "manual" | "accept_edits";
+  artifactPath: string;
+  durableExecutionId?: string;
 }
 
 export interface DesktopSessionDetail extends DesktopSessionSummary {
@@ -946,6 +980,28 @@ export interface DesktopSessionModelResponse {
 export interface DesktopSessionModelUpdateRequest {
   conversationId: string;
   modelKey: string;
+}
+
+export interface DesktopSessionPermissionResponse {
+  ok: true;
+  mode: "plan" | "manual" | "accept_edits" | "auto";
+}
+
+export interface DesktopSessionPermissionUpdateRequest {
+  profileId: string;
+  conversationId: string;
+  mode: "plan" | "manual" | "accept_edits" | "auto";
+}
+
+export interface DesktopPlanDecisionRequest {
+  profileId: string;
+  conversationId: string;
+  planId: string;
+  decision: "accept" | "reject" | "modify";
+  mode?: "manual" | "accept_edits";
+  title?: string;
+  summary?: string;
+  steps?: string[];
 }
 
 export interface DesktopSessionFile {
@@ -1019,6 +1075,11 @@ export interface DesktopApprovalPrompt {
   displayName?: string;
   owner?: DesktopApprovalOwner;
   options: DesktopApprovalOption[];
+  payload?: {
+    path?: string;
+    diff?: string;
+    parameters?: Record<string, unknown>;
+  };
 }
 
 /** Outcome the server reports back when a pending approval is resolved. */
@@ -2081,6 +2142,8 @@ export interface DesktopExternalTranscriptMessage {
   createdAt: string;
   attachments?: { original: string; local?: string; mediaType: DesktopFileMediaType; mimeType?: string; size?: number }[];
   activities?: DesktopConversationActivity[];
+  steps?: DesktopConversationStep[];
+  usage?: DesktopConversationTokenUsage;
 }
 
 export interface DesktopExternalTranscript {

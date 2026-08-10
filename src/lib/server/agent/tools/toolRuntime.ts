@@ -13,6 +13,7 @@ import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import type { HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
 import { BrokerApprovalService, type ApprovalService } from "$lib/server/approval/approvalService.js";
 import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 
 /**
  * Build the Host-Bash-shaped approval record the ApprovalBroker path reuses to
@@ -45,6 +46,7 @@ export function buildBrokerApprovalRecord(input: {
     status: input.status,
     permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
     pendingAction: input.pendingAction,
+    payload: input.request.action.payload,
     requestedAt: input.request.createdAt
   };
 }
@@ -437,6 +439,14 @@ export function createDefaultApprovalRequest(
   const path = typeof params.file_path === "string"
     ? params.file_path
     : typeof params.path === "string" ? params.path : undefined;
+  const oldText = typeof params.oldText === "string" ? params.oldText : undefined;
+  const newText = typeof params.newText === "string" ? params.newText : undefined;
+  const content = typeof params.content === "string" ? params.content : undefined;
+  const diff = oldText != null && newText != null
+    ? generateDiffString(oldText, newText, 4).diff
+    : content != null
+      ? `--- /dev/null\n+++ ${path ?? "new file"}\n@@ -0,0 +1,${content.split(/\r?\n/).length} @@\n${content.split(/\r?\n/).map((line) => `+${line}`).join("\n")}`
+      : undefined;
   return {
     id: `${ctx.runId}-${tool.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     runId: ctx.runId,
@@ -449,7 +459,14 @@ export function createDefaultApprovalRequest(
       type: tool.source === "mcp" ? "mcp_tool" : tool.source === "host" ? "bash" : "file_write",
       toolName: tool.id,
       command,
-      path
+      path,
+      payload: {
+        ...(path ? { path } : {}),
+        ...(diff ? { diff: diff.slice(0, 40_000) } : {}),
+        parameters: Object.fromEntries(Object.entries(params)
+          .filter(([key]) => !["content", "oldText", "newText"].includes(key))
+          .map(([key, value]) => [key, typeof value === "string" ? value.slice(0, 2_000) : value]))
+      }
     },
     reason: `Tool ${tool.name} is marked ${tool.risk} risk.`,
     status: "pending",

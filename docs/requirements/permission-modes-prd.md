@@ -2,7 +2,7 @@
 
 > Session-scoped permission modes that govern **whether to ask the user**, decoupled from the sandbox, which governs **what a call can touch**.
 >
-> - **Status**: 切片 0、1、3 已交付（2026-08-10）。切片 2（Plan 模式）未开始——闸门已能 `deny`，但工具集尚未在暴露给模型前收窄，因此 Plan 不应开放给用户。
+> - **Status**: 切片 0–4 已交付（2026-08-10）。Plan 在工具暴露前收窄为只读工具 + `exitPlan`，计划落为 Session artifact，并通过共享 DecisionCard 修改/拒绝/接受；接受后转换为同一 Session 关联的多步骤 Durable Execution，逐步执行、留证和验收。权限模式已从模型菜单独立，位于附件按钮右侧。
 > - **PRD index entry**: `prd.md` §3.64 (2026-08-09)
 > - **Revision**: v1 (2026-08-09) — initial version from product-owner discussion. Two decisions fixed by the product owner up front: **Bypass 不做**（不提供无条件放行档），**默认档为 Accept edits**。
 > - **Implementer note**: read CLAUDE.md "Recurring Pitfalls" before starting — #2（Svelte 5 reactivity，per-session 选择被全局刷新重置是同一个 bug 家族）、#7（共享模块不许 fork）、#11（settings round-trip）、#14a（guard 让 turn 收尾，不是杀掉它）、#15（沙箱 fail closed）、#16c（pill 不能加 container-type）、#21d（第三方代码的进程故障域）、#23（automation lease 不能被卡住）、#32（通道交互回执的两阶段投递）全部直接命中这个改动面。
@@ -150,13 +150,13 @@ CLAUDE.md 已经记录过这条坑："统一审批卡的 list 与 resolve 必须
 Plan 是四档里最贵的一档，因为它不是"每次 deny"：
 
 1. **工具集必须在暴露给模型之前收窄**，只保留 read-effect 工具 + 一个 `exitPlan` 工具。deny-after-call 会让弱模型反复撞墙耗光预算 —— 这正是 pitfall #14(a) 的教训："a guard winds a turn down; it does not kill it"。
-2. **`exitPlan` 产出一张确认卡**（新的 `RunDetailEntry` 类型 + 复用 `ApprovalCard.svelte` 的形状），用户在卡上选择退出后进入哪一档（Accept edits / Manual），确认后**在同一 session 继续跑**，不新开会话。
+2. **`exitPlan` 产出一张确认卡**，用户在卡上选择退出后进入哪一档（Accept edits / Manual）；确认后把已审阅步骤转换为一个与原 Session 双向关联的 Durable Execution，**每个 attempt 只执行当前步骤**，不新开用户会话。
 3. **计划产物要落地**，不能只是 transcript 里的一段文本。落到 session workspace 的 Markdown 文件，便于 Artifact Panel 打开与后续 `@` 引用。
 4. Plan 是 session-scoped，持续到用户显式退出，不是 turn-scoped。
 
 ### 8. 前端
 
-- 仿 `ComposerModelMenu` 做 `ComposerModeMenu`，挂 `ChatInputArea.svelte:265` 的 `composer-selectors` slot。**不新建第二套下拉实现。**
+- 权限模式是独立于模型/Thinking 的输入控制，固定放在附件按钮右侧。使用独立组件承载语义和键盘交互，但复用现有 composer popover/menu 的共享样式，不复制一套视觉系统。
 - 快捷键循环四档。
 - pitfall #2 推论：per-session mode **绝不能被全局设置刷新重置成默认** —— 这与 model 选择漂移是同一个 bug 家族，必须有结构守卫。
 - pitfall #16(c)：mode pill 不能加 `container-type: inline-size`，否则文字静默消失。
@@ -189,9 +189,10 @@ Plan 是四档里最贵的一档，因为它不是"每次 deny"：
 | 切片 | 内容 | 依赖 |
 |---|---|---|
 | **0（前置）** ✅ | `bashPolicy` 两轴解耦；`write` / `edit` 接入 `toolSandbox.filesystem` 策略；显式声明"允许写的根" | 无 |
-| **1** ✅ | effect 维度；`PermissionMode` 类型 + 通用 override resolver（沙箱已改为其调用方）；`decidePermission` 纯函数；权限模式作为 `ComposerModelMenu` 的第三页（不新建下拉）；`persistent` scope 落地（`manage` 除外）；automation 挂起而非阻塞 | 切片 0 |
-| **2** | **Plan 模式**：工具集收窄、`exitPlan` 确认卡、计划产物落地、退出后同 session 继续 | 切片 1 |
+| **1** ✅ | effect 维度；`PermissionMode` 类型 + 通用 override resolver（沙箱已改为其调用方）；`decidePermission` 纯函数；`persistent` scope 落地（`manage` 除外）；automation 挂起而非阻塞 | 切片 0 |
+| **2** ✅ | **Plan 模式**：工具集收窄、`exitPlan` 确认卡、计划产物落地、退出后同 session 继续 | 切片 1 |
 | **3** ✅ | 实际范围与原计划不同：合表与桥接删除在 2026-06 已完成（见收敛计划 §(a)(b)），统一卡片的 list/resolve 也早已覆盖两套后端并按 session 校验。本切片补的是两处真实缺口：**bash 此前完全绕过模式闸门**（Manual 对 bash 无效），以及 **`persistent` 授权链路从未被端到端断言** | 切片 1 |
+| **4** ✅ | 权限模式从模型选择器拆为附件右侧独立控件；接受的 Plan 幂等转换为多步骤 Durable Execution，逐步执行、留证、投影与最终验收 | 切片 2 + Durable Execution |
 
 切片 1 明确禁止新增第三套审批 UI；HostBash 的收敛可以后置到切片 3，但切片 1 的新审批必须全部走 `ApprovalService`。
 
@@ -208,11 +209,12 @@ Plan 是四档里最贵的一档，因为它不是"每次 deny"：
 5. **Override 解析链单一实现**：断言 sandbox 与 mode 共用同一个 resolver，且五级优先级一致。
 6. **Plan 是收窄不是拒绝**：断言 Plan 模式下 Provider 实际收到的 tool list **不包含** `write` / `edit` / `bash`，而不是断言 deny 的次数（pitfall #14a）。
 7. **Automation 不卡 lease**：断言 automation session 的受限调用不会让 execution lease 停在 `running`（pitfall #23）。
-8. **结构守卫（`apps/desktop/src/chat-ui.test.mjs`）**：mode pill 无 `container-type`；per-session mode 不被全局 settings 刷新重置；mode 菜单复用 `ComposerModelMenu` 的实现而非 fork。
+8. **结构守卫（`apps/desktop/src/chat-ui.test.mjs`）**：mode pill 无 `container-type`；per-session mode 不被全局 settings 刷新重置；权限控件紧邻 Attach，模型菜单不再拥有 permission page，popover 视觉样式保持共享。
+9. **Plan → Durable**：相同 Session/Plan 重试只得到一个 Durable id；创建后入队前中断可恢复；N 个计划步骤需要 N 个 bounded attempts，步骤完成后有 run-detail evidence，最后才进入 verifier。
 
 ### 手工验收（pitfall #10 冷启动走查）
 
-重启服务后：首次打开会话即可看到当前模式；切换模式后切走再切回，模式保持；关闭沙箱 + Manual 下执行一条宿主命令，卡片出现、批准后命令真的执行、结果回到 transcript；Plan 模式下要求模型改文件，模型给出计划而不是报"工具被拒绝"；ExitPlan 确认后在同一会话继续并完成改动。
+重启服务后：首次打开会话即可在附件右侧看到当前模式；切换模式后切走再切回，模式保持；关闭沙箱 + Manual 下执行一条宿主命令，卡片出现、批准后命令真的执行、结果回到 transcript；Plan 模式下要求模型改文件，模型给出计划而不是报"工具被拒绝"；接受 Plan 后在同一会话看到 Durable 任务逐步推进，重启后从第一个安全未完成步骤继续。
 
 ### 验证口径（pitfall #9）
 

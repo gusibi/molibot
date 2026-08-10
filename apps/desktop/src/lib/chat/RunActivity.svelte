@@ -3,7 +3,8 @@
   import { html as renderDiffHtml } from "diff2html";
   import type { Translation } from "../i18n";
   import CodeViewer from "../projects/CodeViewer.svelte";
-  import { activityFileSummary, activityHeadline, classifyActivityBody } from "./activityView";
+  import { activityFileSummary, activityHeadline, activityPreview, classifyActivityBody, formatActivityMetadata } from "./activityView";
+  import { loadActivityExpansion, saveActivityExpansion } from "./activityExpansionStore";
 
   export let activities: DesktopConversationActivity[];
   export let copy: Translation;
@@ -13,6 +14,7 @@
    * plain conversation (pitfall #7). Omitted, the chips render as inert labels.
    */
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
+  export let stateKey = "";
 
   $: hasRunning = activities.some((activity) => activity.state === "running");
   $: hasError = activities.some((activity) => activity.state === "error");
@@ -24,7 +26,27 @@
   // of the resulting DOM. Building all of that behind a closed `<details>` cost
   // a visible chunk of every session switch for markup nobody could see, so the
   // rows are mounted on first open instead.
+  let restoredKey = "";
   let opened = false;
+  let expandedBodies = new Set<string>();
+  $: if (stateKey && stateKey !== restoredKey) {
+    restoredKey = stateKey;
+    const restored = loadActivityExpansion(stateKey);
+    opened = restored.opened;
+    expandedBodies = restored.bodies;
+  }
+
+  function toggleBody(key: string): void {
+    const next = new Set(expandedBodies);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    expandedBodies = next;
+    saveActivityExpansion(stateKey, { opened, bodies: expandedBodies });
+  }
+
+  function persistOpen(): void {
+    saveActivityExpansion(stateKey, { opened, bodies: expandedBodies });
+  }
 
   function icon(state: DesktopConversationActivity["state"]): string {
     if (state === "running") return "circle-notch";
@@ -64,7 +86,7 @@
 </script>
 
 <div class="run-activity-block">
-  <details class="run-activity" bind:open={opened}>
+  <details class="run-activity" bind:open={opened} ontoggle={persistOpen}>
     <summary class="run-activity-head">
       <i class={`ph${hasRunning ? "" : "-fill"} ph-${hasRunning ? "circle-notch" : hasError ? "warning-circle" : "check-circle"}`} class:spin={hasRunning} aria-hidden="true"></i>
       <span>{hasRunning ? copy.runProgress : hasError ? copy.runFailed : copy.runCompleted}</span>
@@ -85,9 +107,13 @@
       {#if opened}
         {#each activities as activity (activity.key)}
           {@const body = classifyActivityBody(activity)}
+          {@const metadata = formatActivityMetadata(activity)}
+          {@const rawBodyContent = body?.kind === "diff" ? (body.diff ?? "") : (body?.content ?? "")}
+          {@const preview = activityPreview(rawBodyContent)}
+          {@const bodyContent = expandedBodies.has(activity.key) ? rawBodyContent : preview.content}
           {#if body}
             <details class="run-activity-item" data-state={activity.state} data-body={body.kind} open={activity.state === "error"}>
-              <summary><i class={`ph${activity.state === "running" ? "" : "-fill"} ph-${icon(activity.state)}`} class:spin={activity.state === "running"} aria-hidden="true"></i><span>{activity.label}</span><i class="ph ph-caret-right run-activity-item-caret" aria-hidden="true"></i></summary>
+              <summary><i class={`ph${activity.state === "running" ? "" : "-fill"} ph-${icon(activity.state)}`} class:spin={activity.state === "running"} aria-hidden="true"></i><span>{activity.label}{#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}</span><i class="ph ph-caret-right run-activity-item-caret" aria-hidden="true"></i></summary>
               <!--
                 One renderer per payload shape, all of them components the
                 Artifact Panel already uses. A single `<pre>` for every tool is
@@ -96,7 +122,7 @@
               -->
               <div class="run-activity-body">
                 {#if body.kind === "diff" && body.diff}
-                  <div class="project-diff-preview run-activity-diff">{@html diffHtml(body.diff)}</div>
+                  <div class="project-diff-preview run-activity-diff">{@html diffHtml(bodyContent)}</div>
                 {:else if body.kind === "code" || body.kind === "json"}
                   <!--
                     JSON goes through `CodeViewer` too, not `JsonTree`: the
@@ -109,15 +135,23 @@
                   -->
                   <div class="run-activity-viewer">
                     <CodeViewer
-                      content={body.content}
+                      content={bodyContent}
                       filePath={body.kind === "json" ? `${activity.key}.json` : (body.filePath ?? "")}
                       {copy}
                     />
                   </div>
                 {:else if body.kind === "terminal"}
-                  <pre class="run-activity-terminal">{body.content}</pre>
+                  <pre class="run-activity-terminal">{bodyContent}</pre>
                 {:else}
-                  <pre>{body.content}</pre>
+                  <pre>{bodyContent}</pre>
+                {/if}
+                {#if preview.truncated}
+                  <div class="run-activity-more">
+                    {#if activity.paths?.[0] && onOpenPath}
+                      <button type="button" onclick={() => onOpenPath?.(activity.paths![0], activity.mutates === true)}>{copy.runActivityOpenFile}</button>
+                    {/if}
+                    <button type="button" aria-expanded={expandedBodies.has(activity.key)} onclick={() => toggleBody(activity.key)}>{expandedBodies.has(activity.key) ? copy.collapseMessage : copy.expandMessage}</button>
+                  </div>
                 {/if}
               </div>
             </details>

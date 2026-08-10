@@ -5,21 +5,44 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.68 Bounded message content overflow (2026-08-10)
+
+- **Priority / Status**: P1 / Delivered (2026-08-10).
+- **Decision**: the shared Desktop Chat/Project Chat transcript is vertically scrollable only. Prose and long paths wrap inside the 720px reading column; layout-preserving structures own a local horizontal scroller capped to their message width. Persisted explicit Skill references are semantic selectors, not prose: they render with the Skill invocation treatment and hide the authoritative local path from the visible message.
+- **Acceptance**: opening the Project/File Inspector cannot make `.messages` wider than its client width; long prose wraps; tables, code, rendered math, diagrams, and diffs remain readable through their own horizontal overflow; `[$skill](.../SKILL.md)` shows a Skill card plus the remaining user request without displaying its path; browser layout measurement, pure classifier tests, and structural guards cover the contract.
+
+---
+## 3.67 Web Session sidebar shortcut (2026-08-10)
+
+- **Priority / Status**: P2 / Delivered (2026-08-10).
+- **Decision**: expose a compact new-Session action only on the Desktop sidebar's Web channel row. It calls the exact same `newConversation()` path as the primary “New chat” destination; Telegram, Feishu, QQ, and Weixin do not receive this action.
+- **Acceptance**: the plus is an independent accessible button immediately before the disclosure arrow, follows Project's hidden-until-hover/focus interaction, does not toggle the Web accordion, preserves the row's compact layout in both themes and locales, and passes Desktop structural guards, `svelte-check`, and production build.
+
+---
+## 3.66 Completed-turn process disclosure (2026-08-10)
+
+- **Priority / Status**: P2 / Delivered (2026-08-10).
+- **Problem**: ordered Chat steps preserved the real run sequence, but completed turns left every reasoning and tool disclosure visible as separate rows, consuming most of the transcript before the final answer.
+- **Decision**: after a turn commits, fold all reasoning, tool activity, and pre-tool narration before the final response into one lazy, default-closed process disclosure. Keep live runs expanded; force failed or aborted processes open; never hide a Plan decision card.
+- **Acceptance**: the summary reports step count and duration when available; expanding restores the ordered detail; narrow width has no horizontal overflow; both locales, themes, structural guards, `svelte-check`, and production build pass.
+
+---
 ## 3.65 Automatic Durable Execution 基础主链路（2026-08-10）
 
 - **Priority / Status**: P1 / Partially delivered. Detailed scope: [Automatic Durable Execution PRD](docs/requirements/automatic-durable-execution-prd.md).
-- **Delivered**: shared Agent-layer Durable Execution aggregate with dedicated `durable-execution.sqlite`; deterministic activation and per-request override; versioned plan/step/criterion/attempt/decision/evidence/side-effect records; CAS and leases; watched-event JSON/runtime internal continuation; fresh hidden automation attempts; intent/receipt callbacks around non-pure tools; verifier-gated terminal states; cumulative token/attempt/lifetime guards; unfinished-task quota; creation-order queue position; shared one-shot catch-up handling with `recovery_required` on missed continuations; tiered structured model preflight with lazy promotion, executed-prefix absorption, and pre-handler termination; fail-closed queryable recovery; bounded, owner-scoped and explicitly untrusted evidence reads exposed to Durable attempts; persisted approvals with repeat counts and source-channel notifications; shared `/durable` short-handle actions; virtual Web profile routing to an active manager; Desktop transcript card, shared task inspector, sidebar projection, and terminal/waiting feedback.
+- **Delivered**: shared Agent-layer Durable Execution aggregate with dedicated `durable-execution.sqlite`; deterministic activation and per-request override; accepted Session Plan → deterministic multi-step Durable conversion; one-step-per-attempt continuation with run-detail evidence and Plan-card projection; versioned plan/step/criterion/attempt/decision/evidence/side-effect records; CAS and leases; watched-event JSON/runtime internal continuation; fresh hidden automation attempts; intent/receipt callbacks around non-pure tools; verifier-gated terminal states; cumulative token/attempt/lifetime guards; unfinished-task quota; creation-order queue position; shared one-shot catch-up handling with `recovery_required` on missed continuations; tiered structured model preflight with lazy promotion, executed-prefix absorption, and pre-handler termination; fail-closed queryable recovery; bounded, owner-scoped and explicitly untrusted evidence reads exposed to Durable attempts; persisted approvals with repeat counts and source-channel notifications; shared `/durable` short-handle actions; virtual Web profile routing to an active manager; Desktop transcript card, shared task inspector, sidebar projection, and terminal/waiting feedback.
 - **Not yet release-complete**: the local OpenAI-compatible-provider Chat API + same-database restart seam now passes, but the complete cold-start/cross-channel acceptance matrix and equivalent external-provider live acceptance remain. Temporary-database, focused runner and channel tests cover the offline seam, authorization, evidence bounds, no-probe recovery and approval consumption; they do not replace those remaining gates.
 - **Verification maintenance**: runner helper fixtures are typed against the canonical `RuntimeSettings` shape, keeping provider capability literals checked by TypeScript without expanding the product runtime surface.
 
 ---
 ## 3.64 Session permission modes (Plan / Manual / Accept edits / Auto) (2026-08-09)
 
-- **Priority / Status**: P1 / Proposed (2026-08-09). Not started.
+- **Priority / Status**: P1 / Delivered (2026-08-10). Slices 0–3 complete.
 - **Full PRD**: [Permission Modes PRD](docs/requirements/permission-modes-prd.md).
 - **Problem**: "要不要问用户" 和 "跑在哪个盒子里" today collapse into one boolean — `bashPolicy.ts:62` returns `allow` whenever the sandbox is off, `write`/`edit` are never gated at all, and `toolSandbox.filesystem.denyWrite` has no effect on the file tools (they use `createPathGuard`, not the sandbox config). There is no read-only planning state.
 - **Decision**: add a session-scoped permission mode as a second axis, orthogonal to the sandbox. Four modes, strictly monotone: `Plan ⊂ Manual ⊂ Accept edits (default) ⊂ Auto`. **Bypass is explicitly not built** (product decision) — its use case is served by Auto plus an owner-scoped persistent grant. Tool classification gains an `effect` dimension (`read | write | execute | network | third_party | manage`); `risk` keeps only display/audit duty. `manage` (extension / Mini App install) asks in every mode, including Auto.
 - **Acceptance**: a pure `decidePermission(mode, effect, containment)` with a full 4×6×containment matrix test; sandbox-off + Manual yields `ask`, never `allow`; `denyWrite` binds `write`/`edit` and `bash` identically; Plan is proven by asserting the tool list handed to the Provider excludes `write`/`edit`/`bash` (never by counting denials, pitfall #14a); automation leases never stall in `running`; settings round-trip and the desktop structural guards pass.
+- **Delivered Plan slice**: pre-inference tool narrowing, structured `exitPlan`, artifact-backed editable checklist, shared DecisionCard, and same-Session Durable continuation without persisting a transient control instruction as an ordinary user message. The permission selector is independent from model selection and sits immediately after Attach in the composer.
 - **Open**: automation's default behaviour (suspend-and-resume vs. fixed Auto with hard failure); whether Manual is exposed on messaging channels; whether third-party MCP `readOnlyHint` may relax a call.
 
 ---

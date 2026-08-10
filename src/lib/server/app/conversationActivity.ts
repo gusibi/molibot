@@ -8,6 +8,8 @@ export class ConversationActivityCollector {
   private activities: ConversationActivity[] = [];
   private sequence = 0;
 
+  constructor(private readonly now: () => number = Date.now) {}
+
   record(event: RunnerUiEvent): ConversationActivity | undefined {
     if (event.type === "tool_execution_start") {
       const activity: ConversationActivity = {
@@ -20,6 +22,7 @@ export class ConversationActivityCollector {
         tool: event.toolName,
         label: event.label || event.displayName || event.toolName,
         state: "running",
+        startedAt: event.startedAt ?? new Date(this.now()).toISOString(),
         // Only present when the tool actually takes a file path, so activities
         // for every other tool serialize exactly as they did before.
         ...(event.paths?.length ? { paths: [...event.paths], mutates: event.mutates === true } : {})
@@ -48,6 +51,7 @@ export class ConversationActivityCollector {
     // start is the only place the paths exist — carry it across the merge.
     const started = index >= 0 ? this.activities[index] : undefined;
     const diff = event.diff?.trim();
+    const finishedAt = event.finishedAt ?? new Date(this.now()).toISOString();
     const activity: ConversationActivity = {
       key: started?.key ?? `${event.toolName}-${++this.sequence}`,
       kind: "tool",
@@ -55,6 +59,14 @@ export class ConversationActivityCollector {
       label: event.displayName || event.toolName,
       state: event.isError ? "error" : "success",
       summary: summary ? summary.slice(0, MAX_SUMMARY_LENGTH) : undefined,
+      startedAt: started?.startedAt,
+      finishedAt,
+      ...(started?.startedAt ? {
+        durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(started.startedAt))
+      } : {}),
+      ...(Number.isInteger(event.exitCode) ? { exitCode: event.exitCode } : {}),
+      ...(Number.isInteger(event.lineCount) ? { lineCount: event.lineCount } : summary ? { lineCount: summary.split(/\r?\n/).length } : {}),
+      ...(Number.isFinite(event.tokenUsage) ? { tokenUsage: event.tokenUsage } : {}),
       ...(diff ? { diff: diff.slice(0, MAX_DIFF_LENGTH) } : {}),
       ...(started?.paths?.length ? { paths: started.paths, mutates: started.mutates === true } : {})
     };

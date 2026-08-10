@@ -1,6 +1,7 @@
 <script lang="ts">
   import { afterUpdate } from "svelte";
   import type { DesktopActivityEntry } from "../api";
+  import type { DesktopConversationStep } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./transcript";
   import ConversationLiveView from "./ConversationLiveView.svelte";
@@ -9,6 +10,7 @@
   import { PROMPT_NAVIGATOR_MIN_TURNS } from "./conversationNavigation";
   import { resumeStickToBottom, stickToBottom } from "./stickToBottom";
   import { settleEntrances } from "./settleEntrances";
+  import MarkdownArtifactOverlay from "./MarkdownArtifactOverlay.svelte";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -22,6 +24,7 @@
   export let streamingThinking = "";
   export let activity = "";
   export let activities: DesktopActivityEntry[] = [];
+  export let liveSteps: DesktopConversationStep[] = [];
   export let emptyTitle: string;
   export let emptyHint: string;
   export let searchMatchIds: string[] = [];
@@ -40,10 +43,19 @@
   export let attentionLabel = "";
   export let attentionAction = "";
   let appliedScrollFollowKey = "";
+  const PAGE_SIZE = 80;
+  let visibleCount = PAGE_SIZE;
+  let paginationSession = "";
 
   $: userTurnCount = messages.filter((message) => message.role === "user" && Boolean(message.id?.trim())).length;
   $: showPromptNavigator = userTurnCount >= PROMPT_NAVIGATOR_MIN_TURNS;
   $: scrollFollowKey = `${stickKey}\u0000${userTurnCount}`;
+  $: if (stickKey !== paginationSession) {
+    paginationSession = stickKey;
+    visibleCount = PAGE_SIZE;
+  }
+  $: hiddenCount = Math.max(0, messages.length - visibleCount);
+  $: visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
 
   afterUpdate(() => {
     if (!messagesElement || scrollFollowKey === appliedScrollFollowKey) return;
@@ -59,8 +71,11 @@
         <i class="ph ph-spinner-gap" aria-hidden="true"></i>{loadingLabel}
       </div>
     {:else}
+      {#if hiddenCount > 0}
+        <button class="load-earlier-messages" type="button" onclick={() => (visibleCount += PAGE_SIZE)}>{copy.loadEarlierMessages.replace("{count}", String(Math.min(PAGE_SIZE, hiddenCount)))}</button>
+      {/if}
       <ConversationLiveView
-        {messages}
+        messages={visibleMessages}
         {copy}
         {formatTime}
         {assistantName}
@@ -69,6 +84,7 @@
         {streamingThinking}
         {activity}
         {activities}
+        {liveSteps}
         {emptyTitle}
         {emptyHint}
         {searchMatchIds}
@@ -82,7 +98,7 @@
     {/if}
   </div>
   {#if !loading}
-    <ConversationPromptNavigator {messages} {copy} {formatTime} scrollElement={messagesElement} />
+    <ConversationPromptNavigator messages={visibleMessages} {copy} {formatTime} scrollElement={messagesElement} />
     <TranscriptDock
       scrollElement={messagesElement ?? null}
       label={copy.scrollToLatest}
@@ -92,3 +108,4 @@
     />
   {/if}
 </div>
+<MarkdownArtifactOverlay {copy} />

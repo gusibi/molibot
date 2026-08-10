@@ -12,6 +12,7 @@
   import { composerSuggestionsStore, ensureComposerSuggestions } from "./composerSuggestions.svelte";
   import ChatComposerShell from "./ChatComposerShell.svelte";
   import ComposerModelMenu from "./ComposerModelMenu.svelte";
+  import ComposerPermissionMenu from "./ComposerPermissionMenu.svelte";
   import PendingFilesBar from "./PendingFilesBar.svelte";
   import QueuedMessagesBar from "./QueuedMessagesBar.svelte";
   import RecordingBar from "./RecordingBar.svelte";
@@ -265,6 +266,15 @@
           onclick={onPickFiles}
         ><i class="ph ph-paperclip" aria-hidden="true"></i></button>
       {/if}
+      {#if onChangePermissionMode && permissionModeOptions.length > 1}
+        <ComposerPermissionMenu
+          {copy}
+          value={permissionMode}
+          options={permissionModeOptions}
+          disabled={sending}
+          onChange={onChangePermissionMode}
+        />
+      {/if}
     </div>
     <div class="composer-selectors" slot="selectors">
       <ComposerModelMenu
@@ -280,9 +290,6 @@
         disabled={sending || modelOptions.length === 0}
         {onChangeModel}
         {onChangeThinking}
-        {permissionMode}
-        {permissionModeOptions}
-        {onChangePermissionMode}
       />
     </div>
     <svelte:fragment slot="action">

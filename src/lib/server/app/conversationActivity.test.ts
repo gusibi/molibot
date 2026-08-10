@@ -3,13 +3,15 @@ import test from "node:test";
 import { ConversationActivityCollector } from "./conversationActivity";
 
 test("merges a tool start and end into one persisted activity", () => {
-  const collector = new ConversationActivityCollector();
+  let now = Date.parse("2026-08-10T10:00:00.000Z");
+  const collector = new ConversationActivityCollector(() => now);
   const started = collector.record({
     type: "tool_execution_start",
     toolName: "read_file",
     displayName: "Read file",
     label: "Reading settings"
   });
+  now += 2_300;
   const ended = collector.record({
     type: "tool_execution_end",
     toolName: "read_file",
@@ -27,7 +29,11 @@ test("merges a tool start and end into one persisted activity", () => {
     tool: "read_file",
     label: "Read file",
     state: "success",
-    summary: "Loaded 42 lines"
+    summary: "Loaded 42 lines",
+    startedAt: "2026-08-10T10:00:00.000Z",
+    finishedAt: "2026-08-10T10:00:02.300Z",
+    durationMs: 2_300,
+    lineCount: 1
   }]);
 });
 

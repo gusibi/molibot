@@ -31,6 +31,11 @@ export interface ApprovalRequest {
     path?: string;
     domain?: string;
     toolName?: string;
+    payload?: {
+      path?: string;
+      diff?: string;
+      parameters?: Record<string, unknown>;
+    };
   };
   reason: string;
   status: ApprovalStatus;

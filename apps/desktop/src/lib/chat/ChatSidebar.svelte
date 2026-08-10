@@ -100,7 +100,8 @@
     renamePlaceholder: copy.renamePlaceholder,
     deletePrompt: copy.deleteConversationPrompt,
     cancel: copy.cancelAction,
-    forkedConversation: copy.forkedConversation
+    forkedConversation: copy.forkedConversation,
+    newChat: copy.newChat
   });
 
   function trackStickySectionHeads(node: HTMLElement) {
@@ -185,6 +186,7 @@
             labels={accordionLabels}
             {formatTime}
             onToggle={() => onToggleChannel(channel.id)}
+            onNewSession={channel.id === "web" ? onNewConversation : null}
             onSelect={onSelectSession}
             onMore={() => onMoreChannel(channel.id)}
             onConfigure={onOpenSettings}

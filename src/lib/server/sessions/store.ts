@@ -669,7 +669,7 @@ export class SessionStore {
     conversationId: string,
     role: Role,
     content: string,
-    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; platformMessageId?: string; model?: string; contextBacked?: boolean; sourceEntryId?: string; retention?: TurnRetentionPolicy }
+    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; plan?: ConversationMessage["plan"]; usage?: ConversationMessage["usage"]; platformMessageId?: string; model?: string; contextBacked?: boolean; sourceEntryId?: string; retention?: TurnRetentionPolicy }
   ): ConversationMessage {
     const createdAt = new Date().toISOString();
     const message: ConversationMessage = {
@@ -682,6 +682,8 @@ export class SessionStore {
       platformMessageId: options?.platformMessageId,
       attachments: options?.attachments?.length ? options.attachments : undefined,
       activities: options?.activities?.length ? options.activities : undefined,
+      plan: options?.plan,
+      usage: options?.usage,
       retention: options?.retention
     };
 
@@ -710,6 +712,8 @@ export class SessionStore {
       platformMessageId: message.platformMessageId,
       attachments: message.attachments,
       activities: message.activities,
+      plan: message.plan,
+      usage: message.usage,
       retention: message.retention,
       contextBacked: options?.contextBacked === true,
       sourceEntryId: options?.sourceEntryId,
@@ -742,6 +746,23 @@ export class SessionStore {
     writeLegacySession(file);
     this.indexConversationMessage(file.conversation, message);
     return message;
+  }
+
+  updateConversationPlan(
+    conversationId: string,
+    planId: string,
+    update: (plan: NonNullable<ConversationMessage["plan"]>) => NonNullable<ConversationMessage["plan"]>
+  ): NonNullable<ConversationMessage["plan"]> | null {
+    const located = this.resolveSessionStorage(conversationId);
+    if (!located) return null;
+    const message = located.file.messageMetadata.find((item) => item.plan?.id === planId);
+    if (!message?.plan) return null;
+    message.plan = update(message.plan);
+    located.file.conversation.updatedAt = new Date().toISOString();
+    if (located.type === "web") writeWebSession(located.externalUserId, located.file);
+    else if (located.type === "project") writeProjectSession(located.projectId, located.file);
+    else writeLegacySession(located.file);
+    return message.plan;
   }
 
   renameConversation(

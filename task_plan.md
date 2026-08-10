@@ -1,3 +1,45 @@
+# Chat Transcript Optimization 执行计划（2026-08-10）
+
+## 目标
+
+逐条验证用户对 chat 渲染链路的完成度分析，并按依赖顺序完成所有仍存在的差距：时间序列数据模型、Plan/Decision 原语、结构化审批与队列、Markdown 能力、活动元数据与长内容交互、展开态持久化、长记录性能、turn 汇总与回答大纲；最后完成真实桌面冷路径和文档同步。
+
+## 当前阶段
+
+- [completed] 1. 现状、历史与设计约束核对
+  - 验证：逐条建立“已完成 / 未完成 / 分析已过时”的代码证据表；读取 `DESIGN.md`、相关 PRD、`CHANGELOG.md`/归档与 `CLAUDE.md` 前科。
+- [completed] 2. 数据契约与纵向时序模型
+  - 验证：真实 turn 能表达并按顺序渲染 text/thinking/tool/plan/decision step，旧的固定三段投影被直接移除，无兼容层。
+- [completed] 3. Decision/Plan/Approval 原语
+  - 验证：共享快捷键/焦点仲裁；Plan 可编辑、采纳/拒绝并随执行更新；审批支持结构化 diff/路径和多个 pending 项。
+- [completed] 4. 内容与活动呈现补齐
+  - 验证：Mermaid/KaTeX 使用共享 Markdown 管线；安全 HTML/SVG 有 artifact 出路；宽表可进入 Spreadsheet；活动含元数据、无嵌套滚动、展开态跨 live/final 保留。
+- [completed] 5. 长记录导航、性能与汇总
+  - 验证：长 transcript 有分页或虚拟化；turn 级耗时/工具/文件/token 汇总；回答 heading 可导航。
+- [completed] 6. 回归、冷启动与文档交付
+  - 验证：单测、UI guard、`svelte-check`、build、真实冷路径（重启→首次打开→切换 Session/页面→服务中断恢复）通过；同步 `features.md`、`prd.md`、`CHANGELOG.md` 与 README 导航。
+
+## 关键决策
+
+| 决策 | 原因 |
+|---|---|
+| 先核对再改，按模型→共享原语→呈现→性能推进 | 防止在旧 `activities[]` 形状上继续堆 UI 状态，减少返工 |
+| 现有 planning 文件内容保留在下方 | 之前 Durable Execution 任务仍有未完成验收记录，不能覆盖用户工作 |
+
+## 错误记录
+
+| 错误 | 尝试 | 解决 |
+|---|---:|---|
+| 当前根目录 planning 文件已被前一任务占用 | 1 | 在文件顶部新增本任务独立章节，保留旧任务完整记录 |
+| activity 既有深相等测试未包含新增元数据 | 1 | 改为固定时钟并更新期望，同时新增交错 step 回归 |
+| Svelte 不允许 `{@const}` 直接放在普通 div 下 | 1 | 把活动 preview 派生值提升为 `{#each}` 的直接子级 |
+| KaTeX CSS 被纯 Node 测试直接导入 | 1 | 将样式入口移到 Desktop `main.ts`，保持渲染模块可在 Node 中测试 |
+| 新 Plan CSS 使用了项目不存在的 token | 1 | 改用 DESIGN 已定义的语义 token，并由 CSS token guard 验证 |
+| SessionStore FTS 回归报 `bm25` context error | 2 | 单独重跑仍复现；判定为既有 Node SQLite FTS 环境问题，未改动搜索实现 |
+| 浏览器预览默认不连接本地服务 | 1 | 使用项目已有 `VITE_MOLIBOT_PREVIEW` + `MOLIBOT_DESKTOP_PREVIEW_TARGET` 接缝完成真实临时数据目录走查 |
+
+---
+
 # Automatic Durable Execution 执行计划
 
 ## 目标

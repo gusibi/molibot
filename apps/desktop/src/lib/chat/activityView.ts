@@ -128,6 +128,33 @@ export interface ActivityFileSummary {
   read: string[];
 }
 
+export interface ActivityPreview {
+  content: string;
+  truncated: boolean;
+  totalLines: number;
+}
+
+export function activityPreview(content: string, limit = 32): ActivityPreview {
+  const lines = content.split(/\r?\n/);
+  return {
+    content: lines.slice(0, Math.max(1, limit)).join("\n"),
+    truncated: lines.length > limit,
+    totalLines: lines.length
+  };
+}
+
+export function formatActivityMetadata(activity: DesktopConversationActivity): string[] {
+  const items: string[] = [];
+  if (Number.isFinite(activity.durationMs)) {
+    const ms = activity.durationMs ?? 0;
+    items.push(ms < 1_000 ? `${ms}ms` : `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`);
+  }
+  if (Number.isInteger(activity.lineCount)) items.push(`${activity.lineCount} lines`);
+  if (Number.isInteger(activity.exitCode)) items.push(`exit ${activity.exitCode}`);
+  if (Number.isFinite(activity.tokenUsage)) items.push(`${activity.tokenUsage} tokens`);
+  return items;
+}
+
 /**
  * Distinct paths this run touched, split by whether they were written.
  *

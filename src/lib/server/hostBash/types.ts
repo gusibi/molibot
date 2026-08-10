@@ -114,6 +114,7 @@ export interface HostBashApprovalRecord {
   executedAt?: string;
   approvedBashId?: string;
   errorText?: string;
+  payload?: { path?: string; diff?: string; parameters?: Record<string, unknown> };
 }
 
 export interface ApprovedHostBashEntry {
@@ -154,6 +155,7 @@ export interface HostBashApprovalPrompt {
     requestedAt: string;
     classification?: HostBashCommandClassification;
     owner?: HostBashOwner;
+    payload?: { path?: string; diff?: string; parameters?: Record<string, unknown> };
   };
 }
 

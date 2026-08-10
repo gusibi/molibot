@@ -4,8 +4,6 @@
   import type { Translation } from "../i18n";
   import { modelOptionCopy } from "../presentation";
 
-  type PermissionModeOption = "plan" | "manual" | "accept_edits" | "auto";
-
   export let copy: Translation;
   export let modelOptions: DesktopModelOption[] = [];
   export let activeModelKey = "";
@@ -18,27 +16,13 @@
   export let disabled = false;
   export let onChangeModel: (value: string) => void;
   export let onChangeThinking: (value: DesktopThinkingLevel) => void;
-  /**
-   * Permission mode is a third page in this menu rather than a second dropdown:
-   * model, thinking level and permission mode all answer "how should this
-   * conversation run", and a separate control would fork the trigger, the
-   * keyboard handling and the outside-click logic (pitfall 7).
-   */
-  export let permissionMode: PermissionModeOption = "accept_edits";
-  export let permissionModeOptions: readonly PermissionModeOption[] = [];
-  export let onChangePermissionMode: ((value: PermissionModeOption) => void) | undefined = undefined;
-
   let root: HTMLDetailsElement;
   let trigger: HTMLElement;
   let open = false;
-  let page: "overview" | "model" | "thinking" | "permission" = "overview";
+  let page: "overview" | "model" | "thinking" = "overview";
 
   $: modelLabel = activeModelLabel || copy.model;
   $: levelLabel = thinkingLevelLabel || copy.thinkingLevel;
-  $: modeLabel = permissionModeLabel(permissionMode);
-  // Hidden entirely when the host does not offer the axis (messaging channels
-  // expose only two modes and no menu), rather than shown as a dead row.
-  $: showPermission = Boolean(onChangePermissionMode) && permissionModeOptions.length > 1;
 
   function thinkingOptionLabel(level: DesktopThinkingLevel): string {
     return {
@@ -50,30 +34,6 @@
       xhigh: copy.thinkingXHigh,
       max: copy.thinkingMax
     }[level];
-  }
-
-  function permissionModeLabel(mode: PermissionModeOption): string {
-    return {
-      plan: copy.permissionModePlan,
-      manual: copy.permissionModeManual,
-      accept_edits: copy.permissionModeAcceptEdits,
-      auto: copy.permissionModeAuto
-    }[mode];
-  }
-
-  function permissionModeHint(mode: PermissionModeOption): string {
-    return {
-      plan: copy.permissionModePlanHint,
-      manual: copy.permissionModeManualHint,
-      accept_edits: copy.permissionModeAcceptEditsHint,
-      auto: copy.permissionModeAutoHint
-    }[mode];
-  }
-
-  function selectPermissionMode(value: PermissionModeOption): void {
-    if (value === permissionMode) return close(true);
-    onChangePermissionMode?.(value);
-    close(true);
   }
 
   function buttons(): HTMLButtonElement[] {
@@ -177,16 +137,10 @@
           <span class="composer-menu-copy"><strong>{copy.thinkingLevel}</strong><small>{levelLabel}</small></span>
           <i class="ph ph-caret-right" aria-hidden="true"></i>
         </button>
-        {#if showPermission}
-          <button type="button" role="menuitem" onclick={() => showPage("permission", true)}>
-            <span class="composer-menu-copy"><strong>{copy.permissionMode}</strong><small>{modeLabel}</small></span>
-            <i class="ph ph-caret-right" aria-hidden="true"></i>
-          </button>
-        {/if}
       {:else}
         <div class="composer-menu-heading">
           <button type="button" class="composer-menu-back" aria-label={copy.cancelAction} onclick={() => showPage("overview", true)}><i class="ph ph-caret-left" aria-hidden="true"></i></button>
-          <strong>{page === "model" ? copy.model : page === "permission" ? copy.permissionMode : copy.thinkingLevel}</strong>
+          <strong>{page === "model" ? copy.model : copy.thinkingLevel}</strong>
         </div>
         <div class="composer-menu-options">
           {#if page === "model"}
@@ -198,16 +152,6 @@
                   {#if option.detail}<small class="composer-model-option-id">{option.detail}</small>{/if}
                 </span>
                 {#if model.key === activeModelKey}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
-              </button>
-            {/each}
-          {:else if page === "permission"}
-            {#each permissionModeOptions as mode (mode)}
-              <button type="button" role="menuitemradio" aria-checked={mode === permissionMode} onclick={() => selectPermissionMode(mode)}>
-                <span class="composer-model-option-copy">
-                  <span class="composer-model-option-name">{permissionModeLabel(mode)}</span>
-                  <small class="composer-model-option-id">{permissionModeHint(mode)}</small>
-                </span>
-                {#if mode === permissionMode}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
               </button>
             {/each}
           {:else}

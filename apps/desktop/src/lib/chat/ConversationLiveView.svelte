@@ -1,11 +1,17 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
   import type { DesktopActivityEntry } from "../api";
+  import type { DesktopConversationStep } from "@molibot/desktop-contract";
   import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./transcript";
   import { handleMarkdownBodyClick } from "../markdownInteractions";
   import ConversationTranscript from "./ConversationTranscript.svelte";
   import RunActivity from "./RunActivity.svelte";
-  import { createStreamingRenderer } from "./streamingMarkdown";
+  import { renderMarkdown } from "../markdown";
+  import ThinkingCard from "./ThinkingCard.svelte";
+  import PlanCard from "./PlanCard.svelte";
+  import { transcriptRenderBlocks } from "./transcript";
+  import ChatMarkdown from "./ChatMarkdown.svelte";
+  import StreamingChatMarkdown from "./StreamingChatMarkdown.svelte";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -16,6 +22,7 @@
   export let streamingThinking = "";
   export let activity = "";
   export let activities: DesktopActivityEntry[] = [];
+  export let liveSteps: DesktopConversationStep[] = [];
   export let emptyTitle: string;
   export let emptyHint: string;
   export let searchMatchIds: string[] = [];
@@ -39,10 +46,9 @@
   // the innerHTML write and a selection in them survives, while only the
   // still-growing last block is re-parsed per frame. See `streamingMarkdown.ts`
   // for the split / cache / unclosed-fence logic.
-  const streamingRenderer = createStreamingRenderer();
-  $: streamBlocks = streamingText
-    ? streamingRenderer.derive(streamingText, { copyCode: copy.copyCode, wrapLinesLabel: copy.wrapLines })
-    : [];
+  $: orderedBlocks = liveSteps.length
+    ? transcriptRenderBlocks({ role: "assistant", content: streamingText, steps: liveSteps })
+    : transcriptRenderBlocks({ role: "assistant", content: streamingText, thinking: streamingThinking, activities });
 </script>
 
 {#if messages.length === 0 && !streamingText && !sending}
@@ -60,26 +66,18 @@
       <div class="message-stack">
         <div class="assistant-identity"><strong>{assistantName}</strong><span>{copy.agents}</span></div>
         <div class="message-status" role="status"><span class="message-status-pulse" aria-hidden="true"></span><span>{activity || copy.working}</span></div>
-        {#if streamingThinking}<details class="thinking-card"><summary>{copy.thinking}</summary><pre>{streamingThinking}</pre></details>{/if}
-        {#if activities.length > 0}<RunActivity {activities} {copy} onOpenPath={onOpenActivityPath} />{/if}
-        {#if streamingText}
-          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-          <div class="message-bubble markdown-body" onclick={onMarkdownClick}>
-            {#each streamBlocks as block, i (i)}
-              <!--
-                Keyed by index: the list is append-only (streaming only
-                appends), so an index key is correct and lets Svelte keep each
-                sealed block's DOM node untouched as the active tail grows -
-                which is what preserves a selection in an earlier paragraph.
-                The wrapper is layout-transparent: `.message-bubble` is a block
-                box and the wrapper carries no padding/border, so the block's
-                own margins collapse straight through it and the vertical
-                rhythm stays byte-identical to a single {@html}.
-              -->
-              <div class="md-stream-block">{@html block.html}</div>
-            {/each}
-          </div>
-        {/if}
+        {#each orderedBlocks as block (block.id)}
+          {#if block.kind === "thinking"}
+            <ThinkingCard text={block.content} label={copy.thinking} />
+          {:else if block.kind === "activities"}
+            <RunActivity activities={block.activities} {copy} onOpenPath={onOpenActivityPath} stateKey={`live:${block.id}`} />
+          {:else if block.kind === "plan"}
+            <PlanCard plan={block.plan} {copy} disabled={!messageActions?.onResolvePlan} onResolve={(decision, edits) => messageActions?.onResolvePlan?.({ role: "assistant", content: "", steps: liveSteps }, block.plan, decision, edits)} />
+          {:else if block.content}
+            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+            <StreamingChatMarkdown source={block.content} {copy} />
+          {/if}
+        {/each}
       </div>
     </div>
   </article>

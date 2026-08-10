@@ -6,7 +6,7 @@ import {
   streamDesktopChat,
   type DesktopActivityEntry
 } from "../api";
-import type { DesktopApprovalPrompt, DesktopThinkingLevel } from "@molibot/desktop-contract";
+import type { DesktopApprovalPrompt, DesktopConversationActivity, DesktopConversationPlan, DesktopThinkingLevel } from "@molibot/desktop-contract";
 import { classifyComposerSuggestion } from "./composerSuggestionCatalog";
 
 export interface ConversationTurnHandlers {
@@ -16,6 +16,8 @@ export interface ConversationTurnHandlers {
   onThinking?: (delta: string) => void;
   onStatus?: (text: string) => void;
   onActivities?: (activities: DesktopActivityEntry[]) => void;
+  onActivity?: (activity: DesktopConversationActivity) => void;
+  onPlan?: (plan: DesktopConversationPlan) => void;
   onApproval?: (approval: DesktopApprovalPrompt) => void;
   onDone?: (result: { response: string; thinkingText: string }) => void;
 }
@@ -30,6 +32,7 @@ export async function runDesktopConversationTurn(input: {
   thinkingLevel: DesktopThinkingLevel;
   files?: File[];
   signal?: AbortSignal;
+  resumePlanId?: string;
 }, handlers: ConversationTurnHandlers = {}): Promise<void> {
   const invocation = classifyComposerSuggestion(input.message);
   if (invocation?.kind === "command") {
@@ -54,6 +57,7 @@ export async function runDesktopConversationTurn(input: {
     projectId: input.projectId,
     modelKey: input.modelKey,
     files: input.files
+    ,resumePlanId: input.resumePlanId
   }, async (event, data) => {
     if (event === "token") handlers.onToken?.(String(data.delta ?? ""));
     if (event === "replace") handlers.onReplace?.(String(data.text ?? ""));
@@ -65,11 +69,13 @@ export async function runDesktopConversationTurn(input: {
     if (activity) {
       activities = reduceDesktopActivities(activities, activity);
       handlers.onActivities?.(activities);
+      handlers.onActivity?.(activity);
     }
     if (event === "host_bash_approval") {
       const approval = parseDesktopApproval(data);
       if (approval) handlers.onApproval?.(approval);
     }
+    if (event === "plan_proposal") handlers.onPlan?.(data as unknown as DesktopConversationPlan);
     if (event === "done") {
       handlers.onDone?.({
         response: String(data.response ?? ""),

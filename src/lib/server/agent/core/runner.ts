@@ -26,6 +26,7 @@ import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { getMcpServerStatuses, getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
 import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
 import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
+import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
 import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { estimateContextTokens, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
@@ -967,6 +968,14 @@ export class MomRunner implements RunnerLike {
     };
 
     const settings = applyTurnModelOverride(this.getSettings(), ctx.modelKeyOverride);
+    const permissionMode = clampModeForChannel(resolveEffectivePermissionMode({
+      getSettings: () => settings,
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      store: this.store,
+      channel: this.channel,
+      botId
+    }), this.channel);
     const settingsError = await validateRuntimeSettings(settings);
     if (settingsError) {
       stopReason = "error";
@@ -1476,7 +1485,8 @@ export class MomRunner implements RunnerLike {
             displayName,
             label,
             paths: fileTarget?.paths,
-            mutates: fileTarget?.mutates
+            mutates: fileTarget?.mutates,
+            startedAt: new Date().toISOString()
           }));
         }
         enqueue(() => ctx.respond(`_→ ${label}_`, false));
@@ -1546,6 +1556,12 @@ export class MomRunner implements RunnerLike {
             isError: event.isError,
             summary: body,
             diff: extractToolDiff(event.result),
+            finishedAt: new Date().toISOString(),
+            exitCode: (() => {
+              const match = body.match(/(?:exited with code|exit(?:ed)?\s+)(-?\d+)/i);
+              return match ? Number(match[1]) : undefined;
+            })(),
+            lineCount: body ? body.split(/\r?\n/).length : 0,
             hostBashApproval: forwardHostBashApproval ? hostBashApproval : undefined
           }));
         }
@@ -1771,6 +1787,11 @@ export class MomRunner implements RunnerLike {
             "Close the turn with a short reply written for the user, in the language they used. Say what now holds — what was recorded, changed, or found — carrying over the concrete details the tool result reports. Do not mention tool names, parameter names, internal identifiers, or the call itself: the user sees only your reply, and can tell the action succeeded only from it. If the tool result already reads as a complete answer, relay it as-is rather than restating it."
           ]
         : [];
+      const permissionModeInstructions = permissionMode === "plan"
+        ? [
+            "This Session is in Plan mode. Investigate with the available read-only tools, then call exitPlan exactly once with a concrete ordered plan. Do not claim to have changed files or executed commands. The plan is a structured product object, so ordinary Markdown alone is not a substitute for exitPlan."
+          ]
+        : [];
       const promptInput = buildPromptInputEnvelope({
         messageText: effectiveInputText,
         // The selector routed the turn and is stripped from what the model
@@ -1783,7 +1804,8 @@ export class MomRunner implements RunnerLike {
         runtimeInstructions: [
           ...(projectFileReferenceInstruction ? [projectFileReferenceInstruction] : []),
           ...unreadableImageInstructions,
-          ...miniAppRuntimeInstructions
+          ...miniAppRuntimeInstructions,
+          ...permissionModeInstructions
         ],
         attachmentPaths: nonImage,
         messageTimestamp: ctx.message.ts,

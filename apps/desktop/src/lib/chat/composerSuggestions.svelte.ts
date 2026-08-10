@@ -4,6 +4,7 @@ import {
   classifyComposerSuggestion,
   segmentComposerInvocations,
   setComposerSuggestionCatalog,
+  type ComposerInvocation,
   type ComposerSegment
 } from "./composerSuggestionCatalog";
 
@@ -50,7 +51,7 @@ export async function ensureComposerSuggestions(endpoint: string, projectId = ""
   }
 }
 
-export function classifyComposerInvocation(content: string): { kind: DesktopComposerSuggestion["kind"]; token: string } | null {
+export function classifyComposerInvocation(content: string): ComposerInvocation | null {
   return classifyComposerSuggestion(content, composerSuggestionsStore.items);
 }
 
