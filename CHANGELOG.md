@@ -6,6 +6,18 @@
 
 ## 2026-08-10
 
+### Release: v2.9.15 / Desktop v0.9.12
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: a delivered reminder killed every model in that Session with `Cannot read properties of undefined (reading 'totalTokens')`
+
+- The symptom read as a provider outage: every candidate in the fallback chain failed instantly with the same `type=request_error`, across three different providers and base URLs, and no HTTP request was ever sent. `totalTokens` is not a new field — it belongs to `@earendil-works/pi-ai@0.82.0`, whose version did not change.
+- Root cause is a null dereference on our own data, on the pre-dispatch path shared by every API. `buildBaseOptions` → `clampMaxTokensToContext` → `estimateContextTokens` → `calculateContextTokens(assistant.usage)` reads `usage.totalTokens` with no guard (pi-agent-core's copy of the same function has one, which is why nothing else caught it). One assistant message without a `usage` block therefore throws before the request is built, identically for every model.
+- The message came from `appendDirectEventContextMessage`: a `delivery=text` automation (a fired reminder) is persisted into the Agent Context as an assistant message, and it never went through a provider, so it carried `role`/`content`/`timestamp` only. Every later turn of that Session re-read it and died — a permanent, per-Session failure, confirmed in live data (`moli-t/.../contexts/s-mmat4fav.jsonl` and several `[Molibot reminder acceptance ...] delivered` archives).
+- Fixed at both ends, because one end alone is not enough: the write site now attaches `zeroAssistantUsage()`, and `prepareMessagesForModelContext` — the single funnel into `agent.state.messages` — normalizes any assistant message that still arrives without one, so Sessions already poisoned on disk recover instead of waiting for compaction.
+- Guarded against the vendor module itself rather than a hand-written stub: `runnerHelpers.test.ts` asserts pi-ai's real `clampMaxTokensToContext` throws on the unrepaired message and returns a number on the prepared one, so a future pi bump that changes this contract fails in the suite; `directEventPersistence.test.ts` asserts the persisted delivery carries the usage block.
+- Verification: agent core + session + shared-channel suites 176/176, `tsc` clean on the touched files.
+
 ### Added: a runnable cold-start acceptance for Durable Execution
 
 - PRD §430 asks for a harness that "can stop the scratch service at a declared fault point, restart it with the same temporary data directory, and continue through the public API". That walk had been done once by hand and written up in `findings.md`, which proves it worked that day and nothing about tomorrow. `node evals/durable-restart-live.mjs` is the same walk as a script: 14 checks, no model calls, reusing `evals/lib/service.mjs` so the lease, signal handling and external-channel kill switch are the real ones.
@@ -21,7 +33,6 @@
 - Guarded by a new `evals/client.test.mjs` case that drives `runTaskTurns` against a real HTTP server and asserts what the wire actually carries: a `multipart/form-data; boundary=` content-type, the file's own bytes, and the `files`/`message` parts. Verified by reverting the fix and watching the guard go red, so a future upload call site cannot reintroduce the realm mismatch.
 - A2 (edit an existing file) failed on that run and passed on re-run — non-deterministic model behaviour, not a regression. A5 stays `baseline: unknown` by design: the sandbox blocks egress, so the Agent correctly asks for Host approval and an unattended run stops there.
 - Full set re-run after the fix: **30/31**, 0 errors, 0 unproven, A5 the only failure. The capability matrix now records that as the confirmed baseline instead of the 24/31 待验证 entry.
-
 
 ### Release: v2.9.14 / Desktop v0.9.11
 - Synchronized the root and Desktop package versions for the new release.
