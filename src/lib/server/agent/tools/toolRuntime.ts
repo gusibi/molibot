@@ -457,7 +457,20 @@ export function createDefaultApprovalRequest(
       agentId: ctx.actorId,
       depth: 0
     },
-    scopeOptions: ["once", "turn", "session"],
+    // `persistent` is what makes a strict mode livable: without a lasting
+    // grant, Manual is an endless prompt and people switch to Auto for the
+    // wrong reason (PRD §132). The scopes existed already; only Host Bash ever
+    // offered them, so the broker's own cards could not remember an answer.
+    //
+    // Installing code is excluded on purpose. `manage` asks in every mode
+    // precisely because the request can come from content the agent read, and
+    // a persistent grant there would let one approval authorize every future
+    // install — the trust would become circular (pitfall 21d).
+    scopeOptions: tool.effect === "manage"
+      ? ["once"]
+      : ["once", "turn", "session", "persistent"],
+    // A grant matches on this, so it must describe the action and not just the
+    // tool: keyed on the tool alone, approving one write would grant them all.
     actionFingerprint: JSON.stringify({ toolId: tool.id, input }),
     createdAt: now
   };

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ApprovalBroker, MemoryApprovalBrokerStore } from "$lib/server/approval/approvalBroker.js";
-import { buildBrokerApprovalRecord, ToolRegistry, ToolRuntime } from "$lib/server/agent/tools/toolRuntime.js";
+import { buildBrokerApprovalRecord, createDefaultApprovalRequest, ToolRegistry, ToolRuntime } from "$lib/server/agent/tools/toolRuntime.js";
 import type { ApprovalRequest } from "$lib/server/approval/approvalTypes.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { WorkspaceStore } from "$lib/server/workspaces/store.js";
@@ -529,4 +529,60 @@ test("an approval_required decision is honoured for a medium-risk tool", async (
   assert.equal(result.ok, false);
   assert.equal(result.metadata?.status, "waiting_for_approval");
   assert.deepEqual(asked, ["req-medium-1"], "the request must reach the approval surface");
+});
+
+test("an approval card offers a lasting grant, so a mode is not a permanent nag", () => {
+  // PRD §132: the scopes existed but `persistent` was never offered, so
+  // "always allow" had no way to be chosen through the broker — only Host Bash
+  // could produce a lasting grant. With permission modes now sending `write`,
+  // `edit` and MCP calls through this path, a card without that option turns
+  // Manual into an endless prompt and pushes people to Auto for the wrong
+  // reason.
+  const request = createDefaultApprovalRequest(
+    {
+      id: "write",
+      name: "Write",
+      description: "",
+      inputSchema: {},
+      risk: "medium",
+      source: "builtin",
+      effect: "write",
+      handler: async () => ({ ok: true, content: "" })
+    },
+    { path: "notes.md" },
+    context([])
+  );
+
+  assert.ok(request.scopeOptions.includes("once"), "declining to remember must stay available");
+  assert.ok(
+    request.scopeOptions.includes("persistent"),
+    "an owner-scoped lasting grant must be offerable (PRD §132)"
+  );
+  // The fingerprint is what a grant matches on, so it has to describe the
+  // action rather than the tool alone — otherwise approving one write would
+  // grant every future write.
+  assert.match(request.actionFingerprint, /notes\.md/);
+});
+
+test("installing code can never be granted permanently", () => {
+  // `manage` asks in every mode because the request can arrive in content the
+  // agent read rather than from the owner. A persistent grant there would let
+  // a single approval authorize every future install, which makes the trust
+  // circular: anything could install itself and then run freely (pitfall 21d).
+  const request = createDefaultApprovalRequest(
+    {
+      id: "miniAppManage",
+      name: "Mini App manage",
+      description: "",
+      inputSchema: {},
+      risk: "critical",
+      source: "builtin",
+      effect: "manage",
+      handler: async () => ({ ok: true, content: "" })
+    },
+    { action: "install" },
+    context([])
+  );
+
+  assert.deepEqual(request.scopeOptions, ["once"], "installs are answered one at a time, always");
 });
