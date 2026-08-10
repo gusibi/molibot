@@ -6,7 +6,7 @@
 
 ## 2026-08-10
 
-### Release: v2.9.15 / Desktop v0.9.12
+### Release: v2.9.16 / Desktop v0.9.13
 - Synchronized the root and Desktop package versions for the new release.
 
 ### Added: session permission modes (Plan / Manual / Accept edits / Auto), slices 0 and 1
@@ -24,6 +24,9 @@
 - **Slice 3 closed two gaps the convergence work had left.** `bash` returned from `decidePolicy` *before* the gate ran, so Manual — the mode whose point is "ask before you run things" — silently did not apply to the one tool a user most expects it to cover. It now delegates the ask/allow call to the mode, while keeping the two decisions only it knows: the file-tool redirect, and an approved Host Bash grant. A host command stays `allow` here on purpose, because the bash handler owns that conversation and gating twice would double-prompt; a sandboxed command has no second conversation, so an `ask` there must be honoured or the mode does nothing. Separately, the "always allow" chain (card offers the scope → desktop maps the decision → broker records a grant → `checkGrant` matches it) existed piece by piece but was never asserted end to end; six cases now cover it, including that a session grant must not leak into another session and that approving one write must not grant every future write.
 - The rest of what slice 3 asked for was already done: the two approval tables were merged in 2026-06 and the hand-written cross-store bridge deleted, so "converge HostBash into ApprovalService" needed no new adapter. One correction recorded in that plan: its justification for deleting the bridge ("no built-in tool ever creates a broker request") no longer holds now that MCP asks in the default mode and Manual asks before `write`/`edit` — the deletion is still right, but for a different reason.
 - Verification: permissions 26/26 + gate 14/14 + matrix 11/11, bashPolicy 11/11, grant round trip 6/6, lease guard 4/4, settings round-trip 15/15, full server suites 584/584, desktop `svelte-check` 0 errors 0 warnings, `vite build` clean, desktop structural guards 185/186 (the one failure is a pre-existing Phosphor path mismatch, confirmed by stashing and re-running). Slice 2 (Plan mode) remains: the gate can already `deny`, but the tool list is not yet narrowed before the model sees it, so Plan is not exposed.
+
+### Release: v2.9.15 / Desktop v0.9.12
+- Synchronized the root and Desktop package versions for the new release.
 
 ### Fixed: a delivered reminder killed every model in that Session with `Cannot read properties of undefined (reading 'totalTokens')`
 
