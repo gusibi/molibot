@@ -2,7 +2,7 @@
 
 > Session-scoped permission modes that govern **whether to ask the user**, decoupled from the sandbox, which governs **what a call can touch**.
 >
-> - **Status**: 切片 0 与切片 1 已交付（2026-08-10）。切片 2（Plan 模式）与切片 3（HostBash 收敛为 ApprovalService backend）未开始。
+> - **Status**: 切片 0、1、3 已交付（2026-08-10）。切片 2（Plan 模式）未开始——闸门已能 `deny`，但工具集尚未在暴露给模型前收窄，因此 Plan 不应开放给用户。
 > - **PRD index entry**: `prd.md` §3.64 (2026-08-09)
 > - **Revision**: v1 (2026-08-09) — initial version from product-owner discussion. Two decisions fixed by the product owner up front: **Bypass 不做**（不提供无条件放行档），**默认档为 Accept edits**。
 > - **Implementer note**: read CLAUDE.md "Recurring Pitfalls" before starting — #2（Svelte 5 reactivity，per-session 选择被全局刷新重置是同一个 bug 家族）、#7（共享模块不许 fork）、#11（settings round-trip）、#14a（guard 让 turn 收尾，不是杀掉它）、#15（沙箱 fail closed）、#16c（pill 不能加 container-type）、#21d（第三方代码的进程故障域）、#23（automation lease 不能被卡住）、#32（通道交互回执的两阶段投递）全部直接命中这个改动面。
@@ -191,7 +191,7 @@ Plan 是四档里最贵的一档，因为它不是"每次 deny"：
 | **0（前置）** ✅ | `bashPolicy` 两轴解耦；`write` / `edit` 接入 `toolSandbox.filesystem` 策略；显式声明"允许写的根" | 无 |
 | **1** ✅ | effect 维度；`PermissionMode` 类型 + 通用 override resolver（沙箱已改为其调用方）；`decidePermission` 纯函数；权限模式作为 `ComposerModelMenu` 的第三页（不新建下拉）；`persistent` scope 落地（`manage` 除外）；automation 挂起而非阻塞 | 切片 0 |
 | **2** | **Plan 模式**：工具集收窄、`exitPlan` 确认卡、计划产物落地、退出后同 session 继续 | 切片 1 |
-| **3** | 审批链收敛：HostBash 降为 `ApprovalService` 的 backend，统一卡片的 list/resolve 覆盖同一组后端并按 session 校验 | 切片 1 |
+| **3** ✅ | 实际范围与原计划不同：合表与桥接删除在 2026-06 已完成（见收敛计划 §(a)(b)），统一卡片的 list/resolve 也早已覆盖两套后端并按 session 校验。本切片补的是两处真实缺口：**bash 此前完全绕过模式闸门**（Manual 对 bash 无效），以及 **`persistent` 授权链路从未被端到端断言** | 切片 1 |
 
 切片 1 明确禁止新增第三套审批 UI；HostBash 的收敛可以后置到切片 3，但切片 1 的新审批必须全部走 `ApprovalService`。
 

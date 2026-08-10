@@ -37,6 +37,19 @@
 - **未动**：`ApprovalBroker` / `getApprovalBroker` 的 grant 模型仍在 `index.ts`(ToolRuntime)、`turnOrchestrator.ts`(撤销 grant)、`feishu/runtime.ts` 中存活——只删了死桥接，没动 broker 本身。
 - **回归保护**：lock 测试在未来有人新增「非-bash 高危工具」时会失败，提示去显式接线该工具的审批，而不是依赖已删除的桥接。验证：channelCommands + classification + toolRuntime + approvalService 共 43/43 通过，tsc 干净。
 
+---
+
+## 0.2 前提失效提醒（2026-08-10，Permission Modes 切片 1/3 之后）
+
+§(a) 删除 `resolvePendingBrokerRequests` 时的论据是「默认策略下没有任何内置工具会创建 broker request」（因为 `bash` 是唯一 high-risk 内置工具且显式 opt-out）。**这个前提已经不成立**：
+
+- Permission Modes 的闸门让 `decidePolicy` 按 `effect` 而非仅按 `risk` 判定，外部 MCP 调用在默认档（Accept edits）就会 `ask`，Manual 档下 `write` / `edit` 同样会 `ask`；
+- `bash` 也不再恒 `allow`——沙箱内命令在 Manual 档会走 broker（宿主命令仍留给 HostBash 自己的对话，避免双重提示）。
+
+**删除本身依然正确**，但理由变了：桥接对账的是「同一逻辑审批的两行」，而 Phase 2(b) 合表后只剩一行，桥接失去对象。那条 lock 测试（「bash 是唯一 high-risk 内置分类」）也已随 effect 维度一起改写。
+
+读这份文档时请以本节为准，不要据 §(a) 的旧论据推断「broker request 不会出现」。
+
 ## 1. 现状摸底：到底有几条路径
 
 ### 路径 A —— ApprovalBroker（ToolRuntime 通道）
