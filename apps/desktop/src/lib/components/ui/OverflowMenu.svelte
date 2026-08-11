@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
 
   export let label: string;
   /**
@@ -9,13 +9,16 @@
    * Escape and arrow-key behaviour instead of re-implementing it.
    */
   export let variant: "icon" | "inline" = "icon";
+  export let popoverRole: "menu" | "dialog" = "menu";
+  export let closeOnPointerLeave = false;
 
   let menu: HTMLDetailsElement;
   let trigger: HTMLElement;
   let open = false;
+  let pointerLeaveTimer: ReturnType<typeof setTimeout> | undefined;
 
   function items(): HTMLButtonElement[] {
-    return Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menu"] button:not(:disabled)') ?? []);
+    return Array.from(menu?.querySelectorAll<HTMLButtonElement>('.overflow-menu-popover button:not(:disabled)') ?? []);
   }
 
   async function onTriggerKeydown(event: KeyboardEvent): Promise<void> {
@@ -51,11 +54,26 @@
       menu.open = false;
     }
   }
+
+  function onPointerLeave(event: PointerEvent): void {
+    if (!closeOnPointerLeave || event.pointerType !== "mouse" || !menu.open) return;
+    clearTimeout(pointerLeaveTimer);
+    pointerLeaveTimer = setTimeout(() => {
+      open = false;
+      menu.open = false;
+    }, 120);
+  }
+
+  function onPointerEnter(): void {
+    clearTimeout(pointerLeaveTimer);
+  }
+
+  onDestroy(() => clearTimeout(pointerLeaveTimer));
 </script>
 
-<details class={`overflow-menu overflow-menu-${variant}`} bind:this={menu} ontoggle={(event) => (open = event.currentTarget.open)}>
+<details class={`overflow-menu overflow-menu-${variant}`} bind:this={menu} ontoggle={(event) => (open = event.currentTarget.open)} onpointerenter={onPointerEnter} onpointerleave={onPointerLeave}>
   <summary bind:this={trigger} aria-label={label} title={label} onkeydown={onTriggerKeydown}>
     <slot name="trigger"><i class="ph ph-dots-three" aria-hidden="true"></i></slot>
   </summary>
-  {#if open}<div class="overflow-menu-popover" role="menu" tabindex="-1" onkeydown={onMenuKeydown} onclick={onMenuClick}><slot /></div>{/if}
+  {#if open}<div class="overflow-menu-popover" role={popoverRole} aria-label={label} tabindex="-1" onkeydown={onMenuKeydown} onclick={onMenuClick}><slot /></div>{/if}
 </details>

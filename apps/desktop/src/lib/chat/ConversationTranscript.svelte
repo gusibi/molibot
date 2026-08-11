@@ -107,6 +107,9 @@
   {@const turnSections = message.role === "assistant" ? transcriptCompletedTurnSections(renderBlocks) : { process: [], response: [] }}
   {@const processSummary = transcriptProcessSummary(turnSections.process)}
   {@const turnSummary = message.role === "assistant" ? transcriptTurnSummary(message) : null}
+  {@const hasTurnSummary = Boolean(turnSummary && (turnSummary.durationMs || turnSummary.toolCount || turnSummary.fileCount || turnSummary.totalTokens))}
+  {@const hasMemoryMeta = Boolean(message.memoryTrace && messageActions?.onOpenMemoryTrace && ((message.memoryTrace.referencedCount ?? 0) > 0 || message.memoryTrace.writeCount > 0))}
+  {@const hasTechnicalDetails = hasTurnSummary || Boolean(message.model) || hasMemoryMeta}
   {@const textContributions = messageActions?.contributions?.filter((action) => action.accepts.includes("text")) ?? []}
   {@const assistantStatus = message.role !== "assistant"
     ? ""
@@ -258,33 +261,29 @@
         {#if assistantError}
           <div class="assistant-error-note"><i class="ph ph-warning-circle" aria-hidden="true"></i><span class="assistant-error-label">{copy.assistantErrorLabel}</span><span class="assistant-error-text">{assistantError}</span></div>
         {/if}
-        {#if (canShowActions && messageActions) || message.createdAt || message.model}
+        {#if (canShowActions && messageActions) || message.createdAt || hasTechnicalDetails}
           <div class="message-meta assistant-meta">
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
-            {#if turnSummary && (turnSummary.durationMs || turnSummary.toolCount || turnSummary.fileCount || turnSummary.totalTokens)}
-              <span class="turn-summary" aria-label={copy.turnSummaryLabel}>
-                {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{turnSummary.durationMs < 1000 ? `${turnSummary.durationMs}ms` : `${(turnSummary.durationMs / 1000).toFixed(1)}s`}</span>{/if}
-                {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
-                {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
-                {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", String(turnSummary.totalTokens))}</span>{/if}
-              </span>
-            {/if}
-            {#if message.model}<details class="message-model technical-detail"><summary><i class="ph ph-cpu" aria-hidden="true"></i>{humanizeModelOption(message.model, message.model).label}</summary><code>{message.model}</code></details>{/if}
-            <!-- Only truly-used memories earn a chip: referenced (cited or
-                 tool-retrieved) and writes. Injected-but-unused memories stay
-                 out of the message meta so every reply no longer carries the
-                 same misleading association. -->
-            {#if message.memoryTrace && messageActions?.onOpenMemoryTrace && ((message.memoryTrace.referencedCount ?? 0) > 0 || message.memoryTrace.writeCount > 0)}
-              <button
-                type="button"
-                class="message-memory-trace"
-                onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}
-              >
-                <i class="ph ph-brain" aria-hidden="true"></i>
-                {#if (message.memoryTrace.referencedCount ?? 0) > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.referencedCount))}{/if}
-                {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
-                {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
-              </button>
+            {#if hasTechnicalDetails}
+              <div class="message-meta-inline">
+                {#if hasTurnSummary && turnSummary}
+                  <span class="turn-summary" aria-label={copy.turnSummaryLabel}>
+                    {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{turnSummary.durationMs < 1000 ? `${turnSummary.durationMs}ms` : `${(turnSummary.durationMs / 1000).toFixed(1)}s`}</span>{/if}
+                    {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
+                    {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
+                    {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", String(turnSummary.totalTokens))}</span>{/if}
+                  </span>
+                {/if}
+                {#if message.model}<span class="message-model-inline"><i class="ph ph-cpu" aria-hidden="true"></i>{humanizeModelOption(message.model, message.model).label}</span>{/if}
+                {#if hasMemoryMeta && message.memoryTrace && messageActions?.onOpenMemoryTrace}
+                  <button type="button" class="message-memory-trace" onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}>
+                    <i class="ph ph-brain" aria-hidden="true"></i>
+                    {#if (message.memoryTrace.referencedCount ?? 0) > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.referencedCount))}{/if}
+                    {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
+                    {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
+                  </button>
+                {/if}
+              </div>
             {/if}
             {#if canShowActions && messageActions}
               <div class="message-actions">
@@ -295,36 +294,55 @@
                   title={copy.copyMessage}
                   onclick={() => messageActions.onCopy(message)}
                 ><i class={`ph ${isCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i></button>
-                <!--
-                  Always a menu, never loose icons. Two reasons: the action row
-                  sits next to copy/edit/fork, and an unlabelled app glyph there
-                  is unreadable — "what does the bookmark do?" — while the menu
-                  affords a real label per app. And the row's width stops
-                  depending on how many apps are installed, so it cannot grow
-                  into the timestamp as the owner adds them.
-                -->
-                {#if textContributions.length && messageActions.onRunContribution}
-                  {@const busy = textContributions.some((action) => messageActions?.pendingContributionKey === contributionKey(message, action))}
-                  {@const done = textContributions.some((action) => messageActions?.successfulContributionKey === contributionKey(message, action))}
-                  <OverflowMenu label={copy.miniAppMessageActionsMenu}>
-                    <svelte:fragment slot="trigger">
-                      <!-- The trigger carries the outcome, because the menu has
-                           closed by the time the call settles. -->
-                      <i
-                        class={`ph ${busy ? "ph-circle-notch message-action-spin" : done ? "ph-check" : "ph-dots-three"}`}
-                        aria-hidden="true"
-                      ></i>
-                    </svelte:fragment>
-                    {#each textContributions as action (action.id)}
-                      {@const actionKey = contributionKey(message, action)}
-                      {@const pending = messageActions.pendingContributionKey === actionKey}
-                      <button type="button" role="menuitem" disabled={pending} onclick={(event) => runContribution(event, action, message)}>
-                        <i class={`ph ${pending ? "ph-circle-notch message-action-spin" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i>
-                        <span>{action.label}</span>
-                      </button>
-                    {/each}
-                  </OverflowMenu>
-                {/if}
+              </div>
+            {/if}
+            {#if hasTechnicalDetails || (textContributions.length && messageActions?.onRunContribution)}
+              {@const busy = textContributions.some((action) => messageActions?.pendingContributionKey === contributionKey(message, action))}
+              {@const done = textContributions.some((action) => messageActions?.successfulContributionKey === contributionKey(message, action))}
+              <div class:assistant-overflow-details-only={!textContributions.length || !messageActions?.onRunContribution} class="assistant-overflow">
+                <OverflowMenu label={copy.conversationMenu} popoverRole="dialog" closeOnPointerLeave={true}>
+                  <svelte:fragment slot="trigger">
+                    <i class={`ph ${busy ? "ph-circle-notch message-action-spin" : done ? "ph-check" : "ph-dots-three"}`} aria-hidden="true"></i>
+                  </svelte:fragment>
+                  {#if hasTechnicalDetails}<div class="message-meta-details">
+                  {#if hasTurnSummary && turnSummary}
+                    <div class="turn-summary" aria-label={copy.turnSummaryLabel}>
+                      {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{turnSummary.durationMs < 1000 ? `${turnSummary.durationMs}ms` : `${(turnSummary.durationMs / 1000).toFixed(1)}s`}</span>{/if}
+                      {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
+                      {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
+                      {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", String(turnSummary.totalTokens))}</span>{/if}
+                    </div>
+                  {/if}
+                  {#if message.model}<div class="message-model"><i class="ph ph-cpu" aria-hidden="true"></i><span>{humanizeModelOption(message.model, message.model).label}</span><code>{message.model}</code></div>{/if}
+                  <!-- Only truly-used memories earn a row: referenced (cited or
+                       tool-retrieved) and writes. Injected-but-unused memories
+                       stay out so every reply does not imply an association. -->
+                  {#if hasMemoryMeta && message.memoryTrace && messageActions?.onOpenMemoryTrace}
+                    <button
+                      type="button"
+                      class="message-memory-trace"
+                      onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}
+                    >
+                      <i class="ph ph-brain" aria-hidden="true"></i>
+                      {#if (message.memoryTrace.referencedCount ?? 0) > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.referencedCount))}{/if}
+                      {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
+                      {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
+                    </button>
+                  {/if}
+                  </div>{/if}
+                  {#if textContributions.length && messageActions?.onRunContribution}
+                    <div class="assistant-overflow-actions" aria-label={copy.miniAppMessageActionsMenu}>
+                      {#each textContributions as action (action.id)}
+                        {@const actionKey = contributionKey(message, action)}
+                        {@const pending = messageActions.pendingContributionKey === actionKey}
+                        <button type="button" disabled={pending} onclick={(event) => runContribution(event, action, message)}>
+                          <i class={`ph ${pending ? "ph-circle-notch message-action-spin" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i>
+                          <span>{action.label}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </OverflowMenu>
               </div>
             {/if}
           </div>

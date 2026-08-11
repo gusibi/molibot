@@ -4,6 +4,7 @@
   import { renderMarkdown } from "../markdown";
   import { markdownBody } from "../markdownInteractions";
   import { splitMermaidBlocks } from "../artifacts/mermaidBlocks";
+  import MermaidDiagram from "../artifacts/MermaidDiagram.svelte";
 
   export let source: string;
   export let copy: Translation;
@@ -92,13 +93,7 @@
       <div class="chat-markdown-segment">{@html html(segment.content, index)}</div>
     {:else}
       {@const rendered = diagrams.get(segment.id)}
-      {#if rendered?.status === "ok"}
-        <div class="chat-mermaid">{@html rendered.svg}</div>
-      {:else if rendered?.status === "failed"}
-        <div class="chat-mermaid-failed"><p>{copy.artifactMermaidFailed}</p><pre>{segment.content}</pre></div>
-      {:else}
-        <div class="chat-mermaid-pending" role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
-      {/if}
+      <MermaidDiagram source={segment.content} {rendered} {copy} />
     {/if}
   {/each}
 </div>

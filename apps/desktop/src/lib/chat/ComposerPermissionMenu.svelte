@@ -104,7 +104,6 @@
   >
     <i class={`ph ${modeIcon(value)}`} aria-hidden="true"></i>
     <span>{label}</span>
-    <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
   </summary>
 
   {#if open}

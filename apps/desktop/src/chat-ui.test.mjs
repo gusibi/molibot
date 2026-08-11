@@ -76,6 +76,7 @@ const chatHeader = read("./lib/chat/ChatHeader.svelte");
 const transcriptSearch = read("./lib/chat/TranscriptSearch.svelte");
 const pageHeader = read("./lib/components/ui/PageHeader.svelte");
 const overflowMenu = read("./lib/components/ui/OverflowMenu.svelte");
+const dialog = read("./lib/components/ui/Dialog.svelte");
 const settingGroup = read("./lib/components/ui/SettingGroup.svelte");
 const recordingBar = read("./lib/chat/RecordingBar.svelte");
 const projectChat = read("./lib/projects/ProjectChat.svelte");
@@ -84,6 +85,9 @@ const projectFilePanel = read("./lib/artifacts/ArtifactPanel.svelte");
 const taskStore = read("./lib/stores/tasks.svelte.ts");
 const settingsSessionStore = read("./lib/stores/session.svelte.ts");
 const skillsStoreSource = read("./lib/stores/skills.svelte.ts");
+const settingsSkills = read("./lib/settings/SkillsSection.svelte");
+const memoryStoreSource = read("./lib/stores/memory.svelte.ts");
+const runtimeSource = read("../../../src/lib/server/app/runtime.ts");
 const providersStore = read("./lib/stores/providers.svelte.ts");
 const conversationController = read("./lib/chat/conversationController.svelte.ts");
 const chatSessionStore = read("./lib/chat/chatSessionStore.svelte.ts");
@@ -235,6 +239,52 @@ test("Desktop MCP settings distinguish configured enablement from live connectio
   assert.match(sections.mcp, /\{#if !server\.managed\}<IosSwitch/);
   assert.match(sections.mcp, /\{#if !server\.managed\}[\s\S]*beginMcpEdit\(server\)[\s\S]*removeMcpServer\(server\.id\)/);
   assert.doesNotMatch(sections.mcp, /class="switch"/);
+});
+
+test("entity settings editors use the shared dialog shell with a dedicated scrolling body", () => {
+  assert.match(dialog, /portalTo\s*=\s*"body"/);
+  assert.match(dialog, /<BitsDialog\.Portal\s+to=\{portalTo\}>/);
+  assert.match(styles, /\.desktop-dialog-overlay\s*\{[^}]*position:\s*fixed[^}]*inset:\s*0/s);
+  assert.match(styles, /\.desktop-dialog-content\s*\{[^}]*position:\s*fixed[^}]*left:\s*50%[^}]*top:\s*50%[^}]*transform:\s*translate\(-50%,\s*-50%\)/s);
+  for (const [name, section] of Object.entries({
+    Agent: sections.agents,
+    Profile: sections.profiles,
+    Channel: sections.channels,
+    MCP: sections.mcp
+  })) {
+    assert.match(section, /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/, `${name} editor should use Dialog`);
+    assert.match(section, /<Dialog[\s\S]*<form[^>]*class="entity-editor-form"[\s\S]*<div class="entity-editor-body">[\s\S]*<footer class="entity-editor-foot"[\s\S]*<\/Dialog>/, `${name} editor should isolate its scrolling body`);
+  }
+  assert.match(styles, /\.entity-editor-form\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*overflow:\s*hidden/s);
+  assert.match(styles, /\.entity-editor-body\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
+});
+
+test("Skill search configuration is a collapsed disclosure until the user opens it", () => {
+  assert.match(settingsSkills, /<details class="skills-search-config settings-card">/);
+  assert.match(settingsSkills, /<summary[^>]*>[\s\S]*skillsSearchConfig[\s\S]*<\/summary>/);
+  assert.doesNotMatch(settingsSkills, /<details class="skills-search-config settings-card"\s+open/);
+});
+
+test("Memory renders its summary before slower secondary datasets finish", () => {
+  assert.match(memoryStoreSource, /const summaryPromise = loadDesktopMemory\(endpoint\)/);
+  assert.match(memoryStoreSource, /const summary = await summaryPromise[\s\S]*memoryStore\.memory = summary/);
+  assert.match(memoryStoreSource, /Promise\.allSettled\(/);
+  assert.ok(
+    memoryStoreSource.indexOf("memoryStore.memory = summary") < memoryStoreSource.indexOf("await secondaryPromise"),
+    "summary must unblock the page before secondary memory datasets settle"
+  );
+});
+
+test("enabled MCP servers reconcile on runtime cold start", () => {
+  assert.match(runtimeSource, /reconcileMcpServers\(effectiveMcpServers\(state\.settings\),\s*\{\s*workspaceDir:\s*config\.webWorkspaceDir,\s*connectEnabled:\s*true\s*\}\)/s);
+});
+
+test("media tests and sandbox policies keep balanced settings layouts", () => {
+  assert.match(sections.image, /class="settings-form tool-test-form"[\s\S]*toolImageSize[\s\S]*toolPrompt/);
+  assert.match(sections.tts, /class="settings-form tool-provider-form"/);
+  assert.match(sections.tts, /settings-field settings-field-wide[^>]*>[\s\S]*webSearchApiKey/);
+  assert.match(sections.sandbox, /class="sandbox-policy-grid sandbox-policy-stack"/);
+  assert.match(styles, /\.sandbox-policy-stack\s*\{[^}]*grid-template-columns:\s*1fr/s);
 });
 
 test("native feedback requests permission only on explicit enablement and observes terminal task transitions", () => {
@@ -1160,6 +1210,30 @@ test("only the Web channel exposes a new Session shortcut", () => {
   assert.match(channelAccordion, /class="channel-new-session"[\s\S]*class="channel-caret-button"/);
   assert.match(channelAccordion, /\.channel-new-session,[\s\S]*\.channel-caret-button\s*\{[^}]*width:\s*0[^}]*opacity:\s*0[^}]*pointer-events:\s*none/s);
   assert.match(channelAccordion, /\.channel-accordion-head:hover \.channel-new-session,[\s\S]*\.channel-accordion-head:focus-within \.channel-caret-button\s*\{[^}]*width:\s*26px[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/s);
+});
+
+test("composer Bot identity is initial-only and uses restrained distinct menu colours", () => {
+  const botMention = read("./lib/chat/BotMention.svelte");
+  const botAvatar = read("./lib/chat/BotAvatar.svelte");
+  assert.match(botMention, /aria-label=\{`\$\{labels\.chooseHint\}: \$\{selected\.name\}`\}/);
+  assert.match(botMention, /<BotAvatar botId=\{selected\.id\} name=\{selected\.name\} size=\{20\} colorIndex=\{selectedIndex\} \/>/);
+  assert.match(botMention, /\{#each bots as bot, index \(bot\.id\)\}[\s\S]*colorIndex=\{index\}/);
+  assert.doesNotMatch(botMention, /mention-at|mention-name|mention-caret|mention-lock/);
+  assert.match(botAvatar, /"#0059ec", "#279141", "#00927f", "#8500d1", "#c41562", "#aa4d00"/);
+  assert.match(botAvatar, /color-mix\(in srgb, var\(--c\) 12%, var\(--fill, transparent\)\)/);
+  for (const color of ["#0059ec", "#279141", "#00927f", "#8500d1", "#c41562", "#aa4d00"]) {
+    assert.match(design, new RegExp(color, "i"));
+  }
+});
+
+test("Project Session groups reveal history in batches of 10", () => {
+  const projectTree = read("./lib/projects/ProjectTree.svelte");
+  assert.match(projectTree, /const SESSION_PAGE_SIZE = 10/);
+  assert.match(projectTree, /visibleSessionsByProject = \$derived\.by/);
+  assert.match(projectTree, /sessions\.slice\(0, visibleSessionLimits\[projectId\] \?\? SESSION_PAGE_SIZE\)/);
+  assert.match(projectTree, /\[projectId\]: \(visibleSessionLimits\[projectId\] \?\? SESSION_PAGE_SIZE\) \+ SESSION_PAGE_SIZE/);
+  assert.match(projectTree, /projectSessions\.length > visibleProjectSessions\.length/);
+  assert.match(projectTree, /class="project-more"[\s\S]*\{copy\.more\}/);
 });
 
 test("conversation, project, and Mini App titles share a quiet material band only while stuck", () => {
@@ -2270,7 +2344,9 @@ test("mermaid loads lazily and cannot execute diagram-authored script", () => {
   // A late render must not replace a newer document's diagrams (pitfall #3).
   assert.match(preview, /if \(token === renderToken\) diagrams = next;/);
   // Every mermaid failure degrades to the diagram's source, never a blank tab.
-  assert.match(preview, /artifactMermaidFailed/);
+  const diagram = read("./lib/artifacts/MermaidDiagram.svelte");
+  assert.match(diagram, /artifactMermaidFailed/);
+  assert.match(diagram, /<pre><code>{source}<\/code><\/pre>/);
 });
 
 test("failed mermaid renders cannot leak a temporary error diagram into the app shell", () => {
@@ -2283,6 +2359,26 @@ test("failed mermaid renders cannot leak a temporary error diagram into the app 
     assert.match(component, /suppressErrorRendering: true/);
     assert.match(component, /catch[\s\S]*?status: "failed"/);
   }
+});
+
+test("mermaid blocks share preview, source copy, and zoom controls in every surface", () => {
+  const viewer = read("./lib/artifacts/MermaidDiagram.svelte");
+  const chat = read("./lib/chat/ChatMarkdown.svelte");
+  const preview = read("./lib/artifacts/MarkdownPreview.svelte");
+
+  assert.match(chat, /import MermaidDiagram/);
+  assert.match(preview, /import MermaidDiagram/);
+  assert.match(chat, /<MermaidDiagram/);
+  assert.match(preview, /<MermaidDiagram/);
+  assert.match(viewer, /role="tablist"/);
+  assert.match(viewer, /aria-selected=\{mode === "preview"\}/);
+  assert.match(viewer, /aria-selected=\{mode === "source"\}/);
+  assert.match(viewer, /navigator\.clipboard\.writeText\(source\)/);
+  assert.match(viewer, /<pre><code>\{source\}<\/code><\/pre>/);
+  assert.match(viewer, /<Dialog/);
+  assert.match(viewer, /<MediaViewer kind="image"/);
+  assert.match(viewer, /data:image\/svg\+xml/);
+  assert.match(design, /Rendered Mermaid blocks expose one compact, persistent Preview \/ Source segmented/);
 });
 
 test("the Markdown viewer reuses the transcript renderer and its click behaviour", () => {
@@ -2387,6 +2483,10 @@ test("every new artifact copy key exists in both locales", () => {
     "artifactJsonInvalid",
     "artifactJsonTooLarge",
     "artifactMermaidFailed",
+    "mermaidViewMode",
+    "mermaidSource",
+    "mermaidExpand",
+    "mermaidDiagram",
     "artifactSpreadsheetLoading",
     "artifactSpreadsheetFailed",
     "artifactSpreadsheetEmpty",
@@ -2640,11 +2740,11 @@ test("settings navigation keeps the current product taxonomy and entity editors 
   assert.match(app, /id: "system", sections: \["runtimeEnv", "sandbox", "plugins", "diagnostics"\]/);
   for (const [formId, key] of Object.entries(formSectionKey)) {
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
-    assert.match(styles, new RegExp(`#desktop-${formId}-form`));
+    assert.match(sections[key], /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
   }
   assert.match(sections.agents, /class="entity-editor-head"/);
   assert.match(sections.agents, /class="entity-editor-foot"/);
-  assert.match(styles, /\.entity-editor-foot\s*\{[^}]*bottom:\s*0/s);
+  assert.match(styles, /\.entity-editor-foot\s*\{[^}]*justify-content:\s*flex-end/s);
   assert.match(app, /label: sectionLabel\(item\.id, text\)/);
   assert.match(app, /<PageHeader title=\{sectionLabel\(activeSection, text\)\}/);
   assert.match(app, /\{text\[preview\.labelKey\]\}/);
@@ -3622,9 +3722,10 @@ test("Mini App message actions are always a labelled menu, never loose glyphs", 
   // row that grows an icon per installed app eventually collides with the
   // timestamp. One `⋯` menu with icon + label per entry solves both.
   assert.doesNotMatch(transcript, /textContributions\.length <= 2/);
-  // Both roles render the menu: a message worth saving is worth saving whoever
-  // wrote it, and two action rows for one concept is a fork.
-  assert.equal(transcript.match(/<OverflowMenu label=\{copy\.miniAppMessageActionsMenu\}/g)?.length, 2);
+  // User messages keep their action menu; assistant actions merge into the one
+  // responsive details overflow instead of rendering a second `⋯` trigger.
+  assert.equal(transcript.match(/<OverflowMenu label=\{copy\.miniAppMessageActionsMenu\}/g)?.length, 1);
+  assert.match(transcript, /class="assistant-overflow"[\s\S]*aria-label=\{copy\.miniAppMessageActionsMenu\}/);
   // Every entry carries a real label beside its icon.
   assert.match(transcript, /role="menuitem"[\s\S]{0,400}<span>\{action\.label\}<\/span>/);
   // The trigger reports the outcome, because the menu has closed by the time
@@ -3632,6 +3733,35 @@ test("Mini App message actions are always a labelled menu, never loose glyphs", 
   assert.match(transcript, /busy \? "ph-circle-notch message-action-spin" : done \? "ph-check" : "ph-dots-three"/);
   // A pending entry cannot be fired twice.
   assert.match(transcript, /role="menuitem" disabled=\{pending\}/);
+});
+
+test("Chat Markdown and the Artifact Inspector share one theme-aware syntax palette", () => {
+  // One semantic source prevents the light Chat transcript from retaining the
+  // old fixed-dark block while the file viewer follows the selected theme.
+  for (const token of ["bg", "gutter", "fg", "keyword", "string", "title", "number", "comment", "variable", "attr", "built-in"]) {
+    assert.match(styles, new RegExp(`--artifact-code-${token}: var\\(--syntax-code-${token}\\)`));
+  }
+  assert.match(styles, /\.markdown-body pre \{[^}]*background: var\(--syntax-code-bg\)[^}]*color: var\(--syntax-code-fg\)/s);
+  assert.match(styles, /:root\[data-theme="dark"\][\s\S]*?--syntax-code-bg: #0d1117/);
+  assert.match(styles, /:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\)[\s\S]*?--syntax-code-bg: #0d1117/);
+  assert.doesNotMatch(styles, /\.hljs-keyword[^\n]*#[0-9a-f]{3,8}/i);
+});
+
+test("assistant technical metadata folds only in a narrow message column and shares one menu", () => {
+  assert.match(transcript, /hasTechnicalDetails = hasTurnSummary \|\| Boolean\(message\.model\) \|\| hasMemoryMeta/);
+  assert.match(transcript, /class="message-meta-inline"/);
+  assert.match(transcript, /<OverflowMenu label=\{copy\.conversationMenu\} popoverRole="dialog" closeOnPointerLeave=\{true\}>/);
+  assert.match(transcript, /class="message-meta-details"[\s\S]*class="turn-summary"[\s\S]*class="message-model"[\s\S]*class="message-memory-trace"/);
+  assert.match(styles, /\.assistant-layout \{[^}]*container: assistant-message \/ inline-size/s);
+  assert.match(styles, /@container assistant-message \(max-width: 620px\) \{[\s\S]*?\.message-meta-inline \{ display: none; \}[\s\S]*?\.message-meta-details \{ display: grid; \}/);
+  assert.match(styles, /\.assistant-overflow-details-only \{ display: none; \}/);
+  assert.equal(transcript.match(/class="assistant-overflow"/g)?.length, 1);
+  assert.doesNotMatch(transcript, /<details class="message-model technical-detail">/);
+  assert.match(overflowMenu, /export let popoverRole: "menu" \| "dialog" = "menu"/);
+  assert.match(overflowMenu, /role=\{popoverRole\} aria-label=\{label\}/);
+  assert.match(overflowMenu, /export let closeOnPointerLeave = false/);
+  assert.match(overflowMenu, /setTimeout\(\(\) => \{[\s\S]*?menu\.open = false;[\s\S]*?\}, 120\)/);
+  assert.match(overflowMenu, /onpointerenter=\{onPointerEnter\} onpointerleave=\{onPointerLeave\}/);
 });
 
 test("right-click with a selection offers the same actions on either role", () => {
@@ -3701,6 +3831,8 @@ test("permission mode is an independent control immediately after Attach", () =>
   assert.match(composerPermissionMenu, /role="menuitemradio"/);
   assert.match(composerPermissionMenu, /event\.key === "Escape"/);
   assert.match(composerPermissionMenu, /document\.addEventListener\("pointerdown"/);
+  assert.doesNotMatch(composerPermissionMenu, /ph-caret-down/);
+  assert.doesNotMatch(styles, /\.composer-permission-trigger \.ph-caret-down/);
 });
 
 test("composer selector pills still have no inline-size containment", () => {

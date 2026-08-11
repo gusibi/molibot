@@ -527,6 +527,11 @@ the base to pure black (`#000000`/`#0A0A0A`).
   rendered math, diagrams, and diffs) own a local horizontal scroller capped to
   `100%`. Every flex/grid item between the transcript and those structures keeps
   `min-width: 0`; opening the Project/File Inspector must not change this contract.
+- Rendered Mermaid blocks expose one compact, persistent Preview / Source segmented
+  control. Source remains selectable and has an explicit copy action; Preview keeps
+  its local horizontal scroller and offers an expand action through the shared image
+  zoom/pan viewer. The same block component is used in Chat, Project Chat, and
+  Markdown artifact previews so view state, fallback, and controls cannot drift.
 - Runtime-authored explicit Skill references (`[$name](.../SKILL.md)`) retain their
   machine-readable path in persisted content but render as the same Skill invocation
   card used by a `/name` composer selection. The visible transcript shows the Skill
@@ -565,7 +570,9 @@ the base to pure black (`#000000`/`#0A0A0A`).
   `#d1d9e0` canvas/surface/border and dark `#161b22` / `#0d1117` / `#30363d`,
   with `#0969da` (light) / `#58a6ff` (dark) accent. Human-readable names remain
   UI font; paths, identifiers, tabular data, and code use Mono.
-- Code and Markdown syntax use GitHub-like light/dark token roles; diff additions
+- Chat Markdown code blocks and Inspector code/Markdown must consume the same
+  shared GitHub/Primer light/dark syntax tokens; a transcript must never pin a
+  separate dark code theme while the surrounding app is light. Diff additions
   and deletions use the existing Primer green/red palette. File glyphs use the
   existing Phosphor file family with stable language/media colours (TypeScript
   blue, JavaScript yellow, Python blue, Rust orange, media purple, and so on).
@@ -574,6 +581,14 @@ the base to pure black (`#000000`/`#0A0A0A`).
   Changes list carries compact trailing `+added / −deleted` counts per file
   (binary files stay explicit), and a diff gutter scrolls with its code rows
   rather than becoming a vertically fixed rail.
+
+- Completed assistant replies show timestamp, model/provider identity, duration,
+  tool/file/token totals, memory provenance, and frequent actions inline while
+  the message column has room. Below the message-column compact breakpoint—not
+  a viewport breakpoint—secondary metadata and contributed Mini App actions
+  merge into one right-aligned labelled overflow control. Its pointer-opened
+  popover closes after the pointer leaves the trigger and popover together;
+  keyboard focus and Escape remain explicit alternatives.
 - Excel workbooks (`.xls` / `.xlsx`) use a read-only GitHub-like data surface:
   sheet names are compact tabs, the header stays sticky, row numbers are quiet
   metadata, and cells use Mono with horizontal overflow contained inside the
@@ -619,6 +634,14 @@ the base to pure black (`#000000`/`#0A0A0A`).
   than an opaque dark fill. Reduced-transparency, increased-contrast, and low-performance
   modes replace blur with the same masked fade using the opaque sidebar role. The header
   never becomes a card, gains a divider, or introduces a hard rectangular edge.
+- Bot identity stays compact and quiet across the composer picker and sidebar.
+  The composer trigger shows only the Bot initial; full names stay in its accessible
+  label and selection menu. Bot initials use a deterministic, restrained subset of
+  this document's mid/dark accent steps on low-opacity fills, with adjacent picker
+  options assigned distinct slots. Project Session lists reveal at most 10 rows at
+  a time and use the same “More conversations” disclosure rhythm as Chat. The
+  independent composer permission trigger uses its mode icon and label without a
+  trailing disclosure arrow; hover, focus, and open state carry its affordance.
 - The Chat composer exposes model and thinking depth through one compact summary
   control. Its custom popover keeps both choices in one keyboard-accessible menu,
   uses an in-place overview → option-list transition, and caps long model lists with

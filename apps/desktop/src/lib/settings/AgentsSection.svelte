@@ -1,7 +1,8 @@
 <script lang="ts">
   import SelectControl from "../components/ui/SelectControl.svelte";
+  import Dialog from "../components/ui/Dialog.svelte";
+  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { modelOptionCopy } from "../presentation";
-  import { fly } from "svelte/transition";
   import type { DesktopModelRoute } from "../api";
   import { session } from "../stores/session.svelte";
   import { modelsStore, loadModels } from "../stores/models.svelte";
@@ -113,8 +114,10 @@
   </div>
 {/if}
 {#if agentsStore.agentEdit}
-  <form id="desktop-agent-form" class="settings-card provider-editor" aria-label={session.text.agents} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveAgentEditor(); }}>
-    <header class="entity-editor-head"><strong>{session.text.agents}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}><i class="ph ph-x"></i></button></header>
+  <Dialog open={true} busy={agentsStore.saving} contentClass="entity-editor-dialog" labelledBy="agent-editor-title" onOpenChange={(next) => { if (!next) agentsStore.agentEdit = null; }}>
+  <form id="desktop-agent-form" class="entity-editor-form" aria-label={session.text.agents} onsubmit={(event) => { event.preventDefault(); void saveAgentEditor(); }}>
+    <header class="entity-editor-head"><strong id="agent-editor-title">{session.text.agents}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}><i class="ph ph-x"></i></button></header>
+    <div class="entity-editor-body">
     <div class="settings-form">
       <label class="settings-field"><span>{session.text.agentId}</span><input value={agentsStore.agentEdit.id} disabled={!agentsStore.agentEdit.isNew} oninput={(event) => updateAgentEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
       <label class="settings-field"><span>{session.text.agentName}</span><input value={agentsStore.agentEdit.name} oninput={(event) => updateAgentEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} /></label>
@@ -124,14 +127,16 @@
         <label class="settings-field"><span>{field.label}</span><SelectControl value={agentsStore.agentEdit.modelRouting[field.key as keyof typeof agentsStore.agentEdit.modelRouting]} ariaLabel={field.label} options={[{ value: "", label: session.text.agentFollowGlobal }, ...(modelsStore.modelStates[field.route as DesktopModelRoute]?.options ?? []).map((option) => ({ value: option.key, label: modelOptionCopy(option).name }))]} onChange={(value) => updateAgentEdit((draft) => ({ ...draft, modelRouting: { ...draft.modelRouting, [field.key]: value } }))} /></label>
       {/each}
     </div>
-    <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.agentEnabled}</span><button class:active={agentsStore.agentEdit.enabled} class="switch" type="button" role="switch" aria-label={session.text.agentEnabled} aria-checked={agentsStore.agentEdit.enabled} onclick={() => updateAgentEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div></div>
+    <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.agentEnabled}</span><IosSwitch checked={agentsStore.agentEdit.enabled} ariaLabel={session.text.agentEnabled} onCheckedChange={(checked) => updateAgentEdit((draft) => ({ ...draft, enabled: checked }))} /></div></div>
     <div class="provider-editor-toolbar"><strong>{session.text.agentFiles}</strong></div>
     <div class="profile-files-editor">
       {#each AGENT_FILE_NAMES as fileName (fileName)}
         <label class="settings-field"><span>{fileName}</span><textarea rows="7" value={agentsStore.agentEdit.files[fileName] ?? ""} oninput={(event) => updateAgentEdit((draft) => ({ ...draft, files: { ...draft.files, [fileName]: (event.currentTarget as HTMLTextAreaElement).value } }))}></textarea></label>
       {/each}
     </div>
+    </div>
     <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={agentsStore.saving || !agentsStore.agentEdit.id.trim()}>{agentsStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
   </form>
+  </Dialog>
 {/if}
 {#if agentsStore.actionMessage}<p class="settings-action-message">{agentsStore.actionMessage}</p>{/if}

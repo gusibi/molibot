@@ -430,6 +430,9 @@ test("shared conversation turn streams a project response through the same Chat 
 
 test("session runtime rejects overlapping transcript hydration but commits its owning turn reload", async () => {
   (globalThis as any).$state = <T>(value: T): T => value;
+  const derivedMock = <T>(value: T): T => value;
+  (derivedMock as any).by = <T>(fn: () => T): T => fn();
+  (globalThis as any).$derived = derivedMock;
   const finalMessages = [{
     id: "assistant-final",
     conversationId: "session-1",

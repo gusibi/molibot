@@ -65,8 +65,9 @@
   {/if}
   {#if skillsStore.searchDraft}
     {@const selectedSkillProvider = skillsStore.searchDraft.providers.find((provider) => provider.id === skillsStore.searchDraft?.apiProvider)}
-    <form id="desktop-skills-search-form" class="settings-card provider-editor" onsubmit={(event) => { event.preventDefault(); void saveSkillsSearch(); }}>
-      <div class="provider-editor-toolbar"><strong>{session.text.skillsSearchConfig}</strong></div>
+    <details class="skills-search-config settings-card">
+      <summary><strong>{session.text.skillsSearchConfig}</strong></summary>
+      <form id="desktop-skills-search-form" onsubmit={(event) => { event.preventDefault(); void saveSkillsSearch(); }}>
       <div class="settings-row"><strong>{session.text.skillSearchLocal}</strong><IosSwitch checked={skillsStore.searchDraft.localEnabled} ariaLabel={session.text.skillSearchLocal} onCheckedChange={(checked) => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, localEnabled: checked } : null)} /></div>
       <div class="settings-row"><strong>{session.text.skillSearchApi}</strong><IosSwitch checked={skillsStore.searchDraft.apiEnabled} ariaLabel={session.text.skillSearchApi} onCheckedChange={(checked) => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, apiEnabled: checked } : null)} /></div>
       <div class="settings-form">
@@ -77,7 +78,8 @@
         <label class="settings-field"><span>{session.text.skillsTimeout}</span><input type="number" min="1000" max="60000" step="500" value={skillsStore.searchDraft.timeoutMs} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, timeoutMs: Number(event.currentTarget.value) }; }} /></label>
         <label class="settings-field"><span>{session.text.skillsConfidence}</span><input type="number" min="0" max="1" step="0.05" value={skillsStore.searchDraft.minConfidence} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, minConfidence: Number(event.currentTarget.value) }; }} /></label>
       </div>
-    </form>
+      </form>
+    </details>
   {/if}
   {#if skillsStore.skills.counts.total === 0}
     <div class="settings-card"><div class="settings-row"><p>{session.text.skillsEmpty}</p></div></div>

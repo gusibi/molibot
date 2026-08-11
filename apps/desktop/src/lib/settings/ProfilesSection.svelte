@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { fly } from "svelte/transition";
   import { hasEnabledWebProfile } from "../api";
+  import Dialog from "../components/ui/Dialog.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import { session } from "../stores/session.svelte";
@@ -64,8 +64,10 @@
   </div>
 {/if}
 {#if profilesStore.profileEdit}
-  <form id="desktop-profile-form" class="settings-card provider-editor" aria-label={session.text.profiles} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveProfileEditor(); }}>
-    <header class="entity-editor-head"><strong>{session.text.profiles}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={profilesStore.saving} onclick={() => (profilesStore.profileEdit = null)}><i class="ph ph-x"></i></button></header>
+  <Dialog open={true} busy={profilesStore.saving} contentClass="entity-editor-dialog" labelledBy="profile-editor-title" onOpenChange={(next) => { if (!next) profilesStore.profileEdit = null; }}>
+  <form id="desktop-profile-form" class="entity-editor-form" aria-label={session.text.profiles} onsubmit={(event) => { event.preventDefault(); void saveProfileEditor(); }}>
+    <header class="entity-editor-head"><strong id="profile-editor-title">{session.text.profiles}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={profilesStore.saving} onclick={() => (profilesStore.profileEdit = null)}><i class="ph ph-x"></i></button></header>
+    <div class="entity-editor-body">
     <div class="settings-form">
       <label class="settings-field"><span>{session.text.profileId}</span><input value={profilesStore.profileEdit.id} disabled={!profilesStore.profileEdit.isNew} oninput={(event) => updateProfileEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
       <label class="settings-field"><span>{session.text.profileName}</span><input value={profilesStore.profileEdit.name} oninput={(event) => updateProfileEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} /></label>
@@ -79,7 +81,9 @@
         <label class="settings-field"><span>{fileName}</span><textarea rows="7" value={profilesStore.profileEdit.files[fileName] ?? ""} oninput={(event) => updateProfileEdit((draft) => ({ ...draft, files: { ...draft.files, [fileName]: (event.currentTarget as HTMLTextAreaElement).value } }))}></textarea></label>
       {/each}
     </div>
+    </div>
     <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={profilesStore.saving} onclick={() => (profilesStore.profileEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={profilesStore.saving || !profilesStore.profileEdit.id.trim()}>{profilesStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
   </form>
+  </Dialog>
 {/if}
 {#if profilesStore.actionMessage}<p class="settings-action-message">{profilesStore.actionMessage}</p>{/if}

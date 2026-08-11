@@ -80,7 +80,7 @@
       aria-expanded={expanded}
       onclick={onToggle}
     >
-      <i class={`ph-fill ph-${channel.icon}`} aria-hidden="true"></i>
+      <i class={`ph ph-${channel.icon}`} aria-hidden="true"></i>
       <span class="channel-accordion-name">{channel.name}</span>
     </button>
     {#if onNewSession}
@@ -165,7 +165,7 @@
     font-weight: 500;
     letter-spacing: 0;
   }
-  .channel-accordion-header i:first-child { font-size: var(--icon-md); opacity: 0.7; }
+  .channel-accordion-header i:first-child { font-size: var(--icon-md); color: var(--label-secondary); }
   .channel-accordion-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .channel-new-session,
   .channel-caret-button {

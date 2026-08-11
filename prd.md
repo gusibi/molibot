@@ -5,6 +5,38 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.73 Desktop settings editor and cold-start reliability (2026-08-11)
+
+- **Priority / Status**: P1 / Delivered (2026-08-11).
+- **Problem**: several entity editors implemented their own fixed, scrollable form instead of the shared dialog contract, so sticky headings and footers competed with the form content. Skills, media tests, and Sandbox policy grids also exposed advanced controls too aggressively or produced unbalanced columns. Memory blocked its complete first paint on five datasets, while enabled MCP configuration was restored without reconnecting the live registry.
+- **Decision**: use the shared Dialog, explicitly portaled to `body`, with one bounded `.entity-editor-body`; keep advanced Skill search collapsed; use balanced semantic settings grids; publish Memory summary independently from secondary datasets; reconcile enabled effective MCP servers from runtime cold start.
+- **Acceptance**: Agent/Profile/Channel/MCP editors open in the centered top layer independently of list length or scroll position, retain visible actions while only their body scrolls; affected layouts adapt at narrow widths and both themes; Memory leaves loading state after its summary response; a restarted runtime attempts enabled MCP connections without requiring the MCP page; structural, type, build, and focused runtime guards pass.
+
+---
+## 3.72 Unified Chat code theme and compact reply metadata (2026-08-11)
+
+- **Priority / Status**: P2 / Delivered (2026-08-11).
+- **Problem**: Chat Markdown forced a dark code palette even in the light app theme, while the Artifact Inspector already followed GitHub/Primer light and dark roles. Completed replies also laid time, duration, tool/file/token totals, model, memory provenance, and actions onto one line, which collapsed when the Inspector narrowed Chat.
+- **Decision**: make Chat Markdown and the Inspector consume one shared theme-aware syntax-token source. Keep reply metadata inline at normal message-column widths; when that actual column becomes narrow, merge technical metadata and Mini App contribution actions into one right-aligned ellipsis disclosure. Pointer-opened details close after leaving the complete trigger/popover region.
+- **Acceptance**: Chat and Project Chat code blocks match the Inspector palette in light, explicit dark, and OS-following dark modes; syntax remains readable and locally scrollable; opening the Inspector switches the footer to one overflow without duplicate ellipsis buttons or a metadata wall; wide Chat retains inline metadata; the combined details expose model identity, turn totals, memory trace and contributed actions with pointer, keyboard, Escape and screen-reader semantics; structural guards, Svelte diagnostics, production build, and diff checks pass.
+
+---
+## 3.71 Compact Bot identity and bounded Project Session lists (2026-08-11)
+
+- **Priority / Status**: P2 / Delivered (2026-08-11).
+- **Problem**: the composer repeated `@`, avatar, full Agent name, and caret in a scarce horizontal row; sidebar Bot badges could collide on one bright colour; expanded Projects rendered every Session at once.
+- **Decision**: reduce the composer Bot control to its initial while preserving the full accessible label and full-name menu. Use a small DESIGN.md-derived accent subset on low-opacity fills, assigning adjacent menu entries distinct slots. Remove the redundant trailing arrow from the adjacent permission-mode control while preserving its menu semantics. Project groups reveal Sessions in batches of 10 through the existing “More conversations” copy.
+- **Acceptance**: draft selection and locked Sessions retain the same Bot routing; dropdown, outside-click, Escape, keyboard focus, bilingual labels and themes remain usable; different visible Bot options are distinguishable without saturated fills; Project group 11+ initially renders 10 and each disclosure adds at most 10; structural guards, Svelte diagnostics, production build, and cold-path UI walk pass.
+
+---
+## 3.70 Mermaid source access and zoomable preview (2026-08-11)
+
+- **Priority / Status**: P2 / Delivered (2026-08-11).
+- **Problem**: a successfully rendered Mermaid block hides the original diagram text, so users cannot inspect or copy it; larger diagrams are constrained to the message width with no focused inspection mode.
+- **Decision**: use one shared Mermaid block across Chat, Project Chat, and Markdown artifacts. It defaults to Preview, exposes an always-visible Preview / Source switch and source copy action, and opens the sanitized SVG through the existing image zoom/pan viewer.
+- **Acceptance**: each valid diagram can switch independently between rendered and selectable source views, copy its exact source, and expand for zoom/pan; failed diagrams keep their local source fallback; controls are bilingual, theme-safe, responsive, and structurally guarded across every rendering surface.
+
+---
 ## 3.69 Mermaid failure layout containment (2026-08-11)
 
 - **Priority / Status**: P1 / Delivered (2026-08-11), resolving Issue #32.

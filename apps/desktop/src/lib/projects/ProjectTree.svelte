@@ -40,9 +40,11 @@
   } = $props();
 
   const EXPANSION_KEY = "molibot-desktop-expanded-projects";
+  const SESSION_PAGE_SIZE = 10;
   let loadedEndpoint = "";
   let expandedProjects = $state<Record<string, boolean>>(readExpandedProjects());
   let sessionsByProject = $state<Record<string, DesktopProjectSession[]>>({});
+  let visibleSessionLimits = $state<Record<string, number>>({});
   let loadingProjects = $state<Record<string, boolean>>({});
   let adding = $state(false);
   let createStep = $state<"name" | "location">("name");
@@ -54,6 +56,12 @@
   let renameProjectId = $state("");
   let renameProjectName = $state("");
   let nameInput = $state<HTMLInputElement>();
+  let visibleSessionsByProject = $derived.by(() => Object.fromEntries(
+    Object.entries(sessionsByProject).map(([projectId, sessions]) => [
+      projectId,
+      sessions.slice(0, visibleSessionLimits[projectId] ?? SESSION_PAGE_SIZE)
+    ])
+  ));
 
   const rowLabels = $derived({
     running: copy.running,
@@ -128,6 +136,13 @@
     expandedProjects = { ...expandedProjects, [projectId]: open };
     persistExpandedProjects();
     if (open) void loadSessions(projectId);
+  }
+
+  function showMoreSessions(projectId: string): void {
+    visibleSessionLimits = {
+      ...visibleSessionLimits,
+      [projectId]: (visibleSessionLimits[projectId] ?? SESSION_PAGE_SIZE) + SESSION_PAGE_SIZE
+    };
   }
 
   async function openSession(projectId: string, sessionId: string): Promise<void> {
@@ -267,6 +282,9 @@
   {#if expanded}
     {#each projectsStore.projects as project (project.id)}
       {@const projectSessions = project.id === projectsStore.selectedProjectId ? projectsStore.sessions : (sessionsByProject[project.id] ?? [])}
+      {@const visibleProjectSessions = project.id === projectsStore.selectedProjectId
+        ? projectSessions.slice(0, visibleSessionLimits[project.id] ?? SESSION_PAGE_SIZE)
+        : (visibleSessionsByProject[project.id] ?? [])}
       <div class="project-tree-group">
         <GroupHeader label={project.name} icon="ph-fill ph-folder" open={Boolean(expandedProjects[project.id])} actionLabel={copy.newChat} onAction={() => void createSession(project.id)} menuLabel={copy.conversationMenu} onMenu={() => (menuProjectId = menuProjectId === project.id ? "" : project.id)} onToggle={() => toggleProject(project.id)} />
         {#if menuProjectId === project.id}
@@ -281,7 +299,7 @@
           {:else if projectSessions.length === 0}
             <p class="project-tree-state">{copy.projectNoSessions}</p>
           {:else}
-            {#each projectSessions as session (session.conversationId)}
+            {#each visibleProjectSessions as session (session.conversationId)}
               <ConversationRow
                 item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false, botId: project.id, botName: project.name, botDeleted: false }}
                 active={activeSessionId === session.conversationId}
@@ -292,6 +310,9 @@
                 onDelete={() => void deleteSession(project.id, session.conversationId)}
               />
             {/each}
+            {#if projectSessions.length > visibleProjectSessions.length}
+              <button type="button" class="project-more" onclick={() => showMoreSessions(project.id)}>{copy.more}</button>
+            {/if}
           {/if}
         {/if}
       </div>
@@ -351,4 +372,7 @@
   .project-add { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; margin-right: 2px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
   .project-add:hover { background: var(--fill); color: var(--label-primary); }
   .project-tree-state { margin: 0; padding: 6px 12px 6px 32px; color: var(--label-tertiary); font-size: 12px; }
+  .project-more { width: 100%; height: 30px; padding: 0 8px 0 32px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--accent); font: inherit; font-size: var(--fs-label); text-align: left; cursor: pointer; }
+  .project-more:hover { background: var(--fill); }
+  .project-more:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
 </style>

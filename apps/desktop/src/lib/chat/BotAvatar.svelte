@@ -1,16 +1,24 @@
 <script lang="ts" module>
   /**
    * Stable avatar color for a Bot (plan §3.5). The same botId always maps to the
-   * same color — across restarts, and unaffected by renames — so we never reach
-   * for runtime-random color. The hash is deterministic over the id string.
+   * same color across restarts, so we never reach for runtime-random color. The
+   * hash combines the visible name and stable id; picker menus may assign an
+   * explicit slot so neighbouring options cannot collide.
    */
+  // Restrained mid/dark steps from DESIGN.md. The avatar itself mixes these
+  // down into the sidebar surface, so identity stays useful without turning
+  // the navigation into a row of saturated badges.
   export const BOT_AVATAR_PALETTE = [
-    "#006bff", "#a000f8", "#f22782", "#ffae00",
-    "#28a948", "#00ac96", "#8500d1", "#e4106e"
+    "#0059ec", "#279141", "#00927f", "#8500d1", "#c41562", "#aa4d00"
   ];
 
-  export function botAvatarColor(botId: string): string {
-    const id = String(botId ?? "");
+  export function botAvatarColor(botId: string, name = "", colorIndex?: number): string {
+    if (colorIndex !== undefined) {
+      return BOT_AVATAR_PALETTE[Math.abs(colorIndex) % BOT_AVATAR_PALETTE.length];
+    }
+    // Display names are what people distinguish in the sidebar. Including the
+    // stable id keeps equal names from collapsing to one identity colour.
+    const id = `${String(name ?? "").trim()}\u0000${String(botId ?? "")}`;
     let h = 0;
     for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) | 0;
     return BOT_AVATAR_PALETTE[Math.abs(h) % BOT_AVATAR_PALETTE.length];
@@ -35,11 +43,12 @@
     botId,
     name = "",
     size = 28,
-    readOnly = false
-  }: { botId: string; name?: string; size?: number; readOnly?: boolean } = $props();
+    readOnly = false,
+    colorIndex
+  }: { botId: string; name?: string; size?: number; readOnly?: boolean; colorIndex?: number } = $props();
 
   let initial = $derived(botAvatarInitial(name));
-  let color = $derived(botAvatarColor(botId || name));
+  let color = $derived(botAvatarColor(botId, name, colorIndex));
 </script>
 
 <span
@@ -63,7 +72,7 @@
     width: var(--size);
     height: var(--size);
     border-radius: var(--radius-control, 8px);
-    background: color-mix(in srgb, var(--c) 18%, transparent);
+    background: color-mix(in srgb, var(--c) 12%, var(--fill, transparent));
     color: var(--c);
     font-size: calc(var(--size) * 0.45);
     font-weight: 600;
@@ -73,7 +82,7 @@
     letter-spacing: 0;
   }
   .bot-avatar.readonly {
-    background: color-mix(in srgb, var(--c) 12%, var(--fill, transparent));
+    background: color-mix(in srgb, var(--c) 9%, var(--fill, transparent));
     opacity: 0.92;
   }
   .bot-avatar i {

@@ -2,6 +2,7 @@
   import { renderMarkdown } from "../markdown";
   import { markdownBody } from "../markdownInteractions";
   import { splitMermaidBlocks, hasMermaidBlock, type MarkdownSegment } from "./mermaidBlocks";
+  import MermaidDiagram from "./MermaidDiagram.svelte";
   import CodeViewer from "../projects/CodeViewer.svelte";
   import type { Translation } from "../i18n";
 
@@ -107,18 +108,7 @@
         <div class="markdown-body">{@html markdownHtml(segment)}</div>
       {:else}
         {@const rendered = diagrams.get(segment.id)}
-        {#if rendered?.status === "ok"}
-          <div class="markdown-preview-diagram">{@html rendered.svg}</div>
-        {:else if rendered?.status === "failed"}
-          <div class="markdown-preview-diagram-failed">
-            <p class="project-viewer-note">{copy.artifactMermaidFailed}</p>
-            <pre>{segment.content}</pre>
-          </div>
-        {:else}
-          <div class="markdown-preview-diagram-pending" role="status">
-            <i class="ph ph-spinner-gap" aria-hidden="true"></i><span>{copy.loading}</span>
-          </div>
-        {/if}
+        <MermaidDiagram source={segment.content} {rendered} {copy} />
       {/if}
     {/each}
   </div>
@@ -133,36 +123,5 @@
     color: var(--label-primary);
     font-size: var(--fs-body);
     line-height: var(--lh-body);
-  }
-  .markdown-preview-diagram {
-    display: flex;
-    justify-content: center;
-    padding: 12px 0;
-    overflow-x: auto;
-  }
-  .markdown-preview-diagram :global(svg) {
-    max-width: 100%;
-    height: auto;
-  }
-  .markdown-preview-diagram-pending {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 12px 0;
-    color: var(--label-tertiary);
-    font-size: var(--fs-meta);
-    line-height: var(--lh-meta);
-  }
-  .markdown-preview-diagram-failed pre {
-    margin: 0;
-    padding: 8px 10px;
-    border: 1px solid var(--separator);
-    border-radius: var(--radius-small);
-    background: var(--fill);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    line-height: var(--lh-meta);
-    white-space: pre-wrap;
-    word-break: break-word;
   }
 </style>

@@ -6,6 +6,7 @@
     open = false,
     busy = false,
     closeOnOutside = true,
+    portalTo = "body",
     overlayClass = "",
     contentClass = "",
     labelledBy = undefined,
@@ -18,6 +19,7 @@
     open?: boolean;
     busy?: boolean;
     closeOnOutside?: boolean;
+    portalTo?: string | HTMLElement;
     overlayClass?: string;
     contentClass?: string;
     labelledBy?: string;
@@ -55,7 +57,7 @@
 </script>
 
 <BitsDialog.Root bind:open={getOpen, setOpen}>
-  <BitsDialog.Portal>
+  <BitsDialog.Portal to={portalTo}>
     <BitsDialog.Overlay class={`desktop-dialog-overlay ${overlayClass}`} />
     <BitsDialog.Content
       class={`desktop-dialog-content ${contentClass}`}

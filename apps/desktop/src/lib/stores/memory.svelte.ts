@@ -24,28 +24,45 @@ export const memoryStore = $state({
   rejectionQuery: ""
 });
 
+let memoryLoadGeneration = 0;
+
 export async function loadMemory(endpoint: string): Promise<void> {
+  const generation = ++memoryLoadGeneration;
+  const endpointChanged = memoryStore.endpoint !== endpoint;
   memoryStore.endpoint = endpoint;
   memoryStore.loading = true;
+  if (endpointChanged) {
+    memoryStore.memory = null;
+    memoryStore.items = [];
+    memoryStore.profile = null;
+    memoryStore.candidates = [];
+    memoryStore.rejections = [];
+  }
   session.error = "";
+  const summaryPromise = loadDesktopMemory(endpoint);
+  const recordPromise = runDesktopMemoryAction(endpoint, { action: "list", allScopes: true, limit: 200 });
+  const profilePromise = runDesktopMemoryAction(endpoint, { action: "profile", includeOwner: true, includeAgentSelf: true });
+  const candidatePromise = runDesktopMemoryAction(endpoint, { action: "list-candidates", limit: 200 });
+  const rejectionPromise = loadDesktopMemoryRejections(endpoint);
+  const secondaryPromise = Promise.allSettled([recordPromise, profilePromise, candidatePromise, rejectionPromise]);
   try {
-    const [summary, records, profile, candidates, rejections] = await Promise.all([
-      loadDesktopMemory(endpoint),
-      runDesktopMemoryAction(endpoint, { action: "list", allScopes: true, limit: 200 }),
-      runDesktopMemoryAction(endpoint, { action: "profile", includeOwner: true, includeAgentSelf: true }),
-      runDesktopMemoryAction(endpoint, { action: "list-candidates", limit: 200 }),
-      loadDesktopMemoryRejections(endpoint)
-    ]);
+    const summary = await summaryPromise;
+    if (generation !== memoryLoadGeneration) return;
     memoryStore.memory = summary;
-    memoryStore.items = records.items ?? [];
-    memoryStore.profile = profile.profile ?? null;
-    memoryStore.candidates = candidates.candidates ?? [];
-    memoryStore.rejections = rejections.items;
+    memoryStore.loading = false;
+
+    const [records, profile, candidates, rejections] = await secondaryPromise;
+    if (generation !== memoryLoadGeneration) return;
+    if (records.status === "fulfilled") memoryStore.items = records.value.items ?? [];
+    if (profile.status === "fulfilled") memoryStore.profile = profile.value.profile ?? null;
+    if (candidates.status === "fulfilled") memoryStore.candidates = candidates.value.candidates ?? [];
+    if (rejections.status === "fulfilled") memoryStore.rejections = rejections.value.items;
   } catch (cause) {
+    if (generation !== memoryLoadGeneration) return;
     memoryStore.endpoint = "";
     setError(cause);
   } finally {
-    memoryStore.loading = false;
+    if (generation === memoryLoadGeneration) memoryStore.loading = false;
   }
 }
 

@@ -6,6 +6,7 @@ import { configureMiniAppSettings, getMiniAppHost } from "$lib/server/miniapps/r
 import { ensureBuiltinMiniApps } from "$lib/server/miniapps/bootstrap.js";
 import { ensureBuiltinSkills } from "$lib/server/agent/skills/bootstrap.js";
 import { getToolSandboxEnvStartupReport } from "$lib/server/agent/tools/sandbox.js";
+import { reconcileMcpServers } from "$lib/server/agent/tools/mcp.js";
 import { config, liveServicesDisabled } from "$lib/server/app/env.js";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
 import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternals, deliverMemoryReviewBatch, deliverMemoryTaskNotification, formatDailyMaterialsNotification, resolveMemoryReflectionNotificationTarget, TaskScheduler, type InternalTaskExecutionResult } from "$lib/server/agent/taskScheduler.js";
@@ -19,6 +20,7 @@ import { AssistantService } from "$lib/server/providers/assistantService.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
+import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
 import { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { getHostBashStore, type HostBashStore } from "$lib/server/hostBash/index.js";
@@ -531,6 +533,12 @@ function initializeRuntime(): RuntimeState {
     // channel websockets, scheduler, or keep-alive interval — so the process
     // can exit cleanly instead of hanging on a retrying Feishu/Telegram client.
     if (!liveServicesDisabled()) {
+      void reconcileMcpServers(effectiveMcpServers(state.settings), {
+        workspaceDir: config.webWorkspaceDir,
+        connectEnabled: true
+      }).catch((error) => {
+        console.error(`${runtimeLabel("runtime")} mcp_startup_reconcile_failed`, error);
+      });
       void state.memory.syncExternalMemories()
         .then((result) => {
           console.log(

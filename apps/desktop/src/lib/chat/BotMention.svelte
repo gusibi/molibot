@@ -21,8 +21,9 @@
   let selected = $derived(
     bots.find((bot) => bot.id === selectedId) ?? { id: selectedId, name: selectedId }
   );
-  // A single bot is unambiguous — there is nothing to pick, so it shows as a
-  // static (non-interactive) `@Bot` label instead of an openable dropdown.
+  let selectedIndex = $derived(Math.max(0, bots.findIndex((bot) => bot.id === selected.id)));
+  // A single bot is unambiguous — there is nothing to pick, so only its compact
+  // initial remains. The full identity is available to assistive technology.
   let multiple = $derived(bots.length > 1);
 
   function toggle() {
@@ -59,18 +60,16 @@
       class:active={open}
       aria-haspopup="listbox"
       aria-expanded={open}
+      aria-label={`${labels.chooseHint}: ${selected.name}`}
       title={labels.chooseHint}
       onclick={toggle}
     >
-      <span class="mention-at">@</span>
-      <BotAvatar botId={selected.id} name={selected.name} size={18} />
-      <span class="mention-name">{selected.name}</span>
-      <i class="ph-bold ph-caret-up-down mention-caret" aria-hidden="true"></i>
+      <BotAvatar botId={selected.id} name={selected.name} size={20} colorIndex={selectedIndex} />
     </button>
 
     {#if open}
       <div class="mention-menu" role="listbox" aria-label={labels.chooseHint}>
-        {#each bots as bot (bot.id)}
+        {#each bots as bot, index (bot.id)}
           <button
             type="button"
             role="option"
@@ -79,7 +78,7 @@
             aria-selected={bot.id === selectedId}
             onclick={() => pick(bot.id)}
           >
-            <BotAvatar botId={bot.id} name={bot.name} size={24} />
+            <BotAvatar botId={bot.id} name={bot.name} size={24} colorIndex={index} />
             <span class="mention-option-text">
               <span class="mention-option-name">{bot.name}</span>
               {#if bot.subtitle}<span class="mention-option-sub">{bot.subtitle}</span>{/if}
@@ -92,18 +91,12 @@
       </div>
     {/if}
   {:else if mode === "select"}
-    <!-- Single bot: nothing to choose, show a static @Bot label. -->
-    <span class="mention-token static">
-      <span class="mention-at">@</span>
-      <BotAvatar botId={selected.id} name={selected.name} size={18} />
-      <span class="mention-name">{selected.name}</span>
+    <span class="mention-token static" role="img" aria-label={selected.name} title={selected.name}>
+      <BotAvatar botId={selected.id} name={selected.name} size={20} colorIndex={selectedIndex} />
     </span>
   {:else}
-    <span class="mention-token locked" title={labels.lockedHint}>
-      <span class="mention-at">@</span>
-      <BotAvatar botId={selected.id} name={selected.name} size={18} readOnly />
-      <span class="mention-name">{selected.name}</span>
-      <i class="ph ph-lock-simple mention-lock" aria-hidden="true"></i>
+    <span class="mention-token locked" role="img" aria-label={`${selected.name}: ${labels.lockedHint}`} title={`${selected.name} · ${labels.lockedHint}`}>
+      <BotAvatar botId={selected.id} name={selected.name} size={20} readOnly colorIndex={selectedIndex} />
     </span>
   {/if}
 </div>
@@ -119,10 +112,10 @@
   .mention-token {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    width: 28px;
     height: 28px;
-    max-width: 100%;
-    padding: 0 8px 0 7px;
+    padding: 0;
     border: 0;
     border-radius: var(--rounded-full);
     background: transparent;
@@ -138,26 +131,8 @@
     background: var(--fill);
     color: var(--label-primary);
   }
-  .mention-at {
-    color: var(--accent);
-    font-weight: 700;
-    font-size: var(--fs-label);
-  }
-  .mention-name {
-    min-width: 0;
-    max-width: 140px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .mention-caret {
-    font-size: var(--icon-xs);
-    opacity: 0.5;
-  }
-
   .mention-token.static,
   .mention-token.locked {
-    padding-left: 4px;
     background: transparent;
     cursor: default;
   }
@@ -165,11 +140,6 @@
     background: transparent;
     color: var(--label-secondary);
   }
-  .mention-lock {
-    font-size: var(--icon-xs);
-    opacity: 0.5;
-  }
-
   .mention-menu {
     position: absolute;
     bottom: calc(100% + 8px);

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { fly } from "svelte/transition";
+  import Dialog from "../components/ui/Dialog.svelte";
+  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import { session } from "../stores/session.svelte";
   import { agentsStore, loadAgents } from "../stores/agents.svelte";
@@ -70,8 +71,10 @@
   {/each}
   {#if channelsStore.channelEdit}
     {@const savedInstance = channelsStore.channels.groups.find((group) => group.channel === channelsStore.channelEdit?.channel)?.instances.find((instance) => instance.id === channelsStore.channelEdit?.previousId)}
-    <form id="desktop-channel-form" class="settings-card provider-editor" aria-label={session.text.channels} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveChannelEditor(); }}>
-      <header class="entity-editor-head"><strong>{session.text.channels} · {externalChannelLabel(channelsStore.channelEdit.channel, session.locale)}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={channelsStore.saving} onclick={() => (channelsStore.channelEdit = null)}><i class="ph ph-x"></i></button></header>
+    <Dialog open={true} busy={channelsStore.saving} contentClass="entity-editor-dialog" labelledBy="channel-editor-title" onOpenChange={(next) => { if (!next) channelsStore.channelEdit = null; }}>
+    <form id="desktop-channel-form" class="entity-editor-form" aria-label={session.text.channels} onsubmit={(event) => { event.preventDefault(); void saveChannelEditor(); }}>
+      <header class="entity-editor-head"><strong id="channel-editor-title">{session.text.channels} · {externalChannelLabel(channelsStore.channelEdit.channel, session.locale)}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={channelsStore.saving} onclick={() => (channelsStore.channelEdit = null)}><i class="ph ph-x"></i></button></header>
+      <div class="entity-editor-body">
       <div class="settings-form">
         <label class="settings-field"><span>{session.text.channelInstanceId}</span><input value={channelsStore.channelEdit.id} disabled={!channelsStore.channelEdit.isNew} oninput={(event) => updateChannelEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
         <label class="settings-field"><span>{session.text.channelInstanceName}</span><input value={channelsStore.channelEdit.name} oninput={(event) => updateChannelEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} /></label>
@@ -79,7 +82,7 @@
         <label class="settings-field"><span>{session.text.profileSandbox}</span><SelectControl value={channelsStore.channelEdit.sandboxEnabled === null ? "inherit" : channelsStore.channelEdit.sandboxEnabled ? "on" : "off"} ariaLabel={session.text.profileSandbox} options={[{ value: "inherit", label: session.text.profileSandboxInherit }, { value: "on", label: session.text.profileSandboxOn }, { value: "off", label: session.text.profileSandboxOff }]} onChange={(value) => updateChannelEdit((draft) => ({ ...draft, sandboxEnabled: value === "inherit" ? null : value === "on" }))} /></label>
         <label class="settings-field settings-field-wide"><span>{session.text.channelAllowedChatIds}</span><textarea rows="3" value={channelsStore.channelEdit.allowedChatIds.join("\n")} placeholder={session.text.channelAllowedChatHint} oninput={(event) => updateChannelEdit((draft) => ({ ...draft, allowedChatIds: (event.currentTarget as HTMLTextAreaElement).value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean) }))}></textarea></label>
       </div>
-      <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.channelEnabled}</span><button class:active={channelsStore.channelEdit.enabled} class="switch" type="button" role="switch" aria-label={session.text.channelEnabled} aria-checked={channelsStore.channelEdit.enabled} onclick={() => updateChannelEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div></div>
+      <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.channelEnabled}</span><IosSwitch checked={channelsStore.channelEdit.enabled} ariaLabel={session.text.channelEnabled} onCheckedChange={(checked) => updateChannelEdit((draft) => ({ ...draft, enabled: checked }))} /></div></div>
       <div class="provider-editor-toolbar"><strong>{session.text.channelCredentials}</strong>{#if channelsStore.channelEdit.channel === "feishu"}<button class="secondary-button" type="button" disabled={channelsStore.testing} onclick={() => void testChannelEditor()}>{channelsStore.testing ? session.text.loading : session.text.channelTest}</button>{/if}</div>
       <div class="settings-form">
         {#each CHANNEL_FIELD_CONFIG[channelsStore.channelEdit.channel].visible as key (key)}
@@ -115,8 +118,10 @@
         {#if channelsStore.qrImage}<div class="channel-qr-result"><img src={channelsStore.qrImage} alt="WeChat login QR code" /><p>{session.text.channelQrScan}</p></div>{/if}
         {#if channelsStore.qrError}<p class="settings-action-message error-text">{channelsStore.qrError}</p>{/if}
       {/if}
+      </div>
       <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={channelsStore.saving} onclick={() => (channelsStore.channelEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={channelsStore.saving || !channelsStore.channelEdit.id.trim()}>{channelsStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
     </form>
+    </Dialog>
   {/if}
   {#if channelsStore.actionMessage}<p class="settings-action-message">{channelsStore.actionMessage}</p>{/if}
 {/if}

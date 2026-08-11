@@ -1,6 +1,6 @@
 <script lang="ts">
   import SelectControl from "../components/ui/SelectControl.svelte";
-  import { fly } from "svelte/transition";
+  import Dialog from "../components/ui/Dialog.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { session } from "../stores/session.svelte";
   import {
@@ -79,8 +79,10 @@
   {/if}
   {#if mcpStore.mcpEdit}
     {@const savedMcp = mcpStore.mcp.items.find((item) => item.id === mcpStore.mcpEdit?.previousId)}
-    <form id="desktop-mcp-form" class="settings-card provider-editor" aria-label={session.text.mcp} out:fly={{ y: 8, duration: 150 }} onsubmit={(event) => { event.preventDefault(); void saveMcpEditor(); }}>
-      <header class="entity-editor-head"><strong>{session.text.mcp}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={mcpStore.saving} onclick={() => (mcpStore.mcpEdit = null)}><i class="ph ph-x"></i></button></header>
+    <Dialog open={true} busy={mcpStore.saving} contentClass="entity-editor-dialog" labelledBy="mcp-editor-title" onOpenChange={(next) => { if (!next) mcpStore.mcpEdit = null; }}>
+    <form id="desktop-mcp-form" class="entity-editor-form" aria-label={session.text.mcp} onsubmit={(event) => { event.preventDefault(); void saveMcpEditor(); }}>
+      <header class="entity-editor-head"><strong id="mcp-editor-title">{session.text.mcp}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={mcpStore.saving} onclick={() => (mcpStore.mcpEdit = null)}><i class="ph ph-x"></i></button></header>
+      <div class="entity-editor-body">
       <div class="settings-form">
         <label class="settings-field"><span>{session.text.mcpId}</span><input value={mcpStore.mcpEdit.id} disabled={!mcpStore.mcpEdit.isNew} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, id: event.currentTarget.value }))} /></label>
         <label class="settings-field"><span>{session.text.mcpName}</span><input value={mcpStore.mcpEdit.name} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, name: event.currentTarget.value }))} /></label>
@@ -101,8 +103,10 @@
           <label class="settings-field settings-field-wide"><span>{session.text.mcpHeadersReplace}</span><textarea rows="4" value={mcpStore.mcpEdit.headerDraft} placeholder={session.text.mcpMapPlaceholder} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, headerDraft: event.currentTarget.value }))}></textarea>{#each savedMcp?.headerKeys ?? [] as key (key)}<label class="inline-check"><input type="checkbox" checked={mcpStore.mcpEdit.clearHeaderKeys?.includes(key)} onchange={() => updateMcpEdit((draft) => ({ ...draft, clearHeaderKeys: draft.clearHeaderKeys?.includes(key) ? draft.clearHeaderKeys.filter((item) => item !== key) : [...(draft.clearHeaderKeys ?? []), key] }))} /> {session.text.mcpClearKey}: {key}</label>{/each}</label>
         </div>
       {/if}
+      </div>
       <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={mcpStore.saving} onclick={() => (mcpStore.mcpEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={mcpStore.saving || !mcpStore.mcpEdit.id.trim() || (mcpStore.mcpEdit.transport === "stdio" ? !mcpStore.mcpEdit.command.trim() : !mcpStore.mcpEdit.url.trim())}>{mcpStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
     </form>
+    </Dialog>
   {/if}
   {#if mcpStore.actionMessage}<p class="settings-action-message">{mcpStore.actionMessage}</p>{/if}
 {/if}

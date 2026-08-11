@@ -72,7 +72,7 @@
     </div>
   </div>
 
-  <div class="sandbox-policy-grid">
+  <div class="sandbox-policy-grid sandbox-policy-stack">
     <div class="settings-card provider-editor">
       <div class="provider-editor-toolbar"><div><strong>{session.text.sandboxNetwork}</strong><p>{session.text.sandboxNetworkHint}</p></div></div>
       <div class="settings-form sandbox-policy-form single-column">
