@@ -5,6 +5,14 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.69 Mermaid failure layout containment (2026-08-11)
+
+- **Priority / Status**: P1 / Delivered (2026-08-11), resolving Issue #32.
+- **Problem**: Mermaid's default syntax-error path renders a large temporary SVG as a direct `document.body` child and throws before cleaning it up. Molibot caught the exception inside the message, but the orphaned renderer node remained outside the transcript and could displace the whole Desktop window until restart.
+- **Decision**: every Svelte Mermaid renderer enables `suppressErrorRendering`; Molibot remains the only owner of the user-visible failure state and continues to show the localized note plus diagram source.
+- **Acceptance**: malformed Mermaid produces no body-level renderer node and does not change the viewport/page height; valid diagrams still render; Chat and Artifact Markdown share the contract; a browser measurement and a guard over every Mermaid-importing Svelte component cover it.
+
+---
 ## 3.68 Bounded message content overflow (2026-08-10)
 
 - **Priority / Status**: P1 / Delivered (2026-08-10).

@@ -47,7 +47,12 @@
       }
       try {
         const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          suppressErrorRendering: true,
+          theme: dark ? "dark" : "default"
+        });
         for (const segment of mermaidSegments) {
           try {
             const { svg } = await mermaid.render(`chat-${segment.id}-${token}`, segment.content);

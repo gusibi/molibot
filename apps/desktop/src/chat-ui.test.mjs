@@ -2273,6 +2273,18 @@ test("mermaid loads lazily and cannot execute diagram-authored script", () => {
   assert.match(preview, /artifactMermaidFailed/);
 });
 
+test("failed mermaid renders cannot leak a temporary error diagram into the app shell", () => {
+  // Mermaid renders into a temporary direct child of document.body. Without
+  // suppressErrorRendering it draws a 2412x512 syntax-error SVG and throws
+  // before removing that child, permanently changing the window layout.
+  const renderers = listSvelteSources().filter((source) => /import\("mermaid"\)/.test(source));
+  assert.ok(renderers.length > 0);
+  for (const component of renderers) {
+    assert.match(component, /suppressErrorRendering: true/);
+    assert.match(component, /catch[\s\S]*?status: "failed"/);
+  }
+});
+
 test("the Markdown viewer reuses the transcript renderer and its click behaviour", () => {
   // Pitfall #7: a second markdown pipeline is how one surface silently loses
   // syntax highlighting, sanitization or the copy-code button.

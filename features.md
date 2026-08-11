@@ -4,6 +4,14 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-11
+
+### Mermaid 错误渲染布局隔离（修复，P1）
+
+- Desktop Chat 与 Artifact Markdown 遇到 Mermaid 语法错误时，不再让 Mermaid 把巨大的临时错误 SVG 挂到应用根布局；窗口顶部、消息滚动位置和其它面板不会再被持续挤出视口，也不需要重启恢复。
+- 消息内仍显示 Molibot 自己的本地化失败提示和原始 Mermaid 源码，正常图表、明暗主题重渲染、懒加载及 strict 安全级别保持不变。
+- 验证：真实浏览器中坏图从“残留 1 个 body 子节点、页面高度 720→834px”恢复为“无残留、页面高度保持 720px”；机器守卫覆盖所有 Svelte Mermaid 渲染入口。
+
 ## 2026-08-10
 
 ### Release v2.9.17 / Desktop v0.9.14

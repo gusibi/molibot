@@ -4,6 +4,15 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-11
+
+### Release: v2.9.18 / Desktop v0.9.15
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: malformed Mermaid diagrams stay inside their message
+- A Mermaid syntax error no longer leaves the library's temporary 2412×512 error SVG attached directly to `document.body`, where it could displace the Desktop window until restart. Chat and Artifact Markdown both suppress Mermaid's own error drawing while preserving Molibot's localized failure note and source fallback.
+- A browser regression reproduced the leaked body child and extra page height before the fix, then verified zero leaked nodes and unchanged viewport height after it. A structural guard now covers every Svelte Mermaid renderer.
+
 ## 2026-08-10
 
 ### Release: v2.9.17 / Desktop v0.9.14

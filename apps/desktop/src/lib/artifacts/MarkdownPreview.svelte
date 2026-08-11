@@ -75,6 +75,7 @@
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: "strict",
+        suppressErrorRendering: true,
         theme: currentTheme === "dark" ? "dark" : "default"
       });
 
