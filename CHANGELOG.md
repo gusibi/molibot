@@ -6,8 +6,30 @@
 
 ## 2026-08-11
 
+### Release: v2.9.19 / Desktop v0.9.16
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: Desktop settings editors, loading, and cold-start connectivity
+- Agent, Web Profile, Channel, and MCP editors now use the shared accessible dialog shell with a bounded scrolling body and fixed header/footer. The shell explicitly portals to `body`, so an editor always opens as a centered top-layer modal instead of inheriting its list position or appearing below a long settings page.
+- Skill search configuration is collapsed by default; image/TTS test fields and Sandbox policy groups use balanced settings layouts across wide and narrow windows.
+- Memory Center paints its summary as soon as the primary request completes instead of waiting for four slower datasets. Enabled MCP servers now reconnect during runtime cold start, including the managed OpenConnector server.
+
+### Improved: Chat code follows the Inspector theme and reply metadata stays quiet
+- Chat and Project Chat Markdown code blocks now share the Artifact Inspector's GitHub/Primer syntax tokens, including light, explicit-dark, and system-dark palettes, instead of forcing dark code surfaces in a light transcript.
+- Completed assistant replies keep metadata inline at normal message-column widths. Only a genuinely narrow column folds technical details and Mini App actions into one right-aligned ellipsis; the pointer-opened popover closes when the pointer leaves its complete region.
+
+### Improved: compact Bot identity and Project Session disclosure
+- The Desktop composer Bot control now uses one initial instead of `@` plus the full Agent name, while keeping the complete identity in its tooltip, accessible label, and selection menu.
+- The adjacent permission-mode control no longer spends horizontal space on a trailing dropdown arrow; its icon, label, hover/open states, and keyboard-accessible menu remain unchanged.
+- Bot badges use a restrained subset of the documented palette on quieter fills; adjacent picker options are distinct, and channel glyphs use the same low-emphasis outline treatment as primary navigation.
+- Each expanded Project initially shows 10 Sessions. “More conversations” reveals the next 10 instead of letting one Project consume the sidebar.
+
 ### Release: v2.9.18 / Desktop v0.9.15
 - Synchronized the root and Desktop package versions for the new release.
+
+### Improved: Mermaid diagrams expose source and a zoomable preview
+- Every rendered Mermaid block in Chat, Project Chat, and Markdown artifacts now has a persistent Preview / Source switch. Source mode is selectable and includes an explicit copy action.
+- Preview mode can open the shared image viewer for zoom, reset, and drag-to-pan without changing the diagram's secure rendering path.
 
 ### Fixed: malformed Mermaid diagrams stay inside their message
 - A Mermaid syntax error no longer leaves the library's temporary 2412×512 error SVG attached directly to `document.body`, where it could displace the Desktop window until restart. Chat and Artifact Markdown both suppress Mermaid's own error drawing while preserving Molibot's localized failure note and source fallback.
