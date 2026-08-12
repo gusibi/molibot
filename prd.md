@@ -5,6 +5,14 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.81 Desktop 内置 Provider 独立检测与模型目录（2026-08-12）
+
+- **Priority / Status**: P1 / Delivered (2026-08-12).
+- **Problem**: 内置 Provider 被自建服务商接口复用，检测要求不存在的 `baseUrl`，模型拉取也尝试访问自建 `/models` 端点；因此像 OpenCode 这样的 Pi Provider 即使 API Key 已保存，也会在本地配置守卫处失败。
+- **Decision**: 内置 Provider 统一走 Pi 的模型目录和 `streamWithPiRuntime`；设置中的 API Key 作为运行时覆盖传入。只有自建 Provider 继续要求 `baseUrl`、API Key 和自定义模型配置。
+- **Acceptance**: 内置模型目录不依赖 Base URL 或外部 `/models` 请求；检测能发出真实最小请求并返回脱敏的上游结果；自建 Provider 既有路径不变；相关回归、Desktop UI、类型检查和生产构建通过。
+
+---
 ## 3.80 D2 服务端渲染与中文表格预览（2026-08-12）
 
 - **Priority / Status**: P1/P2 / Delivered (2026-08-12).

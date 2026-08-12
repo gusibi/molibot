@@ -37,6 +37,25 @@ test("a reply through the shared stream path counts as reachable", async () => {
   assert.equal(result.reply, "PONG");
 });
 
+test("a saved built-in API key is forwarded to the real Pi stream", async () => {
+  let receivedOptions: Record<string, unknown> | undefined;
+  const result = await checkProviderConnectivity({
+    providerId: "fake",
+    catalog: () => catalog,
+    apiKey: "saved-key",
+    streamFn: ((_model: unknown, _context: unknown, options: Record<string, unknown>) => {
+      receivedOptions = options;
+      return streamOf([
+        { type: "text_delta", delta: "PONG" },
+        { type: "done", message: { stopReason: "stop" } }
+      ])();
+    }) as any
+  } as any);
+
+  assert.equal(result.ok, true);
+  assert.equal(receivedOptions?.apiKey, "saved-key");
+});
+
 test("a provider error is reported as unreachable with the credential stripped out", async () => {
   const result = await checkProviderConnectivity({
     providerId: "fake",

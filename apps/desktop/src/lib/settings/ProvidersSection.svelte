@@ -275,7 +275,12 @@
   let hasEditApiKey = $derived(
     !!(providersStore.editApiKey.trim() || (!editor?.isNew && savedEditProvider?.hasApiKey && !providersStore.editClearApiKey))
   );
-  let canDiscoverModels = $derived(Boolean(editor) && (editor!.isBuiltin || hasEditBaseUrl) && hasEditApiKey && !providersStore.discovering);
+  let canDiscoverModels = $derived(
+    Boolean(editor) &&
+      (editor!.isBuiltin || hasEditBaseUrl) &&
+      (editor!.isBuiltin || hasEditApiKey) &&
+      !providersStore.discovering
+  );
   let canSaveEditor = $derived(
     Boolean(editor) &&
       !providersStore.saving &&

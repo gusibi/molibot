@@ -3,7 +3,8 @@ import test from "node:test";
 import type { CustomProviderConfig, RuntimeSettings } from "$lib/server/settings/schema";
 import {
   buildDesktopProviderItem,
-  buildDesktopProvidersSummary
+  buildDesktopProvidersSummary,
+  getBuiltinProviderModelIds
 } from "./desktopProviders";
 
 function provider(overrides: Partial<CustomProviderConfig> = {}): CustomProviderConfig {
@@ -80,4 +81,11 @@ test("buildDesktopProvidersSummary maps mode + pi model and never leaks a key", 
   assert.ok(summary.builtinProviders.length > 0);
   assert.ok(summary.builtinProviders.every((provider) => Array.isArray(provider.models)));
   assert.equal(JSON.stringify(summary).includes("sk-super-secret-key"), false);
+});
+
+test("built-in model discovery returns the Pi catalog without endpoint credentials", () => {
+  const models = getBuiltinProviderModelIds("opencode");
+
+  assert.ok(models.length > 0);
+  assert.ok(models.every((model) => model.trim().length > 0));
 });

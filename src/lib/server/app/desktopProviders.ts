@@ -30,6 +30,10 @@ function coerceProtocol(value: unknown): DesktopProviderProtocol {
   return value === "anthropic" ? "anthropic" : "openai-compatible";
 }
 
+export function getBuiltinProviderModelIds(providerId: string): string[] {
+  return getModels(providerId).map((model) => model.id);
+}
+
 /**
  * Maps a custom provider config into a credential-safe Desktop view. The
  * `apiKey` (a provider secret) is dropped and replaced by the `hasApiKey`
@@ -67,7 +71,7 @@ export function buildDesktopProvidersSummary(settings: RuntimeSettings): Desktop
     builtinProviders: KNOWN_PROVIDER_LIST.map((provider) => ({
       id: provider,
       name: provider,
-      models: getModels(provider).map((model) => model.id)
+      models: getBuiltinProviderModelIds(provider)
     })),
     customProviders: providers.map((provider) =>
       buildDesktopProviderItem(provider, settings.defaultCustomProviderId ?? "")

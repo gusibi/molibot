@@ -1,11 +1,13 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { getBuiltinProviderModelIds } from "$lib/server/app/desktopProviders";
 import {
   ProviderModelsError,
   listProviderModels,
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol";
+import { isKnownProvider } from "$lib/server/settings/schema";
 import type { DesktopProviderModelsResponse } from "$lib/shared/desktop";
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -23,6 +25,14 @@ export const POST: RequestHandler = async ({ request }) => {
     pathParam = body.path ? String(body.path).trim() : undefined;
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  if (isKnownProvider(providerId)) {
+    const response: DesktopProviderModelsResponse = {
+      ok: true,
+      models: getBuiltinProviderModelIds(providerId)
+    };
+    return json(response, { headers: { "Cache-Control": "no-store" } });
   }
 
   let finalBaseUrl = "";

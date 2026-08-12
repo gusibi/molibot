@@ -133,6 +133,8 @@ Then open `http://localhost:3000`, configure an AI provider, and create or confi
 
 Molibot uses pi-mono 0.82 through one shared server runtime: built-in model catalogs, API-key/OAuth resolution, main and sub-Agent streaming, compaction, and readable context identity share the same upper-layer boundary. New ordinary Sessions use `s-YYYYMMDD-xxxx` across App/Web, Projects, and channels; automation contexts use `t-YYYYMMDD-xxxx`, while existing legacy ids remain readable. OAuth-capable providers can be connected from Web or Desktop Settings with browser, device-code, or manual-redirect flows; regular Moonshot global/China endpoints continue to use `MOONSHOT_API_KEY`, while Kimi subscription login uses `kimi-coding`. Custom OpenAI-compatible and Anthropic-compatible endpoints remain isolated to their saved Bot/settings snapshot, while system instructions stay in pi's top-level context instead of being serialized as transcript messages. OpenAI-compatible requests choose `system` or `developer` from the selected custom model's saved `supportedRoles`, not from SDK URL heuristics.
 
+Built-in Providers such as OpenCode use Pi's own catalog and transport, so they do not need a Base URL; only self-hosted/custom Providers require one. If a key belongs to an aggregator such as OpenRouter, select that built-in Provider (or configure a custom endpoint) instead of using the OpenCode Provider.
+
 For provider configuration, channels, deployment, and environment variables, see the [documentation](#documentation).
 
 ## A look inside

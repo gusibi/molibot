@@ -2924,6 +2924,11 @@ test("built-in provider configuration reuses saved Web settings without pollutin
   assert.doesNotMatch(sections.providers, /return item\.kind === "builtin" \|\| item\.provider\.enabled/);
   // Built-in providers hide protocol/base-URL fields the built-in transport owns.
   assert.match(sections.providers, /\{#if !editor\.isBuiltin\}[\s\S]{0,400}session\.text\.providerBaseUrlLabel/);
+  // Built-in model discovery uses the packaged Pi catalog and does not require a key or base URL.
+  assert.match(
+    sections.providers,
+    /let canDiscoverModels = \$derived\(\s*Boolean\(editor\)\s*&&\s*\(editor!\.isBuiltin \|\| hasEditBaseUrl\)\s*&&\s*\(editor!\.isBuiltin \|\| hasEditApiKey\)/
+  );
   assert.match(sections.providers, /editor\.isBuiltin \? "Pi" : providerProtocolLabel\(editor\.protocol\)/);
   assert.match(styles, /\.provider-pane\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;/s);
   assert.match(styles, /\.provider-pane-body\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);

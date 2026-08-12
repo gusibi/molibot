@@ -4,7 +4,8 @@ import { getPiCatalogModels, streamWithPiRuntime } from "$lib/server/providers/p
 import { safeErrorMessage } from "$lib/server/agent/identity/auth.js";
 
 /**
- * Connectivity check for providers whose credentials live in `auth.json`.
+ * Connectivity check for built-in providers whose credentials live in
+ * `auth.json` or are supplied as a saved settings API key.
  *
  * The existing provider test (`/api/desktop/provider-test`) only covers
  * self-hosted endpoints: it requires a saved `baseUrl` + `apiKey` and dials them
@@ -38,6 +39,8 @@ export interface ProviderConnectivityOptions {
   providerId: string;
   /** Preferred model; falls back to the provider's first catalog entry. */
   modelId?: string;
+  /** Optional API-key override from the saved provider settings. */
+  apiKey?: string;
   timeoutMs?: number;
   /** Overrides the shared pi runtime stream; used by tests. */
   streamFn?: StreamFn;
@@ -119,7 +122,11 @@ export async function checkProviderConnectivity(
     const stream = (options.streamFn ?? streamWithPiRuntime)(
       model,
       context as never,
-      { maxTokens: PROBE_MAX_TOKENS, signal: controller.signal } as never
+      {
+        maxTokens: PROBE_MAX_TOKENS,
+        signal: controller.signal,
+        ...(options.apiKey?.trim() ? { apiKey: options.apiKey.trim() } : {})
+      } as never
     );
 
     let reply = "";

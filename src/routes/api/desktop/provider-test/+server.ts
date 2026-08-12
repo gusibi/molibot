@@ -1,9 +1,12 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { checkProviderConnectivity } from "$lib/server/app/providerConnectivity";
 import { config } from "$lib/server/app/env";
 import { testCustomProvider } from "$lib/server/providers/customProtocol";
 import { readWorkspaceVisionSmokeImage } from "$lib/server/providers/visionSmokeFixture";
+import { getBuiltinProviderModelIds } from "$lib/server/app/desktopProviders";
+import { isKnownProvider } from "$lib/server/settings/schema";
 import type {
   DesktopProviderTestRequest,
   DesktopProviderTestResponse
@@ -44,6 +47,28 @@ export const POST: RequestHandler = async ({ request }) => {
       { ok: false, error: "Provider not found" } satisfies DesktopProviderTestResponse,
       { status: 404 }
     );
+  }
+
+  if (isKnownProvider(provider.id)) {
+    if (requestedModel && !getBuiltinProviderModelIds(provider.id).includes(requestedModel)) {
+      return json(
+        { ok: false, error: `Built-in provider model '${requestedModel}' is not in its catalog.` } satisfies DesktopProviderTestResponse,
+        { status: 400 }
+      );
+    }
+
+    const result = await checkProviderConnectivity({
+      providerId: provider.id,
+      modelId: requestedModel || provider.defaultModel,
+      apiKey: provider.apiKey
+    });
+    const response: DesktopProviderTestResponse = {
+      ok: result.ok,
+      message: result.ok ? `Connected using ${result.modelId}` : undefined,
+      status: result.ok ? 200 : 502
+    };
+    if (!result.ok) response.error = result.error;
+    return json(response, { headers: { "Cache-Control": "no-store" } });
   }
 
   const model = requestedModel || provider.defaultModel;
