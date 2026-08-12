@@ -4,6 +4,32 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-12
+
+### Release v2.9.20 / Desktop v0.9.17
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布侧边栏毛玻璃恢复、全新 Midnight 午夜主题、计划完成度与退回提示等优化。
+
+### Desktop 侧栏半透明模糊视觉恢复（修复，P1）
+
+- Chat 与 Settings 左侧栏恢复主题半透明 tint 与 `blur(18px) saturate(160%)`，并继续叠加原生 macOS `sidebar` window effect；Light / Dark / Midnight / System 不再因为高不透明度或关闭的 WebView blur 失去玻璃层次。
+- Light 使用 62% 浅色 veil，显式 Dark / Midnight 在浅色系统下使用各自主题 tint，系统深色外观下改为透明以保留原生深色材质；降低透明度、增强对比度和低性能模式保持不模糊的 opaque fallback。
+- 验证：Desktop UI 199/199、Desktop Node 全套 203/203、Rust 55/55、Desktop API 聚焦测试 84/84、`svelte-check` 0 错误/0 警告、Desktop production build 通过。
+
+### Desktop Midnight theme（新增，P2）
+
+- Desktop 设置 → 通用 → 外观新增 `Midnight`（午夜）主题：深蓝黑工作区、冷蓝紫强调色，和 Light / Dark / System 并列，选择写入现有 localStorage 偏好并在重启后恢复。
+- 原生 macOS 窗口只接收 Light / Dark / System 三种外观，因此 Midnight 映射到 Dark 原生材质；CSS token、侧栏材质、Agent City 清屏色、Artifact Inspector 和系统深色媒体查询均单独覆盖，避免 Midnight 被误判为浅色或被 OS 查询覆盖。
+- Chat Markdown、Mermaid、PPTX、Artifact 和 Agent City 的外部/烘焙主题参数统一把 Midnight 解析为 dark appearance；中英文案和预览缩略图已补齐。
+- 验证：Desktop UI 199/199、Desktop API 聚焦测试 84/84、`svelte-check` 0 错误/0 警告、Desktop production build 通过；构建仅保留既有动态导入与大 chunk 提示。
+
+### Plan 结束态、决策位置与只读 Subagent（修复，P1）
+
+- `exitPlan` 产生结构化计划后即结束本轮，不再因为没有普通文本回复而触发空回复重试、重复终态消息或耗尽工具预算。
+- 对话投影以持久化 Plan 元数据为唯一事实源：同一用户轮次中的重试残留和重复计划会被归并为一张完整卡片；待确认 Plan 固定为完成轮次的最后一个可见决策，不再藏在后续思考/活动块上方。
+- Plan 模式现在可以把大型只读代码调查交给 Scout/Planner Subagent；执行层在启动子任务前拒绝 Worker 等写入角色，并移除 Plan 子任务的 Bash 能力。其它权限模式的 Subagent 行为保持不变。
+- 验证：相关服务端与 Desktop 回归测试 112/112，`svelte-check` 0 错误/0 警告，生产构建通过。Desktop 全套在 UI 阶段为 201/203，并因既有未提交 `styles.css` 改动触发的 2 个结构断言而在 Rust 阶段前停止；本次未修改该文件。
+
 ## 2026-08-11
 
 ### Release v2.9.19 / Desktop v0.9.16

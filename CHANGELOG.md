@@ -4,6 +4,23 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-12
+
+### Release: v2.9.20 / Desktop v0.9.17
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: Desktop sidebar glass restoration
+- Restored the Chat and Settings sidebar's translucent theme tint plus `blur(18px) saturate(160%)` while keeping the native macOS `sidebar` window effect. Light, Dark, Midnight, and System now retain visible material depth; reduced-transparency, increased-contrast, and low-performance paths use the opaque fallback.
+
+### Added: Desktop Midnight theme
+- Desktop Settings → General → Appearance now offers a fourth, deep-blue Midnight theme alongside Light, Dark, and System. The choice persists across restarts and maps its native macOS window material to the dark appearance without losing the Midnight CSS palette.
+- Chat Markdown, Agent City, Artifact Inspector, PPTX/Mermaid previews, and system-following dark rules now resolve Midnight consistently instead of falling back to Light or System.
+
+### Fixed: Plan completion, decision placement, and read-only delegation
+- A successful `exitPlan` is now a terminal structured result, so the Runner no longer retries it as an empty answer, duplicates terminal messages, or burns the remaining tool budget after the Plan already exists.
+- Persisted Plans are projected once from their canonical metadata and proposed Plans remain the final visible item in the completed turn, below later reasoning or activity blocks and immediately beside their confirmation actions.
+- Plan mode can delegate substantial repository analysis to Scout and Planner Subagents. The mode rejects write-capable roles and removes delegated Bash, while ordinary permission modes retain their existing Subagent capabilities.
+
 ## 2026-08-11
 
 ### Release: v2.9.19 / Desktop v0.9.16
