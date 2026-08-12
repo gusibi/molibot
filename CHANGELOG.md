@@ -6,6 +6,27 @@
 
 ## 2026-08-12
 
+### Release: v2.9.21 / Desktop v0.9.18
+- Synchronized the root and Desktop package versions for the new release.
+
+### Added: server-rendered D2 diagrams and fixed CJK Markdown tables
+- Complete `d2` fenced blocks now render through the Desktop server's D2/Kroki endpoint with bounded source/output sizes, timeout protection, small response caching, theme forwarding, and a readable source fallback.
+- Chat Markdown table previews now use the UTF-8 CSV viewer instead of the binary workbook parser, so Chinese headers and cells no longer become mojibake.
+- Sticky sidebar section headers use the same quiet `var(--fill)` surface as hovered Sessions while retaining the existing blur and accessibility/performance fallbacks.
+
+### Fixed: Todo list actions no longer squeeze task titles
+- Built-in Todo row actions now float over the row's right edge instead of reserving a permanent flex slot, so long task titles use the full available width.
+- The floating action surface remains readable in Light/Dark themes and keeps hover, touch, keyboard focus, and anchored menus working. Todo was bumped to v1.7.0 so installed copies can receive the UI fix.
+
+### Fixed: Message menu placement and File Inspector theme sync
+- Assistant message overflow actions now open upward from the bottom of the reading column, keeping the composer visually clear while preserving the shared keyboard/focus behavior.
+- File / Artifact Inspector chrome now derives canvas, surfaces, borders, labels, accent, and status roles from the active Desktop theme family and resolved brightness instead of a separate hard-coded Primer palette.
+
+### Added: Independent brightness and theme families
+- Desktop Settings → General → Appearance now separates Brightness (`Light` / `Dark` / `System`) from Theme family (`Minimal (macOS)` / `Rosé Pine` / `Catppuccin` / `Midnight`), with independent persistence and live system-following updates.
+- Added Rosé Pine Dawn/Moon, Catppuccin Latte/Macchiato, and Midnight's Daybreak light companion. Shared semantic tokens keep Chat, Settings, Agent City, Artifact previews, and syntax colors aligned across all family/brightness combinations.
+- The native macOS sidebar glass contract now uses each family's translucent tint with the shared `blur(18px) saturate(160%)` layer, while accessibility and low-performance fallbacks remain opaque by design.
+
 ### Release: v2.9.20 / Desktop v0.9.17
 - Synchronized the root and Desktop package versions for the new release.
 

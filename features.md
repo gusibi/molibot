@@ -6,6 +6,37 @@
 
 ## 2026-08-12
 
+### Release v2.9.21 / Desktop v0.9.18
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布 D2 流程图服务端渲染、Markdown 中文表格乱码修复、Todo 任务列表布局调整以及亮度与主题家族完全解耦等改进。
+
+### D2 服务端渲染与中文表格预览修复（新增，P1/P2）
+
+- Markdown 的 `d2` fenced block 现在由 Desktop 服务端代理到 D2/Kroki 渲染，按当前解析后的明暗状态传递主题；服务端限制源码/输出大小、超时并缓存结果，客户端只把 SVG 放进 `<img>`，渲染失败时保留可复制的源码。
+- AI 回复中的 Markdown 表格改用 UTF-8 CSV viewer，不再把聊天生成的 CSV 当作二进制 XLSX 读取；中文表头和单元格不再出现 `å§“...` 一类乱码。
+- 左侧导航吸顶标题的背景改为与 Session hover 相同的 `var(--fill)`，继续保留模糊层和低性能/无障碍不透明降级。
+- 机器守卫覆盖 D2 block 分流、服务端请求限制、中文 CSV、表格 viewer 选择和吸顶 token；定向测试、Desktop structural guard、`svelte-check` 与生产构建已纳入收尾验证。
+
+### Todo 任务行操作悬浮化（优化，P1）
+
+- 修复 Todo 列表操作按钮虽然不可见但仍占用 flex 宽度，导致长任务标题只能显示在按钮左侧、文字区域被挤压的问题。
+- `.item-actions` 改为行内绝对定位的右侧浮层，标题区域不再为操作区预留空间；悬浮层使用 Todo 自己的明暗主题 surface、分隔线和轻模糊，保持按钮与下拉菜单可读、可点击。
+- 保留 hover、触屏、键盘聚焦和菜单打开时的显示逻辑，并新增布局静态回归守卫；Todo manifest 从 `1.6.0` 升至 `1.7.0`，已安装副本可检测到更新。
+- 验证：Mini App M3 基线与 Todo 浮层布局守卫通过，Todo 服务端与启动链路测试通过。
+
+### Desktop 独立明暗模式与主题家族（新增，P1）
+
+- 通用设置把“明暗模式”和“主题家族”拆成两个互不覆盖的控件：明暗模式提供“明 / 暗 / 跟随系统”，主题家族提供“精简（macOS）/ Rosé Pine / Catppuccin / Midnight”。两组偏好分别持久化，切换其中一组不会重置另一组。
+- Rosé Pine 配套 Dawn / Moon，Catppuccin 配套 Latte / Macchiato；Midnight 补齐 Daybreak 亮色变体。CSS 通过 `data-resolved-appearance` 与 `data-theme-family` 组合解析所有 token，Chat Markdown、Agent City、Artifact 和原生窗口边界继续使用解析后的明暗状态。
+- 所有主题家族沿用原生 macOS sidebar window effect 和 `blur(18px) saturate(160%)` 半透明模糊层；各家族提供自己的 tint，降低透明度、增强对比度和低性能模式仍使用明确的 opaque fallback。
+- 验证：Desktop UI 200/200、Desktop API 85/85、完整 Desktop Node 204/204、Rust 55/55、`svelte-check` 0 错误/0 警告；Desktop/root production build、`git diff --check` 与真实冷启动走查均通过。
+
+### Desktop 消息菜单与文件面板主题统一（修复，P1）
+
+- Assistant 消息底部的 Mini App/技术详情共享菜单改为向上展开，使用通用 `OverflowMenu` 的显式 placement，不再向输入栏方向覆盖视觉空间。
+- 右侧 File / Artifact Inspector 保留仓库树与编辑器的 Primer 风格层级，但画布、表面、边框、文字、强调色和状态色统一继承当前主题家族与解析后的明暗 token；切换 Rosé Pine、Catppuccin、Midnight 或 macOS 时不再停留在独立的默认色板。
+- 验证：新增菜单 placement 与 Inspector shared-token 结构回归；Desktop UI 201/201、`svelte-check`、生产构建和 `git diff --check` 通过。
+
 ### Release v2.9.20 / Desktop v0.9.17
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，发布侧边栏毛玻璃恢复、全新 Midnight 午夜主题、计划完成度与退回提示等优化。
