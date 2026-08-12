@@ -732,6 +732,7 @@ test("normalizeLocale resolves known locales and maps zh variants to zh-CN", () 
 test("normalizeTheme accepts known themes and falls back to system", () => {
   assert.equal(normalizeTheme("light"), "light");
   assert.equal(normalizeTheme("dark"), "dark");
+  assert.equal(normalizeTheme("midnight"), "midnight");
   assert.equal(normalizeTheme("system"), "system");
   assert.equal(normalizeTheme("solarized"), "system");
   assert.equal(normalizeTheme(null), "system");

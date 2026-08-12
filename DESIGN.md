@@ -431,29 +431,31 @@ Desktop colors follow AppKit roles rather than a generic neutral palette. The na
 sidebar material remains system-rendered; WebView values below are sRGB references
 resolved from the corresponding macOS semantic colors and must be applied by role.
 
-All values are resolved from AppKit semantic colors on the current macOS release
-(sampled via Digital Color Meter / `NSColor.usingColorSpace(.sRGB)`). The dark
-neutrals form a monotonic ramp anchored on the unified canvas System Settings
-shows with reduced transparency: the sidebar and content share one base
+Light and Dark values are resolved from AppKit semantic colors on the current
+macOS release (sampled via Digital Color Meter / `NSColor.usingColorSpace(.sRGB)`).
+Midnight is the product-defined deep-blue appearance and intentionally maps to
+the native dark window behavior without pretending to be an AppKit appearance.
+The dark neutrals form a monotonic ramp anchored on the unified canvas System
+Settings shows with reduced transparency: the sidebar and content share one base
 (`#1E1E1E`), the grouped fill is `#282828`, and the only elevation step is the
 raised card (`#2C2C2E`). The nav is not tinted a different shade from content —
 depth comes from cards, exactly like macOS opaque System Settings. Do not push
 the base to pure black (`#000000`/`#0A0A0A`).
 
-| Product role | AppKit reference | Light | Dark |
-| --- | --- | --- | --- |
-| Window/workspace + sidebar | unified System Settings canvas | `#F6F6F6` | `#1E1E1E` |
-| Grouped canvas | derived quiet window surface | `#ECECEC` | `#282828` |
-| Native sidebar tint | Finder-style material veil | `rgb(253 255 255 / 75%)` | transparent |
-| Elevated/card surface | `controlBackgroundColor` (Light) / raised neutral card (Dark) | `#FFFFFF` | `#2C2C2E` |
-| Nested secondary surface | recessed neutral content | `#F5F5F5` | `#343436` |
-| Primary label | `labelColor` | black 84.7% | white 84.7% |
-| Secondary label | `secondaryLabelColor` | black 49.8% | white 54.9% |
-| Tertiary label | `tertiaryLabelColor` | black 25.9% | white 24.7% |
-| Separator | `separatorColor` | black 9.8% | white 9.8% |
-| Unemphasized selection | `unemphasizedSelectedContentBackgroundColor` | `#DCDCDC` | `#464646` |
-| Accent | `controlAccentColor` | `#007AFF` | `#007AFF` |
-| Success / danger / warning | macOS system green/red/orange | `#34C759` / `#FF383C` / `#FF8D28` | `#30D158` / `#FF4245` / `#FF9230` |
+| Product role | AppKit reference | Light | Dark | Midnight |
+| --- | --- | --- | --- | --- |
+| Window/workspace + sidebar | unified System Settings canvas | `#F6F6F6` | `#1E1E1E` | `#101827` |
+| Grouped canvas | derived quiet window surface | `#ECECEC` | `#282828` | `#19283F` |
+| Native sidebar tint | Finder-style material veil | `rgb(253 255 255 / 62%)` | `rgb(30 30 30 / 68%)` | `rgb(16 24 39 / 70%)` |
+| Elevated/card surface | `controlBackgroundColor` (Light) / raised neutral card (Dark) | `#FFFFFF` | `#2C2C2E` | `#1C2C46` |
+| Nested secondary surface | recessed neutral content | `#F5F5F5` | `#343436` | `#223552` |
+| Primary label | `labelColor` | black 84.7% | white 84.7% | cool white 92% |
+| Secondary label | `secondaryLabelColor` | black 49.8% | white 54.9% | cool white 66% |
+| Tertiary label | `tertiaryLabelColor` | black 25.9% | white 24.7% | cool white 42% |
+| Separator | `separatorColor` | black 9.8% | white 9.8% | cool blue 16% |
+| Unemphasized selection | `unemphasizedSelectedContentBackgroundColor` | `#DCDCDC` | `#464646` | `#2D4161` |
+| Accent | `controlAccentColor` / product Midnight accent | `#007AFF` | `#007AFF` | `#9B8CFF` |
+| Success / danger / warning | macOS system green/red/orange | `#34C759` / `#FF383C` / `#FF8D28` | `#30D158` / `#FF4245` / `#FF9230` | `#55D6A0` / `#FF7B8A` / `#F6C66E` |
 
 - Structural dark surfaces must never use `#000000` or near-black `#0A0A0A`.
   Pure black is reserved for media/code content that intentionally needs it.
@@ -464,9 +466,15 @@ the base to pure black (`#000000`/`#0A0A0A`).
   distinct (one elevation step), but do not tint the nav a third shade.
 - Use label and separator alpha roles as defined. Do not turn separator colors into
   text colors or replace semantic status colors with arbitrary brand shades.
-- Explicit Light/Dark and System appearances must update both WebView tokens and the
-  native window appearance. Increased Contrast may strengthen alpha differences, but
-  must preserve the same semantic mapping.
+- Explicit Light/Dark/Midnight and System appearances must update both WebView tokens
+  and the native window appearance. Midnight maps to the native dark appearance while
+  retaining its own WebView token ramp. Increased Contrast may strengthen alpha
+  differences, but must preserve the same semantic mapping.
+- The normal sidebar glass layer uses `blur(18px) saturate(160%)` on top of the native
+  macOS material. The explicit Dark and Midnight tints are used when the OS is light;
+  the system-dark media rule makes those tints transparent so native dark material is
+  not veiled. Reduced transparency, increased contrast, and low-performance modes
+  remove the blur and use the opaque sidebar surface.
 
 ## Application templates
 
@@ -474,24 +482,26 @@ the base to pure black (`#000000`/`#0A0A0A`).
   centered SettingGroups, and a fixed `.settings-footbar` whenever changes can be saved.
 - Settings and Chat use the native macOS sidebar material, not a WebView imitation.
   Both windows are transparent and apply the system `sidebar` window effect; the WebView
-  root and layout stay transparent while the right content pane remains opaque. In Light
-  appearance only, the sidebar plane applies one uniform `rgb(253 255 255 / 75%)` thick
-  material veil so WKWebView's transparent backing composes near Finder's `#ECEDEE`
-  reference while still letting the native material's translucency read through
-  instead of premultiplying a low-alpha tint into dark gray. Dark and System
-  Dark keep this tint transparent because
-  the native material already provides the correct depth there. This tint belongs directly
-  to the edge-to-edge sidebar plane: never implement it as a nested panel, pseudo-element,
-  extra blur layer, or opaque card.
-  Explicit Light/Dark choices must also set the native Tauri window theme, while System
-  clears the override, so AppKit material and WebView tokens always share one appearance.
+  root and layout stay transparent while the right content pane remains opaque. The
+  sidebar plane uses a translucent theme tint plus `blur(18px) saturate(160%)` so the
+  native material and the WebView backing remain visibly layered. Light uses one
+  uniform `rgb(253 255 255 / 62%)` veil; explicit Dark and Midnight use their theme
+  tints under a light OS, while the system-dark media rule makes both transparent so
+  native dark material provides the depth. This tint and blur belong directly to the
+  edge-to-edge sidebar plane: never implement them as a nested panel, pseudo-element,
+  or opaque card.
+  Explicit Light/Dark/Midnight choices must also set the native Tauri window theme;
+  Midnight maps to the native dark appearance while retaining its own WebView tokens.
+  System clears the override, so AppKit material and WebView tokens always share one
+  appearance.
   This produces one window composition layer like Finder instead of a translucent card
   over an app canvas. The sidebar stays flush with the window edges; do not add outer
-  breathing room, panel corner radius, CSS backdrop blur, elevation shadow, hover glow,
-  perspective, or parallax. Reduced-transparency and low-performance modes cover the
-  native material with the opaque sidebar token; increased contrast also uses that cover
-  with a stronger divider. Sidebar resize handles align to the divider at the grid
-  track edge and remain visually transparent: do not draw a second divider.
+  breathing room, panel corner radius, elevation shadow, hover glow, perspective, or
+  parallax. Reduced-transparency, increased-contrast, and low-performance modes cover
+  the native material with the opaque sidebar token and disable the WebView blur;
+  increased contrast also uses a stronger divider. Sidebar resize handles align to the
+  divider at the grid track edge and remain visually transparent: do not draw a second
+  divider.
   Chat's exposed canvas follows the transcript surface.
   Settings keeps its secondary canvas. Hidden sidebar actions
   collapse out of layout and consume title width only on hover or keyboard focus. An empty

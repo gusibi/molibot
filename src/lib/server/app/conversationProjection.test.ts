@@ -256,6 +256,44 @@ test("preserves multiple terminal assistant replies from the same user turn", ()
   );
 });
 
+test("projects a persisted Plan onto the turn decision instead of an orphan retry block", () => {
+  const plan = {
+    id: "plan-full",
+    title: "完整主题计划",
+    summary: "七步迁移",
+    steps: [
+      { id: "plan-step-1", text: "扫描", status: "pending" as const },
+      { id: "plan-step-2", text: "迁移", status: "pending" as const }
+    ],
+    status: "proposed" as const,
+    recommendedMode: "accept_edits" as const,
+    artifactPath: "plans/full.md"
+  };
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "分析主题" }], 0),
+      assistantEntry("a-work", [
+        { type: "thinking", thinking: "分析" },
+        { type: "toolCall", id: "exit-bad", name: "exitPlan", arguments: { plan: { title: "wrong shape" } } }
+      ], 1, { stopReason: "toolUse" }),
+      entry("r", "toolResult", [{ type: "text", text: "Tool exitPlan not found" }], 2),
+      assistantEntry("a-first-final", [{ type: "text", text: "第一次总结" }], 3, { stopReason: "stop" }),
+      assistantEntry("a-budget-final", [{ type: "text", text: "预算耗尽总结" }], 4, { stopReason: "stop" })
+    ],
+    metadata: [
+      { id: "m-u", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true, sourceEntryId: "u" },
+      { id: "m-a-retried", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:03:00.000Z", contextBacked: true, sourceEntryId: "a-first-final", plan },
+      { id: "m-a", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:04:00.000Z", contextBacked: true, sourceEntryId: "a-budget-final", plan }
+    ]
+  });
+
+  const planBlocks = result.messages.flatMap((message) =>
+    (message.steps ?? []).filter((step) => step.kind === "plan").map((step) => ({ messageId: message.id, plan: step.plan }))
+  );
+  assert.deepEqual(planBlocks, [{ messageId: "m-a", plan }]);
+});
+
 test("an aborted trailing entry never overwrites the answer the same turn produced", () => {
   // Regression: a run that answered, then kept using tools and was killed by
   // the tool-failure budget, ends with `content: []` + errorMessage. The old

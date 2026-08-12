@@ -5,6 +5,30 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.76 Desktop sidebar glass restoration（2026-08-12）
+
+- **Priority / Status**: P1 / Delivered (2026-08-12).
+- **Problem**: 主题切换改造后，Chat 和 Settings 侧栏的 WebView `backdrop-filter` 被关闭，Light / Dark / Midnight 的 tint 又过于不透明，导致原先的半透明、模糊视觉不再可见。
+- **Decision**: 侧栏保留原生 macOS `sidebar` window effect，并恢复共享的 `blur(18px) saturate(160%)`；Light / Dark / Midnight 使用可见原生材质贡献的主题 tint，系统深色外观下显式深色 tint 透明。降低透明度、增强对比度和低性能模式关闭 blur 并使用 opaque surface。
+- **Acceptance**: Chat / Settings 侧栏在四种主题中保持 edge-to-edge 的半透明模糊层次；无障碍和低性能路径不强制透明或模糊；UI、类型检查和生产构建通过。
+
+---
+## 3.75 Desktop Midnight theme（2026-08-12）
+
+- **Priority / Status**: P2 / Delivered (2026-08-12).
+- **Problem**: Desktop 的主题机制已完成 token 化，但切换器仍封闭在 `system/light/dark`，新增主题会被归一化为 System；需要一个真实的第四主题来验证 CSS、系统外观和第三方预览的闭环。
+- **Decision**: 增加 `midnight` 主题，使用深蓝黑语义 token 和冷蓝紫强调色；原生 macOS windowState 映射为 dark，Chat/Agent City/Artifact/PPTX/Mermaid 等不支持自定义主题的边界统一映射为 dark appearance；显式 Midnight 排除 system-dark 媒体查询。
+- **Acceptance**: 设置页可在中英文和窄窗口显示并切换 Light / Dark / Midnight / System；Midnight 重启后保持；全局 token、Agent City、Artifact Inspector、Markdown/PPTX/Mermaid 与原生窗口不出现浅色泄漏；API/UI/类型检查/生产构建通过。
+
+---
+## 3.74 Plan completion and read-only delegation reliability (2026-08-12)
+
+- **Priority / Status**: P1 / Delivered (2026-08-12).
+- **Problem**: `exitPlan` terminated its tool call but produced no ordinary assistant text, so the outer Runner classified a successful structured decision as an empty response and retried. Retry-split assistant rows then detached the persisted full Plan from the raw tool block, leaving an empty/default card above later content. Plan mode also removed `subagent` before inference, forcing large repository analysis through the main Agent despite the shared delegation policy.
+- **Decision**: treat a `plan_proposal` event as a terminal structured completion; project the latest durable Plan once at the end of its user turn; keep proposed Plan cards last in the completed response section; expose a Plan-specific Subagent surface restricted to Scout/Planner with delegated Bash removed and reject all other roles before execution.
+- **Acceptance**: one successful `exitPlan` ends without an empty-response retry or final error; retry-shaped history shows one complete Plan beside its confirmation controls at the bottom of the turn; substantial Plan analysis can create visible Scout/Planner activity; Worker, write/edit, and Bash remain unavailable through both direct and delegated paths; ordinary modes retain their existing roles; projection, transcript, Runner retry, tool safety, type, and build guards pass.
+
+---
 ## 3.73 Desktop settings editor and cold-start reliability (2026-08-11)
 
 - **Priority / Status**: P1 / Delivered (2026-08-11).

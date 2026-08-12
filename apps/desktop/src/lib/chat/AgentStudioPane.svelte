@@ -62,7 +62,7 @@
 
   function currentTheme(): AgentCityTheme {
     const explicit = document.documentElement.getAttribute("data-theme");
-    if (explicit === "dark") return "dark";
+    if (explicit === "dark" || explicit === "midnight") return "dark";
     if (explicit === "light") return "light";
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }

@@ -26,7 +26,7 @@
 
   function detectDark(): void {
     const explicit = document.documentElement.getAttribute("data-theme");
-    dark = explicit === "dark" || (!explicit && matchMedia("(prefers-color-scheme: dark)").matches);
+    dark = explicit === "dark" || explicit === "midnight" || (!explicit && matchMedia("(prefers-color-scheme: dark)").matches);
   }
 
   onMount(() => {

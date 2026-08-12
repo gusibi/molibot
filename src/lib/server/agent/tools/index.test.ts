@@ -182,3 +182,18 @@ test("tools index registers miniAppManage as the deferred install receipt seam",
   assert.match(indexSource, /tool: miniAppManageRuntimeTool/);
   assert.match(indexSource, /atomically install\/update/);
 });
+
+test("Plan mode exposes a role-restricted subagent without the write-capable runtime gate", () => {
+  assert.match(
+    indexSource,
+    /allowedAgents:\s*permissionMode === "plan"\s*\? \["scout", "planner"\]\s*:\s*undefined/
+  );
+  assert.match(
+    indexSource,
+    /excludedTools:\s*permissionMode === "plan"\s*\? \["bash"\]\s*:\s*undefined/
+  );
+  assert.match(
+    indexSource,
+    /scopedTools\.filter\(\(tool\) => tool\.name === "subagent"\)/
+  );
+});

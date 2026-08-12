@@ -251,7 +251,7 @@
     margin: 2px 0 0;
     color: var(--label-secondary);
     font-size: 12px;
-    line-height: 1.4;
+    line-height: var(--lh-prose);
   }
   .plugin-collapsible-toggle {
     display: inline-flex;
@@ -281,7 +281,7 @@
     margin-top: 6px;
     color: var(--label-secondary);
     font-size: 12px;
-    line-height: 1.4;
+    line-height: var(--lh-prose);
   }
   .daily-backfill-status.is-error {
     color: var(--danger);
@@ -290,6 +290,6 @@
     margin-top: 4px;
     color: var(--label-secondary);
     font-size: 12px;
-    line-height: 1.4;
+    line-height: var(--lh-prose);
   }
 </style>

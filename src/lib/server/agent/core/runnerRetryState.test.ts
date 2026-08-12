@@ -160,6 +160,18 @@ test("aborted prompt is terminal and never becomes an empty-response retry", () 
   assert.deepEqual(result, { kind: "aborted" });
 });
 
+test("a structured completion ends the attempt without requiring assistant text", () => {
+  const result = resolvePromptAttemptDecision({
+    stopReason: "stop",
+    finalText: "",
+    attemptCount: 0,
+    maxEmptyRetries: 2,
+    completedWithoutText: true
+  });
+
+  assert.deepEqual(result, { kind: "success" });
+});
+
 test("successful final text suppresses stale runner error replacement", () => {
   assert.equal(shouldEmitFinalRunnerError("Chat upstream returned 429", "模型最终回复"), false);
   assert.equal(shouldEmitFinalRunnerError("Chat upstream returned 429", ""), true);

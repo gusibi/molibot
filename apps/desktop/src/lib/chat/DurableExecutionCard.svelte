@@ -84,7 +84,7 @@
     width: min(100%, 720px);
     padding: 14px 16px;
     border: 1px solid var(--separator);
-    border-radius: 12px;
+    border-radius: var(--radius-panel);
     background: var(--card-bg);
     box-shadow: var(--soft-shadow);
     color: var(--label-primary);
@@ -102,7 +102,7 @@
     place-items: center;
     width: 30px;
     height: 30px;
-    border-radius: 8px;
+    border-radius: var(--radius-control);
     background: var(--accent-soft);
     color: var(--accent);
   }
@@ -139,7 +139,7 @@
   .durable-execution-status-dot {
     width: 7px;
     height: 7px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--accent);
   }
   .durable-execution-card[data-status="failed"] .durable-execution-status-dot,
@@ -151,7 +151,7 @@
   .durable-execution-progress-track {
     height: 6px;
     overflow: hidden;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--fill);
   }
   .durable-execution-progress-track span {
@@ -179,7 +179,7 @@
     gap: 7px;
     margin: 0;
     padding: 8px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-control);
     background: color-mix(in srgb, var(--warning) 10%, transparent);
     color: var(--label-secondary);
     font-size: var(--fs-meta);
@@ -200,7 +200,7 @@
     min-height: 28px;
     padding: 0 7px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-small);
     background: transparent;
     color: var(--accent);
     font: inherit;

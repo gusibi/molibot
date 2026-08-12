@@ -48,6 +48,30 @@ test("plans and plain answers are never hidden inside the completed process disc
   });
 });
 
+test("a proposed Plan remains the final visible decision when later process blocks exist", () => {
+  const plan = {
+    id: "plan-1",
+    title: "Plan",
+    summary: "Summary",
+    status: "proposed" as const,
+    steps: [],
+    recommendedMode: "manual" as const,
+    artifactPath: "plans/plan-1.md"
+  };
+  const thinking = { id: "thinking", kind: "thinking" as const, content: "Think" };
+  const planBlock = { id: "plan", kind: "plan" as const, plan };
+  const activity = {
+    id: "read",
+    kind: "activities" as const,
+    activities: [{ key: "read", kind: "tool" as const, label: "Read", state: "success" as const }]
+  };
+  const answer = { id: "answer", kind: "text" as const, content: "Ready for confirmation." };
+
+  const sections = transcriptCompletedTurnSections([thinking, planBlock, activity, answer]);
+  assert.deepEqual(sections.process, [thinking, activity]);
+  assert.deepEqual(sections.response, [answer, planBlock]);
+});
+
 test("a stale running activity keeps the completed process open as an interruption", () => {
   assert.equal(transcriptProcessSummary([{
     id: "stale",

@@ -1452,6 +1452,10 @@ export function createSubagentTool(options: {
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
   runId?: string;
   requestedByDepth?: number;
+  /** Restrict delegation roles for read-only contexts such as Plan mode. */
+  allowedAgents?: readonly SubagentName[];
+  /** Remove tools that a restricted parent mode must not delegate indirectly. */
+  excludedTools?: readonly string[];
   /** Injectable subagent runner; defaults to {@link runSingleSubagent}. Used by tests to exercise per-mode behavior without a live model. */
   runSubagent?: (
     agent: SubagentDefinition,
@@ -1460,11 +1464,18 @@ export function createSubagentTool(options: {
   ) => Promise<SubagentRunResult>;
 }): AgentTool<typeof subagentSchema> {
   const runSubagent = options.runSubagent ?? runSingleSubagent;
+  const allowedAgents = options.allowedAgents
+    ? new Set<SubagentName>(options.allowedAgents)
+    : null;
+  const excludedTools = new Set(options.excludedTools ?? []);
+  const advertisedAgents = allowedAgents
+    ? Array.from(allowedAgents)
+    : SUBAGENT_NAMES.filter((name) => name !== "skill-drafter");
   return {
     name: "subagent",
     label: "subagent",
     description:
-      "Delegate codebase-heavy work to an isolated pi-mono subagent. Use roles `scout`, `planner`, `worker`, or `reviewer`. Supports one task, parallel tasks, or a chain with `{previous}` placeholder.",
+      `Delegate codebase-heavy work to an isolated pi-mono subagent. Available roles: ${advertisedAgents.map((name) => `\`${name}\``).join(", ")}. Supports one task, parallel tasks, or a chain with \`{previous}\` placeholder.`,
     parameters: subagentSchema,
     execute: async (toolCallId, params, signal, onUpdate): Promise<AgentToolResult<SubagentToolDetails>> => {
       const settings = options.getSettings();
@@ -1472,6 +1483,14 @@ export function createSubagentTool(options: {
         params as SubagentInput,
         resolveSubagentExecutionLimits(settings)
       );
+      if (allowedAgents) {
+        const disallowed = parsed.tasks.find((item) => !allowedAgents.has(item.agent as SubagentName));
+        if (disallowed) {
+          throw new Error(
+            `Subagent '${disallowed.agent}' is not available in this mode. Available: ${Array.from(allowedAgents).join(", ")}.`
+          );
+        }
+      }
       let endEventSent = false;
       const delegationId = String(toolCallId);
       momLog("runner", "subagent_start", {
@@ -1526,7 +1545,13 @@ export function createSubagentTool(options: {
       };
 
       const runTask = async (item: SingleTaskInput, index: number, task: string): Promise<SubagentRunResult> => {
-        const agent = getSubagentDefinition(item.agent);
+        const registeredAgent = getSubagentDefinition(item.agent);
+        const agent = excludedTools.size
+          ? {
+              ...registeredAgent,
+              tools: registeredAgent.tools?.filter((tool) => !excludedTools.has(tool))
+            }
+          : registeredAgent;
         const subagentTaskId = `${delegationId}:${index + 1}:${agent.name}`;
         const subagentSessionId = `${options.runId ?? options.chatId}-${subagentTaskId}`;
         let started = false;

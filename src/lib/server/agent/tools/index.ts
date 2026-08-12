@@ -655,6 +655,10 @@ export function createMomTools(options: {
       const allowed = new Set(["read", "ls", "grep", "glob", "conversationSearch", "skillSearch", "docExtract", "imageAnalyze"]);
       return [
         ...scopedTools.filter((tool) => allowed.has(tool.name)).map((tool) => wrapWithToolRuntime(tool)),
+        // The generic runtime classifies subagent delegation as a side effect.
+        // This Plan-only instance enforces scout/planner roles internally, whose
+        // child toolsets are read-only, so expose it without the generic gate.
+        ...scopedTools.filter((tool) => tool.name === "subagent"),
         exitPlanTool
       ];
     }
@@ -948,7 +952,9 @@ export function createMomTools(options: {
       artifactDir,
       getSettings: options.getSettings,
       emitRunnerEvent: options.emitRunnerEvent,
-      runId: options.runId
+      runId: options.runId,
+      allowedAgents: permissionMode === "plan" ? ["scout", "planner"] : undefined,
+      excludedTools: permissionMode === "plan" ? ["bash"] : undefined
     }),
     createAttachTool({ ...options, artifactDir })
   ].map((tool) => wrapSerializedTool(tool));

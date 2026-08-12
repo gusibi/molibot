@@ -351,8 +351,9 @@ test("WindowState owns native lifecycle projection and chrome-only material toke
   assert.match(app, /void startWindowState\(\);/);
   assert.match(app, /root\.dataset\.windowActive/);
   assert.match(app, /windowStateAdapter\?\.dispose\(\);/);
-  assert.match(app, /await windowStateAdapter\.setTheme\(theme === "system" \? null : theme\)/);
-  assert.match(app, /windowStateAdapter\?\.setTheme\(value === "system" \? null : value\)/);
+  assert.match(app, /function nativeThemeFor\(value: DesktopTheme\)/);
+  assert.match(app, /await windowStateAdapter\.setTheme\(nativeThemeFor\(theme\)\)/);
+  assert.match(app, /windowStateAdapter\?\.setTheme\(nativeThemeFor\(value\)\)/);
   assert.match(styles, /html\[data-window-active="false"\]/);
   assert.match(styles, /--chrome-sidebar-bg/);
   assert.match(styles, /--chrome-header-bg/);
@@ -366,7 +367,8 @@ test("WindowState owns native lifecycle projection and chrome-only material toke
 test("Settings and Chat expose one edge-to-edge native macOS sidebar material", () => {
   const lightTheme = styles.match(/^:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
   const explicitDark = styles.match(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
-  const systemDark = styles.match(/:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+  const midnightTheme = styles.match(/:root\[data-theme="midnight"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const systemDark = styles.match(/:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\):not\(\[data-theme="midnight"\]\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
   assert.match(design, /native macOS sidebar material/);
   assert.equal(tauriConfig.app.macOSPrivateApi, true);
   assert.match(tauriCargo, /tauri\s*=\s*\{[^\n]*features\s*=\s*\[[^\]]*"macos-private-api"/);
@@ -383,14 +385,21 @@ test("Settings and Chat expose one edge-to-edge native macOS sidebar material", 
   assert.ok(lightTint, "Light sidebar material must define an explicit RGBA tint");
   const [, red, green, blue, alphaPercent] = lightTint.map(Number);
   assert.deepEqual([red, green, blue], [253, 255, 255]);
-  assert.equal(alphaPercent, 75, "Light keeps a visible native-material contribution under the calibrated veil");
-  // The dark veil tracks the window base (#1e1e1e), not a separate sidebar shade:
-  // nav and content are one plane per design.dark.md.
-  assert.match(explicitDark, /--sidebar-material-tint:\s*rgb\(30 30 30 \/ 92%\)/);
+  assert.equal(alphaPercent, 62, "Light keeps a visible native-material contribution under the glass veil");
+  // The dark and Midnight veils keep their appearance tint while leaving enough
+  // native material visible to read as glass when the OS is the other mode.
+  assert.match(explicitDark, /--sidebar-material-tint:\s*rgb\(30 30 30 \/ 68%\)/);
+  assert.match(midnightTheme, /--sidebar-material-tint:\s*rgb\(16 24 39 \/ 70%\)/);
   assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme="dark"\]\s*\{\s*--sidebar-material-tint:\s*transparent;\s*\}/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme="midnight"\]\s*\{\s*--sidebar-material-tint:\s*transparent;\s*\}/);
   assert.match(systemDark, /--sidebar-material-tint:\s*transparent/);
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: 0[\s\S]*border-radius: 0[\s\S]*background: var\(--sidebar-material-tint\)[\s\S]*backdrop-filter: none/);
+  assert.match(styles, /--sidebar-material-filter:\s*blur\(18px\) saturate\(160%\)/);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: 0[\s\S]*border-radius: 0[\s\S]*background: var\(--sidebar-material-tint\)[\s\S]*backdrop-filter: var\(--sidebar-material-filter\)/);
+  assert.match(styles, /:root\[data-performance="low"\]\s*\{[\s\S]*--sidebar-material-filter:\s*none/);
+  assert.match(styles, /html\[data-reduced-transparency="true"\]\s*\{[\s\S]*--sidebar-material-filter:\s*none/);
+  assert.match(styles, /html\[data-increased-contrast="true"\]\s*\{[\s\S]*--sidebar-material-filter:\s*none/);
   assert.match(styles, /html\[data-reduced-transparency="true"\][^}]*--sidebar-material-bg:\s*var\(--chrome-sidebar-bg\)/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*-webkit-backdrop-filter:\s*var\(--sidebar-material-filter\)/);
   assert.match(styles, /left: var\(--sidebar-w, var\(--sidebar-nav-w\)\)/);
 });
 
@@ -409,7 +418,8 @@ test("Chat and Settings share the Settings navigation width baseline", () => {
 test("macOS semantic palette keeps dark workspace surfaces distinct from pure black", () => {
   const lightTheme = styles.match(/^:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
   const explicitDark = styles.match(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
-  const systemDark = styles.match(/:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+  const systemDark = styles.match(/:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\):not\(\[data-theme="midnight"\]\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+  const midnightTheme = styles.match(/:root\[data-theme="midnight"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
   assert.match(lightTheme, /--mac-window-background:\s*#f6f6f6/i);
   assert.match(lightTheme, /--mac-grouped-background:\s*#ececec/i);
   assert.match(lightTheme, /--mac-label:\s*rgb\(0 0 0 \/ 84\.7%\)/i);
@@ -420,6 +430,9 @@ test("macOS semantic palette keeps dark workspace surfaces distinct from pure bl
     assert.match(themeRule, /--surface-secondary:\s*#343436/i);
     assert.match(themeRule, /--mac-separator:\s*rgb\(255 255 255 \/ 9\.8%\)/i);
   }
+  assert.match(midnightTheme, /--mac-window-background:\s*#101827/i);
+  assert.match(midnightTheme, /--accent:\s*#9b8cff/i);
+  assert.match(midnightTheme, /--surface-secondary:\s*#223552/i);
   const structuralTokens = ["panel-bg", "sidebar-bg", "content-bg", "header-bg", "card-bg", "surface-secondary", "window-bg"];
   for (const themeRule of [explicitDark, systemDark]) {
     for (const token of structuralTokens) {
@@ -867,8 +880,8 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   assert.match(styles, /\.slash-suggestion-icon\[data-kind="miniapp"\]/);
   // Pitfall 4: an undefined var() fails silently, so both invocation hues must
   // exist as real tokens in the light AND dark declarations.
-  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 3);
-  assert.equal(styles.match(/--skill-accent:/g)?.length, 3);
+  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 4);
+  assert.equal(styles.match(/--skill-accent:/g)?.length, 4);
   assert.doesNotMatch(styles, /--purple-700/);
   // Pitfall 12: the catalog now carries Mini Apps, so every catalog mutation
   // must invalidate the composer's cache or `@` keeps advertising a stale set.
@@ -1446,8 +1459,8 @@ test("Agent City chrome themes through tokens, not a data-theme-only override li
     .filter((selector) => selector.includes("data-theme"));
   assert.deepEqual(themeScoped, [], "Agent City must not carry per-theme override rules");
 
-  // Pug artwork keeps its coat colours in both themes; everything else must
-  // resolve through a token so Light / Dark / System all follow automatically.
+  // Pug artwork keeps its coat colours in every theme; everything else must
+  // resolve through a token so Light / Dark / Midnight / System all follow automatically.
   const violations = [];
   for (const [, selector, body] of rules) {
     if (/agent-city-fallback-pug/.test(selector)) continue;
@@ -1467,9 +1480,11 @@ test("Agent City chrome themes through tokens, not a data-theme-only override li
   // The one Agent City colour that cannot derive from a token: it has to match
   // the WebGL clear colour, so it must be mirrored into every theme context.
   const skyDeclarations = [...source.matchAll(/--agent-city-sky\s*:/g)];
-  assert.equal(skyDeclarations.length, 3, "--agent-city-sky must be declared for light, dark and system-dark");
+  assert.equal(skyDeclarations.length, 4, "--agent-city-sky must be declared for light, dark, midnight and system-dark");
   const darkBlock = source.slice(source.indexOf(':root[data-theme="dark"] {'));
   assert.match(darkBlock.slice(0, 4000), /--agent-city-sky:\s*#101820/);
+  const midnightBlock = source.slice(source.indexOf(':root[data-theme="midnight"] {'));
+  assert.match(midnightBlock.slice(0, 4000), /--agent-city-sky:\s*#101820/);
   const systemBlock = source.slice(source.indexOf("@media (prefers-color-scheme: dark)"));
   assert.match(systemBlock.slice(0, 4000), /--agent-city-sky:\s*#101820/);
 });
@@ -1616,7 +1631,11 @@ test("automation session detail renders a chat-style transcript", () => {
   // transcript: keep it a full step above the background plus tier-1 elevation,
   // not a near-invisible 1px outline.
   assert.match(styles, /\.message-row\.mine \.message-bubble \{[^}]*background: var\(--gray-300\)[^}]*box-shadow: var\(--soft-shadow\)/s);
-  assert.match(styles, /\[data-theme="dark"\] \.message-row\.mine \.message-bubble \{[^}]*background: var\(--gray-300\)/s);
+  // The user-bubble elevation is token-driven: the base rule above reads
+  // --gray-300 (theme-aware), so it lifts the sent turn above the transcript
+  // in BOTH light and dark. A per-theme [data-theme="dark"] override used to
+  // duplicate this and drift out of sync with system-dark; it is now gone.
+  assert.doesNotMatch(styles, /\[data-theme="dark"\] \.message-row\.mine \.message-bubble/s);
   assert.match(styles, /\.run-activity \{[^}]*border: 0;[^}]*background: transparent/s);
   assert.doesNotMatch(sections.tasks, /class="message-(row|avatar|stack|bubble)/);
 });
@@ -3110,7 +3129,7 @@ test("OpenConnector is a first-class peer to MCP with a safe catalog and fixed s
   assert.match(styles, /\.connector-grid \{[^}]*repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.connector-grid \{[^}]*gap: 10px/);
   assert.doesNotMatch(styles, /\.connector-grid \{[^}]*overflow: hidden/);
-  assert.match(styles, /\.connector-card \{[^}]*min-height: 68px[^}]*border: 1px solid var\(--chrome-border\)[^}]*border-radius: 12px/);
+  assert.match(styles, /\.connector-card \{[^}]*min-height: 68px[^}]*border: 1px solid var\(--chrome-border\)[^}]*border-radius: var\(--radius-panel\)/);
   assert.match(styles, /\.connector-card-head \{[^}]*flex: 1/);
   assert.match(styles, /\.connector-card-actions \{[^}]*justify-content: flex-end[^}]*margin-left: auto/);
   assert.match(styles, /\.connector-provider-link:focus-visible \{[^}]*var\(--accent\)/);
@@ -3743,7 +3762,8 @@ test("Chat Markdown and the Artifact Inspector share one theme-aware syntax pale
   }
   assert.match(styles, /\.markdown-body pre \{[^}]*background: var\(--syntax-code-bg\)[^}]*color: var\(--syntax-code-fg\)/s);
   assert.match(styles, /:root\[data-theme="dark"\][\s\S]*?--syntax-code-bg: #0d1117/);
-  assert.match(styles, /:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\)[\s\S]*?--syntax-code-bg: #0d1117/);
+  assert.match(styles, /:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\):not\(\[data-theme="midnight"\]\)[\s\S]*?--syntax-code-bg: #0d1117/);
+  assert.match(styles, /:root\[data-theme="midnight"\][\s\S]*?--syntax-code-bg: #111827/);
   assert.doesNotMatch(styles, /\.hljs-keyword[^\n]*#[0-9a-f]{3,8}/i);
 });
 

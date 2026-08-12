@@ -2452,9 +2452,9 @@ export function filterDesktopFiles(
   return files.filter((file) => file.mediaType === filter);
 }
 
-export type DesktopTheme = "system" | "light" | "dark";
+export type DesktopTheme = "system" | "light" | "dark" | "midnight";
 
-const DESKTOP_THEMES: readonly DesktopTheme[] = ["system", "light", "dark"];
+const DESKTOP_THEMES: readonly DesktopTheme[] = ["system", "light", "dark", "midnight"];
 
 /** Validates a persisted theme value, falling back to "system" (follow the OS). */
 export function normalizeTheme(value: unknown): DesktopTheme {

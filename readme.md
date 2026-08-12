@@ -95,6 +95,8 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Reject oversized context before it reaches a model.** The Runtime budgets the final system prompt, tools, history, and current turn, compacts or caps only the model-facing copy when needed, and preserves the user's original message for audit.
 - **Control messages sent during a running task with one tap.** Telegram and Feishu queue the new message and show Stop / Steer buttons: stop the current work or inject that exact message immediately, without copying queue IDs or typing commands. Feishu immediately acknowledges the click and replaces the card with the final result, falling back to a text receipt if card updating fails. Once accepted, the injected text also survives provider timeouts and whole-attempt retries instead of disappearing before the successful response.
 - **Keep every completed reply.** When one Agent run produces a primary answer plus terminal supplements, Chat displays each one instead of letting the last message hide an earlier complete result; after completion, reasoning and tool-loop progress fold into one expandable process row.
+- **Choose a fourth Desktop appearance.** Light, Dark, System, and the deep-blue Midnight theme share one token-driven switcher; native macOS and third-party previews receive the closest supported dark appearance without leaking light chrome. Chat and Settings retain their native macOS sidebar material with a translucent, blurred glass layer.
+- **Review a Plan where the decision happens.** A proposed Plan stays complete and visible at the bottom of its turn beside the confirmation actions; substantial read-only investigation can use Scout/Planner Subagents without giving Plan mode an indirect write or Bash path.
 - **Keep every message inside its reading column.** Long prose and paths wrap naturally; code, tables, math, diagrams, and diffs preserve their layout with a local horizontal scroller instead of widening Chat or Project Chat.
 - **Inspect diagrams without losing their source.** Every Mermaid block can switch between its rendered preview and selectable source, copy the exact diagram text, or expand into the shared zoom-and-pan viewer.
 - **Contain broken diagrams without breaking the window.** Invalid Mermaid remains a local, readable source fallback inside its message; Mermaid's own temporary error renderer cannot escape into the Desktop shell or force a restart.
@@ -206,7 +208,7 @@ The current runtime already supports durable sessions, memory governance, config
 
 | Surface | Use it for |
 | --- | --- |
-| macOS Desktop | Native chat, project workspaces, files, automations, and Settings with WKWebView-safe, Finder-calibrated Light sidebar material plus AppKit-derived semantic colors across Light, Dark, and System appearances. |
+| macOS Desktop | Native chat, project workspaces, files, automations, and Settings with WKWebView-safe, Finder-calibrated translucent/blurred sidebar material plus AppKit-derived semantic colors across Light, Dark, Midnight, and System appearances. |
 | Web | Browser chat, Settings, and session access. |
 | Telegram | Personal chat access, runtime controls, and file delivery. |
 | Feishu | Personal chat access with channel-native media and interaction support. |

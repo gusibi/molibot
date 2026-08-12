@@ -67,6 +67,8 @@ export function resolvePromptAttemptDecision(input: {
   finalText: string;
   attemptCount: number;
   maxEmptyRetries: number;
+  /** A terminal tool produced the user-facing structured result (for example a Plan proposal). */
+  completedWithoutText?: boolean;
   /**
    * Whether the failed attempt already executed tool steps. Retrying re-runs the
    * whole attempt from scratch, so if tools ran we must NOT retry — re-execution
@@ -79,7 +81,7 @@ export function resolvePromptAttemptDecision(input: {
     return { kind: "aborted" };
   }
 
-  if (input.finalText.trim()) {
+  if (input.finalText.trim() || input.completedWithoutText) {
     return { kind: "success" };
   }
 

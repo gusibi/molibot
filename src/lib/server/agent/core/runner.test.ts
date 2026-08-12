@@ -101,6 +101,18 @@ test("the Mini App reply-shape instruction stays domain-agnostic", () => {
   );
 });
 
+test("Plan mode tells the model to delegate substantial analysis only to read-only subagents", () => {
+  const source = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
+  const instruction = source
+    .split("\n")
+    .find((line) => line.includes("This Session is in Plan mode"));
+
+  assert.ok(instruction);
+  assert.match(instruction, /substantial codebase investigation/i);
+  assert.match(instruction, /scout.*planner/i);
+  assert.doesNotMatch(instruction, /worker/i);
+});
+
 test("resolveSessionWorkingDir uses project root only for project runs", () => {
   assert.equal(resolveSessionWorkingDir(undefined, "/tmp/scratch"), "/tmp/scratch");
   assert.equal(resolveSessionWorkingDir({

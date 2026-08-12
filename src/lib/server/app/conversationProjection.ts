@@ -118,6 +118,51 @@ function hydratePlanSteps(steps: ConversationStep[] | undefined, plan: Conversat
   return steps.map((step) => step.kind === "plan" ? { ...step, plan } : step);
 }
 
+/**
+ * A Plan is a turn-level decision, not raw tool chronology. Retry/continuation
+ * paths can split one user turn across several assistant rows, so the durable
+ * metadata Plan is canonical: remove reconstructed exitPlan blocks from that
+ * turn and render the canonical decision once, after its last assistant row.
+ */
+function projectTurnPlans(messages: ProjectedConversationMessage[]): ProjectedConversationMessage[] {
+  const projected = [...messages];
+  let turnStart = 0;
+  const projectTurn = (start: number, end: number) => {
+    const indexes: number[] = [];
+    let canonicalPlan: ConversationPlan | undefined;
+    for (let index = start; index < end; index += 1) {
+      const message = projected[index];
+      if (message.role !== "assistant") continue;
+      indexes.push(index);
+      if (message.plan) canonicalPlan = message.plan;
+    }
+    if (!indexes.length || !canonicalPlan) return;
+    for (const index of indexes) {
+      const message = projected[index];
+      projected[index] = {
+        ...message,
+        steps: message.steps?.filter((step) => step.kind !== "plan")
+      };
+    }
+    const targetIndex = indexes.at(-1)!;
+    const target = projected[targetIndex];
+    projected[targetIndex] = {
+      ...target,
+      steps: [
+        ...(target.steps ?? []),
+        { id: `${target.id}-plan-${canonicalPlan.id}`, kind: "plan" as const, plan: canonicalPlan }
+      ]
+    };
+  };
+
+  for (let index = 0; index <= projected.length; index += 1) {
+    if (index < projected.length && projected[index].role !== "user") continue;
+    projectTurn(turnStart, index);
+    turnStart = index;
+  }
+  return projected;
+}
+
 function hydrateActivitySteps(
   steps: ConversationStep[] | undefined,
   activities: ConversationActivity[] | undefined
@@ -361,5 +406,5 @@ export function projectConversationMessages(input: {
     messages.push(message);
   });
   messages.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return { messages, migratedMetadataIds, resolvedSourceEntries, sourceEntryByMessageId };
+  return { messages: projectTurnPlans(messages), migratedMetadataIds, resolvedSourceEntries, sourceEntryByMessageId };
 }

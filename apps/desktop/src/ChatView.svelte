@@ -667,7 +667,9 @@
 
   function readResolvedTheme(): "light" | "dark" {
     const explicit = document.documentElement.getAttribute("data-theme");
-    if (explicit === "dark" || explicit === "light") return explicit;
+    if (explicit === "dark" || explicit === "midnight" || explicit === "light") {
+      return explicit === "light" ? "light" : "dark";
+    }
     return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   let previewFile: DesktopSessionFile | null = null;

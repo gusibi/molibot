@@ -291,6 +291,34 @@ test("subagent emits a terminal error event when execution fails before producin
   );
 });
 
+test("restricted subagent tool rejects disallowed roles before starting delegated work", async () => {
+  const started: string[] = [];
+  let delegatedTools: string[] | undefined;
+  const tool = createSubagentTool({
+    cwd: process.cwd(),
+    workspaceDir: process.cwd(),
+    chatId: "chat-1",
+    getSettings: () => defaultRuntimeSettings,
+    allowedAgents: ["scout", "planner"],
+    excludedTools: ["bash"],
+    runSubagent: async (agent: { name: string; tools?: string[] }, task: string) => {
+      started.push(agent.name);
+      delegatedTools = agent.tools;
+      return completed(agent.name, task);
+    }
+  } as any);
+
+  await assert.rejects(
+    tool.execute("tool-1", { agent: "worker", task: "Edit the implementation" }, undefined, undefined),
+    /not available.*scout, planner/i
+  );
+  assert.deepEqual(started, []);
+
+  await tool.execute("tool-2", { agent: "scout", task: "Inspect the implementation" }, undefined, undefined);
+  assert.deepEqual(started, ["scout"]);
+  assert.deepEqual(delegatedTools, ["read", "grep", "find", "ls"]);
+});
+
 const ZERO_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0, turns: 0 };
 
 function budgetStopped(agentName: string, task: string) {

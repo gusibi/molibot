@@ -431,7 +431,7 @@
   .row-menu-btn-danger {
     border-color: transparent;
     background: var(--danger);
-    color: #fff;
+    color: var(--on-accent);
   }
-  .row-menu-btn-danger:hover { background: color-mix(in srgb, var(--danger) 88%, #000); }
+  .row-menu-btn-danger:hover { background: var(--danger-hover); }
 </style>

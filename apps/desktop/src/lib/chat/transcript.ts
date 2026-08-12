@@ -43,16 +43,20 @@ export function transcriptCompletedTurnSections(blocks: TranscriptRenderBlock[])
   process: TranscriptProcessBlock[];
   response: TranscriptRenderBlock[];
 } {
-  const firstPlan = blocks.findIndex((block) => block.kind === "plan");
-  const processLimit = firstPlan < 0 ? blocks.length : firstPlan;
+  const proposedPlans = blocks.filter((block) => block.kind === "plan" && block.plan.status === "proposed");
+  const orderedBlocks = proposedPlans.length
+    ? [...blocks.filter((block) => block.kind !== "plan" || block.plan.status !== "proposed"), ...proposedPlans]
+    : blocks;
+  const firstPlan = orderedBlocks.findIndex((block) => block.kind === "plan");
+  const processLimit = firstPlan < 0 ? orderedBlocks.length : firstPlan;
   let processEnd = -1;
   for (let index = 0; index < processLimit; index += 1) {
-    if (blocks[index].kind === "thinking" || blocks[index].kind === "activities") processEnd = index;
+    if (orderedBlocks[index].kind === "thinking" || orderedBlocks[index].kind === "activities") processEnd = index;
   }
-  if (processEnd < 0) return { process: [], response: blocks };
+  if (processEnd < 0) return { process: [], response: orderedBlocks };
   return {
-    process: blocks.slice(0, processEnd + 1) as TranscriptProcessBlock[],
-    response: blocks.slice(processEnd + 1)
+    process: orderedBlocks.slice(0, processEnd + 1) as TranscriptProcessBlock[],
+    response: orderedBlocks.slice(processEnd + 1)
   };
 }
 

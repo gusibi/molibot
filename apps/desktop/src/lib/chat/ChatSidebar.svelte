@@ -256,7 +256,7 @@
   .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
   .nav-item.active i { color: var(--accent, #006bff); }
   .nav-item i { width: 16px; font-size: var(--icon-md); color: var(--label-secondary, #666); text-align: center; }
-  .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: #fff; font-size: var(--fs-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: var(--on-accent); font-size: var(--fs-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
   .sidebar-channels {
     flex: 1 1 auto;
     overflow-y: auto;

@@ -64,7 +64,7 @@
     color: var(--label-secondary);
     font-size: var(--fs-meta);
     font-weight: 600;
-    letter-spacing: .01em;
+    letter-spacing: var(--tracking-normal);
   }
   .durable-sidebar-count {
     display: inline-flex;
@@ -73,10 +73,10 @@
     align-items: center;
     justify-content: center;
     padding: 0 5px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--accent-soft);
     color: var(--accent);
-    font-size: 11px;
+    font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;
   }
   .durable-sidebar-list { display: grid; gap: 2px; }
@@ -102,7 +102,7 @@
     place-items: center;
     width: 22px;
     height: 22px;
-    border-radius: 6px;
+    border-radius: var(--radius-small);
     background: var(--accent-soft);
     color: var(--accent);
     font-size: var(--icon-sm);
@@ -114,6 +114,6 @@
   .durable-sidebar-copy strong,
   .durable-sidebar-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .durable-sidebar-copy strong { font-size: var(--fs-meta); font-weight: 600; line-height: var(--lh-meta); }
-  .durable-sidebar-copy small { color: var(--label-tertiary); font-size: 11px; line-height: 15px; }
+  .durable-sidebar-copy small { color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
   .durable-sidebar-arrow { flex: none; color: var(--label-tertiary); font-size: var(--icon-xs); }
 </style>

@@ -121,9 +121,14 @@
     root.dataset.increasedContrast = snapshot.increasedContrast ? "true" : "false";
   }
 
+  function nativeThemeFor(value: DesktopTheme): "light" | "dark" | null {
+    if (value === "system") return null;
+    return value === "light" ? "light" : "dark";
+  }
+
   async function startWindowState(): Promise<void> {
     windowStateAdapter = runningInTauri ? await createTauriWindowState() : createWindowState();
-    await windowStateAdapter.setTheme(theme === "system" ? null : theme);
+    await windowStateAdapter.setTheme(nativeThemeFor(theme));
     applyWindowState(windowStateAdapter.snapshot);
     windowStateUnsubscribe = windowStateAdapter.subscribe(applyWindowState);
     await windowStateAdapter.start();
@@ -156,7 +161,7 @@
     const root = document.documentElement;
     if (value === "system") root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", value);
-    void windowStateAdapter?.setTheme(value === "system" ? null : value);
+    void windowStateAdapter?.setTheme(nativeThemeFor(value));
   }
 
   function changeTheme(value: DesktopTheme): void {
@@ -185,9 +190,10 @@
   // Geist owns a single accent (blue-700), defined as --accent / --accent-soft
   // in styles.css per theme. No user-selectable accent palette.
 
-  const THEME_PREVIEWS: { value: DesktopTheme; labelKey: "themeLight" | "themeDark" | "themeSystem" }[] = [
+  const THEME_PREVIEWS: { value: DesktopTheme; labelKey: "themeLight" | "themeDark" | "themeSystem" | "themeMidnight" }[] = [
     { value: "light", labelKey: "themeLight" },
     { value: "dark", labelKey: "themeDark" },
+    { value: "midnight", labelKey: "themeMidnight" },
     { value: "system", labelKey: "themeSystem" }
   ];
 

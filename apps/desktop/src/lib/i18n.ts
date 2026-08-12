@@ -1864,10 +1864,11 @@ const copy = {
     copied: "已复制",
     unknownValue: "未知",
     theme: "外观",
-    themeDescription: "选择浅色、深色或跟随系统。",
+    themeDescription: "选择浅色、深色、午夜或跟随系统。",
     themeSystem: "跟随系统",
     themeLight: "浅色",
     themeDark: "深色",
+    themeMidnight: "午夜",
     accent: "强调色",
     accentDescription: "用于按钮、选中项和高亮的主题色。"
   },
@@ -3734,10 +3735,11 @@ const copy = {
     copied: "Copied",
     unknownValue: "Unknown",
     theme: "Appearance",
-    themeDescription: "Choose light, dark, or follow the system.",
+    themeDescription: "Choose light, dark, Midnight, or follow the system.",
     themeSystem: "System",
     themeLight: "Light",
     themeDark: "Dark",
+    themeMidnight: "Midnight",
     accent: "Accent color",
     accentDescription: "Theme color for buttons, selections, and highlights."
   }

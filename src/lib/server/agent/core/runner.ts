@@ -1229,6 +1229,7 @@ export class MomRunner implements RunnerLike {
     let promptUserPersisted = false;
     let assistantMessagePersisted = false;
     let assistantSourceEntryId: string | undefined;
+    let structuredPlanCompleted = false;
     this.activeMemoryWriteReceipts = [];
     this.activeMemoryToolHits = [];
     const emittedHostBashApprovalIds = new Set<string>();
@@ -1276,6 +1277,10 @@ export class MomRunner implements RunnerLike {
         await ctx.uploadFile(filePath, title, text);
       },
       emitRunnerEvent: async (event) => {
+        if (event.type === "plan_proposal") {
+          structuredPlanCompleted = true;
+          stopReason = "stop";
+        }
         if (event.type === "tool_execution_end" && event.hostBashApproval) {
           if (!shouldForwardHostBashApproval(event.hostBashApproval)) return;
           if (this.activeHookContext) {
@@ -1653,7 +1658,7 @@ export class MomRunner implements RunnerLike {
           const sourceEntryId = appendRunContextMessage(message);
           if (message.role === "assistant") {
             assistantMessagePersisted = true;
-            if (getMessageText(message).trim()) assistantSourceEntryId = sourceEntryId;
+            assistantSourceEntryId = sourceEntryId;
           }
         }
       }
@@ -1789,7 +1794,7 @@ export class MomRunner implements RunnerLike {
         : [];
       const permissionModeInstructions = permissionMode === "plan"
         ? [
-            "This Session is in Plan mode. Investigate with the available read-only tools, then call exitPlan exactly once with a concrete ordered plan. Do not claim to have changed files or executed commands. The plan is a structured product object, so ordinary Markdown alone is not a substitute for exitPlan."
+            "This Session is in Plan mode. Investigate with the available read-only tools. For substantial codebase investigation, delegate focused discovery or planning to the read-only subagent roles scout and planner. Then call exitPlan exactly once with a concrete ordered plan. Do not claim to have changed files or executed commands. The plan is a structured product object, so ordinary Markdown alone is not a substitute for exitPlan."
           ]
         : [];
       const promptInput = buildPromptInputEnvelope({
@@ -2465,7 +2470,8 @@ export class MomRunner implements RunnerLike {
               finalText: candidateFinalText,
               attemptCount,
               maxEmptyRetries: MAX_EMPTY_RETRIES,
-              attemptExecutedTools
+              attemptExecutedTools,
+              completedWithoutText: structuredPlanCompleted
             });
             if (decision.kind === "aborted") {
               runAborted = true;
@@ -2738,7 +2744,7 @@ export class MomRunner implements RunnerLike {
               }
             }
 
-            if (candidateFinalText) {
+            if (candidateFinalText || structuredPlanCompleted) {
               const sessionContextFile = this.store.getSessionEntriesPath(this.chatId, this.sessionId);
               const currentMessages = this.agent.state.messages as AgentMessage[];
               const boundaryMessage = currentMessages[beforeAttempt.length];
@@ -2815,7 +2821,7 @@ export class MomRunner implements RunnerLike {
         if (runAborted) {
           break;
         }
-        if (candidateFinalText) {
+        if (candidateFinalText || structuredPlanCompleted) {
           finalText = candidateFinalText;
           successfulCandidateIndex = candidateIndex;
           break;
@@ -2945,6 +2951,8 @@ export class MomRunner implements RunnerLike {
             await sendSupplement(supplement);
           }
         }
+      } else if (structuredPlanCompleted) {
+        momLog("runner", "final_structured_plan", { runId, chatId: this.chatId });
       } else if (stopReason === "aborted") {
         momLog("runner", "run_aborted", { runId, chatId: this.chatId });
       } else {
