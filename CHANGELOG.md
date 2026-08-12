@@ -4,6 +4,16 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-13
+
+### Release: v2.9.22 / Desktop v0.9.19
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: built-in Provider tests and model discovery use their native path
+- Built-in Providers such as OpenCode no longer require a self-hosted `baseUrl` or call a custom `/models` endpoint. Model discovery now returns the packaged Pi catalog directly.
+- Connectivity tests now send one minimal request through the same Pi runtime used by the Agent, including a saved settings API-key override, so failures distinguish missing local configuration from the upstream account response.
+- Verified the current OpenCode setup reaches the upstream service; its remaining response is an account `Insufficient balance` error, not the previous local `baseUrl` guard.
+
 ## 2026-08-12
 
 ### Release: v2.9.21 / Desktop v0.9.18

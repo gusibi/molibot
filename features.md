@@ -4,6 +4,18 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-13
+
+### Release v2.9.22 / Desktop v0.9.19
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布内置 Provider（含 OpenCode）自有传输与模型目录、支持 settings 覆盖检测 API Key 等修复。
+
+### 内置 Provider 自有传输与模型目录（修复，P1）
+
+- 内置 Provider（包括 OpenCode）不再进入自建服务商的 `baseUrl` 检查，也不再访问自建服务商的 `/models` 端点；模型拉取直接使用 Pi 随包目录。
+- 内置 Provider 的检测现在通过真实的 Pi 运行时发起 minimal 请求，并把设置中保存的 API Key 作为运行时覆盖传入；OpenCode 的检测因此能区分本地配置错误与上游账户错误。
+- 验证：新增内置模型目录与 API Key 转发回归；服务端 11/11、Desktop UI 203/203、`svelte-check` 0 错误/0 警告、生产构建通过。当前本机 OpenCode Key 已实际到达上游，返回的是账户余额不足，而非 Base URL 缺失。
+
 ## 2026-08-12
 
 ### Release v2.9.21 / Desktop v0.9.18
