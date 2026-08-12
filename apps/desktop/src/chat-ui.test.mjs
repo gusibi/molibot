@@ -50,6 +50,7 @@ const runActivity = read("./lib/chat/RunActivity.svelte");
 const thinkingCard = read("./lib/chat/ThinkingCard.svelte");
 const turnProcess = read("./lib/chat/TurnProcess.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
+const markdownArtifactOverlay = read("./lib/chat/MarkdownArtifactOverlay.svelte");
 const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
 const agentCityCanvas = read("./lib/chat/AgentCityCanvas.svelte");
 const agentCityFallback = read("./lib/chat/AgentCityFallback.svelte");
@@ -351,8 +352,8 @@ test("WindowState owns native lifecycle projection and chrome-only material toke
   assert.match(app, /void startWindowState\(\);/);
   assert.match(app, /root\.dataset\.windowActive/);
   assert.match(app, /windowStateAdapter\?\.dispose\(\);/);
-  assert.match(app, /function nativeThemeFor\(value: DesktopTheme\)/);
-  assert.match(app, /await windowStateAdapter\.setTheme\(nativeThemeFor\(theme\)\)/);
+  assert.match(app, /function nativeThemeFor\(value: DesktopAppearance\)/);
+  assert.match(app, /await windowStateAdapter\.setTheme\(nativeThemeFor\(appearance\)\)/);
   assert.match(app, /windowStateAdapter\?\.setTheme\(nativeThemeFor\(value\)\)/);
   assert.match(styles, /html\[data-window-active="false"\]/);
   assert.match(styles, /--chrome-sidebar-bg/);
@@ -364,11 +365,33 @@ test("WindowState owns native lifecycle projection and chrome-only material toke
   assert.match(styles, /\.command-palette[^\n]*var\(--chrome-popover-bg\)/);
 });
 
+test("appearance and theme family remain independent persisted controls", () => {
+  assert.match(app, /const APPEARANCE_STORAGE_KEY = "molibot-desktop-appearance"/);
+  assert.match(app, /const THEME_FAMILY_STORAGE_KEY = "molibot-desktop-theme-family"/);
+  assert.match(app, /root\.dataset\.appearance = value/);
+  assert.match(app, /root\.dataset\.resolvedAppearance = resolvedAppearance\(value\)/);
+  assert.match(app, /root\.dataset\.themeFamily = family/);
+  assert.match(app, /function changeAppearance\(value: DesktopAppearance\)/);
+  assert.match(app, /function changeThemeFamily\(value: DesktopThemeFamily\)/);
+  assert.match(app, /appearance-segmented/);
+  assert.match(app, /theme-family-grid/);
+  for (const family of ["macos", "rose-pine", "catppuccin", "midnight"]) {
+    assert.match(app, new RegExp(`value: "${family}"`));
+  }
+  for (const appearance of ["light", "dark", "system"]) {
+    assert.match(app, new RegExp(`value: "${appearance}"`));
+  }
+});
+
 test("Settings and Chat expose one edge-to-edge native macOS sidebar material", () => {
   const lightTheme = styles.match(/^:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
-  const explicitDark = styles.match(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
-  const midnightTheme = styles.match(/:root\[data-theme="midnight"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
-  const systemDark = styles.match(/:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\):not\(\[data-theme="midnight"\]\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+  const explicitDark = styles.match(/:root\[data-theme-family="macos"\]\[data-resolved-appearance="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const midnightTheme = styles.match(/:root\[data-theme-family="midnight"\]\[data-resolved-appearance="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const roseLight = styles.match(/:root\[data-theme-family="rose-pine"\]\[data-resolved-appearance="light"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const roseDark = styles.match(/:root\[data-theme-family="rose-pine"\]\[data-resolved-appearance="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const catppuccinLight = styles.match(/:root\[data-theme-family="catppuccin"\]\[data-resolved-appearance="light"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const catppuccinDark = styles.match(/:root\[data-theme-family="catppuccin"\]\[data-resolved-appearance="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const daybreak = styles.match(/:root\[data-theme-family="midnight"\]\[data-resolved-appearance="light"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
   assert.match(design, /native macOS sidebar material/);
   assert.equal(tauriConfig.app.macOSPrivateApi, true);
   assert.match(tauriCargo, /tauri\s*=\s*\{[^\n]*features\s*=\s*\[[^\]]*"macos-private-api"/);
@@ -386,13 +409,19 @@ test("Settings and Chat expose one edge-to-edge native macOS sidebar material", 
   const [, red, green, blue, alphaPercent] = lightTint.map(Number);
   assert.deepEqual([red, green, blue], [253, 255, 255]);
   assert.equal(alphaPercent, 62, "Light keeps a visible native-material contribution under the glass veil");
-  // The dark and Midnight veils keep their appearance tint while leaving enough
-  // native material visible to read as glass when the OS is the other mode.
+  // Every family keeps a translucent appearance-specific veil when the OS is the
+  // other mode, so the shared blur has a visible surface to composite against.
   assert.match(explicitDark, /--sidebar-material-tint:\s*rgb\(30 30 30 \/ 68%\)/);
   assert.match(midnightTheme, /--sidebar-material-tint:\s*rgb\(16 24 39 \/ 70%\)/);
-  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme="dark"\]\s*\{\s*--sidebar-material-tint:\s*transparent;\s*\}/);
-  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme="midnight"\]\s*\{\s*--sidebar-material-tint:\s*transparent;\s*\}/);
-  assert.match(systemDark, /--sidebar-material-tint:\s*transparent/);
+  assert.match(roseLight, /--sidebar-material-tint:\s*rgb\(250 244 237 \/ 72%\)/);
+  assert.match(roseDark, /--sidebar-material-tint:\s*rgb\(25 23 36 \/ 72%\)/);
+  assert.match(catppuccinLight, /--sidebar-material-tint:\s*rgb\(239 241 245 \/ 72%\)/);
+  assert.match(catppuccinDark, /--sidebar-material-tint:\s*rgb\(36 39 58 \/ 72%\)/);
+  assert.match(daybreak, /--sidebar-material-tint:\s*rgb\(246 250 255 \/ 68%\)/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme-family="macos"\]\[data-resolved-appearance="dark"\]\s*\{\s*--sidebar-material-tint:\s*transparent;\s*\}/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme-family="midnight"\]\[data-resolved-appearance="dark"\]\s*\{\s*--sidebar-material-tint:\s*transparent;\s*\}/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme-family="rose-pine"\]\[data-resolved-appearance="dark"\][\s\S]*--sidebar-material-tint:\s*transparent;/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme-family="catppuccin"\]\[data-resolved-appearance="dark"\][\s\S]*--sidebar-material-tint:\s*transparent;/);
   assert.match(styles, /--sidebar-material-filter:\s*blur\(18px\) saturate\(160%\)/);
   assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: 0[\s\S]*border-radius: 0[\s\S]*background: var\(--sidebar-material-tint\)[\s\S]*backdrop-filter: var\(--sidebar-material-filter\)/);
   assert.match(styles, /:root\[data-performance="low"\]\s*\{[\s\S]*--sidebar-material-filter:\s*none/);
@@ -417,9 +446,9 @@ test("Chat and Settings share the Settings navigation width baseline", () => {
 
 test("macOS semantic palette keeps dark workspace surfaces distinct from pure black", () => {
   const lightTheme = styles.match(/^:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
-  const explicitDark = styles.match(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
-  const systemDark = styles.match(/:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\):not\(\[data-theme="midnight"\]\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
-  const midnightTheme = styles.match(/:root\[data-theme="midnight"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const explicitDark = styles.match(/:root\[data-theme-family="macos"\]\[data-resolved-appearance="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const systemDark = styles.match(/@media \(prefers-color-scheme: dark\)[\s\S]*?:root\[data-theme-family="macos"\]\[data-resolved-appearance="dark"\]\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+  const midnightTheme = styles.match(/:root\[data-theme-family="midnight"\]\[data-resolved-appearance="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
   assert.match(lightTheme, /--mac-window-background:\s*#f6f6f6/i);
   assert.match(lightTheme, /--mac-grouped-background:\s*#ececec/i);
   assert.match(lightTheme, /--mac-label:\s*rgb\(0 0 0 \/ 84\.7%\)/i);
@@ -433,6 +462,11 @@ test("macOS semantic palette keeps dark workspace surfaces distinct from pure bl
   assert.match(midnightTheme, /--mac-window-background:\s*#101827/i);
   assert.match(midnightTheme, /--accent:\s*#9b8cff/i);
   assert.match(midnightTheme, /--surface-secondary:\s*#223552/i);
+  assert.match(styles, /:root\[data-theme-family="rose-pine"\]\[data-resolved-appearance="light"\][\s\S]*?--mac-window-background:\s*#faf4ed/);
+  assert.match(styles, /:root\[data-theme-family="rose-pine"\]\[data-resolved-appearance="dark"\][\s\S]*?--mac-window-background:\s*#191724/);
+  assert.match(styles, /:root\[data-theme-family="catppuccin"\]\[data-resolved-appearance="light"\][\s\S]*?--mac-window-background:\s*#eff1f5/);
+  assert.match(styles, /:root\[data-theme-family="catppuccin"\]\[data-resolved-appearance="dark"\][\s\S]*?--mac-window-background:\s*#24273a/);
+  assert.match(styles, /:root\[data-theme-family="midnight"\]\[data-resolved-appearance="light"\][\s\S]*?--mac-window-background:\s*#f3f7fc/);
   const structuralTokens = ["panel-bg", "sidebar-bg", "content-bg", "header-bg", "card-bg", "surface-secondary", "window-bg"];
   for (const themeRule of [explicitDark, systemDark]) {
     for (const token of structuralTokens) {
@@ -880,8 +914,8 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   assert.match(styles, /\.slash-suggestion-icon\[data-kind="miniapp"\]/);
   // Pitfall 4: an undefined var() fails silently, so both invocation hues must
   // exist as real tokens in the light AND dark declarations.
-  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 4);
-  assert.equal(styles.match(/--skill-accent:/g)?.length, 4);
+  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 9);
+  assert.equal(styles.match(/--skill-accent:/g)?.length, 9);
   assert.doesNotMatch(styles, /--purple-700/);
   // Pitfall 12: the catalog now carries Mini Apps, so every catalog mutation
   // must invalidate the composer's cache or `@` keeps advertising a stale set.
@@ -1255,7 +1289,7 @@ test("conversation, project, and Mini App titles share a quiet material band onl
   assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*min-height:\s*32px/s);
   // The stuck band stays inside the head's own rect (no bleeding gradient) and
   // rounds its corners to the row radius instead of a hard-edged strip.
-  assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*inset:\s*0;[^}]*border-radius:\s*var\(--rounded-sm\);[^}]*background:\s*color-mix\(in srgb, var\(--sidebar-bg\) 86%, transparent\);[^}]*backdrop-filter:\s*blur\(12px\)/s);
+  assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*inset:\s*0;[^}]*border-radius:\s*var\(--rounded-sm\);[^}]*background:\s*var\(--fill\);[^}]*backdrop-filter:\s*blur\(12px\)/s);
   assert.doesNotMatch(sharedHeader, /mask-image|linear-gradient|inset:\s*-/);
   assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*background:\s*transparent/s);
   assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*opacity:\s*0/s);
@@ -1442,14 +1476,12 @@ test("Agent City can be searched, followed, and lights its windows at night", ()
   assert.match(styles, /\.agent-city-search\s*\{/s);
 });
 
-// App.svelte REMOVES data-theme when the theme preference is "system" — the
-// default — so a surface styled only under `:root[data-theme="dark"]` renders
-// light on a dark canvas for most users, with nothing to notice at build time.
-// Agent City floats its chrome over a WebGL canvas, which is exactly where that
-// mismatch is most visible, so it must theme through the shared tokens instead.
-test("Agent City chrome themes through tokens, not a data-theme-only override list", () => {
+// Agent City floats its chrome over a WebGL canvas, so its surfaces must use the
+// shared semantic tokens and the resolved appearance rather than a brittle list
+// of per-family selectors.
+test("Agent City chrome themes through tokens, not a data-attribute-only override list", () => {
   // Comments are stripped first: prose in this file legitimately mentions
-  // data-theme, and it would otherwise be read as part of the next selector.
+  // theme attributes, and it would otherwise be read as part of the next selector.
   const source = styles.replace(/\/\*[\s\S]*?\*\//g, "");
   const rules = [...source.matchAll(/([^{}]*\.agent-city[^{}]*)\{([^{}]*)\}/g)];
   assert.ok(rules.length > 30, `expected the Agent City block, found ${rules.length} rules`);
@@ -1460,7 +1492,7 @@ test("Agent City chrome themes through tokens, not a data-theme-only override li
   assert.deepEqual(themeScoped, [], "Agent City must not carry per-theme override rules");
 
   // Pug artwork keeps its coat colours in every theme; everything else must
-  // resolve through a token so Light / Dark / Midnight / System all follow automatically.
+  // resolve through a token so every family and brightness choice follows automatically.
   const violations = [];
   for (const [, selector, body] of rules) {
     if (/agent-city-fallback-pug/.test(selector)) continue;
@@ -1480,13 +1512,26 @@ test("Agent City chrome themes through tokens, not a data-theme-only override li
   // The one Agent City colour that cannot derive from a token: it has to match
   // the WebGL clear colour, so it must be mirrored into every theme context.
   const skyDeclarations = [...source.matchAll(/--agent-city-sky\s*:/g)];
-  assert.equal(skyDeclarations.length, 4, "--agent-city-sky must be declared for light, dark, midnight and system-dark");
-  const darkBlock = source.slice(source.indexOf(':root[data-theme="dark"] {'));
-  assert.match(darkBlock.slice(0, 4000), /--agent-city-sky:\s*#101820/);
-  const midnightBlock = source.slice(source.indexOf(':root[data-theme="midnight"] {'));
-  assert.match(midnightBlock.slice(0, 4000), /--agent-city-sky:\s*#101820/);
-  const systemBlock = source.slice(source.indexOf("@media (prefers-color-scheme: dark)"));
-  assert.match(systemBlock.slice(0, 4000), /--agent-city-sky:\s*#101820/);
+  assert.equal(skyDeclarations.length, 9, "--agent-city-sky must cover macOS, Rosé Pine, Catppuccin, Midnight and their resolved variants");
+  for (const selector of [
+    ':root[data-theme-family="macos"][data-resolved-appearance="dark"]',
+    ':root[data-theme-family="rose-pine"][data-resolved-appearance="dark"]',
+    ':root[data-theme-family="catppuccin"][data-resolved-appearance="dark"]',
+    ':root[data-theme-family="midnight"][data-resolved-appearance="dark"]'
+  ]) {
+    const offset = source.indexOf(`${selector} {`);
+    assert.ok(offset >= 0, `missing Agent City sky context for ${selector}`);
+    assert.match(source.slice(offset, offset + 4000), /--agent-city-sky:\s*#101820/);
+  }
+  for (const selector of [
+    ':root[data-theme-family="rose-pine"][data-resolved-appearance="light"]',
+    ':root[data-theme-family="catppuccin"][data-resolved-appearance="light"]',
+    ':root[data-theme-family="midnight"][data-resolved-appearance="light"]'
+  ]) {
+    const offset = source.indexOf(`${selector} {`);
+    assert.ok(offset >= 0, `missing Agent City sky context for ${selector}`);
+    assert.match(source.slice(offset, offset + 4000), /--agent-city-sky:\s*#eaf3f5/);
+  }
 });
 
 test("sidebar conversation rows expose a rename/delete menu", () => {
@@ -1633,9 +1678,9 @@ test("automation session detail renders a chat-style transcript", () => {
   assert.match(styles, /\.message-row\.mine \.message-bubble \{[^}]*background: var\(--gray-300\)[^}]*box-shadow: var\(--soft-shadow\)/s);
   // The user-bubble elevation is token-driven: the base rule above reads
   // --gray-300 (theme-aware), so it lifts the sent turn above the transcript
-  // in BOTH light and dark. A per-theme [data-theme="dark"] override used to
+  // in BOTH light and dark. A per-theme [data-resolved-appearance="dark"] override used to
   // duplicate this and drift out of sync with system-dark; it is now gone.
-  assert.doesNotMatch(styles, /\[data-theme="dark"\] \.message-row\.mine \.message-bubble/s);
+  assert.doesNotMatch(styles, /\[data-resolved-appearance="dark"\] \.message-row\.mine \.message-bubble/s);
   assert.match(styles, /\.run-activity \{[^}]*border: 0;[^}]*background: transparent/s);
   assert.doesNotMatch(sections.tasks, /class="message-(row|avatar|stack|bubble)/);
 });
@@ -2300,6 +2345,12 @@ test("SpreadsheetTable keeps workbook parsing lazy, bounded, and read-only", () 
   assert.doesNotMatch(component, /contenteditable/);
 });
 
+test("chat Markdown table previews use the UTF-8 CSV viewer, not the binary workbook viewer", () => {
+  assert.match(markdownArtifactOverlay, /import CsvTable from "\.\.\/artifacts\/CsvTable\.svelte"/);
+  assert.match(markdownArtifactOverlay, /<CsvTable[^>]*content=\{source\}/);
+  assert.doesNotMatch(markdownArtifactOverlay, /SpreadsheetTable/);
+});
+
 test("DocxPreview keeps conversion lazy, sanitized, and read-only", () => {
   const component = read("./lib/artifacts/DocxPreview.svelte");
   const parser = read("./lib/artifacts/docx.ts");
@@ -2398,6 +2449,23 @@ test("mermaid blocks share preview, source copy, and zoom controls in every surf
   assert.match(viewer, /<MediaViewer kind="image"/);
   assert.match(viewer, /data:image\/svg\+xml/);
   assert.match(design, /Rendered Mermaid blocks expose one compact, persistent Preview \/ Source segmented/);
+});
+
+test("D2 blocks use the service renderer and keep a safe source fallback", () => {
+  const viewer = read("./lib/artifacts/D2Diagram.svelte");
+  const chat = read("./lib/chat/ChatMarkdown.svelte");
+  const preview = read("./lib/artifacts/MarkdownPreview.svelte");
+  const route = read("../../../src/routes/api/desktop/d2/render/+server.ts");
+  const renderer = read("../../../src/lib/server/diagrams/d2Render.ts");
+  assert.match(chat, /import D2Diagram/);
+  assert.match(preview, /import D2Diagram/);
+  assert.match(viewer, /renderDesktopD2/);
+  assert.match(viewer, /artifactD2Failed/);
+  assert.match(viewer, /<pre><code>\{source\}<\/code><\/pre>/);
+  assert.match(viewer, /<img class="d2-viewer-image"/);
+  assert.doesNotMatch(viewer, /\{@html/);
+  assert.match(renderer, /\/d2\/svg/);
+  assert.match(route, /MAX_D2_SOURCE_BYTES/);
 });
 
 test("the Markdown viewer reuses the transcript renderer and its click behaviour", () => {
@@ -3761,16 +3829,46 @@ test("Chat Markdown and the Artifact Inspector share one theme-aware syntax pale
     assert.match(styles, new RegExp(`--artifact-code-${token}: var\\(--syntax-code-${token}\\)`));
   }
   assert.match(styles, /\.markdown-body pre \{[^}]*background: var\(--syntax-code-bg\)[^}]*color: var\(--syntax-code-fg\)/s);
-  assert.match(styles, /:root\[data-theme="dark"\][\s\S]*?--syntax-code-bg: #0d1117/);
-  assert.match(styles, /:root:not\(\[data-theme="light"\]\):not\(\[data-theme="dark"\]\):not\(\[data-theme="midnight"\]\)[\s\S]*?--syntax-code-bg: #0d1117/);
-  assert.match(styles, /:root\[data-theme="midnight"\][\s\S]*?--syntax-code-bg: #111827/);
+  assert.match(styles, /:root\[data-theme-family="macos"\]\[data-resolved-appearance="dark"\][\s\S]*?--syntax-code-bg: #0d1117/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme-family="macos"\]\[data-resolved-appearance="dark"\][\s\S]*?--syntax-code-bg: #0d1117/);
+  assert.match(styles, /:root\[data-theme-family="midnight"\]\[data-resolved-appearance="dark"\][\s\S]*?--syntax-code-bg: #111827/);
+  assert.match(styles, /:root\[data-theme-family="rose-pine"\]\[data-resolved-appearance="dark"\][\s\S]*?--syntax-code-bg: #1f1d2e/);
+  assert.match(styles, /:root\[data-theme-family="catppuccin"\]\[data-resolved-appearance="dark"\][\s\S]*?--syntax-code-bg: #1e2030/);
+  assert.match(styles, /:root\[data-theme-family="midnight"\]\[data-resolved-appearance="light"\][\s\S]*?--syntax-code-bg: #ffffff/);
   assert.doesNotMatch(styles, /\.hljs-keyword[^\n]*#[0-9a-f]{3,8}/i);
+});
+
+test("Artifact Inspector chrome follows the shared family tokens", () => {
+  // The Inspector keeps its repository layout, but its canvas, controls,
+  // labels, borders, accent and status colors must resolve from the same
+  // family/brightness tokens as Chat and Settings. A separate hard-coded
+  // Primer ramp makes Rosé Pine, Catppuccin and Daybreak look unchanged.
+  const artifactBase = styles.slice(styles.indexOf(".artifact-panel {"), styles.indexOf("/* Panel chrome"));
+  for (const token of [
+    ["canvas", "surface-secondary"],
+    ["surface", "card-bg"],
+    ["hover", "fill-hover"],
+    ["border", "separator"],
+    ["fg", "label-primary"],
+    ["fg-muted", "label-secondary"],
+    ["fg-subtle", "label-tertiary"],
+    ["accent", "accent"],
+    ["accent-muted", "accent-soft"],
+    ["success", "online"],
+    ["attention", "warning-text"],
+    ["danger", "danger"]
+  ]) {
+    assert.match(artifactBase, new RegExp(`--artifact-${token[0]}: var\\(--${token[1]}\\)`));
+  }
+  // There must be one shared mapping, not a second per-theme artifact ramp
+  // that can drift from the active family.
+  assert.doesNotMatch(styles, /:root\[data-(?:resolved-appearance|theme-family)[^\]]*\][^{]*\.artifact-panel\s*\{/);
 });
 
 test("assistant technical metadata folds only in a narrow message column and shares one menu", () => {
   assert.match(transcript, /hasTechnicalDetails = hasTurnSummary \|\| Boolean\(message\.model\) \|\| hasMemoryMeta/);
   assert.match(transcript, /class="message-meta-inline"/);
-  assert.match(transcript, /<OverflowMenu label=\{copy\.conversationMenu\} popoverRole="dialog" closeOnPointerLeave=\{true\}>/);
+  assert.match(transcript, /<OverflowMenu label=\{copy\.conversationMenu\} placement="up" popoverRole="dialog" closeOnPointerLeave=\{true\}>/);
   assert.match(transcript, /class="message-meta-details"[\s\S]*class="turn-summary"[\s\S]*class="message-model"[\s\S]*class="message-memory-trace"/);
   assert.match(styles, /\.assistant-layout \{[^}]*container: assistant-message \/ inline-size/s);
   assert.match(styles, /@container assistant-message \(max-width: 620px\) \{[\s\S]*?\.message-meta-inline \{ display: none; \}[\s\S]*?\.message-meta-details \{ display: grid; \}/);
@@ -3780,8 +3878,11 @@ test("assistant technical metadata folds only in a narrow message column and sha
   assert.match(overflowMenu, /export let popoverRole: "menu" \| "dialog" = "menu"/);
   assert.match(overflowMenu, /role=\{popoverRole\} aria-label=\{label\}/);
   assert.match(overflowMenu, /export let closeOnPointerLeave = false/);
+  assert.match(overflowMenu, /export let placement: "down" \| "up" = "down"/);
+  assert.match(overflowMenu, /overflow-menu-\$\{placement\}/);
   assert.match(overflowMenu, /setTimeout\(\(\) => \{[\s\S]*?menu\.open = false;[\s\S]*?\}, 120\)/);
   assert.match(overflowMenu, /onpointerenter=\{onPointerEnter\} onpointerleave=\{onPointerLeave\}/);
+  assert.match(styles, /\.overflow-menu-up \.overflow-menu-popover \{[^}]*top: auto;[^}]*bottom: calc\(100% \+ 6px\)/s);
 });
 
 test("right-click with a selection offers the same actions on either role", () => {

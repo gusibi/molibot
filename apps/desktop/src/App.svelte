@@ -45,11 +45,13 @@
     buildDiagnosticsSummary,
     loadDesktopBootstrap,
     loadDesktopModels,
-    normalizeTheme,
+    normalizeAppearance,
+    normalizeThemeFamily,
     shouldShowServiceReconnect,
     summarizeDesktopReadiness,
     type DesktopReadiness,
-    type DesktopTheme
+    type DesktopAppearance,
+    type DesktopThemeFamily
   } from "./lib/api";
 
   type Ownership = "managed" | "external";
@@ -100,10 +102,14 @@
   let servicePort = 3000;
   let servicePortLoadedFrom = "";
   let servicePortBusy = false;
-  const THEME_STORAGE_KEY = "molibot-desktop-theme";
+  let systemAppearanceQuery: MediaQueryList | null = null;
+  let onSystemAppearanceChange: (() => void) | null = null;
+  const APPEARANCE_STORAGE_KEY = "molibot-desktop-appearance";
+  const THEME_FAMILY_STORAGE_KEY = "molibot-desktop-theme-family";
   const LOW_PERFORMANCE_STORAGE_KEY = "molibot-desktop-low-performance";
   const runningInTauri = "__TAURI_INTERNALS__" in window;
-  let theme: DesktopTheme = normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
+  let appearance: DesktopAppearance = normalizeAppearance(localStorage.getItem(APPEARANCE_STORAGE_KEY));
+  let themeFamily: DesktopThemeFamily = normalizeThemeFamily(localStorage.getItem(THEME_FAMILY_STORAGE_KEY));
   let lowPerformance = localStorage.getItem(LOW_PERFORMANCE_STORAGE_KEY) === "true";
   const previewPane = new URL(window.location.href).searchParams.get("pane");
   let requestedChatPane: "chat" | "automations" | "skills" | "agents" = !runningInTauri && ["automations", "skills", "agents"].includes(previewPane ?? "")
@@ -121,14 +127,19 @@
     root.dataset.increasedContrast = snapshot.increasedContrast ? "true" : "false";
   }
 
-  function nativeThemeFor(value: DesktopTheme): "light" | "dark" | null {
+  function nativeThemeFor(value: DesktopAppearance): "light" | "dark" | null {
     if (value === "system") return null;
     return value === "light" ? "light" : "dark";
   }
 
+  function resolvedAppearance(value: DesktopAppearance): "light" | "dark" {
+    if (value !== "system") return value;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
   async function startWindowState(): Promise<void> {
     windowStateAdapter = runningInTauri ? await createTauriWindowState() : createWindowState();
-    await windowStateAdapter.setTheme(nativeThemeFor(theme));
+    await windowStateAdapter.setTheme(nativeThemeFor(appearance));
     applyWindowState(windowStateAdapter.snapshot);
     windowStateUnsubscribe = windowStateAdapter.subscribe(applyWindowState);
     await windowStateAdapter.start();
@@ -157,22 +168,34 @@
     void hapticCoordinator?.commit(gestureId);
   }
 
-  function applyTheme(value: DesktopTheme): void {
+  function applyTheme(value: DesktopAppearance, family: DesktopThemeFamily): void {
     const root = document.documentElement;
-    if (value === "system") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", value);
+    root.dataset.appearance = value;
+    root.dataset.resolvedAppearance = resolvedAppearance(value);
+    root.dataset.themeFamily = family;
     void windowStateAdapter?.setTheme(nativeThemeFor(value));
   }
 
-  function changeTheme(value: DesktopTheme): void {
-    theme = value;
-    localStorage.setItem(THEME_STORAGE_KEY, value);
+  function transitionTheme(): void {
     const root = document.documentElement;
     if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       root.classList.add("theme-transition");
       window.setTimeout(() => root.classList.remove("theme-transition"), 300);
     }
-    applyTheme(value);
+  }
+
+  function changeAppearance(value: DesktopAppearance): void {
+    appearance = value;
+    localStorage.setItem(APPEARANCE_STORAGE_KEY, value);
+    transitionTheme();
+    applyTheme(value, themeFamily);
+  }
+
+  function changeThemeFamily(value: DesktopThemeFamily): void {
+    themeFamily = value;
+    localStorage.setItem(THEME_FAMILY_STORAGE_KEY, value);
+    transitionTheme();
+    applyTheme(appearance, value);
   }
 
   function applyPerformanceMode(value: boolean): void {
@@ -190,11 +213,22 @@
   // Geist owns a single accent (blue-700), defined as --accent / --accent-soft
   // in styles.css per theme. No user-selectable accent palette.
 
-  const THEME_PREVIEWS: { value: DesktopTheme; labelKey: "themeLight" | "themeDark" | "themeSystem" | "themeMidnight" }[] = [
-    { value: "light", labelKey: "themeLight" },
-    { value: "dark", labelKey: "themeDark" },
-    { value: "midnight", labelKey: "themeMidnight" },
-    { value: "system", labelKey: "themeSystem" }
+  const APPEARANCE_OPTIONS: { value: DesktopAppearance; labelKey: "appearanceLight" | "appearanceDark" | "appearanceSystem" }[] = [
+    { value: "light", labelKey: "appearanceLight" },
+    { value: "dark", labelKey: "appearanceDark" },
+    { value: "system", labelKey: "appearanceSystem" }
+  ];
+
+  const THEME_FAMILY_PREVIEWS: {
+    value: DesktopThemeFamily;
+    labelKey: "themeFamilyMacos" | "themeFamilyRosePine" | "themeFamilyCatppuccin" | "themeFamilyMidnight";
+    lightVariantKey: "themeVariantMacosLight" | "themeVariantDawn" | "themeVariantLatte" | "themeVariantDaybreak";
+    darkVariantKey: "themeVariantMacosDark" | "themeVariantMoon" | "themeVariantMacchiato" | "themeVariantMidnight";
+  }[] = [
+    { value: "macos", labelKey: "themeFamilyMacos", lightVariantKey: "themeVariantMacosLight", darkVariantKey: "themeVariantMacosDark" },
+    { value: "rose-pine", labelKey: "themeFamilyRosePine", lightVariantKey: "themeVariantDawn", darkVariantKey: "themeVariantMoon" },
+    { value: "catppuccin", labelKey: "themeFamilyCatppuccin", lightVariantKey: "themeVariantLatte", darkVariantKey: "themeVariantMacchiato" },
+    { value: "midnight", labelKey: "themeFamilyMidnight", lightVariantKey: "themeVariantDaybreak", darkVariantKey: "themeVariantMidnight" }
   ];
 
   const SETTINGS_NAV: { id: SettingsSection; icon: string }[] = [
@@ -678,14 +712,24 @@
       locale = normalizeLocale(event.newValue);
       return;
     }
-    if (event.key !== THEME_STORAGE_KEY) return;
-    theme = normalizeTheme(event.newValue);
-    applyTheme(theme);
+    if (event.key === APPEARANCE_STORAGE_KEY) {
+      appearance = normalizeAppearance(event.newValue);
+      applyTheme(appearance, themeFamily);
+      return;
+    }
+    if (event.key !== THEME_FAMILY_STORAGE_KEY) return;
+    themeFamily = normalizeThemeFamily(event.newValue);
+    applyTheme(appearance, themeFamily);
   }
 
   onMount(() => {
-    applyTheme(theme);
+    applyTheme(appearance, themeFamily);
     applyPerformanceMode(lowPerformance);
+    systemAppearanceQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    onSystemAppearanceChange = () => {
+      if (appearance === "system") applyTheme(appearance, themeFamily);
+    };
+    systemAppearanceQuery.addEventListener("change", onSystemAppearanceChange);
     void startWindowState();
     void startFeedback();
     void startHaptics();
@@ -725,6 +769,9 @@
       hapticCoordinator = null;
       setTaskFeedbackPublisher(null);
       window.removeEventListener("storage", onThemeStorage);
+      if (onSystemAppearanceChange) systemAppearanceQuery?.removeEventListener("change", onSystemAppearanceChange);
+      onSystemAppearanceChange = null;
+      systemAppearanceQuery = null;
     };
   });
 </script>
@@ -847,18 +894,39 @@
 
         <SettingGroup title={text.theme} contentClass="appearance-card">
           <div class="appearance-block">
-            <div class="theme-grid">
-              {#each THEME_PREVIEWS as preview (preview.value)}
+            <p class="appearance-label">{text.appearanceMode}</p>
+            <p class="appearance-description">{text.appearanceModeDescription}</p>
+            <div class="appearance-segmented" role="radiogroup" aria-label={text.appearanceMode}>
+              {#each APPEARANCE_OPTIONS as option (option.value)}
+                <button
+                  type="button"
+                  class:active={appearance === option.value}
+                  role="radio"
+                  aria-checked={appearance === option.value}
+                  onclick={() => changeAppearance(option.value)}
+                >
+                  {text[option.labelKey]}
+                </button>
+              {/each}
+            </div>
+          </div>
+          <div class="appearance-block">
+            <p class="appearance-label">{text.themeFamily}</p>
+            <p class="appearance-description">{text.themeFamilyDescription}</p>
+            <div class="theme-grid theme-family-grid">
+              {#each THEME_FAMILY_PREVIEWS as preview (preview.value)}
                 <button
                   type="button"
                   class="theme-swatch"
-                  class:active={theme === preview.value}
-                  data-theme-preview={preview.value}
-                  aria-pressed={theme === preview.value}
-                  onclick={() => changeTheme(preview.value)}
+                  class:active={themeFamily === preview.value}
+                  data-theme-family-preview={preview.value}
+                  data-theme-preview-appearance={appearance}
+                  aria-pressed={themeFamily === preview.value}
+                  onclick={() => changeThemeFamily(preview.value)}
                 >
                   <span class="theme-preview" aria-hidden="true"><span class="tp-side"></span><span class="tp-body"></span></span>
                   <span class="theme-name">{text[preview.labelKey]}</span>
+                  <span class="theme-variants">{text[preview.lightVariantKey]} · {text[preview.darkVariantKey]}</span>
                 </button>
               {/each}
             </div>

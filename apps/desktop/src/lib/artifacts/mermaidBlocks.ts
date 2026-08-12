@@ -1,8 +1,8 @@
 /**
- * Splits Markdown source into mermaid diagram blocks and everything else
+ * Splits Markdown source into Mermaid/D2 diagram blocks and everything else
  * (PRD §3.38 Slice 3).
  *
- * Mermaid is rendered by the library, the rest by the transcript's own
+ * Mermaid is rendered by the library and D2 by the service-side renderer; the rest by the transcript's own
  * `renderMarkdown`. Doing the split on the source - rather than post-processing
  * the rendered HTML - keeps the diagram text exactly as the author wrote it, and
  * makes the rule ("a fenced block whose info string is mermaid") testable
@@ -11,7 +11,10 @@
 
 export type MarkdownSegment =
   | { kind: "markdown"; content: string }
-  | { kind: "mermaid"; content: string; id: string };
+  | { kind: "mermaid"; content: string; id: string }
+  | { kind: "d2"; content: string; id: string };
+
+export type DiagramKind = "mermaid" | "d2";
 
 /**
  * A fenced block opened by at least three backticks or tildes. The closing fence
@@ -20,17 +23,18 @@ export type MarkdownSegment =
  */
 const FENCE_OPEN = /^([ \t]{0,3})(`{3,}|~{3,})[ \t]*([^\n`]*)$/;
 
-function isMermaidInfo(info: string): boolean {
+function diagramKindFromInfo(info: string): DiagramKind | null {
   // The info string may carry attributes (```mermaid {theme=x}); only the first
   // word names the language.
-  return String(info ?? "").trim().split(/\s+/)[0]?.toLowerCase() === "mermaid";
+  const kind = String(info ?? "").trim().split(/\s+/)[0]?.toLowerCase();
+  return kind === "mermaid" || kind === "d2" ? kind : null;
 }
 
-export function splitMermaidBlocks(source: string): MarkdownSegment[] {
+function splitFencedDiagramBlocks(source: string, acceptedKinds: ReadonlySet<DiagramKind>): MarkdownSegment[] {
   const lines = String(source ?? "").split("\n");
   const segments: MarkdownSegment[] = [];
+  const diagramIndexes = new Map<DiagramKind, number>();
   let buffer: string[] = [];
-  let diagramIndex = 0;
 
   const flushMarkdown = (): void => {
     if (buffer.length === 0) return;
@@ -43,7 +47,8 @@ export function splitMermaidBlocks(source: string): MarkdownSegment[] {
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = FENCE_OPEN.exec(lines[index]);
-    if (!match || !isMermaidInfo(match[3])) {
+    const kind = match ? diagramKindFromInfo(match[3]) : null;
+    if (!match || !kind || !acceptedKinds.has(kind)) {
       buffer.push(lines[index]);
       continue;
     }
@@ -69,8 +74,9 @@ export function splitMermaidBlocks(source: string): MarkdownSegment[] {
     }
 
     flushMarkdown();
-    diagramIndex += 1;
-    segments.push({ kind: "mermaid", content: body.join("\n"), id: `mermaid-${diagramIndex}` });
+    const diagramIndex = (diagramIndexes.get(kind) ?? 0) + 1;
+    diagramIndexes.set(kind, diagramIndex);
+    segments.push({ kind, content: body.join("\n"), id: `${kind}-${diagramIndex}` });
     index = cursor;
   }
 
@@ -78,7 +84,20 @@ export function splitMermaidBlocks(source: string): MarkdownSegment[] {
   return segments;
 }
 
+export function splitDiagramBlocks(source: string): MarkdownSegment[] {
+  return splitFencedDiagramBlocks(source, new Set<DiagramKind>(["mermaid", "d2"]));
+}
+
+export function splitMermaidBlocks(source: string): MarkdownSegment[] {
+  return splitFencedDiagramBlocks(source, new Set<DiagramKind>(["mermaid"]));
+}
+
 /** True when the source contains at least one mermaid block worth loading the library for. */
 export function hasMermaidBlock(source: string): boolean {
   return splitMermaidBlocks(source).some((segment) => segment.kind === "mermaid" && segment.content.trim().length > 0);
+}
+
+/** True when the source contains at least one complete D2 block with content. */
+export function hasD2Block(source: string): boolean {
+  return splitDiagramBlocks(source).some((segment) => segment.kind === "d2" && segment.content.trim().length > 0);
 }

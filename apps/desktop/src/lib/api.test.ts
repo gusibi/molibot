@@ -32,7 +32,8 @@ import {
   missingRuntimeDependencies,
   nextFollowUp,
   advanceOnboardingStep,
-  normalizeTheme,
+  normalizeAppearance,
+  normalizeThemeFamily,
   parseDesktopActivity,
   reduceDesktopActivities,
   parseDesktopApproval,
@@ -90,8 +91,35 @@ import {
   testDesktopProvider,
   updateDesktopProvider,
   updateDesktopProviderGlobals,
-  ONBOARDING_STEPS
+  ONBOARDING_STEPS,
+  renderDesktopD2
 } from "./api";
+
+test("desktop D2 rendering posts the source and resolved appearance to the service", async () => {
+  const original = globalThis.fetch;
+  let captured: { url: string; method: string; body: unknown } | null = null;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    captured = {
+      url: String(url),
+      method: init?.method ?? "GET",
+      body: init?.body ? JSON.parse(String(init.body)) : null
+    };
+    return new Response(JSON.stringify({ ok: true, svg: "<svg></svg>" }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal(await renderDesktopD2("http://127.0.0.1:3000", "A -> B", "dark"), "<svg></svg>");
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.deepEqual(captured, {
+    url: "http://127.0.0.1:3000/api/desktop/d2/render",
+    method: "POST",
+    body: { source: "A -> B", theme: "dark" }
+  });
+});
 
 test("desktop provider OAuth uses narrow encoded session and credential routes", async () => {
   const original = globalThis.fetch;
@@ -729,13 +757,22 @@ test("normalizeLocale resolves known locales and maps zh variants to zh-CN", () 
   assert.equal(normalizeLocale(""), "en");
 });
 
-test("normalizeTheme accepts known themes and falls back to system", () => {
-  assert.equal(normalizeTheme("light"), "light");
-  assert.equal(normalizeTheme("dark"), "dark");
-  assert.equal(normalizeTheme("midnight"), "midnight");
-  assert.equal(normalizeTheme("system"), "system");
-  assert.equal(normalizeTheme("solarized"), "system");
-  assert.equal(normalizeTheme(null), "system");
+test("normalizeAppearance accepts brightness choices and falls back to system", () => {
+  assert.equal(normalizeAppearance("light"), "light");
+  assert.equal(normalizeAppearance("dark"), "dark");
+  assert.equal(normalizeAppearance("system"), "system");
+  assert.equal(normalizeAppearance("midnight"), "system");
+  assert.equal(normalizeAppearance("solarized"), "system");
+  assert.equal(normalizeAppearance(null), "system");
+});
+
+test("normalizeThemeFamily accepts supported families and falls back to macOS", () => {
+  assert.equal(normalizeThemeFamily("macos"), "macos");
+  assert.equal(normalizeThemeFamily("rose-pine"), "rose-pine");
+  assert.equal(normalizeThemeFamily("catppuccin"), "catppuccin");
+  assert.equal(normalizeThemeFamily("midnight"), "midnight");
+  assert.equal(normalizeThemeFamily("solarized"), "macos");
+  assert.equal(normalizeThemeFamily(null), "macos");
 });
 
 test("buildDiagnosticsSummary lists sanitized runtime facts and falls back for missing values", () => {

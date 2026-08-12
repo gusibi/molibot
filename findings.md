@@ -1,3 +1,42 @@
+# 主题家族与明暗模式调查记录（2026-08-12）
+
+## Confirmed decisions
+
+- Brightness and theme family are independent.
+- Brightness options: Light / Dark / System.
+- Theme families: Minimal (macOS), Rosé Pine, Catppuccin, Midnight.
+- Rosé Pine variants: Dawn / Moon.
+- Catppuccin variants: Latte / Macchiato.
+- Midnight variants: Daybreak / Midnight.
+- `Daybreak` is the accepted name for Midnight's light partner.
+
+## Implementation findings
+
+- The previous Desktop contract combined `system`, `light`, `dark`, and `midnight` in one `DesktopTheme` value and one storage key.
+- The new contract uses `DesktopAppearance`, `DesktopThemeFamily`, `data-appearance`, `data-resolved-appearance`, and `data-theme-family`.
+- External previews only need resolved `light` / `dark`; family tokens remain in the Desktop WebView.
+- Chat Markdown, Agent Studio, and Mini App theme propagation now read the resolved appearance.
+- Chat and Settings retain the native sidebar window effect, translucent family tint, and shared blur; accessibility and low-performance paths remain opaque.
+
+## Verification
+
+- Focused UI structure tests: 200/200.
+- Desktop API tests: 85/85.
+- Full Desktop Node suite: 204/204.
+- Rust suite: 55/55.
+- `svelte-check` and both production builds pass.
+- Cold-start browser walk confirmed independent control state, persistence across reload/server restart, and sidebar blur.
+
+## Follow-up findings: message menu and Inspector
+
+- The screenshot menu is the assistant row's shared `OverflowMenu`; its absolute popover was always anchored below the trigger, so it opened toward the composer.
+- The Artifact Inspector already reused shared syntax tokens, but its repository chrome kept hard-coded Primer canvas, border, label, accent, and status values with only generic dark/Midnight overrides.
+- The fix keeps the repository layout and typography, adds explicit upward placement for the assistant menu, and aliases all Inspector chrome roles to the active shared theme tokens. This covers every family without another selector matrix.
+
+## Follow-up verification
+
+- Red-capable UI tests failed before the fix and pass after it: assistant menu placement plus Inspector shared-token derivation.
+- Focused Desktop UI suite: 201/201 after the fix.
 # Chat Transcript Optimization 发现记录（2026-08-10）
 
 ## 用户验收清单
@@ -183,6 +222,13 @@
 - 根因：`/api/chat`/`/api/stream` 把 Web 请求的 profile id 直接作为 Durable `botId`，但 Web profile 可以是虚拟 id，`channelManagers` 只含已启用的具体实例；任务入队后才在 runtime manager lookup 失败。
 - 修法：在 Web identity 共享层把请求 id 解析为同名 manager、`default` 或首个已启用 manager，创建 Durable 聚合时保存解析后的 id；这保持了 manager 查找的单一共享路径，没有在 Durable runtime 里添加按面板特判。
 - 机器守卫：identity 路由 3 项单测覆盖精确命中、默认/首个 manager 和无 manager；真实临时服务测试使用 `profileId=personal`，验证 provider 请求、同库重启、`recovery_required` 和 `interrupted`。
+
+## 2026-08-12 — D2 服务端渲染与 CJK 表格乱码
+
+- 根因：Markdown 表格弹出预览把 DOM 序列化出的 UTF-8 CSV 放进 `Blob`，随后交给 SheetJS 的 `type: "array"` 二进制工作簿解析器；中文字节被按 Latin-1 解释，形成 `å§...` 乱码。表格本身的 Markdown 渲染没有乱码。
+- 修法：聊天表格直接复用 `CsvTable` 的 UTF-8 文本解析，保留原始 CSV/源码切换；没有给二进制工作簿解析器增加编码猜测或兼容层。
+- D2 采用共享 fenced-block 分流：Chat、Project Chat 和 Markdown artifact 共用 `D2Diagram`，由 Desktop 服务端请求 Kroki 的 `/d2/svg`，限制源码/输出、超时并在客户端以 `<img>` 展示安全 SVG；服务失败只显示源码。
+- 证据：中文 CSV 与 D2 parser 21/21，D2 route + Desktop API 91/91，Desktop UI guard 203/203，`svelte-check` 0 错误/0 警告；Kroki 实测 HTTP 200 / `image/svg+xml`；Desktop 与 root production build、`git diff --check` 通过。
 
 ## 2026-08-10 — Runner helper 类型回归
 

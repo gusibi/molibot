@@ -458,7 +458,7 @@ a:focus-visible {
   inset: 0;
   pointer-events: none;
   border-radius: var(--rounded-sm);
-  background: color-mix(in srgb, var(--sidebar-bg) 86%, transparent);
+  background: var(--fill);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   opacity: 0;
@@ -2559,6 +2559,8 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .mermaid-viewer-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mermaid-viewer-preview { max-width: 100%; padding: 16px; overflow-x: auto; overscroll-behavior-x: contain; }
 .mermaid-viewer-preview svg { display: block; max-width: 100%; height: auto; margin: auto; }
+.d2-viewer-preview { display: flex; justify-content: center; }
+.d2-viewer-image { display: block; max-width: 100%; height: auto; object-fit: contain; }
 .mermaid-viewer-source,
 .mermaid-viewer-failed { max-height: 360px; overflow: auto; background: var(--code-bg); color: var(--code-text); }
 .mermaid-viewer-source pre,
@@ -3252,26 +3254,59 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .ios-switch input:focus-visible + .ios-switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ios-switch input:disabled + .ios-switch-track { cursor: not-allowed; opacity: 0.5; }
 
-/* Appearance picker (theme thumbnails). Geist uses a single accent, so no
-   accent-swatch row — the accent is owned by --accent per theme. */
-.appearance-card { display: flex; align-items: center; gap: 26px; padding: 16px; }
-.appearance-label { margin: 0 0 10px; color: var(--label-secondary); font-size: var(--fs-label); font-weight: 600; }
-.theme-grid { display: flex; flex-wrap: wrap; gap: 18px; }
-.theme-swatch { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; cursor: pointer; }
-.theme-preview { display: flex; width: 74px; height: 46px; overflow: hidden; border: 2px solid var(--separator); border-radius: var(--rounded-sm); box-shadow: var(--soft-shadow); transition: border-color var(--duration-fast) var(--ease-standard); }
+/* Appearance picker: brightness and palette family are intentionally separate
+   controls. The thumbnails show the family while the segmented control above
+   owns Light / Dark / System. */
+.appearance-card { display: grid; gap: 20px; padding: 16px; }
+.appearance-block { display: grid; gap: 6px; }
+.appearance-label { margin: 0; color: var(--label-primary); font-size: var(--fs-label); font-weight: 600; }
+.appearance-description { margin: 0 0 4px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.appearance-segmented { display: inline-flex; width: fit-content; max-width: 100%; gap: 2px; padding: 3px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--fill); }
+.appearance-segmented button { min-width: 84px; min-height: 32px; padding: 0 14px; border: 0; border-radius: calc(var(--rounded-sm) - 2px); background: transparent; color: var(--label-secondary); font: inherit; font-size: var(--fs-label); cursor: pointer; transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.appearance-segmented button:hover { color: var(--label-primary); }
+.appearance-segmented button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: var(--soft-shadow); }
+.appearance-segmented button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
+.theme-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+.theme-family-grid { gap: 12px 18px; }
+.theme-swatch { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 104px; padding: 0; border: 0; background: transparent; color: var(--label-secondary); cursor: pointer; }
+.theme-preview { display: flex; width: 92px; height: 50px; overflow: hidden; border: 2px solid var(--separator); border-radius: var(--rounded-sm); box-shadow: var(--soft-shadow); transition: border-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard); }
+.theme-swatch:hover .theme-preview { transform: translateY(-1px); }
 .theme-swatch.active .theme-preview { border-color: var(--accent); border-width: 2.5px; }
-.tp-side { width: 22px; }
+.theme-swatch:focus-visible { outline: none; }
+.theme-swatch:focus-visible .theme-preview { box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
+.tp-side { width: 25px; }
 .tp-body { flex: 1; }
-.theme-swatch[data-theme-preview="light"] .tp-side { background: #e8ecf5; }
-.theme-swatch[data-theme-preview="light"] .tp-body { background: linear-gradient(135deg, #f6f8fc, #eef1f8); }
-.theme-swatch[data-theme-preview="dark"] .tp-side { background: #3a3a3c; }
-.theme-swatch[data-theme-preview="dark"] .tp-body { background: linear-gradient(135deg, #2b2b2e, #1f1f22); }
-.theme-swatch[data-theme-preview="midnight"] .tp-side { background: #19283f; }
-.theme-swatch[data-theme-preview="midnight"] .tp-body { background: linear-gradient(135deg, #1c2c46, #101827); }
-.theme-swatch[data-theme-preview="system"] .tp-side { background: linear-gradient(135deg, #f6f8fc, #e8ecf5); }
-.theme-swatch[data-theme-preview="system"] .tp-body { background: linear-gradient(135deg, #2b2b2e, #1f1f22); }
-.theme-name { font-size: var(--fs-label); }
+.theme-name { color: var(--label-primary); font-size: var(--fs-label); }
+.theme-variants { color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
 .theme-swatch.active .theme-name { color: var(--accent); font-weight: 600; }
+
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="light"] .tp-side { background: #e8ecf5; }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #f6f8fc, #eef1f8); }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="dark"] .tp-side { background: #3a3a3c; }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #2b2b2e, #1f1f22); }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #e8ecf5 0 50%, #3a3a3c 50%); }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #f6f8fc 0 50%, #2b2b2e 50%); }
+
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="light"] .tp-side { background: #f2e9e1; }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #fffaf3, #faf4ed); }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="dark"] .tp-side { background: #26233a; }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #1f1d2e, #191724); }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #f2e9e1 0 50%, #26233a 50%); }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #fffaf3 0 50%, #1f1d2e 50%); }
+
+.theme-swatch[data-theme-family-preview="catppuccin"][data-theme-preview-appearance="light"] .tp-side { background: #e6e9ef; }
+.theme-swatch[data-theme-family-preview="catppuccin"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #eff1f5, #dce0e8); }
+.theme-swatch[data-theme-family-preview="catppuccin"][data-theme-preview-appearance="dark"] .tp-side { background: #363a4f; }
+.theme-swatch[data-theme-family-preview="catppuccin"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #24273a, #181926); }
+.theme-swatch[data-theme-family-preview="catppuccin"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #e6e9ef 0 50%, #363a4f 50%); }
+.theme-swatch[data-theme-family-preview="catppuccin"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #eff1f5 0 50%, #24273a 50%); }
+
+.theme-swatch[data-theme-family-preview="midnight"][data-theme-preview-appearance="light"] .tp-side { background: #e8eef7; }
+.theme-swatch[data-theme-family-preview="midnight"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #f3f7fc); }
+.theme-swatch[data-theme-family-preview="midnight"][data-theme-preview-appearance="dark"] .tp-side { background: #19283f; }
+.theme-swatch[data-theme-family-preview="midnight"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #1c2c46, #101827); }
+.theme-swatch[data-theme-family-preview="midnight"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #e8eef7 0 50%, #19283f 50%); }
+.theme-swatch[data-theme-family-preview="midnight"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #1c2c46 50%); }
 .profile-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
 .profile-info strong { font-size: var(--fs-body); }
 .profile-edit-actions { display: flex; gap: 8px; }
@@ -4412,6 +4447,8 @@ select.provider-input { padding-right: 6px; }
 .overflow-menu > summary:hover { background: var(--fill); color: var(--label-primary); }
 .overflow-menu[open] > summary { background: var(--fill); color: var(--label-primary); }
 .overflow-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; min-width: 168px; padding: 6px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--card-bg); box-shadow: var(--popover-shadow); transform-origin: top right; animation: popover-in 120ms var(--ease-spring); }
+.overflow-menu-up .overflow-menu-popover { top: auto; bottom: calc(100% + 6px); transform-origin: bottom right; }
+.overflow-menu-inline.overflow-menu-up .overflow-menu-popover { right: auto; left: 0; transform-origin: bottom left; }
 .overflow-menu-popover button { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 9px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
 .overflow-menu-popover button:hover:not(:disabled) { background: var(--fill); }
 .overflow-menu-popover button.danger-action { color: var(--danger); }
@@ -4428,8 +4465,9 @@ select.provider-input { padding-right: 6px; }
 .command-palette button.selected, .command-palette button:hover:not(:disabled), .command-palette button:focus-visible { background: var(--fill); }
 .command-palette button:disabled { cursor: default; opacity: .62; }
 
-/* Explicit dark theme overrides the OS preference with AppKit semantic roles. */
-:root[data-theme="dark"] {
+/* Explicit dark appearance for the macOS family overrides the OS preference
+   with AppKit semantic roles. Other families layer their own token ramps below. */
+:root[data-theme-family="macos"][data-resolved-appearance="dark"] {
   color: rgb(255 255 255 / 84.7%);
   color-scheme: dark;
   /* macOS dark neutral ramp: unified window+sidebar canvas = #1e1e1e (the tone
@@ -4743,9 +4781,9 @@ select.provider-input { padding-right: 6px; }
   word-break: break-word;
 }
 
-/* Midnight is an explicit deep-blue appearance. It shares the dark native
-   window mapping, but keeps its own semantic surface and accent ramp. */
-:root[data-theme="midnight"] {
+/* Midnight is the dark variant of the deep-blue family. It shares the dark
+   native window mapping, but keeps its own semantic surface and accent ramp. */
+:root[data-theme-family="midnight"][data-resolved-appearance="dark"] {
   color: rgb(235 242 255 / 92%);
   color-scheme: dark;
   --mac-window-background: #101827;
@@ -4812,13 +4850,13 @@ select.provider-input { padding-right: 6px; }
   --wallpaper: var(--mac-window-background); --panel-blur: none;
 }
 
-/* System theme (no explicit choice) follows the OS preference — AppKit dark. */
+/* System appearance follows the OS preference for the macOS family. */
 @media (prefers-color-scheme: dark) {
   /* OS is dark → the native sidebar material is already dark, so drop the veil
      back to transparent and let the translucent glass effect show through. */
-  :root[data-theme="dark"] { --sidebar-material-tint: transparent; }
-  :root[data-theme="midnight"] { --sidebar-material-tint: transparent; }
-  :root:not([data-theme="light"]):not([data-theme="dark"]):not([data-theme="midnight"]) {
+  :root[data-theme-family="macos"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+  :root[data-theme-family="midnight"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+  :root[data-theme-family="macos"][data-resolved-appearance="dark"] {
     color: rgb(255 255 255 / 84.7%);
     color-scheme: dark;
     --mac-window-background: #1e1e1e; --mac-control-background: #1e1e1e;
@@ -4875,6 +4913,296 @@ select.provider-input { padding-right: 6px; }
     --syntax-code-keyword: #ff7b72; --syntax-code-string: #a5d6ff; --syntax-code-title: #d2a8ff; --syntax-code-number: #79c0ff;
     --syntax-code-comment: #8b949e; --syntax-code-variable: #ffa657; --syntax-code-attr: #7ee787; --syntax-code-built-in: #d2a8ff;
     --wallpaper: var(--mac-window-background); --panel-blur: none;
+  }
+}
+
+/* Rosé Pine Dawn — a warm, restrained light companion to Moon. */
+:root[data-theme-family="rose-pine"][data-resolved-appearance="light"] {
+  color: #575279;
+  color-scheme: light;
+  --mac-window-background: #faf4ed;
+  --mac-control-background: #fffaf3;
+  --mac-grouped-background: #f2e9e1;
+  --mac-elevated-background: #fffaf3;
+  --mac-label: #575279;
+  --mac-secondary-label: #797593;
+  --mac-tertiary-label: #9893a5;
+  --mac-separator: rgb(87 82 121 / 16%);
+  --mac-unemphasized-selection: #dfdad9;
+  --sidebar-material-tint: rgb(250 244 237 / 72%);
+  --gray-100: #faf4ed; --gray-200: #f2e9e1; --gray-300: #e4dfd9; --gray-400: #dfdad9;
+  --gray-500: #cecacd; --gray-600: #b9b5bd; --gray-700: #9893a5; --gray-800: #797593;
+  --gray-900: #575279; --gray-1000: #403d52;
+  --gray-alpha-100: rgb(87 82 121 / 5%); --gray-alpha-200: rgb(87 82 121 / 8%);
+  --gray-alpha-300: rgb(87 82 121 / 11%); --gray-alpha-400: rgb(87 82 121 / 8%);
+  --gray-alpha-500: rgb(87 82 121 / 20%); --gray-alpha-600: rgb(87 82 121 / 26%);
+  --blue-700: #286983; --blue-800: #1f566d;
+  --accent: #286983; --accent-hover: #1f566d; --accent-soft: rgb(40 105 131 / 13%);
+  --online: #56949f; --danger: #b4637a; --warning: #ea9d34; --warning-text: #a65b18;
+  --on-accent: #fffaf3; --agent-city-sky: #eaf3f5;
+  --skill-accent: #907aa9; --miniapp-accent: #56949f;
+  --verify-passed-fg: #286983; --verify-failed-fg: #b4637a; --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(87 82 121 / 9%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(87 82 121 / 20%); --glass-border-light: rgb(255 250 243 / 55%);
+  --fill: rgb(87 82 121 / 6%); --fill-hover: rgb(87 82 121 / 10%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(87 82 121 / 5%); --sidebar-surface-hover: rgb(87 82 121 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(87 82 121 / 7%); --float-shadow: 0 8px 24px -12px rgb(87 82 121 / 28%);
+  --popover-shadow: 0 1px 1px rgb(87 82 121 / 4%), 0 4px 8px -4px rgb(87 82 121 / 8%), 0 16px 24px -8px rgb(87 82 121 / 12%);
+  --glass-shadow: 0 1px 1px rgb(87 82 121 / 4%), 0 8px 16px -4px rgb(87 82 121 / 8%), 0 24px 32px -8px rgb(87 82 121 / 12%);
+  --drawer-shadow: -8px 0 24px -8px rgb(87 82 121 / 18%); --modal-scrim: rgb(87 82 121 / 32%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(87 82 121 / 18%); --control-border-strong: rgb(87 82 121 / 30%); --control-shadow: none;
+  --chart-blue: #286983; --chart-teal: #56949f; --chart-green: #797593; --chart-purple: #907aa9;
+  --chart-orange: #ea9d34; --chart-red: #b4637a; --chart-indigo: #907aa9;
+  --chart-track: rgb(87 82 121 / 8%); --chart-grid: rgb(87 82 121 / 7%);
+  --code-bg: #26233a; --code-text: #e0def4;
+  --syntax-code-bg: #fffaf3; --syntax-code-gutter: #f2e9e1; --syntax-code-border: #dfdad9; --syntax-code-fg: #575279;
+  --syntax-code-keyword: #b4637a; --syntax-code-string: #286983; --syntax-code-title: #907aa9; --syntax-code-number: #ea9d34;
+  --syntax-code-comment: #9893a5; --syntax-code-variable: #d7827e; --syntax-code-attr: #56949f; --syntax-code-built-in: #907aa9;
+  --diff-add-line: #e2f1ec; --diff-add-num: #c6e5d8; --diff-add-word: #9ed5bf;
+  --diff-del-line: #fbe9ed; --diff-del-num: #f4cbd6; --diff-del-word: #e9a5b7; --diff-add-label: #286983; --diff-del-label: #b4637a;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+/* Rosé Pine Moon — the deep counterpart to Dawn. */
+:root[data-theme-family="rose-pine"][data-resolved-appearance="dark"] {
+  color: #e0def4;
+  color-scheme: dark;
+  --mac-window-background: #191724;
+  --mac-control-background: #1f1d2e;
+  --mac-grouped-background: #26233a;
+  --mac-elevated-background: #1f1d2e;
+  --mac-label: #e0def4;
+  --mac-secondary-label: #908caa;
+  --mac-tertiary-label: #6e6a86;
+  --mac-separator: rgb(224 222 244 / 15%);
+  --mac-unemphasized-selection: #403d52;
+  --sidebar-material-tint: rgb(25 23 36 / 72%);
+  --gray-100: #191724; --gray-200: #1f1d2e; --gray-300: #26233a; --gray-400: #403d52;
+  --gray-500: #524f67; --gray-600: #6e6a86; --gray-700: #908caa; --gray-800: #aaa6c2;
+  --gray-900: #c5c0d9; --gray-1000: #e0def4;
+  --gray-alpha-100: rgb(224 222 244 / 6%); --gray-alpha-200: rgb(224 222 244 / 9%);
+  --gray-alpha-300: rgb(224 222 244 / 13%); --gray-alpha-400: rgb(224 222 244 / 11%);
+  --gray-alpha-500: rgb(224 222 244 / 24%); --gray-alpha-600: rgb(224 222 244 / 31%);
+  --blue-700: #31748f; --blue-800: #286983;
+  --accent: #c4a7e7; --accent-hover: #d6bff0; --accent-soft: rgb(196 167 231 / 18%);
+  --online: #9ccfd8; --danger: #eb6f92; --warning: #f6c177; --warning-text: #f6c177;
+  --on-accent: #191724; --agent-city-sky: #101820;
+  --skill-accent: #c4a7e7; --miniapp-accent: #9ccfd8;
+  --verify-passed-fg: #9ccfd8; --verify-failed-fg: #eb6f92; --message-bubble-border: var(--hairline);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(224 222 244 / 9%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(224 222 244 / 22%); --glass-border-light: rgb(224 222 244 / 25%);
+  --fill: rgb(224 222 244 / 8%); --fill-hover: rgb(224 222 244 / 13%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(224 222 244 / 7%); --sidebar-surface-hover: rgb(224 222 244 / 12%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-grouped-background); --surface-secondary: #26233a;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 28%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 55%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 4px 8px -4px rgb(0 0 0 / 38%), 0 16px 24px -8px rgb(0 0 0 / 48%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 8px 16px -4px rgb(0 0 0 / 38%), 0 24px 32px -8px rgb(0 0 0 / 48%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 44%); --modal-scrim: rgb(0 0 0 / 52%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(224 222 244 / 19%); --control-border-strong: rgb(224 222 244 / 32%); --control-shadow: none;
+  --chart-blue: #9ccfd8; --chart-teal: #9ccfd8; --chart-green: #6ecca9; --chart-purple: #c4a7e7;
+  --chart-orange: #f6c177; --chart-red: #eb6f92; --chart-indigo: #c4a7e7;
+  --chart-track: rgb(224 222 244 / 12%); --chart-grid: rgb(224 222 244 / 9%);
+  --code-bg: #191724; --code-text: #e0def4;
+  --syntax-code-bg: #1f1d2e; --syntax-code-gutter: #26233a; --syntax-code-border: #403d52; --syntax-code-fg: #e0def4;
+  --syntax-code-keyword: #eb6f92; --syntax-code-string: #9ccfd8; --syntax-code-title: #c4a7e7; --syntax-code-number: #f6c177;
+  --syntax-code-comment: #908caa; --syntax-code-variable: #ebbcba; --syntax-code-attr: #6ecca9; --syntax-code-built-in: #c4a7e7;
+  --diff-add-line: rgb(110 204 169 / 16%); --diff-add-num: rgb(110 204 169 / 30%); --diff-add-word: rgb(110 204 169 / 42%);
+  --diff-del-line: rgb(235 111 146 / 16%); --diff-del-num: rgb(235 111 146 / 30%); --diff-del-word: rgb(235 111 146 / 42%);
+  --diff-add-label: #6ecca9; --diff-del-label: #eb6f92;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+/* Catppuccin Latte — a bright, neutral pastel family with blue controls. */
+:root[data-theme-family="catppuccin"][data-resolved-appearance="light"] {
+  color: #4c4f69;
+  color-scheme: light;
+  --mac-window-background: #eff1f5;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #e6e9ef;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #4c4f69;
+  --mac-secondary-label: #6c6f85;
+  --mac-tertiary-label: #9ca0b0;
+  --mac-separator: rgb(76 79 105 / 16%);
+  --mac-unemphasized-selection: #ccd0da;
+  --sidebar-material-tint: rgb(239 241 245 / 72%);
+  --gray-100: #eff1f5; --gray-200: #e6e9ef; --gray-300: #dce0e8; --gray-400: #ccd0da;
+  --gray-500: #bcc0cc; --gray-600: #acb0be; --gray-700: #9ca0b0; --gray-800: #7c7f93;
+  --gray-900: #5c5f77; --gray-1000: #4c4f69;
+  --gray-alpha-100: rgb(76 79 105 / 5%); --gray-alpha-200: rgb(76 79 105 / 8%);
+  --gray-alpha-300: rgb(76 79 105 / 11%); --gray-alpha-400: rgb(76 79 105 / 8%);
+  --gray-alpha-500: rgb(76 79 105 / 20%); --gray-alpha-600: rgb(76 79 105 / 26%);
+  --blue-700: #1e66f5; --blue-800: #1453d4;
+  --accent: #1e66f5; --accent-hover: #1453d4; --accent-soft: rgb(30 102 245 / 12%);
+  --online: #40a02b; --danger: #d20f39; --warning: #df8e1d; --warning-text: #a86000;
+  --on-accent: #ffffff; --agent-city-sky: #eaf3f5;
+  --skill-accent: #8839ef; --miniapp-accent: #179299;
+  --verify-passed-fg: #179299; --verify-failed-fg: #d20f39; --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(76 79 105 / 9%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(76 79 105 / 20%); --glass-border-light: rgb(255 255 255 / 64%);
+  --fill: rgb(76 79 105 / 6%); --fill-hover: rgb(76 79 105 / 10%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(76 79 105 / 5%); --sidebar-surface-hover: rgb(76 79 105 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(76 79 105 / 7%); --float-shadow: 0 8px 24px -12px rgb(76 79 105 / 28%);
+  --popover-shadow: 0 1px 1px rgb(76 79 105 / 4%), 0 4px 8px -4px rgb(76 79 105 / 8%), 0 16px 24px -8px rgb(76 79 105 / 12%);
+  --glass-shadow: 0 1px 1px rgb(76 79 105 / 4%), 0 8px 16px -4px rgb(76 79 105 / 8%), 0 24px 32px -8px rgb(76 79 105 / 12%);
+  --drawer-shadow: -8px 0 24px -8px rgb(76 79 105 / 18%); --modal-scrim: rgb(76 79 105 / 32%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(76 79 105 / 18%); --control-border-strong: rgb(76 79 105 / 30%); --control-shadow: none;
+  --chart-blue: #1e66f5; --chart-teal: #179299; --chart-green: #40a02b; --chart-purple: #8839ef;
+  --chart-orange: #fe640b; --chart-red: #d20f39; --chart-indigo: #7287fd;
+  --chart-track: rgb(76 79 105 / 8%); --chart-grid: rgb(76 79 105 / 7%);
+  --code-bg: #363a4f; --code-text: #eff1f5;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #e6e9ef; --syntax-code-border: #ccd0da; --syntax-code-fg: #4c4f69;
+  --syntax-code-keyword: #d20f39; --syntax-code-string: #179299; --syntax-code-title: #8839ef; --syntax-code-number: #fe640b;
+  --syntax-code-comment: #7c7f93; --syntax-code-variable: #df8e1d; --syntax-code-attr: #40a02b; --syntax-code-built-in: #7287fd;
+  --diff-add-line: #e5f4e1; --diff-add-num: #cceac5; --diff-add-word: #a9d99d;
+  --diff-del-line: #fbe4e9; --diff-del-num: #f4c0ca; --diff-del-word: #eaa0b0; --diff-add-label: #40a02b; --diff-del-label: #d20f39;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+/* Catppuccin Macchiato — a cool, saturated dark companion to Latte. */
+:root[data-theme-family="catppuccin"][data-resolved-appearance="dark"] {
+  color: #cad3f5;
+  color-scheme: dark;
+  --mac-window-background: #24273a;
+  --mac-control-background: #1e2030;
+  --mac-grouped-background: #363a4f;
+  --mac-elevated-background: #2e3147;
+  --mac-label: #cad3f5;
+  --mac-secondary-label: #b8c0e0;
+  --mac-tertiary-label: #a5adcb;
+  --mac-separator: rgb(202 211 245 / 15%);
+  --mac-unemphasized-selection: #494d64;
+  --sidebar-material-tint: rgb(36 39 58 / 72%);
+  --gray-100: #24273a; --gray-200: #2e3147; --gray-300: #363a4f; --gray-400: #494d64;
+  --gray-500: #5b6078; --gray-600: #6e738d; --gray-700: #8087a2; --gray-800: #a5adcb;
+  --gray-900: #b8c0e0; --gray-1000: #cad3f5;
+  --gray-alpha-100: rgb(202 211 245 / 6%); --gray-alpha-200: rgb(202 211 245 / 9%);
+  --gray-alpha-300: rgb(202 211 245 / 13%); --gray-alpha-400: rgb(202 211 245 / 11%);
+  --gray-alpha-500: rgb(202 211 245 / 24%); --gray-alpha-600: rgb(202 211 245 / 31%);
+  --blue-700: #8aadf4; --blue-800: #6e9ce8;
+  --accent: #8aadf4; --accent-hover: #a6c8ff; --accent-soft: rgb(138 173 244 / 18%);
+  --online: #a6da95; --danger: #ed8796; --warning: #eed49f; --warning-text: #eed49f;
+  --on-accent: #1e2030; --agent-city-sky: #101820;
+  --skill-accent: #c6a0f6; --miniapp-accent: #8bd5ca;
+  --verify-passed-fg: #a6da95; --verify-failed-fg: #ed8796; --message-bubble-border: var(--hairline);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(202 211 245 / 9%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(202 211 245 / 22%); --glass-border-light: rgb(202 211 245 / 25%);
+  --fill: rgb(202 211 245 / 8%); --fill-hover: rgb(202 211 245 / 13%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(202 211 245 / 7%); --sidebar-surface-hover: rgb(202 211 245 / 12%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #363a4f;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 28%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 55%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 4px 8px -4px rgb(0 0 0 / 38%), 0 16px 24px -8px rgb(0 0 0 / 48%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 8px 16px -4px rgb(0 0 0 / 38%), 0 24px 32px -8px rgb(0 0 0 / 48%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 44%); --modal-scrim: rgb(0 0 0 / 52%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(202 211 245 / 19%); --control-border-strong: rgb(202 211 245 / 32%); --control-shadow: none;
+  --chart-blue: #8aadf4; --chart-teal: #8bd5ca; --chart-green: #a6da95; --chart-purple: #c6a0f6;
+  --chart-orange: #f5a97f; --chart-red: #ed8796; --chart-indigo: #b7bdf8;
+  --chart-track: rgb(202 211 245 / 12%); --chart-grid: rgb(202 211 245 / 9%);
+  --code-bg: #181926; --code-text: #cad3f5;
+  --syntax-code-bg: #1e2030; --syntax-code-gutter: #24273a; --syntax-code-border: #494d64; --syntax-code-fg: #cad3f5;
+  --syntax-code-keyword: #ed8796; --syntax-code-string: #8bd5ca; --syntax-code-title: #c6a0f6; --syntax-code-number: #f5a97f;
+  --syntax-code-comment: #8087a2; --syntax-code-variable: #eed49f; --syntax-code-attr: #a6da95; --syntax-code-built-in: #b7bdf8;
+  --diff-add-line: rgb(166 218 149 / 16%); --diff-add-num: rgb(166 218 149 / 30%); --diff-add-word: rgb(166 218 149 / 42%);
+  --diff-del-line: rgb(237 135 150 / 16%); --diff-del-num: rgb(237 135 150 / 30%); --diff-del-word: rgb(237 135 150 / 42%);
+  --diff-add-label: #a6da95; --diff-del-label: #ed8796;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+/* Midnight's light partner: Daybreak. It keeps Midnight's blue identity while
+   giving the family a proper bright surface instead of falling back to macOS. */
+:root[data-theme-family="midnight"][data-resolved-appearance="light"] {
+  color: rgb(28 42 60 / 92%);
+  color-scheme: light;
+  --mac-window-background: #f3f7fc;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #e8eef7;
+  --mac-elevated-background: #ffffff;
+  --mac-label: rgb(28 42 60 / 92%);
+  --mac-secondary-label: rgb(61 78 103 / 72%);
+  --mac-tertiary-label: rgb(83 103 132 / 54%);
+  --mac-separator: rgb(72 96 128 / 18%);
+  --mac-unemphasized-selection: #d8e6f7;
+  --sidebar-material-tint: rgb(246 250 255 / 68%);
+  --gray-100: #f3f7fc; --gray-200: #eaf1fa; --gray-300: #e1eaf5; --gray-400: #d8e6f7;
+  --gray-500: #bfd0e5; --gray-600: #9fb4cf; --gray-700: #7f96b4; --gray-800: #5f7899;
+  --gray-900: #3d587a; --gray-1000: #1c2a3c;
+  --gray-alpha-100: rgb(61 88 122 / 5%); --gray-alpha-200: rgb(61 88 122 / 8%);
+  --gray-alpha-300: rgb(61 88 122 / 11%); --gray-alpha-400: rgb(61 88 122 / 8%);
+  --gray-alpha-500: rgb(61 88 122 / 20%); --gray-alpha-600: rgb(61 88 122 / 26%);
+  --blue-700: #5567d9; --blue-800: #4657c4;
+  --accent: #5567d9; --accent-hover: #4657c4; --accent-soft: rgb(85 103 217 / 12%);
+  --online: #2f9b72; --danger: #d95c69; --warning: #b87a27; --warning-text: #8a5a16;
+  --on-accent: #ffffff; --agent-city-sky: #eaf3f5;
+  --skill-accent: #7357c7; --miniapp-accent: #168b8b;
+  --verify-passed-fg: #2f8f6b; --verify-failed-fg: #c84f5e; --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(72 96 128 / 10%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(72 96 128 / 22%); --glass-border-light: rgb(255 255 255 / 72%);
+  --fill: rgb(72 96 128 / 6%); --fill-hover: rgb(72 96 128 / 10%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(72 96 128 / 5%); --sidebar-surface-hover: rgb(72 96 128 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(61 88 122 / 8%); --float-shadow: 0 8px 24px -12px rgb(61 88 122 / 30%);
+  --popover-shadow: 0 1px 1px rgb(61 88 122 / 4%), 0 4px 8px -4px rgb(61 88 122 / 9%), 0 16px 24px -8px rgb(61 88 122 / 14%);
+  --glass-shadow: 0 1px 1px rgb(61 88 122 / 4%), 0 8px 16px -4px rgb(61 88 122 / 9%), 0 24px 32px -8px rgb(61 88 122 / 14%);
+  --drawer-shadow: -8px 0 24px -8px rgb(61 88 122 / 20%); --modal-scrim: rgb(22 36 57 / 32%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(72 96 128 / 20%); --control-border-strong: rgb(72 96 128 / 32%); --control-shadow: none;
+  --chart-blue: #5567d9; --chart-teal: #168b8b; --chart-green: #2f9b72; --chart-purple: #7357c7;
+  --chart-orange: #b87a27; --chart-red: #d95c69; --chart-indigo: #5567d9;
+  --chart-track: rgb(72 96 128 / 9%); --chart-grid: rgb(72 96 128 / 7%);
+  --code-bg: #19283f; --code-text: #edf3ff;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #e8eef7; --syntax-code-border: #d0ddec; --syntax-code-fg: #1c2a3c;
+  --syntax-code-keyword: #c84f5e; --syntax-code-string: #168b8b; --syntax-code-title: #7357c7; --syntax-code-number: #b87a27;
+  --syntax-code-comment: #6d84a1; --syntax-code-variable: #9a671e; --syntax-code-attr: #2f8f6b; --syntax-code-built-in: #5567d9;
+  --diff-add-line: #e3f3ec; --diff-add-num: #c8e8d9; --diff-add-word: #a5d8bd;
+  --diff-del-line: #fbe8eb; --diff-del-num: #f3c6cc; --diff-del-word: #e9a2ab; --diff-add-label: #2f8f6b; --diff-del-label: #c84f5e;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+/* Explicit dark choices still use native material when the OS is light. When
+   the OS itself is dark, the native material supplies the dark backing and the
+   tint becomes transparent so the blur remains visible. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-family="rose-pine"][data-resolved-appearance="dark"],
+  :root[data-theme-family="catppuccin"][data-resolved-appearance="dark"],
+  :root[data-theme-family="midnight"][data-resolved-appearance="dark"],
+  :root[data-theme-family="macos"][data-resolved-appearance="dark"] {
+    --sidebar-material-tint: transparent;
   }
 }
 
@@ -4951,8 +5279,11 @@ html[data-increased-contrast="true"] .settings-sidebar {
   .provider-workbench { width: auto; margin-inline: 18px; }
   .channel-section-head, .logs-section-head, .diag-actions, .sandbox-presets, .sandbox-policy-grid, .settings-action-message { margin-inline: 18px; }
   .chart-kpi-grid, .chart-split, .usage-split { margin-inline: 18px; }
-  .appearance-card { align-items: flex-start; flex-direction: column; gap: 18px; }
-  .appearance-block + .appearance-block { width: 100%; margin: 0; padding: 18px 0 0; border-top: 0.5px solid var(--separator); border-left: 0; }
+  .appearance-card { gap: 18px; }
+  .appearance-block + .appearance-block { width: auto; margin: 0; padding: 18px 0 0; border-top: 0.5px solid var(--separator); border-left: 0; }
+  .appearance-segmented { width: 100%; }
+  .appearance-segmented button { flex: 1; min-width: 0; }
+  .theme-family-grid { justify-content: space-between; }
   .settings-form { grid-template-columns: 1fr; }
   .sandbox-section-head { align-items: flex-start; }
   .sandbox-presets, .sandbox-policy-grid { grid-template-columns: 1fr; margin-inline: 18px; }
@@ -4979,10 +5310,9 @@ html[data-increased-contrast="true"] .settings-sidebar {
 @keyframes agent-studio-spin { to { transform: rotate(360deg); } }
 /* Agent City chrome floats over a WebGL canvas. Every surface below derives
    from the shared semantic tokens (--card-bg / --label-* / --separator / status
-   hues), so it follows Light, Dark, Midnight and System with no per-theme duplicates.
-   The previous hand-written `:root[data-theme="dark"] .agent-city-*` list never
-   matched for System users at all: App.svelte REMOVES data-theme in that mode,
-   which is the default, so the whole panel rendered light on a dark canvas. */
+   hues), so it follows every brightness choice and theme family with no per-theme
+   duplicates. The resolved appearance attribute keeps System in sync with the
+   OS instead of requiring a separate selector list. */
 .agent-city-shell {
   --agent-city-surface: color-mix(in srgb, var(--card-bg) 92%, transparent);
   --agent-city-surface-strong: color-mix(in srgb, var(--card-bg) 97%, transparent);
@@ -5384,24 +5714,25 @@ html[data-increased-contrast="true"] .settings-sidebar {
 
    The rest of Desktop keeps its macOS surface language. The Inspector is the
    one place where a repository canvas, tree chrome, and editor surface are the
-   product: keep that identity scoped here instead of leaking GitHub's palette
-   into Chat or Settings. The values mirror Primer's semantic roles so Light,
-   Dark, Midnight, and System themes change as one coherent surface. */
+   product: keep that identity scoped here instead of leaking GitHub's layout
+   into Chat or Settings. Its repository roles derive from shared semantic
+   tokens, so every brightness/family combination changes as one coherent
+   surface while the tree/editor hierarchy remains GitHub-inspired. */
 .artifact-panel {
-  --artifact-canvas: #f6f8fa;
-  --artifact-surface: #ffffff;
-  --artifact-inset: #f6f8fa;
-  --artifact-hover: #f3f4f6;
-  --artifact-border: #d1d9e0;
-  --artifact-border-muted: #d8dee4;
-  --artifact-fg: #1f2328;
-  --artifact-fg-muted: #59636e;
-  --artifact-fg-subtle: #818b98;
-  --artifact-accent: #0969da;
-  --artifact-accent-muted: #ddf4ff;
-  --artifact-success: #1a7f37;
-  --artifact-attention: #9a6700;
-  --artifact-danger: #d1242f;
+  --artifact-canvas: var(--surface-secondary);
+  --artifact-surface: var(--card-bg);
+  --artifact-inset: color-mix(in srgb, var(--surface-secondary) 76%, var(--card-bg));
+  --artifact-hover: var(--fill-hover);
+  --artifact-border: var(--separator);
+  --artifact-border-muted: color-mix(in srgb, var(--separator) 70%, transparent);
+  --artifact-fg: var(--label-primary);
+  --artifact-fg-muted: var(--label-secondary);
+  --artifact-fg-subtle: var(--label-tertiary);
+  --artifact-accent: var(--accent);
+  --artifact-accent-muted: var(--accent-soft);
+  --artifact-success: var(--online);
+  --artifact-attention: var(--warning-text);
+  --artifact-danger: var(--danger);
   --artifact-code-bg: var(--syntax-code-bg);
   --artifact-code-gutter: var(--syntax-code-gutter);
   --artifact-code-fg: var(--syntax-code-fg);
@@ -5417,59 +5748,6 @@ html[data-increased-contrast="true"] .settings-sidebar {
   border-left-color: var(--artifact-border);
   color: var(--artifact-fg);
   font-family: var(--font-ui);
-}
-
-:root[data-theme="dark"] .artifact-panel {
-  --artifact-canvas: #161b22;
-  --artifact-surface: #0d1117;
-  --artifact-inset: #161b22;
-  --artifact-hover: #21262d;
-  --artifact-border: #30363d;
-  --artifact-border-muted: #21262d;
-  --artifact-fg: #e6edf3;
-  --artifact-fg-muted: #8b949e;
-  --artifact-fg-subtle: #7d8590;
-  --artifact-accent: #58a6ff;
-  --artifact-accent-muted: rgb(56 139 253 / 15%);
-  --artifact-success: #3fb950;
-  --artifact-attention: #d29922;
-  --artifact-danger: #f85149;
-}
-
-:root[data-theme="midnight"] .artifact-panel {
-  --artifact-canvas: #111827;
-  --artifact-surface: #0d1628;
-  --artifact-inset: #111827;
-  --artifact-hover: #1f2d45;
-  --artifact-border: #334866;
-  --artifact-border-muted: #263b59;
-  --artifact-fg: #e5edf7;
-  --artifact-fg-muted: #a9bad1;
-  --artifact-fg-subtle: #8296b2;
-  --artifact-accent: #9b8cff;
-  --artifact-accent-muted: rgb(155 140 255 / 18%);
-  --artifact-success: #55d6a0;
-  --artifact-attention: #f6c66e;
-  --artifact-danger: #ff7b8a;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-theme="dark"]):not([data-theme="midnight"]) .artifact-panel {
-    --artifact-canvas: #161b22;
-    --artifact-surface: #0d1117;
-    --artifact-inset: #161b22;
-    --artifact-hover: #21262d;
-    --artifact-border: #30363d;
-    --artifact-border-muted: #21262d;
-    --artifact-fg: #e6edf3;
-    --artifact-fg-muted: #8b949e;
-    --artifact-fg-subtle: #7d8590;
-    --artifact-accent: #58a6ff;
-    --artifact-accent-muted: rgb(56 139 253 / 15%);
-    --artifact-success: #3fb950;
-    --artifact-attention: #d29922;
-    --artifact-danger: #f85149;
-  }
 }
 
 /* Panel chrome: GitHub keeps the repository canvas flat and lets the editor

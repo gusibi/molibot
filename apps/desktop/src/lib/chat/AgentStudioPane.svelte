@@ -61,8 +61,8 @@
   }
 
   function currentTheme(): AgentCityTheme {
-    const explicit = document.documentElement.getAttribute("data-theme");
-    if (explicit === "dark" || explicit === "midnight") return "dark";
+    const explicit = document.documentElement.getAttribute("data-resolved-appearance");
+    if (explicit === "dark") return "dark";
     if (explicit === "light") return "light";
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
@@ -251,7 +251,7 @@
     });
     shellObserver.observe(cityShell);
     themeObserver = new MutationObserver(() => theme = currentTheme());
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance"] });
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
     const handleSystemTheme = (): void => {
       theme = currentTheme();

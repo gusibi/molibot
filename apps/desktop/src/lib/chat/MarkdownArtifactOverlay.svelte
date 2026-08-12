@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from "svelte";
   import type { Translation } from "../i18n";
   import Dialog from "../components/ui/Dialog.svelte";
-  import SpreadsheetTable from "../artifacts/SpreadsheetTable.svelte";
+  import CsvTable from "../artifacts/CsvTable.svelte";
 
   export let copy: Translation;
   let open = false;
@@ -28,7 +28,7 @@
   </div>
   <div class="markdown-artifact-content">
     {#if kind === "table"}
-      <SpreadsheetTable name="chat-table.csv" {copy} sourceKey={source} loadBytes={async () => new Blob([source], { type: "text/csv" })} />
+      <CsvTable name="chat-table.csv" content={source} {copy} />
     {:else}
       <iframe title={copy.markdownPreviewArtifact} sandbox="" srcdoc={source}></iframe>
     {/if}

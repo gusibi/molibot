@@ -1,3 +1,62 @@
+# D2 服务端渲染与中文表格修复（2026-08-12）
+
+## Goal
+
+完成 D2 服务端渲染接入，修复 AI 回复表格预览中的中文 UTF-8 乱码，并把左侧导航吸顶背景统一到 Session hover surface。
+
+## Phases
+
+- [x] 调查表格预览、Markdown fenced block、服务端 renderer 与导航 sticky surface
+- [x] 实现 D2 服务端代理、Chat/Project Chat/Artifact 共享渲染入口和安全源码降级
+- [x] 将聊天表格切换到 UTF-8 CSV viewer，并锁定 CJK 回归
+- [x] 补设计/功能/PRD/README/ChangeLog 记录
+- [x] 运行定向测试、UI guard、类型检查、生产构建和 Kroki 实际探测
+
+## Verification
+
+- D2/CSV/parser: 21/21
+- D2 route + Desktop API: 91/91
+- Desktop UI structural guard: 203/203
+- `svelte-check`: 0 errors / 0 warnings
+- Desktop and root production builds: passed
+- Kroki `/d2/svg`: HTTP 200, `image/svg+xml`
+- `git diff --check`: passed
+
+---
+
+# 主题家族与明暗模式拆分（2026-08-12）
+
+## Goal
+
+将 Desktop 的主题家族与明暗模式拆成两个独立、可持久化的设置：明暗模式为 Light / Dark / System；主题家族为 macOS 精简、Rosé Pine、Catppuccin、Midnight。Rosé Pine 使用 Dawn/Moon，Catppuccin 使用 Latte/Macchiato，Midnight 补充 Daybreak 亮色配套。
+
+## Phases
+
+- [x] 1. 调查现有主题状态、设置页、token 和第三方预览入口
+- [x] 2. 设计并实现独立的 appearance/theme-family 状态与持久化
+- [x] 3. 添加四组主题 token、明暗映射和主题预览 UI
+- [x] 4. 更新测试、文档和回归守卫
+- [x] 5. 运行完整验证、冷启动检查并复核 diff
+
+## Success criteria
+
+- 两个设置可独立切换，刷新/重启后均保留。
+- Light / Dark / System 只控制亮暗，不覆盖主题家族。
+- macOS、Rosé Pine、Catppuccin、Midnight 四个家族均有亮/暗配套。
+- Chat、Settings、Artifact、Markdown、Agent City、第三方预览和原生窗口不出现主题串色或系统主题泄漏。
+- Desktop UI/API、类型检查、构建和冷启动验证通过。
+
+## Verification
+
+- Desktop UI/API and native suite: 204/204 Node tests, 55/55 Rust tests.
+- `svelte-check`, Desktop production build, root production build, and `git diff --check` pass.
+- Cold path after restarting the local Desktop Vite server: Appearance opens with independent controls; Catppuccin persists; System resolves to light in the test environment; sidebar computes `blur(18px) saturate(1.6)`.
+
+## Follow-up: message menu and Inspector theme sync
+
+- [x] Reproduce the downward assistant overflow menu and the Inspector's isolated palette.
+- [x] Add red-capable UI guards, fix shared menu placement, and derive Inspector chrome from shared tokens.
+- [x] Re-run focused UI tests and complete the Desktop type/build/cold-path verification.
 # Chat Transcript Optimization 执行计划（2026-08-10）
 
 ## 目标

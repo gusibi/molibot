@@ -31,6 +31,7 @@
   export let attachmentActions: TranscriptAttachmentActions | null = null;
   export let messageActions: TranscriptMessageActions | null = null;
   export let onOpenActivityPath: ((path: string, mutates: boolean) => void) | null = null;
+  export let endpoint = "";
 
   // The streaming bubble is the same rendered Markdown as a committed message,
   // so it goes through the same delegated handler (pitfall #7). It used to carry
@@ -58,7 +59,7 @@
     <p>{emptyHint}</p>
   </div>
 {/if}
-<ConversationTranscript {messages} {copy} {formatTime} {assistantName} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} {onOpenActivityPath} />
+<ConversationTranscript {messages} {copy} {formatTime} {assistantName} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} {onOpenActivityPath} {endpoint} />
 {#if sending}
   <article class="message-row assistant streaming-message">
     <div class="assistant-layout">

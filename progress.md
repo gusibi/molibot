@@ -1,3 +1,15 @@
+# 主题家族与明暗模式进度（2026-08-12）
+
+- 用户已确认按独立明暗模式 + 独立主题家族实现，Midnight 亮色命名为 Daybreak。
+- 已完成现状调查、API 类型拆分、App 状态与持久化、四组主题 token、设置页双控件、侧栏毛玻璃恢复、测试与文档同步。
+- 已完成完整回归：Desktop 204/204 Node、Rust 55/55、`svelte-check`、Desktop/root production build、`git diff --check`。
+- 已完成冷启动：重启本地 Desktop Vite 后首次打开设置，主题家族仍为 Catppuccin；明暗模式切换为“跟随系统”后解析为 light；侧栏保持 `blur(18px) saturate(1.6)`。
+
+## 2026-08-12 — 消息菜单与文件面板主题同步
+
+- Assistant 底部共享菜单增加向上展开 placement，避免向输入栏方向覆盖。
+- File / Artifact Inspector 的 chrome 颜色改为继承 shared semantic tokens，主题家族和解析后的明暗状态统一生效。
+- 已完成红测→修复→绿测：Desktop UI 201/201；浏览器冷路径重新打开设置页正常，静态检查确认 Inspector 不再有独立明暗/家族色板。
 # Chat Transcript Optimization 进度日志
 
 ## 2026-08-10 — 调查启动
@@ -69,6 +81,13 @@
 - 修复真实 `/api/chat` Durable 激活的 manager 路由：Web API 允许使用未物化 profile，但 Durable attempt 必须落到实际 Web channel manager；现在按请求 profile、`default`、配置顺序首个 manager 解析，并在没有 manager 时保留清洗后的 id 让运行时显式失败。
 - 新增 `src/lib/server/web/identity.test.ts` 3 项路由守卫。使用临时 `DATA_DIR`、本地 OpenAI-compatible provider 和真实 `scripts/start-server.mjs` 做了完整 HTTP 冒烟：`profileId=personal` 入队后收到 1 次 provider 请求，停止服务并用同一目录重启，Desktop API 读回 `status=recovery_required`、`attemptStatuses=[interrupted]`，持久化 `botId=default`。
 - 这次 live seam 不等同于完整发布验收：真实 Telegram/飞书/QQ/微信 transport、重启后的来源通知和恢复后的 Agent 证据读取仍需冷启动/跨渠道矩阵；外部 provider 也尚未纳入该临时 fixture。
+
+## 2026-08-12 — D2 与中文表格预览收尾
+
+- 已完成 D2 服务端渲染：`d2` fenced block 在 Chat、Project Chat、Markdown artifact 中统一进入 Desktop D2 API；服务端默认使用 Kroki，可通过 `MOLIBOT_D2_RENDER_ENDPOINT` 指向自托管 renderer，客户端提供预览/源码/复制/放大和源码降级。
+- 已修复 Markdown 表格中文乱码：聊天表格弹窗改用 UTF-8 `CsvTable`，不再把文本 CSV 送入二进制 XLSX parser；同步增加 CJK 回归测试。
+- 左侧导航吸顶标题的背景改为 Session hover 使用的 `var(--fill)`，仍保留 blur 及低性能/无障碍 opaque fallback。
+- 验证：D2/CSV/parser 21/21，D2 route + Desktop API 91/91，Desktop structural guard 203/203，`svelte-check` 0 错误/0 警告，Desktop/root build 通过，Kroki 真实 HTTP 探测返回 SVG，`git diff --check` 通过。
 
 ## 2026-08-10 — Runner helper 类型守卫修复
 

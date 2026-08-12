@@ -42,6 +42,7 @@
   export let attentionElement: HTMLElement | null = null;
   export let attentionLabel = "";
   export let attentionAction = "";
+  export let endpoint = "";
   let appliedScrollFollowKey = "";
   const PAGE_SIZE = 80;
   let visibleCount = PAGE_SIZE;
@@ -93,6 +94,7 @@
         {attachmentActions}
         {messageActions}
         {onOpenActivityPath}
+        {endpoint}
       />
       <slot />
     {/if}

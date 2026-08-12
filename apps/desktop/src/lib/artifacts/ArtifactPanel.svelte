@@ -1176,7 +1176,7 @@
                   {:else if viewer === "csv" && activeTab.preview.status === "text"}
                     <CsvTable content={activeTab.preview.content} name={activeTab.name} {copy} />
                   {:else if viewer === "markdown" && activeTab.preview.status === "text"}
-                    <MarkdownPreview content={activeTab.preview.content} name={activeTab.name} {copy} {theme} {showSource} />
+                    <MarkdownPreview content={activeTab.preview.content} name={activeTab.name} {copy} {theme} {showSource} {endpoint} />
                   {:else if viewer === "json" && activeTab.preview.status === "text"}
                     <JsonTree
                       content={activeTab.preview.content}
@@ -1433,7 +1433,7 @@
                   {:else if viewer === "csv" && activeTab.textContent}
                     <CsvTable content={activeTab.textContent} name={activeTab.name} {copy} />
                   {:else if viewer === "markdown" && activeTab.textContent}
-                    <MarkdownPreview content={activeTab.textContent} name={activeTab.name} {copy} {theme} {showSource} />
+                    <MarkdownPreview content={activeTab.textContent} name={activeTab.name} {copy} {theme} {showSource} {endpoint} />
                   {:else if viewer === "json" && activeTab.textContent}
                     <JsonTree content={activeTab.textContent} name={activeTab.name} sizeBytes={activeTab.size} {copy} />
                   {:else if viewer === "media" && sessionStreamUrl}

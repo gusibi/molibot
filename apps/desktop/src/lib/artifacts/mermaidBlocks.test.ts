@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitMermaidBlocks, hasMermaidBlock } from "./mermaidBlocks";
+import { hasD2Block, splitDiagramBlocks, splitMermaidBlocks, hasMermaidBlock } from "./mermaidBlocks";
 
 test("extracts a mermaid block and keeps the surrounding prose", () => {
   const segments = splitMermaidBlocks("intro\n\n```mermaid\ngraph TD;\nA-->B;\n```\n\noutro");
@@ -59,4 +59,28 @@ test("plain markdown with no fences is one segment, and empty input is none", ()
 test("an empty mermaid block does not trigger loading the library", () => {
   assert.equal(hasMermaidBlock("```mermaid\n\n```"), false);
   assert.equal(hasMermaidBlock("```mermaid\ngraph TD;\n```"), true);
+});
+
+test("extracts D2 blocks alongside prose and Mermaid without loading either renderer for plain text", () => {
+  const segments = splitDiagramBlocks([
+    "before",
+    "```d2",
+    "direction: right",
+    "A -> B",
+    "```",
+    "```mermaid",
+    "graph TD; A-->B;",
+    "```",
+    "after"
+  ].join("\n"));
+  assert.deepEqual(segments.map((segment) => segment.kind), ["markdown", "d2", "mermaid", "markdown"]);
+  assert.equal(segments[1].content, "direction: right\nA -> B");
+  assert.equal(hasD2Block("```d2\nA -> B\n```"), true);
+  assert.equal(hasD2Block("```d2\n\n```"), false);
+});
+
+test("an unterminated D2 fence stays Markdown while the message is incomplete", () => {
+  const source = "```d2\ndirection: right\nA -> B";
+  assert.deepEqual(splitDiagramBlocks(source).map((segment) => segment.kind), ["markdown"]);
+  assert.equal(hasD2Block(source), false);
 });

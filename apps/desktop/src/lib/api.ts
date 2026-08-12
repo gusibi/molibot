@@ -182,6 +182,23 @@ async function requestJson<T>(endpoint: string, route: string, init?: RequestIni
   return payload as T;
 }
 
+export type DesktopD2Theme = "light" | "dark";
+
+export async function renderDesktopD2(
+  endpoint: string,
+  source: string,
+  theme: DesktopD2Theme,
+  signal?: AbortSignal
+): Promise<string> {
+  const payload = await requestJson<{ ok: true; svg: string }>(endpoint, "/api/desktop/d2/render", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ source, theme }),
+    signal
+  });
+  return payload.svg;
+}
+
 export async function loadDesktopBootstrap(endpoint: string): Promise<DesktopProfileSummary[]> {
   const payload = await requestJson<DesktopBootstrapResponse>(endpoint, "/api/desktop/bootstrap");
   return payload.profiles;
@@ -2452,16 +2469,26 @@ export function filterDesktopFiles(
   return files.filter((file) => file.mediaType === filter);
 }
 
-export type DesktopTheme = "system" | "light" | "dark" | "midnight";
+export type DesktopAppearance = "system" | "light" | "dark";
+export type DesktopThemeFamily = "macos" | "rose-pine" | "catppuccin" | "midnight";
 
-const DESKTOP_THEMES: readonly DesktopTheme[] = ["system", "light", "dark", "midnight"];
+const DESKTOP_APPEARANCES: readonly DesktopAppearance[] = ["system", "light", "dark"];
+const DESKTOP_THEME_FAMILIES: readonly DesktopThemeFamily[] = ["macos", "rose-pine", "catppuccin", "midnight"];
 
-/** Validates a persisted theme value, falling back to "system" (follow the OS). */
-export function normalizeTheme(value: unknown): DesktopTheme {
+/** Validates the independent brightness preference, defaulting to OS-following. */
+export function normalizeAppearance(value: unknown): DesktopAppearance {
   const candidate = String(value ?? "").trim();
-  return (DESKTOP_THEMES as readonly string[]).includes(candidate)
-    ? (candidate as DesktopTheme)
+  return (DESKTOP_APPEARANCES as readonly string[]).includes(candidate)
+    ? (candidate as DesktopAppearance)
     : "system";
+}
+
+/** Validates the independent palette family preference, defaulting to macOS. */
+export function normalizeThemeFamily(value: unknown): DesktopThemeFamily {
+  const candidate = String(value ?? "").trim();
+  return (DESKTOP_THEME_FAMILIES as readonly string[]).includes(candidate)
+    ? (candidate as DesktopThemeFamily)
+    : "macos";
 }
 
 export interface DesktopDiagnostics {

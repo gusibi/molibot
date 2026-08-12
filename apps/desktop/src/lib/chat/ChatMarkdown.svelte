@@ -3,36 +3,39 @@
   import type { Translation } from "../i18n";
   import { renderMarkdown } from "../markdown";
   import { markdownBody } from "../markdownInteractions";
-  import { splitMermaidBlocks } from "../artifacts/mermaidBlocks";
+  import { splitDiagramBlocks } from "../artifacts/mermaidBlocks";
   import MermaidDiagram from "../artifacts/MermaidDiagram.svelte";
+  import D2Diagram from "../artifacts/D2Diagram.svelte";
 
   export let source: string;
   export let copy: Translation;
   export let className = "message-bubble markdown-body";
   export let onContextMenu: ((event: MouseEvent) => void) | undefined = undefined;
   export let contentKey = "answer";
+  export let endpoint = "";
 
   let dark = false;
   let diagrams = new Map<string, { status: "ok"; svg: string } | { status: "failed" }>();
   let renderToken = 0;
   let observer: MutationObserver | undefined;
   let root: HTMLElement;
-  $: segments = splitMermaidBlocks(source);
-  $: diagramKey = `${dark}:${segments.filter((segment) => segment.kind === "mermaid").map((segment) => `${segment.id}:${segment.content}`).join("|")}`;
+  $: segments = splitDiagramBlocks(source);
+  $: mermaidSegments = segments.filter((segment): segment is Extract<typeof segment, { kind: "mermaid" }> => segment.kind === "mermaid");
+  $: diagramKey = `${dark}:${mermaidSegments.map((segment) => `${segment.id}:${segment.content}`).join("|")}`;
   $: headings = source.split(/\r?\n/).flatMap((line) => {
     const match = /^(#{1,3})\s+(.+?)\s*#*$/.exec(line.trim());
     return match ? [{ level: match[1].length, label: match[2].replace(/[*_`]/g, "") }] : [];
   });
 
   function detectDark(): void {
-    const explicit = document.documentElement.getAttribute("data-theme");
-    dark = explicit === "dark" || explicit === "midnight" || (!explicit && matchMedia("(prefers-color-scheme: dark)").matches);
+    const explicit = document.documentElement.getAttribute("data-resolved-appearance");
+    dark = explicit === "dark" || (!explicit && matchMedia("(prefers-color-scheme: dark)").matches);
   }
 
   onMount(() => {
     detectDark();
     observer = new MutationObserver(detectDark);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance"] });
   });
   onDestroy(() => observer?.disconnect());
 
@@ -41,8 +44,8 @@
     const current = segments;
     void (async () => {
       const next = new Map<string, { status: "ok"; svg: string } | { status: "failed" }>();
-      const mermaidSegments = current.filter((segment) => segment.kind === "mermaid");
-      if (!mermaidSegments.length) {
+      const currentMermaidSegments = current.filter((segment): segment is Extract<typeof segment, { kind: "mermaid" }> => segment.kind === "mermaid");
+      if (!currentMermaidSegments.length) {
         diagrams = next;
         return;
       }
@@ -54,14 +57,14 @@
           suppressErrorRendering: true,
           theme: dark ? "dark" : "default"
         });
-        for (const segment of mermaidSegments) {
+        for (const segment of currentMermaidSegments) {
           try {
             const { svg } = await mermaid.render(`chat-${segment.id}-${token}`, segment.content);
             next.set(segment.id, { status: "ok", svg });
           } catch { next.set(segment.id, { status: "failed" }); }
         }
       } catch {
-        for (const segment of mermaidSegments) next.set(segment.id, { status: "failed" });
+        for (const segment of currentMermaidSegments) next.set(segment.id, { status: "failed" });
       }
       if (token === renderToken) diagrams = next;
     })();
@@ -92,8 +95,12 @@
     {#if segment.kind === "markdown"}
       <div class="chat-markdown-segment">{@html html(segment.content, index)}</div>
     {:else}
-      {@const rendered = diagrams.get(segment.id)}
-      <MermaidDiagram source={segment.content} {rendered} {copy} />
+      {#if segment.kind === "mermaid"}
+        {@const rendered = diagrams.get(segment.id)}
+        <MermaidDiagram source={segment.content} {rendered} {copy} />
+      {:else}
+        <D2Diagram source={segment.content} {copy} {endpoint} theme={dark ? "dark" : "light"} />
+      {/if}
     {/if}
   {/each}
 </div>

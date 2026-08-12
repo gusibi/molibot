@@ -5,6 +5,38 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.80 D2 服务端渲染与中文表格预览（2026-08-12）
+
+- **Priority / Status**: P1/P2 / Delivered (2026-08-12).
+- **Problem**: AI 回复里的 Markdown 表格在预览链路中被当作二进制工作簿读取，中文 UTF-8 字节因此显示为乱码；D2 图表也缺少与 Mermaid 一致的预览入口和服务端渲染链路。
+- **Decision**: 聊天表格统一交给 UTF-8 CSV viewer；完整 `d2` fenced block 由 Desktop API 调用服务端 D2 renderer（默认 Kroki，可由服务端环境变量改为自托管端点），校验输入/输出大小和超时，并通过安全的图片边界展示 SVG。渲染失败只影响当前图块并显示源码。
+- **Acceptance**: 中文表头、单元格在 Chat Markdown artifact 中保持原文；D2 在 Chat、Project Chat 和 Markdown artifact 中能按明暗主题预览、切换源码、复制源码和放大；服务不可用时页面不崩；服务端和 UI 回归、类型检查、构建通过。
+
+---
+## 3.79 Todo list action overlay（2026-08-12）
+
+- **Priority / Status**: P1 / Delivered (2026-08-12).
+- **Problem**: Built-in Todo action buttons stayed in the row's flex layout even while transparent, permanently taking width away from long task titles.
+- **Decision**: Position the action tray over the row's right edge, remove its flex reservation, and give the tray a theme-aware floating surface. Keep hover, touch, keyboard focus, and anchored menu behavior unchanged; bump the built-in Todo version to `1.7.0`.
+- **Acceptance**: Todo titles use the full row width at rest; action buttons remain reachable and legible in Light/Dark, hover/touch, and keyboard states; layout regression and existing Mini App tests pass.
+
+---
+## 3.77 Desktop 独立明暗模式与主题家族（2026-08-12）
+
+- **Priority / Status**: P1 / Delivered (2026-08-12).
+- **Problem**: 旧主题控件把明暗状态与颜色风格绑在一个值里，无法让用户独立选择明 / 暗 / 跟随系统，也无法为 Rosé Pine、Catppuccin 和 Midnight 提供成对的亮暗变体。
+- **Decision**: 用两个独立偏好和存储键实现 Brightness（`light` / `dark` / `system`）与 Theme family（`macos` / `rose-pine` / `catppuccin` / `midnight`）；新增 Dawn / Moon、Latte / Macchiato、Daybreak / Midnight token 对，并通过 `data-resolved-appearance` 统一驱动需要真实明暗状态的边界组件。
+- **Acceptance**: 设置页在中英文、窄窗口和明暗模式下提供两个可访问控件；任意主题家族都能独立切换亮暗；侧栏保持半透明模糊并在无障碍/低性能路径安全降级；偏好重启后保留；API/UI、类型检查、生产构建和冷启动路径通过。
+
+---
+## 3.78 Desktop 消息菜单与文件面板主题统一（2026-08-12）
+
+- **Priority / Status**: P1 / Delivered (2026-08-12).
+- **Problem**: Assistant 消息底部的操作菜单向下展开，视觉上压到输入栏；右侧 File / Artifact Inspector 仍维护独立 Primer 明暗色板，新增主题家族切换后没有同步到当前家族。
+- **Decision**: 给共享 `OverflowMenu` 增加向上 placement，Assistant 底部菜单明确使用该 placement；Inspector 保留仓库工作区结构，但所有 chrome 角色从共享 semantic tokens 派生，直接跟随 `data-theme-family` 与 `data-resolved-appearance`。
+- **Acceptance**: 菜单向上展开且不改变布局流；文件面板在全部主题家族/明暗组合下与 Chat/Settings 使用同一组颜色语义；代码语法色仍复用共享 syntax tokens；UI 回归、类型检查、生产构建通过。
+
+---
 ## 3.76 Desktop sidebar glass restoration（2026-08-12）
 
 - **Priority / Status**: P1 / Delivered (2026-08-12).

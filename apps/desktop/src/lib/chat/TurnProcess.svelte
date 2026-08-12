@@ -11,6 +11,7 @@
   export let stateKey: string;
   export let forceOpen = false;
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
+  export let endpoint = "";
 
   let opened = forceOpen;
   $: if (forceOpen) opened = true;
@@ -38,7 +39,7 @@
         {:else if block.kind === "activities"}
           <RunActivity activities={finalizeTranscriptActivities(block.activities) ?? []} {copy} {onOpenPath} stateKey={`${stateKey}:${block.id}`} />
         {:else if block.content}
-          <ChatMarkdown source={block.content} {copy} className="turn-process-text markdown-body" contentKey={`${stateKey}-${block.id}`} />
+          <ChatMarkdown source={block.content} {copy} {endpoint} className="turn-process-text markdown-body" contentKey={`${stateKey}-${block.id}`} />
         {/if}
       {/each}
     </div>

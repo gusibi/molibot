@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "todo",
   "name": "Todo",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Multi-list todo with priority, deadlines, reminders, search, and pinning. Managed from chat and the desktop panel.",
   "engines": {
     "molibot": ">=2.9.9 <4"

@@ -104,4 +104,29 @@ describe("Mini App M3 design baseline", () => {
       assert.deepEqual(raw, [], `${sheet.label} sets a raw font-size: ${raw.join(", ")}`);
     }
   });
+
+  it("lets Todo actions float without reserving title width", () => {
+    const todo = sheets.find((sheet) => sheet.label === "builtin/todo");
+    assert.ok(todo, "missing the built-in Todo stylesheet");
+
+    const actionStart = todo.css.indexOf(".item-actions {");
+    const actionEnd = todo.css.indexOf("\n}", actionStart);
+    assert.ok(actionStart >= 0 && actionEnd > actionStart, "missing Todo action styles");
+    const actionBlock = todo.css.slice(actionStart, actionEnd);
+    assert.match(actionBlock, /position:\s*absolute;/);
+    assert.match(actionBlock, /pointer-events:\s*none;/);
+    assert.doesNotMatch(actionBlock, /flex-shrink:\s*0;/);
+
+    const rowStart = todo.css.indexOf(".todo-item {");
+    const rowEnd = todo.css.indexOf("\n}", rowStart);
+    assert.ok(rowStart >= 0 && rowEnd > rowStart, "missing Todo row styles");
+    assert.match(todo.css.slice(rowStart, rowEnd), /position:\s*relative;/);
+
+    const textStart = todo.css.indexOf(".item-text {");
+    const textEnd = todo.css.indexOf("\n}", textStart);
+    assert.ok(textStart >= 0 && textEnd > textStart, "missing Todo text styles");
+    const textBlock = todo.css.slice(textStart, textEnd);
+    assert.match(textBlock, /flex:\s*1 1 auto;/);
+    assert.match(textBlock, /min-width:\s*0;/);
+  });
 });

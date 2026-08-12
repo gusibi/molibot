@@ -11,6 +11,7 @@
   export let variant: "icon" | "inline" = "icon";
   export let popoverRole: "menu" | "dialog" = "menu";
   export let closeOnPointerLeave = false;
+  export let placement: "down" | "up" = "down";
 
   let menu: HTMLDetailsElement;
   let trigger: HTMLElement;
@@ -71,7 +72,7 @@
   onDestroy(() => clearTimeout(pointerLeaveTimer));
 </script>
 
-<details class={`overflow-menu overflow-menu-${variant}`} bind:this={menu} ontoggle={(event) => (open = event.currentTarget.open)} onpointerenter={onPointerEnter} onpointerleave={onPointerLeave}>
+<details class={`overflow-menu overflow-menu-${variant} overflow-menu-${placement}`} bind:this={menu} ontoggle={(event) => (open = event.currentTarget.open)} onpointerenter={onPointerEnter} onpointerleave={onPointerLeave}>
   <summary bind:this={trigger} aria-label={label} title={label} onkeydown={onTriggerKeydown}>
     <slot name="trigger"><i class="ph ph-dots-three" aria-hidden="true"></i></slot>
   </summary>

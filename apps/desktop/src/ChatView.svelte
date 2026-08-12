@@ -658,18 +658,16 @@
   let miniAppsExpanded = localStorage.getItem(MINIAPPS_EXPANDED_KEY) !== "0";
 
   // A Mini App runs on its own origin and cannot inherit our CSS variables, so
-  // the panel passes the *resolved* theme (never "system") as a URL hint. The
-  // shell owns the setting; this mirrors whatever it applied to <html>.
+  // the panel passes the *resolved* appearance (never "system") as a URL hint.
+  // The shell owns the setting; this mirrors whatever it applied to <html>.
   let resolvedTheme: "light" | "dark" = readResolvedTheme();
   let themeObserver: MutationObserver | null = null;
   let systemThemeQuery: MediaQueryList | null = null;
   let onSystemThemeChange: (() => void) | null = null;
 
   function readResolvedTheme(): "light" | "dark" {
-    const explicit = document.documentElement.getAttribute("data-theme");
-    if (explicit === "dark" || explicit === "midnight" || explicit === "light") {
-      return explicit === "light" ? "light" : "dark";
-    }
+    const explicit = document.documentElement.getAttribute("data-resolved-appearance");
+    if (explicit === "dark" || explicit === "light") return explicit;
     return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   let previewFile: DesktopSessionFile | null = null;
@@ -2299,10 +2297,10 @@
 
   onMount(() => {
     commandUsage = loadCommandUsage(localStorage, commandSnapshot);
-    // The shell writes `data-theme` on <html>; watching it (plus the OS query
-    // for "system") keeps an open Mini App panel in step with a theme switch.
+    // The shell writes `data-appearance` on <html>; watching it (plus the OS
+    // query for "system") keeps an open Mini App panel in step with a switch.
     themeObserver = new MutationObserver(() => (resolvedTheme = readResolvedTheme()));
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance"] });
     systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
     onSystemThemeChange = () => (resolvedTheme = readResolvedTheme());
     systemThemeQuery?.addEventListener("change", onSystemThemeChange);
@@ -2934,7 +2932,7 @@
                 <h2>{copy.noExternalSessions}</h2>
               </div>
             {/if}
-            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} />
+            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
           {/if}
         </div>
         {#if externalTranscript && !externalTranscriptLoading && !externalTranscriptError}
@@ -2970,6 +2968,7 @@
         attachmentActions={transcriptAttachmentActions}
         messageActions={messageActions}
         attentionElement={approvalElement}
+        endpoint={connectedEndpoint || serviceEndpoint || ""}
         attentionLabel={copy.pendingApprovalNotice}
         attentionAction={copy.pendingApprovalJump}
       >

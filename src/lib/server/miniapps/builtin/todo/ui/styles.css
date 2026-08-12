@@ -1025,18 +1025,37 @@ html, body {
 
 /* Actions */
 .item-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   display: flex;
   align-items: center;
   gap: 2px;
-  flex-shrink: 0;
+  z-index: 2;
+  padding: 2px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-full);
+  background: color-mix(in srgb, var(--md-surface-container-low) 94%, transparent);
+  box-shadow: var(--md-elev-2);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--md-dur-short) var(--md-ease-standard);
 }
 
 .todo-item:hover .item-actions,
 .todo-item.menu-open .item-actions,
-.item-actions:focus-within { opacity: 1; }
-@media (hover: none) { .item-actions { opacity: 0.85; } }
+.item-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .item-actions {
+    opacity: 0.92;
+    pointer-events: auto;
+  }
+}
 
 .action-btn {
   width: 32px;

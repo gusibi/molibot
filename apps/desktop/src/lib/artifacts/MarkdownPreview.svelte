@@ -1,8 +1,9 @@
 <script lang="ts">
   import { renderMarkdown } from "../markdown";
   import { markdownBody } from "../markdownInteractions";
-  import { splitMermaidBlocks, hasMermaidBlock, type MarkdownSegment } from "./mermaidBlocks";
+  import { splitDiagramBlocks, hasMermaidBlock, type MarkdownSegment } from "./mermaidBlocks";
   import MermaidDiagram from "./MermaidDiagram.svelte";
+  import D2Diagram from "./D2Diagram.svelte";
   import CodeViewer from "../projects/CodeViewer.svelte";
   import type { Translation } from "../i18n";
 
@@ -24,7 +25,8 @@
     copy,
     theme,
     name,
-    showSource = false
+    showSource = false,
+    endpoint = ""
   }: {
     content: string;
     copy: Translation;
@@ -33,9 +35,11 @@
     name: string;
     /** Owned by the panel's shared source toggle. */
     showSource?: boolean;
+    /** Service endpoint used by the server-side D2 renderer. */
+    endpoint?: string;
   } = $props();
 
-  const segments = $derived(splitMermaidBlocks(content));
+  const segments = $derived(splitDiagramBlocks(content));
   const diagramsPresent = $derived(hasMermaidBlock(content));
 
   /** Rendered SVG per diagram id, or an error marker to fall back to source. */
@@ -106,9 +110,11 @@
     {#each segments as segment, index (index)}
       {#if segment.kind === "markdown"}
         <div class="markdown-body">{@html markdownHtml(segment)}</div>
-      {:else}
+      {:else if segment.kind === "mermaid"}
         {@const rendered = diagrams.get(segment.id)}
         <MermaidDiagram source={segment.content} {rendered} {copy} />
+      {:else}
+        <D2Diagram source={segment.content} {copy} {endpoint} {theme} />
       {/if}
     {/each}
   </div>

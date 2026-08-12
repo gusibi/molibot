@@ -35,6 +35,14 @@ test("CJK cell content is preserved without width estimation", () => {
   assert.deepEqual(result.rows[0], ["数据库迁移", "已完成"]);
 });
 
+test("quoted CJK CSV from a Markdown table stays readable in the table viewer", () => {
+  // `markdownInteractions` serializes HTML table cells as quoted CSV. Keep
+  // this exact shape covered because it is the chat preview's hand-off format.
+  const result = parseCsv('"姓名","状态"\n"张三","完成"\n"李四","进行中"');
+  assert.deepEqual(result.headers, ["姓名", "状态"]);
+  assert.deepEqual(result.rows, [["张三", "完成"], ["李四", "进行中"]]);
+});
+
 test("a BOM at the start of the file is stripped from the first header", () => {
   const result = parseCsv("﻿name,value\nAda,1\n");
   assert.deepEqual(result.headers, ["name", "value"]);

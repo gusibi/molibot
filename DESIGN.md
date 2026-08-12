@@ -431,10 +431,19 @@ Desktop colors follow AppKit roles rather than a generic neutral palette. The na
 sidebar material remains system-rendered; WebView values below are sRGB references
 resolved from the corresponding macOS semantic colors and must be applied by role.
 
-Light and Dark values are resolved from AppKit semantic colors on the current
-macOS release (sampled via Digital Color Meter / `NSColor.usingColorSpace(.sRGB)`).
-Midnight is the product-defined deep-blue appearance and intentionally maps to
-the native dark window behavior without pretending to be an AppKit appearance.
+Brightness and theme family are two independent controls. Brightness is `Light`,
+`Dark`, or `System`; it owns the resolved light/dark state and the native window
+appearance. The family is `Minimal (macOS)`, `Rosé Pine`, `Catppuccin`, or
+`Midnight`; it owns the token ramp and has a paired light/dark variant. The DOM
+keeps the preference in `data-appearance`, the resolved state in
+`data-resolved-appearance`, and the family in `data-theme-family`.
+
+Light and Dark values for the macOS family are resolved from AppKit semantic
+colors on the current macOS release (sampled via Digital Color Meter /
+`NSColor.usingColorSpace(.sRGB)`). Midnight is the product-defined deep-blue
+family: `Daybreak` is its light variant and `Midnight` is its dark variant. It
+maps to the native dark window behavior only when the independent brightness
+control resolves to Dark.
 The dark neutrals form a monotonic ramp anchored on the unified canvas System
 Settings shows with reduced transparency: the sidebar and content share one base
 (`#1E1E1E`), the grouped fill is `#282828`, and the only elevation step is the
@@ -442,20 +451,30 @@ raised card (`#2C2C2E`). The nav is not tinted a different shade from content �
 depth comes from cards, exactly like macOS opaque System Settings. Do not push
 the base to pure black (`#000000`/`#0A0A0A`).
 
-| Product role | AppKit reference | Light | Dark | Midnight |
-| --- | --- | --- | --- | --- |
-| Window/workspace + sidebar | unified System Settings canvas | `#F6F6F6` | `#1E1E1E` | `#101827` |
-| Grouped canvas | derived quiet window surface | `#ECECEC` | `#282828` | `#19283F` |
-| Native sidebar tint | Finder-style material veil | `rgb(253 255 255 / 62%)` | `rgb(30 30 30 / 68%)` | `rgb(16 24 39 / 70%)` |
-| Elevated/card surface | `controlBackgroundColor` (Light) / raised neutral card (Dark) | `#FFFFFF` | `#2C2C2E` | `#1C2C46` |
-| Nested secondary surface | recessed neutral content | `#F5F5F5` | `#343436` | `#223552` |
-| Primary label | `labelColor` | black 84.7% | white 84.7% | cool white 92% |
-| Secondary label | `secondaryLabelColor` | black 49.8% | white 54.9% | cool white 66% |
-| Tertiary label | `tertiaryLabelColor` | black 25.9% | white 24.7% | cool white 42% |
-| Separator | `separatorColor` | black 9.8% | white 9.8% | cool blue 16% |
-| Unemphasized selection | `unemphasizedSelectedContentBackgroundColor` | `#DCDCDC` | `#464646` | `#2D4161` |
-| Accent | `controlAccentColor` / product Midnight accent | `#007AFF` | `#007AFF` | `#9B8CFF` |
-| Success / danger / warning | macOS system green/red/orange | `#34C759` / `#FF383C` / `#FF8D28` | `#30D158` / `#FF4245` / `#FF9230` | `#55D6A0` / `#FF7B8A` / `#F6C66E` |
+| Product role | AppKit reference | macOS Light | macOS Dark |
+| --- | --- | --- | --- |
+| Window/workspace + sidebar | unified System Settings canvas | `#F6F6F6` | `#1E1E1E` |
+| Grouped canvas | derived quiet window surface | `#ECECEC` | `#282828` |
+| Native sidebar tint | Finder-style material veil | `rgb(253 255 255 / 62%)` | `rgb(30 30 30 / 68%)` |
+| Elevated/card surface | `controlBackgroundColor` / raised neutral card | `#FFFFFF` | `#2C2C2E` |
+| Nested secondary surface | recessed neutral content | `#F5F5F5` | `#343436` |
+| Primary label | `labelColor` | black 84.7% | white 84.7% |
+| Secondary label | `secondaryLabelColor` | black 49.8% | white 54.9% |
+| Tertiary label | `tertiaryLabelColor` | black 25.9% | white 24.7% |
+| Separator | `separatorColor` | black 9.8% | white 9.8% |
+| Unemphasized selection | `unemphasizedSelectedContentBackgroundColor` | `#DCDCDC` | `#464646` |
+| Accent | `controlAccentColor` | `#007AFF` | `#007AFF` |
+| Success / danger / warning | macOS system green/red/orange | `#34C759` / `#FF383C` / `#FF8D28` | `#30D158` / `#FF4245` / `#FF9230` |
+
+The non-macOS families use the following paired variants. These are semantic
+ramps, not one-off component colors: every surface, label, control, chart, code
+block, status color, and sidebar tint must resolve through the same family block.
+
+| Family | Light variant | Dark variant | Visual direction |
+| --- | --- | --- | --- |
+| Rosé Pine | Dawn | Moon | warm, muted, designed |
+| Catppuccin | Latte | Macchiato | soft, modern, coordinated |
+| Midnight | Daybreak | Midnight | cool deep-blue with a bright companion |
 
 - Structural dark surfaces must never use `#000000` or near-black `#0A0A0A`.
   Pure black is reserved for media/code content that intentionally needs it.
@@ -466,15 +485,16 @@ the base to pure black (`#000000`/`#0A0A0A`).
   distinct (one elevation step), but do not tint the nav a third shade.
 - Use label and separator alpha roles as defined. Do not turn separator colors into
   text colors or replace semantic status colors with arbitrary brand shades.
-- Explicit Light/Dark/Midnight and System appearances must update both WebView tokens
-  and the native window appearance. Midnight maps to the native dark appearance while
-  retaining its own WebView token ramp. Increased Contrast may strengthen alpha
-  differences, but must preserve the same semantic mapping.
+- The independent brightness choice must update both WebView tokens and the native
+  window appearance. `System` resolves through `prefers-color-scheme`; the family
+  remains unchanged while the resolved variant changes. Midnight maps to the native
+  dark appearance only when brightness resolves to Dark. Increased Contrast may
+  strengthen alpha differences, but must preserve the same semantic mapping.
 - The normal sidebar glass layer uses `blur(18px) saturate(160%)` on top of the native
-  macOS material. The explicit Dark and Midnight tints are used when the OS is light;
-  the system-dark media rule makes those tints transparent so native dark material is
-  not veiled. Reduced transparency, increased contrast, and low-performance modes
-  remove the blur and use the opaque sidebar surface.
+  macOS material. Each family/variant supplies a translucent tint when the OS is light;
+  the system-dark media rule makes dark-variant tints transparent so native dark
+  material is not veiled. Reduced transparency, increased contrast, and
+  low-performance modes remove the blur and use the opaque sidebar surface.
 
 ## Application templates
 
@@ -483,16 +503,17 @@ the base to pure black (`#000000`/`#0A0A0A`).
 - Settings and Chat use the native macOS sidebar material, not a WebView imitation.
   Both windows are transparent and apply the system `sidebar` window effect; the WebView
   root and layout stay transparent while the right content pane remains opaque. The
-  sidebar plane uses a translucent theme tint plus `blur(18px) saturate(160%)` so the
-  native material and the WebView backing remain visibly layered. Light uses one
-  uniform `rgb(253 255 255 / 62%)` veil; explicit Dark and Midnight use their theme
-  tints under a light OS, while the system-dark media rule makes both transparent so
-  native dark material provides the depth. This tint and blur belong directly to the
+  sidebar plane uses a translucent family/variant tint plus `blur(18px) saturate(160%)`
+  so the native material and the WebView backing remain visibly layered. macOS Light
+  uses `rgb(253 255 255 / 62%)`; Rosé Pine, Catppuccin, and Daybreak use their own
+  light tints; dark variants use dark tints under a light OS, while the system-dark
+  media rule makes those transparent so native dark material provides the depth. This
+  tint and blur belong directly to the
   edge-to-edge sidebar plane: never implement them as a nested panel, pseudo-element,
   or opaque card.
-  Explicit Light/Dark/Midnight choices must also set the native Tauri window theme;
-  Midnight maps to the native dark appearance while retaining its own WebView tokens.
-  System clears the override, so AppKit material and WebView tokens always share one
+  Explicit Light/Dark choices must also set the native Tauri window theme; Midnight's
+  family tokens remain independent. System clears the native override and listens for
+  OS changes, so AppKit material and WebView tokens always share one resolved
   appearance.
   This produces one window composition layer like Finder instead of a translucent card
   over an app canvas. The sidebar stays flush with the window edges; do not add outer
@@ -542,6 +563,12 @@ the base to pure black (`#000000`/`#0A0A0A`).
   its local horizontal scroller and offers an expand action through the shared image
   zoom/pan viewer. The same block component is used in Chat, Project Chat, and
   Markdown artifact previews so view state, fallback, and controls cannot drift.
+- Rendered D2 blocks use the same Preview / Source contract, but render through the
+  Desktop service's server-side D2 endpoint. The client receives SVG as an image
+  data URL rather than injecting renderer markup into the document; when the
+  service is unavailable, the diagram source remains visible in the message. Chat
+  Markdown table artifacts stay on the UTF-8 CSV viewer and must not enter the
+  binary workbook parser, so CJK headers and cells remain readable.
 - Runtime-authored explicit Skill references (`[$name](.../SKILL.md)`) retain their
   machine-readable path in persisted content but render as the same Skill invocation
   card used by a `/name` composer selection. The visible transcript shows the Skill
@@ -576,10 +603,11 @@ the base to pure black (`#000000`/`#0A0A0A`).
   underline, a 42px path/action header, and compact utility controls. Selection
   uses accent-muted surfaces plus a visible border/inset cue; states are also
   exposed with `aria-selected`/`aria-pressed`.
-- Use Primer semantic roles for the Inspector: light `#f6f8fa` / `#fff` /
-  `#d1d9e0` canvas/surface/border and dark `#161b22` / `#0d1117` / `#30363d`,
-  with `#0969da` (light) / `#58a6ff` (dark) accent. Human-readable names remain
-  UI font; paths, identifiers, tabular data, and code use Mono.
+- Keep the Inspector's Primer-inspired repository hierarchy, but derive its
+  canvas/surface/inset/border/label/accent/status roles from the shared semantic
+  theme tokens. It must change with every family and resolved brightness rather
+  than maintaining a second hard-coded light/dark palette. Human-readable names
+  remain UI font; paths, identifiers, tabular data, and code use Mono.
 - Chat Markdown code blocks and Inspector code/Markdown must consume the same
   shared GitHub/Primer light/dark syntax tokens; a transcript must never pin a
   separate dark code theme while the surrounding app is light. Diff additions
@@ -692,6 +720,10 @@ the base to pure black (`#000000`/`#0A0A0A`).
 - Primary actions remain visible. Rare and destructive actions belong in an overflow
   menu and require confirmation when irreversible. A persistent outlined button is
   not a substitute for a switch, segmented control, or disclosure menu.
+- Transcript overflow actions anchored to the lower edge of the reading column use
+  the upward popover placement so opening them never covers or pushes the composer;
+  the shared overflow component owns the placement, focus, Escape, and arrow-key
+  behavior rather than each caller duplicating menu positioning.
 - Motion communicates state only: use 120–180ms control transitions and 180–240ms
   panel transitions. Respect `prefers-reduced-motion`; never animate layout merely
   for decoration. Every interactive element needs keyboard access and a visible focus.

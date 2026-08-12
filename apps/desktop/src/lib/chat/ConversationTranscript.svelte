@@ -25,6 +25,7 @@
   export let messageActions: TranscriptMessageActions | null = null;
   /** Opens a path a tool touched in the Artifact Panel; injected by the host. */
   export let onOpenActivityPath: ((path: string, mutates: boolean) => void) | null = null;
+  export let endpoint = "";
 
   let expandedMessages = new Set<string>();
   let selectionMenu: { x: number; y: number; message: TranscriptMessage; selection: string } | null = null;
@@ -150,7 +151,7 @@
         {:else}
           <div class="user-message-shell">
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <ChatMarkdown source={displayContent} {copy} className={`message-bubble markdown-body user-message-content${isLongUserMessage && !isExpanded ? " collapsed" : ""}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
+            <ChatMarkdown source={displayContent} {copy} {endpoint} className={`message-bubble markdown-body user-message-content${isLongUserMessage && !isExpanded ? " collapsed" : ""}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
             {#if isLongUserMessage}
               <button class="message-expand" type="button" aria-expanded={isExpanded} onclick={() => toggleMessage(key)}>{isExpanded ? copy.collapseMessage : copy.expandMessage}</button>
             {/if}
@@ -244,6 +245,7 @@
             stateKey={`${key}:process`}
             onOpenPath={onOpenActivityPath}
             forceOpen={assistantStatus === "error" || assistantStatus === "aborted" || processSummary.hasError}
+            {endpoint}
           />
         {/if}
         {#each turnSections.response as block (block.id)}
@@ -255,7 +257,7 @@
             <RunActivity activities={finalizeTranscriptActivities(block.activities) ?? []} {copy} onOpenPath={onOpenActivityPath} stateKey={`${key}:${block.id}`} />
           {:else if block.content}
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <ChatMarkdown source={block.content} {copy} contentKey={`${key}-${block.id}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
+            <ChatMarkdown source={block.content} {copy} {endpoint} contentKey={`${key}-${block.id}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
           {/if}
         {/each}
         {#if assistantError}
@@ -300,7 +302,7 @@
               {@const busy = textContributions.some((action) => messageActions?.pendingContributionKey === contributionKey(message, action))}
               {@const done = textContributions.some((action) => messageActions?.successfulContributionKey === contributionKey(message, action))}
               <div class:assistant-overflow-details-only={!textContributions.length || !messageActions?.onRunContribution} class="assistant-overflow">
-                <OverflowMenu label={copy.conversationMenu} popoverRole="dialog" closeOnPointerLeave={true}>
+                <OverflowMenu label={copy.conversationMenu} placement="up" popoverRole="dialog" closeOnPointerLeave={true}>
                   <svelte:fragment slot="trigger">
                     <i class={`ph ${busy ? "ph-circle-notch message-action-spin" : done ? "ph-check" : "ph-dots-three"}`} aria-hidden="true"></i>
                   </svelte:fragment>
