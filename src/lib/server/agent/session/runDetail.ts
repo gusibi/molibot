@@ -4,6 +4,7 @@ export interface RunDetailEntry {
   type: "run_start" | "info" | "tool_start" | "tool_end" | "final";
   summary: string;
   toolName?: string;
+  toolCallId?: string;
   displayName?: string;
   isError?: boolean;
 }

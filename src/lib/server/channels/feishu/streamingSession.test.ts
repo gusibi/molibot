@@ -82,9 +82,9 @@ test("FeishuStreamingSession aggregates tool progress into CardKit updates", asy
   const { client, cardUpdateCalls } = createMockClient();
   const session = new FeishuStreamingSession({ client, chatId: "oc_chat", runId: "run_1" });
 
-  await session.handleRunnerEvent({ type: "tool_execution_start", toolName: "Read", displayName: "Read", label: "Read file" });
+  await session.handleRunnerEvent({ type: "tool_execution_start", toolCallId: "call-read", toolName: "Read", displayName: "Read", label: "Read file" });
   await session.flushNow();
-  await session.handleRunnerEvent({ type: "tool_execution_end", toolName: "Read", displayName: "Read", summary: "passed", isError: false });
+  await session.handleRunnerEvent({ type: "tool_execution_end", toolCallId: "call-read", toolName: "Read", displayName: "Read", summary: "passed", isError: false });
   await session.flushNow();
   await session.finalize({ runId: "run_1", stopReason: "stop" });
 

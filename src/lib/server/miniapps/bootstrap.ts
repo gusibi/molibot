@@ -20,6 +20,14 @@ import meetingNotesUiHtmlSource from "./builtin/meeting-notes/ui/index.html?raw"
 import meetingNotesUiScriptSource from "./builtin/meeting-notes/ui/app.js?raw";
 import meetingNotesUiStyleSource from "./builtin/meeting-notes/ui/styles.css?raw";
 import meetingNotesUiIconSource from "./builtin/meeting-notes/ui/icon.svg?raw";
+import miniChatManifestSource from "./builtin/mini-chat/manifest.json?raw";
+import miniChatNoticesSource from "./builtin/mini-chat/THIRD_PARTY_NOTICES.md?raw";
+import miniChatServerSource from "./builtin/mini-chat/server/index.mjs?raw";
+import miniChatUiHtmlSource from "./builtin/mini-chat/ui/index.html?raw";
+import miniChatUiScriptSource from "./builtin/mini-chat/ui/app.js?raw";
+import miniChatUiAstryxStyleSource from "./builtin/mini-chat/ui/astryx.css?raw";
+import miniChatUiStyleSource from "./builtin/mini-chat/ui/styles.css?raw";
+import miniChatUiIconSource from "./builtin/mini-chat/ui/icon.svg?raw";
 import {
   materializeBuiltinMiniApp,
   type BuiltinMiniApp
@@ -83,6 +91,19 @@ const BUILTIN_APPS: BuiltinMiniApp[] = [
       "ui/app.js": meetingNotesUiScriptSource,
       "ui/styles.css": meetingNotesUiStyleSource,
       "ui/icon.svg": meetingNotesUiIconSource
+    }
+  },
+  {
+    id: "mini-chat",
+    files: {
+      "THIRD_PARTY_NOTICES.md": miniChatNoticesSource,
+      "manifest.json": miniChatManifestSource,
+      "server/index.mjs": miniChatServerSource,
+      "ui/index.html": miniChatUiHtmlSource,
+      "ui/app.js": miniChatUiScriptSource,
+      "ui/astryx.css": miniChatUiAstryxStyleSource,
+      "ui/styles.css": miniChatUiStyleSource,
+      "ui/icon.svg": miniChatUiIconSource
     }
   }
 ];

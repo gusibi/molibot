@@ -821,6 +821,7 @@ export class MiniAppHost {
 
     const unavailableAi: MiniAppAiFacade = {
       generateText: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); },
+      chat: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); },
       transcribe: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); }
     };
     const badge = this.createBadgeFacade(slot);

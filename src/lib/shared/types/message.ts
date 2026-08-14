@@ -34,9 +34,9 @@ export interface ConversationActivity {
   kind: "tool" | "subagent" | "note";
   /**
    * The tool's id (`read`, `bash`, `miniapp__x__y`). Recorded rather than
-   * derived from `key`, whose `<tool>-<sequence>` shape exists only to pair a
+   * derived from `key`, which is the runtime tool-call identity used to pair a
    * start event with its end event; a renderer that dispatches on the tool must
-   * not be coupled to that. Absent on activities written before this field.
+   * not be coupled to that opaque id. Absent on activities written before this field.
    */
   tool?: string;
   label: string;

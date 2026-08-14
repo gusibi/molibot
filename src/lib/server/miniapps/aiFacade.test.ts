@@ -84,6 +84,162 @@ test("text facade rejects a third concurrent request before provider execution",
   await Promise.all([first, second]);
 });
 
+test("chat facade forwards only validated alternating messages and an explicit system prompt", async () => {
+  const seen: unknown[] = [];
+  const facade = createMiniAppAiFacade({
+    appId: "mini-chat",
+    dataDir: ".",
+    capabilities: ["text"],
+    getSettings: () => defaultRuntimeSettings,
+    executeText: async (input) => {
+      seen.push({ messages: input.messages, system: input.system, reasoning: input.reasoning });
+      return {
+        text: "four",
+        usage: { inputTokens: 3, outputTokens: 1, totalTokens: 4 },
+        provider: "fake",
+        model: "fake",
+        api: "fake"
+      };
+    }
+  });
+
+  await facade.chat({
+    messages: [
+      { role: "user", content: "one" },
+      { role: "assistant", content: "two" },
+      { role: "user", content: "three" }
+    ]
+  });
+
+  assert.deepEqual(seen, [{
+    messages: [
+      { role: "user", content: "one" },
+      { role: "assistant", content: "two" },
+      { role: "user", content: "three" }
+    ],
+    system: undefined,
+    reasoning: "low"
+  }]);
+  assert.throws(
+    () => facade.chat({ messages: [{ role: "assistant", content: "invalid" }] }),
+    (cause: unknown) => cause instanceof MiniAppAiError && cause.code === "invalid_request"
+  );
+  assert.throws(
+    () => facade.chat({ messages: [{ role: "user", content: "one" }, { role: "user", content: "two" }] }),
+    (cause: unknown) => cause instanceof MiniAppAiError && cause.code === "invalid_request"
+  );
+});
+
+test("provider failures keep an actionable, credential-redacted description", async () => {
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.providerMode = "custom";
+  settings.defaultCustomProviderId = "test-provider";
+  settings.customProviders = [{
+    id: "test-provider",
+    name: "Test provider",
+    enabled: true,
+    baseUrl: "https://example.invalid",
+    apiKey: "secret-value",
+    defaultModel: "test-model",
+    path: "/v1/chat/completions",
+    models: [{ id: "test-model", tags: ["text"] }]
+  } as (typeof settings.customProviders)[number]];
+  const facade = createMiniAppAiFacade({
+    appId: "mini-chat",
+    dataDir: ".",
+    capabilities: ["text"],
+    getSettings: () => settings,
+    completeText: async (_model, _context, options) => {
+      assert.equal(options?.reasoning, "low");
+      return {
+        role: "assistant",
+        content: [],
+        api: "openai-completions",
+        provider: "test-provider",
+        model: "test-model",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+        },
+        stopReason: "error",
+        errorMessage: '400: {"message":"reasoning low is unsupported; api_key=my-secret"}',
+        timestamp: Date.now()
+      };
+    }
+  });
+
+  await assert.rejects(
+    () => facade.chat({ messages: [{ role: "user", content: "hello" }] }),
+    (cause: unknown) => cause instanceof MiniAppAiError
+      && cause.code === "provider_failed"
+      && cause.message === "Model request failed (400): reasoning low is unsupported; api_key=[REDACTED]"
+  );
+});
+
+test("chat facade forwards provider text deltas before returning the final response", async () => {
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.providerMode = "custom";
+  settings.defaultCustomProviderId = "test-provider";
+  settings.customProviders = [{
+    id: "test-provider",
+    name: "Test provider",
+    enabled: true,
+    baseUrl: "https://example.invalid",
+    apiKey: "secret-value",
+    defaultModel: "test-model",
+    path: "/v1/chat/completions",
+    models: [{ id: "test-model", tags: ["text"] }]
+  } as (typeof settings.customProviders)[number]];
+  const deltas: string[] = [];
+  const message = {
+    role: "assistant" as const,
+    content: [{ type: "text" as const, text: "Hello" }],
+    api: "openai-completions" as const,
+    provider: "test-provider",
+    model: "test-model",
+    usage: {
+      input: 1,
+      output: 2,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 3,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    },
+    stopReason: "stop" as const,
+    timestamp: Date.now()
+  };
+  const facade = createMiniAppAiFacade({
+    appId: "mini-chat",
+    dataDir: ".",
+    capabilities: ["text"],
+    getSettings: () => settings,
+    completeText: async () => { throw new Error("streaming call used the buffered transport"); },
+    streamText: (_model, _context, options) => {
+      assert.equal(options?.reasoning, "low");
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { type: "text_delta", contentIndex: 0, delta: "Hel", partial: message };
+          yield { type: "text_delta", contentIndex: 0, delta: "lo", partial: message };
+          yield { type: "done", reason: "stop", message };
+        },
+        result: async () => message
+      } as any;
+    }
+  });
+
+  const result = await facade.chat({
+    messages: [{ role: "user", content: "hello" }],
+    onTextDelta: (delta) => deltas.push(delta)
+  });
+
+  assert.deepEqual(deltas, ["Hel", "lo"]);
+  assert.equal(result.text, "Hello");
+});
+
 function wavSecond(): Buffer {
   const dataBytes = 8_000 * 2;
   const buffer = Buffer.alloc(44 + dataBytes);

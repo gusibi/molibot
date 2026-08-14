@@ -4,6 +4,7 @@ import type { DesktopConversationActivity } from "@molibot/desktop-contract";
 import {
   activityFileSummary,
   activityHeadline,
+  activityTimelineItems,
   activityToolName,
   classifyActivityBody
 } from "./activityView";
@@ -125,4 +126,78 @@ test("a failed call's paths are not reported as touched", () => {
     activity({ key: "edit-1", tool: "edit", paths: ["a.ts"], mutates: true, state: "error" })
   ]);
   assert.deepEqual(summary, { written: [], read: [] });
+});
+
+test("adjacent successful calls with the same readable action become one group", () => {
+  const items = activityTimelineItems([
+    activity({ key: "read-a", tool: "read", paths: ["a.ts"] }),
+    activity({ key: "read-b", tool: "read", paths: ["b.ts"] }),
+    activity({ key: "edit-a", tool: "edit", paths: ["a.ts"], mutates: true }),
+    activity({ key: "write-b", tool: "write", paths: ["b.ts"], mutates: true })
+  ]);
+
+  assert.deepEqual(items.map((item) => item.kind === "group"
+    ? { kind: item.kind, action: item.action, keys: item.activities.map((entry) => entry.key), fileCount: item.fileCount }
+    : { kind: item.kind, key: item.activity.key }), [
+    { kind: "group", action: "read", keys: ["read-a", "read-b"], fileCount: 2 },
+    { kind: "group", action: "change", keys: ["edit-a", "write-b"], fileCount: 2 }
+  ]);
+});
+
+test("a group reports wall-clock elapsed time instead of summing overlapping calls", () => {
+  const [item] = activityTimelineItems([
+    activity({
+      key: "read-a",
+      tool: "read",
+      startedAt: "2026-08-14T12:00:00.000Z",
+      finishedAt: "2026-08-14T12:00:02.000Z",
+      durationMs: 2_000
+    }),
+    activity({
+      key: "read-b",
+      tool: "read",
+      startedAt: "2026-08-14T12:00:01.000Z",
+      finishedAt: "2026-08-14T12:00:03.000Z",
+      durationMs: 2_000
+    })
+  ]);
+
+  assert.equal(item.kind, "group");
+  if (item.kind === "group") assert.equal(item.durationMs, 3_000);
+});
+
+test("grouping never crosses a different action or hides running and failed calls", () => {
+  const items = activityTimelineItems([
+    activity({ key: "read-a", tool: "read" }),
+    activity({ key: "read-live", tool: "read", state: "running" }),
+    activity({ key: "read-b", tool: "read" }),
+    activity({ key: "read-failed", tool: "read", state: "error" }),
+    activity({ key: "read-c", tool: "read" })
+  ]);
+
+  assert.deepEqual(items.map((item) => item.kind === "single" ? item.activity.key : item.key), [
+    "read-a",
+    "read-live",
+    "read-b",
+    "read-failed",
+    "read-c"
+  ]);
+});
+
+test("search and shell runs group, unknown tools remain explicit", () => {
+  const items = activityTimelineItems([
+    activity({ key: "search-a", tool: "web_search" }),
+    activity({ key: "search-b", tool: "grep" }),
+    activity({ key: "bash-a", tool: "bash" }),
+    activity({ key: "bash-b", tool: "hostBash" }),
+    activity({ key: "custom-a", tool: "mcp__custom" }),
+    activity({ key: "custom-b", tool: "mcp__custom" })
+  ]);
+
+  assert.deepEqual(items.map((item) => item.kind === "group" ? item.action : item.activity.key), [
+    "search",
+    "command",
+    "custom-a",
+    "custom-b"
+  ]);
 });

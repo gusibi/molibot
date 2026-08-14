@@ -189,7 +189,7 @@ function describe(record) {
 }
 
 export default function createApp(context) {
-  // context.appId / context.dataDir / context.logger — see reference.md.
+  // context.appId / context.dataDir / context.logger — see references/doc.md.
   const store = new Store(context.dataDir);
   context.logger.info("ready");
 

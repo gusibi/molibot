@@ -145,8 +145,7 @@ export class ConversationController {
    * the transcript visibly "refreshes" and long replies saturate the main
    * thread. Plain fields on purpose: buffering must not be reactive.
    */
-  private pendingStreamText = "";
-  private pendingThinking = "";
+  private pendingLiveChunks: Array<{ kind: "text" | "thinking"; content: string }> = [];
   private nextLiveStep = 0;
   private streamFlushHandle: number | null = null;
 
@@ -175,16 +174,21 @@ export class ConversationController {
 
   private flushStreamBuffers(): void {
     this.cancelStreamFlush();
-    if (this.pendingStreamText) {
-      this.appendLiveText("text", this.pendingStreamText);
-      this.streamingText += this.pendingStreamText;
-      this.pendingStreamText = "";
+    const chunks = this.pendingLiveChunks;
+    this.pendingLiveChunks = [];
+    for (const chunk of chunks) {
+      this.appendLiveText(chunk.kind, chunk.content);
+      if (chunk.kind === "text") this.streamingText += chunk.content;
+      else this.streamingThinking += chunk.content;
     }
-    if (this.pendingThinking) {
-      this.appendLiveText("thinking", this.pendingThinking);
-      this.streamingThinking += this.pendingThinking;
-      this.pendingThinking = "";
-    }
+  }
+
+  private bufferLiveText(kind: "text" | "thinking", delta: string): void {
+    if (!delta) return;
+    const previous = this.pendingLiveChunks.at(-1);
+    if (previous?.kind === kind) previous.content += delta;
+    else this.pendingLiveChunks.push({ kind, content: delta });
+    this.scheduleStreamFlush();
   }
 
   private appendLiveText(kind: "text" | "thinking", delta: string): void {
@@ -198,6 +202,10 @@ export class ConversationController {
   }
 
   private upsertLiveActivity(activity: DesktopActivityEntry): void {
+    // Tool events are ordering boundaries. Flush preceding model output before
+    // inserting a new activity; otherwise the synchronous activity can overtake
+    // thinking/text still waiting for the next animation frame.
+    this.flushStreamBuffers();
     const index = this.liveSteps.findIndex((step) => step.kind === "activity" && step.activity.key === activity.key);
     if (index < 0) {
       this.liveSteps = [...this.liveSteps, { id: `live-${++this.nextLiveStep}`, kind: "activity", activity }];
@@ -207,14 +215,14 @@ export class ConversationController {
   }
 
   private appendLivePlan(plan: DesktopConversationPlan): void {
+    this.flushStreamBuffers();
     this.liveSteps = [...this.liveSteps, { id: `live-${++this.nextLiveStep}`, kind: "plan", plan }];
   }
 
   /** Drop buffered deltas so a stale flush can't land on a later turn/session. */
   private resetStreamBuffers(): void {
     this.cancelStreamFlush();
-    this.pendingStreamText = "";
-    this.pendingThinking = "";
+    this.pendingLiveChunks = [];
   }
 
   /**
@@ -366,21 +374,19 @@ export class ConversationController {
         onUploadComplete: hasFiles ? () => (this.activity = labels.recognizingImage) : undefined,
         onToken: (delta) => {
           this.activity = "";
-          this.pendingStreamText += delta;
-          this.scheduleStreamFlush();
+          this.bufferLiveText("text", delta);
         },
         onReplace: (text) => {
           this.activity = "";
           // Replacement supersedes anything still buffered.
-          this.pendingStreamText = "";
+          this.pendingLiveChunks = this.pendingLiveChunks.filter((chunk) => chunk.kind !== "text");
           this.flushStreamBuffers();
           this.streamingText = text;
           this.liveSteps = this.liveSteps.filter((step) => step.kind !== "text");
           this.appendLiveText("text", text);
         },
         onThinking: (delta) => {
-          this.pendingThinking += delta;
-          this.scheduleStreamFlush();
+          this.bufferLiveText("thinking", delta);
         },
         onStatus: (text) => { if (text) this.activity = text; },
         onActivities: (next) => (this.activities = next),

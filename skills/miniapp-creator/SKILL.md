@@ -9,7 +9,7 @@ description: "创建、修改和安装 Molibot Mini App（安装在 ~/.molibot/m
 
 **核心工作方式：永远从 `template/` 复制，不从零开始写。** 模板已经把 SQLite（WAL + 事务）、工具 handler、HTTP handler、轮询刷新、中英文、明暗主题、403/503 降级全部接好了，你只需要改领域逻辑。
 
-完整契约见本 skill 目录下的 [reference.md](reference.md)。另外两份**一定在用户机器上**的活样例：已安装的 Todo 应用 `~/.molibot/miniapps/apps/todo/`（Molibot 首次启动时自动装入），以及本 skill 自带的 `template/`。如果手头有宿主仓库，还有更长的作者指南 `docs/guides/miniapps/authoring.md`。
+完整契约与 API 说明见本 skill 目录下的 [doc.md](references/doc.md)。另外两份**一定在用户机器上**的活样例：已安装的 Todo 应用 `~/.molibot/miniapps/apps/todo/`（Molibot 首次启动时自动装入），以及本 skill 自带的 `template/`。如果手头有宿主仓库，还有更长的作者指南 `docs/guides/miniapps/authoring.md`。
 
 ## 工作流程
 

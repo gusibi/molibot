@@ -5,13 +5,11 @@
   import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./transcript";
   import { handleMarkdownBodyClick } from "../markdownInteractions";
   import ConversationTranscript from "./ConversationTranscript.svelte";
-  import RunActivity from "./RunActivity.svelte";
   import { renderMarkdown } from "../markdown";
-  import ThinkingCard from "./ThinkingCard.svelte";
   import PlanCard from "./PlanCard.svelte";
-  import { transcriptRenderBlocks } from "./transcript";
-  import ChatMarkdown from "./ChatMarkdown.svelte";
+  import { transcriptCompletedTurnSections, transcriptRenderBlocks } from "./transcript";
   import StreamingChatMarkdown from "./StreamingChatMarkdown.svelte";
+  import TurnProcess from "./TurnProcess.svelte";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -50,6 +48,7 @@
   $: orderedBlocks = liveSteps.length
     ? transcriptRenderBlocks({ role: "assistant", content: streamingText, steps: liveSteps })
     : transcriptRenderBlocks({ role: "assistant", content: streamingText, thinking: streamingThinking, activities });
+  $: liveSections = transcriptCompletedTurnSections(orderedBlocks);
 </script>
 
 {#if messages.length === 0 && !streamingText && !sending}
@@ -67,14 +66,13 @@
       <div class="message-stack">
         <div class="assistant-identity"><strong>{assistantName}</strong><span>{copy.agents}</span></div>
         <div class="message-status" role="status"><span class="message-status-pulse" aria-hidden="true"></span><span>{activity || copy.working}</span></div>
-        {#each orderedBlocks as block (block.id)}
-          {#if block.kind === "thinking"}
-            <ThinkingCard text={block.content} label={copy.thinking} />
-          {:else if block.kind === "activities"}
-            <RunActivity activities={block.activities} {copy} onOpenPath={onOpenActivityPath} stateKey={`live:${block.id}`} />
-          {:else if block.kind === "plan"}
+        {#if liveSections.process.length}
+          <TurnProcess blocks={liveSections.process} {copy} stateKey="live-process" forceOpen live onOpenPath={onOpenActivityPath} {endpoint} />
+        {/if}
+        {#each liveSections.response as block (block.id)}
+          {#if block.kind === "plan"}
             <PlanCard plan={block.plan} {copy} disabled={!messageActions?.onResolvePlan} onResolve={(decision, edits) => messageActions?.onResolvePlan?.({ role: "assistant", content: "", steps: liveSteps }, block.plan, decision, edits)} />
-          {:else if block.content}
+          {:else if block.kind === "text" && block.content}
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <StreamingChatMarkdown source={block.content} {copy} />
           {/if}

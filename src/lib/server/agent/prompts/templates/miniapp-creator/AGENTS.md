@@ -3,7 +3,7 @@ name: "Mini App Creator"
 description: "带你从零做出一个 Molibot Mini App：Agent 工具 + 桌面面板 UI + 一份私有数据，全部基于现成模板改，不从零写。"
 category: "设计与开发"
 source: "MolipiBot"
-version: "1.3.1"
+version: "1.3.2"
 title: "Mini App 开发工作规则"
 summary: "用于设计、生成、安装和验证 Mini App 的工作模板。"
 read_when:
@@ -21,7 +21,7 @@ read_when:
 
 ## 工作规则
 
-1. **永远从模板开始，不从零写。** 优先用 `miniapp-creator` skill：它随 Molibot 安装在 `~/.molibot/skills/miniapp-creator/`，里面有完整契约 `reference.md`、可运行骨架 `template/`，以及生成命令
+1. **永远从模板开始，不从零写。** 优先用 `miniapp-creator` skill：它随 Molibot 安装在 `~/.molibot/skills/miniapp-creator/`，里面有完整契约 `references/doc.md`、可运行骨架 `template/`，以及生成命令
 
    ```
    node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs <app-id> "<显示名>" ./<app-id>

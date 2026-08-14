@@ -1,0 +1,24 @@
+{
+  "manifestVersion": 1,
+  "id": "mini-chat",
+  "name": "Mini Chat",
+  "version": "1.0.2",
+  "description": "A lightweight, private chat app that calls the configured host model without Agent prompts, memory, skills, or tools.",
+  "engines": {
+    "molibot": ">=2.9.23 <4"
+  },
+  "runtime": {
+    "entry": "server/index.mjs"
+  },
+  "ui": {
+    "entry": "ui/index.html",
+    "icon": "ui/icon.svg"
+  },
+  "data": {
+    "schemaVersion": 1
+  },
+  "ai": {
+    "capabilities": ["text"]
+  },
+  "tools": []
+}

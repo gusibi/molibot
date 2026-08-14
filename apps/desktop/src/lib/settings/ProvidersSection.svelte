@@ -297,12 +297,12 @@
     return `${base}${path.startsWith("/") ? path : `/${path}`}`;
   });
 
-  /** Groups a model id by its family prefix (first two dash-separated segments). */
+  /** Groups a model id by the prefix before its first dash. */
   function modelGroupKey(id: string): string {
     const tail = id.split("/").at(-1)?.trim() ?? "";
     if (!tail) return session.text.providerModelGroupOther;
-    const parts = tail.split("-");
-    return parts.length <= 1 ? tail : `${parts[0]}-${parts[1]}`;
+    const [prefix] = tail.split("-");
+    return prefix || tail;
   }
 
   let editModelIds = $derived(new Set((editor?.models ?? []).map((model) => model.id.trim()).filter(Boolean)));

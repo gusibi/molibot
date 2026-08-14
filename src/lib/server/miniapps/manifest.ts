@@ -458,8 +458,8 @@ export function readMiniAppManifest(appDir: string, expectedId: string): MiniApp
   const schemaVersion = parsed.data.schemaVersion as number;
   if (schemaVersion < 1) return fail("data.schemaVersion must be >= 1.");
 
-  if (!Array.isArray(parsed.tools) || parsed.tools.length === 0) {
-    return fail("tools must be a non-empty array.");
+  if (!Array.isArray(parsed.tools)) {
+    return fail("tools must be an array.");
   }
 
   const ajv = new Ajv({ allErrors: true, strict: false });

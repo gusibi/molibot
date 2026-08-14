@@ -722,6 +722,15 @@ block, status color, and sidebar tint must resolve through the same family block
   scroll ownership to the reader before jumping, while a committed new user turn
   explicitly restores bottom following. The same behavior and
   semantic tokens apply to local Chat, Project Chat, and read-only external transcripts.
+- Agent work inside local Chat and Project Chat uses one ordered process disclosure.
+  While a turn is running it stays open; after success it collapses so the answer leads;
+  failures and interruptions stay open. Its contents form one timeline in arrival order—
+  reasoning, narration, and tool calls. Running, failed, and unknown tool calls always keep
+  their own rows. Adjacent successful reads, changes, searches, or commands may compress
+  into one action row; expanding it reveals every original call in order. Groups never cross
+  reasoning or narration boundaries and use an inline hierarchy, not nested cards. A tool
+  payload remains independently inspectable. The collapsed summary reports stable work facts
+  (elapsed time, tool calls, changed files), never reasoning chunk count.
 - Primary actions remain visible. Rare and destructive actions belong in an overflow
   menu and require confirmation when irreversible. A persistent outlined button is
   not a substitute for a switch, segmented control, or disclosure menu.

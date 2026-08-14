@@ -6,6 +6,49 @@
 
 ## 2026-08-14
 
+### Release: v2.9.24 / Desktop v0.9.21
+- Synchronized the root and Desktop package versions for the new release.
+
+### Added: Mini Chat for lightweight, prompt-free conversations
+
+- Added the optional built-in Mini Chat app, using the Astryx `ai-chat` interface with responsive Chinese/English and light/dark presentation.
+- Mini Chat stores conversations in its own SQLite database and sends only its bounded user/assistant history through the Mini App AI route; it does not enter the Agent Runtime or inherit Agent prompts, memory, Skills, or tools.
+- Added host-level structured chat and cancellation support, with persistent interrupted/failed receipts, retry, copy, conversation deletion, and restart recovery.
+
+### Fixed: Mini Chat uses supported reasoning and explains request failures
+
+- Mini Chat text requests now use the `low` reasoning level instead of `off`, matching Providers that require an enabled reasoning level.
+- Provider errors now reach Mini Chat as a short, credential-redacted description with the upstream HTTP status when available, so configuration and model capability problems are actionable.
+
+### Improved: Mini Chat streams replies and preserves narrow-screen width
+
+- Mini App text generation can now forward Provider text deltas across the app process boundary while retaining the same final result, cancellation, usage, and error contracts.
+- Mini Chat renders those deltas while generation is active, persists only the completed reply, and removes the oversized assistant initials avatar.
+- At 390px wide, the assistant message column now uses 327px with no avatar reservation or horizontal overflow.
+
+### Improved: repeated Chat actions collapse into readable groups
+
+- Completed adjacent reads, file changes, searches, and shell commands now condense into one plain-language action row while preserving their original position in the reasoning timeline.
+- Expanding a group reveals every original tool call and its payload. Running, failed, and unknown tools always remain separate so active work and diagnostics are never hidden.
+- Chat and Project Chat share the same projection, with Chinese/English summaries for action count, unique file count, and elapsed time.
+
+### Improved: Chat process is one Codex-style ordered timeline
+
+- Live Chat and Project Chat now keep the current reasoning/tool process expanded; successful turns collapse to one quiet summary, while failures and interruptions remain open.
+- Expanding a process shows one chronological timeline instead of separate reasoning and tool sections. Each tool call owns one lifecycle record and only its payload expands.
+- Tool start/end events now pair by the runtime's real `toolCallId`, fixing parallel same-name calls and preserving the specific start label. Summaries use elapsed time, tool count, and changed-file count rather than unstable reasoning chunk counts.
+
+### Improved: AI provider model families use the first name prefix
+
+- Desktop Settings → AI Providers now groups both the configured model inventory and the discovery dialog by the text before the first `-` in the model name, so `gemini-3.5-*` and `gemini-3.6-*` appear together under `gemini`.
+- Model IDs, ordering, search, sorting, collapsing, and add/remove behavior are unchanged.
+
+### Fixed: live Chat keeps reasoning and tool events in arrival order
+
+- Desktop Chat and Project Chat no longer let a tool call jump ahead of reasoning that arrived earlier in the same animation frame, or render answer text before the final reasoning chunk.
+- The shared conversation controller now batches one ordered stream of text/reasoning chunks and flushes it at tool and Plan boundaries; persisted transcript projection remains unchanged.
+- The ordering feature shipped in v2.9.17, but its first implementation combined the pre-existing frame buffer with immediate tool insertion and therefore contained this timing-dependent regression from that release onward. Controller-level regression tests now cover both boundary cases.
+
 ### Release: v2.9.23 / Desktop v0.9.20
 - Synchronized the root and Desktop package versions for the new release.
 

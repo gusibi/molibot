@@ -5,6 +5,46 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.91 Mini Chat 轻量对话小程序（2026-08-14）
+
+- **Priority / Status**: P0 / Delivered (2026-08-14).
+- **Problem**: 临时问答若进入完整 Agent Runtime，会携带长系统提示词、Profile、记忆、Skills 与工具定义；这些能力在短对话中无用，却增加 token 成本与延迟。普通 Agent Session 又把临时聊天混入 Agent 的长期会话语义。
+- **Decision**: 内置可选安装的 Mini Chat 使用 Astryx `ai-chat` UI；小程序以独立 SQLite 管理 Session，Host AI Facade 增加结构化 `chat(messages)` 与 `onTextDelta`，通过 Pi 模型路由与用户现有凭证直调模型，但不调用 Agent Runner。Mini Chat 不传 `system`，manifest 不暴露 Agent tools；文本调用默认使用 `low` reasoning；文本增量跨子进程进入小程序内存并由页面读取，完成结果一次持久化；停止操作以 AbortSignal 跨子进程取消 Provider 请求；Provider 错误经限长和凭证脱敏后返回界面并写入运行日志。窄屏 assistant 消息不保留无信息量的 initials 头像列。
+- **Acceptance**: 能创建、切换、删除并在重启后恢复独立会话；多轮请求只包含交替的 user/assistant 历史且不存在默认 system prompt；回复在模型生成期间逐步显示，最终持久化内容与增量拼接一致；支持 Markdown、复制、停止、错误收据与重试；请求使用 `low` reasoning，失败时能看到可用于调整模型/Provider 配置的安全错误说明；中英、明暗/系统主题及窄宽度可用，390px 下无头像占位或横向溢出；内置安装、Session 持久化、历史边界、流式/错误/取消链路、类型检查和生产构建通过。
+
+---
+## 3.90 Desktop Chat 连续工具聚合与动作摘要（2026-08-14）
+
+- **Priority / Status**: P1 / Delivered (2026-08-14).
+- **Problem**: 第一阶段恢复了真实顺序并合并工具开始/结束生命周期，但读取多个文件、连续修改或连续搜索仍逐行占据时间线。真实任务中这些重复成功记录会压过思考与最终回答，用户必须逐条翻译内部工具名才能理解 Agent 完成了哪类工作。
+- **Decision**: 在共享时间线增加纯展示投影，只聚合相邻、成功且语义明确的读取、修改、搜索、命令调用；摘要使用动作、唯一文件数/调用数和耗时。组内保留原始活动与 payload，运行中、失败、未知工具独立展示；聚合不跨越思考、过程文本或动作类型边界。
+- **Acceptance**: Chat 与 Project Chat 对相邻同类成功调用显示一个可展开动作摘要；展开后原始顺序和详情完整；错误与当前动作无需展开组即可看到；聚合不改变存储或生命周期数据；中英文、明暗、窄宽度、结构/单元测试、类型检查、生产构建与冷启动路径通过。
+
+---
+## 3.89 Desktop Chat 扁平执行时间线（2026-08-14）
+
+- **Priority / Status**: P1 / Delivered (2026-08-14).
+- **Problem**: 实时思考默认折叠，工具调用的开始/结束容易表现为两条记录；完成态又叠加过程、工具组和单条 payload 三层 disclosure，用户无法像 Codex 一样扫读“正在做什么”，也难以从摘要判断实际工作量。同名并行工具还依赖工具名倒序配对，存在串线风险。
+- **Decision**: 以运行时 `toolCallId` 作为工具活动唯一 key；Chat 与 Project Chat 共享一层 `TurnProcess` 和扁平 `ProcessTimeline`。执行中强制可见，成功后默认折叠，失败/中断展开；思考、过程文本、工具行按到达顺序平铺，只有工具 payload 使用局部 disclosure。摘要只呈现耗时、工具数和修改文件数。
+- **Acceptance**: 同名并行工具开始/结束准确归并为各自一行；实时思考和当前工具无需点击即可看到；成功回答保持视觉主位；失败行与错误 payload 自动可见；中英文、明暗主题、窄宽度、结构测试、类型检查、生产构建与冷启动路径通过。
+
+---
+## 3.88 Desktop AI 服务商模型按名称前缀归组（2026-08-14）
+
+- **Priority / Status**: P1 / Delivered (2026-08-14).
+- **Problem**: 设置 → AI 服务商的模型列表按模型名的前两段连字符片段分组，`gemini-3.5-*` 与 `gemini-3.6-*` 被拆成多个版本组，模型数量变多后难以扫描。
+- **Decision**: 以模型标识最后一个 `/` 后的名称为准，按第一个 `-` 之前的前缀生成组键；模型列表和发现模型弹窗共用同一规则，不改变模型 ID、排序、搜索、添加或折叠行为。
+- **Acceptance**: `gemini-3.5-*` 与 `gemini-3.6-*` 同组显示为 `gemini`；无连字符模型保持自身名称为组名，空模型继续进入本地化“其他”组；Desktop 结构回归、类型检查和生产构建通过。
+
+---
+## 3.87 Desktop Chat 思考/工具调用实时顺序恢复（2026-08-14）
+
+- **Priority / Status**: P1 / Delivered (2026-08-14).
+- **Problem**: 有序 Chat timeline 把 text/thinking 追加到按类型分离的 16ms 帧缓冲，而工具/Plan 事件立即写入 `liveSteps`。同一帧内先到的思考会被后到的工具越过，thinking→answer 切换也会因固定 flush 顺序显示成 answer→thinking。
+- **Decision**: 在共享 `ConversationController` 使用单一、按到达顺序的 chunk 队列；相邻同类增量仍合并以控制重绘，工具与 Plan 是必须先 flush 的显式顺序边界。服务端 SSE 与历史 `steps` 投影保持原样。
+- **Acceptance**: Chat 与 Project Chat 的实时 thinking/text/tool/Plan 顺序等于事件到达顺序；工具结束更新原位置而不重复；完成并 reload 后顺序保持；controller 回归、历史投影测试、Desktop 全量测试、类型检查、构建与冷启动走查通过。
+
+---
 ## 3.86 Meeting Notes 生产化 V1（2026-08-14）
 
 - **Priority / Status**: P0 / Delivered (2026-08-14).

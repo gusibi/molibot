@@ -61,15 +61,22 @@ export function transcriptCompletedTurnSections(blocks: TranscriptRenderBlock[])
 }
 
 export function transcriptProcessSummary(blocks: TranscriptProcessBlock[]): {
-  stepCount: number;
+  toolCount: number;
+  fileCount: number;
   durationMs: number;
   hasError: boolean;
 } {
   const activities = blocks.flatMap((block) => block.kind === "activities" ? block.activities : []);
-  const thinkingCount = blocks.filter((block) => block.kind === "thinking").length;
+  const files = new Set(activities.flatMap((activity) => activity.mutates ? (activity.paths ?? []) : []));
+  const starts = activities.flatMap((activity) => activity.startedAt ? [Date.parse(activity.startedAt)] : []).filter(Number.isFinite);
+  const finishes = activities.flatMap((activity) => activity.finishedAt ? [Date.parse(activity.finishedAt)] : []).filter(Number.isFinite);
+  const elapsedMs = starts.length && finishes.length
+    ? Math.max(0, Math.max(...finishes) - Math.min(...starts))
+    : activities.reduce((total, activity) => total + (activity.durationMs ?? 0), 0);
   return {
-    stepCount: activities.length + thinkingCount,
-    durationMs: activities.reduce((total, activity) => total + (activity.durationMs ?? 0), 0),
+    toolCount: activities.filter((activity) => activity.kind === "tool").length,
+    fileCount: files.size,
+    durationMs: elapsedMs,
     // This helper is used only for committed messages. A persisted `running`
     // row has lost its live owner and is an interrupted failure, matching
     // `finalizeTranscriptActivities`; do not hide it behind a closed summary.

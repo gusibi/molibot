@@ -108,7 +108,7 @@ test("the shipped miniapp-creator skill loads with its template and scaffold scr
     const skillDir = path.join(skillsRoot, "miniapp-creator");
     for (const relative of [
       "SKILL.md",
-      "reference.md",
+      "references/doc.md",
       "scripts/scaffold.mjs",
       "template/manifest.json",
       "template/server/index.mjs",

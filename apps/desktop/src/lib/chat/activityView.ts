@@ -28,6 +28,23 @@ export interface ActivityBody {
 const TERMINAL_TOOLS = new Set(["bash", "bashOutput", "bash_output", "hostBash"]);
 /** Tools whose successful output is the literal contents of a file. */
 const FILE_CONTENT_TOOLS = new Set(["read", "docExtract"]);
+const READ_TOOLS = new Set(["read", "read_file", "docExtract"]);
+const CHANGE_TOOLS = new Set(["edit", "write"]);
+const SEARCH_TOOLS = new Set(["search", "web_search", "grep", "find", "glob", "rg", "project_search"]);
+const COMMAND_TOOLS = new Set(["bash", "bashOutput", "bash_output", "hostBash"]);
+
+export type ActivityGroupAction = "read" | "change" | "search" | "command";
+
+export type ActivityTimelineItem =
+  | { kind: "single"; key: string; activity: DesktopConversationActivity }
+  | {
+      kind: "group";
+      key: string;
+      action: ActivityGroupAction;
+      activities: DesktopConversationActivity[];
+      fileCount: number;
+      durationMs: number;
+    };
 
 /**
  * The tool's id.
@@ -46,6 +63,59 @@ export function activityToolName(activity: Pick<DesktopConversationActivity, "to
   if (separator <= 0) return key;
   const suffix = key.slice(separator + 1);
   return /^\d+$/.test(suffix) ? key.slice(0, separator) : key;
+}
+
+function groupAction(activity: DesktopConversationActivity): ActivityGroupAction | null {
+  if (activity.kind !== "tool" || activity.state !== "success") return null;
+  const tool = activityToolName(activity);
+  if (READ_TOOLS.has(tool)) return "read";
+  if (CHANGE_TOOLS.has(tool)) return "change";
+  if (SEARCH_TOOLS.has(tool)) return "search";
+  if (COMMAND_TOOLS.has(tool)) return "command";
+  return null;
+}
+
+function elapsedDuration(activities: DesktopConversationActivity[]): number {
+  const starts = activities.flatMap((activity) => activity.startedAt ? [Date.parse(activity.startedAt)] : []).filter(Number.isFinite);
+  const finishes = activities.flatMap((activity) => activity.finishedAt ? [Date.parse(activity.finishedAt)] : []).filter(Number.isFinite);
+  if (starts.length && finishes.length) return Math.max(0, Math.max(...finishes) - Math.min(...starts));
+  return activities.reduce((total, activity) => total + (activity.durationMs ?? 0), 0);
+}
+
+/**
+ * Compresses only adjacent, successful calls with a known user-facing action.
+ * Running/error rows and unknown tools stay explicit, and callers invoke this
+ * per activity block so a reasoning/text boundary can never be crossed.
+ */
+export function activityTimelineItems(activities: DesktopConversationActivity[]): ActivityTimelineItem[] {
+  const items: ActivityTimelineItem[] = [];
+  for (let index = 0; index < activities.length;) {
+    const action = groupAction(activities[index]);
+    if (!action) {
+      items.push({ kind: "single", key: activities[index].key, activity: activities[index] });
+      index += 1;
+      continue;
+    }
+
+    let end = index + 1;
+    while (end < activities.length && groupAction(activities[end]) === action) end += 1;
+    const run = activities.slice(index, end);
+    if (run.length < 2) {
+      items.push({ kind: "single", key: run[0].key, activity: run[0] });
+    } else {
+      const paths = new Set(run.flatMap((activity) => activity.paths ?? []).filter(Boolean));
+      items.push({
+        kind: "group",
+        key: `group:${action}:${run[0].key}:${run.at(-1)!.key}`,
+        action,
+        activities: run,
+        fileCount: paths.size,
+        durationMs: elapsedDuration(run)
+      });
+    }
+    index = end;
+  }
+  return items;
 }
 
 /** True when `text` is a JSON object or array worth rendering as a tree. */

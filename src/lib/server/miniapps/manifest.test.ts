@@ -70,6 +70,16 @@ test("a valid message action is preserved by manifest validation", () => {
   );
 });
 
+test("a UI-only Mini App may declare no Agent tools", () => {
+  withManifest(
+    (manifest) => { manifest.tools = []; },
+    (result) => {
+      assert.equal(result.ok, true);
+      if (result.ok) assert.deepEqual(result.value.manifest.tools, []);
+    }
+  );
+});
+
 test("AI capabilities and controlled upload limits are strict and preserved", () => {
   withManifest(
     (manifest) => {

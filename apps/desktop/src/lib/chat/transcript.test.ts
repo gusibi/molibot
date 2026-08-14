@@ -21,7 +21,8 @@ test("completed turns fold every pre-answer reasoning, narration, and tool block
   assert.deepEqual(sections.process, blocks.slice(0, 3));
   assert.deepEqual(sections.response, blocks.slice(3));
   assert.deepEqual(transcriptProcessSummary(sections.process), {
-    stepCount: 2,
+    toolCount: 1,
+    fileCount: 0,
     durationMs: 1250,
     hasError: false
   });
@@ -78,6 +79,18 @@ test("a stale running activity keeps the completed process open as an interrupti
     kind: "activities",
     activities: [{ key: "stale", kind: "tool", label: "Bash", state: "running" }]
   }]).hasError, true);
+});
+
+test("process duration is wall-clock elapsed time, not summed parallel tool time", () => {
+  const summary = transcriptProcessSummary([{
+    id: "parallel",
+    kind: "activities",
+    activities: [
+      { key: "a", kind: "tool", label: "A", state: "success", startedAt: "2026-08-14T10:00:00.000Z", finishedAt: "2026-08-14T10:00:02.000Z", durationMs: 2_000 },
+      { key: "b", kind: "tool", label: "B", state: "success", startedAt: "2026-08-14T10:00:01.000Z", finishedAt: "2026-08-14T10:00:03.000Z", durationMs: 2_000 }
+    ]
+  }]);
+  assert.equal(summary.durationMs, 3_000);
 });
 
 test("persisted running activities become terminal without mutating the source", () => {

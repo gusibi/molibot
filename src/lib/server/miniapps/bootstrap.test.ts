@@ -302,6 +302,7 @@ test("the built-in ids the host labels are the ids the bundle actually ships", (
   assert.deepEqual(builtinMiniAppIds(), listBuiltinMiniApps().map((app) => app.id));
   assert.ok(builtinMiniAppIds().includes("note"), "Note ships as a built-in");
   assert.ok(builtinMiniAppIds().includes("todo"), "Todo ships as a built-in");
+  assert.ok(builtinMiniAppIds().includes("mini-chat"), "Mini Chat ships as a built-in");
 });
 
 test("a built-in without autoInstall is offered rather than planted in the workspace", () => {
@@ -309,6 +310,7 @@ test("a built-in without autoInstall is offered rather than planted in the works
   const result = ensureBuiltinMiniApps({ codeRoot, getEnablement: () => ({}) });
 
   assert.deepEqual(result.skipped.find((row) => row.id === "note"), { id: "note", reason: "opt-in" });
+  assert.deepEqual(result.skipped.find((row) => row.id === "mini-chat"), { id: "mini-chat", reason: "opt-in" });
   assert.equal(existsSync(join(codeRoot, "note")), false, "an upgrade must not plant a new app");
 
   // Not installed, yet fully describable: name, description, version and icon
@@ -323,6 +325,11 @@ test("a built-in without autoInstall is offered rather than planted in the works
   assert.equal(note?.name, builtinMiniAppMeta(getBuiltinMiniApp("note")!).name);
   assert.ok(note?.iconDataUri.startsWith("data:image/svg+xml;base64,"), "the row can show an icon");
   assert.ok((note?.toolNames.length ?? 0) > 0, "the row can say what the app contributes");
+
+  const miniChat = host.listBuiltinCatalog().find((row) => row.id === "mini-chat");
+  assert.equal(miniChat?.name, "Mini Chat");
+  assert.equal(miniChat?.installed, false);
+  assert.deepEqual(miniChat?.toolNames, [], "UI-only Mini Chat does not expose Agent tools");
 
   // The installed catalog stays a list of what is installed.
   assert.deepEqual(host.listCatalog().map((row) => row.id), ["todo"]);

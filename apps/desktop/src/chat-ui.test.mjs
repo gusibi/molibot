@@ -50,6 +50,7 @@ const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
 const runActivity = read("./lib/chat/RunActivity.svelte");
 const thinkingCard = read("./lib/chat/ThinkingCard.svelte");
 const turnProcess = read("./lib/chat/TurnProcess.svelte");
+const processTimeline = read("./lib/chat/ProcessTimeline.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
 const markdownArtifactOverlay = read("./lib/chat/MarkdownArtifactOverlay.svelte");
 const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
@@ -1092,7 +1093,7 @@ test("a streaming reply renders as keyed per-block fragments, not one swapped tr
   assert.match(streamingMarkdown, /export function createStreamingRenderer/);
   // Keyed by index: the list is append-only (streaming only appends), so an
   // index key is what lets Svelte keep each sealed block's DOM node untouched.
-  assert.match(conversationLiveView, /\{#each orderedBlocks as block \(block\.id\)\}/);
+  assert.match(conversationLiveView, /\{#each liveSections\.response as block \(block\.id\)\}/);
   // Each block is its own {@html} inside a layout-transparent wrapper, not one
   // merged blob - that is the whole reason a sealed block can stay untouched.
   assert.match(conversationLiveView, /<StreamingChatMarkdown source=\{block\.content\}/);
@@ -1913,21 +1914,27 @@ test("shared transcript renders media inline and delegates tool activity", () =>
   assert.match(runActivity, /hasError \? copy\.runFailed : copy\.runCompleted/);
 });
 
-test("thinking and tool activity stay opt-in", () => {
+test("completed reasoning stays opt-in while live reasoning remains visible", () => {
   assert.match(transcript, /<ThinkingCard text=\{message\.thinking\}/);
   assert.doesNotMatch(thinkingCard, /<details class="thinking-card"[^>]*\bopen>/);
-  assert.match(conversationLiveView, /<ThinkingCard text=\{block\.content\}/);
+  assert.match(conversationLiveView, /<TurnProcess blocks=\{liveSections\.process\}[^>]*forceOpen live/);
   assert.doesNotMatch(runActivity, /<details class="run-activity" open=/);
 });
 
-test("a completed turn folds its whole pre-answer process behind one disclosure", () => {
+test("turn process uses one disclosure with an ordered timeline", () => {
   assert.match(transcript, /transcriptCompletedTurnSections\(renderBlocks\)/);
   assert.match(transcript, /<TurnProcess/);
   assert.match(turnProcess, /<details class="turn-process" bind:open=\{opened\}/);
-  assert.match(turnProcess, /\{#if opened\}[\s\S]*\{#each blocks as block/);
-  assert.match(turnProcess, /copy\.turnProcessSteps/);
+  assert.match(turnProcess, /\{#if opened\}[\s\S]*<ProcessTimeline/);
+  assert.match(turnProcess, /copy\.turnSummaryTools/);
+  assert.match(turnProcess, /copy\.turnSummaryFiles/);
   assert.match(transcript, /processSummary\.hasError/);
-  assert.doesNotMatch(conversationLiveView, /<TurnProcess/);
+  assert.doesNotMatch(turnProcess, /<ThinkingCard|<RunActivity/);
+  assert.match(processTimeline, /\{#each blocks as block \(block\.id\)\}/);
+  assert.match(processTimeline, /activityTimelineItems\(block\.activities\)/);
+  assert.match(processTimeline, /<details class="process-activity-group">/);
+  assert.match(processTimeline, /<ProcessActivityItem \{activity\} \{copy\} \{onOpenPath\}/);
+  assert.match(processTimeline, /class="process-timeline-entry process-timeline-thinking"/);
 });
 
 // Completed reasoning text and tool summaries are the bulk of a transcript's
@@ -1958,7 +1965,8 @@ test("shared composer turns pasted clipboard images into attachments", () => {
   // Tokens must be buffered and flushed per animation frame, never written to
   // the reactive field directly (per-token writes rebuild the whole {@html}
   // bubble and make streaming look like a page refresh).
-  assert.match(conversationController, /onToken: \(delta\) => \{\s*this\.activity = "";\s*this\.pendingStreamText \+= delta;\s*this\.scheduleStreamFlush\(\);/);
+  assert.match(conversationController, /onToken: \(delta\) => \{\s*this\.activity = "";\s*this\.bufferLiveText\("text", delta\);/);
+  assert.match(conversationController, /private pendingLiveChunks: Array<\{ kind: "text" \| "thinking"; content: string \}>/);
   assert.doesNotMatch(conversationController, /onToken:[^}]*this\.streamingText \+= delta/);
 });
 
@@ -1999,7 +2007,8 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.doesNotMatch(projectChat, /streamDesktopChat/);
   assert.doesNotMatch(projectChat, /runDesktopConversationTurn/);
   assert.match(conversationLiveView, /<ConversationTranscript/);
-  assert.match(conversationLiveView, /<RunActivity/);
+  assert.match(conversationLiveView, /<TurnProcess/);
+  assert.match(turnProcess, /<ProcessTimeline/);
 });
 
 test("long conversations share one user-turn navigator and preserve reader scroll ownership", () => {
@@ -2955,6 +2964,12 @@ test("AI provider configuration is an inline workbench, not a modal, and separat
     providersStore.indexOf("\nexport ", providersStore.indexOf("export async function verifyProviderModel") + 1)
   );
   assert.doesNotMatch(verifyProviderModelSource, /providersStore\.actionMessage|providersStore\.actionFailed/);
+});
+
+test("AI provider model inventory groups by the prefix before the first hyphen", () => {
+  assert.match(sections.providers, /const \[prefix\] = tail\.split\("-"\);/);
+  assert.match(sections.providers, /return prefix \|\| tail;/);
+  assert.doesNotMatch(sections.providers, /parts\.length <= 1 \? tail : `\$\{parts\[0\]\}-\$\{parts\[1\]\}`/);
 });
 
 test("switching providers never silently drops an unsaved draft", () => {

@@ -487,6 +487,7 @@ export function createMomTools(options: {
         if (options.emitRunnerEvent) {
           void options.emitRunnerEvent({
             type: detailEntry.type === "tool_start" ? "tool_execution_start" : "tool_execution_end",
+            toolCallId: detailEntry.toolCallId,
             toolName: detailEntry.toolName,
             displayName: detailEntry.displayName,
             label: detailEntry.summary,

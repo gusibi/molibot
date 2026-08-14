@@ -1132,6 +1132,7 @@ async function runSubagentOnce(
     hostBashApproval = prompt;
     void options.emitRunnerEvent?.({
       type: "tool_execution_end",
+      toolCallId: `${options.subagentTaskId ?? options.subagentSessionId ?? agent.name}:tool:${subagentToolCallCount}`,
       toolName,
       displayName: "subagent bash",
       isError: true,

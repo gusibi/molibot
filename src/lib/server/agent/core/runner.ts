@@ -1486,6 +1486,7 @@ export class MomRunner implements RunnerLike {
         if (ctx.onRunnerEvent) {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_start",
+            toolCallId: event.toolCallId,
             toolName: event.toolName,
             displayName,
             label,
@@ -1556,6 +1557,7 @@ export class MomRunner implements RunnerLike {
         if (ctx.onRunnerEvent) {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_end",
+            toolCallId: event.toolCallId,
             toolName: event.toolName,
             displayName,
             isError: event.isError,

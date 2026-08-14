@@ -10,7 +10,6 @@ import {
   type MaterializedEntry
 } from "../bundles/materializedBundle";
 import miniappCreatorSkill from "../../../../../skills/miniapp-creator/SKILL.md?raw";
-import miniappCreatorReference from "../../../../../skills/miniapp-creator/reference.md?raw";
 import miniappCreatorScaffold from "../../../../../skills/miniapp-creator/scripts/scaffold.mjs?raw";
 import miniappTemplateManifest from "../../../../../skills/miniapp-creator/template/manifest.json?raw";
 import miniappTemplateServer from "../../../../../skills/miniapp-creator/template/server/index.mjs?raw";
@@ -18,6 +17,7 @@ import miniappTemplateHtml from "../../../../../skills/miniapp-creator/template/
 import miniappTemplateScript from "../../../../../skills/miniapp-creator/template/ui/app.js?raw";
 import miniappTemplateStyle from "../../../../../skills/miniapp-creator/template/ui/styles.css?raw";
 import miniappTemplateIcon from "../../../../../skills/miniapp-creator/template/ui/icon.svg?raw";
+import miniappCreatorDoc from "../../../../../skills/miniapp-creator/references/doc.md?raw";
 
 /**
  * Built-in Skill bootstrap.
@@ -70,11 +70,11 @@ export interface BuiltinSkill {
 const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     id: "miniapp-creator",
-    // 1.3.3: describe child-process fault isolation without claiming a permission sandbox.
-    version: "1.3.3",
+    // 1.4.0: add references/doc.md capability and API documentation.
+    version: "1.4.0",
     files: {
       "SKILL.md": miniappCreatorSkill,
-      "reference.md": miniappCreatorReference,
+      "references/doc.md": miniappCreatorDoc,
       "scripts/scaffold.mjs": miniappCreatorScaffold,
       "template/manifest.json": miniappTemplateManifest,
       "template/server/index.mjs": miniappTemplateServer,

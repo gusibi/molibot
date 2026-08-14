@@ -6,45 +6,46 @@ const MAX_DIFF_LENGTH = 40_000;
 
 export class ConversationActivityCollector {
   private activities: ConversationActivity[] = [];
-  private sequence = 0;
 
   constructor(private readonly now: () => number = Date.now) {}
 
   record(event: RunnerUiEvent): ConversationActivity | undefined {
     if (event.type === "tool_execution_start") {
+      const existingIndex = this.activities.findIndex((candidate) => candidate.key === event.toolCallId);
+      const existing = existingIndex >= 0 ? this.activities[existingIndex] : undefined;
+      const incomingLabel = event.label || event.displayName || event.toolName;
       const activity: ConversationActivity = {
-        key: `${event.toolName}-${++this.sequence}`,
+        key: event.toolCallId,
         kind: "tool",
         // The tool's own id, recorded rather than left to be parsed back out of
         // `key`: a surface that renders a `read` result differently from a
         // `bash` result must not depend on a key format that exists for
         // deduplication.
         tool: event.toolName,
-        label: event.label || event.displayName || event.toolName,
+        // ToolRuntime and the agent event stream can both report the same
+        // lifecycle. Prefer the specific model-facing label over the runtime's
+        // generic "Tool started" receipt, regardless of which arrives first.
+        label: incomingLabel.startsWith("Tool started:") && existing?.label
+          ? existing.label
+          : incomingLabel,
         state: "running",
-        startedAt: event.startedAt ?? new Date(this.now()).toISOString(),
+        startedAt: existing?.startedAt ?? event.startedAt ?? new Date(this.now()).toISOString(),
         // Only present when the tool actually takes a file path, so activities
         // for every other tool serialize exactly as they did before.
-        ...(event.paths?.length ? { paths: [...event.paths], mutates: event.mutates === true } : {})
+        ...(event.paths?.length
+          ? { paths: [...event.paths], mutates: event.mutates === true }
+          : existing?.paths?.length
+            ? { paths: existing.paths, mutates: existing.mutates === true }
+            : {})
       };
-      this.activities.push(activity);
+      if (existingIndex >= 0) this.activities[existingIndex] = activity;
+      else this.activities.push(activity);
       return activity;
     }
 
     if (event.type !== "tool_execution_end") return undefined;
 
-    let index = -1;
-    for (let position = this.activities.length - 1; position >= 0; position -= 1) {
-      const candidate = this.activities[position];
-      if (
-        candidate.kind === "tool" &&
-        candidate.state === "running" &&
-        candidate.key.startsWith(`${event.toolName}-`)
-      ) {
-        index = position;
-        break;
-      }
-    }
+    const index = this.activities.findIndex((candidate) => candidate.key === event.toolCallId);
 
     const summary = event.summary.trim();
     // `tool_execution_end` has no arguments, so the file target recorded at
@@ -53,10 +54,10 @@ export class ConversationActivityCollector {
     const diff = event.diff?.trim();
     const finishedAt = event.finishedAt ?? new Date(this.now()).toISOString();
     const activity: ConversationActivity = {
-      key: started?.key ?? `${event.toolName}-${++this.sequence}`,
+      key: event.toolCallId,
       kind: "tool",
       tool: event.toolName,
-      label: event.displayName || event.toolName,
+      label: started?.label || event.displayName || event.toolName,
       state: event.isError ? "error" : "success",
       summary: summary ? summary.slice(0, MAX_SUMMARY_LENGTH) : undefined,
       startedAt: started?.startedAt,

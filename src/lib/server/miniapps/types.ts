@@ -271,12 +271,25 @@ export interface MiniAppAiTextResult {
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 
+export interface MiniAppAiChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface MiniAppAiFacade {
   generateText(input: {
     prompt: string;
     system?: string;
     maxTokens?: number;
     signal?: AbortSignal;
+    onTextDelta?: (delta: string) => void;
+  }): Promise<MiniAppAiTextResult>;
+  chat(input: {
+    messages: MiniAppAiChatMessage[];
+    system?: string;
+    maxTokens?: number;
+    signal?: AbortSignal;
+    onTextDelta?: (delta: string) => void;
   }): Promise<MiniAppAiTextResult>;
   transcribe(input: {
     path: string;

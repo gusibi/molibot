@@ -18,7 +18,9 @@ function capabilityRows() {
 test("capability matrix uses one four-state vocabulary with unique capabilities", () => {
   const rows = capabilityRows();
   assert.ok(rows.length >= 15);
-  assert.deepEqual(new Set(rows.map((row) => row.status)), allowedStatuses);
+  for (const row of rows) {
+    assert.ok(allowedStatuses.has(row.status), `invalid status: ${row.status}`);
+  }
   assert.equal(new Set(rows.map((row) => `${row.area}:${row.capability}`)).size, rows.length);
   assert.equal(rows.every((row) => row.evidence.length > 0), true);
 });

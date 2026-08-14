@@ -6,6 +6,51 @@
 
 ## 2026-08-14
 
+### Release v2.9.24 / Desktop v0.9.21
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布 Mini Chat 轻量对话小程序、连续工具聚合与动作摘要、扁平执行时间线、AI 服务商模型前缀归组以及思考与工具调用实时顺序修复。
+
+### Mini Chat 轻量对话小程序（新增，P0）
+
+- 新增可选安装的内置 **Mini Chat**（`mini-chat`，v1.0.2），界面基于 Astryx `ai-chat` 模板与组件构建，并随包保留其 MIT 第三方声明；支持中英、明暗/系统主题、移动窄宽度和独立会话侧栏。
+- 每个 Mini Chat Session 与消息由小程序自己的 `mini-chat.sqlite` 持久化；重启保留历史，启动时将未完成回复标为可重试的 interrupted，不复用也不污染 Agent Session。
+- 模型请求走扩展后的 Host AI Facade `context.ai.chat()`，只提交经校验和有界裁剪的 `user/assistant` 历史，不设置 `system`，不进入 Agent Runner，因此不会合并默认 Agent 系统提示词、记忆、Skills 或工具定义。
+- 支持新建/删除会话、Markdown 回复、复制、失败/停止后重试以及真实取消。取消信号可跨小程序子进程传到模型 Provider，不只是停止界面动画。
+- Mini Chat 的文本调用固定使用 `low` reasoning；Provider 拒绝请求时，界面显示带 HTTP 状态的简短可操作原因，Host 会先移除凭证并限制长度，运行日志同时记录同一脱敏错误。
+- Host AI Facade 支持 `onTextDelta`，Pi 原生文本增量可跨小程序子进程传递；Mini Chat 生成期间以轻量轮询读取内存增量，完成后才一次写入 SQLite，避免逐 token 写库。
+- Assistant 消息移除占位过大的 `MC` 头像，并在 480px 以下收紧 Astryx 消息内层留白；390px 实测正文宽 327px、头像为 0 且无横向溢出。
+- Mini App manifest 允许 `tools: []`，UI-only 应用无需为了通过校验而暴露虚假的 Agent 工具。
+- 验证：Astryx UI TypeScript 检查通过；AI facade、manifest、Mini Chat Session/流式增量/错误/取消（含真实子进程边界）、全部内置安装与 runtime smoke 共 37/37 通过；当前配置模型真实返回 4 个增量且拼接结果与最终回复一致；桌面中文、390px 中文窄宽度及英文深色真实渲染走查通过。
+
+### Desktop Chat 连续工具聚合与动作摘要（优化，P1）
+
+- 完成态时间线把连续且成功的读取、文件修改、搜索、命令调用压缩为一句可扫读的动作摘要；按唯一文件数或调用次数描述工作，不展示内部工具名堆叠。
+- 展开摘要仍能按原顺序检查每次工具调用及 payload。运行中、失败和未知工具始终独占一行；思考或过程说明会中断聚合，排障信息不会被吞掉。
+- 聚合只是一层纯展示投影，不改写会话活动、工具生命周期或持久化数据；Chat 与 Project Chat 复用同一实现，中英文、明暗和窄宽度共享语义样式。
+- 机器守卫覆盖同类连续聚合、动作切换边界、运行/失败保护、未知工具保护与共享时间线接入。
+- 验证：活动投影 16/16、Desktop TypeScript/结构测试 210/210、Rust 56/56、Project/活动 73/73，`svelte-check` 0 错误/0 警告，Root 与 Desktop production build、`git diff --check` 通过；临时数据冷启动、首次进入 Chat、页面切换、断服请求与同目录服务恢复通过，临时数据已移入废纸篓。
+
+### Desktop Chat 扁平执行时间线（优化/修复，P1）
+
+- Chat 与 Project Chat 共用一套过程展示：执行中默认展开，成功后折叠为克制摘要，失败/中断保持展开；展开后按真实到达顺序呈现思考、过程说明和工具动作，连续成功动作可在第二阶段压缩为一行摘要。
+- 每次工具调用只显示一行生命周期记录；运行时的真实 `toolCallId` 从 Agent 事件贯穿到会话活动收集器，同名并行调用不会串行配对，结束事件也保留开始时包含目标文件/命令的具体标签。
+- 完成摘要只使用稳定事实：耗时、工具次数、修改文件数；不再把思考分块数伪装成步骤数。工具 payload 仍可按需展开，错误 payload 自动展开。
+- 机器守卫覆盖同名并行工具调用、实时/完成态展示策略、扁平时间线结构和稳定摘要。
+- 验证：活动/Project 72/72、Desktop 全量 TypeScript/结构/Rust 测试通过（UI 206/206），`svelte-check` 0 错误/0 警告，Root 与 Desktop production build、`git diff --check` 通过；临时数据冷启动、首次进入 Chat、页面切换和服务重启恢复通过，临时数据已移入废纸篓。
+
+### Desktop AI 服务商模型按名称前缀归组（优化，P1）
+
+- 设置 → AI 服务商的模型清单与发现模型弹窗，统一按模型名第一个 `-` 之前的前缀分组；例如 `gemini-3.5-*` 与 `gemini-3.6-*` 现在归入同一个 `gemini` 组，不再按版本号拆组。
+- 保留模型路径取最后一段、组内原始顺序、搜索、排序和折叠状态；空模型仍显示在本地化的“其他”组。
+- 验证：Desktop UI 结构回归 206/206、`svelte-check` 0 错误/0 警告、生产构建通过，`git diff --check` 通过。
+
+### Desktop Chat 思考/工具调用实时顺序恢复（修复，P1）
+
+- Chat 与 Project Chat 共用的 `ConversationController` 改为按 SSE 到达顺序缓存 text/thinking chunk；工具调用与 Plan 到达时先 flush 之前的模型输出，再插入边界事件，实时列表不会再显示为“工具 → 之前的思考”或“结果 → 最后一段思考”。
+- 版本追溯：有序 `liveSteps` 在 `3ce82e2a` 加入并随 v2.9.17 / Desktop v0.9.14 发布，但它直接叠加在 2026-07-18 已存在的分类型帧缓冲上，工具事件又同步入列，所以该功能从首个发布版本起就带有同帧竞态；之后 controller 的相关逻辑没有再次改动，不是 v2.9.18–v2.9.23 中某个版本删除了功能。
+- 新增 controller 级回归，覆盖 `thinking → tool` 与 `thinking → answer text` 两种同帧边界；历史会话继续由结构化 `steps` 保持顺序，无需迁移。
+- 验证：controller/transcript 11/11、历史 conversation projection 11/11、Desktop 全量 TypeScript/结构/Rust 测试通过，`svelte-check` 0 错误/0 警告、生产构建通过；使用临时 `DATA_DIR` 冷启动服务和 Desktop Preview，首次进入 Chat、切换自动任务后返回、断服后重启恢复均通过，临时数据已移入废纸篓。
+
 ### Release v2.9.23 / Desktop v0.9.20
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，发布 Meeting Notes 生产级 Live 录制工作室与历史检索过滤、设置页编辑弹窗、Memory 加载提速与 MCP 自动连接等优化。

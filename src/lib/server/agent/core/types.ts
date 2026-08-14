@@ -134,6 +134,7 @@ export type RunnerUiEvent =
     }
   | {
       type: "tool_execution_start";
+      toolCallId: string;
       toolName: string;
       displayName?: string;
       label: string;
@@ -145,6 +146,7 @@ export type RunnerUiEvent =
     }
   | {
       type: "tool_execution_end";
+      toolCallId: string;
       toolName: string;
       displayName?: string;
       isError: boolean;

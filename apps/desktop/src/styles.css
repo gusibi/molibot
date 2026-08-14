@@ -2797,12 +2797,44 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 .turn-process-summary:hover { background: var(--fill-hover); color: var(--label-secondary); }
 .turn-process-summary > .ph:first-child { flex: none; color: var(--online); font-size: var(--icon-sm); }
 .turn-process-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-process[data-state="live"] .turn-process-summary > .ph:first-child { color: var(--accent); }
 .turn-process[data-state="error"] .turn-process-summary > .ph:first-child { color: var(--danger); }
+.turn-process-summary > .spin, .process-timeline > .process-timeline-entry > .spin { animation: activity-spin 1.1s linear infinite; }
 .turn-process-summary small { display: inline-flex; flex: none; align-items: center; color: var(--label-tertiary); font: var(--fs-meta)/var(--lh-meta) var(--font-mono); }
 .turn-process-summary small::before { margin-right: 7px; content: "·"; }
 .turn-process-caret { flex: none; margin-left: auto; transition: transform var(--duration-fast) var(--ease-standard); }
 .turn-process[open] .turn-process-caret { transform: rotate(180deg); }
-.turn-process-body { display: grid; gap: 6px; margin: 2px 0 4px 10px; padding: 4px 0 4px 13px; border-left: 1px solid var(--separator); }
+.turn-process-body { display: grid; margin: 2px 0 4px 10px; padding: 4px 0 4px 13px; }
+.process-timeline { display: grid; min-width: 0; border-left: 1px solid var(--separator); }
+.process-timeline-entry { position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 7px; min-width: 0; padding: 5px 4px 5px 12px; color: var(--label-secondary); font-size: var(--fs-label); }
+.process-timeline-entry > .ph:first-child { position: relative; margin-left: -22px; padding: 3px 0; background: var(--content-bg); color: var(--label-tertiary); font-size: var(--icon-sm); }
+.process-timeline-tool[data-state="success"] > .ph:first-child { color: var(--online); }
+.process-timeline-tool[data-state="running"] > .ph:first-child { color: var(--accent); }
+.process-timeline-tool[data-state="error"] > .ph:first-child { color: var(--danger); }
+.process-timeline-group > .ph:first-child { color: var(--online); }
+.process-timeline-label { display: block; min-width: 0; padding-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.process-timeline-thinking pre { margin: 5px 0 0; color: var(--label-tertiary); font: inherit; line-height: 1.55; white-space: pre-wrap; }
+.process-tool-detail { min-width: 0; border: 0; }
+.process-tool-detail > summary { display: flex; min-height: 24px; align-items: baseline; gap: 7px; min-width: 0; list-style: none; cursor: pointer; }
+.process-tool-detail > summary::-webkit-details-marker { display: none; }
+.process-tool-detail > summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.process-tool-detail > summary > small { flex: none; color: var(--label-tertiary); font: var(--fs-meta)/var(--lh-meta) var(--font-mono); }
+.process-tool-detail > summary > .ph { flex: none; margin-left: auto; color: var(--label-tertiary); transition: transform var(--duration-fast) var(--ease-standard); }
+.process-tool-detail[open] > summary > .ph { transform: rotate(90deg); }
+.process-tool-detail .run-activity-viewer, .process-tool-detail .run-activity-diff, .process-tool-detail .run-activity-more, .process-tool-detail pre { margin-left: 0; }
+.process-tool-detail pre { margin: 4px 0 8px; padding: 9px 10px; overflow-x: auto; border-radius: var(--rounded-sm); background: var(--code-bg); color: var(--code-text); font: var(--fs-meta)/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.process-tool-detail pre.run-activity-terminal { white-space: pre; overflow-wrap: normal; }
+.process-activity-group { min-width: 0; border: 0; }
+.process-activity-group > summary { display: flex; min-width: 0; min-height: 24px; align-items: baseline; gap: 7px; list-style: none; cursor: pointer; }
+.process-activity-group > summary::-webkit-details-marker { display: none; }
+.process-activity-group > summary > span { min-width: 0; overflow: hidden; color: var(--label-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.process-activity-group > summary > small { flex: none; color: var(--label-tertiary); font: var(--fs-meta)/var(--lh-meta) var(--font-mono); }
+.process-activity-group > summary > .ph { flex: none; margin-left: auto; color: var(--label-tertiary); transition: transform var(--duration-fast) var(--ease-standard); }
+.process-activity-group[open] > summary > .ph { transform: rotate(90deg); }
+.process-activity-group-list { display: grid; margin: 5px 0 2px 2px; padding-left: 9px; border-left: 1px solid var(--hairline); }
+.process-activity-group-list .process-timeline-entry { padding: 4px 2px 4px 9px; }
+.process-activity-group-list .process-timeline-entry > .ph:first-child { margin-left: -19px; background: var(--content-bg); }
+.process-timeline-text { align-items: start; }
 .turn-process-text { min-width: 0; color: var(--label-secondary); font-size: var(--fs-label); }
 .turn-process-text > :first-child, .turn-process-text .chat-markdown-segment > :first-child { margin-top: 0; }
 .turn-process-text > :last-child, .turn-process-text .chat-markdown-segment > :last-child { margin-bottom: 0; }
@@ -5241,7 +5273,8 @@ select.provider-input { padding-right: 6px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
   .recording-indicator, .run-activity .spin, .transcript-media-loading .ph, .service-starting-spinner span, .message-status-pulse, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .row-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble, .image-lightbox, .transcript-dock { animation: none !important; }
-  .turn-process-summary, .turn-process-caret { transition: none !important; }
+  .turn-process-summary, .turn-process-caret, .process-tool-detail > summary > .ph, .process-activity-group > summary > .ph { transition: none !important; }
+  .turn-process-summary > .spin, .process-timeline > .process-timeline-entry > .spin { animation: none !important; }
   .agent-studio-spinner { animation: none !important; }
   .sandbox-preset-card:hover { transform: none; }
   .modal-card, .entity-editor, .provider-editor, .memory-detail-form, .memory-trace-drawer { transform: none !important; animation-duration: 150ms !important; animation-timing-function: linear !important; }

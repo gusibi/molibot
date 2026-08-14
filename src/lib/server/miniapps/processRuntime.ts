@@ -58,6 +58,7 @@ function killProcessTree(child: ChildProcess): void {
 class MiniAppProcessRuntime implements MiniAppRuntime {
   readonly tools: MiniAppRuntime["tools"];
   private readonly pending = new Map<number, PendingCall>();
+  private readonly hostCallControllers = new Map<number, AbortController>();
   private nextId = 1;
   private terminalError: Error | null = null;
   private disposed = false;
@@ -166,15 +167,30 @@ class MiniAppProcessRuntime implements MiniAppRuntime {
       this.options.logger[level](String(message.event ?? "event"), message.detail);
       return;
     }
+    if (message.kind === "host_cancel") {
+      this.hostCallControllers.get(message.id)?.abort();
+      return;
+    }
     if (message.kind === "host_call") void this.handleHostCall(message);
   }
 
   private async handleHostCall(message: any): Promise<void> {
+    const controller = new AbortController();
+    this.hostCallControllers.set(message.id, controller);
     try {
+      const input = {
+        ...message.input,
+        signal: controller.signal,
+        ...(message.wantsTextDeltas
+          ? { onTextDelta: (delta: string) => this.child.send({ kind: "host_delta", id: message.id, delta }) }
+          : {})
+      };
       const value = message.method === "ai.generateText"
-        ? await this.options.ai.generateText(message.input)
+        ? await this.options.ai.generateText(input)
+        : message.method === "ai.chat"
+          ? await this.options.ai.chat(input)
         : message.method === "ai.transcribe"
-          ? await this.options.ai.transcribe(message.input)
+          ? await this.options.ai.transcribe(input)
           : (() => { throw new Error(`Unknown Mini App host call: ${message.method}`); })();
       this.child.send({ kind: "host_result", id: message.id, ok: true, value });
     } catch (error) {
@@ -190,6 +206,8 @@ class MiniAppProcessRuntime implements MiniAppRuntime {
             : undefined
         }
       });
+    } finally {
+      this.hostCallControllers.delete(message.id);
     }
   }
 
@@ -203,6 +221,8 @@ class MiniAppProcessRuntime implements MiniAppRuntime {
       pending.reject(error);
     }
     this.pending.clear();
+    for (const controller of this.hostCallControllers.values()) controller.abort();
+    this.hostCallControllers.clear();
   }
 }
 

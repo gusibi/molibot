@@ -6,6 +6,7 @@ test("formatToolProgressText keeps new-mode running progress compact", () => {
   const formatter = new DisplayFormatter();
   formatter.feedEvent({
     type: "tool_execution_start",
+    toolCallId: "call-video",
     toolName: "videoGenerate",
     label: "videoGenerate"
   });

@@ -120,6 +120,7 @@ rather than a silently missing app:
 | `engines.molibot` | Valid SemVer range that the running Molibot satisfies. |
 | `ui.icon` | Optional. An SVG or PNG inside `ui/`, at most 64 KB. Shown in the sidebar and the manager. A *declared but unloadable* icon is an error, not a silent fallback. |
 | `data.schemaVersion` | Integer ≥ 1. See §6. |
+| `tools` | Required array. It may be empty for a UI-only Mini App. |
 | `tools[].name` | `^[a-z][a-z0-9_-]{0,63}$`, unique within the app. |
 | `tools[].inputSchema` | An object JSON Schema. Compiled with Ajv at discovery. |
 | `contributions.messageActions` | Optional host actions with bilingual labels, a non-destructive declared tool, and `text/image/file` accepts. |
@@ -232,7 +233,7 @@ disagree, and the bug will only appear for users who use both.
 
 - Message actions invoke a declared non-destructive tool with `{ capture }` directly, without a model. Captures never contain conversation ids or host paths; resources are opaque paths relative to the app's `incoming/` directory.
 - The v1 UI bridge posts `{ protocol: "molibot-miniapp", version: 1, action: "composer.insert", payload: { text, mode } }`. It can append or replace at most 32 KiB in an editable draft, never send it. Keep the app useful if the host ignores the bridge.
-- `context.ai.generateText()` and `.transcribe()` use the owner's live host routing and credentials. The app declares capabilities, but never chooses a Provider or sees a key. Transcription accepts only a real file contained by the app data directory, at most 25 MiB and 10 minutes.
+- `context.ai.generateText()`, `.chat()` and `.transcribe()` use the owner's live host routing and credentials. The app declares capabilities, but never chooses a Provider or sees a key. Text calls use `low` reasoning and may supply `onTextDelta(delta)`; text deltas cross the app process boundary before the promise resolves with the same complete result and usage. `chat()` accepts an alternating, user-first/user-last `user`/`assistant` history (at most 100 messages and 64 KiB) and only applies a system prompt when the app explicitly supplies one. These calls route through Pi directly and do not enter the Agent Runner or inherit an Agent's prompt, memory, Skills, or tools. Provider failures expose a bounded, credential-redacted description so the app can offer useful configuration guidance. Transcription accepts only a real file contained by the app data directory, at most 25 MiB and 10 minutes.
 - A declared non-JSON upload route receives `Uint8Array` in `request.body` and normalized `request.contentType`; undeclared routes retain the 1 MiB JSON contract.
 - Stable AI errors are `capability_not_declared`, `capability_unavailable`, `invalid_request`, `rate_limited`, `provider_failed`, and `aborted`.
 - Persist jobs and segment states before starting asynchronous work. Catch every background promise, make repeated segment requests idempotent, and convert active states to `interrupted` when the runtime starts after a service restart.

@@ -1,5 +1,5 @@
-import { completeSimple } from "@earendil-works/pi-ai/compat";
-import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
+import { completeSimple, streamSimple } from "@earendil-works/pi-ai/compat";
+import type { AssistantMessage, Context, Message } from "@earendil-works/pi-ai";
 import fs from "node:fs";
 import path from "node:path";
 import { parseFile } from "music-metadata";
@@ -12,6 +12,7 @@ import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import {
   MiniAppAiError,
   type MiniAppAiCapability,
+  type MiniAppAiChatMessage,
   type MiniAppAiFacade,
   type MiniAppAiTextResult
 } from "$lib/server/miniapps/types.js";
@@ -24,10 +25,12 @@ const MAX_CONCURRENT_CALLS = 2;
 
 interface TextExecutionInput {
   settings: RuntimeSettings;
-  prompt: string;
+  messages: MiniAppAiChatMessage[];
   system?: string;
   maxTokens: number;
+  reasoning: "low";
   signal?: AbortSignal;
+  onTextDelta?: (delta: string) => void;
 }
 
 interface TextExecutionResult extends MiniAppAiTextResult {
@@ -43,6 +46,10 @@ interface CreateFacadeOptions {
   getSettings: () => RuntimeSettings;
   usageTracker?: AiUsageTracker;
   executeText?: (input: TextExecutionInput) => Promise<TextExecutionResult>;
+  /** Test seam for a Pi transport response without making a network call. */
+  completeText?: typeof completeSimple;
+  /** Test seam for Pi streaming events without making a network call. */
+  streamText?: typeof streamSimple;
 }
 
 function textFromMessage(message: AssistantMessage): string {
@@ -52,23 +59,85 @@ function textFromMessage(message: AssistantMessage): string {
     .join("");
 }
 
-async function executeTextWithProvider(input: TextExecutionInput): Promise<TextExecutionResult> {
+function providerFailure(raw: unknown): MiniAppAiError {
+  const source = typeof raw === "string" ? raw.trim() : "";
+  if (!source) return new MiniAppAiError("provider_failed", "The AI provider could not complete the request.");
+  const status = source.match(/^(\d{3})(?::|\s)/)?.[1];
+  let detail = source.replace(/^\d{3}(?::|\s)\s*/, "");
+  const jsonStart = detail.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(detail.slice(jsonStart)) as { message?: unknown; error?: unknown };
+      const nested = typeof parsed.error === "object" && parsed.error !== null
+        ? (parsed.error as { message?: unknown }).message
+        : parsed.error;
+      const candidate = parsed.message ?? nested;
+      if (typeof candidate === "string" && candidate.trim()) detail = candidate.trim();
+    } catch {
+      // Keep the provider's plain-text description when its body is not JSON.
+    }
+  }
+  detail = detail
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+/gi, "Bearer [REDACTED]")
+    .replace(/\b(?:sk|key)-[A-Za-z0-9_-]{12,}\b/g, "[REDACTED]")
+    .replace(/\b(api[_-]?key|token|authorization)\s*[:=]\s*[^\s,;}]+/gi, "$1=[REDACTED]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+  const prefix = status ? `Model request failed (${status})` : "Model request failed";
+  return new MiniAppAiError("provider_failed", detail ? `${prefix}: ${detail}` : `${prefix}.`);
+}
+
+async function executeTextWithProvider(
+  input: TextExecutionInput,
+  completeText: typeof completeSimple = completeSimple,
+  streamText: typeof streamSimple = streamSimple
+): Promise<TextExecutionResult> {
   const selection = resolveModelSelection(input.settings, "text");
   const apiKey = await resolveApiKeyForModel(selection.model, input.settings);
   if (!apiKey) throw new MiniAppAiError("capability_unavailable", "Text generation is not configured.");
   const context: Context = {
     ...(input.system ? { systemPrompt: input.system } : {}),
-    messages: [{ role: "user", content: input.prompt, timestamp: Date.now() }],
+    messages: input.messages.map((item, index): Message => item.role === "user"
+      ? { role: "user", content: item.content, timestamp: Date.now() + index }
+      : {
+          role: "assistant",
+          content: [{ type: "text", text: item.content }],
+          api: selection.model.api,
+          provider: selection.model.provider,
+          model: selection.model.id,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+          },
+          stopReason: "stop",
+          timestamp: Date.now() + index
+        }),
     tools: []
   };
-  const message = await completeSimple(selection.model, context, {
+  const requestOptions = {
     apiKey,
     maxTokens: input.maxTokens,
     signal: input.signal,
-    reasoning: "off"
-  });
+    reasoning: input.reasoning
+  } as const;
+  let message: AssistantMessage;
+  if (input.onTextDelta) {
+    const stream = streamText(selection.model, context, requestOptions);
+    for await (const event of stream) {
+      if (event.type === "text_delta" && event.delta) input.onTextDelta(event.delta);
+    }
+    message = await stream.result();
+  } else {
+    message = await completeText(selection.model, context, requestOptions);
+  }
   if (message.stopReason === "aborted") throw new MiniAppAiError("aborted", "The AI request was aborted.");
-  if (message.stopReason === "error") throw new MiniAppAiError("provider_failed", "The AI provider could not complete the request.");
+  if (message.stopReason === "error") throw providerFailure(message.errorMessage);
   return {
     text: textFromMessage(message),
     usage: {
@@ -82,13 +151,21 @@ async function executeTextWithProvider(input: TextExecutionInput): Promise<TextE
   };
 }
 
-function validateTextInput(input: Parameters<MiniAppAiFacade["generateText"]>[0]): { prompt: string; system?: string; maxTokens: number; signal?: AbortSignal } {
-  if (!input || typeof input !== "object" || typeof input.prompt !== "string" || !input.prompt.trim()) {
-    throw new MiniAppAiError("invalid_request", "prompt must be a non-empty string.");
-  }
-  if (Buffer.byteLength(input.prompt, "utf8") > MAX_PROMPT_BYTES) {
-    throw new MiniAppAiError("invalid_request", "prompt exceeds the 64 KiB limit.");
-  }
+interface ValidatedTextInput {
+  messages: MiniAppAiChatMessage[];
+  system?: string;
+  maxTokens: number;
+  reasoning: "low";
+  signal?: AbortSignal;
+  onTextDelta?: (delta: string) => void;
+}
+
+function validateCommonTextInput(input: {
+  system?: string;
+  maxTokens?: number;
+  signal?: AbortSignal;
+  onTextDelta?: (delta: string) => void;
+}): Omit<ValidatedTextInput, "messages"> {
   if (input.system !== undefined && typeof input.system !== "string") {
     throw new MiniAppAiError("invalid_request", "system must be a string.");
   }
@@ -98,22 +175,70 @@ function validateTextInput(input: Parameters<MiniAppAiFacade["generateText"]>[0]
   if (input.signal !== undefined && !(input.signal instanceof AbortSignal)) {
     throw new MiniAppAiError("invalid_request", "signal must be an AbortSignal.");
   }
+  if (input.onTextDelta !== undefined && typeof input.onTextDelta !== "function") {
+    throw new MiniAppAiError("invalid_request", "onTextDelta must be a function.");
+  }
   const requested = input.maxTokens ?? 1024;
   if (!Number.isFinite(requested) || requested <= 0) {
     throw new MiniAppAiError("invalid_request", "maxTokens must be positive.");
   }
   return {
-    prompt: input.prompt,
     ...(input.system ? { system: input.system } : {}),
     maxTokens: Math.min(MINIAPP_AI_MAX_OUTPUT_TOKENS, Math.floor(requested)),
-    ...(input.signal ? { signal: input.signal } : {})
+    reasoning: "low",
+    ...(input.signal ? { signal: input.signal } : {}),
+    ...(input.onTextDelta ? { onTextDelta: input.onTextDelta } : {})
   };
+}
+
+function validateTextInput(input: Parameters<MiniAppAiFacade["generateText"]>[0]): ValidatedTextInput {
+  if (!input || typeof input !== "object" || typeof input.prompt !== "string" || !input.prompt.trim()) {
+    throw new MiniAppAiError("invalid_request", "prompt must be a non-empty string.");
+  }
+  if (Buffer.byteLength(input.prompt, "utf8") > MAX_PROMPT_BYTES) {
+    throw new MiniAppAiError("invalid_request", "prompt exceeds the 64 KiB limit.");
+  }
+  return {
+    messages: [{ role: "user", content: input.prompt }],
+    ...validateCommonTextInput(input)
+  };
+}
+
+function validateChatInput(input: Parameters<MiniAppAiFacade["chat"]>[0]): ValidatedTextInput {
+  if (!input || typeof input !== "object" || !Array.isArray(input.messages) || input.messages.length === 0) {
+    throw new MiniAppAiError("invalid_request", "messages must be a non-empty array.");
+  }
+  if (input.messages.length > 100) {
+    throw new MiniAppAiError("invalid_request", "messages cannot exceed 100 entries.");
+  }
+  let bytes = 0;
+  const messages = input.messages.map((message, index): MiniAppAiChatMessage => {
+    if (!message || typeof message !== "object" || (message.role !== "user" && message.role !== "assistant")) {
+      throw new MiniAppAiError("invalid_request", `messages[${index}].role is invalid.`);
+    }
+    if (typeof message.content !== "string" || !message.content.trim()) {
+      throw new MiniAppAiError("invalid_request", `messages[${index}].content must be a non-empty string.`);
+    }
+    if (index > 0 && input.messages[index - 1]?.role === message.role) {
+      throw new MiniAppAiError("invalid_request", "message roles must alternate.");
+    }
+    bytes += Buffer.byteLength(message.content, "utf8");
+    return { role: message.role, content: message.content };
+  });
+  if (messages[0]?.role !== "user" || messages.at(-1)?.role !== "user") {
+    throw new MiniAppAiError("invalid_request", "chat must start and end with a user message.");
+  }
+  if (bytes > MAX_PROMPT_BYTES) {
+    throw new MiniAppAiError("invalid_request", "messages exceed the 64 KiB limit.");
+  }
+  return { messages, ...validateCommonTextInput(input) };
 }
 
 export function createMiniAppAiFacade(options: CreateFacadeOptions): MiniAppAiFacade {
   let inFlight = 0;
   const starts: number[] = [];
-  const executeText = options.executeText ?? executeTextWithProvider;
+  const executeText = options.executeText
+    ?? ((input: TextExecutionInput) => executeTextWithProvider(input, options.completeText, options.streamText));
 
   function enterLimit(): void {
     const now = Date.now();
@@ -125,11 +250,10 @@ export function createMiniAppAiFacade(options: CreateFacadeOptions): MiniAppAiFa
     inFlight += 1;
   }
 
-  async function generateText(input: Parameters<MiniAppAiFacade["generateText"]>[0]): Promise<MiniAppAiTextResult> {
+  async function runText(validated: ValidatedTextInput): Promise<MiniAppAiTextResult> {
     if (!options.capabilities.includes("text")) {
       throw new MiniAppAiError("capability_not_declared", "This Mini App did not declare text generation.");
     }
-    const validated = validateTextInput(input);
     if (validated.signal?.aborted) throw new MiniAppAiError("aborted", "The AI request was aborted.");
     enterLimit();
     const startedAt = Date.now();
@@ -177,7 +301,8 @@ export function createMiniAppAiFacade(options: CreateFacadeOptions): MiniAppAiFa
   }
 
   return {
-    generateText,
+    generateText: (input) => runText(validateTextInput(input)),
+    chat: (input) => runText(validateChatInput(input)),
     async transcribe(input) {
       if (!options.capabilities.includes("transcription")) {
         throw new MiniAppAiError("capability_not_declared", "This Mini App did not declare transcription.");

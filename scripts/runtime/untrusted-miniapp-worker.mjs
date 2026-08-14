@@ -15,11 +15,22 @@ function errorPayload(error) {
   };
 }
 
-function callHost(method, input) {
+function callHost(method, input, signal, onTextDelta) {
   const id = nextHostCallId++;
   return new Promise((resolve, reject) => {
-    pendingHostCalls.set(id, { resolve, reject });
-    send({ kind: "host_call", id, method, input });
+    const onAbort = () => send({ kind: "host_cancel", id });
+    if (signal?.aborted) {
+      reject(Object.assign(new Error("Host call aborted."), { code: "aborted" }));
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    pendingHostCalls.set(id, {
+      resolve,
+      reject,
+      onTextDelta,
+      cleanup: () => signal?.removeEventListener("abort", onAbort)
+    });
+    send({ kind: "host_call", id, method, input, wantsTextDeltas: typeof onTextDelta === "function" });
   });
 }
 
@@ -46,8 +57,15 @@ async function initialize(input) {
       clear: () => { badge = null; send({ kind: "badge", value: null }); }
     },
     ai: {
-      generateText: (request) => callHost("ai.generateText", { ...request, signal: undefined }),
-      transcribe: (request) => callHost("ai.transcribe", { ...request, signal: undefined })
+      generateText: (request) => {
+        const {signal, onTextDelta, ...input} = request;
+        return callHost("ai.generateText", input, signal, onTextDelta);
+      },
+      chat: (request) => {
+        const {signal, onTextDelta, ...input} = request;
+        return callHost("ai.chat", input, signal, onTextDelta);
+      },
+      transcribe: (request) => callHost("ai.transcribe", { ...request, signal: undefined }, request.signal)
     }
   });
   if (!runtime || typeof runtime !== "object") throw new Error("runtime factory did not return a runtime object.");
@@ -80,10 +98,25 @@ async function dispatch(message) {
 
 process.on("message", (message) => {
   if (!message || typeof message !== "object") return;
+  if (message.kind === "host_delta") {
+    const pending = pendingHostCalls.get(message.id);
+    if (pending && typeof message.delta === "string" && message.delta) {
+      try {
+        pending.onTextDelta?.(message.delta);
+      } catch (error) {
+        pendingHostCalls.delete(message.id);
+        pending.cleanup?.();
+        send({ kind: "host_cancel", id: message.id });
+        pending.reject(error);
+      }
+    }
+    return;
+  }
   if (message.kind === "host_result") {
     const pending = pendingHostCalls.get(message.id);
     if (!pending) return;
     pendingHostCalls.delete(message.id);
+    pending.cleanup?.();
     if (message.ok) pending.resolve(message.value);
     else pending.reject(Object.assign(new Error(message.error?.message ?? "Host call failed."), message.error));
     return;
@@ -96,4 +129,3 @@ process.on("message", (message) => {
 });
 
 process.on("disconnect", () => process.exit(0));
-

@@ -298,6 +298,7 @@ export class ToolRuntime {
       workspaceId: call.context.workspaceId,
       type: "tool_start",
       toolName: tool.id,
+      toolCallId: call.context.toolCallId,
       displayName: tool.name,
       summary: `Tool started: ${tool.name}`
     });
@@ -360,6 +361,7 @@ export class ToolRuntime {
       workspaceId: call.context.workspaceId,
       type: "tool_end",
       toolName: tool.id,
+      toolCallId: call.context.toolCallId,
       displayName: tool.name,
       summary: result.ok ? `Tool finished: ${tool.name}` : result.error ?? `Tool failed: ${tool.name}`,
       isError: !result.ok
@@ -390,6 +392,7 @@ export class ToolRuntime {
       workspaceId: context.workspaceId,
       type: "tool_end",
       toolName: request.action.toolName || "tool",
+      toolCallId: context.toolCallId,
       displayName: request.action.toolName || "tool",
       summary: `Waiting for user approval: ${request.reason}`,
       hostBashApproval: buildHostBashApprovalPrompt(buildBrokerApprovalRecord({
