@@ -4,11 +4,71 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-14
+
+### Release v2.9.23 / Desktop v0.9.20
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布 Meeting Notes 生产级 Live 录制工作室与历史检索过滤、设置页编辑弹窗、Memory 加载提速与 MCP 自动连接等优化。
+
+### 设置页面修复：编辑弹窗、Memory 冷启动、MCP 自动连接、媒体测试区（修复，P1）
+
+- **编辑弹窗宽度**：Agent / Web Profile / Channels / MCP 编辑弹窗实际渲染为 560px 而非 720px。根因是 `.entity-editor-dialog`（720px/86vh）与基类 `.desktop-dialog-content`（560px/80vh）同属单类选择器且作用在同一元素上，基类声明在后、级联胜出，导致 720px 覆盖失效、双列表单被挤。改为复合选择器 `.desktop-dialog-content.entity-editor-dialog`，覆盖对源序回归免疫。新增 `.provider-editor-toolbar` 基础规则，使文件区标题与下方 16px 内边距字段对齐，Channels 的测试按钮回到同一行而不是换行。
+- **沙箱卡片**：`.sandbox-policy-grid .settings-card` 只重置 `margin` 未重置 `width`，卡片 664px 左对齐、右侧留不对称空白；现填充整个网格单元。
+- **Skills 搜索配置**：折叠摘要继承 UA 16px 加粗、垂直内边距为 0，与相邻设置行不一致，页面看起来“错乱”；对齐到设置行的字号与盒型。折叠本身已由测试守卫（无 `open` 属性）。
+- **Memory 白屏**：`loadMemory` 把 records/candidates/rejections 与慢速 LLM profile 合并进一个 `Promise.allSettled`，profile 合成需要数秒，期间概览区为空。现先 settle 快速三项并赋值，profile 随后单独 settle，不再阻塞整页。
+- **MCP 自动连接**：APP 重新打开时 MCP 不再自动连接。新增 `reconnectAll` 动作，复用启动期 `reconcileMcpServers(connectEnabled: true)` 原语（幂等，已连接的跳过），在 `loadMcp` 发现任一 enabled 且未连接的服务时触发。保持在 GET 列表路径之外，避免单个配置错误的服务拖死列表加载。
+- **图像测试区 / 语音测试区**：图像测试按钮改为与表单字段左对齐并加顶部内边距，不再拥挤错位；语音测试的 `<audio>` 高度从 34px 提到 40px，避免原生控件被裁剪（与 Web 端一致）。
+- 机器守卫：在 `apps/desktop/src/chat-ui.test.mjs` 与 `src/routes/settings/mcp/mcp-ui.test.mjs` 增加断言覆盖级联选择器、沙箱宽度、工具栏基础规则、Skills 摘要排版、Memory 快/慢数据集顺序、MCP `reconnectAll` 动作与 `loadMcp` 触发。
+
+### Meeting Notes 生产化 V1（新增/重构，P0）
+
+- `2.2.0` 将现场页打磨为克制的“录音棚仪表盘”：计时器周围提供状态光环和音频生命体征，明确区分麦克风工作、暂停与收尾；空状态解释本机音频边界，异步按钮显示进行中状态。结束会议使用聚焦确认条并支持 Escape 取消。
+- 历史库增加结果数量和“全部 / 处理中 / 已完成 / 需处理”筛选；搜索采用 220ms 防抖和请求序号守卫，旧响应不能覆盖新关键词。2 秒后台刷新不会再关闭结束确认，也不会覆盖正在编辑的会议标题。
+- 用户首轮真实验收推翻了“基础设施完成即产品可用”的结论。Meeting Notes `2.1.0` 现在提供完整的 `录音中 → 已暂停 → 录音中 → 已停止` 原生状态机；暂停会冲刷当前不足 10 秒的缓冲，暂停期间不记录声音或推进有效时长，关闭面板后仍由 Desktop 宿主持有同一 capture。
+- 页面从混合的“开始按钮 + 活动横幅 + 全量列表 + 双栏详情”重做为两个独立任务表面：会议现场只显示当前会议、大计时器、暂停/继续与二次确认结束；历史记录提供服务端全文搜索、日期分组、状态/有效时长、列表到详情的明确返回路径和完整空状态。活动会议不会在历史里重复出现。
+- 会议域新增幂等 pause/resume、paused 活动保护和服务重启后的宿主状态对齐；原生 capture 仍存活时可把暂时标记为 interrupted 的未结束会议恢复为 recording/paused。
+- 修复真实桌面录音首批 10 秒 WAV 无法上传：Base64 JSON 约 1.28 MiB，超过 adapter-node 默认 512 KiB 请求上限。启动器现于服务加载前设置有界 12 MiB 上限，音频路由继续独立执行 25 MiB 校验；超限返回明确 413，不再误报“Request body must be JSON”。
+- 转写和总结失败现在写入安全结构化日志，会议页显示中英文故障类型、错误码和“设置 → 小程序 → AI”处理入口；总结中状态保持轮询。Meeting Notes 内置版本升级到 `2.0.1`。
+- 线下会议录音改由 Desktop 宿主持有，不再由 Mini App iframe 的生命周期决定；原生采集每 10 秒旋转写入 WAV，内存有界，关闭会议面板后仍继续采集和上传。
+- 音频块以 `meeting / track / seq / startMs / endMs` 进入独立 SQLite 领域模型；上传按序、至少一次且幂等，服务确认后才清理原生临时文件。停止操作提交显式最后序号，缺片、失败与采集告警都会把结果标为 partial，而不是伪装完整。
+- 转写随音频块后台进行，时间轴每 2 秒刷新；每累计约 60 秒新证据滚动更新有界的会中临时纪要，停止后再用分层窗口生成最终纪要，长会议不再走单文件或单次全文 prompt。
+- v2 支持多轨数据和 `sourceKind`，当前只启用 microphone adapter；未来系统音频只需新增采集来源，不改转写、时间线或纪要模型。
+- 旧草稿 v1 数据不会进入兼容层；首次 v2 启动备份旧 SQLite 与音频目录后启用新格式。Meeting Notes 内置版本升级到 `2.0.1`。
+- 本轮验证：Mini App/manifest/bootstrap 40/40、会议状态与搜索 13/13、Desktop UI 205/205、`svelte-check` 0 错误/0 警告、原生聚焦测试与 Root/Desktop production build 通过。应用内浏览器阻止 loopback，本轮没有把视觉冷路径误报为自动通过。
+
 ## 2026-08-13
+
+### Desktop 设置模型分组与 Provider 保存后即时刷新（优化/修复，P1）
+
+- 设置 → 模型的文本、视觉、语音转写、子智能体、高级路由、压缩与 Mini App AI 模型选择统一按供应商分组，组内每个模型保持单行；普通下拉继续使用原有平铺结构。
+- 修复从 AI 服务商新增并保存模型后，切回模型页仍显示旧清单的问题。根因是两个设置 section 互斥挂载：Provider 保存事件发出时模型页没有监听者，而重新挂载又被相同 endpoint 的缓存条件拦截。模型页现在每次进入都强制拉取最新模型与路由数据。
+- 机器守卫覆盖 Provider 保存 → 重新进入模型页的生命周期边界，以及共享 `SelectControl` 的正式分组结构；验证 Desktop UI 204/204、分组逻辑 6/6、`svelte-check` 0 错误/0 警告、生产构建通过。
+
+### Desktop Chat 模型选择按供应商分组（优化，P1）
+
+- Chat 与 Project Chat 共用的模型菜单不再把不同供应商平铺混排；供应商标题按原模型列表首次出现顺序展示，组内模型继续保持原顺序。
+- 每个模型压缩为单行，只显示配置别名或可读模型名；完整供应商 / 模型 ID 仍可通过 tooltip 查看，路由 key、逐会话选择、选中勾选和键盘导航保持不变。
+- 验证：分组展示单测、Desktop UI 结构守卫、`svelte-check` 与生产构建通过。
 
 ### Release v2.9.22 / Desktop v0.9.19
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，发布内置 Provider（含 OpenCode）自有传输与模型目录、支持 settings 覆盖检测 API Key 等修复。
+
+### AI 自动会话标题总结（新增 → 修复，P1）
+
+- 会话第一条用户消息到达时，系统不再采用截断首 40 字符的传统做法，而是触发自动感知系统多语言配置（`zh-CN` / `en-US`）的后台轻量级 LLM 请求。
+- 请求在 `systemPrompt` 与 `prompt` 中注入对应的中文/英文提炼要求与 `reasoning: "off"`，自动将提问提炼为一句话短标题。
+- Stream 与非流式请求接入 `tryAutoSummarizeConversationTitleAsync`；Stream 输出流在后台提炼完成后通过 `session_title_updated` SSE 事件即时推送到前端 UI 并刷新侧边栏。
+- 若 API Key 未配置、网络超时或模型报错，自动降级安全保护，不阻塞主要聊天流。
+- **修复**：初版使用 `completeSimple`（`@earendil-works/pi-ai/compat`）无法路由至自定义 Provider 的 base URL，导致标题始终不生效。改为使用 `streamWithPiRuntime`（项目统一 LLM 分发器），复用 compaction 同款 `.result()` 模式收集输出，兼容 Pi 内置 + 自定义 Provider。
+- 验证：`titleSummarizer.test.ts` 5/5 通过（含 stream 异常兜底）；前端 `+page.svelte` SSE 解包正常；生产构建通过。
+
+### Note 自动刷新与 Markdown 阅读模式（修复/新增，P1）
+
+- Note 面板在可见期间每 2 秒读取共享 Mini App revision；只有 Agent 或 UI 写入使版本变化时才重新拉取笔记，隐藏页面停止轮询，重新聚焦立即检查。
+- 卡片阅读模式支持标题、粗体/斜体、列表、引用、代码、链接和 GFM 表格；编辑弹窗继续保留原始 Markdown 文本。
+- 渲染边界丢弃原始 HTML 和远程图片，并移除非 HTTP/HTTPS/mailto 链接，避免 Agent/用户内容获得脚本执行或隐式网络加载能力。
+- 内置 Note 版本升级到 `1.4.0`；新增刷新竞态、Markdown 能力与不安全内容回归守卫。
 
 ### 内置 Provider 自有传输与模型目录（修复，P1）
 

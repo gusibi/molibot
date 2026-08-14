@@ -4,10 +4,65 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-14
+
+### Release: v2.9.23 / Desktop v0.9.20
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: Settings page edit dialogs, Memory cold-start, MCP auto-connect, and media test surfaces
+
+- Entity edit dialogs (Agent / Web Profile / Channels / MCP) rendered cramped at 560px because `.entity-editor-dialog` lost the CSS cascade to the later base `.desktop-dialog-content` (both single-class selectors on the same element); switched to a compound `.desktop-dialog-content.entity-editor-dialog` selector so the 720px / 86vh override is immune to source order. Added a base `.provider-editor-toolbar` rule so file-section headers align with the 16px-padded fields below and the Channels test button shares its row instead of wrapping.
+- Sandbox policy cards were 664px left-aligned with an asymmetric right gap because `.sandbox-policy-grid .settings-card` reset `margin` without `width`; cards now fill their grid cell.
+- Skills search-config disclosure summary inherited UA 16px bold and zero vertical padding, reading as "错乱" next to its neighbors; aligned to the settings-row typography and box. The collapse itself was already test-guarded.
+- Memory overview stayed blank for seconds because `loadMemory` gated records / candidates / rejections behind the slow LLM-synthesized profile inside one `Promise.allSettled`; the fast datasets now paint first and the profile settles after.
+- MCP servers no longer auto-connect when the app reopens. Added a `reconnectAll` action that reuses the shared boot-time `reconcileMcpServers` primitive (idempotent — already-connected servers are skipped), fired from `loadMcp` when an enabled-but-disconnected server is found. Kept off the GET list path so a misconfigured server cannot stall the list load.
+- Image test section was cramped / misaligned: the Test button now aligns left with the form fields and has top padding. Voice test audio element bumped from 34px to 40px so native controls are not clipped (matches the web UI).
+
+### Improved: Meeting Notes recording studio and history interactions
+
+- Refined Live into a quiet recording-studio surface with an active-time focal clock, state orbit, audio activity, explicit microphone/save health, clearer pause/resume hierarchy, and a keyboard-cancellable end-meeting confirmation.
+- History now shows its result count and All / Processing / Complete / Needs attention filters. Search is debounced and rejects stale responses instead of allowing slower old queries to replace current results.
+- Background refresh no longer dismisses an open end confirmation or overwrites a meeting title while it is being edited. Meeting Notes is bumped to `2.2.0`.
+
+### Fixed: Meeting Notes is now a usable recorder and meeting library
+
+- Added native pause/resume for the same disk-backed capture. Pausing flushes the current partial block, stops the effective meeting clock, and remains resumable after the Mini App panel is closed and reopened.
+- Replaced the mixed banner/list/detail layout with separate Live and History surfaces. Live owns the timer and capture controls; History provides server-side search across titles, notes, and transcript text, date grouping, duration/status metadata, and a clear list-detail return path.
+- Added idempotent `paused` meeting state, active-meeting guards, and service-restart reconciliation against the Desktop host's surviving native capture. Meeting Notes is bumped to `2.1.0`.
+
+### Fixed: Meeting Notes audio chunks pass the production service boundary
+- Raised adapter-node's bounded request limit before server startup so a 10-second PCM WAV encoded as Base64 JSON is no longer rejected by the framework's 512 KiB default.
+- Oversize-body failures now return a specific 413 upload-limit message instead of the misleading “Request body must be JSON”; transcription and summary failures are logged with safe meeting/chunk identifiers and shown in the meeting UI with an actionable Mini App AI settings path.
+- The meeting page now keeps polling while final notes are summarizing. Meeting Notes is bumped to `2.0.1` so installed copies receive the diagnostic UI.
+
+### Added: production-ready live Meeting Notes V1
+- Meeting recording now runs in the Desktop host as bounded 10-second WAV chunks, so closing the Mini App panel no longer owns or ends the capture lifecycle.
+- Transcription appears on a live timeline, provisional notes update from bounded one-minute evidence windows, and stopping performs a hierarchical final summary instead of uploading or prompting with an hour-long file/transcript.
+- Track/sequence barriers, idempotent uploads, retained audio, missing/failed chunk visibility, restart recovery, and partial-result marking make interruptions explicit and recoverable.
+- Meeting Notes is now `2.0.1`; V1 ships the in-room microphone adapter on a multi-track architecture ready for a later system-audio source.
+
 ## 2026-08-13
+
+### Improved: Settings model selectors are grouped and refresh after Provider saves
+- Settings → Models now groups text, vision, transcription, subagent, advanced-routing, compaction, and Mini App AI model choices by provider, with one compact row per model.
+- Returning from AI Providers now reloads the model inventory even when the service endpoint is unchanged, so newly saved models appear immediately without restarting or manually refreshing.
+- The regression guard covers the previously missed lifecycle boundary where the Models section was unmounted when the Provider change event fired.
+
+### Improved: Chat model selection is grouped by provider
+- Desktop Chat and Project Chat now group the shared model menu by provider instead of mixing every configured model into one flat list.
+- Each model occupies one compact row using its alias or readable name; the full provider/model label remains available as a tooltip, with Session routing and keyboard selection unchanged.
 
 ### Release: v2.9.22 / Desktop v0.9.19
 - Synchronized the root and Desktop package versions for the new release.
+
+### Added: AI-powered one-sentence session title summarization
+- First-message session creation now automatically generates a concise title using a background LLM request, with locale-aware System Prompt (`zh-CN` / `en-US`) and `reasoning: "off"`.
+- Updated `/api/stream` and `/api/chat` with `tryAutoSummarizeConversationTitleAsync` and SSE `session_title_updated` event for instant UI sidebar updates.
+
+### Fixed: Note stays current and renders Markdown
+- An already-open Note panel now watches the shared Mini App revision while visible, so Agent-created or edited notes appear without switching panels or manually refreshing.
+- Note card bodies render safe GitHub-flavored Markdown, including headings, emphasis, lists, quotes, code, links, and tables. Raw HTML, remote images, and unsafe link protocols remain inert; editing continues to expose the original Markdown source.
+- Note was bumped to v1.4.0 so installed copies can receive the bundled UI and renderer update.
 
 ### Fixed: built-in Provider tests and model discovery use their native path
 - Built-in Providers such as OpenCode no longer require a self-hosted `baseUrl` or call a custom `/models` endpoint. Model discovery now returns the packaged Pi catalog directly.
