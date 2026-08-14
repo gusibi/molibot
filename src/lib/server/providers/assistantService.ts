@@ -291,14 +291,21 @@ export function overrideSettingsForModelKey(settings: RuntimeSettings, modelKey?
   const model = rest.slice(providerSep + 1);
   if (!provider || !model) return settings;
   if (kind === "pi") {
-    return { ...settings, providerMode: "pi", piModelProvider: provider as RuntimeSettings["piModelProvider"], piModelName: model };
+    return {
+      ...settings,
+      providerMode: "pi",
+      piModelProvider: provider as RuntimeSettings["piModelProvider"],
+      piModelName: model,
+      modelRouting: { ...settings.modelRouting, textModelKey: key }
+    };
   }
   if (kind === "custom") {
     return {
       ...settings,
       providerMode: "custom",
       defaultCustomProviderId: provider,
-      customProviders: settings.customProviders.map((entry) => entry.id === provider ? { ...entry, defaultModel: model } : entry)
+      customProviders: settings.customProviders.map((entry) => entry.id === provider ? { ...entry, defaultModel: model } : entry),
+      modelRouting: { ...settings.modelRouting, textModelKey: key }
     };
   }
   return settings;

@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Mini Chat">
-  <rect width="64" height="64" rx="16" fill="#171717"/>
-  <path d="M16 19.5A7.5 7.5 0 0 1 23.5 12h17A7.5 7.5 0 0 1 48 19.5v16a7.5 7.5 0 0 1-7.5 7.5H31l-9.5 8v-8A7.5 7.5 0 0 1 16 35.5v-16Z" fill="#fff"/>
-  <circle cx="25" cy="28" r="2.5" fill="#171717"/>
-  <circle cx="32" cy="28" r="2.5" fill="#171717"/>
-  <circle cx="39" cy="28" r="2.5" fill="#171717"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" role="img" aria-label="Mini Chat">
+  <path fill="#00ACC1" d="M6 3h9a4 4 0 0 1 4 4v3a4 4 0 0 1-4 4H9l-5 4v-4.54A4 4 0 0 1 2 10V7a4 4 0 0 1 4-4z"/>
+  <path fill="#80DEEA" d="M6.2 5A2.2 2.2 0 0 0 4 7.2a.75.75 0 0 0 1.5 0 .7.7 0 0 1 .7-.7h4.3a.75.75 0 0 0 0-1.5H6.2z"/>
+  <path fill="#00838F" d="M12 9h6a4 4 0 0 1 4 4v2a4 4 0 0 1-4 4h-1l-4 3v-3h-1a4 4 0 0 1-4-4v-2a4 4 0 0 1 4-4z"/>
+  <circle cx="13" cy="14" r="1" fill="#B2EBF2"/>
+  <circle cx="17" cy="14" r="1" fill="#B2EBF2"/>
 </svg>

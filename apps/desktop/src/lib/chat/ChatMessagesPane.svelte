@@ -44,9 +44,26 @@
   export let attentionAction = "";
   export let endpoint = "";
   let appliedScrollFollowKey = "";
+  let appliedScrollSession = "";
   const PAGE_SIZE = 80;
   let visibleCount = PAGE_SIZE;
   let paginationSession = "";
+
+  // The end-of-turn reload re-keys transcript rows (optimistic `pending-` ids
+  // become real ones) in the same flush that removes the streaming article. If
+  // those rows mount under `.settled` they fade in from opacity 0 while the
+  // article vanishes - the reply visibly blinks out and ghosts back. Folding
+  // the falling edge of `sending` into the settle key re-arms `settleEntrances`
+  // for exactly that flush, so the re-keyed rows appear fully opaque and the
+  // swap reads as nothing happening (which is the goal). The rising edge is
+  // excluded on purpose: the optimistic user bubble and the streaming row
+  // inserted at send time must keep their entrance fade.
+  let turnEndCount = 0;
+  let prevSending = sending;
+  $: if (sending !== prevSending) {
+    prevSending = sending;
+    if (!sending) turnEndCount += 1;
+  }
 
   $: userTurnCount = messages.filter((message) => message.role === "user" && Boolean(message.id?.trim())).length;
   $: showPromptNavigator = userTurnCount >= PROMPT_NAVIGATOR_MIN_TURNS;
@@ -61,12 +78,19 @@
   afterUpdate(() => {
     if (!messagesElement || scrollFollowKey === appliedScrollFollowKey) return;
     appliedScrollFollowKey = scrollFollowKey;
+    // A session switch changes userTurnCount too; resuming there would glide
+    // to the tail (resume is animated by design). The stickToBottom action's
+    // own key-change path owns the session-switch jump and does it instantly.
+    if (stickKey !== appliedScrollSession) {
+      appliedScrollSession = stickKey;
+      return;
+    }
     resumeStickToBottom(messagesElement);
   });
 </script>
 
 <div class:has-prompt-navigator={showPromptNavigator && !loading} class="chat-messages-frame">
-  <div class="messages" bind:this={messagesElement} use:stickToBottom={stickKey} use:settleEntrances={`${stickKey}:${loading}`} aria-live="polite" aria-busy={loading}>
+  <div class="messages" bind:this={messagesElement} use:stickToBottom={{ key: stickKey, live: sending }} use:settleEntrances={`${stickKey}:${loading}:${turnEndCount}`} aria-live="polite" aria-busy={loading}>
     {#if loading}
       <div class="project-transcript-loading" role="status">
         <i class="ph ph-spinner-gap" aria-hidden="true"></i>{loadingLabel}

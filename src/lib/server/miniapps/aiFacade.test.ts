@@ -240,6 +240,117 @@ test("chat facade forwards provider text deltas before returning the final respo
   assert.equal(result.text, "Hello");
 });
 
+test("text model discovery is credential-free and chat validates a per-call model override", async () => {
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.providerMode = "custom";
+  settings.defaultCustomProviderId = "test-provider";
+  settings.customProviders = [{
+    id: "test-provider",
+    name: "Test provider",
+    enabled: true,
+    baseUrl: "https://example.invalid",
+    apiKey: "super-secret-api-key",
+    defaultModel: "first-model",
+    path: "/v1/chat/completions",
+    models: [
+      { id: "first-model", alias: "Fast", tags: ["text"] },
+      { id: "second-model", alias: "Careful", tags: ["text"] }
+    ]
+  } as (typeof settings.customProviders)[number]];
+  const selected: string[] = [];
+  const facade = createMiniAppAiFacade({
+    appId: "mini-chat",
+    dataDir: ".",
+    capabilities: ["text"],
+    getSettings: () => settings,
+    executeText: async ({ settings: routed }) => {
+      selected.push(routed.customProviders[0]?.defaultModel ?? "");
+      return {
+        text: "done",
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        provider: "test-provider",
+        model: routed.customProviders[0]?.defaultModel ?? "",
+        api: "openai-completions"
+      };
+    }
+  });
+
+  const models = await facade.listTextModels();
+  assert.equal(models.currentKey, "custom|test-provider|first-model");
+  assert.deepEqual(
+    models.options.filter(({ key }) => key.startsWith("custom|test-provider|")).map(({ key, label }) => ({ key, label })),
+    [
+      { key: "custom|test-provider|first-model", label: "Fast" },
+      { key: "custom|test-provider|second-model", label: "Careful" }
+    ]
+  );
+  assert.doesNotMatch(JSON.stringify(models), /super-secret-api-key/);
+
+  await facade.chat({
+    messages: [{ role: "user", content: "hello" }],
+    modelKey: "custom|test-provider|second-model"
+  });
+  assert.deepEqual(selected, ["second-model"]);
+  await assert.rejects(
+    () => facade.chat({ messages: [{ role: "user", content: "hello" }], modelKey: "custom|missing|model" }),
+    (cause: unknown) => cause instanceof MiniAppAiError && cause.code === "invalid_request"
+  );
+});
+
+test("per-call model override wins over the configured global text route", async () => {
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.providerMode = "custom";
+  settings.defaultCustomProviderId = "test-provider";
+  settings.modelRouting.textModelKey = "custom|test-provider|default-model";
+  settings.customProviders = [{
+    id: "test-provider",
+    name: "Test provider",
+    enabled: true,
+    baseUrl: "https://example.invalid",
+    apiKey: "test-key",
+    defaultModel: "default-model",
+    path: "",
+    models: [
+      { id: "default-model", tags: ["text"] },
+      { id: "selected-model", tags: ["text"] }
+    ]
+  } as (typeof settings.customProviders)[number]];
+
+  const selectedModels: string[] = [];
+  const facade = createMiniAppAiFacade({
+    appId: "mini-chat",
+    dataDir: ".",
+    capabilities: ["text"],
+    getSettings: () => settings,
+    completeText: async (model) => {
+      selectedModels.push(model.id);
+      return {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        api: model.api,
+        provider: model.provider,
+        model: model.id,
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+        },
+        stopReason: "stop",
+        timestamp: Date.now()
+      };
+    }
+  });
+
+  await facade.chat({
+    messages: [{ role: "user", content: "hello" }],
+    modelKey: "custom|test-provider|selected-model"
+  });
+  assert.deepEqual(selectedModels, ["selected-model"]);
+});
+
 function wavSecond(): Buffer {
   const dataBytes = 8_000 * 2;
   const buffer = Buffer.alloc(44 + dataBytes);

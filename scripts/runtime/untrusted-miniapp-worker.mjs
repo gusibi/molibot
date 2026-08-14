@@ -57,6 +57,7 @@ async function initialize(input) {
       clear: () => { badge = null; send({ kind: "badge", value: null }); }
     },
     ai: {
+      listTextModels: () => callHost("ai.listTextModels", {}, undefined),
       generateText: (request) => {
         const {signal, onTextDelta, ...input} = request;
         return callHost("ai.generateText", input, signal, onTextDelta);

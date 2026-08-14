@@ -1917,7 +1917,10 @@ test("shared transcript renders media inline and delegates tool activity", () =>
 test("completed reasoning stays opt-in while live reasoning remains visible", () => {
   assert.match(transcript, /<ThinkingCard text=\{message\.thinking\}/);
   assert.doesNotMatch(thinkingCard, /<details class="thinking-card"[^>]*\bopen>/);
-  assert.match(conversationLiveView, /<TurnProcess blocks=\{liveSections\.process\}[^>]*forceOpen live/);
+  // The live card is force-open only while no answer exists yet; once response
+  // content streams it folds itself (detailed assertions live with the
+  // turn-process guards in the scroll/navigation suite).
+  assert.match(conversationLiveView, /<TurnProcess blocks=\{liveSections\.process\}[^>]*forceOpen=\{!liveSections\.response\.length\} live/);
   assert.doesNotMatch(runActivity, /<details class="run-activity" open=/);
 });
 
@@ -2009,6 +2012,12 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.match(conversationLiveView, /<ConversationTranscript/);
   assert.match(conversationLiveView, /<TurnProcess/);
   assert.match(turnProcess, /<ProcessTimeline/);
+  // The reasoning card folds as soon as the answer starts streaming, not only
+  // at turn end: the live card is force-open only while no response block
+  // exists, and TurnProcess follows forceOpen transitions downward (a manual
+  // re-expand after the fold is never re-collapsed).
+  assert.match(conversationLiveView, /forceOpen=\{!liveSections\.response\.length\}/);
+  assert.match(turnProcess, /forceOpen !== lastForceOpen/);
 });
 
 test("long conversations share one user-turn navigator and preserve reader scroll ownership", () => {
@@ -2025,9 +2034,43 @@ test("long conversations share one user-turn navigator and preserve reader scrol
   assert.match(stickToBottom, /molibot:suspend-scroll-follow/);
   assert.match(stickToBottom, /molibot:resume-scroll-follow/);
   assert.match(chatMessagesPane, /scrollFollowKey = `\$\{stickKey\}\\u0000\$\{userTurnCount\}`[\s\S]*afterUpdate[\s\S]*resumeStickToBottom\(messagesElement\)/);
-  assert.match(chatMessagesPane, /use:stickToBottom=\{stickKey\}/);
+  assert.match(chatMessagesPane, /use:stickToBottom=\{\{ key: stickKey, live: sending \}\}/);
+  // A session switch must land on the tail instantly, never glide there: the
+  // action's key-change path owns the jump, content growth only glides while
+  // a turn is live, and the pane must not fire the (animated) resume when the
+  // session changed underneath a userTurnCount delta.
+  assert.match(stickToBottom, /if \(live\) follow\(\);\s*else instantToBottom\(\);/);
+  assert.match(chatMessagesPane, /if \(stickKey !== appliedScrollSession\) \{[\s\S]*?return;\s*\}/s);
   assert.doesNotMatch(stickToBottom, /message-row\.mine/);
-  assert.match(stickToBottom, /firstLayoutFrame = requestAnimationFrame[\s\S]*secondLayoutFrame = requestAnimationFrame[\s\S]*if \(pinned\) toBottom\(\)/);
+  assert.match(stickToBottom, /firstLayoutFrame = requestAnimationFrame[\s\S]*secondLayoutFrame = requestAnimationFrame/);
+  // Follow-scroll is an interruptible physics spring, not an instant teleport
+  // and not CSS smooth-scroll: frame-rate-independent integration, retargets
+  // live, cancels on the reader's upward wheel, and degrades to instant under
+  // reduced-motion / low-performance (chat motion spec, DESIGN.md §Motion).
+  assert.match(stickToBottom, /velocity = \(DAMPING \* velocity \+ STIFFNESS \* distance\) \/ MASS/);
+  assert.match(stickToBottom, /node\.scrollTop \+= velocity \* dt/);
+  assert.match(stickToBottom, /addEventListener\("wheel", onWheel, \{ passive: true \}\)/);
+  assert.match(stickToBottom, /deltaY < 0/);
+  // Scrolling up from the bottom must release ownership for good: any upward
+  // move unlocks unconditionally, and re-arming requires a DOWNWARD move back
+  // into the slack (or truly touching bottom). A re-arm keyed on distance
+  // alone yanks a reader who wheeled up 30px straight back down.
+  assert.match(stickToBottom, /if \(moved < 0\) \{[\s\S]*?announce\(false\);[\s\S]*?return;\s*\}/s);
+  assert.match(stickToBottom, /dist <= SETTLE_DISTANCE \|\| \(moved > 0 && dist <= THRESHOLD\)/);
+  // The spring's own downward writes must not evaluate the lock: its
+  // steady-state lag under a fast stream exceeds the bottom slack, so a
+  // scroll-event evaluation there unlocks following with nobody having
+  // scrolled - auto-scroll silently dies mid-answer.
+  assert.match(stickToBottom, /if \(springFrame\) \{[\s\S]*?return;\s*\}\s*const dist = distanceFromBottom\(\);/s);
+  assert.match(stickToBottom, /prefers-reduced-motion: reduce/);
+  assert.match(stickToBottom, /dataset\.performance === "low"/);
+  // End-of-turn handoff: the reload re-keys rows in the same flush the
+  // streaming article is removed, so those rows must mount WITHOUT the
+  // entrance fade (folding the falling edge of `sending` into the settle key)
+  // or the reply blinks out and ghosts back. The rising edge stays excluded so
+  // the optimistic bubble and streaming row keep their entrance.
+  assert.match(chatMessagesPane, /if \(!sending\) turnEndCount \+= 1/);
+  assert.match(chatMessagesPane, /use:settleEntrances=\{`\$\{stickKey\}:\$\{loading\}:\$\{turnEndCount\}`\}/);
   assert.match(styles, /\.conversation-prompt-navigator[\s\S]*\.prompt-navigation-preview[\s\S]*prefers-reduced-motion/);
   assert.match(styles, /\.conversation-prompt-navigator\s*\{[^}]*left:\s*12px/s);
   assert.match(styles, /\.prompt-navigation-preview-user span\s*\{[^}]*white-space:\s*nowrap/s);

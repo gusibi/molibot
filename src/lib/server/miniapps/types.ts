@@ -276,11 +276,23 @@ export interface MiniAppAiChatMessage {
   content: string;
 }
 
+export interface MiniAppAiModelOption {
+  key: string;
+  label: string;
+}
+
+export interface MiniAppAiModelState {
+  currentKey: string;
+  options: MiniAppAiModelOption[];
+}
+
 export interface MiniAppAiFacade {
+  listTextModels(): Promise<MiniAppAiModelState>;
   generateText(input: {
     prompt: string;
     system?: string;
     maxTokens?: number;
+    modelKey?: string;
     signal?: AbortSignal;
     onTextDelta?: (delta: string) => void;
   }): Promise<MiniAppAiTextResult>;
@@ -288,6 +300,7 @@ export interface MiniAppAiFacade {
     messages: MiniAppAiChatMessage[];
     system?: string;
     maxTokens?: number;
+    modelKey?: string;
     signal?: AbortSignal;
     onTextDelta?: (delta: string) => void;
   }): Promise<MiniAppAiTextResult>;

@@ -3051,7 +3051,9 @@ html[data-increased-contrast="true"] .sidebar-section-head::before {
 }
 .composer-token[data-kind="skill"] { --composer-token-tint: color-mix(in srgb, var(--skill-accent) 11%, transparent); }
 .composer-token[data-kind="miniapp"] { --composer-token-tint: color-mix(in srgb, var(--miniapp-accent) 12%, transparent); }
-.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 38%, var(--control-border-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent); }
+/* Focus keeps the resting border and signals with a soft neutral glow only -
+   a tinted border here read as a loud ring around the whole input area. */
+.composer:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--label-secondary) 9%, transparent); }
 .composer textarea { width: 100%; min-width: 0; min-height: 42px; max-height: 180px; resize: none; padding: 0 2px 2px; border: 0; outline: 0; background: transparent; line-height: var(--lh-body); font-size: var(--fs-body); overflow-y: auto; }
 .composer textarea::placeholder { color: var(--label-tertiary); }
 .recording-bar {

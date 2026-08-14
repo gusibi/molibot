@@ -17,6 +17,7 @@ test("pi model key forces provider mode and model", () => {
   assert.equal(next.providerMode, "pi");
   assert.equal(next.piModelProvider, "anthropic");
   assert.equal(next.piModelName, "claude-haiku-4-5");
+  assert.equal(next.modelRouting.textModelKey, "pi|anthropic|claude-haiku-4-5");
   // original untouched
   assert.notEqual(next, base);
 });
@@ -30,6 +31,7 @@ test("custom model key selects the provider and overrides its default model", ()
   assert.equal(next.providerMode, "custom");
   assert.equal(next.defaultCustomProviderId, "cheap");
   assert.equal(next.customProviders.find((p) => p.id === "cheap")?.defaultModel, "small-b");
+  assert.equal(next.modelRouting.textModelKey, "custom|cheap|small-b");
   // other providers (none here) and base object are untouched
   assert.equal(base.customProviders[0].defaultModel, "small-a");
 });

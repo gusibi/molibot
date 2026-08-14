@@ -67,7 +67,11 @@
         <div class="assistant-identity"><strong>{assistantName}</strong><span>{copy.agents}</span></div>
         <div class="message-status" role="status"><span class="message-status-pulse" aria-hidden="true"></span><span>{activity || copy.working}</span></div>
         {#if liveSections.process.length}
-          <TurnProcess blocks={liveSections.process} {copy} stateKey="live-process" forceOpen live onOpenPath={onOpenActivityPath} {endpoint} />
+          <!-- Force-open only until the answer exists: reasoning streams with
+               the process card open, and the moment the first response block
+               (text or plan) appears the card folds so the answer leads - not
+               only when the whole turn ends. -->
+          <TurnProcess blocks={liveSections.process} {copy} stateKey="live-process" forceOpen={!liveSections.response.length} live onOpenPath={onOpenActivityPath} {endpoint} />
         {/if}
         {#each liveSections.response as block (block.id)}
           {#if block.kind === "plan"}

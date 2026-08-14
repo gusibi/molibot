@@ -9,8 +9,8 @@
 
 - **Priority / Status**: P0 / Delivered (2026-08-14).
 - **Problem**: 临时问答若进入完整 Agent Runtime，会携带长系统提示词、Profile、记忆、Skills 与工具定义；这些能力在短对话中无用，却增加 token 成本与延迟。普通 Agent Session 又把临时聊天混入 Agent 的长期会话语义。
-- **Decision**: 内置可选安装的 Mini Chat 使用 Astryx `ai-chat` UI；小程序以独立 SQLite 管理 Session，Host AI Facade 增加结构化 `chat(messages)` 与 `onTextDelta`，通过 Pi 模型路由与用户现有凭证直调模型，但不调用 Agent Runner。Mini Chat 不传 `system`，manifest 不暴露 Agent tools；文本调用默认使用 `low` reasoning；文本增量跨子进程进入小程序内存并由页面读取，完成结果一次持久化；停止操作以 AbortSignal 跨子进程取消 Provider 请求；Provider 错误经限长和凭证脱敏后返回界面并写入运行日志。窄屏 assistant 消息不保留无信息量的 initials 头像列。
-- **Acceptance**: 能创建、切换、删除并在重启后恢复独立会话；多轮请求只包含交替的 user/assistant 历史且不存在默认 system prompt；回复在模型生成期间逐步显示，最终持久化内容与增量拼接一致；支持 Markdown、复制、停止、错误收据与重试；请求使用 `low` reasoning，失败时能看到可用于调整模型/Provider 配置的安全错误说明；中英、明暗/系统主题及窄宽度可用，390px 下无头像占位或横向溢出；内置安装、Session 持久化、历史边界、流式/错误/取消链路、类型检查和生产构建通过。
+- **Decision**: 内置可选安装的 Mini Chat 使用 Astryx `ai-chat` UI；小程序以独立 SQLite 管理 Session，Host AI Facade 增加结构化 `chat(messages)`、`listTextModels()` 与 `onTextDelta`，通过 Pi 模型路由与用户现有凭证直调模型，但不调用 Agent Runner。Mini Chat 默认不传 `system`，允许用户在小程序自有设置中选择文本模型并显式填写一段简短 `system`；模型发现不暴露凭证，manifest 不暴露 Agent tools；文本调用固定使用 `low` reasoning；文本增量跨子进程进入小程序内存并由页面读取，完成结果一次持久化；停止操作以 AbortSignal 跨子进程取消 Provider 请求；Provider 错误经限长和凭证脱敏后返回界面并写入运行日志。窄屏 assistant 消息不保留无信息量的 initials 头像列，metadata 与正文对齐，隐藏侧栏无投影泄漏。
+- **Acceptance**: 能创建、切换、删除并在重启后恢复独立会话；删除操作在 iframe 禁止原生 modal 的环境中仍能通过应用内确认对话框完成；多轮请求只包含交替的 user/assistant 历史且不存在默认 system prompt，只在用户填写时带上 Mini Chat 自有 system prompt；可选择已配置文本模型或恢复跟随默认，选项和提示词在重启后保留，显式选择必须按请求优先于全局 `textModelKey` 并路由到所选 PI/自定义模型；回复在模型生成期间逐步显示，最终持久化内容与增量拼接一致；支持 Markdown、复制、停止、错误收据与重试；请求使用 `low` reasoning，失败时能看到可用于调整模型/Provider 配置的安全错误说明；中英、明暗/系统主题及窄宽度可用，assistant metadata 与正文左对齐，390px 下无头像占位、隐藏侧栏投影或横向溢出；小程序图标在 24px 尺寸保持双气泡识别度，与其他内置小程序共享彩色分层风格；内置安装、Session/设置持久化、历史边界、流式/错误/取消/模型选择链路、类型检查和生产构建通过。
 
 ---
 ## 3.90 Desktop Chat 连续工具聚合与动作摘要（2026-08-14）

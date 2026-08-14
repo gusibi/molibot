@@ -2917,7 +2917,7 @@
         class:has-prompt-navigator={(externalTranscript?.messages.filter((message) => message.role === "user" && Boolean(message.id?.trim())).length ?? 0) >= PROMPT_NAVIGATOR_MIN_TURNS}
         class="chat-messages-frame"
       >
-        <div class="messages" bind:this={messagesElement} use:stickToBottom={activeSessionId} aria-live="polite">
+        <div class="messages" bind:this={messagesElement} use:stickToBottom={{ key: activeSessionId }} aria-live="polite">
           {#if externalTranscriptLoading}
             <div class="conversation-empty">
               <h2>{copy.loading}</h2>

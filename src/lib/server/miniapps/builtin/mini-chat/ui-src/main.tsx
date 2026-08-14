@@ -4,11 +4,14 @@ import {StrictMode, useEffect, useMemo, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Theme} from '@astryxdesign/core/theme';
 import {neutralTheme} from '@astryxdesign/theme-neutral/built';
-import {VStack, HStack, StackItem} from '@astryxdesign/core/Layout';
+import {VStack, HStack, StackItem, Layout, LayoutContent, LayoutFooter} from '@astryxdesign/core/Layout';
 import {Text, Heading} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {Icon} from '@astryxdesign/core/Icon';
 import {Markdown} from '@astryxdesign/core/Markdown';
+import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {Selector} from '@astryxdesign/core/Selector';
+import {TextArea} from '@astryxdesign/core/TextArea';
 import {
   ChatComposer,
   ChatComposerInput,
@@ -23,6 +26,7 @@ import {
   ArrowPathIcon,
   ChatBubbleLeftRightIcon,
   ClipboardDocumentIcon,
+  Cog6ToothIcon,
   PlusIcon,
   Bars3BottomLeftIcon,
   TrashIcon,
@@ -30,6 +34,10 @@ import {
 } from '@heroicons/react/24/outline';
 
 type Conversation = {id: string; title: string; createdAt: string; updatedAt: string};
+type ModelOption = {key: string; label: string};
+type ModelState = {currentKey: string; options: ModelOption[]};
+type MiniChatSettings = {modelKey: string; systemPrompt: string};
+type SettingsPayload = {settings: MiniChatSettings; models: ModelState};
 type Message = {
   id: string;
   conversationId: string;
@@ -48,7 +56,7 @@ const themeMode = params.get('theme') === 'dark' ? 'dark' : params.get('theme') 
 
 const copy = zh ? {
   title: 'Mini Chat',
-  subtitle: '轻量对话 · 不加载 Agent 提示词、记忆和工具',
+  subtitle: '轻量对话 · low',
   newChat: '新对话',
   emptyTitle: '随手问点什么',
   emptyBody: '直接调用你配置的小程序文本模型。这里的对话独立保存，不进入 Agent Session。',
@@ -68,9 +76,20 @@ const copy = zh ? {
   conversations: '对话',
   menu: '显示对话列表',
   closeMenu: '关闭对话列表',
+  settings: '设置',
+  settingsSubtitle: '只影响 Mini Chat，不加载 Agent 默认提示词、记忆和工具。',
+  model: '模型',
+  defaultModel: '跟随小程序默认模型',
+  systemPrompt: '系统提示词',
+  systemPromptDescription: '可选，适合一两句简短要求。',
+  systemPromptPlaceholder: '例如：回答简洁，优先使用中文。',
+  invalidModel: '所选模型已不可用，请重新选择。',
+  invalidSystemPrompt: '系统提示词必须是不超过 2000 字符的文本。',
+  cancel: '取消',
+  save: '保存',
 } : {
   title: 'Mini Chat',
-  subtitle: 'Lightweight chat · no Agent prompt, memory, or tools',
+  subtitle: 'Lightweight chat · low',
   newChat: 'New chat',
   emptyTitle: 'Ask something small',
   emptyBody: 'Calls your configured Mini App text model directly. These conversations stay separate from Agent sessions.',
@@ -90,6 +109,17 @@ const copy = zh ? {
   conversations: 'Conversations',
   menu: 'Show conversations',
   closeMenu: 'Close conversations',
+  settings: 'Settings',
+  settingsSubtitle: 'Only affects Mini Chat. Agent defaults, memory, and tools stay unloaded.',
+  model: 'Model',
+  defaultModel: 'Use Mini App default',
+  systemPrompt: 'System prompt',
+  systemPromptDescription: 'Optional. Best for one or two short instructions.',
+  systemPromptPlaceholder: 'For example: Be concise and answer in English.',
+  invalidModel: 'That model is no longer available. Choose another model.',
+  invalidSystemPrompt: 'The system prompt must be text no longer than 2,000 characters.',
+  cancel: 'Cancel',
+  save: 'Save',
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -123,9 +153,26 @@ function MiniChat() {
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [copiedId, setCopiedId] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [settings, setSettings] = useState<MiniChatSettings>({modelKey: '', systemPrompt: ''});
+  const [draftSettings, setDraftSettings] = useState<MiniChatSettings>({modelKey: '', systemPrompt: ''});
+  const [models, setModels] = useState<ModelState>({currentKey: '', options: []});
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState('');
 
   const active = useMemo(() => conversations.find((item) => item.id === activeId) || null, [conversations, activeId]);
   const retryable = [...messages].reverse().find((message) => message.role === 'assistant')?.status !== 'completed';
+  const activeModelKey = settings.modelKey || models.currentKey;
+  const activeModelLabel = models.options.find((option) => option.key === activeModelKey)?.label || copy.defaultModel;
+  const defaultModelName = models.options.find((option) => option.key === models.currentKey)?.label;
+
+  async function loadSettings() {
+    const result = await api<SettingsPayload>('/settings');
+    setSettings(result.settings);
+    setDraftSettings(result.settings);
+    setModels(result.models);
+  }
 
   async function refreshConversations(preferredId?: string) {
     const result = await api<{conversations: Conversation[]}>('/conversations');
@@ -152,6 +199,7 @@ function MiniChat() {
   useEffect(() => {
     void (async () => {
       try {
+        await loadSettings();
         const id = await refreshConversations();
         await loadMessages(id);
       } catch (cause) {
@@ -248,11 +296,12 @@ function MiniChat() {
   }
 
   async function removeConversation() {
-    if (!activeId || busy || !window.confirm(copy.deleteConfirm)) return;
+    if (!activeId || busy) return;
     try {
       await api(`/conversations/${activeId}`, {method: 'DELETE'});
       setMessages([]);
       setActiveId('');
+      setDeleteOpen(false);
       const next = await refreshConversations('');
       await loadMessages(next);
     } catch (cause: any) {
@@ -264,6 +313,36 @@ function MiniChat() {
     await navigator.clipboard.writeText(message.content);
     setCopiedId(message.id);
     window.setTimeout(() => setCopiedId(''), 1400);
+  }
+
+  function openSettings() {
+    setDraftSettings(settings);
+    setSettingsError('');
+    setSettingsOpen(true);
+    void loadSettings().catch((cause) => setSettingsError(cause instanceof Error ? cause.message : copy.requestFailed));
+  }
+
+  async function saveSettings() {
+    setSavingSettings(true);
+    setSettingsError('');
+    try {
+      const result = await api<SettingsPayload>('/settings', {
+        method: 'PATCH',
+        body: JSON.stringify(draftSettings),
+      });
+      setSettings(result.settings);
+      setDraftSettings(result.settings);
+      setModels(result.models);
+      setSettingsOpen(false);
+    } catch (cause: any) {
+      setSettingsError(cause?.code === 'invalid_model'
+        ? copy.invalidModel
+        : cause?.code === 'invalid_system_prompt'
+          ? copy.invalidSystemPrompt
+          : cause?.message || copy.requestFailed);
+    } finally {
+      setSavingSettings(false);
+    }
   }
 
   return (
@@ -300,10 +379,11 @@ function MiniChat() {
             <StackItem size="fill">
               <VStack gap={0}>
                 <Text type="label" weight="semibold">{active?.title || copy.newChat}</Text>
-                <Text type="supporting" color="secondary">{copy.subtitle}</Text>
+                <span className="model-summary"><Text type="supporting" color="secondary">{activeModelLabel} · {copy.subtitle}</Text></span>
               </VStack>
             </StackItem>
-            {active && <Button label={copy.delete} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} isDisabled={busy} onClick={() => void removeConversation()} />}
+            <Button label={copy.settings} variant="ghost" size="sm" isIconOnly icon={<Icon icon={Cog6ToothIcon} size="sm" />} isDisabled={busy} onClick={openSettings} />
+            {active && <Button label={copy.delete} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} isDisabled={busy} onClick={() => setDeleteOpen(true)} />}
           </HStack>
         </header>
 
@@ -334,23 +414,74 @@ function MiniChat() {
               </ChatMessage>
             ) : (
               <ChatMessage sender="assistant" key={message.id}>
-                <ChatMessageBubble variant="ghost">
+                <ChatMessageBubble variant="ghost" metadata={<ChatMessageMetadata
+                  timestamp={formatTime(message.createdAt)}
+                  footer={message.status === 'completed' ? <button className="message-action" type="button" onClick={() => void copyMessage(message)}><ClipboardDocumentIcon />{copiedId === message.id ? copy.copied : copy.copy}</button> : undefined}
+                />}>
                   {message.status === 'pending' ? message.content
                     ? <div className="streaming-reply"><Markdown density="compact">{message.content}</Markdown></div>
                     : <span className="thinking"><i /><i /><i /><span>{copy.loading}</span></span>
                     : message.status === 'completed' ? <Markdown density="compact">{message.content}</Markdown>
                     : <ChatSystemMessage>{statusText(message)}</ChatSystemMessage>}
                 </ChatMessageBubble>
-                <ChatMessageMetadata
-                  timestamp={formatTime(message.createdAt)}
-                  footer={message.status === 'completed' ? <button className="message-action" type="button" onClick={() => void copyMessage(message)}><ClipboardDocumentIcon />{copiedId === message.id ? copy.copied : copy.copy}</button> : undefined}
-                />
               </ChatMessage>
             ))}
             {!busy && retryable && messages.length > 0 && <div className="retry-row"><Button label={copy.retry} variant="secondary" size="sm" icon={<Icon icon={ArrowPathIcon} size="sm" />} onClick={() => void retry()} /></div>}
           </ChatMessageList>
         </ChatLayout>
       </main>
+
+      <Dialog isOpen={deleteOpen} onOpenChange={setDeleteOpen} width="min(380px, calc(100vw - 24px))" purpose="form">
+        <Layout
+          height="auto"
+          header={<DialogHeader title={copy.delete} subtitle={copy.deleteConfirm} onOpenChange={setDeleteOpen} />}
+          footer={<LayoutFooter hasDivider>
+            <HStack gap={2} hAlign="end">
+              <Button label={copy.cancel} variant="secondary" size="md" isDisabled={busy} onClick={() => setDeleteOpen(false)} />
+              <Button label={copy.delete} variant="primary" size="md" isDisabled={busy} onClick={() => void removeConversation()} />
+            </HStack>
+          </LayoutFooter>}
+        />
+      </Dialog>
+
+      <Dialog isOpen={settingsOpen} onOpenChange={setSettingsOpen} width="min(420px, calc(100vw - 24px))" maxHeight="min(560px, calc(100vh - 24px))" purpose="form">
+        <Layout
+          height="auto"
+          header={<DialogHeader title={copy.settings} subtitle={copy.settingsSubtitle} onOpenChange={setSettingsOpen} />}
+          content={<LayoutContent>
+            <VStack gap={5}>
+              <Selector
+                label={copy.model}
+                width="100%"
+                hasSearch={models.options.length > 8}
+                options={[
+                  {value: '', label: defaultModelName ? `${copy.defaultModel} · ${defaultModelName}` : copy.defaultModel},
+                  ...models.options.map((option) => ({value: option.key, label: option.label})),
+                ]}
+                value={draftSettings.modelKey}
+                onChange={(modelKey) => setDraftSettings((current) => ({...current, modelKey}))}
+              />
+              <TextArea
+                label={copy.systemPrompt}
+                description={copy.systemPromptDescription}
+                placeholder={copy.systemPromptPlaceholder}
+                value={draftSettings.systemPrompt}
+                onChange={(systemPrompt) => setDraftSettings((current) => ({...current, systemPrompt}))}
+                rows={4}
+                maxLength={2000}
+                width="100%"
+              />
+              {settingsError && <div className="settings-error" role="alert"><Text type="supporting" color="inherit">{settingsError}</Text></div>}
+            </VStack>
+          </LayoutContent>}
+          footer={<LayoutFooter hasDivider>
+            <HStack gap={2} hAlign="end">
+              <Button label={copy.cancel} variant="secondary" size="md" isDisabled={savingSettings} onClick={() => setSettingsOpen(false)} />
+              <Button label={copy.save} variant="primary" size="md" isLoading={savingSettings} onClick={() => void saveSettings()} />
+            </HStack>
+          </LayoutFooter>}
+        />
+      </Dialog>
     </div>
   );
 }

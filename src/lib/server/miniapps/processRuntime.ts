@@ -189,9 +189,11 @@ class MiniAppProcessRuntime implements MiniAppRuntime {
         ? await this.options.ai.generateText(input)
         : message.method === "ai.chat"
           ? await this.options.ai.chat(input)
-        : message.method === "ai.transcribe"
-          ? await this.options.ai.transcribe(input)
-          : (() => { throw new Error(`Unknown Mini App host call: ${message.method}`); })();
+          : message.method === "ai.listTextModels"
+            ? await this.options.ai.listTextModels()
+            : message.method === "ai.transcribe"
+              ? await this.options.ai.transcribe(input)
+              : (() => { throw new Error(`Unknown Mini App host call: ${message.method}`); })();
       this.child.send({ kind: "host_result", id: message.id, ok: true, value });
     } catch (error) {
       this.child.send({

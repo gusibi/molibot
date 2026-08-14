@@ -723,8 +723,11 @@ block, status color, and sidebar tint must resolve through the same family block
   explicitly restores bottom following. The same behavior and
   semantic tokens apply to local Chat, Project Chat, and read-only external transcripts.
 - Agent work inside local Chat and Project Chat uses one ordered process disclosure.
-  While a turn is running it stays open; after success it collapses so the answer leads;
-  failures and interruptions stay open. Its contents form one timeline in arrival order—
+  While the model is still reasoning or running tools with no answer yet it stays
+  open; the moment the first answer content (text or plan) streams, the card folds
+  by itself so the answer leads - not only at turn end. Once folded, the state
+  belongs to the reader and a manual expand is never re-collapsed. Failures and
+  interruptions stay open. Its contents form one timeline in arrival order—
   reasoning, narration, and tool calls. Running, failed, and unknown tool calls always keep
   their own rows. Adjacent successful reads, changes, searches, or commands may compress
   into one action row; expanding it reveals every original call in order. Groups never cross
@@ -738,9 +741,9 @@ block, status color, and sidebar tint must resolve through the same family block
   the upward popover placement so opening them never covers or pushes the composer;
   the shared overflow component owns the placement, focus, Escape, and arrow-key
   behavior rather than each caller duplicating menu positioning.
-- Motion communicates state only: use 120–180ms control transitions and 180–240ms
-  panel transitions. Respect `prefers-reduced-motion`; never animate layout merely
-  for decoration. Every interactive element needs keyboard access and a visible focus.
+- Motion follows the rules in the Motion section below; the short form is that
+  motion communicates state only and never animates layout for decoration.
+  Every interactive element needs keyboard access and a visible focus.
 - Copy leads with the user's task and uses localized, human-readable time and status.
   Raw model keys, provider protocols, trace IDs, cron, and paths are secondary details.
 - Transcript timestamps use one shared contextual format across local and Project Chat:
@@ -749,6 +752,61 @@ block, status color, and sidebar tint must resolve through the same family block
 - Read-only external transcripts show source and read-only status once, as one quiet
   footer sentence (`From {channel} · …`). Do not repeat source context in a transcript-
   top banner when the header tag and footer already provide it.
+
+## Motion
+
+Motion communicates a state change so the reader can follow it; it never
+decorates. The target feel is native macOS: state A -> something legible ->
+state B, in under a third of a second, and only when structure actually
+changes. When in doubt, no animation is the correct choice.
+
+**Tokens** (declared once in `apps/desktop/src/styles.css`; no parallel
+scales, no hand-written durations): `--duration-instant: 100ms`,
+`--duration-fast: 160ms`, `--duration-normal: 240ms`,
+`--duration-panel: 300ms`; `--ease-standard` for state changes,
+`--ease-spring` for spatial arrivals (entrances that also move). Three
+interaction classes:
+
+| Class | Duration | Examples |
+|---|---|---|
+| Micro | 100–160ms | hover/press feedback, copy->check swap, caret rotation |
+| State | 160–240ms | message entrance, popover/menu, disclosure body |
+| Panel | 240–300ms | modal, approval card, dock, empty state |
+
+Nothing exceeds 300ms; longer reads as waiting, not communicating.
+
+**Allowed properties:** `opacity` and `transform` only. Never animate
+`width`, `height`, or grid tracks - per-frame reflow is jank, and the
+file-panel grid animation was explicitly rejected in the motion audit.
+Transcript entrances are CSS `@starting-style` gated behind `.settled`
+(see `settleEntrances.ts`), so a session switch never replays them.
+
+**What does not animate:** streaming token text, keyboard-driven selection
+(slash menu, prompt navigator), high-frequency hover targets, and any change
+the reader directly causes (their own typing, pasting). High-frequency paths
+answer in the same frame; motion is reserved for structural change - content
+joining, panels opening, surfaces swapping.
+
+**Transcript follow-scroll** is the one JS-owned motion (`stickToBottom.ts`):
+an interruptible rAF physics spring on `scrollTop` - semi-implicit
+integration, frame-rate independent, retargeting every frame while content
+grows - and deliberately not CSS smooth-scroll, which cannot retarget and
+fights the reader's trackpad. The reader's first upward wheel or touch
+cancels the glide and hands scroll ownership back; scrolling back near the
+bottom re-arms it. Session switches land on the tail instantly.
+
+**Turn handoff:** when the streaming reply is superseded by the persisted
+transcript row, the swap must read as nothing happening. The end-of-turn
+reload re-keys rows in the same flush that removes the streaming article, so
+those rows mount without the entrance fade (the falling edge of `sending`
+re-arms `settleEntrances`); a fade-from-zero there reads as the reply
+blinking out and ghosting back. Entrances at send time - the optimistic user
+bubble, the streaming row - keep their fade.
+
+Every new animation is added to the `prefers-reduced-motion: reduce`
+overrides in `styles.css` (and the `data-performance="low"` list, where it
+applies) in the same change; both degrade all of the above, the spring
+included, to the instant equivalent.
 
 # Geist
 

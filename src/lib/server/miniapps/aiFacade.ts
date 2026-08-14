@@ -8,6 +8,7 @@ import { resolveSttTarget, transcribeAudioViaConfiguredProvider } from "$lib/ser
 import { resolveContainedPath } from "$lib/server/miniapps/paths.js";
 import { overrideSettingsForModelKey } from "$lib/server/providers/assistantService.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { buildModelOptions, currentModelKey } from "$lib/server/settings/modelSwitch.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import {
   MiniAppAiError,
@@ -29,6 +30,7 @@ interface TextExecutionInput {
   system?: string;
   maxTokens: number;
   reasoning: "low";
+  modelKey?: string;
   signal?: AbortSignal;
   onTextDelta?: (delta: string) => void;
 }
@@ -156,6 +158,7 @@ interface ValidatedTextInput {
   system?: string;
   maxTokens: number;
   reasoning: "low";
+  modelKey?: string;
   signal?: AbortSignal;
   onTextDelta?: (delta: string) => void;
 }
@@ -163,6 +166,7 @@ interface ValidatedTextInput {
 function validateCommonTextInput(input: {
   system?: string;
   maxTokens?: number;
+  modelKey?: string;
   signal?: AbortSignal;
   onTextDelta?: (delta: string) => void;
 }): Omit<ValidatedTextInput, "messages"> {
@@ -178,6 +182,9 @@ function validateCommonTextInput(input: {
   if (input.onTextDelta !== undefined && typeof input.onTextDelta !== "function") {
     throw new MiniAppAiError("invalid_request", "onTextDelta must be a function.");
   }
+  if (input.modelKey !== undefined && typeof input.modelKey !== "string") {
+    throw new MiniAppAiError("invalid_request", "modelKey must be a string.");
+  }
   const requested = input.maxTokens ?? 1024;
   if (!Number.isFinite(requested) || requested <= 0) {
     throw new MiniAppAiError("invalid_request", "maxTokens must be positive.");
@@ -186,6 +193,7 @@ function validateCommonTextInput(input: {
     ...(input.system ? { system: input.system } : {}),
     maxTokens: Math.min(MINIAPP_AI_MAX_OUTPUT_TOKENS, Math.floor(requested)),
     reasoning: "low",
+    ...(input.modelKey?.trim() ? { modelKey: input.modelKey.trim() } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
     ...(input.onTextDelta ? { onTextDelta: input.onTextDelta } : {})
   };
@@ -259,7 +267,14 @@ export function createMiniAppAiFacade(options: CreateFacadeOptions): MiniAppAiFa
     const startedAt = Date.now();
     try {
       const current = options.getSettings();
-      const settings = overrideSettingsForModelKey(current, current.plugins.miniApps.ai.textModelKey);
+      const requestedModelKey = validated.modelKey;
+      if (requestedModelKey && !buildModelOptions(current, "text").some((option) => option.key === requestedModelKey)) {
+        throw new MiniAppAiError("invalid_request", "The selected text model is unavailable.");
+      }
+      const settings = overrideSettingsForModelKey(
+        current,
+        requestedModelKey || current.plugins.miniApps.ai.textModelKey
+      );
       const result = await executeText({ settings, ...validated });
       options.usageTracker?.record({
         channel: "miniapp",
@@ -301,6 +316,20 @@ export function createMiniAppAiFacade(options: CreateFacadeOptions): MiniAppAiFa
   }
 
   return {
+    async listTextModels() {
+      if (!options.capabilities.includes("text")) {
+        throw new MiniAppAiError("capability_not_declared", "This Mini App did not declare text generation.");
+      }
+      const current = options.getSettings();
+      const routed = overrideSettingsForModelKey(current, current.plugins.miniApps.ai.textModelKey);
+      return {
+        currentKey: currentModelKey(routed, "text"),
+        options: buildModelOptions(current, "text").map((option) => ({
+          key: option.key,
+          label: option.alias || option.label
+        }))
+      };
+    },
     generateText: (input) => runText(validateTextInput(input)),
     chat: (input) => runText(validateChatInput(input)),
     async transcribe(input) {

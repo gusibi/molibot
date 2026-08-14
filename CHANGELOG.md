@@ -6,6 +6,38 @@
 
 ## 2026-08-14
 
+### Release: v2.9.25 / Desktop v0.9.22
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: Mini Chat conversation deletion works inside the app sandbox
+
+- Replaced the blocked browser `window.confirm()` dependency with an Astryx confirmation dialog, so the top-right delete action now opens reliably and deletes the selected conversation and its messages.
+- Bumped the built-in Mini Chat package to v1.0.5 so existing installations receive the UI fix.
+
+### Fixed: Mini Chat honors its selected model
+
+- A Mini Chat per-request model selection now overrides the configured global text route, so choosing a PI or custom model sends the request to that exact model instead of silently falling back to the default.
+- Added a real routing regression that covers a non-empty global `textModelKey`, the condition missed by the earlier model-selection tests.
+
+### Improved: Chat transcript follows new content on a physics spring
+
+- Transcript auto-scroll no longer teleports on every streamed frame: `stickToBottom` now glides to the newest content on an interruptible, frame-rate-independent rAF spring that retargets as content grows.
+- The reader's first upward wheel or touch cancels the glide and hands scroll ownership back; returning near the bottom re-arms following. Session switches still land on the tail instantly, and `prefers-reduced-motion` / low-performance modes keep the instant behavior.
+- Added a Motion section to DESIGN.md fixing the app-wide motion tokens, the opacity/transform-only rule, and the "what never animates" list.
+
+### Fixed: the finished reply no longer blinks out at end of turn
+
+- The end-of-turn transcript reload re-keys message rows in the same frame the streaming bubble is removed; those rows now mount fully opaque instead of fading in from zero, so the reply the reader was watching hands over to its persisted row with no visible swap.
+
+### Changed: chat composer focus loses its tinted border
+
+- Clicking into the chat input no longer paints a bright accent border around the whole composer area; focus is signaled by a faint neutral glow only.
+
+### Improved: the reasoning card folds as soon as the answer starts
+
+- While the model reasons or runs tools with no answer yet, the live process card stays open; the moment the first answer content streams, it now collapses by itself so the answer leads instead of waiting for the turn to end. A manual re-expand afterwards is respected.
+- Collapsed summaries, failure/interruption behavior, and the committed transcript treatment are unchanged.
+
 ### Release: v2.9.24 / Desktop v0.9.21
 - Synchronized the root and Desktop package versions for the new release.
 
@@ -25,6 +57,16 @@
 - Mini App text generation can now forward Provider text deltas across the app process boundary while retaining the same final result, cancellation, usage, and error contracts.
 - Mini Chat renders those deltas while generation is active, persists only the completed reply, and removes the oversized assistant initials avatar.
 - At 390px wide, the assistant message column now uses 327px with no avatar reservation or horizontal overflow.
+
+### Improved: Mini Chat adds per-app model and prompt settings
+
+- Mini Chat now offers a compact settings dialog for choosing any configured text model or following the Mini App default, plus an optional short system prompt stored only in Mini Chat's own data directory.
+- Model discovery returns only routed model identifiers and display labels; Provider credentials remain inside the host. The selected model and prompt cross the child-process bridge without entering the Agent Runtime.
+- Assistant metadata now shares the reply bubble's content inset so timestamps and copy actions align with the answer, and the hidden mobile conversation rail no longer casts a visible left-edge shadow.
+
+### Improved: Mini Chat has a distinctive built-in app icon
+
+- Replaced the generic black chat tile with a compact teal two-bubble mark, using the same primary/deep/highlight color construction as the Note, Todo, and Meeting Notes icons.
 
 ### Improved: repeated Chat actions collapse into readable groups
 

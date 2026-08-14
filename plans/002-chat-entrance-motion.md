@@ -1,6 +1,6 @@
 # 002 — Chat entrance motion pass (transcript + composer surfaces)
 
-- **Status**: TODO
+- **Status**: DONE (shipped via `settleEntrances` + the `@starting-style` entrance set; kept as the design record)
 - **Commit**: 1980093a
 - **Severity**: MEDIUM
 - **Category**: Missed opportunities (preventing jarring changes / feedback)

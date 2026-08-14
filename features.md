@@ -6,21 +6,39 @@
 
 ## 2026-08-14
 
+### Release v2.9.25 / Desktop v0.9.22
+
+- 升级 root 与 Desktop/Tauri 客户端包版本，发布弹簧跟随滚动与回合无缝交接、思考卡自动折叠、Mini Chat 沙箱会话删除与模型选择路由修复。
+
+### Desktop Chat 动效第一批：弹簧跟随滚动与回合无缝交接（优化，P0）
+
+- 新增 DESIGN.md **§Motion** 动效规范：沿用现有 token 三档时长（100/160/240/300ms）与 `--ease-standard`/`--ease-spring`，只允许动画 `opacity`/`transform`，写明"不动"清单（流式 token、键盘选择、高频 hover、用户直接造成的变更），并沉淀 transcript 跟随滚动与回合交接两条行为契约。
+- `stickToBottom` 从"每次内容变更瞬移 `scrollTop`"重写为**可打断的 rAF 物理弹簧**（半隐式积分、帧率无关、流式期间逐帧重定目标；灵感来自 mini-chat 的实现但零依赖）。读者向上滚轮/触摸立即中断滑行并交还滚动所有权，回到底部阈值内自动重新吸附；Session 切换保持瞬时跳转；`prefers-reduced-motion: reduce` 与 `data-performance="low"` 回退为瞬移。`suspend/resume/SCROLL_PINNED_EVENT` 契约不变，TranscriptDock 无需改动，外部只读 transcript 同步受益。
+- **回合结束交接消除"消失一帧"**：turn 结束的 reload 会把 optimistic `pending-` id 换成真实 id（re-key 消息行）并同帧移除流式气泡，此前 re-key 行从 opacity 0 淡入，正在看的回复会"灭掉再淡回"。现在把 `sending` 的下降沿并入 `settleEntrances` 的 key，re-key 行以全不透明挂载，交接读起来"什么都没发生"；发送时的乐观用户气泡与流式行仍保留入场淡入（上升沿被刻意排除）。
+- `plans/001-streaming-render-smoothness.md`、`plans/002-chat-entrance-motion.md` 状态修正为 DONE（两份早已随 v2.9.x 实现，仅状态未更新，曾导致后续动效审计误判缺口）。
+- 机器守卫：`chat-ui.test.mjs` 新增弹簧积分/滚轮中断/reduced-motion 回退的结构断言，以及 turn-end settle key（含下降沿排除上升沿）守卫。
+- **思考卡在回答出现时自动折叠**：live 过程卡此前整个 turn 期间 `forceOpen` 常开，回答文本开始流式输出后思考时间线仍占着屏幕顶端。现在 `forceOpen={!liveSections.response.length}`--首个回答块（文本或 Plan）一出现就收起，回答领衔；`TurnProcess` 改为跟随 `forceOpen` 的双向跳变，折叠后状态归读者，手动展开不会被再次收起。DESIGN.md 过程披露契约同步更新。
+- **Composer 聚焦样式收敛**：`.composer:focus-within` 不再把边框染成 accent 色（38% 混合的亮框过于突兀），聚焦只保留 3px 中性灰（`--label-secondary` 9%）的柔和光晕，边框维持常态 `--control-border`。
+- 验证：手动行为矩阵全部通过（流式自动跟随/上滚立即打断/回底恢复跟随/切 Session 瞬时落地无动画/回答出现时思考卡自动折叠/composer 聚焦无边框亮色）；机器验证（`svelte-check`、`chat-ui.test.mjs`、production build）因会话内命令通道故障未执行，需在下个 slice 补跑。
+
 ### Release v2.9.24 / Desktop v0.9.21
 
 - 升级 root 与 Desktop/Tauri 客户端包版本，发布 Mini Chat 轻量对话小程序、连续工具聚合与动作摘要、扁平执行时间线、AI 服务商模型前缀归组以及思考与工具调用实时顺序修复。
 
 ### Mini Chat 轻量对话小程序（新增，P0）
 
-- 新增可选安装的内置 **Mini Chat**（`mini-chat`，v1.0.2），界面基于 Astryx `ai-chat` 模板与组件构建，并随包保留其 MIT 第三方声明；支持中英、明暗/系统主题、移动窄宽度和独立会话侧栏。
+- Mini Chat 删除会话改用应用内 Astryx 确认对话框，不再依赖 iframe 禁止的浏览器原生 modal；确认后删除当前会话及其全部消息，并升级内置包至 v1.0.5。
+- 新增可选安装的内置 **Mini Chat**（`mini-chat`，v1.0.5），界面基于 Astryx `ai-chat` 模板与组件构建，并随包保留其 MIT 第三方声明；支持中英、明暗/系统主题、移动窄宽度和独立会话侧栏。图标改为青绿双气泡，复用 Note/Todo/Meeting Notes 的主色、深色层与浅色高光家族风格，不再使用黑色方块底。
 - 每个 Mini Chat Session 与消息由小程序自己的 `mini-chat.sqlite` 持久化；重启保留历史，启动时将未完成回复标为可重试的 interrupted，不复用也不污染 Agent Session。
-- 模型请求走扩展后的 Host AI Facade `context.ai.chat()`，只提交经校验和有界裁剪的 `user/assistant` 历史，不设置 `system`，不进入 Agent Runner，因此不会合并默认 Agent 系统提示词、记忆、Skills 或工具定义。
+- 模型请求走扩展后的 Host AI Facade `context.ai.chat()`，只提交经校验和有界裁剪的 `user/assistant` 历史；默认不设置 `system`，只在用户主动填写 Mini Chat 简短提示词时传入，始终不进入 Agent Runner，因此不会合并默认 Agent 系统提示词、记忆、Skills 或工具定义。
+- 顶部齿轮设置可跟随小程序默认模型，或从已配置文本模型中为 Mini Chat 单独选择；可选系统提示词限 2000 字符。两者持久化到小程序自有设置文件，模型列表不包含 Provider 凭证。
+- Mini Chat 显式选择的 PI 或自定义模型按请求覆盖全局 `textModelKey`，最终 Provider 路由和用量记录使用用户所选模型，不再被全局默认路由抢占。
 - 支持新建/删除会话、Markdown 回复、复制、失败/停止后重试以及真实取消。取消信号可跨小程序子进程传到模型 Provider，不只是停止界面动画。
 - Mini Chat 的文本调用固定使用 `low` reasoning；Provider 拒绝请求时，界面显示带 HTTP 状态的简短可操作原因，Host 会先移除凭证并限制长度，运行日志同时记录同一脱敏错误。
 - Host AI Facade 支持 `onTextDelta`，Pi 原生文本增量可跨小程序子进程传递；Mini Chat 生成期间以轻量轮询读取内存增量，完成后才一次写入 SQLite，避免逐 token 写库。
-- Assistant 消息移除占位过大的 `MC` 头像，并在 480px 以下收紧 Astryx 消息内层留白；390px 实测正文宽 327px、头像为 0 且无横向溢出。
+- Assistant 消息移除占位过大的 `MC` 头像，并在 480px 以下收紧 Astryx 消息内层留白；metadata 通过气泡插槽与正文共享左边线，移动端隐藏侧栏不再向主内容投影。
 - Mini App manifest 允许 `tools: []`，UI-only 应用无需为了通过校验而暴露虚假的 Agent 工具。
-- 验证：Astryx UI TypeScript 检查通过；AI facade、manifest、Mini Chat Session/流式增量/错误/取消（含真实子进程边界）、全部内置安装与 runtime smoke 共 37/37 通过；当前配置模型真实返回 4 个增量且拼接结果与最终回复一致；桌面中文、390px 中文窄宽度及英文深色真实渲染走查通过。
+- 验证：Astryx UI TypeScript 检查、生产构建与 Mini Chat/AI Facade 定向回归通过；新增真实 Provider 路由回归，覆盖全局 `textModelKey` 已配置时按请求切换模型。Mini Chat 与内置安装回归通过；全量 Mini App 回归唯一失败为本切片之外 `toolAdapter.test.ts` 对已扩展风险元数据的旧等值断言。390px 实际渲染下正文与 metadata 左边坐标均为 44px，隐藏侧栏阴影为 `none`，页面无横向溢出，模型选择和系统提示词保存交互通过。
 
 ### Desktop Chat 连续工具聚合与动作摘要（优化，P1）
 

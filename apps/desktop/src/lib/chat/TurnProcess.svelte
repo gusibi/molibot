@@ -12,8 +12,16 @@
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
   export let endpoint = "";
 
+  // `forceOpen` is followed on its TRANSITIONS, in both directions: the live
+  // card opens while the model is still reasoning and must fold once the
+  // answer starts so the answer leads. After the fold the state belongs to the
+  // reader - a manual re-expand is never re-collapsed by a later transition.
   let opened = forceOpen;
-  $: if (forceOpen) opened = true;
+  let lastForceOpen = forceOpen;
+  $: if (forceOpen !== lastForceOpen) {
+    lastForceOpen = forceOpen;
+    opened = forceOpen;
+  }
   $: summary = transcriptProcessSummary(blocks);
   $: displayBlocks = live
     ? blocks

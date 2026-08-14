@@ -1,10 +1,12 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 const MAX_MESSAGE_LENGTH = 16_000;
 const MODEL_CONTEXT_BYTES = 48 * 1024;
 const MODEL_CONTEXT_MESSAGES = 80;
+const MAX_SYSTEM_PROMPT_LENGTH = 2_000;
 const AI_ERROR_CODES = new Set([
   "capability_not_declared",
   "capability_unavailable",
@@ -99,6 +101,10 @@ function titleFrom(content) {
 class Store {
   constructor(dataDir) {
     this.db = openDatabase(dataDir);
+    this.settingsPath = path.join(dataDir, "mini-chat-settings.json");
+    this.settings = existsSync(this.settingsPath)
+      ? JSON.parse(readFileSync(this.settingsPath, "utf8"))
+      : { modelKey: "", systemPrompt: "" };
   }
 
   transaction(run) {
@@ -115,6 +121,18 @@ class Store {
 
   listConversations() {
     return this.db.prepare("SELECT * FROM conversations ORDER BY updated_at DESC").all().map(conversationRecord);
+  }
+
+  getSettings() {
+    return { modelKey: String(this.settings.modelKey || ""), systemPrompt: String(this.settings.systemPrompt || "") };
+  }
+
+  updateSettings(settings) {
+    this.settings = { modelKey: settings.modelKey, systemPrompt: settings.systemPrompt };
+    const temporaryPath = `${this.settingsPath}.tmp`;
+    writeFileSync(temporaryPath, JSON.stringify(this.settings, null, 2), "utf8");
+    renameSync(temporaryPath, this.settingsPath);
+    return this.getSettings();
   }
 
   getConversation(id) {
@@ -256,10 +274,13 @@ export default function createApp(context) {
 
   async function generate(conversationId, running) {
     try {
+      const settings = store.getSettings();
       const result = await context.ai.chat({
         messages: store.modelMessages(conversationId),
         maxTokens: 2048,
         signal: running.controller.signal,
+        ...(settings.modelKey ? { modelKey: settings.modelKey } : {}),
+        ...(settings.systemPrompt ? { system: settings.systemPrompt } : {}),
         onTextDelta: (delta) => { running.text += delta; }
       });
       store.completeAssistant(running.assistantId, result);
@@ -282,6 +303,28 @@ export default function createApp(context) {
     async handleHttp(request) {
       try {
         const parts = routeParts(request.path);
+        if (parts.length === 1 && parts[0] === "settings" && request.method === "GET") {
+          const models = await context.ai.listTextModels();
+          return response(200, { settings: store.getSettings(), models });
+        }
+        if (parts.length === 1 && parts[0] === "settings" && request.method === "PATCH") {
+          const models = await context.ai.listTextModels();
+          if (request.body?.modelKey !== undefined && typeof request.body.modelKey !== "string") {
+            throw new AppError("The selected model must be a model key.", 400, "invalid_model");
+          }
+          if (request.body?.systemPrompt !== undefined && typeof request.body.systemPrompt !== "string") {
+            throw new AppError("System prompt must be text.", 400, "invalid_system_prompt");
+          }
+          const modelKey = (request.body?.modelKey || "").trim();
+          const systemPrompt = (request.body?.systemPrompt || "").trim();
+          if (modelKey && !models.options.some((option) => option.key === modelKey)) {
+            throw new AppError("The selected model is no longer available.", 400, "invalid_model");
+          }
+          if (systemPrompt.length > MAX_SYSTEM_PROMPT_LENGTH) {
+            throw new AppError(`System prompt cannot exceed ${MAX_SYSTEM_PROMPT_LENGTH} characters.`, 400, "invalid_system_prompt");
+          }
+          return response(200, { settings: store.updateSettings({ modelKey, systemPrompt }), models }, true);
+        }
         if (request.method === "GET" && parts.length === 1 && parts[0] === "conversations") {
           return response(200, { conversations: store.listConversations() });
         }
