@@ -61,6 +61,7 @@ import {
   type DurableRequestMode
 } from "$lib/server/agent/durable/activation.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
+import { tryAutoSummarizeConversationTitleAsync } from "$lib/server/sessions/titleSummarizer.js";
 
 interface ChatBody {
   userId?: string;
@@ -685,6 +686,13 @@ export const POST: RequestHandler = async ({ request }) => {
     attachments: sessionAttachments,
     contextBacked: true,
     retention: turnRetention
+  });
+
+  void tryAutoSummarizeConversationTitleAsync({
+    conversationId: conversation.id,
+    channel: "web",
+    externalUserId,
+    firstUserMessage: inboundText
   });
 
   const durableBotId = resolveWebDurableBotId(parsed.profileId, runtime.channelManagers);

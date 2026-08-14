@@ -5,6 +5,49 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.86 Meeting Notes 生产化 V1（2026-08-14）
+
+- **Priority / Status**: P0 / Delivered (2026-08-14).
+- **Problem**: 草稿实现由 iframe 直接录制 60 秒文件，关闭面板即中断；一小时会议依赖长音频与最终一次性总结，无法实时看到内容，也没有停止屏障、缺片证据或可靠恢复。
+- **Decision**: V1 先交付线下面对面麦克风，但从第一天采用 `source adapter → track → 10s chunk → utterance timeline → rolling notes → hierarchical final notes`。设备生命周期和有界磁盘队列归 Desktop 宿主，Meeting Notes 只持有领域状态与 UI；独立 `host.audioCapture` capability 由 manifest 声明，并在 Panel 与服务入口两次授权。
+- **Acceptance**: Panel 销毁后录音继续；一小时录音内存不线性增长；块上传幂等且确认后删除；最后序号 barrier、缺片、失败、重启孤儿恢复与旧草稿备份有机器回归；会中可见转写和每分钟临时纪要；最终总结不发送完整全文单 prompt；中英、明暗与窄宽度可用。Zoom/腾讯会议/飞书系统音频适配器继续为后续 P1，且不得改动下游领域模型。
+- **Production fix (2026-08-14)**: 真实 10 秒 PCM 块经 Base64 JSON 后约 1.28 MiB，不能依赖 adapter-node 默认 512 KiB。Desktop 启动器必须在加载服务前设置有界请求上限，路由继续做更窄的音频大小校验；UI 与结构化日志必须区分上传、转写和总结失败。Meeting Notes `2.0.1` 已交付该修复。
+- **Acceptance correction / `2.1.0` (2026-08-14)**: 首轮用户验收确认 `2.0.1` 仍不是可用产品：没有暂停/继续，历史只是活动页里的平铺列表，活动 capture 与 meeting 详情重复且状态来源分裂。验收口径修正为：原生同一 capture 支持多次 pause/resume；暂停边界落盘且有效时长停止；Live 与 History 是两个独立表面；历史可按标题/纪要/转写搜索、按日期浏览并进入/返回详情；活动会议不重复出现；服务重启后由宿主真实状态恢复未结束会议。上述能力已由 `2.1.0` 交付并纳入跨层机器守卫。
+- **UI refinement / `2.2.0` (2026-08-14)**: Live 必须同时回答“是否仍在录音、麦克风是否工作、音频是否已安全保存”，而不依赖红色或工程术语；结束确认可用键盘撤销且不能被后台刷新关闭。History 提供数量、状态筛选和无竞态全文搜索；轮询不能覆盖用户正在编辑的标题。中英、明暗、减少动态效果与窄宽度共享同一交互层级。
+
+---
+## 3.85 Desktop 设置模型分组与 Provider 保存后即时刷新（2026-08-13）
+
+- **Priority / Status**: P1 / Delivered (2026-08-13).
+- **Problem**: 设置 → 模型的路由选择器仍把不同供应商平铺混排；同时，AI 服务商与模型页互斥挂载，Provider 保存时发出的同步事件没有模型页监听者，重新进入模型页又因 endpoint 未变化而跳过加载，导致新增模型保持旧列表直到重启或刷新。
+- **Decision**: 扩展共享 Bits UI `SelectControl` 支持可选分组标题，并让模型页及 Mini App AI 的模型选项复用统一供应商分组。模型页每次进入都强制拉取最新模型与路由数据，不再依赖未挂载期间无法接收的 Provider 事件。
+- **Acceptance**: 设置 → 模型的所有模型型选择器按供应商分组且每项单行；在 AI 服务商新增并保存模型后切回模型页即可看到新模型，无需重启或手动刷新；普通非模型下拉保持原样；回归测试、类型检查和生产构建通过。
+
+---
+## 3.84 Desktop Chat 模型选择按供应商分组（2026-08-13）
+
+- **Priority / Status**: P1 / Delivered (2026-08-13).
+- **Problem**: Chat 与 Project Chat 的共享模型菜单把所有模型平铺在一起，并为每个模型同时显示名称和技术标识；供应商多时难以扫描，双行条目也降低了可见密度。
+- **Decision**: 按模型现有供应商信息稳定分组，保留供应商与模型的原始顺序；组内每个模型只显示一行别名或可读名称，完整技术标签保留在 tooltip，不改变路由 key、会话级选择、选中态或键盘导航。
+- **Acceptance**: Chat 与 Project Chat 的模型页显示供应商标题和单行模型项；同供应商模型连续归组，长名称安全截断；中英文、全部主题和窄窗口继续可用；分组单测、UI 结构守卫、类型检查与生产构建通过。
+
+---
+## 3.83 Note live refresh and Markdown reading mode（2026-08-13）
+
+- **Priority / Status**: P1 / Delivered (2026-08-13).
+- **Problem**: Note only refreshed on window focus or document visibility changes. If the panel stayed open while an Agent wrote through the shared tool runtime, no event fired and the visible list remained stale. Card bodies also displayed Markdown as literal plain text.
+- **Decision**: Poll the cheap shared Mini App revision every two seconds only while the panel is visible, and reload notes only when that revision changes. Render card bodies with the already-packaged `marked` library while suppressing raw HTML, images, and unsafe link protocols; keep the editor as raw Markdown.
+- **Acceptance**: Agent writes appear in an already-open visible Note panel without navigation; failed reloads do not consume a revision or hide later recovery; headings, emphasis, lists, quotes, code, safe links, and GFM tables render in both themes and narrow widths; unsafe HTML/images/links stay inert; installed copies can detect the Note `1.4.0` update; focused tests and production build pass.
+
+---
+## 3.82 AI 自动会话标题总结（2026-08-13）
+
+- **Priority / Status**: P1 / Delivered (2026-08-13).
+- **Problem**: 新建 Session 发送首条消息时，原有逻辑直接截取前 40 字符作为标题，无法精炼出真实对话主题，影响历史会话识别。
+- **Decision**: 新增后台异步提炼模块 `titleSummarizer.ts`。首条用户消息到达时，根据系统语言配置（`zh-CN` / `en-US`）在 `systemPrompt` 与 `prompt` 中注入对应的中文/英文提炼要求（含 `reasoning: "off"` 与超时保护），提炼为一句话总结标题。通过 SSE 事件 `session_title_updated` 实时推送到前端 UI 并动态更新侧边栏列表。
+- **Acceptance**: 首条消息自动触发一句话总结；系统提示词准确注入当前语言要求；模型失败或超时无缝降级；单测与 E2E 验证通过。
+
+---
 ## 3.81 Desktop 内置 Provider 独立检测与模型目录（2026-08-12）
 
 - **Priority / Status**: P1 / Delivered (2026-08-12).

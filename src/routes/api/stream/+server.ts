@@ -24,6 +24,7 @@ import {
   formatDurableActivationAcknowledgement
 } from "$lib/server/agent/durable/activation.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
+import { tryAutoSummarizeConversationTitleAsync } from "$lib/server/sessions/titleSummarizer.js";
 
 function writeEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
@@ -283,6 +284,19 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      void tryAutoSummarizeConversationTitleAsync({
+        conversationId: conversation.id,
+        channel: "web",
+        externalUserId,
+        firstUserMessage: inboundText,
+        onTitleUpdated: (newTitle) => {
+          writeEvent(controller, encoder, "session_title_updated", {
+            conversationId: conversation.id,
+            title: newTitle
+          });
+        }
+      });
+
       void (async () => {
         let finalText = "";
         let thinkingText = "";

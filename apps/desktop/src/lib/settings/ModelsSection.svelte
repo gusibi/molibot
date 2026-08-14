@@ -11,10 +11,9 @@
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
-  import { modelOptionCopy } from "../presentation";
+  import { groupModelOptions } from "../presentation";
   import { session } from "../stores/session.svelte";
   import { timezoneOptions } from "./timezones";
-  import { PROVIDERS_CHANGED_EVENT } from "../stores/providers.svelte";
   import {
     modelsStore,
     MODEL_ROUTES,
@@ -49,28 +48,20 @@
   }
 
   $effect(() => {
-    if (session.serviceReady && session.endpoint && session.endpoint !== modelsStore.loadedEndpoint) {
-      void loadModels(session.endpoint);
-    }
+    // Providers and Models are separate settings sections, so Models is not
+    // mounted when a provider save emits its same-window change event. Refresh
+    // on every entry instead of trusting the endpoint-keyed cache.
+    if (session.serviceReady && session.endpoint) void loadModels(session.endpoint, { force: true });
   });
 
-  $effect(() => {
-    const refreshAfterProviderChange = () => {
-      // Follows a provider write, so it must not reuse an older in-flight load.
-      if (session.serviceReady && session.endpoint) void loadModels(session.endpoint, { force: true });
-    };
-    window.addEventListener(PROVIDERS_CHANGED_EVENT, refreshAfterProviderChange);
-    return () => window.removeEventListener(PROVIDERS_CHANGED_EVENT, refreshAfterProviderChange);
-  });
-
-  function displayOption(option: DesktopModelOption): { value: string; label: string } {
-    return { value: option.key, label: modelOptionCopy(option).name };
-  }
-
-  function modelOptions(options: DesktopModelOption[], emptyLabel?: string): Array<{ value: string; label: string }> {
+  function modelOptions(options: DesktopModelOption[], emptyLabel?: string): Array<{ value: string; label: string; group?: string }> {
     return [
       ...(emptyLabel ? [{ value: "", label: emptyLabel }] : []),
-      ...options.map(displayOption)
+      ...groupModelOptions(options).flatMap((group) => group.options.map(({ option, name }) => ({
+        value: option.key,
+        label: name,
+        group: group.provider
+      })))
     ];
   }
 </script>

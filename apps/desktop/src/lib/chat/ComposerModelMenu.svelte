@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import type { DesktopModelOption, DesktopThinkingLevel } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
-  import { modelOptionCopy } from "../presentation";
+  import { groupModelOptions } from "../presentation";
 
   export let copy: Translation;
   export let modelOptions: DesktopModelOption[] = [];
@@ -23,6 +23,7 @@
 
   $: modelLabel = activeModelLabel || copy.model;
   $: levelLabel = thinkingLevelLabel || copy.thinkingLevel;
+  $: modelGroups = groupModelOptions(modelOptions);
 
   function thinkingOptionLabel(level: DesktopThinkingLevel): string {
     return {
@@ -144,15 +145,16 @@
         </div>
         <div class="composer-menu-options">
           {#if page === "model"}
-            {#each modelOptions as model (model.key)}
-              {@const option = modelOptionCopy(model)}
-              <button type="button" role="menuitemradio" aria-checked={model.key === activeModelKey} onclick={() => selectModel(model.key)}>
-                <span class="composer-model-option-copy" title={model.label}>
-                  <span class="composer-model-option-name">{option.name}</span>
-                  {#if option.detail}<small class="composer-model-option-id">{option.detail}</small>{/if}
-                </span>
-                {#if model.key === activeModelKey}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
-              </button>
+            {#each modelGroups as group (group.provider)}
+              <div class="composer-model-option-group" role="group" aria-label={group.provider}>
+                <div class="composer-model-option-provider">{group.provider}</div>
+                {#each group.options as item (item.option.key)}
+                  <button type="button" role="menuitemradio" aria-checked={item.option.key === activeModelKey} title={item.option.label} onclick={() => selectModel(item.option.key)}>
+                    <span class="composer-model-option-name">{item.name}</span>
+                    {#if item.option.key === activeModelKey}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
+                  </button>
+                {/each}
+              </div>
             {/each}
           {:else}
             {#each thinkingLevelOptions as level (level)}

@@ -33,6 +33,7 @@ const sections = {
   tasks: read("./lib/settings/TasksSection.svelte"),
   skills: read("./lib/chat/InstalledSkillsPane.svelte"),
   memory: read("./lib/settings/MemorySection.svelte"),
+  models: read("./lib/settings/ModelsSection.svelte"),
   plugins: read("./lib/settings/PluginsSection.svelte"),
   providers: read("./lib/settings/ProvidersSection.svelte"),
   sandbox: read("./lib/settings/SandboxSection.svelte"),
@@ -258,12 +259,23 @@ test("entity settings editors use the shared dialog shell with a dedicated scrol
   }
   assert.match(styles, /\.entity-editor-form\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*overflow:\s*hidden/s);
   assert.match(styles, /\.entity-editor-body\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
+  // The 720px/86vh override must win the cascade over the base .desktop-dialog-content
+  // (560px/80vh). Both classes sit on the same element, so the override needs higher
+  // specificity than a single class - a bare .entity-editor-dialog loses to the later
+  // base rule and the editor renders cramped at 560px. The compound selector is immune
+  // to source-order regressions.
+  assert.match(styles, /\.desktop-dialog-content\.entity-editor-dialog\s*\{[^}]*width:\s*min\(720px/s);
 });
 
 test("Skill search configuration is a collapsed disclosure until the user opens it", () => {
   assert.match(settingsSkills, /<details class="skills-search-config settings-card">/);
   assert.match(settingsSkills, /<summary[^>]*>[\s\S]*skillsSearchConfig[\s\S]*<\/summary>/);
   assert.doesNotMatch(settingsSkills, /<details class="skills-search-config settings-card"\s+open/);
+  // The collapsed summary must match the surrounding settings rows' typography
+  // and box, or it renders as a larger/bolder/shorter stranger and the page reads
+  // as "错乱". A bare summary inherits the UA 16px bold and zero vertical padding.
+  assert.match(styles, /\.skills-search-config > summary\s*\{[^}]*font-size:\s*var\(--fs-body\)[^}]*font-weight:\s*600/s);
+  assert.match(styles, /\.skills-search-config > summary\s*\{[^}]*padding:\s*10px\s+16px/s);
 });
 
 test("Memory renders its summary before slower secondary datasets finish", () => {
@@ -273,6 +285,14 @@ test("Memory renders its summary before slower secondary datasets finish", () =>
   assert.ok(
     memoryStoreSource.indexOf("memoryStore.memory = summary") < memoryStoreSource.indexOf("await secondaryPromise"),
     "summary must unblock the page before secondary memory datasets settle"
+  );
+  // The LLM-synthesized profile is the slowest dataset. The fast secondary
+  // datasets (records/candidates/rejections) must settle before the profile is
+  // awaited, or the overview stays empty for seconds after the shell paints -
+  // reading as "白屏很久".
+  assert.ok(
+    memoryStoreSource.indexOf("await secondaryPromise") < memoryStoreSource.indexOf("await profilePromise"),
+    "fast memory datasets must settle before the slow profile synthesis is awaited"
   );
 });
 
@@ -286,6 +306,17 @@ test("media tests and sandbox policies keep balanced settings layouts", () => {
   assert.match(sections.tts, /settings-field settings-field-wide[^>]*>[\s\S]*webSearchApiKey/);
   assert.match(sections.sandbox, /class="sandbox-policy-grid sandbox-policy-stack"/);
   assert.match(styles, /\.sandbox-policy-stack\s*\{[^}]*grid-template-columns:\s*1fr/s);
+  // Sandbox policy cards must fill their grid cell; resetting only margin leaves
+  // them 664px left-aligned with an asymmetric right gap.
+  assert.match(styles, /\.sandbox-policy-grid \.settings-card\s*\{[^}]*width:\s*100%/s);
+  // The provider-editor-toolbar (Agent/Profile/Channel/Sandbox file headers, and
+  // the Channels test action) needs a base flex rule, or its header sits flush at
+  // 0px while neighbors carry 16px padding and the test button wraps to a new line.
+  assert.match(styles, /\.provider-editor-toolbar\s*\{[^}]*display:\s*flex[^}]*padding:[^}]*16px/s);
+  // The media test button aligns with the form fields (left, with top padding)
+  // and the voice audio element is tall enough for native controls (web UI uses 40px).
+  assert.match(styles, /\.tool-test-actions\s*\{[^}]*padding:\s*10px\s+16px/s);
+  assert.match(styles, /\.tool-test-audio\s*\{[^}]*height:\s*40px/s);
 });
 
 test("native feedback requests permission only on explicit enablement and observes terminal task transitions", () => {
@@ -660,7 +691,7 @@ test("issue 13 settings pages share a title and product description header", () 
 test("issue 13 target pages expose user-facing controls and secondary technical detail", () => {
   const models = read("./lib/settings/ModelsSection.svelte");
   assert.match(models, /routeDescription\(route, session\.text\)/);
-  assert.match(models, /modelOptionCopy/);
+  assert.match(models, /groupModelOptions/);
   assert.match(models, /technicalId=\{state\.currentKey\}/);
   assert.match(sections.providers, /humanizeProviderName/);
   assert.match(sections.providers, /aria-pressed=\{providerSortActive\}/);
@@ -771,20 +802,23 @@ test("Project custom commands round-trip through settings into the / palette", (
 // size query container: `container-type: inline-size` sizes the box as if it had
 // no contents, which zeroed this content-sized flex item and hid the model name
 // completely behind `overflow: hidden` (issue #28).
-test("composer model pill prefers the alias and truncates without size containment", () => {
+test("composer model pill and grouped menu prefer aliases and truncate without size containment", () => {
   assert.match(view, /activeModelOption\?\.alias/);
-  // Every model selector goes through the shared copy helper, so none of them
-  // can leak a `[PI]` / `[Custom]` routing tag or ignore a configured alias.
-  assert.match(composerModelMenu, /modelOptionCopy\(model\)/);
+  // The composer groups by the provider copy parsed by the shared presentation
+  // helper; every row keeps only one readable model-name line.
+  assert.match(composerModelMenu, /groupModelOptions\(modelOptions\)/);
+  assert.match(composerModelMenu, /composer-model-option-provider/);
+  assert.doesNotMatch(composerModelMenu, /composer-model-option-id/);
   assert.match(projectSettingsDialog, /modelOptionCopy\(model\)\.name/);
-  assert.match(read("./lib/settings/ModelsSection.svelte"), /modelOptionCopy\(option\)\.name/);
+  assert.match(read("./lib/settings/ModelsSection.svelte"), /groupModelOptions\(options\)/);
   assert.match(read("./lib/settings/AgentsSection.svelte"), /modelOptionCopy\(option\)\.name/);
   assert.match(styles, /\.composer-model-label \{[^}]*text-overflow: ellipsis/s);
   assert.doesNotMatch(styles, /\.composer-model-label[^{]*\{[^}]*container-type/s);
   assert.doesNotMatch(styles, /composer-model-marquee/);
-  // The full id stays reachable through the trigger tooltip and the option list.
+  // The full id stays reachable through the trigger and option tooltips.
   assert.match(composerModelMenu, /title=\{activeModelTitle \|\| modelLabel\}/);
-  assert.match(composerModelMenu, /composer-model-option-id/);
+  assert.match(composerModelMenu, /title=\{item\.option\.label\}/);
+  assert.match(styles, /\.composer-model-option-name \{[^}]*white-space: nowrap/s);
 });
 
 // Everything the saved provider record holds must survive the editor-draft
@@ -1819,6 +1853,22 @@ test("saving a provider refreshes Chat model options in the same window without 
   assert.match(view, /refreshEndpoint !== connectedEndpoint \|\| refreshGeneration !== connectionGeneration/);
 });
 
+test("re-entering Models reloads provider-backed options even when the endpoint is unchanged", () => {
+  // Providers and Models are mutually exclusive settings sections. The provider
+  // change event fires while Models is unmounted, so mounting Models again must
+  // pull a fresh inventory instead of trusting its old endpoint-keyed cache.
+  assert.doesNotMatch(sections.models, /session\.endpoint !== modelsStore\.loadedEndpoint/);
+  assert.match(sections.models, /loadModels\(session\.endpoint, \{ force: true \}\)/);
+  assert.doesNotMatch(sections.models, /PROVIDERS_CHANGED_EVENT/);
+  assert.match(sections.models, /groupModelOptions\(options\)/);
+  assert.match(read("./lib/miniapps/MiniAppsAiSettings.svelte"), /groupModelOptions\(options\)/);
+  assert.match(selectControl, /Select\.GroupHeading class="select-control-group-label"/);
+  assert.match(styles, /\.select-control-group-label \{[^}]*font-size: var\(--fs-meta\)/s);
+  const modelStore = read("./lib/stores/models.svelte.ts");
+  assert.match(modelStore, /if \(modelsStore\.routingDirty && modelsStore\.routing\)/);
+  assert.match(modelStore, /\{ \.\.\.modelsStore\.routing, textOptions: routing\.textOptions \}/);
+});
+
 test("direct one-shot delivery is persisted through the shared runtime for every channel", () => {
   const baseRuntime = read("../../../src/lib/server/channels/shared/baseRuntime.ts");
   for (const channel of ["web", "telegram", "feishu", "qq", "weixin"]) {
@@ -1925,7 +1975,7 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.match(chatInputArea, /<ComposerModelMenu/);
   assert.doesNotMatch(chatInputArea, /<select/);
   assert.match(composerModelMenu, /\{#each thinkingLevelOptions as level/);
-  assert.match(composerModelMenu, /\{#each modelOptions as model/);
+  assert.match(composerModelMenu, /\{#each modelGroups as group/);
   assert.match(composerModelMenu, /role="menuitemradio"/);
   assert.match(view, /chatStore\.draftStore\.setThinking\(chatStore\.currentDraftKey\(\), thinkingLevel\)/);
   assert.match(view, /onChangeThinking=\{changeThinking\}/);
@@ -3212,6 +3262,9 @@ test("OpenConnector is a first-class peer to MCP with a safe catalog and fixed s
 // ---------------------------------------------------------------- Mini Apps
 
 const miniAppPanel = read("./lib/miniapps/MiniAppPanel.svelte");
+const audioCaptureCoordinator = read("./lib/miniapps/audioCaptureCoordinator.ts");
+const nativeAudio = read("../src-tauri/src/audio.rs");
+const tauriLib = read("../src-tauri/src/lib.rs");
 const miniAppSidebar = read("./lib/miniapps/MiniAppsSidebarSection.svelte");
 const modelsSection = read("./lib/settings/ModelsSection.svelte");
 const miniAppManager = read("./lib/miniapps/MiniAppsManager.svelte");
@@ -3738,6 +3791,18 @@ test("the panel routes every bridge action through injected callbacks, source-ch
   // No composer/conversation module may be imported here.
   assert.doesNotMatch(miniAppPanel, /from "\.\.\/projects\/composerBridge"/);
   assert.doesNotMatch(miniAppPanel, /from "\.\.\/chat\//);
+});
+
+test("meeting audio pause and resume remain first-class native host transitions", () => {
+  for (const command of ["pause_meeting_capture", "resume_meeting_capture"]) {
+    assert.match(nativeAudio, new RegExp(`pub fn ${command}\\(`));
+    assert.match(tauriLib, new RegExp(`audio::${command}`));
+  }
+  assert.match(nativeAudio, /state: if active\.join\.is_none\(\)[\s\S]*"stopped"[\s\S]*"paused"[\s\S]*"recording"/);
+  assert.match(audioCaptureCoordinator, /export async function pauseMiniAppAudioCapture/);
+  assert.match(audioCaptureCoordinator, /export async function resumeMiniAppAudioCapture/);
+  assert.match(miniAppPanel, /request\.action === "audio\.pause"[\s\S]*pauseMiniAppAudioCapture/);
+  assert.match(miniAppPanel, /request\.action === "audio\.resume"[\s\S]*resumeMiniAppAudioCapture/);
 });
 
 test("a Mini App deep link is resolved in-process, never navigated to", () => {

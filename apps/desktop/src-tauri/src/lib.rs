@@ -276,6 +276,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(DesktopState::default()))
         .manage(audio::AudioState::default())
+        .manage(audio::MeetingCaptureState::default())
         // Mini App UIs load from this fixed origin so the CSP can name it, even
         // though the service port is only known at runtime. The upstream comes
         // from supervisor state, never from the iframe.
@@ -319,7 +320,15 @@ pub fn run() {
             open_external_url,
             audio::start_recording,
             audio::stop_recording,
-            audio::cancel_recording
+            audio::cancel_recording,
+            audio::start_meeting_capture,
+            audio::meeting_capture_status,
+            audio::pause_meeting_capture,
+            audio::resume_meeting_capture,
+            audio::next_meeting_capture_chunk,
+            audio::acknowledge_meeting_capture_chunk,
+            audio::stop_meeting_capture,
+            audio::close_meeting_capture
         ])
         .setup(|app| {
             app_menu::install(app)?;

@@ -3,14 +3,15 @@
   "id": "meeting-notes",
   "name": "Meeting Notes",
   "version": "1.2.0",
-  "description": "Record a meeting in minute-long segments, transcribe it, and generate structured notes.",
+  "description": "Capture a recoverable live meeting timeline and generate evidence-grounded notes.",
   "engines": { "molibot": ">=2.9.9 <4" },
   "runtime": { "entry": "server/index.mjs" },
   "ui": { "entry": "ui/index.html", "icon": "ui/icon.svg" },
-  "data": { "schemaVersion": 1 },
+  "data": { "schemaVersion": 2 },
+  "host": { "capabilities": ["audioCapture"] },
   "ai": {
     "capabilities": ["text", "transcription"],
-    "uploadLimits": [{ "path": "/api/segments", "maxBytes": 26214400 }]
+    "uploadLimits": [{ "path": "/api/chunks", "maxBytes": 26214400 }]
   },
   "tools": [
     {

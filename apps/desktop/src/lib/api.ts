@@ -1228,6 +1228,15 @@ export async function reconnectDesktopMcp(endpoint: string, id: string): Promise
   return payload.summary;
 }
 
+export async function reconnectAllDesktopMcp(endpoint: string): Promise<DesktopMcpSummary> {
+  const payload = await requestJson<DesktopMcpResponse>(endpoint, "/api/desktop/mcp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "reconnectAll" })
+  });
+  return payload.summary;
+}
+
 export async function loadDesktopOpenConnector(endpoint: string): Promise<DesktopOpenConnectorSummary> {
   const payload = await requestJson<DesktopOpenConnectorResponse>(endpoint, "/api/desktop/open-connector");
   return payload.summary;
@@ -1419,6 +1428,36 @@ export async function fetchDesktopMiniAppAttachment(
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return new File([bytes.buffer as ArrayBuffer], result.name, { type: mimeType });
+}
+
+export type DesktopMiniAppAudioRequest =
+  | {
+      action: "chunk";
+      appId: string;
+      meetingId: string;
+      trackId: string;
+      seq: number;
+      startMs: number;
+      endMs: number;
+      mimeType: string;
+      audioBase64: string;
+    }
+  | {
+      action: "finish";
+      appId: string;
+      meetingId: string;
+      trackId: string;
+      expectedLastSeq: number;
+      endMs: number;
+      captureError: string;
+    };
+
+export async function postDesktopMiniAppAudio(endpoint: string, input: DesktopMiniAppAudioRequest): Promise<void> {
+  await requestJson(endpoint, "/api/desktop/miniapps/audio", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
 }
 
 /** Clears an app's sidebar badge and returns the refreshed catalogs. */

@@ -1,3 +1,7 @@
+import { renderMarkdown } from "./markdown.js";
+
+const POLL_INTERVAL_MS = 2000;
+
 const STRINGS = {
   en: {
     heading: "Note",
@@ -137,6 +141,9 @@ let editingNoteId = null;
 let editingIsPinned = false;
 let editingColor = "default";
 let openDropdown = null;
+let lastRevision = null;
+let pollTimer = null;
+let polling = false;
 
 function setStatus(message, tone) {
   if (!message) {
@@ -311,7 +318,7 @@ function renderCard(note) {
 
   // 点击卡片本体直接唤起编辑弹窗
   card.addEventListener("click", (event) => {
-    if (event.target.closest(".card-header-actions") || event.target.closest(".card-dropdown")) return;
+    if (event.target.closest("a") || event.target.closest(".card-header-actions") || event.target.closest(".card-dropdown")) return;
     openEditModal(note);
   });
 
@@ -413,7 +420,7 @@ function renderCard(note) {
   // 正文内容
   const content = document.createElement("div");
   content.className = "card-content";
-  content.textContent = note.content;
+  content.innerHTML = renderMarkdown(note.content);
   card.append(content);
 
   // 标签区
@@ -490,7 +497,9 @@ async function mutate(run) {
   try {
     await run();
     setStatus(null);
+    const revision = await currentRevision();
     await loadNotes();
+    lastRevision = revision;
   } catch (error) {
     if (!halted) setStatus(error.message, "error");
   }
@@ -578,18 +587,47 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// Auto-refresh when the panel returns to the foreground (replaces the manual
-// refresh button so the header stays [icon] [view dropdown] [search]).
-document.addEventListener("visibilitychange", () => { if (!document.hidden) void loadNotes(); });
-window.addEventListener("focus", () => void loadNotes());
+async function currentRevision() {
+  const state = await api("/_host/state");
+  return state.revision;
+}
+
+async function poll() {
+  if (halted || document.hidden || polling) return;
+  polling = true;
+  try {
+    const revision = await currentRevision();
+    if (revision !== lastRevision) {
+      await loadNotes();
+      lastRevision = revision;
+    }
+    setStatus(null);
+  } catch {
+    if (!halted) setStatus(t.offline, "error");
+  } finally {
+    polling = false;
+  }
+}
+
+// The Agent and the UI share one host revision. Polling that cheap state keeps
+// an already-open panel fresh; hidden panels skip work, and foreground/focus
+// events perform an immediate check instead of waiting for the next interval.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) void poll(); });
+window.addEventListener("focus", () => void poll());
 
 async function start() {
   try {
+    lastRevision = await currentRevision();
     await loadNotes();
     setStatus(null);
   } catch (error) {
     if (!halted) setStatus(error.message, "error");
   }
+  pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
 }
+
+window.addEventListener("pagehide", () => {
+  if (pollTimer) clearInterval(pollTimer);
+});
 
 void start();

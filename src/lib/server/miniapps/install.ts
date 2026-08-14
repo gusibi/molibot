@@ -51,7 +51,7 @@ export interface MiniAppInstallResult {
 export interface MiniAppInstallerOptions {
   codeRoot: string;
   /** Records provenance so the manager can show where an app came from. */
-  recordSource: (appId: string, source: MiniAppInstallSource, detail: { usesAi: boolean }) => void;
+  recordSource: (appId: string, source: MiniAppInstallSource, detail: { requiresConsent: boolean }) => void;
   /** Test seam. Production fetches from GitHub's codeload endpoint. */
   downloadArchive?: (url: string) => Promise<Buffer>;
 }
@@ -345,7 +345,12 @@ export class MiniAppInstaller {
       }
       if (backup) fs.rmSync(backup, { recursive: true, force: true });
 
-      this.options.recordSource(manifestId, installSource, { usesAi: Boolean(validated.value.manifest.ai?.capabilities.length) });
+      this.options.recordSource(manifestId, installSource, {
+        requiresConsent: Boolean(
+          validated.value.manifest.ai?.capabilities.length
+          || validated.value.manifest.host?.capabilities.length
+        )
+      });
       return { appId: manifestId, replaced, installSource };
     } finally {
       fs.rmSync(namedStaging, { recursive: true, force: true });

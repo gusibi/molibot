@@ -1,3 +1,129 @@
+# 会议纪要产品验收返工：录音状态机与历史库（2026-08-14）
+
+## Goal
+
+把用户已判定不可用的 Meeting Notes 重新做成最小但完整的产品：活动会议只有一个清晰工作区，原生支持录音 → 暂停 → 继续 → 结束，结束后的会议进入可搜索、可回看的历史库，不再把采集恢复、活动状态、详情和历史混在一个平铺页面里。
+
+## Phases
+
+- [completed] 1. 建立失败验收与红测试
+  - 验证：宿主契约缺少 pause/resume、服务端缺少 paused 状态、页面缺少独立 Live/History 导航时，回归测试必须明确失败。
+- [completed] 2. 根修原生录音状态机
+  - 验证：同一 capture 可 recording → paused → recording → stopped；暂停边界会冲刷已录样本，暂停期间时长和音频不增长，关闭面板后状态仍由宿主持有。
+- [completed] 3. 对齐会议领域状态与历史投影
+  - 验证：paused 状态可持久化和重启恢复；活动会议不会在历史区重复出现；处理中的会议与终态会议均能从历史库找到。
+- [completed] 4. 重做 Meeting Notes 页面信息架构
+  - 验证：单列 Live/History 两个明确表面；Live 提供大计时器、暂停/继续和结束；History 提供日期分组、搜索、详情返回路径和完整空状态；中英、明暗与窄宽度成立。
+- [completed] 5. 完整验证、冷路径与交付
+  - 验证：聚焦测试、Rust、Desktop、build、真实冷启动与服务恢复通过；内置 App bump 版本；features/prd/CHANGELOG/README 按真实边界同步。
+
+## Success criteria
+
+- 页面上不会同时出现两份“正在录音”的同一会议。
+- 用户可以多次暂停和继续，暂停不是结束的别名，结束后不能再继续。
+- 历史记录是一个可进入、可搜索、可回看的产品表面，不是首页下方的数据库行列表。
+- 页面刷新、关闭再打开 Mini App 后，Live/History 与宿主真实状态一致。
+- AI 识别或总结失败不影响音频与历史记录保留，并给出明确可重试状态。
+
+## Acceptance correction
+
+2026-08-14 的真实用户验收推翻了上一版“完成”结论：上一版虽然打通了分片上传和后台采集，但没有实现计划中声称的 pause/resume，也没有形成真实历史库；基础设施通过不能替代产品可用性验收。下方 2026-08-13 计划保留为审计记录，不再代表当前完成状态。
+
+## Verification
+
+- Meeting/host/design focused: 18/18.
+- Built-in install/manifest/bootstrap/meeting: 40/40.
+- Desktop full suite: passed, including 205 structural guards and 56 Rust tests.
+- Desktop `svelte-check`: 0 errors / 0 warnings.
+- Root and Desktop production builds: passed.
+- Full Mini App suite: 157/158; sole failure is the pre-existing `toolAdapter.test.ts` fixture missing current `effect` / `thirdPartyHint`, already recorded before this slice.
+- Fresh temporary data directory installed Meeting Notes `2.1.0`; temporary service stopped and data moved to Trash.
+- Visual browser cold path remains manual: the available in-app browser blocked loopback and no external Chrome controller was connected.
+
+---
+
+# 会议纪要生产化 V1（2026-08-13）
+
+## Goal
+
+把内置 Meeting Notes 从 iframe 内一次性录音草稿升级为可恢复的线下会议产品：V1 只实现麦克风来源，但采集协议、存储和时间线从第一天支持多音轨；实时转写、增量纪要和最终收敛均建立在统一时间轴上。
+
+## Phases
+
+- [complete] 1. 固化领域模型、状态机与失败不变量
+  - 验证：临时 SQLite 覆盖多轨音频块、单调时间范围、幂等入队、缺口检查、停止 barrier 与重启恢复。
+- [complete] 2. 建立共享后台麦克风采集会话
+  - 验证：Mini App UI 只发 start/pause/resume/stop 意图；关闭面板后宿主采集会话仍存活；音频持续落盘而非整段驻留内存。
+- [complete] 3. 接入实时转写时间线与会中工作台
+  - 验证：临时/最终话轮、时间戳、说话人标签、识别延迟和断线补录可见；下游不依赖具体采集来源。
+- [complete] 4. 增量纪要、最终收敛与产品打磨
+  - 验证：长会议不发送全文单次 prompt；决定/行动项带来源；中英、明暗、移动宽度、冷启动与服务恢复通过。
+- [complete] 5. 文档与版本交付
+  - 验证：内置 App 版本升级；features/prd/CHANGELOG/README 与能力矩阵按真实交付边界同步；对抗式审查和完整测试通过。
+
+## Success criteria
+
+- 录音生命周期不由 iframe 生命周期决定。
+- 音频块从写入开始就带 `trackId/sourceKind/startMs/endMs`，V1 只产生 microphone 轨。
+- 一小时会议没有单文件上传或单次全文总结；任何缺失区间都可见且可补处理。
+- 重启后恢复 queued/processing 工作；完成、失败、取消和重试保持幂等。
+- 后续增加 system 音频只新增采集适配器，不改转写、话轮、纪要领域模型。
+
+## Key decisions
+
+| Decision | Reason |
+|---|---|
+| Meeting Notes 保留 Mini App 产品边界，采集与流式 AI 放共享宿主层 | UI/领域仍可独立迭代，同时凭据、原生权限和后台生命周期不泄漏到 iframe |
+| V1 只实现 microphone adapter，但 schema/API 原生支持多轨 | 已明确的后续系统音频需求不应触发数据模型重写 |
+| 不沿用旧 Python/Host Bash 草案 | 项目已有宿主 AI routing 与原生音频能力；绕开它们会形成第二套凭据和运行时 |
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| 根目录 planning 文件已被多个历史任务使用 | 1 | 在顶部新增本任务独立章节，保留既有内容和用户改动 |
+| 首次插入 planning 章节因标题空格上下文不匹配 | 1 | 使用文件真实首行精确重试；未改动产品源码 |
+
+---
+
+# Note 自动刷新与 Markdown 渲染（2026-08-13）
+
+## Goal
+
+修复 Agent 写入 Note 后已打开面板不更新的问题，并让 Note 卡片安全渲染常用 Markdown，同时保留编辑时的原始 Markdown。
+
+## Phases
+
+- [x] 查历史记录、设计规范和现有 Note/Todo 刷新契约
+- [x] 建立自动刷新与 Markdown 安全渲染回归
+- [x] 实现 revision 轮询、Markdown 渲染与内置 Note 版本升级
+- [x] 更新产品文档并完成定向测试、类型检查、构建和冷路径验证
+
+## Verification
+
+- Note/Bootstrap/HTTP/UI focused suite: 37/37 passed.
+- Full Mini App suite: 147/148 passed; the sole failure is the pre-existing `toolAdapter.test.ts` expectation missing current `effect` and `thirdPartyHint` fields, outside this change.
+- Desktop `svelte-check`: 0 errors / 0 warnings.
+- Root production build: passed.
+- Cold path: fresh temporary service, first Note open, Agent-path write, and in-place Markdown refresh passed; temporary data and processes removed.
+- `git diff --check`: passed.
+
+## Success criteria
+
+- 已打开的 Note 面板能在 Agent 写入后自动出现新笔记，无需切换页面或重新聚焦。
+- 后台/隐藏面板不持续拉取笔记正文，只检查前台 revision 并在变化时刷新。
+- 标题、列表、强调、引用、链接、代码和表格可读；原始 HTML、危险协议与远程图片不能执行或加载。
+- 已安装的内置 Note 能通过版本升级收到修复，owner 数据保持不变。
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| 新回归测试从 `node:path` 导入 `pathToFileURL`，测试在收集阶段失败 | 1 | 改从 `node:url` 导入，再运行红测试 |
+| Mini App 设计守卫拒绝 Markdown inline code 的裸 `0.9em` 字号 | 1 | 改用共享 `--md-body-sm-size` / `--md-body-sm-lh` 字体阶梯 token |
+
+---
+
 # D2 服务端渲染与中文表格修复（2026-08-12）
 
 ## Goal

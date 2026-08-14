@@ -1,3 +1,70 @@
+# 会议纪要验收返工调查（2026-08-14）
+
+- 用户真实验收结论是“全是问题”：这不是视觉微调请求，而是上一轮错误地把后端链路完成等同于产品完成。
+- 计划声称 Mini App 只发 `start/pause/resume/stop`，真实契约却只有 `audio.start/audio.stop/audio.status`；这是验收证据与实现不一致，必须用机器守卫拦截。
+- 原生会议采集只有开始与永久停止；`recording` 由线程是否存在推导，无法表达 paused。暂停必须保留同一 capture、丢弃暂停期输入，并在暂停边界冲刷已录缓冲，不能伪装成 stop + 新建会议。
+- 当前页面把开始入口、活动 capture banner、会议列表和详情同时铺开；同一活动会议会以 banner、列表项、详情三种形态重复出现，状态来源也分成宿主 capture 与服务端 meeting 两套。
+- 当前所谓历史只是 `GET /meetings` 的平铺卡片，没有独立入口、搜索、日期组织、列表/详情返回路径和空状态，因此不能算历史记录功能。
+- 本轮 UI 方向调整为“安静的录音器 + 会议资料库”：窄面板优先单列，不保留拥挤的永久双栏；Live 只服务当前会议，History 只服务查找和回看。
+- `frontend-design` 对实现的约束：视觉重点只给当前录音状态和主操作；暂停与结束必须有不同层级，历史卡片强调可扫读的标题、日期、时长、处理状态，不堆工程诊断信息。
+
+## 初始假设（待红测试验证）
+
+1. 主根因：缺失显式的 `recording/paused/stopped` 状态机，导致产品无法提供暂停/继续且 UI 只能猜状态。
+2. 次根因：活动 capture 与 meeting 详情为两个独立状态源，导致重复呈现和交互错乱。
+3. 次根因：历史没有被建模为独立导航与查询表面，只是复用了会议表的全量列表。
+4. 风险根因：页面刷新后只轮询宿主状态，没有幂等地把 paused 状态与会议域对齐。
+
+## 对抗式审查发现
+
+- 服务进程重启不等于原生 capture 停止：Desktop 仍活着时麦克风与磁盘块会继续。runtime 启动时先把无宿主上下文的 recording/paused 标为 interrupted 是安全的，但 UI 重连后必须允许未结束会议按宿主真实状态恢复，否则会形成“仍在录音但页面显示中断”的分层竞态。
+- 活动会议不能在历史列表重复出现；历史查询在服务端搜索标题、纪要与 utterance 文本，只向列表返回摘要元数据，避免下载全部转写。
+- 用户在录音中查看历史时，后台 capture 轮询不能强制把视图跳回 Live；只有开始新会议或首次恢复活动 capture 才应选择 Live。
+- 暂停边界必须冲刷当前不足 10 秒的缓冲，否则反复暂停会让用户以为刚才的话已经安全落盘，实际仍只在内存。
+
+---
+
+# 会议纪要生产化调查（2026-08-13）
+
+- `frontend-design` 对本次 UI 的影响：选择“克制的现场控制台”方向——持续可见的录音生命体征、时间轴是主角、摘要是随会议生长的副栏；避免把生产状态藏进弹窗，也不引入脱离 Molibot 设计体系的新主题。
+- 桌面 Mini App 附件入口已经形成可复用的安全模式：先校验 `appId` 和入参，再由 `MiniAppHost` 统一执行启用状态、装载状态和路径边界。音频入口沿用这个边界，并额外要求 manifest 明确声明宿主音频能力。
+- 原生 `AudioState` 与 `start_recording` / `stop_recording` 被聊天短语音共用。会议录音必须新增独立的状态和命令，不能让一小时旋转分片写入器改变或回归现有短消息流程。
+- 会议采集不能只把 `Vec<f32>` 换成分段 `Vec<Vec<f32>>`：当服务上传变慢时它仍会无界增长。正确的 V1 原生路径是音频 callback 只投递有界消息，由独立 writer thread 旋转写 WAV 临时文件；宿主确认上传后再删除文件。
+- MiniAppPanel 当前只处理无副作用 composer bridge，而且 iframe 的 `allow=microphone` 只是浏览器权限提示。会议能力应使用第二套协议，Panel 只做来源校验与请求转交；真实采集协调器必须是模块级单例，才能跨 Panel 销毁继续工作。
+- 桌面目录契约是显式字段投影（MiniAppHost → `DesktopMiniAppItem`），所以新增 `hostCapabilities` 必须贯穿 manifest 校验、host catalog、desktop projection 与前端类型，不能依赖对象 spread 偶然透传。
+- 原生依赖已经包含 `uuid`、`hound`、`cpal`，无需新增包即可实现独立 capture id、WAV 分片与设备采集；继续遵守“先用已有依赖”。
+- v2 runtime 的创建响应已经同时返回 `{meeting, track}`，因此 UI 可以立即把真实 track id 交给宿主，无需假设默认轨 id；详情响应是 `tracks/chunks/utterances/completeness`，旧 UI 的 `segments` 投影必须整体删除。
+- 停止 barrier 要求至少一个真实 chunk（`expectedLastSeq >= 0`, `endMs >= 1`）。极短、完全无样本的录音应留在可恢复状态并明确报错，不能伪造空 chunk 后声称完成。
+- 对抗审查发现 manifest 授权本身还不等于用户知情：第三方 App 一旦已安装且系统曾授权 Molibot 麦克风，就可能在自己的已打开 iframe 中请求采集。安装策略现已把 AI 或设备能力统一视为 `requiresConsent`，第三方 App 初始禁用；管理页同时明确显示“设备能力：麦克风录音”。内置 Meeting Notes 保持用户主动安装即启用。
+- 对抗审查还发现活动会议原本仍暴露删除/重新生成入口：删除会让宿主持有的录音无法上传，重新生成会提前推进状态机。UI 现禁用两项，runtime 也以 409 拒绝 UI/Agent 绕过，避免只在调用方打补丁。
+- 当前 Meeting Notes 的 `MediaRecorder`、stream、切片 timer 全在 iframe `app.js`；关闭真正的 Mini App tab 会销毁采集生命周期。Artifact Panel 只在切换 tab 时以 CSS 隐藏 iframe，并不能覆盖用户关闭 tab、Desktop 退出或 WebView 重载。
+- 当前桌面原生录音 `audio.rs` 已解决 WKWebView 无法 `getUserMedia` 的问题，但实现把全程 PCM 保存在内存，stop 时再一次性编码 base64 WAV；适合短语音消息，不适合一小时会议，不能直接复用为生产会议采集。
+- Mini App bridge 当前动作只有 composer insert/attach 与 chat open；要让宿主持有录音，需要新增受 manifest capability 约束的共享 audio capture 动作，不能让 meeting app 直接访问 Tauri IPC。
+- 现有 `miniappBridge` 明确把动作限定为“不发送、不写入”的 UI 意图，并有结构守卫禁止 `app.write/tool.invoke`；音频采集属于设备与文件副作用，不应偷偷塞进 v2 composer bridge。需要独立的、可回执、按 manifest 授权的 host-capability 协议。
+- Artifact Panel 在切换文件/Mini App/Session 时保留 Mini App iframe，但 `closeTab` 会真实销毁；因此“切换不丢录音”已有部分保护，“关闭 tab 后继续”仍必须由宿主持有会话。
+- 当前 Mini App AI facade 只有文件式 `transcribe(path)`，返回 `{text,durationSeconds}`；没有实时 session、临时/最终话轮、时间戳、speaker/confidence，也没有 V1 push channel。
+- 正确分层：共享宿主拥有音频来源适配器、后台生命周期、Provider 凭据与实时 STT；Meeting Notes 拥有 meeting/track/chunk/utterance/insight 领域状态和 UI。
+- 现有 `bootstrap.ts` 有用户未提交的 Note Markdown 打包改动；Meeting Notes 版本升级必须在同一文件做最小追加，不能覆盖 Note 变更。
+- Mini App host 的 `data.schemaVersion` 只记录版本并允许 app 自己处理不匹配；旧注释推荐 SQL migration，但项目当前长期规则明确禁止保留迁移/兼容层。Meeting Notes 仍是不可用草稿，因此 v2 采用新 schema 直接替换运行格式，同时把旧 SQLite/音频移动为时间戳 backup，不在运行时读取。
+- Phase 1 的可靠 barrier 需要由每条 track 在结束时声明 `expectedLastSeq/endMs`；只比较已有 chunk 时间无法区分“真正丢包”和用户暂停。缺失序号和失败 chunk 都进入 completeness 投影。
+- 当前内置更新只替换 codeRoot，不触碰 dataRoot；Meeting Notes runtime 必须自行完成旧格式退场并在成功建库后写 `PRAGMA user_version`。
+
+## 调查错误
+
+- 首次追加本节时误用了英文标题作为 patch 锚点，未改动文件；改为按真实中文标题追加。没有代码影响。
+
+---
+
+# Note 自动刷新与 Markdown 调查（2026-08-13）
+
+- `CHANGELOG.md` 记录 Note 的手动刷新按钮曾被替换为 panel focus 自动刷新；当前 `app.js` 的 `visibilitychange` / `focus` 监听仍存在，因此功能并非被完全删除。
+- 真实缺口是：面板保持打开且 Agent 在同一窗口写入时，不会产生新的 focus/visibility 事件。Note 没有像 Todo 一样轮询宿主 `/_host/state` revision，所以数据变化不会被观察到。
+- 宿主已在所有 `changed: true` 的 Agent 工具和 HTTP 写操作后统一推进 revision；刷新应使用该共享契约，不在 Channel 或 Agent 调用方加 Note 特判。
+- Note 卡片正文使用 `textContent`，Markdown 必然按纯文本显示。Mini App iframe 无法 import Desktop Markdown 组件，因此使用项目现有 `marked` 的本地 ESM 产物随内置 App 打包，并在 Note 自己的 UI 边界禁用 raw HTML、图片和危险链接。
+- Note manifest 当前为 `1.3.0`；随包 UI 改动必须 bump 版本，确保已安装副本能看到更新提示。
+
+---
+
 # 主题家族与明暗模式调查记录（2026-08-12）
 
 ## Confirmed decisions

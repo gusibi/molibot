@@ -34,6 +34,7 @@ const entry: MiniAppCatalogEntry = {
     accepts: ["text"]
   }],
   aiCapabilities: [],
+  hostCapabilities: ["audioCapture"],
   badge: { kind: "count", count: 3 },
   iconDataUri: "data:image/svg+xml;base64,PHN2Zy8+",
   source: { kind: "builtin" },
@@ -59,6 +60,7 @@ test("every catalog field the desktop needs survives the projection", () => {
       accepts: ["text"]
     }],
     aiCapabilities: [],
+    hostCapabilities: ["audioCapture"],
     badge: { kind: "count", count: 3 },
     iconDataUri: "data:image/svg+xml;base64,PHN2Zy8+",
     source: { kind: "builtin" },

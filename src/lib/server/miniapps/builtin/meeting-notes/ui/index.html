@@ -9,34 +9,85 @@
   <body>
     <main class="meeting-app">
       <header class="app-bar">
-        <div class="app-bar-text">
+        <div>
           <h1 class="app-bar-title" data-i18n="title">Meeting Notes</h1>
-          <p class="app-bar-subtitle" data-i18n="subtitle">Record, transcribe, and recover meeting notes.</p>
+          <p class="app-bar-subtitle" data-i18n="subtitle">A calm record of every conversation.</p>
         </div>
-        <button id="new" class="btn btn-filled" data-i18n="newMeeting">New meeting</button>
+        <nav id="view-tabs" class="view-tabs" role="tablist" aria-label="Meeting Notes">
+          <button id="live-tab" class="view-tab" type="button" role="tab" aria-selected="true" aria-controls="live-view" data-i18n="live">Live</button>
+          <button id="history-tab" class="view-tab" type="button" role="tab" aria-selected="false" aria-controls="history-view" data-i18n="history">History</button>
+        </nav>
       </header>
 
       <p id="status" class="banner" role="status" hidden></p>
 
-      <section id="recording" class="recording-card" hidden>
-        <div class="recording-line">
-          <span class="record-dot" aria-hidden="true"></span>
-          <strong id="recording-title" class="recording-title"></strong>
-          <time id="timer" class="recording-timer">00:00</time>
+      <section id="live-view" class="view" role="tabpanel" aria-labelledby="live-tab">
+        <div id="live-empty" class="empty-state">
+          <div class="standby-orbit" aria-hidden="true"><span></span><i></i></div>
+          <h2 data-i18n="readyTitle">Ready when you are</h2>
+          <p data-i18n="readyBody">Record an in-person meeting. Audio is saved safely as you speak.</p>
+          <button id="new" class="btn btn-primary btn-large" type="button" data-i18n="newMeeting">Start meeting</button>
+          <span class="privacy-note" data-i18n="privacy">Audio stays on this device until it is processed.</span>
         </div>
-        <button id="stop" class="btn btn-danger" data-i18n="stop">Stop and generate notes</button>
+
+        <article id="live-session" class="live-session" hidden>
+          <div class="recorder-stage">
+            <div class="live-state">
+              <span id="record-dot" class="record-dot" aria-hidden="true"></span>
+              <span id="live-state-label" class="eyebrow"></span>
+            </div>
+            <input id="live-title" class="live-title" aria-label="Meeting title" />
+            <div class="timer-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+            <time id="timer" class="recording-timer">00:00</time>
+            <div class="signal-bars" aria-hidden="true">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+            <p id="capture-health" class="capture-health" aria-live="polite"></p>
+            <p id="recording-sync" class="recording-sync"></p>
+          </div>
+          <div class="capture-actions">
+            <button id="pause" class="btn btn-primary btn-large" type="button"></button>
+            <button id="stop" class="btn btn-secondary" type="button" aria-expanded="false" aria-controls="finish-confirm" data-i18n="endMeeting">End meeting</button>
+          </div>
+          <div id="finish-confirm" class="finish-confirm" role="alertdialog" aria-modal="false" aria-labelledby="finish-title" hidden>
+            <div><strong id="finish-title" data-i18n="finishConfirm">End recording and generate the final notes?</strong><span data-i18n="finishHint">Your saved audio and transcript will be kept.</span></div>
+            <div class="finish-actions"><button id="finish-cancel" class="btn btn-tertiary" type="button" data-i18n="cancel">Cancel</button><button id="finish-now" class="btn btn-danger" type="button" data-i18n="finishNow">End now</button></div>
+          </div>
+          <div id="live-detail" class="meeting-content"></div>
+        </article>
       </section>
 
-      <div class="layout">
-        <nav class="pane pane-list" aria-label="Meetings">
-          <ul id="meetings" class="meeting-list"></ul>
-          <p id="empty" class="placeholder" data-i18n="empty">No meetings yet.</p>
-        </nav>
+      <section id="history-view" class="view" role="tabpanel" aria-labelledby="history-tab" hidden>
+        <div id="history-list-pane">
+          <div class="history-head">
+            <div>
+              <div class="history-title-line"><h2 data-i18n="historyTitle">Meeting history</h2><span id="history-count" class="history-count">0</span></div>
+              <p data-i18n="historyBody">Search notes, transcripts, and recordings.</p>
+            </div>
+            <button id="history-new" class="btn btn-primary" type="button" data-i18n="newMeeting">Start meeting</button>
+          </div>
+          <label class="search-field">
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input id="history-search" type="search" autocomplete="off" data-i18n-placeholder="search" placeholder="Search meetings" />
+          </label>
+          <div id="history-filters" class="history-filters" role="group" aria-label="Meeting status">
+            <button type="button" data-filter="all" aria-pressed="true" data-i18n="filterAll">All</button>
+            <button type="button" data-filter="processing" aria-pressed="false" data-i18n="filterProcessing">Processing</button>
+            <button type="button" data-filter="complete" aria-pressed="false" data-i18n="filterComplete">Complete</button>
+            <button type="button" data-filter="attention" aria-pressed="false" data-i18n="filterAttention">Needs attention</button>
+          </div>
+          <div id="meetings" class="meeting-groups"></div>
+          <div id="empty" class="empty-history" hidden>
+            <h3 data-i18n="empty">No meetings yet</h3>
+            <p data-i18n="emptyBody">Finished meetings will stay here with their audio, transcript, and notes.</p>
+          </div>
+        </div>
 
-        <article id="detail" class="pane pane-detail">
-          <p class="placeholder" data-i18n="select">Select a meeting.</p>
+        <article id="history-detail" hidden>
+          <button id="history-back" class="back-button" type="button" data-i18n="backHistory">← Back to history</button>
+          <div id="detail" class="meeting-content"></div>
         </article>
-      </div>
+      </section>
     </main>
     <script type="module" src="app.js"></script>
   </body>

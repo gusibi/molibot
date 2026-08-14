@@ -4,6 +4,7 @@ import {
   formatNaturalDateTime,
   formatNaturalSchedule,
   humanizeModelOption,
+  groupModelOptions,
   modelOptionCopy,
   humanizeProviderName,
   humanizeTechnicalName
@@ -34,6 +35,20 @@ test("model selectors lead with the alias and never show the routing tag", () =>
   );
   // A blank alias is not an alias.
   assert.equal(modelOptionCopy({ key: "pi|deepseek|deepseek-v4-pro", label: "[PI] deepseek / deepseek-v4-pro", alias: "  " }).name, "DeepSeek V4 Pro");
+});
+
+test("model selector groups preserve provider and model order with one-line names", () => {
+  assert.deepEqual(
+    groupModelOptions([
+      { key: "pi|deepseek|deepseek-v4-flash", label: "[PI] deepseek / deepseek-v4-flash" },
+      { key: "pi|deepseek|deepseek-v4-pro", label: "[PI] DeepSeek / deepseek-v4-pro", alias: "Pro" },
+      { key: "custom|cli-proxy-api|tencent/hy3", label: "[Custom] CliProxyAPI / tencent/hy3" }
+    ]).map((group) => ({ provider: group.provider, names: group.options.map((item) => item.name) })),
+    [
+      { provider: "DeepSeek", names: ["DeepSeek V4 Flash", "Pro"] },
+      { provider: "CliProxyAPI", names: ["Tencent · HY3"] }
+    ]
+  );
 });
 
 test("provider and technical names become readable without losing their identifiers", () => {

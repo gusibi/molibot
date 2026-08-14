@@ -72,3 +72,11 @@ test("untrusted runtime worker entry points are included by the runtime-module g
     assert.ok(existsSync(path.join(rootDir, "scripts", "runtime", name)), `missing packaged worker: ${name}`);
   }
 });
+
+test("desktop launcher raises the adapter body limit before loading the server", () => {
+  const source = readFileSync(entryPath, "utf8");
+  const bodyLimit = source.indexOf('process.env.BODY_SIZE_LIMIT ||= "12M"');
+  const serverImport = source.indexOf('await import(path.join(releaseRoot, "build/index.js"))');
+  assert.ok(bodyLimit >= 0, "10-second meeting audio chunks must fit through adapter-node");
+  assert.ok(bodyLimit < serverImport, "BODY_SIZE_LIMIT must be set before adapter-node is imported");
+});

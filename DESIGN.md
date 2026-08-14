@@ -659,6 +659,11 @@ block, status color, and sidebar tint must resolve through the same family block
   reloads on change; each app ships its own strings and Light/Dark palette, and must
   not convey state through colour alone. The panel chrome shows the app name and a close
   control; technical identifiers and version are secondary.
+- Note treats stored content as Markdown in card reading mode while its editor preserves
+  the source. Its renderer supports normal document typography, lists, quotes, code, and
+  horizontally bounded tables, but suppresses raw HTML, remote images, and unsafe link
+  protocols. Agent and UI mutations share the host revision; a visible Note panel watches
+  that revision and fetches content only after it changes.
 - The conversation tree and Project tree are peer first-level sidebar sections. Their
   32px titles share the same sticky top slot inside one scroll container: the active
   title remains visible, and the next section title pushes it away rather than stacking

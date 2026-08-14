@@ -1777,6 +1777,7 @@ export interface DesktopMiniAppItem {
     accepts: Array<"text" | "image" | "file">;
   }>;
   aiCapabilities: Array<"text" | "transcription">;
+  hostCapabilities: Array<"audioCapture">;
   /**
    * Live sidebar badge the app set on itself, or null.
    *

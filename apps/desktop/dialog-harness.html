@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="node_modules/@fontsource/geist-sans/400.css" />
+    <link rel="stylesheet" href="node_modules/@fontsource/geist-sans/500.css" />
+    <link rel="stylesheet" href="node_modules/@fontsource/geist-sans/600.css" />
+    <link rel="stylesheet" href="node_modules/@fontsource/geist-mono/400.css" />
+    <link rel="stylesheet" href="node_modules/@phosphor-icons/web/regular.css" />
+    <link rel="stylesheet" href="node_modules/@phosphor-icons/web/bold.css" />
+    <link rel="stylesheet" href="node_modules/@phosphor-icons/web/fill.css" />
+    <link rel="stylesheet" href="src/styles.css" />
+    <style>
+      body { margin: 0; min-height: 100vh; background: var(--mac-window-background); }
+      #sandbox-wrap { display: none; }
+      body.show-sandbox #agent-dialog,
+      body.show-sandbox .desktop-dialog-overlay { display: none; }
+      body.show-sandbox #sandbox-wrap { display: block; }
+    </style>
+  </head>
+  <body>
+    <script>
+      if (location.search.includes("sandbox=1")) document.body.classList.add("show-sandbox");
+      window.addEventListener("load", () => {
+        const targets = location.search.includes("sandbox=1")
+          ? [".sandbox-form", ".sandbox-presets", ".sandbox-policy-grid", ".sandbox-policy-grid .provider-editor-toolbar", ".sandbox-policy-form.single-column"]
+          : [".desktop-dialog-content", ".entity-editor-form", ".entity-editor-body", ".settings-form", ".profile-files-editor", ".provider-editor-toolbar"];
+        const cs = (sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return `${sel}: NOT FOUND`;
+          const r = el.getBoundingClientRect();
+          const s = getComputedStyle(el);
+          const tag = el.tagName.toLowerCase();
+          const cls = el.className && typeof el.className === "string" ? el.className : "";
+          const disp = s.display, flex = s.flex, flexDir = s.flexDirection, minH = s.minHeight, minW = s.minWidth, overflow = s.overflow, overflowY = s.overflowY, width = s.width, maxHeight = s.maxHeight, pad = s.padding;
+          return `${sel} <${tag} class="${cls}"> rect=${Math.round(r.width)}x${Math.round(r.height)} @(${Math.round(r.left)},${Math.round(r.top)}) scrollH=${el.scrollHeight} clientH=${el.clientHeight} | display=${disp} flex=${flex} flexDir=${flexDir} minH=${minH} minW=${minW} overflow=${overflow}/${overflowY} width=${width} maxH=${maxHeight} pad=${pad}`;
+        };
+        const pre = document.createElement("pre");
+        pre.id = "measure";
+        pre.style.cssText = "position:fixed;left:0;top:0;z-index:9999;margin:0;padding:8px;font:11px/1.5 monospace;background:#fff;color:#000;white-space:pre;max-width:100vw;pointer-events:none;";
+        pre.textContent = targets.map(cs).join("\n");
+        document.body.appendChild(pre);
+      });
+    </script>
+    <!-- ===== AGENT EDITOR DIALOG (entity-editor-dialog) ===== -->
+    <div class="desktop-dialog-overlay" data-hide></div>
+    <div id="agent-dialog" class="desktop-dialog-content entity-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-editor-title" style="position: fixed; z-index: 51; left: 50%; top: 50%; transform: translate(-50%, -50%);">
+      <form id="desktop-agent-form" class="entity-editor-form" aria-label="Agents">
+        <header class="entity-editor-head"><strong id="agent-editor-title">Agents</strong><button class="modal-close" type="button" aria-label="Cancel"><i class="ph ph-x"></i></button></header>
+        <div class="entity-editor-body">
+          <div class="settings-form">
+            <label class="settings-field"><span>Agent ID</span><input value="researcher" disabled /></label>
+            <label class="settings-field"><span>Agent Name</span><input value="Researcher" /></label>
+            <label class="settings-field settings-field-wide"><span>Description</span><textarea rows="3">A research-focused agent that uses web search and file tools.</textarea></label>
+            <label class="settings-field"><span>Sandbox</span>
+              <div class="select-control">
+                <button class="select-control-trigger" type="button"><span>Inherit</span><i class="ph ph-caret-down"></i></button>
+              </div>
+            </label>
+            <label class="settings-field"><span>Text Model</span>
+              <div class="select-control"><button class="select-control-trigger" type="button"><span>Follow global</span><i class="ph ph-caret-down"></i></button></div>
+            </label>
+            <label class="settings-field"><span>Vision Model</span>
+              <div class="select-control"><button class="select-control-trigger" type="button"><span>Follow global</span><i class="ph ph-caret-down"></i></button></div>
+            </label>
+          </div>
+          <div class="provider-inline-options"><div class="inline-switch-row"><span>Enabled</span>
+            <button class="ios-switch" type="button" role="switch" aria-checked="true"><span></span></button>
+          </div></div>
+          <div class="provider-editor-toolbar"><strong>Agent Files</strong></div>
+          <div class="profile-files-editor">
+            <label class="settings-field"><span>SKILL.md</span><textarea rows="7"># Researcher\n\nYou are a research agent.</textarea></label>
+            <label class="settings-field"><span>AGENTS.md</span><textarea rows="7">Specialized in deep research.</textarea></label>
+          </div>
+        </div>
+        <footer class="entity-editor-foot"><button class="secondary-button" type="button">Cancel</button><button class="primary-button" type="submit">Save</button></footer>
+      </form>
+    </div>
+
+    <!-- ===== SANDBOX SECTION (inline form, not a dialog) ===== -->
+    <!-- shown below for comparison; wrapped to push below the dialog -->
+    <div id="sandbox-wrap" style="position: fixed; left: 0; right: 0; top: 0; bottom: 0; overflow: auto;">
+    <form id="desktop-sandbox-form" class="sandbox-form">
+      <div class="channel-section-head sandbox-section-head"><div><p class="settings-group-title">Sandbox Presets</p><p class="settings-section-hint">Pick a preset.</p></div><span class="status-badge" data-state="disconnected">Custom</span></div>
+      <div class="sandbox-presets">
+        <button class="sandbox-preset-card active" type="button"><span class="sandbox-preset-icon"><i class="ph ph-eye"></i></span><span><strong>Observe</strong><small>Read-only.</small></span></button>
+        <button class="sandbox-preset-card" type="button"><span class="sandbox-preset-icon"><i class="ph ph-hammer"></i></span><span><strong>Build</strong><small>Build & run.</small></span></button>
+        <button class="sandbox-preset-card" type="button"><span class="sandbox-preset-icon"><i class="ph ph-lock-key"></i></span><span><strong>Strict</strong><small>Locked down.</small></span></button>
+      </div>
+      <p class="settings-group-title">Runtime</p>
+      <div class="settings-card provider-editor">
+        <div class="settings-row"><div><strong>Enabled</strong><p>Enable sandbox.</p></div><button class="ios-switch" type="button" role="switch" aria-checked="true"><span></span></button></div>
+        <label class="settings-row"><div><strong>Init failure</strong><p>What to do on init failure.</p></div><div class="select-control"><button class="select-control-trigger" type="button"><span>Block</span><i class="ph ph-caret-down"></i></button></div></label>
+      </div>
+      <p class="settings-group-title">Environment</p>
+      <div class="settings-card provider-editor">
+        <div class="settings-form sandbox-policy-form">
+          <label class="settings-field settings-field-wide"><span>Env file</span><input value=".env" /><small>External path.</small></label>
+          <label class="settings-field"><span>Allow</span><textarea rows="6">OPENAI_API_KEY</textarea></label>
+          <label class="settings-field"><span>Deny</span><textarea rows="6">TELEGRAM_BOT_TOKEN</textarea></label>
+        </div>
+      </div>
+      <div class="sandbox-policy-grid sandbox-policy-stack">
+        <div class="settings-card provider-editor">
+          <div class="provider-editor-toolbar"><div><strong>Network</strong><p>Network policy.</p></div></div>
+          <div class="settings-form sandbox-policy-form single-column">
+            <label class="settings-field"><span>Allow</span><textarea rows="8">host.docker.internal</textarea></label>
+            <label class="settings-field"><span>Deny</span><textarea rows="4">169.254.0.0/16</textarea></label>
+          </div>
+        </div>
+        <div class="settings-card provider-editor">
+          <div class="provider-editor-toolbar"><div><strong>Filesystem</strong><p>Filesystem policy.</p></div></div>
+          <div class="settings-form sandbox-policy-form single-column">
+            <label class="settings-field"><span>Allow write</span><textarea rows="4">/tmp</textarea></label>
+            <label class="settings-field"><span>Deny read</span><textarea rows="4">/etc</textarea></label>
+            <label class="settings-field"><span>Deny write</span><textarea rows="4">/var</textarea></label>
+          </div>
+        </div>
+      </div>
+    </form>
+    </div>
+  </body>
+</html>

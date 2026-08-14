@@ -12,6 +12,8 @@ import noteUiHtmlSource from "./builtin/note/ui/index.html?raw";
 import noteUiScriptSource from "./builtin/note/ui/app.js?raw";
 import noteUiStyleSource from "./builtin/note/ui/styles.css?raw";
 import noteUiIconSource from "./builtin/note/ui/icon.svg?raw";
+import noteUiMarkdownSource from "./builtin/note/ui/markdown.js?raw";
+import markedBrowserSource from "marked?raw";
 import meetingNotesManifestSource from "./builtin/meeting-notes/manifest.json?raw";
 import meetingNotesServerSource from "./builtin/meeting-notes/server/index.mjs?raw";
 import meetingNotesUiHtmlSource from "./builtin/meeting-notes/ui/index.html?raw";
@@ -66,6 +68,8 @@ const BUILTIN_APPS: BuiltinMiniApp[] = [
       "server/index.mjs": noteServerSource,
       "ui/index.html": noteUiHtmlSource,
       "ui/app.js": noteUiScriptSource,
+      "ui/markdown.js": noteUiMarkdownSource,
+      "ui/vendor/marked.esm.js": markedBrowserSource,
       "ui/styles.css": noteUiStyleSource,
       "ui/icon.svg": noteUiIconSource
     }

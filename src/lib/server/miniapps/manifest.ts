@@ -12,6 +12,8 @@ import type {
   MiniAppManifest,
   MiniAppAiCapability,
   MiniAppAiManifest,
+  MiniAppHostCapability,
+  MiniAppHostManifest,
   MiniAppMessageActionAccept,
   MiniAppMessageActionManifest,
   MiniAppToolManifest
@@ -48,7 +50,8 @@ const ALLOWED_TOP_LEVEL_KEYS = new Set([
   "data",
   "tools",
   "contributions",
-  "ai"
+  "ai",
+  "host"
 ]);
 
 const ALLOWED_TOOL_KEYS = new Set([
@@ -69,6 +72,26 @@ const ALLOWED_AI_KEYS = new Set(["capabilities", "uploadLimits"]);
 const ALLOWED_UPLOAD_LIMIT_KEYS = new Set(["path", "maxBytes"]);
 const AI_CAPABILITIES = new Set<MiniAppAiCapability>(["text", "transcription"]);
 const MAX_AI_UPLOAD_BYTES = 25 * 1024 * 1024;
+const ALLOWED_HOST_KEYS = new Set(["capabilities"]);
+const HOST_CAPABILITIES = new Set<MiniAppHostCapability>(["audioCapture"]);
+
+function validateHostManifest(raw: unknown): { ok: true; value: MiniAppHostManifest } | { ok: false; error: string } {
+  if (!isPlainObject(raw)) return { ok: false, error: "host must be an object." };
+  for (const key of Object.keys(raw)) {
+    if (!ALLOWED_HOST_KEYS.has(key)) return { ok: false, error: `host has unknown field "${key}".` };
+  }
+  if (!Array.isArray(raw.capabilities) || raw.capabilities.length === 0) {
+    return { ok: false, error: "host.capabilities must be a non-empty array." };
+  }
+  const capabilities: MiniAppHostCapability[] = [];
+  for (const capability of raw.capabilities) {
+    if (typeof capability !== "string" || !HOST_CAPABILITIES.has(capability as MiniAppHostCapability)) {
+      return { ok: false, error: "host.capabilities contains an unsupported value." };
+    }
+    if (!capabilities.includes(capability as MiniAppHostCapability)) capabilities.push(capability as MiniAppHostCapability);
+  }
+  return { ok: true, value: { capabilities } };
+}
 
 function validateAiManifest(raw: unknown): { ok: true; value: MiniAppAiManifest } | { ok: false; error: string } {
   if (!isPlainObject(raw)) return { ok: false, error: "ai must be an object." };
@@ -455,6 +478,8 @@ export function readMiniAppManifest(appDir: string, expectedId: string): MiniApp
   if (contributions && !contributions.ok) return fail(contributions.error);
   const ai = parsed.ai === undefined ? undefined : validateAiManifest(parsed.ai);
   if (ai && !ai.ok) return fail(ai.error);
+  const host = parsed.host === undefined ? undefined : validateHostManifest(parsed.host);
+  if (host && !host.ok) return fail(host.error);
 
   return {
     ok: true,
@@ -471,7 +496,8 @@ export function readMiniAppManifest(appDir: string, expectedId: string): MiniApp
         data: { schemaVersion },
         tools,
         ...(contributions?.ok ? { contributions: { messageActions: contributions.value } } : {}),
-        ...(ai?.ok ? { ai: ai.value } : {})
+        ...(ai?.ok ? { ai: ai.value } : {}),
+        ...(host?.ok ? { host: host.value } : {})
       },
       entryPath,
       uiEntryPath,

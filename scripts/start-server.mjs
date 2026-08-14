@@ -65,6 +65,11 @@ process.env.HOST ||= "127.0.0.1";
 const preferredPort = process.env.PORT || readConfiguredServicePort(dataDir);
 process.env.PORT = String(await findAvailableServicePort(preferredPort, process.env.HOST));
 process.env.MOLIBOT_VERSION ||= String(packageInfo.version || "0.0.0");
+// adapter-node defaults to 512 KiB, but a 10-second PCM meeting chunk is about
+// 1 MiB before Base64/JSON framing. Keep the process boundary bounded while
+// allowing the native recorder's retryable chunks to reach their route-level
+// validator. This must be set before build/index.js imports adapter-node.
+process.env.BODY_SIZE_LIMIT ||= "12M";
 
 // Tell the server what origin it is actually serving. adapter-node otherwise
 // assumes `https` and rejects every same-origin multipart POST from a plain

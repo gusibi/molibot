@@ -52,6 +52,12 @@ export interface MiniAppAiManifest {
   uploadLimits: MiniAppUploadLimitManifest[];
 }
 
+export type MiniAppHostCapability = "audioCapture";
+
+export interface MiniAppHostManifest {
+  capabilities: MiniAppHostCapability[];
+}
+
 export interface MessageCaptureResource {
   kind: "image" | "file";
   name: string;
@@ -87,6 +93,7 @@ export interface MiniAppManifest {
   tools: MiniAppToolManifest[];
   contributions?: MiniAppContributionsManifest;
   ai?: MiniAppAiManifest;
+  host?: MiniAppHostManifest;
 }
 
 /**
@@ -120,6 +127,7 @@ export interface MiniAppCatalogEntry {
   toolNames: string[];
   messageActions: MiniAppMessageActionManifest[];
   aiCapabilities: MiniAppAiCapability[];
+  hostCapabilities?: MiniAppHostCapability[];
   /** Live sidebar badge; null when the app has not set one. */
   badge: MiniAppBadge;
   /**

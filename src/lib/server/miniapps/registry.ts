@@ -36,8 +36,8 @@ let accessor: MiniAppSettingsAccessor | null = null;
 let host: MiniAppHost | null = null;
 let installer: MiniAppInstaller | null = null;
 
-export function initialMiniAppEnabled(source: MiniAppInstallSource, usesAi: boolean): boolean {
-  return source.kind === "builtin" || !usesAi;
+export function initialMiniAppEnabled(source: MiniAppInstallSource, requiresConsent: boolean): boolean {
+  return source.kind === "builtin" || !requiresConsent;
 }
 
 export function configureMiniAppSettings(next: MiniAppSettingsAccessor): void {
@@ -122,7 +122,7 @@ export function getMiniAppInstaller(): MiniAppInstaller {
         writeEnablement(appId, {
           // A reinstall must clear a built-in's removal tombstone, or the app
           // would be wiped again on the next start.
-          enabled: existing?.enabled ?? initialMiniAppEnabled(source, detail.usesAi),
+          enabled: existing?.enabled ?? initialMiniAppEnabled(source, detail.requiresConsent),
           ...(source.kind === "builtin" ? {} : { source })
         } as MiniAppEnablementEntry);
       }

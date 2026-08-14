@@ -58,9 +58,17 @@ async function runLoadModels(endpoint: string): Promise<void> {
     const next: Partial<Record<DesktopModelRoute, DesktopModelState>> = {};
     MODEL_ROUTES.forEach((route, index) => (next[route] = states[index]));
     modelsStore.modelStates = next;
-    modelsStore.routing = routing;
+    // A section round-trip may happen while an advanced routing draft is still
+    // dirty. Refresh the server-owned option inventory without silently
+    // discarding that draft; Discard should still return to the latest server
+    // snapshot rather than the one from before the Provider edit.
+    if (modelsStore.routingDirty && modelsStore.routing) {
+      modelsStore.routing = { ...modelsStore.routing, textOptions: routing.textOptions };
+    } else {
+      modelsStore.routing = routing;
+      modelsStore.routingDirty = false;
+    }
     modelsStore.routingPristine = JSON.stringify(routing);
-    modelsStore.routingDirty = false;
     modelsStore.loadError = "";
   } catch (cause) {
     modelsStore.loadError = cause instanceof Error ? cause.message : String(cause);

@@ -1,3 +1,63 @@
+# 会议纪要验收返工进度（2026-08-14）
+
+- 用户明确否决现有产品体验：UI/交互错乱、没有暂停与继续、没有真正历史记录。
+- 已按 `diagnosing-bugs`、`planning-with-files`、`frontend-design` 重新开启验收：先做可失败回归，再修改状态机和 UI；不会用零散按钮掩盖领域模型问题。
+- 已确认上一版计划与实现存在直接矛盾：计划把 pause/resume 列为已完成验证，实际宿主协议和原生命令均不存在这两个动作。当前完成状态已在新计划中作废并保留审计说明。
+- 当前阶段：检查现有测试接缝并新增三类红测试——共享宿主动作、会议 paused 持久状态、Live/History 页面结构。
+- 首轮红测 9/12：宿主 pause/resume 动作被拒绝、会议 pause 路由 404、UI 无 Live/History；另发现 paused-restart 测试漏验 pause 响应导致假绿，已先修测试本身。
+- 已开始根修状态机：原生 capture 改为显式 `recording/paused/stopped`，暂停会停止接收新样本并请求冲刷当前缓冲；宿主契约、Desktop 协调器和 Panel 已加入 pause/resume；会议域加入幂等 pause/resume 与 paused 活动保护/重启中断恢复。
+- Meeting Notes 页面已移除旧的永久双栏，改为“会议现场 / 历史记录”两个单列任务表面；现场页加入大计时器、暂停/继续、二次确认结束，历史页加入搜索、日期分组、列表/详情返回路径和空状态。
+- 首轮静态检查：新 UI JavaScript 语法通过，Desktop Rust `cargo check` 通过。下一步修正列表投影中的时长/检索字段并跑红测转绿与 UI 设计守卫。
+- 首次转绿测试暴露两处测试夹具问题而非生产失败：host requestId 误含 `.` 被合法 token 校验拒绝；runtime 的默认 200 响应不显式写 `status`。已修正夹具为合法 requestId，并按 runtime 约定把缺省状态视为 200。
+- 状态机/会议域/历史搜索聚焦回归 13/13，Desktop UI 结构守卫 205/205。Mini App 设计守卫发现窄屏计时器一个裸 `54px` 字号，已删除该冗余覆盖并继续使用响应式 `clamp()`。
+- 内置安装/manifest/设计基线与会议聚焦套件 40/40，Desktop `svelte-check` 0/0，原生聚焦测试通过；Root 与 Desktop production build 通过（仅既有 Vite chunk/import 提示）。全新临时数据目录成功安装 Meeting Notes `2.1.0`。
+- 浏览器冷路径未能完成：Codex 应用内浏览器策略阻止访问 `127.0.0.1`，当前没有连接可用的外部 Chrome 控制。该限制已如实记录，未把源码检查或结构测试冒充视觉验收。
+- 全量 Desktop suite 通过（含 205 个结构守卫、56 个 Rust 测试）；全量 Mini App suite 157/158，唯一失败仍是任务开始前已记录的 `toolAdapter.test.ts` 旧 fixture 缺少现有 `effect` / `thirdPartyHint` 字段，与本轮 Meeting Notes 无关。
+- 对抗式审查修复：轮询不再抢走 History 视图；服务重启后原生 capture 可把未结束的 interrupted 会议恢复为 recording/paused；活动会议从历史查询表面排除；暂停边界立即冲刷短缓冲。
+- Meeting Notes 内置版本升级到 `2.1.0`；features/prd/CHANGELOG/中英文 README 已同步。本轮实现和自动验证完成，剩余发布前人工验收是目标 Mac 上的真实麦克风 pause/resume 与中英/明暗/窄宽视觉走查。
+
+---
+
+# 会议纪要生产化 V1 进度（2026-08-13）
+
+- 2026-08-14 真实硬件首轮验收发现并修复上传边界：10 秒、48 kHz PCM WAV 为 960,044 bytes，Base64 JSON 约 1.28 MiB，超过 adapter-node 默认 512 KiB。用用户保留的真实块对当前服务重放稳定得到 400 `Request body must be JSON`；隔离生产服务应用 12 MiB 有界启动限制后，同一块返回 202 并落库。桌面服务重启后协调器自动补传 4/4 块，原生待上传清零。
+- Fix 收尾：根因类别为“传输边界/请求体上限未对齐”；机器守卫同时锁定启动器必须在加载 adapter-node 前设置上限，以及 body-limit 异常必须映射为 413。会议页新增转写/总结故障说明和总结中轮询；服务端新增安全结构化故障事件。Meeting Notes bump 至 2.0.1。
+- 本次真实会议前三块转写成功，最后 5.7 秒块在三次尝试后为 `provider_failed`；结束 barrier 已补交，最终文本模型同样返回 `provider_failed`。音频和三段已完成文字均保留，说明上传修复成功，剩余故障属于当前 Mini App 继承的全局 STT/文本 Provider 路由。
+- 最终验证：上传/会议/UI 聚焦回归 12/12、服务启动与所有权回归 45/45、production build、真实 960,044-byte 块 HTTP 重放、当前桌面服务 deep health 与 `git diff --check` 均通过；用户安装的 Meeting Notes 已更新为 2.0.1。
+- 交付收口：Root 与 Desktop production build、`git diff --check` 均通过；构建只报告工作区既有的 Vite dynamic/static import 与 chunk size 提示。
+- 真实冷路径通过：使用全新临时数据目录启动生产服务，安装 Meeting Notes 2.0.0，确认代理 CSP、`audioCapture` 能力投影和空会议页；同目录重启后安装状态保留。随后创建 recording 会议并再次重启，runtime 将其恢复为 `interrupted`，没有把未完成音频误报为完整纪要。临时目录已移动到系统废纸篓。
+- 对抗式审查收口：长录音由 10 秒磁盘块和有限队列约束内存；上传采用服务确认后删除和幂等重试；结束 barrier 显式暴露缺块/失败块；Panel 生命周期与原生采集解耦；第三方设备能力要求用户启用；活动会议禁止删除或提前重算。
+- 尚需发布前人工验收：在目标 Mac 上首次授权麦克风并完成一段真实录音，确认具体硬件输入、系统权限弹窗和现场声学效果。自动化已覆盖 WAV 时序、上传、恢复和总结链路，但不能替代真实麦克风验收。
+- 宿主能力契约完成：manifest 严格声明 `host.capabilities: ["audioCapture"]`，能力显式投影到 Desktop，独立 postMessage 协议只接受 `audio.start/stop/status` 和受限标识符。
+- 验证：host capability、manifest 与 Desktop projection 聚焦测试 14/14 通过。
+- 原生会议采集器与 Desktop 协调器已接通：10 秒磁盘 WAV、有限 callback 队列、按序 at-least-once 上传、服务确认后删除、停止时显式提交 `expectedLastSeq` barrier；Panel 销毁不再持有录音对象。
+- 音频入口同时在 Desktop 服务端复核 manifest capability，不能只靠 WebView 自报授权。聚焦 Node 测试 17/17 与 Rust `cargo check` 通过。
+- 会中增量纪要已完成：每 60 秒新转写证据滚动更新临时纪要，prompt 只携带有界的上一版与最新证据；停止后仍走分层最终收敛。会议域聚焦回归 10/10 通过。
+- Desktop 完整回归通过：Node/UI 208/208，Rust 56/56；`svelte-check` 0 错误/0 警告。
+- Mini App 全量回归 157/158；唯一失败是本任务开始前已记录的 `toolAdapter.test.ts` 旧期望缺少现有 `effect` / `thirdPartyHint` 字段，与 Meeting Notes 改动无关。因测试命令使用 `&&`，后续 build 未执行，已拆开重跑构建。
+- 对抗审查修正设备授权告知：第三方 AI/麦克风 App 统一初始禁用，Mini App 管理页在中英文中展示麦克风能力；新增安装策略回归。
+- Root 与 Desktop production build 均通过（仅保留既有 Vite dynamic/static import 提示）。
+- 用户确认 V1 先做线下面对面会议；后续系统音频作为第二个采集适配器，不改变统一时间线和下游领域模型。
+- 已读取 planning-with-files 规范并建立独立计划章节；未覆盖历史 planning 内容。
+- 已确认当前关键阻塞：iframe 持有录音生命周期、原生短语音实现全程驻内存、Mini App AI 仅文件转写、bridge 无音频采集动作。
+- 已确认不能复用现有无副作用 composer bridge 承载采集；Phase 2 将建立独立 host-capability request/receipt seam，并由 manifest 声明授权。
+- 当前进入 Phase 1：先用临时 SQLite 回归锁定多音轨 schema、停止 barrier、缺口和重启恢复，再改生产实现。
+- Phase 1 已决定使用 `tracks.expectedLastSeq` 作为停止 barrier；旧 v1 数据不做兼容读取，首次 v2 启动只备份旧库/音频后启用新格式。
+- Phase 1 红测试已建立并按预期 0/6：当前 API 不返回 track、没有 v2 schema backup、finish 不具备 barrier、重启仍终态化处理、UI 仍直接构造 `MediaRecorder`。下一步实现 v2 runtime 使前五项先转绿，host capability UI seam 在 Phase 2 转绿。
+- Phase 1 runtime 已完成，聚焦测试 5/6 通过：多轨 chunk/幂等、显式缺口、finish barrier、孤儿转写恢复、v1 备份退场、级联音频删除均转绿；唯一红项是 Phase 2 预先锁定的 host-capability UI seam。
+
+## 调查错误
+
+- 两次更新 planning 文件时沿用了摘要里的英文/简写标题，patch 未命中；均按文件真实中文标题重试，无产品代码影响。
+- `cargo fmt --check` 暴露工作区既有多文件格式差异，因此没有全量格式化以免覆盖用户改动；改为只手工整理本次 Rust 注册项并独立运行 `cargo check`。首次检查通过但提示一个本次未使用字段，已删除。
+- 首轮 Desktop `svelte-check` 发现一个 Mini App 测试 fixture 未补新增的显式 `hostCapabilities` 字段（2 个同源报错）；已在共享 base fixture 补空数组，不改变产品逻辑。
+- 为避免原生 callback/磁盘异常被误报为完整会议，新增持久化 `captureWarning` 并让最终状态保持 partial。首次 patch 的通用 `const stamp` 锚点把局部变量插进了 `createMeeting`；源码检查立即发现并移回 `finish`，尚未进入测试或交付。
+- 增量纪要 schema 首次 patch 使用了不精确的状态变量上下文而未命中，文件未发生改变；改用真实相邻行拆分锚点后应用。
+- 捕获告警首次回归出现 2 个完成会议被误标 partial：SQL 新增占位符后 `.run()` 参数仍按旧顺序，导致 `endedAt` 为空、时间戳写入 `captureWarning`。已按列顺序修正并新增 `captureWarning === ""` 与 `endedAt` 断言，防止同类序列化错位。
+- 首次追加原生 WAV 单测时按 rustfmt 预期格式锚定尾部，但该文件尚未全量格式化，patch 未命中；按真实尾行重试，无代码丢失。
+
+---
+
 # 主题家族与明暗模式进度（2026-08-12）
 
 - 用户已确认按独立明暗模式 + 独立主题家族实现，Midnight 亮色命名为 Daybreak。
@@ -94,3 +154,19 @@
 - 根因属于测试 fixture 的推断漂移：未标注类型的 settings 对象把 custom provider 的 `tags` 与 `supportedRoles` 推断成 `string[]`，而 `RuntimeSettings` 要求 canonical capability literal unions；这是类型守卫失去上下文，不是运行时路由逻辑错误。
 - 修复只给两个 fixture 加上 `typeof defaultRuntimeSettings` 上下文类型，没有在生产代码中加入 cast、兼容层或 fallback。
 - 机器守卫：`runnerHelpers.test.ts` 5/5；全仓 `tsc` 输出不再命中该文件；Desktop structural guard 183/183；`git diff --check` 通过。全仓 TypeScript 仍有其它既有诊断，未把它们误报为本次已清零。
+# Note 自动刷新与 Markdown（2026-08-13）
+
+- 已读取 `diagnosing-bugs`、`planning-with-files`、`frontend-design` 规范，以及 `CONTEXT.md`、`DESIGN.md`、`CHANGELOG.md`、`CLAUDE.md` 相关记录。
+- 已确认刷新根因：前台 focus 刷新仍在，但缺少持续 revision 检测；同屏 Agent 写入不会触发 focus。
+- 已确认 Markdown 根因：卡片正文使用 `textContent`。
+- 已新增针对 Note UI 的自动刷新结构回归与 Markdown 安全输出回归，下一步先运行并确认当前实现为红。
+- 首次红测试在测试收集阶段发现 `pathToFileURL` 导入模块错误；已修正为 `node:url`，未改生产代码。
+- 修正测试后，两个回归均按预期为红：Note 无 revision polling；内置包无 `ui/markdown.js`。实现后 Markdown 安全渲染已转绿，轮询守卫仅因测试未包含并发去重条件仍红，已同步真实约束。
+- 核心 Note/Bootstrap/HTTP 回归通过；Mini App design baseline 抓到一个裸 `0.9em` 字号，已换成共享字体 token。
+- 自动刷新、刷新竞态和 Markdown 安全渲染等聚焦测试 37/37 通过。
+- 已同步 DESIGN、PRD、features、CHANGELOG 与中英文 README，内置 Note 版本升级到 `1.4.0`。
+- 真实冷路径通过：全新临时数据目录启动服务、安装 Note、首次打开面板后通过宿主 Agent action 写入 Markdown；不切换面板约 2 秒即出现 heading/list/table DOM。临时服务、代理和数据目录已清理。
+- Root production build 与 Desktop `svelte-check`（0/0）通过，`git diff --check` 通过。
+- 全量 Mini App 测试 147/148；唯一失败是既有 `toolAdapter.test.ts` 深相等 fixture 未包含当前运行时已有的 `effect` / `thirdPartyHint` 字段，与 Note 改动无关，聚焦相关测试仍为 37/37。
+
+---

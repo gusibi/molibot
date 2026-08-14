@@ -25,6 +25,7 @@ export function buildDesktopMiniAppItem(entry: MiniAppCatalogEntry): DesktopMini
       accepts: [...action.accepts]
     })),
     aiCapabilities: [...entry.aiCapabilities],
+    hostCapabilities: [...(entry.hostCapabilities ?? [])],
     badge: entry.badge ? { ...entry.badge } : null,
     iconDataUri: entry.iconDataUri,
     source: entry.source,

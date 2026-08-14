@@ -99,6 +99,23 @@ test("AI capabilities and controlled upload limits are strict and preserved", ()
   );
 });
 
+test("host device capabilities are strict and preserved", () => {
+  withManifest(
+    (manifest) => { manifest.host = { capabilities: ["audioCapture", "audioCapture"] }; },
+    (result) => {
+      assert.equal(result.ok, true);
+      if (result.ok) assert.deepEqual(result.value.manifest.host, { capabilities: ["audioCapture"] });
+    }
+  );
+  withManifest(
+    (manifest) => { manifest.host = { capabilities: ["filesystem"] }; },
+    (result) => {
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /unsupported/);
+    }
+  );
+});
+
 test("message action nested fields, destructive tools, counts, capture schemas, and accepts fail closed", () => {
   const invalidCases: Array<{ mutate: (manifest: Record<string, unknown>) => void; pattern: RegExp }> = [
     { mutate: (manifest) => { manifest.contributions = { messageActions: [{ tool: "save", label: { zh: "保存" } }] }; }, pattern: /zh and en/ },

@@ -65,8 +65,17 @@ export const POST: RequestHandler = async ({ request }) => {
   try {
     const runtime = getRuntime();
     const body = await request.json() as { id?: string; action?: string };
+    const action = String(body.action ?? "").trim();
     const id = String(body.id ?? "").trim();
-    if (body.action !== "reconnect") throw new Error("Unsupported MCP action");
+    if (action === "reconnectAll") {
+      // Reuse the shared boot-time reconcile primitive: connect every enabled
+      // server (idempotent - already-connected servers are skipped), then return
+      // a fresh summary. The desktop fires this on app reopen so enabled servers
+      // auto-connect without the user clicking Reconnect for each one. Kept off
+      // the GET path so a misconfigured server cannot stall the list load.
+      return json({ ok: true, summary: await liveSummary(runtime, true) } satisfies DesktopMcpResponse);
+    }
+    if (action !== "reconnect") throw new Error("Unsupported MCP action");
     const server = effectiveMcpServers(runtime.getSettings()).find((item) => item.id === id);
     if (!server) throw new Error(`Unknown MCP server: ${id}`);
     if (!server.enabled) throw new Error(`MCP server is disabled: ${id}`);

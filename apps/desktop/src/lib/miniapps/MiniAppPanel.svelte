@@ -1,8 +1,20 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { parseMiniAppBridgeMessage, type MiniAppComposerInsertMode } from "@molibot/shared/miniappBridge";
+  import {
+    MINIAPP_HOST_CAPABILITY_PROTOCOL,
+    miniAppHostCapabilityResult,
+    parseMiniAppHostCapabilityMessage
+  } from "@molibot/shared/miniappHostCapability";
   import { miniAppPanelUrl } from "../api";
   import { miniAppsStore } from "../stores/miniapps.svelte";
+  import {
+    miniAppAudioCaptureStatus,
+    pauseMiniAppAudioCapture,
+    resumeMiniAppAudioCapture,
+    startMiniAppAudioCapture,
+    stopMiniAppAudioCapture
+  } from "./audioCaptureCoordinator";
 
   /**
    * The Mini App iframe frame - the body of a Mini App tab in the Artifact Panel.
@@ -58,10 +70,50 @@
           : ""
   );
 
+  async function handleHostCapability(event: MessageEvent): Promise<void> {
+    const parsed = parseMiniAppHostCapabilityMessage(event.data);
+    if (!parsed.ok) {
+      console.warn("[miniapp-host-capability] message rejected", { appId, reason: parsed.reason });
+      return;
+    }
+    const request = parsed.value;
+    if (!app?.hostCapabilities.includes("audioCapture")) {
+      frame?.contentWindow?.postMessage(miniAppHostCapabilityResult(request.requestId, {
+        ok: false,
+        error: "This Mini App is not allowed to capture audio."
+      }), "*");
+      return;
+    }
+    try {
+      const payload = request.action === "audio.start"
+        ? await startMiniAppAudioCapture(appId, request.meetingId, request.trackId)
+        : request.action === "audio.pause"
+          ? await pauseMiniAppAudioCapture(appId)
+          : request.action === "audio.resume"
+            ? await resumeMiniAppAudioCapture(appId)
+        : request.action === "audio.stop"
+          ? await stopMiniAppAudioCapture(appId)
+          : await miniAppAudioCaptureStatus(appId);
+      frame?.contentWindow?.postMessage(miniAppHostCapabilityResult(request.requestId, {
+        ok: true,
+        payload: payload ? { ...payload } : { active: false }
+      }), "*");
+    } catch (cause) {
+      frame?.contentWindow?.postMessage(miniAppHostCapabilityResult(request.requestId, {
+        ok: false,
+        error: cause instanceof Error ? cause.message : String(cause)
+      }), "*");
+    }
+  }
+
   function onMessage(event: MessageEvent): void {
     // The primary check: the message must come from *this* panel's iframe, which
     // binds it to this appId in a way nothing on the page can forge.
     if (!frame?.contentWindow || event.source !== frame.contentWindow) return;
+    if ((event.data as { protocol?: unknown } | null)?.protocol === MINIAPP_HOST_CAPABILITY_PROTOCOL) {
+      void handleHostCapability(event);
+      return;
+    }
     const parsed = parseMiniAppBridgeMessage(event.data);
     if (!parsed.ok) {
       console.warn("[miniapp-bridge] message rejected", { appId, reason: parsed.reason });
@@ -107,7 +159,6 @@
       title={app?.name ?? appId}
       src={frameUrl}
       sandbox="allow-scripts allow-forms allow-same-origin"
-      allow={app?.aiCapabilities.includes("transcription") ? "microphone" : undefined}
       referrerpolicy="no-referrer"
     ></iframe>
   {/key}

@@ -81,6 +81,29 @@ export function modelOptionCopy(option: { key: string; label: string; alias?: st
   return { name, detail: untagged === name ? "" : untagged };
 }
 
+export interface ModelOptionGroup<T> {
+  provider: string;
+  options: Array<{ option: T; name: string }>;
+}
+
+/** Groups selector options by provider while preserving their source order. */
+export function groupModelOptions<T extends { key: string; label: string; alias?: string }>(options: T[]): ModelOptionGroup<T>[] {
+  const groups = new Map<string, ModelOptionGroup<T>>();
+  for (const option of options) {
+    const untagged = option.label.trim().replace(/^\[[^\]]+\]\s*/, "");
+    const [providerSource, ...modelParts] = untagged.split("/").map((part) => part.trim()).filter(Boolean);
+    const keyParts = option.key.split("|");
+    const provider = humanizeTechnicalName(providerSource || keyParts[1] || "") || providerSource || keyParts[1] || "—";
+    const modelSource = modelParts.join("/") || keyParts.slice(2).join("|") || untagged || option.key;
+    const name = option.alias?.trim() || humanizePath(modelSource);
+    const groupKey = provider.toLocaleLowerCase();
+    const group = groups.get(groupKey) ?? { provider, options: [] };
+    group.options.push({ option, name });
+    groups.set(groupKey, group);
+  }
+  return [...groups.values()];
+}
+
 export function humanizeProviderName(name: string, id: string): { label: string; technicalId: string } {
   const source = name.trim().replace(/^\[[^\]]+\]\s*/, "");
   return {

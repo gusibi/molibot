@@ -125,6 +125,7 @@ rather than a silently missing app:
 | `contributions.messageActions` | Optional host actions with bilingual labels, a non-destructive declared tool, and `text/image/file` accepts. |
 | `ai.capabilities` | Optional host AI facade; v1 supports `text` and `transcription`. |
 | `ai.uploadLimits` | Transcription apps only; explicit `/api/*` raw-body routes, capped at 25 MiB. |
+| `host.capabilities` | Optional device capability grant. V1 supports only `audioCapture`; declaring it does not bypass Desktop and service-side authorization checks. |
 | unknown top-level keys | **Rejected** — a typo must not be silently ignored. |
 
 Apps using `contributions` or `ai` must require `engines.molibot >=2.9.8`. Older hosts reject the manifest; there are no compatibility aliases.

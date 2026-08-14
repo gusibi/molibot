@@ -395,6 +395,7 @@ export class MiniAppHost {
           accepts: [...action.accepts]
         })) ?? [],
         aiCapabilities: [...(slot.descriptor?.manifest.ai?.capabilities ?? [])],
+        hostCapabilities: [...(slot.descriptor?.manifest.host?.capabilities ?? [])],
         // A disabled or failed app must not keep advertising a badge: the
         // sidebar would show a count for something the owner cannot open.
         badge: this.statusOf(slot) === "active" && this.isEnabled(slot.id) ? slot.badge : null,

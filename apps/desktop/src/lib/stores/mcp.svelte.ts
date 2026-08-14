@@ -1,5 +1,5 @@
 // MCP server settings — state + orchestration.
-import { deleteDesktopMcp, loadDesktopMcp, reconnectDesktopMcp, saveDesktopMcp, toggleDesktopMcp } from "../api";
+import { deleteDesktopMcp, loadDesktopMcp, reconnectAllDesktopMcp, reconnectDesktopMcp, saveDesktopMcp, toggleDesktopMcp } from "../api";
 import type { DesktopMcpSaveRequest, DesktopMcpSummary } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
@@ -21,6 +21,16 @@ export async function loadMcp(endpoint: string): Promise<void> {
   session.error = "";
   try {
     mcpStore.mcp = await loadDesktopMcp(endpoint);
+    // Auto-reconnect enabled servers that are not connected on app reopen, so
+    // MCP comes back online without the user clicking Reconnect for each one.
+    // Fire-and-forget: the list is already shown; the summary updates when the
+    // shared reconcile (idempotent - already-connected servers are skipped)
+    // settles. Guarded by endpoint so a later load can't be overwritten.
+    if (mcpStore.mcp?.items.some((server) => server.enabled && server.connectionState !== "connected")) {
+      void reconnectAllDesktopMcp(endpoint)
+        .then((summary) => { if (endpoint === mcpStore.endpoint) mcpStore.mcp = summary; })
+        .catch(() => { /* best-effort; the manual Reconnect button remains */ });
+    }
   } catch (cause) {
     mcpStore.endpoint = "";
     setError(cause);

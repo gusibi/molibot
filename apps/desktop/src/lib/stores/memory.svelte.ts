@@ -41,22 +41,33 @@ export async function loadMemory(endpoint: string): Promise<void> {
   session.error = "";
   const summaryPromise = loadDesktopMemory(endpoint);
   const recordPromise = runDesktopMemoryAction(endpoint, { action: "list", allScopes: true, limit: 200 });
-  const profilePromise = runDesktopMemoryAction(endpoint, { action: "profile", includeOwner: true, includeAgentSelf: true });
   const candidatePromise = runDesktopMemoryAction(endpoint, { action: "list-candidates", limit: 200 });
   const rejectionPromise = loadDesktopMemoryRejections(endpoint);
-  const secondaryPromise = Promise.allSettled([recordPromise, profilePromise, candidatePromise, rejectionPromise]);
+  const profilePromise = runDesktopMemoryAction(endpoint, { action: "profile", includeOwner: true, includeAgentSelf: true });
+  const secondaryPromise = Promise.allSettled([recordPromise, candidatePromise, rejectionPromise]);
   try {
     const summary = await summaryPromise;
     if (generation !== memoryLoadGeneration) return;
     memoryStore.memory = summary;
     memoryStore.loading = false;
 
-    const [records, profile, candidates, rejections] = await secondaryPromise;
+    const [records, candidates, rejections] = await secondaryPromise;
     if (generation !== memoryLoadGeneration) return;
     if (records.status === "fulfilled") memoryStore.items = records.value.items ?? [];
-    if (profile.status === "fulfilled") memoryStore.profile = profile.value.profile ?? null;
     if (candidates.status === "fulfilled") memoryStore.candidates = candidates.value.candidates ?? [];
     if (rejections.status === "fulfilled") memoryStore.rejections = rejections.value.items;
+
+    // The LLM-synthesized profile is the slowest dataset. Let records and
+    // candidates paint the overview first, then settle the profile on its own
+    // so a slow or failed synthesis never blanks the rest of the page.
+    try {
+      const profile = await profilePromise;
+      if (generation !== memoryLoadGeneration) return;
+      memoryStore.profile = profile.profile ?? null;
+    } catch {
+      // Profile synthesis is best-effort: a failure leaves the overview showing
+      // records/candidates without a synthesized summary, not a blank page.
+    }
   } catch (cause) {
     if (generation !== memoryLoadGeneration) return;
     memoryStore.endpoint = "";

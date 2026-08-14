@@ -9,6 +9,7 @@
     DesktopModelOption
   } from "@molibot/desktop-contract";
   import { loadDesktopMiniAppAi, loadDesktopModels, saveDesktopMiniAppAiSettings } from "../api";
+  import { groupModelOptions } from "../presentation";
 
   /**
    * Which host models Mini Apps may use, plus their recent spend.
@@ -67,7 +68,11 @@
   function modelOptions(options: DesktopModelOption[]) {
     return [
       { value: "", label: session.text.miniAppAiFollowGlobal },
-      ...options.map((model) => ({ value: model.key, label: model.alias || model.label }))
+      ...groupModelOptions(options).flatMap((group) => group.options.map(({ option, name }) => ({
+        value: option.key,
+        label: name,
+        group: group.provider
+      })))
     ];
   }
 </script>

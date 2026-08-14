@@ -23,14 +23,14 @@ interface Harness {
   root: string;
   codeRoot: string;
   sources: Record<string, MiniAppInstallSource>;
-  usesAi: Record<string, boolean>;
+  requiresConsent: Record<string, boolean>;
 }
 
 function makeHarness(): Harness {
   const root = mkdtempSync(join(tmpdir(), "molibot-miniapp-install-"));
   const codeRoot = join(root, "apps");
   mkdirSync(codeRoot, { recursive: true });
-  return { root, codeRoot, sources: {}, usesAi: {} };
+  return { root, codeRoot, sources: {}, requiresConsent: {} };
 }
 
 function installerFor(harness: Harness, downloadArchive?: (url: string) => Promise<Buffer>) {
@@ -38,7 +38,7 @@ function installerFor(harness: Harness, downloadArchive?: (url: string) => Promi
     codeRoot: harness.codeRoot,
     recordSource: (appId, source, detail) => {
       harness.sources[appId] = source;
-      harness.usesAi[appId] = detail.usesAi;
+      harness.requiresConsent[appId] = detail.requiresConsent;
     },
     downloadArchive
   });
@@ -52,7 +52,7 @@ const APP_SOURCE = `export default function create() {
 }
 `;
 
-function manifestFor(id: string, version = "1.0.0", usesAi = false): string {
+function manifestFor(id: string, version = "1.0.0", usesAi = false, usesHostAudio = false): string {
   return JSON.stringify({
     manifestVersion: 1,
     id,
@@ -63,6 +63,7 @@ function manifestFor(id: string, version = "1.0.0", usesAi = false): string {
     ui: { entry: "ui/index.html" },
     data: { schemaVersion: 1 },
     ...(usesAi ? { ai: { capabilities: ["text"] } } : {}),
+    ...(usesHostAudio ? { host: { capabilities: ["audioCapture"] } } : {}),
     tools: [{
       name: "ping",
       description: "Ping the app.",
@@ -73,10 +74,10 @@ function manifestFor(id: string, version = "1.0.0", usesAi = false): string {
 }
 
 /** Writes a complete, valid app into `dir`. */
-function writeAppInto(dir: string, id: string, version = "1.0.0", usesAi = false): void {
+function writeAppInto(dir: string, id: string, version = "1.0.0", usesAi = false, usesHostAudio = false): void {
   mkdirSync(join(dir, "server"), { recursive: true });
   mkdirSync(join(dir, "ui"), { recursive: true });
-  writeFileSync(join(dir, "manifest.json"), manifestFor(id, version, usesAi), "utf8");
+  writeFileSync(join(dir, "manifest.json"), manifestFor(id, version, usesAi, usesHostAudio), "utf8");
   writeFileSync(join(dir, "server", "index.mjs"), APP_SOURCE, "utf8");
   writeFileSync(join(dir, "ui", "index.html"), "<!doctype html><title>app</title>", "utf8");
 }
@@ -108,7 +109,15 @@ test("reports declared AI use to the enablement policy before a third-party app 
   const source = join(harness.root, "ai-writer");
   writeAppInto(source, "ai-writer", "1.0.0", true);
   await installerFor(harness).install({ source: "directory", path: source });
-  assert.equal(harness.usesAi["ai-writer"], true);
+  assert.equal(harness.requiresConsent["ai-writer"], true);
+});
+
+test("reports declared microphone use to the enablement policy before a third-party app is activated", async () => {
+  const harness = makeHarness();
+  const source = join(harness.root, "audio-recorder");
+  writeAppInto(source, "audio-recorder", "1.0.0", false, true);
+  await installerFor(harness).install({ source: "directory", path: source });
+  assert.equal(harness.requiresConsent["audio-recorder"], true);
 });
 
 test("installs from a ZIP, including one wrapped in its own folder", async () => {

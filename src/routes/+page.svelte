@@ -1313,6 +1313,14 @@
           await scrollMessagesToBottom(true);
           continue;
         }
+        if (parsed.event === "session_title_updated") {
+          const updatedTitle = String(payload.title ?? "").trim();
+          const targetId = String(payload.conversationId ?? "").trim();
+          if (updatedTitle && targetId) {
+            sessions = sessions.map((s) => (s.id === targetId ? { ...s, title: updatedTitle } : s));
+          }
+          continue;
+        }
         if (parsed.event === "replace") {
           streamingAssistantText = String(payload.text ?? "");
           await scrollMessagesToBottom(true);

@@ -41,6 +41,7 @@ test("catalog message actions include active apps and use the current locale", (
     builtin: true,
     toolNames: ["add"],
     aiCapabilities: [],
+    hostCapabilities: [],
     badge: null,
     iconDataUri: "",
     source: { kind: "builtin" as const },
