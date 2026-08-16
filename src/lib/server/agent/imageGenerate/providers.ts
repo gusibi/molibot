@@ -3,7 +3,8 @@ import type {
   ImageGenerateInput,
   ImageGenerateProvider,
   ImageGenerateProviderContext,
-  ImageGenerateProviderResult
+  ImageGenerateProviderResult,
+  ImageGenerateProtocol
 } from "./types.js";
 
 const delay = (ms: number, signal?: AbortSignal) =>
@@ -32,6 +33,35 @@ async function readJson(response: Response): Promise<any> {
     throw new Error(`HTTP ${response.status}: ${text.slice(0, 300)}`);
   }
   return text ? JSON.parse(text) : {};
+}
+
+function resolveDynamicUrl(baseUrl: string, protocol: ImageGenerateProtocol): string {
+  const rawUrl = baseUrl.trim();
+  if (!rawUrl) {
+    return protocol === "chat-completions" ? "/v1/chat/completions" : "/v1/images/generations";
+  }
+  const cleanUrl = (/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`).replace(/\/+$/, "");
+  try {
+    let parseUrl = cleanUrl;
+    if (!/^https?:\/\//i.test(parseUrl)) {
+      parseUrl = "https://" + parseUrl;
+    }
+    const urlObj = new URL(parseUrl);
+    const pathname = urlObj.pathname.replace(/\/+$/, "");
+    if (protocol === "chat-completions") {
+      if (pathname === "" || pathname === "/") return `${cleanUrl}/v1/chat/completions`;
+      if (pathname.endsWith("/v1")) return `${cleanUrl}/chat/completions`;
+      return cleanUrl;
+    }
+    if (pathname === "" || pathname === "/") return `${cleanUrl}/v1/images/generations`;
+    if (pathname.endsWith("/v1")) return `${cleanUrl}/images/generations`;
+    return cleanUrl;
+  } catch {
+    // fallback
+  }
+  return protocol === "chat-completions"
+    ? `${cleanUrl}/v1/chat/completions`
+    : `${cleanUrl}/v1/images/generations`;
 }
 
 export function getEffectiveBaseUrl(engine: string, inputUrl: string): { submitUrl: string; pollUrlBase?: string } {
@@ -488,11 +518,92 @@ const volcengineProvider: ImageGenerateProvider = {
   }
 };
 
-export const IMAGE_GENERATE_PROVIDERS: Record<ImageGenerateEngine, ImageGenerateProvider> = {
-  agnes: agnesProvider,
-  openai: openaiProvider,
-  "openai-chat": openaiChatProvider,
-  modelscope: modelscopeProvider,
-  google: googleProvider,
-  volcengine: volcengineProvider
+const genericImagesGenerationsProvider: ImageGenerateProvider = {
+  id: "generic-images-generations",
+  generate: async (input: ImageGenerateInput, context: ImageGenerateProviderContext): Promise<ImageGenerateProviderResult> => {
+    const engineId = input.engine as string;
+    const apiKey = requireApiKey(context, engineId);
+    const engineSettings = context.settings.engines[engineId];
+    const baseUrl = engineSettings?.baseUrl?.trim() || "";
+    if (!baseUrl) throw new Error(`${engineId} base URL is not configured`);
+    const url = resolveDynamicUrl(baseUrl, "images-generations");
+
+    const payload: Record<string, any> = {
+      model: input.model || "dall-e-3",
+      prompt: input.prompt,
+      n: 1
+    };
+    if (input.size) payload.size = input.size;
+
+    const response = await context.fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload),
+      signal: context.signal
+    });
+
+    const data = await readJson(response);
+    const item = data?.data?.[0];
+    const b64 = item?.b64_json;
+    const imageUrl = item?.url;
+    if (!b64 && !imageUrl) {
+      throw new Error(`Image generation API did not return image data. Response: ${JSON.stringify(data)}`);
+    }
+
+    return b64 ? { imageBase64: b64 } : { imageUrl };
+  }
 };
+
+const genericChatCompletionsProvider: ImageGenerateProvider = {
+  id: "generic-chat-completions",
+  generate: async (input: ImageGenerateInput, context: ImageGenerateProviderContext): Promise<ImageGenerateProviderResult> => {
+    const engineId = input.engine as string;
+    const apiKey = requireApiKey(context, engineId);
+    const engineSettings = context.settings.engines[engineId];
+    const baseUrl = engineSettings?.baseUrl?.trim() || "";
+    if (!baseUrl) throw new Error(`${engineId} base URL is not configured`);
+    const url = resolveDynamicUrl(baseUrl, "chat-completions");
+
+    const model = input.model || "gpt-4o";
+    const content = [
+      input.prompt,
+      "",
+      "Return exactly one generated image as either a public image URL, a data:image/...;base64 URL, or a JSON object with one of these fields: url, image_url, b64_json, base64."
+    ].join("\n");
+    const payload: Record<string, any> = {
+      model,
+      messages: [{ role: "user", content }]
+    };
+
+    const response = await context.fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload),
+      signal: context.signal
+    });
+
+    const data = await readJson(response);
+    const result = imageResultFromValue(data?.choices?.[0]?.message?.content ?? data);
+    if (!result) {
+      throw new Error(`Chat completions image API did not return image data. Response: ${JSON.stringify(data)}`);
+    }
+
+    return result;
+  }
+};
+
+export function getImageGenerateProvider(engine: string, protocol?: ImageGenerateProtocol): ImageGenerateProvider {
+  if (engine === "agnes") return agnesProvider;
+  if (engine === "openai") return openaiProvider;
+  if (engine === "openai-chat") return openaiChatProvider;
+  if (engine === "modelscope") return modelscopeProvider;
+  if (engine === "google") return googleProvider;
+  if (engine === "volcengine") return volcengineProvider;
+  return protocol === "chat-completions" ? genericChatCompletionsProvider : genericImagesGenerationsProvider;
+}

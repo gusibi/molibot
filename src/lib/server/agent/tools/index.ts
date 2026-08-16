@@ -866,7 +866,10 @@ export function createMomTools(options: {
     ...(() => {
       let miniAppEntries: ReturnType<typeof createDeferredToolEntry>[] = [];
       try {
-        miniAppEntries = buildMiniAppDeferredTools(getMiniAppHost())
+        miniAppEntries = buildMiniAppDeferredTools(getMiniAppHost(), {
+          cwd: options.cwd,
+          workspaceDir: options.workspaceDir
+        })
           .filter((miniApp) => !options.miniAppId || miniApp.descriptor.appId === options.miniAppId)
           .map((miniApp) => {
           miniAppToolHints.set(miniApp.name, {

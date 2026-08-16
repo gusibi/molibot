@@ -22,8 +22,6 @@ import {
   type WebSearchEngineId,
   type WebSearchEngineSelectionStrategy,
   type WebSearchRoute,
-  type ImageGenerateEngineId,
-  type ImageGenerateSettings,
   type VideoGenerateEngineId,
   type VideoGenerateSettings,
   type TtsGenerateSettings
@@ -34,6 +32,7 @@ import {
   RESERVED_PLUGIN_KEYS,
   sanitizeChannelInstanceDisplaySettings,
   sanitizeHookPluginEntries,
+  sanitizeImageGenerateSettings as sanitizeImageGenerateConfig,
   sanitizeMemoryPluginSettings,
   sanitizeMiniAppSettings,
   sanitizePiExtensionSettings,
@@ -203,7 +202,6 @@ const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
 ];
 const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
 const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
-const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"];
 const VIDEO_GENERATE_ENGINES: VideoGenerateEngineId[] = ["agnes", "volcengine"];
 const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
   domestic_news: "china",
@@ -342,37 +340,6 @@ function sanitizeWebSearchSettings(input: unknown): RuntimeSettings["webSearch"]
     maxResults: clampNumber(source.maxResults, defaultRuntimeSettings.webSearch.maxResults, 1, 20),
     timeoutMs: clampNumber(source.timeoutMs, defaultRuntimeSettings.webSearch.timeoutMs, 1000, 120000),
     retryTimeoutMs: clampNumber(source.retryTimeoutMs, defaultRuntimeSettings.webSearch.retryTimeoutMs, 1000, 180000),
-    engines
-  };
-}
-
-function sanitizeImageGenerateSettings(input: unknown): RuntimeSettings["imageGenerate"] {
-  const source = input && typeof input === "object"
-    ? input as Record<string, unknown>
-    : {};
-  const enginesSource = source.engines && typeof source.engines === "object"
-    ? source.engines as Record<string, unknown>
-    : {};
-  const requestedDefaultEngine = String(source.defaultEngine ?? defaultRuntimeSettings.imageGenerate.defaultEngine).trim() as ImageGenerateEngineId | "auto";
-  const engines = Object.fromEntries(IMAGE_GENERATE_ENGINES.map((engine) => {
-    const fallbackEngine = defaultRuntimeSettings.imageGenerate.engines[engine];
-    const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
-      ? enginesSource[engine] as Record<string, unknown>
-      : {};
-    const apiKey = String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim();
-    const enabled = raw.enabled === undefined
-      ? fallbackEngine.enabled || Boolean(apiKey)
-      : Boolean(raw.enabled) || (requestedDefaultEngine === engine && Boolean(apiKey));
-    return [engine, {
-      enabled,
-      apiKey,
-      model: String(raw.model ?? fallbackEngine.model ?? "").trim() || undefined,
-      baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
-    }];
-  })) as RuntimeSettings["imageGenerate"]["engines"];
-  return {
-    enabled: source.enabled === undefined ? defaultRuntimeSettings.imageGenerate.enabled : Boolean(source.enabled),
-    defaultEngine: requestedDefaultEngine === "auto" || IMAGE_GENERATE_ENGINES.includes(requestedDefaultEngine) ? requestedDefaultEngine : defaultRuntimeSettings.imageGenerate.defaultEngine,
     engines
   };
 }
@@ -1182,7 +1149,10 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
   const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);
   const webSearch = sanitizeWebSearchSettings(raw.webSearch ?? defaultRuntimeSettings.webSearch);
-  const imageGenerate = sanitizeImageGenerateSettings(raw.imageGenerate ?? defaultRuntimeSettings.imageGenerate);
+  const imageGenerate = sanitizeImageGenerateConfig(
+    raw.imageGenerate ?? defaultRuntimeSettings.imageGenerate,
+    defaultRuntimeSettings.imageGenerate
+  );
   const videoGenerate = sanitizeVideoGenerateSettings(raw.videoGenerate ?? defaultRuntimeSettings.videoGenerate);
   const ttsGenerate = sanitizeTtsGenerateSettings(raw.ttsGenerate ?? defaultRuntimeSettings.ttsGenerate);
   const toolSandbox = sanitizeToolSandboxSettings(raw.toolSandbox ?? defaultRuntimeSettings.toolSandbox);
@@ -2091,7 +2061,10 @@ export class SettingsStore {
         migrated = true;
       }
       if (!rawDynamic.imageGenerate && rawStatic.imageGenerate) {
-        this.saveImageGenerateSettings(db, sanitizeImageGenerateSettings(rawStatic.imageGenerate));
+        this.saveImageGenerateSettings(
+          db,
+          sanitizeImageGenerateConfig(rawStatic.imageGenerate, defaultRuntimeSettings.imageGenerate)
+        );
         migrated = true;
       }
       if (!rawDynamic.videoGenerate && rawStatic.videoGenerate) {

@@ -100,6 +100,17 @@
   * `destructiveHint: true`（高风险破坏性操作，如删除数据）。**宿主在 Agent 自动执行此工具时会强制弹窗等待 Owner 审批**。
   * 都不写（中风险，走既有策略管线）。两者不可同时为 `true`。
 * **延迟加载**：小程序工具默认不注入模型的系统提示词。Agent 通过 `toolSearch` 使用 `keywords` 命中对应的工具。因此 `keywords` 应覆盖所有可能的中英文触发动词。
+* **文件入参（`fileParams`，Requires `engines.molibot >= 2.9.26`）**：需要 Agent 传「文件」而不是「文件内容」的工具，在工具上声明 `fileParams`，Agent 侧的入参就是一条路径（和 `read` 等 Agent 文件工具同一套路径语义与 allowed-roots）。宿主在校验后、handler 执行前把文件拷贝进本 App 的 `dataDir/incoming/`，并把参数**原位改写**为 dataDir 相对路径（如 `incoming/3f2a….md`）；原文件名等元数据在 `context.stagedFiles[参数名]` 里：
+  ```json
+  "fileParams": [
+    { "param": "docPath", "accepts": ["file"], "maxBytes": 5242880 },
+    { "param": "imagePaths", "accepts": ["image"], "multiple": true }
+  ]
+  ```
+  * `param` 必须在 `inputSchema.properties` 声明：`multiple: true` 为 string 数组，否则为 string。
+  * `accepts` 只能取 `["file"]`、`["image"]` 或两者；`maxBytes` 1..64 MiB（缺省 25 MiB）；每个工具至多 4 个文件参数，每次调用至多 20 个文件。
+  * handler 里用 `path.join(context.dataDir, input.docPath)` 读取即可。**不要**把收到的值当宿主路径或回显给用户；staging 目录有容量淘汰，重要数据要落自己的 SQLite。
+  * Agent 没传该参数（可选参数）时不做 staging；消息动作（`capture`）路径不支持文件参数，若带值调用会明确报错而不是把宿主路径传进 handler。
 
 ---
 
@@ -134,7 +145,8 @@ export default function create(context) {
 ```
 
 ### 1. 工具 Handler
-* `input` 已经被宿主在入口按 `inputSchema` 校验过，格式可信。
+* `input` 已经被宿主在入口按 `inputSchema` 校验过，格式可信。声明了 `fileParams` 的参数在这里已是 **dataDir 相对路径**（宿主已完成 staging，见前文）。
+* `context.stagedFiles`：当本次调用发生了文件 staging 时存在，按参数名分组提供 `{ path, name, kind, mime, bytes }`（`name` 是原文件名）。
 * 变更标记：执行了写操作时必须显式返回 `changed: true`。这会使宿主自增该小程序的全局状态 Revision 版本号，用以驱动 UI 自动同步。
 * 返回结构化卡片 (`card`)：
   ```js

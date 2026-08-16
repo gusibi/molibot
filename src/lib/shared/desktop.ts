@@ -2014,6 +2014,10 @@ export interface DesktopMediaEngine {
   hasApiKey: boolean;
   baseUrl: string;
   model: string;
+  /** Optional display name for custom engines. */
+  name?: string;
+  /** Protocol used by custom engines; built-in engines omit this. */
+  protocol?: "images-generations" | "chat-completions";
 }
 
 export interface DesktopMediaGenerateSummary {
@@ -2036,7 +2040,7 @@ export interface DesktopVideoGenerateResponse {
 export interface DesktopMediaGenerateUpdateRequest {
   enabled: boolean;
   defaultEngine: string;
-  engines: Array<{ id: string; enabled: boolean; baseUrl: string; model: string; apiKey?: string; clearApiKey?: boolean }>;
+  engines: Array<{ id: string; enabled: boolean; baseUrl: string; model: string; apiKey?: string; clearApiKey?: boolean; name?: string; protocol?: "images-generations" | "chat-completions" }>;
 }
 
 export interface DesktopTtsProvider {

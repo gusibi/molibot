@@ -156,8 +156,8 @@ export async function tryAutoSummarizeConversationTitleAsync(params: {
   options?: SummarizeTitleOptions;
 }): Promise<string | null> {
   try {
-    const { sessions, settings } = getRuntime();
-    const currentSettings = settings.get();
+    const { sessions, getSettings } = getRuntime();
+    const currentSettings = getSettings();
     const channel = params.channel ?? "web";
 
     const conversation = sessions.getConversationById(params.conversationId, channel, params.externalUserId);

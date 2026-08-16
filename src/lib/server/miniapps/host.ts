@@ -44,6 +44,7 @@ import {
 } from "$lib/server/miniapps/types.js";
 import { bundleMiniAppRuntime } from "$lib/server/miniapps/runtimeBundle.js";
 import { createMiniAppProcessRuntime } from "$lib/server/miniapps/processRuntime.js";
+import { stageToolFileParams, type ToolFileStagingScope } from "$lib/server/miniapps/toolFileStaging.js";
 
 /**
  * MiniAppHost — the single seam between installed Mini Apps and the rest of
@@ -943,7 +944,8 @@ export class MiniAppHost {
   async invokeTool(
     toolId: string,
     input: unknown,
-    context: MiniAppToolCallContext
+    context: MiniAppToolCallContext,
+    options?: { staging?: ToolFileStagingScope }
   ): Promise<MiniAppToolResult> {
     const parsed = parseMiniAppToolId(toolId);
     if (!parsed) throw new MiniAppError(`Not a Mini App tool: ${toolId}`, "not_found");
@@ -963,6 +965,39 @@ export class MiniAppHost {
       throw new MiniAppError(`Invalid input for ${parsed.appId}.${parsed.toolName}: ${detail}`, "invalid_input");
     }
 
+    let effectiveInput = input ?? {};
+    let stagedFiles: MiniAppToolCallContext["stagedFiles"];
+    const fileParams = toolManifest.fileParams;
+    if (fileParams?.length) {
+      const inputRecord = (input ?? {}) as Record<string, unknown>;
+      const hasFileValue = fileParams.some((declaration) => {
+        const value = inputRecord[declaration.param];
+        if (Array.isArray(value)) return value.length > 0;
+        return typeof value === "string" ? value.length > 0 : value != null;
+      });
+      if (hasFileValue && !options?.staging) {
+        // Never let raw host paths reach a handler that could not read them
+        // anyway - a surface without a staging scope (message actions) must
+        // fail loudly, not silently pass unusable input.
+        throw new MiniAppError(
+          `${parsed.appId}.${parsed.toolName} takes file parameters, but this surface cannot stage files.`,
+          "invalid_input"
+        );
+      }
+      if (hasFileValue && options?.staging) {
+        const staged = stageToolFileParams({
+          input: inputRecord,
+          fileParams,
+          staging: options.staging,
+          dataRoot: this.options.dataRoot,
+          appId: parsed.appId,
+          warn: (event, detail) => this.logger.warn(event, detail)
+        });
+        effectiveInput = staged.input;
+        stagedFiles = staged.stagedFiles;
+      }
+    }
+
     slot.inFlight += 1;
     try {
       const runtime = await this.ensureRuntime(slot);
@@ -972,7 +1007,7 @@ export class MiniAppHost {
       }
 
       try {
-        const result = await handler(input ?? {}, context);
+        const result = await handler(effectiveInput, stagedFiles ? { ...context, stagedFiles } : context);
         if (result?.changed) slot.revision += 1;
         // The card is sanitized here rather than at the render site so every
         // consumer — desktop transcript, message-action route, any later surface
@@ -1060,7 +1095,7 @@ export class MiniAppHost {
     }
 
     const method = request.method.toUpperCase();
-    if (!["GET", "POST", "PATCH", "DELETE"].includes(method)) {
+    if (!["GET", "POST", "PATCH", "PUT", "DELETE"].includes(method)) {
       return jsonResponse(405, { error: `Method ${method} is not allowed.` });
     }
 

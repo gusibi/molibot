@@ -28,6 +28,30 @@ import miniChatUiScriptSource from "./builtin/mini-chat/ui/app.js?raw";
 import miniChatUiAstryxStyleSource from "./builtin/mini-chat/ui/astryx.css?raw";
 import miniChatUiStyleSource from "./builtin/mini-chat/ui/styles.css?raw";
 import miniChatUiIconSource from "./builtin/mini-chat/ui/icon.svg?raw";
+import mdPreviewManifestSource from "./builtin/md-preview/manifest.json?raw";
+import mdPreviewNoticesSource from "./builtin/md-preview/THIRD_PARTY_NOTICES.md?raw";
+import mdPreviewServerSource from "./builtin/md-preview/server/index.mjs?raw";
+import mdPreviewUiHtmlSource from "./builtin/md-preview/ui/index.html?raw";
+import mdPreviewUiScriptSource from "./builtin/md-preview/ui/app.js?raw";
+import mdPreviewUiRenderSource from "./builtin/md-preview/ui/render.js?raw";
+import mdPreviewUiThemesSource from "./builtin/md-preview/ui/themes.js?raw";
+import mdPreviewUiStyleSource from "./builtin/md-preview/ui/styles.css?raw";
+import mdPreviewUiIconSource from "./builtin/md-preview/ui/icon.svg?raw";
+import prismCoreSource from "prismjs/components/prism-core.min.js?raw";
+import prismMarkupSource from "prismjs/components/prism-markup.min.js?raw";
+import prismClikeSource from "prismjs/components/prism-clike.min.js?raw";
+import prismCssSource from "prismjs/components/prism-css.min.js?raw";
+import prismJavascriptSource from "prismjs/components/prism-javascript.min.js?raw";
+import prismTypescriptSource from "prismjs/components/prism-typescript.min.js?raw";
+import prismPythonSource from "prismjs/components/prism-python.min.js?raw";
+import prismBashSource from "prismjs/components/prism-bash.min.js?raw";
+import prismJsonSource from "prismjs/components/prism-json.min.js?raw";
+import prismGoSource from "prismjs/components/prism-go.min.js?raw";
+import prismRustSource from "prismjs/components/prism-rust.min.js?raw";
+import prismSqlSource from "prismjs/components/prism-sql.min.js?raw";
+import prismYamlSource from "prismjs/components/prism-yaml.min.js?raw";
+import prismCSource from "prismjs/components/prism-c.min.js?raw";
+import prismCppSource from "prismjs/components/prism-cpp.min.js?raw";
 import {
   materializeBuiltinMiniApp,
   type BuiltinMiniApp
@@ -104,6 +128,26 @@ const BUILTIN_APPS: BuiltinMiniApp[] = [
       "ui/astryx.css": miniChatUiAstryxStyleSource,
       "ui/styles.css": miniChatUiStyleSource,
       "ui/icon.svg": miniChatUiIconSource
+    }
+  },
+  {
+    id: "md-preview",
+    files: {
+      "THIRD_PARTY_NOTICES.md": mdPreviewNoticesSource,
+      "manifest.json": mdPreviewManifestSource,
+      "server/index.mjs": mdPreviewServerSource,
+      "ui/index.html": mdPreviewUiHtmlSource,
+      "ui/app.js": mdPreviewUiScriptSource,
+      "ui/render.js": mdPreviewUiRenderSource,
+      "ui/themes.js": mdPreviewUiThemesSource,
+      // One concatenated classic script: the iframe CSP allows same-origin
+      // scripts, and Prism's components are plain IIFEs over a global Prism.
+      // `manual` must be set before the core so it never auto-highlights -
+      // render.js calls Prism.highlight itself.
+      "ui/vendor/prism.js": `window.Prism = { manual: true };\n${prismCoreSource}\n${prismMarkupSource}\n${prismClikeSource}\n${prismCssSource}\n${prismJavascriptSource}\n${prismTypescriptSource}\n${prismPythonSource}\n${prismBashSource}\n${prismJsonSource}\n${prismGoSource}\n${prismRustSource}\n${prismSqlSource}\n${prismYamlSource}\n${prismCSource}\n${prismCppSource}\n`,
+      "ui/vendor/marked.esm.js": markedBrowserSource,
+      "ui/styles.css": mdPreviewUiStyleSource,
+      "ui/icon.svg": mdPreviewUiIconSource
     }
   }
 ];

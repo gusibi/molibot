@@ -71,7 +71,15 @@ class MiniAppProcessRuntime implements MiniAppRuntime {
       toolName,
       (input: unknown, context: MiniAppToolCallContext) => this.call(
         "invokeTool",
-        { toolName, input, toolCallId: context.toolCallId },
+        {
+          toolName,
+          input,
+          toolCallId: context.toolCallId,
+          // Host-internal fields (none today) never belong in the payload; the
+          // staged file metadata is dataDir-relative and is the one context
+          // extension the app is meant to see.
+          ...(context.stagedFiles ? { stagedFiles: context.stagedFiles } : {})
+        },
         options.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS,
         context.signal
       ) as Promise<MiniAppToolResult>

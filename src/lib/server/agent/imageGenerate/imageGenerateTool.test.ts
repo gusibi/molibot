@@ -711,6 +711,118 @@ test("imageGenerate tool handles ModelScope async task submission and polling co
   }
 });
 
+test("imageGenerate tool calls a custom images-generations engine", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestPayload: any = null;
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/v1/images/generations")) {
+      requestedUrl = url;
+      requestPayload = init?.body ? JSON.parse(String(init.body)) : {};
+      return new Response(JSON.stringify({
+        data: [{ url: "https://example.com/custom-image.png" }]
+      }), { status: 200 });
+    }
+    if (url.includes("custom-image.png")) {
+      return new Response(Buffer.from("custom-image-bytes"));
+    }
+    return new Response("Not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+
+    const ctx = getTestContext({
+      engines: {
+        ...defaultTestSettings.imageGenerate.engines,
+        "my-custom": {
+          enabled: true,
+          apiKey: "custom-key",
+          baseUrl: "https://custom.example.com",
+          model: "custom-model",
+          protocol: "images-generations" as const
+        }
+      }
+    });
+
+    const tool = createImageGenerateTool(ctx);
+    const result = await tool.execute("call-custom", {
+      prompt: "A cyber cat",
+      engine: "my-custom",
+      outputName: "custom_cat.png"
+    });
+
+    assert.ok(result.content[0].text.includes("Successfully generated image using 'my-custom' engine."));
+    assert.equal(requestedUrl, "https://custom.example.com/v1/images/generations");
+    assert.equal(requestPayload.model, "custom-model");
+    assert.equal(requestPayload.prompt, "A cyber cat");
+    assert.equal(requestPayload.n, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    try {
+      await fs.rm(mockCwd, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
+test("imageGenerate tool calls a custom chat-completions engine", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestPayload: any = null;
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/v1/chat/completions")) {
+      requestedUrl = url;
+      requestPayload = init?.body ? JSON.parse(String(init.body)) : {};
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: "https://example.com/custom-chat-image.png" } }]
+      }), { status: 200 });
+    }
+    if (url.includes("custom-chat-image.png")) {
+      return new Response(Buffer.from("custom-chat-image-bytes"));
+    }
+    return new Response("Not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+
+    const ctx = getTestContext({
+      engines: {
+        ...defaultTestSettings.imageGenerate.engines,
+        "my-chat": {
+          enabled: true,
+          apiKey: "custom-chat-key",
+          baseUrl: "https://chat-custom.example.com/v1",
+          model: "custom-chat-model",
+          protocol: "chat-completions" as const
+        }
+      }
+    });
+
+    const tool = createImageGenerateTool(ctx);
+    const result = await tool.execute("call-custom-chat", {
+      prompt: "A cyber cat",
+      engine: "my-chat",
+      outputName: "custom_chat_cat.png"
+    });
+
+    assert.ok(result.content[0].text.includes("Successfully generated image using 'my-chat' engine."));
+    assert.equal(requestedUrl, "https://chat-custom.example.com/v1/chat/completions");
+    assert.equal(requestPayload.model, "custom-chat-model");
+    assert.equal(requestPayload.messages[0].role, "user");
+    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/custom-chat-image\.png/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    try {
+      await fs.rm(mockCwd, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
 test("imageGenerate rejects a non-string prompt before generating or uploading", async () => {
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;

@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "2.9.25",
+  "version": "2.9.26",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
@@ -61,6 +61,7 @@
     "music-metadata": "^11.14.0",
     "pdf-lib": "1.17.1",
     "pdf-parse": "2.4.5",
+    "prismjs": "^1.30.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "semver": "^7.8.5",

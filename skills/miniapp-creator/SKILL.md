@@ -76,6 +76,7 @@ node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs expenses "Expenses" 
 ### 5.1 跨边界声明与长任务
 
 - 消息/选区/附件入口写进 `contributions.messageActions`；工具同时接受 Agent 参数和宿主 `{ capture }`，不要写两套领域逻辑。`accepts` 只声明真实支持的 `text | image | file`。
+- **需要 Agent 传文件而不是文件内容时，用 `tools[].fileParams`**（Requires `engines.molibot >= 2.9.26`）：Agent 传路径（与其 `read` 工具同一套路径语义），宿主自动把文件拷进 `dataDir/incoming/` 并把参数原位改写成 dataDir 相对路径，元数据在 `context.stagedFiles`。这样大文档不过模型上下文，App 也能拿到本地图片等文件。详见 [doc.md](references/doc.md) §工具命名、风险与可发现性。
 - 模型能力只通过 `context.ai.generateText()` / `transcribe()` 使用，先在 `ai.capabilities` 声明。凭据、Provider 和最终模型不属于 App；结构化错误码只有 `capability_not_declared`、`capability_unavailable`、`invalid_request`、`rate_limited`、`provider_failed`、`aborted`。
 - raw 上传必须逐路由声明 `ai.uploadLimits`，路径为 `/api/*`，硬顶 25 MiB；JSON 路由保持 JSON。转写音频每段还必须 ≤10 分钟。
 - 长任务把 job/segment 状态先落 SQLite；每个后台 Promise 都有 `catch`；Runtime 重建时把 `recording/transcribing/summarizing` 终态化为 `interrupted`。重试要幂等，原始输入保留到用户明确删除。

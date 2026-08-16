@@ -124,6 +124,7 @@ rather than a silently missing app:
 | `tools[].name` | `^[a-z][a-z0-9_-]{0,63}$`, unique within the app. |
 | `tools[].inputSchema` | An object JSON Schema. Compiled with Ajv at discovery. |
 | `contributions.messageActions` | Optional host actions with bilingual labels, a non-destructive declared tool, and `text/image/file` accepts. |
+| `tools[].fileParams` | Optional file staging (requires `engines.molibot >=2.9.26`). Each entry names a schema property (`string`, or `string[]` with `multiple: true`), an `accepts` subset of `file`/`image`, and a per-file `maxBytes` (1..64 MiB, default 25 MiB). At call time the host copies each referenced file into the app's `dataDir/incoming/` using the agent file tools' own path semantics, rewrites the parameter in place to the staged dataDir-relative path, and exposes metadata as `context.stagedFiles[param]`. |
 | `ai.capabilities` | Optional host AI facade; v1 supports `text` and `transcription`. |
 | `ai.uploadLimits` | Transcription apps only; explicit `/api/*` raw-body routes, capped at 25 MiB. |
 | `host.capabilities` | Optional device capability grant. V1 supports only `audioCapture`; declaring it does not bypass Desktop and service-side authorization checks. |
@@ -207,7 +208,7 @@ request and hands you a plain JSON object:
 
 ```js
 async handleHttp(request) {
-  // request.method — "GET" | "POST" | "PATCH" | "DELETE"
+  // request.method — "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
   // request.path   — app-relative, e.g. "/todos/abc123"
   // request.query  — Record<string, string[]>
   // request.body   — parsed JSON, or undefined for GET

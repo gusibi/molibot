@@ -1,0 +1,54 @@
+{
+  "manifestVersion": 1,
+  "id": "md-preview",
+  "name": "MD Preview",
+  "version": "1.0.3",
+  "description": "Render a Markdown document with switchable themes and copy it as WeChat Official Account (公众号) rich text. Local images can be uploaded to Cloudflare R2 and are swapped in at copy time only - the source Markdown keeps its local paths.",
+  "engines": {
+    "molibot": ">=2.9.9 <4"
+  },
+  "runtime": {
+    "entry": "server/index.mjs"
+  },
+  "ui": {
+    "entry": "ui/index.html",
+    "icon": "ui/icon.svg"
+  },
+  "data": {
+    "schemaVersion": 1
+  },
+  "tools": [
+    {
+      "name": "preview",
+      "title": "Preview Markdown Document",
+      "description": "Open a Markdown document in the MD Preview panel. Pass the Markdown file and, when it references local images, those image files as well; image references are matched by filename. Returns the unresolved local image references, if any - call again with those files included so the preview can display and later upload them. Use this whenever the user asks to preview, render, theme, or copy a Markdown file as WeChat Official Account format.",
+      "keywords": [
+        "markdown", "md", "preview", "render", "wechat", "公众号", "article", "copy", "theme", "排版",
+        "预览", "渲染", "文章", "排版", "复制", "公众号格式", "主题"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "markdownPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to the Markdown file, relative to the session working directory."
+          },
+          "images": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Local image files referenced by the document. Include every local image the Markdown mentions, so preview and upload can resolve them."
+          }
+        },
+        "required": ["markdownPath"],
+        "additionalProperties": false
+      },
+      "fileParams": [
+        { "param": "markdownPath", "accepts": ["file"] },
+        { "param": "images", "accepts": ["image"], "multiple": true }
+      ],
+      "readOnlyHint": false,
+      "destructiveHint": false
+    }
+  ]
+}

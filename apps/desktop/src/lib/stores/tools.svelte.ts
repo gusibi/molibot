@@ -80,6 +80,8 @@ const IMAGE_ENGINE_LABELS: Record<string, string> = {
   modelscope: "ModelScope"
 };
 
+export const BUILTIN_IMAGE_ENGINE_IDS = new Set(["agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"]);
+
 const VIDEO_ENGINE_LABELS: Record<string, string> = {
   agnes: "Agnes Video",
   volcengine: "Volcengine (Doubao)"
@@ -201,7 +203,7 @@ export async function loadImageGenerate(endpoint: string): Promise<void> {
     const [summary, tasks] = await Promise.all([loadDesktopImageGenerate(endpoint), loadDesktopMediaTasks(endpoint, "image").catch(() => [])]);
     toolsStore.imageGenerate = summary;
     toolsStore.imageTasks = tasks;
-    toolsStore.imageGenerateEdit = { enabled: summary.enabled, defaultEngine: summary.defaultEngine, engines: summary.engines.map((engine) => ({ ...engine, apiKey: "", clearApiKey: false })) };
+    toolsStore.imageGenerateEdit = { enabled: summary.enabled, defaultEngine: summary.defaultEngine, engines: summary.engines.map((engine) => ({ ...engine, apiKey: "", clearApiKey: false, name: engine.name ?? "", protocol: engine.protocol ?? undefined })) };
     toolsStore.imageTestEngine = summary.defaultEngine;
   } catch (cause) {
     toolsStore.imageGenerateEndpoint = "";
@@ -444,4 +446,49 @@ export function closeMediaTaskDetail(): void {
 
 export function onMediaTaskOverlayKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") closeMediaTaskDetail();
+}
+
+export function isCustomImageEngine(id: string): boolean {
+  return id !== "auto" && !BUILTIN_IMAGE_ENGINE_IDS.has(id);
+}
+
+export function addImageCustomEngine(id: string, name: string, protocol: "images-generations" | "chat-completions"): void {
+  const trimmedId = id.trim().toLowerCase();
+  if (!trimmedId || trimmedId === "auto" || toolsStore.imageGenerateEdit?.engines.some((e) => e.id === trimmedId)) return;
+  const next = toolsStore.imageGenerateEdit?.engines.slice() ?? [];
+  next.push({
+    id: trimmedId,
+    enabled: false,
+    hasApiKey: false,
+    baseUrl: "",
+    model: "",
+    apiKey: "",
+    clearApiKey: false,
+    name: name.trim() || trimmedId,
+    protocol
+  });
+  if (toolsStore.imageGenerateEdit) {
+    toolsStore.imageGenerateEdit = { ...toolsStore.imageGenerateEdit, engines: next };
+  }
+  markToolSettingsDirty("imageGenerate");
+}
+
+export function removeImageCustomEngine(id: string): void {
+  if (!toolsStore.imageGenerateEdit) return;
+  const next = toolsStore.imageGenerateEdit.engines.filter((e) => e.id !== id);
+  let defaultEngine = toolsStore.imageGenerateEdit.defaultEngine;
+  if (defaultEngine === id) defaultEngine = "auto";
+  toolsStore.imageGenerateEdit = { ...toolsStore.imageGenerateEdit, engines: next, defaultEngine };
+  markToolSettingsDirty("imageGenerate");
+}
+
+export function updateImageEngineField(id: string, field: keyof MediaEngineEditor, value: any): void {
+  if (!toolsStore.imageGenerateEdit) return;
+  toolsStore.imageGenerateEdit = {
+    ...toolsStore.imageGenerateEdit,
+    engines: toolsStore.imageGenerateEdit.engines.map((engine) =>
+      engine.id === id ? { ...engine, [field]: value } : engine
+    )
+  };
+  markToolSettingsDirty("imageGenerate");
 }

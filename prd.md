@@ -5,6 +5,14 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.92 Agent 图像生成动态自定义引擎（2026-08-16）
+
+- **Priority / Status**: P1 / Delivered (2026-08-16).
+- **Problem**: `imageGenerate` 已支持多个内置引擎，但接入新的 OpenAI-compatible 图像服务必须改代码；不同服务还可能分别使用 `images/generations` 或 `chat/completions`，协议不能在引擎创建后漂移。
+- **Decision**: Web 与 Desktop 设置页允许创建多个自定义引擎，创建时一次选择协议并以只读字段展示；共享设置 sanitizer、SQLite round-trip 和 Desktop credential-safe projection 共同维护引擎集合、凭据和协议不变性。Agent 根据已保存协议选择通用 provider，`auto` 继续作为保留路由哨兵而不是可注册引擎。
+- **Acceptance**: 已交付。可添加/启用/测试/设为默认/删除多个自定义引擎；两种协议请求路径和结果解析均覆盖；协议修改被共享层阻止；删除后不被 fallback 复活；重启后名称、协议、端点、模型和 key 保留；中英、明暗、窄宽设置面板与固定保存底栏保持可用；聚焦测试、类型诊断、生产构建和 Desktop UI 检查完成。
+
+---
 ## 3.91 Mini Chat 轻量对话小程序（2026-08-14）
 
 - **Priority / Status**: P0 / Delivered (2026-08-14).

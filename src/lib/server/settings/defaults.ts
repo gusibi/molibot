@@ -313,7 +313,12 @@ const defaultWebSearchSettings: WebSearchSettings = {
   }
 };
 
-function imageGenerateEngineFromEnv(id: ImageGenerateEngineId, envKey: string, defaultModel: string): ImageGenerateSettings["engines"][ImageGenerateEngineId] {
+function imageGenerateEngineFromEnv(
+  id: ImageGenerateEngineId,
+  envKey: string,
+  defaultModel: string,
+  protocol: ImageGenerateSettings["engines"][ImageGenerateEngineId]["protocol"]
+): ImageGenerateSettings["engines"][ImageGenerateEngineId] {
   const apiKey = String(process.env[envKey] ?? "").trim();
   const envId = id.toUpperCase().replace(/[^A-Z0-9]/g, "_");
   const enabledRaw = String(process.env[`MOLIBOT_IMAGE_GENERATE_${envId}_ENABLED`] ?? "").trim().toLowerCase();
@@ -321,7 +326,8 @@ function imageGenerateEngineFromEnv(id: ImageGenerateEngineId, envKey: string, d
   return {
     enabled: enabledRaw ? enabledRaw !== "false" : Boolean(apiKey),
     apiKey,
-    model
+    model,
+    protocol
   };
 }
 
@@ -329,12 +335,12 @@ const defaultImageGenerateSettings: ImageGenerateSettings = {
   enabled: String(process.env.MOLIBOT_IMAGE_GENERATE_ENABLED ?? "true").toLowerCase() !== "false",
   defaultEngine: (process.env.MOLIBOT_IMAGE_GENERATE_DEFAULT_ENGINE ?? "auto") as ImageGenerateEngineId | "auto",
   engines: {
-    agnes: imageGenerateEngineFromEnv("agnes", "AGNES_API_KEY", "agnes-image-2.0-flash"),
-    openai: imageGenerateEngineFromEnv("openai", "OPENAI_API_KEY", "gpt-image-2"),
-    "openai-chat": imageGenerateEngineFromEnv("openai-chat", "OPENAI_API_KEY", "gpt-4o"),
-    modelscope: imageGenerateEngineFromEnv("modelscope", "MODELSCOPE_API_KEY", "Tongyi-MAI/Z-Image-Turbo"),
-    google: imageGenerateEngineFromEnv("google", "GOOGLE_API_KEY", "imagen-3.0-generate-001"),
-    volcengine: imageGenerateEngineFromEnv("volcengine", "VOLCENGINE_API_KEY", "cv_vit_huge_p14_laion2b_s32b_b64_seedream")
+    agnes: imageGenerateEngineFromEnv("agnes", "AGNES_API_KEY", "agnes-image-2.0-flash", "images-generations"),
+    openai: imageGenerateEngineFromEnv("openai", "OPENAI_API_KEY", "gpt-image-2", "images-generations"),
+    "openai-chat": imageGenerateEngineFromEnv("openai-chat", "OPENAI_API_KEY", "gpt-4o", "chat-completions"),
+    modelscope: imageGenerateEngineFromEnv("modelscope", "MODELSCOPE_API_KEY", "Tongyi-MAI/Z-Image-Turbo", "images-generations"),
+    google: imageGenerateEngineFromEnv("google", "GOOGLE_API_KEY", "imagen-3.0-generate-001", "images-generations"),
+    volcengine: imageGenerateEngineFromEnv("volcengine", "VOLCENGINE_API_KEY", "cv_vit_huge_p14_laion2b_s32b_b64_seedream", "images-generations")
   }
 };
 

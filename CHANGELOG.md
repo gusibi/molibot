@@ -4,6 +4,64 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-16
+
+### Fixed: MD Preview R2 测试连接报 SignatureDoesNotMatch（SigV4 scope 区域写死 `$`）
+
+- `server/index.mjs` 的 `signRequest` 把 credential scope 区域硬编码为 `$`（`20260816/$/s3/aws4_request`），而派生签名密钥用的是真实 region——签名与凭证不一致，R2/AWS 验签必然失败；其他客户端正常正是因为它们用真实区域（R2 为 `auto`）签名。已改为 `${dateStamp}/${region}/s3/aws4_request`。
+- 测试连接（GET LIST）另有一个签名头不匹配：`content-type: application/xml` 被纳入 SignedHeaders 但实际请求没发送该头——SigV4 要求每个签名头必须真实携带，已补上。
+- 用 aws4（成熟参考实现）交叉验证：上传 PUT 与连接测试 GET 的签名逐字节一致，scope 为 `auto/s3`；mdPreview/httpRoute/bootstrap/manifest 46/46 pass。内置小程序版本 bump 至 1.0.3。
+
+### Fixed: MD Preview R2 设置无法保存（PUT 被宿主两层 405 拦截）＋ 主题下拉左对齐
+
+- R2 配置点保存后并不落库、点测试报 "Bucket 没有配置"、禁用重开后配置丢失：根因是面板保存走 `PUT /api/settings`，而宿主 HTTP 门禁（`host.handleHttp` 的方法白名单）与 SvelteKit 路由（`src/routes/miniapps/[appId]/[...path]/+server.ts`）都只允许 `GET/POST/PATCH/DELETE`，PUT 在到达应用 SQLite 前被 405 拒绝——主题切换的 PUT 同样一直静默失败。已在两处门禁放行 PUT，并新增 httpRoute 回归测试（PUT 全链路透传 + 落盘 + 同一 dataRoot 重启后仍在）。
+- 主题下拉菜单改为与触发器左边缘对齐（`left: 0; right: auto`），不再向左溢出覆盖文档标题区。
+- 内置小程序版本 bump 至 1.0.2。
+- 验证：httpRoute/host/mdPreview/bootstrap/manifest/uiDesignBaseline/processIsolation/invocation 共 103/103 pass；真实宿主端到端走查——面板形状 PUT → 200 且全字段落库、GET 回读一致、disable/re-enable（新 host 同 dataRoot）后配置仍在。
+
+### Fixed: MD Preview 主题下拉点击后只出蒙版、菜单不可见（模块级崩溃）
+
+- `ui/app.js` 仍引用旧 tab 设计的 `#tab-momo` / `#tab-vercel`（HTML 已改为 `#theme-trigger` + `#theme-menu` 下拉），模块求值到该处即抛 `TypeError`，`boot()` 及后续全部逻辑失效——上传、设置、文档加载都不再工作。
+- 主题下拉从未接线：补齐 trigger 开合（含 backdrop 蒙版）、菜单项选择（更新 trigger 标签/色块/选中态并持久化）、`closeAllPopovers` 关闭与 `aria-expanded` 同步；`renderChrome` 改为同步主题下拉状态。
+- 内置小程序版本 bump 至 1.0.1，触发现有安装的副本更新。
+- 验证：miniapps 相关套件 37/37 pass；DOM 桩冷启动冒烟：模块无崩溃、boot 完整走完、trigger 点击开菜单+蒙版、doc/theme 菜单互斥切换、选择主题后标签与 PUT 持久化正确。
+
+### Added: MD Preview built-in Mini App (Markdown 预览 + 公众号复制 + R2 图床)
+
+- New opt-in built-in Mini App `md-preview`: render a Markdown document with switchable themes (Momo Paper 暖米书卷 / Vercel Geist 极简, both with matched code-highlight palettes) in the desktop panel, and copy it as WeChat Official Account (公众号) rich text with fully inline styles - preview DOM is the copy content, WYSIWYG.
+- Agent tool `preview` takes a workspace Markdown file plus its locally-referenced images through `fileParams` host staging (zero-token file passing); unresolved local image references are reported back so the Agent can supply the files on a retry. The tool result card deep-links into the panel.
+- Cloudflare R2 image hosting: settings page (Account ID / Endpoint / Region / Bucket / Access Key / write-only Secret / public base URL / key prefix, with connection test), content-addressed uploads (`sha256.ext` keys, deduped across documents via the mapping table), AWS SigV4 signing on node:crypto in the app's own process. Generic S3-compatible endpoints work by setting Endpoint.
+- The upload mapping lives in the app's DB only: the Markdown source (on disk and in the document record) keeps its local image paths; URLs are substituted at copy time. Copy with pending local images asks first (上传 / 仍要复制 / 取消).
+- Panel niceties: local .md file picker, document list with delete, remote-image preview through a server-side data-URI proxy (the iframe CSP allows only `'self'` + `data:`), theme preference persisted in settings.
+- Vendor: `marked` + `prismjs` (core + 14 languages) inlined at build time with a THIRD_PARTY_NOTICES entry; prism runs manual so `render.js` owns highlighting.
+- Verified: `src/lib/server/miniapps/mdPreview.test.ts` (manifest + fileParams, image-ref matching, unresolved-ref reporting, SigV4 PUT shape with content-addressed keys, source-markdown-untouched-by-upload, cross-document upload reuse, settings masking, proxy validation), `uiDesignBaseline` and `bootstrap` builtin assertions updated.
+
+### Added: dynamic custom engines for Agent image generation
+
+- Image settings in Web and Desktop can add multiple custom engines with a display name and a one-time protocol choice: `images/generations` or `chat/completions`.
+- Custom engines route through the matching generic provider, support credential-safe Desktop editing, can be selected as the default or tested independently, and can be removed without being reintroduced by settings sanitization.
+- Existing custom protocols are locked in the shared settings layer, reserved `auto` ids are rejected, and custom engine name/protocol/base URL/model/API key survive a fresh `SettingsStore` load.
+- Verification: focused image/settings suite 55/55, root production build, Desktop `svelte-check` 0 errors/0 warnings, and Desktop Vite build passed. The broader Desktop suite remains 263/264 because its existing SessionStore test still fails on SQLite `bm25` context usage.
+
+## 2026-08-15
+
+### Added: Mini App tool fileParams with host staging (zero-token file passing)
+
+- Mini App tools can declare `fileParams` in `manifest.json` (`accepts: ["file"|"image"]`, optional `maxBytes` up to 64 MiB, optional `multiple: true`).
+- The Agent passes ordinary workspace-relative file paths using the file tools' exact path semantics (`resolveToolPath` with home-prefix expansion and shared allowed-roots guard).
+- The host validates existence, kind and size before copying files into the app's `dataDir/incoming/`, rewrites parameters in place to dataDir-relative paths (`incoming/...`), and passes metadata via `context.stagedFiles`.
+- Subprocess worker runtime marshals `stagedFiles` across the IPC boundary so isolated handlers receive complete staging context.
+- Prevents full document text from consuming LLM output tokens during tool invocations, and allows apps to receive referenced local files (e.g. images).
+- Verified: `npx tsc --noEmit` 0 errors; 73/73 tests in miniapps suite (manifest validation, staging semantics, process isolation round-trip) and 45/45 tests in service bootstrap pass.
+
+### Fixed: conversation auto title summarization never ran (TypeError: settings.get is not a function)
+
+- `tryAutoSummarizeConversationTitleAsync` destructured `settings` from `getRuntime()` and called `settings.get()`, but the runtime exposes `getSettings()`; every background run threw immediately and titles stayed as the default/truncated snippet.
+- Now reads the live settings snapshot through `getSettings()`.
+- Added a regression test that injects a fake `__molibotRuntime` and asserts the wrapper reads settings via `getSettings()` and performs the rename (the previous tests only covered the pure `summarizeSessionTitleWithLlm`, which is why the broken seam shipped). Verified: title summarizer test suite passes.
+
+## 2026-08-14
+
 ## 2026-08-14
 
 ### Release: v2.9.25 / Desktop v0.9.22

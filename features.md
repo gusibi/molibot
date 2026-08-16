@@ -4,6 +4,39 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-16
+
+### MD Preview 内置小程序（Markdown 预览 + 公众号复制 + R2 图床，P1）
+
+- 新增 opt-in 内置小程序 `md-preview`（Mini Apps 管理器"内置"页安装）：把 Markdown 文档渲染成可切换主题的预览，并一键复制为微信公众号格式（全内联样式，`text/html` + `text/plain` 双风味写剪贴板，带 execCommand 兜底）。预览 DOM 即复制内容，所见即所得。
+- **主题**：Momo Paper（暖米书卷）与 Vercel Geist（极简）两套（移植自 momo-paper 的 markdown-to-mp 参考实现），各配同源代码高亮配色；代码高亮由 vendored Prism（core + 14 种语言，构建期内联,manual 模式）驱动，marked 负责解析。
+- **Agent 工具 `preview`**：走 `fileParams` 宿主 staging（零 Token 传文件），Agent 传 Markdown 工作区路径 + 本地图片列表；图片引用按 basename 匹配，未解析的本地引用在工具结果里报回（Agent 补传重试），结果卡片 deep-link 直开面板文档。面板也支持本地 .md 文件选择器。
+- **R2 图床**：应用内设置页（Account ID / Endpoint(可选,兼容任意 S3) / Region / Bucket / Access Key / 只写 Secret / 公开前缀 URL / key 前缀 + 连接测试）；上传在 App 子进程内以 node:crypto 实现 AWS SigV4 PUT；对象 key 内容寻址（`sha256.ext`,可选前缀），跨文档经映射表去重不重传。
+- **核心契约**:上传只改映射,不改文档 —— Markdown 源文件(磁盘与 DB 记录)始终保持本地图片路径,R2 URL 只存在 `assets` 表,复制时取用;存在未上传本地图时复制前弹窗让用户选择(先上传/仍要复制/取消)。
+- 远程图片预览走服务端 data-URI 代理（iframe CSP 仅允许 `'self'` + `data:`），复制时保留原 URL；Secret 只写不回显；面板与文档列表/删除、主题偏好持久化。
+- **修复**：主题下拉点击后只出蒙版、菜单不可见——`app.js` 残留旧 tab 设计的 `#tab-momo`/`#tab-vercel` 空引用导致模块级崩溃（`boot()` 及上传/设置/文档加载全部失效）；已接线 `#theme-trigger` 下拉（开合 + backdrop + 菜单选择 + trigger 标签/色块/选中态同步 + 持久化 + `aria-expanded`），版本 bump 1.0.2。
+- **修复**：R2 设置保存不落库——面板保存走 `PUT /api/settings`，但宿主 HTTP 门禁与 SvelteKit 路由仅放行 `GET/POST/PATCH/DELETE`，PUT 到应用前即 405（测试连接因此报 "Bucket 没有配置"，禁用重开后配置消失）；已放行 PUT 并补 httpRoute 回归（PUT 全链路 + 落盘 + 同 dataRoot 重启保持）。主题下拉改为与触发器左缘对齐（`left: 0`），不再向左溢出遮挡文档标题区。
+- **修复**：R2 测试连接报 `SignatureDoesNotMatch`——SigV4 credential scope 区域被硬编码为 `$`（签名密钥用真实 region、scope 却写 `$`，验签必失败）；测试连接的 GET LIST 还把 `content-type` 列入 SignedHeaders 却没发送该头。已改为 scope 用真实 region（R2 为 `auto`）并补发 `content-type`，用 aws4 参考实现交叉验证签名逐字节一致，版本 bump 1.0.3。
+- 验证:`src/lib/server/miniapps/mdPreview.test.ts`（manifest+fileParams、图片引用匹配、未解析引用报告、SigV4 PUT 形状与内容寻址 key、上传不改源文、跨文档上传复用、设置掩码、代理校验）;`uiDesignBaseline` 与 `bootstrap` 内置断言已更新；DOM 桩冷启动冒烟通过。
+
+### Agent 图像生成动态自定义引擎（已完成，P1）
+
+- Web 与 Desktop 的图像生成设置支持添加多个自定义引擎；创建时填写 ID/显示名称并选择 `images/generations` 或 `chat/completions`，创建后协议只读不可改。
+- Agent provider 按引擎协议分流到通用 Image Generations / Chat Completions 请求，支持默认引擎、显式测试、启停与删除；Desktop 不回传已保存 API Key。
+- 共享 sanitizer 以带 `engines` 的请求作为权威集合，避免删除后被 fallback 补回；统一 SettingsStore sanitizer，补齐临时 SQLite 的 save → fresh store → load 与删除回归；`auto` 保留 ID、畸形 Desktop payload 和空自定义端点均有守卫。
+- 验证：图像/设置聚焦套件 55/55；root production build；Desktop `svelte-check` 0/0；Desktop Vite build。Desktop 全套 263/264，唯一失败为既有 SessionStore SQLite `bm25` 测试。
+
+## 2026-08-15
+
+### Mini App 工具文件入参宿主 Staging（通用能力，P0）
+
+- Mini App 架构支持通过 `manifest.json` 为工具声明 `fileParams`（`accepts: ["file"|"image"]`、可选 `maxBytes` 上限 1..64 MiB 缺省 25 MiB、可选 `multiple: true` 数组形式）。
+- Agent 调工具时传普通工作区相对路径，宿主沿用与 Agent 文件工具完全一致的路径解析与 allowed-roots 守卫（`resolveToolPath` 展开 `~`、`createPathGuard` 限制工作区与白名单根）。
+- 校验（guard / 存在性 / 大小 / kind 扩展名）全部在拷贝前执行（pitfall 26d validate-before-side-effect）；通过后复用 `stageIncomingResource` 写入该 App 私有 `dataDir/incoming/`，工具参数原位改写为 `incoming/...` 相对路径，原文件名与文件类型通过 `context.stagedFiles[paramName]` 传给 App handler。
+- 子进程运行时（`MiniAppProcessRuntime` 与 `untrusted-miniapp-worker.mjs`）跨 IPC 透传 `stagedFiles`，在独立进程内重构 handler context。
+- 解决文档渲染/多媒体处理类 App 必须让大文件内容经过模型上下文的 Token 浪费问题，并让隔离运行的 App 能够访问被引用的本地附属资源（如文档图片）。
+- 验证：`npx tsc --noEmit` 零错误；miniapps 完整测试套件 73/73 pass（新增 manifest 校验、路径与跨根守卫、IPC 跨进程 staging 回显）；服务 bootstrap 24+21 pass。
+
 ## 2026-08-14
 
 ### Release v2.9.25 / Desktop v0.9.22
@@ -124,7 +157,8 @@
 - Stream 与非流式请求接入 `tryAutoSummarizeConversationTitleAsync`；Stream 输出流在后台提炼完成后通过 `session_title_updated` SSE 事件即时推送到前端 UI 并刷新侧边栏。
 - 若 API Key 未配置、网络超时或模型报错，自动降级安全保护，不阻塞主要聊天流。
 - **修复**：初版使用 `completeSimple`（`@earendil-works/pi-ai/compat`）无法路由至自定义 Provider 的 base URL，导致标题始终不生效。改为使用 `streamWithPiRuntime`（项目统一 LLM 分发器），复用 compaction 同款 `.result()` 模式收集输出，兼容 Pi 内置 + 自定义 Provider。
-- 验证：`titleSummarizer.test.ts` 5/5 通过（含 stream 异常兜底）；前端 `+page.svelte` SSE 解包正常；生产构建通过。
+- **修复（第二次）**：包装器 `tryAutoSummarizeConversationTitleAsync` 从 `getRuntime()` 解构 `settings` 后调用不存在的 `settings.get()`（运行时暴露的是 `getSettings()` 函数与普通对象 `settings`），每次后台运行都在入口抛 `TypeError: settings.get is not a function`，标题从未真正生成。改为 `getSettings()` 读取实时快照；新增注入 fake `__molibotRuntime` 的回归测试覆盖该接缝（此前测试只覆盖纯函数 `summarizeSessionTitleWithLlm`，这正是缺陷漏网的原因）。
+- 验证：`titleSummarizer.test.ts` 通过（含 stream 异常兜底与 getSettings 接缝回归）；前端 `+page.svelte` SSE 解包正常；生产构建通过。
 
 ### Note 自动刷新与 Markdown 阅读模式（修复/新增，P1）
 

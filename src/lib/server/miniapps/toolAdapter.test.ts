@@ -189,16 +189,31 @@ test("risk and source come from manifest hints, never from the tool name", () =>
     }
   });
 
-  assert.deepEqual(classify("miniapp__todo__list"), { risk: "low", source: "plugin" });
-  assert.deepEqual(classify("miniapp__todo__add"), { risk: "medium", source: "plugin" });
+  assert.deepEqual(classify("miniapp__todo__list"), {
+    risk: "low",
+    source: "plugin",
+    effect: "installed_app",
+    thirdPartyHint: "read_only"
+  });
+  assert.deepEqual(classify("miniapp__todo__add"), {
+    risk: "medium",
+    source: "plugin",
+    effect: "installed_app",
+    thirdPartyHint: "undeclared"
+  });
   // destructiveHint is what reaches the approval broker, not the word "remove".
-  assert.deepEqual(classify("miniapp__todo__remove"), { risk: "high", source: "plugin" });
+  assert.deepEqual(classify("miniapp__todo__remove"), {
+    risk: "high",
+    source: "plugin",
+    effect: "installed_app",
+    thirdPartyHint: "destructive"
+  });
 
   // Without hints a Mini App tool is still plugin/medium — it must never fall
   // through to the builtin/low default.
   assert.deepEqual(
     getRuntimeToolClassification("miniapp__unknown__thing"),
-    { risk: "medium", source: "plugin" }
+    { risk: "medium", source: "plugin", effect: "installed_app", thirdPartyHint: "undeclared" }
   );
 });
 
@@ -250,4 +265,112 @@ test("a disabled app contributes no deferred tools", () => {
   const { host } = makeHost();
   host.setEnabled("todo", false);
   assert.deepEqual(buildMiniAppDeferredTools(host), []);
+});
+
+// ---------------------------------------------------------------------------
+// fileParams staging seam
+
+const DOC_APP_SOURCE = `import fs from "node:fs";
+import path from "node:path";
+
+export default function create(context) {
+  return {
+    tools: {
+      render: async (input, ctx) => {
+        const abs = path.join(context.dataDir, input.docPath);
+        const text = fs.readFileSync(abs, "utf8");
+        const staged = ctx.stagedFiles?.docPath?.[0];
+        return {
+          content: [{
+            type: "text",
+            text: [text, staged?.name ?? "?", String(staged?.path === input.docPath)].join("|")
+          }]
+        };
+      }
+    },
+    async handleHttp() { return { body: {} }; }
+  };
+}
+`;
+
+const DOC_MANIFEST = {
+  manifestVersion: 1,
+  id: "docrender",
+  name: "Doc Render",
+  version: "1.0.0",
+  description: "Render a staged document.",
+  engines: { molibot: ">=0.0.1" },
+  runtime: { entry: "server/index.mjs" },
+  ui: { entry: "ui/index.html" },
+  data: { schemaVersion: 1 },
+  tools: [{
+    name: "render",
+    description: "Render one markdown document from a file path.",
+    keywords: ["render", "渲染"],
+    inputSchema: {
+      type: "object",
+      properties: { docPath: { type: "string", minLength: 1 } },
+      required: ["docPath"],
+      additionalProperties: false
+    },
+    readOnlyHint: false,
+    destructiveHint: false,
+    fileParams: [{ param: "docPath", accepts: ["file"] }]
+  }]
+};
+
+function makeDocHost() {
+  const root = mkdtempSync(join(tmpdir(), "molibot-miniapp-docstage-"));
+  const codeRoot = join(root, "apps");
+  const dataRoot = join(root, "appdata");
+  const scratch = join(root, "scratch");
+  const appDir = join(codeRoot, "docrender");
+  mkdirSync(join(appDir, "server"), { recursive: true });
+  mkdirSync(join(appDir, "ui"), { recursive: true });
+  mkdirSync(dataRoot, { recursive: true });
+  mkdirSync(scratch, { recursive: true });
+  writeFileSync(join(appDir, "manifest.json"), JSON.stringify(DOC_MANIFEST), "utf-8");
+  writeFileSync(join(appDir, "server", "index.mjs"), DOC_APP_SOURCE, "utf-8");
+  writeFileSync(join(appDir, "ui", "index.html"), "<!doctype html>", "utf-8");
+  writeFileSync(join(scratch, "draft.md"), "# staged body", "utf-8");
+
+  const enablement: Record<string, MiniAppEnablementEntry> = {};
+  const host = createMiniAppHost({
+    codeRoot,
+    dataRoot,
+    getEnablement: () => enablement,
+    setEnablement: (appId, entry) => {
+      if (entry === null) delete enablement[appId];
+      else enablement[appId] = entry;
+    }
+  });
+  return { host, root, scratch, dataRoot };
+}
+
+test("an agent tool call stages a file param through the subprocess boundary", async () => {
+  const { host, scratch, dataRoot } = makeDocHost();
+  try {
+    const [render] = buildMiniAppDeferredTools(host, { cwd: scratch, workspaceDir: scratch });
+
+    const result = await render.tool.execute("t1", { docPath: "draft.md" }) as any;
+    // The subprocess handler read the staged copy out of its own dataDir and
+    // saw the metadata match the rewritten param - the whole chain (staging,
+    // in-place rewrite, IPC marshal, worker context rebuild) is proven by one
+    // round trip.
+    assert.equal(result.content[0].text, "# staged body|draft.md|true");
+    assert.equal(JSON.stringify(result.details).includes(dataRoot), false);
+  } finally {
+    host.dispose();
+  }
+});
+
+test("a file param without a staging scope fails loudly instead of passing a host path", async () => {
+  const { host } = makeDocHost();
+  try {
+    const [render] = buildMiniAppDeferredTools(host);
+    const result = await render.tool.execute("t1", { docPath: "draft.md" }) as any;
+    assert.match(result.error as string, /cannot stage files/);
+  } finally {
+    host.dispose();
+  }
 });

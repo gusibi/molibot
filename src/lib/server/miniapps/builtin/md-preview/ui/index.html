@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>MD Preview</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app" id="app">
+      <!-- Backdrop for dropdowns / modals -->
+      <div class="backdrop" id="backdrop" hidden></div>
+
+      <!-- Top bar -->
+      <header class="topbar">
+        <!-- Document selector trigger -->
+        <button class="doc-trigger" id="doc-trigger" type="button" aria-label="Documents" aria-haspopup="true">
+          <div class="doc-icon-wrap" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+          </div>
+          <div class="doc-meta-col">
+            <span class="doc-title" id="doc-title" data-i18n="noDocument">未打开文档</span>
+          </div>
+          <svg class="chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        <div class="topbar-spacer"></div>
+
+        <!-- Controls Group -->
+        <div class="topbar-actions">
+          <!-- Theme dropdown -->
+          <div class="dropdown-wrap" id="theme-dropdown-wrap">
+            <button class="btn btn-secondary theme-trigger" id="theme-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+              <span class="theme-swatch momo-swatch" id="theme-swatch" aria-hidden="true"></span>
+              <span class="theme-trigger-label" id="theme-trigger-label">暖米书卷</span>
+              <svg class="dropdown-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+
+            <!-- Theme Menu -->
+            <div class="menu-popover theme-menu" id="theme-menu" hidden role="menu">
+              <div class="menu-header" data-i18n="themeMenu">预览主题</div>
+              <button class="menu-item theme-choice selected" type="button" role="menuitem" data-theme="momo-paper">
+                <span class="theme-swatch momo-swatch" aria-hidden="true"></span>
+                <span class="menu-item-text">
+                  <span class="menu-item-title">Momo Paper · 暖米书卷</span>
+                  <span class="menu-item-desc">衬线标题，暖米底色，适合长文观点</span>
+                </span>
+                <svg class="menu-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </button>
+              <button class="menu-item theme-choice" type="button" role="menuitem" data-theme="vercel">
+                <span class="theme-swatch vercel-swatch" aria-hidden="true"></span>
+                <span class="menu-item-text">
+                  <span class="menu-item-title">Vercel Geist · 极简黑白</span>
+                  <span class="menu-item-desc">克制黑白灰，蓝色点缀，适合技术内容</span>
+                </span>
+                <svg class="menu-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="divider" aria-hidden="true"></div>
+
+          <!-- Upload Images button -->
+          <button class="btn btn-secondary" id="upload-btn" type="button" title="上传本地图片至 R2 图床" disabled>
+            <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <span class="btn-label" data-i18n="upload">上传图片</span>
+            <span class="btn-badge" id="upload-badge" hidden>0</span>
+          </button>
+
+          <!-- Copy Dropdown Group -->
+          <div class="dropdown-wrap" id="copy-dropdown-wrap">
+            <button class="btn btn-primary copy-split-btn" id="copy-btn" type="button" disabled aria-haspopup="true" aria-expanded="false">
+              <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span data-i18n="copy">复制</span>
+              <svg class="dropdown-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+
+            <!-- Copy Menu -->
+            <div class="menu-popover copy-menu" id="copy-menu" hidden role="menu">
+              <div class="menu-header" data-i18n="copyMenu">复制格式</div>
+              <button class="menu-item primary-action" id="menu-copy-wechat" type="button" role="menuitem">
+                <div class="menu-item-icon wechat-icon" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8.5 2C4.36 2 1 4.91 1 8.5c0 1.99.98 3.78 2.53 5.01L2.8 16.5l3.3-1.07c.75.22 1.56.34 2.4.34.25 0 .5-.01.74-.03-.23-.69-.36-1.43-.36-2.19 0-3.9 3.58-7.05 8-7.05.34 0 .67.02 1 .06C16.92 3.8 13.06 2 8.5 2zm-2.25 4c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm4.5 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zM16 8.5c-3.87 0-7 2.69-7 6s3.13 6 7 6c.72 0 1.41-.1 2.05-.29l2.75.89-.66-2.45c1.17-.98 1.86-2.35 1.86-4.15 0-3.31-3.13-6-7-6zm-2 3.5c.41 0 .75.34.75.75s-.34.75-.75.75-.75-.34-.75-.75.34-.75.75-.75zm4 0c.41 0 .75.34.75.75s-.34.75-.75.75-.75-.34-.75-.75.34-.75.75-.75z"/>
+                  </svg>
+                </div>
+                <div class="menu-item-text">
+                  <span class="menu-item-title" data-i18n="copyWechat">复制到微信公众号</span>
+                  <span class="menu-item-desc">内联完整样式，直接在编辑器粘贴</span>
+                </div>
+                <span class="menu-tag">推荐</span>
+              </button>
+
+              <div class="menu-divider"></div>
+
+              <button class="menu-item" id="menu-copy-html" type="button" role="menuitem">
+                <div class="menu-item-icon" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
+                </div>
+                <div class="menu-item-text">
+                  <span class="menu-item-title" data-i18n="copyHtml">复制 HTML 代码</span>
+                  <span class="menu-item-desc">包含内联样式的富文本源码</span>
+                </div>
+              </button>
+
+              <button class="menu-item" id="menu-copy-md" type="button" role="menuitem">
+                <div class="menu-item-icon" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
+                </div>
+                <div class="menu-item-text">
+                  <span class="menu-item-title" data-i18n="copyRaw">复制 Markdown 原文</span>
+                  <span class="menu-item-desc">保留原始本地路径的源文件内容</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Settings icon button -->
+          <button class="icon-btn" id="settings-btn" type="button" aria-label="Settings" title="图床与应用设置">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Floating Toast / Status Bar -->
+      <div class="toast-container" id="toast-wrap" aria-live="polite">
+        <div class="toast" id="status" role="status" hidden>
+          <span class="toast-indicator"></span>
+          <span class="toast-msg" id="status-text"></span>
+        </div>
+      </div>
+
+      <!-- Document menu dropdown -->
+      <nav class="doc-menu menu-popover" id="doc-menu" hidden aria-label="Documents">
+        <div class="doc-menu-head">
+          <div class="doc-menu-title-wrap">
+            <span class="doc-menu-heading" data-i18n="documents">已缓存文档</span>
+            <span class="doc-menu-count" id="doc-count-badge">0</span>
+          </div>
+          <button class="btn btn-sm" id="open-file-btn" type="button">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span data-i18n="openFile">导入 .md</span>
+          </button>
+        </div>
+        <ul class="doc-list" id="doc-list"></ul>
+      </nav>
+
+      <!-- Main viewport -->
+      <main class="main" id="main">
+        <!-- Preview View -->
+        <div class="paper-wrap" id="paper-wrap">
+          <!-- Empty State -->
+          <div class="empty-card" id="empty" hidden>
+            <div class="empty-illustration">
+              <div class="empty-icon-ring">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                  <path d="M8 7h8"></path>
+                  <path d="M8 11h5"></path>
+                </svg>
+              </div>
+              <div class="empty-glow"></div>
+            </div>
+            <h2 class="empty-title" data-i18n="emptyTitle">开始 Markdown 微信排版</h2>
+            <p class="empty-body" data-i18n="emptyBody">在 Molibot 对话中让 Agent 帮您预览或排版文章，或直接选择本地 Markdown 文件打开。</p>
+            <div class="empty-actions">
+              <button class="btn btn-primary empty-btn" id="empty-open-btn" type="button">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <span data-i18n="openFile2">打开本地 .md 文件</span>
+              </button>
+            </div>
+            <div class="empty-features">
+              <div class="feature-tag">✦ 暖米书卷 & 极简主题</div>
+              <div class="feature-tag">✦ 一键全内联复制</div>
+              <div class="feature-tag">✦ Cloudflare R2 自动替换</div>
+            </div>
+          </div>
+
+          <!-- Document Meta & Article Card -->
+          <div class="article-container" id="article-container" hidden>
+            <div class="article-toolbar" id="article-toolbar">
+              <div class="article-stat-group">
+                <span class="stat-badge" id="stat-words">0 字</span>
+                <span class="stat-badge" id="stat-read-time">约 1 分钟</span>
+                <span class="stat-badge" id="stat-images">0 张图</span>
+              </div>
+              <div class="article-tips">
+                <span class="tip-dot"></span>
+                <span>所见即所得：复制后在公众号直接 Cmd/Ctrl + V 粘贴</span>
+              </div>
+            </div>
+
+            <!-- The Rendered Paper -->
+            <div class="paper-canvas">
+              <div class="paper" id="paper"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings View -->
+        <section class="settings-wrap" id="settings" hidden>
+          <div class="settings-card">
+            <div class="settings-header">
+              <div class="settings-header-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 class="settings-title" data-i18n="r2Title">Cloudflare R2 图床设置</h2>
+                <p class="settings-hint" data-i18n="r2Hint">本地图片上传至 R2 后，仅在点击「复制公众号」时替换为公开 URL；Markdown 原文及本地引用路径永不被改写。</p>
+              </div>
+            </div>
+
+            <div class="settings-section-title">存储桶与凭证</div>
+            <div class="settings-grid">
+              <label class="input-field">
+                <span class="input-label">Account ID <span class="req">*</span></span>
+                <input id="set-account" type="text" placeholder="例如: 7f8e9a1b2c3d4e5f" autocomplete="off" spellcheck="false" />
+              </label>
+
+              <label class="input-field">
+                <span class="input-label">Bucket 存储桶名 <span class="req">*</span></span>
+                <input id="set-bucket" type="text" placeholder="例如: my-wechat-images" autocomplete="off" spellcheck="false" />
+              </label>
+
+              <label class="input-field">
+                <span class="input-label">Access Key ID <span class="req">*</span></span>
+                <input id="set-key" type="text" placeholder="R2 API 凭证 ID" autocomplete="off" spellcheck="false" />
+              </label>
+
+              <label class="input-field">
+                <span class="input-label" data-i18n="secret">Secret Access Key <span class="req">*</span></span>
+                <input id="set-secret" type="password" placeholder="写入后安全掩码存储" autocomplete="new-password" />
+              </label>
+            </div>
+
+            <div class="settings-section-title">访问与兼容选项</div>
+            <div class="settings-grid">
+              <label class="input-field full-width">
+                <span class="input-label" data-i18n="publicBase">公开访问前缀 URL <span class="req">*</span></span>
+                <input id="set-public" type="text" placeholder="https://pub-xxxx.r2.dev 或自定义域名 https://img.example.com" autocomplete="off" spellcheck="false" />
+                <span class="field-tip">必须为 Bucket 开启公开访问或绑定自定义域名，否则公众号抓取不到图片。</span>
+              </label>
+
+              <label class="input-field">
+                <span class="input-label">Key 前缀 (可选)</span>
+                <input id="set-prefix" type="text" placeholder="wechat/" autocomplete="off" spellcheck="false" />
+              </label>
+
+              <label class="input-field">
+                <span class="input-label">Region</span>
+                <input id="set-region" type="text" value="auto" autocomplete="off" spellcheck="false" />
+              </label>
+
+              <label class="input-field full-width">
+                <span class="input-label" data-i18n="endpoint">Endpoint (可选，留空自动根据 Account ID 拼接)</span>
+                <input id="set-endpoint" type="text" placeholder="https://<account>.r2.cloudflarestorage.com" autocomplete="off" spellcheck="false" />
+              </label>
+            </div>
+
+            <div class="settings-actions">
+              <button class="btn btn-primary" id="settings-save" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                  <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                  <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+                <span data-i18n="save">保存设置</span>
+              </button>
+              <button class="btn btn-secondary" id="settings-test" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                </svg>
+                <span data-i18n="test">测试连接</span>
+              </button>
+              <button class="btn btn-ghost" id="settings-back" type="button">
+                <span data-i18n="back">返回预览</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Alert / Confirm Dialog Modal -->
+      <div class="backdrop dialog-backdrop" id="dialog-backdrop" hidden></div>
+      <div class="dialog-modal" id="dialog" role="alertdialog" aria-modal="true" hidden>
+        <div class="dialog-header">
+          <div class="dialog-icon-wrap" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <h3 class="dialog-heading">注意</h3>
+        </div>
+        <p class="dialog-text" id="dialog-text"></p>
+        <div class="dialog-actions" id="dialog-actions"></div>
+      </div>
+
+      <!-- Hidden file input for native drag/drop or picker -->
+      <input type="file" id="file-input" accept=".md,.markdown,text/markdown" hidden />
+    </div>
+
+    <!-- Vendored scripts -->
+    <script src="vendor/prism.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

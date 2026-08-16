@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
-import { sanitizeMcpServers, sanitizeSettings } from "$lib/server/settings/sanitize.js";
+import { sanitizeImageGenerateSettings, sanitizeMcpServers, sanitizeSettings } from "$lib/server/settings/sanitize.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 
 test("sanitizeSettings backfills imageGenerate for legacy settings", () => {
@@ -78,6 +78,57 @@ test("sanitizeSettings backfills DuckDuckGo web search defaults for incomplete l
   assert.equal(sanitized.webSearch.engines.duckduckgo.apiKey, "");
 });
 
+test("sanitizeSettings preserves custom image generate engines and their protocol", () => {
+  const settings = {
+    ...defaultRuntimeSettings,
+    imageGenerate: {
+      ...defaultRuntimeSettings.imageGenerate,
+      engines: {
+        ...defaultRuntimeSettings.imageGenerate.engines,
+        "my-custom": {
+          enabled: true,
+          apiKey: "custom-key",
+          baseUrl: "https://custom.example.com",
+          model: "custom-model",
+          protocol: "images-generations"
+        }
+      }
+    }
+  } as RuntimeSettings;
+
+  const sanitized = sanitizeSettings({}, settings);
+
+  assert.equal(sanitized.imageGenerate.engines["my-custom"].enabled, true);
+  assert.equal(sanitized.imageGenerate.engines["my-custom"].apiKey, "custom-key");
+  assert.equal(sanitized.imageGenerate.engines["my-custom"].protocol, "images-generations");
+});
+
+test("sanitizeSettings normalizes custom image engine protocol and drops invalid engine ids", () => {
+  const settings = {
+    ...defaultRuntimeSettings,
+    imageGenerate: {
+      ...defaultRuntimeSettings.imageGenerate,
+      engines: {
+        ...defaultRuntimeSettings.imageGenerate.engines,
+        "My Bad Id": {
+          enabled: true,
+          apiKey: "bad-key",
+          protocol: "chat-completions"
+        },
+        "valid-custom": {
+          enabled: true,
+          apiKey: "valid-key"
+        }
+      }
+    }
+  } as RuntimeSettings;
+
+  const sanitized = sanitizeSettings({}, settings);
+
+  assert.equal(sanitized.imageGenerate.engines["My Bad Id"], undefined);
+  assert.equal(sanitized.imageGenerate.engines["valid-custom"].protocol, "images-generations");
+});
+
 test("sanitizeSettings enables configured default image engine when legacy enabled flag is false", () => {
   const settings = {
     ...defaultRuntimeSettings,
@@ -101,6 +152,66 @@ test("sanitizeSettings enables configured default image engine when legacy enabl
   assert.equal(sanitized.imageGenerate.defaultEngine, "agnes");
   assert.equal(sanitized.imageGenerate.engines.agnes.enabled, true);
   assert.equal(sanitized.imageGenerate.engines.agnes.apiKey, "agnes-key");
+});
+
+test("sanitizeImageGenerateSettings locks custom protocols and treats an engine map as authoritative", () => {
+  const current = {
+    ...defaultRuntimeSettings.imageGenerate,
+    defaultEngine: "custom-chat",
+    engines: {
+      ...defaultRuntimeSettings.imageGenerate.engines,
+      "custom-chat": {
+        enabled: true,
+        apiKey: "custom-key",
+        baseUrl: "https://custom.example.com",
+        model: "image-model",
+        name: "Custom Chat",
+        protocol: "chat-completions" as const
+      }
+    }
+  } as RuntimeSettings["imageGenerate"];
+
+  const changedProtocol = sanitizeImageGenerateSettings({
+    ...current,
+    engines: {
+      ...current.engines,
+      "custom-chat": { ...current.engines["custom-chat"], protocol: "images-generations" }
+    }
+  }, current);
+  assert.equal(changedProtocol.engines["custom-chat"]?.protocol, "chat-completions");
+
+  const deleted = sanitizeImageGenerateSettings({
+    ...current,
+    defaultEngine: "custom-chat",
+    engines: { ...defaultRuntimeSettings.imageGenerate.engines }
+  }, current);
+  assert.equal(deleted.engines["custom-chat"], undefined);
+  assert.equal(deleted.defaultEngine, "auto");
+
+  const added = sanitizeImageGenerateSettings({
+    ...defaultRuntimeSettings.imageGenerate,
+    engines: {
+      ...defaultRuntimeSettings.imageGenerate.engines,
+      "new-chat": {
+        enabled: false,
+        apiKey: "",
+        protocol: "chat-completions"
+      }
+    }
+  }, defaultRuntimeSettings.imageGenerate);
+  assert.equal(added.engines["new-chat"]?.protocol, "chat-completions");
+});
+
+test("sanitizeImageGenerateSettings drops the reserved auto engine id", () => {
+  const sanitized = sanitizeImageGenerateSettings({
+    ...defaultRuntimeSettings.imageGenerate,
+    engines: {
+      ...defaultRuntimeSettings.imageGenerate.engines,
+      auto: { enabled: true, apiKey: "bad-key", protocol: "chat-completions" }
+    }
+  }, defaultRuntimeSettings.imageGenerate);
+
+  assert.equal(sanitized.engines.auto, undefined);
 });
 
 test("sanitizeSettings backfills ttsGenerate for legacy settings", () => {

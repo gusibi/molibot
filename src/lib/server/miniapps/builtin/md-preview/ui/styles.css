@@ -1,0 +1,1092 @@
+/*
+ * MD Preview Mini App - macOS / Geist baseline.
+ *
+ * The panel runs in an isolated iframe origin, so it cannot inherit Molibot's
+ * design tokens: it ships the shared Mini App design baseline below (the --md-* namespace is historical, kept for the drift test; values resolve to macOS roles) and receives
+ * the active theme as `data-theme` on <html>, set from the iframe URL hint.
+ *
+ * The baseline block (`--md-*`) is duplicated verbatim in every built-in Mini
+ * App and in skills/miniapp-creator/template/ui/styles.css. Change it in one
+ * place and mirror it into the others - the CSP is `default-src 'self'` per
+ * app, so there is no shared stylesheet to import.
+ */
+
+/* Keep first among element rules and never remove: an author `display:` on an
+   element silently defeats the `hidden` attribute (the UA sheet's
+   `[hidden]{display:none}` loses to any author display), leaving an invisible
+   layer that still swallows every click. */
+[hidden] { display: none !important; }
+.hidden { display: none !important; }
+
+/* ===========================================================================
+ * Shared design baseline - tokens
+ * ======================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* Primary - macOS accent (controlAccentColor #007aff). */
+  --md-primary: #007aff;
+  --md-on-primary: #ffffff;
+  --md-primary-container: rgb(0 122 255 / 10%);
+  --md-on-primary-container: #0040a0;
+
+  /* Secondary - neutral fill (count badges, active chips). */
+  --md-secondary-container: rgb(0 0 0 / 6%);
+  --md-on-secondary-container: rgb(0 0 0 / 84.7%);
+
+  /* Tertiary - macOS success green. */
+  --md-tertiary: #34c759;
+  --md-tertiary-container: rgb(52 199 89 / 12%);
+  --md-on-tertiary-container: #1a7a36;
+
+  /* Error - macOS danger red. */
+  --md-error: #ff383c;
+  --md-on-error: #ffffff;
+  --md-error-container: rgb(255 56 60 / 10%);
+  --md-on-error-container: #c2000a;
+
+  /* Neutral surfaces - opaque and quiet; one elevation step (card over window). */
+  --md-surface: #f6f6f6;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #ffffff;
+  --md-surface-container: #ececec;
+  --md-surface-container-high: #e6e6e6;
+  --md-surface-container-highest: #dcdcdc;
+  --md-on-surface: rgb(0 0 0 / 84.7%);
+  --md-on-surface-variant: rgb(0 0 0 / 49.8%);
+  --md-outline: rgb(0 0 0 / 24%);
+  --md-outline-variant: rgb(0 0 0 / 9.8%);
+  --md-scrim: rgba(0, 0, 0, 0.32);
+
+  /* The one accent outside the scheme: "starred / pinned" is a product
+     signal, not a scheme role, and must read the same in both themes. */
+  --md-star: #e37400;
+
+  /* Type scale. Size and line-height are declared as PAIRS - setting one
+     without the other is how a rank drifts back apart. */
+  --md-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  --md-title-lg-size: 22px;   --md-title-lg-lh: 28px;
+  --md-title-md-size: 16px;   --md-title-md-lh: 24px;
+  --md-title-sm-size: 14px;   --md-title-sm-lh: 20px;
+  --md-body-lg-size: 16px;    --md-body-lg-lh: 24px;
+  --md-body-md-size: 14px;    --md-body-md-lh: 20px;
+  --md-body-sm-size: 12px;    --md-body-sm-lh: 16px;
+  --md-label-lg-size: 14px;   --md-label-lg-lh: 20px;
+  --md-label-md-size: 12px;   --md-label-md-lh: 16px;
+  --md-label-sm-size: 11px;   --md-label-sm-lh: 16px;
+
+  /* Shape scale - 6 compact, 8 control, 12 card/menu, full pill. */
+  --md-shape-xs: 6px;
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 12px;
+  --md-shape-xl: 12px;
+  --md-shape-full: 9999px;
+
+  /* Motion */
+  --md-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-dur-short: 150ms;
+  --md-dur-medium: 250ms;
+  --md-dur-long: 400ms;
+
+  /* Elevation - shadows reserved for floating overlays (DESIGN.md). Cards stay
+     flat and rely on the separator border; elev-2 is a menu, elev-3 a dialog. */
+  --md-elev-1: none;
+  --md-elev-2: 0 2px 8px -2px rgba(0, 0, 0, 0.10), 0 4px 12px -4px rgba(0, 0, 0, 0.08);
+  --md-elev-3: 0 8px 16px -4px rgba(0, 0, 0, 0.10), 0 24px 32px -8px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --md-primary: #007aff;
+  --md-on-primary: #ffffff;
+  --md-primary-container: rgb(0 122 255 / 18%);
+  --md-on-primary-container: #419cff;
+
+  --md-secondary-container: rgb(255 255 255 / 8%);
+  --md-on-secondary-container: rgb(255 255 255 / 84.7%);
+
+  --md-tertiary: #30d158;
+  --md-tertiary-container: rgb(48 209 88 / 16%);
+  --md-on-tertiary-container: #30d158;
+
+  --md-error: #ff4245;
+  --md-on-error: #ffffff;
+  --md-error-container: rgb(255 66 69 / 14%);
+  --md-on-error-container: #ff6b6e;
+
+  --md-surface: #1e1e1e;
+  --md-surface-container-lowest: #1e1e1e;
+  --md-surface-container-low: #2c2c2e;
+  --md-surface-container: #282828;
+  --md-surface-container-high: #343436;
+  --md-surface-container-highest: #3a3a3c;
+  --md-on-surface: rgb(255 255 255 / 84.7%);
+  --md-on-surface-variant: rgb(255 255 255 / 54.9%);
+  --md-outline: rgb(255 255 255 / 24%);
+  --md-outline-variant: rgb(255 255 255 / 9.8%);
+  --md-scrim: rgba(0, 0, 0, 0.6);
+
+  --md-star: #fdd663;
+
+  --md-elev-1: none;
+  --md-elev-2: 0 2px 8px -2px rgba(0, 0, 0, 0.40), 0 4px 12px -4px rgba(0, 0, 0, 0.32);
+  --md-elev-3: 0 8px 16px -4px rgba(0, 0, 0, 0.40), 0 24px 32px -8px rgba(0, 0, 0, 0.36);
+}
+
+/* ===========================================================================
+ * Professional App Chrome & Typography
+ * ======================================================================== */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--md-font);
+  font-size: var(--md-body-md-size);
+  line-height: var(--md-body-md-lh);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  position: relative;
+}
+
+/* - Topbar (macOS translucent navigation bar feel) - */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--md-surface-container-low);
+  border-bottom: 1px solid var(--md-outline-variant);
+  flex: none;
+  /* Above the shared backdrop (z 20) so the trigger bar and its popovers stay
+     interactive and visible while a menu is open. Menus nested inside the
+     topbar inherit this stacking context, so raising the topbar is what lifts
+     them above the dimmer (see menu-popover). */
+  z-index: 30;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.topbar-spacer {
+  flex: 1 1 auto;
+  min-width: 8px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.divider {
+  width: 1px;
+  height: 18px;
+  background: var(--md-outline-variant);
+  margin: 0 2px;
+  flex: none;
+}
+
+/* - Document trigger - */
+
+.doc-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 260px;
+  padding: 4px 8px 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--md-shape-sm);
+  background: transparent;
+  color: var(--md-on-surface);
+  font: inherit;
+  cursor: pointer;
+  transition: all var(--md-dur-short) var(--md-ease-standard);
+}
+
+.doc-trigger:hover {
+  background: var(--md-secondary-container);
+  border-color: var(--md-outline-variant);
+}
+
+.doc-icon-wrap {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--md-shape-xs);
+  background: var(--md-secondary-container);
+  color: var(--md-primary);
+  flex: none;
+}
+
+.doc-meta-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+
+.doc-title {
+  font-size: var(--md-label-lg-size);
+  line-height: var(--md-label-lg-lh);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  color: var(--md-on-surface-variant);
+  transition: transform var(--md-dur-short) var(--md-ease-standard);
+}
+
+.doc-trigger[aria-expanded="true"] .chevron {
+  transform: rotate(180deg);
+}
+
+/* - Theme dropdown trigger - */
+
+.theme-trigger {
+  gap: 7px;
+}
+
+.theme-trigger-label {
+  font-weight: 500;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  flex: none;
+}
+
+.momo-swatch {
+  background: #FAF8F4;
+  border-color: #B65C3A;
+}
+
+.vercel-swatch {
+  background: #FFFFFF;
+  border-color: #006BFF;
+}
+
+/* - Buttons - */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: var(--md-shape-sm);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-lowest);
+  color: var(--md-on-surface);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--md-dur-short) var(--md-ease-standard);
+  user-select: none;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--md-surface-container);
+  border-color: var(--md-outline);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
+.btn-icon {
+  flex: none;
+}
+
+.btn-primary {
+  background: var(--md-primary);
+  border-color: var(--md-primary);
+  color: var(--md-on-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 122, 255, 0.2);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--md-primary) 90%, black);
+  border-color: transparent;
+  box-shadow: 0 2px 4px rgba(0, 122, 255, 0.3);
+}
+
+.btn-secondary {
+  background: var(--md-secondary-container);
+  border-color: transparent;
+  color: var(--md-on-secondary-container);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--md-surface-container-high);
+  border-color: var(--md-outline-variant);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--md-on-surface-variant);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--md-secondary-container);
+  color: var(--md-on-surface);
+}
+
+.btn-sm {
+  padding: 3px 8px;
+  font-size: var(--md-label-sm-size);
+  line-height: var(--md-label-sm-lh);
+}
+
+.btn-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-star);
+  color: #fff;
+  font-size: var(--md-label-sm-size);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--md-shape-sm);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  cursor: pointer;
+  transition: all var(--md-dur-short) var(--md-ease-standard);
+}
+
+.icon-btn:hover {
+  background: var(--md-secondary-container);
+  color: var(--md-on-surface);
+  border-color: var(--md-outline-variant);
+}
+
+/* - Split / Dropdown button - */
+
+.dropdown-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.copy-split-btn {
+  padding: 5px 10px 5px 12px;
+  gap: 8px;
+}
+
+.dropdown-caret {
+  flex: none;
+  opacity: 0.8;
+  transition: transform var(--md-dur-short) var(--md-ease-standard);
+}
+
+.dropdown-wrap.open .dropdown-caret {
+  transform: rotate(180deg);
+}
+
+/* - Popover Menus (macOS style glass / elevation) - */
+
+.menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 280px;
+  background: var(--md-surface-container-low);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-md);
+  box-shadow: var(--md-elev-3);
+  /* The menu is positioned inside its trigger's stacking context (the topbar,
+     z 30), so this z-index is relative to that - the topbar being above the
+     backdrop (z 20) is what makes the menu visible while the page dims. */
+  z-index: 25;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: menuIn var(--md-dur-short) var(--md-ease-emphasized);
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.menu-header {
+  padding: 6px 10px 4px;
+  font-size: var(--md-label-sm-size);
+  line-height: var(--md-label-sm-lh);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--md-on-surface-variant);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--md-shape-sm);
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--md-dur-short) var(--md-ease-standard);
+}
+
+.menu-item:hover {
+  background: var(--md-secondary-container);
+}
+
+.menu-item.primary-action {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+.menu-item.primary-action:hover {
+  background: color-mix(in srgb, var(--md-primary-container) 80%, var(--md-primary));
+}
+
+.menu-item-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--md-shape-xs);
+  background: var(--md-secondary-container);
+  color: var(--md-on-surface);
+  flex: none;
+}
+
+.menu-item-icon.wechat-icon {
+  background: #07c160;
+  color: #ffffff;
+}
+
+.menu-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.menu-item-title {
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  font-weight: 600;
+}
+
+.menu-item-desc {
+  font-size: var(--md-label-sm-size);
+  line-height: var(--md-label-sm-lh);
+  color: var(--md-on-surface-variant);
+}
+
+.menu-tag {
+  font-size: var(--md-label-sm-size);
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  flex: none;
+}
+
+.menu-check {
+  flex: none;
+  opacity: 0;
+  color: var(--md-primary);
+  transition: opacity var(--md-dur-short) var(--md-ease-standard);
+}
+
+.theme-choice.selected .menu-check {
+  opacity: 1;
+}
+
+/* The theme menu carries two-line choices, so it wants more width than the
+   copy menu and the trigger swatch should stay tight. It anchors to the
+   trigger's LEFT edge and hangs below it, so it never spills leftward over
+   the document title area. */
+.theme-menu {
+  width: 300px;
+  left: 0;
+  right: auto;
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--md-outline-variant);
+  margin: 4px 0;
+}
+
+/* - Document menu popover - */
+
+.doc-menu {
+  /* Absolute within .app: anchor below the topbar (not `top: calc(100% + 6px)`
+     which would resolve against .app's full height and push the menu out of
+     view). Above the backdrop (z 20) via its own z-index from menu-popover. */
+  top: 52px;
+  left: 14px;
+  right: auto;
+  width: 320px;
+  max-height: 70vh;
+  padding: 0;
+}
+
+.doc-menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-high);
+}
+
+.doc-menu-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.doc-menu-heading {
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  font-weight: 600;
+  color: var(--md-on-surface);
+}
+
+.doc-menu-count {
+  font-size: var(--md-label-sm-size);
+  padding: 1px 6px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-secondary-container);
+  color: var(--md-on-surface-variant);
+  font-weight: 600;
+}
+
+.doc-list {
+  list-style: none;
+  overflow-y: auto;
+  padding: 6px;
+  max-height: calc(70vh - 48px);
+}
+
+.doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--md-shape-sm);
+  cursor: pointer;
+  transition: all var(--md-dur-short) var(--md-ease-standard);
+}
+
+.doc-item:hover {
+  background: var(--md-secondary-container);
+}
+
+.doc-item.active {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-weight: 600;
+}
+
+.doc-item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--md-label-md-size);
+}
+
+.doc-item-meta {
+  flex: none;
+  font-size: var(--md-label-sm-size);
+  color: var(--md-on-surface-variant);
+}
+
+.doc-item-delete {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-title-md-size);
+  line-height: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--md-shape-full);
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--md-dur-short) var(--md-ease-standard);
+}
+
+.doc-item:hover .doc-item-delete {
+  opacity: 0.7;
+}
+
+.doc-item-delete:hover {
+  opacity: 1 !important;
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
+}
+
+/* - Toast notification system - */
+
+.toast-container {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  pointer-events: none;
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  border: 1px solid var(--md-outline-variant);
+  box-shadow: var(--md-elev-2);
+  color: var(--md-on-surface);
+  font-size: var(--md-label-md-size);
+  font-weight: 500;
+  animation: toastIn var(--md-dur-short) var(--md-ease-emphasized);
+  pointer-events: auto;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.toast-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--md-primary);
+  flex: none;
+}
+
+.toast[data-tone="success"] {
+  background: var(--md-surface-container-lowest);
+  border-color: var(--md-tertiary);
+}
+.toast[data-tone="success"] .toast-indicator { background: var(--md-tertiary); }
+
+.toast[data-tone="error"] {
+  background: var(--md-surface-container-lowest);
+  border-color: var(--md-error);
+}
+.toast[data-tone="error"] .toast-indicator { background: var(--md-error); }
+
+/* - Main Viewport & Paper - */
+
+.main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.paper-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 16px;
+  background: radial-gradient(circle at 50% 0%, var(--md-surface-container) 0%, var(--md-surface) 100%);
+  user-select: text;
+}
+
+.article-container {
+  max-width: 740px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.article-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-label-sm-size);
+  user-select: none;
+}
+
+.article-stat-group {
+  display: flex;
+  gap: 6px;
+}
+
+.stat-badge {
+  padding: 2px 8px;
+  background: var(--md-secondary-container);
+  border-radius: var(--md-shape-full);
+  font-weight: 500;
+}
+
+.article-tips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--md-label-sm-size);
+  color: var(--md-on-surface-variant);
+}
+
+.tip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--md-tertiary);
+  flex: none;
+}
+
+.paper-canvas {
+  position: relative;
+  border-radius: var(--md-shape-md);
+  overflow: hidden;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 8px 24px -4px rgba(0, 0, 0, 0.08),
+    0 0 0 1px var(--md-outline-variant);
+  transition: box-shadow var(--md-dur-medium) var(--md-ease-standard);
+}
+
+.paper {
+  width: 100%;
+}
+
+.paper section {
+  max-width: 100%;
+}
+
+/* - Empty State - */
+
+.empty-card {
+  max-width: 460px;
+  margin: 10vh auto 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  padding: 36px 24px;
+  background: var(--md-surface-container-low);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-xl);
+  box-shadow: var(--md-elev-2);
+  user-select: none;
+}
+
+.empty-illustration {
+  position: relative;
+}
+
+.empty-icon-ring {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--md-primary-container);
+  color: var(--md-primary);
+  position: relative;
+  z-index: 2;
+}
+
+.empty-title {
+  font-size: var(--md-title-md-size);
+  line-height: var(--md-title-md-lh);
+  font-weight: 700;
+  color: var(--md-on-surface);
+}
+
+.empty-body {
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-body-sm-size);
+  line-height: var(--md-body-sm-lh);
+  max-width: 360px;
+}
+
+.empty-btn {
+  padding: 8px 20px;
+  font-size: var(--md-label-lg-size);
+}
+
+.empty-features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.feature-tag {
+  font-size: var(--md-label-sm-size);
+  padding: 4px 10px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-secondary-container);
+  color: var(--md-on-surface-variant);
+}
+
+/* - Settings View - */
+
+.settings-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 16px;
+  background: var(--md-surface);
+}
+
+.settings-card {
+  max-width: 620px;
+  margin: 0 auto;
+  background: var(--md-surface-container-low);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-lg);
+  box-shadow: var(--md-elev-2);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+
+.settings-header-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-primary-container);
+  color: var(--md-primary);
+  flex: none;
+}
+
+.settings-title {
+  font-size: var(--md-title-md-size);
+  line-height: var(--md-title-md-lh);
+  font-weight: 700;
+}
+
+.settings-hint {
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-body-sm-size);
+  line-height: var(--md-body-sm-lh);
+  margin-top: 4px;
+}
+
+.settings-section-title {
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--md-on-surface-variant);
+  margin-top: 4px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.input-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.input-field.full-width {
+  grid-column: 1 / -1;
+}
+
+.input-label {
+  font-size: var(--md-label-sm-size);
+  font-weight: 600;
+  color: var(--md-on-surface);
+}
+
+.input-label .req {
+  color: var(--md-error);
+}
+
+.input-field input {
+  font: inherit;
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  color: var(--md-on-surface);
+  background: var(--md-surface-container-lowest);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-xs);
+  padding: 7px 10px;
+  transition: all var(--md-dur-short) var(--md-ease-standard);
+}
+
+.input-field input:focus {
+  outline: none;
+  border-color: var(--md-primary);
+  box-shadow: 0 0 0 3px var(--md-primary-container);
+}
+
+.field-tip {
+  font-size: var(--md-label-sm-size);
+  color: var(--md-on-surface-variant);
+  margin-top: 2px;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--md-outline-variant);
+  margin-top: 8px;
+}
+
+/* - Modal Dialog - */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.2);
+  z-index: 20;
+  backdrop-filter: blur(2px);
+}
+
+.dialog-backdrop {
+  z-index: 40;
+  background: var(--md-scrim);
+}
+
+.dialog-modal {
+  position: fixed;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(380px, calc(100% - 32px));
+  background: var(--md-surface-container-low);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-lg);
+  box-shadow: var(--md-elev-3);
+  padding: 20px;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: dialogIn var(--md-dur-short) var(--md-ease-emphasized);
+}
+
+@keyframes dialogIn {
+  from { opacity: 0; transform: translate(-50%, -46%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialog-icon-wrap {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--md-error-container);
+  color: var(--md-error);
+}
+
+.dialog-heading {
+  font-size: var(--md-title-sm-size);
+  font-weight: 700;
+}
+
+.dialog-text {
+  font-size: var(--md-body-sm-size);
+  line-height: var(--md-body-sm-lh);
+  color: var(--md-on-surface-variant);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

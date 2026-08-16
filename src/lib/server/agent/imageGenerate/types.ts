@@ -1,6 +1,7 @@
-import type { ImageGenerateEngineId, ImageGenerateSettings } from "$lib/server/settings/index.js";
+import type { ImageGenerateEngineId, ImageGenerateProtocol, ImageGenerateSettings } from "$lib/server/settings/index.js";
 
 export type ImageGenerateEngine = ImageGenerateEngineId;
+export type { ImageGenerateProtocol };
 
 export interface ImageGenerateInput {
   prompt: string;

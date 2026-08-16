@@ -421,13 +421,20 @@ export interface WebSearchSettings {
   engines: Record<WebSearchEngineId, WebSearchEngineSettings>;
 }
 
-export type ImageGenerateEngineId = "agnes" | "openai" | "openai-chat" | "modelscope" | "google" | "volcengine";
+export type ImageGenerateProtocol = "images-generations" | "chat-completions";
+
+/** Engine ids are free-form strings; built-in engines keep their historic ids. */
+export type ImageGenerateEngineId = string;
 
 export interface ImageGenerateEngineSettings {
   enabled: boolean;
   apiKey: string;
   baseUrl?: string;
   model?: string;
+  /** Optional display name for custom engines. */
+  name?: string;
+  /** Required for custom engines; built-in engines default to their historic protocol. */
+  protocol?: ImageGenerateProtocol;
 }
 
 export interface ImageGenerateSettings {

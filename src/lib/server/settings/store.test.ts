@@ -236,6 +236,59 @@ test("custom provider model alias survives a settings store restart", () => {
   }
 });
 
+test("custom image engines survive a settings store restart and can be removed", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-image-engine-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    const customEngine = {
+      enabled: true,
+      apiKey: "custom-secret",
+      baseUrl: "https://images.example.test/v1",
+      model: "custom-image-model",
+      name: "Custom Images",
+      protocol: "images-generations" as const
+    };
+    const settings = {
+      ...defaultRuntimeSettings,
+      imageGenerate: {
+        ...defaultRuntimeSettings.imageGenerate,
+        defaultEngine: "custom-images",
+        engines: {
+          ...defaultRuntimeSettings.imageGenerate.engines,
+          "custom-images": customEngine
+        }
+      }
+    };
+
+    new SettingsStore().save(settings);
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(restarted.imageGenerate.engines["custom-images"], customEngine);
+    assert.equal(restarted.imageGenerate.defaultEngine, "custom-images");
+
+    const { ["custom-images"]: _removed, ...builtinEngines } = restarted.imageGenerate.engines;
+    new SettingsStore().save({
+      ...restarted,
+      imageGenerate: {
+        ...restarted.imageGenerate,
+        defaultEngine: "auto",
+        engines: builtinEngines
+      }
+    });
+
+    const afterRemoval = new SettingsStore().load();
+    assert.equal(afterRemoval.imageGenerate.engines["custom-images"], undefined);
+    assert.equal(afterRemoval.imageGenerate.defaultEngine, "auto");
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("pi extension enable state and per-bot exclusions survive a settings store restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-pi-extension-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;

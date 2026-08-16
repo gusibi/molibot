@@ -47,6 +47,10 @@ export default function create(context) {
       if (request.path === "/todos" && request.method === "POST") {
         return { status: 201, body: { todos: add(request.body.title) }, changed: true };
       }
+      if (request.path === "/todos" && request.method === "PUT") {
+        write(request.body.todos);
+        return { body: { todos: read() }, changed: true };
+      }
       if (request.path === "/echo") {
         return { body: { method: request.method, path: request.path, query: request.query, body: request.body } };
       }
@@ -236,6 +240,46 @@ test("JSON methods reach the app handler with decoded body and query", async () 
     query: { status: ["open", "done"], q: ["milk"] },
     body: { hello: "world" }
   });
+});
+
+test("PUT reaches the app handler and persists, like the panel settings save", async () => {
+  const harness = makeHarness();
+
+  // The panel's settings save uses PUT with a JSON body; a 405 at any gate
+  // here silently kills every app-level PUT (theme + R2 settings).
+  const response = await call(
+    harness,
+    "api/todos",
+    proxied("http://127.0.0.1:3000/miniapps/todo/api/todos", {
+      method: "PUT",
+      body: JSON.stringify({ todos: [{ id: "1", title: "persisted", completed: false }] })
+    })
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).todos, [{ id: "1", title: "persisted", completed: false }]);
+
+  // Same instance, fresh read: the write landed in the app's own store.
+  const listed = await harness.host.invokeTool("miniapp__todo__list", {}, { toolCallId: "t1" });
+  assert.deepEqual(listed.structuredContent, [{ id: "1", title: "persisted", completed: false }]);
+
+  // A second host over the same data dir (disable -> re-enable) keeps the write.
+  const restarted = createMiniAppHost({
+    codeRoot: join(harness.root, "apps"),
+    dataRoot: harness.dataRoot,
+    getEnablement: () => harness.enablement,
+    setEnablement: (appId, entry) => {
+      if (entry === null) delete harness.enablement[appId];
+      else harness.enablement[appId] = entry;
+    }
+  });
+  const reloaded = await restarted.handleHttp(
+    "todo",
+    proxied("http://127.0.0.1:3000/miniapps/todo/api/todos", { method: "GET" }),
+    "/todos"
+  );
+  assert.equal(reloaded.status, 200);
+  assert.deepEqual((await reloaded.json()).todos, [{ id: "1", title: "persisted", completed: false }]);
+  await restarted.dispose();
 });
 
 test("an oversized body is rejected before the app sees it", async () => {

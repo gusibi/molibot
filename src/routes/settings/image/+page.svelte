@@ -11,13 +11,16 @@
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
   import { locale } from "$lib/ui/i18n";
 
-  type EngineId = "agnes" | "openai" | "openai-chat" | "modelscope" | "google" | "volcengine";
+  type EngineId = string;
+  type EngineProtocol = "images-generations" | "chat-completions";
 
   interface EngineSettings {
     enabled: boolean;
     apiKey: string;
     baseUrl?: string;
     model?: string;
+    name?: string;
+    protocol?: EngineProtocol;
   }
 
   interface ImageGenerateSettings {
@@ -97,7 +100,23 @@
       viewResult: "查看结果",
       viewParams: "查看参数",
       loadingText: "正在加载设置...",
-      savingText: "正在保存修改..."
+      savingText: "正在保存修改...",
+      customEnginesTitle: "自定义引擎",
+      customEnginesDesc: "添加兼容 OpenAI Images 或 Chat Completions 协议的自定义服务端点。",
+      addEngine: "添加引擎",
+      addEngineTitle: "添加自定义引擎",
+      engineId: "引擎 ID",
+      engineIdHint: "小写字母、数字、下划线和连字符，如 my-provider",
+      engineName: "显示名称",
+      protocol: "协议",
+      protocolImages: "images/generations",
+      protocolChat: "chat/completions",
+      protocolHint: "创建后不可修改",
+      removeEngine: "删除引擎",
+      removeEngineConfirm: "确定要删除这个自定义引擎吗？",
+      engineProtocolLabel: "协议",
+      showApiKey: "显示 API Key",
+      hideApiKey: "隐藏 API Key"
     },
     "en-US": {
       title: "Image Generation",
@@ -155,7 +174,23 @@
       viewResult: "View Result",
       viewParams: "View Params",
       loadingText: "Loading settings...",
-      savingText: "Saving changes..."
+      savingText: "Saving changes...",
+      customEnginesTitle: "Custom Engines",
+      customEnginesDesc: "Add custom endpoints compatible with the OpenAI Images or Chat Completions protocol.",
+      addEngine: "Add engine",
+      addEngineTitle: "Add custom engine",
+      engineId: "Engine ID",
+      engineIdHint: "Lowercase letters, numbers, underscores and hyphens, e.g. my-provider",
+      engineName: "Display name",
+      protocol: "Protocol",
+      protocolImages: "images/generations",
+      protocolChat: "chat/completions",
+      protocolHint: "Cannot be changed after creation",
+      removeEngine: "Remove engine",
+      removeEngineConfirm: "Are you sure you want to remove this custom engine?",
+      engineProtocolLabel: "Protocol",
+      showApiKey: "Show API key",
+      hideApiKey: "Hide API key"
     }
   };
 
@@ -163,7 +198,7 @@
     return COPY[$locale]?.[key] ?? COPY["en-US"][key];
   }
 
-  const engines: Array<{ id: EngineId; name: string; hint: string; keyLabel: string; defaultUrl: string; defaultModel: string }> = [
+  const builtinEngines: Array<{ id: EngineId; name: string; hint: string; keyLabel: string; defaultUrl: string; defaultModel: string }> = [
     { id: "agnes", name: "Agnes Image", hint: "High-performance OpenAI-compatible editing and generation (agnes-image-2.0-flash). ELO 1,184.", keyLabel: "AGNES_API_KEY", defaultUrl: "https://apihub.agnes-ai.com", defaultModel: "agnes-image-2.0-flash" },
     { id: "openai", name: "OpenAI Images", hint: "Official OpenAI image generation via gpt-image-2.", keyLabel: "OPENAI_API_KEY", defaultUrl: "https://api.openai.com", defaultModel: "gpt-image-2" },
     { id: "openai-chat", name: "OpenAI Chat Format", hint: "OpenAI-compatible /v1/chat/completions protocol for providers that return image URLs or Base64 from chat messages.", keyLabel: "OPENAI_API_KEY", defaultUrl: "https://api.openai.com", defaultModel: "gpt-4o" },
@@ -171,6 +206,9 @@
     { id: "volcengine", name: "Volcengine (Seedream)", hint: "Outstanding Chinese comprehension and illustration generation.", keyLabel: "VOLCENGINE_API_KEY", defaultUrl: "https://ark.cn-beijing.volces.com", defaultModel: "cv_vit_huge_p14_laion2b_s32b_b64_seedream" },
     { id: "modelscope", name: "ModelScope", hint: "High-speed and cost-effective generic generation (Z-Image-Turbo).", keyLabel: "MODELSCOPE_API_KEY", defaultUrl: "https://api-inference.modelscope.cn", defaultModel: "Tongyi-MAI/Z-Image-Turbo" }
   ];
+
+  const builtinEngineIds = new Set(builtinEngines.map((e) => e.id));
+  const validEngineId = /^[a-z][a-z0-9_-]{0,63}$/;
 
   let loading = true;
   let saving = false;
@@ -203,12 +241,22 @@
   function mergeImageGenerateSettings(value: any): ImageGenerateSettings {
     const incoming = value ?? {};
     const incomingEngines = incoming.engines ?? {};
+    const hasIncomingEngineMap = incoming.engines !== undefined
+      && incoming.engines !== null
+      && typeof incoming.engines === "object"
+      && !Array.isArray(incoming.engines);
+    const engineIds = new Set<string>([
+      ...builtinEngines.map((engine) => engine.id),
+      ...(hasIncomingEngineMap ? [] : Object.keys(imageGenerate.engines)),
+      ...Object.keys(incomingEngines)
+    ]);
+
     const mergedEngines = Object.fromEntries(
-      engines.map((engine) => {
-        const current = imageGenerate.engines[engine.id];
-        const incomingEngine = incomingEngines[engine.id] ?? {};
+      Array.from(engineIds).map((id) => {
+        const current = imageGenerate.engines[id] ?? { enabled: false, apiKey: "" };
+        const incomingEngine = incomingEngines[id] ?? {};
         const apiKey = String(incomingEngine.apiKey ?? current.apiKey ?? "").trim();
-        return [engine.id, {
+        return [id, {
           ...current,
           ...incomingEngine,
           enabled: incomingEngine.enabled === undefined ? Boolean(apiKey || current.apiKey) : Boolean(incomingEngine.enabled),
@@ -222,6 +270,81 @@
       ...incoming,
       engines: mergedEngines
     };
+  }
+
+  let customEngineForm: {
+    open: boolean;
+    id: string;
+    name: string;
+    protocol: EngineProtocol;
+    error: string;
+  } = {
+    open: false,
+    id: "",
+    name: "",
+    protocol: "images-generations",
+    error: ""
+  };
+
+  function getCustomEngines(settings: ImageGenerateSettings): Array<{ id: EngineId; settings: EngineSettings }> {
+    return Object.entries(settings.engines)
+      .filter(([id]) => !builtinEngineIds.has(id))
+      .map(([id, settings]) => ({ id, settings }));
+  }
+
+  function engineDisplayName(settings: ImageGenerateSettings, id: EngineId): string {
+    return settings.engines[id]?.name || builtinEngines.find((engine) => engine.id === id)?.name || id;
+  }
+
+  function isUniqueEngineId(id: string): boolean {
+    const trimmed = id.trim();
+    return trimmed.length > 0 && trimmed !== "auto" && !imageGenerate.engines[trimmed];
+  }
+
+  function addCustomEngine(): void {
+    customEngineForm.error = "";
+    const id = customEngineForm.id.trim().toLowerCase();
+    const name = customEngineForm.name.trim();
+    if (!id) {
+      customEngineForm.error = t("engineId");
+      return;
+    }
+    if (!validEngineId.test(id)) {
+      customEngineForm.error = t("engineIdHint");
+      return;
+    }
+    if (id === "auto") {
+      customEngineForm.error = t("engineIdHint");
+      return;
+    }
+    if (!isUniqueEngineId(id)) {
+      customEngineForm.error = t("engineId");
+      return;
+    }
+
+    imageGenerate.engines = {
+      ...imageGenerate.engines,
+      [id]: {
+        enabled: false,
+        apiKey: "",
+        baseUrl: "",
+        model: "",
+        name,
+        protocol: customEngineForm.protocol
+      }
+    };
+
+    customEngineForm = { open: false, id: "", name: "", protocol: "images-generations", error: "" };
+  }
+
+  function removeCustomEngine(id: EngineId): void {
+    if (!confirm(t("removeEngineConfirm"))) return;
+    const next = { ...imageGenerate.engines };
+    delete next[id];
+    imageGenerate.engines = next;
+    if (imageGenerate.defaultEngine === id) {
+      imageGenerate.defaultEngine = "auto";
+    }
   }
 
   async function loadSettings(): Promise<void> {
@@ -318,7 +441,9 @@
   }
 
   function resolveCompleteUrl(engineId: EngineId, baseUrl: string, apiKey = ""): string {
-    const rawUrl = baseUrl.trim() || engines.find(e => e.id === engineId)?.defaultUrl || "";
+    const builtin = builtinEngines.find(e => e.id === engineId);
+    const protocol = imageGenerate.engines[engineId]?.protocol ?? "images-generations";
+    const rawUrl = baseUrl.trim() || builtin?.defaultUrl || "";
     const cleanUrl = rawUrl.replace(/\/+$/, "");
     if (!cleanUrl) return "";
 
@@ -372,6 +497,16 @@
           return cleanUrl.includes("key=") ? cleanUrl : `${cleanUrl}${cleanUrl.includes("?") ? "&" : "?"}key=YOUR_API_KEY`;
         }
       }
+
+      // Custom engines
+      if (protocol === "chat-completions") {
+        if (pathname === "" || pathname === "/") return `${cleanUrl}/v1/chat/completions`;
+        if (pathname.endsWith("/v1")) return `${cleanUrl}/chat/completions`;
+        return cleanUrl;
+      }
+      if (pathname === "" || pathname === "/") return `${cleanUrl}/v1/images/generations`;
+      if (pathname.endsWith("/v1")) return `${cleanUrl}/images/generations`;
+      return cleanUrl;
     } catch {
       // fallback
     }
@@ -382,9 +517,12 @@
       return `${cleanUrl}/v1/chat/completions`;
     } else if (engineId === "volcengine") {
       return `${cleanUrl}/api/v3/images/generations`;
-    } else {
+    } else if (engineId === "google") {
       return `${cleanUrl}/v1beta/models/imagen-3.0-generate-001:predict?key=YOUR_API_KEY`;
     }
+    return protocol === "chat-completions"
+      ? `${cleanUrl}/v1/chat/completions`
+      : `${cleanUrl}/v1/images/generations`;
   }
 
   onMount(async () => {
@@ -424,8 +562,11 @@
               <Label for="default-engine">{t("defaultEngine")}</Label>
               <NativeSelect id="default-engine" bind:value={imageGenerate.defaultEngine}>
                 <NativeSelectOption value="auto">{t("autoEngine")}</NativeSelectOption>
-                {#each engines as engine}
+                {#each builtinEngines as engine}
                   <NativeSelectOption value={engine.id}>{engine.name}</NativeSelectOption>
+                {/each}
+                {#each getCustomEngines(imageGenerate) as { id, settings }}
+                  <NativeSelectOption value={id}>{settings.name || id}</NativeSelectOption>
                 {/each}
               </NativeSelect>
               <p class="text-xs leading-5 text-muted-foreground">{t("autoEngineDesc")}</p>
@@ -440,7 +581,7 @@
           <CardDescription>{t("enginesDesc")}</CardDescription>
         </CardHeader>
         <CardContent class="space-y-3">
-          {#each engines as engine}
+          {#each builtinEngines as engine}
             <div class="grid gap-3 rounded-lg border bg-muted/30 p-4">
               <div class="flex items-start justify-between gap-4 border-b border-border/40 pb-3">
                 <div>
@@ -455,7 +596,7 @@
                   <IosSwitch bind:checked={imageGenerate.engines[engine.id].enabled} aria-label={`Enable ${engine.name}`} />
                 </div>
               </div>
-              
+
               <div class="grid gap-3 sm:grid-cols-3 pt-2">
                 <div class="grid gap-1.5">
                   <Label>{engine.keyLabel}</Label>
@@ -469,7 +610,7 @@
                       type="button"
                       class="settings-icon-btn"
                       onclick={() => (showApiKey[engine.id] = !showApiKey[engine.id])}
-                      aria-label={showApiKey[engine.id] ? "Hide API key" : "Show API key"}
+                       aria-label={showApiKey[engine.id] ? t("hideApiKey") : t("showApiKey")}
                     >
                       {#if showApiKey[engine.id]}
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>
@@ -484,7 +625,7 @@
                   <Label>{t("model")}</Label>
                   <Input placeholder={engine.defaultModel} bind:value={imageGenerate.engines[engine.id].model} />
                 </div>
-                
+
                 <div class="grid gap-1.5">
                   <Label>{t("baseUrl")}</Label>
                   <Input placeholder={engine.defaultUrl} bind:value={imageGenerate.engines[engine.id].baseUrl} />
@@ -495,6 +636,112 @@
               </div>
             </div>
           {/each}
+
+          {#if getCustomEngines(imageGenerate).length > 0}
+            {#each getCustomEngines(imageGenerate) as { id, settings }}
+              <div class="grid gap-3 rounded-lg border bg-muted/30 p-4">
+                <div class="flex items-start justify-between gap-4 border-b border-border/40 pb-3">
+                  <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <p class="text-sm font-semibold text-foreground">{settings.name || id}</p>
+                      <Badge variant="secondary">{id}</Badge>
+                      <Badge variant="outline">{settings.protocol === "chat-completions" ? t("protocolChat") : t("protocolImages")}</Badge>
+                    </div>
+                    <p class="mt-1 text-xs leading-5 text-muted-foreground">{t("protocol")}: {settings.protocol === "chat-completions" ? t("protocolChat") : t("protocolImages")}</p>
+                  </div>
+                  <div class="flex flex-col items-end gap-1">
+                    <Label class="text-xs text-muted-foreground">{t("engineEnabled")}</Label>
+                    <IosSwitch bind:checked={imageGenerate.engines[id].enabled} aria-label={`Enable ${id}`} />
+                  </div>
+                </div>
+
+                <div class="grid gap-3 sm:grid-cols-3 pt-2">
+                  <div class="grid gap-1.5">
+                    <Label>{t("apiKey")}</Label>
+                    <div class="flex items-center gap-1.5">
+                      <Input
+                        type={showApiKey[id] ? "text" : "password"}
+                        autocomplete="off"
+                        bind:value={imageGenerate.engines[id].apiKey}
+                      />
+                      <button
+                        type="button"
+                        class="settings-icon-btn"
+                        onclick={() => (showApiKey[id] = !showApiKey[id])}
+                         aria-label={showApiKey[id] ? t("hideApiKey") : t("showApiKey")}
+                      >
+                        {#if showApiKey[id]}
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>
+                        {:else}
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+                        {/if}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="grid gap-1.5">
+                    <Label>{t("model")}</Label>
+                    <Input bind:value={imageGenerate.engines[id].model} />
+                  </div>
+
+                  <div class="grid gap-1.5">
+                    <Label>{t("baseUrl")}</Label>
+                    <Input bind:value={imageGenerate.engines[id].baseUrl} />
+                    <p class="text-xs leading-5 text-muted-foreground mt-0.5">
+                      {t("resolvedUrl")}: <code class="break-all font-semibold text-primary">{resolveCompleteUrl(id, imageGenerate.engines[id].baseUrl ?? "", imageGenerate.engines[id].apiKey)}</code>
+                    </p>
+                  </div>
+                </div>
+
+                <div class="flex justify-end pt-1">
+                  <Button type="button" variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10 hover:text-destructive" onclick={() => removeCustomEngine(id)}>
+                    {t("removeEngine")}
+                  </Button>
+                </div>
+              </div>
+            {/each}
+          {/if}
+
+          <div class="flex items-center justify-between rounded-lg border border-dashed p-4">
+            <div>
+              <p class="text-sm font-medium text-foreground">{t("customEnginesTitle")}</p>
+              <p class="text-xs text-muted-foreground">{t("customEnginesDesc")}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onclick={() => customEngineForm.open = !customEngineForm.open}>{t("addEngine")}</Button>
+          </div>
+
+          {#if customEngineForm.open}
+            <div class="grid gap-4 rounded-lg border bg-muted/30 p-4">
+              <p class="text-sm font-semibold text-foreground">{t("addEngineTitle")}</p>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <div class="grid gap-1.5">
+                  <Label for="custom-engine-id">{t("engineId")}</Label>
+                  <Input id="custom-engine-id" bind:value={customEngineForm.id} placeholder={t("engineIdHint")} />
+                </div>
+                <div class="grid gap-1.5">
+                  <Label for="custom-engine-name">{t("engineName")}</Label>
+                  <Input id="custom-engine-name" bind:value={customEngineForm.name} placeholder={t("engineName")} />
+                </div>
+              </div>
+              <div class="grid gap-1.5">
+                <Label for="custom-engine-protocol">{t("protocol")}</Label>
+                <NativeSelect id="custom-engine-protocol" bind:value={customEngineForm.protocol}>
+                  <NativeSelectOption value="images-generations">{t("protocolImages")}</NativeSelectOption>
+                  <NativeSelectOption value="chat-completions">{t("protocolChat")}</NativeSelectOption>
+                </NativeSelect>
+                <p class="text-xs text-muted-foreground">{t("protocolHint")}</p>
+              </div>
+              {#if customEngineForm.error}
+                <Alert variant="destructive" class="py-2">
+                  <AlertDescription>{customEngineForm.error}</AlertDescription>
+                </Alert>
+              {/if}
+              <div class="flex justify-end gap-2">
+                <Button type="button" variant="ghost" size="sm" onclick={() => customEngineForm = { open: false, id: "", name: "", protocol: "images-generations", error: "" }}>{t("close")}</Button>
+                <Button type="button" size="sm" onclick={addCustomEngine}>{t("addEngine")}</Button>
+              </div>
+            </div>
+          {/if}
         </CardContent>
       </Card>
 
@@ -508,8 +755,11 @@
             <Input bind:value={testPrompt} placeholder={t("testPromptPlaceholder")} />
             <NativeSelect bind:value={testEngine}>
               <NativeSelectOption value="auto">{t("autoEngine")}</NativeSelectOption>
-              {#each engines as engine}
+              {#each builtinEngines as engine}
                 <NativeSelectOption value={engine.id}>{engine.name}</NativeSelectOption>
+              {/each}
+              {#each getCustomEngines(imageGenerate) as { id, settings }}
+                <NativeSelectOption value={id}>{settings.name || id}</NativeSelectOption>
               {/each}
             </NativeSelect>
             <Input bind:value={testSize} placeholder={t("testSizePlaceholder")} />
@@ -568,7 +818,7 @@
                       {task.id.slice(0, 8)}...
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" class="text-xs uppercase tracking-wider">{task.engine}</Badge>
+                      <Badge variant="outline" class="text-xs uppercase tracking-wider">{engineDisplayName(imageGenerate, task.engine)}</Badge>
                     </TableCell>
                     <TableCell class="max-w-[280px] truncate" title={task.prompt}>
                       {task.prompt}
@@ -652,7 +902,7 @@
           </div>
           <div class="grid grid-cols-[100px_1fr] gap-2">
             <span class="text-muted-foreground">{t("engine")}:</span>
-            <span><Badge variant="outline" class="uppercase text-xs tracking-wider">{activeTaskDetails.engine}</Badge></span>
+            <span><Badge variant="outline" class="uppercase text-xs tracking-wider">{engineDisplayName(imageGenerate, activeTaskDetails.engine)}</Badge></span>
           </div>
           <div class="grid grid-cols-[100px_1fr] gap-2">
             <span class="text-muted-foreground">{t("status")}:</span>

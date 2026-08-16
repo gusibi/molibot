@@ -303,6 +303,7 @@ test("the built-in ids the host labels are the ids the bundle actually ships", (
   assert.ok(builtinMiniAppIds().includes("note"), "Note ships as a built-in");
   assert.ok(builtinMiniAppIds().includes("todo"), "Todo ships as a built-in");
   assert.ok(builtinMiniAppIds().includes("mini-chat"), "Mini Chat ships as a built-in");
+  assert.ok(builtinMiniAppIds().includes("md-preview"), "MD Preview ships as a built-in");
 });
 
 test("a built-in without autoInstall is offered rather than planted in the workspace", () => {

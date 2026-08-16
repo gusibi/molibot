@@ -11,12 +11,35 @@ export interface MediaEngineSettings {
   apiKey: string;
   baseUrl?: string;
   model?: string;
+  name?: string;
+  protocol?: "images-generations" | "chat-completions";
 }
 
 export interface MediaGenerateSettings {
   enabled: boolean;
   defaultEngine: string;
   engines?: Record<string, MediaEngineSettings>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function isDesktopMediaGenerateUpdateRequest(value: unknown): value is DesktopMediaGenerateUpdateRequest {
+  if (!isRecord(value) || typeof value.enabled !== "boolean" || typeof value.defaultEngine !== "string" || !Array.isArray(value.engines)) {
+    return false;
+  }
+  return value.engines.every((raw) => {
+    if (!isRecord(raw) || typeof raw.id !== "string" || typeof raw.enabled !== "boolean") return false;
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(raw.id) || raw.id === "auto") return false;
+    if (typeof raw.baseUrl !== "string" || typeof raw.model !== "string") return false;
+    if (raw.apiKey !== undefined && typeof raw.apiKey !== "string") return false;
+    if (raw.clearApiKey !== undefined && typeof raw.clearApiKey !== "boolean") return false;
+    if (raw.name !== undefined && typeof raw.name !== "string") return false;
+    return raw.protocol === undefined
+      || raw.protocol === "images-generations"
+      || raw.protocol === "chat-completions";
+  });
 }
 
 /**
@@ -30,7 +53,9 @@ export function buildDesktopMediaEngine(id: string, engine: MediaEngineSettings)
     enabled: engine.enabled === true,
     hasApiKey: typeof engine.apiKey === "string" && engine.apiKey.trim().length > 0,
     baseUrl: engine.baseUrl ?? "",
-    model: engine.model ?? ""
+    model: engine.model ?? "",
+    ...(engine.name ? { name: engine.name } : {}),
+    ...(engine.protocol ? { protocol: engine.protocol } : {})
   };
 }
 
@@ -59,18 +84,33 @@ export function buildDesktopMediaGenerateSummary(
 
 export function buildDesktopMediaGenerateInput(
   current: MediaGenerateSettings,
-  request: DesktopMediaGenerateUpdateRequest
+  request: DesktopMediaGenerateUpdateRequest,
+  builtinEngineIds?: Set<string>
 ): MediaGenerateSettings {
-  const updates = new Map((request.engines ?? []).map((engine) => [engine.id, engine]));
-  const engines = Object.fromEntries(Object.entries(current.engines ?? {}).map(([id, engine]) => {
+  const updates = new Map((Array.isArray(request?.engines) ? request.engines : []).map((engine) => [engine.id, engine]));
+  const engineIds = new Set<string>([
+    ...Object.keys(current.engines ?? {}),
+    ...updates.keys()
+  ]);
+
+  const engines: Record<string, MediaEngineSettings> = {};
+  for (const id of engineIds) {
+    // Allow callers to drop custom engines that are no longer in the request.
+    if (builtinEngineIds && !builtinEngineIds.has(id) && !updates.has(id)) continue;
+
+    const engine = current.engines?.[id] ?? { enabled: false, apiKey: "" };
     const update = updates.get(id);
     const replacement = String(update?.apiKey ?? "").trim();
-    return [id, {
+    const protocol = engine.protocol ?? update?.protocol;
+    engines[id] = {
       enabled: update?.enabled ?? engine.enabled,
       baseUrl: update?.baseUrl ?? engine.baseUrl,
       model: update?.model ?? engine.model,
-      apiKey: update?.clearApiKey ? "" : replacement || engine.apiKey
-    }];
-  }));
+      apiKey: update?.clearApiKey ? "" : replacement || engine.apiKey,
+      ...(engine.name ? { name: engine.name } : {}),
+      ...(update?.name ? { name: update.name } : {}),
+      ...(protocol ? { protocol } : {})
+    };
+  }
   return { enabled: request.enabled, defaultEngine: request.defaultEngine, engines };
 }

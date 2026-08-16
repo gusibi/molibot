@@ -86,7 +86,11 @@ async function dispatch(message) {
   if (message.method === "invokeTool") {
     const handler = runtime.tools?.[message.input.toolName];
     if (typeof handler !== "function") throw new Error(`Missing tool handler: ${message.input.toolName}`);
-    return handler(message.input.input, { toolCallId: message.input.toolCallId });
+    const context = { toolCallId: message.input.toolCallId };
+    if (message.input.stagedFiles && typeof message.input.stagedFiles === "object") {
+      context.stagedFiles = message.input.stagedFiles;
+    }
+    return handler(message.input.input, context);
   }
   if (message.method === "handleHttp") return runtime.handleHttp(message.input);
   if (message.method === "dispose") {

@@ -109,6 +109,103 @@ test("AI capabilities and controlled upload limits are strict and preserved", ()
   );
 });
 
+test("fileParams are preserved with the default maxBytes applied", () => {
+  withManifest(
+    (manifest) => {
+      (manifest.tools as Record<string, unknown>[])[0].inputSchema = {
+        type: "object",
+        properties: {
+          docPath: { type: "string" },
+          imagePaths: { type: "array", items: { type: "string" } }
+        },
+        additionalProperties: false
+      };
+      (manifest.tools as Record<string, unknown>[])[0].fileParams = [
+        { param: "docPath", accepts: ["file"], maxBytes: 5 * 1024 * 1024 },
+        { param: "imagePaths", accepts: ["image"], multiple: true }
+      ];
+    },
+    (result) => {
+      assert.equal(result.ok, true);
+      if (!result.ok) return;
+      assert.deepEqual(result.value.manifest.tools[0].fileParams, [
+        { param: "docPath", accepts: ["file"], maxBytes: 5 * 1024 * 1024 },
+        // The 25 MiB default is materialized so the runtime never has to guess.
+        { param: "imagePaths", accepts: ["image"], multiple: true, maxBytes: 25 * 1024 * 1024 }
+      ]);
+    }
+  );
+});
+
+test("fileParams must match the declared input schema shape", () => {
+  const cases: Array<{ mutate: (tool: Record<string, unknown>) => void; error: RegExp }> = [
+    {
+      // Declared param does not exist in the schema at all.
+      mutate: (tool) => {
+        tool.fileParams = [{ param: "missingPath", accepts: ["file"] }];
+      },
+      error: /must be declared in inputSchema\.properties/
+    },
+    {
+      // multiple: true but the schema property is a plain string.
+      mutate: (tool) => {
+        tool.inputSchema = {
+          type: "object",
+          properties: { docPath: { type: "string" } }
+        };
+        tool.fileParams = [{ param: "docPath", accepts: ["file"], multiple: true }];
+      },
+      error: /requires inputSchema type array of string/
+    },
+    {
+      // multiple omitted but the schema property is an array.
+      mutate: (tool) => {
+        tool.inputSchema = {
+          type: "object",
+          properties: { docPath: { type: "array", items: { type: "string" } } }
+        };
+        tool.fileParams = [{ param: "docPath", accepts: ["file"] }];
+      },
+      error: /requires inputSchema type string/
+    },
+    {
+      // accepts must use the staging vocabulary (text is not a file kind).
+      mutate: (tool) => {
+        tool.inputSchema = { type: "object", properties: { docPath: { type: "string" } } };
+        tool.fileParams = [{ param: "docPath", accepts: ["text"] }];
+      },
+      error: /accepts contains an unsupported value/
+    },
+    {
+      // maxBytes has a hard ceiling shared with message-action staging.
+      mutate: (tool) => {
+        tool.inputSchema = { type: "object", properties: { docPath: { type: "string" } } };
+        tool.fileParams = [{ param: "docPath", accepts: ["file"], maxBytes: 65 * 1024 * 1024 }];
+      },
+      error: /maxBytes must be between 1 and 64 MiB/
+    },
+    {
+      // Unknown field inside a fileParams entry is rejected, not ignored.
+      mutate: (tool) => {
+        tool.inputSchema = { type: "object", properties: { docPath: { type: "string" } } };
+        tool.fileParams = [{ param: "docPath", accepts: ["file"], recursive: true }];
+      },
+      error: /unknown field "recursive"/
+    }
+  ];
+  for (const { mutate, error } of cases) {
+    withManifest(
+      (manifest) => {
+        mutate(manifest.tools[0] as Record<string, unknown>);
+      },
+      (result) => {
+        assert.equal(result.ok, false, `expected failure for ${String(error)}`);
+        if (!result.ok) assert.match(result.error, error);
+      }
+    );
+  }
+});
+
 test("host device capabilities are strict and preserved", () => {
   withManifest(
     (manifest) => { manifest.host = { capabilities: ["audioCapture", "audioCapture"] }; },

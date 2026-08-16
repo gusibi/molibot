@@ -28,6 +28,39 @@ export interface MiniAppToolManifest {
 
 export type MiniAppMessageActionAccept = "text" | "image" | "file";
 
+/**
+ * A tool parameter the host stages into the app's `dataDir/incoming/` before
+ * the handler runs.
+ *
+ * The agent passes a workspace-relative path; the host resolves it with the
+ * agent file tools' own semantics (`resolveToolPath` + allowed-roots guard),
+ * copies the file in, and rewrites the parameter value in place to the staged
+ * `incoming/...` path. The handler never sees a host absolute path.
+ */
+export interface MiniAppToolFileParamManifest {
+  /** Must exist in inputSchema.properties as a string (or string[] with multiple). */
+  param: string;
+  /** Which staged kinds this parameter accepts; same vocabulary as message actions. */
+  accepts: MiniAppMessageActionAccept[];
+  /** Per-file cap, 1..64 MiB. Defaults to 25 MiB. */
+  maxBytes?: number;
+  /** The schema property is a string array rather than a single string. */
+  multiple?: boolean;
+}
+
+export interface MiniAppToolManifest {
+  name: string;
+  title?: string;
+  description: string;
+  keywords?: string[];
+  /** JSON Schema (object) validated with Ajv before the handler runs. */
+  inputSchema: Record<string, unknown>;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  /** Host-side file staging; requires engines.molibot >= 2.9.26. */
+  fileParams?: MiniAppToolFileParamManifest[];
+}
+
 export interface MiniAppMessageActionManifest {
   tool: string;
   label: { zh: string; en: string };
@@ -203,6 +236,12 @@ export interface MiniAppToolDescriptor {
 export interface MiniAppToolCallContext {
   toolCallId: string;
   signal?: AbortSignal;
+  /**
+   * Files the host staged into `dataDir/incoming/` for this call, keyed by the
+   * declaring `fileParams[].param` name. Values carry the dataDir-relative
+   * staged path plus the original filename - never a host absolute path.
+   */
+  stagedFiles?: Record<string, MessageCaptureResource[]>;
 }
 
 export interface MiniAppToolResult {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Context } from "@earendil-works/pi-ai";
-import { summarizeSessionTitleWithLlm } from "./titleSummarizer.js";
+import { summarizeSessionTitleWithLlm, tryAutoSummarizeConversationTitleAsync } from "./titleSummarizer.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 const mockZhSettings: RuntimeSettings = {
@@ -125,4 +125,48 @@ test("summarizeSessionTitleWithLlm handles stream exceptions gracefully", async 
   );
 
   assert.equal(title, null);
+});
+
+// Regression: the wrapper used to call `settings.get()` on the runtime, but the
+// runtime exposes `getSettings()` - every background run threw
+// "settings.get is not a function" and titles were never generated.
+test("tryAutoSummarizeConversationTitleAsync reads settings through the runtime's getSettings and renames", async () => {
+  const renames: Array<{ conversationId: string; channel: string; externalUserId: string; title: string }> = [];
+  (globalThis as any).__molibotRuntime = {
+    sessions: {
+      getConversationById: (conversationId: string, channel: string, externalUserId: string) => ({
+        id: conversationId,
+        title: "New Session",
+        channel,
+        externalUserId
+      }),
+      renameConversation: (conversationId: string, channel: string, externalUserId: string, title: string) => {
+        renames.push({ conversationId, channel, externalUserId, title });
+        return true;
+      }
+    },
+    // `settings.get()` would throw here; the wrapper must use getSettings().
+    getSettings: () => mockZhSettings
+  };
+
+  try {
+    const title = await tryAutoSummarizeConversationTitleAsync({
+      conversationId: "conv-1",
+      externalUserId: "user-1",
+      firstUserMessage: "请帮我写一个 Python 脚本用于清理 CSV 数据文件中的重复项和空值",
+      options: {
+        streamFn: createMockStreamFn("Python数据清洗方案"),
+        resolveApiKeyFn: async () => "dummy-key"
+      }
+    });
+
+    assert.equal(title, "Python数据清洗方案");
+    assert.equal(renames.length, 1);
+    assert.equal(renames[0].title, "Python数据清洗方案");
+    assert.equal(renames[0].conversationId, "conv-1");
+    assert.equal(renames[0].channel, "web");
+    assert.equal(renames[0].externalUserId, "user-1");
+  } finally {
+    delete (globalThis as any).__molibotRuntime;
+  }
 });

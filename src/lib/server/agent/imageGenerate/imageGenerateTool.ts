@@ -3,7 +3,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { promises as fs } from "node:fs";
 import { dirname, basename } from "node:path";
 import crypto from "node:crypto";
-import { IMAGE_GENERATE_PROVIDERS } from "./providers.js";
+import { getImageGenerateProvider } from "./providers.js";
 import type { ImageGenerateEngine, ImageGenerateInput } from "./types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
@@ -20,12 +20,10 @@ const imageGenerateSchema = Type.Object({
   }),
   engine: Type.Optional(Type.Union([
     Type.Literal("auto"),
-    Type.Literal("agnes"),
-    Type.Literal("openai"),
-    Type.Literal("openai-chat"),
-    Type.Literal("modelscope"),
-    Type.Literal("google"),
-    Type.Literal("volcengine")
+    Type.String({
+      pattern: "^[a-z][a-z0-9_-]{0,63}$",
+      description: "Engine id (built-in or custom)."
+    })
   ], {
     description: "The image generation engine. Defaults to 'auto' (automatically selects an enabled engine)."
   })),
@@ -47,10 +45,15 @@ const imageGenerateSchema = Type.Object({
 });
 
 function buildImageGenerateDescription(settings: RuntimeSettings): string {
+  const engineList = Object.keys(settings.imageGenerate.engines)
+    .filter((id) => settings.imageGenerate.engines[id as ImageGenerateEngine]?.enabled)
+    .join(", ") || "none configured";
   return [
-    "- Generates high-quality images using configured Cloud APIs (Agnes, OpenAI Images, OpenAI-compatible Chat Completions, Google Imagen, Volcengine, ModelScope).",
+    "- Generates high-quality images using configured image generation engines (built-in and custom).",
     "- Auto-saves the generated image locally to your dated scratch directory or a custom path.",
     "- Automatically uploads and displays the image to the chat interface so the user sees it immediately. Do not call `attach` manually after using this tool.",
+    "",
+    `Enabled engines: ${engineList}.`,
     "",
     "Usage guidelines:",
     "- Use when the user asks to draw a picture, generate an image, create a graphic, or visualize something.",
@@ -70,9 +73,10 @@ function resolveEngine(settings: RuntimeSettings["imageGenerate"], requested?: s
   }
 
   const defaultEngine = settings.defaultEngine;
+  const builtinPriority: ImageGenerateEngine[] = ["agnes", "openai", "openai-chat", "google", "volcengine", "modelscope"];
   const priorityList: ImageGenerateEngine[] = defaultEngine && defaultEngine !== "auto"
-    ? [defaultEngine, "agnes", "openai", "openai-chat", "google", "volcengine", "modelscope"]
-    : ["agnes", "openai", "openai-chat", "google", "volcengine", "modelscope"];
+    ? [defaultEngine, ...builtinPriority]
+    : [...builtinPriority];
   const seen = new Set<ImageGenerateEngine>();
   for (const engineId of priorityList) {
     if (seen.has(engineId)) continue;
@@ -83,9 +87,16 @@ function resolveEngine(settings: RuntimeSettings["imageGenerate"], requested?: s
     }
   }
 
+  // Fall back to any enabled custom engine when no builtin is available.
+  for (const [engineId, config] of Object.entries(settings.engines)) {
+    if (seen.has(engineId)) continue;
+    if (config?.enabled && config.apiKey.trim()) {
+      return engineId as ImageGenerateEngine;
+    }
+  }
+
   throw new Error(
-    "No image generation engine is enabled. Please configure at least one API key: " +
-    "AGNES_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY, VOLCENGINE_API_KEY, or MODELSCOPE_API_KEY."
+    "No image generation engine is enabled. Please configure at least one API key."
   );
 }
 
@@ -269,7 +280,8 @@ export function createImageGenerateTool(options: {
 
       try {
         // 3. Execute provider
-        const provider = IMAGE_GENERATE_PROVIDERS[engine];
+        const engineProtocol = currentSettings.imageGenerate.engines[engine]?.protocol;
+        const provider = getImageGenerateProvider(engine, engineProtocol);
         if (!provider) {
           throw new Error(`Provider not implemented for engine '${engine}'`);
         }

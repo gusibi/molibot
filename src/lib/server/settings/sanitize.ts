@@ -25,6 +25,8 @@ import {
   type WebSearchEngineSelectionStrategy,
   type WebSearchRoute,
   type ImageGenerateEngineId,
+  type ImageGenerateEngineSettings,
+  type ImageGenerateProtocol,
   type ImageGenerateSettings,
   type VideoGenerateEngineId,
   type VideoGenerateSettings,
@@ -69,6 +71,15 @@ const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
 const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
 const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
 const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"];
+const BUILTIN_IMAGE_GENERATE_PROTOCOLS: Record<string, ImageGenerateProtocol> = {
+  agnes: "images-generations",
+  openai: "images-generations",
+  "openai-chat": "chat-completions",
+  modelscope: "images-generations",
+  google: "images-generations",
+  volcengine: "images-generations"
+};
+const VALID_IMAGE_GENERATE_ENGINE_ID = /^[a-z][a-z0-9_-]{0,63}$/;
 const VIDEO_GENERATE_ENGINES: VideoGenerateEngineId[] = ["agnes", "volcengine"];
 const TTS_GENERATE_PROVIDERS: TtsGenerateProviderId[] = ["macos", "xiaomi"];
 const TTS_GENERATE_FORMATS: TtsGenerateAudioFormat[] = ["wav", "mp3", "aiff", "m4a", "caf"];
@@ -190,6 +201,21 @@ export function sanitizeWebSearchSettings(
   };
 }
 
+function sanitizeImageGenerateProtocol(
+  engineId: string,
+  raw: unknown,
+  fallbackProtocol?: ImageGenerateProtocol
+): ImageGenerateProtocol {
+  const builtin = BUILTIN_IMAGE_GENERATE_PROTOCOLS[engineId];
+  if (builtin) return builtin;
+  // A custom engine's protocol is part of its identity. Once it exists, only
+  // the original value may be carried forward; the add flow is the only place
+  // that may choose it.
+  if (fallbackProtocol) return fallbackProtocol;
+  const value = String(raw ?? fallbackProtocol ?? "images-generations").trim();
+  return value === "chat-completions" ? "chat-completions" : "images-generations";
+}
+
 export function sanitizeImageGenerateSettings(
   input: unknown,
   fallback: RuntimeSettings["imageGenerate"]
@@ -201,26 +227,59 @@ export function sanitizeImageGenerateSettings(
   const enginesSource = source.engines && typeof source.engines === "object"
     ? source.engines as Record<string, unknown>
     : {};
-  const requestedDefaultEngine = String(source.defaultEngine ?? fallbackSettings.defaultEngine).trim() as ImageGenerateEngineId | "auto";
-  const engines = Object.fromEntries(IMAGE_GENERATE_ENGINES.map((engine) => {
-    const fallbackEngine = fallbackSettings.engines[engine];
-    const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
-      ? enginesSource[engine] as Record<string, unknown>
+  const hasEngineMap = source.engines !== undefined
+    && source.engines !== null
+    && typeof source.engines === "object"
+    && !Array.isArray(source.engines);
+  const requestedDefaultEngine = String(source.defaultEngine ?? fallbackSettings.defaultEngine).trim();
+
+  const engineIds = new Set<string>([
+    ...IMAGE_GENERATE_ENGINES,
+    ...(hasEngineMap ? [] : Object.keys(fallbackSettings.engines ?? {})),
+    ...Object.keys(enginesSource)
+  ]);
+
+  const engines: Record<string, ImageGenerateEngineSettings> = {};
+  for (const engineId of engineIds) {
+    if (!engineId) continue;
+    if (engineId === "auto") continue;
+    const isBuiltin = IMAGE_GENERATE_ENGINES.includes(engineId);
+    if (!isBuiltin && !VALID_IMAGE_GENERATE_ENGINE_ID.test(engineId)) continue;
+
+    const fallbackEngine = fallbackSettings.engines?.[engineId] ?? {
+      enabled: false,
+      apiKey: "",
+      model: "",
+      baseUrl: ""
+    };
+    const raw = enginesSource[engineId] && typeof enginesSource[engineId] === "object"
+      ? enginesSource[engineId] as Record<string, unknown>
       : {};
     const apiKey = String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim();
     const enabled = raw.enabled === undefined
       ? fallbackEngine.enabled || Boolean(apiKey)
-      : Boolean(raw.enabled) || (requestedDefaultEngine === engine && Boolean(apiKey));
-    return [engine, {
+      : Boolean(raw.enabled) || (requestedDefaultEngine === engineId && Boolean(apiKey));
+
+    engines[engineId] = {
       enabled,
       apiKey,
       model: String(raw.model ?? fallbackEngine.model ?? "").trim() || undefined,
-      baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
-    }];
-  })) as RuntimeSettings["imageGenerate"]["engines"];
+      baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined,
+      name: String(raw.name ?? (fallbackEngine as { name?: string }).name ?? "").trim() || undefined,
+      protocol: sanitizeImageGenerateProtocol(engineId, raw.protocol, fallbackEngine.protocol)
+    };
+  }
+
+  const fallbackDefaultEngine = fallbackSettings.defaultEngine === "auto"
+    || engines[fallbackSettings.defaultEngine]
+    ? fallbackSettings.defaultEngine
+    : "auto";
+
   return {
     enabled: source.enabled === undefined ? fallbackSettings.enabled : Boolean(source.enabled),
-    defaultEngine: requestedDefaultEngine === "auto" || IMAGE_GENERATE_ENGINES.includes(requestedDefaultEngine) ? requestedDefaultEngine : fallbackSettings.defaultEngine,
+    defaultEngine: requestedDefaultEngine === "auto" || engines[requestedDefaultEngine]
+      ? requestedDefaultEngine
+      : fallbackDefaultEngine,
     engines
   };
 }

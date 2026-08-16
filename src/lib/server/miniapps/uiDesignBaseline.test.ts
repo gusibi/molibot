@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../../..");
 
-const BUILTIN_IDS = ["note", "todo", "meeting-notes"] as const;
+const BUILTIN_IDS = ["note", "todo", "meeting-notes", "md-preview"] as const;
 
 const SHEETS: ReadonlyArray<{ label: string; file: string }> = [
   ...BUILTIN_IDS.map((id) => ({

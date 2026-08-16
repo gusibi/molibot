@@ -16,6 +16,7 @@ import type {
   MiniAppHostManifest,
   MiniAppMessageActionAccept,
   MiniAppMessageActionManifest,
+  MiniAppToolFileParamManifest,
   MiniAppToolManifest
 } from "$lib/server/miniapps/types.js";
 
@@ -61,8 +62,15 @@ const ALLOWED_TOOL_KEYS = new Set([
   "keywords",
   "inputSchema",
   "readOnlyHint",
-  "destructiveHint"
+  "destructiveHint",
+  "fileParams"
 ]);
+
+const ALLOWED_FILE_PARAM_KEYS = new Set(["param", "accepts", "maxBytes", "multiple"]);
+const MAX_FILE_PARAMS_PER_TOOL = 4;
+/** Matches the staging hard cap in incomingResources.ts. */
+const MAX_FILE_PARAM_BYTES = 64 * 1024 * 1024;
+const DEFAULT_FILE_PARAM_BYTES = 25 * 1024 * 1024;
 
 const ALLOWED_CONTRIBUTION_KEYS = new Set(["messageActions"]);
 const ALLOWED_MESSAGE_ACTION_KEYS = new Set(["tool", "label", "icon", "accepts"]);
@@ -217,6 +225,13 @@ function validateToolEntry(
     return { ok: false, error: `tools[${index}] cannot be both readOnlyHint and destructiveHint.` };
   }
 
+  let fileParams: MiniAppToolFileParamManifest[] | undefined;
+  if (raw.fileParams !== undefined) {
+    const result = validateFileParams(raw.fileParams, index, inputSchema);
+    if (!result.ok) return result;
+    fileParams = result.value;
+  }
+
   try {
     validators.set(name, ajv.compile(inputSchema));
   } catch (cause) {
@@ -233,9 +248,95 @@ function validateToolEntry(
       keywords,
       inputSchema,
       readOnlyHint: readOnlyHint === true,
-      destructiveHint: destructiveHint === true
+      destructiveHint: destructiveHint === true,
+      ...(fileParams ? { fileParams } : {})
     }
   };
+}
+
+/**
+ * Validates `tools[].fileParams`: every declared param must actually exist in
+ * the input schema with the declared shape, so a typo cannot produce a staging
+ * declaration the runtime silently ignores.
+ */
+function validateFileParams(
+  raw: unknown,
+  index: number,
+  inputSchema: Record<string, unknown>
+): { ok: true; value: MiniAppToolFileParamManifest[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { ok: false, error: `tools[${index}].fileParams must be a non-empty array.` };
+  }
+  if (raw.length > MAX_FILE_PARAMS_PER_TOOL) {
+    return { ok: false, error: `tools[${index}].fileParams may contain at most ${MAX_FILE_PARAMS_PER_TOOL} entries.` };
+  }
+
+  const properties = isPlainObject(inputSchema.properties) ? inputSchema.properties : {};
+  const fileParams: MiniAppToolFileParamManifest[] = [];
+  const seenParams = new Set<string>();
+  for (const [entryIndex, entry] of raw.entries()) {
+    if (!isPlainObject(entry)) {
+      return { ok: false, error: `tools[${index}].fileParams[${entryIndex}] must be an object.` };
+    }
+    for (const key of Object.keys(entry)) {
+      if (!ALLOWED_FILE_PARAM_KEYS.has(key)) {
+        return { ok: false, error: `tools[${index}].fileParams[${entryIndex}] has unknown field "${key}".` };
+      }
+    }
+
+    const param = entry.param;
+    if (typeof param !== "string" || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(param)) {
+      return { ok: false, error: `tools[${index}].fileParams[${entryIndex}].param must match ^[A-Za-z][A-Za-z0-9_]{0,63}$.` };
+    }
+    if (seenParams.has(param)) {
+      return { ok: false, error: `tools[${index}].fileParams declares "${param}" twice.` };
+    }
+    seenParams.add(param);
+
+    const property = properties[param];
+    if (!isPlainObject(property)) {
+      return { ok: false, error: `tools[${index}].fileParams "${param}" must be declared in inputSchema.properties.` };
+    }
+    const multiple = entry.multiple === true;
+    if (multiple) {
+      const items = isPlainObject(property.items) ? property.items : {};
+      if (property.type !== "array" || items.type !== "string") {
+        return { ok: false, error: `tools[${index}].fileParams "${param}" requires inputSchema type array of string (multiple: true).` };
+      }
+    } else if (property.type !== "string") {
+      return { ok: false, error: `tools[${index}].fileParams "${param}" requires inputSchema type string.` };
+    }
+
+    const acceptsRaw = entry.accepts;
+    if (!Array.isArray(acceptsRaw) || acceptsRaw.length === 0) {
+      return { ok: false, error: `tools[${index}].fileParams[${entryIndex}].accepts must be a non-empty array.` };
+    }
+    const accepts: MiniAppToolFileParamManifest["accepts"] = [];
+    for (const accept of acceptsRaw) {
+      // Staging's vocabulary is binary - "text" is a message-action kind, not
+      // a file kind.
+      if (accept !== "image" && accept !== "file") {
+        return { ok: false, error: `tools[${index}].fileParams[${entryIndex}].accepts contains an unsupported value.` };
+      }
+      if (!accepts.includes(accept)) accepts.push(accept);
+    }
+
+    let maxBytes = DEFAULT_FILE_PARAM_BYTES;
+    if (entry.maxBytes !== undefined) {
+      if (!Number.isInteger(entry.maxBytes) || Number(entry.maxBytes) < 1 || Number(entry.maxBytes) > MAX_FILE_PARAM_BYTES) {
+        return { ok: false, error: `tools[${index}].fileParams[${entryIndex}].maxBytes must be between 1 and 64 MiB.` };
+      }
+      maxBytes = Number(entry.maxBytes);
+    }
+
+    fileParams.push({
+      param,
+      accepts,
+      maxBytes,
+      ...(multiple ? { multiple: true } : {})
+    });
+  }
+  return { ok: true, value: fileParams };
 }
 
 function validateMessageActions(
