@@ -892,7 +892,7 @@ export async function loadDesktopTasks(endpoint: string): Promise<DesktopTaskSum
     .filter((item) => item.type === "periodic" || item.type === "one-shot")
     .map((item) => ({
       ...item,
-      category: item.category === "system" ? "system" as const : "user" as const,
+      category: item.category === "system" ? "system" as const : item.category === "project" ? "project" as const : "user" as const,
       systemKind: (item.systemKind === "memory-reflection" || item.systemKind === "daily-materials" ? item.systemKind : "") as DesktopTaskSummary["items"][number]["systemKind"],
       enabled: item.enabled !== false,
       reminderUnread: item.type === "one-shot" && item.reminderUnread === true,

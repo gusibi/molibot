@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { getProjectStore } from "$lib/server/projects/store.js";
+import { getRuntime } from "$lib/server/app/runtime.js";
 
 export const GET: RequestHandler = () => json({ ok: true, projects: getProjectStore().list() });
 
@@ -13,6 +14,8 @@ export const POST: RequestHandler = async ({ request }) => {
       createDirectory: body.createDirectory === true,
       instructions: body.instructions
     });
+    const runtime = getRuntime();
+    runtime.taskScheduler.restart(runtime.channelManagers, runtime.getSettings());
     return json({ ok: true, project }, { status: 201 });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });

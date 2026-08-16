@@ -8,12 +8,14 @@ import { createRuntimeTaskId, markOneShotReminderReadFile, type MomEvent } from 
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
 import { SYSTEM_TASK_BOTS_DIR, SYSTEM_TASK_CHANNEL, TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
 import { buildDesktopTaskTargets } from "$lib/server/app/desktopTasks";
-import { dispatchTaskEvent } from "$lib/server/agent/taskScheduler";
+import { dispatchProjectTaskEvent, dispatchTaskEvent } from "$lib/server/agent/taskScheduler";
+import { getProjectStore } from "$lib/server/projects/store";
+import { projectWorkspaceDir } from "$lib/server/projects/runtimeCache";
 
 type TaskScope = "workspace" | "chat-scratch";
 type TaskType = "one-shot" | "periodic" | "immediate";
 type TaskState = "pending" | "running" | "completed" | "skipped" | "error";
-type TaskSource = TaskChannel | typeof SYSTEM_TASK_CHANNEL;
+type TaskSource = TaskChannel | typeof SYSTEM_TASK_CHANNEL | "project";
 const INTERNAL_TASK_TARGET_DIRS = new Set([
   "attachments",
   "contexts",
@@ -42,6 +44,7 @@ interface RawEventTask {
   internal?: { kind?: string };
   type: TaskType;
   chatId?: string;
+  target?: { kind?: string; projectId?: string };
   text?: string;
   delivery?: string;
   at?: string;
@@ -56,6 +59,8 @@ interface TaskItem {
   taskId: string;
   managed?: RawEventTask["managed"];
   botId: string;
+  projectId: string;
+  projectName: string;
   chatId: string;
   scope: TaskScope;
   filename: string;
@@ -108,6 +113,8 @@ interface TaskCreateBody {
   action?: "create";
   task?: {
     channel?: string;
+    kind?: "channel" | "project";
+    projectId?: string;
     botId?: string;
     chatId?: string;
     scope?: TaskScope;
@@ -134,6 +141,7 @@ function toTaskItem(
   fallbackChatId: string,
   scope: TaskScope,
   filePath: string,
+  project?: { id: string; name: string },
 ): TaskItem | null {
   if (raw.type !== "one-shot" && raw.type !== "periodic" && raw.type !== "immediate") {
     return null;
@@ -155,6 +163,8 @@ function toTaskItem(
     taskId: String(raw.taskId ?? "").trim(),
     managed: raw.managed,
     botId,
+    projectId: project?.id ?? "",
+    projectName: project?.name ?? "",
     chatId,
     scope,
     filename,
@@ -185,15 +195,22 @@ function readTaskFile(
   fallbackChatId: string,
   scope: TaskScope,
   diagnostics: string[],
+  project?: { id: string; name: string },
 ): TaskItem | null {
   try {
     const raw = readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw) as RawEventTask;
+    if (project && (parsed.target?.kind !== "project" || parsed.target.projectId !== project.id)) {
+      throw new Error("Project task target does not match its Project workspace");
+    }
+    if (project && (parsed.type !== "periodic" || parsed.delivery !== "agent" || parsed.sessionMode !== "fresh")) {
+      throw new Error("Project tasks must be periodic Agent runs with fresh Session mode");
+    }
     if (parsed && typeof parsed === "object" && parsed.type === "periodic" && !String(parsed.taskId ?? "").trim()) {
       parsed.taskId = createRuntimeTaskId();
       writeFileSync(filePath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
     }
-    return toTaskItem(parsed, channel, botId, fallbackChatId, scope, filePath);
+    return toTaskItem(parsed, channel, botId, fallbackChatId, scope, filePath, project);
   } catch (error) {
     diagnostics.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
     return null;
@@ -218,8 +235,21 @@ function resolveTasksRoots(): Array<{ channel: TaskSource; botsRoot: string }> {
   })), { channel: SYSTEM_TASK_CHANNEL, botsRoot: join(dataRoot, SYSTEM_TASK_BOTS_DIR) }];
 }
 
-function isTaskFilePath(filePath: string, botsRoots: Array<{ channel: TaskSource; botsRoot: string }>): boolean {
+function resolveProjectTaskRoots(): Array<{ projectId: string; projectName: string; eventsDir: string }> {
+  return getProjectStore().list().map((project) => ({
+    projectId: project.id,
+    projectName: project.name,
+    eventsDir: join(projectWorkspaceDir(project.id), "events")
+  }));
+}
+
+function isTaskFilePath(
+  filePath: string,
+  botsRoots: Array<{ channel: TaskSource; botsRoot: string }>,
+  projectRoots: Array<{ eventsDir: string }>
+): boolean {
   const resolved = resolve(filePath);
+  if (projectRoots.some(({ eventsDir }) => resolved.startsWith(`${resolve(eventsDir)}/`))) return resolved.endsWith(".json");
   const matchedRoot = botsRoots.find(({ botsRoot }) => resolved.startsWith(`${botsRoot}/`));
   if (!matchedRoot || !resolved.endsWith(".json")) return false;
   return (
@@ -233,8 +263,21 @@ function inferTaskContextFromPath(filePath: string, botsRoots: Array<{ channel: 
   botId: string;
   chatId: string;
   scope: TaskScope;
+  projectId?: string;
+  projectName?: string;
 } | null {
   const resolvedPath = resolve(filePath);
+  const project = resolveProjectTaskRoots().find(({ eventsDir }) => resolvedPath.startsWith(`${resolve(eventsDir)}/`));
+  if (project) {
+    return {
+      channel: "project",
+      botId: "",
+      chatId: `project:${project.projectId}`,
+      scope: "workspace",
+      projectId: project.projectId,
+      projectName: project.projectName
+    };
+  }
   const root = botsRoots.find(({ botsRoot }) => resolvedPath.startsWith(`${botsRoot}/`));
   if (!root) return null;
   const relative = resolvedPath.slice(`${root.botsRoot}/`.length);
@@ -254,6 +297,7 @@ function inferTaskContextFromPath(filePath: string, botsRoots: Array<{ channel: 
 export const GET: RequestHandler = async () => {
   const dataRoot = resolve(config.dataDir);
   const taskRoots = resolveTasksRoots();
+  const projectRoots = resolveProjectTaskRoots();
   const diagnostics: string[] = [];
   const items: TaskItem[] = [];
 
@@ -282,13 +326,28 @@ export const GET: RequestHandler = async () => {
     }
   }
 
+  for (const project of projectRoots) {
+    for (const filePath of collectJsonFiles(project.eventsDir)) {
+      const item = readTaskFile(
+        filePath,
+        "project",
+        "",
+        `project:${project.projectId}`,
+        "workspace",
+        diagnostics,
+        { id: project.projectId, name: project.projectName }
+      );
+      if (item) items.push(item);
+    }
+  }
+
   items.sort((a, b) => {
     const typeOrder = ["one-shot", "periodic", "immediate"];
     const typeDiff = typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type);
     if (typeDiff !== 0) return typeDiff;
     return b.updatedAt.localeCompare(a.updatedAt);
   });
-  const targets = buildDesktopTaskTargets(getRuntime().getSettings());
+  const targets = buildDesktopTaskTargets(getRuntime().getSettings(), getProjectStore().list());
 
   const countsByType = {
     "one-shot": items.filter((item) => item.type === "one-shot").length,
@@ -312,7 +371,8 @@ export const GET: RequestHandler = async () => {
     feishu: items.filter((item) => item.channel === "feishu").length,
     qq: items.filter((item) => item.channel === "qq").length,
     weixin: items.filter((item) => item.channel === "weixin").length,
-    system: items.filter((item) => item.channel === "system").length
+    system: items.filter((item) => item.channel === "system").length,
+    project: items.filter((item) => item.channel === "project").length
   };
 
   return json({
@@ -343,6 +403,8 @@ export const POST: RequestHandler = async ({ request }) => {
     const task = body.task && typeof body.task === "object" ? body.task : null;
     if (!task) return json({ ok: false, error: "task is required" }, { status: 400 });
     const channel = String(task.channel ?? "").trim() as TaskChannel;
+    const projectId = String(task.projectId ?? "").trim();
+    const isProjectTask = task.kind === "project" || channel === "project" || Boolean(projectId);
     const botId = String(task.botId ?? "").trim();
     const chatId = String(task.chatId ?? "").trim();
     const scope = task.scope === "chat-scratch" ? "chat-scratch" : "workspace";
@@ -353,9 +415,35 @@ export const POST: RequestHandler = async ({ request }) => {
     const sessionMode = String(task.sessionMode ?? "fresh").trim().toLowerCase();
     if (!text) return json({ ok: false, error: "task text is required" }, { status: 400 });
     if (delivery !== "agent" && delivery !== "text") return json({ ok: false, error: "delivery must be text or agent" }, { status: 400 });
+    if (isProjectTask && delivery !== "agent") return json({ ok: false, error: "Project tasks must use agent delivery" }, { status: 400 });
     if (schedule.split(/\s+/).filter(Boolean).length !== 5) return json({ ok: false, error: "schedule must be a 5-field cron expression" }, { status: 400 });
     if (!timezone) return json({ ok: false, error: "timezone is required" }, { status: 400 });
     if (sessionMode !== "fresh" && sessionMode !== "chat") return json({ ok: false, error: "sessionMode must be fresh or chat" }, { status: 400 });
+    if (isProjectTask && sessionMode !== "fresh") return json({ ok: false, error: "Project tasks must use fresh sessions" }, { status: 400 });
+
+    if (isProjectTask) {
+      const project = getProjectStore().get(projectId);
+      if (!project) return json({ ok: false, error: "project_not_found" }, { status: 404 });
+      const eventsDir = join(projectWorkspaceDir(project.id), "events");
+      mkdirSync(eventsDir, { recursive: true });
+      const now = Date.now();
+      const filePath = join(eventsDir, `periodic-${now}-${Math.random().toString(36).slice(2, 8)}.json`);
+      const event: RawEventTask = {
+        taskId: createRuntimeTaskId(),
+        enabled: true,
+        type: "periodic",
+        chatId: `project:${project.id}`,
+        target: { kind: "project", projectId: project.id },
+        text,
+        delivery: "agent",
+        schedule,
+        timezone,
+        sessionMode: "fresh",
+        status: { state: "pending", runCount: 0 }
+      };
+      writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+      return json({ ok: true, created: filePath });
+    }
 
     const root = resolveTasksRoots().find((entry) => entry.channel === channel);
     if (!root || !botId || botId.includes("/") || botId.includes("..")) return json({ ok: false, error: "invalid task target" }, { status: 400 });
@@ -405,8 +493,9 @@ export const POST: RequestHandler = async ({ request }) => {
     }
 
     const taskRoots = resolveTasksRoots();
+    const projectRoots = resolveProjectTaskRoots();
     const resolvedPath = resolve(filePath);
-    if (!isTaskFilePath(resolvedPath, taskRoots)) {
+    if (!isTaskFilePath(resolvedPath, taskRoots, projectRoots)) {
       return json({ ok: false, error: "path_not_allowed" }, { status: 400 });
     }
     if (!existsSync(resolvedPath)) {
@@ -425,12 +514,21 @@ export const POST: RequestHandler = async ({ request }) => {
     if (current.managed?.by === "molibot") {
       return json({ ok: false, error: "system_task_managed" }, { status: 400 });
     }
+    const pathContext = inferTaskContextFromPath(resolvedPath, taskRoots);
+    if (
+      !pathContext
+      || (current.target?.kind === "project" && current.target.projectId !== pathContext.projectId)
+      || (pathContext.projectId && current.target?.kind !== "project")
+    ) {
+      return json({ ok: false, error: "task_target_mismatch" }, { status: 400 });
+    }
 
     if (current.type !== "one-shot" && current.type !== "periodic" && current.type !== "immediate") {
       return json({ ok: false, error: "unsupported_task_type" }, { status: 400 });
     }
 
     const next: RawEventTask = { ...current };
+    const isProjectTask = current.target?.kind === "project";
 
     if (patch.enabled !== undefined) {
       if (typeof patch.enabled !== "boolean") {
@@ -452,6 +550,9 @@ export const POST: RequestHandler = async ({ request }) => {
         return json({ ok: false, error: "delivery must be text or agent" }, { status: 400 });
       }
       next.delivery = normalizedDelivery;
+      if (isProjectTask && normalizedDelivery !== "agent") {
+        return json({ ok: false, error: "Project tasks must use agent delivery" }, { status: 400 });
+      }
     }
 
     if (current.type === "one-shot") {
@@ -493,6 +594,9 @@ export const POST: RequestHandler = async ({ request }) => {
       } else {
         next.sessionMode = sm;
       }
+      if (isProjectTask && sm !== "fresh") {
+        return json({ ok: false, error: "Project tasks must use fresh sessions" }, { status: 400 });
+      }
     }
 
     if (!next.text?.trim()) {
@@ -523,6 +627,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const taskRoots = resolveTasksRoots();
+  const projectRoots = resolveProjectTaskRoots();
 
   if (body.action === "mark_read") {
     const updated: string[] = [];
@@ -530,7 +635,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     for (const filePath of requestedPaths) {
       const resolvedPath = resolve(filePath);
-      if (!isTaskFilePath(resolvedPath, taskRoots)) {
+      if (!isTaskFilePath(resolvedPath, taskRoots, projectRoots)) {
         failed.push({ filePath: resolvedPath, reason: "path_not_allowed" });
         continue;
       }
@@ -555,7 +660,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     for (const filePath of requestedPaths) {
       const resolvedPath = resolve(filePath);
-      if (!isTaskFilePath(resolvedPath, taskRoots)) {
+      if (!isTaskFilePath(resolvedPath, taskRoots, projectRoots)) {
         failed.push({ filePath: resolvedPath, reason: "path_not_allowed" });
         continue;
       }
@@ -595,7 +700,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     for (const filePath of requestedPaths) {
       const resolvedPath = resolve(filePath);
-      if (!isTaskFilePath(resolvedPath, taskRoots)) {
+      if (!isTaskFilePath(resolvedPath, taskRoots, projectRoots)) {
         failed.push({ filePath: resolvedPath, reason: "path_not_allowed" });
         continue;
       }
@@ -612,7 +717,15 @@ export const POST: RequestHandler = async ({ request }) => {
           continue;
         }
 
-        const item = toTaskItem(parsed, context.channel, context.botId, context.chatId, context.scope, resolvedPath);
+        const item = toTaskItem(
+          parsed,
+          context.channel,
+          context.botId,
+          context.chatId,
+          context.scope,
+          resolvedPath,
+          context.projectId ? { id: context.projectId, name: context.projectName ?? context.projectId } : undefined
+        );
         if (!item) {
           failed.push({ filePath: resolvedPath, reason: "invalid_task_payload" });
           continue;
@@ -623,18 +736,25 @@ export const POST: RequestHandler = async ({ request }) => {
         }
 
         const isOwnerInternal = item.channel === SYSTEM_TASK_CHANNEL && parsed.execution === "internal";
-        const manager = isOwnerInternal ? undefined : runtime.channelManagers.get(item.channel)?.get(item.botId);
+        const isProjectTask = item.channel === "project" && parsed.target?.kind === "project";
+        const manager = isOwnerInternal
+          ? undefined
+          : isProjectTask
+            ? Array.from(runtime.channelManagers.get("web")?.values() ?? []).find((entry) => typeof entry.triggerProjectTask === "function")
+            : runtime.channelManagers.get(item.channel)?.get(item.botId);
         if (!isOwnerInternal && !manager) {
           failed.push({ filePath: resolvedPath, reason: `${item.channel}_manager_not_found:${item.botId}` });
           continue;
         }
-        if (!isOwnerInternal && typeof manager?.triggerTask !== "function") {
+        if (!isOwnerInternal && !isProjectTask && typeof manager?.triggerTask !== "function") {
           failed.push({ filePath: resolvedPath, reason: `${item.channel}_trigger_not_supported` });
           continue;
         }
         const dispatch = async (eventForRun: MomEvent): Promise<void> => {
           if (isOwnerInternal) {
             await runtime.runInternalEvent(eventForRun, item.filename);
+          } else if (isProjectTask) {
+            await dispatchProjectTaskEvent(eventForRun, item.filename, item.projectId, manager!);
           } else if (eventForRun.execution === "internal") {
             await dispatchTaskEvent(eventForRun, item.filename, manager!, runtime.runInternalEvent);
           } else {
@@ -646,7 +766,7 @@ export const POST: RequestHandler = async ({ request }) => {
           const taskId = String(parsed.taskId ?? item.taskId ?? "").trim() || createRuntimeTaskId();
           parsed.taskId = taskId;
           writeFileSync(resolvedPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-          const leaseScope = `${item.channel}:${item.botId}`;
+          const leaseScope = isProjectTask ? `project:${item.projectId}` : `${item.channel}:${item.botId}`;
           const triggerSlot = `manual:${Date.now()}`;
           const runId = `${item.filename}:${triggerSlot}:${Math.random().toString(36).slice(2, 8)}`;
           const store = getEventExecutionLeaseStore();

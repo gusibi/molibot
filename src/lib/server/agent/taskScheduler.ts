@@ -10,6 +10,8 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryReflectionNotificationTarget } from "$lib/server/settings/schema.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
 import type { MemoryCandidateReview, MemoryReviewBatch } from "$lib/server/memory/review.js";
+import { getProjectStore } from "$lib/server/projects/store.js";
+import { projectWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
 
 export interface InternalTaskExecutionResult {
   notificationText?: string;
@@ -45,6 +47,24 @@ export async function dispatchTaskEvent(
   }
   if (typeof manager.triggerTask !== "function") throw new Error("Channel manager does not support scheduled tasks.");
   await manager.triggerTask(event, filename);
+}
+
+export async function dispatchProjectTaskEvent(
+  event: MomEvent,
+  filename: string,
+  projectId: string,
+  manager: ChannelManager
+): Promise<void> {
+  if (event.target?.kind !== "project" || event.target.projectId !== projectId) {
+    throw new Error("Project task target does not match its watched Project.");
+  }
+  if (event.type !== "periodic" || event.delivery !== "agent" || event.sessionMode !== "fresh") {
+    throw new Error("Project tasks must be periodic Agent runs with fresh Session mode.");
+  }
+  if (typeof manager.triggerProjectTask !== "function") {
+    throw new Error("Project task runtime is not available.");
+  }
+  await manager.triggerProjectTask(event, filename);
 }
 
 function allowedChatIds(channel: string, botId: string, allowed: string[] = []): string[] {
@@ -361,7 +381,11 @@ export class TaskScheduler {
 
   constructor(
     private readonly runInternalEvent?: (event: import("$lib/server/agent/events.js").MomEvent, filename: string) => Promise<InternalTaskExecutionResult | void>,
-    private readonly onInternalEventSkipped?: (event: import("$lib/server/agent/events.js").MomEvent, filename: string, reason: string) => void
+    private readonly onInternalEventSkipped?: (event: import("$lib/server/agent/events.js").MomEvent, filename: string, reason: string) => void,
+    private readonly projectTasks: {
+      list: () => Array<{ id: string; name: string }>;
+      workspaceDir: (projectId: string) => string;
+    } = { list: () => getProjectStore().list(), workspaceDir: projectWorkspaceDir }
   ) {}
 
   start(channelManagers: Map<string, Map<string, ChannelManager>>, settings?: RuntimeSettings): void {
@@ -393,6 +417,41 @@ export class TaskScheduler {
     ownerWatcher.start();
     this.watchers.push(ownerWatcher);
     started.push(`${SYSTEM_TASK_CHANNEL}/${SYSTEM_TASK_OWNER_ID}`);
+
+    const projectTaskManager = Array.from(channelManagers.get("web")?.values() ?? [])
+      .find((manager) => typeof manager.triggerProjectTask === "function");
+    if (projectTaskManager) {
+      for (const project of this.projectTasks.list()) {
+        const eventsDir = join(this.projectTasks.workspaceDir(project.id), "events");
+        mkdirSync(eventsDir, { recursive: true });
+        const watcher = new EventsWatcher(
+          eventsDir,
+          (event, filename) => dispatchProjectTaskEvent(event, filename, project.id, projectTaskManager),
+          {
+            channel: "project",
+            leaseScope: `project:${project.id}`,
+            getExecutionSettings: () => settings?.events ?? {
+              executionTimeoutMs: 600_000,
+              maxAttempts: 3,
+              retryDelayMs: 5000
+            },
+            onTimeout: ({ event, runId }) => {
+              momWarn("taskScheduler", "project_event_timeout_abort_requested", {
+                projectId: project.id,
+                taskId: event.taskId,
+                runId
+              });
+              projectTaskManager.abortProjectTaskRun?.(runId, "Scheduled Project event attempt timed out.");
+            }
+          }
+        );
+        watcher.start();
+        this.watchers.push(watcher);
+        started.push(`project/${project.id}`);
+      }
+    } else {
+      momWarn("taskScheduler", "project_task_manager_missing", {});
+    }
 
     for (const { channel, dir } of TASK_CHANNEL_ROOTS) {
       const botsRoot = channel === "web"

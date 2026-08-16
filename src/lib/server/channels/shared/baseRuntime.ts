@@ -19,7 +19,7 @@ import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
-import { momLog, momWarn } from "$lib/server/agent/common/log.js";
+import { createRunId, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { SharedRuntimeCommandService, type SharedRuntimeCommandOptions } from "$lib/server/agent/commands/channelCommands.js";
 import { buildTextChannelContext, type ChannelResponseHandle, type ContextSentMessageRef } from "$lib/server/channels/shared/contextBuilder.js";
 import type { ChannelInboundMessage, DurableAttemptHooks, DurableAttemptResult, RunResult, RunnerUiEvent } from "$lib/server/agent/core/types.js";
@@ -31,7 +31,7 @@ import {
 import { ChannelQueue } from "$lib/server/channels/shared/queue.js";
 import type { PromptChannel } from "$lib/server/agent/prompts/prompt-channel.js";
 import type { Channel } from "$lib/shared/types/message.js";
-import { getProjectStore } from "$lib/server/projects/store.js";
+import { getProjectStore, validateProjectRootPath } from "$lib/server/projects/store.js";
 import { ProjectAwareRunnerPool } from "$lib/server/channels/shared/projectRunnerRouter.js";
 import {
   activateDurableExecution,
@@ -97,6 +97,7 @@ export abstract class BaseChannelRuntime {
   protected readonly chatQueues = new Map<string, ChannelQueue>();
   protected readonly running = new Set<string>();
   protected readonly inboundDedupe = new Map<string, number>();
+  private readonly projectTaskRuns = new Map<string, { pool: RunnerPool; chatId: string; sessionId: string }>();
 
   protected constructor(init: BaseChannelRuntimeInit) {
     const runtimeOptions = init.options;
@@ -139,6 +140,69 @@ export abstract class BaseChannelRuntime {
       memory: runtimeOptions.memory,
       hookManager: runtimeOptions.hookManager
     });
+  }
+
+  /**
+   * App-only Project automation executor. The scheduler selects the local Web
+   * runtime as its driver, but all orchestration stays in this shared runtime
+   * layer and the response handle deliberately performs no Channel delivery.
+   */
+  async triggerProjectTask(event: unknown, filename: string): Promise<void> {
+    const task = event as MomEvent;
+    const projectId = task?.target?.kind === "project" ? String(task.target.projectId ?? "").trim() : "";
+    if (
+      !projectId
+      || task.type !== "periodic"
+      || task.delivery !== "agent"
+      || resolveEventSessionMode(task) !== "fresh"
+      || typeof task.chatId !== "string"
+      || typeof task.text !== "string"
+    ) {
+      throw new Error("Invalid Project task payload");
+    }
+    const project = getProjectStore().get(projectId);
+    if (!project) throw new Error("Project task target not found");
+    const rootValidation = validateProjectRootPath(project.rootPath);
+    if (!rootValidation.ok) throw new Error(`Project task target is unavailable: ${rootValidation.reason}`);
+
+    const syntheticMessageId = Date.now();
+    const runId = task.status?.runId ?? createRunId(task.chatId, syntheticMessageId);
+    const synthetic: ChannelInboundMessage = {
+      chatId: task.chatId,
+      chatType: "private",
+      messageId: syntheticMessageId,
+      userId: "EVENT",
+      userName: "EVENT",
+      text: `[EVENT:${filename}:${task.type}:${task.schedule}] ${task.text}`,
+      ts: (Date.now() / 1000).toFixed(6),
+      attachments: [],
+      imageContents: [],
+      isEvent: true,
+      taskId: task.taskId,
+      projectId,
+      sessionMode: "fresh",
+      runId
+    };
+
+    try {
+      await this.runSharedTextTask<{ messageId: number }>(task.chatId, synthetic, {
+        createBotMessageId: () => Date.now(),
+        response: {
+          sendText: async () => ({ messageId: Date.now() }),
+          respondInThread: async () => undefined
+        },
+        onTargetResolved: (target) => {
+          this.projectTaskRuns.set(runId, { pool: target.pool, chatId: target.chatId, sessionId: target.sessionId });
+        }
+      });
+    } finally {
+      this.projectTaskRuns.delete(runId);
+    }
+  }
+
+  abortProjectTaskRun(runId: string): { aborted: boolean } {
+    const target = this.projectTaskRuns.get(String(runId ?? "").trim());
+    return { aborted: target ? target.pool.abort(target.chatId, target.sessionId) : false };
   }
 
   protected markInboundMessageSeen(chatId: string, rawMessageId: string): boolean {
@@ -561,6 +625,7 @@ export abstract class BaseChannelRuntime {
       deleteWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["deleteWithoutHandle"];
       uploadWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["uploadWithoutHandle"];
       onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+      onTargetResolved?: (target: ReturnType<ProjectAwareRunnerPool["resolveTarget"]>) => void;
       onToolSideEffectPreflight?: DurableAttemptHooks["onToolSideEffectPreflight"];
       onToolSideEffectReceipt?: DurableAttemptHooks["onToolSideEffectReceipt"];
       onApprovalRequest?: DurableAttemptHooks["onApprovalRequest"];
@@ -610,7 +675,16 @@ export abstract class BaseChannelRuntime {
     this.running.add(scopeId);
 
     const target = this.runners.resolveTarget(scopeId, activeSessionId, event.projectId);
+    if (event.projectId && target.project?.id !== event.projectId) {
+      this.running.delete(scopeId);
+      restorePreviousActiveSession();
+      throw new Error("Explicit Project runtime target is unavailable.");
+    }
     const selectedProject = target.project;
+    if (event.runId && target.conversationId) {
+      getEventExecutionLeaseStore().attachSessionByRunId(event.runId, target.conversationId);
+    }
+    options.onTargetResolved?.(target);
 
     this.appendConversationMessage(
       this.channelName,

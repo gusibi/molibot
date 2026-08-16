@@ -414,7 +414,7 @@ export interface DesktopHostBashToggleResponse {
 
 export type DesktopTaskType = "one-shot" | "periodic" | "immediate";
 export type DesktopTaskState = "pending" | "running" | "completed" | "skipped" | "error";
-export type DesktopTaskCategory = "user" | "system";
+export type DesktopTaskCategory = "user" | "project" | "system";
 
 export interface DesktopTaskItem {
   id: string;
@@ -423,6 +423,8 @@ export interface DesktopTaskItem {
   systemKind: "memory-reflection" | "daily-materials" | "";
   channel: string;
   botId: string;
+  projectId: string;
+  projectName: string;
   chatId: string;
   scope: "workspace" | "chat-scratch";
   type: DesktopTaskType;
@@ -459,13 +461,26 @@ export interface DesktopTaskItem {
   active: boolean;
 }
 
-export interface DesktopTaskTarget {
+export interface DesktopChannelTaskTarget {
+  kind: "channel";
   channel: string;
   botId: string;
   chatId: string;
   scope: "workspace" | "chat-scratch";
   botDisplayName?: string;
 }
+
+export interface DesktopProjectTaskTarget {
+  kind: "project";
+  channel: "project";
+  botId: "";
+  chatId: string;
+  scope: "workspace";
+  projectId: string;
+  projectName: string;
+}
+
+export type DesktopTaskTarget = DesktopChannelTaskTarget | DesktopProjectTaskTarget;
 
 export type DesktopTaskExecutionStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped" | "interrupted";
 

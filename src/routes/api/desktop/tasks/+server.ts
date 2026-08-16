@@ -1,10 +1,12 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { buildDesktopSystemTaskExecution, buildDesktopTaskSessionMessages, buildDesktopTaskSummary, desktopTaskId, resolveDesktopOneShotTaskPaths, resolveDesktopTaskPaths, type DesktopTaskExecutionLoader } from "$lib/server/app/desktopTasks";
-import type { DesktopTaskActionRequest, DesktopTaskActionResponse, DesktopTaskResponse } from "$lib/shared/desktop";
+import type { DesktopTaskActionRequest, DesktopTaskActionResponse, DesktopTaskResponse, DesktopTaskTarget } from "$lib/shared/desktop";
 import { resolve } from "node:path";
 import { MomRuntimeStore } from "$lib/server/agent/session/store";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
+import { getRuntime } from "$lib/server/app/runtime";
+import { projectRuntimeWorkspaceDir } from "$lib/server/projects/runtimeCache";
 
 // The shared tasks route's GET handler reads task files and returns the full
 // (credential-bearing) item list. It ignores its RequestEvent argument, so we
@@ -15,7 +17,7 @@ import { GET as listTasks, POST as manageTasks } from "../../settings/tasks/+ser
 interface SharedTaskListResponse {
   ok: true;
   items: unknown[];
-  targets?: Array<{ channel: string; botId: string; chatId: string; scope: "workspace" | "chat-scratch" }>;
+  targets?: DesktopTaskTarget[];
 }
 
 function projectExecutions(taskId: string, limit: number, offset = 0) {
@@ -131,6 +133,26 @@ export const POST: RequestHandler = async ({ request }) => {
             sessionId: execution.sessionId,
             messages: [],
             execution: buildDesktopSystemTaskExecution(execution)
+          }
+        };
+        return json(response);
+      }
+      if (item.projectId) {
+        const conversation = getRuntime().sessions.getProjectConversation(item.projectId, execution.sessionId);
+        if (!conversation) throw new Error("Project automation session not found");
+        const store = new MomRuntimeStore(projectRuntimeWorkspaceDir(item.projectId));
+        const messages = buildDesktopTaskSessionMessages(
+          store.loadContextForRun(conversation.externalUserId, execution.sessionId, execution.runId)
+        );
+        const response: DesktopTaskActionResponse = {
+          ok: true,
+          summary: buildSummary(before),
+          affected: [],
+          failed: [],
+          session: {
+            taskId: item.taskId ?? "",
+            sessionId: execution.sessionId,
+            messages
           }
         };
         return json(response);

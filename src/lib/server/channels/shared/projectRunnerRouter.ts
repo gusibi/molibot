@@ -35,8 +35,9 @@ export interface ResolvedRunnerTarget {
  * context (`<dataRoot>/projects/<id>/runtime/<conversationKey>/contexts/<conversationId>.json`)
  * with the Desktop app. Unbound scopes keep using the bot-local pool.
  *
- * Automation task sessions (current `t-*`, legacy `task-*`) always stay on the bot pool so scheduled
- * runs never leak into the project session list.
+ * Channel/Bot automation task sessions (current `t-*`, legacy `task-*`) stay
+ * on the bot pool unless the caller supplies an explicit Project target.
+ * Explicit Project automations use hidden `origin: automation` conversations.
  */
 export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
   private readonly touchedProjectPools = new Map<string, RunnerPool>();

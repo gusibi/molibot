@@ -214,6 +214,13 @@ test("buildDesktopTaskItem classifies explicit Molibot managed events as system 
   assert.equal(buildDesktopTaskItem(item()).category, "user");
 });
 
+test("buildDesktopTaskItem classifies Project targets separately from Channel automations", () => {
+  const project = buildDesktopTaskItem(item({ projectId: "work", projectName: "Work" }));
+  assert.equal(project.category, "project");
+  assert.equal(project.projectId, "work");
+  assert.equal(project.projectName, "Work");
+});
+
 test("buildDesktopTaskSummary exposes periodic and one-shot tasks but excludes immediate diagnostics", () => {
   const summary = buildDesktopTaskSummary([
     item({ type: "periodic", status: "pending", scope: "workspace", channel: "telegram" }),
@@ -249,13 +256,14 @@ test("task targets include enabled Web profiles and external Bot allowed chat id
     }
   } as unknown as Parameters<typeof buildDesktopTaskTargets>[0];
 
-  const targets = buildDesktopTaskTargets(settings);
+  const targets = buildDesktopTaskTargets(settings, [{ id: "work", name: "Work" }]);
 
   assert.deepEqual(targets, [
-    { channel: "feishu", botId: "office", chatId: "oc_group__thread_topic", scope: "workspace", botDisplayName: "Office Bot" },
-    { channel: "telegram", botId: "news", chatId: "-5296983178", scope: "workspace", botDisplayName: "News Bot" },
-    { channel: "telegram", botId: "news", chatId: "7706709760", scope: "workspace", botDisplayName: "News Bot" },
-    { channel: "web", botId: "default", chatId: "web:default:web-anonymous", scope: "workspace", botDisplayName: "Default Web" }
+    { kind: "channel", channel: "feishu", botId: "office", chatId: "oc_group__thread_topic", scope: "workspace", botDisplayName: "Office Bot" },
+    { kind: "project", channel: "project", botId: "", chatId: "project:work", scope: "workspace", projectId: "work", projectName: "Work" },
+    { kind: "channel", channel: "telegram", botId: "news", chatId: "-5296983178", scope: "workspace", botDisplayName: "News Bot" },
+    { kind: "channel", channel: "telegram", botId: "news", chatId: "7706709760", scope: "workspace", botDisplayName: "News Bot" },
+    { kind: "channel", channel: "web", botId: "default", chatId: "web:default:web-anonymous", scope: "workspace", botDisplayName: "Default Web" }
   ]);
   assert.equal(JSON.stringify(targets).includes("should-not-appear"), false);
   assert.equal(JSON.stringify(targets).includes("web-chat"), false);

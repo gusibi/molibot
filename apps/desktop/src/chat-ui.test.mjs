@@ -842,8 +842,9 @@ test("project settings dialog hands the height budget to a scrollable body", () 
   assert.match(styles, /\.project-settings-form \{[^}]*flex-direction: column/s);
   assert.match(styles, /\.project-settings-body \{[^}]*overflow-y: auto/s);
   assert.match(styles, /\.project-settings-body \{[^}]*min-height: 0/s);
-  // A modal footer is a modal footer, not the settings page's sticky footbar.
-  assert.doesNotMatch(projectSettingsDialog, /settings-footbar/);
+  // Project settings uses the shared fixed footbar contract so save/cancel stay
+  // reachable while the General form scrolls.
+  assert.match(projectSettingsDialog, /settings-footbar project-settings-foot/);
   assert.match(styles, /\.project-settings-foot \{[^}]*flex: none/s);
   // Commands render as one grouped macOS list — a single card with hairline
   // separated rows — using the documented radii and control tokens, not ad-hoc
@@ -1005,7 +1006,7 @@ test("issue 8 chat polish stays wired across shared Chat and Project surfaces", 
 test("Project settings exposes inherited model and thinking defaults in a fixed footbar", () => {
   assert.match(projectSettingsDialog, /projectDefaultModel/);
   assert.match(projectSettingsDialog, /projectFollowGlobal/);
-  assert.match(projectSettingsDialog, /class="project-settings-foot"/);
+  assert.match(projectSettingsDialog, /class="settings-footbar project-settings-foot"/);
   // Project chat resolves each session's model per-session (override → project →
   // global) and feeds it to the pinned controller via the runtime store.
   assert.match(projectChat, /function resolveSessionModel/);
@@ -1750,7 +1751,7 @@ test("automation status chips follow Geist tokens and stay legible in CJK", () =
 test("automation workspace keeps each task in a bounded card while retaining task details", () => {
   const workspacePane = read("./lib/chat/ChatWorkspacePane.svelte");
   assert.match(workspacePane, /<TasksSection presentation="workspace"/);
-  assert.match(sections.tasks, /presentation\?: "settings" \| "workspace"/);
+  assert.match(sections.tasks, /presentation\?: "settings" \| "workspace" \| "project"/);
   assert.match(sections.tasks, /class="automation-workspace-layout"/);
   assert.match(sections.tasks, /class="automation-task-row"/);
   assert.match(sections.tasks, /class="automation-task-detail"/);
@@ -1759,15 +1760,26 @@ test("automation workspace keeps each task in a bounded card while retaining tas
   assert.match(styles, /\.automation-task-row\s*\{[^}]*border:\s*1px solid var\(--separator\)[^}]*border-radius:\s*var\(--rounded-md\)[^}]*background:\s*var\(--card-bg\)/s);
 });
 
-test("automation workspace separates user and system tasks with accessible tabs", () => {
+test("automation workspace separates user, Project, one-shot, and system tasks with accessible tabs", () => {
   assert.match(sections.tasks, /role="tablist"/);
   assert.match(sections.tasks, /session\.text\.tasksUserTab/);
+  assert.match(sections.tasks, /session\.text\.tasksProjectTab/);
   assert.match(sections.tasks, /session\.text\.tasksOneShotTab/);
   assert.match(sections.tasks, /markOneShotTasksRead/);
   assert.match(sections.tasks, /session\.text\.tasksSystemTab/);
   assert.match(sections.tasks, /item\.category === activeTaskView/);
   assert.match(styles, /\.automation-category-tabs\s*\{/s);
   assert.match(styles, /\.automation-category-tab\.active\s*\{/s);
+});
+
+test("Project settings reuses the automation workspace behind a locked Project tab", () => {
+  assert.match(projectSettingsDialog, /role="tablist"/);
+  assert.match(projectSettingsDialog, /copy\.projectGeneralTab/);
+  assert.match(projectSettingsDialog, /copy\.projectAutomationsTab/);
+  assert.match(projectSettingsDialog, /<TasksSection projectId=\{project\.id\} presentation="project"/);
+  assert.match(sections.tasks, /if \(projectId\) return item\.category === "project" && item\.projectId === projectId/);
+  assert.match(sections.tasks, /tasksStore\.taskCreate\.kind !== "project"/);
+  assert.match(projectSettingsDialog, /class="settings-footbar project-settings-foot"/);
 });
 
 // Pitfall 16 family, on the header instead of the panels: the segmented control

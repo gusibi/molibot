@@ -43,5 +43,7 @@ export const DELETE: RequestHandler = ({ params, url }) => {
     fs.rmSync(target, { recursive: true, force: true });
   }
   getProjectStore().remove(project.id);
+  const runtime = getRuntime();
+  runtime.taskScheduler.restart(runtime.channelManagers, runtime.getSettings());
   return json({ ok: true });
 };

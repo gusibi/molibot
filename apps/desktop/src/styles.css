@@ -4383,9 +4383,13 @@ select.provider-input { padding-right: 6px; }
    between it and the body, so it must pass the height budget down (flex column,
    `min-height: 0`) or the body never becomes the scroller and the tail of the
    settings is simply clipped (issue #28). */
-.project-settings-form { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
+.project-settings-form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; }
+.project-settings-tabs { display: flex; flex: none; gap: 4px; padding: 0 16px; border-bottom: 0.5px solid var(--separator); }
+.project-settings-tabs button { border: 0; border-bottom: 2px solid transparent; padding: 10px 12px; color: var(--label-secondary); background: transparent; font: inherit; cursor: pointer; }
+.project-settings-tabs button.active { border-bottom-color: var(--accent); color: var(--label-primary); }
+.project-settings-automations { min-height: 0; flex: 1 1 auto; overflow: auto; }
 .project-settings-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-top: 16px; }
-.project-settings-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 0.5px solid var(--separator); background: var(--footbar-bg); }
+.project-settings-foot { position: static; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 0; padding: 12px 16px; border-top: 0.5px solid var(--separator); background: var(--footbar-bg); }
 .project-settings-foot-label { min-width: 0; overflow: hidden; color: var(--label-secondary); font-size: var(--fs-meta); text-overflow: ellipsis; white-space: nowrap; }
 .project-settings-foot-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 /* Project settings is a dense AppKit-style inspector. Keep focus visible, but

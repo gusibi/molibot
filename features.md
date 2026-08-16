@@ -6,6 +6,14 @@
 
 ## 2026-08-16
 
+### Project 自动任务（已完成，P0）
+
+- Project 成为现有 `periodic` Runtime Task 的一级执行目标：任务落在 Project workspace 的 watched `events/` JSON 目录，调度器和“立即运行”共用同一个 Project dispatcher、执行租约与超时停止链路，不新增数据库、OS scheduler 或 Channel 层编排。
+- 每次触发复用现有 `fresh` 任务归档语义并进入 Project Runtime，运行时读取 Project 当前 root、规则、Agent、Skills、Memory、模型、Sandbox 和 Workspace；执行结果、runId、Session 与 transcript 只留在 APP，自动化会话不进入普通 Project 会话树，也不向任何 Bot/Channel 出站。
+- Desktop 全局自动任务新增 Project 分类；Project 设置新增“常规 / 自动任务”Tabs。两处复用同一列表、编辑器、计划构建器、启停/删除/立即运行、执行历史和 transcript，Project 内入口锁定目标且只允许 Agent + `fresh`。
+- Project 新建/删除会重启共享 task watcher 注册；Project 删除后孤儿目录不再参与发现或调度，是否移除 Project workspace 继续遵守既有 `removeSessions` 选择且永不删除工作目录。
+- 验证：临时 dataDir + SQLite 的 Project CRUD/发现/手动 dispatcher 回归、Project Runtime 路由与隐藏 automation Session 回归、调度 target 守卫及 Desktop 投影共 120/120；Desktop UI 结构测试 207/207；Desktop `svelte-check` 0/0；Root 与 Desktop production build 通过。真实冷启动走查已验证全局 Project 分类、Project Settings → 自动任务、Project 内锁定目标及全局 Project 选择器，临时测试数据已清理。
+
 ### MD Preview 内置小程序（Markdown 预览 + 公众号复制 + R2 图床，P1）
 
 - **Icon 视觉升级**：更新 `ui/icon.svg` 为立体双色暖橙圆形徽章（`#FB8C00` 活力橙基底 + 右侧 `#E65100` 深橙半弧阴影 + 放大清晰版 `#FFE0B2` 浅橙 Markdown `M↓` 专有符号），在保持与 `meeting-notes` / `note` / `mini-chat` 相同设计质感的同时，独立于 `todo` 的方形卡片造型。

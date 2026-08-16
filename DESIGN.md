@@ -500,6 +500,11 @@ block, status color, and sidebar tint must resolve through the same family block
 
 - Settings use a stable sidebar, one shared PageHeader with title and description,
   centered SettingGroups, and a fixed `.settings-footbar` whenever changes can be saved.
+- When one settings concept is available globally and inside an entity inspector
+  (for example Project automations), both entries reuse the same list, editor,
+  schedule builder, history, status, and confirmation components. The entity entry
+  is a tab with a locked target; its mutations stay independent from the General
+  settings form and only the General tab owns that form's fixed save footer.
 - Settings and Chat use the native macOS sidebar material, not a WebView imitation.
   Both windows are transparent and apply the system `sidebar` window effect; the WebView
   root and layout stay transparent while the right content pane remains opaque. The

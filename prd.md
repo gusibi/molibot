@@ -5,6 +5,15 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 3.93 Project 自动任务（2026-08-16）
+
+- **Priority / Status**: P0 / Delivered (2026-08-16).
+- **Problem**: Runtime Task 目前只能绑定 Channel/Bot 或 Molibot 内部系统执行，无法原生进入 Project Runtime；用户不能让每日待办、邮件和工作进展总结稳定使用 Project root、工作规范、Skills、Memory、模型、Sandbox 与独立运行上下文，也无法保证结果只留在 App。
+- **Decision**: Project 成为现有 `periodic` Runtime Task 的一级执行目标，不新增任务类型、数据库或调度器。任务继续落 watched event JSON、复用现有 `fresh` Session 语义与执行租约；调度和“立即运行”共用共享 Project executor，执行时读取 Project 当前配置，结果只持久化到 App 可读取的 Project Runtime/执行记录，零 Channel 出站。Desktop 自动任务增加 Project 分类；Project 设置增加 General/Automations Tabs，并复用同一 CRUD、计划构建、历史和 transcript 展示。
+- **Acceptance**: 已交付。Project watched event 与“立即运行”经同一 dispatcher 和执行租约进入 Project Runtime，附着 fresh archive Session 并按 runId 读取 transcript；Web executor 只作为本地 Runtime driver，不产生 Bot/Channel 出站。临时 dataDir API CRUD/发现/触发、Project 路由与隐藏 automation Session、target 守卫、全局与 Project 双入口、中英 UI、类型检查、结构测试和生产构建已通过。
+- **Detailed PRD**: [Project 自动任务 PRD](docs/requirements/project-automations-prd.md).
+
+---
 ## 3.92 Agent 图像生成动态自定义引擎（2026-08-16）
 
 - **Priority / Status**: P1 / Delivered (2026-08-16).

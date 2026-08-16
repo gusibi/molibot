@@ -41,10 +41,10 @@
     cancelDeleteTask
   } from "../stores/tasks.svelte";
 
-  let { presentation = "settings", onUnreadChange = () => {} }: { presentation?: "settings" | "workspace"; onUnreadChange?: (count: number) => void } = $props();
+  let { presentation = "settings", projectId = "", onUnreadChange = () => {} }: { presentation?: "settings" | "workspace" | "project"; projectId?: string; onUnreadChange?: (count: number) => void } = $props();
 
   let selectedTaskId = $state("");
-  let activeTaskView = $state<"user" | "one-shot" | "system">("user");
+  let activeTaskView = $state<"user" | "project" | "one-shot" | "system">("user");
   let detailDragOffset = $state(0);
   let detailGesturePhase = $state<ManipulationSnapshot["phase"]>("idle");
   let detailGestureFrame = 0;
@@ -64,6 +64,10 @@
     }
   });
   let oneShotReadAttemptKey = $state("");
+
+  $effect(() => {
+    if (projectId) activeTaskView = "project";
+  });
 
   function stepDetailGesture(timestamp: number): void {
     const elapsed = detailGestureFrameAt ? timestamp - detailGestureFrameAt : 16;
@@ -142,12 +146,13 @@
 
 
   function matchesTaskView(item: DesktopTaskSummary["items"][number]): boolean {
+    if (projectId) return item.category === "project" && item.projectId === projectId && item.type === "periodic";
     if (activeTaskView === "one-shot") return item.category === "user" && item.type === "one-shot";
     return item.category === activeTaskView && item.type === "periodic";
   }
 
   const filteredTaskItems = $derived(
-    tasksStore.tasks?.items.filter((item) => matchesTaskView(item) && (!tasksStore.query.trim() || [taskTitle(item), item.text, item.channel, item.botId, item.chatId, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase()))) ?? []
+    tasksStore.tasks?.items.filter((item) => matchesTaskView(item) && (!tasksStore.query.trim() || [taskTitle(item), item.text, item.channel, item.botId, item.chatId, item.projectName, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase()))) ?? []
   );
 
   const oneShotTaskItems = $derived([...filteredTaskItems].sort((a, b) => {
@@ -159,6 +164,7 @@
 
   const taskCategoryCounts = $derived({
     user: tasksStore.tasks?.items.filter((item) => item.category === "user" && item.type === "periodic").length ?? 0,
+    project: tasksStore.tasks?.items.filter((item) => item.category === "project" && item.type === "periodic" && (!projectId || item.projectId === projectId)).length ?? 0,
     "one-shot": tasksStore.tasks?.items.filter((item) => item.category === "user" && item.type === "one-shot").length ?? 0,
     system: tasksStore.tasks?.items.filter((item) => item.category === "system" && item.type === "periodic").length ?? 0
   });
@@ -175,7 +181,14 @@
   const taskTargetGroups = $derived.by(() => {
     const groups = new Map<string, { key: string; label: string; options: Array<{ index: number; label: string }> }>();
     for (const [index, target] of (tasksStore.tasks?.targets ?? []).entries()) {
-      const key = `${target.channel}\n${target.botId}`;
+      if (projectId && (target.kind !== "project" || target.projectId !== projectId)) continue;
+      if (!projectId && activeTaskView === "project" && target.kind !== "project") continue;
+      if (!projectId && activeTaskView === "user" && target.kind !== "channel") continue;
+      const key = target.kind === "project" ? `project\n${target.projectId}` : `${target.channel}\n${target.botId}`;
+      if (target.kind === "project") {
+        groups.set(key, { key, label: `${session.text.tasksProjectTab} · ${target.projectName}`, options: [{ index, label: target.projectName }] });
+        continue;
+      }
       const channel = target.channel === "web"
         ? "Web"
         : externalChannelLabel(target.channel as "telegram" | "feishu" | "qq" | "weixin", session.locale);
@@ -186,7 +199,21 @@
     return [...groups.values()];
   });
 
-  const selectedTaskTargetGroup = $derived(tasksStore.taskCreate ? `${tasksStore.taskCreate.channel}\n${tasksStore.taskCreate.botId}` : "");
+  const selectedTaskTargetGroup = $derived(tasksStore.taskCreate
+    ? tasksStore.taskCreate.kind === "project"
+      ? `project\n${tasksStore.taskCreate.projectId}`
+      : `${tasksStore.taskCreate.channel}\n${tasksStore.taskCreate.botId}`
+    : "");
+
+  const projectTaskTargets = $derived((tasksStore.tasks?.targets ?? []).flatMap((target, index) =>
+    target.kind === "project" ? [{ index, projectId: target.projectId, label: target.projectName }] : []
+  ));
+
+  const selectedProjectTargetIndex = $derived.by(() => {
+    const draft = tasksStore.taskCreate;
+    if (!draft || draft.kind !== "project") return 0;
+    return Math.max(0, projectTaskTargets.findIndex((target) => target.projectId === draft.projectId));
+  });
 
   function selectTaskTargetGroup(key: string): void {
     const first = taskTargetGroups.find((group) => group.key === key)?.options[0];
@@ -238,10 +265,17 @@
     return task.text.split(/\r?\n/)[0] || task.text;
   }
 
-  function selectTaskCategory(category: "user" | "one-shot" | "system"): void {
+  function selectTaskCategory(category: "user" | "project" | "one-shot" | "system"): void {
     activeTaskView = category;
     selectedTaskId = "";
     tasksStore.selected = new Set();
+  }
+
+  function beginCreateForView(): void {
+    const targetProjectId = projectId || (activeTaskView === "project"
+      ? tasksStore.tasks?.targets.find((target) => target.kind === "project")?.projectId ?? ""
+      : "");
+    beginTaskCreate(targetProjectId);
   }
 
   function oneShotStatusText(task: DesktopTaskSummary["items"][number]): string {
@@ -302,13 +336,14 @@
 {:else}
   <!-- The bar owns the content-column alignment; the segmented control inside
        it stays `fit-content` so its single rounded fill hugs the segments. -->
-  <div class:workspace={presentation === "workspace"} class="automation-category-bar">
+  {#if !projectId}<div class:workspace={presentation === "workspace"} class="automation-category-bar">
     <div class="automation-category-tabs" role="tablist" aria-label={session.text.tasksCategories}>
       <button class:active={activeTaskView === "user"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskView === "user"} onclick={() => selectTaskCategory("user")}><i class="ph ph-arrows-clockwise" aria-hidden="true"></i><span>{session.text.tasksUserTab}</span><small>{taskCategoryCounts.user}</small></button>
+      <button class:active={activeTaskView === "project"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskView === "project"} onclick={() => selectTaskCategory("project")}><i class="ph ph-folder" aria-hidden="true"></i><span>{session.text.tasksProjectTab}</span><small>{taskCategoryCounts.project}</small></button>
       <button class:active={activeTaskView === "one-shot"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskView === "one-shot"} onclick={() => selectTaskCategory("one-shot")}><i class="ph ph-bell" aria-hidden="true"></i><span>{session.text.tasksOneShotTab}</span><small>{taskCategoryCounts["one-shot"]}</small></button>
       <button class:active={activeTaskView === "system"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskView === "system"} onclick={() => selectTaskCategory("system")}><i class="ph ph-cpu" aria-hidden="true"></i><span>{session.text.tasksSystemTab}</span><small>{taskCategoryCounts.system}</small></button>
     </div>
-  </div>
+  </div>{/if}
   {#if activeTaskView === "one-shot"}
     <section class="automation-workspace one-shot-workspace" aria-label={session.text.tasksOneShotTab}>
       <div class="automation-workspace-toolbar">
@@ -343,7 +378,7 @@
     <section class="automation-workspace" aria-label={session.text.tasks}>
       <div class="automation-workspace-toolbar">
         <SearchField value={tasksStore.query} label={session.text.tasksFilter} placeholder={session.text.tasksFilterHint} onInput={(value) => (tasksStore.query = value)} />
-        {#if activeTaskView === "user"}<button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>{/if}
+        {#if activeTaskView === "user" || activeTaskView === "project"}<button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || taskTargetGroups.length === 0} onclick={beginCreateForView}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>{/if}
         <div class="automation-workspace-summary" aria-label={session.text.tasksTotal}>
           <span><strong>{taskCategoryCounts[activeTaskView]}</strong>{session.text.tasksTotal}</span>
           <span><strong>{executionTotals.total}</strong>{session.text.tasksRunCount}</span>
@@ -378,12 +413,12 @@
                     {:else}
                       <button class="automation-run-button" type="button" disabled={!selectedTask.enabled || isTaskStarting(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void executeTaskAction("trigger", [selectedTask.id])}>{#if isTaskStarting(selectedTask.id)}<i class="ph ph-spinner-gap automation-spinner" aria-hidden="true"></i>{:else}<i class="ph-fill ph-play" aria-hidden="true"></i>{/if}{isTaskStarting(selectedTask.id) ? session.text.tasksStarting : session.text.tasksTrigger}</button>
                     {/if}
-                    {#if selectedTask.category === "user"}<OverflowMenu label={session.text.more}><button role="menuitem" type="button" disabled={isTaskRunning(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void setTaskEnabled(selectedTask.id, !selectedTask.enabled)}><i class={`ph ${selectedTask.enabled ? "ph-pause" : "ph-play"}`} aria-hidden="true"></i>{selectedTask.enabled ? session.text.tasksPause : session.text.tasksResume}</button><button role="menuitem" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(selectedTask)}><i class="ph ph-pencil-simple" aria-hidden="true"></i>{session.text.channelEdit}</button><button role="menuitem" class="danger-action" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([selectedTask.id])}><i class="ph ph-trash" aria-hidden="true"></i>{session.text.channelDelete}</button></OverflowMenu>{/if}
+                    {#if selectedTask.category !== "system"}<OverflowMenu label={session.text.more}><button role="menuitem" type="button" disabled={isTaskRunning(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void setTaskEnabled(selectedTask.id, !selectedTask.enabled)}><i class={`ph ${selectedTask.enabled ? "ph-pause" : "ph-play"}`} aria-hidden="true"></i>{selectedTask.enabled ? session.text.tasksPause : session.text.tasksResume}</button><button role="menuitem" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(selectedTask)}><i class="ph ph-pencil-simple" aria-hidden="true"></i>{session.text.channelEdit}</button><button role="menuitem" class="danger-action" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([selectedTask.id])}><i class="ph ph-trash" aria-hidden="true"></i>{session.text.channelDelete}</button></OverflowMenu>{/if}
                   </div>
                 </div>
                 <div>
                   <h2 id={`automation-task-${selectedTask.id}`}>{taskTitle(selectedTask)}</h2>
-                  <p>{selectedTask.category === "system" ? session.text.tasksSystemOwner : session.text.tasksUserOwner}</p>
+                  <p>{selectedTask.category === "system" ? session.text.tasksSystemOwner : selectedTask.category === "project" ? selectedTask.projectName : session.text.tasksUserOwner}</p>
                 </div>
               </header>
               <section class="automation-task-detail-copy" aria-label={session.text.tasksText}><span>{session.text.tasksText}</span><p>{selectedTask.text}</p></section>
@@ -399,7 +434,7 @@
                 <summary>{session.text.technicalDetails}</summary>
                 <dl>
                   <div><dt>{session.text.tasksTaskId}</dt><dd><code>{selectedTask.id}</code></dd></div>
-                  <div><dt>{session.text.tasksTarget}</dt><dd>{selectedTask.channel} / {selectedTask.botId} / {selectedTask.chatId}</dd></div>
+                  <div><dt>{session.text.tasksTarget}</dt><dd>{selectedTask.category === "project" ? selectedTask.projectName : `${selectedTask.channel} / ${selectedTask.botId} / ${selectedTask.chatId}`}</dd></div>
                   <div><dt>{session.text.tasksCustomCron}</dt><dd><code>{selectedTask.scheduleText}</code></dd></div>
                   <div><dt>{session.text.tasksTimezone}</dt><dd>{selectedTask.timezone}</dd></div>
                   <div><dt>{session.text.tasksDelivery}</dt><dd>{selectedTask.delivery}</dd></div>
@@ -432,14 +467,20 @@
       <form id="desktop-task-create-form" onsubmit={(event) => { event.preventDefault(); void saveTaskCreate(); }}>
         <header class="modal-head"><div><strong id="task-create-title">{session.text.tasksCreate}</strong><p id="task-create-hint">{session.text.tasksCreateHint}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.taskCreate = null)}><i class="ph ph-x"></i></button></header>
         <div class="modal-body task-editor-body">
-          <div class="task-target-picker">
+          {#if tasksStore.taskCreate.kind === "project" && projectId}<div class="task-target-picker">
+            <label class="settings-field"><span>{session.text.tasksProjectTarget}</span><input value={tasksStore.taskCreate.projectName} readonly /></label>
+            <small>{session.text.tasksProjectTargetHint}</small>
+          </div>{:else if tasksStore.taskCreate.kind === "project"}<div class="task-target-picker">
+            <label class="settings-field"><span>{session.text.tasksProjectTarget}</span><SelectControl value={String(selectedProjectTargetIndex)} ariaLabel={session.text.tasksProjectTarget} options={projectTaskTargets.map((target, index) => ({ value: String(index), label: target.label }))} onChange={(value) => selectTaskCreateTarget(projectTaskTargets[Number(value)]?.index ?? -1)} /></label>
+            <small>{session.text.tasksProjectTargetHint}</small>
+          </div>{:else if !projectId}<div class="task-target-picker">
             <label class="settings-field"><span>{session.text.tasksTargetBot}</span><SelectControl value={selectedTaskTargetGroup} ariaLabel={session.text.tasksTargetBot} options={taskTargetGroups.map((group) => ({ value: group.key, label: group.label }))} onChange={selectTaskTargetGroup} /></label>
             <label class="settings-field"><span>{session.text.tasksTargetConversation}</span><SelectControl value={String(Math.max(0, tasksStore.tasks.targets.findIndex((target) => target.channel === tasksStore.taskCreate?.channel && target.botId === tasksStore.taskCreate?.botId && target.chatId === tasksStore.taskCreate?.chatId && target.scope === tasksStore.taskCreate?.scope)))} ariaLabel={session.text.tasksTargetConversation} options={(taskTargetGroups.find((group) => group.key === selectedTaskTargetGroup)?.options ?? []).map((option) => ({ value: String(option.index), label: option.label }))} onChange={(value) => selectTaskCreateTarget(Number(value))} /></label>
             <small>{session.text.tasksTargetHint}</small>
-          </div>
+          </div>{/if}
           <label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskCreate.text}></textarea></label>
           <TaskScheduleBuilder bind:schedule={tasksStore.taskCreate.schedule} />
-          <div class="settings-form task-advanced-settings"><label class="settings-field"><span>{session.text.tasksTimezone}</span><SelectControl value={tasksStore.taskCreate.timezone} ariaLabel={session.text.tasksTimezone} options={[...(!timezoneOptions().includes(tasksStore.taskCreate.timezone) ? [{ value: tasksStore.taskCreate.timezone, label: tasksStore.taskCreate.timezone }] : []), ...timezoneOptions().map((tz) => ({ value: tz, label: tz }))]} onChange={(value) => tasksStore.taskCreate!.timezone = value} /></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><SelectControl value={tasksStore.taskCreate.delivery} ariaLabel={session.text.tasksDelivery} options={[{ value: "agent", label: session.text.tasksDeliveryAgent }, { value: "text", label: session.text.tasksDeliveryText }]} onChange={(value) => tasksStore.taskCreate!.delivery = value as "agent" | "text"} /></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><SelectControl value={tasksStore.taskCreate.sessionMode} ariaLabel={session.text.tasksSessionMode} options={[{ value: "fresh", label: session.text.tasksSessionFresh }, { value: "chat", label: session.text.tasksSessionChat }]} onChange={(value) => tasksStore.taskCreate!.sessionMode = value as "fresh" | "chat"} /></label></div>
+          <div class="settings-form task-advanced-settings"><label class="settings-field"><span>{session.text.tasksTimezone}</span><SelectControl value={tasksStore.taskCreate.timezone} ariaLabel={session.text.tasksTimezone} options={[...(!timezoneOptions().includes(tasksStore.taskCreate.timezone) ? [{ value: tasksStore.taskCreate.timezone, label: tasksStore.taskCreate.timezone }] : []), ...timezoneOptions().map((tz) => ({ value: tz, label: tz }))]} onChange={(value) => tasksStore.taskCreate!.timezone = value} /></label>{#if tasksStore.taskCreate.kind !== "project"}<label class="settings-field"><span>{session.text.tasksDelivery}</span><SelectControl value={tasksStore.taskCreate.delivery} ariaLabel={session.text.tasksDelivery} options={[{ value: "agent", label: session.text.tasksDeliveryAgent }, { value: "text", label: session.text.tasksDeliveryText }]} onChange={(value) => tasksStore.taskCreate!.delivery = value as "agent" | "text"} /></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><SelectControl value={tasksStore.taskCreate.sessionMode} ariaLabel={session.text.tasksSessionMode} options={[{ value: "fresh", label: session.text.tasksSessionFresh }, { value: "chat", label: session.text.tasksSessionChat }]} onChange={(value) => tasksStore.taskCreate!.sessionMode = value as "fresh" | "chat"} /></label>{/if}</div>
         </div>
         <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={() => (tasksStore.taskCreate = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskCreate.text.trim() || tasksStore.taskCreate.schedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy === "create" ? session.text.onboardingProviderSaving : session.text.tasksCreate}</button></footer>
       </form>
@@ -464,8 +505,8 @@
   {#if tasksStore.taskEdit}
     <Dialog open={Boolean(tasksStore.taskEdit)} busy={Boolean(tasksStore.busy)} contentClass="task-editor-modal" labelledBy="task-edit-title" onOpenChange={(next) => { if (!next) tasksStore.taskEdit = null; }}>
       <form id="desktop-task-form" aria-label={session.text.channelEdit} onsubmit={(event) => { event.preventDefault(); void saveTaskEditor(); }}>
-        <header class="modal-head"><div><strong id="task-edit-title">{session.text.channelEdit}</strong><p>{tasksStore.taskEdit.channel} / {tasksStore.taskEdit.botId}{tasksStore.taskEdit.chatId ? ` / ${tasksStore.taskEdit.chatId}` : ""}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}><i class="ph ph-x"></i></button></header>
-        <div class="modal-body task-editor-body"><label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskEdit.draftText}></textarea></label><TaskScheduleBuilder bind:schedule={tasksStore.taskEdit.draftSchedule} /><div class="settings-form task-advanced-settings"><label class="settings-field"><span>{session.text.tasksTimezone}</span><SelectControl value={tasksStore.taskEdit.draftTimezone} ariaLabel={session.text.tasksTimezone} options={[...(!timezoneOptions().includes(tasksStore.taskEdit.draftTimezone) ? [{ value: tasksStore.taskEdit.draftTimezone, label: tasksStore.taskEdit.draftTimezone }] : []), ...timezoneOptions().map((tz) => ({ value: tz, label: tz }))]} onChange={(value) => tasksStore.taskEdit!.draftTimezone = value} /></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><SelectControl value={tasksStore.taskEdit.draftDelivery} ariaLabel={session.text.tasksDelivery} options={[{ value: "agent", label: session.text.tasksDeliveryAgent }, { value: "text", label: session.text.tasksDeliveryText }]} onChange={(value) => tasksStore.taskEdit!.draftDelivery = value as "agent" | "text"} /></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><SelectControl value={tasksStore.taskEdit.draftSessionMode} ariaLabel={session.text.tasksSessionMode} options={[{ value: "fresh", label: session.text.tasksSessionFresh }, { value: "chat", label: session.text.tasksSessionChat }]} onChange={(value) => tasksStore.taskEdit!.draftSessionMode = value as "fresh" | "chat"} /></label></div></div>
+        <header class="modal-head"><div><strong id="task-edit-title">{session.text.channelEdit}</strong><p>{tasksStore.taskEdit.category === "project" ? tasksStore.taskEdit.projectName : `${tasksStore.taskEdit.channel} / ${tasksStore.taskEdit.botId}${tasksStore.taskEdit.chatId ? ` / ${tasksStore.taskEdit.chatId}` : ""}`}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}><i class="ph ph-x"></i></button></header>
+        <div class="modal-body task-editor-body"><label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskEdit.draftText}></textarea></label><TaskScheduleBuilder bind:schedule={tasksStore.taskEdit.draftSchedule} /><div class="settings-form task-advanced-settings"><label class="settings-field"><span>{session.text.tasksTimezone}</span><SelectControl value={tasksStore.taskEdit.draftTimezone} ariaLabel={session.text.tasksTimezone} options={[...(!timezoneOptions().includes(tasksStore.taskEdit.draftTimezone) ? [{ value: tasksStore.taskEdit.draftTimezone, label: tasksStore.taskEdit.draftTimezone }] : []), ...timezoneOptions().map((tz) => ({ value: tz, label: tz }))]} onChange={(value) => tasksStore.taskEdit!.draftTimezone = value} /></label>{#if tasksStore.taskEdit.category !== "project"}<label class="settings-field"><span>{session.text.tasksDelivery}</span><SelectControl value={tasksStore.taskEdit.draftDelivery} ariaLabel={session.text.tasksDelivery} options={[{ value: "agent", label: session.text.tasksDeliveryAgent }, { value: "text", label: session.text.tasksDeliveryText }]} onChange={(value) => tasksStore.taskEdit!.draftDelivery = value as "agent" | "text"} /></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><SelectControl value={tasksStore.taskEdit.draftSessionMode} ariaLabel={session.text.tasksSessionMode} options={[{ value: "fresh", label: session.text.tasksSessionFresh }, { value: "chat", label: session.text.tasksSessionChat }]} onChange={(value) => tasksStore.taskEdit!.draftSessionMode = value as "fresh" | "chat"} /></label>{/if}</div></div>
         <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskEdit.draftText.trim() || tasksStore.taskEdit.draftSchedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
       </form>
     </Dialog>

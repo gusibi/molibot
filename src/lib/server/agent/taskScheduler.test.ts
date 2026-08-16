@@ -9,6 +9,7 @@ import {
   deliverMemoryTaskNotification,
   deliverMemoryReviewBatch,
   dispatchTaskEvent,
+  dispatchProjectTaskEvent,
   ensureOwnerDailyMaterialsEvent,
   ensureOwnerMemoryMaintenanceEvent,
   ensureOwnerMemoryReflectionEvent,
@@ -55,6 +56,30 @@ test("internal memory reflection bypasses channel task delivery", async () => {
   await dispatchTaskEvent(event, "memory-reflection.json", { triggerTask: async () => { channelCalls += 1; } } as any, async () => { internalCalls += 1; });
   assert.equal(internalCalls, 1);
   assert.equal(channelCalls, 0);
+});
+
+test("Project task dispatch requires a matching Project target and uses only the Project executor", async () => {
+  const delivered: string[] = [];
+  const event: MomEvent = {
+    type: "periodic",
+    taskId: "task-project",
+    chatId: "project:work",
+    target: { kind: "project", projectId: "work" },
+    text: "Summarize today's work",
+    delivery: "agent",
+    sessionMode: "fresh",
+    schedule: "0 18 * * *",
+    timezone: "Asia/Shanghai"
+  };
+  await dispatchProjectTaskEvent(event, "periodic-work.json", "work", {
+    triggerProjectTask: async (_event, filename) => { delivered.push(filename); },
+    triggerTask: async () => { throw new Error("Channel delivery must not run"); }
+  } as any);
+  assert.deepEqual(delivered, ["periodic-work.json"]);
+  await assert.rejects(
+    () => dispatchProjectTaskEvent(event, "periodic-work.json", "other", { triggerProjectTask: async () => undefined } as any),
+    /does not match/
+  );
 });
 
 test("internal reflection sends one separate context-free notice only when requested", async () => {

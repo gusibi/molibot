@@ -6,6 +6,13 @@
 
 ## 2026-08-16
 
+### Added: Project-scoped scheduled automations
+
+- Projects can now own periodic automations that execute with the Project's current Agent context, workspace, rules, Skills, Memory, model, and Sandbox settings.
+- Project automation results stay inside the app: every trigger uses the existing fresh task-session semantics, records inspectable run history and transcript, and never sends through a Bot or external Channel.
+- The Desktop Automations workspace now includes a Project category, while Project Settings includes a locked Automations tab that reuses the same create, edit, schedule, run-now, pause, delete, history, and transcript flow.
+- Project events use the existing watched JSON/runtime lease system; Project creation and deletion refresh watcher registration, and deleting a Project prevents orphan task dispatch without deleting its working directory.
+
 ### Updated: MD Preview 内置小程序 Icon 视觉重构
 
 - 将 `md-preview` 的图标重构为暖橙色调立体双色圆形徽章（`#FB8C00` 活力橙基底 + 右侧 `#E65100` 深橙半弧阴影 + 居中精准对齐的 `#FFE0B2` 浅橙 Markdown `M↓` 专有标志），独立于 `todo` 的方形卡片造型，同时与 `note` / `meeting-notes` / `mini-chat` 保持统一的色彩丰富度与双层矢量设计语言。

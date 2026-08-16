@@ -69,8 +69,12 @@ export const tasksStore = $state({
   actionMessage: ""
 });
 
-export function beginTaskCreate(): void {
-  const target = tasksStore.tasks?.targets[0] ?? { channel: "telegram", botId: "", chatId: "", scope: "workspace" as const };
+export function beginTaskCreate(projectId = ""): void {
+  const target = (projectId
+    ? tasksStore.tasks?.targets.find((item) => item.kind === "project" && item.projectId === projectId)
+    : tasksStore.tasks?.targets.find((item) => item.kind === "channel"))
+    ?? tasksStore.tasks?.targets[0]
+    ?? { kind: "channel" as const, channel: "telegram", botId: "", chatId: "", scope: "workspace" as const };
   tasksStore.taskCreate = { ...target, text: "", delivery: "agent", schedule: "0 9 * * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", sessionMode: "fresh" };
 }
 

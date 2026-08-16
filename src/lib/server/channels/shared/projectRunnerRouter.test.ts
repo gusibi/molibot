@@ -95,6 +95,18 @@ test("Project-bound channel scopes share the project runtime with the Desktop ro
     assert.equal(reopened.id, target.conversationId);
     assert.equal(reopened.externalUserId, target.conversationKey);
 
+    // A Project automation uses the same Project runtime even though `fresh`
+    // gives it a task archive Session. The Project conversation is deliberately
+    // marked automation so the ordinary Project conversation tree stays clean.
+    const automation = router.resolveTarget(`project:${project.id}`, "t-archive-project-task", project.id);
+    assert.equal(automation.project?.id, project.id);
+    assert.equal(automation.pool, target.pool);
+    assert.ok(automation.conversationId);
+    assert.equal(
+      sessions.getProjectConversation(project.id, automation.conversationId!)?.origin,
+      "automation"
+    );
+
     // Automation task sessions and unbound scopes stay on the bot pool.
     assert.equal(router.resolveTarget("oc_bound", "task-123").project, null);
     assert.equal(router.resolveTarget("oc_other", "default").project, null);

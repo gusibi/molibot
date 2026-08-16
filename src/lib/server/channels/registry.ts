@@ -21,6 +21,8 @@ export interface ChannelManager {
   snapshotRuns?(): Array<{ chatId: string; sessionId: string }>;
   abortRun?(chatId: string, sessionId: string, reason?: string): { aborted: boolean };
   triggerTask?(event: unknown, filename: string): Promise<void>;
+  triggerProjectTask?(event: unknown, filename: string): Promise<void>;
+  abortProjectTaskRun?(runId: string, reason?: string): { aborted: boolean };
   runDurableAttempt?(event: ChannelInboundMessage, hooks?: DurableAttemptHooks): Promise<DurableAttemptResult>;
   readDurableRunDetail?(input: { chatId: string; runId: string; sessionId?: string; projectId?: string }): RunDetailEntry[];
   sendInternalNotice?(chatId: string, text: string, metadata: { kind: string; filename: string }): Promise<void>;

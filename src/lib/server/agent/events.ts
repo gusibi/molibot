@@ -42,6 +42,11 @@ export interface InternalEventTarget {
   sourceScopes: Array<{ channel: string; externalUserId: string; projectId?: string; shareOwner?: boolean }>;
 }
 
+export interface ProjectEventTarget {
+  kind: "project";
+  projectId: string;
+}
+
 // fresh: run each trigger in a brand-new session (no accumulated chat history);
 // chat: append to the chat's active session (legacy behavior).
 export type EventSessionMode = "fresh" | "chat";
@@ -56,6 +61,8 @@ interface EventBase {
   // Missing keeps historical event files enabled.
   enabled?: boolean;
   chatId: string;
+  /** Project automations execute in the named Project runtime and never deliver through a Channel. */
+  target?: ProjectEventTarget;
   // The concrete Session that created this event. Keeping this separately from
   // chatId prevents one-shot reminders from drifting when another Session later
   // becomes active in the same chat.

@@ -123,6 +123,8 @@ interface SharedTaskItem {
   managed?: { by?: string; scope?: string; kind?: string; ownerId?: string };
   channel: string;
   botId: string;
+  projectId?: string;
+  projectName?: string;
   chatId: string;
   scope: string;
   type: string;
@@ -170,13 +172,28 @@ export type DesktopTaskExecutionLoader = (taskId: string) => { items: DesktopTas
  * Runtime settings are the source of truth: filesystem directories and
  * partially populated session metadata never participate in target discovery.
  */
-export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskTarget[] {
+export function buildDesktopTaskTargets(
+  settings: RuntimeSettings,
+  projects: Array<{ id: string; name: string }> = []
+): DesktopTaskTarget[] {
   const targets: DesktopTaskTarget[] = [];
+  for (const project of projects) {
+    targets.push({
+      kind: "project",
+      channel: "project",
+      botId: "",
+      chatId: `project:${project.id}`,
+      scope: "workspace",
+      projectId: project.id,
+      projectName: project.name
+    });
+  }
   for (const [channel, group] of Object.entries(settings.channels ?? {})) {
     for (const instance of group?.instances ?? []) {
       if (instance.enabled === false) continue;
       if (channel === "web") {
         targets.push({
+          kind: "channel",
           channel,
           botId: instance.id,
           botDisplayName: String(instance.name ?? "").trim() || instance.id,
@@ -188,6 +205,7 @@ export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskT
       const chatIds = Array.from(new Set((instance.allowedChatIds ?? []).map(String).map((value) => value.trim()).filter(Boolean)));
       for (const chatId of chatIds) {
         targets.push({
+          kind: "channel",
           channel,
           botId: instance.id,
           botDisplayName: String(instance.name ?? "").trim() || instance.id,
@@ -198,7 +216,7 @@ export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskT
     }
   }
   return targets.sort((a, b) => a.channel.localeCompare(b.channel)
-    || (a.botDisplayName || a.botId).localeCompare(b.botDisplayName || b.botId)
+    || (("botDisplayName" in a ? a.botDisplayName : a.projectName) || a.botId).localeCompare(("botDisplayName" in b ? b.botDisplayName : b.projectName) || b.botId)
     || a.chatId.localeCompare(b.chatId));
 }
 
@@ -246,10 +264,12 @@ export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: Deskt
   return {
     id: desktopTaskId(item.filePath),
     taskId,
-    category: systemKind ? "system" : "user",
+    category: systemKind ? "system" : item.projectId ? "project" : "user",
     systemKind,
     channel: item.channel,
     botId: item.botId,
+    projectId: item.projectId ?? "",
+    projectName: item.projectName ?? "",
     chatId: item.chatId,
     scope: item.scope === "chat-scratch" ? "chat-scratch" : "workspace",
     type,
