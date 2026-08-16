@@ -8,6 +8,7 @@
 
 ### MD Preview 内置小程序（Markdown 预览 + 公众号复制 + R2 图床，P1）
 
+- **Icon 视觉升级**：更新 `ui/icon.svg` 为立体双色暖橙圆形徽章（`#FB8C00` 活力橙基底 + 右侧 `#E65100` 深橙半弧阴影 + 放大清晰版 `#FFE0B2` 浅橙 Markdown `M↓` 专有符号），在保持与 `meeting-notes` / `note` / `mini-chat` 相同设计质感的同时，独立于 `todo` 的方形卡片造型。
 - 新增 opt-in 内置小程序 `md-preview`（Mini Apps 管理器"内置"页安装）：把 Markdown 文档渲染成可切换主题的预览，并一键复制为微信公众号格式（全内联样式，`text/html` + `text/plain` 双风味写剪贴板，带 execCommand 兜底）。预览 DOM 即复制内容，所见即所得。
 - **主题**：Momo Paper（暖米书卷）与 Vercel Geist（极简）两套（移植自 momo-paper 的 markdown-to-mp 参考实现），各配同源代码高亮配色；代码高亮由 vendored Prism（core + 14 种语言，构建期内联,manual 模式）驱动，marked 负责解析。
 - **Agent 工具 `preview`**：走 `fileParams` 宿主 staging（零 Token 传文件），Agent 传 Markdown 工作区路径 + 本地图片列表；图片引用按 basename 匹配，未解析的本地引用在工具结果里报回（Agent 补传重试），结果卡片 deep-link 直开面板文档。面板也支持本地 .md 文件选择器。

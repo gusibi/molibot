@@ -6,6 +6,11 @@
 
 ## 2026-08-16
 
+### Updated: MD Preview 内置小程序 Icon 视觉重构
+
+- 将 `md-preview` 的图标重构为暖橙色调立体双色圆形徽章（`#FB8C00` 活力橙基底 + 右侧 `#E65100` 深橙半弧阴影 + 居中精准对齐的 `#FFE0B2` 浅橙 Markdown `M↓` 专有标志），独立于 `todo` 的方形卡片造型，同时与 `note` / `meeting-notes` / `mini-chat` 保持统一的色彩丰富度与双层矢量设计语言。
+- 内置小程序版本 bump 至 1.0.4（同步备份旧文件覆盖离线工作区副本）。
+
 ### Fixed: MD Preview R2 测试连接报 SignatureDoesNotMatch（SigV4 scope 区域写死 `$`）
 
 - `server/index.mjs` 的 `signRequest` 把 credential scope 区域硬编码为 `$`（`20260816/$/s3/aws4_request`），而派生签名密钥用的是真实 region——签名与凭证不一致，R2/AWS 验签必然失败；其他客户端正常正是因为它们用真实区域（R2 为 `auto`）签名。已改为 `${dateStamp}/${region}/s3/aws4_request`。
