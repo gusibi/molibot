@@ -24,7 +24,7 @@ import { resolveToolFileTarget } from "$lib/server/app/toolFilePaths.js";
 import { createMomTools } from "$lib/server/agent/tools/index.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { getMcpServerStatuses, getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
-import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
+import { effectiveMcpServers, hasConfiguredMcpServers } from "$lib/server/settings/openConnector.js";
 import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
@@ -125,7 +125,6 @@ import {
   prepareMessagesForModelContext,
   formatPayloadReasoningSummary,
   removeOrphanToolResultsFromContext,
-  hasExplicitMcpInvocation,
   injectExplicitSkillInvocationContext,
   buildPromptRefreshKey,
   validateRuntimeSettings,
@@ -1154,8 +1153,15 @@ export class MomRunner implements RunnerLike {
     const explicitlyInvokedSkills = findExplicitlyInvokedSkills(skills, enrichedText);
     this.emitSkillSelection(explicitlyInvokedSkills);
     const skillExplicitlyInvoked = explicitlyInvokedSkills.length > 0;
-    const mcpExplicitlyInvoked = hasExplicitMcpInvocation(enrichedText);
-    const skillRequiresMcp = explicitlyInvokedSkills.some((skill) => skill.mcpServers.length > 0);
+    // MCP controls (loadMcp/mcpInvoke) are registered whenever any MCP server
+    // is configured - the SAME predicate the prompt's <mcp-access> section
+    // derives from. Capability availability must never depend on interpreting
+    // the user's message: guessing "did they ask for MCP?" from the text
+    // produced s-20260817-ztfk, where the prompt advertised `open-connector`
+    // and told the model to use `loadMcp` while the tool registry withheld it.
+    // Whether to *load* a server is the model's call via loadMcp; the prompt's
+    // cost advice is the only soft guidance.
+    const exposeLoadMcpTool = hasConfiguredMcpServers(settings);
     // Pass only the skill's name and absolute path to the model (and the
     // persisted transcript). The agent reads the SKILL.md itself per the Skill
     // Execution Protocol, so we no longer inline the full file content — it kept
@@ -1222,8 +1228,6 @@ export class MomRunner implements RunnerLike {
       };
     };
 
-    const exposeLoadMcpTool =
-      mcpExplicitlyInvoked || skillRequiresMcp || this.selectedMcpServerIds.size > 0;
     let currentModelPromptMessage = "";
     let currentPersistedPromptMessage = "";
     let promptUserPersisted = false;
@@ -1368,8 +1372,6 @@ export class MomRunner implements RunnerLike {
       chatId: this.chatId,
       sessionId: this.sessionId,
       skillExplicitlyInvoked,
-      mcpExplicitlyInvoked,
-      skillRequiresMcp,
       exposeLoadMcpTool,
       mcpServerCount: scopedMcpServers.filter((server) => server.enabled).length,
       mcpToolCount: mcpTools.length

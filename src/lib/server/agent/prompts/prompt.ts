@@ -15,7 +15,7 @@ import {
 import { formatSkillsForPrompt, loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
 import { buildFeaturePluginPromptSections } from "$lib/server/plugins/feature-registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
-import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
+import { effectiveMcpServers, hasConfiguredMcpServers } from "$lib/server/settings/openConnector.js";
 import {
   resolveDataRootFromWorkspacePath,
   resolveMemoryRootFromWorkspacePath,
@@ -409,18 +409,22 @@ function buildSubagentSection(): string {
   ].join("\n"));
 }
 
-function buildMcpAccessSection(settings?: RuntimeSettings): string {
-  const servers = settings ? effectiveMcpServers(settings).filter((server) => server.enabled) : [];
+function buildMcpAccessSection(settings?: RuntimeSettings): string | null {
+  // Same predicate as the runner's loadMcp/mcpInvoke registration gate
+  // (hasConfiguredMcpServers). The section must never advertise a capability
+  // the tool registry withholds, nor hide one it exposes.
+  if (!settings || !hasConfiguredMcpServers(settings)) return null;
+  const servers = effectiveMcpServers(settings).filter((server) => server.enabled);
   const serverList =
     servers.length > 0
       ? servers.map((server) => `- ${server.id} (${server.transport})`).join("\n")
-      : "(none)";
+      : "(none enabled - see loadMcp for configured-but-disabled servers)";
   return xmlBlock("mcp-access", [
     "## MCP Access",
-    "- Use MCP only when the user explicitly requests MCP, or an explicitly invoked skill declares an MCP dependency; otherwise do not call `loadMcp`.",
+    "- MCP connects external servers on demand. Load a server only when the task needs it - the user asked for it, an invoked skill declares it, or the task clearly cannot be done otherwise; avoid speculative loads.",
     "- MCP is separate from deferred tools: never find it with `toolSearch`. Load a server with `loadMcp`, then list/call tools with `mcpInvoke`.",
     "- A skill name is not a server id. If the required server/tool is unavailable, name what is missing.",
-    "- Enabled MCP servers:",
+    "- MCP servers:",
     serverList
   ].join("\n"));
 }
@@ -478,6 +482,7 @@ function buildBaseSystemPromptWithOptions(
   const channelSections = options?.channel
     ? buildPromptChannelSections(options.channel)
     : [];
+  const mcpAccessSection = buildMcpAccessSection(options?.settings);
   const profileFiles = options?.operatorProfileFiles ?? [];
   const identityLine = options?.operatorDirectivesPresent
     ? [
@@ -522,7 +527,7 @@ function buildBaseSystemPromptWithOptions(
     "",
     buildEventsSection(),
     "",
-    buildMcpAccessSection(options?.settings),
+    mcpAccessSection ?? "",
     ...(channelSections.length > 0 ? ["", ...channelSections] : []),
     "",
     // --- Volatile sections last ---

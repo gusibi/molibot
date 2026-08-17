@@ -781,7 +781,7 @@ export async function saveDesktopSandbox(endpoint: string, input: DesktopSandbox
   return payload.sandbox;
 }
 
-export type DesktopSandboxPreset = "observe" | "build" | "strict";
+export type DesktopSandboxPreset = "full" | "standard" | "readonly" | "locked";
 
 const SANDBOX_DEFAULT_DENY_READ = ["~/.ssh", "~/.aws", "~/.gnupg", ".env", ".env.*"];
 const SANDBOX_DEFAULT_DENY_WRITE = [".env", ".env.*", "*.pem", "*.key"];
@@ -791,15 +791,15 @@ const SANDBOX_BUILD_DOMAINS = [
 ];
 
 const DESKTOP_SANDBOX_PRESETS: Record<DesktopSandboxPreset, DesktopSandboxUpdateRequest> = {
-  observe: {
+  full: {
     enabled: true,
     initFailureMode: "block",
     envFilePath: ".env",
     env: { inheritMode: "minimal", allow: [], deny: [] },
     network: { allowedDomains: ["*"], deniedDomains: [] },
-    filesystem: { denyRead: SANDBOX_DEFAULT_DENY_READ, allowWrite: ["/tmp", "scratch"], denyWrite: SANDBOX_DEFAULT_DENY_WRITE }
+    filesystem: { denyRead: SANDBOX_DEFAULT_DENY_READ, allowWrite: [".", "/tmp", "scratch"], denyWrite: SANDBOX_DEFAULT_DENY_WRITE }
   },
-  build: {
+  standard: {
     enabled: true,
     initFailureMode: "block",
     envFilePath: ".env",
@@ -807,7 +807,15 @@ const DESKTOP_SANDBOX_PRESETS: Record<DesktopSandboxPreset, DesktopSandboxUpdate
     network: { allowedDomains: SANDBOX_BUILD_DOMAINS, deniedDomains: [] },
     filesystem: { denyRead: SANDBOX_DEFAULT_DENY_READ, allowWrite: [".", "/tmp", "scratch"], denyWrite: SANDBOX_DEFAULT_DENY_WRITE }
   },
-  strict: {
+  readonly: {
+    enabled: true,
+    initFailureMode: "block",
+    envFilePath: ".env",
+    env: { inheritMode: "minimal", allow: [], deny: [] },
+    network: { allowedDomains: ["*"], deniedDomains: [] },
+    filesystem: { denyRead: SANDBOX_DEFAULT_DENY_READ, allowWrite: ["/tmp", "scratch"], denyWrite: SANDBOX_DEFAULT_DENY_WRITE }
+  },
+  locked: {
     enabled: true,
     initFailureMode: "block",
     envFilePath: ".env",
@@ -851,7 +859,7 @@ function sandboxListsMatch(left: string[] | undefined, right: string[] | undefin
 
 export function detectDesktopSandboxPreset(input: DesktopSandboxUpdateRequest): DesktopSandboxPreset | "custom" {
   if (input.enabled !== true) return "custom";
-  for (const name of ["observe", "build", "strict"] as const) {
+  for (const name of ["full", "standard", "readonly", "locked"] as const) {
     const preset = DESKTOP_SANDBOX_PRESETS[name];
     if (
       input.initFailureMode === preset.initFailureMode &&

@@ -4,6 +4,21 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-17
+
+### Auto 权限模式 × 沙箱联动 + 沙箱预设单轴滑条（已完成）
+
+- **Auto 模式联动（PRD §3.65）**：新增共享层 `liftSandboxForPermissionMode()`（`src/lib/server/agent/tools/sandbox.ts`）——session 权限模式为 `auto` 时，该 session 有效沙箱网络自动提为 `["*"]` 全放行，域名白名单不再静默杀掉命令并触发审批卡；主工具链（`tools/index.ts`）与 subagent bash 路径（`subagent.ts`）统一走该共享函数，无逐工具补丁。
+- **沙箱拒绝自动升级放行**：`bash.ts` 新增 `autoApproveSandboxEscalation` ——auto 模式下沙箱权限拒绝后的 host bash 升级不再弹审批卡，直接回退到宿主执行并标注 `[AUTO]`；与既有 session-approved 分支同路径复用。manage 类（第三方代码安装/执行）仍走审批 broker 询问，安全底线不变。
+- **沙箱设置页 4 档滑动条**：`/settings/sandbox`（Web）与 `apps/desktop` 原生设置（`SandboxSection.svelte` + `api.ts` 预设 + `i18n.ts` 文案 + `styles.css`）同步改为单轴严格度滑条：锁定（绿）→ 只读 → 标准 → 全开（红），颜色全部走主题 token（Web 新增 `--success`，桌面复用 `--online`/`--danger`），零 hardcode；手动修改细节仍自动落入「自定义」档。新档位「全开」= 网络 `["*"]` + 可写项目目录。
+- 关系文档：`docs/guides/permission-and-sandbox-modes.md`（两轴口径、覆盖链、十字矩阵）。回归：`sandbox.test.ts`（lift 纯函数矩阵）、`bash-output.test.ts`（auto 升级放行）。
+
+### MCP 工具常驻注册：能力存在与否不再由用户消息文本决定（已完成）
+
+- 取代上一版「扩展 NLU 词表」的方案：`hasExplicitMcpInvocation()` 及整词匹配删除，`loadMcp` / `mcpInvoke` 的注册与 prompt `<mcp-access>` 段改为派生自同一谓词 `hasConfiguredMcpServers(settings)`（`src/lib/server/settings/openConnector.ts`）--配置了任意 MCP server（含 disabled，`loadMcp` 能解释缺什么）即常驻注册，零配置则两侧都不出现（修复 s-20260817-ztfk：prompt 教模型用 `loadMcp` 但门控在猜「这句话算不算点名 MCP」，猜错即死路）。
+- 「是否加载某个 server」完全交给模型经 `loadMcp` 决定；prompt 中「仅显式要求时用 MCP」降级为成本建议（`avoid speculative loads`），违反也不再有正确性后果。
+- 机器守卫：`prompt.test.ts` 不变量测试锁死 prompt 宣传 ⟺ 注册门槛（enabled / disabled / 零配置三档 + `runner.ts` 结构断言：门控必须写 `hasConfiguredMcpServers(settings)`、不得再引用 `hasExplicitMcpInvocation`）。回归：`prompt.test.ts` 33/33、`runnerHelpers.test.ts` 7/7、`runner` + `loadMcp` / `mcp` / `toolClassification` 65/65；tsc 触碰文件 0 错误。
+
 ## 2026-08-16
 
 ### Project 自动任务（已完成，P0）

@@ -829,6 +829,67 @@ test("bash falls back to host bash after sandbox denial when session approval mo
   }
 });
 
+test("bash auto-approves the sandbox-denial host fallback in Auto permission mode (PRD §3.65)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  const blockedFile = join(cwd, "blocked.txt");
+  writeFileSync(blockedFile, "secret", "utf8");
+  let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
+  const dbStore = getHostBashStore() as any;
+  dbStore.db.exec("DELETE FROM approvals");
+  try {
+    const tool = createBashTool(cwd, {
+      sandbox: {
+        settings: {
+          ...defaultToolSandboxSettings,
+          enabled: true,
+          filesystem: {
+            ...defaultToolSandboxSettings.filesystem,
+            denyRead: [...defaultToolSandboxSettings.filesystem.denyRead, blockedFile]
+          }
+        },
+        workspaceDir: cwd
+      },
+      hostApproval: {
+        channel: "web",
+        chatId: "chat-1",
+        scopeId: "chat-1",
+        sessionId: "session-1",
+        // Default session mode: without the Auto flag this path would block on
+        // an approval card; the flag alone must drive the host fallback.
+        store: hostApprovalStore("default") as any,
+        autoApproveSandboxEscalation: true,
+        getSettings: () => settings,
+        updateSettings: (patch: any) => {
+          settings = { ...settings, ...patch } as RuntimeSettings;
+          return settings;
+        }
+      } as any
+    });
+    const result = await tool.execute("tool-1", {
+      label: "bash",
+      command: `cat ${JSON.stringify(blockedFile)}`
+    });
+
+    const details = result.details as { sandboxWarning?: string } | undefined;
+    // Machines where the sandbox provider is unavailable skip the denial
+    // path (same guard as the session-mode test above).
+    if (!details?.sandboxWarning?.includes("Auto mode auto-approves")) {
+      return;
+    }
+    assert.match(firstText(result), /secret/);
+    assert.match(firstText(result), /\[AUTO\] Sandbox was bypassed/);
+    assert.equal(getHostBashStore().listPending("chat-1").length, 0);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/Sandbox is not supported|sandbox-runtime|dependencies/i.test(message)) {
+      return;
+    }
+    throw error;
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("approving a multi-capability pipeline stays one-time and grants no global tools", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);

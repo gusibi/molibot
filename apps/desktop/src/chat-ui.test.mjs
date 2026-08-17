@@ -3056,17 +3056,21 @@ test("built-in provider configuration reuses saved Web settings without pollutin
   assert.match(styles, /\.settings-content \.settings-scroll:has\(\.settings-footbar\)\s*\{[^}]*padding-bottom:/s);
 });
 
-test("Sandbox settings expose presets, full policy editing, diagnostics, and a fixed save footer", () => {
+test("Sandbox settings expose the strictness slider, full policy editing, diagnostics, and a fixed save footer", () => {
   assert.match(sections.sandbox, /id="desktop-sandbox-form"/);
-  assert.match(sections.sandbox, /id: "observe"/);
-  assert.match(sections.sandbox, /id: "build"/);
-  assert.match(sections.sandbox, /id: "strict"/);
-  assert.match(sections.sandbox, /onclick=\{\(\) => applySandboxPreset\(preset\.id as DesktopSandboxPreset\)\}/);
+  assert.match(sections.sandbox, /id: "locked"/);
+  assert.match(sections.sandbox, /id: "readonly"/);
+  assert.match(sections.sandbox, /id: "standard"/);
+  assert.match(sections.sandbox, /id: "full"/);
+  assert.match(sections.sandbox, /class="sandbox-slider-input"/);
+  assert.match(sections.sandbox, /applyLevelByIndex\(Number\(event\.currentTarget\.value\)\)/);
   assert.match(sections.sandbox, /session\.text\.sandboxEnvAllow/);
   assert.match(sections.sandbox, /session\.text\.sandboxNetworkAllow/);
   assert.match(sections.sandbox, /session\.text\.sandboxFilesystemAllowWrite/);
   assert.match(sections.sandbox, /form="desktop-sandbox-form"/);
-  assert.match(styles, /\.sandbox-presets\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);
+  assert.match(styles, /\.sandbox-slider-track-wrap\s*\{/s);
+  assert.match(styles, /\.sandbox-slider\[data-level="full"\]\s*\{[^}]*--slider-accent:\s*var\(--danger\);/s);
+  assert.match(styles, /\.sandbox-slider\[data-level="locked"\]\s*\{[^}]*--slider-accent:\s*var\(--online\);/s);
 });
 
 test("Geist CSS references only defined variables and keyframes", () => {

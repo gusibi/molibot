@@ -24,6 +24,21 @@
 
   const activeSandboxPreset = $derived(sandboxStore.sandboxEdit ? detectSandboxPreset(sandboxStore.sandboxEdit) : "custom");
   const sandboxDirty = $derived(sandboxStore.sandboxEdit !== null && JSON.stringify(sandboxStore.sandboxEdit) !== sandboxStore.pristine);
+
+  // Strictest → most permissive, mirrored from the web settings page.
+  const SLIDER_LEVELS = [
+    { id: "locked", title: session.text.sandboxPresetLocked, hint: session.text.sandboxPresetLockedHint },
+    { id: "readonly", title: session.text.sandboxPresetReadonly, hint: session.text.sandboxPresetReadonlyHint },
+    { id: "standard", title: session.text.sandboxPresetStandard, hint: session.text.sandboxPresetStandardHint },
+    { id: "full", title: session.text.sandboxPresetFull, hint: session.text.sandboxPresetFullHint }
+  ] as const;
+  const sliderIndex = $derived(SLIDER_LEVELS.findIndex((level) => level.id === activeSandboxPreset));
+  const isCustom = $derived(sliderIndex === -1);
+
+  function applyLevelByIndex(index: number): void {
+    const level = SLIDER_LEVELS[index];
+    if (level) applySandboxPreset(level.id as DesktopSandboxPreset);
+  }
 </script>
 
 {#if !session.serviceReady}
@@ -32,18 +47,54 @@
   <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
 {:else}
   <form id="desktop-sandbox-form" class="sandbox-form" onsubmit={(event) => { event.preventDefault(); void saveSandboxPolicy(); }}>
-  <div class="channel-section-head sandbox-section-head"><div><p class="settings-group-title">{session.text.sandboxPresets}</p><p class="settings-section-hint">{session.text.sandboxPresetsHint}</p></div>{#if activeSandboxPreset === "custom"}<span class="status-badge" data-state="disconnected">{session.text.sandboxPresetCustom}</span>{/if}</div>
-  <div class="sandbox-presets">
-    {#each [
-      { id: "observe", icon: "eye", title: session.text.sandboxPresetObserve, description: session.text.sandboxPresetObserveHint },
-      { id: "build", icon: "hammer", title: session.text.sandboxPresetBuild, description: session.text.sandboxPresetBuildHint },
-      { id: "strict", icon: "lock-key", title: session.text.sandboxPresetStrict, description: session.text.sandboxPresetStrictHint }
-    ] as preset (preset.id)}
-      <button class:active={activeSandboxPreset === preset.id} class="sandbox-preset-card" type="button" aria-pressed={activeSandboxPreset === preset.id} onclick={() => applySandboxPreset(preset.id as DesktopSandboxPreset)}>
-        <span class="sandbox-preset-icon"><i class="ph ph-{preset.icon}"></i></span>
-        <span><strong>{preset.title}</strong><small>{preset.description}</small></span>
-      </button>
-    {/each}
+  <div class="channel-section-head sandbox-section-head"><div><p class="settings-group-title">{session.text.sandboxPresets}</p><p class="settings-section-hint">{session.text.sandboxPresetsHint}</p></div>{#if isCustom}<span class="status-badge" data-state="disconnected">{session.text.sandboxPresetCustom}</span>{/if}</div>
+  <div class="sandbox-slider" data-level={isCustom ? "custom" : SLIDER_LEVELS[sliderIndex].id}>
+    <div class="sandbox-slider-head">
+      <span class="sandbox-slider-badge">{isCustom ? session.text.sandboxPresetCustom : SLIDER_LEVELS[sliderIndex].title}</span>
+      <p class="sandbox-slider-desc">{isCustom ? session.text.sandboxPresetsHint : SLIDER_LEVELS[sliderIndex].hint}</p>
+    </div>
+    <div class="sandbox-slider-track-wrap">
+      <div class="sandbox-slider-track" aria-hidden="true"></div>
+      <div class="sandbox-slider-fill" style="width: {isCustom ? '0%' : `${(sliderIndex / (SLIDER_LEVELS.length - 1)) * 100}%`}" aria-hidden="true"></div>
+      <input
+        class="sandbox-slider-input"
+        type="range"
+        min="0"
+        max={SLIDER_LEVELS.length - 1}
+        step="1"
+        value={isCustom ? 0 : sliderIndex}
+        aria-label={session.text.sandboxPresets}
+        oninput={(event) => applyLevelByIndex(Number(event.currentTarget.value))}
+      />
+      {#each SLIDER_LEVELS as level, index (level.id)}
+        <button
+          class="sandbox-slider-stop"
+          class:active={!isCustom && sliderIndex === index}
+          style="left: {(index / (SLIDER_LEVELS.length - 1)) * 100}%"
+          type="button"
+          aria-label={level.title}
+          aria-pressed={!isCustom && sliderIndex === index}
+          onclick={() => applyLevelByIndex(index)}
+        ></button>
+      {/each}
+    </div>
+    <div class="sandbox-slider-labels">
+      {#each SLIDER_LEVELS as level, index (level.id)}
+        <button
+          class="sandbox-slider-label"
+          class:active={!isCustom && sliderIndex === index}
+          style="left: {(index / (SLIDER_LEVELS.length - 1)) * 100}%"
+          type="button"
+          aria-pressed={!isCustom && sliderIndex === index}
+          onclick={() => applyLevelByIndex(index)}
+        >
+          <span class="sandbox-slider-label-title">{level.title}</span>
+          <span class="sandbox-slider-label-hints">
+            {#if level.id === "locked"}🌐✗ · ✏️✗{:else if level.id === "readonly"}🌐✓ · ✏️✗{:else if level.id === "standard"}🌐≈ · ✏️✓{:else}🌐✓ · ✏️✓{/if}
+          </span>
+        </button>
+      {/each}
+    </div>
   </div>
 
   <p class="settings-group-title">{session.text.sandboxRuntime}</p>

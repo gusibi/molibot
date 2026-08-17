@@ -260,22 +260,26 @@ test("sandbox list parsing trims, splits, and deduplicates policy entries", () =
 });
 
 test("sandbox presets match Web policy templates and detect custom changes", () => {
-  const observe = applyDesktopSandboxPreset("observe");
-  assert.equal(observe.initFailureMode, "block");
-  assert.deepEqual(observe.network?.allowedDomains, ["*"]);
-  assert.deepEqual(observe.filesystem?.allowWrite, ["/tmp", "scratch"]);
-  assert.equal(detectDesktopSandboxPreset(observe), "observe");
+  const locked = applyDesktopSandboxPreset("locked");
+  assert.equal(locked.initFailureMode, "block");
+  assert.deepEqual(locked.network?.allowedDomains, []);
+  assert.deepEqual(locked.filesystem?.allowWrite, ["/tmp"]);
+  assert.equal(detectDesktopSandboxPreset(locked), "locked");
 
-  const build = applyDesktopSandboxPreset("build");
-  assert.equal(build.initFailureMode, "block");
-  assert.equal(build.env?.inheritMode, "allowlist");
-  assert.deepEqual(build.filesystem?.allowWrite, [".", "/tmp", "scratch"]);
-  assert.equal(detectDesktopSandboxPreset({ ...build, network: { ...build.network, deniedDomains: ["example.com"] } }), "custom");
+  const readonly = applyDesktopSandboxPreset("readonly");
+  assert.deepEqual(readonly.network?.allowedDomains, ["*"]);
+  assert.deepEqual(readonly.filesystem?.allowWrite, ["/tmp", "scratch"]);
+  assert.equal(detectDesktopSandboxPreset(readonly), "readonly");
 
-  const strict = applyDesktopSandboxPreset("strict");
-  assert.equal(strict.initFailureMode, "block");
-  assert.deepEqual(strict.network?.allowedDomains, []);
-  assert.equal(detectDesktopSandboxPreset(strict), "strict");
+  const standard = applyDesktopSandboxPreset("standard");
+  assert.equal(standard.env?.inheritMode, "allowlist");
+  assert.deepEqual(standard.filesystem?.allowWrite, [".", "/tmp", "scratch"]);
+  assert.equal(detectDesktopSandboxPreset({ ...standard, network: { ...standard.network, deniedDomains: ["example.com"] } }), "custom");
+
+  const full = applyDesktopSandboxPreset("full");
+  assert.deepEqual(full.network?.allowedDomains, ["*"]);
+  assert.deepEqual(full.filesystem?.allowWrite, [".", "/tmp", "scratch"]);
+  assert.equal(detectDesktopSandboxPreset(full), "full");
 });
 
 function externalSummary(overrides: Partial<DesktopExternalSessionsSummary> = {}): DesktopExternalSessionsSummary {

@@ -51,7 +51,7 @@ import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { wrapCommandWithVenv, execCommand } from "$lib/server/agent/tools/helpers.js";
-import { prepareToolSandboxExecution, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
+import { liftSandboxForPermissionMode, prepareToolSandboxExecution, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
 import { decideToolPermission } from "$lib/server/agent/permissions/toolPermissionGate.js";
 import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
@@ -211,6 +211,10 @@ export function createMomTools(options: {
     }),
     options.channel
   );
+  // Auto means "run unattended": the session's effective sandbox network is
+  // lifted to allow-all in the shared layer (PRD §3.65) so allowlists cannot
+  // silently fail commands into host-bash approval cards.
+  const effectiveSandboxSettings = liftSandboxForPermissionMode(sandboxSettings, permissionMode);
   const exitPlanTool = wrapSerializedTool(createExitPlanTool({
     scratchDir: options.store.getScratchDir(options.chatId),
     sessionId: options.executionSessionId ?? options.sessionId,
@@ -333,7 +337,7 @@ export function createMomTools(options: {
         tool,
         input,
         ctx,
-        sandboxEnabled: sandboxSettings.enabled,
+        sandboxEnabled: effectiveSandboxSettings.enabled,
         permissionMode,
         buildApprovalRequest: () => createDefaultApprovalRequest(tool, input, ctx)
       });
@@ -356,7 +360,7 @@ export function createMomTools(options: {
         thirdPartyHint: tool.thirdPartyHint
       },
       {
-        sandboxEnabled: sandboxSettings.enabled,
+        sandboxEnabled: effectiveSandboxSettings.enabled,
         allowedWriteRoots,
         cwd: options.cwd
       }
@@ -437,9 +441,9 @@ export function createMomTools(options: {
           
           const sandboxEnv = artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: artifactDir } : {};
           const wrappedCommand = wrapCommandWithVenv(cmd);
-          const sandboxed = sandboxSettings.enabled
+          const sandboxed = effectiveSandboxSettings.enabled
             ? await prepareToolSandboxExecution({
-                settings: sandboxSettings,
+                settings: effectiveSandboxSettings,
                 workspaceDir: options.workspaceDir,
                 cwd: targetCwd,
                 command: wrappedCommand,
@@ -602,8 +606,8 @@ export function createMomTools(options: {
   // Before this, `toolSandbox.filesystem.denyWrite` was configured in Settings
   // and silently did nothing to `write`/`edit` (Permission Modes PRD, slice 0).
   const filesystemPolicy = {
-    denyWrite: sandboxSettings.filesystem.denyWrite,
-    allowWrite: sandboxSettings.filesystem.allowWrite
+    denyWrite: effectiveSandboxSettings.filesystem.denyWrite,
+    allowWrite: effectiveSandboxSettings.filesystem.allowWrite
   };
 
   const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir, outputLayout, filesystemPolicy });
@@ -618,7 +622,7 @@ export function createMomTools(options: {
     relocateRootArtifacts: !options.project,
     toolOutputDir,
     sandbox: {
-      settings: sandboxSettings,
+      settings: effectiveSandboxSettings,
       workspaceDir: options.workspaceDir
     },
     hostApproval: {
@@ -635,7 +639,10 @@ export function createMomTools(options: {
       }),
       runId: options.runId,
       store: options.store,
-      ignoreSessionApprovalMode: options.isolateSessionHostApproval
+      ignoreSessionApprovalMode: options.isolateSessionHostApproval,
+      // Auto mode auto-approves the sandbox-denial → host-bash escalation
+      // (PRD §3.65); manage-class tools still ask via the approval broker.
+      autoApproveSandboxEscalation: permissionMode === "auto"
     }
   });
   registry.register(bashToolDef);

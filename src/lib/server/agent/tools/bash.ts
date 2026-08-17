@@ -89,6 +89,8 @@ export interface BashToolHostApprovalOptions {
   runId?: string;
   store: MomRuntimeStore;
   ignoreSessionApprovalMode?: boolean;
+  /** Auto permission mode: sandbox-denial escalation auto-approves instead of asking (PRD §3.65). */
+  autoApproveSandboxEscalation?: boolean;
   hostBashStore?: HostBashStore;
   requestedByDepth?: number;
   approvalWaitTimeoutMs?: number;
@@ -728,10 +730,11 @@ export function getBashToolDefinition(
       if (result.exitCode !== 0) {
         let errorBody = `${rendered}\n\nCommand exited with code ${result.exitCode}`.trim();
         if (result.sandboxApplied && options.hostApproval && isSandboxPermissionFailure(rendered)) {
-          if (
+          const sessionApproved =
             !options.hostApproval.ignoreSessionApprovalMode
-            && options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session"
-          ) {
+            && options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session";
+          const autoApproved = options.hostApproval.autoApproveSandboxEscalation === true;
+          if (sessionApproved || autoApproved) {
             const wrappedCommand = wrapCommandWithVenv(params.command);
             const fallbackResult = await execCommand(wrappedCommand, {
               cwd: ctx.cwd,
@@ -753,7 +756,9 @@ export function getBashToolDefinition(
                 ...details,
                 hostBash: true,
                 sandboxApplied: false,
-                sandboxWarning: "Sandbox blocked this command. Re-ran with session-approved host bash fallback."
+                sandboxWarning: sessionApproved
+                  ? "Sandbox blocked this command. Re-ran with session-approved host bash fallback."
+                  : "Sandbox blocked this command. Re-ran on host: Auto mode auto-approves sandbox denials."
               },
               fallbackMovedArtifacts
             );
@@ -762,7 +767,7 @@ export function getBashToolDefinition(
             }
             return {
               ok: true,
-              content: [{ type: "text", text: `${fallbackBuilt.rendered}\n\n[SESSION] Sandbox was bypassed for this session after a permission denial.`.trim() }],
+              content: [{ type: "text", text: `${fallbackBuilt.rendered}\n\n[${sessionApproved ? "SESSION" : "AUTO"}] Sandbox was bypassed for this session after a permission denial.`.trim() }],
               details: fallbackBuilt.details
             };
           }

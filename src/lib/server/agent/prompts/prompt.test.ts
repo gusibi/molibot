@@ -11,6 +11,7 @@ import {
   getSystemPromptSources
 } from "$lib/server/agent/prompts/prompt.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
+import { hasConfiguredMcpServers } from "$lib/server/settings/openConnector.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -464,6 +465,67 @@ test("prompt source prioritizes webSearch for current web information", () => {
 test("prompt source directs MCP usage through loadMcp and mcpInvoke, not toolSearch", () => {
   assert.match(promptSource, /MCP is separate from deferred tools: never find it with `toolSearch`/);
   assert.match(promptSource, /Load a server with `loadMcp`, then list\/call tools with `mcpInvoke`/);
+  // Cost advice only: availability must not be conditioned on the message text.
+  assert.match(promptSource, /avoid speculative loads/);
+  assert.doesNotMatch(promptSource, /only when the user explicitly requests MCP/);
+});
+
+test("MCP controls exist exactly when the prompt advertises them (s-20260817-ztfk)", () => {
+  // Root cause of the dead-end turn: the <mcp-access> section advertised
+  // `open-connector` while the runner's registration gate guessed "did the user
+  // ask for MCP?" from the message text and withheld loadMcp. The prompt
+  // section and the registration gate must now derive from ONE predicate
+  // (hasConfiguredMcpServers); this guard pins both sides of that invariant.
+  const mcpServerFixture = (enabled: boolean) => ({
+    id: "tdx",
+    name: "TDX",
+    enabled,
+    transport: "http" as const,
+    stdio: { command: "", args: [], env: {}, cwd: "" },
+    http: { url: "https://tdx.example.com/mcp", headers: {} },
+    toolNamePrefix: "tdx"
+  });
+
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-prompt-mcp-"));
+  try {
+    const enabledSettings = { ...defaultRuntimeSettings, mcpServers: [mcpServerFixture(true)] };
+    const enabledPrompt = buildSystemPrompt(workspaceDir, "chat-1", "session-1", "(memory)", {
+      channel: "web",
+      settings: enabledSettings
+    });
+    assert.equal(hasConfiguredMcpServers(enabledSettings), true);
+    assert.match(enabledPrompt, /<mcp-access>/);
+    assert.match(enabledPrompt, /- tdx \(http\)/);
+
+    // Configured-but-disabled still exposes the controls (loadMcp can explain
+    // what is missing); the section must not pretend the server is enabled.
+    const disabledSettings = { ...defaultRuntimeSettings, mcpServers: [mcpServerFixture(false)] };
+    const disabledPrompt = buildSystemPrompt(workspaceDir, "chat-1", "session-1", "(memory)", {
+      channel: "web",
+      settings: disabledSettings
+    });
+    assert.equal(hasConfiguredMcpServers(disabledSettings), true);
+    assert.match(disabledPrompt, /<mcp-access>/);
+    assert.match(disabledPrompt, /none enabled/);
+    assert.doesNotMatch(disabledPrompt, /- tdx \(/);
+
+    // Zero configured servers: no section at all, and no controls registered.
+    const emptySettings = { ...defaultRuntimeSettings, mcpServers: [] };
+    const emptyPrompt = buildSystemPrompt(workspaceDir, "chat-1", "session-1", "(memory)", {
+      channel: "web",
+      settings: emptySettings
+    });
+    assert.equal(hasConfiguredMcpServers(emptySettings), false);
+    assert.doesNotMatch(emptyPrompt, /<mcp-access>/);
+
+    // Structural guard on the other side of the invariant: the runner's gate
+    // must be the same predicate, and the text-guessing helper must stay gone.
+    const runnerSource = readFileSync(join(here, "..", "core", "runner.ts"), "utf8");
+    assert.match(runnerSource, /exposeLoadMcpTool = hasConfiguredMcpServers\(settings\)/);
+    assert.doesNotMatch(runnerSource, /hasExplicitMcpInvocation/);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
 });
 
 /**

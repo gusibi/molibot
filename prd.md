@@ -239,6 +239,14 @@
 - **Verification maintenance**: runner helper fixtures are typed against the canonical `RuntimeSettings` shape, keeping provider capability literals checked by TypeScript without expanding the product runtime surface.
 
 ---
+## 3.65 Sandbox preset re-axing + Auto mode linkage (2026-08-17)
+
+- **Priority / Status**: P1 / Planned.
+- **Problem**: (a) sandbox presets are named observe/build/strict/custom — unreadable, not a single strictness axis; (b) Auto chat mode has zero linkage with the sandbox: users expecting "Auto = fully automatic" still hit host-bash approval cards escalated from sandbox network denials (`bash.ts:730`). Full relationship write-up: [Permission × Sandbox guide](docs/guides/permission-and-sandbox-modes.md).
+- **Decision**: re-ax sandbox presets into a single 4-level slider (全开 Full Access / 标准 Standard / 只读 Read-Only / 锁定 Locked + Custom); Auto session mode auto-approves sandbox approvals and lifts the session's effective network policy to `["*"]` (manage-class tools still ask); add a global-lock toggle in the sandbox settings page that, when on, forces the preset across all channels with no session override; messaging channels keep the existing clamp to Accept edits.
+- **Acceptance**: with sandbox preset = strict and chat mode = Auto, a network-touching bash command runs without any approval card and with network allowed (except manage-class); with global lock on, the desktop session mode selector cannot change the effective sandbox policy; preset detection round-trips after save/reload.
+
+---
 ## 3.64 Session permission modes (Plan / Manual / Accept edits / Auto) (2026-08-09)
 
 - **Priority / Status**: P1 / Delivered (2026-08-10). Slices 0–3 complete.

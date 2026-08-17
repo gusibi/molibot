@@ -45,6 +45,7 @@ This directory is organized by document purpose first, then by topic. Start with
 - [Plugin guides](guides/plugins/)
 - [Plugin manifest design](designs/plugins/plugin-manifest.md)
 - [Deferred tool guide](guides/tools/deferred-tool-authoring.md)
+- [Permission modes × sandbox policy](guides/permission-and-sandbox-modes.md)
 - [Trace design](designs/trace/)
 - [Operations / remote control](designs/operations/control-daemon.md)
 

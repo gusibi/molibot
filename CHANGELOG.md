@@ -4,6 +4,22 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-17
+
+### Added: Auto 权限模式真·全自动 —— 沙箱网络全放行 + 沙箱拒绝自动升级放行
+
+- 选 Auto 模式后不再被审批卡打断：session 有效沙箱网络自动提为全放行（域名白名单不再静默杀命令），沙箱权限拒绝后的 host bash 升级自动通过（标注 `[AUTO]`）；第三方代码安装/执行（manage 类）仍会询问。主链路、subagent、消息渠道统一走共享层实现。
+- 沙箱设置页预设重设计：observe/build/strict 卡片改为单轴严格度滑条（锁定/只读/标准/全开，锁定绿、全开红，主题 token 配色，明暗主题与移动宽度适配），微调细节仍自动落「自定义」。
+- 两轴关系（权限模式 × 沙箱策略）官方口径见 `docs/guides/permission-and-sandbox-modes.md`。
+
+### Fixed: 点名 MCP server 却提示 MCP 工具缺失（`loadMcp` 注册门控与 prompt 宣传脱节，改为按配置常驻）
+
+- 症状（Session `s-20260817-ztfk`）：用户消息「使用 open-connector 查询…」点名了已启用的 MCP server，system prompt 的 `<mcp-access>` 段也列出 `tdx` / `open-connector` 并指示用 `loadMcp` 加载，但 `loadMcp` / `mcpInvoke` 根本没注册进工具集--`toolSearch` 返回 `No deferred tool matched`，模型被迫用 bash/find/curl 乱试后给出「环境缺少 loadMcp 支持」的错误诊断。
+- 根因定性：用「猜用户这句话算不算点名 MCP」来决定工具是否存在，把能力开关建立在脆弱的自然语言匹配上，且 prompt 宣传与注册门槛用两套词表，永远对不齐。第一次修复（把 server id/name 加进词表）仍是同族--修 NLU 的办法不是把 NLU 写得更全，是不再需要它。
+- 结构性修复：`loadMcp` / `mcpInvoke` 的注册与 prompt `<mcp-access>` 段现在派生自**同一个谓词** `hasConfiguredMcpServers(settings)`（`openConnector.ts`）--配置了任意 MCP server 即常驻注册（含 disabled，`loadMcp` 能解释缺什么），零配置则两侧都不出现。`hasExplicitMcpInvocation()` 及其词表匹配整体删除；「是否加载某个 server」完全交给模型经 `loadMcp` 决定，prompt 里「仅显式要求时用 MCP」降级为成本建议（避免投机加载）。
+- 机器守卫：`prompt.test.ts` 新增不变量测试--prompt 出现 `<mcp-access>` ⟺ `hasConfiguredMcpServers` 为真（enabled / disabled / 零配置三档），并结构化断言 `runner.ts` 的门控必须写 `exposeLoadMcpTool = hasConfiguredMcpServers(settings)`、不得再引用 `hasExplicitMcpInvocation`。
+- 验证：`prompt.test.ts` 33/33、`runnerHelpers.test.ts` 7/7、`runner.test.ts` + `loadMcp` / `mcp` / `toolClassification` 65/65；tsc 触碰文件 0 错误。
+
 ## 2026-08-16
 
 ### Added: Project-scoped scheduled automations

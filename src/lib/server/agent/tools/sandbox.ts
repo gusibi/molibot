@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
 import { SandboxManager, type SandboxRuntimeConfig as AnthropicSandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import { resolveSessionScopedOverride } from "$lib/server/agent/permissions/overrideResolver.js";
+import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
 import { config } from "$lib/server/app/env.js";
 import type { ToolSandboxSettings, RuntimeSettings } from "$lib/server/settings/index.js";
 import { getPythonToolingDir, getSandboxVenvDir } from "$lib/server/agent/tools/helpers.js";
@@ -514,4 +515,28 @@ export function resolveEffectiveSandboxSettings(options: {
   );
 
   return enabled === baseSettings.enabled ? baseSettings : { ...baseSettings, enabled };
+}
+
+/**
+ * Auto-mode linkage (PRD §3.65): the product-owner decision is that "Auto"
+ * means "run unattended" — the session's effective sandbox network is lifted
+ * to allow-all so domain allowlists cannot silently kill commands and trigger
+ * host-bash escalation approval cards. This is the single shared place where
+ * the two axes meet; callers must not re-implement the lift per tool.
+ */
+export function liftSandboxForPermissionMode(
+  settings: ToolSandboxSettings,
+  mode: PermissionMode | undefined
+): ToolSandboxSettings {
+  if (!mode || mode !== "auto" || !settings.enabled) return settings;
+  if (isAllowAll(settings.network.allowedDomains) && !(settings.network.deniedDomains ?? []).length) {
+    return settings;
+  }
+  return {
+    ...settings,
+    network: {
+      allowedDomains: ["*"],
+      deniedDomains: []
+    }
+  };
 }

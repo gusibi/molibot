@@ -42,7 +42,8 @@ import { createBashTool, type BashToolHostApprovalOptions } from "$lib/server/ag
 import { createEditTool } from "$lib/server/agent/tools/edit.js";
 import { createReadTool } from "$lib/server/agent/tools/read.js";
 import { createWriteTool } from "$lib/server/agent/tools/write.js";
-import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
+import { liftSandboxForPermissionMode, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
+import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { settleWithCooperativeTimeout } from "$lib/server/agent/core/cooperativeTimeout.js";
 import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js";
 import {
@@ -829,7 +830,7 @@ function createBashDefinition(
   hostApproval?: BashToolHostApprovalOptions
 ): ToolDefinition {
   const botId = basename(workspaceDir) || "unknown";
-  const sandboxSettings = resolveEffectiveSandboxSettings({
+  const resolvedSandboxSettings = resolveEffectiveSandboxSettings({
     getSettings: () => settings,
     chatId: hostApproval?.chatId,
     sessionId: hostApproval?.sessionId,
@@ -837,9 +838,28 @@ function createBashDefinition(
     channel: hostApproval?.channel,
     botId
   });
+  // Same shared Auto-mode linkage as the main tool path (PRD §3.65): a
+  // subagent of an Auto session must not hit narrower sandbox walls than the
+  // parent, or the denial just resurfaces as an approval card from the child.
+  const permissionMode = hostApproval
+    ? clampModeForChannel(
+        resolveEffectivePermissionMode({
+          getSettings: () => settings,
+          chatId: hostApproval.chatId,
+          sessionId: hostApproval.sessionId,
+          store: hostApproval.store,
+          channel: hostApproval.channel,
+          botId
+        }),
+        hostApproval.channel
+      )
+    : undefined;
+  const sandboxSettings = liftSandboxForPermissionMode(resolvedSandboxSettings, permissionMode);
   const tool = createBashTool(cwd, {
     artifactDir,
-    hostApproval,
+    hostApproval: hostApproval
+      ? { ...hostApproval, autoApproveSandboxEscalation: permissionMode === "auto" }
+      : undefined,
     sandbox: {
       settings: sandboxSettings,
       workspaceDir

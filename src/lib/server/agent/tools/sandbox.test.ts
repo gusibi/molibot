@@ -12,8 +12,34 @@ import {
   getSandboxProvider,
   prepareToolSandboxExecution,
   resolveEffectiveSandboxSettings,
+  liftSandboxForPermissionMode,
   type SandboxProvider
 } from "$lib/server/agent/tools/sandbox.js";
+
+test("liftSandboxForPermissionMode lifts network to allow-all only for Auto (PRD §3.65)", () => {
+  const strictish = structuredClone(defaultToolSandboxSettings);
+  strictish.enabled = true;
+  strictish.network.allowedDomains = ["npmjs.org"];
+  strictish.network.deniedDomains = ["evil.example"];
+
+  // Non-auto modes and undefined keep the policy untouched.
+  assert.equal(liftSandboxForPermissionMode(strictish, undefined), strictish);
+  assert.equal(liftSandboxForPermissionMode(strictish, "plan"), strictish);
+  assert.equal(liftSandboxForPermissionMode(strictish, "manual"), strictish);
+  assert.equal(liftSandboxForPermissionMode(strictish, "accept_edits"), strictish);
+
+  // Auto lifts network to allow-all; the rest of the policy is preserved.
+  const lifted = liftSandboxForPermissionMode(strictish, "auto");
+  assert.deepEqual(lifted.network, { allowedDomains: ["*"], deniedDomains: [] });
+  assert.deepEqual(lifted.filesystem, strictish.filesystem);
+  assert.deepEqual(lifted.env, strictish.env);
+
+  // Disabled sandbox stays disabled; already-open policy returns the same object.
+  const disabled = { ...strictish, enabled: false };
+  assert.equal(liftSandboxForPermissionMode(disabled, "auto"), disabled);
+  const open = { ...strictish, network: { allowedDomains: ["*"], deniedDomains: [] } };
+  assert.equal(liftSandboxForPermissionMode(open, "auto"), open);
+});
 
 test("sanitizeToolSandboxSettings keeps safe defaults for invalid input", () => {
   const settings = sanitizeToolSandboxSettings({

@@ -306,23 +306,6 @@ export function removeOrphanToolResultsFromContext(context: any): any {
     : { ...context, messages };
 }
 
-export function hasExplicitMcpInvocation(inputText: string): boolean {
-  const text = String(inputText ?? "");
-  if (!text.trim()) return false;
-
-  const lower = text.toLowerCase();
-  const directPatterns = [
-    /\bloadMcp\b/i,
-    /(?:^|\s)\/mcp(?:\s|$)/i
-  ];
-  if (directPatterns.some((pattern) => pattern.test(lower))) {
-    return true;
-  }
-
-  // Language-agnostic fallback: standalone MCP token anywhere in the sentence.
-  return /(?:^|[\s([{'"“‘])mcp(?=$|[\s)\]}'"”’，。,.!?;:：])/i.test(lower);
-}
-
 export function injectExplicitSkillInvocationContext(
   inputText: string,
   skills: Array<{ name: string; scope: string; filePath: string; baseDir?: string; aliases?: string[] }>

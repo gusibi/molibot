@@ -91,7 +91,7 @@
   let sandbox: ToolSandboxSettings = structuredClone(defaultSandbox);
   let diagnostics: Diagnostics | null = null;
 
-  type SandboxProfileName = "observe" | "build" | "strict" | "custom";
+  type SandboxProfileName = "full" | "standard" | "readonly" | "locked" | "custom";
 
   interface ProfileTemplate {
     name: SandboxProfileName;
@@ -117,9 +117,9 @@
   const DEFAULT_DENY_READ = ["~/.ssh", "~/.aws", "~/.gnupg", ".env", ".env.*"];
   const DEFAULT_DENY_WRITE = [".env", ".env.*", "*.pem", "*.key"];
 
-  const profiles: Record<"observe" | "build" | "strict", ProfileTemplate> = {
-    observe: {
-      name: "observe",
+  const profiles: Record<"full" | "standard" | "readonly" | "locked", ProfileTemplate> = {
+    full: {
+      name: "full",
       enabled: true,
       initFailureMode: "block",
       envFilePath: ".env",
@@ -134,12 +134,12 @@
       },
       filesystem: {
         denyRead: DEFAULT_DENY_READ,
-        allowWrite: ["/tmp", "scratch"],
+        allowWrite: [".", "/tmp", "scratch"],
         denyWrite: DEFAULT_DENY_WRITE
       }
     },
-    build: {
-      name: "build",
+    standard: {
+      name: "standard",
       enabled: true,
       initFailureMode: "block",
       envFilePath: ".env",
@@ -169,8 +169,28 @@
         denyWrite: DEFAULT_DENY_WRITE
       }
     },
-    strict: {
-      name: "strict",
+    readonly: {
+      name: "readonly",
+      enabled: true,
+      initFailureMode: "block",
+      envFilePath: ".env",
+      env: {
+        inheritMode: "minimal",
+        allow: [],
+        deny: []
+      },
+      network: {
+        allowedDomains: ["*"],
+        deniedDomains: []
+      },
+      filesystem: {
+        denyRead: DEFAULT_DENY_READ,
+        allowWrite: ["/tmp", "scratch"],
+        denyWrite: DEFAULT_DENY_WRITE
+      }
+    },
+    locked: {
+      name: "locked",
       enabled: true,
       initFailureMode: "block",
       envFilePath: ".env",
@@ -193,34 +213,54 @@
 
   const COPY = {
     "zh-CN": {
-      observeTitle: "Observe 只读观察",
-      observeDesc: "只读运行。允许网络访问但禁止改写项目源文件，适用于只读分析或代码库搜索任务。",
-      buildTitle: "Build 构建生成",
-      buildDesc: "代码生成与运行。允许网络访问标准源并可写工作区，适用于编译、自动重构与工具链调用。",
-      strictTitle: "Strict 极度隔离",
-      strictDesc: "最高级密闭沙盒。禁止一切网络访问，禁止改写源文件，最小化环境变量注入。",
-      presetTitle: "安全策略预设 (Sandbox Profiles)",
-      presetDesc: "选择预设模式一键配置沙盒规则。您仍可以在下方微调所有细节。",
-      customProfile: "自定义配置策略 (Custom Profile) · 已根据下方细节做了修改",
-      activeProfile: "当前策略级别",
+      lockedTitle: "锁定",
+      lockedDesc: "完全隔离：断网，只能写临时目录，环境变量最小化。",
+      readonlyTitle: "只读",
+      readonlyDesc: "能联网查资料，但不能修改项目文件。",
+      standardTitle: "标准",
+      standardDesc: "日常开发：网络放行常用开发站点，可修改项目文件。",
+      fullTitle: "全开",
+      fullDesc: "最宽松：网络全部放行，可修改项目文件。请确认你信任当前任务。",
+      customDesc: "自定义 · 你在下方修改过细节，不再对应任何档位。拖动滑条可回到预设档位。",
+      presetTitle: "沙箱严格程度",
+      presetDesc: "从左（最严格）到右（最宽松）拖动选择。拖动后仍可在下方微调细节，微调后会变为「自定义」。",
       badgeCustom: "自定义",
-      badgeActive: "当前生效"
+      currentLevel: "当前档位"
     },
     "en-US": {
-      observeTitle: "Observe (Read-Only)",
-      observeDesc: "Read-only execution. Allows network access but blocks writes to the project workspace. Best for analysis and search tasks.",
-      buildTitle: "Build (Read/Write)",
-      buildDesc: "Code generation and execution. Allows standard network access and workspace modifications. Best for builds and refactoring.",
-      strictTitle: "Strict (Isolated)",
-      strictDesc: "Maximum sandbox isolation. Disables all network access, blocks workspace writes, and restricts env variables.",
-      presetTitle: "Security Profile Presets",
-      presetDesc: "Choose a preset mode to configure sandbox rules instantly. You can still fine-tune all details below.",
-      customProfile: "Custom Profile · Modified from presets below",
-      activeProfile: "Active Security Profile",
+      lockedTitle: "Locked",
+      lockedDesc: "Fully isolated: no network, temp-dir writes only, minimal env.",
+      readonlyTitle: "Read-Only",
+      readonlyDesc: "Network allowed for research, but project files cannot be modified.",
+      standardTitle: "Standard",
+      standardDesc: "Everyday development: common dev sites allowed, project files writable.",
+      fullTitle: "Full Access",
+      fullDesc: "Most permissive: all network, project files writable. Only for tasks you trust.",
+      customDesc: "Custom · you modified details below; this no longer matches a preset. Drag the slider to return to one.",
+      presetTitle: "Sandbox strictness",
+      presetDesc: "Drag from left (strictest) to right (most permissive). Fine-tune below; edits switch to Custom.",
       badgeCustom: "Custom",
-      badgeActive: "Active"
+      currentLevel: "Current level"
     }
   } as const;
+
+  // Slider axis, strictest → most permissive.
+  const SLIDER_LEVELS: Array<"locked" | "readonly" | "standard" | "full"> = ["locked", "readonly", "standard", "full"];
+
+  function levelTitle(name: "locked" | "readonly" | "standard" | "full"): string {
+    const titles = { locked: copy.lockedTitle, readonly: copy.readonlyTitle, standard: copy.standardTitle, full: copy.fullTitle } as const;
+    return titles[name];
+  }
+
+  function levelDesc(name: "locked" | "readonly" | "standard" | "full"): string {
+    const descs = { locked: copy.lockedDesc, readonly: copy.readonlyDesc, standard: copy.standardDesc, full: copy.fullDesc } as const;
+    return descs[name];
+  }
+
+  function applyLevelByIndex(index: number): void {
+    const level = SLIDER_LEVELS[index];
+    if (level) applyProfile(level);
+  }
 
   let envAllowText = "";
   let envDenyText = "";
@@ -260,7 +300,7 @@
     const parsedFsAllowWrite = textToList(fsAllowWrite);
     const parsedFsDenyWrite = textToList(fsDenyWrite);
 
-    for (const [key, profile] of Object.entries(profiles) as [["observe" | "build" | "strict", ProfileTemplate]]) {
+    for (const [key, profile] of Object.entries(profiles) as [["full" | "standard" | "readonly" | "locked", ProfileTemplate]]) {
       if (
         enabled === profile.enabled &&
         initFailureMode === profile.initFailureMode &&
@@ -292,7 +332,11 @@
     denyWriteText
   );
 
-  function applyProfile(profileName: "observe" | "build" | "strict"): void {
+  // Slider position: -1 means Custom (details edited; no preset stop active).
+  $: sliderIndex = SLIDER_LEVELS.indexOf(activeProfile as "locked" | "readonly" | "standard" | "full");
+  $: isCustom = sliderIndex === -1;
+
+  function applyProfile(profileName: "full" | "standard" | "readonly" | "locked"): void {
     const profile = profiles[profileName];
     sandbox.enabled = profile.enabled;
     sandbox.initFailureMode = profile.initFailureMode;
@@ -450,58 +494,62 @@
           </div>
         </div>
         <div class="channel-card-body">
-          <div class="presets-grid">
-            <button
-              type="button"
-              onclick={() => applyProfile("observe")}
-              class="preset-card {activeProfile === 'observe' ? 'preset-card--active' : ''}"
-            >
-              <div class="preset-card-header">
-                <span class="preset-card-title">{copy.observeTitle}</span>
-                {#if activeProfile === 'observe'}
-                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold uppercase">{copy.badgeActive}</Badge>
+          <div class="sandbox-slider" data-level="{isCustom ? 'custom' : SLIDER_LEVELS[sliderIndex]}">
+            <div class="sandbox-slider-head">
+              <span class="sandbox-slider-current">
+                {#if isCustom}
+                  <Badge variant="secondary" class="text-[10px] py-0.5 px-2 font-semibold uppercase">{copy.badgeCustom}</Badge>
+                {:else}
+                  <span class="sandbox-slider-badge">{levelTitle(SLIDER_LEVELS[sliderIndex])}</span>
                 {/if}
-              </div>
-              <p class="preset-card-desc">{copy.observeDesc}</p>
-            </button>
-
-            <button
-              type="button"
-              onclick={() => applyProfile("build")}
-              class="preset-card {activeProfile === 'build' ? 'preset-card--active' : ''}"
-            >
-              <div class="preset-card-header">
-                <span class="preset-card-title">{copy.buildTitle}</span>
-                {#if activeProfile === 'build'}
-                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold uppercase">{copy.badgeActive}</Badge>
-                {/if}
-              </div>
-              <p class="preset-card-desc">{copy.buildDesc}</p>
-            </button>
-
-            <button
-              type="button"
-              onclick={() => applyProfile("strict")}
-              class="preset-card {activeProfile === 'strict' ? 'preset-card--active' : ''}"
-            >
-              <div class="preset-card-header">
-                <span class="preset-card-title">{copy.strictTitle}</span>
-                {#if activeProfile === 'strict'}
-                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold uppercase">{copy.badgeActive}</Badge>
-                {/if}
-              </div>
-              <p class="preset-card-desc">{copy.strictDesc}</p>
-            </button>
-          </div>
-
-          {#if activeProfile === 'custom'}
-            <div class="custom-profile-warning">
-              <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-              </svg>
-              <span>{copy.customProfile}</span>
+              </span>
+              <p class="sandbox-slider-desc">{isCustom ? copy.customDesc : levelDesc(SLIDER_LEVELS[sliderIndex])}</p>
             </div>
-          {/if}
+            <div class="sandbox-slider-track-wrap">
+              <div class="sandbox-slider-track" aria-hidden="true"></div>
+              <div
+                class="sandbox-slider-fill"
+                style="width: {isCustom ? '0%' : `${(sliderIndex / (SLIDER_LEVELS.length - 1)) * 100}%`}"
+                aria-hidden="true"
+              ></div>
+              <input
+                class="sandbox-slider-input"
+                type="range"
+                min="0"
+                max={SLIDER_LEVELS.length - 1}
+                step="1"
+                value={isCustom ? 0 : sliderIndex}
+                aria-label={copy.presetTitle}
+                oninput={(e) => applyLevelByIndex(Number((e.target as HTMLInputElement).value))}
+              />
+              {#each SLIDER_LEVELS as level, index (level)}
+                <button
+                  type="button"
+                  class="sandbox-slider-stop {!isCustom && sliderIndex === index ? 'sandbox-slider-stop--active' : ''}"
+                  style="left: {(index / (SLIDER_LEVELS.length - 1)) * 100}%"
+                  onclick={() => applyLevelByIndex(index)}
+                  aria-label={levelTitle(level)}
+                  aria-pressed={!isCustom && sliderIndex === index}
+                ></button>
+              {/each}
+            </div>
+            <div class="sandbox-slider-labels">
+              {#each SLIDER_LEVELS as level, index (level)}
+                <button
+                  type="button"
+                  class="sandbox-slider-label {isCustom ? '' : sliderIndex === index ? 'sandbox-slider-label--active' : ''}"
+                  style="left: {(index / (SLIDER_LEVELS.length - 1)) * 100}%"
+                  onclick={() => applyLevelByIndex(index)}
+                  aria-pressed={!isCustom && sliderIndex === index}
+                >
+                  <span class="sandbox-slider-label-title">{levelTitle(level)}</span>
+                  <span class="sandbox-slider-label-hints">
+                    {#if level === "locked"}🌐✗ · ✏️✗{:else if level === "readonly"}🌐✓ · ✏️✗{:else if level === "standard"}🌐≈ · ✏️✓{:else}🌐✓ · ✏️✓{/if}
+                  </span>
+                </button>
+              {/each}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -685,65 +733,151 @@
 </footer>
 
 <style>
-  .presets-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
+  /* Level colors use theme tokens only: locked=success (safe), full=destructive. */
+  .sandbox-slider {
+    --slider-accent: var(--primary);
   }
-  @media (max-width: 768px) {
-    .presets-grid {
-      grid-template-columns: 1fr;
-    }
+  .sandbox-slider[data-level="locked"] {
+    --slider-accent: var(--success);
   }
-  .preset-card {
+  .sandbox-slider[data-level="readonly"] {
+    --slider-accent: var(--primary);
+  }
+  .sandbox-slider[data-level="standard"] {
+    --slider-accent: var(--primary);
+  }
+  .sandbox-slider[data-level="full"] {
+    --slider-accent: var(--destructive);
+  }
+  .sandbox-slider-head {
     display: flex;
     flex-direction: column;
-    text-align: left;
-    border-radius: 0.75rem;
-    border: 1px solid var(--border);
-    padding: 1rem;
-    background: var(--card);
-    cursor: pointer;
-    transition: all 0.2s ease;
+    gap: 0.375rem;
+    margin-bottom: 1.25rem;
+    min-height: 3.5rem;
   }
-  .preset-card:hover {
-    border-color: var(--muted-foreground);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow);
-  }
-  .preset-card--active {
-    border-color: var(--primary);
-    background: color-mix(in oklab, var(--primary) 6%, var(--card));
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 20%, transparent);
-  }
-  .preset-card-header {
-    display: flex;
+  .sandbox-slider-badge {
+    display: inline-flex;
     align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    margin-bottom: 0.5rem;
-  }
-  .preset-card-title {
+    border-radius: 9999px;
+    padding: 0.125rem 0.625rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--foreground);
-    font-size: 0.875rem;
+    color: var(--slider-accent);
+    border: 1px solid color-mix(in oklab, var(--slider-accent) 35%, transparent);
+    background: color-mix(in oklab, var(--slider-accent) 10%, transparent);
+    width: fit-content;
   }
-  .preset-card-desc {
+  .sandbox-slider-desc {
     font-size: 0.75rem;
     line-height: 1.5;
     color: var(--muted-foreground);
-    flex: 1;
   }
-  .custom-profile-warning {
-    margin-top: 0.5rem;
+  .sandbox-slider-track-wrap {
+    position: relative;
+    height: 1.5rem;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+  }
+  .sandbox-slider-track,
+  .sandbox-slider-fill {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 0.5rem;
+    border-radius: 9999px;
+  }
+  .sandbox-slider-track {
+    background: var(--muted);
+  }
+  .sandbox-slider-fill {
+    right: auto;
+    background: var(--slider-accent);
+    transition: width 0.2s ease, background 0.2s ease;
+  }
+  .sandbox-slider-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .sandbox-slider-input:focus-visible + .sandbox-slider-stop {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .sandbox-slider-stop {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    top: 50%;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 9999px;
+    border: 2px solid var(--border);
+    background: var(--background);
+    cursor: pointer;
+    padding: 0;
+    transition: all 0.2s ease;
+  }
+  .sandbox-slider-stop--active {
+    border-color: var(--slider-accent);
+    background: var(--slider-accent);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--slider-accent) 25%, transparent);
+  }
+  .sandbox-slider-labels {
+    position: relative;
+    height: 3.25rem;
+    margin-top: 0.25rem;
+  }
+  .sandbox-slider-label {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    background: none;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
     border-radius: 0.5rem;
-    border: 1px solid color-mix(in oklab, var(--primary) 20%, transparent);
-    background: color-mix(in oklab, var(--primary) 5%, transparent);
-    padding: 0.5rem 0.75rem;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .sandbox-slider-label:hover {
+    background: var(--muted);
+  }
+  .sandbox-slider-label-title {
     font-size: 0.75rem;
-    color: var(--primary);
+    font-weight: 600;
+    color: var(--muted-foreground);
+  }
+  .sandbox-slider-label-hints {
+    font-size: 0.6875rem;
+    color: var(--muted-foreground);
+    opacity: 0.8;
+  }
+  .sandbox-slider-label--active .sandbox-slider-label-title {
+    color: var(--slider-accent);
+  }
+  @media (max-width: 640px) {
+    .sandbox-slider-labels {
+      height: 4.5rem;
+    }
+    .sandbox-slider-label {
+      white-space: normal;
+      max-width: 5.5rem;
+      line-height: 1.2;
+    }
+    .sandbox-slider-label:first-child {
+      transform: translateX(-40%);
+      text-align: left;
+    }
+    .sandbox-slider-label:last-child {
+      transform: translateX(-60%);
+      text-align: right;
+    }
   }
 </style>
