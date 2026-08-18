@@ -188,3 +188,85 @@ test("claimExecution grants execution to exactly one claimant", () => {
   store.markExecution(id, "executed");
   assert.equal(store.getApprovalRecord(id)?.status, "executed");
 });
+
+test("listPending, listWhitelist, and listHistory support category filtering", () => {
+  const store = createStore();
+
+  // Create Bash request
+  const bashReq = store.requestApproval(requestInput({
+    toolId: "bash-tool",
+    displayName: "Bash Tool"
+  }));
+  assert.equal(bashReq.kind, "created");
+
+  const now = new Date().toISOString();
+
+  // Directly insert an MCP request and File Write request via SQLite
+  (store as any).db.prepare(`
+    INSERT INTO approvals (
+      id, type, capability, actor_id, workspace_id, session_id, run_id,
+      action_fingerprint, action_json, reason, status, scope_options_json,
+      selected_scope, scope, created_at, resolved_at
+    ) VALUES (
+      'req-mcp-1', 'request', 'mcp:OpenConnector/execute_action', 'chat-1', 'ws-1', 'session-1', 'scope-1',
+      '{}', '{"toolName":"execute_action","displayName":"OpenConnector Execute","type":"mcp_tool"}', 'Need MCP access', 'pending', '["once","session","persistent"]',
+      NULL, NULL, ?, NULL
+    )
+  `).run(now);
+
+  (store as any).db.prepare(`
+    INSERT INTO approvals (
+      id, type, capability, actor_id, workspace_id, session_id, run_id,
+      action_fingerprint, action_json, reason, status, scope_options_json,
+      selected_scope, scope, created_at, resolved_at
+    ) VALUES (
+      'req-file-1', 'request', 'file_write:src/index.ts', 'chat-1', 'ws-1', 'session-1', 'scope-1',
+      '{}', '{"toolName":"write","displayName":"Write File","type":"file_write","payload":{"path":"src/index.ts"}}', 'Need write access', 'pending', '["once","session"]',
+      NULL, NULL, ?, NULL
+    )
+  `).run(now);
+
+  // Test pending list with category filtering
+  const allPending = store.listPending("scope-1");
+  assert.equal(allPending.length, 3);
+
+  const mcpPending = store.listPending("scope-1", undefined, "mcp");
+  assert.equal(mcpPending.length, 1);
+  assert.equal(mcpPending[0]?.category, "mcp");
+  assert.equal(mcpPending[0]?.id, "req-mcp-1");
+
+  const filePending = store.listPending("scope-1", undefined, "file_write");
+  assert.equal(filePending.length, 1);
+  assert.equal(filePending[0]?.category, "file_write");
+  assert.equal(filePending[0]?.payload?.path, "src/index.ts");
+
+  const bashPending = store.listPending("scope-1", undefined, "bash");
+  assert.equal(bashPending.length, 1);
+  assert.equal(bashPending[0]?.category, "bash");
+
+  // Insert a grant for MCP
+  (store as any).db.prepare(`
+    INSERT INTO approvals (
+      id, type, capability, actor_id, workspace_id, session_id, run_id,
+      action_fingerprint, action_json, reason, status, scope_options_json,
+      selected_scope, scope, created_at, resolved_at, revoked_at
+    ) VALUES (
+      'grant-mcp-1', 'grant', 'mcp:OpenConnector/execute_action', 'chat-1', 'ws-1', 'session-1', 'scope-1',
+      '{"displayName":"OpenConnector Execute","type":"mcp_tool"}', '{}', 'Persistent grant', 'approved', '[]',
+      'persistent', 'persistent', ?, ?, NULL
+    )
+  `).run(now, now);
+
+  const allWhitelist = store.listWhitelist();
+  assert.equal(allWhitelist.length, 1);
+  assert.equal(allWhitelist[0]?.category, "mcp");
+
+  const mcpWhitelist = store.listWhitelist("mcp");
+  assert.equal(mcpWhitelist.length, 1);
+
+  const bashWhitelist = store.listWhitelist("bash");
+  assert.equal(bashWhitelist.length, 0);
+
+  // Test hasAnyData
+  assert.equal(store.hasAnyData(), true);
+});

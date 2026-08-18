@@ -241,3 +241,14 @@ test("proxy-image refuses anything that is not an http(s) URL", async () => {
     assert.equal(rejected.status, 400);
   });
 });
+
+test("macaron theme saves in settings and is exported in themes definition", async () => {
+  await withApp(async (app) => {
+    await app.handleHttp(request("/settings", {
+      method: "PUT",
+      body: { theme: "macaron" }
+    }));
+    const res = await app.handleHttp(request("/settings"));
+    assert.equal(res.body.settings.theme, "macaron");
+  });
+});

@@ -8,6 +8,7 @@ import {
 } from "../api";
 import { session, setError } from "./session.svelte";
 
+export type HostBashCategoryFilter = "all" | "bash" | "mcp" | "file_write" | "miniapp";
 export type HostBashTab = "all" | "whitelist" | "pending" | "history";
 export type HostBashStatusFilter = "all" | "approved" | "rejected" | "executed" | "failed";
 export type HostBashModeFilter = "all" | "persistent" | "ephemeral" | "session";
@@ -19,6 +20,7 @@ export const hostBashStore = $state({
   togglingId: null as string | null,
   deletingId: null as string | null,
   query: "",
+  categoryFilter: "all" as HostBashCategoryFilter,
   statusFilter: "all" as HostBashStatusFilter,
   modeFilter: "all" as HostBashModeFilter,
   activeTab: "all" as HostBashTab
@@ -30,6 +32,7 @@ export async function loadHostBash(endpoint: string): Promise<void> {
   session.error = "";
   try {
     hostBashStore.data = await loadDesktopHostBashSettings(endpoint, {
+      category: hostBashStore.categoryFilter,
       status: hostBashStore.statusFilter,
       mode: hostBashStore.modeFilter,
       query: hostBashStore.query
@@ -48,6 +51,7 @@ export async function refreshHostBash(): Promise<void> {
   session.error = "";
   try {
     hostBashStore.data = await loadDesktopHostBashSettings(endpoint, {
+      category: hostBashStore.categoryFilter,
       status: hostBashStore.statusFilter,
       mode: hostBashStore.modeFilter,
       query: hostBashStore.query

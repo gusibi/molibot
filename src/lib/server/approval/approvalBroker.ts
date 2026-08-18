@@ -129,6 +129,22 @@ export class ApprovalBroker {
     }
 
     const scope = input.selectedScope ?? "once";
+    // A grant matches at the granularity the chosen scope promises. Every scope
+    // is already constrained to one capability (one tool), and `once`/`turn`
+    // are further constrained to the originating run - which is exactly "this
+    // call", because an approval continuation reuses the same runId. Carrying
+    // the request's full actionFingerprint on top of that turned
+    // `session`/`persistent` grants into no-ops: a debounced (aggregated)
+    // request's fingerprint is the batch envelope `{fingerprints:[...]}`, which
+    // no future single call can ever equal, so "本会话允许"/"一直允许" re-asked
+    // on every call (session s-20260818-vtjv: three approvals for one tool).
+    //
+    // File writes keep the exact fingerprint: a write approval shows a specific
+    // diff, and one answer must not silently widen into "write anything". (A
+    // write approved from an *aggregated* card therefore still matches only the
+    // identical retry - a known limitation, not a regression.)
+    const keepActionFingerprint =
+      request.capability === "builtin:write" || request.capability === "builtin:edit";
     const grant: ApprovalGrant = {
       id: input.grantId ?? `${request.id}-grant`,
       scope,
@@ -137,7 +153,7 @@ export class ApprovalBroker {
       workspaceId: request.workspaceId,
       sessionId: request.sessionId,
       runId: request.runId,
-      actionFingerprint: request.actionFingerprint,
+      actionFingerprint: keepActionFingerprint ? request.actionFingerprint : undefined,
       createdAt: resolvedAt
     };
     this.store.saveGrant(grant);

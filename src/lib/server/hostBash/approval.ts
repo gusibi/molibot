@@ -310,11 +310,34 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
     ? `${fullCommand.slice(0, APPROVAL_PROMPT_COMMAND_DISPLAY_LIMIT)}…`
     : fullCommand;
   const persistable = canPersistHostBashApproval(request);
+  const category = request.category
+    || (request.toolId.startsWith("mcp__") || request.toolId.startsWith("mcp:")
+      ? "mcp"
+      : request.toolId === "write" || request.toolId === "edit" || request.payload?.path
+        ? "file_write"
+        : request.toolId.startsWith("miniapp__")
+          ? "miniapp"
+          : "bash");
+
+  const actionLabel = category === "mcp"
+    ? "调用 MCP 工具"
+    : category === "file_write"
+      ? "修改文件"
+      : category === "miniapp"
+        ? "运行插件动作"
+        : "执行 Bash";
+
+  const targetLine = category === "file_write" && request.payload?.path
+    ? `【文件】${request.payload.path}`
+    : category === "mcp"
+      ? `【MCP 动作】${request.displayName || request.toolId}`
+      : `【命令】${command || request.displayName || request.toolId}`;
+
   const bodyLines = [
-    `【操作】执行 Bash`,
-    `【命令】${command}`
+    `【操作】${actionLabel}`,
+    targetLine
   ];
-  if (persistable && request.displayName) {
+  if (persistable && request.displayName && category === "bash") {
     bodyLines.push(`【工具】${request.displayName}`);
   }
   // Ordered least-privilege last so a UI that renders them left-to-right ends on
@@ -338,6 +361,7 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
     options,
     request: {
       toolId: request.toolId,
+      category,
       displayName: request.displayName,
       command: request.command,
       args: request.pendingAction?.args ?? [],

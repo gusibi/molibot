@@ -32,9 +32,21 @@ export function buildBrokerApprovalRecord(input: {
   status: HostBashApprovalRecord["status"];
   pendingAction?: HostBashApprovalRecord["pendingAction"];
 }): HostBashApprovalRecord {
+  const isPersistent = input.request.scopeOptions?.includes("persistent");
+  const isSession = input.request.scopeOptions?.includes("session");
+  const approvalMode = isPersistent ? "persistent" : isSession ? "session" : "ephemeral";
+  const category = input.request.action?.type === "mcp_tool"
+    ? "mcp"
+    : input.request.action?.type === "file_write"
+      ? "file_write"
+      : input.toolId.startsWith("miniapp__")
+        ? "miniapp"
+        : "bash";
+
   return {
     id: input.request.id,
     toolId: input.toolId,
+    category,
     displayName: input.displayName,
     command: input.command,
     reason: input.request.reason,
@@ -42,7 +54,7 @@ export function buildBrokerApprovalRecord(input: {
     chatId: input.actorId,
     scopeId: input.request.runId,
     sessionId: input.request.sessionId,
-    approvalMode: "ephemeral",
+    approvalMode,
     status: input.status,
     permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
     pendingAction: input.pendingAction,
@@ -76,11 +88,54 @@ interface DebounceBatch {
   requestId: string;
   capability: string;
   requests: ApprovalRequest[];
-  resolvers: Array<(decision: "approved" | "rejected" | "expired") => void>;
+  resolvers: Array<(decision: ApprovalResolution) => void>;
   timer: NodeJS.Timeout;
 }
 
 const activeDebounceBatches = new Map<string, DebounceBatch>();
+
+/**
+ * How long a run waits inline for an approval decision before suspending.
+ *
+ * This is a handshake window, not an approval deadline - the same contract as
+ * Host Bash's `HOST_APPROVAL_INLINE_WINDOW_MS` (bash.ts). Blocking longer than
+ * this holds the caller's connection open while emitting nothing, and the whole
+ * wait counts against every enclosing tool's execution timeout - which is how a
+ * user answering six minutes late produced "approved, but stuck on 'Waiting for
+ * user approval'" (session s-20260818-vtjv: the 300s `mcpInvoke` budget
+ * swallowed both the wait and the actual call).
+ *
+ * Past the window the run ends cleanly with `waiting_for_approval` and the
+ * out-of-band approve -> resume path takes over: the request is already durable
+ * in the broker store, so the user can answer in seconds or in days. The window
+ * only exists so a user watching the screen gets the tool result inline with no
+ * extra model turn. It must stay comfortably above the 1.5s debounce interval
+ * so low/medium-risk aggregation still completes inside it.
+ */
+const BROKER_APPROVAL_INLINE_WINDOW_MS = 30_000;
+
+/** The outcome of one approval wait, from the waiting tool's point of view. */
+export type ApprovalResolution = "approved" | "rejected" | "expired" | "window_expired";
+
+/**
+ * The result a tool returns when its run must suspend for a user decision:
+ * either the caller deferred (`onApprovalRequest` -> "defer") or the inline
+ * window elapsed. Both paths produce the identical shape - the runner winds the
+ * turn down on `terminate`, and the out-of-band approve -> resume flow finds the
+ * suspended entry again by `details.approvalRequestId`.
+ */
+function buildSuspendedApprovalResult(requestId: string, prompt: unknown): ToolResult {
+  return {
+    ok: false,
+    error: "Tool execution is waiting for user approval.",
+    metadata: {
+      approvalRequestId: requestId,
+      status: "waiting_for_approval"
+    },
+    details: { hostBashApproval: prompt, approvalRequestId: requestId },
+    terminate: true
+  };
+}
 
 export class ToolRuntime {
   private readonly approvalService?: ApprovalService;
@@ -150,7 +205,11 @@ export class ToolRuntime {
         : false;
 
       if (!grant && !durableApprovalScope) {
-        let resolution: "approved" | "rejected" | "expired";
+        let resolution: ApprovalResolution;
+        // The request an out-of-band resolve (and a later resume) will target.
+        // For the debounce batch that is the consolidated id, not the per-call
+        // one - the card the user answers carries the consolidated id.
+        let waitingRequestId = decision.request.id;
         // Risk decides *how* we ask (an individual card vs. a debounced batch),
         // never *whether* the caller may decline to wait. Permission modes made
         // that distinction load-bearing: Manual asks before a medium-risk
@@ -175,16 +234,7 @@ export class ToolRuntime {
           // Recorded before returning, so the request the caller was handed is
           // the one an out-of-band resolve will find.
           this.approvalService?.createRequest(decision.request);
-          return {
-            ok: false,
-            error: "Tool execution is waiting for user approval.",
-            metadata: {
-              approvalRequestId: decision.request.id,
-              status: "waiting_for_approval"
-            },
-            details: { hostBashApproval: pendingPrompt },
-            terminate: true
-          };
+          return buildSuspendedApprovalResult(decision.request.id, pendingPrompt);
         }
 
         const isHighRisk = tool.risk === "high" || tool.risk === "critical";
@@ -237,23 +287,30 @@ export class ToolRuntime {
           }
 
           batch.requests.push(decision.request);
-          resolution = await new Promise<"approved" | "rejected" | "expired">((resolve) => {
+          waitingRequestId = batch.requestId;
+          resolution = await new Promise<ApprovalResolution>((resolve) => {
             batch!.resolvers.push(resolve);
           });
         }
 
         if (resolution === "approved") {
           // Approved! Fall through to tool handler execution.
+        } else if (resolution === "window_expired") {
+          // The inline handshake window elapsed. The run suspends cleanly here
+          // (no lease, no connection held) and the out-of-band approve ->
+          // resume path takes over; the request stays pending in the broker so
+          // the user can answer however long they take.
+          return buildSuspendedApprovalResult(waitingRequestId, pendingPrompt);
         } else {
           const status = resolution === "rejected" ? "rejected" : "expired";
           const errorMsg = resolution === "rejected"
             ? "Tool execution is rejected by user approval."
-            : "Tool execution is rejected: User approval timeout.";
+            : "Tool execution was aborted while waiting for user approval.";
           return {
             ok: false,
             error: errorMsg,
             metadata: {
-              approvalRequestId: decision.request.id,
+              approvalRequestId: waitingRequestId,
               status: "waiting_for_approval"
             },
             details: {
@@ -385,7 +442,7 @@ export class ToolRuntime {
   private async pollApprovalRequest(
     request: ApprovalRequest,
     context: ToolExecutionContext
-  ): Promise<"approved" | "rejected" | "expired"> {
+  ): Promise<ApprovalResolution> {
     // Emit runner event with hostBashApproval to trigger client approval cards immediately
     context.emit({
       timestamp: new Date().toISOString(),
@@ -414,7 +471,10 @@ export class ToolRuntime {
     if (!this.approvalService) return "expired";
     return this.approvalService.waitForDecision({
       request,
-      timeoutMs: 5 * 60 * 1000, // 5 minutes timeout
+      // The inline handshake window only. Past it the run suspends with
+      // `waiting_for_approval` and the out-of-band approve -> resume path takes
+      // over - the wait itself never counts against any execution timeout.
+      timeoutMs: BROKER_APPROVAL_INLINE_WINDOW_MS,
       pollMs: 500,
       signal: context.signal
     });

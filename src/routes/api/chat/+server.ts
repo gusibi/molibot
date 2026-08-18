@@ -41,6 +41,9 @@ import {
   APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
   APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS
 } from "$lib/server/channels/shared/approvalAutoResume";
+import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
+import { resumeSuspendedBrokerApproval } from "$lib/server/channels/shared/brokerApprovalResume.js";
+import type { ApprovalScope } from "$lib/server/approval/approvalTypes.js";
 import { getHostBashStore } from "$lib/server/hostBash";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n";
 import { resolveWebInboundFileMeta, saveWebResponseAttachment } from "$lib/server/web/attachments";
@@ -219,12 +222,41 @@ export async function _handleWebHostToolsCommand(
 
   if (subcommand === "reject") {
     const rejected = hostBashStore.reject(scopeId, approvalId || undefined, sessionId);
+    if (rejected) {
+      return {
+        ok: true,
+        response: `Rejected Host Bash approval ${rejected.id} (${rejected.displayName}).`,
+        approval: { status: "rejected" }
+      };
+    }
+    // Try ApprovalBroker requests
+    const broker = getApprovalBroker();
+    const pending = broker.listPendingRequests().filter((r) => r.sessionId === sessionId);
+    const target = approvalId ? pending.find((r) => r.id === approvalId) : (pending.length === 1 ? pending[0] : undefined);
+    if (target) {
+      const resolved = broker.resolveRequest({ requestId: target.id, status: "rejected" });
+      if (resolved.request) {
+        void resumeSuspendedBrokerApproval({
+          scopeId,
+          sessionId,
+          requestId: target.id,
+          status: "rejected",
+          toolName: target.action.toolName || target.capability,
+          store,
+          pool,
+          channel: "web"
+        });
+        return {
+          ok: true,
+          response: `Rejected tool request ${target.id} (${target.action.toolName || target.capability}).`,
+          approval: { status: "rejected" }
+        };
+      }
+    }
     return {
       ok: true,
-      response: rejected
-        ? `Rejected Host Bash approval ${rejected.id} (${rejected.displayName}).`
-        : "No matching pending Host Bash approval found.",
-      approval: { status: rejected ? "rejected" : "not_found" }
+      response: "No matching pending approval found.",
+      approval: { status: "not_found" }
     };
   }
 
@@ -247,6 +279,45 @@ export async function _handleWebHostToolsCommand(
     sessionId
   });
   if (!approved) {
+    // Check ApprovalBroker requests (MCP, extensions, etc.)
+    const broker = getApprovalBroker();
+    const pending = broker.listPendingRequests().filter((r) => r.sessionId === sessionId);
+    const target = approvalId ? pending.find((r) => r.id === approvalId) : (pending.length === 1 ? pending[0] : undefined);
+    if (target) {
+      const selectedScope: ApprovalScope = subcommand === "approve-session"
+        ? "session"
+        : subcommand === "approve-once"
+          ? "once"
+          : "persistent";
+      const resolved = broker.resolveRequest({
+        requestId: target.id,
+        status: "approved",
+        selectedScope
+      });
+      if (resolved.request) {
+        void resumeSuspendedBrokerApproval({
+          scopeId,
+          sessionId,
+          requestId: target.id,
+          status: "approved",
+          toolName: target.action.toolName || target.capability,
+          store,
+          pool,
+          channel: "web"
+        });
+        return {
+          ok: true,
+          response: [
+            `Approved tool request: ${target.action.toolName || target.capability}`,
+            `Request ID: ${target.id}`,
+            `Scope: ${selectedScope}`,
+            "The suspended run is resuming now."
+          ].join("\n"),
+          approval: { status: "approved" }
+        };
+      }
+    }
+
     return {
       ok: true,
       response: "No matching pending Host Bash approval found.",

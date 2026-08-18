@@ -2,7 +2,7 @@ import type { ApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import type { ApprovalGrant, ApprovalMatchContext, ApprovalRequest, ApprovalScope } from "$lib/server/approval/approvalTypes.js";
 import { pollUntilResolved } from "$lib/server/approval/approvalWaiter.js";
 
-export type ApprovalDecision = "approved" | "rejected" | "expired";
+export type ApprovalDecision = "approved" | "rejected" | "expired" | "window_expired";
 
 export interface WaitForDecisionInput {
   request: ApprovalRequest;
@@ -36,6 +36,13 @@ export interface ApprovalService {
   waitForDecision(input: WaitForDecisionInput): Promise<ApprovalDecision>;
   /** Resolve a pending request (approve/reject), recording a grant on approval. */
   resolve(input: { requestId: string; status: "approved" | "rejected"; selectedScope?: ApprovalScope }): void;
+  /**
+   * Drop a pending request into its `expired` terminal state. Called when the
+   * waiting run was aborted: an aborted wait has no consumer left, so a request
+   * that stays `pending` forever shows a card whose later approval can do
+   * nothing - the exact "已审批但还是卡着" failure.
+   */
+  expireRequest(id: string): void;
 }
 
 export class BrokerApprovalService implements ApprovalService {
@@ -67,17 +74,17 @@ export class BrokerApprovalService implements ApprovalService {
         if (req?.status === "expired") return { done: true, value: "expired" };
         return { done: false };
       },
-      onAbort: () => "expired",
-      onTimeout: () => {
-        const req = this.broker.getRequest(input.request.id);
-        if (req && req.status === "pending") {
-          this.broker.updateRequest({
-            ...req,
-            status: "expired",
-            resolvedAt: new Date().toISOString()
-          });
-        }
+      onAbort: () => {
+        // The waiting run is gone; nobody will ever consume a later decision.
+        // Leave a terminal state behind instead of a card that lies.
+        this.expireRequest(input.request.id);
         return "expired";
+      },
+      onTimeout: () => {
+        // The inline handshake window elapsed. The request stays pending on
+        // purpose: the run suspends and the out-of-band approve -> resume path
+        // takes over, so the user may still answer hours (or days) later.
+        return "window_expired";
       }
     });
   }
@@ -87,6 +94,16 @@ export class BrokerApprovalService implements ApprovalService {
       requestId: input.requestId,
       status: input.status,
       selectedScope: input.selectedScope
+    });
+  }
+
+  expireRequest(id: string): void {
+    const req = this.broker.getRequest(id);
+    if (!req || req.status !== "pending") return;
+    this.broker.updateRequest({
+      ...req,
+      status: "expired",
+      resolvedAt: new Date().toISOString()
     });
   }
 }

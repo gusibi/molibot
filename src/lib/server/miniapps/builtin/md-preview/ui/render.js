@@ -92,6 +92,41 @@ function tokenColor(classList, colors) {
 
 function styleCodeBlock(pre, theme) {
   const colors = theme.code;
+  if (theme.macCode) {
+    const wrapper = document.createElement("section");
+    wrapper.setAttribute(
+      "style",
+      `border:1px solid ${colors.border};background:${colors.background};border-radius:8px;margin:22px 0;overflow:hidden;box-shadow:0 3px 12px rgba(56,163,165,0.06);`
+    );
+    const macBar = document.createElement("div");
+    macBar.setAttribute(
+      "style",
+      `background:#EBF4F0;border-bottom:1px solid ${colors.border};height:28px;line-height:28px;padding:0 12px;box-sizing:border-box;`
+    );
+    macBar.innerHTML = `<span style="display:inline-block;vertical-align:middle;"><span style="width:9px;height:9px;border-radius:50%;background:#FF9AA2;display:inline-block;margin-right:5px;vertical-align:middle;"></span><span style="width:9px;height:9px;border-radius:50%;background:#FFE29A;display:inline-block;margin-right:5px;vertical-align:middle;"></span><span style="width:9px;height:9px;border-radius:50%;background:#B5EAD7;display:inline-block;vertical-align:middle;"></span></span><span style="float:right;font-size:10px;font-family:'SFMono-Regular',Menlo,Consolas,monospace;color:#7B9E94;font-weight:700;letter-spacing:1px;line-height:28px;">CODE</span>`;
+
+    pre.setAttribute(
+      "style",
+      `${theme.styles.pre}background:${colors.background};border:none;color:${colors.text};`
+    );
+    pre.querySelectorAll("code").forEach((code) => {
+      code.setAttribute(
+        "style",
+        `background:transparent;padding:0;color:${colors.text};font-family:inherit;font-size:inherit;`
+      );
+    });
+    pre.querySelectorAll("span").forEach((span) => {
+      const color = tokenColor(span.classList, colors);
+      span.setAttribute("style", color ? `color:${color};` : `color:${colors.text};`);
+      span.removeAttribute("class");
+    });
+
+    pre.parentNode?.replaceChild(wrapper, pre);
+    wrapper.appendChild(macBar);
+    wrapper.appendChild(pre);
+    return;
+  }
+
   pre.setAttribute(
     "style",
     `${theme.styles.pre}background:${colors.background};border:1px solid ${colors.border};color:${colors.text};`
@@ -134,7 +169,30 @@ function applyStyles(root, theme, resolveImage) {
         if (resolved) element.setAttribute("src", resolved);
       }
       element.setAttribute("style", theme.styles[key]);
-    } else if (tag === "SPAN" || tag === "DIV" || tag === "SECTION") element.removeAttribute("style");
+
+      if (tag === "H1" && theme.decorateH1) {
+        const bar = document.createElement("div");
+        bar.setAttribute(
+          "style",
+          "width:40px;height:4px;background:#FF9AA2;border-radius:2px;margin:10px auto 0;"
+        );
+        element.appendChild(bar);
+        element.removeAttribute("class");
+        return;
+      }
+      if (tag === "H2" && theme.decorateH2) {
+        const titleHtml = element.innerHTML;
+        const innerSpan = document.createElement("span");
+        innerSpan.setAttribute("style", "display:inline-block;padding:0 8px 4px;border-bottom:3px solid #FF9AA2;");
+        innerSpan.innerHTML = titleHtml;
+        element.innerHTML = "";
+        element.appendChild(innerSpan);
+        element.removeAttribute("class");
+        return;
+      }
+    } else if (tag === "SPAN" || tag === "DIV" || tag === "SECTION") {
+      element.removeAttribute("style");
+    }
     element.removeAttribute("class");
 
     for (const child of Array.from(element.children)) walk(child);

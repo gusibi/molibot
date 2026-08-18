@@ -36,44 +36,6 @@
 
         <!-- Controls Group -->
         <div class="topbar-actions">
-          <!-- Theme dropdown -->
-          <div class="dropdown-wrap" id="theme-dropdown-wrap">
-            <button class="btn btn-secondary theme-trigger" id="theme-trigger" type="button" aria-haspopup="true" aria-expanded="false">
-              <span class="theme-swatch momo-swatch" id="theme-swatch" aria-hidden="true"></span>
-              <span class="theme-trigger-label" id="theme-trigger-label">暖米书卷</span>
-              <svg class="dropdown-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            </button>
-
-            <!-- Theme Menu -->
-            <div class="menu-popover theme-menu" id="theme-menu" hidden role="menu">
-              <div class="menu-header" data-i18n="themeMenu">预览主题</div>
-              <button class="menu-item theme-choice selected" type="button" role="menuitem" data-theme="momo-paper">
-                <span class="theme-swatch momo-swatch" aria-hidden="true"></span>
-                <span class="menu-item-text">
-                  <span class="menu-item-title">Momo Paper · 暖米书卷</span>
-                  <span class="menu-item-desc">衬线标题，暖米底色，适合长文观点</span>
-                </span>
-                <svg class="menu-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-              </button>
-              <button class="menu-item theme-choice" type="button" role="menuitem" data-theme="vercel">
-                <span class="theme-swatch vercel-swatch" aria-hidden="true"></span>
-                <span class="menu-item-text">
-                  <span class="menu-item-title">Vercel Geist · 极简黑白</span>
-                  <span class="menu-item-desc">克制黑白灰，蓝色点缀，适合技术内容</span>
-                </span>
-                <svg class="menu-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <div class="divider" aria-hidden="true"></div>
-
           <!-- Upload Images button -->
           <button class="btn btn-secondary" id="upload-btn" type="button" title="上传本地图片至 R2 图床" disabled>
             <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -208,9 +170,15 @@
                 </svg>
                 <span data-i18n="openFile2">打开本地 .md 文件</span>
               </button>
+              <button class="btn btn-secondary empty-btn" id="empty-sample-btn" type="button">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                </svg>
+                <span data-i18n="loadSample">加载排版示例</span>
+              </button>
             </div>
             <div class="empty-features">
-              <div class="feature-tag">✦ 暖米书卷 & 极简主题</div>
+              <div class="feature-tag">✦ 暖米 · 极简 · 马卡龙主题</div>
               <div class="feature-tag">✦ 一键全内联复制</div>
               <div class="feature-tag">✦ Cloudflare R2 自动替换</div>
             </div>
@@ -321,6 +289,56 @@
           </div>
         </section>
       </main>
+
+      <!-- Floating Theme Action Button (bottom right) -->
+      <div class="floating-theme-wrap" id="theme-dropdown-wrap">
+        <button class="floating-theme-btn" id="theme-trigger" type="button" aria-haspopup="true" aria-expanded="false" title="切换排版主题">
+          <span class="theme-swatch momo-swatch" id="theme-swatch" aria-hidden="true"></span>
+          <span class="theme-trigger-label" id="theme-trigger-label">暖米书卷</span>
+          <svg class="theme-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"></path>
+            <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle>
+            <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle>
+            <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle>
+            <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle>
+          </svg>
+        </button>
+
+        <!-- Theme Menu Popup (Upward) -->
+        <div class="menu-popover theme-menu theme-menu-upward" id="theme-menu" hidden role="menu">
+          <div class="menu-header" data-i18n="themeMenu">预览主题</div>
+          <button class="menu-item theme-choice selected" type="button" role="menuitem" data-theme="momo-paper">
+            <span class="theme-swatch momo-swatch" aria-hidden="true"></span>
+            <span class="menu-item-text">
+              <span class="menu-item-title">Momo Paper · 暖米书卷</span>
+              <span class="menu-item-desc">衬线标题，暖米底色，适合长文观点</span>
+            </span>
+            <svg class="menu-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+          <button class="menu-item theme-choice" type="button" role="menuitem" data-theme="vercel">
+            <span class="theme-swatch vercel-swatch" aria-hidden="true"></span>
+            <span class="menu-item-text">
+              <span class="menu-item-title">Vercel Geist · 极简黑白</span>
+              <span class="menu-item-desc">克制黑白灰，蓝色点缀，适合技术内容</span>
+            </span>
+            <svg class="menu-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+          <button class="menu-item theme-choice" type="button" role="menuitem" data-theme="macaron">
+            <span class="theme-swatch macaron-swatch" aria-hidden="true"></span>
+            <span class="menu-item-text">
+              <span class="menu-item-title">Macaron · 甜彩微排</span>
+              <span class="menu-item-desc">马卡龙甜彩，macOS 代码框与章节排版</span>
+            </span>
+            <svg class="menu-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
 
       <!-- Alert / Confirm Dialog Modal -->
       <div class="backdrop dialog-backdrop" id="dialog-backdrop" hidden></div>

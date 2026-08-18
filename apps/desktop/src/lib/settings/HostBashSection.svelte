@@ -75,6 +75,13 @@
     return mode;
   }
 
+  function categoryLabel(cat?: string): string {
+    if (cat === "mcp") return session.text.hostBashCategoryMcp;
+    if (cat === "file_write") return session.text.hostBashCategoryFile;
+    if (cat === "miniapp") return session.text.hostBashCategoryMiniApp;
+    return session.text.hostBashCategoryBash;
+  }
+
   function onFilterChange(): void {
     void refreshHostBash();
   }
@@ -172,6 +179,21 @@
 
       <div class="host-bash-select-filter">
         <SelectControl
+          value={hostBashStore.categoryFilter}
+          ariaLabel={session.text.hostBashCategoryAll}
+          options={[
+            { value: "all", label: session.text.hostBashCategoryAll },
+            { value: "bash", label: session.text.hostBashCategoryBash },
+            { value: "mcp", label: session.text.hostBashCategoryMcp },
+            { value: "file_write", label: session.text.hostBashCategoryFile },
+            { value: "miniapp", label: session.text.hostBashCategoryMiniApp }
+          ]}
+          onChange={(val) => { hostBashStore.categoryFilter = val as any; onFilterChange(); }}
+        />
+      </div>
+
+      <div class="host-bash-select-filter">
+        <SelectControl
           value={hostBashStore.statusFilter}
           ariaLabel={session.text.hostBashStatusAll}
           options={[
@@ -179,7 +201,8 @@
             { value: "approved", label: session.text.hostBashStatusApproved },
             { value: "rejected", label: session.text.hostBashStatusRejected },
             { value: "executed", label: session.text.hostBashStatusExecuted },
-            { value: "failed", label: session.text.hostBashStatusFailed }
+            { value: "failed", label: session.text.hostBashStatusFailed },
+            { value: "expired", label: session.text.hostBashStatusExpired }
           ]}
           onChange={(val) => { hostBashStore.statusFilter = val as HostBashStatusFilter; onFilterChange(); }}
         />
@@ -243,6 +266,9 @@
               <div class="host-bash-row">
                 <div class="host-bash-row-main">
                   <div class="host-bash-row-head">
+                    <span class="host-bash-category-tag" class:cat-mcp={item.category === "mcp"} class:cat-file={item.category === "file_write"} class:cat-miniapp={item.category === "miniapp"}>
+                      {categoryLabel(item.category)}
+                    </span>
                     <span class="host-bash-tool-tag">{item.displayName || item.toolId}</span>
                     <StatusBadge state="warning" label={session.text.hostBashPending} />
                     <span class="host-bash-mode-badge">{modeLabel(item.approvalMode)}</span>
@@ -294,6 +320,9 @@
               <div class="host-bash-row">
                 <div class="host-bash-row-main">
                   <div class="host-bash-row-head">
+                    <span class="host-bash-category-tag" class:cat-mcp={item.category === "mcp"} class:cat-file={item.category === "file_write"} class:cat-miniapp={item.category === "miniapp"}>
+                      {categoryLabel(item.category)}
+                    </span>
                     <span class="host-bash-tool-tag primary">{item.displayName || item.toolId}</span>
                     <StatusBadge
                       state={item.enabled ? "ready" : "disconnected"}
@@ -368,6 +397,9 @@
               <div class="host-bash-row">
                 <div class="host-bash-row-main">
                   <div class="host-bash-row-head">
+                    <span class="host-bash-category-tag" class:cat-mcp={item.category === "mcp"} class:cat-file={item.category === "file_write"} class:cat-miniapp={item.category === "miniapp"}>
+                      {categoryLabel(item.category)}
+                    </span>
                     <span class="host-bash-tool-tag">{item.displayName || item.toolId}</span>
                     <StatusBadge state={statusTone(item.status)} label={statusLabel(item.status)} />
                     <span class="host-bash-mode-badge">{modeLabel(item.approvalMode)}</span>
@@ -669,6 +701,32 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
+  }
+
+  .host-bash-category-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: var(--radius-small);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .host-bash-category-tag.cat-mcp {
+    background: color-mix(in srgb, #a855f7 16%, transparent);
+    color: #a855f7;
+  }
+
+  .host-bash-category-tag.cat-file {
+    background: color-mix(in srgb, #10b981 16%, transparent);
+    color: #10b981;
+  }
+
+  .host-bash-category-tag.cat-miniapp {
+    background: color-mix(in srgb, #f59e0b 16%, transparent);
+    color: #f59e0b;
   }
 
   .host-bash-tool-tag {

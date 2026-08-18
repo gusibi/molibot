@@ -90,7 +90,17 @@ const PENDING_APPROVAL_TTL_MS = 60 * 60 * 1000;
 
 function capabilityToToolId(capability: string): string {
   if (capability.startsWith("bash:")) return capability.slice(5);
+  if (capability.startsWith("mcp:")) return capability.slice(4);
+  if (capability.startsWith("file_write:")) return capability.slice(11);
+  if (capability.startsWith("miniapp:")) return capability.slice(8);
   return capability;
+}
+
+export function inferApprovalCategory(capability: string, actionType?: string): "bash" | "mcp" | "file_write" | "miniapp" {
+  if (actionType === "mcp_tool" || actionType === "mcp" || capability.startsWith("mcp:") || capability.startsWith("mcp__")) return "mcp";
+  if (actionType === "file_write" || capability.startsWith("file_write:") || capability.startsWith("write:") || capability.startsWith("edit:")) return "file_write";
+  if (actionType === "miniapp" || actionType === "miniapp_action" || capability.startsWith("miniapp:") || capability.startsWith("miniapp__")) return "miniapp";
+  return "bash";
 }
 
 function selectedScopeToApprovalMode(selectedScope: string | null, fallbackMode: string): any {
@@ -103,12 +113,14 @@ function selectedScopeToApprovalMode(selectedScope: string | null, fallbackMode:
 function rowToApprovalRecord(row: Record<string, any>): HostBashApprovalRecord {
   const action = parseJson<any>(row.action_json, {});
   const toolId = action.toolName || capabilityToToolId(row.capability);
+  const category = inferApprovalCategory(row.capability, action.type);
 
   return {
     id: row.id,
     toolId,
+    category,
     displayName: action.displayName || toolId,
-    command: action.command || "",
+    command: action.command || action.path || (category === "mcp" ? `mcp:${toolId}` : ""),
     reason: row.reason,
     channel: action.channel || "",
     chatId: action.chatId || "",
@@ -124,7 +136,8 @@ function rowToApprovalRecord(row: Record<string, any>): HostBashApprovalRecord {
     resolvedAt: row.resolved_at || undefined,
     executedAt: action.executedAt || undefined,
     approvedBashId: row.selected_scope === "persistent" ? `hbw-${toolId}` : undefined,
-    errorText: action.errorText || undefined
+    errorText: action.errorText || undefined,
+    payload: action.payload || undefined
   };
 }
 
@@ -134,11 +147,13 @@ function rowToWhitelistEntry(row: Record<string, any>): ApprovedHostBashEntry {
   const metadata = parsedMetadata && typeof parsedMetadata === "object" && !Array.isArray(parsedMetadata)
     ? parsedMetadata as Record<string, any>
     : {};
+  const category = inferApprovalCategory(row.capability, metadata.type);
   return {
     id: row.id,
     toolId,
+    category,
     displayName: metadata.displayName || toolId,
-    command: metadata.command || "",
+    command: metadata.command || (category === "mcp" ? `mcp:${toolId}` : ""),
     reason: metadata.reason || "",
     channel: metadata.channel || "",
     chatId: metadata.chatId || "",
@@ -168,8 +183,8 @@ export class HostBashStore {
   hasAnyData(): boolean {
     const row = this.db.prepare(`
       SELECT
-        (SELECT COUNT(*) FROM approvals WHERE type = 'request' AND capability LIKE 'bash:%') AS record_count,
-        (SELECT COUNT(*) FROM approvals WHERE type = 'grant' AND capability LIKE 'bash:%') AS whitelist_count
+        (SELECT COUNT(*) FROM approvals WHERE type = 'request') AS record_count,
+        (SELECT COUNT(*) FROM approvals WHERE type = 'grant') AS whitelist_count
     `).get() as Record<string, unknown> | undefined;
     return Number(row?.record_count ?? 0) > 0 || Number(row?.whitelist_count ?? 0) > 0;
   }
@@ -559,22 +574,23 @@ export class HostBashStore {
     this.db.prepare(`
       UPDATE approvals
       SET status = 'expired', resolved_at = @resolved_at
-      WHERE type = 'request' AND status = 'pending' AND capability LIKE 'bash:%' AND created_at < @cutoff
+      WHERE type = 'request' AND status = 'pending' AND created_at < @cutoff
     `).run({ resolved_at: new Date().toISOString(), cutoff });
   }
 
-  listPending(scopeId?: string, sessionId?: string): HostBashApprovalRecord[] {
+  listPending(scopeId?: string, sessionId?: string, category?: string): HostBashApprovalRecord[] {
     this.expireStalePending();
+    const catClause = this.categoryClause(category);
     if (scopeId) {
       const stmt = sessionId
         ? this.db.prepare(`
             SELECT * FROM approvals
-            WHERE type = 'request' AND status = 'pending' AND (run_id = ? OR session_id = ?) AND capability LIKE 'bash:%'
+            WHERE type = 'request' AND status = 'pending' AND (run_id = ? OR session_id = ?)${catClause}
             ORDER BY created_at DESC
           `)
         : this.db.prepare(`
             SELECT * FROM approvals
-            WHERE type = 'request' AND status = 'pending' AND run_id = ? AND capability LIKE 'bash:%'
+            WHERE type = 'request' AND status = 'pending' AND run_id = ?${catClause}
             ORDER BY created_at DESC
           `);
       const rows = sessionId
@@ -584,17 +600,18 @@ export class HostBashStore {
     }
     const stmt = this.db.prepare(`
         SELECT * FROM approvals
-        WHERE type = 'request' AND status = 'pending' AND capability LIKE 'bash:%'
+        WHERE type = 'request' AND status = 'pending'${catClause}
         ORDER BY created_at DESC
       `);
     const rows = stmt.all() as Array<Record<string, unknown>>;
     return rows.map(rowToApprovalRecord);
   }
 
-  listWhitelist(): ApprovedHostBashEntry[] {
+  listWhitelist(category?: string): ApprovedHostBashEntry[] {
+    const catClause = this.categoryClause(category);
     const rows = this.db.prepare(`
       SELECT * FROM approvals
-      WHERE type = 'grant' AND scope = 'persistent' AND capability LIKE 'bash:%'
+      WHERE type = 'grant' AND scope = 'persistent'${catClause}
       ORDER BY revoked_at ASC, created_at DESC
     `).all() as Array<Record<string, unknown>>;
     return rows.map(rowToWhitelistEntry);
@@ -604,9 +621,16 @@ export class HostBashStore {
     const query = String(filters?.query ?? "").trim().toLowerCase();
     const status = filters?.status && filters.status !== "all" ? filters.status : null;
     const approvalMode = filters?.approvalMode && filters.approvalMode !== "all" ? filters.approvalMode : null;
+    const category = filters?.category;
 
-    const clauses = ["type = 'request'", "status != 'pending'", "capability LIKE 'bash:%'"];
+    const clauses = ["type = 'request'", "status != 'pending'"];
     const params: Array<string> = [];
+
+    const catClause = this.categoryClause(category);
+    if (catClause) {
+      clauses.push(catClause.replace(/^\s*AND\s*/i, ""));
+    }
+
     if (status) {
       clauses.push("status = ?");
       params.push(status);
@@ -637,6 +661,15 @@ export class HostBashStore {
         item.errorText ?? ""
       ].some((value) => value.toLowerCase().includes(query))
     );
+  }
+
+  private categoryClause(category?: string): string {
+    if (!category || category === "all") return "";
+    if (category === "bash") return " AND (capability LIKE 'bash:%' OR (capability NOT LIKE 'mcp:%' AND capability NOT LIKE 'mcp__%' AND capability NOT LIKE 'file_write:%' AND capability NOT LIKE 'write:%' AND capability NOT LIKE 'edit:%' AND capability NOT LIKE 'miniapp:%' AND capability NOT LIKE 'miniapp__%'))";
+    if (category === "mcp") return " AND (capability LIKE 'mcp:%' OR capability LIKE 'mcp__%')";
+    if (category === "file_write") return " AND (capability LIKE 'file_write:%' OR capability LIKE 'write:%' OR capability LIKE 'edit:%')";
+    if (category === "miniapp") return " AND (capability LIKE 'miniapp:%' OR capability LIKE 'miniapp__%')";
+    return "";
   }
 
   setWhitelistEnabled(id: string, enabled: boolean): ApprovedHostBashEntry | null {

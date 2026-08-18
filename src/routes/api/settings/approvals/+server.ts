@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import type { HostBashApprovalMode, HostBashApprovalStatus } from "$lib/server/hostBash";
+import type { ApprovalCategory, HostBashApprovalMode, HostBashApprovalStatus } from "$lib/server/hostBash";
 
 interface ToggleWhitelistBody {
   action?: "toggle_whitelist";
@@ -19,7 +19,7 @@ interface DeleteHistoryBody {
   id?: string;
 }
 
-type HostBashMutationBody = ToggleWhitelistBody | DeleteWhitelistBody | DeleteHistoryBody;
+type ApprovalMutationBody = ToggleWhitelistBody | DeleteWhitelistBody | DeleteHistoryBody;
 
 export const GET: RequestHandler = async ({ url }) => {
   const runtime = getRuntime();
@@ -51,7 +51,7 @@ export const GET: RequestHandler = async ({ url }) => {
     categoryParam === "file_write" ||
     categoryParam === "miniapp" ||
     categoryParam === "all"
-  ) ? categoryParam as any : "all";
+  ) ? categoryParam as ApprovalCategory : "all";
 
   const pending = hostBashStore.listPending(undefined, undefined, category);
   const whitelist = hostBashStore.listWhitelist(category);
@@ -74,7 +74,7 @@ export const GET: RequestHandler = async ({ url }) => {
 export const POST: RequestHandler = async ({ request }) => {
   const runtime = getRuntime();
   const hostBashStore = runtime.hostBashStore;
-  const body = await request.json() as HostBashMutationBody;
+  const body = await request.json() as ApprovalMutationBody;
 
   if (body.action === "toggle_whitelist") {
     const id = String(body.id ?? "").trim();

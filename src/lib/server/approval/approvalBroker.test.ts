@@ -127,6 +127,83 @@ test("revokeGrant returns false for already revoked grant", () => {
   assert.equal(broker.revokeGrant("grant-1"), false);
 });
 
+test("resolveRequest grants capability-level match for MCP tools ignoring batch fingerprint", () => {
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+  const aggregatedFingerprint = JSON.stringify({ fingerprints: ["fp-1", "fp-2"] });
+
+  store.saveRequest(request({
+    id: "req-aggregated",
+    capability: "mcp:mcp__connector__execute_action",
+    actionFingerprint: aggregatedFingerprint
+  }));
+
+  const resolved = broker.resolveRequest({
+    requestId: "req-aggregated",
+    status: "approved",
+    selectedScope: "session"
+  });
+
+  assert.ok(resolved.grant);
+  // The grant must match a subsequent single call with its own distinct input fingerprint
+  const singleCallFingerprint = JSON.stringify({
+    toolId: "mcp__connector__execute_action",
+    input: { actionId: "google_search_console.query", siteUrl: "sc-domain:onlinestool.com" }
+  });
+
+  const matchingGrant = broker.checkGrant({
+    capability: "mcp:mcp__connector__execute_action",
+    actorId: "agent-1",
+    workspaceId: "personal",
+    sessionId: "session-1",
+    runId: "subsequent-run",
+    actionFingerprint: singleCallFingerprint
+  });
+
+  assert.ok(matchingGrant, "session-scoped MCP grant must match subsequent single calls");
+});
+
+test("resolveRequest preserves exact actionFingerprint for file write tools", () => {
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+  const writeFingerprint = JSON.stringify({ toolId: "write", input: { path: "important.txt" } });
+
+  store.saveRequest(request({
+    id: "req-write",
+    capability: "builtin:write",
+    actionFingerprint: writeFingerprint
+  }));
+
+  const resolved = broker.resolveRequest({
+    requestId: "req-write",
+    status: "approved",
+    selectedScope: "session"
+  });
+
+  assert.ok(resolved.grant);
+  // Matching same path succeeds
+  const matchSame = broker.checkGrant({
+    capability: "builtin:write",
+    actorId: "agent-1",
+    workspaceId: "personal",
+    sessionId: "session-1",
+    runId: "any-run",
+    actionFingerprint: writeFingerprint
+  });
+  assert.ok(matchSame);
+
+  // Different path write does not match
+  const matchDifferent = broker.checkGrant({
+    capability: "builtin:write",
+    actorId: "agent-1",
+    workspaceId: "personal",
+    sessionId: "session-1",
+    runId: "any-run",
+    actionFingerprint: JSON.stringify({ toolId: "write", input: { path: "other.txt" } })
+  });
+  assert.equal(matchDifferent, null, "write grant must not widen to different files");
+});
+
 test("revokeTurnGrants revokes turn-scoped grants for a run and leaves other grants active", () => {
   const store = new MemoryApprovalBrokerStore();
   const broker = new ApprovalBroker(store);

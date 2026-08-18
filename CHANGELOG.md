@@ -6,6 +6,48 @@
 
 ## 2026-08-18
 
+### Fixed: 审批等待改为挂起与异步恢复机制，消除内联等待超时与卡死
+
+- **问题根因**：
+  - 审批等待（如 MCP 工具）此前直接阻塞在内联 5 分钟轮询中，且整个等待时间被外层工具超时（如 `mcpInvoke` 的 300s 预算）计入；当用户超过 5 分钟未审批时，外层时钟超时直接杀掉当前 Run，但前端卡片仍显示为 pending，用户后续点击批准也无法唤醒已被杀死的 Run（Session `s-20260818-vtjv`）。
+  - 处于等待中的 Run 被取消时，审批请求未落盘终态，导致死 Run 的审批永远 pending。
+  - 聚合审批请求生成的 Grant 强行绑定了包含批次指纹的 `actionFingerprint`，导致后续单次调用的指纹永远无法命中，使得用户选的「本会话允许」反复失效。
+- **架构重构与修复**：
+  - **30 秒短握手窗口**：`ToolRuntime` 审批等待缩短为 30 秒（`BROKER_APPROVAL_INLINE_WINDOW_MS = 30s`）。用户即时点击在 30 秒内直接内联执行；超过 30 秒则将当前 Run 干净挂起为 `waiting_for_approval` 状态并退出，释放所有连接和租约，不再消耗工具超时。
+  - **异步恢复（`brokerApprovalResume.ts`）**：在用户通过 Web (`/api/chat` 的 `/hosttools`)、Desktop (`/api/desktop/host-bash`) 或 Channel 回调异步批准后，自动改写上下文中的挂起 `toolResult` 并复用原 `runId` 发起恢复轮次，无缝继续任务。
+  - **请求终态管理**：Abort / 取消时通过 `ApprovalService.expireRequest` 将请求标记为 `expired`。
+  - **Grant 匹配粒度修正**：非 write 类工具的 Grant 仅按 capability + actor + scope 匹配，彻底修复制聚合卡片批准后后续调用无法复用的问题。
+- **验证**：`toolRuntime.test.ts`、`approvalBroker.test.ts`、`brokerApprovalResume.test.ts` 全部测试通过，SvelteCheck 0 错误。
+
+### Improved: 审批中心全面重构（Host Bash 泛化为全能力统一审批与白名单中心）
+
+- **需求背景**：原 Host Bash 审批系统仅检索和展示命令行操作（硬编码 `capability LIKE 'bash:%'`），导致用户在 Auto/Sandbox 模式下审批通过的 MCP 工具调用（如 OpenConnector）、文件修改（`write`/`edit`）和应用插件操作无法在设置页查看、管理长期白名单和审计历史。
+- **架构与服务端重构**：
+  - **全动作分类推断与聚合**：`HostBashStore` 升级为通用审批存储层，支持全量动作分类（`bash` / `mcp` / `file_write` / `miniapp`），自动推断动作类型与结构化参数（`payload.path`、`payload.diff`、`payload.parameters`）。
+  - **全能查询与白名单支持**：移除所有 SQL 强制 `bash:%` 前缀过滤，`listPending`、`listWhitelist`、`listHistory`、`hasAnyData` 支持按分类（`category`）、状态（`status`，含 `expired` 超时态）、模式（`approvalMode`）与关键词联合查询。
+  - **卡片持久化 Scope 解锁**：`toolRuntime.ts` 与 `approval.ts` 优化，根据 Tool Policy 的 `scopeOptions`（`["once", "session", "persistent"]`）为 MCP、文件修改等工具开放持久化选项（`approve_persistent`），支持“本 Bot 一直允许 / 本项目一直允许”。
+  - **统一 API 接口**：新增 `/api/settings/approvals` 统一接口，保留 `/api/settings/host-bash` 并增加 `category` 筛选支持。
+- **Web 端与 Desktop 界面升级**：
+  - **Web 端 (`/settings/approvals`)**：侧边栏更名为「审批管理」，提供全部/命令行/MCP工具/文件修改/应用插件分类切换，定制化彩色徽标与参数展示，`/settings/host-bash` 自动平滑重定向。
+  - **Desktop 桌面端 (`HostBashSection.svelte`)**：多语言更名为「审批管理 (Approvals)」，在筛选栏新增分类下拉控制器（`categoryFilter`），支持按分类检索与徽标渲染。
+- **验证**：`store.test.ts`、`approval.test.ts`、`desktopHostBash.test.ts`、`desktop api.test.ts` 全部 104 项单元测试通过；Desktop `svelte-check` 0 错误 0 警告；`npm run build` 打包构建成功。
+
+
+### Added: MD Preview 小程序新增「Macaron · 甜彩微排」主题与体验优化
+
+- **新增 Macaron（甜彩微排）主题**：
+  - 汲取微排（Punk微排）版式特色，摒弃原站黄色，定制了清新舒缓的马卡龙色系（薄荷绿 `#38A3A5` + 甜桃粉 `#FF9AA2` + 香芋紫 `#9B89B3` + 奶泡白 `#FAFDFB`）。
+  - 支持 macOS 窗口风格代码框（粉/黄/绿三色圆点 + CODE 栏）、H1 居中带粉色指示条、H2 居中带下划装饰、柔和薄荷阴影引用卡片与定制表格。
+  - 全内联样式渲染，直接 Cmd/Ctrl + V 粘贴到微信公众号后台即可呈现。
+- **小程序交互体验提升**：
+  - **右下角固定悬浮主题切换**：主题切换器由顶部 nav 移至右下角固定悬浮按钮（FAB），点击向上弹出主题选择菜单，操作更便捷，顶部导航更清爽。
+  - **主题偏好本地记忆**：使用 `localStorage` 记录用户上次选择的主题，切换文档与刷新不重置。
+  - **空状态排版示例**：新增「加载排版示例」一键按钮，方便免导入即时体验全功能排版。
+  - **主题选择器**：下拉菜单提供 Macaron 主题专属多色 Swatch 色块与描述。
+  - 版本 bump 至 `1.1.1`（修复右下角悬浮按钮与向上菜单的定位冲突及层叠上下文）。
+- **验证**：`mdPreview.test.ts`、`uiDesignBaseline.test.ts`、`bootstrap.test.ts` 30 项测试全绿，`npm run build` 通过。
+
+
 ### Improved: 沙箱安全策略预设 UI 重构与设计打磨
 
 - 优化背景：沙箱预设原采用简陋单轴滑块搭配混乱的 Emoji 缩写（`🌐❌ · ✏️❌`），视觉层次扁平、信息传达晦涩且在多端字体环境下参差不齐。

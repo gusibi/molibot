@@ -12,6 +12,8 @@ import { resolveRunnerChatId } from "$lib/server/web/runtimeContext";
 import { buildHostBashApprovalPrompt, type HostBashApprovalMode, type HostBashApprovalStatus } from "$lib/server/hostBash/index";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker";
 import { listDesktopBrokerApprovals, resolveDesktopBrokerApproval } from "$lib/server/app/desktopApprovals";
+import { resumeSuspendedBrokerApproval } from "$lib/server/channels/shared/brokerApprovalResume";
+import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
 import { _handleWebHostToolsCommand } from "../../chat/+server";
 
 const APPROVAL_SUBCOMMANDS: Record<DesktopApprovalDecision, string> = {
@@ -26,6 +28,7 @@ export const GET: RequestHandler = async ({ url }) => {
   const hostBashStore = runtime.hostBashStore;
   const statusParam = String(url.searchParams.get("status") ?? "all").trim();
   const modeParam = String(url.searchParams.get("mode") ?? "all").trim();
+  const categoryParam = String(url.searchParams.get("category") ?? "all").trim();
   const query = String(url.searchParams.get("query") ?? "").trim();
 
   const status = (
@@ -33,6 +36,7 @@ export const GET: RequestHandler = async ({ url }) => {
     statusParam === "rejected" ||
     statusParam === "executed" ||
     statusParam === "failed" ||
+    statusParam === "expired" ||
     statusParam === "all"
   ) ? statusParam as HostBashApprovalStatus | "all" : "all";
 
@@ -43,9 +47,17 @@ export const GET: RequestHandler = async ({ url }) => {
     modeParam === "all"
   ) ? modeParam as HostBashApprovalMode | "all" : "all";
 
-  const pending = hostBashStore.listPending();
-  const whitelist = hostBashStore.listWhitelist();
-  const history = hostBashStore.listHistory({ status, approvalMode, query });
+  const category = (
+    categoryParam === "bash" ||
+    categoryParam === "mcp" ||
+    categoryParam === "file_write" ||
+    categoryParam === "miniapp" ||
+    categoryParam === "all"
+  ) ? categoryParam as any : "all";
+
+  const pending = hostBashStore.listPending(undefined, undefined, category);
+  const whitelist = hostBashStore.listWhitelist(category);
+  const history = hostBashStore.listHistory({ status, approvalMode, category, query });
 
   const summary = buildDesktopHostBashSummary({ pending, whitelist, history });
   return json({
@@ -120,6 +132,18 @@ export const POST: RequestHandler = async ({ request }) => {
     const brokerResolution = resolveDesktopBrokerApproval(getApprovalBroker(), { sessionId, requestId, decision });
     if (brokerResolution) {
       const status = brokerResolution.status;
+      const externalUserId = owner ?? toWebExternalUserId("web-anonymous", profileId);
+      const scopeId = resolveRunnerChatId(sessionId, externalUserId);
+      const { store, pool } = getWebRuntimeContext(profileId);
+      void resumeSuspendedBrokerApproval({
+        scopeId,
+        sessionId,
+        requestId,
+        status,
+        store,
+        pool,
+        channel: "web"
+      });
       return json({
         ok: true,
         response: status === "approved"

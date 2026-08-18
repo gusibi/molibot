@@ -4,6 +4,45 @@
 - [2026 Q2 PRD Archive (Apr - Jun)](docs/archive/prd-archive-2026-Q2.md)
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
+## 3.102 审批等待挂起与异步恢复机制（2026-08-18）
+
+- **Priority / Status**: P1 / Delivered (2026-08-18).
+- **Problem**:
+  1. `ToolRuntime` 的 Broker 审批等待此前采用 5 分钟内联长轮询，且等待时钟直接计入外层工具的 300s 执行超时（如 `mcpInvoke` 嵌套 MCP 工具）；当用户在 5 分钟内未完成审批时，外层工具超时直接杀掉 Run，而审批卡片仍保持 pending。用户后续批准后无法唤醒已死 Run（Session `s-20260818-vtjv`）。
+  2. 处于审批等待中的 Run 被取消时，未将请求状态更新为 `expired`，导致死 Run 的悬挂请求永远停留为 pending。
+  3. 聚合审批请求创建的 Grant 强行绑定了包含聚合批次的 `actionFingerprint`，导致后续单次调用的指纹永远无法命中，使得用户选的「本会话允许」在后续调用中反复失效。
+- **Decision**:
+  1. **30 秒短握手窗口 + 干净挂起**：将 `ToolRuntime` 的内联审批等待缩短为 30 秒（`BROKER_APPROVAL_INLINE_WINDOW_MS = 30s`）。若用户在 30 秒内点击，则直接内联执行；若超过 30 秒，Run 干净挂起为 `waiting_for_approval` 状态并释放所有连接和租约，不再消耗工具超时。用户可在数小时或数天后随时批准。
+  2. **异步恢复中枢 (`brokerApprovalResume.ts`)**：用户在 Web、Desktop 或 Channel 异步批准/拒绝后，自动改写上下文中的挂起 `toolResult` 并复用原 `runId` 发起恢复轮次，无缝继续任务。
+  3. **终态管理**：Abort / 取消时通过 `ApprovalService.expireRequest` 将请求标记为 `expired`。
+  4. **Grant 粒度修正**：非 write 类工具的 Grant 仅按 capability + actor + scope 匹配，彻底解决聚合卡片批准后后续调用无法复用的问题。
+- **Acceptance**: 已交付。单元测试 39 项全通；SvelteCheck 0 错误；短窗口超时挂起、终态落盘与异步恢复验证无误。
+
+---
+## 3.101 统一审批中心全面重构与全能力白名单管理（2026-08-18）
+
+- **Priority / Status**: P1 / Delivered (2026-08-18).
+- **Problem**: 原 Host Bash 审批系统仅支持命令行操作，所有 SQL 检索强制限定 `WHERE capability LIKE 'bash:%'`，导致用户在 Auto/Sandbox 模式下审批通过的 MCP 工具调用（如 OpenConnector）、文件修改（`write`/`edit`）和应用插件操作无法在设置页查看、管理长期白名单和审计历史，且非 Bash 工具在审批弹窗中无法展示“本 Bot 一直允许 / 本项目一直允许”的持久化选项。
+- **Decision**:
+  1. **全动作分类推断与聚合存储**：`HostBashStore` 升级为通用审批存储层，根据 `capability` 前缀与 `action_json.type` 自动识别 `bash`（命令行）、`mcp`（MCP 外部工具）、`file_write`（文件修改）、`miniapp`（应用插件）四类动作，保留结构化 `payload`（`path`、`diff`、`parameters`）。
+  2. **全量过滤查询与超时态支持**：移除所有 SQL `bash:%` 前缀硬编码，`listPending`、`listWhitelist`、`listHistory`、`hasAnyData` 支持按 `category`、`status`（支持 `expired` 超时态）、`approvalMode` 及关键词联合过滤。
+  3. **持久化 Scope 解锁与通用审批 Prompt**：`toolRuntime.ts` 与 `approval.ts` 优化，根据 Tool Policy 的 `scopeOptions`（`["once", "session", "persistent"]`）为非 Bash 工具开放持久化选项（`approve_persistent`），并定制化格式化 MCP、文件修改与命令行的卡片内容。
+  4. **统一 API 接口与全端升级**：新增 `/api/settings/approvals` 统一路由；Web 设置页更名为 `/settings/approvals`（「审批管理」），支持全部/命令行/MCP/文件/插件多分类过滤、彩色徽标与参数展示；macOS 桌面端 `HostBashSection.svelte` 同步升级分类筛选控制器与胶囊标签。
+- **Acceptance**: 已交付。多分类审批记录完整落库与展示；长期白名单启停与删除生效；单测 104 项全通；Desktop `svelte-check` 0 错误 0 警告；`npm run build` 全量构建通过。
+
+---
+## 3.100 MD Preview 小程序新增「Macaron · 甜彩微排」主题与体验优化（2026-08-18）
+
+- **Priority / Status**: P1 / Delivered (2026-08-18).
+- **Problem**: 用户希望为 `md-preview` 内置小程序引入微排风格的排版结构，但不喜欢原站的亮黄色系，期望使用清新优雅的马卡龙色系，并优化主题记忆与上手体验。
+- **Decision**:
+  1. 新增 `macaron` 主题：提取微排的结构排版（H1 居中指示条、H2 居中下划线、H3 侧边粗线、阴影引用块、macOS 窗口代码框），配色采用马卡龙甜彩体系（薄荷绿 `#38A3A5`、蜜桃粉 `#FF9AA2`、香芋紫 `#9B89B3`、奶泡白 `#FAFDFB`、正文字色 `#243746`）。
+  2. 增强渲染管线 `render.js`：支持 macOS 代码窗口控制栏注入与标题装饰，输出全部采用内联样式以兼容微信公众号粘贴。
+  3. 主题切换器重构为右下角固定悬浮按钮（FAB），点击向上弹出主题选择菜单；增加 `localStorage` 主题持久化记忆与空状态一键加载全功能示例文章能力。
+  4. 版本 bump 至 `1.1.1`。
+- **Acceptance**: 已交付。主题切换流畅，样式在微信公众号编辑器完美内联；测试全绿，全量构建通过。
+
+---
 ## 3.99 沙箱安全策略档位 UI 重构与体验打磨（2026-08-18）
 
 - **Priority / Status**: P1 / Delivered (2026-08-18).

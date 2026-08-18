@@ -885,6 +885,7 @@ export interface DesktopHostBashPermissions {
 export interface DesktopHostBashPendingRecord {
   id: string;
   toolId: string;
+  category?: "bash" | "mcp" | "file_write" | "miniapp";
   displayName: string;
   command: string;
   reason: string;
@@ -904,6 +905,7 @@ export interface DesktopHostBashPendingRecord {
 export interface DesktopHostBashWhitelistEntry {
   id: string;
   toolId: string;
+  category?: "bash" | "mcp" | "file_write" | "miniapp";
   displayName: string;
   command: string;
   reason: string;
@@ -935,9 +937,10 @@ export async function loadDesktopHostBash(endpoint: string): Promise<DesktopHost
 
 export async function loadDesktopHostBashSettings(
   endpoint: string,
-  params?: { status?: string; mode?: string; query?: string }
+  params?: { category?: string; status?: string; mode?: string; query?: string }
 ): Promise<DesktopHostBashSettingsData> {
   const search = new URLSearchParams();
+  if (params?.category && params.category !== "all") search.set("category", params.category);
   if (params?.status && params.status !== "all") search.set("status", params.status);
   if (params?.mode && params.mode !== "all") search.set("mode", params.mode);
   if (params?.query?.trim()) search.set("query", params.query.trim());

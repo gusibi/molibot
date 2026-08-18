@@ -297,8 +297,12 @@ test("ToolRuntime stops polling and expires when signal is aborted", async () =>
   });
 
   assert.equal(result.ok, false);
-  assert.match(result.error ?? "", /timeout/);
+  assert.match(result.error ?? "", /aborted/i);
   assert.equal(executed, false);
+  // Aborting the wait must leave the request in its `expired` terminal state
+  // rather than leaving it pending forever (CLAUDE.md pitfall 23).
+  const requests = store.listPendingRequests();
+  assert.equal(requests.length, 0, "an aborted wait must not leave a pending request behind");
 });
 
 test("ToolRuntime uses existing approval grant to execute high-risk tool", async () => {
@@ -562,6 +566,52 @@ test("an approval card offers a lasting grant, so a mode is not a permanent nag"
   // action rather than the tool alone — otherwise approving one write would
   // grant every future write.
   assert.match(request.actionFingerprint, /notes\.md/);
+});
+
+test("ToolRuntime suspends cleanly when the inline handshake window elapses", async () => {
+  const registry = new ToolRegistry();
+  let executed = false;
+  registry.register(tool({
+    id: "mcp__test__action",
+    name: "Test Action",
+    risk: "high",
+    source: "mcp",
+    handler: async () => {
+      executed = true;
+      return { ok: true };
+    }
+  }));
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+
+  // Use an ApprovalService adapter with a very short timeoutMs to simulate window elapsing
+  const customService = {
+    checkGrant: (ctx: any) => broker.checkGrant(ctx),
+    createRequest: (req: any) => broker.createRequest(req),
+    getRequest: (id: string) => broker.getRequest(id),
+    resolve: (input: any) => broker.resolveRequest(input),
+    expireRequest: (id: string) => {
+      const r = broker.getRequest(id);
+      if (r && r.status === "pending") broker.updateRequest({ ...r, status: "expired", resolvedAt: new Date().toISOString() });
+    },
+    waitForDecision: async (input: any) => {
+      // Simulate inline window expiring without user resolution
+      return "window_expired" as const;
+    }
+  };
+
+  const runtime = new ToolRuntime(registry, { approvalService: customService as any });
+  const result = await runtime.executeToolCall({
+    toolId: "mcp__test__action",
+    input: { actionId: "something" },
+    context: context()
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.terminate, true, "the run must terminate/suspend cleanly");
+  assert.equal(result.metadata?.status, "waiting_for_approval");
+  assert.ok(typeof result.metadata?.approvalRequestId === "string");
+  assert.equal(executed, false, "handler must not run before approval");
 });
 
 test("installing code can never be granted permanently", () => {

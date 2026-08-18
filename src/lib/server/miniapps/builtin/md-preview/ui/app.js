@@ -22,6 +22,7 @@ const STRINGS = {
     copyRaw: "复制 Markdown 原文",
     documents: "已缓存文档",
     openFile: "导入 .md",
+    loadSample: "加载排版示例",
     emptyTitle: "开始 Markdown 微信排版",
     emptyBody: "在 Molibot 对话中让 Agent 帮您预览或排版文章，或直接选择本地 Markdown 文件打开。",
     openFile2: "打开本地 .md 文件",
@@ -64,6 +65,7 @@ const STRINGS = {
     copyRaw: "Copy Raw Markdown",
     documents: "Documents",
     openFile: "Import .md",
+    loadSample: "Load Sample Demo",
     emptyTitle: "Markdown WeChat Preview",
     emptyBody: "Ask Agent in chat to preview an article, or open a local Markdown file.",
     openFile2: "Open local .md file",
@@ -109,7 +111,8 @@ document.documentElement.dataset.theme = appearance;
 /** Short display names for the theme trigger button (menu items carry their own). */
 const THEME_TRIGGER_LABELS = {
   "momo-paper": locale === "zh" ? "暖米书卷" : "Momo Paper",
-  vercel: locale === "zh" ? "极简黑白" : "Vercel Geist"
+  vercel: locale === "zh" ? "极简黑白" : "Vercel Geist",
+  macaron: locale === "zh" ? "甜彩微排" : "Macaron"
 };
 
 // - State -
@@ -163,6 +166,7 @@ const el = {
   fileInput: document.getElementById("file-input"),
   openFileBtn: document.getElementById("open-file-btn"),
   emptyOpenBtn: document.getElementById("empty-open-btn"),
+  emptySampleBtn: document.getElementById("empty-sample-btn"),
   settingsSave: document.getElementById("settings-save"),
   settingsTest: document.getElementById("settings-test"),
   settingsBack: document.getElementById("settings-back")
@@ -362,6 +366,7 @@ function renderChrome() {
   // Active theme: trigger label + swatch, and the selected menu entry
   el.themeSwatch.classList.toggle("momo-swatch", state.themeId === "momo-paper");
   el.themeSwatch.classList.toggle("vercel-swatch", state.themeId === "vercel");
+  el.themeSwatch.classList.toggle("macaron-swatch", state.themeId === "macaron");
   el.themeLabel.textContent = THEME_TRIGGER_LABELS[state.themeId] ?? state.themeId;
   for (const choice of el.themeChoices) {
     choice.classList.toggle("selected", choice.dataset.theme === state.themeId);
@@ -599,7 +604,13 @@ const settingInputs = {
 async function loadSettings() {
   const data = await api("/settings");
   const settings = data.settings;
-  state.themeId = THEMES[settings.theme] ? settings.theme : DEFAULT_THEME_ID;
+  let savedLocalTheme = null;
+  try {
+    savedLocalTheme = localStorage.getItem("md_preview_theme");
+  } catch {}
+  state.themeId = THEMES[settings.theme]
+    ? settings.theme
+    : (THEMES[savedLocalTheme] ? savedLocalTheme : DEFAULT_THEME_ID);
   renderChrome();
 
   for (const [key, input] of Object.entries(settingInputs)) {
@@ -634,9 +645,13 @@ async function testSettings() {
 }
 
 function showView(view) {
+  closeAllPopovers();
   state.view = view;
   el.settings.hidden = view !== "settings";
   el.paperWrap.hidden = view !== "preview";
+  if (el.themeDropdownWrap) {
+    el.themeDropdownWrap.hidden = view !== "preview";
+  }
 }
 
 // - Event Listeners -
@@ -685,6 +700,69 @@ el.themeTrigger.addEventListener("click", (e) => {
   }
 });
 
+const SAMPLE_MARKDOWN = `# 甜彩微排：公众号全功能排版示例
+
+这是一份可以直接检查排版效果的**全功能演示文章**。无论是清新明快的马卡龙甜彩风格，还是沉稳的暖米书卷与极简黑白，都能一键生成优美舒展的微信内联排版。
+
+排版不是替内容化妆，而是为长文建立呼吸感与视觉节奏，让读者在指尖滑动时自然捕捉到关键信息。
+
+## 01 先把文章结构搭清楚
+
+### 核心论点梳理
+
+好的排版能够让复杂概念变得井然有序：
+
+- **标题与章节**：负责提示“这一小节在讲什么”，建立全篇结构骨架
+- **引用金句**：让重要论断与灵感拥有视觉停顿
+- **代码与表格**：承载高密度结构化信息，一目了然
+
+> “让每一份好内容，都有一身好排版。” —— 优秀的视觉呈现，能够成倍放大文字的力量。
+
+### 多级列表与步骤
+
+1. 在 Molibot 中让 Agent 生成或导入 Markdown 文章
+2. 自由切换暖米书卷、极简黑白或马卡龙甜彩主题
+3. 点击右上角「复制」，直接在微信公众号后台 Cmd/Ctrl + V 粘贴
+
+- 支持嵌套列表结构：
+  - 子项目一：自动悬挂缩进与对齐
+  - 子项目二：多层级圆点与序号配色
+
+## 02 代码与表格各司其职
+
+### macOS 风格代码块
+
+\`\`\`javascript
+// Molibot Mini App · MD Preview
+function publishArticle(article) {
+  return {
+    title: article.title,
+    theme: "macaron",
+    status: "ready_to_publish",
+    copied: true
+  };
+}
+\`\`\`
+
+\`\`\`bash
+# 复制排版并快速发布
+npm run build
+molibot preview article.md
+\`\`\`
+
+### 数据表格示例
+
+| 排版元素 | 适合表达 | 默认视觉 |
+|---|---|---|
+| 章节标题 | 结构划分 | 居中装饰下划线 |
+| 引用模块 | 金句观点 | 柔和微色底卡片 |
+| 代码围栏 | 程序指令 | macOS 窗口圆点 |
+| 行内代码 | 文件名/命令 | 薄荷甜彩胶囊 |
+
+---
+
+最后，点击右上角的「复制到微信公众号」，然后在微信公众号网页编辑器中直接粘贴即可！`;
+
 // Theme menu choices
 el.themeChoices.forEach((choice) => {
   choice.addEventListener("click", () => {
@@ -692,6 +770,9 @@ el.themeChoices.forEach((choice) => {
     if (!THEMES[id] || state.themeId === id) return;
     closeAllPopovers();
     state.themeId = id;
+    try {
+      localStorage.setItem("md_preview_theme", id);
+    } catch {}
     renderChrome();
     void renderPreview();
     void api("/settings", { method: "PUT", body: JSON.stringify({ theme: state.themeId }) });
@@ -711,6 +792,24 @@ function pickMarkdownFile() {
 }
 el.openFileBtn.addEventListener("click", pickMarkdownFile);
 el.emptyOpenBtn.addEventListener("click", pickMarkdownFile);
+if (el.emptySampleBtn) {
+  el.emptySampleBtn.addEventListener("click", async () => {
+    try {
+      const data = await api("/documents", {
+        method: "POST",
+        body: JSON.stringify({
+          markdown: SAMPLE_MARKDOWN,
+          title: "甜彩微排排版示例"
+        })
+      });
+      await refreshDocuments();
+      await openDocument(data.document.documentId);
+      showToast("已加载排版示例", "success");
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : String(cause), "error");
+    }
+  });
+}
 
 el.fileInput.addEventListener("change", async () => {
   const file = el.fileInput.files?.[0];

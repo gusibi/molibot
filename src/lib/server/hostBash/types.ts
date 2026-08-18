@@ -92,9 +92,12 @@ export interface HostBashPendingAction {
   timeout?: number;
 }
 
+export type ApprovalCategory = "all" | "bash" | "mcp" | "file_write" | "miniapp";
+
 export interface HostBashApprovalRecord {
   id: string;
   toolId: string;
+  category?: "bash" | "mcp" | "file_write" | "miniapp";
   displayName: string;
   command: string;
   reason: string;
@@ -120,6 +123,7 @@ export interface HostBashApprovalRecord {
 export interface ApprovedHostBashEntry {
   id: string;
   toolId: string;
+  category?: "bash" | "mcp" | "file_write" | "miniapp";
   displayName: string;
   command: string;
   reason: string;
@@ -146,6 +150,7 @@ export interface HostBashApprovalPrompt {
   }>;
   request: {
     toolId: string;
+    category?: "bash" | "mcp" | "file_write" | "miniapp";
     displayName: string;
     command: string;
     args: string[];
@@ -162,5 +167,6 @@ export interface HostBashApprovalPrompt {
 export interface HostBashListFilters {
   status?: HostBashApprovalStatus | "all";
   approvalMode?: HostBashApprovalMode | "all";
+  category?: ApprovalCategory;
   query?: string;
 }

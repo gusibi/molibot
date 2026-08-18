@@ -265,7 +265,7 @@ export class ConversationSearchIndex {
     let rankSql: string;
     if (this.fts5Enabled) {
       params.push(tokens.map((token) => `"${token.replaceAll('"', '""')}"`).join(" OR "));
-      fromSql = `conversation_search_fts f JOIN conversation_search_documents d ON d.message_id = f.message_id`;
+      fromSql = `conversation_search_fts JOIN conversation_search_documents d ON d.message_id = conversation_search_fts.message_id`;
       rankSql = "bm25(conversation_search_fts) ASC";
     } else {
       params.push(...tokens);
@@ -294,9 +294,10 @@ export class ConversationSearchIndex {
     const matchSql = this.fts5Enabled
       ? "conversation_search_fts MATCH ?"
       : `f.term IN (${tokens.map(() => "?").join(", ")})`;
+    const groupBySql = this.fts5Enabled ? "" : "GROUP BY d.message_id";
     const rows = this.db.prepare(`SELECT d.* FROM ${fromSql}
       WHERE ${matchSql} AND ${where.join(" AND ")}
-      GROUP BY d.message_id
+      ${groupBySql}
       ORDER BY ${rankSql}, d.created_at DESC LIMIT ?`).all(...params) as any[];
     return rows.map((row) => ({
       conversationId: row.conversation_id,

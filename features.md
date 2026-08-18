@@ -6,6 +6,66 @@
 
 ## 2026-08-18
 
+### 审批等待改为挂起与异步恢复机制，消除内联等待超时（已完成，P1）
+
+- **审批等待解耦与短窗口握手**：
+  - `ToolRuntime` 中的 Broker 审批等待从原先的 5 分钟内联长轮询重构为 **30 秒短握手窗口**（`BROKER_APPROVAL_INLINE_WINDOW_MS = 30s`）。
+  - 用户秒级点批准时维持快速内联执行；超过 30 秒则干净落盘并挂起为 `waiting_for_approval` 状态并释放租约/连接，彻底消除审批等待吞噬外层工具执行超时（如 `mcpInvoke` 300s 超时）的结构缺陷，支持用户在几小时或数天后随时批准。
+- **中止与超时落终态（Bug 修复）**：
+  - 当处于审批等待中的 Run 被外部 Stop 或上下文取消时，`ApprovalService.expireRequest` 会将对应的 Broker 审批请求明确更新为 `expired` 终态，防止死 Run 的悬挂请求永远停留在 pending。
+- **聚合审批 Grant 粒度修正**：
+  - `ApprovalBroker.resolveRequest` 在为非 write 类工具（如 `mcp:*`、`plugin:*` 等）生成授权（Grant）时，不再强行绑定批次聚合指纹 `{fingerprints:[...]}`，改为按能力（Capability）、用户（Actor）与作用域（Scope）匹配，确保「本会话允许」与「一直允许」在后续新入参调用中真实生效。
+- **跨平台异步恢复中枢（`brokerApprovalResume.ts`）**：
+  - 新增 `brokerApprovalResume.ts` 共享恢复模块，在用户通过 Web、Desktop 或 Channel 异步批准或拒绝挂起请求后：
+    1. 改写上下文中的挂起 `toolResult` 为明确的 Runtime Notice（批准提示模型重新发起调用，拒绝提示模型停止重试）；
+    2. 通过 `TurnOrchestrator` 自动复用原 `runId` 恢复执行，无缝承接后续任务。
+- **全入口接线**：
+  - **Web 端 (`/api/chat`)**：修复 `_handleWebHostToolsCommand` 缺乏 Broker 回退导致卡片点击无效的问题，并在批准/拒绝后触发异步恢复。
+  - **Desktop 端 (`/api/desktop/host-bash`)**：在 `resolveDesktopBrokerApproval` 完成后接入异步恢复。
+  - **Channel 端 (`channelCommands.ts`)**：在 `resolveBrokerApproval` 成功后触发异步恢复。
+- **验证守卫**：
+  - `toolRuntime.test.ts` 新增短窗口超时挂起与中止落终态测试；
+  - `approvalBroker.test.ts` 新增聚合指纹豁免与文件写入指纹严格匹配测试；
+  - `brokerApprovalResume.test.ts` 新增上下文改写与恢复测试；
+  - 全部 39 项审批与运行相关单元测试通过。
+
+### 统一审批中心全面重构与全能力白名单管理（已完成，P1）
+
+- **全能力动作分类推断与聚合存储**：
+  - `HostBashStore` 升级为通用审批存储层，支持全量动作分类（`bash` 命令行、`mcp` 外部工具调用、`file_write` 文件修改、`miniapp` 插件应用），从 `capability` 前缀与 `action_json.type` 自动推断。
+  - 完整保留并结构化解析 `payload`（`path`、`diff`、`parameters`），提供统一的只读审计、长期白名单与历史流水管理。
+- **全量过滤查询与超时态支持**：
+  - 移除 SQL 中所有硬编码的 `capability LIKE 'bash:%'` 限制，`listPending`、`listWhitelist`、`listHistory` 与 `hasAnyData` 支持按 `category`（`all` / `bash` / `mcp` / `file_write` / `miniapp`）、`status`（新增 `expired` 超时态）、`approvalMode` 及关键词联合过滤。
+- **持久化 Scope 解锁与通用审批 Prompt**：
+  - `toolRuntime.ts` 与 `approval.ts` 优化：根据 Tool Policy 的 `scopeOptions`（`["once", "session", "persistent"]`）为非 Bash 工具（如 MCP、文件写操作）开放持久化选项（`approve_persistent`），支持“本 Bot 一直允许 / 本项目一直允许”。
+  - 优化审批卡片格式化逻辑，针对 MCP 工具、文件修改与 Bash 命令定制化展示操作类型与目标。
+- **统一 API 接口与平滑兼容**：
+  - 新增统一 API 路由 `/api/settings/approvals`（支持 `listPending`、`listWhitelist`、`listHistory`、`toggle_whitelist`、`delete_whitelist`、`delete_history`）；`/api/settings/host-bash` 增加 `category` 筛选支持以保持向后兼容。
+- **Web 端与 Desktop 界面升级**：
+  - **Web 端 (`/settings/approvals`)**：侧边栏更名为「审批管理」，提供全部/命令行/MCP/文件/插件多分类过滤、彩色分类徽标、状态胶囊与参数展示，`/settings/host-bash` 平滑重定向。
+  - **Desktop 桌面端 (`HostBashSection.svelte`)**：多语言更名为「审批管理 (Approvals)」，在筛选栏新增分类下拉控制器（`categoryFilter`），各数据行新增彩色分类胶囊。
+- **验证守卫**：
+  - `src/lib/server/hostBash/store.test.ts` 新增多分类过滤与动作推断单元测试；
+  - `store.test.ts`、`approval.test.ts`、`desktopHostBash.test.ts`、`desktop api.test.ts` 全部 104 项单元测试通过；
+  - Desktop `svelte-check` 0 错误 0 警告；`npm run build` 全量打包构建成功。
+
+
+### MD Preview 内置小程序优化与新增「Macaron · 甜彩微排」主题（已完成，P1）
+
+- **新增 Macaron（甜彩微排）主题**：
+  - 汲取微排（Punk微排，`https://weipai.iamadrianpunk.com/`）的版式结构精髓，去除原站黄色，定制了**马卡龙甜彩配色体系**（清雅薄荷绿 `#38A3A5`、柔和蜜桃粉 `#FF9AA2`、香芋紫 `#9B89B3`、奶泡底白 `#FAFDFB` 及高对比正文墨色 `#243746`）。
+  - **macOS 风格代码框**：在代码围栏顶部内联注入带粉/黄/绿马卡龙三色圆点与 `CODE` 标识的 macOS 窗口控制栏，高亮配色走 Prism 马卡龙定制语法高亮。
+  - **标题与结构装饰**：H1 居中带甜桃粉指示底条，H2 章节居中带甜桃下划装饰，H3 带左侧 4px 粗装饰线，引用块带柔和薄荷渐变卡片与边框阴影，表格带 2px 双横线。
+  - 所有样式完全通过内联样式（inline styles）生成，100% 完美兼容微信公众号网页编辑器粘贴。
+- **小程序交互与体验优化**：
+  - **右下角固定悬浮切换按钮**：将主题切换器从上方 topbar 移至右下角固定悬浮胶囊按钮（FAB），点击后向上呼出主题菜单，随时随地一键切换，释放顶部导航空间。
+  - **主题偏好记忆**：接入 `localStorage` 本地存储，切换主题后自动记忆，刷新页面或切换文档不再被重置回默认主题。
+  - **快速上手示例**：在空状态新增「加载排版示例」快捷按钮，无需导入文件即可一键载入涵盖 H1/H2/H3、多级嵌套列表、引用、macOS 代码块与数据表格的全功能演示稿。
+  - **主题选择器视觉升级**：主题下拉菜单新增 Macaron 主题专属多色甜彩 Swatch 色块指示、标题与说明文案。
+  - **版本 Bump 与规范对齐**：依 MiniApp 规则 bump `manifest.json` 至 `1.1.1`；修复浮动按钮与向上弹出菜单层叠上下文与定位；严格遵循 `uiDesignBaseline` M3 token 规范，零硬编码字体大小。
+- **测试守卫**：`src/lib/server/miniapps/mdPreview.test.ts` 新增 Macaron 主题设置持久化与定义测试；`uiDesignBaseline.test.ts` 及 `bootstrap.test.ts` 30 项测试全绿；全量生产构建 `npm run build` 通过。
+
+
 ### 沙箱安全策略档位 UI 重构与体验打磨（已完成，P1）
 
 - **4 档预设卡片矩阵与语义化标签体系**：将原粗糙的「单条滑块 + Emoji 字符串（`🌐❌ · ✏️❌`）」重构为现代化的 4 档交互式安全卡片矩阵（`锁定`、`只读`、`标准`、`全开`）。每档包含专属安全图标、安全级别徽标（`最高隔离` / `安全探索` / `推荐开发` / `完全信任`）、网络 / 文件 / 环境变量三维微型胶囊标签（如 `🌐 常用开发源`、`📁 可写项目`、`⚙️ 白名单环境`）与清晰的一句话使用指引。

@@ -265,23 +265,68 @@ body {
   transform: rotate(180deg);
 }
 
-/* - Theme dropdown trigger - */
+/* - Floating Theme Button (bottom-right FAB) - */
 
-.theme-trigger {
-  gap: 7px;
+.floating-theme-wrap {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 35;
+  display: inline-flex;
+}
+
+.floating-theme-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 8px 12px;
+  border-radius: var(--md-shape-full);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-lowest);
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--md-elev-2);
+  transition: all var(--md-dur-short) var(--md-ease-standard);
+  user-select: none;
+}
+
+.floating-theme-btn:hover {
+  background: var(--md-surface-container-low);
+  border-color: var(--md-outline);
+  box-shadow: var(--md-elev-3);
+  transform: translateY(-2px);
+}
+
+.floating-theme-btn:active {
+  transform: translateY(0);
+}
+
+.floating-theme-btn .theme-icon {
+  color: var(--md-on-surface-variant);
+  margin-left: 2px;
+  flex: none;
+}
+
+.floating-theme-wrap.open .floating-theme-btn {
+  background: var(--md-secondary-container);
+  border-color: var(--md-outline);
 }
 
 .theme-trigger-label {
   font-weight: 500;
-  max-width: 96px;
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .theme-swatch {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, 0.15);
   flex: none;
@@ -295,6 +340,12 @@ body {
 .vercel-swatch {
   background: #FFFFFF;
   border-color: #006BFF;
+}
+
+.macaron-swatch {
+  background: #FAFDFB;
+  border-color: #38A3A5;
+  box-shadow: inset 0 0 0 2px #FF9AA2;
 }
 
 /* - Buttons - */
@@ -562,14 +613,27 @@ body {
   opacity: 1;
 }
 
-/* The theme menu carries two-line choices, so it wants more width than the
-   copy menu and the trigger swatch should stay tight. It anchors to the
-   trigger's LEFT edge and hangs below it, so it never spills leftward over
-   the document title area. */
+/* The theme menu carries two-line choices. It anchors to the
+   trigger's right edge and pops upward from the bottom-right floating button. */
+.menu-popover.theme-menu-upward,
 .theme-menu {
   width: 300px;
-  left: 0;
-  right: auto;
+  right: 0;
+  left: auto;
+  top: auto;
+  bottom: calc(100% + 10px);
+  animation: menuInUp var(--md-dur-short) var(--md-ease-emphasized);
+}
+
+@keyframes menuInUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .menu-divider {

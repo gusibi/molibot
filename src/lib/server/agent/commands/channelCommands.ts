@@ -8,6 +8,7 @@ import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/index.js";
 import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashStore } from "$lib/server/hostBash/index.js";
 import { getHostBashStore } from "$lib/server/hostBash/index.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
+import { resumeSuspendedBrokerApproval } from "$lib/server/channels/shared/brokerApprovalResume.js";
 import type { ApprovalRequest, ApprovalScope } from "$lib/server/approval/approvalTypes.js";
 import {
   buildModelOptions,
@@ -367,6 +368,18 @@ export class SharedRuntimeCommandService<TTarget> {
       ...(status === "approved" ? { selectedScope: selectedScope ?? "once" } : {})
     });
     if (!result.request) return null;
+
+    const sessionId = this.options.store.getActiveSession(scopeId);
+    void resumeSuspendedBrokerApproval({
+      scopeId,
+      sessionId,
+      requestId: target.id,
+      status,
+      toolName: result.request.action.toolName || result.request.capability,
+      store: this.options.store,
+      pool: this.options.runners,
+      channel: this.options.channel
+    });
 
     const toolName = result.request.action.toolName || result.request.capability;
     const rows: CommandTableRow[] = [

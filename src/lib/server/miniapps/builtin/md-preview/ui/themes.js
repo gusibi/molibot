@@ -146,5 +146,72 @@ const vercelGeist = {
   code: codeColorsVercel
 };
 
-export const THEMES = { "momo-paper": momoPaper, vercel: vercelGeist };
+const codeColorsMacaron = {
+  background: "#F4F8F7",
+  border: "#D8ECE5",
+  text: "#243746",
+  comment: "#8FA39E",
+  keyword: "#38A3A5",
+  string: "#2E8B57",
+  number: "#D96B43",
+  function: "#4C6EF5",
+  className: "#8A5CB8",
+  operator: "#5A736E",
+  punctuation: "#7D9690",
+  variable: "#C25975",
+  property: "#38A3A5",
+  inlineBg: "#EFF8F5",
+  inlineText: "#2B785B"
+};
+
+const listStyleMacaron = {
+  ul: "margin:16px 0;padding-left:0.4em;list-style:none;text-indent:0;",
+  ol: "margin:16px 0;padding-left:0.4em;list-style:none;text-indent:0;",
+  li: "margin:8px 0;padding-left:1.7em;text-indent:-1.7em;line-height:1.85;list-style:none;color:#243746;",
+  liTask: "margin:8px 0;padding-left:0;line-height:1.85;list-style:none;color:#243746;",
+  marker: "display:inline-block;width:1.7em;text-indent:0;",
+  bullets: ["●", "▸", "▪"],
+  bulletColors: ["#38A3A5", "#FF9AA2", "#9B89B3"],
+  bulletSize: "0.85em",
+  orderedColor: "#38A3A5",
+  orderedExtra: "font-weight:700;"
+};
+
+const macaron = {
+  id: "macaron",
+  label: "Macaron(甜彩微排)",
+  container: `font-family:${SANS};font-size:16px;line-height:1.85;color:#243746;background:#FAFDFB;letter-spacing:0.3px;word-break:break-word;padding:32px 24px;`,
+  styles: {
+    h1: `font-size:25px;font-weight:800;line-height:1.35;color:#38A3A5;margin:8px 0 24px;text-align:center;letter-spacing:-0.01em;`,
+    h2: `font-size:19px;font-weight:800;line-height:1.4;color:#38A3A5;margin:36px 0 16px;text-align:center;letter-spacing:0.02em;`,
+    h3: `font-size:17px;font-weight:700;line-height:1.45;color:#38A3A5;margin:26px 0 12px;padding-left:10px;border-left:4px solid #FF9AA2;`,
+    h4: `font-size:16px;font-weight:600;color:#243746;margin:22px 0 10px;`,
+    h5: `font-size:15px;font-weight:600;color:#5A736E;margin:18px 0 8px;`,
+    h6: `font-size:13px;font-weight:600;color:#8FA39E;margin:16px 0 8px;letter-spacing:0.04em;text-transform:uppercase;`,
+    p: "margin:0 0 18px;color:#243746;line-height:1.85;",
+    a: "color:#38A3A5;font-weight:500;text-decoration:none;border-bottom:1.5px solid #A8E6CF;",
+    strong: "font-weight:700;color:#1B6A4C;",
+    em: "font-style:italic;color:#5A736E;",
+    del: "text-decoration:line-through;color:#8FA39E;",
+    ul: "margin:0 0 18px;padding-left:24px;",
+    ol: "margin:0 0 18px;padding-left:24px;",
+    li: "margin:6px 0;line-height:1.85;",
+    blockquote: "margin:20px 0;padding:14px 18px;background:#F0F8F6;border-left:4px solid #38A3A5;border-radius:8px;color:#3D5650;box-shadow:0 2px 8px rgba(56,163,165,0.06);",
+    hr: "border:none;height:2px;background:linear-gradient(90deg,transparent,#38A3A5,transparent);margin:32px 0;",
+    img: "display:block;max-width:100%;margin:24px auto;border-radius:10px;border:1px solid #D8ECE5;box-shadow:0 2px 6px rgba(56,163,165,0.08),0 12px 24px -10px rgba(56,163,165,0.14);",
+    figcaption: "text-align:center;font-size:13px;color:#8FA39E;margin-top:-8px;margin-bottom:18px;",
+    pre: `margin:0;padding:14px 16px;border-radius:0 0 8px 8px;overflow-x:auto;font-family:${MONO};font-size:13px;line-height:1.6;`,
+    table: "width:100%;border-collapse:collapse;margin:22px 0;font-size:14px;border-top:2px solid #38A3A5;border-bottom:2px solid #38A3A5;",
+    th: "border-bottom:1px solid #38A3A5;background:#F0F8F6;padding:9px 12px;text-align:left;font-weight:700;color:#38A3A5;",
+    td: "border-bottom:1px solid #E2EFEA;padding:8px 12px;color:#243746;"
+  },
+  macCode: true,
+  decorateH1: true,
+  decorateH2: true,
+  list: listStyleMacaron,
+  code: codeColorsMacaron
+};
+
+export const THEMES = { "momo-paper": momoPaper, vercel: vercelGeist, macaron };
 export const DEFAULT_THEME_ID = "momo-paper";
+
