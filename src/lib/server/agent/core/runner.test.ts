@@ -1878,3 +1878,97 @@ test("an image no vision route could read is announced to the model, not left as
     "the instruction must be wired into runtimeInstructions"
   );
 });
+
+test("runner emits run.started once and run.finished only on turn completion across multi-attempt execution", async () => {
+  const settings = createRunnerTestSettings();
+  const store = {
+    getWorkspaceDir: () => process.cwd(),
+    getScratchDir: () => process.cwd(),
+    getSessionEntriesPath: () => "entries.jsonl",
+    appendContextMessage: () => "entry-1",
+    appendRunSummary: () => {},
+    appendRunDetail: () => {},
+    appendRuntimeEvent: () => {},
+    loadContext: () => [],
+    getSessionSandboxOverride: () => null
+  };
+  const runner = new MomRunner(
+    "telegram",
+    "chat-lifecycle",
+    "session-lifecycle",
+    store as any,
+    () => settings,
+    () => settings,
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    {
+      syncExternalMemories: async () => {},
+      createPromptSnapshot: async () => ({
+        createdAt: new Date().toISOString(), fingerprint: "test", query: "hello", promptText: "",
+        selected: [], longTerm: [], daily: []
+      }),
+      createProfileTurnSnapshot: async () => ({ fingerprint: "profile", items: [] })
+    } as any
+  );
+
+  const emittedEvents: Array<{ stage: string; payload: any }> = [];
+  (runner as any).hookManager = createRunnerHookManager(emittedEvents);
+
+  const subscribers = new Set<(event: any) => void>();
+  const emitAgentEvent = (event: any) => {
+    for (const fn of subscribers) fn(event);
+  };
+  let attemptCount = 0;
+  (runner as any).agent = {
+    state: {
+      messages: [], tools: [], systemPrompt: "test",
+      model: resolveModelSelection(settings, "text").model,
+      thinkingLevel: settings.defaultThinkingLevel
+    },
+    sessionId: "test",
+    transport: "responses",
+    subscribe: (fn: (event: any) => void) => {
+      subscribers.add(fn);
+      return () => { subscribers.delete(fn); };
+    },
+    abort: () => {},
+    followUp: () => {},
+    clearSteeringQueue: () => {},
+    prompt: async () => {
+      attemptCount++;
+      emitAgentEvent({ type: "agent_start" });
+      if (attemptCount === 1) {
+        // Attempt 1 fails and ends
+        emitAgentEvent({ type: "agent_end" });
+        return;
+      }
+      // Attempt 2 succeeds
+      const assistantMessage = {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "text", text: "attempt 2 answer" }],
+        timestamp: Date.now()
+      };
+      (runner as any).agent.state.messages.push(assistantMessage);
+      emitAgentEvent({
+        type: "message_end",
+        message: assistantMessage
+      });
+      emitAgentEvent({ type: "agent_end" });
+    }
+  };
+
+  const ctx = createRunnerContext("test prompt");
+  ctx.message.runId = "run-lifecycle-test";
+  ctx.message.workspaceId = "workspace-lifecycle-test";
+  const result = await runner.run(ctx);
+
+  assert.equal(result.stopReason, "stop");
+  assert.equal(attemptCount, 2);
+
+  const startedStages = emittedEvents.filter((e) => e.stage === "run.started");
+  const finishedStages = emittedEvents.filter((e) => e.stage === "run.finished");
+
+  assert.equal(startedStages.length, 1, "run.started must only be emitted once");
+  assert.equal(finishedStages.length, 1, "run.finished must only be emitted once at turn completion");
+});

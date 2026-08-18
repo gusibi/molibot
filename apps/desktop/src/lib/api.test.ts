@@ -50,6 +50,7 @@ import {
   loadDesktopUsage,
   loadDesktopMemoryRejections,
   loadDesktopMemoryTrace,
+  loadDesktopRunHistory,
   loadDesktopProviderAuth,
   startDesktopProviderAuth,
   loadDesktopProviderAuthSession,
@@ -1711,3 +1712,40 @@ test("a session artifact token survives CJK and spaces in the ids", async () => 
   const token = sessionArtifactToken({ profileId: "默认 配置", sessionId: "s-1" });
   assert.deepEqual(decodeSessionArtifactToken(token), { profileId: "默认 配置", sessionId: "s-1" });
 });
+
+test("loadDesktopRunHistory requests the run history endpoint with custom limit", async () => {
+  const original = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({
+      ok: true,
+      items: [{
+        runId: "run-1",
+        createdAt: "2026-08-18T12:00:00.000Z",
+        botId: "personal",
+        chatId: "web-anonymous",
+        stopReason: "stop",
+        durationMs: 1500,
+        toolNames: ["bash"],
+        failedToolNames: [],
+        reflectionOutcome: "success",
+        reflectionSummary: "Done",
+        nextAction: "",
+        memorySelectedCount: 0,
+        usedFallbackModel: false
+      }],
+      counts: { total: 1, success: 1, partial: 0, failed: 0 }
+    }));
+  }) as typeof globalThis.fetch;
+
+  try {
+    const items = await loadDesktopRunHistory("http://127.0.0.1:3000", 50);
+    assert.equal(items.length, 1);
+    assert.equal(items[0]?.runId, "run-1");
+    assert.equal(requestedUrl, "http://127.0.0.1:3000/api/desktop/run-history?limit=50");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+

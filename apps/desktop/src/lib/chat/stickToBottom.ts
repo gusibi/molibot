@@ -76,7 +76,9 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   const STIFFNESS = 0.05;
   const MASS = 1.25;
   const FRAME_MS = 1000 / 60;
-  const SETTLE_DISTANCE = 0.5;
+  // Sub-pixel tolerance for determining if the scroll container has settled at the bottom.
+  // On high-DPI (Retina) displays, fractional pixel rounding often leaves a 0.5 - 2px gap.
+  const SETTLE_DISTANCE = 2;
   const SETTLE_VELOCITY = 0.1;
 
   let pinned = true;
@@ -90,9 +92,9 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   let lastScrollTop = node.scrollTop;
   // Queried per follow() call, which during streaming is once per frame - so
   // resolve the list once and let `.matches` track live changes.
-  const reducedMotion = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
 
-  const distanceFromBottom = (): number => node.scrollHeight - node.scrollTop - node.clientHeight;
+  const distanceFromBottom = (): number => Math.max(0, node.scrollHeight - node.scrollTop - node.clientHeight);
   const announce = (next: boolean): boolean => {
     if (next === pinned) return false;
     pinned = next;
@@ -112,7 +114,7 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   /** Motion is a courtesy: reduced-motion readers and low-performance modes
    *  keep the previous instant follow. */
   const prefersInstant = (): boolean =>
-    reducedMotion?.matches === true || document.documentElement.dataset.performance === "low";
+    reducedMotion?.matches === true || (typeof document !== "undefined" && document.documentElement.dataset.performance === "low");
 
   const springStep = (): void => {
     if (!pinned) {
@@ -173,22 +175,22 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   };
 
   // The reader's own scrolling is the single source of truth for whether we
-  // follow. Upward motion ALWAYS releases ownership - even a few px from the
-  // bottom, a wheel-up is unambiguous intent to read history, and re-arming
-  // just because the distance is still inside the bottom slack would yank the
-  // reader straight back down. Following re-arms only on a DOWNWARD move that
-  // reaches the slack, or on actually touching the bottom.
+  // follow. Upward motion releases ownership when away from the bottom boundary
+  // (preventing bounce rebounds or sub-pixel jitter at the tail from breaking the lock).
+  // Following re-arms on a DOWNWARD move that reaches the slack, or on settling at the bottom.
   const onScroll = (): void => {
     const moved = node.scrollTop - lastScrollTop;
     lastScrollTop = node.scrollTop;
     if (moved < 0) {
-      // An upward move can only be the reader (the spring writes downward and
-      // content growth never decreases scrollTop on append) - scrollbar drag,
-      // keyboard, momentum. Release immediately instead of fighting, whatever
-      // the distance: re-arming on slack alone would yank them back down.
-      if (springFrame) stopSpring();
-      announce(false);
-      return;
+      // An upward move indicates reader intent to page up only when away from
+      // the bottom boundary. If they are already resting within the settle
+      // threshold, upward movements are momentum/elastic bounce rebounds, not
+      // intentional history navigation.
+      if (distanceFromBottom() > SETTLE_DISTANCE) {
+        if (springFrame) stopSpring();
+        announce(false);
+        return;
+      }
     }
     if (springFrame) {
       // Our own glide writing downward carries no reader intent, and it may
@@ -206,13 +208,15 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   };
   const onWheel = (event: WheelEvent): void => {
     // A trackpad two-finger scroll upwards must release ownership on the input
-    // itself - waiting for the scroll event lets the slack re-arm rule win and
-    // read as a fight. Unconditional: the intent is clear regardless of how
-    // close to the bottom the reader currently is.
+    // itself when away from the bottom boundary. When resting at the bottom,
+    // micro-rebound / finger lifts with deltaY < 0 do not break the pinned state.
     if (event.deltaY < 0) {
-      stopSpring();
-      cancelScheduledBottom();
-      announce(false);
+      const dist = distanceFromBottom();
+      if (dist > SETTLE_DISTANCE) {
+        stopSpring();
+        cancelScheduledBottom();
+        announce(false);
+      }
     }
   };
   const onTouchMove = (): void => {

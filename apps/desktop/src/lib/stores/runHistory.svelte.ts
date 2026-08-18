@@ -6,8 +6,13 @@ import { session, setError } from "./session.svelte";
 export const runHistoryStore = $state({
   runHistory: [] as DesktopRunHistoryItem[],
   query: "",
+  botId: "all",
+  page: 1,
+  pageSize: 20,
   loading: false,
-  endpoint: ""
+  refreshing: false,
+  endpoint: "",
+  generation: 0
 });
 
 export function runHistoryOutcomeLabel(outcome: "success" | "partial" | "failed", copy: typeof session.text): string {
@@ -16,16 +21,33 @@ export function runHistoryOutcomeLabel(outcome: "success" | "partial" | "failed"
   return copy.runHistoryOutcome_failed;
 }
 
-export async function loadRunHistory(endpoint: string): Promise<void> {
-  runHistoryStore.endpoint = endpoint;
-  runHistoryStore.loading = true;
+export async function loadRunHistory(endpoint: string, options?: { refresh?: boolean }): Promise<void> {
+  const generation = ++runHistoryStore.generation;
+  const isInitial = runHistoryStore.runHistory.length === 0;
+  if (isInitial && !options?.refresh) {
+    runHistoryStore.loading = true;
+  } else {
+    runHistoryStore.refreshing = true;
+  }
   session.error = "";
   try {
-    runHistoryStore.runHistory = await loadDesktopRunHistory(endpoint);
+    const items = await loadDesktopRunHistory(endpoint);
+    if (generation !== runHistoryStore.generation) return;
+    runHistoryStore.runHistory = items;
+    runHistoryStore.endpoint = endpoint;
   } catch (cause) {
-    runHistoryStore.endpoint = "";
+    if (generation !== runHistoryStore.generation) return;
     setError(cause);
   } finally {
-    runHistoryStore.loading = false;
+    if (generation === runHistoryStore.generation) {
+      runHistoryStore.loading = false;
+      runHistoryStore.refreshing = false;
+    }
+  }
+}
+
+export function refreshRunHistory(): void {
+  if (session.endpoint) {
+    void loadRunHistory(session.endpoint, { refresh: true });
   }
 }

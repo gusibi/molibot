@@ -331,3 +331,138 @@ test("TraceRecorderHook upgrades skill usage to executed for signal evidence", a
   assert.equal(fact?.payload.evidenceCsv, "read_skill_file,cli_signal,search_match");
   store.close();
 });
+
+test("SqliteTraceStore upsertFact protects terminal statuses from regression to started", async () => {
+  const store = new SqliteTraceStore(":memory:");
+  const now = new Date().toISOString();
+
+  // 1. Initial started run fact
+  store.upsertFact({
+    id: "fact-1",
+    factType: "run",
+    runId: "run-terminal-guard",
+    factId: "run-terminal-guard",
+    channel: "feishu",
+    botId: "bot-1",
+    chatId: "chat-1",
+    sessionId: "session-1",
+    status: "started",
+    createdAt: now,
+    updatedAt: now,
+    payload: {}
+  });
+  let fact = store.listFactsByRunId("run-terminal-guard")[0];
+  assert.equal(fact?.status, "started");
+
+  // 2. Terminal success status
+  store.upsertFact({
+    id: "fact-1",
+    factType: "run",
+    runId: "run-terminal-guard",
+    factId: "run-terminal-guard",
+    channel: "feishu",
+    botId: "bot-1",
+    chatId: "chat-1",
+    sessionId: "session-1",
+    status: "success",
+    finishedAt: now,
+    durationMs: 1200,
+    createdAt: now,
+    updatedAt: now,
+    payload: {}
+  });
+  fact = store.listFactsByRunId("run-terminal-guard")[0];
+  assert.equal(fact?.status, "success");
+
+  // 3. Late started event should NOT regress terminal success to started
+  store.upsertFact({
+    id: "fact-1",
+    factType: "run",
+    runId: "run-terminal-guard",
+    factId: "run-terminal-guard",
+    channel: "feishu",
+    botId: "bot-1",
+    chatId: "chat-1",
+    sessionId: "session-1",
+    status: "started",
+    createdAt: now,
+    updatedAt: now,
+    payload: {}
+  });
+  fact = store.listFactsByRunId("run-terminal-guard")[0];
+  assert.equal(fact?.status, "success");
+  store.close();
+});
+
+test("SqliteTraceStore reconcileStaleOrphanRuns marks dead orphan runs as aborted", async () => {
+  const store = new SqliteTraceStore(":memory:");
+  const nowMs = Date.now();
+  const oldTime = new Date(nowMs - 30 * 60 * 1000).toISOString();
+  const recentTime = new Date(nowMs - 1 * 60 * 1000).toISOString();
+
+  // Old dead orphan (30 mins old, not live)
+  store.upsertFact({
+    id: "fact-old-orphan",
+    factType: "run",
+    runId: "run-old-orphan",
+    factId: "run-old-orphan",
+    channel: "feishu",
+    botId: "bot-old",
+    chatId: "chat-old",
+    sessionId: "session-old",
+    status: "started",
+    startedAt: oldTime,
+    createdAt: oldTime,
+    updatedAt: oldTime,
+    payload: {}
+  });
+
+  // Recent orphan (1 min old, not live)
+  store.upsertFact({
+    id: "fact-recent-orphan",
+    factType: "run",
+    runId: "run-recent-orphan",
+    factId: "run-recent-orphan",
+    channel: "feishu",
+    botId: "bot-recent",
+    chatId: "chat-recent",
+    sessionId: "session-recent",
+    status: "started",
+    startedAt: recentTime,
+    createdAt: recentTime,
+    updatedAt: recentTime,
+    payload: {}
+  });
+
+  // Old run that is live in memory
+  store.upsertFact({
+    id: "fact-live-run",
+    factType: "run",
+    runId: "run-live",
+    factId: "run-live",
+    channel: "feishu",
+    botId: "bot-live",
+    chatId: "chat-live",
+    sessionId: "session-live",
+    status: "started",
+    startedAt: oldTime,
+    createdAt: oldTime,
+    updatedAt: oldTime,
+    payload: {}
+  });
+
+  const liveKeys = [`feishu\0bot-live\0chat-live\0session-live`];
+  const count = store.reconcileStaleOrphanRuns(liveKeys, 10 * 60 * 1000, nowMs);
+
+  assert.equal(count, 1);
+  const oldOrphan = store.listFactsByRunId("run-old-orphan")[0];
+  assert.equal(oldOrphan?.status, "aborted");
+
+  const recentOrphan = store.listFactsByRunId("run-recent-orphan")[0];
+  assert.equal(recentOrphan?.status, "started");
+
+  const liveRun = store.listFactsByRunId("run-live")[0];
+  assert.equal(liveRun?.status, "started");
+
+  store.close();
+});

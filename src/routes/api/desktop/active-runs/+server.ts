@@ -14,7 +14,9 @@ export const GET: RequestHandler = async () => {
   const runtime = getRuntime();
   const store = new SqliteTraceStore();
   try {
-    const payload: DesktopActiveRunsResponse = { ok: true, generatedAt: new Date().toISOString(), items: buildDesktopActiveRuns(runtime.getSettings(), store.listRecentFacts(1000), snapshots()) };
+    const liveSnapshots = snapshots();
+    store.reconcileStaleOrphanRuns(liveSnapshots.map((s) => `${s.channel}\0${s.botId}\0${s.chatId}\0${s.sessionId}`));
+    const payload: DesktopActiveRunsResponse = { ok: true, generatedAt: new Date().toISOString(), items: buildDesktopActiveRuns(runtime.getSettings(), store.listRecentFacts(1000), liveSnapshots) };
     return json(payload, { headers: { "Cache-Control": "no-store" } });
   } finally { store.close(); }
 };

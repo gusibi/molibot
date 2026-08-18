@@ -261,9 +261,9 @@
     { id: "general", sections: ["general"] },
     { id: "models", sections: ["models", "providers"] },
     { id: "assistant", sections: ["agents", "skills", "memory"] },
-    { id: "tools", sections: ["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"] },
+    { id: "tools", sections: ["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
     { id: "channels", sections: ["profiles", "channels"] },
-    { id: "activity", sections: ["runHistory", "usage", "trace", "logs"] },
+    { id: "activity", sections: ["runHistory", "usage", "trace", "logs", "hostBash"] },
     { id: "system", sections: ["runtimeEnv", "sandbox", "plugins", "diagnostics"] }
   ];
 

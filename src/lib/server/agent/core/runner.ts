@@ -1397,22 +1397,23 @@ export class MomRunner implements RunnerLike {
     const collectCitationFilter = (): void => {
       for (const id of citationFilter.citedShortIds()) citedShortIds.add(id);
     };
-     const unsubscribeHooks = this.agent.subscribe(async (event: AgentEvent) => {
+    let hookRunStarted = false;
+    const unsubscribeHooks = this.agent.subscribe(async (event: AgentEvent) => {
       const hookContext = this.activeHookContext;
       if (!hookContext) return;
       if (event.type === "agent_start") {
-        this.hookManager.emit("run.started", hookContext, {
-          messageId: ctx.message.messageId,
-          textLength: ctx.message.text.length,
-          attachmentCount: ctx.message.attachments.length,
-          imageCount: ctx.message.imageContents.length,
-          isEvent: Boolean(ctx.message.isEvent),
-          taskPreview
-        });
+        if (!hookRunStarted) {
+          hookRunStarted = true;
+          this.hookManager.emit("run.started", hookContext, {
+            messageId: ctx.message.messageId,
+            textLength: ctx.message.text.length,
+            attachmentCount: ctx.message.attachments.length,
+            imageCount: ctx.message.imageContents.length,
+            isEvent: Boolean(ctx.message.isEvent),
+            taskPreview
+          });
+        }
         return;
-      }
-      if (event.type === "agent_end") {
-        await finishHookRun();
       }
     });
 

@@ -9,7 +9,7 @@ import type {
 } from "$lib/shared/desktop";
 import { sanitizeWebProfileId, toWebExternalUserId } from "$lib/server/web/identity";
 import { resolveRunnerChatId } from "$lib/server/web/runtimeContext";
-import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index";
+import { buildHostBashApprovalPrompt, type HostBashApprovalMode, type HostBashApprovalStatus } from "$lib/server/hostBash/index";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker";
 import { listDesktopBrokerApprovals, resolveDesktopBrokerApproval } from "$lib/server/app/desktopApprovals";
 import { _handleWebHostToolsCommand } from "../../chat/+server";
@@ -21,16 +21,46 @@ const APPROVAL_SUBCOMMANDS: Record<DesktopApprovalDecision, string> = {
   reject: "reject"
 };
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ url }) => {
   const runtime = getRuntime();
   const hostBashStore = runtime.hostBashStore;
+  const statusParam = String(url.searchParams.get("status") ?? "all").trim();
+  const modeParam = String(url.searchParams.get("mode") ?? "all").trim();
+  const query = String(url.searchParams.get("query") ?? "").trim();
+
+  const status = (
+    statusParam === "approved" ||
+    statusParam === "rejected" ||
+    statusParam === "executed" ||
+    statusParam === "failed" ||
+    statusParam === "all"
+  ) ? statusParam as HostBashApprovalStatus | "all" : "all";
+
+  const approvalMode = (
+    modeParam === "persistent" ||
+    modeParam === "ephemeral" ||
+    modeParam === "session" ||
+    modeParam === "all"
+  ) ? modeParam as HostBashApprovalMode | "all" : "all";
+
   const pending = hostBashStore.listPending();
   const whitelist = hostBashStore.listWhitelist();
-  const history = hostBashStore.listHistory({ status: "all", approvalMode: "all", query: "" });
+  const history = hostBashStore.listHistory({ status, approvalMode, query });
 
   const summary = buildDesktopHostBashSummary({ pending, whitelist, history });
-  const payload: DesktopHostBashResponse = { ok: true, summary };
-  return json(payload, { headers: { "Cache-Control": "no-store" } });
+  return json({
+    ok: true,
+    summary,
+    pending,
+    whitelist,
+    history,
+    counts: {
+      pending: pending.length,
+      whitelist: whitelist.length,
+      whitelistEnabled: whitelist.filter((item) => item.enabled).length,
+      history: history.length
+    }
+  }, { headers: { "Cache-Control": "no-store" } });
 };
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -108,21 +138,39 @@ export const POST: RequestHandler = async ({ request }) => {
     return json(result, { headers: { "Cache-Control": "no-store" } });
   }
 
-  if (body.action !== "toggle_whitelist") {
-    return json({ ok: false, error: "Unsupported action" }, { status: 400 });
+  if (body.action === "toggle_whitelist") {
+    const id = String(body.id ?? "").trim();
+    if (!id) {
+      return json({ ok: false, error: "id is required" }, { status: 400 });
+    }
+
+    const runtime = getRuntime();
+    const entry = runtime.hostBashStore.setWhitelistEnabled(id, Boolean(body.enabled));
+    if (!entry) {
+      return json({ ok: false, error: "Whitelist entry not found" }, { status: 404 });
+    }
+
+    const payload: DesktopHostBashToggleResponse = { ok: true, entry: buildDesktopHostBashWhitelistItem(entry) };
+    return json(payload, { headers: { "Cache-Control": "no-store" } });
   }
 
-  const id = String(body.id ?? "").trim();
-  if (!id) {
-    return json({ ok: false, error: "id is required" }, { status: 400 });
+  if (body.action === "delete_whitelist") {
+    const id = String(body.id ?? "").trim();
+    if (!id) return json({ ok: false, error: "id is required" }, { status: 400 });
+    const runtime = getRuntime();
+    const deleted = runtime.hostBashStore.deleteWhitelistEntry(id);
+    if (!deleted) return json({ ok: false, error: "Whitelist entry not found" }, { status: 404 });
+    return json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   }
 
-  const runtime = getRuntime();
-  const entry = runtime.hostBashStore.setWhitelistEnabled(id, Boolean(body.enabled));
-  if (!entry) {
-    return json({ ok: false, error: "Whitelist entry not found" }, { status: 404 });
+  if (body.action === "delete_history") {
+    const id = String(body.id ?? "").trim();
+    if (!id) return json({ ok: false, error: "id is required" }, { status: 400 });
+    const runtime = getRuntime();
+    const deleted = runtime.hostBashStore.deleteHistoryRecord(id);
+    if (!deleted) return json({ ok: false, error: "History record not found" }, { status: 404 });
+    return json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   }
 
-  const payload: DesktopHostBashToggleResponse = { ok: true, entry: buildDesktopHostBashWhitelistItem(entry) };
-  return json(payload, { headers: { "Cache-Control": "no-store" } });
+  return json({ ok: false, error: "Unsupported action" }, { status: 400 });
 };

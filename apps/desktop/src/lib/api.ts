@@ -876,9 +876,87 @@ export function detectDesktopSandboxPreset(input: DesktopSandboxUpdateRequest): 
   return "custom";
 }
 
+export interface DesktopHostBashPermissions {
+  envAllowlist: string[];
+  filesystem: string;
+  network: string;
+}
+
+export interface DesktopHostBashPendingRecord {
+  id: string;
+  toolId: string;
+  displayName: string;
+  command: string;
+  reason: string;
+  channel?: string;
+  chatId?: string;
+  scopeId: string;
+  sessionId?: string;
+  approvalMode: "persistent" | "ephemeral" | "session" | "all";
+  status: string;
+  permissions: DesktopHostBashPermissions;
+  requestedAt: string;
+  resolvedAt?: string;
+  executedAt?: string;
+  errorText?: string;
+}
+
+export interface DesktopHostBashWhitelistEntry {
+  id: string;
+  toolId: string;
+  displayName: string;
+  command: string;
+  reason: string;
+  channel?: string;
+  chatId?: string;
+  scopeId: string;
+  permissions: DesktopHostBashPermissions;
+  approvedAt: string;
+  approvedFromRecordId: string;
+  enabled: boolean;
+}
+
+export interface DesktopHostBashSettingsData {
+  pending: DesktopHostBashPendingRecord[];
+  whitelist: DesktopHostBashWhitelistEntry[];
+  history: DesktopHostBashPendingRecord[];
+  counts: {
+    pending: number;
+    whitelist: number;
+    whitelistEnabled: number;
+    history: number;
+  };
+}
+
 export async function loadDesktopHostBash(endpoint: string): Promise<DesktopHostBashSummary> {
   const payload = await requestJson<DesktopHostBashResponse>(endpoint, "/api/desktop/host-bash");
   return payload.summary;
+}
+
+export async function loadDesktopHostBashSettings(
+  endpoint: string,
+  params?: { status?: string; mode?: string; query?: string }
+): Promise<DesktopHostBashSettingsData> {
+  const search = new URLSearchParams();
+  if (params?.status && params.status !== "all") search.set("status", params.status);
+  if (params?.mode && params.mode !== "all") search.set("mode", params.mode);
+  if (params?.query?.trim()) search.set("query", params.query.trim());
+  const queryStr = search.toString() ? `?${search.toString()}` : "";
+  const payload = await requestJson<{ ok: boolean } & DesktopHostBashSettingsData>(
+    endpoint,
+    `/api/desktop/host-bash${queryStr}`
+  );
+  return {
+    pending: Array.isArray(payload.pending) ? payload.pending : [],
+    whitelist: Array.isArray(payload.whitelist) ? payload.whitelist : [],
+    history: Array.isArray(payload.history) ? payload.history : [],
+    counts: payload.counts ?? {
+      pending: payload.pending?.length ?? 0,
+      whitelist: payload.whitelist?.length ?? 0,
+      whitelistEnabled: payload.whitelist?.filter((i) => i.enabled).length ?? 0,
+      history: payload.history?.length ?? 0
+    }
+  };
 }
 
 export async function toggleDesktopHostBashWhitelist(
@@ -892,6 +970,30 @@ export async function toggleDesktopHostBashWhitelist(
     body: JSON.stringify({ action: "toggle_whitelist", id, enabled })
   });
   return loadDesktopHostBash(endpoint);
+}
+
+export const toggleDesktopHostBashWhitelistItem = toggleDesktopHostBashWhitelist;
+
+export async function deleteDesktopHostBashWhitelistItem(
+  endpoint: string,
+  id: string
+): Promise<void> {
+  await requestJson(endpoint, "/api/desktop/host-bash", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "delete_whitelist", id })
+  });
+}
+
+export async function deleteDesktopHostBashHistoryRecord(
+  endpoint: string,
+  id: string
+): Promise<void> {
+  await requestJson(endpoint, "/api/desktop/host-bash", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "delete_history", id })
+  });
 }
 
 export async function loadDesktopTasks(endpoint: string): Promise<DesktopTaskSummary> {

@@ -275,7 +275,17 @@
       upToDate: "已是最新",
       versionCheckFailed: "检查失败",
       versionRemoteMissing: "未配置 GitHub 仓库",
-      updateWithManager: "请用 molibot manage 更新"
+      updateWithManager: "请用 molibot manage 更新",
+      approvalTitle: "需要你的确认",
+      approvalAction: "操作",
+      approvalCommand: "命令",
+      approvalTool: "工具",
+      approvalReject: "拒绝",
+      approvalApprovePersistent: "一直允许",
+      approvalApproveSession: "本会话允许",
+      approvalApproveOnce: "仅此一次",
+      approvalResolving: "处理中...",
+      approvalResolved: "已处理"
     },
     "en-US": {
       quickPrompts: [
@@ -436,7 +446,17 @@
       upToDate: "Up to date",
       versionCheckFailed: "Check failed",
       versionRemoteMissing: "GitHub repo is not configured",
-      updateWithManager: "Use molibot manage to update"
+      updateWithManager: "Use molibot manage to update",
+      approvalTitle: "Approval Required",
+      approvalAction: "Action",
+      approvalCommand: "Command",
+      approvalTool: "Tool",
+      approvalReject: "Reject",
+      approvalApprovePersistent: "Always allow",
+      approvalApproveSession: "Allow for session",
+      approvalApproveOnce: "Allow once",
+      approvalResolving: "Resolving...",
+      approvalResolved: "Resolved"
     }
   };
 
@@ -502,6 +522,23 @@
   let dict = I18N[locale];
   let streamingAssistantText = "";
   let streamingThinkingText = "";
+  interface PendingApproval {
+    requestId: string;
+    title: string;
+    body: string;
+    options: Array<{ id: string; label: string; style: string }>;
+    request: {
+      toolId: string;
+      displayName: string;
+      command: string;
+      reason?: string;
+    };
+    resolving: boolean;
+    resolved: boolean;
+    resultText?: string;
+  }
+
+  let pendingApproval: PendingApproval | null = null;
   let streamingDiagnostics: string[] = [];
   let activeSessionTitle = "";
   let versionInfo: VersionInfo | null = null;
@@ -1098,6 +1135,7 @@
       return;
     }
     activeSessionId = sessionId;
+    pendingApproval = null;
     showMobileSidebar = false;
     await loadMessages();
     await loadSessionFiles();
@@ -1363,6 +1401,24 @@
           await scrollMessagesToBottom(true);
           continue;
         }
+        if (parsed.event === "host_bash_approval") {
+          pendingApproval = {
+            requestId: String(payload.requestId ?? ""),
+            title: String(payload.title ?? ""),
+            body: String(payload.body ?? ""),
+            options: Array.isArray(payload.options) ? payload.options : [],
+            request: {
+              toolId: String(payload.request?.toolId ?? ""),
+              displayName: String(payload.request?.displayName ?? ""),
+              command: String(payload.request?.command ?? ""),
+              reason: payload.request?.reason ? String(payload.request.reason) : undefined
+            },
+            resolving: false,
+            resolved: false
+          };
+          await scrollMessagesToBottom(true);
+          continue;
+        }
         if (parsed.event === "thread_note") {
           const text = String(payload.text ?? "").trim();
           if (text) {
@@ -1440,11 +1496,56 @@
     }
   }
 
+  async function resolveApproval(action: "approve" | "approve-once" | "approve-session" | "reject"): Promise<void> {
+    if (!pendingApproval || pendingApproval.resolving || pendingApproval.resolved) return;
+    const reqId = pendingApproval.requestId;
+    pendingApproval = { ...pendingApproval, resolving: true };
+    try {
+      const subcommand = action === "reject" ? "reject" : action;
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profileId: activeProfileId,
+          conversationId: activeSessionId,
+          message: `/hosttools ${subcommand} ${reqId}`
+        })
+      });
+      const result = await response.json();
+      if (result?.ok) {
+        pendingApproval = {
+          ...pendingApproval,
+          resolving: false,
+          resolved: true,
+          resultText: String(result.response ?? t("approvalResolved"))
+        };
+        setTimeout(async () => {
+          await loadMessages();
+          await loadSessions();
+          pendingApproval = null;
+        }, 1800);
+      } else {
+        pendingApproval = {
+          ...pendingApproval,
+          resolving: false,
+          resultText: String(result?.error || t("backendRequestFailed"))
+        };
+      }
+    } catch (err) {
+      pendingApproval = {
+        ...pendingApproval,
+        resolving: false,
+        resultText: err instanceof Error ? err.message : String(err)
+      };
+    }
+  }
+
   async function sendMessage(): Promise<void> {
     const text = messageInput.trim();
     if ((!text && pendingFiles.length === 0) || sending || !activeSessionId) return;
 
     sending = true;
+    pendingApproval = null;
     resetStreamingState();
     const filesToSend = [...pendingFiles];
     const filesPayload = filesToSend.map((item) => item.file);
@@ -2206,6 +2307,90 @@
                       {/if}
                       <div class="markdown-body max-w-3xl break-words text-[15px] leading-8">
                         {@html renderMarkdown(streamingAssistantText || t("thinking"))}
+                      </div>
+                    </div>
+                  </article>
+                {/if}
+
+                {#if pendingApproval}
+                  <article class="my-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 shadow-[var(--shadow-sm)] dark:border-amber-500/25 dark:bg-amber-950/20">
+                    <div class="flex items-start gap-3">
+                      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center justify-between gap-2">
+                          <h4 class="text-sm font-semibold text-[var(--foreground)]">
+                            {t("approvalTitle")}
+                          </h4>
+                          {#if pendingApproval.resolving}
+                            <span class="text-xs text-amber-600 animate-pulse dark:text-amber-400">{t("approvalResolving")}</span>
+                          {:else if pendingApproval.resolved}
+                            <span class="text-xs font-medium text-emerald-600 dark:text-emerald-400">✓ {t("approvalResolved")}</span>
+                          {/if}
+                        </div>
+
+                        {#if pendingApproval.request.displayName}
+                          <div class="mt-1 text-xs text-[var(--muted-foreground)]">
+                            <span class="font-medium text-[var(--foreground)]">{t("approvalTool")}:</span>
+                            <span class="font-mono">{pendingApproval.request.displayName}</span>
+                          </div>
+                        {/if}
+
+                        <div class="mt-1.5 overflow-x-auto break-all rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 font-mono text-xs text-[var(--foreground)]">
+                          <span class="mr-1.5 select-none text-[var(--muted-foreground)]">$</span>{pendingApproval.request.command || pendingApproval.request.toolId}
+                        </div>
+
+                        {#if pendingApproval.request.reason}
+                          <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
+                            {pendingApproval.request.reason}
+                          </p>
+                        {/if}
+
+                        {#if pendingApproval.resultText}
+                          <div class="mt-2 whitespace-pre-wrap rounded bg-[var(--muted)] p-2 text-xs text-[var(--muted-foreground)]">
+                            {pendingApproval.resultText}
+                          </div>
+                        {/if}
+
+                        {#if !pendingApproval.resolved}
+                          <div class="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={pendingApproval.resolving}
+                              on:click={() => resolveApproval("reject")}
+                              class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/20 disabled:opacity-50 dark:border-red-500/30 dark:text-red-400 dark:hover:bg-red-500/25"
+                            >
+                              {t("approvalReject")}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={pendingApproval.resolving}
+                              on:click={() => resolveApproval("approve")}
+                              class="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs font-medium text-[var(--secondary-foreground)] transition-colors hover:bg-[var(--muted)] disabled:opacity-50"
+                            >
+                              {t("approvalApprovePersistent")}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={pendingApproval.resolving}
+                              on:click={() => resolveApproval("approve-session")}
+                              class="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs font-medium text-[var(--secondary-foreground)] transition-colors hover:bg-[var(--muted)] disabled:opacity-50"
+                            >
+                              {t("approvalApproveSession")}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={pendingApproval.resolving}
+                              on:click={() => resolveApproval("approve-once")}
+                              class="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary-foreground)] shadow-[var(--shadow-sm)] transition-opacity hover:opacity-90 disabled:opacity-50"
+                            >
+                              {t("approvalApproveOnce")}
+                            </button>
+                          </div>
+                        {/if}
                       </div>
                     </div>
                   </article>

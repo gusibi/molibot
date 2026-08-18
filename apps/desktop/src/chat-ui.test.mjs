@@ -1185,6 +1185,7 @@ test("a blocked turn is visible from anywhere in the transcript", () => {
   assert.match(stickToBottom, /SCROLL_PINNED_EVENT/);
   assert.match(stickToBottom, /dispatchEvent\(new CustomEvent\(SCROLL_PINNED_EVENT/);
   assert.match(transcriptDock, /SCROLL_PINNED_EVENT/);
+  assert.match(transcriptDock, /resumeStickToBottom/);
   // Off-screen-ness is measured, not assumed, and against the transcript as
   // scroll root rather than the viewport.
   assert.match(transcriptDock, /new IntersectionObserver/);
@@ -2064,10 +2065,10 @@ test("long conversations share one user-turn navigator and preserve reader scrol
   assert.match(stickToBottom, /addEventListener\("wheel", onWheel, \{ passive: true \}\)/);
   assert.match(stickToBottom, /deltaY < 0/);
   // Scrolling up from the bottom must release ownership for good: any upward
-  // move unlocks unconditionally, and re-arming requires a DOWNWARD move back
-  // into the slack (or truly touching bottom). A re-arm keyed on distance
-  // alone yanks a reader who wheeled up 30px straight back down.
-  assert.match(stickToBottom, /if \(moved < 0\) \{[\s\S]*?announce\(false\);[\s\S]*?return;\s*\}/s);
+  // move away from the bottom unlocks, and re-arming requires a DOWNWARD move back
+  // into the slack (or settling at bottom). Upward moves within the settle threshold
+  // are bounce rebounds on macOS/touch and must not break pinning.
+  assert.match(stickToBottom, /if \(moved < 0\) \{[\s\S]*?if \(distanceFromBottom\(\) > SETTLE_DISTANCE\) \{[\s\S]*?announce\(false\);[\s\S]*?return;\s*\}[\s\S]*?\}/s);
   assert.match(stickToBottom, /dist <= SETTLE_DISTANCE \|\| \(moved > 0 && dist <= THRESHOLD\)/);
   // The spring's own downward writes must not evaluate the lock: its
   // steady-state lag under a fast stream exceeds the bottom slack, so a
@@ -2935,9 +2936,9 @@ test("settings navigation keeps the current product taxonomy and entity editors 
   assert.match(app, /id: "general", sections: \["general"\]/);
   assert.match(app, /id: "models", sections: \["models", "providers"\]/);
   assert.match(app, /id: "assistant", sections: \["agents", "skills", "memory"\]/);
-  assert.match(app, /id: "tools", sections: \["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"\]/);
+  assert.match(app, /id: "tools", sections: \["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"\]/);
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
-  assert.match(app, /id: "activity", sections: \["runHistory", "usage", "trace", "logs"\]/);
+  assert.match(app, /id: "activity", sections: \["runHistory", "usage", "trace", "logs", "hostBash"\]/);
   assert.match(app, /id: "system", sections: \["runtimeEnv", "sandbox", "plugins", "diagnostics"\]/);
   for (const [formId, key] of Object.entries(formSectionKey)) {
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));

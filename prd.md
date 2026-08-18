@@ -4,6 +4,64 @@
 - [2026 Q2 PRD Archive (Apr - Jun)](docs/archive/prd-archive-2026-Q2.md)
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
+## 3.99 沙箱安全策略档位 UI 重构与体验打磨（2026-08-18）
+
+- **Priority / Status**: P1 / Delivered (2026-08-18).
+- **Problem**: 原沙箱严格程度配置使用简陋单轴滑块搭配 Emoji 字符串缩写（`🌐❌ · ✏️❌`），视觉层次差、信息表达晦涩且跨平台字符渲染不一致；修改下方细节后缺少直观的“自定义状态”视觉反馈与重置途径。
+- **Decision**:
+  1. 重构为包含 4 档交互式安全卡片矩阵（`锁定`、`只读`、`标准`、`全开`），每档配备专属矢量图标、级别徽标（`最高隔离`、`安全探索`、`推荐开发`、`完全信任`）、网络 / 文件 / 环境变量三维微型胶囊标签（如 `🌐 常用开发源`、`📁 可写项目`、`⚙️ 白名单环境`）与清晰说明文案。
+  2. 卡片下方保留具备「最严格 🛡️ ➔ 最宽松 ⚡」两极提示的平滑轨道与步进刻度点，支持鼠标拖动、卡片点击与键盘左右箭头无障碍操作。
+  3. 当用户在下方自定义微调策略时，优雅呼出「当前为自定义策略」提示卡片并提供「重置为标准预设」一键恢复能力。
+  4. 桌面端与 Web 端（`/settings/sandbox`）全量对齐，严格遵循 `DESIGN.md` 与 AppKit 语义色彩系统，完美适配中英双语、明暗多主题与响应式栅格断点。
+- **Acceptance**: 已交付。4 档卡片与滑条无缝双向联动；字体严格遵循 11px 下限规范；`desktop:check` 0 错误 0 警告；`chat-ui.test.mjs` 211 项测试全绿；`desktop:test` 全部通过。
+
+---
+## 3.98 Trace 活跃运行状态与 Runner 重试生命周期 Hook 修复（2026-08-18）
+
+- **Priority / Status**: P1 / Delivered (2026-08-18).
+- **Problem**: Trace 页面下方「正在执行」列表中堆积大量已结束的历史运行记录，显示为「未关联会话（orphan）」且耗时持续增长。根因是 Runner 遇到错误重试（Fallback / Retry）时，首轮 `agent_end` 过早触发 `finishHookRun()` 锁死完成标志，而次轮 `agent_start` 重新发射 `run.started` 将数据库状态重写回 `started`，最终完成时 `run.finished` 漏发，导致数据库事实永久处于 `started`。
+- **Decision**:
+  1. `runner.ts` 对 `run.started` 施加单次发射守卫；移除单轮 prompt 的 `agent_end` 对全局 `finishHookRun()` 的触发，确保仅在整个 Runner turn 真正结束时（`finally`）才发射带有最终状态的 `run.finished`。
+  2. `SqliteTraceStore.upsertFact` 增加终态保护：处于 `success`/`error`/`aborted` 终态的事实记录禁止被非终态的 `started`/`waiting` 倒退覆盖。
+  3. `SqliteTraceStore` 增加 `reconcileStaleOrphanRuns()` 并在 `/api/desktop/active-runs` 请求时即时对齐超时的非活跃孤儿记录为 `aborted`。
+  4. 批量清理数据库中 125 条历史残留未终结孤儿记录。
+- **Acceptance**: 已交付。多轮重试下 `run.started` / `run.finished` 严格只发射一次；终态记录不会倒退；历史孤儿记录已清零；`traceRecorderHook.test.ts`、`desktopTrace.test.ts` 及 `runner.test.ts` 全数通过。
+
+---
+## 3.97 macOS Desktop 运行历史多渠道聚合、Bot 筛选与分页体验优化（2026-08-18）
+
+- **Priority / Status**: P1 / Delivered (2026-08-18).
+- **Problem**: 桌面应用中打开「运行历史」时，界面无限卡在「正在加载…」且无法显示内容；后端仅硬编码扫描 Telegram（`moli-t`）工作区，桌面主会话（`moli-w`）、飞书、QQ、微信与项目的运行记录均无法被读取展示；历史记录过多时全部平铺在一个页面造成滚动卡顿，且缺乏按特定 Bot 快速切片筛选的能力。
+- **Decision**: 
+  1. 服务端 `reviewData.ts` 扩展 `listAgentWorkspaces`，全量扫描 `TASK_CHANNEL_ROOTS`（`moli-w`, `moli-t`, `moli-f`, `moli-q`, `moli-wx`）、`system/bots` 与 `projects/*/runtime` 并过滤系统保留目录。
+  2. 前端 `RunHistorySection.svelte` 的 `$effect` 采用 `untrack()` 隔离，`runHistoryStore` 增加 `generation` 计数与 `refreshing` 状态，修复死循环；`#each` 采用复合唯一键避免重复 key 报错。
+  3. UI 对齐 `DESIGN.md` Observatory 规范：顶部新增 Bot 原生下拉选择器（`SelectControl`）与搜索组合过滤；卡片底部新增客户端分页控制器（每页 10/20/50/100 条切换与翻页）。
+- **Acceptance**: 已交付。桌面端可秒级加载并展示所有渠道的近期运行历史；支持 Bot 下拉选择、即时搜索与分页翻页；`reviewData.test.ts`、Desktop UI 测试及 `svelte-check` 均通过。
+
+---
+## 3.96 macOS Desktop Host Bash 审批与白名单管理设置页（2026-08-18）
+
+- **Priority / Status**: P1 / Delivered (2026-08-18).
+- **Problem**: macOS 桌面应用中缺乏独立的 Host Bash 管理与审计界面，用户无法在桌面端查看待审批命令、启闭或删除长期白名单，也无法审计历史审批记录。
+- **Decision**: 在 `apps/desktop` 构建完整的 `HostBashSection.svelte`，并归入设置侧边栏「活动 (Activity)」分类下，接入 `/api/settings/host-bash`，提供统计卡片、分段视图标签、搜索与状态/模式过滤器、待审批清单、白名单管理（含 iOS 开关和删除确认）及历史记录审查。样式严格遵循 `DESIGN.md`，使用语义 CSS 变量适配所有主题。
+- **Acceptance**: 已交付。桌面端可完整进行待审批查看、白名单切换/删除、历史记录筛选；支持多主题且无硬编码颜色；UI 单测、类型检查和全量构建均通过。
+
+---
+## 3.95 macOS Desktop 聊天滚动吸底与“回到最新”按钮状态修复（2026-08-18）
+
+- **Priority / Status**: P1 / Delivered (2026-08-18).
+- **Problem**: macOS App 聊天页面中，当用户滑到底部或点击“回到最新”后，浮动按钮不消失，且在 AI 回复生成时页面偶尔停止自动向下滚动。
+- **Decision**: 优化 `stickToBottom.ts` 滚动状态机：放宽吸底亚像素判定阈值至 2px，触底区内的向上微移（`dist <= SETTLE_DISTANCE`）作为回弹保护不解绑跟随；`TranscriptDock.svelte` 点击按钮时显式调用 `resumeStickToBottom` 触发物理弹簧并重置跟随状态。
+- **Acceptance**: 已交付。滑到底部与点击“回到最新”按钮均能正常消失；AI 流式回复自动向下滚动；新增 `stickToBottom.test.ts`，UI 结构测试与构建全数通过。
+
+---
+## 3.94 Web 聊天页面审批卡片 UI（2026-08-18）
+
+- **Priority / Status**: P1 / Delivered (2026-08-18).
+- **Problem**: Web 聊天中当模型或工具触发审批（如 `miniAppManage` 或非 Auto 模式下的 Host Bash 升级）时，后端 SSE 正确发送了 `host_bash_approval` 事件，但 Web 前端静默丢弃了该事件，导致用户在 Web 上无法看到审批按钮，任务等待 5 分钟超时失败。
+- **Decision**: 在 Web 聊天页面（`src/routes/+page.svelte`）监听 `host_bash_approval` SSE 事件，在消息输出区渲染结构化审批卡片（包含工具名称、完整命令、原因说明），提供「拒绝」「本会话允许」「仅此一次」操作按钮；用户点击后直接调用 `/api/chat` 的 `/hosttools` 命令解决审批并自动刷新会话。
+- **Acceptance**: 已交付。Web 页面正确接收并渲染审批卡片；点击操作按钮能调用 `/hosttools` 解决审批并继续任务；中英多语言与明暗主题自适应；构建与测试通过。
+
 ---
 ## 3.93 Project 自动任务（2026-08-16）
 

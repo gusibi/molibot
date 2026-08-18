@@ -4,6 +4,75 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-18
+
+### Improved: 沙箱安全策略预设 UI 重构与设计打磨
+
+- 优化背景：沙箱预设原采用简陋单轴滑块搭配混乱的 Emoji 缩写（`🌐❌ · ✏️❌`），视觉层次扁平、信息传达晦涩且在多端字体环境下参差不齐。
+- 升级改进：
+  1. **4 档专业安全卡片矩阵**：重构为包含专属矢量图标、级别徽标（`最高隔离`、`安全探索`、`推荐开发`、`完全信任`）与语义化胶囊标签（网络 / 文件系统 / 环境变量三维支持）的现代化交互卡片。
+  2. **双向联动的严格度光谱滑条**：在卡片下方保留「最严格 🛡️ ➔ 最宽松 ⚡」两极提示的平滑轨道与刻度定位点，支持卡片选择、滑块拖动及键盘无障碍控制。
+  3. **自定义状态反馈与一键重置**：当在下方高级配置中微调规则导致偏离预设时，优雅呼出「当前为自定义策略」提示卡片并支持一键重置回标准预设。
+  4. **全端设计规范与多主题适配**：严格遵循 `DESIGN.md` 与语义色彩系统，零硬编码颜色；桌面端与 Web 端同步升级，完美自适应浅色、深色、macOS 毛玻璃主题与自适应栅格断点。
+- 验证：Desktop `svelte-check` 0 错误 0 警告；`chat-ui.test.mjs` 211 项测试全绿；`npm run desktop:test` 全部通过。
+
+### Fixed: Trace 活跃运行（Active Runs）永久残留「未关联会话」孤儿记录与 Runner 重试生命周期 Hook 修复
+
+- 症状：Trace 页面下方「正在执行」列表中堆积大量很久以前早已结束的历史运行记录，显示为「未关联会话（orphan）」且时间持续增长（如“1 天 11 小时”）。
+- 根因：
+  1. Runner 在遇到上游错误（如 502/空回复）触发重试或模型降级（Fallback）时，第一轮尝试的 `agent_end` 过早调用了 `finishHookRun()`，将内部标志位 `hookRunFinished` 设为了 `true` 并发出了 `run.finished`。
+  2. 随后下一轮重试（Candidate 2）触发 `agent_start` 发出了 `run.started`，`TraceRecorderHook` 将 SQLite `agent_trace_facts` 中的状态重新覆盖改写回了 `"started"`。
+  3. 当任务最终成功或结束退出时，`finishHookRun()` 因 `hookRunFinished === true` 拦截跳过，不再发出终态 `run.finished`，导致事实表永久停留在 `started`，成为僵尸孤儿记录。
+- 修复：
+  1. `runner.ts` 将 `run.started` 加守卫为单次发射；移除单轮 prompt 的 `agent_end` 对全局 `finishHookRun()` 的触发，确保仅在整个 Runner turn 真正结束（`finally`）时发射带有最终状态的 `run.finished`。
+  2. `SqliteTraceStore.upsertFact` 增加终态保护，禁止处于 `success`/`error`/`aborted` 终态的事实记录被非终态的 `started`/`waiting` 倒退覆盖。
+  3. `SqliteTraceStore` 引入 `reconcileStaleOrphanRuns()`，在获取 active-runs 列表时自动清理超时的非活跃孤儿记录；一并清理了数据库中历史遗留的 125 条孤儿记录。
+- 验证：`traceRecorderHook.test.ts` 22/22 全绿；`desktopTrace.test.ts` 全绿；`runner.test.ts` 36/36 全绿；数据库 unfinished run facts 降为 0。
+
+### Fixed: macOS Desktop 运行历史打开空白卡死、多渠道聚合、Bot 筛选与分页
+
+- 症状：桌面端打开「运行历史 (Run History)」面板时长时间无限卡在「正在加载…」，无法查看历史记录或错误信息；且后端即便扫描也只能看到 Telegram 记录，桌面主会话、飞书、QQ、微信与 Projects 的运行历史全部缺失；多记录时缺乏分页且只能关键词模糊搜索。
+- 根因：
+  1. 前端 Svelte 5 `$effect` 未使用 `untrack()` 进行依赖隔离，`runHistoryStore.svelte.ts` 在加载失败时将 `endpoint` 重置为 `""`，引发毫秒级死循环重试，`loading` 始终被置为 `true`。
+  2. 后端 `reviewData.ts` 中的 `listAgentWorkspaces` 硬编码了 `moli-t/bots` 扫描路径，完全忽略了 `moli-w`（桌面/Web）、`moli-f`（飞书）、`moli-q`（QQ）、`moli-wx`（微信）、`system/bots` 与 `projects/*/runtime` 中的 `run-summaries.jsonl`，且原逻辑把 `events` / `skill-drafts` 等非会话目录也误判为会话。
+- 修复：
+  1. 服务端打通多渠道与项目工作区全量扫描（引入 `TASK_CHANNEL_ROOTS`、`system/bots`、`projects/*/runtime` 并精准过滤保留目录）。
+  2. 前端 `RunHistorySection.svelte` 的 `$effect` 引入 `untrack()`，`runHistoryStore` 增加代际控制与刷新状态，错误时不触发重试循环；`#each` 采用复合唯一键避免追加重复 key 报错。
+  3. UI 升级遵循 `DESIGN.md`：接入 `SkeletonRows` 骨架屏、`EmptyState` 规范空状态、手动刷新按钮、Bot 原生下拉选择器（`SelectControl`）与客户端分页控制器（支持 10/20/50/100 条每页切换）。
+- 验证：`reviewData.test.ts` 2/2 全绿；Desktop `api.test.ts` 87/87 全绿；Desktop `chat-ui.test.mjs` 211/211 全绿；Desktop `svelte-check` 0 错误 0 警告。
+
+### Added: macOS Desktop Host Bash 审批与白名单管理设置页
+
+- 概述：在 macOS 桌面端（`apps/desktop`）新增完整的 Host Bash 设置页（`HostBashSection.svelte`），归入侧边栏「活动 (Activity)」分类下，对齐 Web 端 `/settings/host-bash` 的全部审计与管理能力。
+- 功能点：
+  - 4 档顶部指标卡片（待审批、白名单总数、生效中、历史记录）与快捷分段筛选。
+  - 待审批列表展示（实时审查会话中等待用户确认的工具调用与安全权限）。
+  - 长期白名单管理（支持 iOS 开关即时启用/禁用、权限摘要展示以及带安全确认弹窗的删除操作）。
+  - 审批历史记录审计（支持按已批准/已拒绝/已执行/失败状态、单次/会话/持久模式以及关键词全局搜索）。
+- 设计规范：严格遵守 `DESIGN.md`，零硬编码颜色，全量基于 CSS 语义变量（`--card-bg`, `--surface`, `--surface-secondary`, `--label-primary`, `--label-secondary`, `--separator`, `--accent`, `--danger`, `--online`, `--warning`），浅色、深色及多主题完美自适应。
+- 验证：Desktop `svelte-check` 0 错误；`chat-ui.test.mjs` 211 项测试全绿（包含 Geist CSS 变量完整性及 settings 分组结构断言）；生产构建通过。
+
+### Fixed: macOS Desktop 聊天页滑到底部/点击“回到最新”后按钮不消失，且 AI 回复停止自动滚动
+
+- 症状：macOS App 聊天页滑到最底或点击“回到最新”后按钮不消失；且在 AI 流式生成新回答时页面偶发停止自动滚屏。
+- 根因：macOS 触控板滑到底部的惯性橡皮筋回弹向上微移（`moved < 0`）与高分屏浮点计算误差（`dist <= 0.5px`）无条件将内部 `pinned`（吸底跟随）状态置为 `false`；而 `MutationObserver` 在 `!pinned` 时跳过自动跟随，`TranscriptDock` 也在 `!pinned` 时展示按钮；点击按钮时未主动派发 `resumeStickToBottom` 唤醒跟随状态。
+- 修复：放宽吸底亚像素判定阈值至 2px，触底区内的向上微移保护为回弹而不解绑跟随；`TranscriptDock` 点击按钮时显式调用 `resumeStickToBottom` 触发物理弹簧并重置跟随状态。
+- 验证：新增 `stickToBottom.test.ts` 单元测试；`chat-ui.test.mjs` 207 项全通；Desktop `svelte-check` 0 错误；生产构建全通过。
+
+### Added: Web 聊天页面审批卡片 UI（`host_bash_approval` 实时交互与一键解决）
+
+- 症状（Session `s-20260818-shhs`）：Web 聊天中触发需要审批的操作（如 `miniAppManage` 或非 Auto 模式下的 Host Bash）时，后端 SSE 正确发送了 `host_bash_approval` 事件，但 Web 页面前端丢弃了该事件，导致用户看不到审批按钮，任务等待超时失败。
+- 修复：Web 聊天页面（`src/routes/+page.svelte`）接入 `host_bash_approval` SSE 事件监听与状态管理；在聊天消息流式区域底部渲染交互式审批卡片（包含工具名称、完整命令、原因说明），提供「拒绝」「本会话允许」「仅此一次」三个操作按钮；点击后通过 `/api/chat` 的 `/hosttools` 命令实时提交审批结果并自动刷新会话消息。
+- 验证：中英双语、明暗主题适配；`npm run build` 和 host bash / chat web commands 测试套件全数通过。
+
+### Fixed: 微信/QQ 触发模型降级后用户只收到 "Internal error."，真实回复被吞（归档通知闭包引用未定义 `scopeId`）
+
+- 症状（微信 Session `s-20260818-wnjk`）：主模型 `cli-proxy-api/mimo-v2.5-pro` 连续 502、运行时自动切换到 deepseek 并正常生成回答（run-detail 显示 `Run finished successfully`，session 里也有完整回复），但用户在微信里只收到 "Internal error."；`/models` 等命令回复正常，切走主模型后恢复。QQ 渠道同款代码同样中招（尚未被触发过）。
+- 根因：6-16 的 runlog 归档通知功能（3596e0552）在 weixin / qq `processEvent` 的 `onRunComplete` 闭包里写了 `this.commandService.shouldSendRunArchiveNotice(scopeId)`，而 `scopeId` 在该作用域未定义。`&&` 链短路导致它只在 `threadEventCount > 0` 时求值--而 `respondInThread` 目前唯一的调用方恰是**模型降级通知**，于是异常精确地只在降级 run 的收尾阶段抛出，冒泡到 InboundTaskCoordinator 的兜底 catch，给用户补发 "Internal error."，缓冲区里的真实回复从未 flush。feishu / telegram 同款代码各自定义了 `scopeId`，未受影响。
+- 教训：`tsc` 其实一直在报这两个 `TS2304: Cannot find name 'scopeId'`（weixin:520 / qq:508），但全项目存量 tsc 噪音（400+）把新错误淹没了；且该分支只在降级路径执行，单靠"平时能跑"永远发现不了。
+- 修复与机器守卫：新增共享 helper `createRunArchiveNoticeOnComplete()`（`channels/shared/runArchiveNotice.ts`），`scopeId` 作为**必填构造参数**（结构上杜绝再引用环境变量名），weixin / qq 统一接入；单测驱动降级形态（`threadEventCount > 0`、无 thread 事件 / 无 runId / 非正常结束 / runlog 关闭四个反例）。
+- 验证：`runArchiveNotice.test.ts` 3/3、`weixin/runtime.test.ts` 2/2 通过；tsc 触碰文件新增 0 错误（weixin:520 / qq:508 的 TS2304 消失，剩余 hookManager 报错为存量）。
+
 ## 2026-08-17
 
 ### Added: Auto 权限模式真·全自动 —— 沙箱网络全放行 + 沙箱拒绝自动升级放行

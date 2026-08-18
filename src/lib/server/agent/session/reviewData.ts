@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileS
 import { join, resolve } from "node:path";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import type { RunSummary } from "$lib/server/agent/session/runSummary.js";
+import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 
 export interface AgentWorkspaceRef {
   botId: string;
@@ -57,21 +58,72 @@ function unique(values: string[]): string[] {
   return Array.from(new Set(values.map((item) => String(item ?? "").trim()).filter(Boolean)));
 }
 
-export function listAgentWorkspaces(dataRoot: string): AgentWorkspaceRef[] {
-  const botsRoot = resolve(dataRoot, "moli-t", "bots");
-  if (!existsSync(botsRoot)) return [];
+const RESERVED_CHAT_DIRS = new Set([
+  "skills",
+  "skill-drafts",
+  "events",
+  "scratch",
+  "attachments",
+  "contexts"
+]);
 
+export function listAgentWorkspaces(dataRoot: string): AgentWorkspaceRef[] {
+  const root = resolve(dataRoot);
   const items: AgentWorkspaceRef[] = [];
-  for (const bot of readdirSync(botsRoot, { withFileTypes: true })) {
-    if (!bot.isDirectory()) continue;
-    const botDir = join(botsRoot, bot.name);
-    for (const chat of readdirSync(botDir, { withFileTypes: true })) {
-      if (!chat.isDirectory() || chat.name === "skills") continue;
-      items.push({
-        botId: bot.name,
-        chatId: chat.name,
-        workspaceDir: botDir
-      });
+  const scannedBotsRoots = new Set<string>();
+
+  function collectFromBotsRoot(botsRoot: string, prefix = ""): void {
+    const resolvedBotsRoot = resolve(botsRoot);
+    if (scannedBotsRoots.has(resolvedBotsRoot)) return;
+    scannedBotsRoots.add(resolvedBotsRoot);
+    if (!existsSync(resolvedBotsRoot)) return;
+    for (const bot of readdirSync(resolvedBotsRoot, { withFileTypes: true })) {
+      if (!bot.isDirectory()) continue;
+      const botDir = join(resolvedBotsRoot, bot.name);
+      const botId = prefix ? `${prefix}${bot.name}` : bot.name;
+      for (const chat of readdirSync(botDir, { withFileTypes: true })) {
+        if (!chat.isDirectory() || RESERVED_CHAT_DIRS.has(chat.name)) continue;
+        items.push({
+          botId,
+          chatId: chat.name,
+          workspaceDir: botDir
+        });
+      }
+    }
+  }
+
+  // 1. Channel bots (moli-w, moli-t, moli-f, moli-q, moli-wx, etc.)
+  for (const { dir } of TASK_CHANNEL_ROOTS) {
+    collectFromBotsRoot(join(root, dir, "bots"));
+  }
+
+  // Also check any extra moli-* directories that might exist under dataRoot
+  if (existsSync(root)) {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.startsWith("moli-")) {
+        collectFromBotsRoot(join(root, entry.name, "bots"));
+      }
+    }
+  }
+
+  // 2. System bots
+  collectFromBotsRoot(join(root, "system", "bots"));
+
+  // 3. Projects runtime workspaces
+  const projectsRoot = join(root, "projects");
+  if (existsSync(projectsRoot)) {
+    for (const project of readdirSync(projectsRoot, { withFileTypes: true })) {
+      if (!project.isDirectory()) continue;
+      const runtimeDir = join(projectsRoot, project.name, "runtime");
+      if (!existsSync(runtimeDir)) continue;
+      for (const chat of readdirSync(runtimeDir, { withFileTypes: true })) {
+        if (!chat.isDirectory() || RESERVED_CHAT_DIRS.has(chat.name)) continue;
+        items.push({
+          botId: `project:${project.name}`,
+          chatId: chat.name,
+          workspaceDir: runtimeDir
+        });
+      }
     }
   }
 

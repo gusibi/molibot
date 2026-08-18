@@ -4,6 +4,55 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-18
+
+### 沙箱安全策略档位 UI 重构与体验打磨（已完成，P1）
+
+- **4 档预设卡片矩阵与语义化标签体系**：将原粗糙的「单条滑块 + Emoji 字符串（`🌐❌ · ✏️❌`）」重构为现代化的 4 档交互式安全卡片矩阵（`锁定`、`只读`、`标准`、`全开`）。每档包含专属安全图标、安全级别徽标（`最高隔离` / `安全探索` / `推荐开发` / `完全信任`）、网络 / 文件 / 环境变量三维微型胶囊标签（如 `🌐 常用开发源`、`📁 可写项目`、`⚙️ 白名单环境`）与清晰的一句话使用指引。
+- **平滑双向联动的严格度光谱滑条**：在卡片下方集成具备「最严格 🛡️ ➔ 最宽松 ⚡」两极提示的平滑光谱滑条与步进刻度点，支持鼠标拖拽、卡片点击与键盘左右方向键（无障碍标准）无缝双向双控。
+- **自定义策略状态呼出与一键重置**：当用户在下方微调网络、文件或环境变量配置导致策略偏离预设时，自动优雅呼出「当前为自定义策略」提示卡片并提供「重置为标准预设」一键恢复操作。
+- **macOS 与 Web 端全栈对齐与主题自适应**：零硬编码色彩，全量复用 `DESIGN.md` 与 AppKit 语义色彩 token（`--card-bg`, `--surface-secondary`, `--label-primary`, `--label-secondary`, `--online`, `--accent`, `--warning`, `--danger`）；桌面端与 Web 端（`/settings/sandbox`）同步升级并完整支持中英文双语实时切换与响应式栅格布局（大屏 4 列、中屏 2 列、小屏 1 列）。
+- **验证守卫**：`svelte-check` 0 错误 0 警告；`chat-ui.test.mjs` 211 项测试全通（通过 11px 排版下限断言、滑条交互断言与语义 token 断言）；`desktop:test` 全部通过。
+
+### Trace 活跃运行状态与 Runner 重试生命周期 Hook 修复（已完成，P1）
+
+- **Runner 重试生命周期 Hook 单次发射与终态保护**：修复模型候选 Fallback 或空回复重试时，底层 `agent_end` 提前触发 `finishHookRun()` 导致后续重试的 `agent_start` 将 Trace 事实表覆盖为 `started`、且终态 `run.finished` 被拦截漏发的问题。将 `run.started` 加守卫为单次发射，移除单轮 prompt 的 `agent_end` 对全局 `finishHookRun()` 的早退触发，确保仅在整个 Runner turn 退出（`finally`）时发射最终状态（`success`/`error`/`aborted`）。
+- **SQLite Trace 事实表防倒退与过期孤儿对齐**：在 `SqliteTraceStore.upsertFact` 增加终态保护，禁止处于 `success`/`error`/`aborted` 终态的事实记录被非终态的 `started`/`waiting` 倒退覆盖；新增 `reconcileStaleOrphanRuns` 自动清理超时的非活跃孤儿记录，`/api/desktop/active-runs` 请求时即时对齐。
+- **历史残留数据清理**：批量对齐历史遗留的 125 条未结束孤儿记录，Trace 页面下方「正在执行」恢复只展示真实活跃运行。
+- **机器守卫**：`traceRecorderHook.test.ts` 补充终态防倒退单测与孤儿超时对齐单测；`runner.test.ts` 新增多轮重试下的 hook 单次发射与终态完成断言。
+
+### macOS Desktop 运行历史多渠道聚合、Bot 筛选与分页体验优化（已完成，P1）
+
+- **多渠道与项目工作区全量聚合**：重构服务端 `listAgentWorkspaces` 与 `readRunHistory`（`src/lib/server/agent/session/reviewData.ts`），打通 `moli-w`（桌面/Web）、`moli-t`（Telegram）、`moli-f`（飞书）、`moli-q`（QQ）、`moli-wx`（微信）、`system/bots` 与 `projects/*/runtime`；精准过滤 `skills`、`skill-drafts`、`events`、`scratch`、`attachments`、`contexts` 等非会话保留目录，实现全平台统一审计。
+- **Svelte 5 响应式死循环与复合唯一 Key 修复**：`RunHistorySection.svelte` 的 `$effect` 增加 `untrack()` 隔离；`runHistoryStore.svelte.ts` 引入 `generation` 计数器与 `refreshing` 状态，捕获异常时不重置 `endpoint`，彻底消除无限重新触发与 `loading: true` 卡死问题；`#each` 采用复合唯一键避免多次追加 snapshot 引起的 `each_key_duplicate`。
+- **Observatory UI 规范打磨、Bot 下拉与客户端分页**：加载中采用 `SkeletonRows` 骨架屏；空状态与无匹配搜索接入标准 `EmptyState`；顶部提供带状态感知的刷新按钮与统计徽标（成功/部分/失败）；筛选区域新增 Bot 原生下拉选择器（`SelectControl`）与关键词搜索组合过滤；列表底部新增客户端分页控制器（支持 10/20/50/100 条每页切换与翻页）。
+- **测试守卫**：`reviewData.test.ts` 覆盖多渠道工作区及项目 runtime 发现；`api.test.ts` 新增 `loadDesktopRunHistory` 单测；桌面 211 项测试与 56 项 Rust 测试全通；`svelte-check` 0 错误。
+
+### macOS Desktop Host Bash 审批与白名单管理设置页（已完成，P1）
+
+- **对齐 Web 端完整能力并归入「活动」分类**：在 macOS 桌面端（`apps/desktop`）新增完整的 Host Bash 设置页（`HostBashSection.svelte`），归入侧边栏「活动 (Activity)」分类下；具备待处理审批（Pending）、长期白名单（Whitelist，支持一键切换启用/禁用与删除）、审批历史检索与审计（History，支持按状态、模式与关键词过滤）以及 4 个汇总指标卡片。
+- **严格遵循 DESIGN.md 与多主题自适应**：统一采用标准 720px 居中内容流容器（`var(--settings-content-width)`），消除全屏过度拉伸与分组标题居中漂移；零硬编码颜色，全量基于 CSS 语义变量（`--card-bg`, `--surface`, `--surface-secondary`, `--label-primary`, `--label-secondary`, `--separator`, `--accent`, `--danger`, `--online`, `--warning`），在所有桌面主题（浅色、深色、macOS 毛玻璃）下完美适配。
+- **原生组件与安全确认**：复用既有的 `IosSwitch`、`SearchField`、`SelectControl`、`AlertDialog`、`EmptyState`、`StatusBadge` 等原生组件，具备删除确认弹窗与快捷过滤。
+- **验证与守卫**：`svelte-check` 0 错误；`chat-ui.test.mjs` 211 项测试全通（含 Geist CSS 变量完整性、11px 字体下限及 settings 分组结构断言）；生产构建 `npm run build` 通过。
+
+### macOS Desktop 聊天滚动吸底与“回到最新”按钮状态修复（已完成，P1）
+
+- **触底回弹与亚像素吸附修复**：修复 macOS 触控板滑到底部时橡皮筋回弹微移（`moved < 0`）与视网膜高分屏浮点误差（`dist <= 0.5px`）无条件解绑 `pinned` 状态的问题。在 `dist <= SETTLE_DISTANCE`（容差 2px）内将微小向上运动正确识别为触底回弹/亚像素抖动，不再误判为用户主动翻看历史。
+- **回到最新显式唤醒**：`TranscriptDock.svelte` 点击“回到最新”从浏览器的 `scrollElement.scrollTo({ behavior: 'smooth' })` 改为显式调用 `resumeStickToBottom`，统一通过物理弹簧动作同步 `pinned: true` 并平滑回到底部，点击后按钮立即消失且 AI 流式回复无缝继续自动滚动。
+- **机器守卫**：新增 `stickToBottom.test.ts`（覆盖回弹容错、亚像素吸附、翻看历史解绑、会话切换跳转及 resume 事件）；更新 `chat-ui.test.mjs` 结构断言。
+
+### Web 聊天页面审批卡片 UI（已完成，P1）
+
+- **审批事件接入与卡片渲染**：Web 聊天前端（`src/routes/+page.svelte`）在 `consumeSseResponse` 中处理 `host_bash_approval` SSE 事件，并在实时输出区域下方渲染包含标题、工具名、命令内容及原因说明的警告风格审批卡片。
+- **一键审批解决**：卡片提供「拒绝」「本会话允许」「仅此一次」三个操作选项，点击后调用 `/api/chat` 的 `/hosttools` 接口直接解决审批，自动重连/拉取最新会话消息。
+- **会话状态联动**：切换会话或发送新消息时自动重置审批状态，防止状态泄露；支持中英文多语言与明暗主题自适应。
+
+### 微信/QQ 模型降级后回复被吞修复：runlog 归档通知闭包未定义 `scopeId`（已完成）
+
+- 修复 weixin / qq `processEvent` 的 `onRunComplete` 闭包引用未定义 `scopeId` 的 ReferenceError（6-16 引入）：异常只在 `threadEventCount > 0`（即模型降级通知走 `respondInThread`）时抛出，导致降级 run 的真实回复被吞、用户只收到兜底 "Internal error."，而 session 与 run-detail 均显示成功。
+- 归档通知谓词抽为共享 helper `createRunArchiveNoticeOnComplete()`（`channels/shared/runArchiveNotice.ts`），`scopeId` 为必填构造参数；weixin / qq 统一接入，feishu / telegram 原实现已正确、不动。
+- 机器守卫：`runArchiveNotice.test.ts` 覆盖降级形态（`threadEventCount > 0` 发通知）与四个反例（无 thread 事件 / 无 runId / 非正常结束 / runlog 关闭）。
+
 ## 2026-08-17
 
 ### Auto 权限模式 × 沙箱联动 + 沙箱预设单轴滑条（已完成）

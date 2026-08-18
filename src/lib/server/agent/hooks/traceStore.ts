@@ -216,7 +216,11 @@ export class SqliteTraceStore {
         provider = COALESCE(excluded.provider, agent_trace_facts.provider),
         model = COALESCE(excluded.model, agent_trace_facts.model),
         api = COALESCE(excluded.api, agent_trace_facts.api),
-        status = excluded.status,
+        status = CASE
+          WHEN agent_trace_facts.status IN ('success', 'error', 'aborted') AND excluded.status IN ('started', 'waiting')
+            THEN agent_trace_facts.status
+          ELSE excluded.status
+        END,
         started_at = COALESCE(agent_trace_facts.started_at, excluded.started_at),
         finished_at = COALESCE(excluded.finished_at, agent_trace_facts.finished_at),
         duration_ms = COALESCE(excluded.duration_ms, agent_trace_facts.duration_ms),
@@ -262,6 +266,56 @@ export class SqliteTraceStore {
       record.createdAt,
       record.updatedAt
     );
+  }
+
+  reconcileStaleOrphanRuns(liveKeys: Set<string> | string[] = [], maxAgeMs = 10 * 60 * 1000, nowMs = Date.now()): number {
+    const liveSet = new Set(liveKeys);
+    const rows = this.db.prepare(`
+      SELECT id, run_id, fact_id, channel, bot_id, chat_id, session_id, status, started_at, finished_at, duration_ms, created_at, updated_at
+      FROM agent_trace_facts
+      WHERE fact_type = 'run' AND status IN ('started', 'waiting')
+    `).all() as Array<{
+      id: string;
+      run_id: string;
+      fact_id: string;
+      channel: string;
+      bot_id: string | null;
+      chat_id: string;
+      session_id: string;
+      status: string;
+      started_at: string | null;
+      finished_at: string | null;
+      duration_ms: number | null;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    let updatedCount = 0;
+    const updateStmt = this.db.prepare(`
+      UPDATE agent_trace_facts
+      SET status = 'aborted', finished_at = ?, duration_ms = ?, updated_at = ?
+      WHERE id = ?
+    `);
+
+    for (const row of rows) {
+      const key = `${row.channel}\0${row.bot_id || ""}\0${row.chat_id}\0${row.session_id}`;
+      const isLive = liveSet.has(key);
+      if (isLive) continue;
+
+      const startedTime = Date.parse(row.started_at || row.created_at);
+      const isOlderThanThreshold = Number.isFinite(startedTime) && (nowMs - startedTime >= maxAgeMs);
+      const hasFinishedAt = Boolean(row.finished_at);
+
+      if (hasFinishedAt || isOlderThanThreshold) {
+        const nowIso = new Date(nowMs).toISOString();
+        const finishedAt = row.finished_at || nowIso;
+        const duration = row.duration_ms ?? (Number.isFinite(startedTime) ? Math.max(0, Date.parse(finishedAt) - startedTime) : 0);
+        updateStmt.run(finishedAt, duration, nowIso, row.id);
+        updatedCount += 1;
+      }
+    }
+
+    return updatedCount;
   }
 
   listByRunId(runId: string): TraceEventRecord[] {

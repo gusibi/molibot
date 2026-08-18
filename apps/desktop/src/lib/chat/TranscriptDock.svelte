@@ -20,7 +20,7 @@
    * it as-is (pitfall #7).
    */
   import { onDestroy } from "svelte";
-  import { SCROLL_PINNED_EVENT } from "./stickToBottom";
+  import { SCROLL_PINNED_EVENT, resumeStickToBottom } from "./stickToBottom";
 
   let {
     scrollElement = null,
@@ -77,10 +77,7 @@
 
   function scrollToLatest(): void {
     if (!scrollElement) return;
-    scrollElement.scrollTo({
-      top: scrollElement.scrollHeight,
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
-    });
+    resumeStickToBottom(scrollElement);
   }
 
   function scrollToAttention(): void {

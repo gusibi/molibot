@@ -6,7 +6,7 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { isDirectEventDelivery, resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildNonInteractiveHostBashApprovalText } from "$lib/server/hostBash/index.js";
-import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
+import { createRunArchiveNoticeOnComplete } from "$lib/server/channels/shared/runArchiveNotice.js";
 import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
 import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
@@ -516,11 +516,11 @@ export class WeixinManager extends BaseChannelRuntime {
         await flushBuffer();
         await sendRawText(buildNonInteractiveHostBashApprovalText(runnerEvent.hostBashApproval));
       },
-      onRunComplete: async (result, meta) => {
-        if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId && this.commandService.shouldSendRunArchiveNotice(scopeId)) {
-          await sendVisibleText(formatRunArchiveNotice(result.runId));
-        }
-      },
+      onRunComplete: createRunArchiveNoticeOnComplete({
+        scopeId: chatId,
+        shouldSend: (scopeId) => this.commandService.shouldSendRunArchiveNotice(scopeId),
+        sendVisibleText
+      }),
       replaceWithoutEdit: async (text, state) => {
         if (isTransientRunnerProgress(text)) {
           await sendVisibleText(text);
