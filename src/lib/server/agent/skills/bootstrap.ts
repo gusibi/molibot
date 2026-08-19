@@ -70,8 +70,8 @@ export interface BuiltinSkill {
 const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     id: "miniapp-creator",
-    // 1.4.0: add references/doc.md capability and API documentation.
-    version: "1.4.0",
+    // 1.4.1: unify slim scrollbar styles in template.
+    version: "1.4.1",
     files: {
       "SKILL.md": miniappCreatorSkill,
       "references/doc.md": miniappCreatorDoc,

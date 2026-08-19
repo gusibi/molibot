@@ -106,7 +106,10 @@ export function transcriptRenderBlocks(message: TranscriptMessage): TranscriptRe
   return blocks;
 }
 
-export function transcriptTurnSummary(message: TranscriptMessage): {
+export function transcriptTurnSummary(
+  message: TranscriptMessage,
+  previousUserMessage?: TranscriptMessage | null
+): {
   toolCount: number;
   fileCount: number;
   durationMs: number;
@@ -116,10 +119,23 @@ export function transcriptTurnSummary(message: TranscriptMessage): {
     ?? message.activities
     ?? [];
   const files = new Set(activities.flatMap((activity) => activity.mutates ? (activity.paths ?? []) : []));
+
+  let durationMs = 0;
+  if (previousUserMessage?.createdAt && message.createdAt) {
+    const start = Date.parse(previousUserMessage.createdAt);
+    const end = Date.parse(message.createdAt);
+    if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+      durationMs = end - start;
+    }
+  }
+  if (!durationMs) {
+    durationMs = activities.reduce((total, activity) => total + (activity.durationMs ?? 0), 0);
+  }
+
   return {
     toolCount: activities.filter((activity) => activity.kind === "tool").length,
     fileCount: files.size,
-    durationMs: activities.reduce((total, activity) => total + (activity.durationMs ?? 0), 0),
+    durationMs,
     totalTokens: message.usage?.totalTokens ?? 0
   };
 }

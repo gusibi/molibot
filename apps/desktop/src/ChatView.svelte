@@ -787,7 +787,7 @@
   $: draftProfileId = chatState.draftProfileId;
   $: statusDots = chatState.statusDots;
 
-  $: modelReady = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions }).hasModel && !modelSelectionHydrating;
+  $: modelReady = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions }).hasModel;
   $: readinessSummary = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions });
   $: showOnboarding = serviceState === "ready" && !onboardingDismissed;
   $: fileByLocal = new Map(sessionFiles.map((file) => [file.local, file]));
@@ -955,7 +955,8 @@
       idle: copy.idle,
       resuming: copy.resuming,
       approvalFailed: copy.approvalFailed,
-      approvalNotFound: copy.approvalNotFound
+      approvalNotFound: copy.approvalNotFound,
+      transcriptLoadFailed: copy.transcriptLoadFailed
     };
   }
 
@@ -1838,6 +1839,7 @@
   }
 
   async function sendMessage(): Promise<void> {
+    if (modelSelectionHydrating) return;
     const text = messageInput;
     thinkingLevel = clampedThinkingLevel;
     chatStore.draftStore.setThinking(chatStore.currentDraftKey(), thinkingLevel);
@@ -3018,7 +3020,7 @@
         endpoint={connectedEndpoint}
         {copy}
         {sending}
-        disabled={!modelReady || (!draftMode && !activeSessionId)}
+        disabled={!modelReady || (!draftMode && !activeSessionId) || modelSelectionHydrating}
         canSend={Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
         placeholder={sending ? copy.queueHint : copy.enterHint}
         {modelReady}
@@ -3027,7 +3029,7 @@
         {activeModelLabel}
         activeModelTitle={activeModelFullLabel}
         thinkingLevelLabel={thinkingLabel}
-        {changingModel}
+        changingModel={changingModel || modelSelectionHydrating}
         error={error || chatError}
         {recordingError}
         {queuedMessages}
@@ -3036,8 +3038,8 @@
         {recording}
         {recordingSeconds}
         showSettingsAction={true}
-        fileToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady}
-        recordingToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady}
+        fileToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady || modelSelectionHydrating}
+        recordingToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady || modelSelectionHydrating}
         inferAttachmentKind={inferAttachmentKind}
         onSend={sendMessage}
         onStop={stopRun}

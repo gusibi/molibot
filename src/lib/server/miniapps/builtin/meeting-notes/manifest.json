@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "meeting-notes",
   "name": "Meeting Notes",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Capture a recoverable live meeting timeline and generate evidence-grounded notes.",
   "engines": { "molibot": ">=2.9.9 <4" },
   "runtime": { "entry": "server/index.mjs" },

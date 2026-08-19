@@ -297,7 +297,8 @@
       idle: copy.idle,
       resuming: copy.resuming,
       approvalFailed: copy.approvalFailed,
-      approvalNotFound: copy.approvalNotFound
+      approvalNotFound: copy.approvalNotFound,
+      transcriptLoadFailed: copy.transcriptLoadFailed
     }),
     refreshSessions: () => refreshProjectSessionList(projectsStore.selectedProjectId),
     resolveModel: resolveSessionModel,

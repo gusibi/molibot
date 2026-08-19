@@ -86,13 +86,42 @@
   --md-elev-3: 0 8px 16px -4px rgba(0, 0, 0, 0.40), 0 24px 32px -8px rgba(0, 0, 0, 0.36);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { min-height: 100vh; background: var(--md-surface); color: var(--md-on-surface); font-family: var(--md-font); font-size: var(--md-body-md-size); line-height: var(--md-body-md-lh); -webkit-font-smoothing: antialiased; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--md-outline-variant) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--md-outline-variant);
+  border-radius: var(--md-shape-full);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--md-outline);
+  background-clip: padding-box;
+}
+
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body { margin: 0; padding: 0; display: flex; flex-direction: column; background: var(--md-surface); color: var(--md-on-surface); font-family: var(--md-font); font-size: var(--md-body-md-size); line-height: var(--md-body-md-lh); -webkit-font-smoothing: antialiased; }
 body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(circle at 50% -20%, color-mix(in srgb, var(--md-primary) 8%, transparent), transparent 42%); }
 button, input { font: inherit; }
 button { color: inherit; }
 
-.meeting-app { width: min(100%, 920px); min-height: 100vh; margin: 0 auto; padding: 22px 24px 48px; }
+.meeting-app { flex: 1 1 auto; min-height: 0; width: min(100%, 920px); margin: 0 auto; padding: 22px 24px 48px; overflow-y: auto; }
 .app-bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-inline: -8px; padding: 8px 8px 16px; border-bottom: 1px solid var(--md-outline-variant); background: color-mix(in srgb, var(--md-surface) 92%, transparent); backdrop-filter: blur(18px) saturate(1.35); }
 .app-bar-title { font-size: var(--md-title-lg-size); line-height: var(--md-title-lg-lh); font-weight: 600; letter-spacing: -0.02em; }
 .app-bar-subtitle { margin-top: 2px; color: var(--md-on-surface-variant); }

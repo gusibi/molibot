@@ -22,7 +22,21 @@ const STRINGS = {
     noNotes: "No notes found",
     disabled: "This Mini App is switched off.",
     unavailable: "The app could not start.",
-    offline: "Molibot is not reachable."
+    offline: "Molibot is not reachable.",
+    toggleView: "Toggle view (Cards / List)",
+    toggleTheme: "Switch theme",
+    themeDefault: "Keep",
+    themeSmartisan: "锤子",
+    back: "Back",
+    editNote: "Edit Note",
+    pinNote: "Pin note",
+    share: "Share",
+    shareNote: "Share note as image",
+    sharePreviewTitle: "Note Card Preview",
+    downloadImage: "Save Image",
+    copyImage: "Copy Image",
+    imageCopied: "Image Copied!",
+    saveImageHint: "Right-click or Long-press image to Save/Copy"
   },
   zh: {
     heading: "Note",
@@ -33,7 +47,7 @@ const STRINGS = {
     add: "保存",
     close: "关闭",
     cancel: "取消",
-    saveEdit: "保存修改",
+    saveEdit: "保存",
     takeNote: "添加笔记...",
     tabActive: "笔记",
     tabArchived: "归档",
@@ -43,7 +57,21 @@ const STRINGS = {
     noNotes: "暂无笔记",
     disabled: "该 Mini App 已被禁用。",
     unavailable: "应用启动失败。",
-    offline: "无法连接 Molibot。"
+    offline: "无法连接 Molibot。",
+    toggleView: "切换视图 (卡片 / 列表)",
+    toggleTheme: "切换主题",
+    themeDefault: "Keep",
+    themeSmartisan: "锤子",
+    back: "返回",
+    editNote: "编辑便签",
+    pinNote: "固定笔记",
+    share: "分享",
+    shareNote: "生成分享图片",
+    sharePreviewTitle: "便签分享图",
+    downloadImage: "保存图片",
+    copyImage: "复制图片",
+    imageCopied: "已复制到剪贴板",
+    saveImageHint: "可长按或右键图片另存为/复制"
   }
 };
 
@@ -115,6 +143,12 @@ const elements = {
   otherList: document.getElementById("other-list"),
   emptyMsg: document.getElementById("empty-msg"),
   colorDots: document.querySelectorAll(".color-dot"),
+  viewToggleBtn: document.getElementById("view-toggle-btn"),
+  themeToggleBtn: document.getElementById("theme-toggle-btn"),
+  themeBadge: document.getElementById("theme-badge"),
+  viewIconGrid: document.getElementById("view-icon-grid"),
+  viewIconList: document.getElementById("view-icon-list"),
+  noteApp: document.querySelector(".note-app"),
   
   // 编辑弹窗元素
   editModal: document.getElementById("edit-modal"),
@@ -123,9 +157,15 @@ const elements = {
   editContent: document.getElementById("edit-content"),
   editLabels: document.getElementById("edit-labels"),
   modalPinBtn: document.getElementById("modal-pin-btn"),
-  modalCancelBtn: document.getElementById("modal-cancel-btn"),
+  modalBackBtn: document.getElementById("modal-back-btn"),
   modalSaveBtn: document.getElementById("modal-save-btn"),
-  modalColorDots: document.querySelectorAll(".modal-color-dot")
+  modalShareBtn: document.getElementById("modal-share-btn"),
+  modalColorDots: document.querySelectorAll(".modal-color-dot"),
+
+  // 分享预览弹窗元素
+  shareModal: document.getElementById("share-modal"),
+  sharePreviewImg: document.getElementById("share-preview-img"),
+  shareCloseBtn: document.getElementById("share-close-btn")
 };
 
 for (const node of document.querySelectorAll("[data-i18n]")) {
@@ -133,6 +173,9 @@ for (const node of document.querySelectorAll("[data-i18n]")) {
 }
 for (const node of document.querySelectorAll("[data-i18n-placeholder]")) {
   node.placeholder = t[node.dataset.i18nPlaceholder] ?? node.placeholder;
+}
+for (const node of document.querySelectorAll("[data-i18n-title]")) {
+  node.title = t[node.dataset.i18nTitle] ?? node.title;
 }
 
 let halted = false;
@@ -144,6 +187,55 @@ let openDropdown = null;
 let lastRevision = null;
 let pollTimer = null;
 let polling = false;
+
+// 视图模式: 'card' (卡片) | 'list' (列表)
+const STORAGE_KEY_VIEW = "molibot_note_view_mode";
+let currentViewMode = localStorage.getItem(STORAGE_KEY_VIEW) === "list" ? "list" : "card";
+
+// 应用皮肤/主题: 'default' (Google Keep) | 'smartisan' (锤子便签)
+const STORAGE_KEY_THEME = "molibot_note_ui_theme";
+let currentAppTheme = localStorage.getItem(STORAGE_KEY_THEME) === "smartisan" ? "smartisan" : "default";
+
+function applyViewMode(mode) {
+  currentViewMode = mode === "list" ? "list" : "card";
+  localStorage.setItem(STORAGE_KEY_VIEW, currentViewMode);
+  if (elements.noteApp) {
+    elements.noteApp.dataset.view = currentViewMode;
+  }
+  if (elements.viewIconGrid && elements.viewIconList) {
+    if (currentViewMode === "list") {
+      elements.viewIconGrid.classList.remove("hidden");
+      elements.viewIconList.classList.add("hidden");
+    } else {
+      elements.viewIconGrid.classList.add("hidden");
+      elements.viewIconList.classList.remove("hidden");
+    }
+  }
+}
+
+function applyAppTheme(themeName) {
+  currentAppTheme = themeName === "smartisan" ? "smartisan" : "default";
+  localStorage.setItem(STORAGE_KEY_THEME, currentAppTheme);
+  document.documentElement.dataset.appTheme = currentAppTheme;
+  if (elements.themeBadge) {
+    elements.themeBadge.textContent = currentAppTheme === "smartisan" ? t.themeSmartisan : t.themeDefault;
+  }
+}
+
+applyViewMode(currentViewMode);
+applyAppTheme(currentAppTheme);
+
+if (elements.viewToggleBtn) {
+  elements.viewToggleBtn.addEventListener("click", () => {
+    applyViewMode(currentViewMode === "card" ? "list" : "card");
+  });
+}
+
+if (elements.themeToggleBtn) {
+  elements.themeToggleBtn.addEventListener("click", () => {
+    applyAppTheme(currentAppTheme === "default" ? "smartisan" : "default");
+  });
+}
 
 function setStatus(message, tone) {
   if (!message) {
@@ -262,12 +354,428 @@ function closeEditModal() {
   editingNoteId = null;
 }
 
-elements.modalCancelBtn.addEventListener("click", closeEditModal);
+if (elements.modalBackBtn) {
+  elements.modalBackBtn.addEventListener("click", closeEditModal);
+}
 elements.editModal.addEventListener("click", (e) => {
   if (e.target === elements.editModal) {
     closeEditModal();
   }
 });
+
+// 分享图片生成与弹窗逻辑
+let currentShareBlob = null;
+let currentShareDataUrl = "";
+
+function closeShareModal() {
+  if (elements.shareModal) {
+    elements.shareModal.classList.add("hidden");
+  }
+  if (elements.sharePreviewImg) {
+    elements.sharePreviewImg.src = "";
+  }
+  currentShareBlob = null;
+  currentShareDataUrl = "";
+}
+
+if (elements.shareCloseBtn) {
+  elements.shareCloseBtn.addEventListener("click", closeShareModal);
+}
+if (elements.shareModal) {
+  elements.shareModal.addEventListener("click", (e) => {
+    if (e.target === elements.shareModal) {
+      closeShareModal();
+    }
+  });
+}
+
+function escapeXml(unsafe) {
+  return String(unsafe ?? "").replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case "<": return "&lt;";
+      case ">": return "&gt;";
+      case "&": return "&amp;";
+      case "'": return "&apos;";
+      case '"': return "&quot;";
+    }
+  });
+}
+
+async function generateShareImage(title, content, color, appThemeName) {
+  const isDark = document.documentElement.dataset.theme === "dark";
+  const scale = 2; // retina 2x
+  const width = 480;
+  const cardWidth = 432;
+  const cardPadding = 24;
+  const bodyHtml = renderMarkdown(content || "");
+  const titleHtml = title ? `<h1 class="share-doc-title">${escapeXml(title)}</h1>` : "";
+  const dateStr = new Date().toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US", { year: "numeric", month: "short", day: "numeric" });
+
+  let styles = "";
+  let cardContentHtml = "";
+  let outerBg = "";
+
+  if (appThemeName === "smartisan") {
+    outerBg = isDark ? "#131113" : "#efe6d6";
+    const paperBg = isDark ? "#1c1a1c" : "#fffcf7";
+    const frameColor = isDark ? "#332f33" : "#e8e4dc";
+    const textColor = isDark ? "#e6ded6" : "#5c4938";
+    const headingColor = isDark ? "#f0e6dc" : "rgba(70, 53, 38, 0.96)";
+    const quoteBar = isDark ? "#3d3838" : "#d8cebe";
+    const codeBg = isDark ? "#282628" : "rgba(125, 78, 32, 0.08)";
+    const hrColor = isDark ? "#2a272a" : "#e8e2d7";
+    const footerBrand = isDark ? "#8c7e72" : "#a89988";
+    const footerDate = isDark ? "#6e6258" : "#c2b5a5";
+
+    styles = `
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        margin: 0;
+        padding: 20px 24px;
+        background: ${outerBg};
+        font-family: "PingFang SC", -apple-system, "Songti SC", serif;
+        display: flex;
+        justify-content: center;
+      }
+      .card {
+        position: relative;
+        width: ${cardWidth}px;
+        background: ${paperBg};
+        box-shadow: 0 16px 36px ${isDark ? "rgba(0,0,0,0.5)" : "rgba(82,60,34,0.12)"};
+        padding: 32px 24px 24px;
+        color: ${textColor};
+      }
+      .frame-outer {
+        position: absolute;
+        inset: 16px 10px 48px;
+        border: 1px solid ${frameColor};
+        pointer-events: none;
+      }
+      .frame-inner {
+        position: absolute;
+        inset: 18px 12px 50px;
+        border: 1px solid ${frameColor};
+        pointer-events: none;
+      }
+      .corner {
+        position: absolute;
+        width: 4px;
+        height: 4px;
+        border: 1px solid ${frameColor};
+        background: ${paperBg};
+        pointer-events: none;
+      }
+      .c-tl { top: 15px; left: 9px; }
+      .c-tr { top: 15px; right: 9px; }
+      .c-bl { bottom: 47px; left: 9px; }
+      .c-br { bottom: 47px; right: 9px; }
+      
+      .content {
+        position: relative;
+        z-index: 1;
+        font-size: 15px;
+        line-height: 1.75;
+        word-break: break-word;
+      }
+      .share-doc-title {
+        font-size: 20px;
+        font-weight: bold;
+        color: ${headingColor};
+        margin-bottom: 16px;
+        line-height: 1.35;
+      }
+      .content h1, .content h2, .content h3, .content h4, .content h5, .content h6 {
+        color: ${headingColor};
+        margin: 16px 0 8px;
+        font-weight: bold;
+        line-height: 1.3;
+      }
+      .content h1 { font-size: 18px; }
+      .content h2 { font-size: 17px; }
+      .content h3 { font-size: 16px; }
+      .content p { margin: 8px 0; }
+      .content ul, .content ol { padding-left: 20px; margin: 8px 0; }
+      .content li { margin: 4px 0; }
+      .content blockquote {
+        margin: 12px 0;
+        padding: 6px 14px;
+        border-left: 3px solid ${quoteBar};
+        color: ${footerBrand};
+        background: ${isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)"};
+        border-radius: 0 4px 4px 0;
+      }
+      .content code {
+        font-family: Menlo, Monaco, Consolas, monospace;
+        font-size: 13px;
+        padding: 2px 5px;
+        border-radius: 3px;
+        background: ${codeBg};
+      }
+      .content pre {
+        margin: 12px 0;
+        padding: 10px 12px;
+        background: ${codeBg};
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+      .content pre code { padding: 0; background: transparent; }
+      .content hr { border: none; border-top: 1px solid ${hrColor}; margin: 16px 0; }
+      .content strong { font-weight: bold; color: ${headingColor}; }
+      .content em { font-style: italic; }
+      .content a { color: ${isDark ? "#c99359" : "#a16d36"}; text-decoration: none; }
+      
+      .footer {
+        position: relative;
+        z-index: 1;
+        margin-top: 32px;
+        padding-top: 12px;
+        text-align: center;
+      }
+      .brand {
+        font-size: 12px;
+        font-weight: bold;
+        color: ${footerBrand};
+        letter-spacing: 0.04em;
+      }
+      .date {
+        font-size: 11px;
+        color: ${footerDate};
+        margin-top: 3px;
+      }
+    `;
+
+    cardContentHtml = `
+      <div class="card">
+        <div class="frame-outer"></div>
+        <div class="frame-inner"></div>
+        <span class="corner c-tl"></span>
+        <span class="corner c-tr"></span>
+        <span class="corner c-bl"></span>
+        <span class="corner c-br"></span>
+        <div class="content">
+          ${titleHtml}
+          ${bodyHtml}
+        </div>
+        <div class="footer">
+          <div class="brand">Smartisan Notes</div>
+          <div class="date">${escapeXml(dateStr)}</div>
+        </div>
+      </div>
+    `;
+  } else {
+    // Keep 主题
+    outerBg = isDark ? "#131416" : "#f1f3f4";
+    const LIGHT_COLOR_MAP = {
+      default: "#ffffff",
+      yellow: "#fff8e1",
+      blue: "#e3f2fd",
+      green: "#e8f5e9",
+      red: "#ffebee",
+      purple: "#f3e5f5",
+      gray: "#f5f5f5"
+    };
+    const DARK_COLOR_MAP = {
+      default: "#25272a",
+      yellow: "#42381b",
+      blue: "#16334a",
+      green: "#193620",
+      red: "#3e1e20",
+      purple: "#361f40",
+      gray: "#303236"
+    };
+
+    const colorMap = isDark ? DARK_COLOR_MAP : LIGHT_COLOR_MAP;
+    const cardBg = colorMap[color] || colorMap.default;
+    const textColor = isDark ? "#bdc1c6" : "#3c4043";
+    const headingColor = isDark ? "#e8eaed" : "#202124";
+    const cardBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+    const quoteBar = isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)";
+    const codeBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+    const footerBrand = isDark ? "#9aa0a6" : "#80868b";
+    const footerDate = isDark ? "#70757a" : "#9aa0a6";
+
+    styles = `
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        margin: 0;
+        padding: 20px 24px;
+        background: ${outerBg};
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        justify-content: center;
+      }
+      .card {
+        width: ${cardWidth}px;
+        background: ${cardBg};
+        border: 1px solid ${cardBorder};
+        border-radius: 12px;
+        box-shadow: 0 4px 16px ${isDark ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.08)"};
+        padding: 24px 20px 16px;
+        color: ${textColor};
+      }
+      .content {
+        font-size: 15px;
+        line-height: 1.65;
+        word-break: break-word;
+      }
+      .share-doc-title {
+        font-size: 19px;
+        font-weight: bold;
+        color: ${headingColor};
+        margin-bottom: 12px;
+        line-height: 1.35;
+      }
+      .content h1, .content h2, .content h3, .content h4, .content h5, .content h6 {
+        color: ${headingColor};
+        margin: 14px 0 6px;
+        font-weight: bold;
+        line-height: 1.3;
+      }
+      .content h1 { font-size: 18px; }
+      .content h2 { font-size: 17px; }
+      .content h3 { font-size: 16px; }
+      .content p { margin: 6px 0; }
+      .content ul, .content ol { padding-left: 20px; margin: 6px 0; }
+      .content li { margin: 3px 0; }
+      .content blockquote {
+        margin: 10px 0;
+        padding: 4px 12px;
+        border-left: 3px solid ${quoteBar};
+        color: ${footerBrand};
+      }
+      .content code {
+        font-family: monospace;
+        font-size: 13px;
+        padding: 2px 4px;
+        border-radius: 4px;
+        background: ${codeBg};
+      }
+      .content pre {
+        margin: 10px 0;
+        padding: 8px 10px;
+        background: ${codeBg};
+        border-radius: 6px;
+        overflow-x: auto;
+      }
+      .content pre code { padding: 0; background: transparent; }
+      .content hr { border: none; border-top: 1px solid ${cardBorder}; margin: 14px 0; }
+      .content strong { font-weight: bold; color: ${headingColor}; }
+      .content a { color: ${isDark ? "#8ab4f8" : "#1a73e8"}; text-decoration: none; }
+      
+      .footer {
+        margin-top: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 11px;
+        color: ${footerDate};
+        padding-top: 8px;
+      }
+      .brand {
+        font-size: 12px;
+        font-weight: 500;
+        color: ${footerBrand};
+      }
+    `;
+
+    cardContentHtml = `
+      <div class="card">
+        <div class="content">
+          ${titleHtml}
+          ${bodyHtml}
+        </div>
+        <div class="footer">
+          <span class="date">${escapeXml(dateStr)}</span>
+          <span class="brand">Google Keep</span>
+        </div>
+      </div>
+    `;
+  }
+
+  // 1. 先在一个隐藏容器中渲染 DOM 以精确测量实际渲染高度
+  const measureDiv = document.createElement("div");
+  measureDiv.style.position = "absolute";
+  measureDiv.style.visibility = "hidden";
+  measureDiv.style.left = "-9999px";
+  measureDiv.style.top = "-9999px";
+  measureDiv.style.width = `${width}px`;
+  measureDiv.innerHTML = `<style>${styles}</style>${cardContentHtml}`;
+  document.body.appendChild(measureDiv);
+  const measuredHeight = Math.max(220, measureDiv.offsetHeight || measureDiv.scrollHeight || 300);
+  measureDiv.remove();
+
+  const totalHeight = measuredHeight + 40;
+
+  // 2. 构建自包含 SVG ForeignObject
+  const svgDoc = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalHeight}">
+      <foreignObject width="100%" height="100%">
+        <div xmlns="http://www.w3.org/1999/xhtml">
+          <style>${styles}</style>
+          ${cardContentHtml}
+        </div>
+      </foreignObject>
+    </svg>
+  `;
+
+  const svgDataUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgDoc);
+
+  // 3. 载入 SVG Image 并在 2x Canvas 上栅格化为高质量 PNG
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width * scale;
+      canvas.height = totalHeight * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(scale, scale);
+
+      ctx.fillStyle = outerBg;
+      ctx.fillRect(0, 0, width, totalHeight);
+      ctx.drawImage(img, 0, 0, width, totalHeight);
+
+      try {
+        const dataUrl = canvas.toDataURL("image/png");
+        canvas.toBlob((blob) => {
+          resolve({ blob, dataUrl });
+        }, "image/png");
+      } catch (e) {
+        console.error("Canvas export failed:", e);
+        resolve({ blob: null, dataUrl: svgDataUrl });
+      }
+    };
+    img.onerror = (e) => {
+      console.error("SVG image load failed:", e);
+      resolve(null);
+    };
+    img.src = svgDataUrl;
+  });
+}
+
+if (elements.modalShareBtn) {
+  elements.modalShareBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const title = elements.editTitle ? elements.editTitle.value.trim() : "";
+    const content = elements.editContent ? elements.editContent.value.trim() : "";
+    if (!title && !content) return;
+
+    try {
+      const result = await generateShareImage(title, content, editingColor, currentAppTheme);
+      if (!result) return;
+      currentShareBlob = result.blob;
+      currentShareDataUrl = result.dataUrl;
+      if (elements.sharePreviewImg) {
+        elements.sharePreviewImg.src = result.dataUrl || (result.blob ? URL.createObjectURL(result.blob) : "");
+      }
+      if (elements.shareModal) {
+        elements.shareModal.classList.remove("hidden");
+      }
+    } catch (err) {
+      console.error("Generate share image failed:", err);
+    }
+  });
+}
 
 elements.modalPinBtn.addEventListener("click", () => {
   editingIsPinned = !editingIsPinned;

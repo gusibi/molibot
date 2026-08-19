@@ -130,7 +130,8 @@ test("message links open externally and session model hydration blocks mismatche
       markdownInteractions.indexOf("await copyCodeFromClick(event, copy)")
   );
   assert.match(markdownLinks, /url\.protocol === "http:" \|\| url\.protocol === "https:"/);
-  assert.match(view, /modelReady = [^;]+&& !modelSelectionHydrating/);
+  assert.match(view, /modelReady = summarizeDesktopReadiness/);
+  assert.match(view, /if \(modelSelectionHydrating\) return;/);
   assert.match(view, /modelSelectionHydrating = true;[\s\S]*loadDesktopSessionModel/);
 });
 
@@ -1320,18 +1321,12 @@ test("Project Session groups reveal history in batches of 10", () => {
   assert.match(projectTree, /class="project-more"[\s\S]*\{copy\.more\}/);
 });
 
-test("conversation, project, and Mini App titles share a quiet material band only while stuck", () => {
+test("conversation, project, and Mini App titles share a clean section header layout", () => {
   const projectTree = read("./lib/projects/ProjectTree.svelte");
   const sharedHeader = styles.slice(styles.indexOf(".sidebar-section-head {"), styles.indexOf(".brand-row {"));
-  assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*min-height:\s*32px/s);
-  // The stuck band stays inside the head's own rect (no bleeding gradient) and
-  // rounds its corners to the row radius instead of a hard-edged strip.
-  assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*inset:\s*0;[^}]*border-radius:\s*var\(--rounded-sm\);[^}]*background:\s*var\(--fill\);[^}]*backdrop-filter:\s*blur\(12px\)/s);
-  assert.doesNotMatch(sharedHeader, /mask-image|linear-gradient|inset:\s*-/);
+  assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*min-height:\s*32px/s);
+  assert.doesNotMatch(sharedHeader, /position:\s*sticky/);
   assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*background:\s*transparent/s);
-  assert.match(sharedHeader, /\.sidebar-section-head::before \{[^}]*opacity:\s*0/s);
-  assert.match(sharedHeader, /\.sidebar-section-head\.is-stuck::before \{ opacity:\s*1; \}/);
-  assert.match(sharedHeader, /data-reduced-transparency="true"[^}]*\.sidebar-section-head::before[\s\S]*backdrop-filter:\s*none/);
   // The old gradient's private token must not linger once nothing reads it (pitfall 4).
   assert.doesNotMatch(styles, /--sidebar-section-glass/);
   for (const source of [chatSidebar, projectTree, miniAppSidebar]) {
@@ -1339,8 +1334,6 @@ test("conversation, project, and Mini App titles share a quiet material band onl
     assert.match(source, /sidebar-section-toggle/);
     assert.match(source, /sidebar-section-caret/);
   }
-  assert.match(chatSidebar, /use:trackStickySectionHeads/);
-  assert.match(chatSidebar, /node\.scrollTop > 0[\s\S]*head\.classList\.toggle\("is-stuck", isStuck\)/);
   assert.match(chatSidebar, /<section class="sidebar-tree-section">[\s\S]*<ProjectTree/);
 });
 
@@ -4107,4 +4100,10 @@ test("composer selector pills still have no inline-size containment", () => {
   // nothing in the console. Adding a third page must not reintroduce it.
   assert.doesNotMatch(styles, /\.composer-model-(menu|trigger|label)[^{]*\{[^}]*container-type/s);
   assert.doesNotMatch(styles, /\.composer-permission-(menu|trigger)[^{]*\{[^}]*container-type/s);
+});
+
+test("desktop application styles slim 6px scrollbars", () => {
+  assert.match(styles, /scrollbar-width:\s*thin;/);
+  assert.match(styles, /::-webkit-scrollbar\s*\{[^}]*width:\s*6px;/);
+  assert.match(styles, /::-webkit-scrollbar-thumb\s*\{[^}]*background-clip:\s*padding-box;/);
 });

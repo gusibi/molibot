@@ -103,42 +103,6 @@
     forkedConversation: copy.forkedConversation,
     newChat: copy.newChat
   });
-
-  function trackStickySectionHeads(node: HTMLElement) {
-    let animationFrame = 0;
-
-    const update = () => {
-      cancelAnimationFrame(animationFrame);
-      animationFrame = requestAnimationFrame(() => {
-        const containerTop = node.getBoundingClientRect().top;
-        for (const head of node.querySelectorAll<HTMLElement>(".sidebar-section-head")) {
-          const section = head.closest<HTMLElement>(".sidebar-tree-section");
-          const headRect = head.getBoundingClientRect();
-          const sectionRect = section?.getBoundingClientRect();
-          const isStuck = node.scrollTop > 0
-            && Math.abs(headRect.top - containerTop) <= 1
-            && Boolean(sectionRect && sectionRect.bottom > containerTop + headRect.height);
-          head.classList.toggle("is-stuck", isStuck);
-        }
-      });
-    };
-
-    node.addEventListener("scroll", update, { passive: true });
-    const resizeObserver = new ResizeObserver(update);
-    resizeObserver.observe(node);
-    const mutationObserver = new MutationObserver(update);
-    mutationObserver.observe(node, { childList: true, subtree: true });
-    update();
-
-    return {
-      destroy() {
-        cancelAnimationFrame(animationFrame);
-        node.removeEventListener("scroll", update);
-        resizeObserver.disconnect();
-        mutationObserver.disconnect();
-      }
-    };
-  }
 </script>
 
 <aside class="chat-sidebar">
@@ -167,7 +131,7 @@
     </button>
   </nav>
 
-  <div class="sidebar-channels" use:trackStickySectionHeads>
+  <div class="sidebar-channels">
     <DurableExecutionSidebarSection items={durableExecutions} {copy} onOpen={onOpenDurableExecution} />
     <section class="sidebar-tree-section">
       <button type="button" class="sidebar-section-head sidebar-section-toggle" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>

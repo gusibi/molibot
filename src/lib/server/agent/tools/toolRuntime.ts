@@ -114,6 +114,13 @@ const activeDebounceBatches = new Map<string, DebounceBatch>();
  */
 const BROKER_APPROVAL_INLINE_WINDOW_MS = 30_000;
 
+/**
+ * Hard ceiling for one tool handler promise when the caller does not override
+ * `executionTimeoutMs`. See `executeToolCall` for why this is an hour, not the
+ * historical 5 minutes.
+ */
+export const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 60 * 60 * 1000;
+
 /** The outcome of one approval wait, from the waiting tool's point of view. */
 export type ApprovalResolution = "approved" | "rejected" | "expired" | "window_expired";
 
@@ -360,7 +367,16 @@ export class ToolRuntime {
       summary: `Tool started: ${tool.name}`
     });
 
-    const timeoutMs = Math.max(1, this.options.executionTimeoutMs ?? 5 * 60 * 1000);
+    // One hour by default: a legitimately long delegated step (subagent bash,
+    // slow MCP call) is not a hang, and the old 5-minute default killed the
+    // whole subagent mid-task (session s-20260819-hdaw: inner bash held 4m55s,
+    // the timeout aborted the delegation, and the client's activity card never
+    // received its terminal frame). Stop/abort signals still wind a run down
+    // immediately - this is only the no-output hard ceiling.
+    const timeoutMs = Math.max(
+      1,
+      this.options.executionTimeoutMs ?? DEFAULT_TOOL_EXECUTION_TIMEOUT_MS
+    );
     const timeoutController = new AbortController();
     const executionSignal = call.context.signal
       ? AbortSignal.any([call.context.signal, timeoutController.signal])

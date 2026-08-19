@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { parseSessionEntries } from "$lib/server/agent/session/session.js";
@@ -146,10 +146,27 @@ function isEventPromptSession(entries: SessionFileEntry[]): boolean {
   return contentText(messageContent(firstUser.message)).trimStart().startsWith("[EVENT:");
 }
 
-function readEntries(contextsDir: string, sessionId: string): SessionFileEntry[] {
+function readEntries(contextsDir: string, sessionId: string, tailBytesCap?: number): SessionFileEntry[] {
   const file = join(contextsDir, `${sessionId}.jsonl`);
   if (!existsSync(file)) return [];
   try {
+    const size = statSync(file).size;
+    if (tailBytesCap && tailBytesCap > 0 && size > tailBytesCap) {
+      // Display read of an oversized transcript: parse only the newest
+      // `tailBytesCap` bytes so one huge session cannot pin the event loop.
+      // The first tail line is dropped - it is a byte-cut partial line.
+      const buffer = Buffer.alloc(tailBytesCap);
+      const fd = openSync(file, "r");
+      try {
+        readSync(fd, buffer, 0, tailBytesCap, size - tailBytesCap);
+      } finally {
+        closeSync(fd);
+      }
+      let text = buffer.toString("utf8");
+      const firstNewline = text.indexOf("\n");
+      text = firstNewline >= 0 ? text.slice(firstNewline + 1) : "";
+      return parseSessionEntries(text);
+    }
     return parseSessionEntries(readFileSync(file, "utf8"));
   } catch {
     return [];
@@ -387,7 +404,7 @@ export function readExternalTranscriptFromContexts(
   const contextsDir = join(workspaceDir, "contexts");
   const file = join(contextsDir, `${ref.sessionId}.jsonl`);
   if (!existsSync(file)) return null;
-  const entries = readEntries(contextsDir, ref.sessionId);
+  const entries = readEntries(contextsDir, ref.sessionId, 16 * 1024 * 1024);
   return {
     conversation: buildConversation(ref, entries),
     messages: buildMessages(ref, entries, workspaceDir)

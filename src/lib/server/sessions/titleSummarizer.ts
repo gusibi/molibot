@@ -91,22 +91,31 @@ export async function summarizeSessionTitleWithLlm(
     : controller.signal;
 
   try {
-    console.warn("[title-summarizer] calling LLM...");
+    const isReasoningModel = Boolean(selection.model.reasoning);
+    const streamOptions: Record<string, unknown> = {
+      maxTokens: isReasoningModel ? 500 : 120,
+      apiKey,
+      signal
+    };
+    if (isReasoningModel) {
+      streamOptions.reasoning = "low";
+    }
+
     const streamer = options?.streamFn ?? streamWithPiRuntime;
     const stream = await streamer(
       selection.model,
       context as never,
-      { maxTokens: 35, apiKey, signal, reasoning: "off" } as never
+      streamOptions as never
     );
 
     // Same pattern as compaction: wait for the settled assistant message.
-    const message = await (stream as unknown as { result: () => Promise<AssistantMessage> }).result();
+    const message = await (stream as unknown as { result: () => Promise<AssistantMessage & { errorMessage?: string }> }).result();
     clearTimeout(timeoutId);
 
-    console.warn(`[title-summarizer] LLM response stopReason=${message?.stopReason}`);
+    console.warn(`[title-summarizer] LLM response stopReason=${message?.stopReason}, errorMessage=${(message as { errorMessage?: string })?.errorMessage ?? "none"}`);
 
     if (message?.stopReason === "aborted" || message?.stopReason === "error") {
-      console.warn("[title-summarizer] LLM returned error/aborted stopReason");
+      console.warn(`[title-summarizer] LLM returned error/aborted stopReason:`, JSON.stringify(message));
       return null;
     }
 
@@ -155,6 +164,7 @@ export async function tryAutoSummarizeConversationTitleAsync(params: {
   onTitleUpdated?: (newTitle: string) => void;
   options?: SummarizeTitleOptions;
 }): Promise<string | null> {
+  console.log(`[title-summarizer] >>> tryAutoSummarize triggered: conversationId=${params.conversationId}, channel=${params.channel ?? "web"}, externalUserId=${params.externalUserId}`);
   try {
     const { sessions, getSettings } = getRuntime();
     const currentSettings = getSettings();
@@ -162,31 +172,33 @@ export async function tryAutoSummarizeConversationTitleAsync(params: {
 
     const conversation = sessions.getConversationById(params.conversationId, channel, params.externalUserId);
     if (!conversation) {
-      console.warn(`[title-summarizer] conversation not found: ${params.conversationId}`);
+      console.warn(`[title-summarizer] conversation not found: ${params.conversationId} (channel=${channel}, externalUserId=${params.externalUserId})`);
       return null;
     }
 
-    // Only auto-summarize if title is currently default or matches early user-message truncation
+    // Only auto-summarize if title is currently default or matches early user-message truncation/full snippet
     const currentTitle = conversation.title;
     const cleanMsg = params.firstUserMessage.replace(/\s+/g, " ").trim();
     const isDefaultTitle = !currentTitle || currentTitle === DEFAULT_SESSION_TITLE;
     const isTruncatedSnippet = currentTitle === cleanMsg.slice(0, 40) ||
-                               currentTitle === `${cleanMsg.slice(0, 40)}...`;
+                               currentTitle === `${cleanMsg.slice(0, 40)}...` ||
+                               currentTitle === cleanMsg;
 
-    console.warn(`[title-summarizer] currentTitle="${currentTitle}" isDefault=${isDefaultTitle} isTruncated=${isTruncatedSnippet}`);
+    console.log(`[title-summarizer] state check: conversationId=${params.conversationId}, currentTitle="${currentTitle}", cleanMsg="${cleanMsg}", isDefault=${isDefaultTitle}, isTruncated=${isTruncatedSnippet}`);
 
     if (!isDefaultTitle && !isTruncatedSnippet) {
-      console.warn("[title-summarizer] title already set by user, skipping");
+      console.log(`[title-summarizer] skipping: title was already manually modified or customized by user ("${currentTitle}")`);
       return null;
     }
 
+    console.log(`[title-summarizer] starting LLM summarization for conversationId=${params.conversationId}...`);
     const generatedTitle = await summarizeSessionTitleWithLlm(
       params.firstUserMessage,
       currentSettings,
       params.options
     );
 
-    console.warn(`[title-summarizer] generatedTitle="${generatedTitle}"`);
+    console.log(`[title-summarizer] LLM summary result: generatedTitle="${generatedTitle}"`);
 
     if (generatedTitle) {
       const updated = sessions.renameConversation(
@@ -195,14 +207,17 @@ export async function tryAutoSummarizeConversationTitleAsync(params: {
         params.externalUserId,
         generatedTitle
       );
-      console.warn(`[title-summarizer] rename result: ${updated ? "success" : "failed"}`);
+      console.log(`[title-summarizer] renameConversation result: ${updated ? `SUCCESS -> "${updated.title}"` : "FAILED"}`);
       if (updated && params.onTitleUpdated) {
+        console.log(`[title-summarizer] notifying onTitleUpdated listener: "${generatedTitle}"`);
         params.onTitleUpdated(generatedTitle);
       }
       return generatedTitle;
+    } else {
+      console.warn(`[title-summarizer] LLM did not generate a valid title for conversationId=${params.conversationId}`);
     }
   } catch (err) {
-    console.warn("[title-summarizer] background error:", err);
+    console.error("[title-summarizer] unexpected error during title summarization:", err);
   }
 
   return null;

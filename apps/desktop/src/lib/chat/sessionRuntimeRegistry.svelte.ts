@@ -202,8 +202,11 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
     try {
       const messages = await this.deps.loadTranscript(this.profileId, this.sessionId);
       hydration.commit(messages);
-    } catch {
-      // Leave the existing transcript in place on reload failure.
+    } catch (cause) {
+      // Keep the existing transcript, but never swallow the failure: a silent
+      // catch here rendered "clicked the session, nothing happened" with no
+      // request log and no console line. The error banner is the only trace.
+      this.setError(this.transcriptLoadFailedMessage(cause));
     }
   }
 
@@ -211,9 +214,16 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
   private async reloadFromServerForTurn(): Promise<void> {
     try {
       this.messages = await this.deps.loadTranscript(this.profileId, this.sessionId);
-    } catch {
-      // Leave the existing transcript in place on reload failure.
+    } catch (cause) {
+      // The optimistic turn transcript stays visible; flag that it may be stale.
+      this.setError(this.transcriptLoadFailedMessage(cause));
     }
+  }
+
+  private transcriptLoadFailedMessage(cause: unknown): string {
+    const label = this.deps.labels().transcriptLoadFailed;
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    return label ? `${label} (${detail})` : `Failed to load transcript (${detail})`;
   }
 
   setError(message: string): void {

@@ -4,6 +4,64 @@
 - [2026 Q2 PRD Archive (Apr - Jun)](docs/archive/prd-archive-2026-Q2.md)
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
+## 3.106 AI 回复底部状态条体验优化（2026-08-20）
+
+- **Priority / Status**: P1 / Delivered (2026-08-20).
+- **Problem**: 
+  1. AI 回复内容下方的执行耗时原先仅累加了 tool activities 执行耗时，未计入 LLM 推理、思考及通信时间，导致显示的耗时偏小，非用户从发送到回复完成的真实总耗时；
+  2. Token 数量显示为完整大整数（如 `3632294 tokens`），过于冗长不易识别；
+  3. 底部信息栏最右侧的模型标签显示了服务商前缀（如 `Cli Proxy API · Gemini 3.7 Flash High`），与输入框只展示模型名不一致。
+- **Decision**:
+  1. **端到端总时间计算**：`transcriptTurnSummary` 计算当前回复与其前置用户提问的时间戳差值作为总耗时，准确反映完整端到端轮次时长；
+  2. **Token 紧凑展示**：`formatCompactTokens` 实现 `17k`、`1m`、`3.6m` 等标准紧凑数值展示；
+  3. **纯净模型名称**：`modelShortLabel` 剥离 provider 命名空间前缀，仅显示纯净模型名称。
+- **Acceptance**: 已交付。状态条显示端到端总时长、紧凑 Token 计数与纯净模型名；自动化测试 12/12 全部通过。
+
+---
+
+## 3.105 右侧 MiniApp 面板与全局滚动条细窄化统一（2026-08-19）
+
+- **Priority / Status**: P2 / Delivered (2026-08-19).
+- **Problem**: 
+  - 右侧 Mini App（便签 Note、待办 Todo 等）运行在独立 iframe 沙箱内，此前未设置统一滚动条 CSS，在 WebKit / WebView 环境下显示为 15~16px 宽的灰底原生滚动条，与主应用内文件面板（ProjectFilePanel / FileViewer）及聊天窗口的 4~6px 细窄滚动条风格严重不一致。
+- **Decision**:
+  - Mini App 页面顶层 `html, body` 统一设置为 `height: 100%; overflow: hidden;`，完全由应用内部主体容器自适应滚动，杜绝 iframe 外部产生冗余滚动条；
+  - 在 Mini App 共享基础样式基线及各内置小程序中统一注入细窄（6px）、透明轨道、半透明圆角胶囊滑块的滚动条定义，且自动适配明暗主题及锤子等特色主题。
+  - Desktop 主应用同步将全局滚动条规范统一为 6px 细窄滑块。
+- **Acceptance**: 已交付。Mini App 面板与文件面板/主聊天滚动条尺寸与美观度完全一致；`uiDesignBaseline.test.ts` 6/6 通过，版本号已递增。
+
+---
+
+## 3.104 Desktop 会话模型加载态（Hydration）与全局模型就绪状态解耦（2026-08-19）
+
+- **Priority / Status**: P1 / Delivered (2026-08-19).
+- **Problem**: 
+  - 用户打开历史 Session 时，前端会异步从后端拉取该会话绑定的模型配置（水合过程）。由于 `ChatView.svelte` 的 `modelReady` 响应式依赖了 `!modelSelectionHydrating`，水合期间 `modelReady` 为 `false`，导致输入框上方短暂闪烁「未配置可用文本模型」警告横幅，造成用户困惑。
+- **Decision**:
+  - 解耦 `modelReady` 与 `modelSelectionHydrating`，`modelReady` 仅表达系统是否存在有效模型配置。
+  - `modelSelectionHydrating` 独立用于禁用输入框、模型切换器及 `sendMessage` 竞态防护，不再触发全局缺失模型横幅。
+- **Acceptance**: 已交付。切换历史会话时平滑加载，不再闪烁无模型警告；水合期间安全防护正常生效；自动化测试全部通过。
+
+---
+## 3.103 Note 小程序体验升级：锤子便签主题与卡片/列表双视图支持（2026-08-19）
+
+- **Priority / Status**: P1 / Delivered (2026-08-19).
+- **Problem**: 
+  1. 用户希望为内置 Note 小程序添加主题切换功能，除默认现代风格外引入复刻自 Smartisan Note（开源版锤子便签）的拟真复古纸感设计。
+  2. 需要支持卡片与列表两种视图布局，并对正文预览行数进行规范限制（卡片视图最多 5 行，列表视图最多 3 行），提升大量便签下的浏览与管理体验。
+- **Decision**:
+  1. **双主题支持与持久化**：
+     - 默认保持原 Google Keep 极简卡片主题；
+     - 新增锤子便签（Smartisan）拟真纸感主题（暖白纸纹背景、暖调便签纸、木棕与复古琥珀色主调、柔和投影及暗色模式兼容）；
+     - 顶栏右侧提供主题切换按钮与徽标，配置持久化保存在 `localStorage` 中。
+  2. **卡片 / 列表双视图切换与行数限制**：
+     - 顶栏提供卡片/列表视图切换按钮与图标，持久化保存在 `localStorage` 中；
+     - 卡片视图模式下正文预览限制最多 5 行（`-webkit-line-clamp: 5`）；
+     - 列表视图模式下正文预览限制最多 3 行（`-webkit-line-clamp: 3`）。
+  3. **版本升级与 i18n 完备**：MiniApp manifest 版本升级至 `1.5.0`，双语文案全覆盖。
+- **Acceptance**: 已交付。多视图与双主题无缝切换并记忆；行数限制严格生效；单元测试全部通过。
+
+---
 ## 3.102 审批等待挂起与异步恢复机制（2026-08-18）
 
 - **Priority / Status**: P1 / Delivered (2026-08-18).

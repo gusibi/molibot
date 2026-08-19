@@ -82,6 +82,28 @@ export class ConversationActivityCollector {
   }
 
   /**
+   * Close every activity still "running" in place (so a later `finalSnapshot`
+   * agrees) and return only the ones that were closed. The live stream calls
+   * this before its terminal frame so a client that never saw the per-tool
+   * `tool_execution_end` (aborted delegation, Stop mid-tool, dropped events)
+   * still receives the terminal activity card instead of a spinner forever.
+   */
+  closeRunningActivities(): ConversationActivity[] {
+    const closed: ConversationActivity[] = [];
+    this.activities = this.activities.map((activity) => {
+      if (activity.state !== "running") return activity;
+      const terminal = {
+        ...activity,
+        state: "error" as const,
+        summary: activity.summary ?? "Interrupted before completion."
+      };
+      closed.push(terminal);
+      return terminal;
+    });
+    return closed;
+  }
+
+  /**
    * Snapshot for persistence after the run has ended. Anything still "running"
    * can never finish (abort, crash, or a tool that never emitted its end
    * event), so it is closed out as an error — otherwise the transcript renders

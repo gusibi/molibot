@@ -19,6 +19,7 @@ export interface ConversationTurnHandlers {
   onActivity?: (activity: DesktopConversationActivity) => void;
   onPlan?: (plan: DesktopConversationPlan) => void;
   onApproval?: (approval: DesktopApprovalPrompt) => void;
+  onTitleUpdated?: (conversationId: string, title: string) => void;
   onDone?: (result: { response: string; thinkingText: string }) => void;
 }
 
@@ -76,6 +77,11 @@ export async function runDesktopConversationTurn(input: {
       if (approval) handlers.onApproval?.(approval);
     }
     if (event === "plan_proposal") handlers.onPlan?.(data as unknown as DesktopConversationPlan);
+    if (event === "session_title_updated") {
+      const title = String(data.title ?? "").trim();
+      const targetId = String(data.conversationId ?? "").trim();
+      if (title && targetId) handlers.onTitleUpdated?.(targetId, title);
+    }
     if (event === "done") {
       handlers.onDone?.({
         response: String(data.response ?? ""),

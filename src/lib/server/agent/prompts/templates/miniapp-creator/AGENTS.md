@@ -3,7 +3,7 @@ name: "Mini App Creator"
 description: "带你从零做出一个 Molibot Mini App：Agent 工具 + 桌面面板 UI + 一份私有数据，全部基于现成模板改，不从零写。"
 category: "设计与开发"
 source: "MolipiBot"
-version: "1.3.2"
+version: "1.3.3"
 title: "Mini App 开发工作规则"
 summary: "用于设计、生成、安装和验证 Mini App 的工作模板。"
 read_when:

@@ -8,11 +8,18 @@
   import PlanCard from "./PlanCard.svelte";
   import TurnProcess from "./TurnProcess.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
-  import { humanizeModelOption } from "../presentation";
+  import { formatCompactTokens, humanizeModelOption, modelShortLabel } from "../presentation";
   import { handleMarkdownBodyClick } from "../markdownInteractions";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
   import ChatMarkdown from "./ChatMarkdown.svelte";
+
+  function findPreviousUserMessage(list: TranscriptMessage[], currentIndex: number): TranscriptMessage | null {
+    for (let i = currentIndex - 1; i >= 0; i -= 1) {
+      if (list[i]?.role === "user") return list[i];
+    }
+    return null;
+  }
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -107,7 +114,8 @@
   {@const renderBlocks = message.role === "assistant" ? transcriptRenderBlocks(message) : []}
   {@const turnSections = message.role === "assistant" ? transcriptCompletedTurnSections(renderBlocks) : { process: [], response: [] }}
   {@const processSummary = transcriptProcessSummary(turnSections.process)}
-  {@const turnSummary = message.role === "assistant" ? transcriptTurnSummary(message) : null}
+  {@const previousUserMessage = message.role === "assistant" ? findPreviousUserMessage(messages, index) : null}
+  {@const turnSummary = message.role === "assistant" ? transcriptTurnSummary(message, previousUserMessage) : null}
   {@const hasTurnSummary = Boolean(turnSummary && (turnSummary.durationMs || turnSummary.toolCount || turnSummary.fileCount || turnSummary.totalTokens))}
   {@const hasMemoryMeta = Boolean(message.memoryTrace && messageActions?.onOpenMemoryTrace && ((message.memoryTrace.referencedCount ?? 0) > 0 || message.memoryTrace.writeCount > 0))}
   {@const hasTechnicalDetails = hasTurnSummary || Boolean(message.model) || hasMemoryMeta}
@@ -273,10 +281,10 @@
                     {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{turnSummary.durationMs < 1000 ? `${turnSummary.durationMs}ms` : `${(turnSummary.durationMs / 1000).toFixed(1)}s`}</span>{/if}
                     {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
                     {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
-                    {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", String(turnSummary.totalTokens))}</span>{/if}
+                    {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", formatCompactTokens(turnSummary.totalTokens))}</span>{/if}
                   </span>
                 {/if}
-                {#if message.model}<span class="message-model-inline"><i class="ph ph-cpu" aria-hidden="true"></i>{humanizeModelOption(message.model, message.model).label}</span>{/if}
+                {#if message.model}<span class="message-model-inline"><i class="ph ph-cpu" aria-hidden="true"></i>{modelShortLabel(message.model)}</span>{/if}
                 {#if hasMemoryMeta && message.memoryTrace && messageActions?.onOpenMemoryTrace}
                   <button type="button" class="message-memory-trace" onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}>
                     <i class="ph ph-brain" aria-hidden="true"></i>
@@ -312,7 +320,7 @@
                       {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{turnSummary.durationMs < 1000 ? `${turnSummary.durationMs}ms` : `${(turnSummary.durationMs / 1000).toFixed(1)}s`}</span>{/if}
                       {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
                       {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
-                      {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", String(turnSummary.totalTokens))}</span>{/if}
+                      {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", formatCompactTokens(turnSummary.totalTokens))}</span>{/if}
                     </div>
                   {/if}
                   {#if message.model}<div class="message-model"><i class="ph ph-cpu" aria-hidden="true"></i><span>{humanizeModelOption(message.model, message.model).label}</span><code>{message.model}</code></div>{/if}

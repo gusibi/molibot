@@ -5,8 +5,10 @@ import {
   finalizeTranscriptActivities,
   findTranscriptMatches,
   transcriptCompletedTurnSections,
-  transcriptProcessSummary
+  transcriptProcessSummary,
+  transcriptTurnSummary
 } from "./transcript";
+import { formatCompactTokens, modelShortLabel } from "../presentation";
 
 test("completed turns fold every pre-answer reasoning, narration, and tool block into one process", () => {
   const activity = { key: "read", kind: "tool" as const, label: "Read", state: "success" as const, durationMs: 1250 };
@@ -134,3 +136,55 @@ test("transcript search index stays valid as result counts change", () => {
   assert.equal(clampTranscriptSearchIndex(-3, 2), 0);
   assert.equal(clampTranscriptSearchIndex(1, 0), 0);
 });
+
+test("transcriptTurnSummary calculates total elapsed duration from user sent time to assistant finish time", () => {
+  const userMessage = {
+    role: "user",
+    content: "hello",
+    createdAt: "2026-08-19T23:50:00.000Z"
+  };
+  const assistantMessage = {
+    role: "assistant",
+    content: "world",
+    createdAt: "2026-08-19T23:50:45.500Z",
+    activities: [
+      { key: "tool-1", kind: "tool" as const, label: "Read", state: "success" as const, durationMs: 1200 }
+    ],
+    usage: {
+      inputTokens: 1000,
+      outputTokens: 500,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 1500
+    }
+  };
+
+  const summary = transcriptTurnSummary(assistantMessage, userMessage);
+  assert.equal(summary.durationMs, 45500);
+  assert.equal(summary.toolCount, 1);
+  assert.equal(summary.totalTokens, 1500);
+
+  // Fallback when userMessage is absent
+  const fallbackSummary = transcriptTurnSummary(assistantMessage);
+  assert.equal(fallbackSummary.durationMs, 1200);
+});
+
+test("formatCompactTokens formats numbers cleanly as k, m, or raw count", () => {
+  assert.equal(formatCompactTokens(0), "0");
+  assert.equal(formatCompactTokens(500), "500");
+  assert.equal(formatCompactTokens(1000), "1k");
+  assert.equal(formatCompactTokens(17000), "17k");
+  assert.equal(formatCompactTokens(17400), "17.4k");
+  assert.equal(formatCompactTokens(100000), "100k");
+  assert.equal(formatCompactTokens(1000000), "1m");
+  assert.equal(formatCompactTokens(3632294), "3.6m");
+  assert.equal(formatCompactTokens(Number.NaN), "0");
+});
+
+test("modelShortLabel strips provider prefix and returns only the model display name", () => {
+  assert.equal(modelShortLabel("cli-proxy-api/gemini-3.7-flash-high"), "Gemini 3.7 Flash High");
+  assert.equal(modelShortLabel("custom::gemini-3.7-flash-high"), "Gemini 3.7 Flash High");
+  assert.equal(modelShortLabel("anthropic/claude-3-5-sonnet"), "Claude 3 5 Sonnet");
+  assert.equal(modelShortLabel("gemini-3.7-flash-high"), "Gemini 3.7 Flash High");
+});
+

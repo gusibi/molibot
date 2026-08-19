@@ -129,4 +129,24 @@ describe("Mini App M3 design baseline", () => {
     assert.match(textBlock, /flex:\s*1 1 auto;/);
     assert.match(textBlock, /min-width:\s*0;/);
   });
+
+  it("enforces thin scrollbar rules across all built-in apps and template", () => {
+    for (const sheet of sheets) {
+      assert.match(
+        sheet.css,
+        /scrollbar-width:\s*thin;/,
+        `${sheet.label} is missing scrollbar-width: thin`
+      );
+      assert.match(
+        sheet.css,
+        /::-webkit-scrollbar\s*\{[^}]*width:\s*6px;/,
+        `${sheet.label} is missing 6px ::-webkit-scrollbar definition`
+      );
+      assert.match(
+        sheet.css,
+        /::-webkit-scrollbar-thumb\s*\{[^}]*background-clip:\s*padding-box;/,
+        `${sheet.label} is missing styled ::-webkit-scrollbar-thumb`
+      );
+    }
+  });
 });

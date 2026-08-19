@@ -4,6 +4,31 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-20
+
+### Improved: 优化 AI 回复底部状态条（总耗时精确计算、Token 紧凑展示与纯净模型名）
+
+- **总耗时端到端精确统计**：重构 `transcriptTurnSummary` 计算逻辑，精准计算从对应用户提问发出到 AI 回复生成的端到端总时间，彻底解决原先仅累加 Tool Activities 导致耗时显示偏少的问题；
+- **Token 紧凑易读格式**：引入 `formatCompactTokens`，将原本显示为长串数字的 Token 计数自动精简为 `17k`、`1m`、`3.6m tokens`，大幅提升状态条整洁度；
+- **纯净模型名称展示**：底部信息栏自动去除服务商前缀（如 `Cli Proxy API · `），与聊天输入框保持一致只展示纯净模型名（如 `Gemini 3.7 Flash High`）。
+
+## 2026-08-19
+
+### Improved: 统一右侧 MiniApp 面板与全局滚动条为极简细窄风格
+
+- **问题与根因**：右侧小程序面板（如便签 Note、待办 Todo 等）运行于独立的 iframe 沙箱中，此前未定义滚动条 CSS 规则，导致在 WebKit / WebView 环境下直接渲染了 15~16px 宽度的原生厚重滚动条；而主应用的文件面板与聊天窗采用的是 4~6px 的半透明细窄滚动条，视觉风格割裂且右侧遮挡内容较多。
+- **优化方案**：
+  - 将各 Mini App 顶层 `html, body` 锁定为 `height: 100%; overflow: hidden;`，完全交由小程序内部的主体容器（便签列表、全屏编辑框、会议记录列表等）自主管理滚动，彻底消除外层 iframe 的冗余外层滚动条；
+  - 在 Mini App 共享设计基线以及所有内置小程序（Note、Todo、Meeting Notes、MD Preview、Mini Chat 及 miniapp-creator 模板）中注入统一的极简细窄滚动条样式（`6px` 槽宽、透明轨道、圆角全胶囊半透明滑块、悬停高亮、明暗及暖色主题自适应）；
+  - 将 Desktop 主应用全局滚动条样式同步收窄优化至 `6px`；
+  - 升级所有内置 Mini App 的 patch 版本，并在 `uiDesignBaseline.test.ts` 与 `chat-ui.test.mjs` 中加入自动化守卫断言。
+
+### Fixed: 修复 Desktop 切换/打开历史会话时短暂闪烁「未配置可用文本模型」警告的问题
+
+- **问题根因**：`ChatView.svelte` 在响应式计算 `modelReady` 时将 `&& !modelSelectionHydrating` 耦合在一起。当用户点击打开历史 Session 时，前端异步请求该 Session 的独立模型配置，期间 `modelSelectionHydrating` 为 `true`，导致 `modelReady` 被计算为 `false`，使得输入框上方的 `ChatInputArea` 误认为全局未配置模型并短暂弹出了警告横幅。
+- **修复方案**：解耦 `modelReady` 与 `modelSelectionHydrating`，`modelReady` 仅严格表达系统是否存在合法模型配置；`modelSelectionHydrating` 独立负责禁用输入组件、选择器和 `sendMessage` 守卫，避免竞态与误报。
+- **验证**：Desktop 单元测试全部通过，`svelte-check` 0 错误 0 警告。
+
 ## 2026-08-18
 
 ### Fixed: 审批等待改为挂起与异步恢复机制，消除内联等待超时与卡死

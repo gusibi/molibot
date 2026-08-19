@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "note",
   "name": "Note",
-  "version": "1.4.0",
+  "version": "1.6.0",
   "description": "A card-style Markdown note Mini App for Molibot with live Agent updates, colors, pin, archive, search, and labels.",
   "engines": {
     "molibot": ">=2.9.9 <4"
@@ -48,17 +48,31 @@
           },
           "type": {
             "type": "string",
-            "enum": ["text", "checklist"],
+            "enum": [
+              "text",
+              "checklist"
+            ],
             "description": "Note type. Defaults to text."
           },
           "color": {
             "type": "string",
-            "enum": ["default", "yellow", "blue", "green", "red", "purple", "gray"],
+            "enum": [
+              "default",
+              "yellow",
+              "blue",
+              "green",
+              "red",
+              "purple",
+              "gray"
+            ],
             "description": "Card background color."
           },
           "labels": {
             "type": "array",
-            "items": { "type": "string", "maxLength": 50 },
+            "items": {
+              "type": "string",
+              "maxLength": 50
+            },
             "description": "Tags or categories for the note."
           },
           "is_pinned": {
@@ -69,15 +83,39 @@
             "type": "object",
             "description": "Host-supplied message capture. Present when the note came from the chat message action rather than from the agent.",
             "properties": {
-              "text": { "type": "string", "minLength": 1 },
-              "selection": { "type": "string" },
-              "role": { "type": "string", "enum": ["assistant", "user"] },
-              "truncated": { "type": "boolean" },
-              "capturedAt": { "type": "string" },
-              "source": { "type": "object" },
-              "resources": { "type": "array" }
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "selection": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "assistant",
+                  "user"
+                ]
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "capturedAt": {
+                "type": "string"
+              },
+              "source": {
+                "type": "object"
+              },
+              "resources": {
+                "type": "array"
+              }
             },
-            "required": ["text", "role", "capturedAt", "source"],
+            "required": [
+              "text",
+              "role",
+              "capturedAt",
+              "source"
+            ],
             "additionalProperties": false
           }
         },
@@ -113,7 +151,15 @@
           },
           "color": {
             "type": "string",
-            "enum": ["default", "yellow", "blue", "green", "red", "purple", "gray"],
+            "enum": [
+              "default",
+              "yellow",
+              "blue",
+              "green",
+              "red",
+              "purple",
+              "gray"
+            ],
             "description": "Filter by card color."
           },
           "pinned_only": {
@@ -161,15 +207,29 @@
           },
           "type": {
             "type": "string",
-            "enum": ["text", "checklist"]
+            "enum": [
+              "text",
+              "checklist"
+            ]
           },
           "color": {
             "type": "string",
-            "enum": ["default", "yellow", "blue", "green", "red", "purple", "gray"]
+            "enum": [
+              "default",
+              "yellow",
+              "blue",
+              "green",
+              "red",
+              "purple",
+              "gray"
+            ]
           },
           "labels": {
             "type": "array",
-            "items": { "type": "string", "maxLength": 50 }
+            "items": {
+              "type": "string",
+              "maxLength": 50
+            }
           },
           "is_pinned": {
             "type": "boolean"
@@ -178,7 +238,9 @@
             "type": "boolean"
           }
         },
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "additionalProperties": false
       },
       "readOnlyHint": false,
@@ -209,7 +271,10 @@
             "description": "True to pin, false to unpin."
           }
         },
-        "required": ["id", "is_pinned"],
+        "required": [
+          "id",
+          "is_pinned"
+        ],
         "additionalProperties": false
       },
       "readOnlyHint": false,
@@ -239,7 +304,10 @@
             "description": "True to archive, false to unarchive."
           }
         },
-        "required": ["id", "is_archived"],
+        "required": [
+          "id",
+          "is_archived"
+        ],
         "additionalProperties": false
       },
       "readOnlyHint": false,
@@ -266,7 +334,9 @@
             "description": "The note ID to delete."
           }
         },
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "additionalProperties": false
       },
       "readOnlyHint": false,
@@ -277,9 +347,14 @@
     "messageActions": [
       {
         "tool": "create_note",
-        "label": { "zh": "存为笔记", "en": "Save as Note" },
+        "label": {
+          "zh": "存为笔记",
+          "en": "Save as Note"
+        },
         "icon": "note-blank",
-        "accepts": ["text"]
+        "accepts": [
+          "text"
+        ]
       }
     ]
   }

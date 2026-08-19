@@ -574,10 +574,15 @@ export class SessionStore {
       this.migrateLegacyWebUser(externalUserId);
       const webIndex = readWebIndex();
       const owner = webIndex.byConversationId[conversationId];
-      if (!owner || owner.externalUserId !== externalUserId) return null;
-      const file = readWebSession(externalUserId, conversationId);
-      if (!file) return null;
-      return file.conversation;
+      if (owner && owner.externalUserId === externalUserId) {
+        const file = readWebSession(externalUserId, conversationId);
+        if (file) return file.conversation;
+      }
+      const located = this.resolveSessionStorage(conversationId);
+      if (located?.type === "project") {
+        return located.file.conversation;
+      }
+      return null;
     }
 
     const index = readLegacyIndex();
@@ -771,11 +776,16 @@ export class SessionStore {
     externalUserId: string,
     title: string
   ): Conversation | null {
-    const conversation = this.getConversationById(conversationId, channel, externalUserId);
-    if (!conversation) return null;
-
     const located = this.resolveSessionStorage(conversationId);
     if (!located) return null;
+
+    if (located.type === "web" && located.externalUserId !== externalUserId) {
+      return null;
+    }
+    if (located.type === "legacy") {
+      const owner = readLegacyIndex().byConversationId[conversationId];
+      if (!owner || owner.channel !== channel || owner.externalUserId !== externalUserId) return null;
+    }
 
     located.file.conversation.title = sanitizeConversationTitle(title);
     located.file.conversation.updatedAt = new Date().toISOString();

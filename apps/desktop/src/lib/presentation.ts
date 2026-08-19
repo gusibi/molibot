@@ -65,6 +65,28 @@ export function humanizeModelOption(label: string, key: string): { label: string
   return { label: display || label || key, technicalId: key.trim() };
 }
 
+/** Formats a compact model display name, stripping provider prefix (e.g. "Cli Proxy API · Gemini 3.7 Flash High" -> "Gemini 3.7 Flash High"). */
+export function modelShortLabel(labelOrKey: string): string {
+  const raw = labelOrKey.trim().replace(/^\[[^\]]+\]\s*/, "");
+  const unnamespaced = raw.includes("::") ? (raw.split("::").pop() ?? raw) : raw.includes("|") ? (raw.split("|").pop() ?? raw) : raw;
+  const humanized = humanizeModelOption(unnamespaced, unnamespaced).label;
+  return humanized.split(" · ").at(-1) || labelOrKey;
+}
+
+/** Formats a token count compactly (e.g. 17000 -> "17k", 3632294 -> "3.6m", 500 -> "500"). */
+export function formatCompactTokens(value: number): string {
+  const n = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+  if (n < 1_000) return String(n);
+  if (n < 1_000_000) {
+    const k = n / 1_000;
+    const formatted = (k >= 100 || n % 1_000 === 0) ? Math.round(k).toString() : k.toFixed(1).replace(/\.0$/, "");
+    return `${formatted}k`;
+  }
+  const m = n / 1_000_000;
+  const formatted = (m >= 100 || n % 1_000_000 === 0) ? Math.round(m).toString() : m.toFixed(1).replace(/\.0$/, "");
+  return `${formatted}m`;
+}
+
 /**
  * Display copy for one model option in a selector.
  *

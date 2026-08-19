@@ -69,7 +69,8 @@ test("summarizeSessionTitleWithLlm includes Chinese system prompt when locale is
   assert.equal(title, "Python数据清洗方案");
   assert.equal(captured.context?.systemPrompt, "你是一个会话标题总结助手。你的任务是用中文将用户提问提炼为简短精炼的一句话标题。");
   assert.match(captured.context?.messages[0]?.content as string ?? "", /必须使用中文输出/);
-  assert.equal(captured.options?.reasoning, "off");
+  assert.equal(captured.options?.maxTokens, 500);
+  assert.equal(captured.options?.reasoning, "low");
 });
 
 test("summarizeSessionTitleWithLlm includes English system prompt when locale is en-US", async () => {

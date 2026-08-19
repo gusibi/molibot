@@ -12,6 +12,13 @@ interface ProjectionRuntime {
   sessions: SessionStore;
 }
 
+/**
+ * Entries-file byte ceiling for transcript reads (see
+ * `listSessionMessageEntries`). 16 MB of newest entries is far beyond any
+ * rendered transcript while keeping the synchronous parse in the tens-of-ms.
+ */
+const PROJECTION_TAIL_BYTES_CAP = 16 * 1024 * 1024;
+
 let runtimeProvider: (() => ProjectionRuntime) | undefined;
 
 export function configureConversationProjectionRuntime(provider: () => ProjectionRuntime): void {
@@ -49,7 +56,13 @@ export function loadConversationProjection(input: {
   const { runtime, store, chatId } = projectionContext(input);
   const result = projectConversationMessages({
     conversationId: input.conversationId,
-    entries: store.listSessionMessageEntries(chatId, input.conversationId),
+    // Display read: bound the synchronous parse of a long session's entries
+    // file so one huge transcript cannot pin the event loop for seconds
+    // ("click a session, the whole app freezes"). Fork/compaction paths keep
+    // reading the full history.
+    entries: store.listSessionMessageEntries(chatId, input.conversationId, {
+      tailBytesCap: PROJECTION_TAIL_BYTES_CAP
+    }),
     metadata: runtime.sessions.listMessageMetadata(input.conversationId)
   });
   runtime.sessions.markMessagesContextBacked(input.conversationId, result.migratedMetadataIds);

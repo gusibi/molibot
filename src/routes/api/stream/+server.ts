@@ -31,15 +31,58 @@ function writeEvent(
   encoder: TextEncoder,
   event: string,
   data: unknown
-): void {
+): boolean {
   // The client may have gone away mid-run (stop button, window close, network
   // drop). enqueue() then throws — swallowing it keeps the run loop alive so
   // the final transcript persistence below still happens; losing the live
   // event is harmless because the client reloads the transcript anyway.
   try {
     controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+    return true;
   } catch {
     // stream already closed/cancelled
+    return false;
+  }
+}
+
+/**
+ * SSE heartbeat while a run is in flight. A long tool (the default execution
+ * ceiling is now an hour) can legitimately produce minutes of silence, and a
+ * half-open connection produces silence forever: without a heartbeat the
+ * client cannot tell "busy" from "dead" and its idle watchdog would either
+ * false-positive on real work or never fire on a hung stream. 20s keeps the
+ * connection warm through proxies and stays far under the client's watchdog.
+ */
+const STREAM_HEARTBEAT_INTERVAL_MS = 20_000;
+
+function startStreamHeartbeat(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder
+): () => void {
+  const timer = setInterval(() => {
+    if (!writeEvent(controller, encoder, "ping", { t: Date.now() })) clearInterval(timer);
+  }, STREAM_HEARTBEAT_INTERVAL_MS);
+  return () => clearInterval(timer);
+}
+
+/**
+ * Before the terminal `done`/`error` frame, re-emit every activity the run is
+ * leaving in a non-terminal state as an explicit error card. Persistence has
+ * always closed these (`finalSnapshot`); the live stream never did, so a tool
+ * or delegation aborted without its own `tool_execution_end` kept a spinner
+ * running on the client forever - "output complete, still thinking" (issue
+ * class: interrupted-turn activity cards never converge).
+ */
+function streamClosedActivities(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder,
+  collector: ConversationActivityCollector
+): void {
+  for (const activity of collector.closeRunningActivities()) {
+    writeEvent(controller, encoder, "runner_event", {
+      diagnostic: "",
+      activity
+    });
   }
 }
 
@@ -311,6 +354,8 @@ export const POST: RequestHandler = async ({ request }) => {
         // already appended.
         let assistantPersisted = false;
 
+        const stopHeartbeat = startStreamHeartbeat(controller, encoder);
+
         try {
           const result = await runner.run({
             channel: "web",
@@ -450,6 +495,9 @@ export const POST: RequestHandler = async ({ request }) => {
             result.errorMessage ||
             "(empty response)";
 
+          // Terminal activity frames first (mutating the collector), so the
+          // persisted finalSnapshot and the streamed cards agree.
+          streamClosedActivities(controller, encoder, activityCollector);
           if (result.stopReason !== "waiting_for_approval") {
             runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
               attachments: responseAttachments,
@@ -491,8 +539,10 @@ export const POST: RequestHandler = async ({ request }) => {
           } catch {
             // best-effort persistence; the SSE error below still reaches the client
           }
+          streamClosedActivities(controller, encoder, activityCollector);
           writeEvent(controller, encoder, "error", { ok: false, error: messageText });
         } finally {
+          stopHeartbeat();
           try {
             controller.close();
           } catch {

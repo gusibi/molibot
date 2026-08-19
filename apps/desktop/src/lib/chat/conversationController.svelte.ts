@@ -24,6 +24,13 @@ import type {
 /** A transcript message plus the optional collapsed reasoning trace. */
 export type UiMessage = DesktopConversationMessage & { thinking?: string };
 
+/**
+ * How long Stop waits for the server's stop endpoint before detaching the
+ * stream locally. Bounded because the endpoint can itself be wedged by the
+ * stuck run Stop is trying to end - an unbounded wait froze the button.
+ */
+const STOP_SERVER_WINDOW_MS = 5_000;
+
 /** Immutable snapshot of the controller's live turn state (see `view`). */
 export interface ConversationView {
   sending: boolean;
@@ -56,6 +63,8 @@ export interface ConversationLabels {
   approvalFailed?: string;
   /** Shown when the pending approval expired or was already handled. */
   approvalNotFound?: string;
+  /** Shown when a transcript reload failed (the pane keeps the last messages). */
+  transcriptLoadFailed?: string;
 }
 
 /**
@@ -219,6 +228,31 @@ export class ConversationController {
     this.liveSteps = [...this.liveSteps, { id: `live-${++this.nextLiveStep}`, kind: "plan", plan }];
   }
 
+  /**
+   * A settled turn cannot have anything still "running". The stream can end
+   * without per-activity terminal frames (aborted delegation, dropped events,
+   * idle-timeout recovery), and the server's terminal-activity frames are
+   * best-effort - this is the client-side half of the same contract. Without
+   * it a leftover running card spins forever under a finished answer.
+   */
+  private settleRunningActivities(): void {
+    const stepsPending = this.liveSteps.some((step) => step.kind === "activity" && step.activity.state === "running");
+    const entriesPending = this.activities.some((entry) => entry.state === "running");
+    if (!stepsPending && !entriesPending) return;
+    if (stepsPending) {
+      this.liveSteps = this.liveSteps.map((step) =>
+        step.kind === "activity" && step.activity.state === "running"
+          ? { ...step, activity: { ...step.activity, state: "error" as const } }
+          : step
+      );
+    }
+    if (entriesPending) {
+      this.activities = this.activities.map((entry) =>
+        entry.state === "running" ? { ...entry, state: "error" as const } : entry
+      );
+    }
+  }
+
   /** Drop buffered deltas so a stale flush can't land on a later turn/session. */
   private resetStreamBuffers(): void {
     this.cancelStreamFlush();
@@ -320,8 +354,21 @@ export class ConversationController {
     const hasFiles = files.length > 0;
     const endpoint = this.host.endpoint();
     const sessionId = sessionIdOverride ?? this.host.sessionId();
-    if (!endpoint || !sessionId || this.sending) return;
-    if (this.host.canSend && !this.host.canSend()) return;
+    // None of these guards may swallow the message: the composer is cleared by
+    // the caller BEFORE send() runs and only restored on a throw, so a silent
+    // return here deleted the user's text with no trace (the "second message
+    // vanished" freeze). Enqueue while a turn runs; throw for the states that
+    // cannot accept a turn so the caller restores the composer and reports.
+    if (this.sending) {
+      this.enqueue(content);
+      return;
+    }
+    if (!endpoint || !sessionId) {
+      throw new Error("No service endpoint or session selected - message not sent.");
+    }
+    if (this.host.canSend && !this.host.canSend()) {
+      throw new Error("This session is not ready to send (model or settings still loading) - message not sent.");
+    }
     if (!content && !hasFiles && !resumePlanId) return;
 
     // Pin the whole turn context. A queued follow-up (sessionIdOverride set)
@@ -396,6 +443,9 @@ export class ConversationController {
           if (this.pendingApprovals.some((item) => item.requestId === approval.requestId)) return;
           this.pendingApprovals = [...this.pendingApprovals, approval];
         },
+        onTitleUpdated: () => {
+          void this.host.refreshSessions?.();
+        },
         onDone: (done) => {
           this.flushStreamBuffers();
           this.streamingText = done.response || this.streamingText;
@@ -421,6 +471,7 @@ export class ConversationController {
       await this.host.reload(sessionId).catch(() => undefined);
     } finally {
       this.resetStreamBuffers();
+      this.settleRunningActivities();
       this.sending = false;
       this.stopRequested = false;
       this.abort = null;
@@ -451,7 +502,14 @@ export class ConversationController {
     this.stopRequested = true;
     this.stopInFlight = true;
     try {
-      const stopped = await stopDesktopChat(endpoint, profileId, sessionId);
+      // Ask the server to stop, but never let that request gate the local
+      // recovery: when the service itself is wedged (the very situation Stop
+      // exists for), an unbounded await here froze the button with the stream
+      // still attached. Past the window we detach locally regardless.
+      const stopped = await Promise.race([
+        stopDesktopChat(endpoint, profileId, sessionId).catch(() => false),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), STOP_SERVER_WINDOW_MS))
+      ]);
       // Keep SSE attached while the server aborts/finalizes so its persisted
       // partial answer can reach the normal done/reload path. Only detach a
       // stream that is still stuck after the bounded server-side wait.

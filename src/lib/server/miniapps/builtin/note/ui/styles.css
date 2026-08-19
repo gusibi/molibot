@@ -148,7 +148,40 @@
  * ======================================================================== */
 
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--md-outline-variant) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--md-outline-variant);
+  border-radius: var(--md-shape-full);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--md-outline);
+  background-clip: padding-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
 
 body {
   font-family: var(--md-font);
@@ -157,6 +190,10 @@ body {
   background: var(--md-surface);
   color: var(--md-on-surface);
   -webkit-font-smoothing: antialiased;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ===========================================================================
@@ -200,41 +237,57 @@ body {
  * Layout
  * ======================================================================== */
 
-body { padding: 16px 16px 32px; }
+body {
+  margin: 0;
+  padding: 0;
+}
 
 .note-app {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
   max-width: 960px;
   margin: 0 auto;
+  padding: 8px 12px 32px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   position: relative;
 }
 
 /* — Top app bar ————————————————————————————————————————————— */
 
 .note-header {
+  height: 48px;
+  min-height: 48px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  padding: 0 4px;
 }
 
 .note-icon {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  margin-right: 2px;
 }
 
-.keep-icon { flex-shrink: 0; }
+.keep-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
 
 .note-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   height: 32px;
   flex-shrink: 0;
-  max-width: 55%;
-  padding: 0 6px 0 10px;
+  padding: 0 6px 0 4px;
   border: none;
   border-radius: var(--md-shape-sm);
   background: transparent;
@@ -257,7 +310,7 @@ body { padding: 16px 16px 32px; }
 .note-trigger-title {
   font-size: var(--md-title-md-size);
   line-height: var(--md-title-md-lh);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--md-on-surface);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -265,6 +318,8 @@ body { padding: 16px 16px 32px; }
 }
 
 .note-chevron {
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   color: var(--md-on-surface-variant);
   transition: transform var(--md-dur-medium) var(--md-ease-emphasized);
@@ -283,6 +338,61 @@ body { padding: 16px 16px 32px; }
   align-items: center;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.header-btn {
+  height: 36px;
+  min-width: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font: inherit;
+  font-size: var(--md-label-md-size);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              color var(--md-dur-short) var(--md-ease-standard);
+}
+
+.header-btn:hover {
+  background-color: color-mix(in srgb, var(--md-on-surface) 8%, transparent);
+  color: var(--md-on-surface);
+}
+
+.header-btn:active {
+  background-color: color-mix(in srgb, var(--md-on-surface) 12%, transparent);
+}
+
+.header-btn:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
+}
+
+.header-btn-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-badge {
+  font-size: var(--md-label-md-size);
+  line-height: var(--md-label-md-lh);
+  font-weight: 500;
+  color: inherit;
+}
+
 .search-icon {
   position: absolute;
   left: 10px;
@@ -292,7 +402,7 @@ body { padding: 16px 16px 32px; }
 
 .note-search {
   width: 100%;
-  height: 32px;
+  height: 38px;
   padding: 0 12px 0 34px;
   border: none;
   border-radius: var(--md-shape-full);
@@ -699,6 +809,12 @@ body { padding: 16px 16px 32px; }
   align-items: start;
 }
 
+/* 列表视图布局 */
+.note-app[data-view="list"] .note-grid {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
 .note-card {
   position: relative;
   display: flex;
@@ -714,6 +830,11 @@ body { padding: 16px 16px 32px; }
   transition: box-shadow var(--md-dur-medium) var(--md-ease-standard),
               background-color var(--md-dur-medium) var(--md-ease-standard),
               color var(--md-dur-medium) var(--md-ease-standard);
+}
+
+.note-app[data-view="list"] .note-card {
+  padding: 12px 16px;
+  gap: 6px;
 }
 
 /* Default notes are outlined cards — the only card rank carries a border. */
@@ -830,6 +951,18 @@ body { padding: 16px 16px 32px; }
   font-size: var(--md-body-md-size);
   line-height: var(--md-body-md-lh);
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 列表模式下最多展示 3 行 */
+.note-app[data-view="list"] .card-content {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
 }
 
 .card-content > :first-child { margin-top: 0; }
@@ -927,38 +1060,316 @@ body { padding: 16px 16px 32px; }
 
 @keyframes scrim-enter { from { opacity: 0; } to { opacity: 1; } }
 
-.modal-backdrop.hidden {
+/* — Dialog / Full-screen Editor ——————————————————————————— */
+
+.editor-fullscreen-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: var(--md-surface);
+  animation: page-enter var(--md-dur-short) var(--md-ease-emphasized);
+}
+
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.editor-fullscreen-modal.hidden {
   display: none !important;
   pointer-events: none !important;
 }
 
-/* Dialog: 12px corner, container-high tint, elevation 3. */
-.modal-card {
-  width: 100%;
-  max-width: 560px;
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
-  padding: 24px;
+.editor-page-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  border-radius: var(--md-shape-xl);
-  background: var(--note-surface, var(--md-surface-container-high));
+  height: 100%;
+  width: 100%;
+  background: var(--note-surface, var(--md-surface));
   color: var(--note-on);
-  box-shadow: var(--md-elev-3);
-  animation: dialog-enter var(--md-dur-long) var(--md-ease-emphasized);
   transition: background-color var(--md-dur-medium) var(--md-ease-standard),
               color var(--md-dur-medium) var(--md-ease-standard);
 }
 
-.modal-card[data-color="default"] {
-  background: var(--md-surface-container-high);
+.editor-page-header {
+  height: 52px;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  background: var(--md-surface);
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.editor-header-left {
+  display: flex;
+  align-items: center;
+  min-width: 80px;
+}
+
+/* Material Keep 风格圆形返回按键 */
+.editor-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 10px 0 6px;
+  border: none;
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font: inherit;
+  font-size: var(--md-body-md-size);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              color var(--md-dur-short) var(--md-ease-standard);
+}
+
+.editor-back-btn:hover {
+  background-color: color-mix(in srgb, var(--md-on-surface) 8%, transparent);
   color: var(--md-on-surface);
 }
 
-@keyframes dialog-enter {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
+.editor-back-btn:active {
+  background-color: color-mix(in srgb, var(--md-on-surface) 12%, transparent);
+}
+
+.editor-back-btn:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
+}
+
+.back-chevron {
+  flex-shrink: 0;
+}
+
+.editor-header-title {
+  font-size: var(--md-title-md-size);
+  font-weight: 600;
+  color: var(--md-on-surface);
+  text-align: center;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 80px;
+  justify-content: flex-end;
+}
+
+.editor-save-btn {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--md-shape-full);
+  font-weight: 500;
+}
+
+.editor-page-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px;
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+  overflow-y: auto;
+  gap: 14px;
+}
+
+.editor-title-input {
+  font-size: var(--md-title-lg-size);
+  line-height: var(--md-title-lg-lh);
+  font-weight: 600;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--md-outline-variant);
+  border-radius: 0;
+  background: transparent;
+}
+
+.editor-textarea {
+  flex: 1;
+  min-height: 250px;
+  resize: none;
+  font-size: var(--md-body-lg-size);
+  line-height: 32px;
+  padding: 8px 0;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.editor-labels-bar {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--md-outline-variant);
+}
+
+.editor-page-footer {
+  height: 54px;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-top: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-low);
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.editor-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Material / Keep 风格分享按钮 */
+.editor-share-btn {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: var(--md-label-md-size);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--md-dur-short) var(--md-ease-standard),
+              color var(--md-dur-short) var(--md-ease-standard);
+}
+
+.editor-share-btn:hover {
+  background-color: var(--md-surface-container-high);
+}
+
+.editor-share-btn:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 2px;
+}
+
+.share-btn-icon {
+  flex-shrink: 0;
+}
+
+/* 分享图片弹窗样式 / Share Preview Modal */
+.share-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  animation: scrim-enter var(--md-dur-short) var(--md-ease-standard);
+}
+
+.share-preview-backdrop.hidden {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+.share-preview-dialog {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--md-surface);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  animation: page-enter var(--md-dur-short) var(--md-ease-emphasized);
+}
+
+.share-preview-header {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+
+.share-preview-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--md-on-surface);
+}
+
+.share-preview-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.share-preview-close:hover {
+  background: color-mix(in srgb, var(--md-on-surface) 8%, transparent);
+}
+
+.share-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-surface-container-lowest);
+}
+
+.share-preview-img {
+  max-width: 100%;
+  height: auto;
+  max-height: calc(90vh - 150px);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  display: block;
+}
+
+.share-preview-footer {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 16px;
+  border-top: 1px solid var(--md-outline-variant);
+  background: var(--md-surface);
+}
+
+.share-download-btn {
+  height: 36px;
+  padding: 0 20px;
+  border-radius: var(--md-shape-full);
+  font-size: 14px;
 }
 
 /* Deep-link landing: brief highlight on the note a molibot:// link named. */
@@ -969,7 +1380,359 @@ body { padding: 16px 16px 32px; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition: none !important; animation: none !important; }
-  .note-card.deep-link-target { box-shadow: 0 0 0 3px var(--md-primary); }
+/* ===========================================================================
+ * Smartisan (锤子便签) Theme Overrides
+ * Reference: Authentic Smartisan textured wood topbar, lined paper body & warm shadow
+ * ======================================================================== */
+
+:root[data-app-theme="smartisan"] {
+  --md-surface: #f0dab3;
+  --md-surface-container-lowest: #fffcf7;
+  --md-surface-container-low: #fbf7ed;
+  --md-surface-container: #f5eedf;
+  --md-surface-container-high: #ebdcc8;
+  --md-surface-container-highest: #dfcdb5;
+  --md-on-surface: #3e2f22;
+  --md-on-surface-variant: #8f7b67;
+  --md-outline: rgba(102, 78, 49, 0.28);
+  --md-outline-variant: #e4dad1;
+  --md-primary: #a16d36;
+  --md-on-primary: #fbf6ef;
+  --md-primary-container: rgba(161, 109, 54, 0.12);
+  --md-on-primary-container: #7d4e20;
+
+  /* Note palette on Smartisan warm paper */
+  --note-default: #fbf7ed;
+  --note-on-default: #3e2f22;
+  --note-wash-default: rgba(161, 109, 54, 0.08);
+
+  --note-yellow: #fef8db;
+  --note-on-yellow: #4d3800;
+  --note-wash-yellow: rgba(184, 134, 11, 0.12);
+
+  --note-blue: #edf5fa;
+  --note-on-blue: #1c3d52;
+  --note-wash-blue: rgba(43, 97, 138, 0.12);
+
+  --note-green: #eef7ed;
+  --note-on-green: #234825;
+  --note-wash-green: rgba(46, 117, 51, 0.12);
+
+  --note-red: #faeeec;
+  --note-on-red: #582420;
+  --note-wash-red: rgba(163, 58, 48, 0.12);
+
+  --note-purple: #f5eff9;
+  --note-on-purple: #462858;
+  --note-wash-purple: rgba(118, 59, 153, 0.12);
+
+  --note-gray: #ece6dc;
+  --note-on-gray: #423b32;
+  --note-wash-gray: rgba(66, 59, 50, 0.1);
 }
+
+:root[data-app-theme="smartisan"] body {
+  padding: 0;
+  background-color: #efe6d6;
+  background-image:
+    radial-gradient(#d6c7b2 1px, transparent 1px),
+    linear-gradient(180deg, #f5eedf 0%, #efe6d6 100%);
+  background-size: 20px 20px, 100% 100%;
+  color: #3e2f22;
+  font-family: "PingFang SC", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+
+:root[data-app-theme="smartisan"] .note-app {
+  max-width: 100%;
+  padding: 0 0 32px 0;
+}
+
+:root[data-app-theme="smartisan"] .note-app > :not(.note-header):not(.tab-picker) {
+  max-width: 960px;
+  width: calc(100% - 32px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* 锤子经典深木纹复古顶栏 Topbar - 顶到最上，全宽覆盖，高度 52px */
+:root[data-app-theme="smartisan"] .note-header {
+  height: 52px;
+  min-height: 52px;
+  width: 100%;
+  padding: 0 16px;
+  background: linear-gradient(180deg, #827265, #716053);
+  border-bottom: 1px solid #564944;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  color: #fbf6ef;
+  position: sticky;
+  top: 0;
+  z-index: 80;
+}
+
+:root[data-app-theme="smartisan"] .note-trigger-title {
+  color: #fbf6ef;
+}
+
+:root[data-app-theme="smartisan"] .note-chevron {
+  color: #dcd6ca;
+}
+
+:root[data-app-theme="smartisan"] .note-search {
+  background: #fcfcfc;
+  color: #3e2f22;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+:root[data-app-theme="smartisan"] .tab-picker {
+  top: 56px;
+  left: 16px;
+}
+
+:root[data-app-theme="smartisan"] .header-btn {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  color: #fbf6ef;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+:root[data-app-theme="smartisan"] .header-btn:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.12));
+}
+
+/* 锤子拟真信纸风格便签卡片与横线 */
+:root[data-app-theme="smartisan"] .composer-collapsed {
+  background: #fbf7ed;
+  border: 1px solid #e4dad1;
+  box-shadow: 0 1px 4px rgba(82, 60, 34, 0.08);
+  color: #8f7b67;
+}
+
+:root[data-app-theme="smartisan"] .note-composer {
+  background: #fbf7ed;
+  border: 1px solid #dcd6ca;
+  box-shadow: 0 8px 24px rgba(82, 60, 34, 0.14);
+}
+
+:root[data-app-theme="smartisan"] .note-card {
+  background: #fbf7ed;
+  border: 1px solid #e4dad1;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(82, 60, 34, 0.08), 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+  color: #3e2f22;
+}
+
+:root[data-app-theme="smartisan"] .note-card:hover {
+  box-shadow: 0 6px 16px rgba(82, 60, 34, 0.12);
+  border-color: #dcd6ca;
+}
+
+:root[data-app-theme="smartisan"] .note-card[data-color="default"] {
+  background: #fbf7ed;
+  border-color: #e4dad1;
+}
+
+:root[data-app-theme="smartisan"] .note-submit {
+  background: linear-gradient(180deg, rgb(129, 111, 97) 0%, rgb(115, 99, 87) 100%);
+  border: 1px solid rgba(82, 63, 47, 0.6);
+  color: #fbf6ef;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(58, 42, 29, 0.25);
+}
+
+:root[data-app-theme="smartisan"] .note-submit:hover {
+  background: linear-gradient(180deg, rgb(138, 119, 105) 0%, rgb(121, 104, 91) 100%);
+}
+
+/* 锤子全屏编辑页 (带有拟真信纸横线 background) */
+:root[data-app-theme="smartisan"] .editor-fullscreen-modal {
+  background: #efe6d6;
+}
+
+:root[data-app-theme="smartisan"] .editor-page-container {
+  background: #efe6d6;
+}
+
+:root[data-app-theme="smartisan"] .editor-page-header {
+  background: linear-gradient(180deg, #827265, #716053);
+  border-bottom: 1px solid #564944;
+  color: #fbf6ef;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+:root[data-app-theme="smartisan"] .editor-title-text {
+  color: #fbf6ef;
+}
+
+:root[data-app-theme="smartisan"] .editor-back-btn {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  color: #fbf6ef;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+:root[data-app-theme="smartisan"] .editor-page-body {
+  background-color: #fbf7ed;
+  background-image: linear-gradient(180deg, transparent 31px, #e8e2d7 32px);
+  background-size: 100% 32px;
+  background-attachment: local;
+  box-shadow: 0 2px 12px rgba(82, 60, 34, 0.1), inset 0 0 0 1px #e4dad1;
+  margin-top: 0;
+  margin-bottom: 0;
+  border-radius: 0;
+  padding: 16px 20px;
+}
+
+:root[data-app-theme="smartisan"] .editor-title-input {
+  font-size: var(--md-title-lg-size);
+  line-height: var(--md-title-lg-lh);
+  padding: 4px 0 8px;
+}
+
+:root[data-app-theme="smartisan"] .editor-textarea {
+  line-height: 32px;
+  font-size: var(--md-body-lg-size);
+  color: #3e2f22;
+  background: transparent;
+}
+
+:root[data-app-theme="smartisan"] .editor-page-footer {
+  background: #f5eedf;
+  border-top: 1px solid #e4dad1;
+  border-radius: 0;
+}
+
+:root[data-app-theme="smartisan"] .editor-share-btn {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  color: #fbf6ef;
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+:root[data-app-theme="smartisan"] .editor-share-btn:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.12));
+  color: #ffffff;
+}
+
+:root[data-app-theme="smartisan"] .editor-share-btn .share-btn-icon {
+  color: #fbf6ef;
+}
+
+:root[data-app-theme="smartisan"] .share-preview-dialog {
+  background: #fbf7ed;
+  border: 1px solid #dcd6ca;
+  box-shadow: 0 16px 40px rgba(82, 60, 34, 0.25);
+}
+
+:root[data-app-theme="smartisan"] .share-preview-header {
+  background: linear-gradient(180deg, #827265, #716053);
+  border-bottom: 1px solid #564944;
+  color: #fbf6ef;
+}
+
+:root[data-app-theme="smartisan"] .share-preview-title {
+  color: #fbf6ef;
+}
+
+:root[data-app-theme="smartisan"] .share-preview-close {
+  color: #fbf6ef;
+}
+
+:root[data-app-theme="smartisan"] .share-preview-body {
+  background: #efe6d6;
+}
+
+:root[data-app-theme="smartisan"] .share-preview-footer {
+  background: #f5eedf;
+  border-top: 1px solid #e4dad1;
+}
+
+:root[data-app-theme="smartisan"] .card-dropdown,
+:root[data-app-theme="smartisan"] .tab-picker {
+  background: #fbf7ed;
+  border: 1px solid #dcd6ca;
+  box-shadow: 0 8px 24px rgba(82, 60, 34, 0.18);
+}
+
+/* Dark mode Smartisan */
+:root[data-theme="dark"][data-app-theme="smartisan"] {
+  --md-surface: #1c1a1c;
+  --md-surface-container-lowest: #131113;
+  --md-surface-container-low: #181618;
+  --md-surface-container: #201e20;
+  --md-surface-container-high: #2a272a;
+  --md-surface-container-highest: #383438;
+  --md-on-surface: #e6ded6;
+  --md-on-surface-variant: #baa996;
+  --md-outline: rgba(230, 222, 214, 0.2);
+  --md-outline-variant: #3a373a;
+  --md-primary: #c99359;
+  --md-on-primary: #211508;
+  --note-default: #1c1a1c;
+  --note-on-default: #e6ded6;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] body {
+  padding: 0 0 32px 0;
+  background-color: #131113;
+  background-image: none;
+  color: #e6ded6;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-fullscreen-modal,
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-page-container {
+  background: #131113;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .note-header,
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-page-header {
+  background: linear-gradient(180deg, #2b2623, #1f1b19);
+  border-bottom-color: #38312c;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .note-card,
+:root[data-theme="dark"][data-app-theme="smartisan"] .composer-collapsed,
+:root[data-theme="dark"][data-app-theme="smartisan"] .note-composer,
+:root[data-theme="dark"][data-app-theme="smartisan"] .card-dropdown,
+:root[data-theme="dark"][data-app-theme="smartisan"] .tab-picker {
+  background: #1c1a1c;
+  border-color: #332f33;
+  color: #e6ded6;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-page-body {
+  background-color: #1c1a1c;
+  background-image: linear-gradient(180deg, transparent 31px, #282828 32px);
+  background-size: 100% 32px;
+  box-shadow: none;
+  border-left: 1px solid #2a272a;
+  border-right: 1px solid #2a272a;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-textarea {
+  color: #e6ded6;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-page-footer {
+  background: #181618;
+  border-top-color: #2a272a;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .share-preview-dialog {
+  background: #1c1a1c;
+  border-color: #332f33;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .share-preview-body {
+  background: #131113;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .share-preview-footer {
+  background: #181618;
+  border-top-color: #2a272a;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .share-preview-hint {
+  color: #baa996;
+}
+

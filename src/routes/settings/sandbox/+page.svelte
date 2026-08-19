@@ -1196,7 +1196,7 @@
     color: var(--muted-foreground);
     line-height: 1.35;
   }
-  .sandbox-custom-reset-btn {
+  .sandbox-custom-callout :global(.sandbox-custom-reset-btn) {
     font-size: 0.75rem;
     padding: 0.25rem 0.625rem;
     height: 1.75rem;

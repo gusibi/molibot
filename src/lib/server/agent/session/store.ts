@@ -1,9 +1,12 @@
 import {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -815,12 +818,69 @@ export class MomRuntimeStore {
     ]);
   }
 
-  /** Raw append-only message entries used by the UI projection; compaction does not erase them. */
-  listSessionMessageEntries(chatId: string, sessionId?: string): SessionMessageEntry[] {
+  /**
+   * Raw append-only message entries used by the UI projection; compaction does not erase them.
+   *
+   * `tailBytesCap` bounds a *display* read: when the entries file grew past
+   * the cap (a long-running session accumulates megabytes of tool results),
+   * only the newest `tailBytesCap` bytes are read and parsed. Serving a
+   * transcript must never cost a synchronous full-file parse that pins the
+   * event loop for seconds - the UI renders the newest messages anyway.
+   * Callers that need the complete history (fork, compaction) omit the cap.
+   */
+  listSessionMessageEntries(
+    chatId: string,
+    sessionId?: string,
+    options?: { tailBytesCap?: number }
+  ): SessionMessageEntry[] {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const cap = options?.tailBytesCap;
+    if (cap && cap > 0) {
+      const tail = this.readSessionEntriesTail(chatId, id, cap);
+      if (tail) {
+        return tail
+          .filter((entry): entry is SessionMessageEntry => entry.type === "message")
+          .map((entry) => ({ ...entry }));
+      }
+    }
     return this.readSessionFileEntries(chatId, id)
       .filter((entry): entry is SessionMessageEntry => entry.type === "message")
       .map((entry) => ({ ...entry }));
+  }
+
+  /**
+   * Tail-only read of the entries file. Returns null when the file is small
+   * enough to read whole (the caller then uses the normal full path). The
+   * first line of the tail is dropped: it is almost always a partial line cut
+   * mid-UTF-8-sequence at the byte offset. `parseSessionEntries` already
+   * skips unparseable lines, so an unsevered-but-invalid edge costs nothing.
+   */
+  private readSessionEntriesTail(
+    chatId: string,
+    sessionId: string,
+    tailBytesCap: number
+  ): SessionFileEntry[] | null {
+    const file = this.ensureSessionEntriesFile(chatId, sessionId);
+    let size: number;
+    try {
+      size = statSync(file).size;
+    } catch {
+      return null;
+    }
+    if (size <= tailBytesCap) return null;
+    const length = Math.min(size, tailBytesCap);
+    const buffer = Buffer.alloc(length);
+    const fd = openSync(file, "r");
+    try {
+      readSync(fd, buffer, 0, length, size - length);
+    } finally {
+      closeSync(fd);
+    }
+    let text = buffer.toString("utf8");
+    const firstNewline = text.indexOf("\n");
+    if (firstNewline >= 0) text = text.slice(firstNewline + 1);
+    else text = "";
+    return parseSessionEntries(text);
   }
 
   readSessionLineage(chatId: string, sessionId: string): SessionHeaderEntry["lineage"] {

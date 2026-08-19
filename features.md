@@ -4,6 +4,82 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-20
+
+### AI 回复内容底部状态条优化：总耗时计算、Token 紧凑格式化与纯净模型名展示（已完成，P1）
+
+- **背景与问题**：
+  - AI 回复内容下方的统计信息栏（`turn-summary`）存在三处可读性与准确性问题：
+    1. **耗时非全量时间**：此前时间统计仅累加了 tool activities 的执行时间，未计入 LLM 推理、思考及网络往返耗时，导致显示的 27.2s 远低于用户从发送到接收完成的实际端到端总时间；
+    2. **Token 显示冗长**：Token 计数直接显示完整大整数（如 `3632294 tokens`），在有限宽度的状态条中过于冗长且不易快速获知数量级；
+    3. **模型名称包含服务商前缀**：最右侧模型信息显示了 `Cli Proxy API · Gemini 3.7 Flash High` 这类长名称，包含了服务商前缀，未能与聊天输入框保持一致的纯净模型名呈现。
+- **优化方案**：
+  - **端到端总时间精确计算**：`transcriptTurnSummary` 支持关联本轮对应的用户消息 `previousUserMessage`，若存在则使用 `assistantMessage.createdAt` 与 `userMessage.createdAt` 的时间差精确计算从发送到完成的总耗时（端到端 Wall-clock 耗时），无前置消息时平滑回退至 activities 耗时累加；
+  - **Token 紧凑格式化（`formatCompactTokens`）**：引入 `<1k` 显示原始数值、`1k~999k` 紧凑展示为 `17k` / `17.4k`、`>=1m` 紧凑展示为 `1m` / `3.6m` 的标准算法，底部状态条及弹出详情菜单统一应用；
+  - **纯净模型名称提取（`modelShortLabel`）**：自动剥离 provider/namespace 前缀（如 `cli-proxy-api/`、`custom::`、`custom|` 等），将 `Cli Proxy API · Gemini 3.7 Flash High` 提炼为只展示纯净模型名 `Gemini 3.7 Flash High`，与输入框保持一致的高级极简设计。
+- **验证与测试**：
+  - `apps/desktop/src/lib/chat/transcript.test.ts` 新增对端到端耗时计算、紧凑 Token 格式化、纯净模型名提取的 12/12 自动化单元测试；
+  - `apps/desktop` `svelte-check` 0 错误 0 警告，`test:desktop-chat` 266 项回归测试全部通过。
+
+## 2026-08-19
+
+### 右侧 MiniApp 面板与全局滚动条细窄化统一（已完成，P2）
+
+- **问题根因**：
+  - 各 Mini App 均运行在独立的沙箱 iframe 中（`molibot-miniapp://<id>/...`），拥有独立的样式作用域；此前 Mini App 基础样式未定义滚动条规则，导致 WebKit/WebView 回退为 15~16px 宽的原生宽滚动条，与主应用内文件面板/聊天区域的细窄精致滚动条风格割裂。
+- **优化方案**：
+  - **消除外部多余滚动条**：将 Mini App 页面顶层 `html, body` 锁定为 `height: 100%; width: 100%; overflow: hidden;`，完全由 Mini App 内部容器（如便签列表、全屏编辑模态框等）按需承载滚动，彻底杜绝外层 iframe 产生第二条滚动条。
+  - 在 Mini App 共享设计基线（`note`、`todo`、`meeting-notes`、`md-preview`、`mini-chat` 以及 `miniapp-creator` 模板）中统一定义现代细窄滚动条：
+    - `scrollbar-width: thin;` 与 `scrollbar-color: var(--md-outline-variant) transparent;`
+    - `::-webkit-scrollbar` 宽度收缩至 `6px`，轨道完全透明；
+    - 滑块使用圆角全胶囊（`border-radius: var(--md-shape-full)`）搭配半透明轮廓色，悬停自适应加深；在锤子便签等自定义主题下自动继承暖色纸调。
+  - 同步将 Desktop 主应用滚动条槽宽由 `10px` 优化收窄至 `6px`，全应用保持一致极简轻盈体验。
+  - 内置 Mini App 全部递增 patch 版本号（Note 1.5.5, Todo 1.7.1, Meeting Notes 1.2.1, MD Preview 1.1.2, Mini Chat 1.0.6, miniapp-creator 1.4.1）。
+- **验证与守卫**：
+  - `src/lib/server/miniapps/uiDesignBaseline.test.ts` 新增对所有 Mini App 及模板样式表滚动条规则的自动化守卫断言，6/6 测试全部通过。
+  - `apps/desktop/src/chat-ui.test.mjs` 新增滚动条规则断言；`svelte-check` 0 错误 0 警告。
+
+### Desktop 切换/打开历史会话时闪烁「未配置可用文本模型」修复（已完成，P1）
+
+- **状态解耦**：
+  - 将 `ChatView.svelte` 中的 `modelReady` 判定与 `modelSelectionHydrating` 解耦，`modelReady` 仅反映系统是否存在可用模型。
+  - 会话模型水合加载态（`modelSelectionHydrating`）独立控制输入框与模型选择器的禁用状态及 `sendMessage` 前置守卫，彻底消除打开历史会话时因异步拉取模型配置而短暂误报「未配置可用文本模型」的问题。
+
+### Desktop 侧边栏分组标题滚动体验优化（已完成，P2）
+
+- **移除吸顶与伪元素遮罩**：
+  - 移除 `.sidebar-section-head` 原先的 `position: sticky` 吸顶机制与背景遮罩，使「对话」、「项目」和「小程序」等分组标题随会话列表自然滚动。
+  - 彻底解决吸顶时下方列表文字向上穿透导致的文字重叠/杂乱问题，以及实体背景遮罩破坏 macOS 毛玻璃质感的问题。
+  - 内容向上滚动时统一在上方固定导航栏（新对话/自动任务/技能/Agent/小程序）的下边界处平滑裁切。
+
+
+### Session Title 自动总结修复与增强日志（已完成，P1）
+
+- **Desktop SSE 实时同步**：
+  - `conversationTurn.ts` 支持解析 `session_title_updated` SSE 事件，并在 `conversationController.svelte.ts` 收到时立即触发 `refreshSessions()` 刷新侧栏，解决客户端依赖 turn 结束竞态刷新导致 title 无法及时呈现的问题。
+- **Project 会话跨存储定位支持**：
+  - 修复 `SessionStore.getConversationById` 和 `renameConversation` 原先无法定位 Project 目录下会话（`/projects/{projectId}/sessions/...`）的问题，打通 `resolveSessionStorage` 兜底机制。
+- **增强标题覆盖判定规则**：
+  - 判定未自定义标题时，将原消息全文作为初始标题（短消息未截断）的情况正确识别为可自动总结状态，避免短消息被误判为“用户已手动改名”而跳过。
+- **全链路结构化调试日志**：
+  - 在 `titleSummarizer.ts` 中加入涵盖触发参数、会话查找、初始状态比对、模型与 API Key 准备、LLM 耗时及重命名结果的完整日志输出。
+
+### Note MiniApp 升级：Markdown 渲染排版与明暗双色分享图（已完成，P1）
+
+- **分享图片完整支持 Markdown 语法富文本渲染**：
+  - 不再输出生硬的 Markdown 源码纯文本，而是通过内置轻量渲染管线解析为排版完整的富文本卡片：
+    - **标题**（`#`、`##`、`###`）字号与权重分级；
+    - **文字格式**：粗体（`**加粗**`）、斜体（`*斜体*`）、高亮、行内代码（`code`）；
+    - **排版块**：代码块（`pre code` 独立背景与等宽字体）、引用块（`blockquote` 左侧竖线装饰与微底色）、无序/有序列表（`ul`/`ol`/`li` 缩进与标记符）、分割线（`hr`）等。
+- **分享图片全面支持明暗双色模式**：
+  - **锤子主题暗色模式**：分享图自适应深色，采用深色石墨纸质底（`#131113` / `#1c1a1c`）、深灰内外双层线框（`#332f33`）及暖棕高对比度文字（`#e6ded6` / `#baa996`），在暗黑模式下生成风格统一的拟真深色信纸卡片。
+  - **Keep 主题暗色模式**：分享图自适应深色 Google Keep 卡片色阶（`#1a1a1c` 底色，随笔记颜色呈现深灰/深黄/深蓝等 Material 暗色色阶）及浅色文本（`#e8eaed` / `#bdc1c6`）。
+- **锤子主题下「分享」按钮样式与 Header「返回」按键完全统一**：
+  - 锤子主题下的「分享」按钮采用与顶部返回/控制按键完全一致的**复古拟物按键质感**（`linear-gradient` 半透明玻璃高光、`rgba(0,0,0,0.35)` 微描边、内阴影高光以及微圆角 `4px`），悬浮与按压交互完美统一。
+- **极简化分享图预览弹窗**：
+  - 移除了冗余的底部按钮，仅保留简洁明了的指引提示「长按或右键图片即可复制/保存」，弹窗整体更干净紧凑。
+- MiniApp 版本升级至 `1.5.9`，测试全部通过。
+
 ## 2026-08-18
 
 ### 审批等待改为挂起与异步恢复机制，消除内联等待超时（已完成，P1）

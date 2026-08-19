@@ -2865,28 +2865,79 @@ export async function streamDesktopChat(
   await consumeDesktopSse(response, onEvent);
 }
 
-export async function consumeDesktopSse(response: Response, onEvent: SseHandler): Promise<void> {
+/**
+ * No bytes for this long (heartbeats included - the server pings every 20s
+ * while a run is live) means the stream is dead, not busy: a half-open
+ * connection otherwise holds the turn promise open forever, which is exactly
+ * the "answer rendered, spinner still turning, send swallowed" freeze. 90s
+ * tolerates three missed heartbeats before declaring death.
+ */
+export const DESKTOP_SSE_IDLE_TIMEOUT_MS = 90_000;
+
+export class DesktopSseIdleTimeoutError extends Error {
+  constructor(idleMs: number) {
+    super(
+      `Stream connection idle for ${Math.round(idleMs / 1000)}s (no frames, no heartbeat); disconnected. ` +
+        "The task may still be finishing server-side - reloading the conversation shows its result."
+    );
+    this.name = "DesktopSseIdleTimeoutError";
+  }
+}
+
+export async function consumeDesktopSse(
+  response: Response,
+  onEvent: SseHandler,
+  idleTimeoutMs: number = DESKTOP_SSE_IDLE_TIMEOUT_MS
+): Promise<void> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Streaming response body is unavailable");
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
-    let separator = buffer.indexOf("\n\n");
-    while (separator >= 0) {
-      const block = buffer.slice(0, separator);
-      buffer = buffer.slice(separator + 2);
-      const parsed = parseSseBlock(block);
-      if (parsed) await onEvent(parsed.event, parsed.data);
-      separator = buffer.indexOf("\n\n");
-    }
-    if (done) break;
-  }
+  // Idle watchdog: every received chunk re-arms the deadline; silence past it
+  // rejects the pending read() so the turn settles instead of hanging.
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let rejectIdle: ((error: DesktopSseIdleTimeoutError) => void) | undefined;
+  const idleWatch = idleTimeoutMs > 0
+    ? new Promise<never>((_, reject) => {
+      rejectIdle = reject;
+    })
+    : null;
+  const armIdleDeadline = (): void => {
+    if (!idleWatch) return;
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      rejectIdle?.(new DesktopSseIdleTimeoutError(idleTimeoutMs));
+      // Free the reader: the server may keep the socket open for a run that
+      // outlives our patience, and an unclosed reader pins the connection.
+      void reader.cancel().catch(() => undefined);
+    }, idleTimeoutMs);
+  };
 
-  const parsed = parseSseBlock(buffer.trim());
-  if (parsed) await onEvent(parsed.event, parsed.data);
+  try {
+    armIdleDeadline();
+    while (true) {
+      const { value, done } = idleWatch
+        ? await Promise.race([reader.read(), idleWatch])
+        : await reader.read();
+      armIdleDeadline();
+      buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+      let separator = buffer.indexOf("\n\n");
+      while (separator >= 0) {
+        const block = buffer.slice(0, separator);
+        buffer = buffer.slice(separator + 2);
+        const parsed = parseSseBlock(block);
+        if (parsed) await onEvent(parsed.event, parsed.data);
+        separator = buffer.indexOf("\n\n");
+      }
+      if (done) break;
+    }
+
+    const parsed = parseSseBlock(buffer.trim());
+    if (parsed) await onEvent(parsed.event, parsed.data);
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer);
+  }
 }
 
 export interface DesktopChatResult {

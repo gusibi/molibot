@@ -241,3 +241,44 @@ test("duplicate lifecycle sources stay one row for the same toolCallId", () => {
     mutates: true
   });
 });
+
+test("closeRunningActivities returns only interrupted ones and agrees with finalSnapshot", () => {
+  const collector = new ConversationActivityCollector();
+  collector.record({
+    type: "tool_execution_start",
+    toolCallId: "call-done",
+    toolName: "read",
+    displayName: "Read",
+    label: "read config"
+  });
+  collector.record({
+    type: "tool_execution_end",
+    toolCallId: "call-done",
+    toolName: "read",
+    displayName: "Read",
+    isError: false,
+    summary: "ok"
+  });
+  collector.record({
+    type: "tool_execution_start",
+    toolCallId: "call-subagent",
+    toolName: "subagent",
+    displayName: "Subagent",
+    label: "worker task"
+  });
+  // No tool_execution_end for call-subagent: the delegation was aborted and
+  // its end frame never reached the collector.
+  const closed = collector.closeRunningActivities();
+
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0].key, "call-subagent");
+  assert.equal(closed[0].state, "error");
+  assert.equal(closed[0].summary, "Interrupted before completion.");
+  // Closing is in place: the persisted snapshot and the streamed terminal
+  // cards must agree (same key, same terminal state).
+  const persisted = collector.finalSnapshot();
+  assert.equal(persisted.find((activity) => activity.key === "call-subagent")?.state, "error");
+  assert.equal(persisted.find((activity) => activity.key === "call-done")?.state, "success");
+  // A second close is a no-op: every activity is already terminal.
+  assert.deepEqual(collector.closeRunningActivities(), []);
+});
