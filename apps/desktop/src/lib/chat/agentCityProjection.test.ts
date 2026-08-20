@@ -11,7 +11,7 @@ function agent(id: string, enabled = true): DesktopAgentItem {
     enabled,
     sandboxEnabled: null,
     modelOverrides: 0,
-    modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "" }
+    modelRouting: { textModelKey: "", sttModelKey: "" }
   };
 }
 

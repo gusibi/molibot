@@ -14,6 +14,20 @@ function inferImageMime(pathname: string): string | null {
   return null;
 }
 
+export function imageContentFromSavedAttachment(
+  attachment: FileAttachment,
+  bytes: Uint8Array
+): ImageContent | null {
+  if (!attachment.isImage) return null;
+  const mimeType = attachment.mimeType || inferImageMime(attachment.local);
+  if (!mimeType) return null;
+  return {
+    type: "image",
+    mimeType,
+    data: Buffer.from(bytes).toString("base64")
+  };
+}
+
 export function rebuildImageContentsFromAttachments(
   attachments: FileAttachment[],
   workspaceDir?: string,
@@ -29,13 +43,8 @@ export function rebuildImageContentsFromAttachments(
           ? join(workspaceDir, attachment.local)
           : attachment.local;
       const bytes = readFileSync(localPath);
-      const mimeType = attachment.mimeType || inferImageMime(attachment.local);
-      if (!mimeType) continue;
-      out.push({
-        type: "image",
-        mimeType,
-        data: bytes.toString("base64")
-      });
+      const content = imageContentFromSavedAttachment(attachment, bytes);
+      if (content) out.push(content);
     } catch (error) {
       onWarning?.(attachment, error);
     }

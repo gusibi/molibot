@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
-import { sanitizeImageGenerateSettings, sanitizeMcpServers, sanitizeSettings } from "$lib/server/settings/sanitize.js";
+import { sanitizeImageGenerateSettings, sanitizeImageRecognitionSettings, sanitizeMcpServers, sanitizeSettings } from "$lib/server/settings/sanitize.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 
 test("sanitizeSettings backfills imageGenerate for legacy settings", () => {
@@ -212,6 +212,46 @@ test("sanitizeImageGenerateSettings drops the reserved auto engine id", () => {
   }, defaultRuntimeSettings.imageGenerate);
 
   assert.equal(sanitized.engines.auto, undefined);
+});
+
+test("sanitizeImageRecognitionSettings keeps ordered API model engines and removes invalid references", () => {
+  const sanitized = sanitizeImageRecognitionSettings({
+    enabled: true,
+    defaultEngine: "secondary",
+    engineOrder: ["secondary", "primary", "secondary", "missing"],
+    engines: {
+      primary: { enabled: true, name: "Primary", modelKey: "custom|vision-a|model-a" },
+      secondary: { enabled: true, name: "Secondary", modelKey: "pi|google|gemini-2.5-flash" },
+      bad: { enabled: true, name: "Bad", modelKey: "not-a-model-key" },
+      auto: { enabled: true, name: "Reserved", modelKey: "custom|x|y" }
+    }
+  }, defaultRuntimeSettings.imageRecognition);
+
+  assert.deepEqual(Object.keys(sanitized.engines).sort(), ["primary", "secondary"]);
+  assert.deepEqual(sanitized.engineOrder, ["secondary", "primary"]);
+  assert.equal(sanitized.defaultEngine, "secondary");
+  assert.equal(sanitized.engines.primary.name, "Primary");
+});
+
+test("sanitizeImageRecognitionSettings resets a deleted default engine to auto", () => {
+  const current = sanitizeImageRecognitionSettings({
+    enabled: true,
+    defaultEngine: "primary",
+    engineOrder: ["primary"],
+    engines: {
+      primary: { enabled: true, modelKey: "custom|vision-a|model-a" }
+    }
+  }, defaultRuntimeSettings.imageRecognition);
+
+  const sanitized = sanitizeImageRecognitionSettings({
+    ...current,
+    engines: {},
+    engineOrder: []
+  }, current);
+
+  assert.deepEqual(sanitized.engines, {});
+  assert.deepEqual(sanitized.engineOrder, []);
+  assert.equal(sanitized.defaultEngine, "auto");
 });
 
 test("sanitizeSettings backfills ttsGenerate for legacy settings", () => {

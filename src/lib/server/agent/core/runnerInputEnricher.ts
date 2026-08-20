@@ -8,8 +8,6 @@ import {
   decideAudioRouting,
   enrichMessageTextWithAudio,
   decideVisionRouting,
-  decideImageFallbackRouting,
-  enrichMessageTextWithImages,
   type AudioRouteDecision,
   type VisionRouteDecision
 } from "$lib/server/agent/routing/mediaFallback.js";
@@ -23,13 +21,7 @@ export interface EnrichedRunnerInput {
   modelUseCase: "text" | "vision";
   audioDecision: AudioRouteDecision;
   visionDecision: VisionRouteDecision;
-  /**
-   * Image attachments the model can neither see natively nor read a description
-   * of. The runner turns this into an explicit runtime instruction: without one
-   * the model is handed a bare binary path and burns the turn on `skillSearch`
-   * / `ls` / `read` before concluding it has no OCR tool.
-   */
-  unreadableImageCount: number;
+  imageAttachmentCount: number;
 }
 
 export async function prepareEnrichedInput(options: {
@@ -78,60 +70,28 @@ export async function prepareEnrichedInput(options: {
     settings,
     Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0
   );
-  const imageDecision = decideImageFallbackRouting(
-    settings,
-    Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0,
-    visionDecision
-  );
-  momLog("runner", "image_fallback_decision", {
+  momLog("runner", "image_route_decision", {
     runId,
     chatId,
     sessionId,
-    mode: imageDecision.mode,
-    reason: imageDecision.reason,
-    visionRouteKey: currentModelKey(settings, "vision"),
+    mode: visionDecision.mode,
+    reason: visionDecision.reason,
+    textRouteKey: currentModelKey(settings, "text"),
     hasImages: Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0
   });
-  const enrichedInput = await enrichMessageTextWithImages(
-    ctx,
-    settings,
-    imageDecision,
-    audioEnrichedInput.text
-  );
-  momLog("runner", "image_analysis_success", {
-    runId,
-    chatId,
-    sessionId,
-    analysisErrors: enrichedInput.analysisErrors.length,
-    analyzedCount: enrichedInput.analyzedCount,
-    hasAnalyses: enrichedInput.text !== audioEnrichedInput.text
-  });
-  if (enrichedInput.analysisErrors.length > 0) {
-    await respondInThread(
-      [
-        "图片识别不可用，已降级为仅保留图片附件占位信息。",
-        ...enrichedInput.analysisErrors,
-        "建议：检查 vision provider 的 baseUrl/path/model，以及模型是否声明 `vision` 能力。"
-      ].join("\n")
-    );
-  }
-
-  const modelUseCase: "text" | "vision" = visionDecision.sendImagesNatively ? "vision" : "text";
+  const modelUseCase: "text" | "vision" = "text";
   const modelCandidates = buildModelFallbackSelections(settings, visionDecision.selection, modelUseCase);
   const activeSelection = modelCandidates[0] ?? visionDecision.selection;
 
   const imageAttachmentCount = ctx.message.attachments.filter((item) => item.isImage).length;
-  const unreadableImageCount = visionDecision.sendImagesNatively
-    ? 0
-    : Math.max(0, imageAttachmentCount - enrichedInput.analyzedCount);
 
   return {
-    enrichedText: enrichedInput.text,
+    enrichedText: audioEnrichedInput.text,
     activeSelection,
     modelCandidates,
     modelUseCase,
     audioDecision,
     visionDecision,
-    unreadableImageCount
+    imageAttachmentCount
   };
 }

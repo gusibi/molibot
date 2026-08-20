@@ -5,6 +5,7 @@ import { crc32, deflateSync } from "node:zlib";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createReadTool } from "$lib/server/agent/tools/read.js";
+import { defaultRuntimeSettings } from "$lib/server/settings/index.js";
 
 function makeTool(cwd: string) {
   return createReadTool({ cwd, workspaceDir: cwd });
@@ -146,6 +147,65 @@ test("read downscales an oversized image instead of failing", async () => {
       `resized image must fit the limit, got ${decodedBytes} bytes`
     );
     assert.match(textOf(result), /Read image file/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("read sends image content directly when the active model supports vision", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-read-native-image-"));
+  try {
+    writeFileSync(join(cwd, "screen.png"), Buffer.from("image-bytes"));
+    let recognitionCalls = 0;
+    const tool = createReadTool({
+      cwd,
+      workspaceDir: cwd,
+      channel: "test",
+      getSettings: () => defaultRuntimeSettings,
+      getActiveModelSupportsVision: () => true,
+      recognizeImage: async () => {
+        recognitionCalls += 1;
+        throw new Error("must not run");
+      }
+    });
+
+    const result = await tool.execute("t1", { path: "screen.png", prompt: "Inspect the error" });
+    assert.ok(result.content.some((part: any) => part.type === "image"));
+    assert.equal(recognitionCalls, 0);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("read recognizes the same image on demand more than once for a text-only model", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-read-recognized-image-"));
+  try {
+    writeFileSync(join(cwd, "screen.png"), Buffer.from("image-bytes"));
+    const prompts: string[] = [];
+    const tool = createReadTool({
+      cwd,
+      workspaceDir: cwd,
+      channel: "test",
+      getSettings: () => defaultRuntimeSettings,
+      getActiveModelSupportsVision: () => false,
+      recognizeImage: async ({ prompt }) => {
+        prompts.push(prompt ?? "");
+        return {
+          text: `evidence:${prompt}`,
+          engineId: "vision-a",
+          attempts: [{ engineId: "vision-a", ok: true, durationMs: 1 }],
+          warnings: []
+        };
+      }
+    });
+
+    const first = await tool.execute("t1", { path: "screen.png", prompt: "Read all text" });
+    const second = await tool.execute("t2", { path: "screen.png", prompt: "Inspect layout" });
+
+    assert.deepEqual(prompts, ["Read all text", "Inspect layout"]);
+    assert.match(textOf(first), /evidence:Read all text/);
+    assert.match(textOf(second), /evidence:Inspect layout/);
+    assert.equal(first.content.some((part: any) => part.type === "image"), false);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

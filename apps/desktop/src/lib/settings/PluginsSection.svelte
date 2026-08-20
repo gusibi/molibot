@@ -12,8 +12,58 @@
     updatePluginSecret,
     updatePluginValue
   } from "../stores/plugins.svelte";
-  import { startDailyMaterialsBackfill, loadDailyMaterialsBackfillStatus } from "../api";
+  import {
+    startDailyMaterialsBackfill,
+    loadDailyMaterialsBackfillStatus,
+    loadExternalSubagentStatus,
+    installExternalSubagentRuntime,
+    type ExternalSubagentStatusResponse
+  } from "../api";
   import type { DailyMaterialsBackfillStatus } from "@molibot/desktop-contract";
+
+  let subagentStatus = $state<ExternalSubagentStatusResponse | null>(null);
+  let checkingSubagent = $state(false);
+  let installingProvider = $state<string | null>(null);
+
+  async function refreshSubagentStatus(): Promise<void> {
+    if (!session.endpoint) return;
+    checkingSubagent = true;
+    try {
+      const codexPath = String(pluginsStore.pluginsEdit?.values["external-subagent"]?.codexPath ?? "");
+      const claudePath = String(pluginsStore.pluginsEdit?.values["external-subagent"]?.claudeCodePath ?? "");
+      subagentStatus = await loadExternalSubagentStatus(session.endpoint, {
+        codexPath,
+        claudeCodePath: claudePath
+      });
+    } catch {
+      // ignore
+    } finally {
+      checkingSubagent = false;
+    }
+  }
+
+  async function installSubagent(provider: "codex" | "claude-code"): Promise<void> {
+    if (!session.endpoint || installingProvider !== null) return;
+    installingProvider = provider;
+    try {
+      const res = await installExternalSubagentRuntime(session.endpoint, provider);
+      if (res.ok) {
+        await refreshSubagentStatus();
+      } else {
+        pluginsStore.actionMessage = res.error || "Installation failed";
+      }
+    } catch (e) {
+      pluginsStore.actionMessage = e instanceof Error ? e.message : String(e);
+    } finally {
+      installingProvider = null;
+    }
+  }
+
+  $effect(() => {
+    if (expandedPlugin === "external-subagent" && session.endpoint && !subagentStatus && !checkingSubagent) {
+      void refreshSubagentStatus();
+    }
+  });
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== pluginsStore.endpoint) {
@@ -198,6 +248,82 @@
                   <label class="settings-field"><span>{field.label}{field.required ? " *" : ""}</span><input value={String(pluginsStore.pluginsEdit!.values[plugin.pluginKey]?.[field.key] ?? field.value)} placeholder={field.placeholder} oninput={(event) => updatePluginValue(plugin.pluginKey, field.key, event.currentTarget.value)} />{#if field.description}<small>{field.description}</small>{/if}</label>
                 {/if}
               {/each}
+
+              {#if plugin.pluginKey === "external-subagent"}
+                <div class="ext-status-panel">
+                  <div class="ext-status-head">
+                    <div>
+                      <strong>{session.text.externalSubagentStatus}</strong>
+                      <p>{session.text.externalSubagentStatusHint}</p>
+                    </div>
+                    <button
+                      class="secondary-button"
+                      type="button"
+                      disabled={checkingSubagent}
+                      onclick={refreshSubagentStatus}
+                    >
+                      <i class="ph ph-arrows-clockwise" class:spin={checkingSubagent} aria-hidden="true"></i>
+                      <span>{checkingSubagent ? session.text.externalSubagentChecking : session.text.externalSubagentCheck}</span>
+                    </button>
+                  </div>
+
+                  {#if subagentStatus}
+                    <div class="ext-status-list">
+                      <div class="ext-status-row">
+                        <div class="ext-status-info">
+                          <div class="ext-status-title">
+                            <strong>OpenAI Codex</strong>
+                            <span class="status-badge" data-state={subagentStatus.codex.available ? "ready" : "disconnected"}>
+                              {subagentStatus.codex.available ? session.text.externalSubagentDetected : session.text.externalSubagentNotFound}
+                            </span>
+                          </div>
+                          {#if subagentStatus.codex.executablePath || subagentStatus.codex.packagePath}
+                            <span class="ext-status-path">{subagentStatus.codex.source ? `[${subagentStatus.codex.source}] ` : ""}{subagentStatus.codex.executablePath || subagentStatus.codex.packagePath}</span>
+                          {:else if subagentStatus.codex.error}
+                            <span class="ext-status-error">{subagentStatus.codex.error}</span>
+                          {/if}
+                        </div>
+                        {#if !subagentStatus.codex.available}
+                          <button
+                            class="secondary-button"
+                            type="button"
+                            disabled={installingProvider !== null}
+                            onclick={() => installSubagent("codex")}
+                          >
+                            {installingProvider === "codex" ? session.text.externalSubagentInstalling : session.text.externalSubagentInstall}
+                          </button>
+                        {/if}
+                      </div>
+
+                      <div class="ext-status-row">
+                        <div class="ext-status-info">
+                          <div class="ext-status-title">
+                            <strong>Claude Code</strong>
+                            <span class="status-badge" data-state={subagentStatus.claudeCode.available ? "ready" : "disconnected"}>
+                              {subagentStatus.claudeCode.available ? session.text.externalSubagentDetected : session.text.externalSubagentNotFound}
+                            </span>
+                          </div>
+                          {#if subagentStatus.claudeCode.executablePath || subagentStatus.claudeCode.packagePath}
+                            <span class="ext-status-path">{subagentStatus.claudeCode.source ? `[${subagentStatus.claudeCode.source}] ` : ""}{subagentStatus.claudeCode.executablePath || subagentStatus.claudeCode.packagePath}</span>
+                          {:else if subagentStatus.claudeCode.error}
+                            <span class="ext-status-error">{subagentStatus.claudeCode.error}</span>
+                          {/if}
+                        </div>
+                        {#if !subagentStatus.claudeCode.available}
+                          <button
+                            class="secondary-button"
+                            type="button"
+                            disabled={installingProvider !== null}
+                            onclick={() => installSubagent("claude-code")}
+                          >
+                            {installingProvider === "claude-code" ? session.text.externalSubagentInstalling : session.text.externalSubagentInstall}
+                          </button>
+                        {/if}
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
           </div>
         {/if}
@@ -291,5 +417,66 @@
     color: var(--label-secondary);
     font-size: 12px;
     line-height: var(--lh-prose);
+  }
+  .ext-status-panel {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--rounded-md);
+    background: var(--card-bg);
+  }
+  .ext-status-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .ext-status-head strong {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .ext-status-head p {
+    margin: 2px 0 0;
+    color: var(--label-secondary);
+    font-size: 11px;
+  }
+  .ext-status-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ext-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: var(--rounded-sm);
+    background: var(--surface-secondary);
+  }
+  .ext-status-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .ext-status-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ext-status-title strong {
+    font-size: 13px;
+  }
+  .ext-status-path {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--label-secondary);
+    word-break: break-all;
+  }
+  .ext-status-error {
+    font-size: 11px;
+    color: var(--danger);
   }
 </style>

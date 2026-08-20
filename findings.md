@@ -1,3 +1,25 @@
+# 图片按需识别调查（2026-08-20）
+
+- Desktop follow-up 冷路径发现 Svelte effect 的失败重试风险：若 load catch 清空用于去重的 endpoint，`endpoint !== loadedEndpoint` 会立即重新触发请求。专用 store 现在失败后保留 endpoint，并用显式重试动作恢复；机器守卫锁定错误态与重试入口。
+- Desktop 预览代理在上游服务消失时可能不及时结束请求，因此识别设置加载同时有 Fetch abort 和 store 6 秒截止；UI 不会永久停留在 loading，也不会断线时持续打接口。
+- 最终对抗审查确认 `read` 仅把 JPEG/PNG/GIF/WebP 视作可送入模型的图片；Channel 虽可保存 BMP/TIFF 附件，但不会把不受支持的格式误送给视觉 API。
+- 多引擎的 `auto` 语义是按启用顺序故障切换；用户钉住单一默认引擎时不静默 fallback，避免违背明确选择。每次尝试记录引擎、耗时和安全截断后的错误。
+- 自定义模型必须声明 vision；明确验证失败的模型被拒绝，尚未验证的声明模型允许配置并由页面测试动作确认，避免设置层另造一套 Provider 凭据。
+- Desktop 全量套件的唯一失败与本任务无关：静态测试寻找 `const stopped = await stopDesktopChat`，当前 HEAD 生产代码早已改为 `const stopped = await Promise.race(...)`；两文件均无本轮 diff。
+- 根项目没有 `check` script，也没有 `svelte-check` 可执行文件；UI 类型/编译验证应使用 `svelte-kit sync` + production build，不能沿用 Desktop 子项目的检查命令。
+- 现有 `read` 已能返回图片 `ImageContent`，但不知道当前实际模型是否支持视觉；文本模型收到图片 Tool Result 后仍不可读。
+- 现有 `imageAnalyze(path, prompt?)` 已支持多次按需调用，且 `visionAnalysis` 已收口 Provider transport；两者应深并入内部图片识别模块，而不是继续暴露两个浅工具。
+- `runnerInputEnricher` 当前在主模型调用前执行图片 fallback 并把识别结果拼入文本，是本轮必须删除的一次性路径。
+- `decideVisionRouting` 当前可能因为图片切换整轮到 `visionModelKey`；目标行为应改为保持 text route，并对每个实际 candidate 动态判断是否原生附图。
+- `modlens` 最值得复用的是 Adapter Interface、availability→ordered failover、attempts/warnings、CLI 隔离和不可信图片提示；第一期不引入本地 CLI，也不运行时依赖本机 sibling 目录。
+- API 凭据应继续由现有 Provider/模型注册中心拥有；图片识别配置保存多个 `modelKey` 引擎、顺序和启用状态，避免第二份 API Key/Base URL。
+- UI 方向遵循 Molibot 的克制系统设置语言：页面级双 Tab、识别状态与优先级清晰，不引入独立视觉主题；当前 Tab 独立固定底栏保存。
+- `createMomTools` 当前没有活动模型能力输入，`read` 只能静态返回图片；需要从 Runner 提供一个随 candidate 更新的能力读取函数，不能把静态 settings 当作实际模型。
+- Telegram 入站直接保存附件并构造 `imageContents`；Feishu 队列恢复已使用共享 `rebuildImageContentsFromAttachments()`。本轮 Channel 工作应统一“附件是真实来源、base64 仅按当前请求即时恢复”，而不是让各 Channel 添加识别调用。
+- 现有回归把“无视觉路由时图片不可读”锁成旧行为；应替换为“没有入站预识别，文本模型可通过 read 识别”，并删除公开 `imageAnalyze` 契约测试。
+
+---
+
 # 会议纪要验收返工调查（2026-08-14）
 
 - 用户真实验收结论是“全是问题”：这不是视觉微调请求，而是上一轮错误地把后端链路完成等同于产品完成。

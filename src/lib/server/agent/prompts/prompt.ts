@@ -399,13 +399,31 @@ function buildHostToolApprovalSection(): string {
   ].join("\n"));
 }
 
-function buildSubagentSection(): string {
+function buildSubagentSection(settings?: RuntimeSettings): string {
+  const externalPlugin = settings?.plugins.externalSubagent;
+  const externalRoles: string[] = [];
+  if (externalPlugin?.enabled) {
+    if (externalPlugin.claudeCodeEnabled !== false) {
+      externalRoles.push("`claude-code`=Claude Code external agent (multi-file refactoring, test-driven fixes)");
+    }
+    if (externalPlugin.codexEnabled !== false) {
+      externalRoles.push("`codex`=OpenAI Codex external agent (new features, algorithms, scripts)");
+    }
+  }
+  const externalText = externalRoles.length > 0 ? `, ${externalRoles.join(", ")}` : "";
+  const writeText = externalRoles.length > 0
+    ? "worker, claude-code, and codex have write capabilities"
+    : "only worker has edit/write";
+  const chainText = externalRoles.length > 0
+    ? " Planned implementation default: `scout -> planner -> worker -> reviewer` or `scout -> claude-code -> reviewer`."
+    : " Planned implementation default: `scout -> planner -> worker -> reviewer`.";
+
   return xmlBlock("subagents", [
     "## Subagents",
     "- Delegate file/shell-heavy investigation, implementation, review, logs/data, or long-document work; keep parent-only tools (web/media/attach/channel) in the parent.",
-    "- Roles: `scout`=recon, `planner`=plan only, `worker`=edit, `reviewer`=review. Subagents have read/bash; only worker has edit/write.",
+    `- Roles: \`scout\`=recon, \`planner\`=plan only, \`worker\`=edit, \`reviewer\`=review${externalText}. Subagents have read/bash; ${writeText}.`,
     "- Delegate before ~8 parent read/bash/edit calls or before the 24-tool hard limit; keep tiny one- or two-call tasks local.",
-    "- Modes: single task; parallel independent tasks; chain with `{previous}`. Planned implementation default: `scout -> planner -> worker -> reviewer`.",
+    `- Modes: single task; parallel independent tasks; chain with \`{previous}\`.${chainText}`,
   ].join("\n"));
 }
 
@@ -513,7 +531,7 @@ function buildBaseSystemPromptWithOptions(
     "",
     buildHostToolApprovalSection(),
     "",
-    buildSubagentSection(),
+    buildSubagentSection(options?.settings),
     "",
     // --- Behavioral constraints ---
     buildCoreDirectivesSection(),

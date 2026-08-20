@@ -45,7 +45,8 @@ import { createWriteTool } from "$lib/server/agent/tools/write.js";
 import { liftSandboxForPermissionMode, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { settleWithCooperativeTimeout } from "$lib/server/agent/core/cooperativeTimeout.js";
-import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js";
+import { ExternalSubagentRuntime } from "#external-subagent";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 import {
   evaluateSubagentEvent,
   resolveSubagentBudgetLimits,
@@ -55,7 +56,15 @@ import {
   type SubagentStopKind
 } from "$lib/server/agent/tools/subagentRuntime.js";
 
-const SUBAGENT_NAMES = ["scout", "planner", "worker", "reviewer", "skill-drafter"] as const;
+const SUBAGENT_NAMES = [
+  "scout",
+  "planner",
+  "worker",
+  "reviewer",
+  "skill-drafter",
+  "claude-code",
+  "codex"
+] as const;
 type SubagentName = (typeof SUBAGENT_NAMES)[number];
 const SUBAGENT_MODEL_LEVELS = ["haiku", "sonnet", "opus", "thinking"] as const;
 type SubagentModelLevel = (typeof SUBAGENT_MODEL_LEVELS)[number];
@@ -1327,7 +1336,7 @@ function stampReviewIndependence(
     momWarn("runner", "subagent_review_not_independent", {
       chatId: options.chatId,
       agent: agent.name,
-      model: model.id,
+  model: model.id,
       provider: model.provider,
       parentModelKey: currentModelKey(options.settings, "text")
     });
@@ -1335,11 +1344,60 @@ function stampReviewIndependence(
   return { ...result, reviewIndependence: independent ? "independent" : "same-family" };
 }
 
+let sharedExternalRuntime: ExternalSubagentRuntime | null = null;
+function getSharedExternalRuntime(): ExternalSubagentRuntime {
+  if (!sharedExternalRuntime) {
+    sharedExternalRuntime = new ExternalSubagentRuntime({
+      runtimesDir: join(storagePaths.dataDir, "runtimes", "external-subagent")
+    });
+  }
+  return sharedExternalRuntime;
+}
+
 async function runSingleSubagent(
   agent: SubagentDefinition,
   task: string,
   options: RunSingleSubagentOptions
 ): Promise<SubagentRunResult> {
+  if (agent.name === "claude-code" || agent.name === "codex") {
+    const providerId = agent.name === "claude-code" ? "claude-code" : "codex";
+    const pluginSettings = options.settings.plugins.externalSubagent;
+    const permissionMode = providerId === "claude-code"
+      ? pluginSettings?.claudeCodePermissionMode ?? "dontAsk"
+      : pluginSettings?.codexPermissionMode ?? "never";
+    const customPath = providerId === "claude-code"
+      ? pluginSettings?.claudeCodePath
+      : pluginSettings?.codexPath;
+
+    const runtime = getSharedExternalRuntime();
+    const result = await runtime.run(providerId, {
+      task,
+      cwd: options.cwd,
+      signal: options.signal,
+      timeoutMs: resolveSubagentExecutionLimits(options.settings).deadlineMs || 600_000,
+      permissionMode,
+      customPath
+    });
+
+    const responseText =
+      result.output.trim().length > 0
+        ? result.output
+        : result.diagnostic
+          ? `${agent.name} subagent execution ended with no output. Diagnostic: ${result.diagnostic}`
+          : `${agent.name} subagent finished with no output.`;
+
+    return {
+      agent: agent.name,
+      task,
+      output: responseText,
+      stopReason: result.stopReason === "completed" ? "stop" : result.stopReason,
+      errorMessage: result.diagnostic,
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0, turns: 1 },
+      model: result.provider,
+      durationMs: result.durationMs
+    };
+  }
+
   const { models, modelRuntime } = await resolveSubagentModelCandidates(
     options.settings,
     agent.modelHint,
@@ -1448,12 +1506,12 @@ async function mapWithConcurrency<TIn, TOut>(
   const workerCount = Math.max(1, Math.min(concurrency, rows.length));
 
   await Promise.all(
-    new Array(workerCount).fill(null).map(async () => {
-      while (true) {
-        const current = cursor;
+    Array.from({ length: workerCount }, async () => {
+      while (cursor < rows.length) {
+        const index = cursor;
         cursor += 1;
-        if (current >= rows.length) return;
-        out[current] = await fn(rows[current], current);
+        const row = rows[index];
+        out[index] = await fn(row, index);
       }
     })
   );
@@ -1489,9 +1547,17 @@ export function createSubagentTool(options: {
     ? new Set<SubagentName>(options.allowedAgents)
     : null;
   const excludedTools = new Set(options.excludedTools ?? []);
+  const settings = options.getSettings();
+  const externalPlugin = settings.plugins.externalSubagent;
+  const availableNames = SUBAGENT_NAMES.filter((name) => {
+    if (name === "skill-drafter") return false;
+    if (name === "claude-code") return Boolean(externalPlugin?.enabled && externalPlugin?.claudeCodeEnabled !== false);
+    if (name === "codex") return Boolean(externalPlugin?.enabled && externalPlugin?.codexEnabled !== false);
+    return true;
+  });
   const advertisedAgents = allowedAgents
     ? Array.from(allowedAgents)
-    : SUBAGENT_NAMES.filter((name) => name !== "skill-drafter");
+    : availableNames;
   return {
     name: "subagent",
     label: "subagent",

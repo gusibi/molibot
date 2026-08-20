@@ -44,12 +44,6 @@ test("getRuntimeToolClassification: documentExport => medium risk, builtin sourc
   assert.equal(result.source, "builtin");
 });
 
-test("getRuntimeToolClassification: imageAnalyze => medium risk, builtin source", () => {
-  const result = getRuntimeToolClassification("imageAnalyze");
-  assert.equal(result.risk, "medium");
-  assert.equal(result.source, "builtin");
-});
-
 test("getRuntimeToolClassification: mcp__ tool => medium risk, mcp source", () => {
   const result = getRuntimeToolClassification("mcp__some_server__some_tool");
   assert.equal(result.risk, "medium", "MCP tools should have medium risk");
@@ -95,7 +89,7 @@ test("host execution and code installers carry an approval-triggering risk level
   );
 
   for (const name of [
-    "read", "write", "edit", "webSearch", "webFetch", "docExtract", "imageAnalyze", "subagent", "attach", "event",
+    "read", "write", "edit", "webSearch", "webFetch", "docExtract", "subagent", "attach", "event",
     "memory", "skillSearch", "skillManage", "switchModel", "imageGenerate",
     "ttsGenerate", "videoGenerate", "mcpInvoke", "loadMcp",
     "mcp__server__tool", "anyUnknownToolName",
@@ -119,7 +113,7 @@ test("host execution and code installers carry an approval-triggering risk level
  */
 
 test("effect: local readers are read, remote readers are network", () => {
-  for (const name of ["read", "ls", "grep", "docExtract", "imageAnalyze"]) {
+  for (const name of ["read", "ls", "grep", "docExtract"]) {
     assert.equal(getRuntimeToolClassification(name).effect, "read", name);
   }
   // Reaching the network is its own effect: it leaves the machine, so a mode

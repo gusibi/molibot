@@ -1,3 +1,67 @@
+# 图片按需识别与多引擎模块（2026-08-20）
+
+## Goal
+
+把图片从“入站时一次性转文字”改为可重复、按需读取的文件能力：当前实际主模型支持视觉时原生读取，不支持时由 `read` 调用独立图片识别模块；第一期支持多个 API 引擎与顺序故障切换，CLI 只保留 Adapter 接入位，Channel 只负责可靠保存和规范化附件。
+
+## Phases
+
+- [completed] 1. 固化领域契约与红测试
+  - 验证：多 API 引擎顺序、失败记录、原生/识别分流、同图多次读取、无入站预识别、Channel 附件统一形状均有失败回归。
+- [completed] 2. 实现图片识别深模块与动态设置
+  - 验证：一个小 Interface 隐藏预处理、模型 Adapter、故障切换、usage/warnings；`imageRecognition` 使用细粒度动态 key 并通过临时数据库 round-trip。
+- [completed] 3. 合并到 read 与 Runner，删除旧路径
+  - 验证：活动模型支持视觉时 `read` 返回图片；否则返回识别证据；删除公开 `imageAnalyze` 和入站 fallback，不保留兼容层；PDF OCR 复用内部模块。
+- [completed] 4. 收口 Feishu/Telegram 等 Channel 附件路径
+  - 验证：所有 Channel 只接收/保存/恢复统一图片附件，队列恢复后仍可原生或按需读取，Channel 中不存在识别调用。
+- [completed] 5. 图片设置页双 Tab 与独立保存
+  - 验证：图片生成/图片识别使用 shadcn Tabs；多 API 引擎可增删、排序、测试和独立保存；中英、明暗、移动宽度、固定底栏成立。
+- [completed] 6. 文档、对抗审查与完整验证
+  - 验证：定向/全量测试、`svelte-check`、build、冷启动与服务恢复通过；同步 DESIGN、features、prd、CHANGELOG、README。
+
+## Success criteria
+
+- 收到图片时，文本主模型场景在调用 `read` 前不会发生视觉 API 请求。
+- 当前实际模型（含 fallback candidate）已验证支持视觉时使用原始图片，不走识别引擎。
+- 同一路径可用不同 prompt 在同一轮调用多次；每次结果和引擎 attempts 可追踪。
+- 第一 API 引擎失败时按配置顺序切到下一个；CLI 第一阶段不可启用但无需改外部 Interface 即可在第二期加入。
+- Channel 新增/变化不需要实现图片识别、重试或 Provider 路由。
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| 根目录 planning 文件包含历史任务 | 1 | 在顶部新增独立章节，保留全部历史内容 |
+| 首次定向测试命令缺少 `--import tsx`，`$lib` alias 无法解析 | 1 | 改用项目既有 Node + register-loader + tsx 组合，不重复错误命令 |
+| 根项目没有 `check` script / `svelte-check` 可执行文件 | 1 | 用生产 build 覆盖 Svelte 编译；Desktop 子项目单独执行 `desktop:check`，0 错误 / 0 警告 |
+| 首次 production build 发现图片页 Tabs 关闭顺序错误 | 1 | 修正节点关闭顺序后连续两次生产 build 通过 |
+| Desktop 全量 Node 测试 211/212 | 1 | 唯一失败是任务前基线的 Stop 静态断言仍要求直接 `await stopDesktopChat`，而未改动的生产代码已使用 `Promise.race`；不越权修改无关代码 |
+
+## Verification
+
+- Settings / routing / recognition / read / document / runner focused suites: 170/170 passed.
+- Channel attachment focused suite: included above and passed for Feishu, Telegram, QQ, Weixin, Web and queue rebuild paths.
+- Desktop `svelte-check`: 0 errors / 0 warnings; root production build passed twice.
+- Desktop full Node suite: 211/212; sole pre-existing unrelated structural assertion recorded above.
+- Real cold path: first open, Tab switching, engine add/order controls, 390px width, dark mode, service interruption and same-data restart all passed with no console errors.
+- `git diff --check`: passed.
+
+## Desktop follow-up（2026-08-20）
+
+- [completed] 7. 将图片识别设置完整接入 Desktop App
+  - 验证：Desktop 使用独立安全投影、精确 HTTP scope、专用 store 和“图片生成 / 图片识别”双 Tab；多引擎增删排序、保存、未保存配置上传测试、中英/明暗/窄宽成立。
+- [completed] 8. Desktop 回归与真实冷路径
+  - 验证：API/结构/响应式守卫、`svelte-check`、build、冷启动、Tab 切换、服务中断恢复通过；产品文档同步 Desktop 已交付边界。
+
+### Desktop follow-up verification
+
+- Desktop client API: 88/88; image-recognition projection/runtime: 6/6.
+- Desktop `svelte-check`: 0 errors / 0 warnings; Root and Desktop production builds passed.
+- UI/HTTP/reactivity structural suite: 212/213; sole failure remains the unrelated pre-existing Stop assertion documented above.
+- Isolated cold path: Generation/Recognition tabs, two-engine add and reorder, fixed save bar, persisted reload, dark appearance, service timeout, explicit retry and same-data recovery passed.
+
+---
+
 # 会议纪要产品验收返工：录音状态机与历史库（2026-08-14）
 
 ## Goal

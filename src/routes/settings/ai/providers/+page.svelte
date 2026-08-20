@@ -67,7 +67,6 @@
         customProviders: CustomProviderForm[];
         modelRouting: {
             textModelKey: string;
-            visionModelKey: string;
             sttModelKey: string;
             ttsModelKey: string;
         };
@@ -657,7 +656,6 @@
         customProviders: [],
         modelRouting: {
             textModelKey: "",
-            visionModelKey: "",
             sttModelKey: "",
             ttsModelKey: "",
         },
@@ -1704,7 +1702,6 @@
                 ),
                 modelRouting: {
                     textModelKey: s.modelRouting?.textModelKey ?? "",
-                    visionModelKey: s.modelRouting?.visionModelKey ?? "",
                     sttModelKey: s.modelRouting?.sttModelKey ?? "",
                     ttsModelKey: s.modelRouting?.ttsModelKey ?? "",
                 },

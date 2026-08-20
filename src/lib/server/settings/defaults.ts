@@ -16,6 +16,7 @@ import {
   type WebSearchSettings,
   type ImageGenerateEngineId,
   type ImageGenerateSettings,
+  type ImageRecognitionSettings,
   type VideoGenerateEngineId,
   type VideoGenerateSettings,
   type TtsGenerateProviderId,
@@ -344,6 +345,13 @@ const defaultImageGenerateSettings: ImageGenerateSettings = {
   }
 };
 
+const defaultImageRecognitionSettings: ImageRecognitionSettings = {
+  enabled: true,
+  defaultEngine: "auto",
+  engineOrder: [],
+  engines: {}
+};
+
 function videoGenerateEngineFromEnv(id: VideoGenerateEngineId, envKey: string, defaultModel: string, enabledFallback = false): VideoGenerateSettings["engines"][VideoGenerateEngineId] {
   const apiKey = String(process.env[envKey] ?? "").trim();
   const enabledRaw = String(process.env[`MOLIBOT_VIDEO_GENERATE_${id.toUpperCase()}_ENABLED`] ?? "").trim().toLowerCase();
@@ -412,6 +420,15 @@ const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflar
   objectPrefix: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_OBJECT_PREFIX ?? "html/").trim() || "html/"
 };
 
+const defaultExternalSubagentPluginSettings: RuntimeSettings["plugins"]["externalSubagent"] = {
+  enabled: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_ENABLED ?? "false").toLowerCase() === "true",
+  codexEnabled: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CODEX_ENABLED ?? "true").toLowerCase() !== "false",
+  codexPermissionMode: (process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CODEX_PERMISSION_MODE ?? "never") as RuntimeSettings["plugins"]["externalSubagent"]["codexPermissionMode"],
+  codexPath: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CODEX_PATH ?? "").trim(),
+  claudeCodeEnabled: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CLAUDE_CODE_ENABLED ?? "true").toLowerCase() !== "false",
+  claudeCodePermissionMode: (process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CLAUDE_CODE_PERMISSION_MODE ?? "dontAsk") as RuntimeSettings["plugins"]["externalSubagent"]["claudeCodePermissionMode"],
+  claudeCodePath: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CLAUDE_CODE_PATH ?? "").trim()
+};
 
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
@@ -422,7 +439,6 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   defaultCustomProviderId: defaultCustomProviders[0]?.id ?? "",
   modelRouting: {
     textModelKey: "",
-    visionModelKey: "",
     sttModelKey: "",
     ttsModelKey: "",
     compactionModelKey: "",
@@ -492,6 +508,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   skillDrafts: defaultSkillDraftSettings,
   webSearch: defaultWebSearchSettings,
   imageGenerate: defaultImageGenerateSettings,
+  imageRecognition: defaultImageRecognitionSettings,
   videoGenerate: defaultVideoGenerateSettings,
   ttsGenerate: defaultTtsGenerateSettings,
   toolSandbox: defaultToolSandboxSettings,
@@ -528,6 +545,9 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     },
     cloudflareHtml: {
       ...defaultCloudflareHtmlPluginSettings
+    },
+    externalSubagent: {
+      ...defaultExternalSubagentPluginSettings
     },
     hooks: [],
     piExtensions: {

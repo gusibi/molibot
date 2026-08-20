@@ -1,7 +1,7 @@
 import { sanitizeAgentModelRouting, type AgentSettings, type RuntimeSettings } from "$lib/server/settings/schema";
 import type { DesktopAgentItem, DesktopAgentsSummary, DesktopAgentSaveRequest } from "$lib/shared/desktop";
 
-const ROUTING_KEYS = ["textModelKey", "visionModelKey", "sttModelKey"] as const;
+const ROUTING_KEYS = ["textModelKey", "sttModelKey"] as const;
 
 function countModelOverrides(agent: AgentSettings): number {
   const routing = agent.modelRouting;
@@ -29,7 +29,6 @@ export function buildDesktopAgentItem(agent: AgentSettings): DesktopAgentItem {
     modelOverrides: countModelOverrides(agent),
     modelRouting: {
       textModelKey: agent.modelRouting?.textModelKey ?? "",
-      visionModelKey: agent.modelRouting?.visionModelKey ?? "",
       sttModelKey: agent.modelRouting?.sttModelKey ?? ""
     }
   };

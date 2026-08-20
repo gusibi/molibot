@@ -29,7 +29,6 @@ export interface ProviderModelConfig {
 
 export interface ModelRoutingConfig {
   textModelKey: string;
-  visionModelKey: string;
   sttModelKey: string;
   ttsModelKey: string;
   /**
@@ -106,19 +105,17 @@ export interface QQBotConfig {
 }
 
 /**
- * Per-agent model overrides. Only the text/vision/stt routes can be overridden;
+ * Per-agent model overrides. Only the text/stt routes can be overridden;
  * every other route (tts, compaction, subagent levels) always follows the global
  * `modelRouting`. An empty/absent key means "follow global" for that route.
  */
 export interface AgentModelRouting {
   textModelKey?: string;
-  visionModelKey?: string;
   sttModelKey?: string;
 }
 
 export const AGENT_MODEL_ROUTING_KEYS = [
   "textModelKey",
-  "visionModelKey",
   "sttModelKey"
 ] as const;
 
@@ -301,9 +298,32 @@ export interface MiniAppsSettings {
   };
 }
 
+export type CodexPermissionMode =
+  | "never"
+  | "approve-for-me"
+  | "dangerously-bypass-approvals-and-sandbox";
+
+export type ClaudeCodePermissionMode =
+  | "dontAsk"
+  | "acceptEdits"
+  | "auto"
+  | "plan"
+  | "bypassPermissions";
+
+export interface ExternalSubagentPluginSettings {
+  enabled: boolean;
+  codexEnabled: boolean;
+  codexPermissionMode: CodexPermissionMode;
+  codexPath?: string;
+  claudeCodeEnabled: boolean;
+  claudeCodePermissionMode: ClaudeCodePermissionMode;
+  claudeCodePath?: string;
+}
+
 export interface PluginSettings {
   memory: MemoryBackendSettings;
   cloudflareHtml: CloudflareHtmlPluginSettings;
+  externalSubagent: ExternalSubagentPluginSettings;
   hooks: HookPluginEntry[];
   piExtensions: PiExtensionsSettings;
   miniApps: MiniAppsSettings;
@@ -441,6 +461,25 @@ export interface ImageGenerateSettings {
   enabled: boolean;
   defaultEngine: ImageGenerateEngineId | "auto";
   engines: Record<ImageGenerateEngineId, ImageGenerateEngineSettings>;
+}
+
+/** Engine ids are user-owned stable identifiers; engines currently reference API-backed models. */
+export type ImageRecognitionEngineId = string;
+
+export interface ImageRecognitionEngineSettings {
+  enabled: boolean;
+  /** Optional human-readable label shown in routing traces and Settings. */
+  name?: string;
+  /** `pi|provider|model` or `custom|provider|model`; credentials remain owned by the Provider registry. */
+  modelKey: string;
+}
+
+export interface ImageRecognitionSettings {
+  enabled: boolean;
+  defaultEngine: ImageRecognitionEngineId | "auto";
+  /** Ordered failover chain used by auto routing. Every configured engine appears exactly once. */
+  engineOrder: ImageRecognitionEngineId[];
+  engines: Record<ImageRecognitionEngineId, ImageRecognitionEngineSettings>;
 }
 
 export type VideoGenerateEngineId = "agnes" | "volcengine";
@@ -634,6 +673,7 @@ export interface RuntimeSettings {
   skillDrafts: SkillDraftSettings;
   webSearch: WebSearchSettings;
   imageGenerate: ImageGenerateSettings;
+  imageRecognition: ImageRecognitionSettings;
   videoGenerate: VideoGenerateSettings;
   ttsGenerate: TtsGenerateSettings;
   toolSandbox: ToolSandboxSettings;

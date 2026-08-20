@@ -24,7 +24,7 @@ This file is the single current-status source for Molibot's work/life assistant 
 | Memory | `add_content` routing | 已交付 | Only explicit published-content `world_knowledge` is accepted. Personal facts, preferences, and missing types fail and direct the Agent to `add`; `content:` is not added to normal recall. |
 | Input | Public webpage reading | 已交付 | `webFetch` has SSRF, redirect, size, timeout, cache, Markdown conversion, and context-budget controls. It is not an authenticated browser. |
 | Input | PDF/DOCX/XLSX reading | 已交付 | `docExtract` handles native text/tables and bounded PDF OCR through the configured vision route. |
-| Input | Image/OCR analysis | 已交付 | `imageAnalyze` uses the configured Agent/global vision route with bounded workspace paths and output. |
+| Input | Image/OCR analysis | 已交付 | `read(path, prompt)` returns original images to a vision-capable primary model or invokes ordered, configurable API recognition engines for a text-only model; repeated task-specific reads and bounded output are covered. Local CLI is phase two. |
 | Output | DOCX/XLSX/PDF deliverable export | 已交付 | `documentExport` re-reads and verifies files before atomic publication or attachment. |
 | Output | PPTX generation | 未开始 | Deliberately deferred. Existing PPTX support is read-only preview, not presentation generation. Do not infer this task from the delivered document formats. |
 | Tasks | Runtime Todo, one-shot reminders, and periodic automation CRUD | 已交付 | Stable-id create/list/get/update/delete exists. Unscheduled Todo never triggers. Optional Mini App Todo remains a separate data model. |

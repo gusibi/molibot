@@ -77,6 +77,9 @@ import type {
   DesktopMediaTaskKind,
   DesktopMediaTasksResponse,
   DesktopImageGenerateResponse,
+  DesktopImageRecognitionResponse,
+  DesktopImageRecognitionSummary,
+  DesktopImageRecognitionUpdateRequest,
   DesktopVideoGenerateResponse,
   DesktopMediaGenerateSummary,
   DesktopTtsResponse,
@@ -1465,6 +1468,50 @@ export async function saveDesktopPlugins(endpoint: string, input: DesktopPlugins
   return payload.summary;
 }
 
+export interface ExternalSubagentAvailability {
+  available: boolean;
+  source?: "custom" | "installed" | "system";
+  executablePath?: string;
+  packagePath?: string;
+  version?: string;
+  error?: string;
+}
+
+export interface ExternalSubagentStatusResponse {
+  ok: boolean;
+  runtimesDir: string;
+  codex: ExternalSubagentAvailability;
+  claudeCode: ExternalSubagentAvailability;
+}
+
+export async function loadExternalSubagentStatus(
+  endpoint: string,
+  options?: { codexPath?: string; claudeCodePath?: string }
+): Promise<ExternalSubagentStatusResponse> {
+  const query = new URLSearchParams();
+  if (options?.codexPath) query.set("codexPath", options.codexPath);
+  if (options?.claudeCodePath) query.set("claudeCodePath", options.claudeCodePath);
+  return requestJson<ExternalSubagentStatusResponse>(
+    endpoint,
+    `/api/desktop/plugins/external-subagent?${query}`
+  );
+}
+
+export async function installExternalSubagentRuntime(
+  endpoint: string,
+  provider: "codex" | "claude-code"
+): Promise<{ ok: boolean; error?: string }> {
+  return requestJson<{ ok: boolean; error?: string }>(
+    endpoint,
+    "/api/desktop/plugins/external-subagent",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider })
+    }
+  );
+}
+
 /**
  * The installed catalog and the built-in catalog always travel together.
  *
@@ -1762,6 +1809,49 @@ export async function saveDesktopImageGenerate(endpoint: string, input: DesktopM
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
   });
   return payload.summary;
+}
+
+export async function loadDesktopImageRecognition(endpoint: string): Promise<DesktopImageRecognitionSummary> {
+  const payload = await requestJson<DesktopImageRecognitionResponse>(endpoint, "/api/desktop/image-recognition", {
+    signal: AbortSignal.timeout(5_000)
+  });
+  return payload.summary;
+}
+
+export async function saveDesktopImageRecognition(
+  endpoint: string,
+  input: DesktopImageRecognitionUpdateRequest
+): Promise<DesktopImageRecognitionSummary> {
+  const payload = await requestJson<DesktopImageRecognitionResponse>(endpoint, "/api/desktop/image-recognition", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return payload.summary;
+}
+
+export async function testDesktopImageRecognitionSettings(
+  endpoint: string,
+  input: DesktopImageRecognitionUpdateRequest,
+  image: File,
+  prompt: string,
+  engineId: string
+): Promise<DesktopSettingsTestResponse> {
+  const value = {
+    enabled: input.enabled,
+    defaultEngine: input.defaultEngine,
+    engineOrder: input.engines.map((engine) => engine.id),
+    engines: Object.fromEntries(input.engines.map(({ id, ...engine }) => [id, engine]))
+  };
+  const form = new FormData();
+  form.set("value", JSON.stringify(value));
+  form.set("image", image);
+  form.set("prompt", prompt);
+  form.set("engineId", engineId);
+  return requestJson<DesktopSettingsTestResponse>(endpoint, "/api/settings/image-recognition/test", {
+    method: "POST",
+    body: form
+  });
 }
 
 export async function loadDesktopVideoGenerate(endpoint: string): Promise<DesktopMediaGenerateSummary> {

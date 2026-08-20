@@ -74,7 +74,7 @@
     enabled: true,
     sandboxEnabled: null,
     modelOverrides: 0,
-    modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "" }
+    modelRouting: { textModelKey: "", sttModelKey: "" }
   } satisfies DesktopAgentItem;
   $: visibleAgents = agents.some((agent) => agent.id === "default") ? agents : [globalAgent, ...agents];
   $: projection = projectAgentCity({ agents: visibleAgents, activities, slots: slotMap });

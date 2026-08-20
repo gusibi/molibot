@@ -3,7 +3,6 @@ import test from "node:test";
 import { convertMessages } from "@earendil-works/pi-ai/api/openai-completions";
 import { defaultRuntimeSettings, type RuntimeSettings } from "$lib/server/settings/index.js";
 import { resolveSttTarget } from "$lib/server/agent/routing/stt.js";
-import { resolveVisionAnalysisTarget } from "$lib/server/agent/vision/visionAnalysis.js";
 import {
   applyAgentModelRoutingOverride,
   applyTurnModelOverride,
@@ -51,37 +50,11 @@ test("STT route ignores disabled providers", () => {
   assert.equal(resolveSttTarget(settings), null);
 });
 
-test("vision fallback route ignores disabled providers", () => {
-  const settings = settingsWithProviders({
-    modelRouting: {
-      ...defaultRuntimeSettings.modelRouting,
-      visionModelKey: "custom|disabled-vision|vision-a"
-    },
-    customProviders: [
-      {
-        id: "disabled-vision",
-        name: "Disabled Vision",
-        enabled: false,
-        baseUrl: "https://vision.example/v1",
-        apiKey: "vision-key",
-        path: "/chat/completions",
-        defaultModel: "vision-a",
-        models: [
-          { id: "vision-a", enabled: true, tags: ["vision"], supportedRoles: ["system", "user", "assistant", "tool"] }
-        ]
-      }
-    ]
-  });
-
-  assert.equal(resolveVisionAnalysisTarget(settings), null);
-});
-
 function settingsWithBoundAgent(agentModelRouting: RuntimeSettings["agents"][number]["modelRouting"]): RuntimeSettings {
   return settingsWithProviders({
     modelRouting: {
       ...defaultRuntimeSettings.modelRouting,
       textModelKey: "pi|anthropic|global-text",
-      visionModelKey: "pi|anthropic|global-vision",
       sttModelKey: "pi|openai|global-stt",
       subagentModelKey: "pi|anthropic|global-subagent"
     },
@@ -102,8 +75,7 @@ test("agent override replaces only the routes it sets, leaving others on global"
 
   assert.equal(merged.modelRouting.textModelKey, "custom|p1|agent-text");
   assert.equal(merged.modelRouting.sttModelKey, "custom|p1|agent-stt");
-  // vision not overridden -> stays global; non-overridable route stays global
-  assert.equal(merged.modelRouting.visionModelKey, "pi|anthropic|global-vision");
+  // Non-overridable routes stay global.
   assert.equal(merged.modelRouting.subagentModelKey, "pi|anthropic|global-subagent");
   // global settings object is not mutated
   assert.equal(settings.modelRouting.textModelKey, "pi|anthropic|global-text");
@@ -114,7 +86,7 @@ test("turn model override changes only text routing without mutating shared sett
   const overridden = applyTurnModelOverride(settings, "custom|project|local");
   assert.equal(overridden.modelRouting.textModelKey, "custom|project|local");
   assert.equal(settings.modelRouting.textModelKey, "pi|anthropic|global");
-  assert.equal(overridden.modelRouting.visionModelKey, settings.modelRouting.visionModelKey);
+  assert.equal(overridden.modelRouting.sttModelKey, settings.modelRouting.sttModelKey);
   assert.equal(applyTurnModelOverride(settings, ""), settings);
 });
 

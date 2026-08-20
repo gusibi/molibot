@@ -583,3 +583,35 @@ test("parseSubagentMode still refuses genuinely ambiguous mode combinations", ()
   );
   assert.throws(() => parseSubagentMode({}, MODE_LIMITS), /Provide exactly one subagent mode/);
 });
+
+test("listBuiltInSubagents includes external subagents claude-code and codex", () => {
+  const subagents = listBuiltInSubagents();
+  assert.ok(subagents.some((agent) => agent.name === "claude-code"));
+  assert.ok(subagents.some((agent) => agent.name === "codex"));
+});
+
+test("createSubagentTool advertises external subagents when plugin is enabled", () => {
+  const enabledSettings: RuntimeSettings = {
+    ...defaultRuntimeSettings,
+    plugins: {
+      ...defaultRuntimeSettings.plugins,
+      externalSubagent: {
+        enabled: true,
+        codexEnabled: true,
+        codexPermissionMode: "never",
+        claudeCodeEnabled: true,
+        claudeCodePermissionMode: "dontAsk"
+      }
+    }
+  };
+
+  const tool = createSubagentTool({
+    cwd: process.cwd(),
+    workspaceDir: process.cwd(),
+    chatId: "test-chat",
+    getSettings: () => enabledSettings
+  });
+
+  assert.ok(tool.description.includes("`claude-code`"));
+  assert.ok(tool.description.includes("`codex`"));
+});

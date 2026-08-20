@@ -22,7 +22,7 @@
   import LogsSection from "./lib/settings/LogsSection.svelte";
   import TraceSection from "./lib/settings/TraceSection.svelte";
   import WebSearchSection from "./lib/settings/WebSearchSection.svelte";
-  import ImageGenerateSection from "./lib/settings/ImageGenerateSection.svelte";
+  import ImageSettingsSection from "./lib/settings/ImageSettingsSection.svelte";
   import VideoGenerateSection from "./lib/settings/VideoGenerateSection.svelte";
   import TtsGenerateSection from "./lib/settings/TtsGenerateSection.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
@@ -978,7 +978,7 @@
       {:else if activeSection === "webSearch"}
         <WebSearchSection />
       {:else if activeSection === "imageGenerate"}
-        <ImageGenerateSection />
+        <ImageSettingsSection />
       {:else if activeSection === "videoGenerate"}
         <VideoGenerateSection />
       {:else if activeSection === "ttsGenerate"}

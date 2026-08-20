@@ -298,15 +298,14 @@ test("applyAssistantStreamEvent resets buffered assistant text on a new assistan
   });
 });
 
-test("decideVisionRouting prefers an explicit dedicated vision route over a vision-capable text route", () => {
+test("decideVisionRouting keeps the primary text route when it already supports images", () => {
   const settings: RuntimeSettings = {
     ...defaultRuntimeSettings,
     providerMode: "custom" as const,
     defaultCustomProviderId: "custom-vision",
     modelRouting: {
       ...defaultRuntimeSettings.modelRouting,
-      textModelKey: "custom|custom-vision|mimo-v2.5-pro",
-      visionModelKey: "custom|custom-vision|mimo-v2.5"
+      textModelKey: "custom|custom-vision|mimo-v2.5-pro"
     },
     customProviders: [
       {
@@ -340,20 +339,19 @@ test("decideVisionRouting prefers an explicit dedicated vision route over a visi
 
   const decision = decideVisionRouting(settings, true);
 
-  assert.equal(decision.mode, "vision");
-  assert.equal(decision.selection.modelId, "mimo-v2.5");
+  assert.equal(decision.mode, "text");
+  assert.equal(decision.selection.modelId, "mimo-v2.5-pro");
   assert.equal(decision.sendImagesNatively, true);
 });
 
-test("decideVisionRouting keeps the text route when the vision route resolves to the same model", () => {
+test("decideVisionRouting sends verified image input through the primary model", () => {
   const settings: RuntimeSettings = {
     ...defaultRuntimeSettings,
     providerMode: "custom" as const,
     defaultCustomProviderId: "custom-vision",
     modelRouting: {
       ...defaultRuntimeSettings.modelRouting,
-      textModelKey: "custom|custom-vision|mimo-v2.5",
-      visionModelKey: "custom|custom-vision|mimo-v2.5"
+      textModelKey: "custom|custom-vision|mimo-v2.5"
     },
     customProviders: [
       {
@@ -392,8 +390,7 @@ test("decideVisionRouting does not send custom images natively before vision ver
     defaultCustomProviderId: "custom-vision",
     modelRouting: {
       ...defaultRuntimeSettings.modelRouting,
-      textModelKey: "custom|custom-vision|mimo-v2.5-pro",
-      visionModelKey: "custom|custom-vision|mimo-v2.5"
+      textModelKey: "custom|custom-vision|mimo-v2.5-pro"
     },
     customProviders: [
       {
@@ -437,8 +434,7 @@ test("custom vision models advertise image input only after vision verification 
     defaultCustomProviderId: "custom-vision",
     modelRouting: {
       ...defaultRuntimeSettings.modelRouting,
-      textModelKey: "custom|custom-vision|mimo-v2.5",
-      visionModelKey: "custom|custom-vision|mimo-v2.5"
+      textModelKey: "custom|custom-vision|mimo-v2.5"
     },
     customProviders: [
       {
@@ -1845,36 +1841,34 @@ test("videoGenerate submissions are blocked after a successful submission in the
   }
 });
 
-test("an image no vision route could read is announced to the model, not left as a bare path", () => {
+test("image attachments tell text-only models to use read on demand", () => {
   const source = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
   const block = source.slice(
-    source.indexOf("const unreadableImageInstructions"),
+    source.indexOf("const imageReadInstructions"),
     source.indexOf("const miniAppRuntimeInstructions")
   );
-  assert.ok(block.length > 0, "the unreadable-image runtime instruction must exist");
+  assert.ok(block.length > 0, "the image-read runtime instruction must exist");
   assert.ok(
-    /unreadableImageCount > 0/.test(block),
-    "it must fire only when an image actually went unread"
-  );
-  // The observed failure: handed only `<channel_attachments>` with a .png path,
-  // the model burned the turn on skillSearch/ls hunting for an OCR tool.
-  assert.ok(
-    /do not try/i.test(block) && /(file or shell tool|searching for a skill)/i.test(block),
-    "it must tell the model that reading the path back will not recover the content"
+    /imageAttachmentCount > 0/.test(block),
+    "it must fire only when an image attachment exists"
   );
   assert.ok(
-    /cannot see the image/i.test(block),
-    "it must tell the model to say plainly that it cannot see the image"
+    /read\(path, prompt\)/i.test(block),
+    "it must expose the image path through the existing read tool"
   );
-  // Every surface shares this instruction, so it must not name one of them.
-  for (const word of ["feishu", "telegram", "desktop", "provider", "setting", "vision model"]) {
+  assert.ok(
+    /same image more than once with different prompts/i.test(block),
+    "it must permit repeated task-specific recognition"
+  );
+  assert.match(block, /never guess unseen content/i);
+  for (const word of ["feishu", "telegram", "desktop"]) {
     assert.ok(
       !new RegExp(`\\b${word}\\b`, "i").test(block),
       `the instruction must stay domain-agnostic (found "${word}")`
     );
   }
   assert.ok(
-    /\.\.\.unreadableImageInstructions/.test(source),
+    /\.\.\.imageReadInstructions/.test(source),
     "the instruction must be wired into runtimeInstructions"
   );
 });

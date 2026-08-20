@@ -21,7 +21,7 @@
   type DefaultThinkingLevel = DesktopThinkingLevel;
   type ModelCapabilityTag = "text" | "vision" | "audio_input" | "stt" | "tts" | "tool";
   type ModelFallbackMode = "off" | "same-provider" | "any-enabled";
-  type ModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
+  type ModelRoute = "text" | "stt" | "tts" | "subagent";
   type SubagentModelLevel = "haiku" | "sonnet" | "opus" | "thinking";
 
   interface ProviderModelForm { id: string; tags: ModelCapabilityTag[]; supportedRoles: ModelRole[]; }
@@ -37,7 +37,7 @@
     defaultThinkingLevel: DefaultThinkingLevel; defaultCustomProviderId: string;
     customProviders: CustomProviderForm[];
     modelRouting: {
-      textModelKey: string; visionModelKey: string; sttModelKey: string; ttsModelKey: string;
+      textModelKey: string; sttModelKey: string; ttsModelKey: string;
       compactionModelKey: string;
       subagentModelKey: string; subagentHaikuModelKey: string; subagentSonnetModelKey: string;
       subagentOpusModelKey: string; subagentThinkingModelKey: string;
@@ -49,7 +49,7 @@
 
   interface MetaResponse { providers: Array<{ id: string; name: string }>; providerModels: Record<string, string[]>; capabilityTags: ModelCapabilityTag[]; }
   interface ModelRouteOption { key: string; label: string; contextWindow?: number; thinkingLevels?: DefaultThinkingLevel[]; }
-  interface ModelSwitchResponse { ok: boolean; error?: string; routes?: Record<"text" | "vision" | "stt" | "tts" | "subagent", { currentKey: string; options: ModelRouteOption[] }>; }
+  interface ModelSwitchResponse { ok: boolean; error?: string; routes?: Record<"text" | "stt" | "tts" | "subagent", { currentKey: string; options: ModelRouteOption[] }>; }
 
   const COPY = {
     "zh-CN": {
@@ -265,7 +265,7 @@
   let loading = true; let saving = false; let error = ""; let message = "";
   let providers: Array<{ id: string; name: string }> = [];
   let providerModels: Record<string, string[]> = {};
-  let routeOptions: Record<ModelRoute, ModelRouteOption[]> = { text: [], vision: [], stt: [], tts: [], subagent: [] };
+  let routeOptions: Record<ModelRoute, ModelRouteOption[]> = { text: [], stt: [], tts: [], subagent: [] };
   let capabilityTags: ModelCapabilityTag[] = ["text", "vision", "stt", "tts", "tool"];
 
   const preferredTimeZones = ["UTC", "Asia/Shanghai", "Asia/Tokyo", "Europe/London", "Europe/Berlin", "America/Los_Angeles", "America/New_York", "America/Chicago", "America/Denver", "Australia/Sydney"];
@@ -291,7 +291,7 @@
   let form: AIForm = {
     providerMode: "pi", piModelProvider: "anthropic", piModelName: "claude-sonnet-4-20250514",
     defaultThinkingLevel: "off", defaultCustomProviderId: "", customProviders: [],
-    modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "", ttsModelKey: "", compactionModelKey: "", subagentModelKey: "", subagentHaikuModelKey: "", subagentSonnetModelKey: "", subagentOpusModelKey: "", subagentThinkingModelKey: "" },
+    modelRouting: { textModelKey: "", sttModelKey: "", ttsModelKey: "", compactionModelKey: "", subagentModelKey: "", subagentHaikuModelKey: "", subagentSonnetModelKey: "", subagentOpusModelKey: "", subagentThinkingModelKey: "" },
     modelFallback: { mode: "same-provider", firstTokenTimeoutMs: 60000 },
     compaction: { enabled: true, thresholdPercent: 75, reserveTokens: 8192, keepRecentTokens: 20000, defaultContextWindow: 200000 },
     systemPrompt: "You are Molibot, a concise and helpful assistant.",
@@ -355,7 +355,6 @@
 
   $: routeCards = [
     { route: "text", title: copy.primaryText, description: copy.primaryTextDesc, emptyText: copy.noTextModel },
-    { route: "vision", title: copy.vision, description: copy.visionDesc, emptyText: copy.noVisionModel },
     { route: "stt", title: copy.stt, description: copy.sttDesc, emptyText: copy.noSttModel },
     { route: "subagent", title: copy.subagentFallback, description: copy.subagentFallbackDesc, emptyText: copy.noTextModel },
   ] as Array<{ route: ModelRoute; title: string; description: string; emptyText: string }>;
@@ -375,14 +374,13 @@
 
   function modelRoutingValue(route: ModelRoute): string {
     return route === "text" ? form.modelRouting.textModelKey
-      : route === "vision" ? form.modelRouting.visionModelKey
       : route === "stt" ? form.modelRouting.sttModelKey
       : route === "tts" ? form.modelRouting.ttsModelKey
       : form.modelRouting.subagentModelKey;
   }
 
   function setModelRoutingValue(route: ModelRoute, value: string): void {
-    form.modelRouting = { ...form.modelRouting, [route === "text" ? "textModelKey" : route === "vision" ? "visionModelKey" : route === "stt" ? "sttModelKey" : route === "tts" ? "ttsModelKey" : "subagentModelKey"]: value };
+    form.modelRouting = { ...form.modelRouting, [route === "text" ? "textModelKey" : route === "stt" ? "sttModelKey" : route === "tts" ? "ttsModelKey" : "subagentModelKey"]: value };
   }
 
   function subagentLevelValue(level: SubagentModelLevel): string {
@@ -456,8 +454,6 @@
   function ensureRoutingDefaults(): void {
     const text = routingOptions("text");
     if (!text.some((r) => r.key === form.modelRouting.textModelKey)) setModelRoutingValue("text", text[0]?.key ?? "");
-    const vision = routingOptions("vision");
-    if (!vision.some((v) => v.key === form.modelRouting.visionModelKey)) setModelRoutingValue("vision", vision[0]?.key ?? "");
     const stt = routingOptions("stt");
     if (!stt.some((v) => v.key === form.modelRouting.sttModelKey)) setModelRoutingValue("stt", stt[0]?.key ?? "");
     // Compaction reuses text-capable models; empty means "use primary text model".
@@ -491,7 +487,7 @@
       const modelSwitchData = (await modelSwitchRes.json()) as ModelSwitchResponse;
       if (!modelSwitchData.ok) throw new Error(modelSwitchData.error || copy.failedLoadRoutes);
       routeOptions = {
-        text: modelSwitchData.routes?.text.options ?? [], vision: modelSwitchData.routes?.vision.options ?? [],
+        text: modelSwitchData.routes?.text.options ?? [],
         stt: modelSwitchData.routes?.stt.options ?? [], tts: modelSwitchData.routes?.tts.options ?? [],
         subagent: modelSwitchData.routes?.subagent.options ?? [],
       };
@@ -513,7 +509,7 @@
           thinkingFormat: (cp.thinkingFormat as ThinkingFormat | undefined) ?? "auto",
         })),
         modelRouting: {
-          textModelKey: s.modelRouting?.textModelKey ?? "", visionModelKey: s.modelRouting?.visionModelKey ?? "",
+          textModelKey: s.modelRouting?.textModelKey ?? "",
           sttModelKey: s.modelRouting?.sttModelKey ?? "", ttsModelKey: s.modelRouting?.ttsModelKey ?? "",
           compactionModelKey: s.modelRouting?.compactionModelKey ?? "",
           subagentModelKey: s.modelRouting?.subagentModelKey ?? "",

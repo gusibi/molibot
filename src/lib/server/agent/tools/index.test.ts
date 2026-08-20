@@ -141,11 +141,6 @@ test("tools index registers documentExport as the verified deliverable writer", 
   assert.match(indexSource, /Generate and re-read verify deliverable DOCX, XLSX, or PDF/);
 });
 
-test("tools index registers imageAnalyze as the deferred configured-vision reader", () => {
-  assert.match(indexSource, /name: "imageAnalyze"/);
-  assert.match(indexSource, /tool: imageAnalyzeRuntimeTool/);
-});
-
 test("tools index registers runtimeTask as the only Agent todo and scheduling CRUD surface", () => {
   assert.match(indexSource, /createRuntimeTaskTool/);
   assert.match(indexSource, /name: "runtimeTask"/);

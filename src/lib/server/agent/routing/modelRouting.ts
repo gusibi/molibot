@@ -144,10 +144,6 @@ export function buildAgentSessionId(
   return [channel, chatId, sessionId, useCase, selection.providerId, selection.modelId].join(":");
 }
 
-export function sameModelSelection(a: ResolvedModelSelection, b: ResolvedModelSelection): boolean {
-  return a.source === b.source && a.providerId === b.providerId && a.modelId === b.modelId;
-}
-
 export function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Model<any> {
   // A built-in provider keeps a settings row so it can be enabled and given a
   // model list, but its transport belongs to pi. Assembling a model from that
@@ -218,7 +214,6 @@ export function applyAgentModelRoutingOverride(
 
   const merged = { ...settings.modelRouting };
   if (override.textModelKey) merged.textModelKey = override.textModelKey;
-  if (override.visionModelKey) merged.visionModelKey = override.visionModelKey;
   if (override.sttModelKey) merged.sttModelKey = override.sttModelKey;
   return { ...settings, modelRouting: merged };
 }
@@ -227,9 +222,7 @@ export function resolveModelSelection(
   settings: RuntimeSettings,
   useCase: "text" | "vision" = "text"
 ): ResolvedModelSelection {
-  const routedKey = useCase === "vision"
-    ? settings.modelRouting.visionModelKey
-    : settings.modelRouting.textModelKey;
+  const routedKey = settings.modelRouting.textModelKey;
   const routed = parseModelKey(routedKey);
   if (routed) {
     if (routed.mode === "pi") {
@@ -313,6 +306,17 @@ export function resolveModelSelection(
 
 export function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "text"): Model<any> {
   return resolveModelSelection(settings, useCase).model;
+}
+
+export function resolveModelSelectionForKey(
+  settings: RuntimeSettings,
+  modelKey: string,
+  useCase: "text" | "vision"
+): ResolvedModelSelection {
+  return resolveModelSelection({
+    ...settings,
+    modelRouting: { ...settings.modelRouting, textModelKey: modelKey }
+  }, useCase);
 }
 
 /**
@@ -450,9 +454,6 @@ export function buildModelFallbackSelections(
       modelRouting: {
         ...settings.modelRouting,
         textModelKey: `pi|${settings.piModelProvider}|${
-          resolveBuiltInProviderDefaultModel(settings, settings.piModelProvider, settings.piModelName)
-        }`,
-        visionModelKey: `pi|${settings.piModelProvider}|${
           resolveBuiltInProviderDefaultModel(settings, settings.piModelProvider, settings.piModelName)
         }`
       }

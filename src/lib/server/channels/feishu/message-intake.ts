@@ -3,6 +3,7 @@ import type * as lark from "@larksuiteoapi/node-sdk";
 import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { imageContentFromSavedAttachment } from "$lib/server/channels/shared/attachmentImageContents.js";
 
 interface ParsedFeishuResource {
   fileKey: string;
@@ -526,10 +527,9 @@ export async function toFeishuInboundEvent(input: {
       mimeType
     });
     attachments.push(saved);
+    const imageContent = imageContentFromSavedAttachment(saved, resource.data);
+    if (imageContent) imageContents.push(imageContent);
 
-    if (saved.isImage && mimeType) {
-      imageContents.push({ type: "image", mimeType, data: resource.data.toString("base64") });
-    }
   }
 
   if (!cleaned) {

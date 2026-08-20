@@ -87,7 +87,7 @@ fi
 
 (
   cd "$OUTPUT_DIR"
-  pnpm install --prod --no-optional --frozen-lockfile
+  pnpm install --prod --frozen-lockfile
 )
 
 cat > "$OUTPUT_DIR/README.release.md" <<'EOF'

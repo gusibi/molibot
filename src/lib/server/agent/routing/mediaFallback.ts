@@ -4,18 +4,12 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import {
   resolveModelSelection,
-  sameModelSelection,
   type ResolvedModelSelection
 } from "$lib/server/agent/routing/modelRouting.js";
-import {
-  analyzeImageWithConfiguredVision,
-  resolveVisionAnalysisTarget
-} from "$lib/server/agent/vision/visionAnalysis.js";
 import {
   resolveSttTarget,
   transcribeAudioViaConfiguredProvider
 } from "$lib/server/agent/routing/stt.js";
-import { momWarn } from "$lib/server/agent/common/log.js";
 import type { MomContext } from "$lib/server/agent/core/types.js";
 
 export function supportsVisionNatively(
@@ -58,19 +52,6 @@ export function decideVisionRouting(settings: RuntimeSettings, hasImages: boolea
     };
   }
 
-  const visionSelection = resolveModelSelection(settings, "vision");
-  if (!sameModelSelection(visionSelection, textSelection) && supportsVisionNatively(visionSelection)) {
-    const verification = visionSelection.configuredModel?.verification?.vision ?? "missing";
-    return {
-      selection: visionSelection,
-      sendImagesNatively: true,
-      mode: "vision",
-      reason: verification === "passed"
-        ? "vision_route_declared_verified"
-        : "vision_route_declared_unverified"
-    };
-  }
-
   if (supportsVisionNatively(textSelection)) {
     const verification = textSelection.configuredModel?.verification?.vision ?? "missing";
     return {
@@ -83,23 +64,11 @@ export function decideVisionRouting(settings: RuntimeSettings, hasImages: boolea
     };
   }
 
-  if (supportsVisionNatively(visionSelection)) {
-    const verification = visionSelection.configuredModel?.verification?.vision ?? "missing";
-    return {
-      selection: visionSelection,
-      sendImagesNatively: true,
-      mode: "vision",
-      reason: verification === "passed"
-        ? "vision_route_declared_verified"
-        : "vision_route_declared_unverified"
-    };
-  }
-
   return {
     selection: textSelection,
     sendImagesNatively: false,
     mode: "fallback",
-    reason: "no_declared_native_vision"
+    reason: "text_model_requires_image_read"
   };
 }
 
@@ -169,71 +138,6 @@ export function decideAudioRouting(settings: RuntimeSettings, hasAudio: boolean)
     mode: "fallback",
     reason: "no_stt_target",
     userNotice: "收到语音消息，但当前没有可用的 STT 路由；系统将保留语音占位文本而不做转写。"
-  };
-}
-
-export interface ImageFallbackRouteDecision {
-  shouldAnalyze: boolean;
-  mode: "none" | "native" | "vision" | "fallback";
-  reason: string;
-  userNotice?: string;
-}
-
-export function decideImageFallbackRouting(
-  settings: RuntimeSettings,
-  hasImages: boolean,
-  visionDecision: { sendImagesNatively: boolean; reason: string }
-): ImageFallbackRouteDecision {
-  if (!hasImages) {
-    return {
-      shouldAnalyze: false,
-      mode: "none",
-      reason: "no_images"
-    };
-  }
-
-  if (visionDecision.sendImagesNatively) {
-    return {
-      shouldAnalyze: false,
-      mode: "native",
-      reason: visionDecision.reason
-    };
-  }
-
-  const target = resolveVisionAnalysisTarget(settings);
-  if (!target) {
-    return {
-      shouldAnalyze: false,
-      mode: "fallback",
-      reason: "no_vision_target",
-      userNotice: "收到图片消息，但当前没有可用的 vision fallback 路由；系统将保留图片附件占位信息而不做内容识别。"
-    };
-  }
-
-  if (!target.declared) {
-    return {
-      shouldAnalyze: false,
-      mode: "fallback",
-      reason: "vision_target_not_declared",
-      userNotice: "收到图片消息，但当前选中的图片模型没有声明 `vision` 能力；系统将保留图片附件占位信息而不做内容识别。"
-    };
-  }
-
-  if (target.verification === "failed") {
-    return {
-      shouldAnalyze: false,
-      mode: "fallback",
-      reason: "vision_target_failed_verification",
-      userNotice: "收到图片消息，但当前可用的 vision 模型验证失败；系统将保留图片附件占位信息而不做内容识别。"
-    };
-  }
-
-  return {
-    shouldAnalyze: true,
-    mode: "vision",
-    reason: target.verification === "passed"
-      ? "vision_fallback_verified"
-      : "vision_fallback_declared_unverified"
   };
 }
 
@@ -343,68 +247,6 @@ export async function enrichMessageTextWithAudio(
   }
 
   return { text, transcriptionErrors };
-}
-
-export async function enrichMessageTextWithImages(
-  ctx: MomContext,
-  settings: RuntimeSettings,
-  imageDecision: ImageFallbackRouteDecision,
-  baseText: string
-): Promise<{
-  text: string;
-  analysisErrors: string[];
-  /** Images whose contents made it into `text`. Anything else is unreadable to the model. */
-  analyzedCount: number;
-}> {
-  const imageAttachments = ctx.message.attachments.filter((item) => item.isImage);
-  const imageContents = Array.isArray(ctx.message.imageContents) ? ctx.message.imageContents : [];
-  if (imageAttachments.length === 0 || imageContents.length === 0) {
-    return { text: baseText, analysisErrors: [], analyzedCount: 0 };
-  }
-
-  if (!imageDecision.shouldAnalyze) {
-    return {
-      text: baseText,
-      analysisErrors: imageDecision.userNotice ? [imageDecision.userNotice] : [],
-      analyzedCount: 0
-    };
-  }
-
-  const analyses: string[] = [];
-  const analysisErrors: string[] = [];
-  const pairCount = Math.min(imageAttachments.length, imageContents.length);
-
-  for (let index = 0; index < pairCount; index += 1) {
-    const attachment = imageAttachments[index];
-    const image = imageContents[index];
-    const label = attachment?.original?.trim() || `image-${index + 1}`;
-    const analysis = await analyzeImageWithConfiguredVision({
-      channel: ctx.channel,
-      settings,
-      image,
-      label,
-      maxAttempts: 3,
-      retryDelayMs: 800
-    });
-
-    if (analysis.text) {
-      analyses.push(`[image analysis #${index + 1}: ${label}]\n${analysis.text}`);
-    } else if (analysis.errorMessage) {
-      analysisErrors.push(`${label}: ${analysis.errorMessage}`);
-    }
-  }
-
-  let text = baseText;
-  if (analyses.length > 0) {
-    const imageSection = analyses.join("\n\n");
-    text = text.trim()
-      ? `${text}\n\n${imageSection}`
-      : imageSection;
-  } else if (!text.trim()) {
-    text = "(image message received; analysis unavailable)";
-  }
-
-  return { text, analysisErrors, analyzedCount: analyses.length };
 }
 
 export function stripImagePartsForTextOnlyModel(selectedModel: Model<any>, context: any): any {

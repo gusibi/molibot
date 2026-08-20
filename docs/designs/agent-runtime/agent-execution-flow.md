@@ -209,12 +209,11 @@ const enqueue = (job) => {
 
 ### 4.1 路由类型
 
-系统支持 6 种模型路由，每种可以独立配置：
+系统支持 5 种对话/语音模型路由；图片识别引擎在图片设置中独立配置，不再占用模型路由：
 
 | Route | 用途 | 配置 Key |
 |-------|------|---------|
 | `text` | 主对话模型 | `modelRouting.textModelKey` |
-| `vision` | 图片识别模型（可与 text 相同） | `modelRouting.visionModelKey` |
 | `stt` | 语音转文字 | `modelRouting.sttModelKey` |
 | `tts` | 文字转语音 | `modelRouting.ttsModelKey` |
 | `subagent` | Subagent 默认模型 | `modelRouting.subagentModelKey` |

@@ -48,17 +48,12 @@ async function enrich(settings: RuntimeSettings, ctx: MomContext) {
   return { result, notices };
 }
 
-test("an image the fallback route could not describe is reported as unreadable, not silently dropped", async () => {
-  // The shipped failure: nothing readable ever reached the model, which was
-  // handed only the attachment path and spent the turn hunting for an OCR tool.
+test("a text-only primary model keeps the image available for on-demand reading", async () => {
   const settings: RuntimeSettings = {
     ...defaultRuntimeSettings,
     modelRouting: {
       ...defaultRuntimeSettings.modelRouting,
-      textModelKey: "custom|cpa|doubao-seed-2.0-lite",
-      // Declared `vision` but unverified: the route exists, so the runtime
-      // describes the image out-of-band instead of sending it natively.
-      visionModelKey: "custom|cpa|seer"
+      textModelKey: "custom|cpa|doubao-seed-2.0-lite"
     },
     customProviders: [
       {
@@ -87,33 +82,23 @@ test("an image the fallback route could not describe is reported as unreadable, 
     ]
   } as RuntimeSettings;
 
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response("upstream is down", { status: 503 })) as typeof globalThis.fetch;
-  try {
-    const ctx = imageContext();
-    const { result, notices } = await enrich(settings, ctx);
+  const ctx = imageContext();
+  const { result, notices } = await enrich(settings, ctx);
 
-    assert.equal(result.visionDecision.sendImagesNatively, false);
-    assert.equal(result.unreadableImageCount, 1, "the runner must be told the image went unread");
-    // The text handed to the model must not pretend an analysis happened.
-    assert.ok(!result.enrichedText.includes("[image analysis"));
-    assert.equal(result.enrichedText, ctx.message.text);
-    // And the user still gets the downgrade notice.
-    assert.equal(notices.length, 1);
-    assert.match(notices[0], /图片识别不可用/);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  assert.equal(result.visionDecision.sendImagesNatively, false);
+  assert.equal(result.imageAttachmentCount, 1);
+  assert.equal(result.enrichedText, ctx.message.text);
+  assert.equal(result.modelUseCase, "text");
+  assert.equal(result.activeSelection.modelId, "doubao-seed-2.0-lite");
+  assert.deepEqual(notices, []);
 });
 
-test("a native vision route leaves nothing unreadable", async () => {
+test("another configured vision model does not replace the text-only primary model", async () => {
   const settings: RuntimeSettings = {
     ...defaultRuntimeSettings,
     modelRouting: {
       ...defaultRuntimeSettings.modelRouting,
-      textModelKey: "custom|cpa|text-only",
-      visionModelKey: "custom|cpa|seer"
+      textModelKey: "custom|cpa|text-only"
     },
     customProviders: [
       {
@@ -145,19 +130,20 @@ test("a native vision route leaves nothing unreadable", async () => {
 
   const { result, notices } = await enrich(settings, imageContext());
 
-  assert.equal(result.visionDecision.sendImagesNatively, true);
-  assert.equal(result.modelUseCase, "vision");
-  assert.equal(result.unreadableImageCount, 0);
+  assert.equal(result.visionDecision.sendImagesNatively, false);
+  assert.equal(result.modelUseCase, "text");
+  assert.equal(result.activeSelection.modelId, "text-only");
+  assert.equal(result.imageAttachmentCount, 1);
   assert.deepEqual(notices, []);
 });
 
-test("a turn with no image attachment has nothing unreadable", async () => {
+test("a turn with no image attachment exposes no image read hint", async () => {
   const ctx = imageContext();
   ctx.message.attachments = [];
   ctx.message.imageContents = [];
 
   const { result, notices } = await enrich(defaultRuntimeSettings, ctx);
 
-  assert.equal(result.unreadableImageCount, 0);
+  assert.equal(result.imageAttachmentCount, 0);
   assert.deepEqual(notices, []);
 });

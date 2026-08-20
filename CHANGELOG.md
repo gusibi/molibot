@@ -6,6 +6,37 @@
 
 ## 2026-08-20
 
+### Added: External Subagent 内置插件（OpenAI Codex & Claude Code 一体化子 Agent）
+
+- **独立子包与运行时解耦**：创建独立包 `package/external-subagent`（`#external-subagent`），提供进程生命周期管理 `ManagedProcess`、`JsonRpcLineTransport`、Codex wire 适配器与 Claude Code SDK/CLI 适配器。主 Molibot 依然保持在 pi runtime 上，现有 pi `subagent` 行为不变。
+- **按需与动态解析机制（方案 3）**：SDK 不强行内置打包 500MB+ 原生二进制文件，支持检测系统 PATH（`codex` / `claude` CLI）、自定义路径、或按需安装到 `~/.molibot/runtimes/external-subagent`。
+- **全生命周期安全与进程树隔离**：
+  - 环境变量白名单过滤（`environment.ts`），严格阻断不相关的认证凭据（Telegram, Feishu, QQ, 数据库, MCP 等）；
+  - 全进程树级终止（POSIX 进程组 / Windows `taskkill /T /F`），先 SIGTERM（grace 3000ms）后 SIGKILL，杜绝孤儿/僵尸进程；
+  - 统一超时与取消机制，精确区分用户取消（`aborted`）与超时（`timeout`）；
+  - 仅返回首尾压缩文本（最大 ~6000 字符）与结构化诊断，防止原始 stderr、协议交互与多轮思考污染主模型上下文。
+- **深度整合至内置 `subagent` 工具**：
+  - 将 `claude-code` 与 `codex` 作为一等公民角色（First-class Roles）直接接入内置的 `subagent` 工具；
+  - 主模型无需额外多记工具，只需调用 `subagent({ agent: "claude-code", task: "..." })` 或 `subagent({ agent: "codex", task: "..." })`；
+  - 原生支持链式协作流水线（如 `chain: [scout -> claude-code -> reviewer]`）；
+  - Plan 模式自动过滤写操作外部子 Agent，维持安全只读边界；
+  - Web 与 Desktop 均提供运行时环境探测卡片与一键安装，设置支持 SQLite round-trip 持久化。
+- **发布打包**：`bin/molibot-release.sh` 移除 `--no-optional`，确保可选平台二进制依赖正常支持。
+
+### Added: 按需图片识别与多 API 引擎路由
+
+- 图片不再在入站解析时一次性转成文字：视觉主模型直接读取原图，纯文本模型通过 `read(path, prompt)` 按需、可重复识别。
+- 新增独立图片识别模块和有序 API 引擎故障切换；PDF OCR 同步复用该模块，旧 `imageAnalyze`/`visionAnalysis` 路径已删除。
+- Web 与 Desktop 图片设置页新增“图片识别”Tab，可配置多个引擎、优先级、默认模式并上传图片测试；Desktop 使用安全投影、精确网络权限和可恢复的断线状态；CLI adapter 计划在第二期启用。
+- Feishu、Telegram、QQ、微信和 Web 统一为附件持久化/规范化职责，识别逻辑留在共享 Agent 层。
+
+### Fixed: Desktop 图片识别引擎编辑与 Tab 对齐
+
+- 修复第二个及后续识别引擎在输入名称时自动折叠：展开状态现在独立于会被输入更新替换的引擎数据，新添加的引擎会持续保持展开。
+- 图片生成/识别 Tab 使用与设置卡片相同的共享内容列宽，宽屏和窄屏下左右边界保持一致。
+- 增加结构守卫，防止再次使用数组位置直接控制响应式 disclosure 的展开状态。
+
+
 ### Improved: 优化 AI 回复底部状态条（总耗时精确计算、Token 紧凑展示与纯净模型名）
 
 - **总耗时端到端精确统计**：重构 `transcriptTurnSummary` 计算逻辑，精准计算从对应用户提问发出到 AI 回复生成的端到端总时间，彻底解决原先仅累加 Tool Activities 导致耗时显示偏少的问题；

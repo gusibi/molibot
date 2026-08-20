@@ -4,7 +4,7 @@ import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime
 import { DEFAULT_THINKING_LEVEL_MAP, getModelThinkingLevels } from "$lib/server/providers/modelThinking.js";
 import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/thinking.js";
 
-export type ModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
+export type ModelRoute = "text" | "stt" | "tts" | "subagent";
 
 export interface ModelOption {
   key: string;
@@ -42,9 +42,7 @@ export function resolveBuiltInProviderDefaultModel(
 function routePatchKey(route: ModelRoute): keyof RuntimeSettings["modelRouting"] {
   return route === "text"
     ? "textModelKey"
-    : route === "vision"
-      ? "visionModelKey"
-      : route === "stt"
+    : route === "stt"
         ? "sttModelKey"
         : route === "tts"
           ? "ttsModelKey"
@@ -52,7 +50,7 @@ function routePatchKey(route: ModelRoute): keyof RuntimeSettings["modelRouting"]
 }
 
 export function parseModelRoute(value: string): ModelRoute | null {
-  if (value === "text" || value === "vision" || value === "stt" || value === "tts" || value === "subagent") {
+  if (value === "text" || value === "stt" || value === "tts" || value === "subagent") {
     return value;
   }
   return null;
@@ -61,9 +59,7 @@ export function parseModelRoute(value: string): ModelRoute | null {
 export function currentModelKey(settings: RuntimeSettings, route: ModelRoute): string {
   const routed = route === "text"
     ? settings.modelRouting.textModelKey?.trim()
-    : route === "vision"
-      ? settings.modelRouting.visionModelKey?.trim()
-      : route === "stt"
+    : route === "stt"
         ? settings.modelRouting.sttModelKey?.trim()
         : route === "tts"
           ? settings.modelRouting.ttsModelKey?.trim()
@@ -141,7 +137,7 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
     });
   };
 
-  if (route === "text" || route === "vision" || route === "subagent") {
+  if (route === "text" || route === "subagent") {
     const defaultModelId = resolveBuiltInProviderDefaultModel(settings, settings.piModelProvider, settings.piModelName);
     const configuredAlias = settings.customProviders
       .find((p) => p.id === settings.piModelProvider)

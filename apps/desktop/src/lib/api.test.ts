@@ -75,12 +75,15 @@ import {
   saveDesktopModelRouting,
   saveDesktopWebSearch,
   saveDesktopImageGenerate,
+  loadDesktopImageRecognition,
+  saveDesktopImageRecognition,
   saveDesktopVideoGenerate,
   truncateDesktopMessages,
   saveDesktopTts,
   stopDesktopActiveRun,
   testDesktopWebSearchSettings,
   testDesktopImageGenerateSettings,
+  testDesktopImageRecognitionSettings,
   testDesktopVideoGenerateSettings,
   testDesktopTtsSettings,
   deleteDesktopMediaTask,
@@ -1156,8 +1159,8 @@ test("resolveOnboardingAgentSelection prefers the active profile's enabled linke
     { id: "two", name: "Two", enabled: false, agentId: "agent-2", agentName: "Two", sandboxEnabled: false }
   ];
   const agents: DesktopAgentItem[] = [
-    { id: "agent-1", name: "Agent One", description: "", enabled: true, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "" } },
-    { id: "agent-2", name: "Agent Two", description: "", enabled: true, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "" } }
+    { id: "agent-1", name: "Agent One", description: "", enabled: true, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
+    { id: "agent-2", name: "Agent Two", description: "", enabled: true, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
   ];
 
   assert.deepEqual(resolveOnboardingAgentSelection(profiles, agents, "two"), {
@@ -1172,8 +1175,8 @@ test("resolveOnboardingAgentSelection falls back to usable entries and reports i
     { id: "one", name: "One", enabled: false, agentId: "disabled", agentName: "", sandboxEnabled: false }
   ];
   const agents: DesktopAgentItem[] = [
-    { id: "disabled", name: "Disabled", description: "", enabled: false, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "" } },
-    { id: "usable", name: "Usable", description: "", enabled: true, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "" } }
+    { id: "disabled", name: "Disabled", description: "", enabled: false, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
+    { id: "usable", name: "Usable", description: "", enabled: true, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
   ];
 
   assert.deepEqual(resolveOnboardingAgentSelection(profiles, agents, "missing"), {
@@ -1398,6 +1401,42 @@ test("desktopTtsAudioUrl exposes only the guarded test-audio route", () => {
   });
   assert.equal(url, "http://127.0.0.1:3000/api/settings/tts-generate/audio?file=test-audio%2Fsample%20voice.m4a");
   assert.equal(desktopTtsAudioUrl("http://127.0.0.1:3000", { ok: true, result: { details: { filePath: "/private/outside.wav" } } }), "");
+});
+
+test("desktop image recognition uses its narrow projection and multipart unsaved-config test", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; method: string; body: BodyInit | null | undefined; signal: AbortSignal | null | undefined }> = [];
+  const summary = {
+    enabled: true,
+    defaultEngine: "auto",
+    engines: [{ id: "vision-1", enabled: true, name: "Vision 1", modelKey: "pi|openai|gpt-4.1" }],
+    models: [],
+    adapterTypes: ["api"] as ["api"],
+    plannedAdapterTypes: ["cli"] as ["cli"]
+  };
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), method: init?.method ?? "GET", body: init?.body, signal: init?.signal });
+    if (String(url).endsWith("/test")) return new Response(JSON.stringify({ ok: true, result: { text: "recognized" } }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, summary }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal((await loadDesktopImageRecognition("http://127.0.0.1:3000")).engines[0].id, "vision-1");
+    await saveDesktopImageRecognition("http://127.0.0.1:3000", summary);
+    const file = new File([new Uint8Array([1, 2, 3])], "sample.png", { type: "image/png" });
+    await testDesktopImageRecognitionSettings("http://127.0.0.1:3000", summary, file, "Read text", "auto");
+    assert.deepEqual(calls.map((call) => call.method), ["GET", "PATCH", "POST"]);
+    assert.equal(calls[0].url.endsWith("/api/desktop/image-recognition"), true);
+    assert.equal(calls[0].signal instanceof AbortSignal, true);
+    assert.equal(calls[1].url.endsWith("/api/desktop/image-recognition"), true);
+    assert.equal(calls[2].url.endsWith("/api/settings/image-recognition/test"), true);
+    assert.equal(calls[2].body instanceof FormData, true);
+    const form = calls[2].body as FormData;
+    const value = JSON.parse(String(form.get("value")));
+    assert.deepEqual(value.engineOrder, ["vision-1"]);
+    assert.equal((form.get("image") as File).name, "sample.png");
+  } finally {
+    globalThis.fetch = original;
+  }
 });
 
 test("provider editor draft is detached from the credential-safe source item", () => {
@@ -1748,4 +1787,3 @@ test("loadDesktopRunHistory requests the run history endpoint with custom limit"
     globalThis.fetch = original;
   }
 });
-

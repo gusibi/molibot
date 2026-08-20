@@ -45,3 +45,33 @@ test("updatePluginsConfig preserves and applies the complete memory settings blo
   });
   assert.deepEqual(settings.plugins.memory.dailyMaterials, dailyMaterials);
 });
+
+test("updatePluginsConfig preserves and applies the externalSubagent settings block", () => {
+  let settings = structuredClone(defaultRuntimeSettings);
+  const runtime = {
+    getSettings: () => settings,
+    updateSettings: (patch: Partial<RuntimeSettings>) => {
+      settings = { ...settings, ...patch };
+      return settings;
+    }
+  };
+
+  updatePluginsConfig(runtime, {
+    externalSubagent: {
+      enabled: true,
+      codexEnabled: true,
+      codexPermissionMode: "dangerously-bypass-approvals-and-sandbox",
+      codexPath: "/opt/bin/codex",
+      claudeCodeEnabled: true,
+      claudeCodePermissionMode: "auto",
+      claudeCodePath: "/opt/bin/claude"
+    }
+  });
+
+  assert.equal(settings.plugins.externalSubagent.enabled, true);
+  assert.equal(settings.plugins.externalSubagent.codexPermissionMode, "dangerously-bypass-approvals-and-sandbox");
+  assert.equal(settings.plugins.externalSubagent.codexPath, "/opt/bin/codex");
+  assert.equal(settings.plugins.externalSubagent.claudeCodePermissionMode, "auto");
+  assert.equal(settings.plugins.externalSubagent.claudeCodePath, "/opt/bin/claude");
+});
+

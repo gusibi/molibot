@@ -108,7 +108,7 @@ export function beginNewAgent(): void {
     description: "",
     enabled: true,
     sandboxEnabled: null,
-    modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "" },
+    modelRouting: { textModelKey: "", sttModelKey: "" },
     files: emptyAgentFiles()
   };
   agentsStore.actionMessage = "";

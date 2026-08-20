@@ -197,7 +197,7 @@ export function projectAgentCity(input: AgentCityProjectionInput): AgentCityProj
     enabled: true,
     sandboxEnabled: null,
     modelOverrides: 0,
-    modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "" }
+    modelRouting: { textModelKey: "", sttModelKey: "" }
   } satisfies DesktopAgentItem;
   const regularAgents = input.agents.filter((item) => item.id !== "default");
   const slotState = reconcileAgentCitySlots(regularAgents.map((item) => item.id), input.slots);

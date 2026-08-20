@@ -127,20 +127,22 @@ test("runDocExtract OCRs an image-only PDF through the shared configured vision 
       workspaceDir: cwd,
       channel: "test",
       getSettings: () => defaultRuntimeSettings,
-      analyzeImage: async (options) => {
+      recognizeImage: async (options) => {
         calls.push(options);
         return {
           text: "Invoice A-42\n\nTotal: $19.90",
-          errorMessage: null,
+          engineId: "ocr-primary",
           providerId: "vision-provider",
-          modelId: "vision-model"
+          modelId: "vision-model",
+          attempts: [],
+          warnings: []
         };
       }
     });
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].image.mimeType, "image/png");
-    assert.match(calls[0].instruction, /Transcribe all visible text/);
+    assert.match(calls[0].prompt, /Transcribe all visible text/);
     assert.match(result.text, /Invoice A-42/);
     assert.deepEqual(result.details.metadata?.ocrPages, [1]);
     assert.equal(result.details.metadata?.ocrModelId, "vision-model");
@@ -158,9 +160,9 @@ test("runDocExtract can disable OCR for image-only PDFs without calling a model"
       runDocExtract({ path: "scan.pdf", ocr: "never" }, {
         cwd,
         workspaceDir: cwd,
-        analyzeImage: async () => {
+        recognizeImage: async () => {
           called = true;
-          return { text: "must not run", errorMessage: null };
+          return { text: "must not run", engineId: "unused", attempts: [], warnings: [] };
         }
       }),
       /No extractable text/

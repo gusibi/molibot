@@ -1,5 +1,6 @@
 import {
   sanitizeImageGenerateSettings,
+  sanitizeImageRecognitionSettings,
   sanitizeTtsGenerateSettings,
   sanitizeVideoGenerateSettings,
   sanitizeWebSearchSettings
@@ -25,6 +26,16 @@ export function updateImageGenerateConfig(runtime: SettingsAccessor, raw: unknow
   const current = runtime.getSettings();
   const sanitized = sanitizeImageGenerateSettings(raw, current.imageGenerate);
   return runtime.updateSettings({ imageGenerate: sanitized }).imageGenerate;
+}
+
+export function readImageRecognitionConfig(runtime: SettingsAccessor): RuntimeSettings["imageRecognition"] {
+  return runtime.getSettings().imageRecognition;
+}
+
+export function updateImageRecognitionConfig(runtime: SettingsAccessor, raw: unknown): RuntimeSettings["imageRecognition"] {
+  const current = runtime.getSettings();
+  const sanitized = sanitizeImageRecognitionSettings(raw, current.imageRecognition);
+  return runtime.updateSettings({ imageRecognition: sanitized }).imageRecognition;
 }
 
 export function readVideoGenerateConfig(runtime: SettingsAccessor): RuntimeSettings["videoGenerate"] {

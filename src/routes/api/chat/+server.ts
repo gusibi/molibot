@@ -43,6 +43,7 @@ import {
 } from "$lib/server/channels/shared/approvalAutoResume";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { resumeSuspendedBrokerApproval } from "$lib/server/channels/shared/brokerApprovalResume.js";
+import { imageContentFromSavedAttachment } from "$lib/server/channels/shared/attachmentImageContents.js";
 import type { ApprovalScope } from "$lib/server/approval/approvalTypes.js";
 import { getHostBashStore } from "$lib/server/hostBash";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n";
@@ -726,15 +727,8 @@ export const POST: RequestHandler = async ({ request }) => {
       resolveWebInboundFileMeta(file)
     );
     attachments.push(saved);
-    // Keyed off the saved attachment, like the channel intakes: `isImage` and
-    // `imageContents` must never disagree.
-    if (saved.isImage) {
-      imageContents.push({
-        type: "image",
-        mimeType: saved.mimeType || "image/jpeg",
-        data: bytes.toString("base64")
-      });
-    }
+    const imageContent = imageContentFromSavedAttachment(saved, bytes);
+    if (imageContent) imageContents.push(imageContent);
   }
 
   const inboundText = parsed.message || (attachments.length > 0 ? "(attachment)" : "");

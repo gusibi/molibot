@@ -31,8 +31,10 @@ import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js
 import {
   RESERVED_PLUGIN_KEYS,
   sanitizeChannelInstanceDisplaySettings,
+  sanitizeExternalSubagentPluginSettings,
   sanitizeHookPluginEntries,
   sanitizeImageGenerateSettings as sanitizeImageGenerateConfig,
+  sanitizeImageRecognitionSettings,
   sanitizeMemoryPluginSettings,
   sanitizeMiniAppSettings,
   sanitizePiExtensionSettings,
@@ -53,6 +55,7 @@ type DynamicSettingKey =
   | "agents"
   | "webSearch"
   | "imageGenerate"
+  | "imageRecognition"
   | "videoGenerate"
   | "ttsGenerate"
   | "toolSandbox";
@@ -62,6 +65,7 @@ const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = [
   "agents",
   "webSearch",
   "imageGenerate",
+  "imageRecognition",
   "videoGenerate",
   "ttsGenerate",
   "toolSandbox"
@@ -76,7 +80,6 @@ interface RawSettings {
   defaultCustomProviderId?: string;
   modelRouting?: {
     textModelKey?: string;
-    visionModelKey?: string;
     sttModelKey?: string;
     ttsModelKey?: string;
     compactionModelKey?: string;
@@ -147,6 +150,7 @@ interface RawSettings {
   skillDrafts?: unknown;
   webSearch?: unknown;
   imageGenerate?: unknown;
+  imageRecognition?: unknown;
   videoGenerate?: unknown;
   ttsGenerate?: unknown;
   toolSandbox?: unknown;
@@ -1097,6 +1101,10 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     defaultRuntimeSettings.plugins.memory
   );
   const cloudflareHtml = sanitizeCloudflareHtmlPluginSettings(raw.plugins?.cloudflareHtml);
+  const externalSubagent = sanitizeExternalSubagentPluginSettings(
+    raw.plugins?.externalSubagent,
+    defaultRuntimeSettings.plugins.externalSubagent
+  );
   const hookPlugins = sanitizeHookPluginEntries(raw.plugins?.hooks);
   const piExtensions = sanitizePiExtensionSettings(
     raw.plugins?.piExtensions,
@@ -1152,6 +1160,10 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const imageGenerate = sanitizeImageGenerateConfig(
     raw.imageGenerate ?? defaultRuntimeSettings.imageGenerate,
     defaultRuntimeSettings.imageGenerate
+  );
+  const imageRecognition = sanitizeImageRecognitionSettings(
+    raw.imageRecognition ?? defaultRuntimeSettings.imageRecognition,
+    defaultRuntimeSettings.imageRecognition
   );
   const videoGenerate = sanitizeVideoGenerateSettings(raw.videoGenerate ?? defaultRuntimeSettings.videoGenerate);
   const ttsGenerate = sanitizeTtsGenerateSettings(raw.ttsGenerate ?? defaultRuntimeSettings.ttsGenerate);
@@ -1211,7 +1223,6 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     defaultCustomProviderId,
     modelRouting: {
       textModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.textModelKey),
-      visionModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.visionModelKey),
       sttModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.sttModelKey),
       ttsModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.ttsModelKey),
       compactionModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.compactionModelKey),
@@ -1242,6 +1253,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     skillDrafts,
     webSearch,
     imageGenerate,
+    imageRecognition,
     videoGenerate,
     ttsGenerate,
     toolSandbox,
@@ -1254,6 +1266,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       ...pluginExtras,
       memory: memoryPlugin,
       cloudflareHtml,
+      externalSubagent,
       hooks: hookPlugins,
       piExtensions,
       miniApps
@@ -1732,6 +1745,7 @@ export class SettingsStore {
 
       const webSearch = this.loadWebSearchSettings(db);
       const imageGenerate = this.loadImageGenerateSettings(db);
+      const imageRecognition = this.loadImageRecognitionSettings(db);
       const videoGenerate = this.loadVideoGenerateSettings(db);
       const ttsGenerate = this.loadTtsGenerateSettings(db);
       const toolSandbox = this.loadSandboxSettings(db);
@@ -1742,6 +1756,7 @@ export class SettingsStore {
         customProviders: customProviders.length > 0 ? customProviders : legacy.customProviders,
         webSearch,
         imageGenerate,
+        imageRecognition,
         videoGenerate,
         ttsGenerate,
         toolSandbox
@@ -1781,6 +1796,22 @@ export class SettingsStore {
     } | undefined;
     if (!row) return undefined;
     return this.parseDynamicValue<RuntimeSettings["imageGenerate"]>(row.value_json, undefined as any);
+  }
+
+  private saveImageRecognitionSettings(db: DatabaseSync, value: RuntimeSettings["imageRecognition"]): void {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+      VALUES ('settings_image_recognition', ?, ?)
+    `).run(JSON.stringify(value), now);
+  }
+
+  private loadImageRecognitionSettings(db: DatabaseSync): RuntimeSettings["imageRecognition"] | undefined {
+    const row = db.prepare("SELECT value_json FROM settings_dynamic WHERE key = ?").get("settings_image_recognition") as {
+      value_json: string;
+    } | undefined;
+    if (!row) return undefined;
+    return this.parseDynamicValue<RuntimeSettings["imageRecognition"]>(row.value_json, undefined as any);
   }
 
   private saveVideoGenerateSettings(db: DatabaseSync, videoGenerate: RuntimeSettings["videoGenerate"]): void {
@@ -1941,6 +1972,10 @@ export class SettingsStore {
         this.saveImageGenerateSettings(db, settings.imageGenerate);
       }
 
+      if (keys.includes("imageRecognition")) {
+        this.saveImageRecognitionSettings(db, settings.imageRecognition);
+      }
+
       if (keys.includes("videoGenerate")) {
         this.saveVideoGenerateSettings(db, settings.videoGenerate);
       }
@@ -1975,7 +2010,6 @@ export class SettingsStore {
       defaultCustomProviderId: settings.defaultCustomProviderId,
       modelRouting: {
         textModelKey: settings.modelRouting.textModelKey,
-        visionModelKey: settings.modelRouting.visionModelKey,
         sttModelKey: settings.modelRouting.sttModelKey,
         ttsModelKey: settings.modelRouting.ttsModelKey,
         compactionModelKey: settings.modelRouting.compactionModelKey,
@@ -2102,6 +2136,7 @@ export class SettingsStore {
       agents: rawDynamicAfterMigration.agents ?? rawStatic.agents,
       webSearch: rawDynamicAfterMigration.webSearch ?? rawStatic.webSearch,
       imageGenerate: rawDynamicAfterMigration.imageGenerate ?? rawStatic.imageGenerate,
+      imageRecognition: rawDynamicAfterMigration.imageRecognition,
       videoGenerate: rawDynamicAfterMigration.videoGenerate ?? rawStatic.videoGenerate,
       ttsGenerate: rawDynamicAfterMigration.ttsGenerate ?? rawStatic.ttsGenerate,
       toolSandbox: rawDynamicAfterMigration.toolSandbox ?? rawStatic.toolSandbox

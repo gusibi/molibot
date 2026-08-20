@@ -40,6 +40,8 @@ const sections = {
   usage: read("./lib/settings/UsageSection.svelte"),
   trace: read("./lib/settings/TraceSection.svelte"),
   image: read("./lib/settings/ImageGenerateSection.svelte"),
+  imageSettings: read("./lib/settings/ImageSettingsSection.svelte"),
+  imageRecognition: read("./lib/settings/ImageRecognitionSection.svelte"),
   video: read("./lib/settings/VideoGenerateSection.svelte"),
   tts: read("./lib/settings/TtsGenerateSection.svelte")
 };
@@ -2096,6 +2098,18 @@ test("settings uses the flat Geist layout", () => {
   assert.match(styles, /\.settings-content \.settings-footbar\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*0/s);
   assert.match(sections.tts, /open=\{provider\.id === toolsStore\.ttsGenerateEdit\.defaultProvider\}/);
   assert.match(sections.image, /value: "1024x1024", label: "1024 × 1024"/);
+  assert.match(sections.imageSettings, /role="tablist"[\s\S]*imageGenerationTab[\s\S]*imageRecognitionTab/);
+  assert.match(sections.imageRecognition, /loadImageRecognition\(session\.endpoint\)/);
+  assert.match(sections.imageRecognition, /imageRecognitionUnavailable[\s\S]*retryLoading/);
+  assert.match(sections.imageRecognition, /moveImageRecognitionEngine\(engine\.id, -1\)/);
+  assert.match(sections.imageRecognition, /testImageRecognition\(testFile\)/);
+  assert.match(sections.imageRecognition, /class="settings-footbar"/);
+  assert.match(sections.imageRecognition, /let expandedEngines = \$state<Record<string, boolean>>\(\{\}\)/);
+  assert.match(sections.imageRecognition, /open=\{expandedEngines\[engine\.id\] \?\? index === 0\}/);
+  assert.match(sections.imageRecognition, /ontoggle=\{\(event\) => setEngineExpanded\(engine\.id, event\.currentTarget\.open\)\}/);
+  assert.match(sections.imageRecognition, /\[addedEngine\.id\]: true/);
+  assert.doesNotMatch(sections.imageRecognition, /open=\{index === 0\}/);
+  assert.match(styles, /\.image-settings-tabs \{[^}]*width: var\(--settings-col\);[^}]*margin: 0 auto 20px;/s);
   assert.match(sections.plugins, /memoryDailyMaterials\.enabled/);
   assert.match(sections.plugins, /memoryDailyMaterials\.projectId/);
   assert.match(sections.plugins, /memoryDailyMaterials\.promptPath/);
@@ -2918,7 +2932,7 @@ test("Desktop Trace keeps the dashboard above active-run records", () => {
 
 test("Desktop Stop waits for server finalization and reloads preserved output", () => {
   assert.match(streamStopRoute, /await waitForWebRunnerIdle/);
-  const stopRequest = conversationController.indexOf("const stopped = await stopDesktopChat");
+  const stopRequest = conversationController.indexOf("stopDesktopChat");
   const detach = conversationController.indexOf("if (this.sending) this.abort?.abort()", stopRequest);
   const reload = conversationController.indexOf("await this.host.reload(sessionId)", detach);
   assert.ok(stopRequest >= 0 && detach > stopRequest && reload > detach);

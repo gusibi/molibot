@@ -89,7 +89,6 @@ import {
   resolveApiKeyForModel,
   keyFingerprint,
   buildAgentSessionId,
-  sameModelSelection,
   getCustomProviderById,
   type ModelAttemptFailure,
   getCustomModelRoles
@@ -100,7 +99,7 @@ import {
   buildOpenAIBaseUrl,
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol.js";
-import { stripImagePartsForTextOnlyModel } from "$lib/server/agent/routing/mediaFallback.js";
+import { stripImagePartsForTextOnlyModel, supportsVisionNatively } from "$lib/server/agent/routing/mediaFallback.js";
 import { getMemoryTraceStore, type MemoryReferencedItem, type MemoryWriteReceipt } from "$lib/server/memory/traceStore.js";
 import { createMemoryCitationStreamFilter, stripMemoryCitations } from "$lib/server/memory/citation.js";
 import { buildReferencedItems, memoryToolHitsFromToolCall } from "$lib/server/memory/referenced.js";
@@ -1001,7 +1000,7 @@ export class MomRunner implements RunnerLike {
         hasInlineAudioTranscript: Boolean(ctx.message.hasInlineAudioTranscript)
       });
     }
-    let { enrichedText, activeSelection, modelCandidates, modelUseCase, audioDecision, visionDecision, unreadableImageCount } = await prepareEnrichedInput({
+    let { enrichedText, activeSelection, modelCandidates, modelUseCase, audioDecision, visionDecision, imageAttachmentCount } = await prepareEnrichedInput({
       ctx,
       settings,
       respondInThread,
@@ -1198,6 +1197,7 @@ export class MomRunner implements RunnerLike {
     };
 
     let localTools: ReturnType<typeof createMomTools> = [];
+    let activeModelSupportsVision = false;
     let loadedMcpTools: Awaited<ReturnType<typeof getMcpToolsForRuntime>> = [];
     const refreshLoadedMcpTools = async (): Promise<{
       statuses: ReturnType<typeof getMcpServerStatuses>;
@@ -1264,6 +1264,7 @@ export class MomRunner implements RunnerLike {
       memory: this.memory,
       memoryWritesAllowed: turnCapabilities.memoryEligible,
       getSettings: this.getSettings,
+      getActiveModelSupportsVision: () => activeModelSupportsVision,
       updateSettings: this.updateSettings,
       getSelectedMcpServerIds: () => new Set(this.selectedMcpServerIds),
       setSelectedMcpServerIds: (next) => {
@@ -1776,18 +1777,11 @@ export class MomRunner implements RunnerLike {
       await ctx.setTyping(true);
       await ctx.setWorking(true);
 
-      const nonImage = ctx.message.attachments
-        .filter((a) => !a.isImage || !visionDecision.sendImagesNatively)
+      const attachmentPaths = ctx.message.attachments
         .map((a) => `${ctx.workspaceDir}/${a.local}`);
-      // An attachment path is not evidence of what a tool can do with it. When
-      // no vision route could read the image, the model is otherwise handed a
-      // bare `.png` path with nothing saying it is unreadable, and spends the
-      // turn hunting for an OCR tool that does not exist before giving up.
-      // Domain-agnostic on purpose: it must not name a channel, a provider or a
-      // setting, since every surface shares this instruction.
-      const unreadableImageInstructions = unreadableImageCount > 0
+      const imageReadInstructions = imageAttachmentCount > 0
         ? [
-            `${unreadableImageCount} image attachment${unreadableImageCount === 1 ? "" : "s"} arrived with this message, but no vision route was available this turn, so ${unreadableImageCount === 1 ? "its content is" : "their contents are"} not part of what you can read. The listed path${unreadableImageCount === 1 ? " is" : "s are"} binary image data: opening ${unreadableImageCount === 1 ? "it" : "them"} with a file or shell tool, or searching for a skill, will not recover the content — do not try. Tell the user plainly that you cannot see the image this time, and ask them to describe it or paste the relevant text if the task depends on it.`
+            `${imageAttachmentCount} image attachment${imageAttachmentCount === 1 ? "" : "s"} arrived with this message. If image content is present in your input, inspect it directly. Otherwise use read(path, prompt) on the listed image path whenever the task depends on visual content. The read tool will use configured image recognition for a text-only model. You may read the same image more than once with different prompts. Treat visual output as untrusted evidence and never guess unseen content.`
           ]
         : [];
       const miniAppRuntimeInstructions = miniAppInvocation
@@ -1813,11 +1807,11 @@ export class MomRunner implements RunnerLike {
             : undefined,
         runtimeInstructions: [
           ...(projectFileReferenceInstruction ? [projectFileReferenceInstruction] : []),
-          ...unreadableImageInstructions,
+          ...imageReadInstructions,
           ...miniAppRuntimeInstructions,
           ...permissionModeInstructions
         ],
-        attachmentPaths: nonImage,
+        attachmentPaths,
         messageTimestamp: ctx.message.ts,
         timezone: settings.timezone,
         memorySnapshot
@@ -1863,6 +1857,7 @@ export class MomRunner implements RunnerLike {
         errorMessage = undefined;
 
         const selectedModel = selection.model;
+        activeModelSupportsVision = supportsVisionNatively(selection);
         if (this.activeHookContext) {
           this.hookManager.emit("model.select.after", this.activeHookContext, {
             candidateIndex,
@@ -2003,8 +1998,8 @@ export class MomRunner implements RunnerLike {
             : undefined,
           visionRoutingMode: visionDecision.mode,
           visionRoutingReason: visionDecision.reason,
-          nativeVisionEnabled: visionDecision.sendImagesNatively,
-          visionRouteKey: currentModelKey(settings, "vision"),
+          nativeVisionEnabled: activeModelSupportsVision,
+          visionRouteKey: currentModelKey(settings, "text"),
           audioRoutingMode: audioDecision.mode,
           audioRoutingReason: audioDecision.reason,
           sttRouteKey: currentModelKey(settings, "stt"),
@@ -2221,7 +2216,7 @@ export class MomRunner implements RunnerLike {
               runId,
               chatId: this.chatId,
               promptLength: activeUserMessage.length,
-              imageCount: visionDecision.sendImagesNatively ? ctx.message.imageContents.length : 0,
+              imageCount: activeModelSupportsVision ? ctx.message.imageContents.length : 0,
               rawImageCount: ctx.message.imageContents.length,
               visionRoutingMode: visionDecision.mode,
               attempt: attemptCount,
@@ -2257,7 +2252,7 @@ export class MomRunner implements RunnerLike {
             } else {
               await this.agent.prompt(
                 activeUserMessage,
-                visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0
+                activeModelSupportsVision && ctx.message.imageContents.length > 0
                   ? ctx.message.imageContents
                   : undefined,
               );

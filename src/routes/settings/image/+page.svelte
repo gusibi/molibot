@@ -9,6 +9,8 @@
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+  import * as Tabs from "$lib/components/ui/tabs";
+  import ImageRecognitionSettings from "$lib/components/settings/ImageRecognitionSettings.svelte";
   import { locale } from "$lib/ui/i18n";
 
   type EngineId = string;
@@ -45,8 +47,10 @@
 
   const COPY = {
     "zh-CN": {
-      title: "图像生成",
-      desc: "配置内置 Agent 图像生成工具。支持 Agnes Image、OpenAI、OpenAI Chat Completions 兼容协议、Google Imagen、火山引擎及 ModelScope 的多引擎路由。",
+      title: "图片能力",
+      desc: "集中配置 Agent 的图片生成与按需图片识别能力。",
+      generationTab: "图片生成",
+      recognitionTab: "图片识别",
       enableTool: "启用内置 imageGenerate 工具",
       enableToolDesc: "禁用后，该工具在调用时会返回配置错误，而不会实际执行。",
       defaultEngine: "默认引擎",
@@ -119,8 +123,10 @@
       hideApiKey: "隐藏 API Key"
     },
     "en-US": {
-      title: "Image Generation",
-      desc: "Configure the built-in Agent image generation tool. Multi-engine routing is supported across Agnes Image, OpenAI, OpenAI Chat Completions-compatible APIs, Google Imagen, Volcengine, and ModelScope.",
+      title: "Image Capabilities",
+      desc: "Configure image generation and on-demand image recognition for the Agent.",
+      generationTab: "Image Generation",
+      recognitionTab: "Image Recognition",
       enableTool: "Enable built-in imageGenerate tool",
       enableToolDesc: "When disabled, the tool returns a settings error instead of executing.",
       defaultEngine: "Default engine",
@@ -211,6 +217,7 @@
   const validEngineId = /^[a-z][a-z0-9_-]{0,63}$/;
 
   let loading = true;
+  let activeTab = "generation";
   let saving = false;
   let testing = false;
   let message = "";
@@ -538,6 +545,14 @@
     <h1 class="image-hero-title">{t("title")}</h1>
     <p class="image-hero-desc">{t("desc")}</p>
   </header>
+
+  <Tabs.Root bind:value={activeTab}>
+    <Tabs.List class="mb-5 w-full sm:w-auto">
+      <Tabs.Trigger value="generation" class="flex-1 sm:flex-none">{t("generationTab")}</Tabs.Trigger>
+      <Tabs.Trigger value="recognition" class="flex-1 sm:flex-none">{t("recognitionTab")}</Tabs.Trigger>
+    </Tabs.List>
+
+  {#if activeTab === "generation"}
 
   {#if loading}
     <p class="py-8 text-sm text-muted-foreground">{t("loadingText")}</p>
@@ -876,8 +891,6 @@
       </CardContent>
     </Card>
   {/if}
-</div>
-
 {#if activeTaskDetails}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" role="dialog" aria-label={t("taskDetailsTitle")} tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) activeTaskDetails = null; }} onkeydown={(e) => { if (e.key === "Escape") activeTaskDetails = null; }}>
     <div class="relative w-full max-w-xl rounded-xl border border-border bg-background p-6 shadow-2xl">
@@ -980,3 +993,8 @@
     </Button>
   </div>
 </footer>
+  {:else}
+    <ImageRecognitionSettings />
+  {/if}
+  </Tabs.Root>
+</div>

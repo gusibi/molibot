@@ -15,7 +15,7 @@ function agent(overrides: Partial<AgentSettings> = {}): AgentSettings {
     description: "Handles general chat",
     enabled: true,
     sandboxEnabled: true,
-    modelRouting: { textModelKey: "custom:gpt-4o", visionModelKey: "", sttModelKey: "" },
+    modelRouting: { textModelKey: "custom:gpt-4o", sttModelKey: "" },
     ...overrides
   } as AgentSettings;
 }
@@ -54,7 +54,7 @@ test("buildDesktopAgentItem never leaks unprojected agent fields while exposing 
     description: "ok to show",
     enabled: true,
     sandboxEnabled: false,
-    modelRouting: { textModelKey: "custom:secret-model-id", visionModelKey: "", sttModelKey: "" },
+    modelRouting: { textModelKey: "custom:secret-model-id", sttModelKey: "" },
     // fields that may exist on the runtime object but must never reach the WebView
     systemPrompt: "SECRET-INSTRUCTIONS",
     apiKey: "sk-agent-secret"
@@ -74,12 +74,12 @@ test("saveDesktopAgent adds or replaces one normalized agent", () => {
   const current = settings({ agents: [agent(), agent({ id: "other" })] });
   const next = saveDesktopAgent(current, {
     previousId: "default", id: "default", name: "Renamed", description: "Updated", enabled: false,
-    sandboxEnabled: null, modelRouting: { textModelKey: "", visionModelKey: "vision:v1", sttModelKey: "" }
+    sandboxEnabled: null, modelRouting: { textModelKey: "", sttModelKey: "stt:v1" }
   });
   assert.equal(next.length, 2);
   assert.equal(next.find((item) => item.id === "default")?.name, "Renamed");
   assert.equal(next.find((item) => item.id === "default")?.sandboxEnabled, undefined);
-  assert.equal(next.find((item) => item.id === "default")?.modelRouting?.visionModelKey, "vision:v1");
+  assert.equal(next.find((item) => item.id === "default")?.modelRouting?.sttModelKey, "stt:v1");
 });
 
 test("deleteDesktopAgent rejects linked agents and removes unreferenced agents", () => {

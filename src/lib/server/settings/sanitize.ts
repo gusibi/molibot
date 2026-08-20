@@ -28,6 +28,7 @@ import {
   type ImageGenerateEngineSettings,
   type ImageGenerateProtocol,
   type ImageGenerateSettings,
+  type ImageRecognitionEngineSettings,
   type VideoGenerateEngineId,
   type VideoGenerateSettings,
   type TtsGenerateAudioFormat,
@@ -49,7 +50,7 @@ import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, type PermissionMode } from "
  * on that object is a feature plugin's own settings blob (keyed by its
  * settingsKey) and must round-trip untouched.
  */
-export const RESERVED_PLUGIN_KEYS = ["memory", "cloudflareHtml", "hooks", "piExtensions", "miniApps"];
+export const RESERVED_PLUGIN_KEYS = ["memory", "cloudflareHtml", "externalSubagent", "hooks", "piExtensions", "miniApps"];
 
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
@@ -80,6 +81,8 @@ const BUILTIN_IMAGE_GENERATE_PROTOCOLS: Record<string, ImageGenerateProtocol> = 
   volcengine: "images-generations"
 };
 const VALID_IMAGE_GENERATE_ENGINE_ID = /^[a-z][a-z0-9_-]{0,63}$/;
+const VALID_IMAGE_RECOGNITION_ENGINE_ID = /^[a-z][a-z0-9_-]{0,63}$/;
+const VALID_ROUTED_MODEL_KEY = /^(?:pi|custom)\|[^|]+\|.+$/;
 const VIDEO_GENERATE_ENGINES: VideoGenerateEngineId[] = ["agnes", "volcengine"];
 const TTS_GENERATE_PROVIDERS: TtsGenerateProviderId[] = ["macos", "xiaomi"];
 const TTS_GENERATE_FORMATS: TtsGenerateAudioFormat[] = ["wav", "mp3", "aiff", "m4a", "caf"];
@@ -280,6 +283,58 @@ export function sanitizeImageGenerateSettings(
     defaultEngine: requestedDefaultEngine === "auto" || engines[requestedDefaultEngine]
       ? requestedDefaultEngine
       : fallbackDefaultEngine,
+    engines
+  };
+}
+
+export function sanitizeImageRecognitionSettings(
+  input: unknown,
+  fallback: RuntimeSettings["imageRecognition"]
+): RuntimeSettings["imageRecognition"] {
+  const fallbackSettings = fallback ?? defaultRuntimeSettings.imageRecognition;
+  const source = input && typeof input === "object" && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {};
+  const hasEngineMap = source.engines !== undefined
+    && source.engines !== null
+    && typeof source.engines === "object"
+    && !Array.isArray(source.engines);
+  const enginesSource = hasEngineMap
+    ? source.engines as Record<string, unknown>
+    : fallbackSettings.engines;
+
+  const engines: Record<string, ImageRecognitionEngineSettings> = {};
+  for (const [rawId, rawValue] of Object.entries(enginesSource ?? {})) {
+    const id = String(rawId ?? "").trim();
+    if (id === "auto" || !VALID_IMAGE_RECOGNITION_ENGINE_ID.test(id)) continue;
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) continue;
+    const raw = rawValue as Record<string, unknown>;
+    const fallbackEngine = fallbackSettings.engines?.[id];
+    const modelKey = String(raw.modelKey ?? fallbackEngine?.modelKey ?? "").trim();
+    if (!VALID_ROUTED_MODEL_KEY.test(modelKey)) continue;
+    const name = String(raw.name ?? fallbackEngine?.name ?? "").trim().slice(0, 80);
+    engines[id] = {
+      enabled: raw.enabled === undefined ? (fallbackEngine?.enabled ?? true) : Boolean(raw.enabled),
+      ...(name ? { name } : {}),
+      modelKey
+    };
+  }
+
+  const requestedOrder = Array.isArray(source.engineOrder)
+    ? source.engineOrder.map((value) => String(value ?? "").trim())
+    : fallbackSettings.engineOrder;
+  const engineOrder = Array.from(new Set([
+    ...requestedOrder.filter((id) => Boolean(engines[id])),
+    ...Object.keys(engines)
+  ]));
+  const requestedDefault = String(source.defaultEngine ?? fallbackSettings.defaultEngine).trim();
+
+  return {
+    enabled: source.enabled === undefined ? fallbackSettings.enabled : Boolean(source.enabled),
+    defaultEngine: requestedDefault === "auto" || Boolean(engines[requestedDefault])
+      ? requestedDefault
+      : "auto",
+    engineOrder,
     engines
   };
 }
@@ -602,6 +657,41 @@ export function sanitizeCloudflareHtmlPluginSettings(
     accessKeyId: String(source.accessKeyId ?? fallback.accessKeyId).trim(),
     secretAccessKey: String(source.secretAccessKey ?? fallback.secretAccessKey).trim(),
     objectPrefix: String(source.objectPrefix ?? fallback.objectPrefix).trim() || fallback.objectPrefix
+  };
+}
+
+const CODEX_PERMISSION_MODES: Array<RuntimeSettings["plugins"]["externalSubagent"]["codexPermissionMode"]> = [
+  "never",
+  "approve-for-me",
+  "dangerously-bypass-approvals-and-sandbox"
+];
+
+const CLAUDE_CODE_PERMISSION_MODES: Array<RuntimeSettings["plugins"]["externalSubagent"]["claudeCodePermissionMode"]> = [
+  "dontAsk",
+  "acceptEdits",
+  "auto",
+  "plan",
+  "bypassPermissions"
+];
+
+export function sanitizeExternalSubagentPluginSettings(
+  input: unknown,
+  fallback: RuntimeSettings["plugins"]["externalSubagent"]
+): RuntimeSettings["plugins"]["externalSubagent"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const codexMode = String(source.codexPermissionMode ?? fallback.codexPermissionMode).trim() as RuntimeSettings["plugins"]["externalSubagent"]["codexPermissionMode"];
+  const claudeMode = String(source.claudeCodePermissionMode ?? fallback.claudeCodePermissionMode).trim() as RuntimeSettings["plugins"]["externalSubagent"]["claudeCodePermissionMode"];
+
+  return {
+    enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
+    codexEnabled: source.codexEnabled === undefined ? fallback.codexEnabled : Boolean(source.codexEnabled),
+    codexPermissionMode: CODEX_PERMISSION_MODES.includes(codexMode) ? codexMode : fallback.codexPermissionMode,
+    codexPath: String(source.codexPath ?? fallback.codexPath ?? "").trim(),
+    claudeCodeEnabled: source.claudeCodeEnabled === undefined ? fallback.claudeCodeEnabled : Boolean(source.claudeCodeEnabled),
+    claudeCodePermissionMode: CLAUDE_CODE_PERMISSION_MODES.includes(claudeMode) ? claudeMode : fallback.claudeCodePermissionMode,
+    claudeCodePath: String(source.claudeCodePath ?? fallback.claudeCodePath ?? "").trim()
   };
 }
 
@@ -1039,7 +1129,6 @@ export function sanitizeModelRoutingConfig(input: unknown, fallback: ModelRoutin
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   return {
     textModelKey: String(source.textModelKey ?? "").trim() || fallback.textModelKey,
-    visionModelKey: String(source.visionModelKey ?? "").trim() || fallback.visionModelKey,
     sttModelKey: String(source.sttModelKey ?? "").trim() || fallback.sttModelKey,
     ttsModelKey: String(source.ttsModelKey ?? "").trim() || fallback.ttsModelKey,
     compactionModelKey: String(source.compactionModelKey ?? "").trim(),
@@ -1250,7 +1339,6 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
 
   next.modelRouting = {
     textModelKey: String((next as { modelRouting?: { textModelKey?: unknown } }).modelRouting?.textModelKey ?? "").trim(),
-    visionModelKey: String((next as { modelRouting?: { visionModelKey?: unknown } }).modelRouting?.visionModelKey ?? "").trim(),
     sttModelKey: String((next as { modelRouting?: { sttModelKey?: unknown } }).modelRouting?.sttModelKey ?? "").trim(),
     ttsModelKey: String((next as { modelRouting?: { ttsModelKey?: unknown } }).modelRouting?.ttsModelKey ?? "").trim(),
     compactionModelKey: String((next as { modelRouting?: { compactionModelKey?: unknown } }).modelRouting?.compactionModelKey ?? "").trim(),
@@ -1325,6 +1413,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.skillDrafts = sanitizeSkillDraftSettings(next.skillDrafts ?? current.skillDrafts, current.skillDrafts);
   next.webSearch = sanitizeWebSearchSettings(next.webSearch ?? current.webSearch, current.webSearch);
   next.imageGenerate = sanitizeImageGenerateSettings(next.imageGenerate ?? current.imageGenerate, current.imageGenerate);
+  next.imageRecognition = sanitizeImageRecognitionSettings(next.imageRecognition ?? current.imageRecognition, current.imageRecognition);
   next.videoGenerate = sanitizeVideoGenerateSettings(next.videoGenerate ?? current.videoGenerate, current.videoGenerate);
   next.ttsGenerate = sanitizeTtsGenerateSettings(next.ttsGenerate ?? current.ttsGenerate, current.ttsGenerate);
   next.toolSandbox = sanitizeToolSandboxSettings(next.toolSandbox ?? current.toolSandbox, current.toolSandbox);
@@ -1389,6 +1478,10 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
     cloudflareHtml: sanitizeCloudflareHtmlPluginSettings(
       next.plugins?.cloudflareHtml ?? current.plugins.cloudflareHtml,
       current.plugins.cloudflareHtml
+    ),
+    externalSubagent: sanitizeExternalSubagentPluginSettings(
+      next.plugins?.externalSubagent ?? current.plugins.externalSubagent,
+      current.plugins.externalSubagent
     ),
     hooks: sanitizeHookPluginEntries(next.plugins?.hooks ?? current.plugins.hooks),
     piExtensions: sanitizePiExtensionSettings(

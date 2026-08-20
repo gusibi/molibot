@@ -1,7 +1,6 @@
 import { extname } from "node:path";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { isDirectEventDelivery, resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
-import type { ImageContent } from "@earendil-works/pi-ai";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildNonInteractiveHostBashApprovalText } from "$lib/server/hostBash/index.js";
 import { createRunArchiveNoticeOnComplete } from "$lib/server/channels/shared/runArchiveNotice.js";
@@ -12,7 +11,7 @@ import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
-import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
+import { imageContentFromSavedAttachment, rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
@@ -678,9 +677,9 @@ export class QQManager extends BaseChannelRuntime {
   private async extractInboundAttachments(
     chatId: string,
     event: GatewayEvent
-  ): Promise<{ attachments: FileAttachment[]; imageContents: ImageContent[] }> {
+  ): Promise<{ attachments: FileAttachment[]; imageContents: ChannelInboundMessage["imageContents"] }> {
     const attachments: FileAttachment[] = [];
-    const imageContents: ImageContent[] = [];
+    const imageContents: ChannelInboundMessage["imageContents"] = [];
 
     for (let index = 0; index < (event.attachments?.length ?? 0); index += 1) {
       const attachment = event.attachments?.[index];
@@ -697,17 +696,9 @@ export class QQManager extends BaseChannelRuntime {
           mimeType: attachment.content_type || undefined
         });
         attachments.push(saved);
+        const imageContent = imageContentFromSavedAttachment(saved, bytes);
+        if (imageContent) imageContents.push(imageContent);
 
-        if (saved.isImage) {
-          const mimeType = saved.mimeType || attachment.content_type || inferImageMimeType(filename);
-          if (mimeType) {
-            imageContents.push({
-              type: "image",
-              mimeType,
-              data: bytes.toString("base64")
-            });
-          }
-        }
       } catch (error) {
         momWarn("qq", "attachment_download_failed", {
           botId: this.instanceId,
@@ -826,16 +817,6 @@ function inferAttachmentExtension(contentType: string, sourceUrl: string): strin
   if (mimeType.includes("mp4")) return ".mp4";
   if (mimeType.includes("aac")) return ".aac";
   return ".bin";
-}
-
-function inferImageMimeType(filename: string): string | undefined {
-  const extension = extname(filename).toLowerCase();
-  if (extension === ".png") return "image/png";
-  if (extension === ".gif") return "image/gif";
-  if (extension === ".webp") return "image/webp";
-  if (extension === ".bmp") return "image/bmp";
-  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
-  return undefined;
 }
 
 function fallbackTextForAttachments(

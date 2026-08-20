@@ -9,11 +9,10 @@
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { locale } from "$lib/ui/i18n";
 
-  type AgentModelRoute = "text" | "vision" | "stt";
+  type AgentModelRoute = "text" | "stt";
 
   interface AgentModelRouting {
     textModelKey: string;
-    visionModelKey: string;
     sttModelKey: string;
   }
 
@@ -217,7 +216,7 @@
   let builtInTemplates: BuiltInAgentTemplateItem[] = [];
   let installingTemplateId = "";
   let updatingTemplateId = "";
-  let modelRouteOptions: Record<AgentModelRoute, ModelRouteOption[]> = { text: [], vision: [], stt: [] };
+  let modelRouteOptions: Record<AgentModelRoute, ModelRouteOption[]> = { text: [], stt: [] };
   let builtInSubagents: BuiltInSubagentItem[] = [];
   let subagentConfiguredModelLabel = "";
   let subagentModelLevels: Record<string, { key: string; label: string }> = {};
@@ -227,7 +226,6 @@
   $: copy = COPY[$locale] ?? COPY["en-US"];
   $: modelRouteFields = [
     { route: "text" as AgentModelRoute, label: copy.modelTextLabel },
-    { route: "vision" as AgentModelRoute, label: copy.modelVisionLabel },
     { route: "stt" as AgentModelRoute, label: copy.modelSttLabel }
   ];
 
@@ -243,13 +241,12 @@
   }
 
   function emptyModelRouting(): AgentModelRouting {
-    return { textModelKey: "", visionModelKey: "", sttModelKey: "" };
+    return { textModelKey: "", sttModelKey: "" };
   }
 
   function normalizeModelRouting(input: Partial<AgentModelRouting> | undefined): AgentModelRouting {
     return {
       textModelKey: String(input?.textModelKey ?? "").trim(),
-      visionModelKey: String(input?.visionModelKey ?? "").trim(),
       sttModelKey: String(input?.sttModelKey ?? "").trim()
     };
   }
@@ -284,7 +281,7 @@
   }
 
   function modelRoutingKey(route: AgentModelRoute): keyof AgentModelRouting {
-    return route === "text" ? "textModelKey" : route === "vision" ? "visionModelKey" : "sttModelKey";
+    return route === "text" ? "textModelKey" : "sttModelKey";
   }
 
   function setAgentModelRoute(route: AgentModelRoute, value: string): void {

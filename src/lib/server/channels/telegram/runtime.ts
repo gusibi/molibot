@@ -23,7 +23,7 @@ import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely, summarizeTelegramToolProgressText, syncTelegramTextMessages } from "$lib/server/channels/telegram/formatting.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
-import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
+import { imageContentFromSavedAttachment, rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
 import { sendVoiceWithFallback } from "$lib/server/channels/shared/audio.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "$lib/server/channels/telegram/types.js";
@@ -2431,10 +2431,9 @@ export class TelegramManager extends BaseChannelRuntime {
           mimeType: mime
         });
         attachments.push(saved);
+        const imageContent = imageContentFromSavedAttachment(saved, data);
+        if (imageContent) imageContents.push(imageContent);
 
-        if (saved.isImage && mime) {
-          imageContents.push({ type: "image", mimeType: mime, data: data.toString("base64") });
-        }
       }
     }
 
@@ -2449,7 +2448,8 @@ export class TelegramManager extends BaseChannelRuntime {
             mimeType: "image/jpeg"
           });
           attachments.push(saved);
-          imageContents.push({ type: "image", mimeType: "image/jpeg", data: data.toString("base64") });
+          const imageContent = imageContentFromSavedAttachment(saved, data);
+          if (imageContent) imageContents.push(imageContent);
         }
       }
     }
@@ -2506,8 +2506,8 @@ export class TelegramManager extends BaseChannelRuntime {
   private buildInboundRecognitionStatus(msg: any): string | null {
     const hasImage = this.hasInboundImage(msg);
     const hasAudio = this.hasInboundAudio(msg);
-    if (hasImage && hasAudio) return "Recognizing image and audio";
-    if (hasImage) return "Recognizing image";
+    if (hasImage && hasAudio) return "Processing image and audio";
+    if (hasImage) return "Processing image";
     if (hasAudio) return "Recognizing audio";
     return null;
   }

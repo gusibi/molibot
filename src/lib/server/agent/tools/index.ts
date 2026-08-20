@@ -17,7 +17,6 @@ import { createMemoryTool } from "$lib/server/agent/tools/memory.js";
 import { createConversationSearchTool } from "$lib/server/agent/tools/conversationSearch.js";
 import { createDocExtractTool } from "$lib/server/agent/tools/docExtract.js";
 import { createDocumentExportTool } from "$lib/server/agent/tools/documentExport.js";
-import { createImageAnalyzeTool } from "$lib/server/agent/tools/imageAnalyze.js";
 import { createProfileFilesTool } from "$lib/server/agent/tools/profileFiles.js";
 import { getReadToolDefinition } from "$lib/server/agent/tools/read.js";
 import { getDurableEvidenceToolDefinition } from "$lib/server/agent/tools/durableEvidence.js";
@@ -156,6 +155,7 @@ export function createMomTools(options: {
   memory: MemoryGateway;
   memoryWritesAllowed?: boolean;
   getSettings: () => RuntimeSettings;
+  getActiveModelSupportsVision?: () => boolean;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
   getSelectedMcpServerIds: () => Set<string>;
   setSelectedMcpServerIds: (next: Set<string>) => void;
@@ -279,13 +279,6 @@ export function createMomTools(options: {
       scratchRoot: join(options.cwd, artifactDir)
     },
     uploadFile: options.uploadFile
-  }));
-  const imageAnalyzeRuntimeTool = wrapSerializedTool(createImageAnalyzeTool({
-    channel: options.channel,
-    cwd: options.cwd,
-    workspaceDir: options.workspaceDir,
-    spillDir: toolOutputDir ?? join(options.cwd, ".mom-tool-output"),
-    getSettings: options.getSettings
   }));
   const imageGenerateRuntimeTool = wrapSerializedTool(createImageGenerateTool({
     getSettings: options.getSettings,
@@ -511,10 +504,17 @@ export function createMomTools(options: {
 
   const wrapWithToolRuntime = (originalTool: AgentTool<any>): AgentTool<any> => {
     if (!registry.get(originalTool.name)) {
-      const { risk, source } = getRuntimeToolClassification(originalTool.name, {
+      const declared = (originalTool as any).classification as
+        | { risk?: any; source?: any; effect?: any; thirdPartyHint?: any }
+        | undefined;
+      const inferred = getRuntimeToolClassification(originalTool.name, {
         isExtensionTool: piExtensionToolNames.has(originalTool.name),
         miniApp: miniAppToolHints.get(originalTool.name)
       });
+      const risk = declared?.risk ?? inferred.risk;
+      const source = declared?.source ?? inferred.source;
+      const effect = declared?.effect ?? inferred.effect;
+      const thirdPartyHint = declared?.thirdPartyHint ?? inferred.thirdPartyHint;
       const toolDef: ToolDefinition = {
         id: originalTool.name,
         name: originalTool.label ?? originalTool.name,
@@ -522,6 +522,8 @@ export function createMomTools(options: {
         inputSchema: originalTool.parameters,
         risk,
         source,
+        effect,
+        thirdPartyHint,
         handler: async (input, ctx) => {
           // toolCallId falls back to runId only for callers that predate the
           // per-call context fields; onUpdate keeps progress streaming alive.
@@ -599,7 +601,14 @@ export function createMomTools(options: {
     ? toAgentTool(durableEvidenceToolDef)
     : undefined;
 
-  const readToolDef = getReadToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir });
+  const readToolDef = getReadToolDefinition({
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir,
+    channel: options.channel,
+    spillDir: toolOutputDir ?? join(options.cwd, ".mom-tool-output"),
+    getSettings: options.getSettings,
+    getActiveModelSupportsVision: options.getActiveModelSupportsVision
+  });
   registry.register(readToolDef);
 
   // The operator's deny list binds every tool that writes, not just `bash`.
@@ -660,7 +669,7 @@ export function createMomTools(options: {
       ? rawTools.filter((tool) => tool.name.startsWith(`miniapp__${options.miniAppId}__`))
       : rawTools;
     if (permissionMode === "plan") {
-      const allowed = new Set(["read", "ls", "grep", "glob", "conversationSearch", "skillSearch", "docExtract", "imageAnalyze"]);
+      const allowed = new Set(["read", "ls", "grep", "glob", "conversationSearch", "skillSearch", "docExtract"]);
       return [
         ...scopedTools.filter((tool) => allowed.has(tool.name)).map((tool) => wrapWithToolRuntime(tool)),
         // The generic runtime classifies subagent delegation as a side effect.
@@ -809,13 +818,6 @@ export function createMomTools(options: {
       description: "Generate and re-read verify deliverable DOCX, XLSX, or PDF files; PPTX is intentionally unsupported.",
       keywords: ["document", "export", "generate", "docx", "xlsx", "pdf", "word", "excel", "report", "contract", "deliverable", "文档", "导出", "报告", "报表", "合同"],
       tool: documentExportRuntimeTool,
-      loadDeferredTools
-    }),
-    createDeferredToolEntry({
-      name: "imageAnalyze",
-      description: "Analyze workspace images with the configured vision route for OCR and general visual understanding.",
-      keywords: ["image", "analyze", "vision", "ocr", "screenshot", "invoice", "chart", "picture", "recognize", "图片", "识别"],
-      tool: imageAnalyzeRuntimeTool,
       loadDeferredTools
     }),
     createDeferredToolEntry({

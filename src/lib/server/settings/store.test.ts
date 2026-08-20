@@ -289,6 +289,35 @@ test("custom image engines survive a settings store restart and can be removed",
   }
 });
 
+test("image recognition settings survive save to a fresh store load", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-image-recognition-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    const imageRecognition = {
+      enabled: true,
+      defaultEngine: "vision-b",
+      engineOrder: ["vision-b", "vision-a"],
+      engines: {
+        "vision-a": { enabled: true, name: "Vision A", modelKey: "custom|provider-a|model-a" },
+        "vision-b": { enabled: true, name: "Vision B", modelKey: "pi|google|gemini-2.5-flash" }
+      }
+    } as const;
+
+    new SettingsStore().save({ ...defaultRuntimeSettings, imageRecognition });
+    const restarted = new SettingsStore().load();
+
+    assert.deepEqual(restarted.imageRecognition, imageRecognition);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("pi extension enable state and per-bot exclusions survive a settings store restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-pi-extension-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;
@@ -618,3 +647,47 @@ test("an unset permission mode loads as the Accept edits default, not as undefin
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("externalSubagent plugin settings survive a save -> restart round-trip in SQLite", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-external-subagent-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    const customSettings: RuntimeSettings = {
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        externalSubagent: {
+          enabled: true,
+          codexEnabled: true,
+          codexPermissionMode: "approve-for-me",
+          codexPath: "/custom/bin/codex",
+          claudeCodeEnabled: false,
+          claudeCodePermissionMode: "plan",
+          claudeCodePath: "/custom/bin/claude"
+        }
+      }
+    };
+
+    new SettingsStore().save(customSettings);
+
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(restarted.plugins.externalSubagent, {
+      enabled: true,
+      codexEnabled: true,
+      codexPermissionMode: "approve-for-me",
+      codexPath: "/custom/bin/codex",
+      claudeCodeEnabled: false,
+      claudeCodePermissionMode: "plan",
+      claudeCodePath: "/custom/bin/claude"
+    });
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+

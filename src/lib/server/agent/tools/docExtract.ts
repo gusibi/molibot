@@ -5,9 +5,9 @@ import { Type } from "@sinclair/typebox";
 import yauzl from "yauzl";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import {
-  analyzeImageWithConfiguredVision,
-  type VisionAnalysisResult
-} from "$lib/server/agent/vision/visionAnalysis.js";
+  recognizeImage,
+  type ImageRecognitionResult
+} from "$lib/server/agent/imageRecognition/imageRecognition.js";
 import { htmlToMarkdown } from "$lib/server/agent/tools/htmlToMarkdown.js";
 import { capToolOutput } from "$lib/server/agent/tools/outputBudget.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
@@ -42,7 +42,7 @@ interface PdfOcrOptions {
   channel?: string;
   settings?: RuntimeSettings;
   signal?: AbortSignal;
-  analyzeImage?: typeof analyzeImageWithConfiguredVision;
+  recognizeImage?: typeof recognizeImage;
 }
 
 export interface DocExtractDetails {
@@ -111,7 +111,7 @@ async function extractPdf(
     const ocrPages: number[] = [];
     let providerId: string | undefined;
     let modelId: string | undefined;
-    const analyzer = ocr.analyzeImage ?? analyzeImageWithConfiguredVision;
+    const analyzer = ocr.recognizeImage ?? recognizeImage;
     for (const pageNumber of candidatePages) {
       const screenshot = await parser.getScreenshot({
         partial: [pageNumber],
@@ -121,7 +121,7 @@ async function extractPdf(
       });
       const rendered = screenshot.pages[0];
       if (!rendered?.data?.length) throw new Error(`Could not render PDF page ${pageNumber} for OCR.`);
-      const analysis: VisionAnalysisResult = await analyzer({
+      const analysis: ImageRecognitionResult = await analyzer({
         channel: ocr.channel!,
         settings: ocr.settings!,
         image: {
@@ -129,16 +129,10 @@ async function extractPdf(
           mimeType: "image/png",
           data: Buffer.from(rendered.data).toString("base64")
         },
-        instruction: PDF_OCR_INSTRUCTION,
+        prompt: PDF_OCR_INSTRUCTION,
         label: `PDF page ${pageNumber}`,
-        maxAttempts: 3,
-        retryDelayMs: 800,
-        maxTokens: 3_000,
         signal: ocr.signal
       });
-      if (!analysis.text) {
-        throw new Error(`OCR failed for PDF page ${pageNumber}: ${analysis.errorMessage || "no text returned"}`);
-      }
       const page = pages.find((item) => item.num === pageNumber);
       if (page) page.text = analysis.text.trim();
       ocrPages.push(pageNumber);
@@ -254,7 +248,7 @@ export async function runDocExtract(input: { path: string; ocr?: OcrMode }, opti
   channel?: string;
   getSettings?: () => RuntimeSettings;
   signal?: AbortSignal;
-  analyzeImage?: typeof analyzeImageWithConfiguredVision;
+  recognizeImage?: typeof recognizeImage;
 }): Promise<DocExtractResult> {
   const requestedPath = String(input?.path ?? "").trim();
   if (!requestedPath) throw new Error("Document path is required.");
@@ -284,7 +278,7 @@ export async function runDocExtract(input: { path: string; ocr?: OcrMode }, opti
           channel: options.channel,
           settings: options.getSettings?.(),
           signal: options.signal,
-          analyzeImage: options.analyzeImage
+          recognizeImage: options.recognizeImage
         })
       : extension === ".docx"
         ? await extractDocx(buffer)

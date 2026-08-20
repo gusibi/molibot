@@ -16,7 +16,9 @@ const SERIALIZED_TOOL_NAMES = new Set([
   "runtimeTask",
   "attach",
   "subagent",
-  "publishHtml"
+  "publishHtml",
+  "codexSubagent",
+  "claudeCodeSubagent"
 ]);
 
 const SERIALIZED_MEMORY_ACTIONS = new Set(["add", "update", "delete", "flush", "sync", "compact"]);

@@ -11,7 +11,6 @@ const PURE_TOOLS = new Set([
   "webSearch",
   "webFetch",
   "docExtract",
-  "imageAnalyze",
   "switchModel"
 ]);
 

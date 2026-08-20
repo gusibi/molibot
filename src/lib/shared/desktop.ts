@@ -1330,7 +1330,7 @@ export interface DesktopAgentItem {
   enabled: boolean;
   sandboxEnabled: boolean | null;
   modelOverrides: number;
-  modelRouting: { textModelKey: string; visionModelKey: string; sttModelKey: string };
+  modelRouting: { textModelKey: string; sttModelKey: string };
 }
 
 export interface DesktopAgentSaveRequest {
@@ -1340,7 +1340,7 @@ export interface DesktopAgentSaveRequest {
   description: string;
   enabled: boolean;
   sandboxEnabled: boolean | null;
-  modelRouting: { textModelKey: string; visionModelKey: string; sttModelKey: string };
+  modelRouting: { textModelKey: string; sttModelKey: string };
 }
 
 export interface DesktopAgentsSummary {
@@ -2045,6 +2045,43 @@ export interface DesktopMediaGenerateSummary {
 export interface DesktopImageGenerateResponse {
   ok: true;
   summary: DesktopMediaGenerateSummary;
+}
+
+export interface DesktopImageRecognitionModel {
+  key: string;
+  label: string;
+  providerId: string;
+  modelId: string;
+  verification: "passed" | "failed" | "untested";
+}
+
+export interface DesktopImageRecognitionEngine {
+  id: string;
+  enabled: boolean;
+  name: string;
+  modelKey: string;
+}
+
+export interface DesktopImageRecognitionSummary {
+  enabled: boolean;
+  defaultEngine: string;
+  /** Engines are returned in failover order. */
+  engines: DesktopImageRecognitionEngine[];
+  models: DesktopImageRecognitionModel[];
+  adapterTypes: ["api"];
+  plannedAdapterTypes: ["cli"];
+}
+
+export interface DesktopImageRecognitionResponse {
+  ok: true;
+  summary: DesktopImageRecognitionSummary;
+}
+
+export interface DesktopImageRecognitionUpdateRequest {
+  enabled: boolean;
+  defaultEngine: string;
+  /** Array order is the auto-routing failover order. */
+  engines: DesktopImageRecognitionEngine[];
 }
 
 export interface DesktopVideoGenerateResponse {

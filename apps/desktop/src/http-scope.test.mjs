@@ -23,3 +23,10 @@ test("desktop HTTP scope allows project registry and session routes", () => {
   assert.ok(allowedUrls.has("http://127.0.0.1:*/api/settings/projects*"));
   assert.ok(allowedUrls.has("http://localhost:*/api/settings/projects*"));
 });
+
+test("desktop HTTP scope allows only the image recognition projection and test route", () => {
+  for (const host of ["127.0.0.1", "localhost"]) {
+    assert.ok(allowedUrls.has(`http://${host}:*/api/desktop/image-recognition`));
+    assert.ok(allowedUrls.has(`http://${host}:*/api/settings/image-recognition/test`));
+  }
+});

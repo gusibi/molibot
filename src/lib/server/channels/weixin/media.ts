@@ -1,10 +1,10 @@
 import { createDecipheriv } from "node:crypto";
 import { extname } from "node:path";
-import type { ImageContent } from "@earendil-works/pi-ai";
 import { MessageItemType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
 import type { IncomingMessage } from "$lib/server/channels/weixin/client.js";
 import type { FileAttachment } from "$lib/server/agent/core/types.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { imageContentFromSavedAttachment } from "$lib/server/channels/shared/attachmentImageContents.js";
 
 const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
 
@@ -228,10 +228,10 @@ export async function extractWeixinAttachments(input: {
   store: MomRuntimeStore;
   message: IncomingMessage;
   onWarning?: (warning: string) => void;
-}): Promise<{ attachments: FileAttachment[]; imageContents: ImageContent[] }> {
+}): Promise<{ attachments: FileAttachment[]; imageContents: import("@earendil-works/pi-ai").ImageContent[] }> {
   const { chatId, ts, store, message } = input;
   const attachments: FileAttachment[] = [];
-  const imageContents: ImageContent[] = [];
+  const imageContents: import("@earendil-works/pi-ai").ImageContent[] = [];
   const mediaItems = collectMediaItems(message.raw.item_list);
 
   for (let index = 0; index < mediaItems.length; index += 1) {
@@ -252,7 +252,8 @@ export async function extractWeixinAttachments(input: {
           mimeType
         });
         attachments.push(saved);
-        imageContents.push({ type: "image", mimeType: saved.mimeType || mimeType, data: data.toString("base64") });
+        const imageContent = imageContentFromSavedAttachment(saved, data);
+        if (imageContent) imageContents.push(imageContent);
         continue;
       }
 

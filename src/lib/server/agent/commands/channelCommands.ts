@@ -2031,7 +2031,7 @@ export class SharedRuntimeCommandService<TTarget> {
 
   /**
    * Settings as the runner actually resolves them for this bot: the bound agent's
-   * text/vision/stt overrides layered on top of global. Use this for any model
+   * text/stt overrides layered on top of global. Use this for any model
    * display so /status and /models reflect what the bot will really use.
    */
   private effectiveModelSettings(settings: RuntimeSettings): RuntimeSettings {
@@ -2042,9 +2042,7 @@ export class SharedRuntimeCommandService<TTarget> {
   private agentOverrideRouteKey(route: ModelRoute): keyof AgentModelRouting | null {
     return route === "text"
       ? "textModelKey"
-      : route === "vision"
-        ? "visionModelKey"
-        : route === "stt"
+      : route === "stt"
           ? "sttModelKey"
           : null;
   }

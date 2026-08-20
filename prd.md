@@ -4,6 +4,47 @@
 - [2026 Q2 PRD Archive (Apr - Jun)](docs/archive/prd-archive-2026-Q2.md)
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
+## 3.108 External Subagent 内置插件（Codex & Claude Code 一次性子 Agent）（2026-08-20）
+
+- **Priority / Status**: P1 / Delivered (2026-08-20).
+- **Problem**: 
+  - 当前 Molibot 仅支持基于 Pi Runtime 的内部 Subagent，缺少将外部成熟代码/开发 Agent（如 OpenAI Codex、Claude Code）作为独立非交互子任务委派的能力；
+  - 外部 Agent 需要在隔离进程中安全执行，既不能继承父会话不相关的认证凭证，也不能因超时或取消留下孤儿进程；
+  - 外部 Agent 的原始 stderr、协议交互与多轮思考不应污染主模型上下文。
+- **Decision**:
+  - **架构决策**：将外部独立进程代码 Agent（Codex & Claude Code）无缝统一进内置的 `subagent` 工具体系中，作为一等公民角色（`claude-code` / `codex`）存在，无需向主模型暴露冗余的顶级工具；
+  - **独立实现包**：创建 `package/external-subagent` 独立包，提供统一 `ExternalSubagentRuntime`、进程管理 `ManagedProcess`、`JsonRpcLineTransport` 以及 Codex / Claude Code 适配器；
+  - **安全与生命周期**：
+    - 环境变量白名单过滤，严格阻断不相关凭证；
+    - 全进程树级终止（POSIX 进程组 / Windows taskkill /T），先 SIGTERM（grace 3000ms）后 SIGKILL；
+    - 统一超时与取消处理，区分 `aborted` 与 `timeout`；
+    - 仅向父 Agent 返回压缩后的最终文本（头部+尾部压缩，最多 ~6000 字符）与结构化诊断；
+  - **工具与设置**：
+    - `subagent` 工具直接支持 `agent: "claude-code"` 与 `agent: "codex"`，并可在 `chain`（如 `scout -> claude-code -> reviewer`）与 `tasks` 中链式/并发编排；
+    - Plan 模式自动过滤写操作子 Agent，维持安全只读边界；
+    - 插件默认禁用（`enabled: false`），支持分别启用 Codex 和 Claude Code 及其非交互权限模式（默认 `never` / `dontAsk`）；
+    - 设置支持 SQLite round-trip 持久化，中英文双语配置；Web / Desktop 支持环境探测卡片与一键安装；
+  - **发布与打包**：
+    - 精确锁定 `@openai/codex@0.147.0` 与 `@anthropic-ai/claude-agent-sdk@0.3.220`；
+    - 打包构建移除 `--no-optional` 以包含当前平台二进制 payload。
+- **Acceptance**:
+  - 独立包单元测试（进程树终止、超时、取消、凭证过滤、JSON-RPC、Codex/Claude wire 与 provider）全部通过；
+  - 插件工具分类与串行执行策略正确生效，Plan 模式隔离；
+  - 设置保存、重启恢复与 round-trip 测试通过；
+  - 发布构建包含平台依赖，无残留后台进程；
+  - 文档、类型检查与全量测试全绿。
+- **Detailed Plan**: [External Subagent 实现计划](docs/requirements/external-subagent-implementation-plan.md).
+
+---
+
+## 3.107 图片按需识别与多引擎路由（2026-08-20）
+
+- **Priority / Status**: P0 / Delivered (2026-08-20).
+- **Decision**: 不在 Channel/消息解析阶段预识别图片。主模型具备已验证视觉能力时原生读取；否则由现有 `read(path, prompt)` 在需要时调用独立图片识别模块。识别设置允许多个 API 引擎按序故障切换，第一期不执行本地 CLI，但保留内部 adapter 接口供第二期接入。
+- **Acceptance**: 同图可多次按不同要求识别；配置可独立保存、重启恢复和用未保存值测试；删除旧公开图片分析工具；所有 Channel 只保存和规范化附件；Web 与 Desktop 图片页均提供生成/识别双 Tab；Desktop 服务中断后可明确重试并恢复原有引擎顺序，连续编辑任意引擎不会改变其展开状态，Tab 与设置内容列保持对齐。
+
+---
+
 ## 3.106 AI 回复底部状态条体验优化（2026-08-20）
 
 - **Priority / Status**: P1 / Delivered (2026-08-20).

@@ -88,14 +88,14 @@
   title: 运行中主动调用视觉工具分析历史附件
   why: |
     入站图片会在 turn 开始时参与 vision 路由，但 Agent 后续发现的截图、PDF 渲染页
-    或历史附件不能依赖那条路径。这条要求第二轮显式使用 imageAnalyze，证明视觉能力
-    已成为共享工具，而不是只藏在 Channel 摄入阶段。
+    或历史附件不能依赖入站预处理。这条要求第二轮显式使用 read(path, prompt)，证明视觉能力
+    已成为可重复的共享文件能力，而不是只藏在 Channel 摄入阶段。
   baseline: pass
   timeout_ms: 240000
   turns:
     - prompt: 确认收到这个附件即可，不要分析，也不要写入长期记忆。
       files: [eval-image.png]
-    - prompt: 请使用 imageAnalyze 工具重新分析刚才的图片附件，只回答它的主要颜色。
+    - prompt: 请使用 read 工具重新读取刚才的图片附件，并通过 prompt 要求只回答它的主要颜色。
   assert:
     - reply_contains_any: ["红", "赤", "red", "Red", "crimson"]
-    - tool_used: imageAnalyze
+    - tool_used: read

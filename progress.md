@@ -1,3 +1,26 @@
+# 图片按需识别进度（2026-08-20）
+
+- Desktop follow-up 已完成：`apps/desktop/src` 新增图片能力双 Tab、识别设置组件、专用 runes store、Desktop contract/client、安全投影路由和精确 Tauri HTTP scope；Web 与 Desktop 现在具有一致的第一期配置能力。
+- Desktop 真实冷路径使用隔离数据目录：新增 Vision 1/Vision 2、下移后顺序变为 Vision 2/Vision 1、保存并整页重载后顺序保留；暗色窗口截图检查通过。
+- 冷路径发现并根修断线重试循环：底层代理悬挂时 6 秒截止，失败后保留 endpoint 以阻止响应式自动重试；页面稳定显示“重新加载”，同数据目录服务恢复后点击即可恢复两条引擎。
+- Desktop follow-up 自动验证：API 88/88、识别投影/容灾 6/6、UI/权限/响应式新增守卫通过、`svelte-check` 0/0、Root 与 Desktop production build 通过；完整结构套件仍仅有任务前 Stop 静态断言一项失败。
+- 实现与交付验证完成：主模型按实际 candidate 原生看图，文本模型通过 `read(path, prompt)` 按需、多次识别；多个 API 引擎按配置顺序故障切换，CLI 只保留内部 Adapter seam。
+- 旧 `imageAnalyze`、`visionAnalysis`、入站预识别和单一 `visionModelKey` 已删除；PDF OCR 复用新模块，Feishu/Telegram/QQ/Weixin/Web Channel 只保存和规范化附件。
+- 图片设置页已形成“图片生成 / 图片识别”双 Tab；识别页支持多引擎增删、排序、启停、默认策略、上传测试和独立固定底栏保存。
+- 自动验证：受影响核心/设置/Channel/Runner 套件 170/170；Desktop `svelte-check` 0/0；root production build 连续通过；`git diff --check` 通过。
+- 真实冷路径：首次打开、切 Tab、增加/排序引擎、390px 窄屏、暗色、服务中断及同数据目录重启均通过，控制台 0 错误。
+- Desktop 全量 Node 套件 211/212；唯一失败是未改动基线中的 Stop 结构守卫仍匹配旧的直接 `await stopDesktopChat`，实际未改动生产代码已是 `Promise.race`，与图片识别无关且未越权修改。
+- 验证命令勘误：根项目未定义 `npm run check`，且未安装 `svelte-check`；改用 `svelte-kit sync`、production build 和 Node 测试集。
+- 首次 production build 捕获图片页 Tab 包裹层的关闭顺序错误；已将页面根节点关闭移到 Tabs 之后并重新验证。
+- 浏览器冷路径首次等待使用了当前 IAB 不支持的 `networkidle` 状态；改为 `domcontentloaded` 并通过可见 DOM/交互状态验收。
+- 已确认一期只实现多个 API 引擎；CLI 仅保留内部 Adapter 接入能力，第二期再实现。
+- 已读取 planning-with-files、codebase-design、frontend-design 规范并建立独立计划章节。
+- 当前进入 Phase 1：先建立设置、多引擎、read 分流、无入站预识别和 Channel 统一附件回归，再修改生产实现。
+- 已完成第一轮文件地图：设置动态 key、Runner candidate、read/imageAnalyze/visionAnalysis、Telegram/Feishu 图片恢复位置和旧回归均已定位。
+- 已添加图片识别 sanitizer 与临时数据库 round-trip 红测试；首次执行命令缺少 tsx loader，已记录并切换到仓库标准命令。
+
+---
+
 # 会议纪要验收返工进度（2026-08-14）
 
 - 用户明确否决现有产品体验：UI/交互错乱、没有暂停与继续、没有真正历史记录。

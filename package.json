@@ -1,10 +1,11 @@
 {
   "name": "molibot",
-  "version": "2.9.31",
+  "version": "2.9.32",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
   "imports": {
+    "#external-subagent": "./package/external-subagent/src/index.ts",
     "#weixin-agent-sdk/*": "./package/weixin-agent-sdk/*",
     "#qqbot/*": "./package/qqbot/*",
     "#acp/*": "./package/acp/src/*",

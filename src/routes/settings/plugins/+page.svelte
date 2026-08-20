@@ -92,7 +92,15 @@
       extInstalled: "扩展安装完成。",
       extUninstalled: "扩展已卸载。",
       extReloaded: "扩展已重新加载。",
-      extConfirmUninstall: "确定要卸载这个扩展吗？"
+      extConfirmUninstall: "确定要卸载这个扩展吗？",
+      extSubagentStatusTitle: "运行环境检测",
+      extSubagentStatusDesc: "检测系统 PATH、已安装运行时或自定义路径中的 Codex 与 Claude Code。",
+      extSubagentCheck: "检测环境",
+      extSubagentChecking: "检测中...",
+      extSubagentInstall: "安装运行时",
+      extSubagentInstalling: "安装中...",
+      extSubagentDetected: "已就绪",
+      extSubagentNotFound: "未检测到"
     },
     "en-US": {
       eyebrow: "Runtime Extensions",
@@ -147,7 +155,15 @@
       extInstalled: "Extension installed.",
       extUninstalled: "Extension uninstalled.",
       extReloaded: "Extensions reloaded.",
-      extConfirmUninstall: "Uninstall this extension?"
+      extConfirmUninstall: "Uninstall this extension?",
+      extSubagentStatusTitle: "Runtime Environment Detection",
+      extSubagentStatusDesc: "Check whether Codex and Claude Code are detected in system PATH, installed runtimes, or custom paths.",
+      extSubagentCheck: "Detect Environment",
+      extSubagentChecking: "Detecting...",
+      extSubagentInstall: "Install Runtime",
+      extSubagentInstalling: "Installing...",
+      extSubagentDetected: "Ready",
+      extSubagentNotFound: "Not Detected"
     }
   } as const;
 
@@ -234,6 +250,55 @@
     if (status === "error") return "destructive";
     if (status === "active") return "default";
     return "secondary";
+  }
+
+  let externalSubagentStatus: {
+    codex?: { available: boolean; source?: string; executablePath?: string; packagePath?: string; version?: string; error?: string };
+    claudeCode?: { available: boolean; source?: string; executablePath?: string; packagePath?: string; version?: string; error?: string };
+  } | null = null;
+  let checkingExternalSubagent = false;
+  let installingSubagentProvider: string | null = null;
+
+  async function checkExternalSubagentStatus(): Promise<void> {
+    checkingExternalSubagent = true;
+    try {
+      const codexPath = encodeURIComponent(String(getFeatureValue("external-subagent", "codexPath") ?? ""));
+      const claudePath = encodeURIComponent(String(getFeatureValue("external-subagent", "claudeCodePath") ?? ""));
+      const res = await fetch(`/api/settings/plugins/external-subagent?codexPath=${codexPath}&claudeCodePath=${claudePath}`);
+      const data = await res.json();
+      if (data.ok) {
+        externalSubagentStatus = {
+          codex: data.codex,
+          claudeCode: data.claudeCode
+        };
+      }
+    } catch {
+      // ignore
+    } finally {
+      checkingExternalSubagent = false;
+    }
+  }
+
+  async function installExternalSubagent(provider: "codex" | "claude-code"): Promise<void> {
+    if (installingSubagentProvider !== null) return;
+    installingSubagentProvider = provider;
+    try {
+      const res = await fetch("/api/settings/plugins/external-subagent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        await checkExternalSubagentStatus();
+      } else {
+        error = data.error || "Installation failed";
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      installingSubagentProvider = null;
+    }
   }
 
   async function loadSettings(): Promise<void> {
@@ -496,6 +561,88 @@
                   </div>
                 {/if}
               {/each}
+
+              {#if plugin.key === "external-subagent"}
+                <div class="channel-card md:col-span-2 mt-4 p-4 border rounded-md bg-muted/30">
+                  <div class="flex items-center justify-between gap-4 mb-3">
+                    <div>
+                      <h3 class="text-sm font-medium">{copy.extSubagentStatusTitle}</h3>
+                      <p class="text-xs text-muted-foreground">{copy.extSubagentStatusDesc}</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={checkingExternalSubagent}
+                      onclick={checkExternalSubagentStatus}
+                    >
+                      {checkingExternalSubagent ? copy.extSubagentChecking : copy.extSubagentCheck}
+                    </Button>
+                  </div>
+
+                  {#if externalSubagentStatus}
+                    <div class="space-y-2 text-sm">
+                      <div class="flex items-center justify-between p-2.5 rounded bg-background/60 border">
+                        <div>
+                          <div class="flex items-center gap-2">
+                            <strong>OpenAI Codex</strong>
+                            <Badge variant={externalSubagentStatus.codex?.available ? "default" : "secondary"}>
+                              {externalSubagentStatus.codex?.available ? copy.extSubagentDetected : copy.extSubagentNotFound}
+                            </Badge>
+                          </div>
+                          {#if externalSubagentStatus.codex?.executablePath || externalSubagentStatus.codex?.packagePath}
+                            <p class="text-xs font-mono text-muted-foreground mt-1">
+                              {externalSubagentStatus.codex?.source ? `[${externalSubagentStatus.codex.source}] ` : ""}{externalSubagentStatus.codex.executablePath || externalSubagentStatus.codex.packagePath}
+                            </p>
+                          {:else if externalSubagentStatus.codex?.error}
+                            <p class="text-xs text-destructive mt-1">{externalSubagentStatus.codex.error}</p>
+                          {/if}
+                        </div>
+                        {#if !externalSubagentStatus.codex?.available}
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={installingSubagentProvider !== null}
+                            onclick={() => installExternalSubagent("codex")}
+                          >
+                            {installingSubagentProvider === "codex" ? copy.extSubagentInstalling : copy.extSubagentInstall}
+                          </Button>
+                        {/if}
+                      </div>
+
+                      <div class="flex items-center justify-between p-2.5 rounded bg-background/60 border">
+                        <div>
+                          <div class="flex items-center gap-2">
+                            <strong>Claude Code</strong>
+                            <Badge variant={externalSubagentStatus.claudeCode?.available ? "default" : "secondary"}>
+                              {externalSubagentStatus.claudeCode?.available ? copy.extSubagentDetected : copy.extSubagentNotFound}
+                            </Badge>
+                          </div>
+                          {#if externalSubagentStatus.claudeCode?.executablePath || externalSubagentStatus.claudeCode?.packagePath}
+                            <p class="text-xs font-mono text-muted-foreground mt-1">
+                              {externalSubagentStatus.claudeCode?.source ? `[${externalSubagentStatus.claudeCode.source}] ` : ""}{externalSubagentStatus.claudeCode.executablePath || externalSubagentStatus.claudeCode.packagePath}
+                            </p>
+                          {:else if externalSubagentStatus.claudeCode?.error}
+                            <p class="text-xs text-destructive mt-1">{externalSubagentStatus.claudeCode.error}</p>
+                          {/if}
+                        </div>
+                        {#if !externalSubagentStatus.claudeCode?.available}
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={installingSubagentProvider !== null}
+                            onclick={() => installExternalSubagent("claude-code")}
+                          >
+                            {installingSubagentProvider === "claude-code" ? copy.extSubagentInstalling : copy.extSubagentInstall}
+                          </Button>
+                        {/if}
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
           </div>
         </div>

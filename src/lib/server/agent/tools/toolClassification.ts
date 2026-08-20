@@ -51,7 +51,6 @@ const LOCAL_READ_TOOLS = new Set([
   "grep",
   "glob",
   "docExtract",
-  "imageAnalyze",
   "conversationSearch",
   "toolSearch",
   "skillSearch"
@@ -139,7 +138,7 @@ export function getRuntimeToolClassification(
   if (NETWORK_TOOLS.has(toolName)) {
     return { risk: "medium", source: "builtin", effect: "network", thirdPartyHint: "undeclared" };
   }
-  if (toolName === "docExtract" || toolName === "imageAnalyze") {
+  if (toolName === "docExtract") {
     return { risk: "medium", source: "builtin", effect: "read", thirdPartyHint: "undeclared" };
   }
   // Producing a deliverable writes a file, so it is gated like a write rather
