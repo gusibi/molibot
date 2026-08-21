@@ -100,7 +100,11 @@
       extSubagentInstall: "安装运行时",
       extSubagentInstalling: "安装中...",
       extSubagentDetected: "已就绪",
-      extSubagentNotFound: "未检测到"
+      extSubagentNotFound: "未检测到",
+      extSubagentTest: "测试运行",
+      extSubagentTesting: "测试中...",
+      extSubagentTestPassed: "测试通过",
+      extSubagentTestFailed: "测试失败"
     },
     "en-US": {
       eyebrow: "Runtime Extensions",
@@ -163,7 +167,11 @@
       extSubagentInstall: "Install Runtime",
       extSubagentInstalling: "Installing...",
       extSubagentDetected: "Ready",
-      extSubagentNotFound: "Not Detected"
+      extSubagentNotFound: "Not Detected",
+      extSubagentTest: "Test Run",
+      extSubagentTesting: "Testing...",
+      extSubagentTestPassed: "Test Passed",
+      extSubagentTestFailed: "Test Failed"
     }
   } as const;
 
@@ -258,6 +266,13 @@
   } | null = null;
   let checkingExternalSubagent = false;
   let installingSubagentProvider: string | null = null;
+  let testingSubagentProvider: string | null = null;
+  // A completed probe is the only proof of availability; a failed probe
+  // overrides a green detection so the surface can never fake "ready".
+  let subagentTestResults: Record<"codex" | "claude-code", { ok: boolean; stopReason: string; output: string; diagnostic?: string; durationMs: number } | null> = {
+    codex: null,
+    "claude-code": null
+  };
 
   async function checkExternalSubagentStatus(): Promise<void> {
     checkingExternalSubagent = true;
@@ -290,6 +305,7 @@
       });
       const data = await res.json();
       if (data.ok) {
+        subagentTestResults[provider] = null;
         await checkExternalSubagentStatus();
       } else {
         error = data.error || "Installation failed";
@@ -299,6 +315,51 @@
     } finally {
       installingSubagentProvider = null;
     }
+  }
+
+  async function testExternalSubagent(provider: "codex" | "claude-code"): Promise<void> {
+    if (testingSubagentProvider !== null) return;
+    testingSubagentProvider = provider;
+    subagentTestResults[provider] = null;
+    try {
+      const res = await fetch("/api/settings/plugins/external-subagent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test",
+          provider,
+          codexPath: String(getFeatureValue("external-subagent", "codexPath") ?? ""),
+          claudeCodePath: String(getFeatureValue("external-subagent", "claudeCodePath") ?? "")
+        })
+      });
+      const data = await res.json();
+      if (data.ok === false && data.stopReason === undefined) {
+        throw new Error(data.error || "Test failed");
+      }
+      subagentTestResults[provider] = data;
+    } catch (e) {
+      // Transport-level failure is also "unavailable".
+      subagentTestResults[provider] = {
+        ok: false,
+        stopReason: "error",
+        output: "",
+        diagnostic: e instanceof Error ? e.message : String(e),
+        durationMs: 0
+      };
+    } finally {
+      testingSubagentProvider = null;
+    }
+  }
+
+  function subagentBadge(provider: "codex" | "claude-code"): { variant: "default" | "secondary" | "destructive"; label: string } {
+    const testResult = subagentTestResults[provider];
+    if (testResult) {
+      return testResult.ok
+        ? { variant: "default", label: `${copy.extSubagentTestPassed} · ${(testResult.durationMs / 1000).toFixed(1)}s` }
+        : { variant: "destructive", label: copy.extSubagentTestFailed };
+    }
+    const available = provider === "codex" ? externalSubagentStatus?.codex?.available : externalSubagentStatus?.claudeCode?.available;
+    return { variant: available ? "default" : "secondary", label: available ? copy.extSubagentDetected : copy.extSubagentNotFound };
   }
 
   async function loadSettings(): Promise<void> {
@@ -586,8 +647,8 @@
                         <div>
                           <div class="flex items-center gap-2">
                             <strong>OpenAI Codex</strong>
-                            <Badge variant={externalSubagentStatus.codex?.available ? "default" : "secondary"}>
-                              {externalSubagentStatus.codex?.available ? copy.extSubagentDetected : copy.extSubagentNotFound}
+                            <Badge variant={subagentBadge("codex").variant}>
+                              {subagentBadge("codex").label}
                             </Badge>
                           </div>
                           {#if externalSubagentStatus.codex?.executablePath || externalSubagentStatus.codex?.packagePath}
@@ -597,26 +658,40 @@
                           {:else if externalSubagentStatus.codex?.error}
                             <p class="text-xs text-destructive mt-1">{externalSubagentStatus.codex.error}</p>
                           {/if}
+                          {#if subagentTestResults.codex && !subagentTestResults.codex.ok}
+                            <p class="text-xs text-destructive mt-1">{subagentTestResults.codex.diagnostic || `stopReason: ${subagentTestResults.codex.stopReason}`}</p>
+                          {/if}
                         </div>
-                        {#if !externalSubagentStatus.codex?.available}
+                        <div class="flex items-center gap-2">
                           <Button
                             type="button"
-                            variant="secondary"
+                            variant="outline"
                             size="sm"
-                            disabled={installingSubagentProvider !== null}
-                            onclick={() => installExternalSubagent("codex")}
+                            disabled={testingSubagentProvider !== null || installingSubagentProvider !== null}
+                            onclick={() => testExternalSubagent("codex")}
                           >
-                            {installingSubagentProvider === "codex" ? copy.extSubagentInstalling : copy.extSubagentInstall}
+                            {testingSubagentProvider === "codex" ? copy.extSubagentTesting : copy.extSubagentTest}
                           </Button>
-                        {/if}
+                          {#if !externalSubagentStatus.codex?.available}
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              disabled={installingSubagentProvider !== null || testingSubagentProvider !== null}
+                              onclick={() => installExternalSubagent("codex")}
+                            >
+                              {installingSubagentProvider === "codex" ? copy.extSubagentInstalling : copy.extSubagentInstall}
+                            </Button>
+                          {/if}
+                        </div>
                       </div>
 
                       <div class="flex items-center justify-between p-2.5 rounded bg-background/60 border">
                         <div>
                           <div class="flex items-center gap-2">
                             <strong>Claude Code</strong>
-                            <Badge variant={externalSubagentStatus.claudeCode?.available ? "default" : "secondary"}>
-                              {externalSubagentStatus.claudeCode?.available ? copy.extSubagentDetected : copy.extSubagentNotFound}
+                            <Badge variant={subagentBadge("claude-code").variant}>
+                              {subagentBadge("claude-code").label}
                             </Badge>
                           </div>
                           {#if externalSubagentStatus.claudeCode?.executablePath || externalSubagentStatus.claudeCode?.packagePath}
@@ -626,18 +701,32 @@
                           {:else if externalSubagentStatus.claudeCode?.error}
                             <p class="text-xs text-destructive mt-1">{externalSubagentStatus.claudeCode.error}</p>
                           {/if}
+                          {#if subagentTestResults["claude-code"] && !subagentTestResults["claude-code"].ok}
+                            <p class="text-xs text-destructive mt-1">{subagentTestResults["claude-code"].diagnostic || `stopReason: ${subagentTestResults["claude-code"].stopReason}`}</p>
+                          {/if}
                         </div>
-                        {#if !externalSubagentStatus.claudeCode?.available}
+                        <div class="flex items-center gap-2">
                           <Button
                             type="button"
-                            variant="secondary"
+                            variant="outline"
                             size="sm"
-                            disabled={installingSubagentProvider !== null}
-                            onclick={() => installExternalSubagent("claude-code")}
+                            disabled={testingSubagentProvider !== null || installingSubagentProvider !== null}
+                            onclick={() => testExternalSubagent("claude-code")}
                           >
-                            {installingSubagentProvider === "claude-code" ? copy.extSubagentInstalling : copy.extSubagentInstall}
+                            {testingSubagentProvider === "claude-code" ? copy.extSubagentTesting : copy.extSubagentTest}
                           </Button>
-                        {/if}
+                          {#if !externalSubagentStatus.claudeCode?.available}
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              disabled={installingSubagentProvider !== null || testingSubagentProvider !== null}
+                              onclick={() => installExternalSubagent("claude-code")}
+                            >
+                              {installingSubagentProvider === "claude-code" ? copy.extSubagentInstalling : copy.extSubagentInstall}
+                            </Button>
+                          {/if}
+                        </div>
                       </div>
                     </div>
                   {/if}

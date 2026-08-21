@@ -1512,6 +1512,35 @@ export async function installExternalSubagentRuntime(
   );
 }
 
+export interface ExternalSubagentTestResult {
+  ok: boolean;
+  stopReason: string;
+  output: string;
+  diagnostic?: string;
+  durationMs: number;
+}
+
+/**
+ * Runs one real minimal turn through the shared subagent runtime. The call can
+ * take up to ~120s (bounded by PROBE_TIMEOUT_MS server-side), so no client-side
+ * timeout may cut it shorter.
+ */
+export async function testExternalSubagentRuntime(
+  endpoint: string,
+  provider: "codex" | "claude-code",
+  options?: { codexPath?: string; claudeCodePath?: string }
+): Promise<ExternalSubagentTestResult> {
+  return requestJson<ExternalSubagentTestResult>(
+    endpoint,
+    "/api/desktop/plugins/external-subagent",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "test", provider, ...options })
+    }
+  );
+}
+
 /**
  * The installed catalog and the built-in catalog always travel together.
  *

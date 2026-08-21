@@ -4,6 +4,20 @@
 - [2026 Q2 PRD Archive (Apr - Jun)](docs/archive/prd-archive-2026-Q2.md)
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
+## 3.109 Web 聊天界面思考时序分段与自动折叠（2026-08-21）
+
+- **Priority / Status**: P1 / Delivered (2026-08-21).
+- **Problem**: 
+  - 传统单一思考框固定在正文上方，在流式生成思考、流式输出正文以及 Agent 多轮思考（思考 ➔ 工具执行 ➔ 再次思考 ➔ 输出）中，顶部思考框反复展开与内容变化导致页面剧烈上下跳动与抽搐。
+- **Decision**:
+  - **分段时序块（Streaming Blocks）**：流式阶段将每次思考、工具活动、正文输出作为独立的时序块（Block）向下单向追加，永不回头修改上方已完成块的高度；
+  - **完成即自动平滑折叠**：当前思考块在流式进行中保持展开；进入工具执行（`runner_event`）或正式输出正文（`token` / `replace`），前面的思考块立即自动平滑收起为精致小胶囊（`🧠 已完成思考 · 点击展开`），固定高度，杜绝挤压下方正文；
+  - **多轮 Agent 连续追加**：当模型在工具调用后发起第二轮思考时，在最下方追加崭新的思考块，完成时同样自动折叠，保持整体界面极度清爽且随时可回溯展开；
+  - **后端多轮思考保真**：`api/stream/+server.ts` 确保多轮 Agent 循环中多次 `thinking_start` 能够完整保留与拼接段落，并通过 `thinking_state` 显式通知前端分块。
+- **Acceptance**: 已交付。流式思考与正文输出无视口跳动；多轮思考按序向下生长并自动收起；全量测试 267 项全绿，build 成功。
+
+---
+
 ## 3.108 External Subagent 内置插件（Codex & Claude Code 一次性子 Agent）（2026-08-20）
 
 - **Priority / Status**: P1 / Delivered (2026-08-20).

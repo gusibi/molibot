@@ -2,9 +2,17 @@ import { execSync, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
+import fixPath from "fix-path";
 import type { ExternalSubagentProviderId, ProviderAvailability } from "./types.js";
 
 const require = createRequire(import.meta.url);
+
+// GUI app contexts (.app bundle on macOS, packaged Windows app) do not inherit
+// the user's shell PATH, so `npm`/`pnpm`/`codex`/`claude` resolve to ENOENT.
+// fixPath() sources the user's login shell on macOS and the registry App Paths
+// on Windows; on Linux and in normal terminal runs it is a no-op. Run once at
+// module load so every spawn below sees the augmented PATH.
+fixPath();
 
 export const TARGET_DEPENDENCIES = {
   codex: "@openai/codex@0.147.0",

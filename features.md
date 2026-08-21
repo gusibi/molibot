@@ -4,6 +4,43 @@
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
+## 2026-08-21
+
+### External Subagent 真实可用性测试按钮（已完成，P1）
+
+- **背景**：设置页的「检测环境」只做路径解析（文件存在 + `which`），绿徽章只代表「找到了二进制」，不代表「能跑」。已出现多次检测显示可用、实际执行报错（协议不兼容 / 认证缺失 / 二进制损坏）的假可用。
+- **一键测试运行（Test Run）**：Web 与 Desktop 设置页每个 provider 行新增「测试运行」按钮，走真实链路验证：
+  - 复用 `tools.ts` 的共享 `ExternalSubagentRuntime`（pitfall 21：探活必须走真实运行时，不另起探针）；
+  - 在隔离的 `mkdtemp` 临时目录中执行最小真实任务（`Reply with exactly: OK`），完整走一遍 wire 协议、认证与 provider 选择；
+  - 120 秒上限（`PROBE_TIMEOUT_MS`），失败/超时/无输出一律判不可用；
+  - 使用已保存的 permissionMode 与表单中未保存的自定义路径（与「检测环境」语义一致）。
+- **诚实徽章**：测试结果覆盖检测状态 -- 通过显示「测试通过 · Ns」，失败显示红色「测试失败」+ diagnostic（含 stopReason），检测为绿但测试失败时绝不显示可用；传输层异常（服务中途死亡）同样记为失败而非吞掉。
+- **实现**：`probe.ts`（可注入 runtime 便于单测）+ 两端 POST `action:"test"`（缺省 action 保持 install 向后兼容）+ Desktop `testExternalSubagentRuntime` API client + 中英 i18n。
+- **验证**：`probe.test.ts` 4 用例（通过判定 / error 失败 / not_installed+timeout / 异常时清理临时目录）；`svelte-check` 0 错误 0 警告；production build 通过。
+
+### 桌面端与发布产物体积优化 & Source Map 源码防泄露（已完成，P0）
+
+- **构建清理守卫与防累积**：在 `package.json` 的 `build` 脚本与 `clean` 命令中加入前置清理逻辑，确保每次构建前清空 `build` 与 `.svelte-kit` 目录，彻底杜绝历史带 Hash 的 chunk 文件单调累积膨胀。
+- **Source Map 彻底剥离与安全加固**：
+  - 在 `vite.config.ts` 中显式配置 `sourcemap: false` 与 `minify: "esbuild"` 开启混淆压缩；
+  - 在 `bin/molibot-release.sh` 中增加全局 `.map` 文件清理命令，将生产运行时中的 Source Map 全部剔除，彻底杜绝原始 TypeScript 源码被反编译还原的风险。
+- **恢复 `--no-optional` 依赖裁剪**：在发布包 `pnpm install --prod` 中恢复 `--no-optional`，精简不必要的跨平台多架构 Native Binding 冗余文件。
+- **体积优化成效**：
+  - `molibot-runtime.tar.gz` 打包体积从 **555 MB** 骤降至 **~51 MB**（缩减 90%+）；
+  - 解压后的生产运行时目录从 **2.7 GB** 降至 **~319 MB**；
+  - 产物中 `.map` 源码映射文件数量归零。
+
+### Web 聊天界面：Agent 多轮思考流式展示与完成自动折叠（已完成，P1）
+
+- **背景与问题根因**：
+  - 对话流式生成过程中，思考过程固定渲染在正文上方的单一面板中，并伴随频繁滚底；当流式输出思考内容时视口在底部，随后正文从思考下方输出又将思考顶至上方；在 Agent 多轮循环（思考 ➔ 工具执行 ➔ 再次思考 ➔ 输出）中，顶部思考框反复展开与内容变化导致页面剧烈上下跳动与抽搐。
+- **优化方案（分段时序块 + 完成即折叠）**：
+  - **分段时序块（Streaming Blocks）**：流式阶段将每次思考、工具活动、正文输出作为独立的时序块（Block）向下单向追加，永不回头修改上方已完成块的高度。
+  - **完成即自动平滑折叠**：当前思考块在流式进行中保持展开；一旦进入工具执行（`runner_event`）或正式输出正文（`token` / `replace`），前面的思考块立即自动平滑收起为精致小胶囊（`🧠 已完成思考 · 点击展开`），固定高度，杜绝挤压下方正文。
+  - **多轮 Agent 连续追加**：当模型在工具调用后发起第二轮思考时，在最下方追加崭新的思考块，完成时同样自动折叠，保持整体界面极度清爽且随时可回溯展开。
+  - **后端多轮思考保真**：`api/stream/+server.ts` 确保多轮 Agent 循环中多次 `thinking_start` 能够完整保留与拼接段落，并通过 `thinking_state` 显式通知前端分块。
+  - **全端与国际化适配**：严格遵循 `DESIGN.md`，支持明暗主题、中英双语（`zh-CN` / `en-US`），并通过 267 项全量单元测试与 production build 校验。
+
 ## 2026-08-20
 
 ### External Subagent 内置插件：OpenAI Codex & Claude Code 一体化子 Agent（已完成，P1）

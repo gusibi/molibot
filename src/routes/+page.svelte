@@ -203,6 +203,10 @@
       thinkingDetails: "思考与请求信息",
       requestTrace: "请求信息",
       thinkingProcess: "思考过程",
+      thinkingCollapsed: "已完成思考",
+      thinkingInProgress: "正在思考...",
+      clickToExpand: "点击展开",
+      clickToCollapse: "点击收起",
       noThinkingSeen: "这次没有收到思考流",
       liveAnswer: "实时输出",
       updatedAt: "更新于",
@@ -374,6 +378,10 @@
       thinkingDetails: "Thinking Details",
       requestTrace: "Request Trace",
       thinkingProcess: "Thinking Process",
+      thinkingCollapsed: "Thought process",
+      thinkingInProgress: "Thinking...",
+      clickToExpand: "Click to expand",
+      clickToCollapse: "Click to collapse",
       noThinkingSeen: "No thinking stream received",
       liveAnswer: "Live Output",
       updatedAt: "Updated",
@@ -520,6 +528,14 @@
   let themeMode: ThemeMode = "light";
   let locale: LocaleKey = "zh-CN";
   let dict = I18N[locale];
+  interface StreamingThinkingBlock {
+    id: string;
+    text: string;
+    folded: boolean;
+    done: boolean;
+  }
+
+  let streamingThinkingBlocks: StreamingThinkingBlock[] = [];
   let streamingAssistantText = "";
   let streamingThinkingText = "";
   interface PendingApproval {
@@ -583,6 +599,7 @@
   function resetStreamingState(): void {
     streamingAssistantText = "";
     streamingThinkingText = "";
+    streamingThinkingBlocks = [];
     streamingDiagnostics = [];
   }
 
@@ -1347,6 +1364,9 @@
         const payload = JSON.parse(parsed.data);
 
         if (parsed.event === "token") {
+          if (streamingThinkingBlocks.some((b) => !b.folded)) {
+            streamingThinkingBlocks = streamingThinkingBlocks.map((b) => ({ ...b, folded: true, done: true }));
+          }
           streamingAssistantText += String(payload.delta ?? "");
           await scrollMessagesToBottom(true);
           continue;
@@ -1360,6 +1380,9 @@
           continue;
         }
         if (parsed.event === "replace") {
+          if (streamingThinkingBlocks.some((b) => !b.folded)) {
+            streamingThinkingBlocks = streamingThinkingBlocks.map((b) => ({ ...b, folded: true, done: true }));
+          }
           streamingAssistantText = String(payload.text ?? "");
           await scrollMessagesToBottom(true);
           continue;
@@ -1390,14 +1413,57 @@
           continue;
         }
         if (parsed.event === "runner_event") {
+          if (streamingThinkingBlocks.some((b) => !b.folded)) {
+            streamingThinkingBlocks = streamingThinkingBlocks.map((b) => ({ ...b, folded: true, done: true }));
+          }
           const diagnostic = String(payload.diagnostic ?? "").trim();
           if (diagnostic) {
             streamingDiagnostics = [...streamingDiagnostics, diagnostic];
           }
           continue;
         }
+        if (parsed.event === "thinking_state") {
+          const phase = String(payload.phase ?? "");
+          if (phase === "start") {
+            streamingThinkingBlocks = streamingThinkingBlocks.map((b) => ({ ...b, folded: true, done: true }));
+            const newBlock: StreamingThinkingBlock = {
+              id: `think-${Date.now()}-${streamingThinkingBlocks.length}`,
+              text: "",
+              folded: false,
+              done: false
+            };
+            streamingThinkingBlocks = [...streamingThinkingBlocks, newBlock];
+          } else if (phase === "end") {
+            if (streamingThinkingBlocks.length > 0) {
+              const lastIdx = streamingThinkingBlocks.length - 1;
+              streamingThinkingBlocks[lastIdx] = {
+                ...streamingThinkingBlocks[lastIdx],
+                done: true
+              };
+              streamingThinkingBlocks = [...streamingThinkingBlocks];
+            }
+          }
+          continue;
+        }
         if (parsed.event === "thinking_delta") {
-          streamingThinkingText += String(payload.delta ?? "");
+          const delta = String(payload.delta ?? "");
+          if (streamingThinkingBlocks.length === 0) {
+            streamingThinkingBlocks = [{
+              id: `think-${Date.now()}-0`,
+              text: delta,
+              folded: false,
+              done: false
+            }];
+          } else {
+            const lastIdx = streamingThinkingBlocks.length - 1;
+            const current = streamingThinkingBlocks[lastIdx];
+            streamingThinkingBlocks[lastIdx] = {
+              ...current,
+              text: current.text + delta
+            };
+            streamingThinkingBlocks = [...streamingThinkingBlocks];
+          }
+          streamingThinkingText += delta;
           await scrollMessagesToBottom(true);
           continue;
         }
@@ -2282,32 +2348,76 @@
                         <div class="text-sm font-semibold text-[var(--accent-foreground)]">Molibot</div>
                         <div class="text-xs text-[var(--muted-foreground)]">{t("liveAnswer")}</div>
                       </div>
-                      {#if streamingDiagnostics.length > 0 || streamingThinkingText}
-                        <details class="chat-thinking-panel mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6" open>
+
+                      {#if streamingDiagnostics.length > 0}
+                        <details class="chat-thinking-panel mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6">
                           <summary class="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
-                            {t("thinkingDetails")}
+                            {t("requestTrace")}
                           </summary>
-                          <div class="mt-3">
-                            {#if streamingDiagnostics.length > 0}
-                              <div class="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
-                                {t("requestTrace")}
-                              </div>
-                              {#each streamingDiagnostics as line}
-                                <div class="break-words">{line}</div>
-                              {/each}
-                            {/if}
-                            <div class={`${streamingDiagnostics.length > 0 ? "mt-3" : ""} text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]`}>
-                              {t("thinkingProcess")}
-                            </div>
-                            <div class="mt-2 whitespace-pre-wrap break-words">
-                              {streamingThinkingText || t("noThinkingSeen")}
-                            </div>
+                          <div class="mt-3 space-y-1">
+                            {#each streamingDiagnostics as line}
+                              <div class="break-words">{line}</div>
+                            {/each}
                           </div>
                         </details>
                       {/if}
-                      <div class="markdown-body max-w-3xl break-words text-[15px] leading-8">
-                        {@html renderMarkdown(streamingAssistantText || t("thinking"))}
-                      </div>
+
+                      {#each streamingThinkingBlocks as block, i (block.id)}
+                        {#if block.folded}
+                          <div class="mb-3">
+                            <button
+                              type="button"
+                              class="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--muted)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--primary)] hover:text-[var(--foreground)]"
+                              on:click={() => {
+                                streamingThinkingBlocks[i].folded = false;
+                                streamingThinkingBlocks = [...streamingThinkingBlocks];
+                              }}
+                            >
+                              <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+                                <path d="M9 21h6" />
+                              </svg>
+                              <span class="font-medium">{t("thinkingCollapsed")}</span>
+                              <span class="text-[10px] opacity-75">{t("clickToExpand")} ▾</span>
+                            </button>
+                          </div>
+                        {:else}
+                          <div class="chat-thinking-panel mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6">
+                            <div class="flex items-center justify-between gap-2 border-b border-[var(--border)] pb-2 mb-2">
+                              <div class="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--foreground)]">
+                                <svg class="h-3.5 w-3.5 shrink-0 text-amber-500 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+                                  <path d="M9 21h6" />
+                                </svg>
+                                <span>{block.done ? t("thinkingProcess") : t("thinkingInProgress")}</span>
+                              </div>
+                              <button
+                                type="button"
+                                class="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+                                on:click={() => {
+                                  streamingThinkingBlocks[i].folded = true;
+                                  streamingThinkingBlocks = [...streamingThinkingBlocks];
+                                }}
+                              >
+                                {t("clickToCollapse")} ▴
+                              </button>
+                            </div>
+                            <div class="whitespace-pre-wrap break-words font-mono text-[11px] max-h-64 overflow-y-auto">
+                              {block.text || t("thinkingInProgress")}
+                            </div>
+                          </div>
+                        {/if}
+                      {/each}
+
+                      {#if streamingAssistantText}
+                        <div class="markdown-body max-w-3xl break-words text-[15px] leading-8">
+                          {@html renderMarkdown(streamingAssistantText)}
+                        </div>
+                      {:else if streamingThinkingBlocks.length === 0 && streamingDiagnostics.length === 0}
+                        <div class="markdown-body max-w-3xl break-words text-[15px] leading-8 text-[var(--muted-foreground)]">
+                          {t("thinking")}
+                        </div>
+                      {/if}
                     </div>
                   </article>
                 {/if}

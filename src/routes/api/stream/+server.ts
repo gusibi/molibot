@@ -466,7 +466,9 @@ export const POST: RequestHandler = async ({ request }) => {
               if (event.type !== "assistant_message_event") return;
 
               if (event.event.type === "thinking_start") {
-                thinkingText = "";
+                if (thinkingText.trim()) {
+                  thinkingText += "\n\n";
+                }
                 writeEvent(controller, encoder, "thinking_state", { phase: "start" });
                 return;
               }

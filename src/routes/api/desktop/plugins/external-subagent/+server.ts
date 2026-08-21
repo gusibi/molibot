@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { resolveCodex, resolveClaudeCode, installProviderRuntime } from "#external-subagent";
+import { runExternalSubagentProbe } from "$lib/server/plugins/externalSubagent/probe.js";
 import { getRuntime } from "$lib/server/app/runtime.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { join } from "node:path";
@@ -34,9 +35,14 @@ export const GET: RequestHandler = async ({ url }) => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: { provider?: "codex" | "claude-code" };
+  let body: {
+    provider?: "codex" | "claude-code";
+    action?: "install" | "test";
+    codexPath?: string;
+    claudeCodePath?: string;
+  };
   try {
-    body = (await request.json()) as { provider?: "codex" | "claude-code" };
+    body = (await request.json()) as typeof body;
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
@@ -44,6 +50,30 @@ export const POST: RequestHandler = async ({ request }) => {
   const provider = body.provider;
   if (provider !== "codex" && provider !== "claude-code") {
     return json({ ok: false, error: "Invalid provider. Must be 'codex' or 'claude-code'" }, { status: 400 });
+  }
+
+  // One real minimal turn through the shared runtime: only a completed turn
+  // counts as available, so a failed probe must read as unavailable even when
+  // path detection is green.
+  if (body.action === "test") {
+    const settings = getRuntime().getSettings();
+    const pluginSettings = settings.plugins.externalSubagent;
+    const customPath =
+      (provider === "codex" ? body.codexPath : body.claudeCodePath) ||
+      (provider === "codex" ? pluginSettings?.codexPath : pluginSettings?.claudeCodePath) ||
+      undefined;
+    const permissionMode =
+      provider === "codex" ? pluginSettings?.codexPermissionMode : pluginSettings?.claudeCodePermissionMode;
+
+    const result = await runExternalSubagentProbe(provider, { customPath, permissionMode });
+    return json({
+      ok: result.ok,
+      provider,
+      stopReason: result.stopReason,
+      output: result.output,
+      diagnostic: result.diagnostic,
+      durationMs: result.durationMs
+    });
   }
 
   const runtimesDir = join(storagePaths.dataDir, "runtimes", "external-subagent");

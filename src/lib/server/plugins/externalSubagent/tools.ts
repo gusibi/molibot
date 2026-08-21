@@ -15,6 +15,15 @@ const sharedRuntime = new ExternalSubagentRuntime({
   runtimesDir: join(storagePaths.dataDir, "runtimes", "external-subagent")
 });
 
+/**
+ * The one runtime the subagent tools execute through. Availability probes must
+ * reuse this exact instance (pitfall 21: a liveness probe must exercise the
+ * real runtime) so a passing probe means the tool path works.
+ */
+export function getExternalSubagentSharedRuntime(): ExternalSubagentRuntime {
+  return sharedRuntime;
+}
+
 export function createCodexSubagentTool(context: FeaturePluginContext): AgentTool<typeof taskSchema> {
   const tool: AgentTool<typeof taskSchema> = {
     name: "codexSubagent",

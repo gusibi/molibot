@@ -1,6 +1,6 @@
 [package]
 name = "molibot-desktop"
-version = "0.9.32"
+version = "0.9.33"
 description = "Molibot macOS desktop host"
 authors = ["EZTOOLAB"]
 edition = "2021"
@@ -40,7 +40,11 @@ objc2-app-kit = { version = "0.3", features = ["NSHapticFeedback"] }
 
 [profile.release]
 codegen-units = 1
-lto = true
+lto = "thin"
 opt-level = "s"
 panic = "abort"
-strip = true
+strip = "debuginfo"
+
+[profile.release.build-override]
+opt-level = 0
+strip = false

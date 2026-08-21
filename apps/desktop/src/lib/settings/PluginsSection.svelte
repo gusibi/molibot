@@ -17,13 +17,22 @@
     loadDailyMaterialsBackfillStatus,
     loadExternalSubagentStatus,
     installExternalSubagentRuntime,
-    type ExternalSubagentStatusResponse
+    testExternalSubagentRuntime,
+    type ExternalSubagentStatusResponse,
+    type ExternalSubagentTestResult
   } from "../api";
   import type { DailyMaterialsBackfillStatus } from "@molibot/desktop-contract";
 
   let subagentStatus = $state<ExternalSubagentStatusResponse | null>(null);
   let checkingSubagent = $state(false);
   let installingProvider = $state<string | null>(null);
+  let testingProvider = $state<string | null>(null);
+  // A completed probe is the only proof of availability; a failed probe
+  // overrides a green detection so the surface can never fake "ready".
+  let testResults = $state<Record<"codex" | "claude-code", ExternalSubagentTestResult | null>>({
+    codex: null,
+    "claude-code": null
+  });
 
   async function refreshSubagentStatus(): Promise<void> {
     if (!session.endpoint) return;
@@ -48,6 +57,7 @@
     try {
       const res = await installExternalSubagentRuntime(session.endpoint, provider);
       if (res.ok) {
+        testResults[provider] = null;
         await refreshSubagentStatus();
       } else {
         pluginsStore.actionMessage = res.error || "Installation failed";
@@ -58,6 +68,48 @@
       installingProvider = null;
     }
   }
+
+  async function testSubagent(provider: "codex" | "claude-code"): Promise<void> {
+    if (!session.endpoint || testingProvider !== null) return;
+    testingProvider = provider;
+    testResults[provider] = null;
+    try {
+      const codexPath = String(pluginsStore.pluginsEdit?.values["external-subagent"]?.codexPath ?? "");
+      const claudePath = String(pluginsStore.pluginsEdit?.values["external-subagent"]?.claudeCodePath ?? "");
+      testResults[provider] = await testExternalSubagentRuntime(session.endpoint, provider, {
+        codexPath,
+        claudeCodePath: claudePath
+      });
+    } catch (e) {
+      // Transport-level failure (e.g. service died mid-test) is also "unavailable".
+      testResults[provider] = {
+        ok: false,
+        stopReason: "error",
+        output: "",
+        diagnostic: e instanceof Error ? e.message : String(e),
+        durationMs: 0
+      };
+    } finally {
+      testingProvider = null;
+    }
+  }
+
+  function providerBadge(provider: "codex" | "claude-code"): { state: string; label: string } {
+    const testResult = testResults[provider];
+    if (testResult) {
+      return testResult.ok
+        ? { state: "ready", label: `${session.text.externalSubagentTestPassed} · ${(testResult.durationMs / 1000).toFixed(1)}s` }
+        : { state: "error", label: session.text.externalSubagentTestFailed };
+    }
+    const available = provider === "codex" ? subagentStatus?.codex.available : subagentStatus?.claudeCode.available;
+    return {
+      state: available ? "ready" : "disconnected",
+      label: available ? session.text.externalSubagentDetected : session.text.externalSubagentNotFound
+    };
+  }
+
+  const codexBadge = $derived(providerBadge("codex"));
+  const claudeBadge = $derived(providerBadge("claude-code"));
 
   $effect(() => {
     if (expandedPlugin === "external-subagent" && session.endpoint && !subagentStatus && !checkingSubagent) {
@@ -273,8 +325,8 @@
                         <div class="ext-status-info">
                           <div class="ext-status-title">
                             <strong>OpenAI Codex</strong>
-                            <span class="status-badge" data-state={subagentStatus.codex.available ? "ready" : "disconnected"}>
-                              {subagentStatus.codex.available ? session.text.externalSubagentDetected : session.text.externalSubagentNotFound}
+                            <span class="status-badge" data-state={codexBadge.state}>
+                              {codexBadge.label}
                             </span>
                           </div>
                           {#if subagentStatus.codex.executablePath || subagentStatus.codex.packagePath}
@@ -282,25 +334,38 @@
                           {:else if subagentStatus.codex.error}
                             <span class="ext-status-error">{subagentStatus.codex.error}</span>
                           {/if}
+                          {#if testResults.codex && !testResults.codex.ok}
+                            <span class="ext-status-error">{testResults.codex.diagnostic || `stopReason: ${testResults.codex.stopReason}`}</span>
+                          {/if}
                         </div>
-                        {#if !subagentStatus.codex.available}
+                        <div class="ext-status-actions">
                           <button
                             class="secondary-button"
                             type="button"
-                            disabled={installingProvider !== null}
-                            onclick={() => installSubagent("codex")}
+                            disabled={testingProvider !== null || installingProvider !== null}
+                            onclick={() => testSubagent("codex")}
                           >
-                            {installingProvider === "codex" ? session.text.externalSubagentInstalling : session.text.externalSubagentInstall}
+                            {testingProvider === "codex" ? session.text.externalSubagentTesting : session.text.externalSubagentTest}
                           </button>
-                        {/if}
+                          {#if !subagentStatus.codex.available}
+                            <button
+                              class="secondary-button"
+                              type="button"
+                              disabled={installingProvider !== null || testingProvider !== null}
+                              onclick={() => installSubagent("codex")}
+                            >
+                              {installingProvider === "codex" ? session.text.externalSubagentInstalling : session.text.externalSubagentInstall}
+                            </button>
+                          {/if}
+                        </div>
                       </div>
 
                       <div class="ext-status-row">
                         <div class="ext-status-info">
                           <div class="ext-status-title">
                             <strong>Claude Code</strong>
-                            <span class="status-badge" data-state={subagentStatus.claudeCode.available ? "ready" : "disconnected"}>
-                              {subagentStatus.claudeCode.available ? session.text.externalSubagentDetected : session.text.externalSubagentNotFound}
+                            <span class="status-badge" data-state={claudeBadge.state}>
+                              {claudeBadge.label}
                             </span>
                           </div>
                           {#if subagentStatus.claudeCode.executablePath || subagentStatus.claudeCode.packagePath}
@@ -308,17 +373,30 @@
                           {:else if subagentStatus.claudeCode.error}
                             <span class="ext-status-error">{subagentStatus.claudeCode.error}</span>
                           {/if}
+                          {#if testResults["claude-code"] && !testResults["claude-code"].ok}
+                            <span class="ext-status-error">{testResults["claude-code"].diagnostic || `stopReason: ${testResults["claude-code"].stopReason}`}</span>
+                          {/if}
                         </div>
-                        {#if !subagentStatus.claudeCode.available}
+                        <div class="ext-status-actions">
                           <button
                             class="secondary-button"
                             type="button"
-                            disabled={installingProvider !== null}
-                            onclick={() => installSubagent("claude-code")}
+                            disabled={testingProvider !== null || installingProvider !== null}
+                            onclick={() => testSubagent("claude-code")}
                           >
-                            {installingProvider === "claude-code" ? session.text.externalSubagentInstalling : session.text.externalSubagentInstall}
+                            {testingProvider === "claude-code" ? session.text.externalSubagentTesting : session.text.externalSubagentTest}
                           </button>
-                        {/if}
+                          {#if !subagentStatus.claudeCode.available}
+                            <button
+                              class="secondary-button"
+                              type="button"
+                              disabled={installingProvider !== null || testingProvider !== null}
+                              onclick={() => installSubagent("claude-code")}
+                            >
+                              {installingProvider === "claude-code" ? session.text.externalSubagentInstalling : session.text.externalSubagentInstall}
+                            </button>
+                          {/if}
+                        </div>
                       </div>
                     </div>
                   {/if}
@@ -454,6 +532,12 @@
     padding: 8px 10px;
     border-radius: var(--rounded-sm);
     background: var(--surface-secondary);
+  }
+  .ext-status-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
   }
   .ext-status-info {
     display: flex;

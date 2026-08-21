@@ -53,6 +53,8 @@ export default defineConfig({
     conditions: ["browser", "module", "import", "default"]
   },
   build: {
+    sourcemap: false,
+    minify: "esbuild",
     rollupOptions: {
       external: ["qrcode-terminal"]
     }

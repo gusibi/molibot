@@ -4,6 +4,37 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-21
+
+### Added: External Subagent 一键真实可用性测试（Test Run）
+
+- **问题**：「检测环境」只证明二进制存在，不证明能跑；已出现检测显示可用、执行时失败的假可用（协议不兼容 / 认证缺失 / 二进制损坏）。
+- **修复**：Web 与 Desktop 设置页 Codex / Claude Code 行新增「测试运行」按钮 -- 复用 `tools.ts` 共享的 `ExternalSubagentRuntime`（pitfall 21：探活必须走真实运行时），在 `mkdtemp` 隔离目录跑一次最小真实任务（`Reply with exactly: OK`），完整经过 wire 协议 + 认证 + provider 选择，120s 上限（`PROBE_TIMEOUT_MS`）。只有 `stopReason === "completed"` 且有输出才算通过；测试失败时徽章强制显示红色「测试失败」+ diagnostic，覆盖绿色检测态；传输层异常同样判失败。
+- **接口**：两端 `POST /api/{settings,desktop}/plugins/external-subagent` 支持 `action:"test"`（缺省仍为 install，向后兼容），permissionMode 取自已保存设置，自定义路径接受表单未保存值（与检测语义一致）。
+- **验证**：`probe.test.ts` 4 用例全过（通过判定 / error 失败 / not_installed+timeout / 异常时清理临时目录）；`svelte-check` 0 错误 0 警告；`vite build` 通过。
+
+### Optimized: 桌面端与发布包体积缩减 90% & 全局 Source Map 源码防泄露
+
+- **构建防累积守卫**：在 `package.json` 的 `build` 与 `clean` 脚本中增加构建前自动清理 `build` 与 `.svelte-kit` 目录，彻底杜绝历史带有随机 Hash 的 chunk 文件持续单调累积。
+- **Source Map 源码防泄露**：
+  - `vite.config.ts` 中显式配置 `sourcemap: false` 与 `minify: "esbuild"` 代码压缩；
+  - `bin/molibot-release.sh` 中在生产打包完成后全局清理所有 `.map` 文件（包括 node_modules 第三方 map），彻底杜绝从安装包逆向出原始 TypeScript 源码的风险。
+- **恢复 `--no-optional` 精简依赖**：在发布包的 `pnpm install --prod` 中恢复 `--no-optional`，精简多余的跨平台 native binding。
+- **实测成果**：`molibot-runtime.tar.gz` 从 **555 MB** 降低到 **51 MB**；生产解压目录从 **2.7 GB** 降低到 **319 MB**；产物中 `.map` 源码映射文件彻底清零。
+
+### Fixed: External Subagent 一键安装在 .app / 桌面上下文下报 `spawn npm ENOENT`
+
+- **症状**：Desktop 一键安装 Codex / Claude Code 时，install endpoint 抛出 `Failed to spawn npm: spawn npm ENOENT`，终端里 `which npm` 正常。原因是 Tauri `.app` 启动的 Node 进程不继承用户 shell 的 `PATH`，homebrew / nvm / fnm / asdf 安装的 `npm` 都解析不到。
+- **修复**：在 `package/external-subagent/src/resolver.ts` 模块加载时调用 `fix-path`（sindresorhus，macOS 读登录 shell、Linux/终端 no-op、Win 读注册表 App Paths），补齐 `process.env.PATH`。这样 `findExecutableInPath("codex")`、`pnpm --version` 探测、最终 `installProviderRuntime` 的 `spawn(packageManager, …)` 全部用上修复后的 PATH。
+- **结构保护**：新增 `package/external-subagent/test/resolver.test.ts` 守住三件事 —— 模块顶部导入并调用 `fixPath()`；`installProviderRuntime` 的 spawn 仍传 `env: process.env`（不丢 PATH）；`fixPath()` 幂等不破坏已存在 PATH。任何回归（删 import / 改 env / 改调用位置）任一断言失败即知。
+- **没改 `bin/molibot.js`**：那里 `spawn("npm", …)` 是 `pnpm run dev` 的入口，只在终端跑，自带完整 PATH，不踩此坑。
+
+### Improved: Web 聊天界面 Agent 多轮思考流式分段与完成自动折叠
+
+- **彻底消除视口跳动**：将思考、工具活动与正文输出重构为自上而下单向生长的独立时序块（Streaming Blocks），单向追加，杜绝顶部大框反复伸缩对正文的挤压。
+- **完成即自动折叠**：思考流式生成时实时展开展示；进入工具执行或正式输出正文时，前面的思考块自动收起为精致小胶囊（`🧠 已完成思考 · 点击展开`），固定高度并支持随时手动展开。
+- **后端完整多轮思考保真**：后端 `/api/stream` 支持多轮 Agent 循环中多次思考的完整拼接与 `thinking_state` 显式事件通知。
+
 ## 2026-08-20
 
 ### Added: External Subagent 内置插件（OpenAI Codex & Claude Code 一体化子 Agent）

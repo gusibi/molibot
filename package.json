@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "2.9.32",
+  "version": "2.9.33",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
@@ -15,8 +15,9 @@
     "molibot": "./bin/molibot.js"
   },
   "scripts": {
+    "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('build', { recursive: true, force: true }))\"",
     "dev": "svelte-kit sync && vite dev --mode production",
-    "build": "svelte-kit sync && vite build",
+    "build": "node -e \"import('node:fs').then(fs => fs.rmSync('build', { recursive: true, force: true }))\" && svelte-kit sync && vite build",
     "mini-chat:build": "node scripts/build-mini-chat.mjs",
     "desktop:dev": "corepack pnpm run build && corepack pnpm --dir apps/desktop run tauri:dev",
     "desktop:prepare": "corepack pnpm --dir apps/desktop run prepare:runtime",
@@ -53,6 +54,7 @@
     "docx": "9.7.1",
     "dotenv": "^16.5.0",
     "esbuild": "^0.28.1",
+    "fix-path": "^4.0.0",
     "grammy": "^1.44.0",
     "ignore": "^7.0.5",
     "jieba-wasm": "^2.4.0",

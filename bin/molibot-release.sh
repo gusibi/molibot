@@ -87,8 +87,11 @@ fi
 
 (
   cd "$OUTPUT_DIR"
-  pnpm install --prod --frozen-lockfile
+  pnpm install --prod --no-optional --frozen-lockfile
 )
+
+# Strip source maps from entire production release bundle to prevent source disclosure and reduce size
+find "$OUTPUT_DIR" -name "*.map" -type f -delete
 
 cat > "$OUTPUT_DIR/README.release.md" <<'EOF'
 # Molibot Release Bundle
