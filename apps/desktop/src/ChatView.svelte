@@ -446,26 +446,59 @@
   let viewportWidth = window.innerWidth;
 
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
+  const SIDEBAR_COLLAPSED_KEY = "molibot-desktop-sidebar-collapsed";
   const SIDEBAR_DEFAULT = 228;
   const SIDEBAR_MIN = 228;
   const SIDEBAR_MAX = 420;
+  const SIDEBAR_COLLAPSE_THRESHOLD = 160;
   let sidebarMaxWidth = SIDEBAR_MAX;
   let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || SIDEBAR_DEFAULT);
+  let lastExpandedSidebarWidth = sidebarWidth >= SIDEBAR_MIN ? sidebarWidth : SIDEBAR_DEFAULT;
+  let sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  let autoCollapsedByWindow = false;
+  let previousViewportWidth = viewportWidth;
   let resizingSidebar = false;
   let sidebarGestureId = "";
   let sidebarResizer: HTMLDivElement | null = null;
   const sidebarManipulation = new DirectManipulation({
-    min: SIDEBAR_MIN,
+    min: 0,
     max: SIDEBAR_MAX,
     mode: "continuous",
     onUpdate(snapshot) {
-      sidebarWidth = clampSidebarWidth(snapshot.position);
-      resizingSidebar = snapshot.phase === "tracking" || snapshot.phase === "dragging";
+      if (snapshot.position < SIDEBAR_COLLAPSE_THRESHOLD) {
+        if (!sidebarCollapsed) {
+          sidebarCollapsed = true;
+          sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
+          autoCollapsedByWindow = false;
+          localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
+        }
+        resizingSidebar = false;
+      } else {
+        if (sidebarCollapsed) {
+          sidebarCollapsed = false;
+          autoCollapsedByWindow = false;
+          localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "false");
+        }
+        sidebarWidth = clampSidebarWidth(snapshot.position);
+        lastExpandedSidebarWidth = sidebarWidth;
+        resizingSidebar = snapshot.phase === "tracking" || snapshot.phase === "dragging";
+      }
     },
     onSettled(target) {
-      sidebarWidth = clampSidebarWidth(target);
       resizingSidebar = false;
-      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+      if (target < SIDEBAR_COLLAPSE_THRESHOLD) {
+        sidebarCollapsed = true;
+        sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
+        autoCollapsedByWindow = false;
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
+      } else {
+        sidebarCollapsed = false;
+        sidebarWidth = clampSidebarWidth(target);
+        lastExpandedSidebarWidth = sidebarWidth;
+        autoCollapsedByWindow = false;
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "false");
+      }
     },
     onCommitted() {
       if (sidebarGestureId) onHapticCommit(sidebarGestureId);
@@ -473,6 +506,15 @@
   });
   function clampSidebarWidth(value: number): number {
     return Math.min(sidebarMaxWidth, Math.max(SIDEBAR_MIN, Math.round(value)));
+  }
+  function toggleSidebarCollapse(): void {
+    sidebarCollapsed = !sidebarCollapsed;
+    autoCollapsedByWindow = false;
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed));
+    if (!sidebarCollapsed && sidebarWidth < SIDEBAR_MIN) {
+      sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    }
   }
   function startSidebarResize(event: PointerEvent): void {
     if (event.button !== 0) return;
@@ -500,19 +542,35 @@
   }
   function onSidebarKeydown(event: KeyboardEvent): void {
     let next = sidebarWidth;
-    if (event.key === "ArrowLeft") next -= 16;
-    else if (event.key === "ArrowRight") next += 16;
-    else return;
+    if (event.key === "ArrowLeft") {
+      if (sidebarWidth <= SIDEBAR_MIN) {
+        sidebarCollapsed = true;
+        autoCollapsedByWindow = false;
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
+        return;
+      }
+      next -= 16;
+    } else if (event.key === "ArrowRight") {
+      if (sidebarCollapsed) {
+        sidebarCollapsed = false;
+        autoCollapsedByWindow = false;
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "false");
+        return;
+      }
+      next += 16;
+    } else return;
     event.preventDefault();
     sidebarWidth = clampSidebarWidth(next);
+    lastExpandedSidebarWidth = sidebarWidth;
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
   }
 
   const FILES_WIDTH_KEY = "molibot-desktop-files-width";
-  const FILES_MIN = 300;
+  const FILES_DEFAULT = 280;
+  const FILES_MIN = 240;
   const FILES_MAX = 720;
   let filesMaxWidth = FILES_MAX;
-  let filesWidth = clampFilesWidth(Number(localStorage.getItem(FILES_WIDTH_KEY) || 0) || 380);
+  let filesWidth = clampFilesWidth(Number(localStorage.getItem(FILES_WIDTH_KEY) || 0) || FILES_DEFAULT);
   let resizingFiles = false;
   let filesGestureId = "";
   let filesResizer: HTMLDivElement | null = null;
@@ -602,7 +660,20 @@
   // The stored widths stay the user's preference; only what the grid gets is
   // capped, so widening the window restores the panel the user asked for.
   $: effectiveFilesWidth = Math.min(filesWidth, filesMaxWidth);
-  $: effectiveSidebarWidth = Math.min(sidebarWidth, sidebarMaxWidth);
+  $: effectiveSidebarWidth = sidebarCollapsed ? 0 : Math.min(sidebarWidth, sidebarMaxWidth);
+
+  $: if (viewportWidth !== previousViewportWidth) {
+    const isNarrow = viewportWidth <= 820;
+    const wasNarrow = previousViewportWidth <= 820;
+    previousViewportWidth = viewportWidth;
+    if (isNarrow && !wasNarrow && !sidebarCollapsed) {
+      sidebarCollapsed = true;
+      autoCollapsedByWindow = true;
+    } else if (!isNarrow && wasNarrow && sidebarCollapsed && autoCollapsedByWindow) {
+      sidebarCollapsed = false;
+      autoCollapsedByWindow = false;
+    }
+  }
 
   let searchOpen = false;
   let commandOpen = false;
@@ -2368,7 +2439,10 @@
   }
 
   function onChatShortcut(event: KeyboardEvent): void {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+      event.preventDefault();
+      toggleSidebarCollapse();
+    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
       void toggleCommandPalette();
     } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && workspacePane === "chat" && !projectPaneActive) {
@@ -2694,6 +2768,7 @@
 
 <main
   class="chat-layout"
+  class:sidebar-collapsed={sidebarCollapsed}
   class:with-files={inspectorVisible}
   class:resizing={resizingSidebar || resizingFiles}
   style={`--sidebar-w:${effectiveSidebarWidth}px; --files-w:${effectiveFilesWidth}px`}
@@ -2778,6 +2853,7 @@
     onToggleMiniApps={toggleMiniAppsSection}
     onOpenMiniApp={openMiniAppInspector}
     onOpenMiniApps={() => openWorkspacePane("miniapps")}
+    onToggleCollapse={toggleSidebarCollapse}
   />
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
@@ -2803,6 +2879,8 @@
     <ProjectDetail
       {copy}
       onOpenFiles={toggleFilesInspector}
+      {sidebarCollapsed}
+      onToggleSidebar={toggleSidebarCollapse}
     />
   {:else}
   <section class="chat-content">
@@ -2818,9 +2896,22 @@
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
         onOpenMiniApp={openMiniAppInspector}
         onOpenMiniAppAiSettings={() => openSettings("models")}
+        {sidebarCollapsed}
+        onToggleSidebar={toggleSidebarCollapse}
       />
     {:else}
     <header class:searching={searchOpen} class="chat-header" data-tauri-drag-region>
+      {#if sidebarCollapsed}
+        <button
+          type="button"
+          class="icon-button sidebar-expand-btn"
+          aria-label={copy.expandSidebar}
+          title={copy.expandSidebar}
+          onclick={toggleSidebarCollapse}
+        >
+          <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+        </button>
+      {/if}
       <div class="chat-title-block" data-tauri-drag-region>
         <span class="chat-source-tag" data-tauri-drag-region aria-label={activeHeaderSourceLabel} title={activeHeaderSourceLabel}><span aria-hidden="true">#</span><b aria-hidden="true">{activeHeaderSourceInitial}</b></span>
         <span class="chat-title-separator" data-tauri-drag-region aria-hidden="true">/</span>

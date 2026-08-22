@@ -17,6 +17,8 @@
   export let onOpenMiniApp: (appId: string) => void = () => {};
   /** Opens Settings at the Mini App AI section; the pane only signposts it. */
   export let onOpenMiniAppAiSettings: () => void = () => {};
+  export let sidebarCollapsed = false;
+  export let onToggleSidebar: () => void = () => {};
 
   interface AgentStudioProps {
     copy: Translation;
@@ -39,6 +41,17 @@
 </script>
 
 <header class="chat-header workspace-header" data-tauri-drag-region>
+  {#if sidebarCollapsed}
+    <button
+      type="button"
+      class="icon-button sidebar-expand-btn"
+      aria-label={copy.expandSidebar}
+      title={copy.expandSidebar}
+      onclick={onToggleSidebar}
+    >
+      <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+    </button>
+  {/if}
   <h1 class="workspace-page-title" data-tauri-drag-region>{pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : copy.agentsNav}</h1>
 </header>
 

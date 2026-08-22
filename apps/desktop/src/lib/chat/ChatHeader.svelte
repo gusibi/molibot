@@ -4,9 +4,23 @@
   export let title: string;
   export let subtitle = "";
   export let searching = false;
+  export let sidebarCollapsed = false;
+  export let onToggleSidebar: () => void = () => {};
+  export let expandLabel = "";
 </script>
 
 <header class:searching class="chat-header" data-tauri-drag-region>
+  {#if sidebarCollapsed}
+    <button
+      type="button"
+      class="icon-button sidebar-expand-btn"
+      aria-label={expandLabel || "展开侧边栏"}
+      title={expandLabel || "展开侧边栏"}
+      onclick={onToggleSidebar}
+    >
+      <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+    </button>
+  {/if}
   <div class="chat-title-block" data-tauri-drag-region>
     {#if sourceInitial}<span class="chat-source-tag" data-tauri-drag-region aria-label={sourceLabel} title={sourceLabel}><span aria-hidden="true">#</span><b aria-hidden="true">{sourceInitial}</b></span>{/if}
     {#if sourceInitial}<span class="chat-title-separator" data-tauri-drag-region aria-hidden="true">/</span>{/if}

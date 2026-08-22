@@ -4,6 +4,53 @@
 - [2026 Q2 PRD Archive (Apr - Jun)](docs/archive/prd-archive-2026-Q2.md)
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
+## 3.112 Desktop 端侧边栏折叠按钮、变窄自动吸附折叠与平滑过渡动画（2026-08-22）
+
+- **Priority / Status**: P1 / Delivered (2026-08-22).
+- **Problem**:
+  - Desktop 桌面端左侧侧边栏缺少快捷折叠/收起入口，无法一键沉浸聚焦主聊天区域；
+  - 侧边栏拖拽变窄到极限时只能硬性卡在 228px，无法继续向左吸附折叠；
+  - 屏幕或窗口缩小时无法自适应折叠侧边栏；
+  - 折叠展开过程缺乏顺畅平滑的过渡动画。
+- **Decision**:
+  - 在左侧侧边栏顶部工具栏添加折叠按钮（`ph-sidebar-simple`），折叠后在各页面主头部左侧提供展开按钮（留出 84px 适配 macOS 红绿灯安全边距），支持 `Cmd+B` 快捷键；
+  - 拖拽侧栏宽度压缩低于 160px 阈值并释放时自动触发吸附折叠，展开时恢复用户原本宽度；窗口尺寸缩窄至 `<= 820px` 时自动折叠；
+  - CSS Grid 轨道与 `transform: translateX(-100%)` / `opacity` 结合硬件加速平滑动画，手动调整宽度时禁用 transition 保持 120fps/60fps 实时跟手零延迟。
+- **Acceptance**:
+  - 折叠按钮、展开按钮、`Cmd+B` 快捷键交互正常；拖拽低于 160px 自动吸附折叠；窗口缩窄自动折叠；动画丝滑；214 项桌面测试与 56 项 Rust 测试全量通过。
+
+---
+
+## 3.111 Desktop 端思考自动折叠与屏幕变窄视口底部自动锚定（2026-08-22）
+
+- **Priority / Status**: P1 / Delivered (2026-08-22).
+- **Problem**:
+  - Desktop 桌面端在部分模型一次性完成或思考结束至正文输出交接阶段，思考过程未能及时自动折叠为摘要栏；
+  - 调整窗口宽度、拉伸侧边栏或分屏使屏幕变窄时，消息折行变多导致 `scrollHeight` 增加，但缺少尺寸变化监听，`scrollTop` 停留在旧坐标，底部最新内容被挤压至屏幕下方，焦点丢失。
+- **Decision**:
+  - `stickToBottom.ts` 引入 `ResizeObserver`，当布局宽度改变触发文本重排时，只要处于底部锁定态（`pinned === true`），即刻重设 `scrollTop = scrollHeight - clientHeight` 保持视口牢牢吸附在最后一行；
+  - `conversationController.svelte.ts` 在 `onDone` 中兜底同步正文与思考步骤，保证 `liveSections.response` 及时产生，触发 `TurnProcess` 折叠；
+  - Web 端 `+page.svelte` 完善 `phase: "end"` 与 `done` 即刻标记折叠。
+- **Acceptance**:
+  - 缩放/拉窄窗口时视口始终锚定在最新一行；思考流在正文出现/回合完成时自动折叠；213 项桌面测试与 267 项后端测试全量通过。
+
+---
+
+## 3.110 插件自有设置页与独立配置/数据目录（2026-08-22）
+
+- **Priority / Status**: P1 / Planned — GitHub Issue [#34](https://github.com/gusibi/molibot/issues/34) (`ready-for-agent`).
+- **Problem**: 可安装 pi 扩展与独立 package 仍把详细配置、凭据、API 和专属表单放进全局 RuntimeSettings 与主应用 Settings 页面；点击“编辑”只展开手风琴表单，新增插件仍需要修改 Molibot Core。External Subagent 虽位于 `package/`，但设置字段、环境检测、安装/测试 API 和特殊 UI 仍由 Core 持有。
+- **Decision**:
+  - `/settings/plugins` 只保留紧凑插件目录、来源/健康状态和启停开关；配置动作进入 `/settings/plugins/<plugin-id>` 独立页面；
+  - 全局 RuntimeSettings 对每个插件只保留 `enabled`，插件专属字段、Flag、凭据与路径不得继续进入通用 settings；
+  - 插件以 owner 全局 `config.dataDir` 为根，固定拆分 `plugins/packages/<id>`、`plugins/config/<id>`、`plugins/data/<id>`、`plugins/cache/<id>`；绝不从 Bot/Channel/Session/Project `workspaceDir` 推导；
+  - 简单插件由插件提供 Schema、宿主用现有 shadcn-svelte 设置组件渲染；复杂插件自带隔离设置 UI 和设置 action，宿主只提供版本化窄桥、原子持久化、秘密 replace/clear、生命周期和故障边界；
+  - External Subagent 是首个 tracer bullet：设置 UI、配置、环境检测、运行时安装和测试回归 package，删除 Core 中全部专属分支，不保留兼容字段或迁移层。
+- **Acceptance**: 安装一个带 Molibot settings contribution 的 pi 插件后无需改 Core 即出现独立设置页；保存后 fresh Runtime/Plugin Host 重启可读；升级只替换 code；普通卸载保留 config/data；全局 settings 无插件专属值；Desktop/Web 中英、明暗和窄宽冷路径通过。
+- **Detailed PRD**: [Plugin-owned Settings and Storage PRD](docs/requirements/plugin-owned-settings-prd.md).
+
+---
+
 ## 3.109 Web 聊天界面思考时序分段与自动折叠（2026-08-21）
 
 - **Priority / Status**: P1 / Delivered (2026-08-21).

@@ -450,6 +450,12 @@ export class ConversationController {
           this.flushStreamBuffers();
           this.streamingText = done.response || this.streamingText;
           this.streamingThinking = done.thinkingText || this.streamingThinking;
+          if (done.response && !this.liveSteps.some((step) => step.kind === "text")) {
+            this.appendLiveText("text", done.response);
+          }
+          if (done.thinkingText && !this.liveSteps.some((step) => step.kind === "thinking")) {
+            this.appendLiveText("thinking", done.thinkingText);
+          }
         }
       });
       await this.host.refreshSessions?.();

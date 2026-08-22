@@ -21,10 +21,14 @@
   // bug. Template reads elsewhere (e.g. ProjectList's `{#each}`) stay reactive.
   let {
     copy,
-    onOpenFiles = () => {}
+    onOpenFiles = () => {},
+    sidebarCollapsed = false,
+    onToggleSidebar = () => {}
   }: {
     copy: Translation;
     onOpenFiles?: () => void;
+    sidebarCollapsed?: boolean;
+    onToggleSidebar?: () => void;
   } = $props();
   const project = $derived(projectsStore.projects.find((item) => item.id === projectsStore.selectedProjectId));
   const session = $derived(projectsStore.sessions.find((item) => item.conversationId === projectsStore.selectedSessionId));
@@ -90,7 +94,15 @@
 
 {#if project}
   <section class="chat-content" bind:this={contentElement}>
-    <ChatHeader sourceInitial="P" sourceLabel={copy.projects} title={headerTitle} searching={searchOpen}>
+    <ChatHeader
+      sourceInitial="P"
+      sourceLabel={copy.projects}
+      title={headerTitle}
+      searching={searchOpen}
+      {sidebarCollapsed}
+      {onToggleSidebar}
+      expandLabel={copy.expandSidebar}
+    >
       <svelte:fragment slot="actions">
         <TranscriptSearch
           bind:value={searchQuery}

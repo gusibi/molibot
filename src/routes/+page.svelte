@@ -1438,7 +1438,8 @@
               const lastIdx = streamingThinkingBlocks.length - 1;
               streamingThinkingBlocks[lastIdx] = {
                 ...streamingThinkingBlocks[lastIdx],
-                done: true
+                done: true,
+                folded: true
               };
               streamingThinkingBlocks = [...streamingThinkingBlocks];
             }
@@ -1497,6 +1498,9 @@
         }
         if (parsed.event === "done") {
           donePayload = payload;
+          if (streamingThinkingBlocks.some((b) => !b.folded)) {
+            streamingThinkingBlocks = streamingThinkingBlocks.map((b) => ({ ...b, folded: true, done: true }));
+          }
         }
       }
 

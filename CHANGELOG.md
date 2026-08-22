@@ -4,6 +4,55 @@
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
+## 2026-08-22
+
+### Added: Desktop 端侧边栏折叠按钮、变窄自动吸附折叠与平滑过渡动画
+
+- **顶部折叠与展开按钮**：
+  - 在左侧侧边栏顶部（与 macOS 红绿灯同高度右侧）添加折叠按钮（`ph-sidebar-simple`），点击即可平滑收起侧栏；
+  - 侧边栏折叠时，在主内容区顶部标题栏（`chat-header`、`workspace-header`、`ProjectDetail` 头部）左侧（已为 macOS 红绿灯留出 84px 安全边距）展示展开按钮，点击即可平滑展开；
+  - 新增全局快捷键 `Cmd+B` / `Ctrl+B` 快速切换侧边栏折叠状态。
+- **Title 栏与控制按钮垂直对齐 macOS 红绿灯**：
+  - 将 `chat-header`、`window-drag-mask` 及侧栏顶部从臃肿的 60px 收敛为精致统一的 42px 高度；
+  - 修复 `window-drag-mask` 遮挡按钮点击事件的层级问题，确保折叠/展开按钮、Title 及所有操作区 100% 可点击响应；
+  - 微调 macOS 原生红绿灯按钮垂直坐标（`trafficLightPosition: { x: 18, y: 20 }`），将系统三色控制按钮与右侧折叠按钮（`sidebar-collapse-btn`）、展开按钮、Title 标题文字及操作按钮精准拉平在同一水平中心线（y: 21px），解决系统按钮偏上、高低错落的问题。
+- **拖拽至最小宽度防挤压与平滑吸附折叠**：
+  - 手动向左拖拽侧边栏分割条（`sidebar-resizer`）达到最小宽度（228px）时，侧边栏宽度稳固锁在 228px，坚决不再单独往内挤压变形（防止文字折行、图标挤压）；继续向左拖拽越过触发阈值（160px）时，直接平滑触发整栏收起折叠动画；
+  - 重新展开时自动恢复用户原本设定的理想宽度（默认 228px 或最后设定的宽度）；
+  - 窗口尺寸缩窄至 `<= 820px` 紧凑模式时自动折叠侧边栏以保障会话区域宽度，拉宽窗口时自动恢复；
+  - 记忆用户折叠状态（`molibot-desktop-sidebar-collapsed`）。
+- **流畅过渡动画与直接操控零延迟**：
+  - CSS Grid 轨道与 `transform: translateX(-100%)` / `opacity` 联动硬件加速，带来丝滑顺畅的展开/折叠过渡动画；
+  - 拖拽调整宽度时（`resizingSidebar`）自动关闭 transition（`transition: none !important`），确保 120fps/60fps 实时跟手零延迟。
+- **右侧面板 Header 高度统一为 42px**：
+  - 将右侧文件/小程序面板（`.file-panel-head`、`.artifact-panel .file-panel-head`）以及任务检查面板（`.durable-inspector-head`）的头部高度从 60px/68px 统一缩减为 42px（垂直居中 y: 21px），与左侧 Chat 标题栏、侧栏顶部及 macOS 红绿灯无缝在一条水平线上对齐，消除下坠错落感。
+- **彻底解决变窄时 Chat 区域被隐藏与空白列问题**：
+  - 根因：媒体查询 `@media (max-width: 1000px)` 将 `.chat-sidebar` 置为 `display: none`，但 `.chat-layout.sidebar-collapsed.with-files` 复合选择器因高特异性仍强制应用 3 列 Grid，导致第一列（0px）吞掉了 Chat 区域，第二列渲染文件面板，第三列变为空白列；
+  - 修复：统一在窄屏媒体查询中声明双列自适应 Grid `minmax(0, 1fr) minmax(var(--files-min-w), var(--files-w, 280px))`，确保 Chat 区域任何时候绝对不会被隐藏或遮挡，始终占据可用空间。
+- **文件面板默认宽度与紧凑调整**：
+  - 将文件面板首次打开的初始默认宽度从过宽的 `380px` 调整为适中的 `280px`（最小 `240px`，最大 `720px`），大幅减少对中间 Chat 区域的压迫感，并持续支持拖拽分割条自定义调整。
+- **左右两侧面板丝滑过渡与无缝直接铺展**：
+  - **左侧导航平滑折叠/展开**：重构 `.chat-sidebar` 的宽度与透明度过渡体系（`width/max-width/padding 240ms cubic-bezier(0.2, 0, 0, 1)` + `opacity 180ms ease`），彻底移除导致首帧瞬间消失的无序隐藏，实现左侧导航栏像抽屉般自然平滑地折叠收起与滑出展开；
+  - **右侧文件/小程序面板关闭直接铺展**：彻底移除退出延迟定时器与中间空白过渡态，关闭面板时左侧 Chat 内容区瞬间无缝铺满整屏，杜绝任何透明幽灵留白与视觉停顿。
+- **自动化测试**：
+  - `chat-ui.test.mjs` 新增针对折叠按钮、展开按钮、吸附阈值（160px）、快捷键（`Cmd+B`）及两侧面板平滑动画 CSS 规则的回归测试；214 项桌面测试 + 56 项 Rust 测试全量通过，`desktop:check` 0 错误 0 警告。
+
+### Improved: Desktop 端思考流自动折叠与屏幕变窄视口底部自动吸附（防跑焦）
+
+- **屏幕变窄视口底部自动锚定**：
+  - 在 `stickToBottom.ts` 中引入 `ResizeObserver` 监听滚动容器几何重排与尺寸变化；
+  - 窗口变窄、侧边栏拖拽或多栏分屏导致文字折行、内容总高 `scrollHeight` 增加时，只要用户处于底部（`pinned === true`），即刻自动同步更新滚动高度 `scrollTop = scrollHeight - clientHeight`，保证视口永远牢牢吸附在最后一行，彻底消除焦点下坠与内容丢失问题。
+- **思考流时序收起与完成折叠**：
+  - 在 `conversationController.svelte.ts` 的 `onDone` 中兜底同步正文与思考步骤至 `liveSteps`，确保在任何返回形态下 `liveSections.response` 均能触发 `TurnProcess` 自动收起；
+  - 同步优化 Web 端 `+page.svelte` 在 `phase: "end"` 及 `done` 时的思考块折叠标记。
+- **自动化测试**：
+  - `stickToBottom.test.ts` 新增针对 `ResizeObserver` 尺寸变化时自动吸附与非锁定态不干扰的回归测试；全端 213 项桌面测试通过。
+
+### Documented: plugin-owned settings and independent storage
+
+- Added a planned PRD for replacing accordion plugin forms with dedicated plugin routes, allowing enhanced pi/Molibot packages to ship their own settings UI and actions without Core-specific code.
+- The proposed persistence contract keeps only plugin enablement in global RuntimeSettings and separates replaceable code, durable configuration, durable domain data, and disposable cache under the owner-global `DATA_DIR`. External Subagent is the first required migration; no runtime behavior changed in this documentation-only slice.
+
 ## 2026-08-21
 
 ### Added: External Subagent 一键真实可用性测试（Test Run）

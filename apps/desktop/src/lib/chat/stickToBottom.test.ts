@@ -10,7 +10,15 @@ import {
 class MockNode extends EventTarget {
   scrollHeight = 1000;
   clientHeight = 600;
-  scrollTop = 400; // maxTop = 1000 - 600 = 400 (at bottom)
+  private _scrollTop = 400; // maxTop = 1000 - 600 = 400 (at bottom)
+
+  get scrollTop(): number {
+    return this._scrollTop;
+  }
+  set scrollTop(val: number) {
+    const maxTop = Math.max(0, this.scrollHeight - this.clientHeight);
+    this._scrollTop = Math.max(0, Math.min(val, maxTop));
+  }
 
   scrollTo(options: { top: number; behavior?: string }): void {
     if (typeof options.top === "number") {
@@ -99,6 +107,50 @@ test("stickToBottom maintains pinned state during elastic bounce and subpixel se
   // 5. User clicks "Jump to latest" (resumeStickToBottom)
   resumeStickToBottom(node as unknown as HTMLElement);
   assert.deepEqual(pinnedEvents, [false, true, false, true]);
+
+  action.destroy?.();
+});
+
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class MockResizeObserver {
+    callback: (entries: any[]) => void;
+    static instances: MockResizeObserver[] = [];
+    constructor(callback: (entries: any[]) => void) {
+      this.callback = callback;
+      MockResizeObserver.instances.push(this);
+    }
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+}
+
+test("stickToBottom re-anchors to bottom on resize while pinned", () => {
+  const node = new MockNode();
+  node.scrollHeight = 1000;
+  node.clientHeight = 600;
+  node.scrollTop = 400; // distanceFromBottom = 0 (pinned)
+
+  const action = stickToBottom(node as unknown as HTMLElement, { key: "session-1" });
+
+  // Simulate window narrowing / text re-wrapping: scrollHeight increases to 1500
+  node.scrollHeight = 1500;
+
+  // Trigger the ResizeObserver callback
+  const observerInstance = (globalThis.ResizeObserver as any).instances?.at(-1);
+  assert.ok(observerInstance, "ResizeObserver should be instantiated");
+  observerInstance.callback([]);
+
+  // scrollTop should immediately re-anchor to new bottom (1500 - 600 = 900)
+  assert.equal(node.scrollTop, 900);
+
+  // If user scrolls up and unpins, resize should NOT force jump to bottom
+  node.scrollTop = 200;
+  node.dispatchEvent(new Event("scroll"));
+  node.scrollHeight = 2000;
+  observerInstance.callback([]);
+  assert.equal(node.scrollTop, 200);
 
   action.destroy?.();
 });

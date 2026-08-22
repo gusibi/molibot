@@ -188,6 +188,7 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 | [Session Permission Modes](docs/requirements/permission-modes-prd.md) | Plan, Manual, Accept edits, and Auto in an independent composer control, with pre-inference tool narrowing, artifact-backed checklists, unified decisions, and same-session Durable continuation. |
 | [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | Connect third-party services with secure runtime tokens and dynamic remote MCP integration. |
 | [Mini App Platform](docs/guides/miniapps/authoring.md) | Build local-first apps with tools, hosted UI, message actions, the composer bridge, controlled uploads and host AI. |
+| [Plugin-owned Settings and Storage](docs/requirements/plugin-owned-settings-prd.md) | Planned plugin contract for dedicated settings pages and independently managed code, configuration, data, and cache under the owner data root. |
 | [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
 | [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with one stable live reply per Project turn and Finder-style native sidebar materials. |
 
@@ -246,6 +247,7 @@ Conversations follow you: a chat started on the Web can continue on Desktop, and
 - [Agent runtime design](docs/designs/architecture/agent-redesign-v2.2.md)
 - [Memory namespace and turn-retention decision](docs/adr/0001-memory-namespace-and-turn-retention.md)
 - [Plugin authoring](docs/guides/plugins/plugin-authoring.md)
+- [Plugin-owned settings PRD](docs/requirements/plugin-owned-settings-prd.md) — planned dedicated plugin routes, plugin-provided settings UI, and independent owner-global storage
 - [Mini App authoring](docs/guides/miniapps/authoring.md) — build in scratch, validate the Runtime, and atomically install an app with its own agent tools, UI and data
 - [Mini App shortcuts](docs/guides/miniapps/authoring.md#using-an-installed-mini-app) — use `/miniapps` to list apps, then `@app-id` to target one directly for a turn
 - [Deferred tool authoring](docs/guides/tools/deferred-tool-authoring.md)

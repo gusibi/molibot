@@ -44,7 +44,8 @@
     activeMiniAppId = "",
     onToggleMiniApps,
     onOpenMiniApp,
-    onOpenMiniApps
+    onOpenMiniApps,
+    onToggleCollapse
   }: {
     copy: Translation;
     channels: ChannelDescriptor[];
@@ -82,6 +83,7 @@
     onToggleMiniApps: () => void;
     onOpenMiniApp: (appId: string) => void;
     onOpenMiniApps: () => void;
+    onToggleCollapse?: () => void;
   } = $props();
 
   const accordionLabels = $derived({
@@ -106,7 +108,20 @@
 </script>
 
 <aside class="chat-sidebar">
-  <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true"></div>
+  <div class="sidebar-top-bar" data-tauri-drag-region>
+    <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true"></div>
+    {#if onToggleCollapse}
+      <button
+        type="button"
+        class="sidebar-collapse-btn"
+        aria-label={copy.collapseSidebar}
+        title={copy.collapseSidebar}
+        onclick={onToggleCollapse}
+      >
+        <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+      </button>
+    {/if}
+  </div>
   <nav class="sidebar-nav" aria-label={copy.newChat}>
     <button type="button" class="nav-item" onclick={onNewConversation}>
       <i class="ph ph-note-pencil" aria-hidden="true"></i>
@@ -190,6 +205,44 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+  }
+  .sidebar-top-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 42px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 12px;
+    z-index: 32;
+    pointer-events: none;
+  }
+  .sidebar-collapse-btn {
+    position: relative;
+    z-index: 33;
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--rounded-sm, 6px);
+    background: transparent;
+    color: var(--label-secondary, #666);
+    cursor: pointer;
+    transition: background var(--duration-fast, 150ms) var(--ease-standard), color var(--duration-fast, 150ms) var(--ease-standard);
+  }
+  .sidebar-collapse-btn:hover {
+    background: var(--fill, rgba(0, 0, 0, 0.05));
+    color: var(--label-primary, #171717);
+  }
+  .sidebar-collapse-btn i {
+    font-size: var(--icon-md, 18px);
   }
   .sidebar-nav {
     display: flex;

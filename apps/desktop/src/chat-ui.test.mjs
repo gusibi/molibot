@@ -545,6 +545,21 @@ test("sidebar resizing uses shared pointer manipulation and writes only on compl
   assert.doesNotMatch(view, /addEventListener\("mousemove"/);
 });
 
+test("sidebar supports collapsing with smooth animation, threshold snap, and expand button", () => {
+  assert.match(chatSidebar, /class="sidebar-top-bar"/);
+  assert.match(chatSidebar, /class="sidebar-collapse-btn"/);
+  assert.match(chatSidebar, /aria-label=\{copy\.collapseSidebar\}/);
+  assert.match(view, /class:sidebar-collapsed=\{sidebarCollapsed\}/);
+  assert.match(view, /class="icon-button sidebar-expand-btn"/);
+  assert.match(view, /aria-label=\{copy\.expandSidebar\}/);
+  assert.match(view, /toggleSidebarCollapse\(\)/);
+  assert.match(view, /SIDEBAR_COLLAPSE_THRESHOLD = 160/);
+  assert.match(view, /event\.key\.toLowerCase\(\) === "b"/);
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed\s*\{\s*grid-template-columns:\s*0px minmax\(0, 1fr\);/);
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-sidebar\s*\{[\s\S]*transform:\s*translateX\(-100%\);/);
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header\s*\{\s*padding-left:\s*84px;/);
+});
+
 test("Memory Trace drawer shares direct manipulation for interruption and cancellation", () => {
   const memoryTraceDrawer = read("./lib/chat/MemoryTraceDrawer.svelte");
 
@@ -1641,8 +1656,8 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.match(app, /<WindowDragMask \/>/);
   assert.match(windowDragMask, /getCurrentWindow\(\)\.startDragging\(\)/);
   assert.match(styles, /\.window-drag-mask\s*\{[^}]*position:\s*absolute;[^}]*height:\s*var\(--toolbar-height\);[^}]*z-index:\s*30;/s);
-  assert.match(styles, /\.chat-layout > \.window-drag-mask\s*\{[^}]*height:\s*60px;/s);
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*padding:\s*60px 12px 8px;/s);
+  assert.match(styles, /\.chat-layout > \.window-drag-mask\s*\{[^}]*height:\s*42px;/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*padding:\s*42px 12px 8px;/s);
   assert.match(chatSidebar, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
   assert.match(sidebarShell, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
   assert.match(styles, /\.sidebar-titlebar-drag\s*\{[^}]*position:\s*absolute;[^}]*height:\s*30px;/s);
@@ -1659,7 +1674,7 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
 
 test("Chat window aligns native macOS traffic lights with the edge-to-edge sidebar", () => {
   const windows = Object.fromEntries(tauriConfig.app.windows.map((window) => [window.label, window]));
-  assert.deepEqual(windows.chat.trafficLightPosition, { x: 18, y: 18 });
+  assert.deepEqual(windows.chat.trafficLightPosition, { x: 18, y: 22 });
   // Settings render as an in-window overlay, so there is only one native window.
   assert.equal(windows.settings, undefined);
 });

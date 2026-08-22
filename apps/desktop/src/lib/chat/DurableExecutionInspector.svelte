@@ -339,15 +339,18 @@
   }
   .durable-inspector-head {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
+    justify-content: space-between;
     gap: 12px;
-    min-height: 68px;
-    padding: 16px;
+    height: 42px;
+    min-height: 42px;
+    box-sizing: border-box;
+    padding: 0 14px;
     border-bottom: 1px solid var(--separator);
     background: var(--card-bg);
   }
-  .durable-inspector-head > div { min-width: 0; flex: 1; }
-  .durable-inspector-eyebrow { margin: 0 0 3px; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-family: var(--font-mono); }
+  .durable-inspector-head > div { min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px; }
+  .durable-inspector-eyebrow { margin: 0; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: 1; font-family: var(--font-mono); }
   .durable-inspector-head h2 { overflow: hidden; margin: 0; font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
   .durable-inspector-close {
     display: grid;

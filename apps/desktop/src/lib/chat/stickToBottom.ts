@@ -251,6 +251,20 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   });
   observer.observe(node, { childList: true, subtree: true, characterData: true });
 
+  // Layout and viewport changes (e.g. narrowing the window, expanding a panel,
+  // text wrapping into more vertical lines) change scrollHeight without DOM
+  // mutations or scroll events. Re-anchor to the bottom while pinned so the
+  // latest line stays strictly in view and never gets pushed off-screen.
+  let resizeObserver: ResizeObserver | null = null;
+  if (typeof ResizeObserver !== "undefined") {
+    resizeObserver = new ResizeObserver(() => {
+      if (!pinned) return;
+      if (live) follow();
+      else instantToBottom();
+    });
+    resizeObserver.observe(node);
+  }
+
   scheduleToBottom(false);
 
   return {
@@ -271,6 +285,7 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
       node.removeEventListener(SUSPEND_FOLLOW_EVENT, suspendFollowing);
       node.removeEventListener(RESUME_FOLLOW_EVENT, resumeFollowing);
       observer.disconnect();
+      resizeObserver?.disconnect();
       stopSpring();
       cancelScheduledBottom();
     }
