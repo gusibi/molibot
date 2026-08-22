@@ -4,7 +4,8 @@ import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { FeaturePluginContext } from "$lib/server/plugins/types.js";
-import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { CloudflareHtmlPluginConfig } from "./config.js";
+import { resolveCloudflareHtmlConfig } from "./config.js";
 
 const publishHtmlSchema = Type.Object({
   filePath: Type.String(),
@@ -116,7 +117,7 @@ function buildAuthorization(options: {
   };
 }
 
-function buildPublicUrl(settings: RuntimeSettings["plugins"]["cloudflareHtml"], fileName: string): string {
+function buildPublicUrl(settings: CloudflareHtmlPluginConfig, fileName: string): string {
   if (settings.accessMode === "direct") {
     const baseUrl = normalizeBaseUrl(settings.publicBaseHost);
     const objectKey = `${normalizeObjectPrefix(settings.objectPrefix)}${fileName}`;
@@ -127,7 +128,7 @@ function buildPublicUrl(settings: RuntimeSettings["plugins"]["cloudflareHtml"], 
   return `${baseUrl}${routePrefix}/${fileName}`;
 }
 
-function ensureConfigured(settings: RuntimeSettings["plugins"]["cloudflareHtml"]): string | null {
+function ensureConfigured(settings: CloudflareHtmlPluginConfig): string | null {
   if (!settings.enabled) return "Cloudflare HTML publish plugin is disabled in settings.";
   if (settings.accessMode === "direct" && !settings.publicBaseHost) {
     return "Cloudflare HTML publish plugin is missing publicBaseHost.";
@@ -154,7 +155,7 @@ export function createCloudflareHtmlPublishTool(
       "Upload a local HTML file to the configured Cloudflare R2 bucket and return the public URL.",
     parameters: publishHtmlSchema,
     execute: async (_toolCallId, params) => {
-      const settings = context.getSettings().plugins.cloudflareHtml;
+      const settings = resolveCloudflareHtmlConfig(context.getSettings(), (context as any).configStore);
       const configError = ensureConfigured(settings);
       if (configError) throw new Error(configError);
       const resolvedPath = resolveToolPath(context.cwd, params.filePath);

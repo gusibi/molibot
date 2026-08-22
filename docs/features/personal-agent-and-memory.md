@@ -21,6 +21,8 @@ Memory is configurable and reviewable. It is not a claim that every conversation
 
 ## Related documentation
 
-- [Memory improvement plan](../requirements/memory-improvement-plan-v3.md)
-- [Project session provenance](../requirements/project-session-provenance-and-inspection.md)
+- [Memory usage, trace, and feedback design](../designs/memory/memory-usage-trace-and-feedback.md) (delivered)
+- [ADR 0001: memory namespace and turn-retention semantics](../adr/0001-memory-namespace-and-turn-retention.md)
+- [Memory improvement plan v3 (archived)](../archive/requirements/memory-improvement-plan-v3.md)
+- [Project session provenance (archived)](../archive/requirements/project-session-provenance-and-inspection.md)
 - [Delivered changes](../../features.md)

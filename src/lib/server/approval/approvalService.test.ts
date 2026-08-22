@@ -79,7 +79,7 @@ test("BrokerApprovalService.waitForDecision returns expired when the signal is a
   assert.equal(decision, "expired");
 });
 
-test("BrokerApprovalService.waitForDecision expires the request on timeout", async () => {
+test("BrokerApprovalService.waitForDecision returns window_expired on timeout without expiring the request", async () => {
   const store = new MemoryApprovalBrokerStore();
   const broker = new ApprovalBroker(store);
   const service = new BrokerApprovalService(broker);
@@ -87,8 +87,8 @@ test("BrokerApprovalService.waitForDecision expires the request on timeout", asy
   service.createRequest(req);
 
   const decision = await service.waitForDecision({ request: req, timeoutMs: 30, pollMs: 10, ...fakeClock() });
-  assert.equal(decision, "expired");
-  assert.equal(broker.getRequest(req.id)?.status, "expired");
+  assert.equal(decision, "window_expired");
+  assert.equal(broker.getRequest(req.id)?.status, "pending");
 });
 
 test("BrokerApprovalService.resolve approves the request and records a grant", () => {

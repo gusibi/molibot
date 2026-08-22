@@ -4,6 +4,7 @@ import {
   deleteDesktopProvider,
   discoverDesktopProviderModels,
   loadDesktopProviders,
+  matchModelCapabilities,
   providerItemToUpdateRequest,
   testDesktopProvider,
   updateDesktopProvider,
@@ -254,7 +255,23 @@ export function addProviderModel(modelId = ""): void {
     enabled: true,
     verification: {}
   };
+  const nextIndex = providersStore.providerEdit.models.length;
   updateProviderEdit((draft) => ({ ...draft, models: [...draft.models, model] }));
+
+  // Auto-detect capabilities in the background
+  const endpoint = session.endpoint;
+  if (endpoint && id) {
+    void matchModelCapabilities(endpoint, id).then((inferred) => {
+      if (inferred.ok && inferred.matched) {
+        updateProviderModel(nextIndex, {
+          alias: inferred.alias,
+          contextWindow: inferred.contextWindow,
+          tags: inferred.tags && inferred.tags.length > 0 ? inferred.tags : ["text"],
+          supportedRoles: (inferred.supportedRoles as any) ?? ["system", "user", "assistant", "tool"]
+        });
+      }
+    }).catch(() => {});
+  }
 }
 
 export function removeProviderModel(index: number): void {

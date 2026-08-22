@@ -3,7 +3,7 @@
   import { html as renderDiffHtml } from "diff2html";
   import type { Translation } from "../i18n";
   import CodeViewer from "../projects/CodeViewer.svelte";
-  import { activityPreview, classifyActivityBody, formatActivityMetadata } from "./activityView";
+  import { activityPreview, activityToolIcon, classifyActivityBody, formatActivityMetadata } from "./activityView";
 
   export let activity: DesktopConversationActivity;
   export let copy: Translation;
@@ -15,9 +15,9 @@
   $: rawBodyContent = body?.kind === "diff" ? (body.diff ?? "") : (body?.content ?? "");
   $: preview = activityPreview(rawBodyContent);
   $: bodyContent = expanded ? rawBodyContent : preview.content;
+  $: toolIcon = activityToolIcon(activity);
 
-  function icon(state: DesktopConversationActivity["state"]): string {
-    if (state === "running") return "circle-notch";
+  function statusIcon(state: DesktopConversationActivity["state"]): string {
     if (state === "success") return "check-circle";
     if (state === "error") return "x-circle";
     return "info";
@@ -34,11 +34,22 @@
 </script>
 
 <div class="process-timeline-entry process-timeline-tool" data-state={activity.state}>
-  <i class={`ph${activity.state === "running" ? "" : "-fill"} ph-${icon(activity.state)}`} class:spin={activity.state === "running"} aria-hidden="true"></i>
+  {#if activity.state === "running"}
+    <div class="timeline-wave-node" aria-hidden="true">
+      <span class="timeline-wave-bar"></span>
+      <span class="timeline-wave-bar"></span>
+      <span class="timeline-wave-bar"></span>
+    </div>
+  {:else}
+    <i class={`ph-fill ph-${statusIcon(activity.state)}`} aria-hidden="true"></i>
+  {/if}
   {#if body}
     <details class="process-tool-detail" open={activity.state === "error"}>
       <summary>
-        <span>{activity.label}</span>
+        <span class="process-tool-title">
+          <i class={`ph ph-${toolIcon} process-tool-icon`} class:process-tool-running={activity.state === "running"} aria-hidden="true"></i>
+          <span class="process-tool-label-text">{activity.label}</span>
+        </span>
         {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
         <i class="ph ph-caret-right" aria-hidden="true"></i>
       </summary>
@@ -65,6 +76,9 @@
       </div>
     </details>
   {:else}
-    <span class="process-timeline-label">{activity.label}</span>
+    <span class="process-timeline-label">
+      <i class={`ph ph-${toolIcon} process-tool-icon`} class:process-tool-running={activity.state === "running"} aria-hidden="true"></i>
+      <span class="process-tool-label-text">{activity.label}</span>
+    </span>
   {/if}
 </div>

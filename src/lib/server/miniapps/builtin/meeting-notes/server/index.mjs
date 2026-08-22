@@ -636,6 +636,72 @@ export default function create(context) {
     return chunkRow(db.prepare("SELECT * FROM audio_chunks WHERE id=?").get(chunkId));
   }
 
+  function retryMeetingTranscription(meetingId) {
+    const meeting = getMeeting(meetingId);
+    if (!meeting) throw Object.assign(new Error("Meeting not found."), { status: 404 });
+    const failedChunks = db.prepare("SELECT id FROM audio_chunks WHERE meeting_id=? AND status='failed'").all(meetingId);
+    for (const row of failedChunks) {
+      retryChunk(row.id);
+    }
+    return detail(meetingId);
+  }
+
+  function getMeetingAudioBuffer(meetingId) {
+    const chunks = getChunks(meetingId);
+    if (!chunks.length) return null;
+    const existingChunkPaths = chunks
+      .map((c) => path.join(context.dataDir, c.audioPath))
+      .filter((p) => fs.existsSync(p));
+    if (!existingChunkPaths.length) return null;
+
+    if (existingChunkPaths.length === 1) {
+      return fs.readFileSync(existingChunkPaths[0]);
+    }
+
+    const pcmBuffers = [];
+    let formatHeader = null;
+
+    for (const filePath of existingChunkPaths) {
+      const fileBuf = fs.readFileSync(filePath);
+      if (fileBuf.length < 44 || fileBuf.toString("ascii", 0, 4) !== "RIFF") {
+        continue;
+      }
+      let dataOffset = 12;
+      let dataLength = 0;
+      while (dataOffset < fileBuf.length - 8) {
+        const chunkType = fileBuf.toString("ascii", dataOffset, dataOffset + 4);
+        const chunkSize = fileBuf.readUInt32LE(dataOffset + 4);
+        if (chunkType === "data") {
+          dataOffset += 8;
+          dataLength = Math.min(chunkSize, fileBuf.length - dataOffset);
+          break;
+        }
+        dataOffset += 8 + chunkSize;
+      }
+      if (dataLength > 0) {
+        if (!formatHeader) {
+          formatHeader = Buffer.from(fileBuf.subarray(0, dataOffset));
+        }
+        pcmBuffers.push(fileBuf.subarray(dataOffset, dataOffset + dataLength));
+      }
+    }
+
+    if (!pcmBuffers.length || !formatHeader) {
+      return fs.readFileSync(existingChunkPaths[0]);
+    }
+
+    const totalPcmLength = pcmBuffers.reduce((sum, b) => sum + b.length, 0);
+    const combinedHeader = Buffer.from(formatHeader);
+    if (combinedHeader.length >= 8) {
+      combinedHeader.writeUInt32LE(totalPcmLength + combinedHeader.length - 8, 4);
+    }
+    if (combinedHeader.length >= 8) {
+      combinedHeader.writeUInt32LE(totalPcmLength, combinedHeader.length - 4);
+    }
+
+    return Buffer.concat([combinedHeader, ...pcmBuffers]);
+  }
+
   function remove(meetingId) {
     const meeting = getMeeting(meetingId);
     if (!meeting) throw Object.assign(new Error("Meeting not found."), { status: 404 });
@@ -672,10 +738,25 @@ export default function create(context) {
       if (request.path === "/meetings" && request.method === "GET") return { body: { meetings: list(request.query.q?.[0]) } };
       if (request.path === "/meetings" && request.method === "POST") return { status: 201, body: createMeeting(request.body), changed: true };
       if (parts[0] === "meetings" && parts[1] && parts.length === 2 && request.method === "GET") return { body: { meeting: detail(parts[1]) } };
+      if (parts[0] === "meetings" && parts[2] === "audio" && request.method === "GET") {
+        const audioBuf = getMeetingAudioBuffer(parts[1]);
+        if (!audioBuf) return { status: 404, body: { error: "Audio not found." } };
+        return {
+          status: 200,
+          headers: {
+            "content-type": "audio/wav",
+            "content-length": String(audioBuf.byteLength),
+            "accept-ranges": "bytes",
+            "cache-control": "private, max-age=3600"
+          },
+          body: audioBuf
+        };
+      }
       if (parts[0] === "meetings" && parts[2] === "pause" && request.method === "POST") return { body: { meeting: setCaptureState(parts[1], "paused") }, changed: true };
       if (parts[0] === "meetings" && parts[2] === "resume" && request.method === "POST") return { body: { meeting: setCaptureState(parts[1], "recording") }, changed: true };
       if (parts[0] === "meetings" && parts[2] === "finish" && request.method === "POST") return { status: 202, body: { meeting: finish(parts[1], request.body) }, changed: true };
       if (parts[0] === "meetings" && parts[2] === "regenerate" && request.method === "POST") return { status: 202, body: { meeting: regenerate(parts[1]) }, changed: true };
+      if (parts[0] === "meetings" && parts[2] === "retry-transcription" && request.method === "POST") return { status: 202, body: { meeting: retryMeetingTranscription(parts[1]) }, changed: true };
       if (parts[0] === "meetings" && parts[1] && parts.length === 2 && request.method === "PATCH") return { body: { meeting: rename(parts[1], request.body?.title) }, changed: true };
       if (parts[0] === "meetings" && parts[1] && parts.length === 2 && request.method === "DELETE") { remove(parts[1]); return { body: { ok: true }, changed: true }; }
       if (parts[0] === "chunks" && parts[1] && parts.length === 2 && request.method === "POST") {
@@ -686,6 +767,22 @@ export default function create(context) {
           endMs: request.query.endMs?.[0]
         }, request.body, request.contentType || "application/octet-stream");
         return { status: 202, body: { chunk }, changed: true };
+      }
+      if (parts[0] === "chunks" && parts[2] === "audio" && request.method === "GET") {
+        const chunk = chunkRow(db.prepare("SELECT * FROM audio_chunks WHERE id=?").get(parts[1]));
+        if (!chunk) return { status: 404, body: { error: "Chunk not found." } };
+        const chunkPath = path.join(context.dataDir, chunk.audioPath);
+        if (!fs.existsSync(chunkPath)) return { status: 404, body: { error: "Audio file missing." } };
+        const data = fs.readFileSync(chunkPath);
+        return {
+          status: 200,
+          headers: {
+            "content-type": chunk.mime || "audio/wav",
+            "content-length": String(data.byteLength),
+            "accept-ranges": "bytes"
+          },
+          body: data
+        };
       }
       if (parts[0] === "chunks" && parts[2] === "retry" && request.method === "POST") return { status: 202, body: { chunk: retryChunk(parts[1]) }, changed: true };
       return { status: 404, body: { error: "Not found." } };

@@ -289,6 +289,46 @@ test("custom image engines survive a settings store restart and can be removed",
   }
 });
 
+test("plugin entries host settings survive a settings store restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-plugin-entries-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    const settings = {
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        entries: {
+          "external-subagent": {
+            enabled: true,
+            source: { kind: "builtin" as const }
+          },
+          "cloudflare-html": {
+            enabled: false
+          }
+        }
+      }
+    };
+
+    new SettingsStore().save(settings);
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(restarted.plugins.entries?.["external-subagent"], {
+      enabled: true,
+      source: { kind: "builtin" }
+    });
+    assert.deepEqual(restarted.plugins.entries?.["cloudflare-html"], {
+      enabled: false
+    });
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("image recognition settings survive save to a fresh store load", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-image-recognition-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;
@@ -648,46 +688,33 @@ test("an unset permission mode loads as the Accept edits default, not as undefin
   }
 });
 
-test("externalSubagent plugin settings survive a save -> restart round-trip in SQLite", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "molibot-external-subagent-settings-"));
-  const originalSettingsFile = storagePaths.settingsFile;
-  const originalSettingsDbFile = storagePaths.settingsDbFile;
-  storagePaths.settingsFile = path.join(root, "settings.json");
-  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
-
+test("plugin entry enable state survives a settings store restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-settings-plugins-"));
+  const originals = { ...storagePaths };
   try {
-    const customSettings: RuntimeSettings = {
+    storagePaths.dataDir = root;
+    storagePaths.dbDir = path.join(root, "db");
+    storagePaths.settingsDbFile = path.join(storagePaths.dbDir, "settings.sqlite");
+    storagePaths.settingsFile = path.join(root, "settings.json");
+    storagePaths.sessionsIndexFile = path.join(root, "sessions-index.json");
+
+    new SettingsStore().save({
       ...defaultRuntimeSettings,
       plugins: {
         ...defaultRuntimeSettings.plugins,
-        externalSubagent: {
-          enabled: true,
-          codexEnabled: true,
-          codexPermissionMode: "approve-for-me",
-          codexPath: "/custom/bin/codex",
-          claudeCodeEnabled: false,
-          claudeCodePermissionMode: "plan",
-          claudeCodePath: "/custom/bin/claude"
+        entries: {
+          "sample-plugin": { enabled: true, source: { kind: "builtin" } },
+          "disabled-one": { enabled: false }
         }
       }
-    };
-
-    new SettingsStore().save(customSettings);
-
-    const restarted = new SettingsStore().load();
-    assert.deepEqual(restarted.plugins.externalSubagent, {
-      enabled: true,
-      codexEnabled: true,
-      codexPermissionMode: "approve-for-me",
-      codexPath: "/custom/bin/codex",
-      claudeCodeEnabled: false,
-      claudeCodePermissionMode: "plan",
-      claudeCodePath: "/custom/bin/claude"
     });
+
+    const loaded = new SettingsStore().load();
+    assert.equal(loaded.plugins.entries?.["sample-plugin"]?.enabled, true);
+    assert.deepEqual(loaded.plugins.entries?.["sample-plugin"]?.source, { kind: "builtin" });
+    assert.equal(loaded.plugins.entries?.["disabled-one"]?.enabled, false);
   } finally {
-    storagePaths.settingsFile = originalSettingsFile;
-    storagePaths.settingsDbFile = originalSettingsDbFile;
+    Object.assign(storagePaths, originals);
     rmSync(root, { recursive: true, force: true });
   }
 });
-

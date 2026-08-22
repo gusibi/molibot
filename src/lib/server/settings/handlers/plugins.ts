@@ -1,7 +1,6 @@
 import {
   RESERVED_PLUGIN_KEYS,
   sanitizeCloudflareHtmlPluginSettings,
-  sanitizeExternalSubagentPluginSettings,
   sanitizeHookPluginEntries,
   sanitizePiExtensionSettings
 } from "../sanitize.js";
@@ -49,12 +48,6 @@ export function updatePluginsConfig(
     merged.cloudflareHtml = sanitizeCloudflareHtmlPluginSettings(
       pluginsPatch.cloudflareHtml,
       current.plugins.cloudflareHtml
-    );
-  }
-  if (pluginsPatch.externalSubagent !== undefined) {
-    merged.externalSubagent = sanitizeExternalSubagentPluginSettings(
-      pluginsPatch.externalSubagent,
-      current.plugins.externalSubagent
     );
   }
   if (pluginsPatch.hooks !== undefined) {

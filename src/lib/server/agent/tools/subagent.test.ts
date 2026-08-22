@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import fs, { mkdtempSync, rmSync } from "node:fs";
+import os, { tmpdir } from "node:os";
+import path, { join } from "node:path";
 import test from "node:test";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { getPluginConfigStore, resetPluginConfigStoreForTests } from "$lib/server/plugins/contract/configStore.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
+import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 import {
   buildSubagentModelCandidates,
   buildSubagentCustomCompat,
@@ -590,28 +593,116 @@ test("listBuiltInSubagents includes external subagents claude-code and codex", (
   assert.ok(subagents.some((agent) => agent.name === "codex"));
 });
 
-test("createSubagentTool advertises external subagents when plugin is enabled", () => {
-  const enabledSettings: RuntimeSettings = {
-    ...defaultRuntimeSettings,
-    plugins: {
-      ...defaultRuntimeSettings.plugins,
-      externalSubagent: {
-        enabled: true,
-        codexEnabled: true,
-        codexPermissionMode: "never",
-        claudeCodeEnabled: true,
-        claudeCodePermissionMode: "dontAsk"
+test("createSubagentTool advertises external subagents when plugin is enabled", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-subagent-test-"));
+  const originals = { ...storagePaths };
+  try {
+    storagePaths.pluginsConfigDir = path.join(root, "config");
+    resetPluginConfigStoreForTests();
+
+    const configStore = getPluginConfigStore();
+    await configStore.writeConfig("external-subagent", 1, {
+      codexEnabled: true,
+      claudeCodeEnabled: true
+    });
+
+    const enabledSettings: RuntimeSettings = {
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        entries: {
+          "external-subagent": { enabled: true }
+        }
       }
-    }
-  };
+    };
 
-  const tool = createSubagentTool({
-    cwd: process.cwd(),
-    workspaceDir: process.cwd(),
-    chatId: "test-chat",
-    getSettings: () => enabledSettings
-  });
+    const tool = createSubagentTool({
+      cwd: process.cwd(),
+      workspaceDir: process.cwd(),
+      chatId: "test-chat",
+      getSettings: () => enabledSettings
+    });
 
-  assert.ok(tool.description.includes("`claude-code`"));
-  assert.ok(tool.description.includes("`codex`"));
+    assert.ok(tool.description.includes("`claude-code`"));
+    assert.ok(tool.description.includes("`codex`"));
+  } finally {
+    resetPluginConfigStoreForTests();
+    Object.assign(storagePaths, originals);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createSubagentTool rejects a provider disabled after the tool was created", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-subagent-disabled-provider-test-"));
+  const originals = { ...storagePaths };
+  try {
+    storagePaths.pluginsConfigDir = path.join(root, "config");
+    resetPluginConfigStoreForTests();
+
+    const configStore = getPluginConfigStore();
+    await configStore.writeConfig("external-subagent", 1, {
+      codexEnabled: true,
+      claudeCodeEnabled: true
+    });
+
+    const settings: RuntimeSettings = {
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        entries: {
+          "external-subagent": { enabled: true }
+        }
+      }
+    };
+    const started: string[] = [];
+    const tool = createSubagentTool({
+      cwd: process.cwd(),
+      workspaceDir: process.cwd(),
+      chatId: "test-chat",
+      getSettings: () => settings,
+      runSubagent: async (agent, task) => {
+        started.push(agent.name);
+        return completed(agent.name, task) as any;
+      }
+    });
+    assert.match(tool.description, /`claude-code`/);
+
+    await configStore.writeConfig("external-subagent", 1, {
+      codexEnabled: true,
+      claudeCodeEnabled: false
+    });
+
+    await assert.rejects(
+      tool.execute("tool-1", { agent: "claude-code", task: "Must not run" }, undefined, undefined),
+      /claude-code.*disabled/i
+    );
+    await assert.rejects(
+      tool.execute("tool-2", {
+        chain: [
+          { agent: "scout", task: "Inspect" },
+          { agent: "claude-code", task: "Must not run after {previous}" }
+        ]
+      }, undefined, undefined),
+      /claude-code.*disabled/i
+    );
+
+    await configStore.writeConfig("external-subagent", 1, {
+      codexEnabled: false,
+      claudeCodeEnabled: true
+    });
+    await assert.rejects(
+      tool.execute("tool-3", {
+        tasks: [
+          { agent: "scout", task: "Inspect" },
+          { agent: "codex", task: "Must not run in parallel" }
+        ]
+      }, undefined, undefined),
+      /codex.*disabled/i
+    );
+    assert.deepEqual(started, []);
+  } finally {
+    resetPluginConfigStoreForTests();
+    Object.assign(storagePaths, originals);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

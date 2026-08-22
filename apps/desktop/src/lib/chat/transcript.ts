@@ -65,6 +65,7 @@ export function transcriptProcessSummary(blocks: TranscriptProcessBlock[]): {
   fileCount: number;
   durationMs: number;
   hasError: boolean;
+  interrupted: boolean;
 } {
   const activities = blocks.flatMap((block) => block.kind === "activities" ? block.activities : []);
   const files = new Set(activities.flatMap((activity) => activity.mutates ? (activity.paths ?? []) : []));
@@ -77,10 +78,8 @@ export function transcriptProcessSummary(blocks: TranscriptProcessBlock[]): {
     toolCount: activities.filter((activity) => activity.kind === "tool").length,
     fileCount: files.size,
     durationMs: elapsedMs,
-    // This helper is used only for committed messages. A persisted `running`
-    // row has lost its live owner and is an interrupted failure, matching
-    // `finalizeTranscriptActivities`; do not hide it behind a closed summary.
-    hasError: activities.some((activity) => activity.state === "error" || activity.state === "running")
+    hasError: activities.some((activity) => activity.state === "error"),
+    interrupted: activities.some((activity) => activity.state === "running")
   };
 }
 
@@ -159,24 +158,18 @@ export type TranscriptAttachmentActions = {
 
 /**
  * Hover actions for a transcript message. `onCopy` is always available; the
- * edit and fork buttons are only surfaced for the user's own messages on
+ * edit button is only surfaced for the user's own messages on
  * surfaces that opt in (never on the read-only external transcript view).
  * `copiedId` lets the copy button flash a check mark.
  *
- * Edit and fork are deliberately distinct: `onEditUser` rewrites the current
- * Session in place (the original message and everything after it is dropped),
- * while `onForkUser` leaves it untouched and branches into a child Session.
- * Project chat opts into edit only - forking project Sessions is not supported
- * server-side yet. `forkingId` marks an in-flight fork so its button can show
- * progress and reject a second click.
+ * `onEditUser` rewrites the current Session in place (the original message
+ * and everything after it is dropped).
  */
 export type TranscriptMessageActions = {
   copiedId: string;
   onCopy: (message: TranscriptMessage) => void;
   onEditUser?: (message: TranscriptMessage) => void;
   editingId?: string;
-  onForkUser?: (message: TranscriptMessage) => void;
-  forkingId?: string;
   onOpenMemoryTrace?: (traceId: string) => void;
   contributions?: TranscriptContributionAction[];
   pendingContributionKey?: string;

@@ -13,6 +13,7 @@ import {
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import { hasConfiguredMcpServers } from "$lib/server/settings/openConnector.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { getPluginConfigStore, resetPluginConfigStoreForTests } from "$lib/server/plugins/contract/configStore.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const promptSource = readFileSync(join(here, "prompt.ts"), "utf8");
@@ -43,6 +44,45 @@ test("prompt source no longer embeds live time guidance in the system prompt con
 
 test("prompt source tells codebase tasks to delegate before tool budget exhaustion", () => {
   assert.match(promptSource, /Delegate before ~8 parent read\/bash\/edit calls or before the 24-tool hard limit/);
+});
+
+test("system prompt never advertises a disabled external subagent provider", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-prompt-external-subagent-"));
+  const configRoot = mkdtempSync(join(tmpdir(), "molibot-prompt-plugin-config-"));
+  const originalPluginsConfigDir = storagePaths.pluginsConfigDir;
+  try {
+    storagePaths.pluginsConfigDir = configRoot;
+    resetPluginConfigStoreForTests();
+    await getPluginConfigStore().writeConfig("external-subagent", 1, {
+      codexEnabled: true,
+      claudeCodeEnabled: false
+    });
+    const settings = {
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        entries: {
+          "external-subagent": { enabled: true }
+        }
+      }
+    };
+
+    const prompt = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      channel: "web",
+      settings
+    });
+    const controlledSubagentSections = [
+      prompt.match(/<feature-plugins>[\s\S]*?<\/feature-plugins>/)?.[0] ?? "",
+      prompt.match(/<subagents>[\s\S]*?<\/subagents>/)?.[0] ?? ""
+    ].join("\n");
+    assert.match(controlledSubagentSections, /`codex`/);
+    assert.doesNotMatch(controlledSubagentSections, /claude-code/);
+  } finally {
+    resetPluginConfigStoreForTests();
+    storagePaths.pluginsConfigDir = originalPluginsConfigDir;
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(configRoot, { recursive: true, force: true });
+  }
 });
 
 test("prompt source requires host tool approval instead of sandbox bypass", () => {

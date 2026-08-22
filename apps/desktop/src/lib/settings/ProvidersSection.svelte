@@ -6,6 +6,7 @@
     type DesktopProvidersSummary,
     type DesktopProviderUpdateRequest
   } from "@molibot/desktop-contract";
+  import { matchModelCapabilities, type InferredModelMatchResponse } from "../api";
   import { invoke } from "@tauri-apps/api/core";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
@@ -373,10 +374,13 @@
     for (const id of ids) addDiscoveredModel(id);
   }
 
+  let modelAutoDetected = $state(false);
+
   function openNewModelEditor(): void {
     modelEditorIndex = null;
     modelVerificationMessage = "";
     modelVerificationFailed = false;
+    modelAutoDetected = false;
     modelEditorDraft = {
       id: "",
       tags: ["text"],
@@ -392,6 +396,7 @@
     modelEditorIndex = index;
     modelVerificationMessage = "";
     modelVerificationFailed = false;
+    modelAutoDetected = false;
     modelEditorDraft = {
       ...model,
       tags: [...model.tags],
@@ -405,6 +410,39 @@
     modelEditorDraft = null;
     modelVerificationMessage = "";
     modelVerificationFailed = false;
+    modelAutoDetected = false;
+  }
+
+  let modelMatchTimer: number | null = null;
+  function onModelIdInput(event: Event): void {
+    const id = (event.currentTarget as HTMLInputElement).value;
+    if (!modelEditorDraft) return;
+    modelEditorDraft = { ...modelEditorDraft, id };
+    modelAutoDetected = false;
+
+    if (!session.endpoint || !id.trim()) return;
+
+    if (modelMatchTimer !== null) window.clearTimeout(modelMatchTimer);
+    modelMatchTimer = window.setTimeout(async () => {
+      if (!modelEditorDraft || modelEditorDraft.id !== id) return;
+      try {
+        const result = await matchModelCapabilities(session.endpoint!, id.trim());
+        if (result.ok && result.matched && modelEditorDraft && modelEditorDraft.id === id) {
+          modelAutoDetected = true;
+          modelEditorDraft = {
+            ...modelEditorDraft,
+            alias: modelEditorDraft.alias || result.alias,
+            contextWindow: modelEditorDraft.contextWindow || result.contextWindow,
+            tags: result.tags && result.tags.length > 0 ? [...result.tags] : modelEditorDraft.tags,
+            supportedRoles: result.supportedRoles && result.supportedRoles.length > 0
+              ? (result.supportedRoles as any)
+              : modelEditorDraft.supportedRoles
+          };
+        }
+      } catch {
+        // ignore match failure
+      }
+    }, 300);
   }
 
   async function verifyModelEditorConnection(): Promise<void> {
@@ -915,7 +953,12 @@
         <div class="modal-body provider-model-edit-body">
           <label class="provider-field">
             <span class="provider-field-label">{session.text.providerModelId}</span>
-            <input class="provider-input" value={modelEditorDraft.id} placeholder="gpt-5" spellcheck="false" oninput={(event) => (modelEditorDraft = modelEditorDraft ? { ...modelEditorDraft, id: (event.currentTarget as HTMLInputElement).value } : null)} />
+            <input class="provider-input" value={modelEditorDraft.id} placeholder="gpt-5" spellcheck="false" oninput={onModelIdInput} />
+            {#if modelAutoDetected}
+              <p class="provider-field-hint" style="color: var(--accent); display: flex; align-items: center; gap: 4px;">
+                <i class="ph ph-sparkle" aria-hidden="true"></i> {session.text.providerModelDetectedHint}
+              </p>
+            {/if}
           </label>
           <label class="provider-field">
             <span class="provider-field-label">{session.text.providerModelAlias}</span>

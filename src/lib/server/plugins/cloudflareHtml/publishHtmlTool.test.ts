@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createCloudflareHtmlPublishTool } from "$lib/server/plugins/cloudflareHtml/publishHtmlTool.js";
+import { PluginConfigStore, resetPluginConfigStoreForTests } from "$lib/server/plugins/contract/configStore.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
@@ -29,6 +30,7 @@ function createSettings(): RuntimeSettings {
 
 test("publishHtml reads HTML from file path and uploads it", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-publish-html-"));
+  const configStore = new PluginConfigStore(join(cwd, "config"));
   const filePath = join(cwd, "report.html");
   const html = "<!doctype html><html><head><title>Report</title></head><body><h1>Hello</h1></body></html>";
   writeFileSync(filePath, html, "utf8");
@@ -47,8 +49,9 @@ test("publishHtml reads HTML from file path and uploads it", async () => {
     const tool = createCloudflareHtmlPublishTool({
       getSettings: createSettings,
       cwd,
-      workspaceDir: cwd
-    });
+      workspaceDir: cwd,
+      configStore
+    } as any);
 
     const result = await tool.execute("tool-1", {
       filePath: "report.html",
@@ -68,6 +71,7 @@ test("publishHtml reads HTML from file path and uploads it", async () => {
 
 test("publishHtml rejects files that are not complete HTML documents", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-publish-html-"));
+  const configStore = new PluginConfigStore(join(cwd, "config"));
   const filePath = join(cwd, "fragment.html");
   writeFileSync(filePath, "<div>partial</div>", "utf8");
 
@@ -75,12 +79,16 @@ test("publishHtml rejects files that are not complete HTML documents", async () 
     const tool = createCloudflareHtmlPublishTool({
       getSettings: createSettings,
       cwd,
-      workspaceDir: cwd
-    });
+      workspaceDir: cwd,
+      configStore
+    } as any);
 
     await assert.rejects(
-      tool.execute("tool-1", { filePath: "fragment.html" }),
-      /requires a local HTML file containing a complete document/
+      () =>
+        tool.execute("tool-2", {
+          filePath: "fragment.html"
+        }),
+      /complete document/
     );
   } finally {
     rmSync(cwd, { recursive: true, force: true });

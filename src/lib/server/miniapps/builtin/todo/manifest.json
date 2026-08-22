@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "todo",
   "name": "Todo",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "Multi-list todo with priority, deadlines, reminders, search, and pinning. Managed from chat and the desktop panel.",
   "engines": {
     "molibot": ">=2.9.9 <4"
@@ -251,6 +251,23 @@
           "id": { "type": "string", "minLength": 1, "description": "List id to delete. Cannot delete 'inbox'." }
         },
         "required": ["id"],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": true
+    },
+    {
+      "name": "clear_completed",
+      "title": "Clear Completed Todos",
+      "description": "Permanently delete all completed todo items, optionally scoped to one list.",
+      "keywords": [
+        "clear completed", "delete completed", "cleanup", "clean done", "清空已完成", "清理完成", "删除已完成"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "listId": { "type": "string", "description": "Optional list id to scope the cleanup to. Omit to clear completed across all lists." }
+        },
         "additionalProperties": false
       },
       "readOnlyHint": false,

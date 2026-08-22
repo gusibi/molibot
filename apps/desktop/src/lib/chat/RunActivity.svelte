@@ -3,7 +3,7 @@
   import { html as renderDiffHtml } from "diff2html";
   import type { Translation } from "../i18n";
   import CodeViewer from "../projects/CodeViewer.svelte";
-  import { activityFileSummary, activityHeadline, activityPreview, classifyActivityBody, formatActivityMetadata } from "./activityView";
+  import { activityFileSummary, activityHeadline, activityPreview, activityToolIcon, classifyActivityBody, formatActivityMetadata } from "./activityView";
   import { loadActivityExpansion, saveActivityExpansion } from "./activityExpansionStore";
 
   export let activities: DesktopConversationActivity[];
@@ -15,9 +15,11 @@
    */
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
   export let stateKey = "";
+  export let failed = false;
 
   $: hasRunning = activities.some((activity) => activity.state === "running");
   $: hasError = activities.some((activity) => activity.state === "error");
+  $: isFailed = failed || (activities.some((activity) => activity.state === "running") && !hasRunning);
   $: headline = activityHeadline(activities);
   $: files = activityFileSummary(activities);
 
@@ -88,8 +90,16 @@
 <div class="run-activity-block">
   <details class="run-activity" bind:open={opened} ontoggle={persistOpen}>
     <summary class="run-activity-head">
-      <i class={`ph${hasRunning ? "" : "-fill"} ph-${hasRunning ? "circle-notch" : hasError ? "warning-circle" : "check-circle"}`} class:spin={hasRunning} aria-hidden="true"></i>
-      <span>{hasRunning ? copy.runProgress : hasError ? copy.runFailed : copy.runCompleted}</span>
+      {#if hasRunning}
+        <span class="timeline-wave-node run-activity-wave-node" aria-hidden="true">
+          <span class="timeline-wave-bar"></span>
+          <span class="timeline-wave-bar"></span>
+          <span class="timeline-wave-bar"></span>
+        </span>
+      {:else}
+        <i class={`ph-fill ph-${isFailed ? "warning-circle" : "check-circle"}`} aria-hidden="true"></i>
+      {/if}
+      <span>{hasRunning ? copy.runProgress : isFailed ? copy.runFailed : copy.runCompleted}</span>
       <!--
         Naming the step the head is about is the difference between "23 actions
         happened" and knowing where a long run actually is. Hidden once the list
@@ -111,9 +121,26 @@
           {@const rawBodyContent = body?.kind === "diff" ? (body.diff ?? "") : (body?.content ?? "")}
           {@const preview = activityPreview(rawBodyContent)}
           {@const bodyContent = expandedBodies.has(activity.key) ? rawBodyContent : preview.content}
+          {@const toolIcon = activityToolIcon(activity)}
           {#if body}
             <details class="run-activity-item" data-state={activity.state} data-body={body.kind} open={activity.state === "error"}>
-              <summary><i class={`ph${activity.state === "running" ? "" : "-fill"} ph-${icon(activity.state)}`} class:spin={activity.state === "running"} aria-hidden="true"></i><span>{activity.label}{#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}</span><i class="ph ph-caret-right run-activity-item-caret" aria-hidden="true"></i></summary>
+              <summary>
+                {#if activity.state === "running"}
+                  <span class="timeline-wave-node run-activity-wave-node" aria-hidden="true">
+                    <span class="timeline-wave-bar"></span>
+                    <span class="timeline-wave-bar"></span>
+                    <span class="timeline-wave-bar"></span>
+                  </span>
+                {:else}
+                  <i class={`ph-fill ph-${icon(activity.state)}`} aria-hidden="true"></i>
+                {/if}
+                <span class="process-tool-title">
+                  <i class={`ph ph-${toolIcon} process-tool-icon`} class:process-tool-running={activity.state === "running"} aria-hidden="true"></i>
+                  <span class="process-tool-label-text">{activity.label}</span>
+                  {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
+                </span>
+                <i class="ph ph-caret-right run-activity-item-caret" aria-hidden="true"></i>
+              </summary>
               <!--
                 One renderer per payload shape, all of them components the
                 Artifact Panel already uses. A single `<pre>` for every tool is
@@ -156,7 +183,21 @@
               </div>
             </details>
           {:else}
-            <div class="run-activity-item run-activity-line" data-state={activity.state}><i class={`ph${activity.state === "running" ? "" : "-fill"} ph-${icon(activity.state)}`} class:spin={activity.state === "running"} aria-hidden="true"></i><span>{activity.label}</span></div>
+            <div class="run-activity-item run-activity-line" data-state={activity.state}>
+              {#if activity.state === "running"}
+                <span class="timeline-wave-node run-activity-wave-node" aria-hidden="true">
+                  <span class="timeline-wave-bar"></span>
+                  <span class="timeline-wave-bar"></span>
+                  <span class="timeline-wave-bar"></span>
+                </span>
+              {:else}
+                <i class={`ph-fill ph-${icon(activity.state)}`} aria-hidden="true"></i>
+              {/if}
+              <span class="process-timeline-label">
+                <i class={`ph ph-${toolIcon} process-tool-icon`} class:process-tool-running={activity.state === "running"} aria-hidden="true"></i>
+                <span class="process-tool-label-text">{activity.label}</span>
+              </span>
+            </div>
           {/if}
         {/each}
       {/if}

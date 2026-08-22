@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "md-preview",
   "name": "MD Preview",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Render a Markdown document with switchable themes and copy it as WeChat Official Account (公众号) rich text. Local images can be uploaded to Cloudflare R2 and are swapped in at copy time only - the source Markdown keeps its local paths.",
   "engines": {
     "molibot": ">=2.9.9 <4"

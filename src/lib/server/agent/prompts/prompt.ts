@@ -14,6 +14,7 @@ import {
 } from "$lib/server/agent/prompts/prompt-channel.js";
 import { formatSkillsForPrompt, loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
 import { buildFeaturePluginPromptSections } from "$lib/server/plugins/feature-registry.js";
+import { resolveExternalSubagentConfig } from "$lib/server/plugins/externalSubagent/config.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { effectiveMcpServers, hasConfiguredMcpServers } from "$lib/server/settings/openConnector.js";
 import {
@@ -400,28 +401,35 @@ function buildHostToolApprovalSection(): string {
 }
 
 function buildSubagentSection(settings?: RuntimeSettings): string {
-  const externalPlugin = settings?.plugins.externalSubagent;
+  const externalPlugin = resolveExternalSubagentConfig(settings);
   const externalRoles: string[] = [];
-  if (externalPlugin?.enabled) {
-    if (externalPlugin.claudeCodeEnabled !== false) {
+  if (externalPlugin.enabled) {
+    if (externalPlugin.claudeCodeEnabled) {
       externalRoles.push("`claude-code`=Claude Code external agent (multi-file refactoring, test-driven fixes)");
     }
-    if (externalPlugin.codexEnabled !== false) {
+    if (externalPlugin.codexEnabled) {
       externalRoles.push("`codex`=OpenAI Codex external agent (new features, algorithms, scripts)");
     }
   }
   const externalText = externalRoles.length > 0 ? `, ${externalRoles.join(", ")}` : "";
-  const writeText = externalRoles.length > 0
-    ? "worker, claude-code, and codex have write capabilities"
-    : "only worker has edit/write";
-  const chainText = externalRoles.length > 0
-    ? " Planned implementation default: `scout -> planner -> worker -> reviewer` or `scout -> claude-code -> reviewer`."
+  const writableRoles = [
+    "`worker`",
+    ...(externalPlugin.enabled && externalPlugin.claudeCodeEnabled ? ["`claude-code`"] : []),
+    ...(externalPlugin.enabled && externalPlugin.codexEnabled ? ["`codex`"] : [])
+  ];
+  const preferredExternalRole = externalPlugin.enabled && externalPlugin.claudeCodeEnabled
+    ? "claude-code"
+    : externalPlugin.enabled && externalPlugin.codexEnabled
+      ? "codex"
+      : null;
+  const chainText = preferredExternalRole
+    ? ` Planned implementation default: \`scout -> planner -> worker -> reviewer\` or \`scout -> ${preferredExternalRole} -> reviewer\`.`
     : " Planned implementation default: `scout -> planner -> worker -> reviewer`.";
 
   return xmlBlock("subagents", [
     "## Subagents",
     "- Delegate file/shell-heavy investigation, implementation, review, logs/data, or long-document work; keep parent-only tools (web/media/attach/channel) in the parent.",
-    `- Roles: \`scout\`=recon, \`planner\`=plan only, \`worker\`=edit, \`reviewer\`=review${externalText}. Subagents have read/bash; ${writeText}.`,
+    `- Roles: \`scout\`=recon, \`planner\`=plan only, \`worker\`=edit, \`reviewer\`=review${externalText}. Subagents have read/bash; edit/write roles: ${writableRoles.join(", ")}.`,
     "- Delegate before ~8 parent read/bash/edit calls or before the 24-tool hard limit; keep tiny one- or two-call tasks local.",
     `- Modes: single task; parallel independent tasks; chain with \`{previous}\`.${chainText}`,
   ].join("\n"));

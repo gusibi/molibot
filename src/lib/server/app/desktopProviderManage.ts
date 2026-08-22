@@ -9,21 +9,34 @@ import {
   normalizeProviderBaseUrl,
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol";
+import { ModelRegistryService } from "$lib/server/providers/modelRegistry";
 import { sanitizeOptionalThinkingFormat } from "$lib/server/settings/thinking";
 
 function normalizeModel(model: DesktopProviderModel): ProviderModelConfig | null {
   const id = String(model.id ?? "").trim();
   if (!id) return null;
+  const inferred = ModelRegistryService.getInstance().inferModelCapabilities(id);
+
+  const tags = Array.isArray(model.tags) && model.tags.length > 0
+    ? [...model.tags]
+    : inferred.matched ? inferred.tags : ["text"];
+
+  const supportedRoles = Array.isArray(model.supportedRoles) && model.supportedRoles.length > 0
+    ? [...model.supportedRoles]
+    : inferred.matched ? inferred.supportedRoles : ["system", "user", "assistant", "tool"];
+
+  const contextWindow = typeof model.contextWindow === "number" && model.contextWindow > 0
+    ? Math.floor(model.contextWindow)
+    : inferred.contextWindow;
+
+  const alias = String(model.alias ?? "").trim() || (inferred.matched ? inferred.alias : undefined);
+
   return {
     id,
-    alias: String(model.alias ?? "").trim() || undefined,
-    tags: Array.isArray(model.tags) && model.tags.length > 0 ? [...model.tags] : ["text"],
-    supportedRoles: Array.isArray(model.supportedRoles) && model.supportedRoles.length > 0
-      ? [...model.supportedRoles]
-      : ["system", "user", "assistant", "tool"],
-    contextWindow: typeof model.contextWindow === "number" && model.contextWindow > 0
-      ? Math.floor(model.contextWindow)
-      : undefined,
+    alias: alias || undefined,
+    tags,
+    supportedRoles,
+    contextWindow,
     enabled: model.enabled !== false,
     verification: { ...(model.verification ?? {}) }
   };

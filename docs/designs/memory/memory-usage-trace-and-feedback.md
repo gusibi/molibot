@@ -2,7 +2,7 @@
 
 - 日期：2026-08-01
 - 状态：已交付（2026-08-01），对应 `prd.md` §3.26；实现要点见 `features.md` 同日条目
-- 前置文档：[memory-trace-and-memory-center-prd.md](../../requirements/memory-trace-and-memory-center-prd.md)（首版记忆中心 PRD，本文修正其「回答参考」语义在实现中的走样）
+- 前置文档：[memory-trace-and-memory-center-prd.md](../../archive/requirements/memory-trace-and-memory-center-prd.md)（首版记忆中心 PRD，本文修正其「回答参考」语义在实现中的走样）
 
 ## 1. 一句话定义
 

@@ -84,6 +84,7 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   let pinned = true;
   let currentKey = options.key;
   let live = options.live === true;
+  let switchingSession = false;
   let firstLayoutFrame = 0;
   let secondLayoutFrame = 0;
   let springFrame = 0;
@@ -167,6 +168,13 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
       secondLayoutFrame = requestAnimationFrame(() => {
         firstLayoutFrame = 0;
         secondLayoutFrame = 0;
+        if (switchingSession) {
+          instantToBottom();
+          announce(true);
+          lastScrollTop = node.scrollTop;
+          switchingSession = false;
+          return;
+        }
         if (!pinned) return;
         if (animated) follow();
         else instantToBottom();
@@ -179,6 +187,11 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   // (preventing bounce rebounds or sub-pixel jitter at the tail from breaking the lock).
   // Following re-arms on a DOWNWARD move that reaches the slack, or on settling at the bottom.
   const onScroll = (): void => {
+    if (switchingSession) {
+      instantToBottom();
+      announce(true);
+      return;
+    }
     const moved = node.scrollTop - lastScrollTop;
     lastScrollTop = node.scrollTop;
     if (moved < 0) {
@@ -207,6 +220,9 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
     if (reArmed && moved > 0 && dist > SETTLE_DISTANCE) follow();
   };
   const onWheel = (event: WheelEvent): void => {
+    if (switchingSession) {
+      switchingSession = false;
+    }
     // A trackpad two-finger scroll upwards must release ownership on the input
     // itself when away from the bottom boundary. When resting at the bottom,
     // micro-rebound / finger lifts with deltaY < 0 do not break the pinned state.
@@ -245,6 +261,11 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   // landing after a session switch, an idle reload) must land instantly - the
   // reader should open a session already at its tail.
   const observer = new MutationObserver(() => {
+    if (switchingSession) {
+      instantToBottom();
+      announce(true);
+      return;
+    }
     if (!pinned) return;
     if (live) follow();
     else instantToBottom();
@@ -258,6 +279,11 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   let resizeObserver: ResizeObserver | null = null;
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(() => {
+      if (switchingSession) {
+        instantToBottom();
+        announce(true);
+        return;
+      }
       if (!pinned) return;
       if (live) follow();
       else instantToBottom();
@@ -272,8 +298,10 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
       live = next.live === true;
       if (next.key === currentKey) return;
       currentKey = next.key;
+      switchingSession = true;
       announce(true);
       stopSpring();
+      instantToBottom();
       // A session switch is a context jump, not content growth: land on the
       // tail immediately instead of gliding across the whole history.
       scheduleToBottom(false);

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assessMemoryWrite } from "$lib/server/memory/classifier.js";
 import { parseMemoryGovernanceLine } from "$lib/server/memory/governanceLog.js";
@@ -19,7 +20,7 @@ import { buildRunReflection, formatRunClosingNote } from "$lib/server/agent/sess
 const WORKFLOW_SKILL_PATH = fileURLToPath(new URL("../../../../../skills/find-skills/SKILL.md", import.meta.url));
 
 function withSkillCreatorTemplate<T>(fn: (skillPath: string) => T): T {
-  const dir = mkdtempSync(join(process.cwd(), ".tmp-skill-creator-"));
+  const dir = mkdtempSync(join(tmpdir(), "molibot-tmp-skill-creator-"));
   const skillPath = join(dir, "SKILL.md");
   writeFileSync(
     skillPath,
@@ -193,7 +194,7 @@ test("skill draft markdown keeps goal and tool path hints", () => {
 });
 
 function withSkeletonTemplate<T>(fn: (skillPath: string) => T): T {
-  const dir = mkdtempSync(join(process.cwd(), ".tmp-skeleton-"));
+  const dir = mkdtempSync(join(tmpdir(), "molibot-tmp-skeleton-"));
   const skillPath = join(dir, "SKILL.md");
   writeFileSync(
     skillPath,

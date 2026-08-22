@@ -21,6 +21,6 @@ The Desktop app is macOS-specific. It manages local projects and local runtime c
 
 ## Related documentation
 
-- [Project session provenance](../requirements/project-session-provenance-and-inspection.md)
-- [Project Skills loading](../requirements/project-skills-loading.md)
-- [macOS app requirements](../requirements/molibot-macos-app-plan.md)
+- [Project session provenance (archived)](../archive/requirements/project-session-provenance-and-inspection.md)
+- [Project Skills loading (archived)](../archive/requirements/project-skills-loading.md)
+- [macOS app requirements (archived)](../archive/requirements/molibot-macos-app-plan.md)

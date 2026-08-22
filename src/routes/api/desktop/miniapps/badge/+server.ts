@@ -54,6 +54,10 @@ export async function _handleMiniAppBadgeClearRequest(
 }
 
 export const POST: RequestHandler = async ({ request }) => {
-  getRuntime();
-  return _handleMiniAppBadgeClearRequest(request, { host: getMiniAppHost() });
+  try {
+    getRuntime();
+    return _handleMiniAppBadgeClearRequest(request, { host: getMiniAppHost() });
+  } catch (cause) {
+    return json(500, { ok: false, error: cause instanceof Error ? cause.message : String(cause) });
+  }
 };

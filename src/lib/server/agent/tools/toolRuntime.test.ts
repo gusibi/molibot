@@ -444,7 +444,7 @@ test("buildBrokerApprovalRecord fills the constant broker envelope and maps requ
   assert.equal(record.requestedAt, request.createdAt);
   assert.equal(record.chatId, "chat-7");
   assert.equal(record.channel, "");
-  assert.equal(record.approvalMode, "ephemeral");
+  assert.equal(record.approvalMode, "session");
   assert.equal(record.toolId, "bash");
   assert.equal(record.displayName, "bash");
   assert.equal(record.command, "ls -la");

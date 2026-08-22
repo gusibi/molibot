@@ -21,7 +21,6 @@
   import MiniAppActionToast from "../miniapps/MiniAppActionToast.svelte";
   import {
     fetchDesktopFileBlob,
-    forkDesktopSession,
     truncateDesktopMessages,
     listDesktopSessionFiles,
     loadDesktopModels,
@@ -66,9 +65,6 @@
   // message before re-running the turn.
   let editingMessageId = "";
   let editingSessionId = "";
-  // Set while a fork request is in flight, so a double-click on the branch
-  // button cannot create two sibling Sessions from the same point.
-  let forkingMessageId = "";
   let copiedMessageId = "";
   let miniAppActionPendingKey = "";
   let miniAppActionSuccessKey = "";
@@ -481,59 +477,6 @@
     focusComposerAtEnd();
   }
 
-  /**
-   * Branch off a historical user message without touching the parent, mirroring
-   * main Chat: create the child Session before that message, switch to it, and
-   * preload the composer with the original text. Project Sessions became
-   * forkable once the server resolved fork sources through
-   * `getForkableConversation` rather than as Web-only.
-   */
-  async function forkFromUserMessage(msg: TranscriptMessage): Promise<void> {
-    const fromMessageId = msg.id;
-    const sourceSessionId = projectsStore.selectedSessionId;
-    if (!fromMessageId || fromMessageId.startsWith("pending-") || !sourceSessionId) return;
-    if (!projectsStore.endpoint || sending || forkingMessageId) {
-      if (!projectsStore.endpoint) projectsStore.error = copy.forkMessageUnavailable;
-      return;
-    }
-    forkingMessageId = fromMessageId;
-    let childSessionId = "";
-    try {
-      const child = await forkDesktopSession(
-        projectsStore.endpoint,
-        "personal",
-        sourceSessionId,
-        fromMessageId,
-        globalThis.crypto.randomUUID()
-      );
-      childSessionId = child.id;
-    } catch (cause) {
-      const status = (cause as Error & { status?: number }).status;
-      if (status === 422) {
-        await projectChatStore.reloadActive();
-        projectsStore.error = copy.forkMessageStale;
-      } else if (status === 409) {
-        projectsStore.error = copy.forkMessageRunning;
-      } else {
-        projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-      }
-      forkingMessageId = "";
-      return;
-    }
-    // The fork is durable server-side, so a failed refresh must not leave the
-    // composer primed against the parent or mint a second sibling on retry.
-    editingMessageId = "";
-    editingSessionId = "";
-    await Promise.allSettled([
-      selectProjectSession(childSessionId, projectsStore.selectedProjectId),
-      refreshProjectSessionList(projectsStore.selectedProjectId)
-    ]);
-    message = msg.content ?? "";
-    pendingFiles = [];
-    forkingMessageId = "";
-    focusComposerAtEnd();
-  }
-
   function cancelEditMessage(): void {
     editingMessageId = "";
     editingSessionId = "";
@@ -660,9 +603,7 @@
         copiedId: copiedMessageId,
         onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
         onEditUser: sending ? undefined : (m: TranscriptMessage) => startEditUserMessage(m),
-        onForkUser: sending ? undefined : (m: TranscriptMessage) => void forkFromUserMessage(m),
         editingId: editingMessageId,
-        forkingId: forkingMessageId,
         contributions: contributedMessageActions,
         pendingContributionKey: miniAppActionPendingKey,
         successfulContributionKey: miniAppActionSuccessKey,

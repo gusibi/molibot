@@ -30,3 +30,11 @@ test("desktop HTTP scope allows only the image recognition projection and test r
     assert.ok(allowedUrls.has(`http://${host}:*/api/settings/image-recognition/test`));
   }
 });
+
+test("desktop HTTP scope grants only the two plugin settings API families", () => {
+  for (const host of ["127.0.0.1", "localhost"]) {
+    assert.ok(allowedUrls.has(`http://${host}:*/api/settings/plugins/core*`));
+    assert.ok(allowedUrls.has(`http://${host}:*/api/settings/plugins/contract*`));
+    assert.equal(allowedUrls.has(`http://${host}:*/api/settings/plugins*`), false);
+  }
+});

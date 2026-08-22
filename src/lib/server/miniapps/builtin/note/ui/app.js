@@ -33,10 +33,23 @@ const STRINGS = {
     share: "Share",
     shareNote: "Share note as image",
     sharePreviewTitle: "Note Card Preview",
+    saveImage: "Save Image",
     downloadImage: "Save Image",
     copyImage: "Copy Image",
+    copyText: "Copy Text",
     imageCopied: "Image Copied!",
-    saveImageHint: "Right-click or Long-press image to Save/Copy"
+    textCopied: "Text Copied!",
+    imageSaved: "Saved!",
+    savedAndCopied: "Saved! Image also copied to clipboard",
+    copyImageFailed: "Direct copy failed. Please right-click or long-press to save",
+    saveImageHint: "Right-click or Long-press image to Save/Copy",
+    allTags: "All",
+    tagsHeader: "Tags",
+    wordsCount: "{n} chars",
+    previewMarkdown: "Preview Markdown",
+    previewNote: "Preview Note",
+    edit: "Edit",
+    emptyContent: "(No content)"
   },
   zh: {
     heading: "Note",
@@ -68,10 +81,23 @@ const STRINGS = {
     share: "分享",
     shareNote: "生成分享图片",
     sharePreviewTitle: "便签分享图",
+    saveImage: "保存图片",
     downloadImage: "保存图片",
     copyImage: "复制图片",
+    copyText: "复制文本",
     imageCopied: "已复制到剪贴板",
-    saveImageHint: "可长按或右键图片另存为/复制"
+    textCopied: "已复制文本",
+    imageSaved: "已保存！",
+    savedAndCopied: "已保存（同时已复制到剪贴板）",
+    copyImageFailed: "直接复制失败，可右键或长按图片另存为",
+    saveImageHint: "可长按或右键图片另存为/复制",
+    allTags: "全部",
+    tagsHeader: "标签",
+    wordsCount: "{n} 字",
+    previewMarkdown: "预览 Markdown",
+    previewNote: "预览便签",
+    edit: "编辑",
+    emptyContent: "（暂无内容）"
   }
 };
 
@@ -93,8 +119,7 @@ const t = STRINGS[locale];
  *
  * `targetOrigin: "*"` is correct here — the iframe cannot know the host
  * WebView's origin, nothing in the message is secret, and the real check is the
- * host comparing `event.source` against this iframe. An older host simply
- * ignores the message, so nothing here may depend on it working.
+ * host comparing `event.source` against this iframe. An older host浮 ignores the message, so nothing here may depend on it working.
  */
 function insertIntoComposer(text) {
   window.parent.postMessage({
@@ -135,7 +160,13 @@ const elements = {
   currentTabName: document.getElementById("current-tab-name"),
   noteChevron: document.getElementById("note-chevron"),
   backdrop: document.getElementById("backdrop"),
-  tabItems: document.querySelectorAll(".tp-item"),
+  tpTabActive: document.getElementById("tp-tab-active"),
+  tpTabArchived: document.getElementById("tp-tab-archived"),
+  tpNotesCount: document.getElementById("tp-notes-count"),
+  tpArchivedCount: document.getElementById("tp-archived-count"),
+  tpTagsDivider: document.getElementById("tp-tags-divider"),
+  tpTagsHeader: document.getElementById("tp-tags-header"),
+  tpTagsList: document.getElementById("tp-tags-list"),
   status: document.getElementById("status"),
   pinnedGroup: document.getElementById("pinned-group"),
   pinnedList: document.getElementById("pinned-list"),
@@ -156,16 +187,27 @@ const elements = {
   editTitle: document.getElementById("edit-title"),
   editContent: document.getElementById("edit-content"),
   editLabels: document.getElementById("edit-labels"),
+  editorEditFields: document.getElementById("editor-edit-fields"),
+  editorPreviewView: document.getElementById("editor-preview-view"),
+  previewTitle: document.getElementById("preview-title"),
+  previewContent: document.getElementById("preview-content"),
+  modalPreviewBtn: document.getElementById("modal-preview-btn"),
+  editorTitleText: document.querySelector(".editor-title-text"),
   modalPinBtn: document.getElementById("modal-pin-btn"),
   modalBackBtn: document.getElementById("modal-back-btn"),
   modalSaveBtn: document.getElementById("modal-save-btn"),
   modalShareBtn: document.getElementById("modal-share-btn"),
   modalColorDots: document.querySelectorAll(".modal-color-dot"),
+  editorWordCount: document.getElementById("editor-word-count"),
 
   // 分享预览弹窗元素
   shareModal: document.getElementById("share-modal"),
   sharePreviewImg: document.getElementById("share-preview-img"),
-  shareCloseBtn: document.getElementById("share-close-btn")
+  shareCloseBtn: document.getElementById("share-close-btn"),
+  shareCopyTextBtn: document.getElementById("share-copy-text-btn"),
+  shareCopyImgBtn: document.getElementById("share-copy-img-btn"),
+  shareSaveImgBtn: document.getElementById("share-save-img-btn"),
+  sharePreviewHint: document.getElementById("share-preview-hint")
 };
 
 for (const node of document.querySelectorAll("[data-i18n]")) {
@@ -325,7 +367,66 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// 编辑弹窗逻辑
+// 编辑弹窗与预览逻辑
+let isPreviewMode = false;
+
+function updatePreviewContent() {
+  if (!elements.previewContent) return;
+  const title = elements.editTitle ? elements.editTitle.value.trim() : "";
+  const content = elements.editContent ? elements.editContent.value.trim() : "";
+
+  if (elements.previewTitle) {
+    if (title) {
+      elements.previewTitle.textContent = title;
+      elements.previewTitle.classList.remove("hidden");
+    } else {
+      elements.previewTitle.textContent = "";
+      elements.previewTitle.classList.add("hidden");
+    }
+  }
+
+  if (content) {
+    elements.previewContent.innerHTML = renderMarkdown(content);
+  } else {
+    elements.previewContent.innerHTML = `<p class="note-empty-preview" style="opacity: 0.6; font-style: italic;">${t.emptyContent || "(暂无内容)"}</p>`;
+  }
+}
+
+function setPreviewMode(preview) {
+  isPreviewMode = preview;
+  if (!elements.modalPreviewBtn) return;
+  const previewIcon = elements.modalPreviewBtn.querySelector(".preview-icon");
+  const editIcon = elements.modalPreviewBtn.querySelector(".edit-icon");
+
+  if (isPreviewMode) {
+    updatePreviewContent();
+    if (elements.editorEditFields) elements.editorEditFields.classList.add("hidden");
+    if (elements.editorPreviewView) elements.editorPreviewView.classList.remove("hidden");
+    elements.modalPreviewBtn.classList.add("active");
+    elements.modalPreviewBtn.title = t.edit || "编辑";
+    if (previewIcon) previewIcon.classList.add("hidden");
+    if (editIcon) editIcon.classList.remove("hidden");
+    if (elements.editorTitleText) elements.editorTitleText.textContent = t.previewNote || "预览便签";
+  } else {
+    if (elements.editorPreviewView) elements.editorPreviewView.classList.add("hidden");
+    if (elements.editorEditFields) elements.editorEditFields.classList.remove("hidden");
+    elements.modalPreviewBtn.classList.remove("active");
+    elements.modalPreviewBtn.title = t.previewMarkdown || "预览 Markdown";
+    if (previewIcon) previewIcon.classList.remove("hidden");
+    if (editIcon) editIcon.classList.add("hidden");
+    if (elements.editorTitleText) elements.editorTitleText.textContent = t.editNote || "编辑便签";
+  }
+}
+
+if (elements.modalPreviewBtn) {
+  elements.modalPreviewBtn.addEventListener("click", () => {
+    setPreviewMode(!isPreviewMode);
+    if (!isPreviewMode && elements.editContent) {
+      elements.editContent.focus();
+    }
+  });
+}
+
 function openEditModal(note) {
   closeAllDropdowns();
   editingNoteId = note.id;
@@ -342,7 +443,9 @@ function openEditModal(note) {
     dot.classList.toggle("active", dot.dataset.color === editingColor);
   });
 
+  setPreviewMode(false);
   elements.editModal.classList.remove("hidden");
+  updateWordCount();
   elements.editContent.focus();
 }
 
@@ -351,6 +454,7 @@ function closeEditModal() {
   elements.editTitle.blur();
   elements.editContent.blur();
   elements.editLabels.blur();
+  setPreviewMode(false);
   editingNoteId = null;
 }
 
@@ -363,9 +467,27 @@ elements.editModal.addEventListener("click", (e) => {
   }
 });
 
+// 字数统计与编辑状态
+function updateWordCount() {
+  if (!elements.editorWordCount) return;
+  const titleLen = elements.editTitle ? elements.editTitle.value.trim().length : 0;
+  const contentLen = elements.editContent ? elements.editContent.value.trim().length : 0;
+  const total = titleLen + contentLen;
+  elements.editorWordCount.textContent = (t.wordsCount || "{n} 字").replace("{n}", String(total));
+}
+
+if (elements.editTitle) {
+  elements.editTitle.addEventListener("input", updateWordCount);
+}
+if (elements.editContent) {
+  elements.editContent.addEventListener("input", updateWordCount);
+}
+
 // 分享图片生成与弹窗逻辑
 let currentShareBlob = null;
 let currentShareDataUrl = "";
+let currentShareTitle = "";
+let currentShareContent = "";
 
 function closeShareModal() {
   if (elements.shareModal) {
@@ -376,6 +498,8 @@ function closeShareModal() {
   }
   currentShareBlob = null;
   currentShareDataUrl = "";
+  currentShareTitle = "";
+  currentShareContent = "";
 }
 
 if (elements.shareCloseBtn) {
@@ -385,6 +509,155 @@ if (elements.shareModal) {
   elements.shareModal.addEventListener("click", (e) => {
     if (e.target === elements.shareModal) {
       closeShareModal();
+    }
+  });
+}
+
+// 辅助函数：将 dataUrl 转换为 Blob
+async function dataUrlToBlob(dataUrl) {
+  try {
+    const res = await fetch(dataUrl);
+    return await res.blob();
+  } catch (e) {
+    const parts = dataUrl.split(";base64,");
+    const contentType = parts[0].split(":")[1] || "image/png";
+    const raw = window.atob(parts[1]);
+    const uInt8Array = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; ++i) {
+      uInt8Array[i] = raw.charCodeAt(i);
+    }
+    return new Blob([uInt8Array], { type: contentType });
+  }
+}
+
+// 保存图片到本地 (PNG) + 自动复制到剪贴板双保险
+if (elements.shareSaveImgBtn) {
+  elements.shareSaveImgBtn.addEventListener("click", async () => {
+    let blob = currentShareBlob;
+    if (!blob && currentShareDataUrl) {
+      blob = await dataUrlToBlob(currentShareDataUrl).catch(() => null);
+    }
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const safeTitle = (currentShareTitle || (locale === "zh" ? "便签" : "Note")).replace(/[\\/:*?"<>|]/g, "_");
+    const filename = `${safeTitle}_${dateStr}.png`;
+
+    // 1. 尝试常规 a download 触发下载
+    try {
+      const a = document.createElement("a");
+      a.download = filename;
+      if (blob) {
+        const objectUrl = URL.createObjectURL(blob);
+        a.href = objectUrl;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          a.remove();
+          URL.revokeObjectURL(objectUrl);
+        }, 2000);
+      } else if (currentShareDataUrl) {
+        a.href = currentShareDataUrl;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => a.remove(), 1000);
+      }
+    } catch (err) {
+      console.warn("Direct download link click failed:", err);
+    }
+
+    // 2. 同时自动将图片写入系统剪贴板 (解决沙箱 iframe / 桌面端拦截文件下载问题)
+    let clipboardCopied = false;
+    if (blob && navigator.clipboard?.write) {
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "image/png": blob })
+        ]);
+        clipboardCopied = true;
+      } catch (err) {
+        console.warn("Auto clipboard write on save failed:", err);
+      }
+    }
+
+    // 3. UI 即时高亮反馈
+    const originalText = elements.shareSaveImgBtn.textContent;
+    elements.shareSaveImgBtn.textContent = t.imageSaved || "已保存！";
+    elements.shareSaveImgBtn.classList.add("success");
+
+    if (elements.sharePreviewHint) {
+      elements.sharePreviewHint.textContent = clipboardCopied
+        ? (t.savedAndCopied || "已保存（同时已复制到剪贴板）")
+        : (t.saveImageHint || "可长按或右键图片另存为/复制");
+    }
+
+    setTimeout(() => {
+      elements.shareSaveImgBtn.textContent = originalText;
+      elements.shareSaveImgBtn.classList.remove("success");
+    }, 2500);
+  });
+}
+
+// 复制图片到剪贴板
+if (elements.shareCopyImgBtn) {
+  elements.shareCopyImgBtn.addEventListener("click", async () => {
+    let blob = currentShareBlob;
+    if (!blob && currentShareDataUrl) {
+      blob = await dataUrlToBlob(currentShareDataUrl).catch(() => null);
+    }
+
+    if (blob && navigator.clipboard?.write) {
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "image/png": blob })
+        ]);
+        const originalText = elements.shareCopyImgBtn.textContent;
+        elements.shareCopyImgBtn.textContent = t.imageCopied || "已复制！";
+        elements.shareCopyImgBtn.classList.add("success");
+        if (elements.sharePreviewHint) {
+          elements.sharePreviewHint.textContent = t.imageCopied || "已复制到剪贴板";
+        }
+        setTimeout(() => {
+          elements.shareCopyImgBtn.textContent = originalText;
+          elements.shareCopyImgBtn.classList.remove("success");
+        }, 2000);
+        return;
+      } catch (err) {
+        console.warn("Clipboard write image failed:", err);
+      }
+    }
+    // 降级提示
+    if (elements.sharePreviewHint) {
+      elements.sharePreviewHint.textContent = t.copyImageFailed || t.saveImageHint;
+    }
+  });
+}
+
+// 复制纯文本
+if (elements.shareCopyTextBtn) {
+  elements.shareCopyTextBtn.addEventListener("click", async () => {
+    const fullText = [currentShareTitle, currentShareContent].filter(Boolean).join("\n\n");
+    if (!fullText) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(fullText);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = fullText;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+      const originalText = elements.shareCopyTextBtn.textContent;
+      elements.shareCopyTextBtn.textContent = t.textCopied || "已复制文本";
+      elements.shareCopyTextBtn.classList.add("success");
+      setTimeout(() => {
+        elements.shareCopyTextBtn.textContent = originalText;
+        elements.shareCopyTextBtn.classList.remove("success");
+      }, 2000);
+    } catch (err) {
+      console.warn("Copy text failed:", err);
     }
   });
 }
@@ -404,101 +677,67 @@ function escapeXml(unsafe) {
 async function generateShareImage(title, content, color, appThemeName) {
   const isDark = document.documentElement.dataset.theme === "dark";
   const scale = 2; // retina 2x
-  const width = 480;
-  const cardWidth = 432;
-  const cardPadding = 24;
+  const width = 360;
   const bodyHtml = renderMarkdown(content || "");
   const titleHtml = title ? `<h1 class="share-doc-title">${escapeXml(title)}</h1>` : "";
   const dateStr = new Date().toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US", { year: "numeric", month: "short", day: "numeric" });
 
   let styles = "";
   let cardContentHtml = "";
-  let outerBg = "";
+  let paperBg = "";
 
   if (appThemeName === "smartisan") {
-    outerBg = isDark ? "#131113" : "#efe6d6";
-    const paperBg = isDark ? "#1c1a1c" : "#fffcf7";
-    const frameColor = isDark ? "#332f33" : "#e8e4dc";
-    const textColor = isDark ? "#e6ded6" : "#5c4938";
-    const headingColor = isDark ? "#f0e6dc" : "rgba(70, 53, 38, 0.96)";
-    const quoteBar = isDark ? "#3d3838" : "#d8cebe";
-    const codeBg = isDark ? "#282628" : "rgba(125, 78, 32, 0.08)";
-    const hrColor = isDark ? "#2a272a" : "#e8e2d7";
-    const footerBrand = isDark ? "#8c7e72" : "#a89988";
-    const footerDate = isDark ? "#6e6258" : "#c2b5a5";
+    paperBg = isDark ? "#1f1d1f" : "#fffdf8";
+    const textColor = isDark ? "#ded6ce" : "#4a3c30";
+    const headingColor = isDark ? "#f5ede4" : "#2d2218";
+    const quoteBar = isDark ? "#4d4444" : "#cfc3b2";
+    const codeBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(125,78,32,0.06)";
+    const hrColor = isDark ? "#332f33" : "#ece6dc";
+    const footerBrand = isDark ? "#8c7e72" : "#9e8e7e";
+    const footerDate = isDark ? "#6e6258" : "#b8ab9b";
 
     styles = `
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
         margin: 0;
-        padding: 20px 24px;
-        background: ${outerBg};
+        padding: 0;
+        width: ${width}px;
+        background: ${paperBg};
         font-family: "PingFang SC", -apple-system, "Songti SC", serif;
-        display: flex;
-        justify-content: center;
       }
       .card {
-        position: relative;
-        width: ${cardWidth}px;
+        width: ${width}px;
         background: ${paperBg};
-        box-shadow: 0 16px 36px ${isDark ? "rgba(0,0,0,0.5)" : "rgba(82,60,34,0.12)"};
-        padding: 32px 24px 24px;
+        padding: 24px 20px 18px;
         color: ${textColor};
       }
-      .frame-outer {
-        position: absolute;
-        inset: 16px 10px 48px;
-        border: 1px solid ${frameColor};
-        pointer-events: none;
-      }
-      .frame-inner {
-        position: absolute;
-        inset: 18px 12px 50px;
-        border: 1px solid ${frameColor};
-        pointer-events: none;
-      }
-      .corner {
-        position: absolute;
-        width: 4px;
-        height: 4px;
-        border: 1px solid ${frameColor};
-        background: ${paperBg};
-        pointer-events: none;
-      }
-      .c-tl { top: 15px; left: 9px; }
-      .c-tr { top: 15px; right: 9px; }
-      .c-bl { bottom: 47px; left: 9px; }
-      .c-br { bottom: 47px; right: 9px; }
-      
       .content {
-        position: relative;
-        z-index: 1;
-        font-size: 15px;
-        line-height: 1.75;
+        font-size: 14.5px;
+        line-height: 1.65;
         word-break: break-word;
       }
       .share-doc-title {
-        font-size: 20px;
-        font-weight: bold;
+        font-size: 18px;
+        font-weight: 700;
         color: ${headingColor};
-        margin-bottom: 16px;
+        margin-bottom: 12px;
         line-height: 1.35;
       }
       .content h1, .content h2, .content h3, .content h4, .content h5, .content h6 {
         color: ${headingColor};
-        margin: 16px 0 8px;
-        font-weight: bold;
+        margin: 12px 0 6px;
+        font-weight: 700;
         line-height: 1.3;
       }
-      .content h1 { font-size: 18px; }
-      .content h2 { font-size: 17px; }
-      .content h3 { font-size: 16px; }
-      .content p { margin: 8px 0; }
-      .content ul, .content ol { padding-left: 20px; margin: 8px 0; }
-      .content li { margin: 4px 0; }
+      .content h1 { font-size: 17px; }
+      .content h2 { font-size: 16px; }
+      .content h3 { font-size: 15px; }
+      .content p { margin: 6px 0; }
+      .content ul, .content ol { padding-left: 18px; margin: 6px 0; }
+      .content li { margin: 3px 0; }
       .content blockquote {
-        margin: 12px 0;
-        padding: 6px 14px;
+        margin: 8px 0;
+        padding: 4px 12px;
         border-left: 3px solid ${quoteBar};
         color: ${footerBrand};
         background: ${isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)"};
@@ -507,51 +746,44 @@ async function generateShareImage(title, content, color, appThemeName) {
       .content code {
         font-family: Menlo, Monaco, Consolas, monospace;
         font-size: 13px;
-        padding: 2px 5px;
+        padding: 2px 4px;
         border-radius: 3px;
         background: ${codeBg};
       }
       .content pre {
-        margin: 12px 0;
-        padding: 10px 12px;
+        margin: 8px 0;
+        padding: 8px 10px;
         background: ${codeBg};
         border-radius: 4px;
         overflow-x: auto;
       }
       .content pre code { padding: 0; background: transparent; }
-      .content hr { border: none; border-top: 1px solid ${hrColor}; margin: 16px 0; }
-      .content strong { font-weight: bold; color: ${headingColor}; }
+      .content hr { border: none; border-top: 1px solid ${hrColor}; margin: 12px 0; }
+      .content strong { font-weight: 700; color: ${headingColor}; }
       .content em { font-style: italic; }
       .content a { color: ${isDark ? "#c99359" : "#a16d36"}; text-decoration: none; }
       
       .footer {
-        position: relative;
-        z-index: 1;
-        margin-top: 32px;
-        padding-top: 12px;
+        margin-top: 22px;
+        padding-top: 10px;
+        border-top: 1px dashed ${hrColor};
         text-align: center;
       }
       .brand {
         font-size: 12px;
-        font-weight: bold;
+        font-weight: 600;
         color: ${footerBrand};
-        letter-spacing: 0.04em;
+        letter-spacing: 0.03em;
       }
       .date {
         font-size: 11px;
         color: ${footerDate};
-        margin-top: 3px;
+        margin-top: 2px;
       }
     `;
 
     cardContentHtml = `
       <div class="card">
-        <div class="frame-outer"></div>
-        <div class="frame-inner"></div>
-        <span class="corner c-tl"></span>
-        <span class="corner c-tr"></span>
-        <span class="corner c-bl"></span>
-        <span class="corner c-br"></span>
         <div class="content">
           ${titleHtml}
           ${bodyHtml}
@@ -564,7 +796,6 @@ async function generateShareImage(title, content, color, appThemeName) {
     `;
   } else {
     // Keep 主题
-    outerBg = isDark ? "#131416" : "#f1f3f4";
     const LIGHT_COLOR_MAP = {
       default: "#ffffff",
       yellow: "#fff8e1",
@@ -585,7 +816,7 @@ async function generateShareImage(title, content, color, appThemeName) {
     };
 
     const colorMap = isDark ? DARK_COLOR_MAP : LIGHT_COLOR_MAP;
-    const cardBg = colorMap[color] || colorMap.default;
+    paperBg = colorMap[color] || colorMap.default;
     const textColor = isDark ? "#bdc1c6" : "#3c4043";
     const headingColor = isDark ? "#e8eaed" : "#202124";
     const cardBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
@@ -598,47 +829,43 @@ async function generateShareImage(title, content, color, appThemeName) {
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
         margin: 0;
-        padding: 20px 24px;
-        background: ${outerBg};
+        padding: 0;
+        width: ${width}px;
+        background: ${paperBg};
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        display: flex;
-        justify-content: center;
       }
       .card {
-        width: ${cardWidth}px;
-        background: ${cardBg};
-        border: 1px solid ${cardBorder};
-        border-radius: 12px;
-        box-shadow: 0 4px 16px ${isDark ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.08)"};
-        padding: 24px 20px 16px;
+        width: ${width}px;
+        background: ${paperBg};
+        padding: 20px 18px 14px;
         color: ${textColor};
       }
       .content {
-        font-size: 15px;
-        line-height: 1.65;
+        font-size: 14.5px;
+        line-height: 1.6;
         word-break: break-word;
       }
       .share-doc-title {
-        font-size: 19px;
-        font-weight: bold;
+        font-size: 18px;
+        font-weight: 700;
         color: ${headingColor};
-        margin-bottom: 12px;
+        margin-bottom: 10px;
         line-height: 1.35;
       }
       .content h1, .content h2, .content h3, .content h4, .content h5, .content h6 {
         color: ${headingColor};
-        margin: 14px 0 6px;
-        font-weight: bold;
+        margin: 12px 0 6px;
+        font-weight: 700;
         line-height: 1.3;
       }
-      .content h1 { font-size: 18px; }
-      .content h2 { font-size: 17px; }
-      .content h3 { font-size: 16px; }
+      .content h1 { font-size: 17px; }
+      .content h2 { font-size: 16px; }
+      .content h3 { font-size: 15px; }
       .content p { margin: 6px 0; }
-      .content ul, .content ol { padding-left: 20px; margin: 6px 0; }
+      .content ul, .content ol { padding-left: 18px; margin: 6px 0; }
       .content li { margin: 3px 0; }
       .content blockquote {
-        margin: 10px 0;
+        margin: 8px 0;
         padding: 4px 12px;
         border-left: 3px solid ${quoteBar};
         color: ${footerBrand};
@@ -651,29 +878,30 @@ async function generateShareImage(title, content, color, appThemeName) {
         background: ${codeBg};
       }
       .content pre {
-        margin: 10px 0;
+        margin: 8px 0;
         padding: 8px 10px;
         background: ${codeBg};
         border-radius: 6px;
         overflow-x: auto;
       }
       .content pre code { padding: 0; background: transparent; }
-      .content hr { border: none; border-top: 1px solid ${cardBorder}; margin: 14px 0; }
-      .content strong { font-weight: bold; color: ${headingColor}; }
+      .content hr { border: none; border-top: 1px solid ${cardBorder}; margin: 12px 0; }
+      .content strong { font-weight: 700; color: ${headingColor}; }
       .content a { color: ${isDark ? "#8ab4f8" : "#1a73e8"}; text-decoration: none; }
       
       .footer {
-        margin-top: 20px;
+        margin-top: 18px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         font-size: 11px;
         color: ${footerDate};
         padding-top: 8px;
+        border-top: 1px solid ${cardBorder};
       }
       .brand {
         font-size: 12px;
-        font-weight: 500;
+        font-weight: 600;
         color: ${footerBrand};
       }
     `;
@@ -686,7 +914,7 @@ async function generateShareImage(title, content, color, appThemeName) {
         </div>
         <div class="footer">
           <span class="date">${escapeXml(dateStr)}</span>
-          <span class="brand">Google Keep</span>
+          <span class="brand">Note</span>
         </div>
       </div>
     `;
@@ -701,10 +929,9 @@ async function generateShareImage(title, content, color, appThemeName) {
   measureDiv.style.width = `${width}px`;
   measureDiv.innerHTML = `<style>${styles}</style>${cardContentHtml}`;
   document.body.appendChild(measureDiv);
-  const measuredHeight = Math.max(220, measureDiv.offsetHeight || measureDiv.scrollHeight || 300);
+  const cardElem = measureDiv.querySelector(".card");
+  const totalHeight = Math.ceil(cardElem ? cardElem.offsetHeight || cardElem.scrollHeight : measureDiv.offsetHeight || 200);
   measureDiv.remove();
-
-  const totalHeight = measuredHeight + 40;
 
   // 2. 构建自包含 SVG ForeignObject
   const svgDoc = `
@@ -730,7 +957,7 @@ async function generateShareImage(title, content, color, appThemeName) {
       const ctx = canvas.getContext("2d");
       ctx.scale(scale, scale);
 
-      ctx.fillStyle = outerBg;
+      ctx.fillStyle = paperBg;
       ctx.fillRect(0, 0, width, totalHeight);
       ctx.drawImage(img, 0, 0, width, totalHeight);
 
@@ -760,11 +987,16 @@ if (elements.modalShareBtn) {
     const content = elements.editContent ? elements.editContent.value.trim() : "";
     if (!title && !content) return;
 
+    elements.modalShareBtn.disabled = true;
+    elements.modalShareBtn.style.opacity = "0.5";
+
     try {
       const result = await generateShareImage(title, content, editingColor, currentAppTheme);
       if (!result) return;
       currentShareBlob = result.blob;
       currentShareDataUrl = result.dataUrl;
+      currentShareTitle = title;
+      currentShareContent = content;
       if (elements.sharePreviewImg) {
         elements.sharePreviewImg.src = result.dataUrl || (result.blob ? URL.createObjectURL(result.blob) : "");
       }
@@ -773,6 +1005,9 @@ if (elements.modalShareBtn) {
       }
     } catch (err) {
       console.error("Generate share image failed:", err);
+    } finally {
+      elements.modalShareBtn.disabled = false;
+      elements.modalShareBtn.style.opacity = "";
     }
   });
 }
@@ -967,17 +1202,59 @@ function followDeepLink() {
   setTimeout(() => target.classList.remove("deep-link-target"), 2000);
 }
 
-async function loadNotes() {
-  if (halted) return;
-  const isArchived = currentTab === "archived";
-  const query = elements.searchInput.value.trim();
+let activeTag = "";
+let cachedNotes = [];
 
-  let url = `/notes?archived=${isArchived}`;
-  if (query) {
-    url += `&query=${encodeURIComponent(query)}`;
+function renderTagMenu(notes) {
+  if (!elements.tpTagsList) return;
+  const tagCounts = new Map();
+  for (const n of notes) {
+    for (const lbl of n.labels || []) {
+      if (!lbl) continue;
+      tagCounts.set(lbl, (tagCounts.get(lbl) || 0) + 1);
+    }
   }
 
-  const { notes } = await api(url);
+  if (tagCounts.size === 0) {
+    if (elements.tpTagsDivider) elements.tpTagsDivider.hidden = true;
+    if (elements.tpTagsHeader) elements.tpTagsHeader.hidden = true;
+    elements.tpTagsList.replaceChildren();
+    return;
+  }
+
+  if (elements.tpTagsDivider) elements.tpTagsDivider.hidden = false;
+  if (elements.tpTagsHeader) elements.tpTagsHeader.hidden = false;
+  elements.tpTagsList.replaceChildren();
+
+  for (const [tag, count] of tagCounts) {
+    const item = document.createElement("button");
+    item.type = "button";
+    const isTagActive = currentTab === "active" && activeTag === tag;
+    item.className = `tp-item ${isTagActive ? "active" : ""}`;
+    item.innerHTML = `
+      <svg class="tp-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/>
+      </svg>
+      <span class="tp-label">#${escapeXml(tag)}</span>
+      <span class="tp-count">${count}</span>
+    `;
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      activeTag = tag;
+      currentTab = "active";
+      updateTabTrigger();
+      applyFilteredNotes();
+      toggleTabPicker(false);
+    });
+    elements.tpTagsList.append(item);
+  }
+}
+
+function applyFilteredNotes() {
+  const isArchived = currentTab === "archived";
+  const notes = currentTab === "active" && activeTag
+    ? cachedNotes.filter((n) => (n.labels || []).includes(activeTag))
+    : cachedNotes;
 
   if (isArchived) {
     elements.pinnedGroup.hidden = true;
@@ -991,12 +1268,32 @@ async function loadNotes() {
     elements.pinnedGroup.hidden = pinned.length === 0;
     elements.pinnedList.replaceChildren(...pinned.map(renderCard));
 
-    elements.otherGroupTitle.textContent = pinned.length > 0 ? t.notesSection : t.notesSection;
+    elements.otherGroupTitle.textContent = activeTag ? `#${activeTag}` : t.notesSection;
     elements.otherList.replaceChildren(...others.map(renderCard));
 
     elements.emptyMsg.hidden = notes.length > 0;
   }
+}
 
+async function loadNotes() {
+  if (halted) return;
+  const isArchived = currentTab === "archived";
+  const query = elements.searchInput.value.trim();
+
+  let url = `/notes?archived=${isArchived}`;
+  if (query) {
+    url += `&query=${encodeURIComponent(query)}`;
+  }
+
+  const { notes } = await api(url);
+  cachedNotes = notes || [];
+
+  if (!isArchived && !query && elements.tpNotesCount) {
+    elements.tpNotesCount.textContent = String(cachedNotes.length);
+  }
+
+  updateTabTrigger();
+  applyFilteredNotes();
   followDeepLink();
 }
 
@@ -1047,10 +1344,20 @@ elements.searchInput.addEventListener("input", () => {
 let tabPickerOpen = false;
 
 function updateTabTrigger() {
-  elements.currentTabName.textContent = currentTab === "active" ? t.tabActive : t.tabArchived;
-  elements.tabItems.forEach((item) => {
-    item.classList.toggle("active", item.dataset.tab === currentTab);
-  });
+  if (currentTab === "archived") {
+    elements.currentTabName.textContent = t.tabArchived;
+  } else if (activeTag) {
+    elements.currentTabName.textContent = `#${activeTag}`;
+  } else {
+    elements.currentTabName.textContent = t.tabActive;
+  }
+  if (elements.tpTabActive) {
+    elements.tpTabActive.classList.toggle("active", currentTab === "active" && !activeTag);
+  }
+  if (elements.tpTabArchived) {
+    elements.tpTabArchived.classList.toggle("active", currentTab === "archived");
+  }
+  renderTagMenu(cachedNotes);
 }
 
 function toggleTabPicker(force) {
@@ -1077,17 +1384,37 @@ function toggleTabPicker(force) {
 elements.tabSelectorTrigger.addEventListener("click", (e) => { e.stopPropagation(); toggleTabPicker(); });
 elements.backdrop.addEventListener("click", () => toggleTabPicker(false));
 
-elements.tabItems.forEach((item) => {
-  item.addEventListener("click", (e) => {
+if (elements.tpTabActive) {
+  elements.tpTabActive.addEventListener("click", (e) => {
     e.stopPropagation();
-    const tab = item.dataset.tab;
     toggleTabPicker(false);
-    if (currentTab === tab) return;
-    currentTab = tab;
-    updateTabTrigger();
-    void loadNotes();
+    activeTag = "";
+    if (currentTab === "active") {
+      updateTabTrigger();
+      applyFilteredNotes();
+    } else {
+      currentTab = "active";
+      updateTabTrigger();
+      void loadNotes();
+    }
   });
-});
+}
+
+if (elements.tpTabArchived) {
+  elements.tpTabArchived.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleTabPicker(false);
+    activeTag = "";
+    if (currentTab === "archived") {
+      updateTabTrigger();
+      applyFilteredNotes();
+    } else {
+      currentTab = "archived";
+      updateTabTrigger();
+      void loadNotes();
+    }
+  });
+}
 
 document.addEventListener("click", (e) => {
   if (tabPickerOpen && !e.target.closest(".tab-picker") && !e.target.closest(".note-trigger")) {

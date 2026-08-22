@@ -1,7 +1,7 @@
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { ChannelRunnerPoolLike } from "$lib/server/agent/core/runnerPool.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
-import { getRuntime } from "$lib/server/app/runtime.js";
+import { SessionStore } from "$lib/server/sessions/store.js";
 import {
   retryApprovalAutoResume,
   APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
@@ -64,6 +64,7 @@ export interface ResumeSuspendedBrokerApprovalInput {
   store: MomRuntimeStore;
   pool: ChannelRunnerPoolLike;
   channel?: string;
+  sessionStore?: SessionStore;
   onWarn?: (code: string, meta: Record<string, unknown>) => void;
 }
 
@@ -88,6 +89,7 @@ export async function resumeSuspendedBrokerApproval(
   input: ResumeSuspendedBrokerApprovalInput
 ): Promise<boolean> {
   const { scopeId, sessionId, requestId, status, toolName, store, pool, channel = "web" } = input;
+  const sessions = input.sessionStore ?? new SessionStore();
 
   const orchestrator = getTurnOrchestrator();
   const db = orchestrator.getDb();
@@ -136,17 +138,17 @@ export async function resumeSuspendedBrokerApproval(
         },
         respond: async (text: string) => {
           if (text.trim()) {
-            getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+            sessions.appendMessage(sessionId, "assistant", text);
           }
         },
         replaceMessage: async (text: string) => {
           if (text.trim()) {
-            getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+            sessions.appendMessage(sessionId, "assistant", text);
           }
         },
         respondInThread: async (text: string) => {
           if (text.trim()) {
-            getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+            sessions.appendMessage(sessionId, "assistant", text);
           }
         },
         setTyping: async () => {},
@@ -164,7 +166,7 @@ export async function resumeSuspendedBrokerApproval(
       input.onWarn?.(warningCode, { scopeId, sessionId, requestId, ...meta });
     },
     onRetryExhausted: () => {
-      getRuntime().sessions.appendMessage(
+      sessions.appendMessage(
         sessionId,
         "assistant",
         "Approval resolved, but the session is busy. Send any message to continue the task."

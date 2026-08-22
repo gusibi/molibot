@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
   import { renderMarkdown } from "../markdown";
-  import { finalizeTranscriptActivities, transcriptCompletedTurnSections, transcriptDisplayContent, transcriptProcessSummary, transcriptRenderBlocks, transcriptTurnSummary, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
+  import { finalizeTranscriptActivities, transcriptCompletedTurnSections, transcriptDisplayContent, transcriptRenderBlocks, transcriptTurnSummary, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
   import TranscriptAttachments from "./TranscriptAttachments.svelte";
   import RunActivity from "./RunActivity.svelte";
   import ThinkingCard from "./ThinkingCard.svelte";
@@ -107,13 +107,11 @@
   {@const canShowActions = Boolean(messageActions && (displayContent || message.attachments?.length))}
   {@const isCopied = Boolean(message.id && messageActions?.copiedId === message.id)}
   {@const isEditing = Boolean(message.id && messageActions?.editingId === message.id)}
-  {@const isForking = Boolean(message.id && messageActions?.forkingId === message.id)}
   {@const key = messageKey(message, index)}
   {@const isLongUserMessage = message.role === "user" && (displayContent.split(/\r?\n/).length > 20 || displayContent.length > 1000)}
   {@const isExpanded = expandedMessages.has(key)}
   {@const renderBlocks = message.role === "assistant" ? transcriptRenderBlocks(message) : []}
   {@const turnSections = message.role === "assistant" ? transcriptCompletedTurnSections(renderBlocks) : { process: [], response: [] }}
-  {@const processSummary = transcriptProcessSummary(turnSections.process)}
   {@const previousUserMessage = message.role === "assistant" ? findPreviousUserMessage(messages, index) : null}
   {@const turnSummary = message.role === "assistant" ? transcriptTurnSummary(message, previousUserMessage) : null}
   {@const hasTurnSummary = Boolean(turnSummary && (turnSummary.durationMs || turnSummary.toolCount || turnSummary.fileCount || turnSummary.totalTokens))}
@@ -188,16 +186,6 @@
                   onclick={() => messageActions.onEditUser!(message)}
                 ><i class="ph ph-pencil-simple-line" aria-hidden="true"></i></button>
               {/if}
-              {#if messageActions.onForkUser && !(message.id?.startsWith("pending-"))}
-                <button
-                  type="button"
-                  class="message-action"
-                  aria-label={copy.forkMessage}
-                  title={copy.forkMessage}
-                  disabled={isForking}
-                  onclick={() => messageActions.onForkUser!(message)}
-                ><i class={`ph ${isForking ? "ph-circle-notch message-action-spin" : "ph-git-branch"}`} aria-hidden="true"></i></button>
-              {/if}
               <!-- Same menu as the assistant row: a message worth saving is
                    worth saving whoever wrote it, and two different action rows
                    for one concept is the fork this component exists to avoid. -->
@@ -252,7 +240,7 @@
             {copy}
             stateKey={`${key}:process`}
             onOpenPath={onOpenActivityPath}
-            forceOpen={assistantStatus === "error" || assistantStatus === "aborted" || processSummary.hasError}
+            failed={assistantStatus === "error" || assistantStatus === "aborted"}
             {endpoint}
           />
         {/if}
@@ -262,7 +250,7 @@
           {:else if block.kind === "thinking"}
             <ThinkingCard text={block.content} label={copy.thinking} />
           {:else if block.kind === "activities"}
-            <RunActivity activities={finalizeTranscriptActivities(block.activities) ?? []} {copy} onOpenPath={onOpenActivityPath} stateKey={`${key}:${block.id}`} />
+            <RunActivity activities={finalizeTranscriptActivities(block.activities) ?? []} {copy} onOpenPath={onOpenActivityPath} failed={assistantStatus === "error" || assistantStatus === "aborted"} stateKey={`${key}:${block.id}`} />
           {:else if block.content}
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <ChatMarkdown source={block.content} {copy} {endpoint} contentKey={`${key}-${block.id}`} onContextMenu={(event) => openSelectionMenu(event, message)} />

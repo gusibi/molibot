@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>External Subagent</title>
+  <style>
+    :root { color-scheme: light; --bg:#fff; --fg:#171717; --muted:#737373; --surface:#fafafa; --border:#e5e5e5; --accent:#2563eb; --danger:#dc2626; --success:#059669; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    :root[data-theme="dark"] { color-scheme:dark; --bg:#0a0a0a; --fg:#f5f5f5; --muted:#a3a3a3; --surface:#171717; --border:#333; --accent:#60a5fa; --danger:#f87171; --success:#34d399; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:4px; background:transparent; color:var(--fg); font-size:13px; line-height:1.5; }
+    .notice { display:none; margin-bottom:12px; padding:9px 12px; border:1px solid var(--border); border-radius:8px; white-space:pre-wrap; }
+    .notice.visible { display:block; }
+    .notice.success { color:var(--success); border-color:color-mix(in srgb,var(--success) 35%,transparent); }
+    .notice.error { color:var(--danger); border-color:color-mix(in srgb,var(--danger) 35%,transparent); }
+    .provider { padding:16px; border:1px solid var(--border); border-radius:10px; background:var(--surface); margin-bottom:12px; }
+    .header,.actions,.switch-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    h2 { margin:0; font-size:14px; }
+    .description,.hint { margin:3px 0 0; color:var(--muted); font-size:12px; }
+    .field { margin-top:14px; }
+    label { display:block; margin-bottom:5px; font-size:12px; font-weight:600; }
+    input[type="text"],select { width:100%; min-height:34px; padding:6px 9px; color:var(--fg); background:var(--bg); border:1px solid var(--border); border-radius:7px; font:inherit; }
+    input:focus,select:focus { outline:2px solid color-mix(in srgb,var(--accent) 30%,transparent); border-color:var(--accent); }
+    button { min-height:32px; padding:6px 11px; color:var(--fg); background:var(--bg); border:1px solid var(--border); border-radius:7px; font:inherit; font-weight:600; cursor:pointer; }
+    button:hover:not(:disabled) { border-color:var(--accent); }
+    button.primary { color:white; background:#2563eb; border-color:#2563eb; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .status { color:var(--muted); font-size:12px; }
+    .status.ok { color:var(--success); }
+    .status.error { color:var(--danger); }
+    .provider-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; margin-top:14px; }
+    .footer { position:sticky; bottom:0; display:flex; justify-content:flex-end; padding:12px 0 2px; background:linear-gradient(transparent,var(--bg) 30%); }
+    @media (max-width:520px) { .header,.switch-row { align-items:flex-start; } .provider-actions { justify-content:stretch; } .provider-actions button { flex:1; } }
+  </style>
+</head>
+<body>
+  <div id="notice" class="notice" role="status" aria-live="polite"></div>
+
+  <section class="provider">
+    <div class="switch-row">
+      <div><h2>OpenAI Codex</h2><p id="codexDescription" class="description"></p></div>
+      <label><input id="codexEnabled" type="checkbox" disabled> <span id="codexEnabledLabel"></span></label>
+    </div>
+    <div class="field"><label id="codexModeLabel" for="codexPermissionMode"></label><select id="codexPermissionMode"><option value="never">never</option><option value="approve-for-me">approve-for-me</option><option value="dangerously-bypass-approvals-and-sandbox">dangerously-bypass-approvals-and-sandbox</option></select></div>
+    <div class="field"><label id="codexPathLabel" for="codexPath"></label><input id="codexPath" type="text"><p id="codexPathHint" class="hint"></p></div>
+    <div class="provider-actions"><span id="codexStatus" class="status"></span><button id="codexDetect" type="button"></button><button id="codexInstall" type="button"></button><button id="codexTest" type="button"></button></div>
+  </section>
+
+  <section class="provider">
+    <div class="switch-row">
+      <div><h2>Claude Code</h2><p id="claudeDescription" class="description"></p></div>
+      <label><input id="claudeCodeEnabled" type="checkbox" disabled> <span id="claudeEnabledLabel"></span></label>
+    </div>
+    <div class="field"><label id="claudeModeLabel" for="claudeCodePermissionMode"></label><select id="claudeCodePermissionMode"><option value="dontAsk">dontAsk</option><option value="acceptEdits">acceptEdits</option><option value="auto">auto</option><option value="plan">plan</option><option value="bypassPermissions">bypassPermissions</option></select></div>
+    <div class="field"><label id="claudePathLabel" for="claudeCodePath"></label><input id="claudeCodePath" type="text"><p id="claudePathHint" class="hint"></p></div>
+    <div class="provider-actions"><span id="claudeStatus" class="status"></span><button id="claudeDetect" type="button"></button><button id="claudeInstall" type="button"></button><button id="claudeTest" type="button"></button></div>
+  </section>
+
+  <div class="footer"><button id="save" class="primary" type="button"></button></div>
+
+  <script>
+    const text = {
+      "zh-CN": { enabled:"启用", codexDescription:"使用独立进程运行 OpenAI Codex 编程任务。", claudeDescription:"使用独立进程运行 Claude Code 多文件任务。", mode:"权限模式", path:"自定义可执行文件路径", pathHint:"留空时从系统 PATH 或插件数据目录自动检测。", detect:"检测环境", install:"安装运行时", test:"运行测试", save:"保存插件设置", saved:"插件设置已保存。", unknown:"未检测", ready:"已就绪", unavailable:"未检测到运行时", installed:"运行时安装完成。", testPassed:"运行测试成功。", failed:"操作失败" },
+      "en-US": { enabled:"Enabled", codexDescription:"Run OpenAI Codex coding tasks in an independent process.", claudeDescription:"Run Claude Code multi-file tasks in an independent process.", mode:"Permission mode", path:"Custom executable path", pathHint:"Leave blank to detect from system PATH or plugin data storage.", detect:"Detect environment", install:"Install runtime", test:"Test run", save:"Save plugin settings", saved:"Plugin settings saved.", unknown:"Not checked", ready:"Ready", unavailable:"Runtime not detected", installed:"Runtime installed.", testPassed:"Test run succeeded.", failed:"Operation failed" }
+    };
+    let locale = "en-US";
+    let sequence = 0;
+    let settingsLoaded = false;
+    const pending = new Map();
+    const availability = { codex:false, "claude-code":false };
+    const element = (id) => document.getElementById(id);
+
+    function copy() { return text[locale] || text["en-US"]; }
+    function renderCopy() {
+      document.documentElement.lang = locale;
+      const c = copy();
+      element("codexDescription").textContent = c.codexDescription;
+      element("claudeDescription").textContent = c.claudeDescription;
+      element("codexEnabledLabel").textContent = c.enabled;
+      element("claudeEnabledLabel").textContent = c.enabled;
+      element("codexModeLabel").textContent = c.mode;
+      element("claudeModeLabel").textContent = c.mode;
+      element("codexPathLabel").textContent = c.path;
+      element("claudePathLabel").textContent = c.path;
+      element("codexPathHint").textContent = c.pathHint;
+      element("claudePathHint").textContent = c.pathHint;
+      element("codexDetect").textContent = c.detect;
+      element("claudeDetect").textContent = c.detect;
+      element("codexInstall").textContent = c.install;
+      element("claudeInstall").textContent = c.install;
+      element("codexTest").textContent = c.test;
+      element("claudeTest").textContent = c.test;
+      element("save").textContent = c.save;
+      if (!element("codexStatus").dataset.checked) element("codexStatus").textContent = c.unknown;
+      if (!element("claudeStatus").dataset.checked) element("claudeStatus").textContent = c.unknown;
+    }
+    function request(message) {
+      const correlationId = `plugin_${++sequence}`;
+      window.parent.postMessage({ ...message, correlationId }, "*");
+      return new Promise((resolve, reject) => pending.set(correlationId, { resolve, reject }));
+    }
+    function show(message, kind) {
+      const notice = element("notice");
+      notice.textContent = String(message);
+      notice.className = `notice visible ${kind}`;
+    }
+    function values() {
+      return { codexEnabled:availability.codex && element("codexEnabled").checked, codexPermissionMode:element("codexPermissionMode").value, codexPath:element("codexPath").value.trim(), claudeCodeEnabled:availability["claude-code"] && element("claudeCodeEnabled").checked, claudeCodePermissionMode:element("claudeCodePermissionMode").value, claudeCodePath:element("claudeCodePath").value.trim() };
+    }
+    function applyValues(value) {
+      const v = value || {};
+      element("codexEnabled").checked = v.codexEnabled !== false;
+      element("claudeCodeEnabled").checked = v.claudeCodeEnabled !== false;
+      if (v.codexPermissionMode) element("codexPermissionMode").value = v.codexPermissionMode;
+      if (v.claudeCodePermissionMode) element("claudeCodePermissionMode").value = v.claudeCodePermissionMode;
+      element("codexPath").value = v.codexPath || "";
+      element("claudeCodePath").value = v.claudeCodePath || "";
+    }
+    function providerPath(provider) { return element(provider === "codex" ? "codexPath" : "claudeCodePath").value.trim(); }
+    function setProviderAvailable(provider, available) {
+      availability[provider] = available;
+      const checkbox = element(provider === "codex" ? "codexEnabled" : "claudeCodeEnabled");
+      checkbox.disabled = !available;
+      if (!available) checkbox.checked = false;
+      element(provider === "codex" ? "codexTest" : "claudeTest").disabled = !available;
+    }
+    function providerStatus(provider, message, ok) { const node = element(provider === "codex" ? "codexStatus" : "claudeStatus"); node.dataset.checked = "true"; node.textContent = message; node.className = `status ${ok ? "ok" : "error"}`; }
+    async function runAction(provider, action) {
+      try {
+        const result = await request({ type:"molibot:plugin:invoke_action", action, input:{ provider, customPath:providerPath(provider) } });
+        if (action === "detectEnvironment") {
+          const available = Boolean(result && result.available);
+          setProviderAvailable(provider, available);
+          providerStatus(provider, available ? `${copy().ready}${result.version ? ` · ${result.version}` : ""}` : (result && result.error) || copy().unavailable, available);
+        }
+        if (action === "installProvider") {
+          if (!(result && result.success)) throw new Error((result && result.error) || copy().failed);
+          show(copy().installed,"success");
+          await runAction(provider,"detectEnvironment");
+        }
+        if (action === "testProvider") show(result && result.success ? copy().testPassed : (result && result.error) || copy().failed, result && result.success ? "success" : "error");
+      } catch (error) { show(error.message || copy().failed,"error"); }
+    }
+    async function loadSettings() {
+      try {
+        const settings = await request({ type:"molibot:plugin:get_settings" });
+        applyValues(settings);
+        await Promise.all([runAction("codex","detectEnvironment"), runAction("claude-code","detectEnvironment")]);
+      } catch (error) {
+        show(error.message || copy().failed,"error");
+      }
+    }
+    function applyThemeTokens(tokens) {
+      if (!tokens || typeof tokens !== "object") return;
+      const names = { background:"--bg", surface:"--surface", foreground:"--fg", muted:"--muted", border:"--border", accent:"--accent", danger:"--danger", success:"--success" };
+      for (const [key, cssName] of Object.entries(names)) {
+        if (typeof tokens[key] === "string" && tokens[key].trim()) document.documentElement.style.setProperty(cssName, tokens[key]);
+      }
+    }
+    function reportHeight() {
+      const height = Math.ceil(document.body.getBoundingClientRect().height);
+      window.parent.postMessage({ type:"molibot:plugin:resize", correlationId:`resize_${height}`, height }, "*");
+    }
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent || !event.data || typeof event.data !== "object") return;
+      const data = event.data;
+      if (data.type === "molibot:host:bootstrap") { locale = data.locale === "zh-CN" ? "zh-CN" : "en-US"; document.documentElement.dataset.theme = data.theme === "dark" ? "dark" : "light"; applyThemeTokens(data.themeTokens); renderCopy(); if (!settingsLoaded) { settingsLoaded = true; void loadSettings(); } return; }
+      const callback = pending.get(data.correlationId);
+      if (!callback) return;
+      if (data.type === "molibot:host:error") callback.reject(new Error(data.error || copy().failed));
+      else if (data.type === "molibot:host:settings_data") callback.resolve(data.values);
+      else if (data.type === "molibot:host:action_result") callback.resolve(data.result);
+      else if (data.type === "molibot:host:saved") callback.resolve();
+      else return;
+      pending.delete(data.correlationId);
+    });
+    element("codexDetect").onclick = () => runAction("codex","detectEnvironment");
+    element("claudeDetect").onclick = () => runAction("claude-code","detectEnvironment");
+    element("codexInstall").onclick = () => runAction("codex","installProvider");
+    element("claudeInstall").onclick = () => runAction("claude-code","installProvider");
+    element("codexTest").onclick = () => runAction("codex","testProvider");
+    element("claudeTest").onclick = () => runAction("claude-code","testProvider");
+    element("codexPath").oninput = () => setProviderAvailable("codex", false);
+    element("claudeCodePath").oninput = () => setProviderAvailable("claude-code", false);
+    element("save").onclick = async () => { try { await request({ type:"molibot:plugin:save_settings", values:values() }); show(copy().saved,"success"); } catch (error) { show(error.message || copy().failed,"error"); } };
+    renderCopy();
+    setProviderAvailable("codex", false);
+    setProviderAvailable("claude-code", false);
+    new ResizeObserver(reportHeight).observe(document.body);
+    reportHeight();
+    window.parent.postMessage({ type:"molibot:plugin:ready", correlationId:"ready" }, "*");
+  </script>
+</body>
+</html>

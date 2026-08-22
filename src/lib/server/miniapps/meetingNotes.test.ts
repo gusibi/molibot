@@ -353,7 +353,75 @@ test("history search covers titles, notes, and transcript text and returns activ
   runtime.dispose();
 });
 
-test("meeting UI does not use modal dialogs and will move recording ownership to the host capability seam", () => {
+test("meeting audio streaming and batch retry transcription routes work correctly", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "molibot-meeting-audio-"));
+  let failTranscription = true;
+  const runtime = createMeetingNotes(contextOver(dataDir, {
+    transcribe: async () => {
+      if (failTranscription) {
+        throw Object.assign(new Error("No STT capability"), { code: "capability_unavailable" });
+      }
+      return { text: "Meeting transcript text", durationSeconds: 5 };
+    }
+  }));
+
+  const { meeting, track } = await createMeeting(runtime, "Audio Test Meeting");
+  // 创建一个合成的 44-byte WAV header + PCM
+  const wavHeader = Buffer.alloc(44);
+  wavHeader.write("RIFF", 0);
+  wavHeader.writeUInt32LE(44 - 8 + 4, 4);
+  wavHeader.write("WAVE", 8);
+  wavHeader.write("fmt ", 12);
+  wavHeader.writeUInt32LE(16, 16);
+  wavHeader.writeUInt16LE(1, 20); // PCM
+  wavHeader.writeUInt16LE(1, 22); // Mono
+  wavHeader.writeUInt32LE(16000, 24); // 16kHz
+  wavHeader.writeUInt32LE(32000, 28); // byte rate
+  wavHeader.writeUInt16LE(2, 32); // block align
+  wavHeader.writeUInt16LE(16, 34); // bits per sample
+  wavHeader.write("data", 36);
+  wavHeader.writeUInt32LE(4, 40); // 4 bytes PCM
+  const pcmData = Buffer.from([0x00, 0x10, 0x00, 0x20]);
+  const wavBytes = Buffer.concat([wavHeader, pcmData]);
+
+  const chunkRes = await addChunk(runtime, meeting.id, track.id, 0, 0, 5_000, wavBytes);
+  assert.equal(chunkRes.status, 202);
+  const chunkId = chunkRes.body.chunk.id;
+
+  // 测试单个 chunk 音频获取
+  const chunkAudioRes = await runtime.handleHttp(request(`/chunks/${chunkId}/audio`));
+  assert.equal(chunkAudioRes.status, 200);
+  assert.ok(chunkAudioRes.body instanceof Buffer || chunkAudioRes.body instanceof Uint8Array);
+
+  // 测试整场会议音频获取
+  const meetingAudioRes = await runtime.handleHttp(request(`/meetings/${meeting.id}/audio`));
+  assert.equal(meetingAudioRes.status, 200);
+  assert.equal(meetingAudioRes.headers["content-type"], "audio/wav");
+  assert.ok(meetingAudioRes.body.byteLength > 0);
+
+  // 等待转写失败
+  const failedMeeting = await waitFor(
+    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting,
+    (m) => m.completeness.failedChunks.length > 0
+  );
+  assert.equal(failedMeeting.completeness.failedChunks.length, 1);
+
+  // 模拟配置好 STT 后进行重试
+  failTranscription = false;
+  const retryRes = await runtime.handleHttp(request(`/meetings/${meeting.id}/retry-transcription`, { method: "POST", body: "{}" }));
+  assert.equal(retryRes.status, 202);
+
+  // 等待重试成功
+  const recoveredMeeting = await waitFor(
+    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting,
+    (m) => m.completeness.failedChunks.length === 0 && m.utterances.length > 0
+  );
+  assert.equal(recoveredMeeting.utterances[0].text, "Meeting transcript text");
+
+  runtime.dispose();
+});
+
+test("meeting UI does not use modal dialogs and provides audio playback & export controls", () => {
   const source = readFileSync(new URL("./builtin/meeting-notes/ui/app.js", import.meta.url), "utf8");
   const markup = readFileSync(new URL("./builtin/meeting-notes/ui/index.html", import.meta.url), "utf8");
   assert.doesNotMatch(source, /\b(?:confirm|prompt|alert)\s*\(/);
@@ -364,6 +432,11 @@ test("meeting UI does not use modal dialogs and will move recording ownership to
   assert.match(source, /\["recording", "paused", "transcribing", "finalizing", "summarizing", "queued"\]/);
   assert.match(source, /audio\.pause/);
   assert.match(source, /audio\.resume/);
+  assert.match(source, /audio-player-card/);
+  assert.match(source, /meeting-timeline/);
+  assert.match(source, /download-audio-btn/);
+  assert.match(source, /export-markdown-btn/);
+  assert.match(source, /retry-transcription-btn/);
   assert.match(markup, /id="live-view"/);
   assert.match(markup, /id="history-view"/);
   assert.match(markup, /id="history-search"/);
@@ -385,3 +458,4 @@ test("meeting UI does not use modal dialogs and will move recording ownership to
   assert.match(runtime, /meeting_notes_transcription_failed/);
   assert.match(runtime, /meeting_notes_summary_failed/);
 });
+

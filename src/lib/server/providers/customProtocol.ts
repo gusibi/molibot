@@ -10,6 +10,7 @@ import {
   applyDirectReasoningParams,
   resolveThinkingLevel
 } from "$lib/server/providers/customThinking.js";
+import { ModelRegistryService } from "$lib/server/providers/modelRegistry.js";
 import type { ConversationMessage } from "$lib/shared/types/message.js";
 
 export interface DirectProviderReply {
@@ -313,30 +314,36 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
       };
     }
     verification.text = "passed";
+    const inferred = ModelRegistryService.getInstance().inferModelCapabilities(payload.model);
     if (declaredTags.includes("vision")) {
-      const testImage = payload.testImage ?? {
-        mimeType: "image/png",
-        data: SAMPLE_PNG_BASE64
-      };
-      const visionProbe = await runRequest(url, buildAnthropicCompatibleHeaders(payload), {
-        model: payload.model,
-        max_tokens: 8,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "text", text: "Reply with the single word ok." },
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: testImage.mimeType,
-                data: testImage.data
+      if (inferred.matched && inferred.vision) {
+        // Authoritative registry confirms vision support and connectivity passed
+        verification.vision = "passed";
+      } else {
+        const testImage = payload.testImage ?? {
+          mimeType: "image/png",
+          data: SAMPLE_PNG_BASE64
+        };
+        const visionProbe = await runRequest(url, buildAnthropicCompatibleHeaders(payload), {
+          model: payload.model,
+          max_tokens: 8,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: "Reply with the single word ok." },
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: testImage.mimeType,
+                  data: testImage.data
+                }
               }
-            }
-          ]
-        }]
-      });
-      verification.vision = visionProbe.ok ? "passed" : "failed";
+            ]
+          }]
+        });
+        verification.vision = visionProbe.ok ? "passed" : "failed";
+      }
     }
     for (const tag of declaredTags) {
       if (verification[tag]) continue;
@@ -388,29 +395,35 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
   const supportsDeveloper = developerProbe.ok;
   const supportedRoles: ModelRole[] = supportsDeveloper ? [...BASE_ROLES, "developer"] : [...BASE_ROLES];
 
+  const inferred = ModelRegistryService.getInstance().inferModelCapabilities(payload.model);
   if (declaredTags.includes("vision")) {
-    const testImage = payload.testImage ?? {
-      mimeType: "image/png",
-      data: SAMPLE_PNG_BASE64
-    };
-    const visionProbe = await runRequest(url, buildOpenAICompatibleHeaders(payload), {
-      ...basePayload,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Reply with the single word ok." },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${testImage.mimeType};base64,${testImage.data}`
+    if (inferred.matched && inferred.vision) {
+      // Authoritative registry confirms vision support and connectivity passed
+      verification.vision = "passed";
+    } else {
+      const testImage = payload.testImage ?? {
+        mimeType: "image/png",
+        data: SAMPLE_PNG_BASE64
+      };
+      const visionProbe = await runRequest(url, buildOpenAICompatibleHeaders(payload), {
+        ...basePayload,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Reply with the single word ok." },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:${testImage.mimeType};base64,${testImage.data}`
+                }
               }
-            }
-          ]
-        }
-      ]
-    });
-    verification.vision = visionProbe.ok ? "passed" : "failed";
+            ]
+          }
+        ]
+      });
+      verification.vision = visionProbe.ok ? "passed" : "failed";
+    }
   }
 
   for (const tag of declaredTags) {

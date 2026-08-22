@@ -1,4 +1,5 @@
 import { getPiCatalogModels } from "$lib/server/providers/piRuntime.js";
+import { ModelRegistryService } from "$lib/server/providers/modelRegistry.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 import { KNOWN_PROVIDER_LIST } from "$lib/server/settings/schema.js";
 import type {
@@ -11,6 +12,7 @@ const ENGINE_ID = /^[a-z][a-z0-9_-]{0,63}$/;
 const MODEL_KEY = /^(pi|custom)\|[^|]+\|.+$/;
 
 export function listImageRecognitionModels(settings: RuntimeSettings): DesktopImageRecognitionModel[] {
+  const registry = ModelRegistryService.getInstance();
   const builtin = KNOWN_PROVIDER_LIST.flatMap((providerId) =>
     getPiCatalogModels(providerId)
       .filter((model) => Array.isArray(model.input) && model.input.includes("image"))
@@ -26,13 +28,24 @@ export function listImageRecognitionModels(settings: RuntimeSettings): DesktopIm
     .filter((provider) => provider.enabled !== false)
     .flatMap((provider) => provider.models
       .filter((model) => model.enabled !== false && model.tags?.includes("vision"))
-      .map((model) => ({
-        key: `custom|${provider.id}|${model.id}`,
-        label: `${provider.name || provider.id} / ${model.alias || model.id}`,
-        providerId: provider.id,
-        modelId: model.id,
-        verification: model.verification?.vision ?? "untested"
-      }))
+      .map((model) => {
+        let verification = model.verification?.vision;
+        if (!verification || verification === "untested") {
+          const inferred = registry.inferModelCapabilities(model.id);
+          if (inferred.matched && inferred.vision) {
+            verification = "passed";
+          } else {
+            verification = "untested";
+          }
+        }
+        return {
+          key: `custom|${provider.id}|${model.id}`,
+          label: `${provider.name || provider.id} / ${model.alias || model.id}`,
+          providerId: provider.id,
+          modelId: model.id,
+          verification
+        };
+      })
     );
   return [...custom, ...builtin];
 }

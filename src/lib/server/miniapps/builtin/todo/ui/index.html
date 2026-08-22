@@ -90,6 +90,11 @@
           </div>
 
           <div class="composer-schedule" id="composer-schedule" hidden>
+            <div class="sched-quick-chips">
+              <button type="button" class="sched-chip" id="chip-today" data-i18n="today">Today</button>
+              <button type="button" class="sched-chip" id="chip-tomorrow" data-i18n="tomorrow">Tomorrow</button>
+              <button type="button" class="sched-chip" id="chip-next-week" data-i18n="nextMonday">Next Mon</button>
+            </div>
             <div class="sched-row">
               <span class="sched-label" data-i18n="dueLabel">Deadline</span>
               <input class="sched-input" id="due-date" type="date" />
@@ -124,7 +129,10 @@
           </div>
         </section>
         <section class="section done-section" id="done-section">
-          <h2 class="section-title" data-i18n="completed">Completed</h2>
+          <div class="section-header-row">
+            <h2 class="section-title" data-i18n="completed">Completed</h2>
+            <button type="button" class="done-clear-btn" id="clear-done-btn" data-i18n="clearCompleted" title="Clear completed items">Clear</button>
+          </div>
           <ul class="group-card" id="done-list"></ul>
         </section>
       </div>

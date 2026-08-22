@@ -4,6 +4,7 @@ mod artifact_protocol;
 mod desktop_preferences;
 mod miniapp_protocol;
 mod native_feedback;
+mod plugin_protocol;
 pub mod service;
 mod supervisor;
 
@@ -300,6 +301,18 @@ pub fn run() {
                     desktop.service.lock().ok().and_then(|service| service.endpoint.clone())
                 }));
             artifact_protocol::handle(request, endpoint, responder);
+        })
+        // Installable plugins get the same fixed-origin containment as Mini
+        // Apps. The protocol exposes only `/plugins/<id>/ui/*` and never grants
+        // the WebView wildcard access to arbitrary localhost frames.
+        .register_asynchronous_uri_scheme_protocol("molibot-plugin", |app, request, responder| {
+            let endpoint = app
+                .app_handle()
+                .try_state::<Mutex<DesktopState>>()
+                .and_then(|state| state.lock().ok().and_then(|desktop| {
+                    desktop.service.lock().ok().and_then(|service| service.endpoint.clone())
+                }));
+            plugin_protocol::handle(request, endpoint, responder);
         })
         .invoke_handler(tauri::generate_handler![
             execute_native_command,

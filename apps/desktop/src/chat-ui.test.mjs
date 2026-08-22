@@ -53,6 +53,7 @@ const runActivity = read("./lib/chat/RunActivity.svelte");
 const thinkingCard = read("./lib/chat/ThinkingCard.svelte");
 const turnProcess = read("./lib/chat/TurnProcess.svelte");
 const processTimeline = read("./lib/chat/ProcessTimeline.svelte");
+const processActivityItem = read("./lib/chat/ProcessActivityItem.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
 const markdownArtifactOverlay = read("./lib/chat/MarkdownArtifactOverlay.svelte");
 const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
@@ -157,24 +158,17 @@ test("the composer's model pill reflects the Session, never a stale global defau
   }
 });
 
-test("editing rewrites the current Session and branching is a separate explicit action", () => {
+test("editing rewrites the current Session in place and user messages do not have a fork button", () => {
   // Edit-and-resend stays destructive: it truncates the active Session in place.
   assert.match(view, /await truncateDesktopMessages\(connectedEndpoint, activeProfileId, activeSessionId, editingId\)/);
   assert.doesNotMatch(view, /forkDesktopSession\(\s*connectedEndpoint,\s*activeProfileId,\s*editingSession/);
-  // The branch button forks, switches to the child, and primes its composer.
-  assert.match(view, /async function forkFromUserMessage/);
-  assert.match(view, /chatStore\.selectSession\(activeProfileId, child\.id\)/);
-  assert.match(view, /Promise\.allSettled/);
-  assert.match(view, /forkingMessageId/);
-  assert.match(transcript, /messageActions\.onForkUser!\(message\)/);
-  assert.match(transcript, /ph-git-branch/);
-  assert.match(transcriptHelpers, /onForkUser\?: \(message: TranscriptMessage\) => void/);
-  // Project chat mirrors the split: destructive edit, plus its own branch
-  // button now that fork sources resolve for Project Sessions too.
+  // User messages do not offer a fork button.
+  assert.doesNotMatch(transcript, /messageActions\.onForkUser/);
+  assert.doesNotMatch(transcript, /ph-git-branch/);
+  assert.doesNotMatch(transcriptHelpers, /onForkUser/);
+  // Project chat mirrors edit-and-resend without a fork button.
   assert.match(projectChat, /await truncateDesktopMessages\(/);
-  assert.match(projectChat, /async function forkFromUserMessage/);
-  assert.match(projectChat, /onForkUser/);
-  assert.match(projectChat, /selectProjectSession\(childSessionId/);
+  assert.doesNotMatch(projectChat, /onForkUser/);
   assert.doesNotMatch(projectChat, /editingForkRequestId/);
   assert.match(row, /class:forked=\{Boolean\(item\.parentSessionId\)\}/);
   assert.match(row, /row-branch/);
@@ -1140,6 +1134,7 @@ test("a streaming reply renders as keyed per-block fragments, not one swapped tr
   // last-child margin reset reaches the wrapper; carry the zero through to the
   // wrapper's own last child or the bubble gains trailing space.
   assert.match(styles, /\.md-stream-block:last-child > :last-child\s*\{[^}]*margin-bottom:\s*0/s);
+  assert.match(styles, /\.chat-markdown-segment:last-child > :last-child[^{]*\{[^}]*margin-bottom:\s*0/s);
 });
 
 // A turn that produced six images used to render six full-width cards stacked
@@ -1934,7 +1929,7 @@ test("shared transcript renders media inline and delegates tool activity", () =>
   assert.match(transcript, /transcriptDisplayContent\(message, copy\.chatAssistantError\)/);
   assert.match(transcriptHelpers, /\["\(attachment\)", "\(empty response\)"\]/);
   assert.match(transcriptHelpers, /content === "Sorry, something went wrong\."/);
-  assert.match(runActivity, /hasError \? copy\.runFailed : copy\.runCompleted/);
+  assert.match(runActivity, /isFailed \? copy\.runFailed : copy\.runCompleted/);
 });
 
 test("completed reasoning stays opt-in while live reasoning remains visible", () => {
@@ -1953,14 +1948,19 @@ test("turn process uses one disclosure with an ordered timeline", () => {
   assert.match(turnProcess, /<details class="turn-process" bind:open=\{opened\}/);
   assert.match(turnProcess, /\{#if opened\}[\s\S]*<ProcessTimeline/);
   assert.match(turnProcess, /copy\.turnSummaryTools/);
-  assert.match(turnProcess, /copy\.turnSummaryFiles/);
-  assert.match(transcript, /processSummary\.hasError/);
+  assert.match(turnProcess, /isFailed/);
+  assert.match(transcript, /failed=\{assistantStatus === "error" \|\| assistantStatus === "aborted"\}/);
+  assert.doesNotMatch(transcript, /<TurnProcess[^>]*forceOpen/);
   assert.doesNotMatch(turnProcess, /<ThinkingCard|<RunActivity/);
   assert.match(processTimeline, /\{#each blocks as block \(block\.id\)\}/);
   assert.match(processTimeline, /activityTimelineItems\(block\.activities\)/);
   assert.match(processTimeline, /<details class="process-activity-group">/);
   assert.match(processTimeline, /<ProcessActivityItem \{activity\} \{copy\} \{onOpenPath\}/);
   assert.match(processTimeline, /class="process-timeline-entry process-timeline-thinking"/);
+  assert.match(processActivityItem, /timeline-wave-node/);
+  assert.match(processActivityItem, /process-tool-icon/);
+  assert.match(processActivityItem, /activityToolIcon/);
+  assert.match(turnProcess, /timeline-wave-node/);
 });
 
 // Completed reasoning text and tool summaries are the bulk of a transcript's
@@ -2125,17 +2125,14 @@ test("settings uses the flat Geist layout", () => {
   assert.match(sections.imageRecognition, /\[addedEngine\.id\]: true/);
   assert.doesNotMatch(sections.imageRecognition, /open=\{index === 0\}/);
   assert.match(styles, /\.image-settings-tabs \{[^}]*width: var\(--settings-col\);[^}]*margin: 0 auto 20px;/s);
-  assert.match(sections.plugins, /memoryDailyMaterials\.enabled/);
-  assert.match(sections.plugins, /memoryDailyMaterials\.projectId/);
-  assert.match(sections.plugins, /memoryDailyMaterials\.promptPath/);
-  assert.match(sections.plugins, /memoryReflectionNotificationTarget/);
-  assert.match(sections.plugins, /reflectionNotificationTargets/);
-  assert.equal(
-    sections.plugins.match(/value=\{pluginsStore\.pluginsEdit\.memoryReflectionNotificationTarget\}/g)?.length,
-    2,
-    "the shared memory notification target must be editable from both memory and daily-material cards"
-  );
-  assert.match(sections.plugins, /disabled=\{!pluginsStore\.pluginsEdit\.memoryReflectionNotifications && !pluginsStore\.pluginsEdit\.memoryDailyMaterials\.notifications\}/);
+  assert.match(sections.plugins, /loadDesktopCorePlugins/);
+  assert.match(sections.plugins, /loadDesktopCorePluginDetail/);
+  assert.match(sections.plugins, /saveDesktopCorePluginSettings/);
+  assert.match(sections.plugins, /"memory"/);
+  assert.match(sections.plugins, /"daily-materials"/);
+  assert.match(sections.plugins, /openPluginDetail/);
+  assert.match(sections.plugins, /class="settings-footbar"/);
+  assert.doesNotMatch(sections.plugins, /pluginsStore|saveDesktopPlugins\(/);
 });
 
 test("settings form controls share the DESIGN input height and time fields use the native picker", () => {
@@ -3371,6 +3368,7 @@ const workspacePane = read("./lib/chat/ChatWorkspacePane.svelte");
 const miniAppStore = read("./lib/stores/miniapps.svelte.ts");
 const desktopApi = read("./lib/api.ts");
 const miniAppProtocol = read("../src-tauri/src/miniapp_protocol.rs");
+const pluginProtocol = read("../src-tauri/src/plugin_protocol.rs");
 
 test("Mini App panels load from a fixed custom origin, never a loopback port range", () => {
   // The service port is chosen at runtime while the CSP is fixed at build time.
@@ -3398,6 +3396,41 @@ test("Mini App panels load from a fixed custom origin, never a loopback port ran
     false,
     "Mini App routes must not be in the WebView's direct HTTP allowlist"
   );
+});
+
+test("custom plugin settings use a fixed Tauri origin with a UI-only transport", () => {
+  const csp = tauriConfig.app.security.csp;
+  assert.match(csp, /frame-src[^;]*molibot-plugin:/);
+  assert.doesNotMatch(csp, /frame-src[^;]*127\.0\.0\.1/);
+  assert.doesNotMatch(csp, /frame-src[^;]*localhost:\*/);
+  assert.match(desktopApi, /molibot-plugin:\/\/\$\{pluginId\}\/\$\{cleanEntry\}/);
+  assert.match(sections.plugins, /desktopPluginSettingsFrameUrl/);
+  assert.doesNotMatch(sections.plugins, /src=\{`\$\{session\.endpoint\}\/plugins\//);
+  assert.match(tauriLib, /register_asynchronous_uri_scheme_protocol\("molibot-plugin"/);
+  assert.match(pluginProtocol, /\/plugins\/\{plugin_id\}\/ui\/\{asset_path\}/);
+  assert.match(pluginProtocol, /redirect\(reqwest::redirect::Policy::none\(\)\)/);
+  assert.match(sections.plugins, /data-resolved-appearance/);
+  assert.match(sections.plugins, /molibot:plugin:resize/);
+  assert.match(sections.plugins, /style:height=/);
+  assert.match(
+    sections.plugins,
+    /values:\s*\$state\.snapshot\(contractDetail\.settingsValues\s*\?\?\s*\{\}\)/,
+    "plugin settings must cross the WebView boundary as a cloneable state snapshot"
+  );
+  assert.match(
+    sections.plugins,
+    /presence:\s*\$state\.snapshot\(contractDetail\.secretsPresence\s*\?\?\s*\{\}\)/,
+    "plugin secret presence must cross the WebView boundary as a cloneable state snapshot"
+  );
+  assert.doesNotMatch(styles, /\.plugin-custom-frame\s*\{[^}]*min-height:\s*520px/s);
+  const httpPermission = tauriCapabilities.permissions.find(
+    (permission) => permission && permission.identifier === "http:default"
+  );
+  assert.ok(httpPermission);
+  for (const host of ["http://127.0.0.1:*", "http://localhost:*"]) {
+    assert.ok(httpPermission.allow.some((entry) => entry.url === `${host}/api/settings/plugins/core*`));
+    assert.ok(httpPermission.allow.some((entry) => entry.url === `${host}/api/settings/plugins/contract*`));
+  }
 });
 
 test("built-in Mini Apps are an offer with install / update / uninstall in one place", () => {

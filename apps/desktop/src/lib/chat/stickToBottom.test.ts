@@ -177,5 +177,12 @@ test("stickToBottom re-arms on session key change", () => {
   action.update?.({ key: "session-2" });
   assert.deepEqual(pinnedEvents, [false, true]);
 
+  // Synthetic scroll event during session DOM replacement does not unpin
+  node.scrollTop = 200;
+  node.scrollHeight = 3000;
+  node.dispatchEvent(new Event("scroll"));
+  assert.deepEqual(pinnedEvents, [false, true]);
+  assert.equal(node.scrollTop, 2400);
+
   action.destroy?.();
 });

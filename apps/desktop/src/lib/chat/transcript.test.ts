@@ -26,7 +26,8 @@ test("completed turns fold every pre-answer reasoning, narration, and tool block
     toolCount: 1,
     fileCount: 0,
     durationMs: 1250,
-    hasError: false
+    hasError: false,
+    interrupted: false
   });
 });
 
@@ -75,12 +76,26 @@ test("a proposed Plan remains the final visible decision when later process bloc
   assert.deepEqual(sections.response, [answer, planBlock]);
 });
 
-test("a stale running activity keeps the completed process open as an interruption", () => {
+test("a stale running activity is detected as an interruption", () => {
   assert.equal(transcriptProcessSummary([{
     id: "stale",
     kind: "activities",
     activities: [{ key: "stale", kind: "tool", label: "Bash", state: "running" }]
-  }]).hasError, true);
+  }]).interrupted, true);
+});
+
+test("a failed exploratory tool call sets hasError on summary but does not mark interrupted", () => {
+  const summary = transcriptProcessSummary([{
+    id: "probe",
+    kind: "activities",
+    activities: [
+      { key: "read-nonexistent", kind: "tool", label: "Read", state: "error" },
+      { key: "find-file", kind: "tool", label: "Find", state: "success" }
+    ]
+  }]);
+  assert.equal(summary.hasError, true);
+  assert.equal(summary.interrupted, false);
+  assert.equal(summary.toolCount, 2);
 });
 
 test("process duration is wall-clock elapsed time, not summed parallel tool time", () => {

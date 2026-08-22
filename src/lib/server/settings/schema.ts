@@ -298,32 +298,32 @@ export interface MiniAppsSettings {
   };
 }
 
-export type CodexPermissionMode =
-  | "never"
-  | "approve-for-me"
-  | "dangerously-bypass-approvals-and-sandbox";
-
-export type ClaudeCodePermissionMode =
-  | "dontAsk"
-  | "acceptEdits"
-  | "auto"
-  | "plan"
-  | "bypassPermissions";
-
-export interface ExternalSubagentPluginSettings {
+export interface PluginEntrySettings {
+  /**
+   * Master host switch for this installable plugin (issue #34). The rest of
+   * the plugin's configuration, secrets, and data live in its own scoped
+   * directory under `<dataDir>/plugins/` - not in global RuntimeSettings.
+   */
   enabled: boolean;
-  codexEnabled: boolean;
-  codexPermissionMode: CodexPermissionMode;
-  codexPath?: string;
-  claudeCodeEnabled: boolean;
-  claudeCodePermissionMode: ClaudeCodePermissionMode;
-  claudeCodePath?: string;
+  /**
+   * Display-only provenance (built-in, local directory, npm, git). Does not
+   * grant permissions; all plugin code runs in the plugin fault domain.
+   */
+  source?:
+    | { kind: "builtin" }
+    | { kind: "directory"; label: string }
+    | { kind: "npm"; package: string; version: string }
+    | { kind: "git"; repo: string; ref: string };
 }
 
 export interface PluginSettings {
+  /**
+   * Host enablement for installable Molibot plugins (issue #34). Keyed by
+   * plugin id (directory name under `plugins/packages`).
+   */
+  entries?: Record<string, PluginEntrySettings>;
   memory: MemoryBackendSettings;
   cloudflareHtml: CloudflareHtmlPluginSettings;
-  externalSubagent: ExternalSubagentPluginSettings;
   hooks: HookPluginEntry[];
   piExtensions: PiExtensionsSettings;
   miniApps: MiniAppsSettings;

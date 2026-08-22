@@ -12,9 +12,9 @@ Mini App 与主程序之间的每一条连接都必须是一条**显式的、经
 | 1 | 模型 → App | Agent 工具 `miniapp__<appId>__<tool>` | ✅ 已交付 |
 | 2 | 用户 → App（经模型） | `@app` 选择器路由 | ✅ 已交付 |
 | 3 | App UI → App 服务端 | `/miniapps/<id>/api/*` | ✅ 已交付 |
-| 4 | 宿主 UI → App（确定性，无模型） | 消息/附件/选区动作 | ✅ `miniapp-message-actions-plan.md`（2026-08-06） |
-| 5 | App UI → 宿主 UI | postMessage 桥（composer 填充 / 附件 / 跳会话） | ✅ v1（2026-08-06）+ v2（2026-08-07），见 `miniapp-composer-bridge-plan.md` |
-| 6 | App 服务端 → 宿主模型能力 | AI 门面 `ctx.ai` | ✅ 平台链路；⚠️ 麦克风人工矩阵待验收，见 `miniapp-ai-facade-prd.md` §7 |
+| 4 | 宿主 UI → App（确定性，无模型） | 消息/附件/选区动作 | ✅ `docs/archive/requirements/miniapp-message-actions-plan.md`（2026-08-06） |
+| 5 | App UI → 宿主 UI | postMessage 桥（composer 填充 / 附件 / 跳会话） | ✅ v1（2026-08-06）+ v2（2026-08-07），见 `docs/archive/requirements/miniapp-composer-bridge-plan.md` |
+| 6 | App 服务端 → 宿主模型能力 | AI 门面 `ctx.ai` | ✅ 平台链路；⚠️ 麦克风人工矩阵待验收，见 `docs/archive/requirements/miniapp-ai-facade-prd.md` §7 |
 | 7 | App → 宿主展示面 | 结果卡片 + 深链 + 侧栏徽标 | ✅ 2026-08-07（本文档 §2.3/§2.4/§2.5） |
 
 新场景先问：它是哪条既有缝的延伸？只有回答"都不是"时才允许开新缝。
@@ -60,7 +60,7 @@ manifest 声明周期任务（每周日收藏回顾、每天早上待办摘要�
 宿主全局搜索聚合各 App 的 `search` 工具结果。依赖 §3.1 先定下 `search` 约定；UI 上是搜索面的改造，单独排期。
 
 ### 3.5 AI 门面 v2
-流式输出（长纪要生成的体验）、图像识别/生成能力、embedding（供 §3.1 的 App 做自己的向量检索）。按 `miniapp-ai-facade-prd.md` §9 的非目标清单逐个解锁。
+流式输出（长纪要生成的体验）、图像识别/生成能力、embedding（供 §3.1 的 App 做自己的向量检索）。按 `docs/archive/requirements/miniapp-ai-facade-prd.md` §9 的非目标清单逐个解锁。
 
 ## 4. 远期/待观察（记录想法，暂无立项计划)
 

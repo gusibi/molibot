@@ -279,3 +279,30 @@ test("existing v2 rows survive the migration with empty date fields", async () =
   assert.equal(listed.body.todos[0].remindMs, null);
   await after.dispose();
 });
+
+test("clear_completed tool and /todos/clear-completed route remove all completed items", async () => {
+  const { runtime } = harness();
+  const a1 = await runtime.tools.add({ title: "Task 1" });
+  const a2 = await runtime.tools.add({ title: "Task 2" });
+  const a3 = await runtime.tools.add({ title: "Task 3" });
+
+  await runtime.tools.complete({ id: a1.structuredContent.id });
+  await runtime.tools.complete({ id: a2.structuredContent.id });
+
+  // Tool clear_completed
+  const res = await runtime.tools.clear_completed({});
+  assert.equal(res.structuredContent.count, 2);
+
+  const remaining = await runtime.tools.list({ status: "all" });
+  assert.equal(remaining.structuredContent.length, 1);
+  assert.equal(remaining.structuredContent[0].id, a3.structuredContent.id);
+
+  // HTTP clear-completed route
+  await runtime.tools.complete({ id: a3.structuredContent.id });
+  const httpRes = await runtime.handleHttp(request("/todos/clear-completed", { method: "POST" }));
+  assert.equal(httpRes.body.count, 1);
+
+  const finalTodos = await runtime.tools.list({ status: "all" });
+  assert.equal(finalTodos.structuredContent.length, 0);
+});
+

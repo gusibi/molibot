@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "note",
   "name": "Note",
-  "version": "1.6.0",
+  "version": "1.8.8",
   "description": "A card-style Markdown note Mini App for Molibot with live Agent updates, colors, pin, archive, search, and labels.",
   "engines": {
     "molibot": ">=2.9.9 <4"

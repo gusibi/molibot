@@ -162,7 +162,7 @@ App 已有 new / usable / broken 分流和五步 UI，但完成度不等于需�
 - Desktop Contract：`src/lib/shared/desktop.ts`
 - Desktop Provider 创建/编辑：`src/lib/server/app/desktopProviderSubmit.ts`、`desktopProviderManage.ts`
 - Desktop API routes：`src/routes/api/desktop/`
-- macOS App 既定需求：`docs/requirements/molibot-macos-app-plan.md`
+- macOS App 既定需求：`docs/archive/requirements/molibot-macos-app-plan.md`
 
 ## 七、审计步骤与健康度
 

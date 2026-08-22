@@ -110,6 +110,7 @@ import type {
   DesktopProviderCreateRequest,
   DesktopProviderItem,
   DesktopProviderModel,
+  DesktopProviderModelTag,
   DesktopProviderModelsResponse,
   DesktopProviderMutationResponse,
   DesktopProviderTestResponse,
@@ -546,6 +547,236 @@ export async function saveDesktopSessionModel(
   return payload.modelKey;
 }
 
+export interface DesktopContractPluginItem {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  source: { kind: "builtin" | "directory" | "npm" | "git"; label?: string };
+  status: "active" | "disabled" | "error" | "incompatible";
+  enabled: boolean;
+  error?: string;
+  hasSettings: boolean;
+  settingsMode?: "schema" | "custom";
+  iconUri?: string;
+  capabilities: string[];
+}
+
+export type DesktopCorePluginId = "memory" | "daily-materials";
+
+export interface DesktopCorePluginItem {
+  id: DesktopCorePluginId;
+  name: string;
+  version: "built-in";
+  description: string;
+  source: { kind: "builtin" };
+  enabled: boolean;
+  settingsHref: string;
+}
+
+export interface DesktopMemoryPluginDetail {
+  id: "memory";
+  values: {
+    enabled: boolean;
+    backend: string;
+    reflectionTime: string;
+    reflectionNotifications: boolean;
+  };
+  backends: Array<{ value: string; label: string }>;
+}
+
+export interface DesktopDailyMaterialsPluginDetail {
+  id: "daily-materials";
+  values: {
+    enabled: boolean;
+    time: string;
+    projectId: string;
+    dir: string;
+    promptPath: string;
+    notifications: boolean;
+    scanTokenBudget: number;
+    scanModelKey: string;
+  };
+  projects: Array<{ value: string; label: string }>;
+  models: Array<{ value: string; label: string }>;
+}
+
+export type DesktopCorePluginDetail = DesktopMemoryPluginDetail | DesktopDailyMaterialsPluginDetail;
+
+export async function loadDesktopCorePlugins(endpoint: string): Promise<DesktopCorePluginItem[]> {
+  const payload = await requestJson<{ ok: boolean; items: DesktopCorePluginItem[] }>(
+    endpoint,
+    "/api/settings/plugins/core"
+  );
+  return payload.items ?? [];
+}
+
+export async function loadDesktopCorePluginDetail(
+  endpoint: string,
+  pluginId: DesktopCorePluginId
+): Promise<DesktopCorePluginDetail> {
+  const path = `/api/settings/plugins/core/${encodeURIComponent(pluginId)}`;
+  if (pluginId === "memory") {
+    const payload = await requestJson<Omit<DesktopMemoryPluginDetail, "id"> & { ok: boolean }>(endpoint, path);
+    return { id: "memory", values: payload.values, backends: payload.backends };
+  }
+  const payload = await requestJson<Omit<DesktopDailyMaterialsPluginDetail, "id"> & { ok: boolean }>(endpoint, path);
+  return { id: "daily-materials", values: payload.values, projects: payload.projects, models: payload.models };
+}
+
+/**
+ * Fixed-origin URL for a custom plugin's settings document in the Tauri app.
+ * The native protocol forwards only this plugin's UI mount to the managed
+ * loopback service, so Desktop never needs a wildcard localhost frame source.
+ */
+export function desktopPluginSettingsFrameUrl(pluginId: string, uiEntry: string): string {
+  const cleanEntry = uiEntry.replace(/^ui\//, "");
+  return `molibot-plugin://${pluginId}/${cleanEntry}`;
+}
+
+export async function setDesktopCorePluginEnabled(
+  endpoint: string,
+  pluginId: DesktopCorePluginId,
+  enabled: boolean
+): Promise<boolean> {
+  const payload = await requestJson<{ ok: boolean; enabled: boolean }>(
+    endpoint,
+    `/api/settings/plugins/core/${encodeURIComponent(pluginId)}/enable`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled })
+    }
+  );
+  return payload.enabled;
+}
+
+export async function saveDesktopCorePluginSettings(
+  endpoint: string,
+  pluginId: DesktopCorePluginId,
+  values: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const payload = await requestJson<{ ok: boolean; values: Record<string, unknown> }>(
+    endpoint,
+    `/api/settings/plugins/core/${encodeURIComponent(pluginId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(values)
+    }
+  );
+  return payload.values;
+}
+
+export interface DesktopContractPluginDetail {
+  item: DesktopContractPluginItem;
+  manifest?: any;
+  schema?: Record<string, any>;
+  presentation?: Array<{
+    key: string;
+    label: { zh: string; en: string };
+    description?: { zh: string; en: string };
+    secret?: boolean;
+    placeholder?: string;
+  }>;
+  settingsValues?: Record<string, any>;
+  secretsPresence?: Record<string, { present: boolean }>;
+  retainedState: {
+    hasConfig: boolean;
+    hasData: boolean;
+    hasCache: boolean;
+  };
+}
+
+export async function loadDesktopContractPlugins(endpoint: string): Promise<DesktopContractPluginItem[]> {
+  const payload = await requestJson<{ ok: boolean; items: DesktopContractPluginItem[] }>(
+    endpoint,
+    "/api/settings/plugins/contract"
+  );
+  return payload.items ?? [];
+}
+
+export async function loadDesktopContractPluginDetail(
+  endpoint: string,
+  pluginId: string
+): Promise<DesktopContractPluginDetail | null> {
+  const payload = await requestJson<{ ok: boolean; detail?: DesktopContractPluginDetail }>(
+    endpoint,
+    `/api/settings/plugins/contract/${encodeURIComponent(pluginId)}`
+  );
+  return payload.detail ?? null;
+}
+
+export async function setDesktopContractPluginEnabled(
+  endpoint: string,
+  pluginId: string,
+  enabled: boolean
+): Promise<boolean> {
+  const payload = await requestJson<{ ok: boolean; enabled: boolean }>(
+    endpoint,
+    `/api/settings/plugins/contract/${encodeURIComponent(pluginId)}/enable`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled })
+    }
+  );
+  return payload.ok;
+}
+
+export async function saveDesktopContractPluginSettings(
+  endpoint: string,
+  pluginId: string,
+  patch: { values?: Record<string, any>; secrets?: { replace?: Record<string, string>; clear?: string[] } }
+): Promise<boolean> {
+  const payload = await requestJson<{ ok: boolean }>(
+    endpoint,
+    `/api/settings/plugins/contract/${encodeURIComponent(pluginId)}/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch)
+    }
+  );
+  return payload.ok;
+}
+
+export async function invokeDesktopContractPluginAction(
+  endpoint: string,
+  pluginId: string,
+  action: string,
+  input?: unknown
+): Promise<unknown> {
+  const payload = await requestJson<{ ok: boolean; result?: unknown; error?: string }>(
+    endpoint,
+    `/api/settings/plugins/contract/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(action)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input })
+    }
+  );
+  if (!payload.ok) throw new Error(payload.error || "Plugin action failed");
+  return payload.result;
+}
+
+export async function performDesktopContractPluginLifecycle(
+  endpoint: string,
+  pluginId: string,
+  action: "uninstall" | "clear-cache" | "delete-config" | "delete-data"
+): Promise<boolean> {
+  const payload = await requestJson<{ ok: boolean }>(
+    endpoint,
+    `/api/settings/plugins/contract/${encodeURIComponent(pluginId)}/lifecycle`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action })
+    }
+  );
+  return payload.ok;
+}
+
 export async function loadDesktopSessionPermission(
   endpoint: string,
   profileId: string,
@@ -642,6 +873,39 @@ export async function saveDesktopWebProfile(
 export async function deleteDesktopWebProfile(endpoint: string, profileId: string): Promise<void> {
   await requestJson<{ ok: true }>(endpoint, `/api/desktop/profiles?id=${encodeURIComponent(profileId)}`, { method: "DELETE" });
 }
+
+export interface InferredModelMatchResponse {
+  ok: boolean;
+  matched: boolean;
+  matchedId?: string;
+  alias?: string;
+  tags?: DesktopProviderModelTag[];
+  supportedRoles?: string[];
+  contextWindow?: number;
+  maxTokens?: number;
+  thinking?: {
+    supported: boolean;
+    format?: "thought_tag" | "reasoning_content" | "standard";
+    options?: Array<{ type: string; values?: string[] }>;
+  };
+  reasoning?: boolean;
+  toolCall?: boolean;
+  vision?: boolean;
+  audioInput?: boolean;
+  stt?: boolean;
+  tts?: boolean;
+}
+
+export async function matchModelCapabilities(
+  endpoint: string,
+  modelId: string
+): Promise<InferredModelMatchResponse> {
+  return requestJson<InferredModelMatchResponse>(
+    endpoint,
+    `/api/desktop/models/match?query=${encodeURIComponent(modelId)}`
+  );
+}
+
 
 export async function loadDesktopProfileFiles(endpoint: string, profileId: string): Promise<Record<string, string>> {
   const query = new URLSearchParams({ profileId });
@@ -1466,79 +1730,6 @@ export async function loadDesktopPlugins(endpoint: string): Promise<DesktopPlugi
 export async function saveDesktopPlugins(endpoint: string, input: DesktopPluginsUpdateRequest): Promise<DesktopPluginsSummary> {
   const payload = await requestJson<DesktopPluginsResponse>(endpoint, "/api/desktop/plugins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return payload.summary;
-}
-
-export interface ExternalSubagentAvailability {
-  available: boolean;
-  source?: "custom" | "installed" | "system";
-  executablePath?: string;
-  packagePath?: string;
-  version?: string;
-  error?: string;
-}
-
-export interface ExternalSubagentStatusResponse {
-  ok: boolean;
-  runtimesDir: string;
-  codex: ExternalSubagentAvailability;
-  claudeCode: ExternalSubagentAvailability;
-}
-
-export async function loadExternalSubagentStatus(
-  endpoint: string,
-  options?: { codexPath?: string; claudeCodePath?: string }
-): Promise<ExternalSubagentStatusResponse> {
-  const query = new URLSearchParams();
-  if (options?.codexPath) query.set("codexPath", options.codexPath);
-  if (options?.claudeCodePath) query.set("claudeCodePath", options.claudeCodePath);
-  return requestJson<ExternalSubagentStatusResponse>(
-    endpoint,
-    `/api/desktop/plugins/external-subagent?${query}`
-  );
-}
-
-export async function installExternalSubagentRuntime(
-  endpoint: string,
-  provider: "codex" | "claude-code"
-): Promise<{ ok: boolean; error?: string }> {
-  return requestJson<{ ok: boolean; error?: string }>(
-    endpoint,
-    "/api/desktop/plugins/external-subagent",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider })
-    }
-  );
-}
-
-export interface ExternalSubagentTestResult {
-  ok: boolean;
-  stopReason: string;
-  output: string;
-  diagnostic?: string;
-  durationMs: number;
-}
-
-/**
- * Runs one real minimal turn through the shared subagent runtime. The call can
- * take up to ~120s (bounded by PROBE_TIMEOUT_MS server-side), so no client-side
- * timeout may cut it shorter.
- */
-export async function testExternalSubagentRuntime(
-  endpoint: string,
-  provider: "codex" | "claude-code",
-  options?: { codexPath?: string; claudeCodePath?: string }
-): Promise<ExternalSubagentTestResult> {
-  return requestJson<ExternalSubagentTestResult>(
-    endpoint,
-    "/api/desktop/plugins/external-subagent",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "test", provider, ...options })
-    }
-  );
 }
 
 /**

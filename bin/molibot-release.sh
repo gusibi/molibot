@@ -64,9 +64,16 @@ for runtime_module in "$ROOT_DIR"/scripts/runtime/*.mjs; do
   cp "$runtime_module" "$OUTPUT_DIR/scripts/runtime/$(basename "$runtime_module")"
 done
 
-for script_name in molibot.js molibot-release.sh molibot-manage.js molibot-service.sh molibot-update.sh molibot-control.js molibot-control-service.sh; do
+for script_name in molibot.js molibot-release.sh molibot-manage.js molibot-plugin-validate.js molibot-service.sh molibot-update.sh molibot-control.js molibot-control-service.sh; do
   if [[ -f "$ROOT_DIR/bin/$script_name" ]]; then
     cp "$ROOT_DIR/bin/$script_name" "$OUTPUT_DIR/bin/$script_name"
+  fi
+done
+
+mkdir -p "$OUTPUT_DIR/package"
+for plugin_package in external-subagent cloudflare-html; do
+  if [[ -d "$ROOT_DIR/package/$plugin_package" ]]; then
+    cp -R "$ROOT_DIR/package/$plugin_package" "$OUTPUT_DIR/package/$plugin_package"
   fi
 done
 

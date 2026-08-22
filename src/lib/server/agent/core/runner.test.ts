@@ -189,11 +189,12 @@ async function createRunnerForHookTest(options: {
   hookManager: any;
 }) {
   const { MomRuntimeStore } = await import("$lib/server/agent/session/store.js");
+  const workspaceDir = options.workspaceDir ?? mkdtempSync(join(tmpdir(), "molibot-runner-test-"));
   return new MomRunner(
     "telegram",
     options.chatId,
     `session-${options.chatId}-${Date.now()}`,
-    new MomRuntimeStore(options.workspaceDir ?? process.cwd()),
+    new MomRuntimeStore(workspaceDir),
     createRunnerTestSettings,
     (patch: Partial<RuntimeSettings>) => ({ ...createRunnerTestSettings(), ...patch }),
     { record: () => {} } as any,
@@ -1375,18 +1376,10 @@ test("runner hook bridge emits tool blocked when gate denies tool execution", as
     gate: async () => ({ type: "deny", reason: "blocked by test hook" })
   } as any;
 
-  const runner = new MomRunner(
-    "telegram",
-    "chat-hook-gate",
-    `session-hook-gate-${Date.now()}`,
-    new (await import("$lib/server/agent/session/store.js")).MomRuntimeStore(process.cwd()),
-    createRunnerTestSettings,
-    (patch: Partial<RuntimeSettings>) => ({ ...createRunnerTestSettings(), ...patch }),
-    { record: () => {} } as any,
-    { record: () => {} } as any,
-    createRunnerTestMemory() as any,
+  const runner = await createRunnerForHookTest({
+    chatId: "chat-hook-gate",
     hookManager
-  );
+  });
 
   (runner as any).activeHookContext = {
     runId: "run-tool-blocked-hook",
@@ -1424,18 +1417,10 @@ test("runner hook bridge emits model call pairing fields", async () => {
     gate: async () => ({ type: "allow" })
   } as any;
 
-  const runner = new MomRunner(
-    "telegram",
-    "chat-model-hook",
-    `session-model-hook-${Date.now()}`,
-    new (await import("$lib/server/agent/session/store.js")).MomRuntimeStore(process.cwd()),
-    createRunnerTestSettings,
-    (patch: Partial<RuntimeSettings>) => ({ ...createRunnerTestSettings(), ...patch }),
-    { record: () => {} } as any,
-    { record: () => {} } as any,
-    createRunnerTestMemory() as any,
+  const runner = await createRunnerForHookTest({
+    chatId: "chat-model-hook",
     hookManager
-  );
+  });
 
   (runner as any).activeHookContext = {
     runId: "run-model-hook",

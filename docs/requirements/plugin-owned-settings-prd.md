@@ -2,14 +2,20 @@
 
 > Installable plugins own their settings UI, configuration, and data
 >
-> - **Status**: Planned — GitHub Issue [#34](https://github.com/gusibi/molibot/issues/34) (`ready-for-agent`)
+> - **Status**: Partially delivered — shared hosting contract and External Subagent settings migration are shipped; generic enhanced-pi installation and remaining legacy-plugin migrations are open in GitHub Issue [#34](https://github.com/gusibi/molibot/issues/34)
 > - **Priority**: P1
 > - **First reference migration**: External Subagent
-> - **Revision**: v1 (2026-08-22)
+> - **Revision**: v1.3 (2026-08-22)
+
+## Delivery snapshot
+
+Delivered in the first vertical slice: owner-global package/config/data/cache roots; strict manifests; compact Web/Desktop catalogs and dedicated detail views; schema and sandboxed custom settings modes; atomic config and owner-only secrets; declared actions in child-process fault domains; Web/Desktop bridges; and External Subagent's package-owned bilingual UI, configuration, detection, installation, and test actions. The native catalog merges core and contract APIs, so Memory Backend, Daily Materials, Cloudflare HTML, and External Subagent remain visible together. Tauri grants only the two plugin API families and loads custom UI through a fixed `molibot-plugin://` origin that forwards exclusively to the selected plugin's `/ui/` mount. Custom pages receive host theme tokens and report validated content heights instead of owning a fixed inner viewport. External Subagent gates Provider enablement on environment detection and treats package-manager failure as failure; its isolated runtime directory is created before installation. Cold restart verifies that enablement and custom settings both reload from their independent stores. Memory Backend and Daily Materials remain explicitly identified legacy built-ins while their later migration or removal is decided.
+
+Still open: installing arbitrary enhanced pi packages into the Molibot contract catalog, cancellation/progress completion across every host surface, hardened atomic package replacement, the full install/upgrade/uninstall matrix, and migration or removal of remaining legacy built-in configuration such as Cloudflare HTML. The generic host therefore remains an active design authority and this PRD is not archived.
 
 ## Problem Statement
 
-Molibot can install and run third-party pi extensions, and some capabilities are packaged outside the main source tree. However, plugin configuration is still stored in the global `RuntimeSettings` object and rendered inside one shared Plugins page.
+Before this slice, Molibot could install and run third-party pi extensions, but plugin configuration was stored in the global `RuntimeSettings` object and rendered inside one shared Plugins page. External Subagent has now moved to the package-owned contract; enhanced pi packages and remaining legacy built-ins still need to complete the same path.
 
 This creates four user-visible problems:
 
@@ -22,7 +28,7 @@ The result is not an Obsidian-like model. Installing a plugin does not install e
 
 ## Solution
 
-Introduce a **plugin-owned settings contract** for installable Molibot plugins and enhanced pi extensions.
+The delivered host introduces a **plugin-owned settings contract** for installable Molibot plugins. Enhanced pi extensions can continue to run through the compatibility installer, but are not yet automatically promoted into this contract catalog.
 
 The Plugins page becomes a compact catalog. Selecting a configurable plugin opens a dedicated route. Molibot owns the route shell, navigation, enablement, installation state, isolation boundary, and lifecycle actions; the plugin package owns the settings UI, configuration schema, validation, runtime actions, and plugin data.
 
@@ -42,7 +48,7 @@ Plugin files live under the owner-global Molibot data root, not under a Bot, Cha
 
 `<dataDir>` means the existing owner-global `config.dataDir`. It may be described as the owner workspace, but it is not the per-Bot `workspaceDir`. A plugin installed once is available to every eligible Agent and channel, so its installation and configuration cannot be derived from a conversational workspace.
 
-External Subagent is the first complete migration. Its package will contain its settings UI and settings runtime actions; Molibot Core will have no External Subagent-specific form fields, API routes, conditionals, or configuration schema.
+External Subagent is the first settings migration. Its package now contains its settings UI, schema, and settings runtime actions, while the existing agent feature adapter remains host-integrated. The generic settings catalog and detail pages contain no External Subagent-specific forms, API routes, conditionals, or configuration schema.
 
 ## User Stories
 
@@ -86,6 +92,9 @@ External Subagent is the first complete migration. Its package will contain its 
 38. As a maintainer, I want every plugin path derived from the storage registry, so that alternate `DATA_DIR` instances stay isolated.
 39. As a maintainer, I want catalog APIs to return opaque identity and status only, so that paths and configuration never leak to the WebView.
 40. As a maintainer, I want one acceptance path covering install, configure, restart, upgrade, and uninstall, so that the feature is tested as a product.
+41. As a Molibot user, I want a plugin page to use the Agent App's active semantic theme and its real content height, so that it does not look embedded or create a second scrollbar.
+42. As a Molibot user, I want a runtime-dependent Provider to stay disabled until detection passes, so that an unavailable executable cannot be presented as enabled.
+43. As a Molibot user, I want installation success to mean the runtime was actually installed and detected, so that a failed package-manager result is never reported as success.
 
 ## Implementation Decisions
 
@@ -179,10 +188,11 @@ Only one settings mode is active. Custom mode is for flows ordinary fields canno
 
 - Never import third-party UI as a Svelte component or execute it in the main Settings document.
 - Use an iframe sandbox without `allow-same-origin`, granting only minimum approved behavior.
-- Desktop may reuse the custom-protocol transport pattern. Web uses the same host contract without unrestricted loopback APIs.
+- Desktop uses the `molibot-plugin://<plugin-id>/<asset>` custom protocol. Its native transport accepts only safe plugin ids and relative asset paths, pins the upstream to the managed loopback service, and forwards only `/plugins/<plugin-id>/ui/*`; Web uses the same host contract without unrestricted loopback APIs.
 - Communication uses a versioned `postMessage` bridge. Validate iframe source, plugin id, message type, payload size, and correlation id.
 - Minimum bridge surface:
-  - bootstrap locale, theme, plugin version, contract version, and enabled state;
+  - bootstrap locale, resolved appearance, semantic theme tokens, plugin version, contract version, and enabled state;
+  - validated plugin content height updates so the host owns page scrolling;
   - settings read/write and secret replace/clear;
   - invoke a declared settings action;
   - progress, validation errors, results, and saved confirmation;
@@ -212,6 +222,8 @@ Only one settings mode is active. Custom mode is for flows ordinary fields canno
 
 - Move settings UI into the External Subagent package.
 - Move environment detection, runtime installation, and test-run handlers into plugin settings actions.
+- Keep each Provider disabled until its matching environment check passes; changing its executable path invalidates the previous check.
+- Create the plugin-owned runtime directory before package-manager execution and surface unsuccessful action results as errors.
 - Persist provider enablement, permission modes, and optional paths in its config directory.
 - Keep only the host enabled switch in RuntimeSettings.
 - Remove its dedicated Core endpoints, settings fields, frontend state/copy, conditionals, validators, and sanitizers.

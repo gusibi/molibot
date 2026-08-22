@@ -414,6 +414,17 @@ class TodoStore {
     return existing;
   }
 
+  clearCompleted(listId = null) {
+    let sql = "DELETE FROM todos WHERE completed = 1";
+    const params = [];
+    if (listId) {
+      sql += " AND list_id = ?";
+      params.push(listId);
+    }
+    const result = this.db.prepare(sql).run(...params);
+    return { count: Number(result.changes || 0) };
+  }
+
   // — List management — ------------------------------------------------------
 
   createList(rawName) {
@@ -771,6 +782,16 @@ export default function createTodoApp(context) {
         const list = store.deleteList(input.id);
         return { ...text(`Deleted list: ${list.name} (items moved to inbox)`), structuredContent: { id: list.id, name: list.name }, changed: true };
       },
+
+      clear_completed: async (input) => {
+        const result = store.clearCompleted(input?.listId);
+        reminders.tick();
+        return {
+          ...text(`Cleared ${result.count} completed todo(s).`),
+          structuredContent: result,
+          changed: true
+        };
+      },
     },
 
     async handleHttp(request) {
@@ -836,6 +857,14 @@ function route(store, request, reminders) {
   }
 
   // — /todos —
+  if (requestPath === "/todos/clear-completed") {
+    if (method === "POST") {
+      const listId = body?.listId;
+      return { body: store.clearCompleted(listId), changed: true };
+    }
+    return { status: 405, body: { error: `${method} is not allowed on /todos/clear-completed.` } };
+  }
+
   if (requestPath === "/todos") {
     if (method === "GET") {
       const opts = {};

@@ -1,27 +1,21 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
-import type { RuntimeSettings } from "$lib/server/settings/schema.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { getPluginConfigStore, resetPluginConfigStoreForTests } from "$lib/server/plugins/contract/configStore.js";
 import { externalSubagentFeaturePlugin } from "./plugin.js";
-import { createClaudeCodeSubagentTool, createCodexSubagentTool } from "./tools.js";
+import {
+  createClaudeCodeSubagentTool,
+  createCodexSubagentTool
+} from "./tools.js";
+import type { FeaturePluginContext } from "$lib/server/plugins/types.js";
+import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 
-test("createCodexSubagentTool declares high risk, plugin source, execute effect", () => {
-  const context = {
-    getSettings: () => defaultRuntimeSettings,
-    cwd: process.cwd(),
-    workspaceDir: process.cwd()
-  };
-  const tool = createCodexSubagentTool(context);
-  assert.equal(tool.name, "codexSubagent");
-  assert.deepEqual((tool as any).classification, {
-    risk: "high",
-    source: "plugin",
-    effect: "execute"
-  });
-});
-
-test("createClaudeCodeSubagentTool declares high risk, plugin source, execute effect", () => {
-  const context = {
+test("externalSubagent tools are defined with high risk execution metadata", () => {
+  const context: FeaturePluginContext = {
     getSettings: () => defaultRuntimeSettings,
     cwd: process.cwd(),
     workspaceDir: process.cwd()
@@ -35,55 +29,50 @@ test("createClaudeCodeSubagentTool declares high risk, plugin source, execute ef
   });
 });
 
-test("externalSubagentFeaturePlugin isEnabled and createTools respect plugin configuration", () => {
-  const disabledSettings: RuntimeSettings = {
-    ...defaultRuntimeSettings,
-    plugins: {
-      ...defaultRuntimeSettings.plugins,
-      externalSubagent: {
-        enabled: false,
-        codexEnabled: true,
-        codexPermissionMode: "never",
-        claudeCodeEnabled: true,
-        claudeCodePermissionMode: "dontAsk"
+test("externalSubagentFeaturePlugin isEnabled and buildPromptSection respect plugin configuration", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-ext-tools-test-"));
+  const originals = { ...storagePaths };
+  try {
+    storagePaths.pluginsConfigDir = path.join(root, "config");
+    resetPluginConfigStoreForTests();
+
+    const configStore = getPluginConfigStore();
+    await configStore.writeConfig("external-subagent", 1, {
+      codexEnabled: true,
+      claudeCodeEnabled: false
+    });
+
+    const disabledSettings: RuntimeSettings = {
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        entries: {
+          "external-subagent": { enabled: false }
+        }
       }
-    }
-  };
+    };
 
-  assert.equal(externalSubagentFeaturePlugin.isEnabled(disabledSettings), false);
-  assert.equal(externalSubagentFeaturePlugin.buildPromptSection?.(disabledSettings), null);
+    assert.equal(externalSubagentFeaturePlugin.isEnabled(disabledSettings), false);
+    assert.equal(externalSubagentFeaturePlugin.buildPromptSection?.(disabledSettings), null);
 
-  const contextDisabled = {
-    getSettings: () => disabledSettings,
-    cwd: process.cwd(),
-    workspaceDir: process.cwd()
-  };
-  assert.deepEqual(externalSubagentFeaturePlugin.createTools?.(contextDisabled), []);
-
-  const enabledSettings: RuntimeSettings = {
-    ...defaultRuntimeSettings,
-    plugins: {
-      ...defaultRuntimeSettings.plugins,
-      externalSubagent: {
-        enabled: true,
-        codexEnabled: true,
-        codexPermissionMode: "never",
-        claudeCodeEnabled: false,
-        claudeCodePermissionMode: "dontAsk"
+    const enabledSettings: RuntimeSettings = {
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        entries: {
+          "external-subagent": { enabled: true }
+        }
       }
-    }
-  };
+    };
 
-  assert.equal(externalSubagentFeaturePlugin.isEnabled(enabledSettings), true);
-  const prompt = externalSubagentFeaturePlugin.buildPromptSection?.(enabledSettings);
-  assert.ok(prompt?.includes("`codex`"));
-  assert.ok(!prompt?.includes("`claude-code`"));
-
-  const contextEnabled = {
-    getSettings: () => enabledSettings,
-    cwd: process.cwd(),
-    workspaceDir: process.cwd()
-  };
-  const tools = externalSubagentFeaturePlugin.createTools?.(contextEnabled) ?? [];
-  assert.equal(tools.length, 0);
+    assert.equal(externalSubagentFeaturePlugin.isEnabled(enabledSettings), true);
+    const prompt = externalSubagentFeaturePlugin.buildPromptSection?.(enabledSettings);
+    assert.notEqual(prompt, null);
+    assert.match(prompt ?? "", /`codex`/);
+    assert.doesNotMatch(prompt ?? "", /claude-code/);
+  } finally {
+    resetPluginConfigStoreForTests();
+    Object.assign(storagePaths, originals);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

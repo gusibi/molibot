@@ -36,8 +36,12 @@ function failure(cause: unknown) {
 }
 
 export const GET: RequestHandler = async () => {
-  getRuntime();
-  return json(payload(), { headers: { "Cache-Control": "no-store" } });
+  try {
+    getRuntime();
+    return json(payload(), { headers: { "Cache-Control": "no-store" } });
+  } catch (cause) {
+    return failure(cause);
+  }
 };
 
 export const PATCH: RequestHandler = async ({ request }) => {

@@ -50,8 +50,25 @@
 
       <!-- Tab picker -->
       <nav class="tab-picker" id="tab-picker" hidden>
-        <button class="tp-item active" data-tab="active" type="button" data-i18n="tabActive">笔记</button>
-        <button class="tp-item" data-tab="archived" type="button" data-i18n="tabArchived">归档</button>
+        <div class="tp-group">
+          <button class="tp-item active" id="tp-tab-active" data-tab="active" type="button">
+            <svg class="tp-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+            </svg>
+            <span class="tp-label" data-i18n="tabActive">笔记</span>
+            <span class="tp-count" id="tp-notes-count"></span>
+          </button>
+          <button class="tp-item" id="tp-tab-archived" data-tab="archived" type="button">
+            <svg class="tp-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/>
+            </svg>
+            <span class="tp-label" data-i18n="tabArchived">归档</span>
+            <span class="tp-count" id="tp-archived-count"></span>
+          </button>
+        </div>
+        <div class="tp-divider" id="tp-tags-divider" hidden></div>
+        <div class="tp-header" id="tp-tags-header" hidden data-i18n="tagsHeader">标签</div>
+        <div class="tp-tags-list" id="tp-tags-list"></div>
       </nav>
 
       <!-- Google Material 风格便签编辑框 -->
@@ -169,6 +186,14 @@
             <span class="editor-title-text" data-i18n="editNote">编辑便签</span>
           </div>
           <div class="editor-header-right">
+            <button type="button" id="modal-preview-btn" class="icon-btn-sm editor-preview-toggle" title="预览 Markdown" data-i18n-title="previewMarkdown">
+              <svg class="preview-icon" viewBox="0 0 24 24" width="20" height="20">
+                <path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+              </svg>
+              <svg class="edit-icon hidden" viewBox="0 0 24 24" width="20" height="20">
+                <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+              </svg>
+            </button>
             <button type="button" id="modal-pin-btn" class="icon-btn-sm composer-pin-toggle" title="固定笔记" data-i18n-title="pinNote">
               <svg class="pin-icon" viewBox="0 0 24 24" width="20" height="20">
                 <path fill="currentColor" d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
@@ -180,9 +205,15 @@
 
         <!-- 编辑主内容区 / Editor Body with Paper ruled lines -->
         <div class="editor-page-body">
-          <input id="edit-title" class="note-input note-input-title editor-title-input" type="text" placeholder="标题" data-i18n-placeholder="titlePlaceholder" />
+          <div id="editor-edit-fields" class="editor-edit-fields">
+            <input id="edit-title" class="note-input note-input-title editor-title-input" type="text" placeholder="标题" data-i18n-placeholder="titlePlaceholder" />
+            <textarea id="edit-content" class="note-input note-input-content editor-textarea" placeholder="笔记内容..." data-i18n-placeholder="contentPlaceholder"></textarea>
+          </div>
 
-          <textarea id="edit-content" class="note-input note-input-content editor-textarea" placeholder="笔记内容..." data-i18n-placeholder="contentPlaceholder"></textarea>
+          <div id="editor-preview-view" class="editor-preview-view hidden">
+            <h1 id="preview-title" class="editor-preview-title hidden"></h1>
+            <div id="preview-content" class="editor-preview-content"></div>
+          </div>
 
           <div class="composer-labels-bar editor-labels-bar">
             <svg viewBox="0 0 24 24" width="16" height="16" class="label-icon">
@@ -202,6 +233,9 @@
             <button type="button" class="modal-color-dot" data-color="red" title="红色"></button>
             <button type="button" class="modal-color-dot" data-color="purple" title="紫色"></button>
             <button type="button" class="modal-color-dot" data-color="gray" title="灰色"></button>
+          </div>
+          <div class="editor-footer-info">
+            <span class="editor-word-count" id="editor-word-count">0 字</span>
           </div>
           <div class="editor-footer-actions">
             <button type="button" id="modal-share-btn" class="editor-share-btn" data-i18n="share" title="生成分享图片" data-i18n-title="shareNote">
@@ -226,7 +260,12 @@
           <img id="share-preview-img" class="share-preview-img" alt="Note Preview" />
         </div>
         <footer class="share-preview-footer">
-          <span class="share-preview-hint" data-i18n="saveImageHint">长按或右键图片即可复制/保存</span>
+          <span class="share-preview-hint" id="share-preview-hint" data-i18n="saveImageHint">长按或右键图片即可复制/保存</span>
+          <div class="share-preview-actions">
+            <button type="button" id="share-copy-text-btn" class="share-action-btn" data-i18n="copyText">复制文本</button>
+            <button type="button" id="share-copy-img-btn" class="share-action-btn" data-i18n="copyImage">复制图片</button>
+            <button type="button" id="share-save-img-btn" class="share-action-btn primary" data-i18n="saveImage">保存图片</button>
+          </div>
         </footer>
       </div>
     </div>

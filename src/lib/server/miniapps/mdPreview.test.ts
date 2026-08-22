@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -242,13 +242,22 @@ test("proxy-image refuses anything that is not an http(s) URL", async () => {
   });
 });
 
-test("macaron theme saves in settings and is exported in themes definition", async () => {
+test("macaron, geek-mint, and warm-amber themes save in settings and are exported in themes definition", async () => {
   await withApp(async (app) => {
-    await app.handleHttp(request("/settings", {
-      method: "PUT",
-      body: { theme: "macaron" }
-    }));
-    const res = await app.handleHttp(request("/settings"));
-    assert.equal(res.body.settings.theme, "macaron");
+    for (const theme of ["macaron", "geek-mint", "warm-amber"]) {
+      await app.handleHttp(request("/settings", {
+        method: "PUT",
+        body: { theme }
+      }));
+      const res = await app.handleHttp(request("/settings"));
+      assert.equal(res.body.settings.theme, theme);
+    }
   });
+});
+
+test("UI index.html contains word stats and new theme choices", () => {
+  const html = readFileSync(new URL("./builtin/md-preview/ui/index.html", import.meta.url), "utf8");
+  assert.match(html, /id="doc-stats"/);
+  assert.match(html, /data-theme="geek-mint"/);
+  assert.match(html, /data-theme="warm-amber"/);
 });

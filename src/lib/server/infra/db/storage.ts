@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "$lib/server/app/env.js";
+import { ensureBuiltinPlugins } from "$lib/server/plugins/contract/builtinBootstrap.js";
 
 export const storagePaths = {
   dataDir: path.resolve(config.dataDir),
@@ -29,6 +30,21 @@ export const storagePaths = {
   miniAppsDir: path.resolve(config.dataDir, "miniapps"),
   miniAppCodeDir: path.resolve(config.dataDir, "miniapps", "apps"),
   miniAppDataDir: path.resolve(config.dataDir, "miniapps", "data"),
+  /**
+   * Installable plugin platform (issue #34). Code, config, durable data and
+   * cache are siblings with independent lifecycles - the same contract as the
+   * Mini App platform above: `packages/` is replaceable (an upgrade swaps only
+   * that directory), while `config/` and `data/` survive install, upgrade and -
+   * at the owner's choice - uninstall. `cache/` is disposable.
+   *
+   * Legacy channel/provider plugin manifests live in sibling
+   * `plugins/channels|providers` directories; they predate this contract and
+   * are not part of it.
+   */
+  pluginsPackagesDir: path.resolve(config.dataDir, "plugins", "packages"),
+  pluginsConfigDir: path.resolve(config.dataDir, "plugins", "config"),
+  pluginsDataDir: path.resolve(config.dataDir, "plugins", "data"),
+  pluginsCacheDir: path.resolve(config.dataDir, "plugins", "cache"),
   /**
    * Service-owned runtime state: the ownership lock, the state file the desktop
    * supervisor reads, rolled service logs, crash reports, and the extracted
@@ -113,6 +129,10 @@ const REQUIRED_DIR_KEYS = [
   "miniAppsDir",
   "miniAppCodeDir",
   "miniAppDataDir",
+  "pluginsPackagesDir",
+  "pluginsConfigDir",
+  "pluginsDataDir",
+  "pluginsCacheDir",
   "runtimeDir",
   "toolingDir",
   "toolingPythonDir",
@@ -237,5 +257,11 @@ export function initDb(): void {
   }
   if (!fs.existsSync(storagePaths.sessionsIndexFile)) {
     writeJsonFile(storagePaths.sessionsIndexFile, {});
+  }
+
+  try {
+    ensureBuiltinPlugins();
+  } catch {
+    // best-effort
   }
 }

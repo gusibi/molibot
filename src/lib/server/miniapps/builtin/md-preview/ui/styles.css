@@ -221,6 +221,24 @@ body {
   min-width: 8px;
 }
 
+.doc-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+}
+
+.doc-stat-pill {
+  padding: 2px 8px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-secondary-container);
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-label-sm-size);
+  line-height: var(--md-label-sm-lh);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -377,6 +395,18 @@ body {
   background: #FAFDFB;
   border-color: #38A3A5;
   box-shadow: inset 0 0 0 2px #FF9AA2;
+}
+
+.geek-mint-swatch {
+  background: #FFFFFF;
+  border-color: #0D9488;
+  box-shadow: inset 0 0 0 2px #14B8A6;
+}
+
+.warm-amber-swatch {
+  background: #FFFCF8;
+  border-color: #BF360C;
+  box-shadow: inset 0 0 0 2px #FF9800;
 }
 
 /* - Buttons - */

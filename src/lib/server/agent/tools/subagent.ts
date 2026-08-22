@@ -46,7 +46,12 @@ import { liftSandboxForPermissionMode, resolveEffectiveSandboxSettings } from "$
 import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { settleWithCooperativeTimeout } from "$lib/server/agent/core/cooperativeTimeout.js";
 import { ExternalSubagentRuntime } from "#external-subagent";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { pluginDataDir } from "$lib/server/plugins/contract/paths.js";
+import {
+  assertExternalSubagentProviderEnabled,
+  isExternalSubagentProviderEnabled,
+  resolveExternalSubagentConfig
+} from "$lib/server/plugins/externalSubagent/config.js";
 import {
   evaluateSubagentEvent,
   resolveSubagentBudgetLimits,
@@ -1348,7 +1353,7 @@ let sharedExternalRuntime: ExternalSubagentRuntime | null = null;
 function getSharedExternalRuntime(): ExternalSubagentRuntime {
   if (!sharedExternalRuntime) {
     sharedExternalRuntime = new ExternalSubagentRuntime({
-      runtimesDir: join(storagePaths.dataDir, "runtimes", "external-subagent")
+      runtimesDir: pluginDataDir("external-subagent") ?? undefined
     });
   }
   return sharedExternalRuntime;
@@ -1361,13 +1366,14 @@ async function runSingleSubagent(
 ): Promise<SubagentRunResult> {
   if (agent.name === "claude-code" || agent.name === "codex") {
     const providerId = agent.name === "claude-code" ? "claude-code" : "codex";
-    const pluginSettings = options.settings.plugins.externalSubagent;
+    const pluginSettings = resolveExternalSubagentConfig(options.settings);
+    assertExternalSubagentProviderEnabled(pluginSettings, providerId);
     const permissionMode = providerId === "claude-code"
-      ? pluginSettings?.claudeCodePermissionMode ?? "dontAsk"
-      : pluginSettings?.codexPermissionMode ?? "never";
+      ? pluginSettings.claudeCodePermissionMode
+      : pluginSettings.codexPermissionMode;
     const customPath = providerId === "claude-code"
-      ? pluginSettings?.claudeCodePath
-      : pluginSettings?.codexPath;
+      ? pluginSettings.claudeCodePath
+      : pluginSettings.codexPath;
 
     const runtime = getSharedExternalRuntime();
     const result = await runtime.run(providerId, {
@@ -1548,11 +1554,12 @@ export function createSubagentTool(options: {
     : null;
   const excludedTools = new Set(options.excludedTools ?? []);
   const settings = options.getSettings();
-  const externalPlugin = settings.plugins.externalSubagent;
+  const externalPlugin = resolveExternalSubagentConfig(settings);
   const availableNames = SUBAGENT_NAMES.filter((name) => {
     if (name === "skill-drafter") return false;
-    if (name === "claude-code") return Boolean(externalPlugin?.enabled && externalPlugin?.claudeCodeEnabled !== false);
-    if (name === "codex") return Boolean(externalPlugin?.enabled && externalPlugin?.codexEnabled !== false);
+    if (name === "claude-code" || name === "codex") {
+      return isExternalSubagentProviderEnabled(externalPlugin, name);
+    }
     return true;
   });
   const advertisedAgents = allowedAgents
@@ -1570,6 +1577,15 @@ export function createSubagentTool(options: {
         params as SubagentInput,
         resolveSubagentExecutionLimits(settings)
       );
+      const currentExternalPlugin = resolveExternalSubagentConfig(settings);
+      const disabledExternal = parsed.tasks.find(
+        (item) =>
+          (item.agent === "claude-code" || item.agent === "codex") &&
+          !isExternalSubagentProviderEnabled(currentExternalPlugin, item.agent)
+      );
+      if (disabledExternal && (disabledExternal.agent === "claude-code" || disabledExternal.agent === "codex")) {
+        assertExternalSubagentProviderEnabled(currentExternalPlugin, disabledExternal.agent);
+      }
       if (allowedAgents) {
         const disallowed = parsed.tasks.find((item) => !allowedAgents.has(item.agent as SubagentName));
         if (disallowed) {

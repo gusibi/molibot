@@ -50,7 +50,7 @@ import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, type PermissionMode } from "
  * on that object is a feature plugin's own settings blob (keyed by its
  * settingsKey) and must round-trip untouched.
  */
-export const RESERVED_PLUGIN_KEYS = ["memory", "cloudflareHtml", "externalSubagent", "hooks", "piExtensions", "miniApps"];
+export const RESERVED_PLUGIN_KEYS = ["entries", "memory", "cloudflareHtml", "hooks", "piExtensions", "miniApps"];
 
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
@@ -660,39 +660,44 @@ export function sanitizeCloudflareHtmlPluginSettings(
   };
 }
 
-const CODEX_PERMISSION_MODES: Array<RuntimeSettings["plugins"]["externalSubagent"]["codexPermissionMode"]> = [
-  "never",
-  "approve-for-me",
-  "dangerously-bypass-approvals-and-sandbox"
-];
-
-const CLAUDE_CODE_PERMISSION_MODES: Array<RuntimeSettings["plugins"]["externalSubagent"]["claudeCodePermissionMode"]> = [
-  "dontAsk",
-  "acceptEdits",
-  "auto",
-  "plan",
-  "bypassPermissions"
-];
-
-export function sanitizeExternalSubagentPluginSettings(
+export function sanitizePluginEntries(
   input: unknown,
-  fallback: RuntimeSettings["plugins"]["externalSubagent"]
-): RuntimeSettings["plugins"]["externalSubagent"] {
-  const source = input && typeof input === "object"
-    ? input as Record<string, unknown>
-    : {};
-  const codexMode = String(source.codexPermissionMode ?? fallback.codexPermissionMode).trim() as RuntimeSettings["plugins"]["externalSubagent"]["codexPermissionMode"];
-  const claudeMode = String(source.claudeCodePermissionMode ?? fallback.claudeCodePermissionMode).trim() as RuntimeSettings["plugins"]["externalSubagent"]["claudeCodePermissionMode"];
+  fallback: Record<string, PluginEntrySettings> = {}
+): Record<string, PluginEntrySettings> {
+  const source = input && typeof input === "object" && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : fallback;
+  const out: Record<string, PluginEntrySettings> = {};
+  for (const [key, value] of Object.entries(source)) {
+    // Only accept safe plugin ids: single path segment, no traversal.
+    if (!/^[a-z][a-z0-9-]{1,62}$/.test(key)) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const item = value as Record<string, unknown>;
+    const fallbackItem = fallback[key];
+    const enabled = item.enabled === undefined
+      ? (fallbackItem?.enabled ?? false)
+      : Boolean(item.enabled);
 
-  return {
-    enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
-    codexEnabled: source.codexEnabled === undefined ? fallback.codexEnabled : Boolean(source.codexEnabled),
-    codexPermissionMode: CODEX_PERMISSION_MODES.includes(codexMode) ? codexMode : fallback.codexPermissionMode,
-    codexPath: String(source.codexPath ?? fallback.codexPath ?? "").trim(),
-    claudeCodeEnabled: source.claudeCodeEnabled === undefined ? fallback.claudeCodeEnabled : Boolean(source.claudeCodeEnabled),
-    claudeCodePermissionMode: CLAUDE_CODE_PERMISSION_MODES.includes(claudeMode) ? claudeMode : fallback.claudeCodePermissionMode,
-    claudeCodePath: String(source.claudeCodePath ?? fallback.claudeCodePath ?? "").trim()
-  };
+    let sourceVal: PluginEntrySettings["source"] | undefined;
+    if (item.source && typeof item.source === "object" && !Array.isArray(item.source)) {
+      const s = item.source as Record<string, unknown>;
+      if (s.kind === "builtin") {
+        sourceVal = { kind: "builtin" };
+      } else if (s.kind === "directory" && typeof s.label === "string") {
+        sourceVal = { kind: "directory", label: s.label.trim() };
+      } else if (s.kind === "npm" && typeof s.package === "string" && typeof s.version === "string") {
+        sourceVal = { kind: "npm", package: s.package.trim(), version: s.version.trim() };
+      } else if (s.kind === "git" && typeof s.repo === "string" && typeof s.ref === "string") {
+        sourceVal = { kind: "git", repo: s.repo.trim(), ref: s.ref.trim() };
+      }
+    }
+
+    out[key] = {
+      enabled,
+      ...(sourceVal ? { source: sourceVal } : {})
+    };
+  }
+  return out;
 }
 
 export function sanitizeRoles(input: unknown): ModelRole[] {
@@ -1474,14 +1479,11 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.plugins = {
     ...currentPluginExtras,
     ...nextPluginExtras,
+    entries: sanitizePluginEntries(next.plugins?.entries, current.plugins.entries ?? {}),
     memory: sanitizeMemoryPluginSettings(memoryPluginInput, current.plugins.memory),
     cloudflareHtml: sanitizeCloudflareHtmlPluginSettings(
       next.plugins?.cloudflareHtml ?? current.plugins.cloudflareHtml,
       current.plugins.cloudflareHtml
-    ),
-    externalSubagent: sanitizeExternalSubagentPluginSettings(
-      next.plugins?.externalSubagent ?? current.plugins.externalSubagent,
-      current.plugins.externalSubagent
     ),
     hooks: sanitizeHookPluginEntries(next.plugins?.hooks ?? current.plugins.hooks),
     piExtensions: sanitizePiExtensionSettings(

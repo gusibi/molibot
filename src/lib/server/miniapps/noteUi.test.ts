@@ -63,3 +63,55 @@ test("Note renders useful Markdown while keeping raw HTML and unsafe links inert
   assert.doesNotMatch(rendered, /onerror/i);
   assert.doesNotMatch(rendered, /href="javascript:/i);
 });
+
+test("Note tags live inside tab-picker dropdown and do not occupy main list view", () => {
+  const note = getBuiltinMiniApp("note");
+  assert.ok(note);
+  const html = note.files["ui/index.html"] ?? "";
+  const script = note.files["ui/app.js"] ?? "";
+
+  // Main UI should not have a persistent tag filter bar
+  assert.doesNotMatch(html, /<div class="tag-filter-bar"/);
+  
+  // Tab picker should have tags header & list container
+  assert.match(html, /id="tp-tags-header"/);
+  assert.match(html, /id="tp-tags-list"/);
+  assert.match(html, /id="tp-tags-divider"/);
+
+  // Script renders tag menu inside tpTagsList
+  assert.match(script, /function renderTagMenu/);
+  assert.match(script, /tpTagsList/);
+});
+
+test("Note editor modal supports Markdown preview toggle and view container", () => {
+  const note = getBuiltinMiniApp("note");
+  assert.ok(note);
+  const html = note.files["ui/index.html"] ?? "";
+  const script = note.files["ui/app.js"] ?? "";
+  const style = note.files["ui/styles.css"] ?? "";
+
+  // Header has preview button with eye and edit icons
+  assert.match(html, /id="modal-preview-btn"/);
+  assert.match(html, /class="preview-icon"/);
+  assert.match(html, /class="edit-icon/);
+
+  // Body has edit fields container and preview view container
+  assert.match(html, /id="editor-edit-fields"/);
+  assert.match(html, /id="editor-preview-view"/);
+  assert.match(html, /id="preview-title"/);
+  assert.match(html, /id="preview-content"/);
+
+  // Script has preview toggle handlers and i18n
+  assert.match(script, /function updatePreviewContent/);
+  assert.match(script, /function setPreviewMode/);
+  assert.match(script, /previewMarkdown/);
+  assert.match(script, /previewNote/);
+
+  // Style has preview rules and avoids line-clamp truncation
+  assert.match(style, /\.editor-preview-toggle/);
+  assert.match(style, /\.editor-preview-view/);
+  assert.match(style, /\.editor-preview-title/);
+  assert.match(style, /\.editor-preview-content/);
+  assert.match(style, /\.note-card \.card-content/);
+});
+

@@ -31,13 +31,13 @@ import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js
 import {
   RESERVED_PLUGIN_KEYS,
   sanitizeChannelInstanceDisplaySettings,
-  sanitizeExternalSubagentPluginSettings,
   sanitizeHookPluginEntries,
   sanitizeImageGenerateSettings as sanitizeImageGenerateConfig,
   sanitizeImageRecognitionSettings,
   sanitizeMemoryPluginSettings,
   sanitizeMiniAppSettings,
   sanitizePiExtensionSettings,
+  sanitizePluginEntries,
   sanitizeTtsGenerateSettings
 } from "$lib/server/settings/sanitize.js";
 import {
@@ -1101,10 +1101,6 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     defaultRuntimeSettings.plugins.memory
   );
   const cloudflareHtml = sanitizeCloudflareHtmlPluginSettings(raw.plugins?.cloudflareHtml);
-  const externalSubagent = sanitizeExternalSubagentPluginSettings(
-    raw.plugins?.externalSubagent,
-    defaultRuntimeSettings.plugins.externalSubagent
-  );
   const hookPlugins = sanitizeHookPluginEntries(raw.plugins?.hooks);
   const piExtensions = sanitizePiExtensionSettings(
     raw.plugins?.piExtensions,
@@ -1264,9 +1260,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     qqBots: effectiveQQBots,
     plugins: {
       ...pluginExtras,
+      entries: sanitizePluginEntries(raw.plugins?.entries),
       memory: memoryPlugin,
       cloudflareHtml,
-      externalSubagent,
       hooks: hookPlugins,
       piExtensions,
       miniApps

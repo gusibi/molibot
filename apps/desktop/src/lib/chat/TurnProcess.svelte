@@ -9,6 +9,7 @@
   export let stateKey: string;
   export let forceOpen = false;
   export let live = false;
+  export let failed = false;
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
   export let endpoint = "";
 
@@ -23,6 +24,7 @@
     opened = forceOpen;
   }
   $: summary = transcriptProcessSummary(blocks);
+  $: isFailed = failed || (summary.interrupted && !live);
   $: displayBlocks = live
     ? blocks
     : blocks.map((block) => block.kind === "activities"
@@ -35,10 +37,18 @@
   }
 </script>
 
-<details class="turn-process" bind:open={opened} data-state={live ? "live" : summary.hasError ? "error" : "complete"}>
+<details class="turn-process" bind:open={opened} data-state={live ? "live" : isFailed ? "error" : "complete"}>
   <summary class="turn-process-summary">
-    <i class={`ph ${live ? "ph-circle-notch spin" : summary.hasError ? "ph-warning-circle" : "ph-check-circle"}`} aria-hidden="true"></i>
-    <span>{live ? copy.runProgress : summary.hasError ? copy.runFailed : copy.runCompleted}</span>
+    {#if live}
+      <span class="timeline-wave-node turn-process-wave-node" aria-hidden="true">
+        <span class="timeline-wave-bar"></span>
+        <span class="timeline-wave-bar"></span>
+        <span class="timeline-wave-bar"></span>
+      </span>
+    {:else}
+      <i class={`ph ${isFailed ? "ph-warning-circle" : "ph-check-circle"}`} aria-hidden="true"></i>
+    {/if}
+    <span>{live ? copy.runProgress : isFailed ? copy.runFailed : copy.runCompleted}</span>
     {#if summary.toolCount}<small>{copy.turnSummaryTools.replace("{count}", String(summary.toolCount))}</small>{/if}
     {#if summary.fileCount}<small>{copy.turnSummaryFiles.replace("{count}", String(summary.fileCount))}</small>{/if}
     {#if summary.durationMs}<small class="turn-process-duration">{durationLabel(summary.durationMs)}</small>{/if}

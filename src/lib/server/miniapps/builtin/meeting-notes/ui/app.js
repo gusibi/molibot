@@ -14,6 +14,7 @@ const strings = {
     interrupted:"This meeting was interrupted. Saved audio and completed text are still available.", incomplete:"Some audio could not be processed. The notes are marked partial.",
     transcriptionFailed:"Speech recognition failed for {count} audio block(s). Retained audio is safe; check Settings → Mini Apps → AI, then retry.",
     summaryFailed:"The notes model could not finish. Check the Mini App text model in Settings → Mini Apps → AI, then regenerate notes.", diagnostic:"Diagnostic code",
+    playAudio:"Play", pauseAudio:"Pause", speed:"Speed", downloadAudio:"Download Audio (WAV)", exportMarkdown:"Export Notes (MD)", retryTranscription:"Retry Speech Recognition", jumpToPlay:"Play from this line",
     state:{ recording:"Recording",paused:"Paused",finalizing:"Finishing",summarizing:"Writing notes",ready:"Ready",partial:"Partial",failed:"Failed",interrupted:"Interrupted",queued:"Queued",transcribing:"Transcribing" }
   },
   zh: {
@@ -31,6 +32,7 @@ const strings = {
     interrupted:"会议曾被中断；已保存的音频和文字仍然可用。", incomplete:"部分音频未能处理，当前纪要已标记为不完整。",
     transcriptionFailed:"有 {count} 个音频块语音识别失败。原始音频仍然安全保留；请到“设置 → 小程序 → AI”检查语音识别模型后重试。",
     summaryFailed:"纪要模型未能完成生成。请到“设置 → 小程序 → AI”检查文本模型，然后重新生成纪要。", diagnostic:"诊断代码",
+    playAudio:"播放", pauseAudio:"暂停", speed:"倍速", downloadAudio:"下载录音 (WAV)", exportMarkdown:"导出纪要 (MD)", retryTranscription:"重试语音识别", jumpToPlay:"播放本段录音",
     state:{ recording:"录音中",paused:"已暂停",finalizing:"收尾中",summarizing:"整理纪要中",ready:"已完成",partial:"部分完成",failed:"失败",interrupted:"已中断",queued:"排队中",transcribing:"转写中" }
   }
 };
@@ -243,7 +245,19 @@ async function searchHistory() {
 
 function transcriptMarkup(meeting) {
   if (!meeting.utterances.length) return `<p class="content-empty">${escapeHtml(t.noTranscript)}</p>`;
-  return `<ol class="timeline">${meeting.utterances.map((utterance) => `<li><time>${timecode(utterance.startMs)}</time><div><strong>${escapeHtml(utterance.speakerLabel || (locale === "zh" ? "现场" : "Room"))}</strong><p>${escapeHtml(utterance.text)}</p></div></li>`).join("")}</ol>`;
+  return `<ol class="timeline" id="meeting-timeline">${meeting.utterances.map((utterance) => `
+    <li id="utterance-${utterance.id}" data-start="${utterance.startMs}" data-end="${utterance.endMs}">
+      <div class="timeline-time-col">
+        <time>${timecode(utterance.startMs)}</time>
+        <button type="button" class="timeline-play-btn" data-start="${utterance.startMs}" title="${t.jumpToPlay || '播放本句'}">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+      </div>
+      <div>
+        <strong>${escapeHtml(utterance.speakerLabel || (locale === "zh" ? "现场" : "Room"))}</strong>
+        <p>${escapeHtml(utterance.text)}</p>
+      </div>
+    </li>`).join("")}</ol>`;
 }
 
 function meetingContent(meeting, history) {
@@ -251,17 +265,50 @@ function meetingContent(meeting, history) {
   const failedCodes = [...new Set(meeting.completeness.failedChunks.map((chunk) => chunk.error).filter(Boolean))].join(", ");
   const incomplete = meeting.status === "partial" || meeting.captureWarning || meeting.completeness.missingChunks.length || meeting.completeness.failedChunks.length;
   const notes = meeting.summary || meeting.liveNotes;
+  const hasAudio = Boolean(meeting.chunks && meeting.chunks.length > 0);
+
   return `
     ${history ? `<div class="detail-heading"><div><input id="meeting-title" class="detail-title" value="${escapeHtml(meeting.title)}"><p>${escapeHtml(formatDay(meeting.startedAt || meeting.createdAt))} · ${displayDuration(meeting)} · ${(bytes / 1024 / 1024).toFixed(1)} MiB</p></div>${chip(meeting.status)}</div>` : ""}
     ${meeting.status === "interrupted" ? `<p class="banner" data-error="true">${t.interrupted}</p>` : ""}
     ${meeting.status === "failed" ? `<p class="banner" data-error="true">${escapeHtml(diagnosticMessage(t.summaryFailed, meeting.error))}</p>` : ""}
-    ${meeting.completeness.failedChunks.length ? `<p class="banner" data-error="true">${escapeHtml(diagnosticMessage(t.transcriptionFailed, failedCodes, meeting.completeness.failedChunks.length))}</p>` : ""}
-    ${incomplete ? `<p class="banner" data-error="true">${t.incomplete}</p>` : ""}
+    ${meeting.completeness.failedChunks.length ? `
+      <div class="retry-stt-bar">
+        <span>${escapeHtml(diagnosticMessage(t.transcriptionFailed, failedCodes, meeting.completeness.failedChunks.length))}</span>
+        <button id="retry-transcription-btn" class="btn btn-secondary">${t.retryTranscription || "重试语音识别"}</button>
+      </div>` : ""}
+    ${incomplete && !meeting.completeness.failedChunks.length ? `<p class="banner" data-error="true">${t.incomplete}</p>` : ""}
+    
+    ${history && hasAudio ? `
+      <div class="audio-player-card" id="audio-player-card">
+        <audio id="meeting-audio" preload="metadata" src="/api/meetings/${encodeURIComponent(meeting.id)}/audio"></audio>
+        <div class="player-main-row">
+          <button type="button" id="audio-play-toggle" class="player-play-btn" aria-label="${t.playAudio || '播放'}">
+            <svg id="play-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <svg id="pause-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" hidden><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          </button>
+          <div class="player-progress-wrap">
+            <input type="range" id="audio-progress" class="player-progress-bar" min="0" max="100" value="0" step="0.1" />
+            <div class="player-time-row">
+              <span id="audio-current-time">00:00</span>
+              <span id="audio-total-time">${clock(meeting.durationMs || 0)}</span>
+            </div>
+          </div>
+          <button type="button" id="audio-speed-btn" class="speed-select-btn" title="${t.speed || '倍速'}">1.0x</button>
+        </div>
+      </div>
+    ` : ""}
+
     <div class="content-grid">
       <section><h2>${t.notes}${meeting.liveNotes && !meeting.summary ? ` · ${timecode(meeting.liveNotesThroughMs)}` : ""}</h2><div class="notes-body">${notes ? `<pre>${escapeHtml(notes)}</pre>` : `<p class="content-empty">${t.noNotes}</p>`}</div></section>
       <section><h2>${t.transcript}</h2>${transcriptMarkup(meeting)}</section>
     </div>
-    ${history ? `<div class="detail-actions"><button id="regenerate" class="btn btn-secondary">${t.regenerate}</button><button id="delete" class="btn btn-tertiary btn-danger-text">${t.delete}</button></div>` : ""}`;
+    ${history ? `
+      <div class="detail-actions">
+        ${hasAudio ? `<button id="download-audio-btn" class="btn btn-secondary">${t.downloadAudio || "下载录音 (WAV)"}</button>` : ""}
+        ${notes || meeting.utterances.length ? `<button id="export-markdown-btn" class="btn btn-secondary">${t.exportMarkdown || "导出纪要 (MD)"}</button>` : ""}
+        <button id="regenerate" class="btn btn-secondary">${t.regenerate}</button>
+        <button id="delete" class="btn btn-tertiary btn-danger-text">${t.delete}</button>
+      </div>` : ""}`;
 }
 
 async function renderLiveDetail(id) {
@@ -275,13 +322,185 @@ async function showHistoryDetail(id) {
   el.history_list_pane.hidden = true;
   el.history_detail.hidden = false;
   el.detail.innerHTML = meetingContent(meeting, true);
-  document.getElementById("meeting-title").onchange = (event) => void api(`/meetings/${id}`, { method:"PATCH", body:JSON.stringify({ title:event.target.value }) }).then(load).catch((cause) => status(cause.message, true));
-  document.getElementById("regenerate").onclick = () => void api(`/meetings/${id}/regenerate`, { method:"POST", body:"{}" }).then(load).catch((cause) => status(cause.message, true));
+  
+  const titleInput = document.getElementById("meeting-title");
+  if (titleInput) {
+    titleInput.onchange = (event) => void api(`/meetings/${id}`, { method:"PATCH", body:JSON.stringify({ title:event.target.value }) }).then(load).catch((cause) => status(cause.message, true));
+  }
+  
+  const regenBtn = document.getElementById("regenerate");
+  if (regenBtn) {
+    regenBtn.onclick = () => void api(`/meetings/${id}/regenerate`, { method:"POST", body:"{}" }).then(load).catch((cause) => status(cause.message, true));
+  }
+
+  const retryBtn = document.getElementById("retry-transcription-btn");
+  if (retryBtn) {
+    retryBtn.onclick = () => {
+      setBusy(retryBtn, true);
+      void api(`/meetings/${id}/retry-transcription`, { method: "POST", body: "{}" })
+        .then(load)
+        .catch((cause) => status(cause.message, true))
+        .finally(() => setBusy(retryBtn, false));
+    };
+  }
+
+  // 音频播放控制与音字同步
+  const audio = document.getElementById("meeting-audio");
+  const playToggle = document.getElementById("audio-play-toggle");
+  const playIcon = document.getElementById("play-icon");
+  const pauseIcon = document.getElementById("pause-icon");
+  const progress = document.getElementById("audio-progress");
+  const currentTimeLabel = document.getElementById("audio-current-time");
+  const totalTimeLabel = document.getElementById("audio-total-time");
+  const speedBtn = document.getElementById("audio-speed-btn");
+  const timeline = document.getElementById("meeting-timeline");
+
+  if (audio && playToggle) {
+    const SPEEDS = [1.0, 1.25, 1.5, 2.0];
+    let speedIndex = 0;
+
+    const syncPlayState = () => {
+      const isPlaying = !audio.paused && !audio.ended;
+      if (playIcon) playIcon.hidden = isPlaying;
+      if (pauseIcon) pauseIcon.hidden = !isPlaying;
+    };
+
+    playToggle.onclick = () => {
+      if (audio.paused) {
+        audio.play().catch((err) => status(err.message, true));
+      } else {
+        audio.pause();
+      }
+      syncPlayState();
+    };
+
+    audio.onplay = syncPlayState;
+    audio.onpause = syncPlayState;
+    audio.onended = () => {
+      syncPlayState();
+      if (progress) progress.value = 0;
+      if (currentTimeLabel) currentTimeLabel.textContent = "00:00";
+      if (timeline) {
+        timeline.querySelectorAll("li.active-playing").forEach((li) => li.classList.remove("active-playing"));
+      }
+    };
+
+    audio.onloadedmetadata = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0 && totalTimeLabel) {
+        totalTimeLabel.textContent = clock(audio.duration * 1000);
+      }
+    };
+
+    audio.ontimeupdate = () => {
+      const curSec = audio.currentTime || 0;
+      const duration = audio.duration || ((meeting.durationMs || 0) / 1000) || 1;
+      if (progress) progress.value = Math.min(100, (curSec / duration) * 100);
+      if (currentTimeLabel) currentTimeLabel.textContent = clock(curSec * 1000);
+
+      // 音字同步高亮
+      if (timeline) {
+        const curMs = curSec * 1000;
+        const items = timeline.querySelectorAll("li[data-start]");
+        items.forEach((item) => {
+          const start = Number(item.dataset.start || 0);
+          const end = Number(item.dataset.end || 0);
+          const active = curMs >= start && (curMs <= end || end === 0);
+          item.classList.toggle("active-playing", active);
+        });
+      }
+    };
+
+    if (progress) {
+      progress.oninput = () => {
+        const duration = audio.duration || ((meeting.durationMs || 0) / 1000);
+        if (duration) {
+          audio.currentTime = (Number(progress.value) / 100) * duration;
+        }
+      };
+    }
+
+    if (speedBtn) {
+      speedBtn.onclick = () => {
+        speedIndex = (speedIndex + 1) % SPEEDS.length;
+        const s = SPEEDS[speedIndex];
+        audio.playbackRate = s;
+        speedBtn.textContent = `${s.toFixed(2).replace(/\.00$/, ".0")}x`;
+      };
+    }
+
+    // 逐字稿行点击播放
+    if (timeline) {
+      timeline.querySelectorAll(".timeline-play-btn").forEach((btn) => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const startMs = Number(btn.dataset.start || 0);
+          audio.currentTime = startMs / 1000;
+          audio.play().catch(() => {});
+          syncPlayState();
+        };
+      });
+    }
+  }
+
+  // 下载录音
+  const downloadAudioBtn = document.getElementById("download-audio-btn");
+  if (downloadAudioBtn) {
+    downloadAudioBtn.onclick = () => {
+      const a = document.createElement("a");
+      const safeTitle = (meeting.title || "Meeting").replace(/[\\/:*?"<>|]/g, "_");
+      a.download = `${safeTitle}.wav`;
+      a.href = `/api/meetings/${encodeURIComponent(meeting.id)}/audio`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+  }
+
+  // 导出 Markdown 纪要
+  const exportMdBtn = document.getElementById("export-markdown-btn");
+  if (exportMdBtn) {
+    exportMdBtn.onclick = () => {
+      const title = meeting.title || "Meeting Notes";
+      const dateStr = formatDay(meeting.startedAt || meeting.createdAt);
+      const lines = [
+        `# ${title}`,
+        ``,
+        `> **日期**: ${dateStr}  `,
+        `> **时长**: ${displayDuration(meeting)}  `,
+        `> **状态**: ${meeting.status}  `,
+        ``,
+        `## 会议纪要`,
+        ``,
+        meeting.summary || meeting.liveNotes || "（无纪要内容）",
+        ``,
+        `## 逐字稿`,
+        ``
+      ];
+      if (meeting.utterances && meeting.utterances.length) {
+        for (const u of meeting.utterances) {
+          lines.push(`- **[${timecode(u.startMs)}] ${u.speakerLabel || (locale === "zh" ? "现场" : "Room")}**: ${u.text}`);
+        }
+      } else {
+        lines.push(`（无逐字稿内容）`);
+      }
+      const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+      const a = document.createElement("a");
+      const safeTitle = title.replace(/[\\/:*?"<>|]/g, "_");
+      a.download = `${safeTitle}.md`;
+      a.href = URL.createObjectURL(blob);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+  }
+
   const deleteButton = document.getElementById("delete");
-  deleteButton.onclick = () => {
-    if (deleteButton.dataset.armed !== "true") { deleteButton.dataset.armed = "true"; deleteButton.textContent = t.confirmAction; status(t.confirmDelete, true); return; }
-    void api(`/meetings/${id}`, { method:"DELETE" }).then(() => { selected = ""; el.history_detail.hidden = true; el.history_list_pane.hidden = false; status(""); return load(); }).catch((cause) => status(cause.message, true));
-  };
+  if (deleteButton) {
+    deleteButton.onclick = () => {
+      if (deleteButton.dataset.armed !== "true") { deleteButton.dataset.armed = "true"; deleteButton.textContent = t.confirmAction; status(t.confirmDelete, true); return; }
+      void api(`/meetings/${id}`, { method:"DELETE" }).then(() => { selected = ""; el.history_detail.hidden = true; el.history_list_pane.hidden = false; status(""); return load(); }).catch((cause) => status(cause.message, true));
+    };
+  }
 }
 
 async function begin() {

@@ -1,5 +1,5 @@
 import { execSync, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import fixPath from "fix-path";
@@ -235,6 +235,7 @@ export async function installProviderRuntime(
   }
 
   onProgress?.(`Installing ${spec} into ${targetDir}...`);
+  mkdirSync(targetDir, { recursive: true });
 
   return new Promise((resolveResult) => {
     // Determine package manager: try pnpm, fallback to npm

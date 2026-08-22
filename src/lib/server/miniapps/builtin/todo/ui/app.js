@@ -26,8 +26,9 @@ const STRINGS = {
     high: "High", normal: "Normal", low: "Low", star: "Star", moveTo: "Move",
     setDate: "Date", dueLabel: "Deadline", remindLabel: "Remind",
     clearDate: "Clear", schedule: "Deadline and reminder",
-    today: "Today", tomorrow: "Tomorrow", yesterday: "Yesterday",
+    today: "Today", tomorrow: "Tomorrow", yesterday: "Yesterday", nextMonday: "Next Mon",
     overdue: "Overdue", noDate: "No date", insertIntoComposer: "Insert into composer",
+    clearCompleted: "Clear", clearCompletedConfirm: "Clear all completed items?"
   },
   zh: {
     all: "全部", inbox: "收件箱", search: "搜索", newTodo: "新建待办",
@@ -40,8 +41,9 @@ const STRINGS = {
     high: "高", normal: "普通", low: "低", star: "星标", moveTo: "移动",
     setDate: "日期", dueLabel: "截止", remindLabel: "提醒",
     clearDate: "清除", schedule: "截止与提醒",
-    today: "今天", tomorrow: "明天", yesterday: "昨天",
+    today: "今天", tomorrow: "明天", yesterday: "昨天", nextMonday: "下周一",
     overdue: "已逾期", noDate: "无日期", insertIntoComposer: "填入输入框",
+    clearCompleted: "清空", clearCompletedConfirm: "确定清空已完成的待办任务吗？"
   },
 };
 
@@ -98,6 +100,9 @@ const el = {
   optSchedule: $("opt-schedule"),
   scheduleLabel: $("schedule-label"),
   composerSchedule: $("composer-schedule"),
+  chipToday: $("chip-today"),
+  chipTomorrow: $("chip-tomorrow"),
+  chipNextWeek: $("chip-next-week"),
   dueDate: $("due-date"),
   dueTime: $("due-time"),
   remindAt: $("remind-at"),
@@ -108,6 +113,7 @@ const el = {
   openEmpty: $("open-empty"),
   doneSection: $("done-section"),
   doneList: $("done-list"),
+  clearDoneBtn: $("clear-done-btn"),
 };
 
 let lists = [];
@@ -274,6 +280,39 @@ el.optSchedule.addEventListener("click", () => {
 
 for (const input of [el.dueDate, el.dueTime, el.remindAt]) {
   input.addEventListener("change", syncScheduleChip);
+}
+
+if (el.chipToday) {
+  el.chipToday.addEventListener("click", () => {
+    el.dueDate.value = localDateValue(new Date());
+    syncScheduleChip();
+  });
+}
+if (el.chipTomorrow) {
+  el.chipTomorrow.addEventListener("click", () => {
+    const tomorrow = new Date(Date.now() + 86400000);
+    el.dueDate.value = localDateValue(tomorrow);
+    syncScheduleChip();
+  });
+}
+if (el.chipNextWeek) {
+  el.chipNextWeek.addEventListener("click", () => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = day === 0 ? 1 : 8 - day;
+    const nextMon = new Date(now.getTime() + diff * 86400000);
+    el.dueDate.value = localDateValue(nextMon);
+    syncScheduleChip();
+  });
+}
+
+if (el.clearDoneBtn) {
+  el.clearDoneBtn.addEventListener("click", async () => {
+    await mutate(() => api("/todos/clear-completed", {
+      method: "POST",
+      body: JSON.stringify({ listId: activeList || undefined })
+    }));
+  });
 }
 
 el.scheduleClear.addEventListener("click", () => {

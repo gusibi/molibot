@@ -1154,6 +1154,10 @@
     activeSessionId = sessionId;
     pendingApproval = null;
     showMobileSidebar = false;
+    streamingThinkingBlocks = [];
+    streamingThinkingText = "";
+    streamingAssistantText = "";
+    streamingDiagnostics = [];
     await loadMessages();
     await loadSessionFiles();
   }

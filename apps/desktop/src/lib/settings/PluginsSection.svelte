@@ -1,566 +1,498 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { parsePluginToHostMessage, type HostToPluginMessage } from "@molibot/shared/pluginBridge";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import NativeTimeInput from "../components/ui/NativeTimeInput.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
+  import SettingGroup from "../components/ui/SettingGroup.svelte";
+  import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
   import {
-    pluginsStore,
-    discardPlugins,
-    loadPlugins,
-    savePluginsEditor,
-    togglePluginSecretClear,
-    updatePluginSecret,
-    updatePluginValue
-  } from "../stores/plugins.svelte";
-  import {
-    startDailyMaterialsBackfill,
-    loadDailyMaterialsBackfillStatus,
-    loadExternalSubagentStatus,
-    installExternalSubagentRuntime,
-    testExternalSubagentRuntime,
-    type ExternalSubagentStatusResponse,
-    type ExternalSubagentTestResult
+    desktopPluginSettingsFrameUrl,
+    invokeDesktopContractPluginAction,
+    loadDesktopContractPluginDetail,
+    loadDesktopContractPlugins,
+    loadDesktopCorePluginDetail,
+    loadDesktopCorePlugins,
+    performDesktopContractPluginLifecycle,
+    saveDesktopContractPluginSettings,
+    saveDesktopCorePluginSettings,
+    setDesktopContractPluginEnabled,
+    setDesktopCorePluginEnabled,
+    type DesktopContractPluginDetail,
+    type DesktopContractPluginItem,
+    type DesktopCorePluginDetail,
+    type DesktopCorePluginId,
+    type DesktopCorePluginItem
   } from "../api";
-  import type { DailyMaterialsBackfillStatus } from "@molibot/desktop-contract";
 
-  let subagentStatus = $state<ExternalSubagentStatusResponse | null>(null);
-  let checkingSubagent = $state(false);
-  let installingProvider = $state<string | null>(null);
-  let testingProvider = $state<string | null>(null);
-  // A completed probe is the only proof of availability; a failed probe
-  // overrides a green detection so the surface can never fake "ready".
-  let testResults = $state<Record<"codex" | "claude-code", ExternalSubagentTestResult | null>>({
-    codex: null,
-    "claude-code": null
+  type ManagedPlugin = {
+    id: string;
+    name: string;
+    version: string;
+    description: string;
+    sourceKind: string;
+    enabled: boolean;
+    status: "active" | "disabled" | "error" | "incompatible";
+    hasSettings: boolean;
+    iconUri?: string;
+    management: "core" | "contract";
+  };
+
+  type CoreDraft = DesktopCorePluginDetail["values"];
+
+  let corePlugins = $state<DesktopCorePluginItem[]>([]);
+  let contractPlugins = $state<DesktopContractPluginItem[]>([]);
+  let selectedPluginId = $state<string | null>(null);
+  let coreDetail = $state<DesktopCorePluginDetail | null>(null);
+  let contractDetail = $state<DesktopContractPluginDetail | null>(null);
+  let coreDraft = $state<CoreDraft | null>(null);
+  let loadingList = $state(false);
+  let loadingDetail = $state(false);
+  let listMessage = $state("");
+  let detailMessage = $state("");
+  let formValues = $state<Record<string, unknown>>({});
+  let secretReplacements = $state<Record<string, string>>({});
+  let secretClears = $state<Set<string>>(new Set());
+  let savingDetail = $state(false);
+  let customFrame = $state<HTMLIFrameElement | null>(null);
+  let customFrameReady = $state(false);
+  let customFrameHeight = $state(320);
+  let pluginTheme = $state<"light" | "dark">("light");
+  let pluginThemeFamily = $state("");
+  let loadedEndpoint = $state("");
+
+  let isChinese = $derived(session.locale === "zh-CN");
+  let localeKey = $derived<"zh" | "en">(isChinese ? "zh" : "en");
+  let copy = $derived(isChinese ? {
+    installed: "已安装插件",
+    installedDescription: "内置功能随 Molibot 提供；外置插件从独立插件目录加载。",
+    empty: "暂无可用插件",
+    loadFailed: "部分插件加载失败",
+    back: "返回插件列表",
+    loading: "加载插件中…",
+    settings: "设置",
+    details: "详情",
+    builtIn: "内置",
+    external: "外置目录",
+    enabled: "已启用",
+    disabled: "已禁用",
+    memoryName: "记忆后端",
+    memoryDescription: "管理记忆存储、反思时间与通知。",
+    dailyName: "每日素材 / 每日回顾",
+    dailyDescription: "从授权会话提取每日素材并写入指定项目。",
+    configuration: "插件配置",
+    isolatedConfiguration: "外置插件配置独立存储，不写入全局设置。",
+    memoryBackend: "记忆后端",
+    reflectionTime: "每日反思时间",
+    reflectionNotifications: "反思完成后通知",
+    dailyTime: "每日执行时间",
+    project: "写入项目",
+    noProject: "暂不选择项目",
+    outputDirectory: "输出目录",
+    promptPath: "提示词文件",
+    scanBudget: "扫描 Token 预算",
+    scanModel: "扫描模型",
+    followDefaultModel: "跟随默认模型",
+    notifications: "执行完成后通知",
+    save: "保存设置",
+    saving: "保存中…",
+    saved: "插件设置已保存",
+    noConfiguration: "该插件无需额外配置。",
+    storageLifecycle: "存储与生命周期",
+    clearCache: "清空缓存",
+    clearCacheDescription: "删除可重新生成的缓存文件。",
+    clear: "清空",
+    deleteConfig: "删除配置",
+    deleteConfigDescription: "删除插件的独立配置。",
+    deleteData: "删除业务数据",
+    deleteDataDescription: "删除插件持久化的数据文件。",
+    remove: "删除",
+    uninstall: "卸载插件",
+    uninstallDescription: "移除插件代码，默认保留配置与数据。",
+    uninstallAction: "卸载",
+    clearSecret: "清除",
+    configuredSecret: "已配置密钥（输入新值替换）"
+  } : {
+    installed: "Installed Plugins",
+    installedDescription: "Built-ins ship with Molibot; external plugins load from isolated plugin directories.",
+    empty: "No plugins available",
+    loadFailed: "Some plugins failed to load",
+    back: "Back to plugins",
+    loading: "Loading plugins…",
+    settings: "Configure",
+    details: "Details",
+    builtIn: "Built in",
+    external: "External directory",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    memoryName: "Memory Backend",
+    memoryDescription: "Manage memory storage, reflection time, and notifications.",
+    dailyName: "Daily Materials / Review",
+    dailyDescription: "Extract daily material from authorized conversations into a project.",
+    configuration: "Plugin Configuration",
+    isolatedConfiguration: "External plugin configuration is isolated from global settings.",
+    memoryBackend: "Memory backend",
+    reflectionTime: "Daily reflection time",
+    reflectionNotifications: "Notify after reflection",
+    dailyTime: "Daily run time",
+    project: "Destination project",
+    noProject: "No project selected",
+    outputDirectory: "Output directory",
+    promptPath: "Prompt file",
+    scanBudget: "Scan token budget",
+    scanModel: "Scan model",
+    followDefaultModel: "Follow default model",
+    notifications: "Notify after completion",
+    save: "Save Settings",
+    saving: "Saving…",
+    saved: "Plugin settings saved",
+    noConfiguration: "This plugin does not require additional configuration.",
+    storageLifecycle: "Storage & Lifecycle",
+    clearCache: "Clear Cache",
+    clearCacheDescription: "Delete cache files that can be regenerated.",
+    clear: "Clear",
+    deleteConfig: "Delete Configuration",
+    deleteConfigDescription: "Delete the plugin's isolated configuration.",
+    deleteData: "Delete Domain Data",
+    deleteDataDescription: "Delete the plugin's persisted data files.",
+    remove: "Delete",
+    uninstall: "Uninstall Plugin",
+    uninstallDescription: "Remove plugin code while retaining configuration and data.",
+    uninstallAction: "Uninstall",
+    clearSecret: "Clear",
+    configuredSecret: "Secret configured (type to replace)"
   });
 
-  async function refreshSubagentStatus(): Promise<void> {
-    if (!session.endpoint) return;
-    checkingSubagent = true;
-    try {
-      const codexPath = String(pluginsStore.pluginsEdit?.values["external-subagent"]?.codexPath ?? "");
-      const claudePath = String(pluginsStore.pluginsEdit?.values["external-subagent"]?.claudeCodePath ?? "");
-      subagentStatus = await loadExternalSubagentStatus(session.endpoint, {
-        codexPath,
-        claudeCodePath: claudePath
-      });
-    } catch {
-      // ignore
-    } finally {
-      checkingSubagent = false;
-    }
+  let managedPlugins = $derived<ManagedPlugin[]>([
+    ...corePlugins.map((plugin) => ({
+      id: plugin.id,
+      name: plugin.id === "memory" ? copy.memoryName : copy.dailyName,
+      version: plugin.version,
+      description: plugin.id === "memory" ? copy.memoryDescription : copy.dailyDescription,
+      sourceKind: copy.builtIn,
+      enabled: plugin.enabled,
+      status: plugin.enabled ? "active" as const : "disabled" as const,
+      hasSettings: true,
+      management: "core" as const
+    })),
+    ...contractPlugins.map((plugin) => ({
+      id: plugin.id,
+      name: plugin.name,
+      version: plugin.version,
+      description: plugin.description,
+      sourceKind: plugin.source.kind === "directory" ? copy.external : plugin.source.kind,
+      enabled: plugin.enabled,
+      status: plugin.status,
+      hasSettings: plugin.hasSettings,
+      iconUri: plugin.iconUri,
+      management: "contract" as const
+    }))
+  ]);
+  let selectedPlugin = $derived(managedPlugins.find((plugin) => plugin.id === selectedPluginId) ?? null);
+
+  function isCorePluginId(value: string): value is DesktopCorePluginId {
+    return value === "memory" || value === "daily-materials";
   }
 
-  async function installSubagent(provider: "codex" | "claude-code"): Promise<void> {
-    if (!session.endpoint || installingProvider !== null) return;
-    installingProvider = provider;
+  function pluginIconSource(iconUri: string | undefined): string {
+    if (!iconUri) return "";
+    return iconUri.startsWith("/") ? `${session.endpoint}${iconUri}` : iconUri;
+  }
+
+  async function refreshPluginList(): Promise<void> {
+    if (!session.endpoint || loadingList) return;
+    loadingList = true;
+    listMessage = "";
+    const [coreResult, contractResult] = await Promise.allSettled([
+      loadDesktopCorePlugins(session.endpoint),
+      loadDesktopContractPlugins(session.endpoint)
+    ]);
+    if (coreResult.status === "fulfilled") corePlugins = coreResult.value;
+    if (contractResult.status === "fulfilled") contractPlugins = contractResult.value;
+    const failures = [coreResult, contractResult].filter((result) => result.status === "rejected") as PromiseRejectedResult[];
+    if (failures.length > 0) {
+      listMessage = `${copy.loadFailed}: ${failures.map((failure) => failure.reason instanceof Error ? failure.reason.message : String(failure.reason)).join(" · ")}`;
+    }
+    loadingList = false;
+  }
+
+  async function openPluginDetail(pluginId: string): Promise<void> {
+    if (!session.endpoint) return;
+    selectedPluginId = pluginId;
+    loadingDetail = true;
+    detailMessage = "";
+    coreDetail = null;
+    contractDetail = null;
+    coreDraft = null;
+    customFrameReady = false;
     try {
-      const res = await installExternalSubagentRuntime(session.endpoint, provider);
-      if (res.ok) {
-        testResults[provider] = null;
-        await refreshSubagentStatus();
+      if (isCorePluginId(pluginId)) {
+        coreDetail = await loadDesktopCorePluginDetail(session.endpoint, pluginId);
+        coreDraft = structuredClone(coreDetail.values);
       } else {
-        pluginsStore.actionMessage = res.error || "Installation failed";
+        contractDetail = await loadDesktopContractPluginDetail(session.endpoint, pluginId);
+        formValues = { ...(contractDetail?.settingsValues ?? {}) };
+        secretReplacements = {};
+        secretClears = new Set();
       }
-    } catch (e) {
-      pluginsStore.actionMessage = e instanceof Error ? e.message : String(e);
+    } catch (error) {
+      detailMessage = error instanceof Error ? error.message : String(error);
     } finally {
-      installingProvider = null;
+      loadingDetail = false;
     }
   }
 
-  async function testSubagent(provider: "codex" | "claude-code"): Promise<void> {
-    if (!session.endpoint || testingProvider !== null) return;
-    testingProvider = provider;
-    testResults[provider] = null;
-    try {
-      const codexPath = String(pluginsStore.pluginsEdit?.values["external-subagent"]?.codexPath ?? "");
-      const claudePath = String(pluginsStore.pluginsEdit?.values["external-subagent"]?.claudeCodePath ?? "");
-      testResults[provider] = await testExternalSubagentRuntime(session.endpoint, provider, {
-        codexPath,
-        claudeCodePath: claudePath
-      });
-    } catch (e) {
-      // Transport-level failure (e.g. service died mid-test) is also "unavailable".
-      testResults[provider] = {
-        ok: false,
-        stopReason: "error",
-        output: "",
-        diagnostic: e instanceof Error ? e.message : String(e),
-        durationMs: 0
-      };
-    } finally {
-      testingProvider = null;
-    }
+  function backToList(): void {
+    selectedPluginId = null;
+    coreDetail = null;
+    contractDetail = null;
+    coreDraft = null;
+    detailMessage = "";
+    void refreshPluginList();
   }
 
-  function providerBadge(provider: "codex" | "claude-code"): { state: string; label: string } {
-    const testResult = testResults[provider];
-    if (testResult) {
-      return testResult.ok
-        ? { state: "ready", label: `${session.text.externalSubagentTestPassed} · ${(testResult.durationMs / 1000).toFixed(1)}s` }
-        : { state: "error", label: session.text.externalSubagentTestFailed };
-    }
-    const available = provider === "codex" ? subagentStatus?.codex.available : subagentStatus?.claudeCode.available;
-    return {
-      state: available ? "ready" : "disconnected",
-      label: available ? session.text.externalSubagentDetected : session.text.externalSubagentNotFound
-    };
-  }
-
-  const codexBadge = $derived(providerBadge("codex"));
-  const claudeBadge = $derived(providerBadge("claude-code"));
-
-  $effect(() => {
-    if (expandedPlugin === "external-subagent" && session.endpoint && !subagentStatus && !checkingSubagent) {
-      void refreshSubagentStatus();
-    }
-  });
-
-  $effect(() => {
-    if (session.serviceReady && session.endpoint && session.endpoint !== pluginsStore.endpoint) {
-      void loadPlugins(session.endpoint);
-    }
-  });
-
-  const pluginsDirty = $derived(pluginsStore.pluginsEdit !== null && JSON.stringify(pluginsStore.pluginsEdit) !== pluginsStore.pristine);
-
-  const dailyMaterialsSaved = $derived(pluginsStore.plugins?.memory.dailyMaterials);
-  const backfillAvailable = $derived(Boolean(dailyMaterialsSaved?.enabled && dailyMaterialsSaved?.projectId));
-
-  let backfillStatus = $state<DailyMaterialsBackfillStatus | null>(null);
-  let backfillPolling = $state(false);
-  const backfillRunning = $derived(backfillStatus?.status === "running" || backfillPolling);
-
-  // Accordion state: only one plugin card expanded at a time. Null = all collapsed.
-  let expandedPlugin = $state<string | null>(null);
-
-  function togglePluginExpanded(key: string): void {
-    expandedPlugin = expandedPlugin === key ? null : key;
-  }
-
-  function setMemoryEnabled(value: boolean): void {
-    if (!pluginsStore.pluginsEdit) return;
-    pluginsStore.pluginsEdit = { ...pluginsStore.pluginsEdit, memoryEnabled: value };
-  }
-
-  function setDailyMaterialsEnabled(value: boolean): void {
-    if (!pluginsStore.pluginsEdit) return;
-    pluginsStore.pluginsEdit = {
-      ...pluginsStore.pluginsEdit,
-      memoryDailyMaterials: { ...pluginsStore.pluginsEdit.memoryDailyMaterials, enabled: value }
-    };
-  }
-
-  const backfillMessage = $derived.by(() => {
-    const status = backfillStatus;
-    if (!status || status.status === "idle") return "";
-    if (status.status === "running") {
-      return `${session.text.memoryDailyMaterialsBackfillProgress} ${status.processed}/${status.total || "…"} · ${session.text.memoryDailyMaterialsBackfillDays} ${status.daysWithData}`;
-    }
-    if (status.status === "done") {
-      const range = status.from && status.to ? `（${status.from} ~ ${status.to}）` : "";
-      return `${session.text.memoryDailyMaterialsBackfillDone} ${status.daysWithData}${range}`;
-    }
-    return `${session.text.memoryDailyMaterialsBackfillError}${status.error ? `：${status.error}` : ""}`;
-  });
-
-  async function pollBackfill(): Promise<void> {
+  async function togglePlugin(plugin: ManagedPlugin, enabled: boolean): Promise<void> {
     if (!session.endpoint) return;
-    backfillPolling = true;
+    detailMessage = "";
     try {
-      while (session.endpoint) {
-        const status = await loadDailyMaterialsBackfillStatus(session.endpoint);
-        backfillStatus = status;
-        if (status.status !== "running") break;
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+      if (plugin.management === "core" && isCorePluginId(plugin.id)) {
+        const persisted = await setDesktopCorePluginEnabled(session.endpoint, plugin.id, enabled);
+        corePlugins = corePlugins.map((item) => item.id === plugin.id ? { ...item, enabled: persisted } : item);
+        if (coreDraft && selectedPluginId === plugin.id) coreDraft = { ...coreDraft, enabled: persisted };
+      } else {
+        await setDesktopContractPluginEnabled(session.endpoint, plugin.id, enabled);
+        contractPlugins = contractPlugins.map((item) => item.id === plugin.id ? { ...item, enabled, status: enabled ? "active" : "disabled" } : item);
+        if (contractDetail?.item.id === plugin.id) contractDetail = { ...contractDetail, item: { ...contractDetail.item, enabled, status: enabled ? "active" : "disabled" } };
       }
-    } catch (cause) {
-      backfillStatus = { status: "error", total: 0, processed: 0, daysWithData: 0, createdFiles: 0, scannedMessages: 0, error: cause instanceof Error ? cause.message : String(cause) };
-    } finally {
-      backfillPolling = false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (selectedPluginId === null) listMessage = message;
+      else detailMessage = message;
     }
   }
 
-  async function startBackfill(): Promise<void> {
-    if (!session.endpoint || backfillRunning) return;
+  async function saveCoreSettings(): Promise<void> {
+    if (!session.endpoint || !selectedPluginId || !isCorePluginId(selectedPluginId) || !coreDraft || savingDetail) return;
+    savingDetail = true;
+    detailMessage = "";
     try {
-      backfillStatus = await startDailyMaterialsBackfill(session.endpoint);
-      void pollBackfill();
-    } catch (cause) {
-      backfillStatus = { status: "error", total: 0, processed: 0, daysWithData: 0, createdFiles: 0, scannedMessages: 0, error: cause instanceof Error ? cause.message : String(cause) };
+      await saveDesktopCorePluginSettings(session.endpoint, selectedPluginId, coreDraft as Record<string, unknown>);
+      await openPluginDetail(selectedPluginId);
+      detailMessage = copy.saved;
+      await refreshPluginList();
+    } catch (error) {
+      detailMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      savingDetail = false;
     }
   }
+
+  async function saveContractSettings(): Promise<void> {
+    if (!session.endpoint || !contractDetail || savingDetail) return;
+    savingDetail = true;
+    detailMessage = "";
+    try {
+      const patch: { values?: Record<string, unknown>; secrets?: { replace?: Record<string, string>; clear?: string[] } } = { values: formValues };
+      if (Object.keys(secretReplacements).length > 0 || secretClears.size > 0) patch.secrets = { replace: secretReplacements, clear: Array.from(secretClears) };
+      await saveDesktopContractPluginSettings(session.endpoint, contractDetail.item.id, patch);
+      await openPluginDetail(contractDetail.item.id);
+      detailMessage = copy.saved;
+    } catch (error) {
+      detailMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      savingDetail = false;
+    }
+  }
+
+  async function handleLifecycleAction(action: "uninstall" | "clear-cache" | "delete-config" | "delete-data", confirmText: string): Promise<void> {
+    if (!session.endpoint || !contractDetail || !confirm(confirmText)) return;
+    detailMessage = "";
+    try {
+      await performDesktopContractPluginLifecycle(session.endpoint, contractDetail.item.id, action);
+      if (action === "uninstall") backToList();
+      else await openPluginDetail(contractDetail.item.id);
+    } catch (error) {
+      detailMessage = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  function postToCustomPlugin(message: HostToPluginMessage): void {
+    customFrame?.contentWindow?.postMessage(message, "*");
+  }
+
+  function readPluginTheme(): "light" | "dark" {
+    return document.documentElement.dataset.resolvedAppearance === "dark" ? "dark" : "light";
+  }
+
+  function readPluginThemeTokens(): Record<string, string> {
+    const styles = getComputedStyle(document.documentElement);
+    return {
+      background: styles.getPropertyValue("--card-bg").trim(),
+      surface: styles.getPropertyValue("--surface-secondary").trim(),
+      foreground: styles.getPropertyValue("--label-primary").trim(),
+      muted: styles.getPropertyValue("--label-secondary").trim(),
+      border: styles.getPropertyValue("--separator").trim(),
+      accent: styles.getPropertyValue("--accent").trim(),
+      danger: styles.getPropertyValue("--danger").trim(),
+      success: styles.getPropertyValue("--success").trim()
+    };
+  }
+
+  function postCustomPluginBootstrap(): void {
+    if (!contractDetail) return;
+    postToCustomPlugin({ type: "molibot:host:bootstrap", version: 1, pluginId: contractDetail.item.id, pluginVersion: contractDetail.item.version, locale: isChinese ? "zh-CN" : "en-US", theme: pluginTheme, themeTokens: readPluginThemeTokens(), enabled: contractDetail.item.enabled });
+  }
+
+  async function handleCustomPluginMessage(event: MessageEvent): Promise<void> {
+    if (!customFrame?.contentWindow || event.source !== customFrame.contentWindow || !contractDetail || !session.endpoint) return;
+    const message = parsePluginToHostMessage(event.data);
+    if (!message) return;
+    const replyError = (error: unknown) => postToCustomPlugin({ type: "molibot:host:error", correlationId: message.correlationId, error: error instanceof Error ? error.message : String(error) });
+    try {
+      if (message.type === "molibot:plugin:ready") customFrameReady = true;
+      else if (message.type === "molibot:plugin:resize") customFrameHeight = message.height;
+      else if (message.type === "molibot:plugin:get_settings") postToCustomPlugin({ type: "molibot:host:settings_data", correlationId: message.correlationId, values: $state.snapshot(contractDetail.settingsValues ?? {}) });
+      else if (message.type === "molibot:plugin:get_secrets_presence") postToCustomPlugin({ type: "molibot:host:secrets_presence", correlationId: message.correlationId, presence: $state.snapshot(contractDetail.secretsPresence ?? {}) });
+      else if (message.type === "molibot:plugin:save_settings") {
+        await saveDesktopContractPluginSettings(session.endpoint, contractDetail.item.id, { values: message.values });
+        postToCustomPlugin({ type: "molibot:host:saved", correlationId: message.correlationId });
+        await openPluginDetail(contractDetail.item.id);
+      } else if (message.type === "molibot:plugin:save_secrets") {
+        await saveDesktopContractPluginSettings(session.endpoint, contractDetail.item.id, { secrets: { replace: message.replace, clear: message.clear } });
+        postToCustomPlugin({ type: "molibot:host:saved", correlationId: message.correlationId });
+        await openPluginDetail(contractDetail.item.id);
+      } else if (message.type === "molibot:plugin:invoke_action") {
+        const result = await invokeDesktopContractPluginAction(session.endpoint, contractDetail.item.id, message.action, message.input);
+        postToCustomPlugin({ type: "molibot:host:action_result", correlationId: message.correlationId, result });
+      }
+    } catch (error) {
+      replyError(error);
+    }
+  }
+
+  onMount(() => {
+    window.addEventListener("message", handleCustomPluginMessage);
+    pluginTheme = readPluginTheme();
+    pluginThemeFamily = document.documentElement.dataset.themeFamily ?? "";
+    const themeObserver = new MutationObserver(() => {
+      pluginTheme = readPluginTheme();
+      pluginThemeFamily = document.documentElement.dataset.themeFamily ?? "";
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance", "data-theme-family"] });
+    return () => {
+      window.removeEventListener("message", handleCustomPluginMessage);
+      themeObserver.disconnect();
+    };
+  });
+
+  $effect(() => {
+    const endpoint = session.serviceReady ? session.endpoint : "";
+    if (!endpoint) {
+      loadedEndpoint = "";
+      return;
+    }
+    if (endpoint === loadedEndpoint) return;
+    loadedEndpoint = endpoint;
+    void refreshPluginList();
+  });
+
+  $effect(() => {
+    const locale = session.locale;
+    const enabled = contractDetail?.item.enabled;
+    const themeFamily = pluginThemeFamily;
+    if (customFrameReady && contractDetail && locale && enabled !== undefined && themeFamily !== undefined) postCustomPluginBootstrap();
+  });
 </script>
 
-{#if !session.serviceReady}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.pluginsUnavailable}</p></div></div>
-{:else if pluginsStore.loading || !pluginsStore.plugins}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
-{:else if pluginsStore.pluginsEdit}
-  <form id="desktop-plugins-form" class="settings-card plugin-collapsible-list" onsubmit={(event) => { event.preventDefault(); void savePluginsEditor(); }}>
-    <!-- Memory backend settings -->
-    <section class="plugin-collapsible" class:is-open={expandedPlugin === "memory"}>
-      <div class="settings-row plugin-collapsible-head">
-        <div class="profile-info">
-          <strong>{session.text.pluginsMemorySettings}</strong>
-          <p>{session.text.pluginsMemorySettingsHint}</p>
-        </div>
-        <div class="settings-row-actions">
-          <span class="status-badge" data-state={pluginsStore.pluginsEdit.memoryEnabled ? "ready" : "disconnected"}>{pluginsStore.pluginsEdit.memoryEnabled ? session.text.pluginEnabled : session.text.pluginDisabled}</span>
-          <IosSwitch checked={pluginsStore.pluginsEdit.memoryEnabled} ariaLabel={session.text.pluginsMemoryEnabled} onCheckedChange={setMemoryEnabled} />
-          <button class="secondary-button plugin-collapsible-toggle" type="button" aria-expanded={expandedPlugin === "memory"} onclick={() => togglePluginExpanded("memory")}>
-            <i class="ph ph-caret-right" aria-hidden="true"></i>
-            <span>{expandedPlugin === "memory" ? session.text.pluginCollapse : session.text.pluginEdit}</span>
-          </button>
-        </div>
-      </div>
-      {#if expandedPlugin === "memory"}
-        <div class="plugin-collapsible-body">
-          <div class="settings-form"><label class="settings-field settings-field-wide"><span>{session.text.memoryBackend}</span><SelectControl value={pluginsStore.pluginsEdit.memoryBackend} ariaLabel={session.text.memoryBackend} options={pluginsStore.plugins.memory.backends} onChange={(value) => { if (pluginsStore.pluginsEdit) pluginsStore.pluginsEdit = { ...pluginsStore.pluginsEdit, memoryBackend: value }; }} /></label></div>
-          <div class="settings-form"><label class="settings-field"><span>{session.text.memoryEmbeddingProvider}</span><SelectControl value={pluginsStore.pluginsEdit.memoryEmbeddingProviderId} ariaLabel={session.text.memoryEmbeddingProvider} options={[{ value: "", label: session.text.unavailable }, ...pluginsStore.plugins.memory.embeddingProviders]} onChange={(value) => { if (pluginsStore.pluginsEdit) pluginsStore.pluginsEdit = { ...pluginsStore.pluginsEdit, memoryEmbeddingProviderId: value }; }} /></label><label class="settings-field"><span>{session.text.memoryEmbeddingModel}</span><input bind:value={pluginsStore.pluginsEdit.memoryEmbeddingModel} placeholder="text-embedding-3-small" /></label></div>
-          <div class="settings-form"><label class="settings-field"><span>{session.text.memoryReflectionTime}</span><NativeTimeInput bind:value={pluginsStore.pluginsEdit.memoryReflectionTime} /></label><div class="settings-row"><div><strong>{session.text.memoryReflectionNotifications}</strong><p>{session.text.memoryReflectionNotificationsHint}</p></div><IosSwitch checked={pluginsStore.pluginsEdit.memoryReflectionNotifications} ariaLabel={session.text.memoryReflectionNotifications} onCheckedChange={(checked) => { if (pluginsStore.pluginsEdit) pluginsStore.pluginsEdit = { ...pluginsStore.pluginsEdit, memoryReflectionNotifications: checked }; }} /></div></div>
-          <div class="settings-form"><label class="settings-field settings-field-wide"><span>{session.text.memoryReflectionNotificationTarget}</span><SelectControl value={pluginsStore.pluginsEdit.memoryReflectionNotificationTarget} ariaLabel={session.text.memoryReflectionNotificationTarget} disabled={!pluginsStore.pluginsEdit.memoryReflectionNotifications && !pluginsStore.pluginsEdit.memoryDailyMaterials.notifications} options={[{ value: "", label: session.text.memoryReflectionNotificationTargetEmpty }, ...pluginsStore.plugins.memory.reflectionNotificationTargets]} onChange={(value) => pluginsStore.pluginsEdit!.memoryReflectionNotificationTarget = value} /><small class="settings-field-hint">{session.text.memoryReflectionNotificationTargetHint}</small></label></div>
-        </div>
-      {/if}
-    </section>
-
-    <!-- Daily materials -->
-    <section class="plugin-collapsible" class:is-open={expandedPlugin === "dailyMaterials"}>
-      <div class="settings-row plugin-collapsible-head">
-        <div class="profile-info">
-          <strong>{session.text.pluginsDailyMaterialsSettings}</strong>
-          <p>{session.text.pluginsDailyMaterialsHint}</p>
-        </div>
-        <div class="settings-row-actions">
-          <span class="status-badge" data-state={pluginsStore.pluginsEdit.memoryDailyMaterials.enabled ? "ready" : "disconnected"}>{pluginsStore.pluginsEdit.memoryDailyMaterials.enabled ? session.text.pluginEnabled : session.text.pluginDisabled}</span>
-          <IosSwitch checked={pluginsStore.pluginsEdit.memoryDailyMaterials.enabled} ariaLabel={session.text.memoryDailyMaterialsEnabled} onCheckedChange={setDailyMaterialsEnabled} />
-          <button class="secondary-button plugin-collapsible-toggle" type="button" aria-expanded={expandedPlugin === "dailyMaterials"} onclick={() => togglePluginExpanded("dailyMaterials")}>
-            <i class="ph ph-caret-right" aria-hidden="true"></i>
-            <span>{expandedPlugin === "dailyMaterials" ? session.text.pluginCollapse : session.text.pluginEdit}</span>
-          </button>
-        </div>
-      </div>
-      {#if expandedPlugin === "dailyMaterials"}
-        <div class="plugin-collapsible-body">
-          <div class="settings-form"><label class="settings-field"><span>{session.text.memoryDailyMaterialsTime}</span><NativeTimeInput bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.time} /></label><label class="settings-field"><span>{session.text.memoryDailyMaterialsProject}</span><SelectControl value={pluginsStore.pluginsEdit.memoryDailyMaterials.projectId} ariaLabel={session.text.memoryDailyMaterialsProject} options={[{ value: "", label: session.text.memoryDailyMaterialsProjectEmpty }, ...pluginsStore.plugins.memory.projects]} onChange={(value) => pluginsStore.pluginsEdit!.memoryDailyMaterials.projectId = value} /></label></div>
-          <div class="settings-form"><label class="settings-field"><span>{session.text.memoryDailyMaterialsDir}</span><input bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.dir} /></label><label class="settings-field"><span>{session.text.memoryDailyMaterialsPrompt}</span><input bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.promptPath} /></label></div>
-          <div class="settings-form"><label class="settings-field"><span>{session.text.memoryDailyMaterialsBudget}</span><input type="number" min="8000" max="900000" step="1000" bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.scanTokenBudget} /><small class="settings-field-hint">{session.text.memoryDailyMaterialsBudgetHint}</small></label><label class="settings-field"><span>{session.text.memoryDailyMaterialsModel}</span><SelectControl value={pluginsStore.pluginsEdit.memoryDailyMaterials.scanModelKey} ariaLabel={session.text.memoryDailyMaterialsModel} options={[{ value: "", label: session.text.memoryDailyMaterialsModelDefault }, ...pluginsStore.plugins.memory.scanModels]} onChange={(value) => pluginsStore.pluginsEdit!.memoryDailyMaterials.scanModelKey = value} /><small class="settings-field-hint">{session.text.memoryDailyMaterialsModelHint}</small></label></div>
-          <div class="settings-row"><div><strong>{session.text.memoryDailyMaterialsNotifications}</strong><p>{session.text.memoryDailyMaterialsNotificationsHint}</p></div><IosSwitch checked={pluginsStore.pluginsEdit.memoryDailyMaterials.notifications} ariaLabel={session.text.memoryDailyMaterialsNotifications} onCheckedChange={(checked) => { if (pluginsStore.pluginsEdit) pluginsStore.pluginsEdit = { ...pluginsStore.pluginsEdit, memoryDailyMaterials: { ...pluginsStore.pluginsEdit.memoryDailyMaterials, notifications: checked } }; }} /></div>
-          <div class="settings-form"><label class="settings-field settings-field-wide"><span>{session.text.memoryReflectionNotificationTarget}</span><SelectControl value={pluginsStore.pluginsEdit.memoryReflectionNotificationTarget} ariaLabel={session.text.memoryReflectionNotificationTarget} disabled={!pluginsStore.pluginsEdit.memoryReflectionNotifications && !pluginsStore.pluginsEdit.memoryDailyMaterials.notifications} options={[{ value: "", label: session.text.memoryReflectionNotificationTargetEmpty }, ...pluginsStore.plugins.memory.reflectionNotificationTargets]} onChange={(value) => pluginsStore.pluginsEdit!.memoryReflectionNotificationTarget = value} /><small class="settings-field-hint">{session.text.memoryReflectionNotificationTargetHint}</small></label></div>
-          {#if backfillAvailable}
-            <div class="settings-row daily-backfill-row">
-              <div>
-                <strong>{session.text.memoryDailyMaterialsBackfill}</strong>
-                <p>{session.text.memoryDailyMaterialsBackfillHint}</p>
-                {#if backfillMessage}<p class="daily-backfill-status" class:is-error={backfillStatus?.status === "error"}>{backfillMessage}</p>{/if}
-                {#if pluginsDirty}<p class="daily-backfill-status">{session.text.memoryDailyMaterialsBackfillDirty}</p>{/if}
-              </div>
-              <button class="secondary-button" type="button" disabled={backfillRunning} onclick={() => void startBackfill()}>{backfillRunning ? session.text.memoryDailyMaterialsBackfillRunning : session.text.memoryDailyMaterialsBackfillStart}</button>
-            </div>
-          {/if}
-        </div>
-      {/if}
-    </section>
-
-    <!-- Feature plugins (e.g. Cloudflare HTML Publish) -->
-    {#each pluginsStore.plugins.featureSettings as plugin (plugin.pluginKey)}
-      {@const enabledField = plugin.fields.find((field) => field.key === "enabled" && field.type === "boolean")}
-      {@const enabledValue = Boolean(pluginsStore.pluginsEdit!.values[plugin.pluginKey]?.enabled)}
-      <section class="plugin-collapsible" class:is-open={expandedPlugin === plugin.pluginKey}>
-        <div class="settings-row plugin-collapsible-head">
-          <div class="profile-info">
-            <strong>{plugin.name}</strong>
-            <p>{plugin.description || session.text.pluginsFeatureSettings}</p>
-          </div>
-          <div class="settings-row-actions">
-            <span class="status-badge" data-state={enabledValue ? "ready" : "disconnected"}>{enabledValue ? session.text.pluginEnabled : session.text.pluginDisabled}</span>
-            {#if enabledField}
-              <IosSwitch checked={enabledValue} ariaLabel={enabledField.label} onCheckedChange={(checked) => updatePluginValue(plugin.pluginKey, "enabled", checked)} />
-            {/if}
-            <button class="secondary-button plugin-collapsible-toggle" type="button" aria-expanded={expandedPlugin === plugin.pluginKey} onclick={() => togglePluginExpanded(plugin.pluginKey)}>
-              <i class="ph ph-caret-right" aria-hidden="true"></i>
-              <span>{expandedPlugin === plugin.pluginKey ? session.text.pluginCollapse : session.text.pluginEdit}</span>
+<div class="plugin-settings-page">
+  {#if selectedPluginId === null}
+    <SettingGroup title={copy.installed} description={copy.installedDescription} contentClass="plugin-catalog-card">
+      {#if listMessage}<p class="plugin-page-message error">{listMessage}</p>{/if}
+      {#if loadingList && managedPlugins.length === 0}
+        <p class="plugin-empty-state">{copy.loading}</p>
+      {:else if managedPlugins.length === 0}
+        <p class="plugin-empty-state">{copy.empty}</p>
+      {:else}
+        {#each managedPlugins as plugin (plugin.id)}
+          <div class="plugin-catalog-row">
+            <button class="plugin-identity-button" type="button" onclick={() => openPluginDetail(plugin.id)}>
+              <span class="plugin-icon" aria-hidden="true">{#if plugin.iconUri}<img src={pluginIconSource(plugin.iconUri)} alt="" />{:else}{plugin.name.charAt(0).toUpperCase()}{/if}</span>
+              <span class="plugin-copy"><span class="plugin-title-line"><strong>{plugin.name}</strong><small>{plugin.version === "built-in" ? plugin.sourceKind : `v${plugin.version} · ${plugin.sourceKind}`}</small></span><span class="plugin-description">{plugin.description}</span></span>
             </button>
+            <span class="plugin-row-actions"><IosSwitch checked={plugin.enabled} ariaLabel={plugin.name} onCheckedChange={(enabled) => togglePlugin(plugin, enabled)} /><button class="secondary-button" type="button" onclick={() => openPluginDetail(plugin.id)}>{plugin.hasSettings ? copy.settings : copy.details}</button></span>
           </div>
+        {/each}
+      {/if}
+    </SettingGroup>
+  {:else}
+    <div class="plugin-detail-toolbar"><button class="tertiary-button" type="button" onclick={backToList}><i class="ph ph-arrow-left" aria-hidden="true"></i>{copy.back}</button>{#if detailMessage}<span class="plugin-detail-message">{detailMessage}</span>{/if}</div>
+
+    {#if loadingDetail}
+      <div class="settings-card"><p class="plugin-empty-state">{copy.loading}</p></div>
+    {:else if selectedPlugin}
+      <SettingGroup contentClass="plugin-summary-card">
+        <div class="plugin-summary">
+          <span class="plugin-icon large" aria-hidden="true">{#if selectedPlugin.iconUri}<img src={pluginIconSource(selectedPlugin.iconUri)} alt="" />{:else}{selectedPlugin.name.charAt(0).toUpperCase()}{/if}</span>
+          <span class="plugin-copy"><span class="plugin-title-line"><strong>{selectedPlugin.name}</strong><small>{selectedPlugin.version === "built-in" ? selectedPlugin.sourceKind : `v${selectedPlugin.version} · ${selectedPlugin.sourceKind}`}</small></span><span class="plugin-description">{selectedPlugin.description}</span></span>
+          <span class="plugin-summary-toggle"><small>{selectedPlugin.enabled ? copy.enabled : copy.disabled}</small><IosSwitch checked={selectedPlugin.enabled} ariaLabel={selectedPlugin.name} onCheckedChange={(enabled) => togglePlugin(selectedPlugin, enabled)} /></span>
         </div>
-        {#if expandedPlugin === plugin.pluginKey}
-          <div class="plugin-collapsible-body">
-            <div class="settings-form">
-              {#each plugin.fields as field (`${plugin.pluginKey}:${field.key}`)}
-                {#if field.key === "enabled" && field.type === "boolean"}
-                  <!-- skip: enabled is exposed on the collapsed head -->
-                {:else if field.type === "boolean"}
-                  <div class="settings-row settings-field-wide"><div><strong>{field.label}</strong>{#if field.description}<p>{field.description}</p>{/if}</div><IosSwitch checked={Boolean(pluginsStore.pluginsEdit!.values[plugin.pluginKey]?.[field.key])} ariaLabel={field.label} onCheckedChange={(checked) => updatePluginValue(plugin.pluginKey, field.key, checked)} /></div>
-                {:else if field.type === "select"}
-                  <label class="settings-field"><span>{field.label}{field.required ? " *" : ""}</span><SelectControl value={String(pluginsStore.pluginsEdit!.values[plugin.pluginKey]?.[field.key] ?? field.value)} ariaLabel={field.label} options={field.options} onChange={(value) => updatePluginValue(plugin.pluginKey, field.key, value)} />{#if field.description}<small>{field.description}</small>{/if}</label>
-                {:else if field.type === "password"}
-                  <label class="settings-field"><span>{field.label}{field.required ? " *" : ""}</span><input type="password" value={pluginsStore.pluginsEdit!.secretValues[plugin.pluginKey]?.[field.key] ?? ""} placeholder={field.configured ? session.text.channelSecretConfigured : field.placeholder} autocomplete="new-password" oninput={(event) => updatePluginSecret(plugin.pluginKey, field.key, event.currentTarget.value)} />{#if field.configured}<label class="inline-check"><input type="checkbox" checked={pluginsStore.pluginsEdit!.clearSecrets[plugin.pluginKey]?.includes(field.key)} onchange={() => togglePluginSecretClear(plugin.pluginKey, field.key)} /> {session.text.channelClearSecret}</label>{/if}{#if field.description}<small>{field.description}</small>{/if}</label>
-                {:else}
-                  <label class="settings-field"><span>{field.label}{field.required ? " *" : ""}</span><input value={String(pluginsStore.pluginsEdit!.values[plugin.pluginKey]?.[field.key] ?? field.value)} placeholder={field.placeholder} oninput={(event) => updatePluginValue(plugin.pluginKey, field.key, event.currentTarget.value)} />{#if field.description}<small>{field.description}</small>{/if}</label>
-                {/if}
-              {/each}
+      </SettingGroup>
 
-              {#if plugin.pluginKey === "external-subagent"}
-                <div class="ext-status-panel">
-                  <div class="ext-status-head">
-                    <div>
-                      <strong>{session.text.externalSubagentStatus}</strong>
-                      <p>{session.text.externalSubagentStatusHint}</p>
-                    </div>
-                    <button
-                      class="secondary-button"
-                      type="button"
-                      disabled={checkingSubagent}
-                      onclick={refreshSubagentStatus}
-                    >
-                      <i class="ph ph-arrows-clockwise" class:spin={checkingSubagent} aria-hidden="true"></i>
-                      <span>{checkingSubagent ? session.text.externalSubagentChecking : session.text.externalSubagentCheck}</span>
-                    </button>
-                  </div>
+      {#if coreDetail?.id === "memory" && coreDraft && "backend" in coreDraft}
+        <SettingGroup title={copy.configuration}>
+          <SettingRow title={copy.memoryBackend}><SelectControl value={coreDraft.backend} ariaLabel={copy.memoryBackend} options={coreDetail.backends} onChange={(backend) => coreDraft = { ...coreDraft!, backend }} /></SettingRow>
+          <SettingRow title={copy.reflectionTime}><NativeTimeInput bind:value={coreDraft.reflectionTime} /></SettingRow>
+          <SettingRow title={copy.reflectionNotifications}><IosSwitch checked={coreDraft.reflectionNotifications} ariaLabel={copy.reflectionNotifications} onCheckedChange={(reflectionNotifications) => coreDraft = { ...coreDraft!, reflectionNotifications }} /></SettingRow>
+        </SettingGroup>
+      {:else if coreDetail?.id === "daily-materials" && coreDraft && "projectId" in coreDraft}
+        <SettingGroup title={copy.configuration}>
+          <SettingRow title={copy.dailyTime}><NativeTimeInput bind:value={coreDraft.time} /></SettingRow>
+          <SettingRow title={copy.project}><SelectControl value={coreDraft.projectId} ariaLabel={copy.project} options={[{ value: "", label: copy.noProject }, ...coreDetail.projects]} onChange={(projectId) => coreDraft = { ...coreDraft!, projectId }} /></SettingRow>
+          <SettingRow title={copy.outputDirectory}><input value={coreDraft.dir} oninput={(event) => coreDraft = { ...coreDraft!, dir: event.currentTarget.value }} /></SettingRow>
+          <SettingRow title={copy.promptPath}><input value={coreDraft.promptPath} oninput={(event) => coreDraft = { ...coreDraft!, promptPath: event.currentTarget.value }} /></SettingRow>
+          <SettingRow title={copy.scanBudget}><input type="number" min="8000" max="900000" step="1000" value={coreDraft.scanTokenBudget} oninput={(event) => coreDraft = { ...coreDraft!, scanTokenBudget: Number(event.currentTarget.value) }} /></SettingRow>
+          <SettingRow title={copy.scanModel}><SelectControl value={coreDraft.scanModelKey} ariaLabel={copy.scanModel} options={[{ value: "", label: copy.followDefaultModel }, ...coreDetail.models]} onChange={(scanModelKey) => coreDraft = { ...coreDraft!, scanModelKey }} /></SettingRow>
+          <SettingRow title={copy.notifications}><IosSwitch checked={coreDraft.notifications} ariaLabel={copy.notifications} onCheckedChange={(notifications) => coreDraft = { ...coreDraft!, notifications }} /></SettingRow>
+        </SettingGroup>
+      {:else if contractDetail?.manifest?.settings?.mode === "schema"}
+        <SettingGroup title={copy.configuration} description={copy.isolatedConfiguration} contentClass="plugin-schema-form">
+          {#if contractDetail.presentation && contractDetail.presentation.length > 0}
+            {#each contractDetail.presentation as field (field.key)}
+              {@const labelText = field.label[localeKey] || field.label.zh}
+              {@const descText = field.description ? (field.description[localeKey] || field.description.zh) : ""}
+              {@const isConfigured = Boolean(contractDetail.secretsPresence?.[field.key]?.present)}
+              <label class="settings-field settings-field-wide"><span>{labelText}</span>{#if descText}<small>{descText}</small>{/if}
+                {#if field.secret}
+                  <span class="plugin-secret-control"><input type="password" placeholder={isConfigured ? copy.configuredSecret : (field.placeholder || "")} value={secretReplacements[field.key] ?? ""} oninput={(event) => { const value = event.currentTarget.value; secretReplacements = { ...secretReplacements, [field.key]: value }; if (value) { const next = new Set(secretClears); next.delete(field.key); secretClears = next; } }} />{#if isConfigured}<button class="secondary-button danger-action" type="button" onclick={() => { const next = new Set(secretClears); next.add(field.key); secretClears = next; secretReplacements = { ...secretReplacements, [field.key]: "" }; }}>{copy.clearSecret}</button>{/if}</span>
+                {:else}<input placeholder={field.placeholder || ""} value={String(formValues[field.key] ?? "")} oninput={(event) => formValues = { ...formValues, [field.key]: event.currentTarget.value }} />{/if}
+              </label>
+            {/each}
+          {:else if contractDetail.schema?.properties}
+            {#each Object.entries(contractDetail.schema.properties as Record<string, any>) as [propKey, propDef] (propKey)}
+              {#if propDef.type === "boolean"}<SettingRow title={propDef.title || propKey} description={propDef.description || ""}><IosSwitch checked={Boolean(formValues[propKey])} ariaLabel={propDef.title || propKey} onCheckedChange={(value) => formValues = { ...formValues, [propKey]: value }} /></SettingRow>
+              {:else}<label class="settings-field settings-field-wide"><span>{propDef.title || propKey}</span>{#if propDef.description}<small>{propDef.description}</small>{/if}<input type={propDef.type === "number" ? "number" : "text"} value={String(formValues[propKey] ?? "")} oninput={(event) => formValues = { ...formValues, [propKey]: propDef.type === "number" ? Number(event.currentTarget.value) : event.currentTarget.value }} /></label>{/if}
+            {/each}
+          {/if}
+        </SettingGroup>
+      {:else if contractDetail?.manifest?.settings?.mode === "custom"}
+        <SettingGroup contentClass="plugin-custom-card"><iframe bind:this={customFrame} src={desktopPluginSettingsFrameUrl(contractDetail.item.id, contractDetail.manifest.settings.ui.entry)} title={`${contractDetail.item.name} ${copy.settings}`} sandbox="allow-scripts" class="plugin-custom-frame" style:height={`${customFrameHeight}px`}></iframe></SettingGroup>
+      {:else if contractDetail}
+        <SettingGroup><p class="plugin-empty-state">{copy.noConfiguration}</p></SettingGroup>
+      {/if}
 
-                  {#if subagentStatus}
-                    <div class="ext-status-list">
-                      <div class="ext-status-row">
-                        <div class="ext-status-info">
-                          <div class="ext-status-title">
-                            <strong>OpenAI Codex</strong>
-                            <span class="status-badge" data-state={codexBadge.state}>
-                              {codexBadge.label}
-                            </span>
-                          </div>
-                          {#if subagentStatus.codex.executablePath || subagentStatus.codex.packagePath}
-                            <span class="ext-status-path">{subagentStatus.codex.source ? `[${subagentStatus.codex.source}] ` : ""}{subagentStatus.codex.executablePath || subagentStatus.codex.packagePath}</span>
-                          {:else if subagentStatus.codex.error}
-                            <span class="ext-status-error">{subagentStatus.codex.error}</span>
-                          {/if}
-                          {#if testResults.codex && !testResults.codex.ok}
-                            <span class="ext-status-error">{testResults.codex.diagnostic || `stopReason: ${testResults.codex.stopReason}`}</span>
-                          {/if}
-                        </div>
-                        <div class="ext-status-actions">
-                          <button
-                            class="secondary-button"
-                            type="button"
-                            disabled={testingProvider !== null || installingProvider !== null}
-                            onclick={() => testSubagent("codex")}
-                          >
-                            {testingProvider === "codex" ? session.text.externalSubagentTesting : session.text.externalSubagentTest}
-                          </button>
-                          {#if !subagentStatus.codex.available}
-                            <button
-                              class="secondary-button"
-                              type="button"
-                              disabled={installingProvider !== null || testingProvider !== null}
-                              onclick={() => installSubagent("codex")}
-                            >
-                              {installingProvider === "codex" ? session.text.externalSubagentInstalling : session.text.externalSubagentInstall}
-                            </button>
-                          {/if}
-                        </div>
-                      </div>
+      {#if contractDetail}
+        <SettingGroup title={copy.storageLifecycle}>
+          <SettingRow title={copy.clearCache} description={copy.clearCacheDescription}><button class="secondary-button" type="button" onclick={() => handleLifecycleAction("clear-cache", `${copy.clearCache}?`)}>{copy.clear}</button></SettingRow>
+          {#if contractDetail.retainedState.hasConfig}<SettingRow title={copy.deleteConfig} description={copy.deleteConfigDescription}><button class="secondary-button danger-action" type="button" onclick={() => handleLifecycleAction("delete-config", `${copy.deleteConfig}?`)}>{copy.remove}</button></SettingRow>{/if}
+          {#if contractDetail.retainedState.hasData}<SettingRow title={copy.deleteData} description={copy.deleteDataDescription}><button class="secondary-button danger-action" type="button" onclick={() => handleLifecycleAction("delete-data", `${copy.deleteData}?`)}>{copy.remove}</button></SettingRow>{/if}
+          <SettingRow title={copy.uninstall} description={copy.uninstallDescription}><button class="secondary-button danger-action" type="button" onclick={() => handleLifecycleAction("uninstall", `${copy.uninstall}?`)}>{copy.uninstallAction}</button></SettingRow>
+        </SettingGroup>
+      {/if}
 
-                      <div class="ext-status-row">
-                        <div class="ext-status-info">
-                          <div class="ext-status-title">
-                            <strong>Claude Code</strong>
-                            <span class="status-badge" data-state={claudeBadge.state}>
-                              {claudeBadge.label}
-                            </span>
-                          </div>
-                          {#if subagentStatus.claudeCode.executablePath || subagentStatus.claudeCode.packagePath}
-                            <span class="ext-status-path">{subagentStatus.claudeCode.source ? `[${subagentStatus.claudeCode.source}] ` : ""}{subagentStatus.claudeCode.executablePath || subagentStatus.claudeCode.packagePath}</span>
-                          {:else if subagentStatus.claudeCode.error}
-                            <span class="ext-status-error">{subagentStatus.claudeCode.error}</span>
-                          {/if}
-                          {#if testResults["claude-code"] && !testResults["claude-code"].ok}
-                            <span class="ext-status-error">{testResults["claude-code"].diagnostic || `stopReason: ${testResults["claude-code"].stopReason}`}</span>
-                          {/if}
-                        </div>
-                        <div class="ext-status-actions">
-                          <button
-                            class="secondary-button"
-                            type="button"
-                            disabled={testingProvider !== null || installingProvider !== null}
-                            onclick={() => testSubagent("claude-code")}
-                          >
-                            {testingProvider === "claude-code" ? session.text.externalSubagentTesting : session.text.externalSubagentTest}
-                          </button>
-                          {#if !subagentStatus.claudeCode.available}
-                            <button
-                              class="secondary-button"
-                              type="button"
-                              disabled={installingProvider !== null || testingProvider !== null}
-                              onclick={() => installSubagent("claude-code")}
-                            >
-                              {installingProvider === "claude-code" ? session.text.externalSubagentInstalling : session.text.externalSubagentInstall}
-                            </button>
-                          {/if}
-                        </div>
-                      </div>
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-            </div>
-          </div>
-        {/if}
-      </section>
-    {/each}
-  </form>
-{/if}
-
-<!-- No Mini App surfaces here. Browsing and installing apps belongs to the
-     sidebar's Mini Apps destination, and the AI capability settings are a model
-     route, so they live in Settings › Models with the others. -->
-
-{#if pluginsDirty}
-  <footer class="settings-footbar">
-    <span class="settings-footbar-label">{session.text.settingsUnsaved}</span>
-    <div class="settings-footbar-actions">
-      <button class="secondary-button" type="button" disabled={pluginsStore.saving} onclick={discardPlugins}>{session.text.discardChanges}</button>
-      <button class="primary-button" type="submit" form="desktop-plugins-form" disabled={pluginsStore.saving}>{pluginsStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button>
-    </div>
-  </footer>
-{/if}
-
-{#if pluginsStore.actionMessage}<p class="settings-action-message">{pluginsStore.actionMessage}</p>{/if}
-
-<style>
-  .plugin-collapsible-list {
-    padding: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-  .plugin-collapsible {
-    background: var(--card-bg);
-    border: 1px solid var(--hairline);
-    border-radius: var(--rounded-md);
-    overflow: hidden;
-  }
-  .plugin-collapsible + .plugin-collapsible {
-    margin-top: 12px;
-  }
-  .plugin-collapsible-head {
-    min-height: 56px;
-  }
-  .plugin-collapsible-head .profile-info {
-    min-width: 0;
-  }
-  .plugin-collapsible-head .profile-info strong {
-    font-size: 14px;
-    font-weight: 500;
-  }
-  .plugin-collapsible-head .profile-info p {
-    margin: 2px 0 0;
-    color: var(--label-secondary);
-    font-size: 12px;
-    line-height: var(--lh-prose);
-  }
-  .plugin-collapsible-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .plugin-collapsible-toggle i {
-    transition: transform var(--duration-fast) var(--ease-standard);
-    font-size: 12px;
-  }
-  .plugin-collapsible.is-open .plugin-collapsible-toggle i {
-    transform: rotate(90deg);
-  }
-  .plugin-collapsible-body {
-    padding: 4px 16px 14px;
-    border-top: 0.5px solid var(--hairline);
-    background: var(--surface-secondary);
-  }
-  .plugin-collapsible-body .settings-form {
-    margin-top: 12px;
-  }
-  .plugin-collapsible-body .settings-row {
-    padding-left: 0;
-    padding-right: 0;
-  }
-  .daily-backfill-status {
-    margin-top: 6px;
-    color: var(--label-secondary);
-    font-size: 12px;
-    line-height: var(--lh-prose);
-  }
-  .daily-backfill-status.is-error {
-    color: var(--danger);
-  }
-  .settings-field-hint {
-    margin-top: 4px;
-    color: var(--label-secondary);
-    font-size: 12px;
-    line-height: var(--lh-prose);
-  }
-  .ext-status-panel {
-    margin-top: 16px;
-    padding: 12px 14px;
-    border: 1px solid var(--hairline);
-    border-radius: var(--rounded-md);
-    background: var(--card-bg);
-  }
-  .ext-status-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
-  .ext-status-head strong {
-    font-size: 13px;
-    font-weight: 500;
-  }
-  .ext-status-head p {
-    margin: 2px 0 0;
-    color: var(--label-secondary);
-    font-size: 11px;
-  }
-  .ext-status-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .ext-status-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 8px 10px;
-    border-radius: var(--rounded-sm);
-    background: var(--surface-secondary);
-  }
-  .ext-status-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-  .ext-status-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-  .ext-status-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .ext-status-title strong {
-    font-size: 13px;
-  }
-  .ext-status-path {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--label-secondary);
-    word-break: break-all;
-  }
-  .ext-status-error {
-    font-size: 11px;
-    color: var(--danger);
-  }
-</style>
+      {#if coreDetail || contractDetail?.manifest?.settings?.mode === "schema"}
+        <div class="settings-footbar"><span class="settings-footbar-label">{detailMessage}</span><div class="settings-footbar-actions"><button class="primary-button" type="button" disabled={savingDetail} onclick={coreDetail ? saveCoreSettings : saveContractSettings}>{savingDetail ? copy.saving : copy.save}</button></div></div>
+      {/if}
+    {/if}
+  {/if}
+</div>

@@ -1,202 +1,36 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { get } from "svelte/store";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
-  import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { locale } from "$lib/ui/i18n";
+  import type { PluginCatalogItem } from "$lib/server/plugins/contract/catalog";
 
-  type PluginFieldValue = string | boolean;
-
-  interface PluginSettingField {
-    key: string;
-    label: string;
-    type: "boolean" | "text" | "password" | "select";
-    description?: string;
-    placeholder?: string;
-    required?: boolean;
-    defaultValue?: PluginFieldValue;
-    options?: Array<{ value: string; label: string }>;
-  }
-
-  interface CatalogEntry {
-    kind: "channel" | "provider" | "feature" | "memory-backend";
-    key: string;
+  interface CorePluginItem {
+    id: "memory" | "daily-materials";
     name: string;
+    description: string;
     version: string;
-    description?: string;
-    source: "built-in" | "external";
-    status: "active" | "error" | "discovered";
-    enabled?: boolean;
-    manifestPath?: string;
-    entryPath?: string;
-    error?: string;
-    settingsKey?: string;
-    settingsFields?: PluginSettingField[];
+    enabled: boolean;
+    settingsHref: string;
+    source: { kind: "builtin" };
   }
 
-  const COPY = {
-    "zh-CN": {
-      eyebrow: "运行时扩展",
-      title: "插件设置",
-      subtitle: "启用或禁用可选的运行时插件。",
-      loading: "加载插件设置中...",
-      saving: "保存中...",
-      save: "保存插件设置",
-      reset: "重置",
-      memoryTitle: "记忆后端",
-      memoryDesc: "这是一个记忆后端开关，而非渠道插件。`json-file` 保持现有的扁平文件行为。`mory` 将网关切换为基于 SDK 的 SQLite 引擎，但不改变面向智能体的 API。",
-      enableMemory: "启用记忆",
-      enableMemoryDesc: "开启标准记忆数据库索引与存储。",
-      memoryBackendLabel: "记忆后端",
-      featureTitle: "功能插件",
-      featureDesc: "这些插件用于添加可选的产品功能，而非新的聊天渠道。",
-      channelTitle: "渠道插件",
-      channelDesc: "内置渠道插件存在于代码库中。外部渠道插件从 DATA_DIR/plugins/channels/*/plugin.json 自动发现。",
-      providerTitle: "提供方插件",
-      providerDesc: "内置提供方来源于当前代码库。外部提供方清单从 DATA_DIR/plugins/providers/*/plugin.json 自动发现。",
-      saved: "插件设置已保存。",
-      failedLoad: "加载设置失败",
-      failedSave: "保存设置失败",
-      builtIn: "内置",
-      external: "外部",
-      statusActive: "活跃",
-      statusDiscovered: "已发现",
-      statusError: "错误",
-      enabled: "已启用",
-      disabled: "已禁用",
-      jsonFileLabel: "json-file (内置后端)",
-      moryLabel: "mory (SDK 驱动后端)",
-      manifestLabel: "清单:",
-      entryLabel: "入口:",
-      extTitle: "pi 扩展（第三方插件）",
-      extDesc: "安装 pi 生态的第三方扩展。扩展可以提供工具、监听运行时事件、注册斜杠命令；终端 UI 类能力（快捷键、消息渲染器、对话框）在这里不会生效。",
-      extMaster: "启用 pi 扩展",
-      extMasterDesc: "总开关。关闭后所有已安装扩展都不生效。",
-      extSpecLabel: "包名或链接",
-      extSpecPlaceholder: "npm 包名、npm 链接、GitHub 仓库或子目录链接",
-      extSpecHint: "支持：pi-subagents ｜ https://www.npmjs.com/package/... ｜ https://github.com/用户/仓库 ｜ https://github.com/用户/仓库/tree/main/packages/扩展名",
-      extInstall: "安装",
-      extInstalling: "安装中...",
-      extReload: "重新加载",
-      extUninstall: "卸载",
-      extEmpty: "还没有安装任何扩展。",
-      extTools: "工具:",
-      extEvents: "事件:",
-      extCommands: "命令:",
-      extRootLabel: "安装目录:",
-      extUnsupported: "该扩展使用了 Molibot 不支持的终端 UI 能力，相关功能不会生效：",
-      extInstalled: "扩展安装完成。",
-      extUninstalled: "扩展已卸载。",
-      extReloaded: "扩展已重新加载。",
-      extConfirmUninstall: "确定要卸载这个扩展吗？",
-      extSubagentStatusTitle: "运行环境检测",
-      extSubagentStatusDesc: "检测系统 PATH、已安装运行时或自定义路径中的 Codex 与 Claude Code。",
-      extSubagentCheck: "检测环境",
-      extSubagentChecking: "检测中...",
-      extSubagentInstall: "安装运行时",
-      extSubagentInstalling: "安装中...",
-      extSubagentDetected: "已就绪",
-      extSubagentNotFound: "未检测到",
-      extSubagentTest: "测试运行",
-      extSubagentTesting: "测试中...",
-      extSubagentTestPassed: "测试通过",
-      extSubagentTestFailed: "测试失败"
-    },
-    "en-US": {
-      eyebrow: "Runtime Extensions",
-      title: "Plugin Settings",
-      subtitle: "Enable or disable optional runtime plugins.",
-      loading: "Loading plugin settings...",
-      saving: "Saving...",
-      save: "Save Plugin Settings",
-      reset: "Reset",
-      memoryTitle: "Memory Backend",
-      memoryDesc: "This is a memory backend switch, not a channel plugin. json-file keeps the current flat-file behavior. mory switches the gateway to the SDK-backed SQLite engine without changing the agent-facing API.",
-      enableMemory: "Enable memory",
-      enableMemoryDesc: "Turn on standard memory database indexing and storage.",
-      memoryBackendLabel: "Memory backend",
-      featureTitle: "Feature Plugins",
-      featureDesc: "These plugins add optional product capabilities instead of new chat channels.",
-      channelTitle: "Channel Plugins",
-      channelDesc: "Built-in channel plugins live in the codebase. External channel plugins are discovered from DATA_DIR/plugins/channels/*/plugin.json.",
-      providerTitle: "Provider Plugins",
-      providerDesc: "Built-in providers come from the current codebase. External provider manifests are discovered from DATA_DIR/plugins/providers/*/plugin.json.",
-      saved: "Plugin settings saved.",
-      failedLoad: "Failed to load settings",
-      failedSave: "Failed to save settings",
-      builtIn: "Built-in",
-      external: "External",
-      statusActive: "Active",
-      statusDiscovered: "Discovered",
-      statusError: "Error",
-      enabled: "Enabled",
-      disabled: "Disabled",
-      jsonFileLabel: "json-file (built-in backend)",
-      moryLabel: "mory (SDK-backed backend)",
-      manifestLabel: "Manifest:",
-      entryLabel: "Entry:",
-      extTitle: "pi Extensions (third-party plugins)",
-      extDesc: "Install third-party extensions from the pi ecosystem. Extensions can provide tools, listen to runtime events and register slash commands; terminal-only capabilities (shortcuts, message renderers, dialogs) do not apply here.",
-      extMaster: "Enable pi extensions",
-      extMasterDesc: "Master switch. When off, no installed extension runs.",
-      extSpecLabel: "Package or link",
-      extSpecPlaceholder: "npm package, npm link, GitHub repo or subdirectory link",
-      extSpecHint: "Accepts: pi-subagents | https://www.npmjs.com/package/... | https://github.com/owner/repo | https://github.com/owner/repo/tree/main/packages/name",
-      extInstall: "Install",
-      extInstalling: "Installing...",
-      extReload: "Reload",
-      extUninstall: "Uninstall",
-      extEmpty: "No extensions installed yet.",
-      extTools: "Tools:",
-      extEvents: "Events:",
-      extCommands: "Commands:",
-      extRootLabel: "Install directory:",
-      extUnsupported: "This extension uses terminal-only capabilities Molibot does not provide; those parts will not work:",
-      extInstalled: "Extension installed.",
-      extUninstalled: "Extension uninstalled.",
-      extReloaded: "Extensions reloaded.",
-      extConfirmUninstall: "Uninstall this extension?",
-      extSubagentStatusTitle: "Runtime Environment Detection",
-      extSubagentStatusDesc: "Check whether Codex and Claude Code are detected in system PATH, installed runtimes, or custom paths.",
-      extSubagentCheck: "Detect Environment",
-      extSubagentChecking: "Detecting...",
-      extSubagentInstall: "Install Runtime",
-      extSubagentInstalling: "Installing...",
-      extSubagentDetected: "Ready",
-      extSubagentNotFound: "Not Detected",
-      extSubagentTest: "Test Run",
-      extSubagentTesting: "Testing...",
-      extSubagentTestPassed: "Test Passed",
-      extSubagentTestFailed: "Test Failed"
-    }
-  } as const;
+  interface ManagedPluginItem extends PluginCatalogItem {
+    management: "contract" | "core";
+    settingsHref: string;
+  }
 
-  let loading = true;
-  let saving = false;
-  let message = "";
-  let error = "";
-  let channelPlugins: CatalogEntry[] = [];
-  let providerPlugins: CatalogEntry[] = [];
-  let featurePlugins: CatalogEntry[] = [];
-  let memoryBackendCatalog: CatalogEntry[] = [];
-  let memoryEnabled = false;
-  let memoryBackend = "json-file";
-  let featurePluginValues: Record<string, Record<string, PluginFieldValue>> = {};
-
-  // pi extensions live behind their own endpoint: installing runs npm/git and
-  // reloads the host, so it does not belong in the settings save round-trip.
   interface ExtensionEntry {
     id: string;
     name: string;
     version: string;
     description?: string;
-    entryPath: string;
     enabled: boolean;
-    disabledBots: string[];
     toolNames: string[];
     eventNames: string[];
     commandNames: string[];
@@ -204,258 +38,202 @@
     error?: string;
   }
 
-  let extensions: ExtensionEntry[] = [];
-  let extensionsRoot = "";
-  let extensionsMaster = true;
-  let extensionSpec = "";
-  let extensionBusy = false;
-
-  $: copy = COPY[$locale] ?? COPY["en-US"];
-
-  function translateSource(source: string): string {
-    if (source === "built-in") return copy.builtIn;
-    if (source === "external") return copy.external;
-    return source;
-  }
-
-  function translateStatus(status: string): string {
-    if (status === "active") return copy.statusActive;
-    if (status === "discovered") return copy.statusDiscovered;
-    if (status === "error") return copy.statusError;
-    return status;
-  }
-
-  function readFeatureFieldValue(settings: any, plugin: CatalogEntry, field: PluginSettingField): PluginFieldValue {
-    const pluginSettings = plugin.settingsKey ? settings?.plugins?.[plugin.settingsKey] ?? {} : {};
-    if (plugin.key === "cloudflare-html-publish" && field.key === "workerBaseHost") {
-      const legacy = pluginSettings?.workerBaseHost ?? pluginSettings?.publicBaseUrl;
-      if (legacy !== undefined && legacy !== null && String(legacy).trim()) return String(legacy);
+  const COPY = {
+    "zh-CN": {
+      eyebrow: "运行时扩展",
+      title: "插件",
+      subtitle: "管理插件是否启用；每个 Molibot 插件在独立页面中管理自己的配置与数据。",
+      loading: "加载插件列表中...",
+      failedLoad: "加载插件失败",
+      searchPlaceholder: "搜索插件名称或描述...",
+      noPlugins: "未发现 Molibot 插件。请检查插件目录或下方的错误信息。",
+      noPluginsMatch: "没有匹配的插件",
+      configure: "设置",
+      details: "详情",
+      statusError: "异常",
+      sourceBuiltin: "内置",
+      sourceDirectory: "外置目录",
+      installedPluginsTitle: "Molibot 插件",
+      installedPluginsDesc: "内置插件随 Molibot 自动安装；外置插件由插件目录提供代码与设置页面。此处统一提供入口和启用开关。",
+      memoryName: "记忆后端",
+      memoryDesc: "管理记忆存储、反思时间和向量检索配置。",
+      dailyName: "每日素材 / 每日回顾",
+      dailyDesc: "从已授权会话提取每日素材并写入指定项目。",
+      extTitle: "pi 扩展（兼容插件）",
+      extDesc: "安装 pi 生态扩展。它们可以提供工具、事件与命令，但不提供 Molibot 独立设置页面。",
+      extMaster: "启用 pi 扩展",
+      extMasterDesc: "关闭后，所有已安装的 pi 扩展均不生效。",
+      extSpecLabel: "包名或链接",
+      extSpecPlaceholder: "npm 包名、npm 链接或 GitHub 仓库地址",
+      extSpecHint: "支持 npm 包、npm 页面、GitHub 仓库及仓库子目录链接。",
+      extInstall: "安装",
+      extInstalling: "处理中...",
+      extReload: "重新加载",
+      extUninstall: "卸载",
+      extEmpty: "尚未安装 pi 扩展。",
+      extTools: "工具",
+      extEvents: "事件",
+      extCommands: "命令",
+      extUnsupported: "不支持的终端 UI 能力",
+      extInstalled: "扩展安装完成。",
+      extUninstalled: "扩展已卸载。",
+      extReloaded: "扩展已重新加载。",
+      extConfirmUninstall: "确定卸载这个扩展吗？"
+    },
+    "en-US": {
+      eyebrow: "Runtime Extensions",
+      title: "Plugins",
+      subtitle: "Manage enablement here; each Molibot plugin owns its configuration and data on a dedicated page.",
+      loading: "Loading plugins...",
+      failedLoad: "Failed to load plugins",
+      searchPlaceholder: "Search plugin name or description...",
+      noPlugins: "No Molibot plugins were discovered. Check the plugin directory or the error below.",
+      noPluginsMatch: "No matching plugins",
+      configure: "Configure",
+      details: "Details",
+      statusError: "Error",
+      sourceBuiltin: "Built-in",
+      sourceDirectory: "External directory",
+      installedPluginsTitle: "Molibot Plugins",
+      installedPluginsDesc: "Built-in plugins ship with Molibot; external plugins provide code and settings pages from their package directories. This page provides entry points and enablement.",
+      memoryName: "Memory Backend",
+      memoryDesc: "Manage memory storage, reflection timing, and vector retrieval settings.",
+      dailyName: "Daily Materials / Review",
+      dailyDesc: "Extract daily material from authorized conversations and write it to a project.",
+      extTitle: "pi Extensions (Compatibility)",
+      extDesc: "Install pi ecosystem extensions. They may provide tools, events, and commands, but do not provide Molibot settings pages.",
+      extMaster: "Enable pi extensions",
+      extMasterDesc: "When disabled, no installed pi extension is active.",
+      extSpecLabel: "Package or link",
+      extSpecPlaceholder: "npm package, npm link, or GitHub repository",
+      extSpecHint: "Accepts npm packages, npm pages, GitHub repositories, and repository subdirectory links.",
+      extInstall: "Install",
+      extInstalling: "Working...",
+      extReload: "Reload",
+      extUninstall: "Uninstall",
+      extEmpty: "No pi extensions installed.",
+      extTools: "Tools",
+      extEvents: "Events",
+      extCommands: "Commands",
+      extUnsupported: "Unsupported terminal UI capabilities",
+      extInstalled: "Extension installed.",
+      extUninstalled: "Extension uninstalled.",
+      extReloaded: "Extensions reloaded.",
+      extConfirmUninstall: "Uninstall this extension?"
     }
-    const raw = pluginSettings?.[field.key];
-    if (field.type === "boolean") return raw === undefined ? Boolean(field.defaultValue ?? false) : Boolean(raw);
-    if (raw === undefined || raw === null) return typeof field.defaultValue === "string" ? field.defaultValue : "";
-    return String(raw);
+  } as const;
+
+  let currentLocale = $state<"zh-CN" | "en-US">("zh-CN");
+  let copy = $derived(COPY[currentLocale]);
+  let loading = $state(true);
+  let errorMessage = $state("");
+  let actionMessage = $state("");
+  let searchQuery = $state("");
+  let contractPlugins = $state<PluginCatalogItem[]>([]);
+  let corePlugins = $state<CorePluginItem[]>([]);
+  let extensions = $state<ExtensionEntry[]>([]);
+  let extensionsMaster = $state(true);
+  let extensionSpec = $state("");
+  let extensionBusy = $state(false);
+
+  let installedPlugins = $derived<ManagedPluginItem[]>([
+    ...corePlugins.map((item) => ({
+      ...item,
+      name: item.id === "memory" ? copy.memoryName : copy.dailyName,
+      description: item.id === "memory" ? copy.memoryDesc : copy.dailyDesc,
+      status: item.enabled ? "active" as const : "disabled" as const,
+      hasSettings: true,
+      capabilities: [],
+      management: "core" as const
+    })),
+    ...contractPlugins.map((item) => ({
+      ...item,
+      management: "contract" as const,
+      settingsHref: `/settings/plugins/${item.id}`
+    }))
+  ]);
+
+  let filteredPlugins = $derived(
+    installedPlugins.filter((item) => {
+      const query = searchQuery.trim().toLowerCase();
+      return !query || item.name.toLowerCase().includes(query) || item.id.includes(query) || item.description?.toLowerCase().includes(query);
+    })
+  );
+
+  async function responseJson(response: Response): Promise<any> {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || data.message || `${response.status} ${response.statusText}`);
+    return data;
   }
 
-  function setFeaturePluginDefaults(settings: any): void {
-    featurePluginValues = Object.fromEntries(
-      featurePlugins.map((plugin) => [
-        plugin.key,
-        Object.fromEntries((plugin.settingsFields ?? []).map((field) => [field.key, readFeatureFieldValue(settings, plugin, field)])),
-      ]),
-    );
+  function sourceLabel(kind: PluginCatalogItem["source"]["kind"]): string {
+    if (kind === "builtin") return copy.sourceBuiltin;
+    if (kind === "directory") return copy.sourceDirectory;
+    return kind;
   }
 
-  function getFeatureValue(pluginKey: string, fieldKey: string): PluginFieldValue {
-    return featurePluginValues[pluginKey]?.[fieldKey] ?? "";
-  }
-
-  function setFeatureValue(pluginKey: string, fieldKey: string, value: PluginFieldValue): void {
-    featurePluginValues = { ...featurePluginValues, [pluginKey]: { ...(featurePluginValues[pluginKey] ?? {}), [fieldKey]: value } };
-  }
-
-  function statusVariant(status: string): "default" | "destructive" | "secondary" {
-    if (status === "error") return "destructive";
-    if (status === "active") return "default";
-    return "secondary";
-  }
-
-  let externalSubagentStatus: {
-    codex?: { available: boolean; source?: string; executablePath?: string; packagePath?: string; version?: string; error?: string };
-    claudeCode?: { available: boolean; source?: string; executablePath?: string; packagePath?: string; version?: string; error?: string };
-  } | null = null;
-  let checkingExternalSubagent = false;
-  let installingSubagentProvider: string | null = null;
-  let testingSubagentProvider: string | null = null;
-  // A completed probe is the only proof of availability; a failed probe
-  // overrides a green detection so the surface can never fake "ready".
-  let subagentTestResults: Record<"codex" | "claude-code", { ok: boolean; stopReason: string; output: string; diagnostic?: string; durationMs: number } | null> = {
-    codex: null,
-    "claude-code": null
-  };
-
-  async function checkExternalSubagentStatus(): Promise<void> {
-    checkingExternalSubagent = true;
-    try {
-      const codexPath = encodeURIComponent(String(getFeatureValue("external-subagent", "codexPath") ?? ""));
-      const claudePath = encodeURIComponent(String(getFeatureValue("external-subagent", "claudeCodePath") ?? ""));
-      const res = await fetch(`/api/settings/plugins/external-subagent?codexPath=${codexPath}&claudeCodePath=${claudePath}`);
-      const data = await res.json();
-      if (data.ok) {
-        externalSubagentStatus = {
-          codex: data.codex,
-          claudeCode: data.claudeCode
-        };
-      }
-    } catch {
-      // ignore
-    } finally {
-      checkingExternalSubagent = false;
-    }
-  }
-
-  async function installExternalSubagent(provider: "codex" | "claude-code"): Promise<void> {
-    if (installingSubagentProvider !== null) return;
-    installingSubagentProvider = provider;
-    try {
-      const res = await fetch("/api/settings/plugins/external-subagent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        subagentTestResults[provider] = null;
-        await checkExternalSubagentStatus();
-      } else {
-        error = data.error || "Installation failed";
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    } finally {
-      installingSubagentProvider = null;
-    }
-  }
-
-  async function testExternalSubagent(provider: "codex" | "claude-code"): Promise<void> {
-    if (testingSubagentProvider !== null) return;
-    testingSubagentProvider = provider;
-    subagentTestResults[provider] = null;
-    try {
-      const res = await fetch("/api/settings/plugins/external-subagent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "test",
-          provider,
-          codexPath: String(getFeatureValue("external-subagent", "codexPath") ?? ""),
-          claudeCodePath: String(getFeatureValue("external-subagent", "claudeCodePath") ?? "")
-        })
-      });
-      const data = await res.json();
-      if (data.ok === false && data.stopReason === undefined) {
-        throw new Error(data.error || "Test failed");
-      }
-      subagentTestResults[provider] = data;
-    } catch (e) {
-      // Transport-level failure is also "unavailable".
-      subagentTestResults[provider] = {
-        ok: false,
-        stopReason: "error",
-        output: "",
-        diagnostic: e instanceof Error ? e.message : String(e),
-        durationMs: 0
-      };
-    } finally {
-      testingSubagentProvider = null;
-    }
-  }
-
-  function subagentBadge(provider: "codex" | "claude-code"): { variant: "default" | "secondary" | "destructive"; label: string } {
-    const testResult = subagentTestResults[provider];
-    if (testResult) {
-      return testResult.ok
-        ? { variant: "default", label: `${copy.extSubagentTestPassed} · ${(testResult.durationMs / 1000).toFixed(1)}s` }
-        : { variant: "destructive", label: copy.extSubagentTestFailed };
-    }
-    const available = provider === "codex" ? externalSubagentStatus?.codex?.available : externalSubagentStatus?.claudeCode?.available;
-    return { variant: available ? "default" : "secondary", label: available ? copy.extSubagentDetected : copy.extSubagentNotFound };
-  }
-
-  async function loadSettings(): Promise<void> {
+  async function loadAll(): Promise<void> {
     loading = true;
-    message = "";
-    error = "";
+    errorMessage = "";
     try {
-      const pluginRes = await fetch("/api/settings/plugins");
-      const pluginData = await pluginRes.json();
-      if (!pluginData.ok) throw new Error(pluginData.error || copy.failedLoad);
-      memoryEnabled = Boolean(pluginData.plugins?.memory?.enabled);
-      memoryBackend = String((pluginData.plugins?.memory as any)?.backend ?? (pluginData.plugins?.memory as any)?.core ?? "json-file");
-      channelPlugins = Array.isArray(pluginData.catalog?.channels) ? pluginData.catalog.channels : [];
-      providerPlugins = Array.isArray(pluginData.catalog?.providers) ? pluginData.catalog.providers : [];
-      featurePlugins = Array.isArray(pluginData.catalog?.features) ? pluginData.catalog.features : [];
-      memoryBackendCatalog = Array.isArray(pluginData.catalog?.memoryBackends) ? pluginData.catalog.memoryBackends : [];
-      setFeaturePluginDefaults({ plugins: pluginData.plugins });
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      const [coreResponse, contractResponse, extensionsResponse] = await Promise.all([
+        fetch("/api/settings/plugins/core"),
+        fetch("/api/settings/plugins/contract"),
+        fetch("/api/settings/plugins/extensions")
+      ]);
+      const coreData = await responseJson(coreResponse);
+      const contractData = await responseJson(contractResponse);
+      const extensionsData = await responseJson(extensionsResponse);
+      corePlugins = Array.isArray(coreData.items) ? coreData.items : [];
+      contractPlugins = Array.isArray(contractData.items) ? contractData.items : [];
+      extensions = Array.isArray(extensionsData.extensions) ? extensionsData.extensions : [];
+      extensionsMaster = extensionsData.masterEnabled !== false;
+    } catch (error) {
+      errorMessage = `${copy.failedLoad}: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       loading = false;
     }
   }
 
-  async function save(): Promise<void> {
-    saving = true;
-    message = "";
-    error = "";
+  async function togglePluginEnabled(plugin: ManagedPluginItem, enabled: boolean): Promise<void> {
+    errorMessage = "";
     try {
-      const featurePluginPatch = Object.fromEntries(
-        featurePlugins
-          .filter((plugin) => plugin.settingsKey)
-          .map((plugin) => [
-            plugin.settingsKey as string,
-            Object.fromEntries(
-              (plugin.settingsFields ?? []).map((field) => {
-                const value = getFeatureValue(plugin.key, field.key);
-                if (field.type === "boolean") return [field.key, Boolean(value)];
-                return [field.key, String(value ?? "").trim()];
-              }),
-            ),
-          ]),
-      );
-      const res = await fetch("/api/settings/plugins", {
+      const endpoint = plugin.management === "core"
+        ? `/api/settings/plugins/core/${plugin.id}/enable`
+        : `/api/settings/plugins/contract/${plugin.id}/enable`;
+      await responseJson(await fetch(endpoint, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plugins: { memory: { enabled: memoryEnabled, backend: memoryBackend || "json-file" }, ...featurePluginPatch },
-        }),
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || copy.failedSave);
-      message = copy.saved;
-      await loadSettings();
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    } finally {
-      saving = false;
+        body: JSON.stringify({ enabled })
+      }));
+      if (plugin.management === "core") {
+        corePlugins = corePlugins.map((item) => item.id === plugin.id ? { ...item, enabled } : item);
+      } else {
+        contractPlugins = contractPlugins.map((item) => item.id === plugin.id
+          ? { ...item, enabled, status: enabled ? "active" : "disabled" }
+          : item);
+      }
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
     }
   }
 
-  async function loadExtensions(): Promise<void> {
-    try {
-      const res = await fetch("/api/settings/plugins/extensions");
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || copy.failedLoad);
-      extensions = Array.isArray(data.extensions) ? data.extensions : [];
-      extensionsRoot = String(data.root ?? "");
-      extensionsMaster = data.masterEnabled !== false;
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    }
-  }
-
-  async function extensionAction(
-    body: Record<string, unknown>,
-    successMessage?: string
-  ): Promise<void> {
+  async function extensionAction(body: Record<string, unknown>, successMessage = ""): Promise<void> {
+    if (extensionBusy) return;
     extensionBusy = true;
-    message = "";
-    error = "";
+    errorMessage = "";
+    actionMessage = "";
     try {
-      const res = await fetch("/api/settings/plugins/extensions", {
+      const data = await responseJson(await fetch("/api/settings/plugins/extensions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      // `hint` is the actionable half of a rejected link ("use the repo root, or
-      // a /tree/<branch>/<path> link"), so it must reach the user too.
-      if (!data.ok) throw new Error([data.error, data.hint, data.log].filter(Boolean).join("\n"));
-      if (Array.isArray(data.extensions)) extensions = data.extensions;
+      }));
+      extensions = Array.isArray(data.extensions) ? data.extensions : extensions;
       if (typeof data.masterEnabled === "boolean") extensionsMaster = data.masterEnabled;
-      if (successMessage) message = successMessage;
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      actionMessage = successMessage;
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
     } finally {
       extensionBusy = false;
     }
@@ -464,10 +242,8 @@
   async function installExtension(): Promise<void> {
     const input = extensionSpec.trim();
     if (!input) return;
-    // The server resolves the input: package name, npm URL, repository URL, or a
-    // monorepo subdirectory link all arrive here as one string.
     await extensionAction({ action: "install", input }, copy.extInstalled);
-    if (!error) extensionSpec = "";
+    if (!errorMessage) extensionSpec = "";
   }
 
   async function uninstallExtension(id: string): Promise<void> {
@@ -475,9 +251,11 @@
     await extensionAction({ action: "uninstall", id }, copy.extUninstalled);
   }
 
-  onMount(async () => {
-    await loadSettings();
-    await loadExtensions();
+  onMount(() => {
+    currentLocale = get(locale) === "zh-CN" ? "zh-CN" : "en-US";
+    const unsubscribe = locale.subscribe((value) => (currentLocale = value === "zh-CN" ? "zh-CN" : "en-US"));
+    void loadAll();
+    return unsubscribe;
   });
 </script>
 
@@ -488,451 +266,69 @@
     <p class="channel-hero-desc">{copy.subtitle}</p>
   </header>
 
+  {#if actionMessage}<Alert class="border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"><AlertDescription>{actionMessage}</AlertDescription></Alert>{/if}
+  {#if errorMessage}<Alert variant="destructive"><AlertDescription class="whitespace-pre-wrap">{errorMessage}</AlertDescription></Alert>{/if}
+
   {#if loading}
     <p class="py-8 text-sm text-muted-foreground">{copy.loading}</p>
   {:else}
-    <form id="plugins-form" class="channel-form animate-in fade-in duration-200" onsubmit={(e) => { e.preventDefault(); save(); }}>
-      <div class="channel-card">
+    <div class="channel-form animate-in fade-in duration-200">
+      <section class="channel-card">
         <div class="channel-card-header">
-          <div>
-            <h2 class="channel-card-title">{copy.memoryTitle}</h2>
-            <p class="channel-card-desc">{copy.memoryDesc}</p>
+          <div class="flex w-full flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div><h2 class="channel-card-title">{copy.installedPluginsTitle}</h2><p class="channel-card-desc">{copy.installedPluginsDesc}</p></div>
+            <Input type="search" placeholder={copy.searchPlaceholder} bind:value={searchQuery} class="h-9 w-full sm:w-64" />
           </div>
         </div>
         <div class="channel-card-body">
-          <div class="channel-toggle-row">
-            <div class="channel-toggle-label">
-              <Label for="pl-mem">{copy.enableMemory}</Label>
-              <p>{copy.enableMemoryDesc}</p>
-            </div>
-            <IosSwitch id="pl-mem" bind:checked={memoryEnabled} />
-          </div>
-
-          <div class="channel-field pt-2">
-            <Label for="pl-backend">{copy.memoryBackendLabel}</Label>
-            <NativeSelect id="pl-backend" bind:value={memoryBackend}>
-              <NativeSelectOption value="json-file">{copy.jsonFileLabel}</NativeSelectOption>
-              <NativeSelectOption value="mory">{copy.moryLabel}</NativeSelectOption>
-            </NativeSelect>
-          </div>
-
-          <div class="space-y-2 pt-2">
-            {#each memoryBackendCatalog as backend}
-              <div class="rounded-lg border bg-muted/40 px-3 py-3 text-sm">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="font-semibold text-foreground">{backend.name}</span>
-                  <Badge variant="secondary">{backend.key}</Badge>
-                  <Badge variant="secondary">{translateSource(backend.source)}</Badge>
-                  <Badge variant={statusVariant(backend.status)}>{translateStatus(backend.status)}</Badge>
-                  <span class="text-xs text-muted-foreground">v{backend.version}</span>
-                </div>
-                {#if backend.description}
-                  <p class="mt-2 text-xs text-muted-foreground">{backend.description}</p>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
-      </div>
-
-      <div class="channel-card">
-        <div class="channel-card-header">
-          <div>
-            <h2 class="channel-card-title">{copy.featureTitle}</h2>
-            <p class="channel-card-desc">{copy.featureDesc}</p>
-          </div>
-        </div>
-        <div class="channel-card-body">
-          <div class="space-y-2">
-            {#each featurePlugins as plugin}
-              <div class="rounded-lg border bg-muted/40 px-3 py-3 text-sm">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="font-semibold text-foreground">{plugin.name}</span>
-                  <Badge variant="secondary">{plugin.key}</Badge>
-                  <Badge variant="secondary">{translateSource(plugin.source)}</Badge>
-                  <Badge variant={statusVariant(plugin.status)}>{translateStatus(plugin.status)}</Badge>
-                  <Badge variant={plugin.enabled ? "default" : "secondary"}>{plugin.enabled ? copy.enabled : copy.disabled}</Badge>
-                  <span class="text-xs text-muted-foreground">v{plugin.version}</span>
-                </div>
-                {#if plugin.description}
-                  <p class="mt-2 text-xs text-muted-foreground">{plugin.description}</p>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
-      </div>
-
-      {#each featurePlugins.filter((plugin) => (plugin.settingsFields?.length ?? 0) > 0) as plugin}
-        <div class="channel-card">
-          <div class="channel-card-header">
-            <div>
-              <h2 class="channel-card-title">{plugin.name}</h2>
-              {#if plugin.description}
-                <p class="channel-card-desc">{plugin.description}</p>
-              {/if}
-            </div>
-          </div>
-          <div class="channel-card-body">
-            <div class="grid gap-4 md:grid-cols-2">
-              {#each plugin.settingsFields ?? [] as field}
-                {#if field.type === "boolean"}
-                  <div class="channel-toggle-row md:col-span-2">
-                    <div class="channel-toggle-label">
-                      <Label for="pl-{plugin.key}-{field.key}">{field.label}</Label>
-                      {#if field.description}
-                        <p>{field.description}</p>
-                      {/if}
+          {#if installedPlugins.length === 0}
+            <p class="py-8 text-center text-sm text-muted-foreground">{copy.noPlugins}</p>
+          {:else if filteredPlugins.length === 0}
+            <p class="py-8 text-center text-sm text-muted-foreground">{copy.noPluginsMatch}</p>
+          {:else}
+            <div class="divide-y divide-border overflow-hidden rounded-lg border">
+              {#each filteredPlugins as plugin (plugin.id)}
+                <div class="flex items-center justify-between gap-4 p-3 transition-colors hover:bg-muted/30">
+                  <div class="flex min-w-0 items-center gap-3">
+                    {#if plugin.iconUri}<img src={plugin.iconUri} alt="" class="h-8 w-8 shrink-0 rounded object-contain" />{:else}<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted text-sm font-semibold text-muted-foreground">{plugin.name.charAt(0).toUpperCase()}</div>{/if}
+                    <div class="min-w-0">
+                      <div class="flex flex-wrap items-center gap-2"><a href={plugin.settingsHref} class="font-medium text-foreground hover:underline">{plugin.name}</a>{#if plugin.version !== "built-in"}<span class="text-xs text-muted-foreground">v{plugin.version}</span>{/if}<Badge variant="secondary" class="px-1 py-0 text-[10px]">{sourceLabel(plugin.source.kind)}</Badge>{#if plugin.status === "error"}<Badge variant="destructive" class="px-1 py-0 text-[10px]">{copy.statusError}</Badge>{/if}</div>
+                      {#if plugin.description}<p class="truncate text-xs text-muted-foreground">{plugin.description}</p>{/if}
+                      {#if plugin.error}<p class="truncate text-xs text-destructive">{plugin.error}</p>{/if}
                     </div>
-                    <IosSwitch
-                      id="pl-{plugin.key}-{field.key}"
-                      checked={Boolean(getFeatureValue(plugin.key, field.key))}
-                      onCheckedChange={(checked) => setFeatureValue(plugin.key, field.key, checked)}
-                    />
                   </div>
-                {:else if field.type === "select"}
-                  <div class="channel-field md:col-span-2">
-                    <Label for="pl-{plugin.key}-{field.key}">{field.label}{field.required ? " *" : ""}</Label>
-                    <NativeSelect
-                      id="pl-{plugin.key}-{field.key}"
-                      value={String(getFeatureValue(plugin.key, field.key) ?? "")}
-                      onchange={(e) => setFeatureValue(plugin.key, field.key, (e.currentTarget as HTMLSelectElement).value)}
-                    >
-                      {#each field.options ?? [] as option}
-                        <NativeSelectOption value={option.value}>{option.label}</NativeSelectOption>
-                      {/each}
-                    </NativeSelect>
-                    {#if field.description}
-                      <span class="channel-hint">{field.description}</span>
-                    {/if}
-                  </div>
-                {:else}
-                  <div class="channel-field {field.key === 'objectPrefix' ? 'md:col-span-2' : ''}">
-                    <Label for="pl-{plugin.key}-{field.key}">{field.label}{field.required ? " *" : ""}</Label>
-                    <Input
-                      id="pl-{plugin.key}-{field.key}"
-                      value={String(getFeatureValue(plugin.key, field.key) ?? "")}
-                      oninput={(e) => setFeatureValue(plugin.key, field.key, (e.currentTarget as HTMLInputElement).value)}
-                      placeholder={field.placeholder ?? ""}
-                      type={field.type}
-                    />
-                    {#if field.description}
-                      <span class="channel-hint">{field.description}</span>
-                    {/if}
-                  </div>
-                {/if}
+                  <div class="flex shrink-0 items-center gap-3"><IosSwitch checked={plugin.enabled} onCheckedChange={(value) => togglePluginEnabled(plugin, value)} /><Button variant="outline" size="sm" href={plugin.settingsHref}>{plugin.hasSettings ? copy.configure : copy.details}</Button></div>
+                </div>
               {/each}
-
-              {#if plugin.key === "external-subagent"}
-                <div class="channel-card md:col-span-2 mt-4 p-4 border rounded-md bg-muted/30">
-                  <div class="flex items-center justify-between gap-4 mb-3">
-                    <div>
-                      <h3 class="text-sm font-medium">{copy.extSubagentStatusTitle}</h3>
-                      <p class="text-xs text-muted-foreground">{copy.extSubagentStatusDesc}</p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={checkingExternalSubagent}
-                      onclick={checkExternalSubagentStatus}
-                    >
-                      {checkingExternalSubagent ? copy.extSubagentChecking : copy.extSubagentCheck}
-                    </Button>
-                  </div>
-
-                  {#if externalSubagentStatus}
-                    <div class="space-y-2 text-sm">
-                      <div class="flex items-center justify-between p-2.5 rounded bg-background/60 border">
-                        <div>
-                          <div class="flex items-center gap-2">
-                            <strong>OpenAI Codex</strong>
-                            <Badge variant={subagentBadge("codex").variant}>
-                              {subagentBadge("codex").label}
-                            </Badge>
-                          </div>
-                          {#if externalSubagentStatus.codex?.executablePath || externalSubagentStatus.codex?.packagePath}
-                            <p class="text-xs font-mono text-muted-foreground mt-1">
-                              {externalSubagentStatus.codex?.source ? `[${externalSubagentStatus.codex.source}] ` : ""}{externalSubagentStatus.codex.executablePath || externalSubagentStatus.codex.packagePath}
-                            </p>
-                          {:else if externalSubagentStatus.codex?.error}
-                            <p class="text-xs text-destructive mt-1">{externalSubagentStatus.codex.error}</p>
-                          {/if}
-                          {#if subagentTestResults.codex && !subagentTestResults.codex.ok}
-                            <p class="text-xs text-destructive mt-1">{subagentTestResults.codex.diagnostic || `stopReason: ${subagentTestResults.codex.stopReason}`}</p>
-                          {/if}
-                        </div>
-                        <div class="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={testingSubagentProvider !== null || installingSubagentProvider !== null}
-                            onclick={() => testExternalSubagent("codex")}
-                          >
-                            {testingSubagentProvider === "codex" ? copy.extSubagentTesting : copy.extSubagentTest}
-                          </Button>
-                          {#if !externalSubagentStatus.codex?.available}
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="sm"
-                              disabled={installingSubagentProvider !== null || testingSubagentProvider !== null}
-                              onclick={() => installExternalSubagent("codex")}
-                            >
-                              {installingSubagentProvider === "codex" ? copy.extSubagentInstalling : copy.extSubagentInstall}
-                            </Button>
-                          {/if}
-                        </div>
-                      </div>
-
-                      <div class="flex items-center justify-between p-2.5 rounded bg-background/60 border">
-                        <div>
-                          <div class="flex items-center gap-2">
-                            <strong>Claude Code</strong>
-                            <Badge variant={subagentBadge("claude-code").variant}>
-                              {subagentBadge("claude-code").label}
-                            </Badge>
-                          </div>
-                          {#if externalSubagentStatus.claudeCode?.executablePath || externalSubagentStatus.claudeCode?.packagePath}
-                            <p class="text-xs font-mono text-muted-foreground mt-1">
-                              {externalSubagentStatus.claudeCode?.source ? `[${externalSubagentStatus.claudeCode.source}] ` : ""}{externalSubagentStatus.claudeCode.executablePath || externalSubagentStatus.claudeCode.packagePath}
-                            </p>
-                          {:else if externalSubagentStatus.claudeCode?.error}
-                            <p class="text-xs text-destructive mt-1">{externalSubagentStatus.claudeCode.error}</p>
-                          {/if}
-                          {#if subagentTestResults["claude-code"] && !subagentTestResults["claude-code"].ok}
-                            <p class="text-xs text-destructive mt-1">{subagentTestResults["claude-code"].diagnostic || `stopReason: ${subagentTestResults["claude-code"].stopReason}`}</p>
-                          {/if}
-                        </div>
-                        <div class="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={testingSubagentProvider !== null || installingSubagentProvider !== null}
-                            onclick={() => testExternalSubagent("claude-code")}
-                          >
-                            {testingSubagentProvider === "claude-code" ? copy.extSubagentTesting : copy.extSubagentTest}
-                          </Button>
-                          {#if !externalSubagentStatus.claudeCode?.available}
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="sm"
-                              disabled={installingSubagentProvider !== null || testingSubagentProvider !== null}
-                              onclick={() => installExternalSubagent("claude-code")}
-                            >
-                              {installingSubagentProvider === "claude-code" ? copy.extSubagentInstalling : copy.extSubagentInstall}
-                            </Button>
-                          {/if}
-                        </div>
-                      </div>
-                    </div>
-                  {/if}
-                </div>
-              {/if}
             </div>
-          </div>
-        </div>
-      {/each}
-
-      <div class="channel-card">
-        <div class="channel-card-header">
-          <div>
-            <h2 class="channel-card-title">{copy.extTitle}</h2>
-            <p class="channel-card-desc">{copy.extDesc}</p>
-          </div>
-        </div>
-        <div class="channel-card-body">
-          <div class="channel-toggle-row">
-            <div class="channel-toggle-label">
-              <Label for="ext-master">{copy.extMaster}</Label>
-              <p>{copy.extMasterDesc}</p>
-            </div>
-            <IosSwitch
-              id="ext-master"
-              checked={extensionsMaster}
-              onCheckedChange={(value) => extensionAction({ action: "setMaster", enabled: value })}
-            />
-          </div>
-
-          <div class="ext-install-row">
-            <div class="channel-field">
-              <Label for="ext-spec">{copy.extSpecLabel}</Label>
-              <Input id="ext-spec" bind:value={extensionSpec} placeholder={copy.extSpecPlaceholder} />
-            </div>
-            <div class="ext-row-actions">
-              <Button type="button" size="sm" onclick={installExtension} disabled={extensionBusy || !extensionSpec.trim()}>
-                {extensionBusy ? copy.extInstalling : copy.extInstall}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onclick={() => extensionAction({ action: "reload" }, copy.extReloaded)}
-                disabled={extensionBusy}
-              >
-                {copy.extReload}
-              </Button>
-            </div>
-          </div>
-
-          <p class="ext-meta">{copy.extSpecHint}</p>
-
-          {#if extensionsRoot}
-            <p class="ext-meta ext-meta-mono">{copy.extRootLabel} {extensionsRoot}</p>
           {/if}
+        </div>
+      </section>
 
-          <div class="ext-list">
-            {#if extensions.length === 0}
-              <p class="ext-empty">{copy.extEmpty}</p>
-            {/if}
-            {#each extensions as extension (extension.id)}
-              <div class="ext-row">
-                <div class="ext-row-head">
-                  <div class="ext-row-title">
-                    <span class="ext-row-name">{extension.name}</span>
-                    <Badge variant="secondary">{extension.id}</Badge>
-                    <Badge variant="secondary">v{extension.version}</Badge>
-                    {#if extension.error}
-                      <Badge variant="destructive">{copy.statusError}</Badge>
-                    {/if}
-                  </div>
-                  <div class="ext-row-actions">
-                    <IosSwitch
-                      checked={extension.enabled}
-                      onCheckedChange={(value) => extensionAction({ action: "toggle", id: extension.id, enabled: value })}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onclick={() => uninstallExtension(extension.id)}
-                      disabled={extensionBusy}
-                    >
-                      {copy.extUninstall}
-                    </Button>
-                  </div>
+      <section class="channel-card">
+        <div class="channel-card-header"><div><h2 class="channel-card-title">{copy.extTitle}</h2><p class="channel-card-desc">{copy.extDesc}</p></div></div>
+        <div class="channel-card-body space-y-5">
+          <div class="channel-toggle-row"><div class="channel-toggle-label"><Label for="ext-master">{copy.extMaster}</Label><p>{copy.extMasterDesc}</p></div><IosSwitch id="ext-master" checked={extensionsMaster} onCheckedChange={(enabled) => extensionAction({ action: "setMaster", enabled })} /></div>
+          <div class="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"><div class="channel-field"><Label for="ext-spec">{copy.extSpecLabel}</Label><Input id="ext-spec" bind:value={extensionSpec} placeholder={copy.extSpecPlaceholder} /><span class="channel-hint">{copy.extSpecHint}</span></div><div class="flex gap-2"><Button type="button" size="sm" onclick={installExtension} disabled={extensionBusy || !extensionSpec.trim()}>{extensionBusy ? copy.extInstalling : copy.extInstall}</Button><Button type="button" variant="outline" size="sm" onclick={() => extensionAction({ action: "reload" }, copy.extReloaded)} disabled={extensionBusy}>{copy.extReload}</Button></div></div>
+          {#if extensions.length === 0}
+            <p class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">{copy.extEmpty}</p>
+          {:else}
+            <div class="divide-y divide-border overflow-hidden rounded-lg border">
+              {#each extensions as extension (extension.id)}
+                <div class="space-y-2 p-3">
+                  <div class="flex items-center justify-between gap-3"><div class="flex flex-wrap items-center gap-2"><span class="font-medium">{extension.name}</span><Badge variant="secondary">{extension.id}</Badge><span class="text-xs text-muted-foreground">v{extension.version}</span>{#if extension.error}<Badge variant="destructive">{copy.statusError}</Badge>{/if}</div><div class="flex items-center gap-3"><IosSwitch checked={extension.enabled} onCheckedChange={(enabled) => extensionAction({ action: "toggle", id: extension.id, enabled })} /><Button type="button" variant="outline" size="sm" onclick={() => uninstallExtension(extension.id)} disabled={extensionBusy}>{copy.extUninstall}</Button></div></div>
+                  {#if extension.description}<p class="text-xs text-muted-foreground">{extension.description}</p>{/if}
+                  {#if extension.toolNames.length}<p class="text-xs text-muted-foreground">{copy.extTools}: {extension.toolNames.join(", ")}</p>{/if}
+                  {#if extension.eventNames.length}<p class="text-xs text-muted-foreground">{copy.extEvents}: {extension.eventNames.join(", ")}</p>{/if}
+                  {#if extension.commandNames.length}<p class="text-xs text-muted-foreground">{copy.extCommands}: {extension.commandNames.map((name) => `/${name}`).join(", ")}</p>{/if}
+                  {#if extension.unsupported.length}<p class="text-xs text-amber-600 dark:text-amber-400">{copy.extUnsupported}: {extension.unsupported.join(", ")}</p>{/if}
+                  {#if extension.error}<p class="text-xs text-destructive">{extension.error}</p>{/if}
                 </div>
-
-                {#if extension.description}
-                  <p class="ext-meta">{extension.description}</p>
-                {/if}
-                {#if extension.toolNames.length > 0}
-                  <p class="ext-meta">{copy.extTools} {extension.toolNames.join(", ")}</p>
-                {/if}
-                {#if extension.eventNames.length > 0}
-                  <p class="ext-meta">{copy.extEvents} {extension.eventNames.join(", ")}</p>
-                {/if}
-                {#if extension.commandNames.length > 0}
-                  <p class="ext-meta">{copy.extCommands} {extension.commandNames.map((name) => `/${name}`).join(", ")}</p>
-                {/if}
-                {#if extension.unsupported.length > 0}
-                  <p class="ext-warning">{copy.extUnsupported} {extension.unsupported.join(", ")}</p>
-                {/if}
-                {#if extension.error}
-                  <p class="ext-error">{extension.error}</p>
-                {/if}
-              </div>
-            {/each}
-          </div>
+              {/each}
+            </div>
+          {/if}
         </div>
-      </div>
-
-      <div class="channel-card">
-        <div class="channel-card-header">
-          <div>
-            <h2 class="channel-card-title">{copy.channelTitle}</h2>
-            <p class="channel-card-desc">{copy.channelDesc}</p>
-          </div>
-        </div>
-        <div class="channel-card-body">
-          <div class="space-y-2">
-            {#each channelPlugins as plugin}
-              <div class="rounded-lg border bg-muted/40 px-3 py-3 text-sm">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="font-semibold text-foreground">{plugin.name}</span>
-                  <Badge variant="secondary">{plugin.key}</Badge>
-                  <Badge variant="secondary">{translateSource(plugin.source)}</Badge>
-                  <Badge variant={statusVariant(plugin.status)}>{translateStatus(plugin.status)}</Badge>
-                  <span class="text-xs text-muted-foreground">v{plugin.version}</span>
-                </div>
-                {#if plugin.description}
-                  <p class="mt-2 text-xs text-muted-foreground">{plugin.description}</p>
-                {/if}
-                {#if plugin.manifestPath}
-                  <p class="mt-2 text-xs text-muted-foreground font-mono">{copy.manifestLabel} {plugin.manifestPath}</p>
-                {/if}
-                {#if plugin.entryPath}
-                  <p class="mt-1 text-xs text-muted-foreground font-mono">{copy.entryLabel} {plugin.entryPath}</p>
-                {/if}
-                {#if plugin.error}
-                  <p class="mt-2 text-xs text-destructive">{plugin.error}</p>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
-      </div>
-
-      <div class="channel-card mb-16">
-        <div class="channel-card-header">
-          <div>
-            <h2 class="channel-card-title">{copy.providerTitle}</h2>
-            <p class="channel-card-desc">{copy.providerDesc}</p>
-          </div>
-        </div>
-        <div class="channel-card-body">
-          <div class="space-y-2">
-            {#each providerPlugins as plugin}
-              <div class="rounded-lg border bg-muted/40 px-3 py-3 text-sm">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="font-semibold text-foreground">{plugin.name}</span>
-                  <Badge variant="secondary">{plugin.key}</Badge>
-                  <Badge variant="secondary">{translateSource(plugin.source)}</Badge>
-                  <Badge variant={statusVariant(plugin.status)}>{translateStatus(plugin.status)}</Badge>
-                  <span class="text-xs text-muted-foreground">v{plugin.version}</span>
-                </div>
-                {#if plugin.description}
-                  <p class="mt-2 text-xs text-muted-foreground">{plugin.description}</p>
-                {/if}
-                {#if plugin.manifestPath}
-                  <p class="mt-2 text-xs text-muted-foreground font-mono">{copy.manifestLabel} {plugin.manifestPath}</p>
-                {/if}
-                {#if plugin.entryPath}
-                  <p class="mt-1 text-xs text-muted-foreground font-mono">{copy.entryLabel} {plugin.entryPath}</p>
-                {/if}
-                {#if plugin.error}
-                  <p class="mt-2 text-xs text-destructive">{plugin.error}</p>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
-      </div>
-    </form>
+      </section>
+    </div>
   {/if}
 </div>
-
-<footer class="settings-footbar">
-  <div class="settings-footbar-status">
-    {#if saving}
-      <span class="settings-footbar-saving">
-        <span class="settings-footbar-pulse"></span>
-        {copy.saving}
-      </span>
-    {:else if message}
-      <span class="settings-footbar-ok">{message}</span>
-    {/if}
-    {#if error}
-      <span class="settings-footbar-error">{error}</span>
-    {/if}
-  </div>
-  <div class="settings-footbar-actions">
-    <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>{copy.reset}</Button>
-    <button type="submit" form="plugins-form" class="settings-footbar-btn" disabled={loading || saving}>
-      {saving ? copy.saving : copy.save}
-    </button>
-  </div>
-</footer>

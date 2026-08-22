@@ -112,7 +112,9 @@ document.documentElement.dataset.theme = appearance;
 const THEME_TRIGGER_LABELS = {
   "momo-paper": locale === "zh" ? "暖米书卷" : "Momo Paper",
   vercel: locale === "zh" ? "极简黑白" : "Vercel Geist",
-  macaron: locale === "zh" ? "甜彩微排" : "Macaron"
+  macaron: locale === "zh" ? "甜彩微排" : "Macaron",
+  "geek-mint": locale === "zh" ? "极客薄荷" : "Geek Mint",
+  "warm-amber": locale === "zh" ? "暖橙知秋" : "Warm Amber"
 };
 
 // - State -
@@ -155,6 +157,7 @@ const el = {
   articleContainer: document.getElementById("article-container"),
   paper: document.getElementById("paper"),
   empty: document.getElementById("empty"),
+  docStats: document.getElementById("doc-stats"),
   statWords: document.getElementById("stat-words"),
   statReadTime: document.getElementById("stat-read-time"),
   statImages: document.getElementById("stat-images"),
@@ -320,15 +323,16 @@ async function renderPreview() {
   const hasDoc = Boolean(state.document);
   el.articleContainer.hidden = !hasDoc;
   el.empty.hidden = hasDoc;
+  if (el.docStats) el.docStats.hidden = !hasDoc;
   if (!hasDoc) return;
 
   // Compute stats
   const text = state.document.markdown;
   const words = (text.match(/[一-龥]|\b[a-zA-Z0-9_-]+\b/g) || []).length;
   const readTime = Math.max(1, Math.ceil(words / 300));
-  el.statWords.textContent = t.wordCount.replace("{n}", String(words));
-  el.statReadTime.textContent = t.readTime.replace("{n}", String(readTime));
-  el.statImages.textContent = t.imageCount.replace("{n}", String(state.assets.length));
+  if (el.statWords) el.statWords.textContent = t.wordCount.replace("{n}", String(words));
+  if (el.statReadTime) el.statReadTime.textContent = t.readTime.replace("{n}", String(readTime));
+  if (el.statImages) el.statImages.textContent = t.imageCount.replace("{n}", String(state.assets.length));
 
   // Prewarm images
   await Promise.all(state.assets.map((asset) => previewSrc(asset.ref)));
@@ -367,6 +371,8 @@ function renderChrome() {
   el.themeSwatch.classList.toggle("momo-swatch", state.themeId === "momo-paper");
   el.themeSwatch.classList.toggle("vercel-swatch", state.themeId === "vercel");
   el.themeSwatch.classList.toggle("macaron-swatch", state.themeId === "macaron");
+  el.themeSwatch.classList.toggle("geek-mint-swatch", state.themeId === "geek-mint");
+  el.themeSwatch.classList.toggle("warm-amber-swatch", state.themeId === "warm-amber");
   el.themeLabel.textContent = THEME_TRIGGER_LABELS[state.themeId] ?? state.themeId;
   for (const choice of el.themeChoices) {
     choice.classList.toggle("selected", choice.dataset.theme === state.themeId);

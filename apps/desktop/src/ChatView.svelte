@@ -36,7 +36,6 @@
     createDesktopProvider,
     fetchDesktopFileBlob,
     deleteDesktopConversation,
-    forkDesktopSession,
     truncateDesktopMessages,
     listDesktopConversations,
     renameDesktopConversation,
@@ -235,14 +234,9 @@
   // Edit-and-resend state. `editingMessageId` is set when the user clicked the
   // pencil on one of their own messages; the composer then shows an "editing"
   // banner and `sendMessage` truncates the server transcript at that message
-  // before re-running the turn so the history stays coherent. Branching off a
-  // message without rewriting it is a separate, explicit action - see
-  // `forkFromUserMessage`.
+  // before re-running the turn so the history stays coherent.
   let editingMessageId = "";
   let editingSessionId = "";
-  // Set while a fork request is in flight, so a double-click on the branch
-  // button cannot create two sibling Sessions from the same point.
-  let forkingMessageId = "";
   let copiedMessageId = "";
   let miniAppActionPendingKey = "";
   let miniAppActionSuccessKey = "";
@@ -1830,11 +1824,7 @@
         onEditUser: viewMode === "external" || sending
           ? undefined
           : (m: TranscriptMessage) => startEditUserMessage(m),
-        onForkUser: viewMode === "external" || sending
-          ? undefined
-          : (m: TranscriptMessage) => void forkFromUserMessage(m),
         editingId: editingMessageId,
-        forkingId: forkingMessageId,
         onOpenMemoryTrace: (traceId: string) => void openMemoryTrace(traceId),
         contributions: contributedMessageActions,
         pendingContributionKey: miniAppActionPendingKey,
@@ -2106,70 +2096,6 @@
   function cancelEditMessage(): void {
     editingMessageId = "";
     editingSessionId = "";
-  }
-
-  /**
-   * Copy the Session as it stood at this message into a visible child and switch
-   * to it: the child's transcript ends *at* the picked message, so forking at the
-   * last one duplicates the conversation outright. The parent is untouched and
-   * the two then diverge. The composer is deliberately left alone — this is
-   * "continue from here in a copy", not "re-ask this differently", which is what
-   * `startEditUserMessage` still does in place.
-   */
-  async function forkFromUserMessage(message: TranscriptMessage): Promise<void> {
-    const fromMessageId = message.id;
-    const sourceSessionId = activeSessionId;
-    if (!fromMessageId || fromMessageId.startsWith("pending-") || !sourceSessionId) return;
-    if (!connectedEndpoint || !activeProfileId || sending || forkingMessageId) {
-      if (!connectedEndpoint || !activeProfileId) error = copy.forkMessageUnavailable;
-      return;
-    }
-    forkingMessageId = fromMessageId;
-    let child: DesktopSessionSummary;
-    try {
-      child = await forkDesktopSession(
-        connectedEndpoint,
-        activeProfileId,
-        sourceSessionId,
-        fromMessageId,
-        globalThis.crypto.randomUUID()
-      );
-    } catch (cause) {
-      const status = (cause as Error & { status?: number }).status;
-      if (status === 422) {
-        // The server didn't find that message id in this session - the local
-        // transcript is stale (typically an optimistic `pending-...` id left
-        // over from a failed reload). Refresh and ask for a fresh pick.
-        await chatStore.reloadActive();
-        error = copy.forkMessageStale;
-      } else if (status === 409) {
-        error = copy.forkMessageRunning;
-      } else {
-        error = cause instanceof Error ? cause.message : String(cause);
-      }
-      forkingMessageId = "";
-      return;
-    }
-    // The fork is durable server-side. A failed transcript/sidebar refresh must
-    // not leave the composer primed against the parent, so clear any in-progress
-    // edit and prime the child regardless of how the refresh goes.
-    const inheritedModel = sessionModelOverrides.get(sourceSessionId);
-    if (inheritedModel) sessionModelOverrides.set(child.id, inheritedModel);
-    editingMessageId = "";
-    editingSessionId = "";
-    syncDraftOut();
-    await Promise.allSettled([
-      chatStore.selectSession(activeProfileId, child.id),
-      loadChannel("web")
-    ]);
-    // The child is a copy that already contains the picked message, so priming
-    // the composer with it would duplicate the turn. Start the child clean.
-    persistSelected(activeProfileId, child.id);
-    messageInput = "";
-    pendingFiles = [];
-    forkingMessageId = "";
-    void refreshFiles(activeProfileId, child.id);
-    focusComposerAtEnd();
   }
 
   async function stopRun(): Promise<void> {

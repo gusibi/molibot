@@ -1,9 +1,9 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { ExternalSubagentRuntime } from "#external-subagent";
+import { assertExternalSubagentProviderEnabled, resolveExternalSubagentConfig } from "./config.js";
 import type { FeaturePluginContext } from "$lib/server/plugins/types.js";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
-import { join } from "node:path";
+import { pluginDataDir } from "$lib/server/plugins/contract/paths.js";
 
 const taskSchema = Type.Object({
   task: Type.String({
@@ -12,7 +12,7 @@ const taskSchema = Type.Object({
 });
 
 const sharedRuntime = new ExternalSubagentRuntime({
-  runtimesDir: join(storagePaths.dataDir, "runtimes", "external-subagent")
+  runtimesDir: pluginDataDir("external-subagent") ?? undefined
 });
 
 /**
@@ -34,9 +34,10 @@ export function createCodexSubagentTool(context: FeaturePluginContext): AgentToo
     executionMode: "sequential",
     execute: async (_toolCallId, params, signal) => {
       const settings = context.getSettings();
-      const pluginSettings = settings.plugins.externalSubagent;
-      const permissionMode = pluginSettings?.codexPermissionMode ?? "never";
-      const customPath = pluginSettings?.codexPath;
+      const pluginSettings = resolveExternalSubagentConfig(settings);
+      assertExternalSubagentProviderEnabled(pluginSettings, "codex");
+      const permissionMode = pluginSettings.codexPermissionMode;
+      const customPath = pluginSettings.codexPath;
 
       const result = await sharedRuntime.run("codex", {
         task: params.task,
@@ -86,9 +87,10 @@ export function createClaudeCodeSubagentTool(context: FeaturePluginContext): Age
     executionMode: "sequential",
     execute: async (_toolCallId, params, signal) => {
       const settings = context.getSettings();
-      const pluginSettings = settings.plugins.externalSubagent;
-      const permissionMode = pluginSettings?.claudeCodePermissionMode ?? "dontAsk";
-      const customPath = pluginSettings?.claudeCodePath;
+      const pluginSettings = resolveExternalSubagentConfig(settings);
+      assertExternalSubagentProviderEnabled(pluginSettings, "claude-code");
+      const permissionMode = pluginSettings.claudeCodePermissionMode;
+      const customPath = pluginSettings.claudeCodePath;
 
       const result = await sharedRuntime.run("claude-code", {
         task: params.task,

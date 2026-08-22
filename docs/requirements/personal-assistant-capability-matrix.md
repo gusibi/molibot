@@ -1,6 +1,6 @@
 # Personal Assistant Capability Matrix
 
-Last verified: 2026-08-09
+Last verified: 2026-08-22
 
 This file is the single current-status source for Molibot's work/life assistant capabilities. `prd.md` sections below the current-status banner are design and delivery history: their old status wording must not be used to create new work. `features.md` and `CHANGELOG.md` remain delivery logs, not backlogs.
 
@@ -39,6 +39,9 @@ This file is the single current-status source for Molibot's work/life assistant 
 | External actions | Contacts | 未开始 | Same external integration boundary as calendar. |
 | External actions | Email | 未开始 | Same external integration boundary as calendar. |
 | External actions | Browser automation | 未开始 | Explicitly excluded from the current plan because inheriting a browser runtime is too heavy. `webFetch` is the supported public-page reader. |
+| Plugins | Plugin-owned settings and storage contract | 部分交付 | Web and native Desktop provide the same four-item catalog and dedicated pages, independent storage, theme/height-aware and clone-safe custom UI hosting (`molibot-plugin://` origin, Tauri transport), and fine-grained save/enable routes. The External Subagent reference migration is delivered with environment-gated enablement and fail-closed per-provider execution; enhanced-pi installation and remaining plugin migrations are tracked in `plugin-owned-settings-prd.md`. |
+| Plugins | External Subagent (Codex & Claude Code) | 已交付 | `package/external-subagent` runs as a managed child process over JSON-RPC with Codex wire and Claude Code SDK/CLI adapters; PATH detection, custom path, and on-demand runtime install (`~/.molibot/runtimes/external-subagent`); bilingual theme-aware settings UI with detect/install/test actions; upgrade preserves config/data and restores prior copy. |
+| Project Automations | Periodic Runtime Tasks scoped to a Project | 已交付 | Watched JSON scheduling, current Project context, fresh app-only Sessions, shared Desktop CRUD/history, and no Bot or Channel delivery; `kind:"project"` target aggregation verified. |
 
 ## Maintenance rule
 

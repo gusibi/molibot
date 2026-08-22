@@ -42,7 +42,7 @@ test("rewriteBrokerApprovalToolResultInContext rewrites approved toolResult by r
   const resultMsg = messages[2];
   assert.equal(resultMsg.isError, false);
   assert.match(resultMsg.content[0].text, /approved the execution of mcp__connector__execute_action/);
-  assert.match(resultMsg.content[0].text, /Re-issue your intended tool call now/);
+  assert.match(resultMsg.content[0].text, /re-issue your intended tool call now/i);
 });
 
 test("rewriteBrokerApprovalToolResultInContext rewrites rejected toolResult by requestId", () => {

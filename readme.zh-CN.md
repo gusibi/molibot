@@ -152,12 +152,16 @@ Agent City (智能体城市) 为每个智能体提供一席之地——您可以
 | 能力 | 带来的价值 |
 | --- | --- |
 | [个人智能体和记忆](docs/features/personal-agent-and-memory.md) | Momo 作为默认智能体，内置多种模板（如职场英文教练），受管辖的长期记忆，以及隔离的项目或智能体上下文。 |
+| [智能体能力矩阵](docs/requirements/personal-assistant-capability-matrix.md) | 工作/生活助理能力的唯一四态现状视图（已交付 / 部分交付 / 待验证 / 未开始）。 |
 | [自动持久化长任务](docs/requirements/automatic-durable-execution-prd.md) | 可持久化、可检查的长任务基础能力，包含已接受 Plan 的逐步执行、分层惰性升级、虚拟 Web profile 路由、版本化进度、副作用回执、失败关闭式恢复、受限且标记为不可信的证据读取、来源渠道审批、短句柄控制和桌面端状态展示；完整冷启动/跨渠道验收仍待完成。 |
 | [会话权限模式](docs/requirements/permission-modes-prd.md) | Plan、Manual、Accept edits 与 Auto 四档独立输入控件，包含推理前工具收窄、artifact checklist、统一决策和同 Session 的 Durable 分步续跑。 |
 | [渠道与界面](docs/features/channels-and-surfaces.md) | 统一的本地运行时，同时支持浏览器、macOS 桌面端、各类聊天渠道和终端。 |
 | [工具、技能与 MCP](docs/features/tools-skills-and-mcp.md) | 可配置的智能体行为，控制对可复用工作流 and 外部工具的访问。 |
 | [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | 使用安全的运行时令牌连接第三方服务，并支持动态的远程 MCP 集成。 |
 | [小程序平台](docs/guides/miniapps/authoring.md) | 安装并运行本地优先的应用，提供自定义智能体工具、托管 UI 以及数据库隔离。 |
+| [项目自动任务](docs/requirements/project-automations-prd.md) | 限定在项目内的周期 Runtime 任务：watched JSON 调度、当前项目上下文、全新应用专属 Session、共享桌面端 CRUD/历史，不经过 Bot 或渠道投递。 |
+| [插件自有设置](docs/requirements/plugin-owned-settings-prd.md) | 部分交付的插件契约：Web 与原生桌面端提供相同的四条目目录和专属页面、独立存储、主题/高度感知且防克隆的自定义 UI 托管，以及 External Subagent 参考迁移（环境门控启用 + 按 Provider 失败关闭执行）；enhanced-pi 安装与其余迁移在此文档跟踪。 |
+| [外部子代理](docs/requirements/plugin-owned-settings-prd.md) | 通过内置插件将 OpenAI Codex 或 Claude Code 作为一次性子代理运行：PATH 检测或按需安装二进制、JSON-RPC 传输、双语主题感知设置（检测/安装/测试）以及保留配置和数据的升级。 |
 | [自动化、审批与沙箱](docs/features/automation-approvals-and-sandbox.md) | 计划任务和执行控制，保持完全的可审查和可追溯。 |
 | [桌面端项目工作区](docs/features/desktop-project-workspace.md) | 原生 macOS 聊天、项目、文件、智能体城市、自动化和设置等融于一体的本地工作区，每个项目轮次有稳定的实时答复，以及 Finder 风格的原生侧边栏素材。 |
 
@@ -212,7 +216,7 @@ Momo 是 Molibot 致力于构建的体验的典范：一个了解您工作上下
 
 ### 开发与扩展
 
-- [架构设计](docs/designs/architecture/v1-architecture.md)
+- [架构设计](docs/archive/designs/v1-architecture.md)
 - [智能体运行时设计](docs/designs/architecture/agent-redesign-v2.2.md)
 - [插件开发指南](docs/guides/plugins/plugin-authoring.md)
 - [小程序开发指南](docs/guides/miniapps/authoring.md) —— 在草稿中开发、验证运行时并原子化地安装一个自带智能体工具、UI 和数据隔离的小程序。

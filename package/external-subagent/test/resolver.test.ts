@@ -38,6 +38,14 @@ test("installProviderRuntime hands process.env to the child spawn", () => {
   );
 });
 
+test("installProviderRuntime creates its isolated runtime directory before spawning", () => {
+  assert.match(
+    resolverSource,
+    /mkdirSync\(targetDir,\s*\{\s*recursive:\s*true\s*\}\)/,
+    "install must create the plugin-owned data directory before using it as cwd"
+  );
+});
+
 test("fix-path is idempotent across repeated calls", () => {
   // fixPath() is invoked at module load; a second call must not corrupt the
   // PATH that was already augmented. Sanity check that the dependency is wired

@@ -212,6 +212,133 @@ const macaron = {
   code: codeColorsMacaron
 };
 
-export const THEMES = { "momo-paper": momoPaper, vercel: vercelGeist, macaron };
+const codeColorsGeekMint = {
+  background: "#1E222B",
+  border: "#2D333F",
+  text: "#E6EDF3",
+  comment: "#7D8590",
+  keyword: "#2DD4BF",
+  string: "#7EE787",
+  number: "#F69D50",
+  function: "#58A6FF",
+  className: "#D2A8FF",
+  operator: "#79C0FF",
+  punctuation: "#8B949E",
+  variable: "#FFA657",
+  property: "#2DD4BF",
+  inlineBg: "#E6FAF8",
+  inlineText: "#0F766E"
+};
+
+const listStyleGeekMint = {
+  ul: "margin:16px 0;padding-left:0.4em;list-style:none;text-indent:0;",
+  ol: "margin:16px 0;padding-left:0.4em;list-style:none;text-indent:0;",
+  li: "margin:8px 0;padding-left:1.7em;text-indent:-1.7em;line-height:1.8;list-style:none;color:#1E293B;",
+  liTask: "margin:8px 0;padding-left:0;line-height:1.8;list-style:none;color:#1E293B;",
+  marker: "display:inline-block;width:1.7em;text-indent:0;",
+  bullets: ["▸", "▪", "•"],
+  bulletColors: ["#0D9488", "#14B8A6", "#64748B"],
+  bulletSize: "0.85em",
+  orderedColor: "#0D9488",
+  orderedExtra: "font-weight:700;"
+};
+
+const geekMint = {
+  id: "geek-mint",
+  label: "Geek Mint (极客薄荷)",
+  container: `font-family:${SANS};font-size:16px;line-height:1.8;color:#1E293B;background:#FFFFFF;letter-spacing:0.2px;word-break:break-word;padding:32px 24px;`,
+  styles: {
+    h1: `font-size:26px;font-weight:800;line-height:1.3;color:#0F766E;margin:8px 0 24px;text-align:center;letter-spacing:-0.01em;`,
+    h2: `font-size:20px;font-weight:700;line-height:1.35;color:#0F766E;margin:34px 0 16px;text-align:left;padding-left:12px;border-left:4px solid #14B8A6;`,
+    h3: `font-size:17px;font-weight:600;line-height:1.4;color:#0F766E;margin:26px 0 12px;`,
+    h4: `font-size:16px;font-weight:600;color:#1E293B;margin:22px 0 10px;`,
+    h5: `font-size:15px;font-weight:600;color:#64748B;margin:18px 0 8px;`,
+    h6: `font-size:13px;font-weight:600;color:#64748B;margin:16px 0 8px;text-transform:uppercase;`,
+    p: "margin:0 0 18px;color:#334155;line-height:1.8;",
+    a: "color:#0D9488;font-weight:500;text-decoration:none;border-bottom:1px solid #99F6E4;",
+    strong: "font-weight:700;color:#0F766E;",
+    em: "font-style:italic;color:#64748B;",
+    del: "text-decoration:line-through;color:#94A3B8;",
+    ul: "margin:0 0 18px;padding-left:24px;",
+    ol: "margin:0 0 18px;padding-left:24px;",
+    li: "margin:6px 0;line-height:1.8;",
+    blockquote: "margin:20px 0;padding:14px 18px;background:#F0FDFA;border-left:4px solid #14B8A6;border-radius:6px;color:#134E4A;",
+    hr: "border:none;border-top:1px solid #CCFBF1;margin:32px 0;",
+    img: "display:block;max-width:100%;margin:24px auto;border-radius:8px;border:1px solid #E2E8F0;box-shadow:0 4px 12px rgba(15,118,110,0.08);",
+    figcaption: "text-align:center;font-size:13px;color:#94A3B8;margin-top:-8px;margin-bottom:18px;",
+    pre: `margin:0;padding:16px 18px;border-radius:0 0 8px 8px;overflow-x:auto;font-family:${MONO};font-size:13px;line-height:1.6;background:#1E222B;color:#E6EDF3;`,
+    table: "width:100%;border-collapse:collapse;margin:20px 0;font-size:14px;",
+    th: "border:1px solid #CCFBF1;background:#F0FDFA;padding:8px 12px;text-align:left;font-weight:700;color:#0F766E;",
+    td: "border:1px solid #E2E8F0;padding:8px 12px;color:#334155;"
+  },
+  macCode: true,
+  list: listStyleGeekMint,
+  code: codeColorsGeekMint
+};
+
+const codeColorsWarmAmber = {
+  background: "#FFFBF5",
+  border: "#F7E6D0",
+  text: "#3C2A1E",
+  comment: "#9A8778",
+  keyword: "#C25E00",
+  string: "#2E7D32",
+  number: "#D84315",
+  function: "#B71C1C",
+  className: "#8D6E63",
+  operator: "#6D4C41",
+  punctuation: "#8D6E63",
+  variable: "#C25E00",
+  property: "#C25E00",
+  inlineBg: "#FFF3E0",
+  inlineText: "#E65100"
+};
+
+const listStyleWarmAmber = {
+  ul: "margin:16px 0;padding-left:0.4em;list-style:none;text-indent:0;",
+  ol: "margin:16px 0;padding-left:0.4em;list-style:none;text-indent:0;",
+  li: "margin:8px 0;padding-left:1.7em;text-indent:-1.7em;line-height:1.8;list-style:none;color:#3C2A1E;",
+  liTask: "margin:8px 0;padding-left:0;line-height:1.8;list-style:none;color:#3C2A1E;",
+  marker: "display:inline-block;width:1.7em;text-indent:0;",
+  bullets: ["◆", "▸", "▪"],
+  bulletColors: ["#E65100", "#FF9800", "#A1887F"],
+  bulletSize: "0.85em",
+  orderedColor: "#E65100",
+  orderedExtra: `font-family:${SERIF};font-weight:700;`
+};
+
+const warmAmber = {
+  id: "warm-amber",
+  label: "Warm Amber (暖橙知秋)",
+  container: `font-family:${SANS};font-size:16px;line-height:1.8;color:#3C2A1E;background:#FFFCF8;letter-spacing:0.2px;word-break:break-word;padding:32px 24px;`,
+  styles: {
+    h1: `font-family:${SERIF};font-size:26px;font-weight:700;line-height:1.3;color:#BF360C;margin:8px 0 24px;text-align:center;letter-spacing:-0.01em;`,
+    h2: `font-family:${SERIF};font-size:20px;font-weight:700;line-height:1.35;color:#E65100;margin:34px 0 16px;text-align:center;letter-spacing:-0.01em;`,
+    h3: `font-family:${SERIF};font-size:17px;font-weight:600;line-height:1.4;color:#BF360C;margin:26px 0 12px;padding-left:10px;border-left:4px solid #FF9800;`,
+    h4: `font-family:${SANS};font-size:16px;font-weight:600;color:#3C2A1E;margin:22px 0 10px;`,
+    h5: `font-family:${SANS};font-size:15px;font-weight:600;color:#8D6E63;margin:18px 0 8px;`,
+    h6: `font-family:${SANS};font-size:13px;font-weight:600;color:#8D6E63;margin:16px 0 8px;text-transform:uppercase;`,
+    p: "margin:0 0 18px;color:#4E342E;line-height:1.8;",
+    a: "color:#E65100;border-bottom:1px solid #FFE0B2;text-decoration:none;",
+    strong: "font-weight:700;color:#BF360C;",
+    em: "font-style:italic;color:#8D6E63;",
+    del: "text-decoration:line-through;color:#BCAAA4;",
+    ul: "margin:0 0 18px;padding-left:24px;",
+    ol: "margin:0 0 18px;padding-left:24px;",
+    li: "margin:6px 0;line-height:1.8;",
+    blockquote: "margin:20px 0;padding:14px 18px;background:#FFF3E0;border-left:4px solid #FF9800;border-radius:6px;color:#5D4037;",
+    hr: "border:none;border-top:1px solid #FFE0B2;margin:32px 0;",
+    img: "display:block;max-width:100%;margin:24px auto;border-radius:8px;border:1px solid #FFE0B2;box-shadow:0 4px 14px rgba(191,54,12,0.08);",
+    figcaption: "text-align:center;font-size:13px;color:#A1887F;margin-top:-8px;margin-bottom:18px;",
+    pre: `margin:18px 0;padding:16px 18px;border-radius:8px;overflow-x:auto;font-family:${MONO};font-size:13px;line-height:1.6;background:#FFFBF5;border:1px solid #F7E6D0;`,
+    table: "width:100%;border-collapse:collapse;margin:20px 0;font-size:14px;",
+    th: "border:1px solid #FFE0B2;background:#FFF3E0;padding:8px 12px;text-align:left;font-weight:700;color:#BF360C;",
+    td: "border:1px solid #FFE0B2;padding:8px 12px;color:#4E342E;"
+  },
+  list: listStyleWarmAmber,
+  code: codeColorsWarmAmber
+};
+
+export const THEMES = { "momo-paper": momoPaper, vercel: vercelGeist, macaron, "geek-mint": geekMint, "warm-amber": warmAmber };
 export const DEFAULT_THEME_ID = "momo-paper";
 

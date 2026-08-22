@@ -247,3 +247,130 @@ export function activityFileSummary(activities: DesktopConversationActivity[]): 
   for (const path of written) read.delete(path);
   return { written: [...written], read: [...read] };
 }
+
+/**
+ * Maps a tool activity to its semantic Phosphor icon name.
+ */
+export function activityToolIcon(
+  activity: Pick<DesktopConversationActivity, "tool" | "key"> & Partial<Pick<DesktopConversationActivity, "label" | "mutates">>
+): string {
+  const tool = activityToolName(activity).toLowerCase();
+  const label = (activity.label ?? "").toLowerCase();
+
+  if (
+    tool === "bash" ||
+    tool === "bashoutput" ||
+    tool === "bash_output" ||
+    tool === "hostbash" ||
+    tool === "run_command" ||
+    tool === "shell" ||
+    tool === "exec" ||
+    tool === "cmd"
+  ) {
+    return "terminal-window";
+  }
+
+  if (
+    activity.mutates === true ||
+    tool === "write" ||
+    tool === "edit" ||
+    tool === "write_to_file" ||
+    tool === "replace_file_content" ||
+    tool === "multi_replace_file_content" ||
+    tool === "documentexport" ||
+    tool === "patch"
+  ) {
+    return "pencil-simple-line";
+  }
+
+  if (
+    tool === "read" ||
+    tool === "read_file" ||
+    tool === "view_file" ||
+    tool === "cat" ||
+    tool === "docextract" ||
+    tool === "file_preview"
+  ) {
+    return "file-text";
+  }
+
+  if (
+    tool === "websearch" ||
+    tool === "web_search" ||
+    tool === "search_web" ||
+    tool === "webfetch" ||
+    tool === "read_url_content" ||
+    tool === "read_browser_page" ||
+    tool === "browser"
+  ) {
+    return "globe";
+  }
+
+  if (
+    tool === "grep" ||
+    tool === "grep_search" ||
+    tool === "glob" ||
+    tool === "find" ||
+    tool === "find_by_name" ||
+    tool === "project_search" ||
+    tool === "filesearch" ||
+    tool === "conversationsearch" ||
+    tool === "toolsearch" ||
+    tool === "skillsearch" ||
+    tool === "search" ||
+    tool === "rg"
+  ) {
+    return "magnifying-glass";
+  }
+
+  if (tool === "ls" || tool === "list_dir" || tool === "dir_list") {
+    return "folder-open";
+  }
+
+  if (tool.includes("memory") || tool === "remember" || tool === "recall" || tool === "store") {
+    return "brain";
+  }
+
+  if (
+    tool === "subagent" ||
+    tool === "delegate" ||
+    tool === "spawn_subagent" ||
+    tool === "manage_task" ||
+    tool === "runtimetask" ||
+    tool === "schedule"
+  ) {
+    return "tree-structure";
+  }
+
+  if (tool.startsWith("miniapp__") || tool === "miniappmanage" || tool.startsWith("miniapp")) {
+    return "cube";
+  }
+  if (tool.startsWith("mcp__") || tool.startsWith("mcp_") || tool === "mcp" || tool === "loadmcp" || tool === "mcpinvoke") {
+    return "plug";
+  }
+  if (tool === "extensionmanage" || tool.includes("plugin") || tool.includes("extension")) {
+    return "puzzle-piece";
+  }
+
+  if (tool.includes("image") || tool.includes("draw")) {
+    return "image";
+  }
+  if (tool.includes("audio") || tool.includes("speech") || tool.includes("tts") || tool.includes("voice")) {
+    return "waveform";
+  }
+
+  if (label.includes("bash") || label.includes("command") || label.includes("terminal") || label.includes("终端") || label.includes("命令")) {
+    return "terminal-window";
+  }
+  if (label.includes("write") || label.includes("edit") || label.includes("写入") || label.includes("修改") || label.includes("编辑")) {
+    return "pencil-simple-line";
+  }
+  if (label.includes("read") || label.includes("读取") || label.includes("查看文件")) {
+    return "file-text";
+  }
+  if (label.includes("search") || label.includes("搜索") || label.includes("查找")) {
+    return "magnifying-glass";
+  }
+
+  return "wrench";
+}

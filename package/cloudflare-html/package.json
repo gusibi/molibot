@@ -1,0 +1,156 @@
+{
+  "name": "@molibot/plugin-cloudflare-html",
+  "version": "0.1.0",
+  "description": "Upload complete HTML pages to Cloudflare R2 and return a shareable public link.",
+  "type": "module",
+  "private": true,
+  "molibot": {
+    "plugin": {
+      "manifestVersion": 1,
+      "id": "cloudflare-html",
+      "name": "Cloudflare HTML Publish",
+      "version": "0.1.0",
+      "description": "Upload complete HTML pages to Cloudflare R2 and return a shareable public link.",
+      "engines": {
+        "molibot": ">=2.0.0"
+      },
+      "config": {
+        "schemaVersion": 1
+      },
+      "settings": {
+        "mode": "schema",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "accessMode": {
+              "type": "string",
+              "enum": ["worker", "direct"],
+              "default": "worker"
+            },
+            "workerBaseHost": {
+              "type": "string"
+            },
+            "publicBaseHost": {
+              "type": "string"
+            },
+            "routePrefix": {
+              "type": "string",
+              "default": "/html"
+            },
+            "bucketName": {
+              "type": "string"
+            },
+            "accountId": {
+              "type": "string"
+            },
+            "accessKeyId": {
+              "type": "string"
+            },
+            "secretAccessKey": {
+              "type": "string"
+            },
+            "objectPrefix": {
+              "type": "string",
+              "default": "html/"
+            }
+          }
+        },
+        "presentation": [
+          {
+            "key": "accessMode",
+            "label": {
+              "zh": "公开链接模式",
+              "en": "Public link mode"
+            },
+            "description": {
+              "zh": "选择最终公开链接是通过 Worker 代理还是直接通过 R2 域名访问。",
+              "en": "Choose whether final links are returned through your Worker or directly through a public R2 host."
+            }
+          },
+          {
+            "key": "workerBaseHost",
+            "label": {
+              "zh": "Worker 基础域名",
+              "en": "Worker base host"
+            },
+            "placeholder": "https://html.example.com",
+            "description": {
+              "zh": "当公开链接模式为 Worker 时使用。",
+              "en": "Used when public link mode is Worker."
+            }
+          },
+          {
+            "key": "publicBaseHost",
+            "label": {
+              "zh": "公开 R2 基础域名",
+              "en": "Public R2 base host"
+            },
+            "placeholder": "https://pub-xxxxxxxx.r2.dev",
+            "description": {
+              "zh": "当公开链接模式为 Direct R2 时使用。",
+              "en": "Used when public link mode is Direct R2."
+            }
+          },
+          {
+            "key": "routePrefix",
+            "label": {
+              "zh": "路由前缀",
+              "en": "Route prefix"
+            },
+            "placeholder": "/html",
+            "description": {
+              "zh": "Worker 服务托管的公开路由前缀。",
+              "en": "Public route prefix served by your Worker."
+            }
+          },
+          {
+            "key": "bucketName",
+            "label": {
+              "zh": "存储桶名称 (Bucket)",
+              "en": "Bucket name"
+            },
+            "placeholder": "molibot",
+            "description": {
+              "zh": "用于存放 HTML 页面的 Cloudflare R2 存储桶名称。",
+              "en": "R2 bucket used for HTML uploads."
+            }
+          },
+          {
+            "key": "accountId",
+            "label": {
+              "zh": "Cloudflare Account ID",
+              "en": "Account ID"
+            }
+          },
+          {
+            "key": "accessKeyId",
+            "label": {
+              "zh": "R2 Access Key ID",
+              "en": "Access Key ID"
+            }
+          },
+          {
+            "key": "secretAccessKey",
+            "label": {
+              "zh": "R2 Secret Access Key",
+              "en": "Secret Access Key"
+            },
+            "secret": true
+          },
+          {
+            "key": "objectPrefix",
+            "label": {
+              "zh": "对象前缀 (Object Prefix)",
+              "en": "R2 object prefix"
+            },
+            "placeholder": "html/",
+            "description": {
+              "zh": "上传至存储桶内的子路径前缀。",
+              "en": "Objects are uploaded into this prefix inside the bucket."
+            }
+          }
+        ]
+      }
+    }
+  }
+}

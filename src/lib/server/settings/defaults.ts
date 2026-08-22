@@ -420,16 +420,6 @@ const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflar
   objectPrefix: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_OBJECT_PREFIX ?? "html/").trim() || "html/"
 };
 
-const defaultExternalSubagentPluginSettings: RuntimeSettings["plugins"]["externalSubagent"] = {
-  enabled: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_ENABLED ?? "false").toLowerCase() === "true",
-  codexEnabled: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CODEX_ENABLED ?? "true").toLowerCase() !== "false",
-  codexPermissionMode: (process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CODEX_PERMISSION_MODE ?? "never") as RuntimeSettings["plugins"]["externalSubagent"]["codexPermissionMode"],
-  codexPath: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CODEX_PATH ?? "").trim(),
-  claudeCodeEnabled: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CLAUDE_CODE_ENABLED ?? "true").toLowerCase() !== "false",
-  claudeCodePermissionMode: (process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CLAUDE_CODE_PERMISSION_MODE ?? "dontAsk") as RuntimeSettings["plugins"]["externalSubagent"]["claudeCodePermissionMode"],
-  claudeCodePath: String(process.env.MOLIBOT_PLUGIN_EXTERNAL_SUBAGENT_CLAUDE_CODE_PATH ?? "").trim()
-};
-
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
   piModelProvider: providerFromEnv("PI_MODEL_PROVIDER", "anthropic"),
@@ -518,6 +508,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   telegramBots: defaultTelegramBots,
   qqBots: defaultQQBots,
   plugins: {
+    entries: {},
     memory: {
       enabled: String(process.env.MEMORY_ENABLED ?? "true").toLowerCase() === "true",
       backend: (process.env.MEMORY_BACKEND ?? process.env.MEMORY_CORE ?? "mory").trim() || "mory",
@@ -545,9 +536,6 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     },
     cloudflareHtml: {
       ...defaultCloudflareHtmlPluginSettings
-    },
-    externalSubagent: {
-      ...defaultExternalSubagentPluginSettings
     },
     hooks: [],
     piExtensions: {
