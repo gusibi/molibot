@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "2.9.34",
+  "version": "2.9.35",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
@@ -20,6 +20,7 @@
     "dev": "node scripts/build-plugin-packages.mjs && svelte-kit sync && vite dev --mode production",
     "build": "node scripts/build-plugin-packages.mjs && node -e \"import('node:fs').then(fs => fs.rmSync('build', { recursive: true, force: true }))\" && svelte-kit sync && vite build",
     "mini-chat:build": "node scripts/build-mini-chat.mjs",
+    "prompt-box:build": "node scripts/build-prompt-box.mjs",
     "desktop:dev": "corepack pnpm run build && corepack pnpm --dir apps/desktop run tauri:dev",
     "desktop:prepare": "corepack pnpm --dir apps/desktop run prepare:runtime",
     "desktop:build": "corepack pnpm --dir apps/desktop run tauri:build",

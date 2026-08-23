@@ -40,7 +40,7 @@ const STRINGS = {
     imageCopied: "Image Copied!",
     textCopied: "Text Copied!",
     imageSaved: "Saved!",
-    savedAndCopied: "Saved! Image also copied to clipboard",
+    savedAndCopied: "Copied to clipboard (right-click image to save as file)",
     copyImageFailed: "Direct copy failed. Please right-click or long-press to save",
     saveImageHint: "Right-click or Long-press image to Save/Copy",
     allTags: "All",
@@ -88,7 +88,7 @@ const STRINGS = {
     imageCopied: "已复制到剪贴板",
     textCopied: "已复制文本",
     imageSaved: "已保存！",
-    savedAndCopied: "已保存（同时已复制到剪贴板）",
+    savedAndCopied: "已复制到剪贴板（右键图片可另存为本地文件）",
     copyImageFailed: "直接复制失败，可右键或长按图片另存为",
     saveImageHint: "可长按或右键图片另存为/复制",
     allTags: "全部",
@@ -530,7 +530,7 @@ async function dataUrlToBlob(dataUrl) {
   }
 }
 
-// 保存图片到本地 (PNG) + 自动复制到剪贴板双保险
+// 保存图片到本地 (PNG) 通过宿主 Agent / Desktop 桥直接下载保存
 if (elements.shareSaveImgBtn) {
   elements.shareSaveImgBtn.addEventListener("click", async () => {
     let blob = currentShareBlob;
@@ -541,58 +541,112 @@ if (elements.shareSaveImgBtn) {
     const dateStr = new Date().toISOString().slice(0, 10);
     const safeTitle = (currentShareTitle || (locale === "zh" ? "便签" : "Note")).replace(/[\\/:*?"<>|]/g, "_");
     const filename = `${safeTitle}_${dateStr}.png`;
+    const dataUrl = currentShareDataUrl;
 
-    // 1. 尝试常规 a download 触发下载
-    try {
-      const a = document.createElement("a");
-      a.download = filename;
-      if (blob) {
-        const objectUrl = URL.createObjectURL(blob);
-        a.href = objectUrl;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          a.remove();
-          URL.revokeObjectURL(objectUrl);
-        }, 2000);
-      } else if (currentShareDataUrl) {
-        a.href = currentShareDataUrl;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => a.remove(), 1000);
-      }
-    } catch (err) {
-      console.warn("Direct download link click failed:", err);
+    function showFeedback(text, isSuccess) {
+      const originalText = elements.shareSaveImgBtn.textContent;
+      elements.shareSaveImgBtn.textContent = text || (t.imageSaved || "已保存！");
+      if (isSuccess) elements.shareSaveImgBtn.classList.add("success");
+      setTimeout(() => {
+        elements.shareSaveImgBtn.textContent = originalText;
+        elements.shareSaveImgBtn.classList.remove("success");
+      }, 2500);
     }
 
-    // 2. 同时自动将图片写入系统剪贴板 (解决沙箱 iframe / 桌面端拦截文件下载问题)
-    let clipboardCopied = false;
-    if (blob && navigator.clipboard?.write) {
+    // 1. 发送 postMessage 请求给父窗口 / 宿主程序执行真实文件保存
+    const requestId = `save_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let handledByHost = false;
+
+    const handleResult = (event) => {
+      if (
+        event.data &&
+        event.data.protocol === "molibot-miniapp-host-capability" &&
+        event.data.requestId === requestId
+      ) {
+        handledByHost = true;
+        window.removeEventListener("message", handleResult);
+        if (event.data.ok) {
+          showFeedback(t.imageSaved || "已保存！", true);
+          if (elements.sharePreviewHint) {
+            elements.sharePreviewHint.textContent = locale === "zh" ? "已保存至本地文件" : "Saved to file";
+          }
+        } else if (event.data.error === "cancelled") {
+          // 用户主动取消了保存窗口
+        } else {
+          fallbackSave();
+        }
+      }
+    };
+
+    window.addEventListener("message", handleResult);
+
+    if (dataUrl) {
       try {
-        await navigator.clipboard.write([
-          new ClipboardItem({ "image/png": blob })
-        ]);
-        clipboardCopied = true;
+        window.parent.postMessage({
+          protocol: "molibot-miniapp-host-capability",
+          version: 1,
+          requestId,
+          action: "file.save",
+          filename,
+          dataUrl
+        }, "*");
       } catch (err) {
-        console.warn("Auto clipboard write on save failed:", err);
+        fallbackSave();
+      }
+    } else {
+      fallbackSave();
+    }
+
+    // 1.5s 后若无宿主响应（如直接在普通浏览器打开），执行降级处理
+    setTimeout(() => {
+      if (!handledByHost) {
+        window.removeEventListener("message", handleResult);
+        fallbackSave();
+      }
+    }, 1500);
+
+    async function fallbackSave() {
+      try {
+        const a = document.createElement("a");
+        a.download = filename;
+        if (blob) {
+          const objectUrl = URL.createObjectURL(blob);
+          a.href = objectUrl;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            a.remove();
+            URL.revokeObjectURL(objectUrl);
+          }, 2000);
+        } else if (dataUrl) {
+          a.href = dataUrl;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => a.remove(), 1000);
+        }
+      } catch (err) {
+        console.warn("Direct download link click failed:", err);
+      }
+
+      let clipboardCopied = false;
+      if (blob && navigator.clipboard?.write) {
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({ "image/png": blob })
+          ]);
+          clipboardCopied = true;
+        } catch (err) {
+          console.warn("Auto clipboard write on save failed:", err);
+        }
+      }
+
+      showFeedback(t.imageSaved || "已保存！", true);
+      if (elements.sharePreviewHint) {
+        elements.sharePreviewHint.textContent = clipboardCopied
+          ? (t.savedAndCopied || "已复制到剪贴板（右键图片可另存为本地文件）")
+          : (t.saveImageHint || "可长按或右键图片另存为/复制");
       }
     }
-
-    // 3. UI 即时高亮反馈
-    const originalText = elements.shareSaveImgBtn.textContent;
-    elements.shareSaveImgBtn.textContent = t.imageSaved || "已保存！";
-    elements.shareSaveImgBtn.classList.add("success");
-
-    if (elements.sharePreviewHint) {
-      elements.sharePreviewHint.textContent = clipboardCopied
-        ? (t.savedAndCopied || "已保存（同时已复制到剪贴板）")
-        : (t.saveImageHint || "可长按或右键图片另存为/复制");
-    }
-
-    setTimeout(() => {
-      elements.shareSaveImgBtn.textContent = originalText;
-      elements.shareSaveImgBtn.classList.remove("success");
-    }, 2500);
   });
 }
 
@@ -789,7 +843,7 @@ async function generateShareImage(title, content, color, appThemeName) {
           ${bodyHtml}
         </div>
         <div class="footer">
-          <div class="brand">Smartisan Notes</div>
+          <div class="brand">Moli Note</div>
           <div class="date">${escapeXml(dateStr)}</div>
         </div>
       </div>
@@ -914,7 +968,7 @@ async function generateShareImage(title, content, color, appThemeName) {
         </div>
         <div class="footer">
           <span class="date">${escapeXml(dateStr)}</span>
-          <span class="brand">Note</span>
+          <span class="brand">Moli Note</span>
         </div>
       </div>
     `;

@@ -29,8 +29,8 @@
     onLoadMoreBytes?: () => void;
   } = $props();
 
-  /** Rendering every line of a 256 KB file at once stalls the WebView; reveal in chunks. */
-  const CHUNK_LINES = 2_000;
+  /** Rendering every line of a large file at once stalls the WebView; reveal in chunks. */
+  const CHUNK_LINES = 500;
 
   let wrap = $state(false);
   let findOpen = $state(false);

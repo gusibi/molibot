@@ -766,6 +766,8 @@
       fileId
     });
     if (download) params.set("download", "1");
+    const file = persistedFiles.find((f) => f.id === fileId);
+    if (file?.createdAt) params.set("v", file.createdAt);
     return `/api/web/files?${params.toString()}`;
   }
 

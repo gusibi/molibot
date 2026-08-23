@@ -5,6 +5,135 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 - [2026 Q3 PRD Archive (Jul - Sep)](docs/archive/prd-archive-2026-Q3.md)
 
+## 3.122 服务器默认端口调整为 3040（2026-08-23）
+
+- **Priority / Status**: P1 / Delivered (2026-08-23).
+- **Problem**:
+  - 端口 3000 是许多常见 Web 框架和本地调试工具的默认端口，极易发生占用与端口抢占；
+  - 需要将 Molibot 的全套默认端口统一由 3000 升级为 3040。
+- **Decision**:
+  - 服务端运行时（`env.ts`）、设置默认值（`defaults.ts`）、端口检测（`service-port.mjs`）的默认端口统一定义为 `3040`；
+  - 桌面 Supervisor 守护进程（`supervisor.rs`）与桌面端设置界面（`App.svelte` / `i18n.ts`）同步默认端口；
+  - 启动配置（`vite.config.ts`、`bin/molibot-manage.js`、`docker-compose.yml`、`Dockerfile`、`.env.example`、`readme.md`）全面更新为 `3040`。
+- **Acceptance**:
+  - 未配置环境变量和持久化设置时，服务默认在 `3040` 端口监听并正常对外提供服务；
+  - 单元测试、集成测试与桌面端检查通过。
+
+---
+
+## 3.121 项目文件面板图片与媒体即时更新及缓存击穿（2026-08-23）
+
+- **Priority / Status**: P0 / Delivered (2026-08-23).
+- **Problem**:
+  - 用户在 Project 维度生成或覆盖图片（如 `1.png`）后，在 Finder 中确认文件内容已更新，但从右侧文件面板打开时仍显示旧图；
+  - 根因为多层缓存叠加：
+    1. 前端 `ArtifactTabsStore` 对已打开的 Tab 做复用，再次从树点击时直接跳过请求；
+    2. 图片和流式媒体的 URL 始终为固定的 `/api/settings/projects/{id}/inspection/file?path=1.png&raw=true`，Svelte 响应式（`$derived`）未感知变化；
+    3. WebKit WebView 内核对于 `<img src="...">` 具有强内存解码缓存（Decoded Image Cache），只要 URL 字符串未变，即使重新挂载也不发送网络请求；
+    4. HTTP 响应头原使用 `no-cache`，需强化为 `no-cache, no-store, must-revalidate`。
+- **Decision**:
+  - `ArtifactTab` 添加 `version` 戳并在新建、重新打开或通过 Watcher 重新加载时自动更新；
+  - 从文件树再次点击已打开的文件时，调用 `reloadTab` 重新抓取磁盘最新状态；
+  - `desktopProjectRawFileUrl` 与 `desktopFileContentUrl` 支持透传版本参数 `&v=${version}`；
+  - `ArtifactPanel.svelte` 中 `rawUrl` 与 `sessionStreamUrl` 基于 `activeTab.version` 动态派生，文件更新或刷新时 URL 自动改变，彻底击穿 WebKit 图片内存缓存；
+  - `streamFileWithRange` 默认 `Cache-Control` 设置为 `no-cache, no-store, must-revalidate`；
+  - Web 界面 `buildPersistedFileUrl` 同步附带文件更新时间戳参数 `&v=...`。
+- **Acceptance**:
+  - 在 Project 文件树中打开图片后，外部或模型覆盖重写该图片，文件面板中预览即时刷新为新图片；
+  - 再次点击已打开的文件时能即时从磁盘加载最新数据；
+  - 全套单元测试与桌面端检查 100% 通过。
+
+---
+
+## 3.120 Prompt Box（提示词箱）详情弹窗统一滚动与底栏按钮常驻修复 (v1.0.7)（2026-08-23）
+
+- **Priority / Status**: P0 / Delivered (2026-08-23).
+- **Problem**:
+  - 用户需要高效管理常用的提示词库，并与云端（Prompt Box / `pb.onlinestool.com`）双向同步；
+  - 在对话与任务过程中，需要能够随时一键将提示词填入聊天输入框，或者在 AI 输出/用户消息处通过右键快速提取提示词保存到提示词箱；
+  - 需要在本地支持高效的标签筛选、多维度即时排序、富文本/图片快捷模板、编辑实时预览与快捷键保存等便利性交互。
+- **Decision**:
+  - 打造全新的内置小程序 `prompt-box`（Prompt Box 提示词箱）；
+  - **API Key 与双向同步**：提供设置面板配置 API Key 与 Base URL，顶栏【刷新/同步】按钮支持将本地离线新增提示词推送到云端并将云端更新拉取到本地；
+  - **多标签筛选与纯本地多维排序**：支持多标签组合筛选（带标签计数），支持按最近更新、最近创建、标题 A-Z / Z-A、内容长度等 5 种维度纯本地秒级排序，无需每次请求远程；
+  - **高效编辑与创作便利性**：
+    - 交互式标签 Chip 管理与现有库常用标签一键推荐；
+    - Markdown 快捷模板工具栏（动态变量占位符 `{{var}}`、图片 `![img](url)`、链接、代码块、角色预设）；
+    - SegmentedControl 编辑 / Markdown 实时预览切换；
+    - 实时字符与词数统计；
+    - 键盘快捷键 `⌘ + Enter` / `Ctrl + Enter` 一键保存；
+  - **输入框填入桥接**：在 UI 卡片中提供【填入输入框】操作，通过 `composer.insert` 消息协议即时追加提示词至主聊天输入框；
+  - **右键消息提取**：注册 `contributions.messageActions`（`save_prompt`），在消息气泡右键动作中支持一键提取消息或选区内容并保存；
+  - **UI 构建**：基于 `/Users/gusi/Github/astryx`（`@astryxdesign/core` + `@astryxdesign/theme-neutral`）构建卡片式响应式界面，支持多语言与明暗主题自适应。
+- **Acceptance**:
+  - 在 Mini Apps 列表中可一键安装与使用 Prompt Box；
+  - 支持多标签筛选与 5 种排序方式即时响应；
+  - 刷新/同步按钮支持双向同步并正确返回推拉结果；
+  - 编辑弹窗支持常用标签快选、快捷模板注入、编辑/预览切换与快捷键保存；
+  - 点击卡片上的【填入输入框】可正确将提示词注入聊天输入框；
+  - 在 AI 回复处右键选择【存为提示词】可成功保存并在聊天中展示反馈卡片；
+  - 全套单元测试与桌面端检查 100% 通过。
+
+---
+
+## 3.119 大文件打开防卡死与 Git Status 检查性能优化（2026-08-23）
+
+- **Priority / Status**: P0 / Delivered (2026-08-23).
+- **Problem**:
+  - 打开 6.9MB 大文本文件时，如果项目包含数百个未跟踪文件（如 454 个文件），后端 `getProjectGitStatus` 会在单线程主循环中完整读取每个文件并执行全量 `replaceAll` 和 `split` 统计行数，导致 Node.js 事件循环长时间阻塞，文件加载请求排队挂起；
+  - 前端 `CodeViewer` 对 512KB 分片在主线程执行 `highlight.js` 重正则匹配并一次性挂载 2,000 行 DOM，若遇超长行会导致 WebView 排版引擎冻结，且导致顶部标题栏拖拽失效（`onmousedown` 无法响应）。
+- **Decision**:
+  - 后端对大于 256 KB 的未跟踪文件直接跳过行数统计，返回 `additions: null`（界面显示 `+—`）；
+  - 小于等于 256 KB 的文件采用 Buffer 原生零分配换行统计（`countBufferLines`）；
+  - 未跟踪文件状态检查采用 16 路并发批次执行；
+  - 前端超过 256 KB 文本跳过 heavy 正则语法高亮并安全降级；单行超过 4,000 字符进行视觉安全截断；`CHUNK_LINES` 调整为 500。
+- **Acceptance**:
+  - 大文本文件打开即时响应，无界面白屏或长期“正在加载...”；大文件与多文件场景下顶部标题栏拖动流畅无阻；77 项项目文件测试与 216 项桌面端测试全量通过。
+
+---
+
+## 3.118 Note 便签明暗主题文字对比度与分享按钮样式修复 (v1.8.10)（2026-08-23）
+
+- **Priority / Status**: P1 / Delivered (2026-08-23).
+- **Problem**:
+  - 信纸主题下编辑页底栏【分享】按钮在亮色模式下因浅白字色导致严重泛白看不清；
+  - 暗色模式下由于遗漏了 `.editor-title-input`、`.note-search`、`.note-input-title` 的暗色字色覆盖，导致便签标题和搜索框输入文字仍为暗棕色，在黑色背景上几乎无法看清；
+- **Decision**:
+  - 亮色信纸主题下【分享】按钮改用高对比度棕黑字色（`#4a3828`）、柔和白渐变背景与微投影；
+  - 暗色模式下完整补齐 `.editor-title-input`、`.note-search`、`.note-input-title`、`.share-action-btn` 的浅色字色（`#e6ded6`）与深色拟物按压样式；
+  - `manifest.json` 版本升级至 `1.8.10`。
+- **Acceptance**:
+  - 亮色模式下编辑页底栏【分享】按钮文字清晰醒目；暗色模式下便签标题与各输入框文本均清晰可读；全量测试通过。
+
+---
+
+## 3.117 Note 便签分享卡片品牌署名统一为 Moli Note 与宿主原生文件保存支持 (v1.8.9)（2026-08-23）
+
+- **Priority / Status**: P1 / Delivered (2026-08-23).
+- **Problem**:
+  - Note 分享卡片底部署名不统一（Keep 主题显示为“Note”，锤子主题显示为“Smartisan Notes”），用户希望统一为“Moli Note”且不带有第三方品牌字样；
+  - 沙箱 iframe 拦截了虚拟 `<a download>` 下载，导致点击【保存图片】无法真实将文件存入本地磁盘；
+- **Decision**:
+  - Keep 风格与锤子拟物风格生成的分享卡片底部品牌署名统一为 `Moli Note`；
+  - 扩展 `miniappHostCapability` 宿主能力（`file.save`），Desktop 端原生实现 `save_file_dialog` 弹出原生系统保存对话框，将 PNG 图片真实落盘写入磁盘；
+  - `manifest.json` 声明 `host.capabilities: ["fileSave"]`，版本升级至 `1.8.9`。
+- **Acceptance**:
+  - 分享预览卡片右下角/底部统一显示 `Moli Note`；点击【保存图片】呼出原生保存窗口并将图片保存至指定本地目录；全量测试通过。
+
+---
+
+## 3.116 Desktop 左侧栏顶部红绿灯与工具栏区域窗口拖拽响应修复（2026-08-23）
+
+- **Priority / Status**: P1 / Delivered (2026-08-23).
+- **Problem**: Desktop 端左侧侧边栏顶部区域（macOS 红绿灯及折叠按钮周围）点击无法拖动窗口，原因是 `.sidebar-top-bar` 容器 `pointer-events: none` 阻断导致 `.sidebar-titlebar-drag` 未能接收鼠标事件，事件穿透到底层普通 `<aside>` 容器。
+- **Decision**:
+  - 为 `.sidebar-titlebar-drag` 显式设置 `pointer-events: auto` 并将高度调整为 `42px` 铺满顶栏；
+  - 在 `ChatSidebar.svelte` 与 `SidebarShell.svelte` 中显式绑定 `onmousedown={startWindowDrag}` 调用 Tauri `getCurrentWindow().startDragging()`；
+- **Acceptance**:
+  - 点击左上角红绿灯右侧空白区域及折叠按钮周围区域可流畅拖拽窗口；折叠按钮等交互控件正常工作；216 项桌面端测试与 59 项 Rust 测试全量通过。
+
+---
+
 ## 3.115 内置小程序全套体验增强（Note 标签下拉菜单收纳与高度抖动修复、Todo 待办快捷日期与一键清空、MD Preview 新主题与字数统计、Meeting Notes 会议纪要体验重构）（2026-08-22）
 
 - **Priority / Status**: P1 / Delivered (2026-08-22).

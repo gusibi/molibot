@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
 
-export const DEFAULT_SERVICE_PORT = 3000;
+export const DEFAULT_SERVICE_PORT = 3040;
 
 export function normalizeServicePort(value, fallback = DEFAULT_SERVICE_PORT) {
   const port = Number(value);

@@ -5,6 +5,76 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
 
+### Changed: 服务器默认端口由 3000 调整为 3040
+
+- **统一默认服务端口**：将服务端运行时、设置默认值、桌面 Supervisor 守护进程、开发环境配置及相关文档中的默认端口从 `3000` 调整为 `3040`；
+- **配置与多端对齐**：
+  - `src/lib/server/app/env.ts` 与 `src/lib/server/settings/defaults.ts` 中的 `serverPort` / `PORT` 默认回退值更新为 `3040`；
+  - `scripts/runtime/service-port.mjs` 中的 `DEFAULT_SERVICE_PORT` 更新为 `3040`；
+  - `apps/desktop/src-tauri/src/supervisor.rs` 中的 `DEFAULT_PORT` 更新为 `3040`；
+  - Web 系统设置页面（`src/routes/settings/system/+page.svelte`）与桌面端设置（`App.svelte` / `i18n.ts`）中文/英文提示文案同步更新；
+  - `vite.config.ts`、`bin/molibot-manage.js`、`docker-compose.yml`、`Dockerfile`、`.env.example` 以及 `readme.md` / `readme.zh-CN.md` 中的默认端口全面对齐至 `3040`。
+
+### Fixed: 项目文件面板图片与媒体即时更新及缓存击穿修复
+
+- 修复在 Project 维度覆盖生成图片（例如 `1.png`）后，Finder 中文件已更新但从右侧文件面板打开仍显示旧图的问题；
+- **Tab 动态版本戳与重载打通**：在 `ArtifactTab` 中添加 `version` 戳，在文件变更（Watcher 捕获）、用户从文件树再次点击或手动刷新时自动更新，确保磁盘最新变更即时同步；
+- **URL Cache Buster 动态透传**：`desktopProjectRawFileUrl` 与 `desktopFileContentUrl` 支持透传版本参数 `&v=${version}`，`ArtifactPanel.svelte` 中的 `rawUrl` 与 `sessionStreamUrl` 基于 `activeTab.version` 动态派生，彻底击穿 WebKit `<img src>` 内存解码缓存；
+- **强化流式响应缓存头**：`streamFileWithRange` 将 `Cache-Control` 设置为 `no-cache, no-store, must-revalidate`；
+- **Web 端文件面板同步升级**：Web 界面 `buildPersistedFileUrl` 同步附带文件更新时间戳参数 `&v=...`。
+
+### Added: Prompt Box（提示词箱）详情弹窗统一滚动与底栏按钮常驻修复 (v1.0.7)
+
+- **详情弹窗统一平滑滚动**：将详情与编辑弹窗的 Astryx `Layout` 调整为 `height="fill"`，取消正文区域的独立 `max-height` 限制，使图片、标签与 Markdown 内容在 `LayoutContent` 内共同平滑滚动；
+- **操作底栏始终固定可见**：确保弹窗底部的【编辑】、【复制】与【填入输入框】操作栏（`LayoutFooter`）牢固固定在弹窗底部，不再被超长图片或提示词遮挡；
+- **外链图片全量正常渲染**：通过移除 `crossOrigin="anonymous"` 与放通宿主 CSP `img-src`，所有云端图片均正常且高清呈现；
+- **图片即时解析与防盗链支持**：
+  - 后端增加正文/描述图片兜底提取层，无需等待重新同步即可展示历史本地提示词的图片；
+  - 为所有图片加载添加 `referrerPolicy="no-referrer"`，彻底解决外链图片 403 防盗链拦截；
+  - 卡片右侧展示 `62x62px` 优雅圆角缩略图，点击即时弹出高清 Lightbox 大图预览；
+- **多标签筛选与 5 维本地秒级排序**：支持多标签组合筛选（带标签提示词数量统计），支持按最近更新、最近创建、标题 A-Z / Z-A、内容长度等 5 种维度纯本地秒级排序；
+- **创作与编辑体验优化**：
+  - **标签 Chip 管理与常用标签推荐**：支持按键自动成词与标签删除，下方聚合展示已有标签，支持一键点击快选；
+  - **Markdown 快捷模板工具栏**：支持一键在光标处插入动态变量 `{{variable}}`、图片模板 `![图片](url)`、链接、代码块与角色预设；
+  - **编辑/实时预览双模式切换**：支持在【编辑】与【Markdown 实时渲染预览】间秒级切换；
+  - **实时字符与词数统计 & 快捷键保存**：支持实时字数统计与 `⌘ + Enter` / `Ctrl + Enter` 一键保存；
+- **一键填入聊天输入框**：支持在小程序卡片或详情页点击【填入输入框】，通过宿主 Bridge（`composer.insert`）无缝将提示词正文追加至主聊天输入框；
+- **AI 消息右键存为提示词**：注册 `contributions.messageActions`（`save_prompt`），在聊天消息气泡右键或悬浮菜单提供【存为提示词】功能，自动提取消息/选区内容并生成带深度链接的反馈卡片；
+- **现代响应式 Astryx UI**：使用 `@astryxdesign/core` + `@astryxdesign/theme-neutral` 全套组件构建，支持中英双语与明暗主题自适应。
+
+### Fixed: 项目会话模型别名与设置变更实时同步修复
+
+- 修复在“设置 › 供应商 / 模型”中修改模型别名或调整模型列表后，项目对话（Project Chat）及项目设置弹窗仍显示修改前旧别名的问题；
+- **项目会话接入设置事件**：在 `ProjectChat.svelte` 与 `ProjectDetail.svelte` 中挂载 `SETTINGS_CHANGED_EVENT` 监听，设置保存后自动拉取最新模型列表，无需重启应用即可实时刷新；
+- **激活模型标签别名优先**：`ProjectChat.svelte` 底部输入框当前激活模型标签优先读取 `activeModelOption?.alias`，与主会话保持一致；
+- **服务端 textOptions 补充 alias**：修复 `desktopModels.ts` 中 `textOptions` 构造时遗漏 `alias` 字段的缺陷。
+
+### Fixed: 项目大文件与未跟踪文件性能熔断及 UI 响应优化
+
+- 修复在包含较多未跟踪文件（例如 454 个文件）的项目中打开大文件（例如 6.9MB 文本）时导致整个桌面应用卡死、窗口顶部无法拖拽的严重性能问题；
+- **后端 Git Status 遍历熔断**：为未跟踪文件引入 256 KB 统计上限（`MAX_UNTRACKED_STAT_BYTES`），超大文件直接跳过内容读取并显示为 `+—`；小于 256 KB 的文件采用 Buffer 原生零分配字节扫描 `countBufferLines`，并采用 16 路并发批次处理；
+- **前端代码与大文本安全降级**：超过 256 KB 的分片文本跳过 heavy 正则高亮，降级为纯文本转义；对单行超过 4,000 字符的极端长行做安全截断；将初次 DOM 渲染批次 `CHUNK_LINES` 调整为 500，全面释放 WebView 主线程；
+- 保证大文件加载时事件循环随时响应，macOS 顶栏拖拽流畅无阻。
+
+### Fixed: Note 便签明暗主题文字对比度与分享按钮样式修复 (v1.8.10)
+
+- 修复信纸主题下底栏【分享】按钮在亮色主题下文字发白看不清的问题：调整为高对比度的棕黑文字 `#4a3828`、白色渐变背景与微投影，与纸张底色完美融合并保证清晰可读；
+- 修复暗色主题下便签标题与搜索框、输入框文字颜色发暗看不清的问题：为暗色主题补充完整的 `.editor-title-input`、`.note-search`、`.note-input-title` 浅色高对比度样式（`#e6ded6`）与金色光标；
+- 为暗色主题下的分享预览弹窗操作按钮（【复制文本】、【复制图片】、【保存图片】）补充深色拟物按压样式，提升各明暗主题下的可读性与质感；
+- `manifest.json` 版本升级至 `1.8.10`。
+
+### Fixed: Note 便签分享卡片品牌署名统一为 Moli Note 与宿主原生文件保存支持 (v1.8.9)
+
+- 将 Note 便签分享卡片（Keep 主题与锤子/信纸主题）右下角与底部的品牌署名统一为 `Moli Note`，移除原 `Smartisan Notes` 与 `Note` 差异；
+- 新增 `fileSave` 宿主能力协议（`molibot-miniapp-host-capability`），Mini App 点击【保存图片】通过 postMessage 请求宿主 Agent / Desktop 原生桥调用 `save_file_dialog` 弹出原生系统保存对话框，真实将 PNG 图片文件写入本地磁盘指定路径；
+- `manifest.json` 声明 `host.capabilities: ["fileSave"]` 并升级版本至 `1.8.9`。
+
+### Fixed: Desktop 左侧栏顶部红绿灯与工具栏区域窗口拖拽响应修复
+
+- 修复 Desktop 端左侧侧边栏顶部区域（macOS 红绿灯及折叠按钮周围）无法点击拖动窗口的问题。
+- 根因定位：`.sidebar-top-bar` 样式阻断（`pointer-events: none`）导致内部未显式设置 `pointer-events: auto` 的 `.sidebar-titlebar-drag` 无法捕获鼠标事件，且底层容器无拖拽绑定。
+- 解决方案：为 `.sidebar-titlebar-drag` 补充 `pointer-events: auto` 与 `height: 42px` 铺满顶栏，并在 `ChatSidebar.svelte` 与 `SidebarShell.svelte` 中挂载原生 `startDragging()` 事件，实现顶部空白区域流畅拖动。
+
 ### Fixed: disabled External Subagent providers can no longer execute
 
 - Codex and Claude Code provider switches are now enforced again immediately before `subagent` execution, including existing tool instances, direct provider tools, parallel tasks, and chains. A disabled provider is rejected before any child process starts.

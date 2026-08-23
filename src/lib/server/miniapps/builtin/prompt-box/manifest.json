@@ -1,0 +1,279 @@
+{
+  "manifestVersion": 1,
+  "id": "prompt-box",
+  "name": "Prompt Box",
+  "version": "1.0.0",
+  "description": "A prompt management and quick usage Mini App with cloud sync, composer insertion, and message actions.",
+  "engines": {
+    "molibot": ">=2.9.9 <4"
+  },
+  "runtime": {
+    "entry": "server/index.mjs"
+  },
+  "ui": {
+    "entry": "ui/index.html",
+    "icon": "ui/icon.svg"
+  },
+  "host": {
+    "capabilities": [
+      "fileSave"
+    ]
+  },
+  "data": {
+    "schemaVersion": 1
+  },
+  "tools": [
+    {
+      "name": "save_prompt",
+      "title": "Save / Create Prompt",
+      "description": "Create a new prompt or save captured text from chat into Prompt Box.",
+      "keywords": [
+        "prompt",
+        "prompts",
+        "prompt-box",
+        "save_prompt",
+        "create_prompt",
+        "提示词",
+        "保存提示词",
+        "添加提示词",
+        "新建提示词"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "Title or name of the prompt."
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 10000,
+            "description": "The prompt template or text content."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Optional brief description or usage notes for the prompt."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "description": "Optional categories or tags."
+          },
+          "capture": {
+            "type": "object",
+            "description": "Host-supplied message capture when triggered from chat message actions.",
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "selection": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "assistant",
+                  "user"
+                ]
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "capturedAt": {
+                "type": "string"
+              },
+              "source": {
+                "type": "object"
+              },
+              "resources": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "text",
+              "role",
+              "capturedAt",
+              "source"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "list_prompts",
+      "title": "List / Search Prompts",
+      "description": "Search or list prompts in Prompt Box by keyword or tag.",
+      "keywords": [
+        "prompt",
+        "prompts",
+        "prompt-box",
+        "list_prompts",
+        "search_prompts",
+        "提示词",
+        "搜索提示词",
+        "查找提示词",
+        "查看提示词"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Keyword search across title, content, and description."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Filter by a specific tag."
+          }
+        },
+        "additionalProperties": false
+      },
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "get_prompt",
+      "title": "Get Prompt",
+      "description": "Get the full details of a single prompt by its ID.",
+      "keywords": [
+        "prompt",
+        "get_prompt",
+        "提示词详情",
+        "查看提示词"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The prompt ID."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "readOnlyHint": true,
+      "destructiveHint": false
+    },
+    {
+      "name": "update_prompt",
+      "title": "Update Prompt",
+      "description": "Update a prompt's title, content, description, or tags.",
+      "keywords": [
+        "prompt",
+        "update_prompt",
+        "edit_prompt",
+        "修改提示词",
+        "更新提示词"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The prompt ID."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 50
+            }
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    },
+    {
+      "name": "delete_prompt",
+      "title": "Delete Prompt",
+      "description": "Delete a prompt permanently by ID.",
+      "keywords": [
+        "prompt",
+        "delete_prompt",
+        "remove_prompt",
+        "删除提示词"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The prompt ID to delete."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": true
+    },
+    {
+      "name": "sync_prompts",
+      "title": "Sync Prompts",
+      "description": "Sync prompts from the configured remote Prompt Box server into local storage.",
+      "keywords": [
+        "prompt",
+        "sync_prompts",
+        "同步提示词",
+        "刷新提示词"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "readOnlyHint": false,
+      "destructiveHint": false
+    }
+  ],
+  "contributions": {
+    "messageActions": [
+      {
+        "tool": "save_prompt",
+        "label": {
+          "zh": "存为提示词",
+          "en": "Save as Prompt"
+        },
+        "icon": "sparkle",
+        "accepts": [
+          "text"
+        ]
+      }
+    ]
+  }
+}

@@ -20,7 +20,7 @@ test("readConfiguredServicePort falls back for invalid or missing settings", () 
   const dataDir = mkdtempSync(path.join(os.tmpdir(), "molibot-port-"));
   try {
     writeFileSync(path.join(dataDir, "settings.json"), JSON.stringify({ serverPort: 80 }));
-    assert.equal(readConfiguredServicePort(dataDir), 3000);
+    assert.equal(readConfiguredServicePort(dataDir), 3040);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

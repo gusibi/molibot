@@ -70,6 +70,8 @@ export interface ArtifactTab {
   size: number;
   /** Decoded text for session-scope code/csv tabs (project tabs use `preview`). */
   textContent: string;
+  /** Timestamp/version to bust image and media preview caches when reloaded. */
+  version: number;
 }
 
 export type SearchMode = "name" | "content";
@@ -449,7 +451,8 @@ export class ArtifactTabsStore {
       id, kind: "miniapp", scope: this.scope, path: "", appId, deepLinkPath,
       name: appId, loading: false, error: "", preview: null, diff: null,
       revealLine: 0, loadingMore: false, loadedBytes: 0, blobUrl: "",
-      fileId: "", mediaType: "", mimeType: "", size: 0, textContent: ""
+      fileId: "", mediaType: "", mimeType: "", size: 0, textContent: "",
+      version: Date.now()
     };
     this.#commitTabs([...this.tabs, tab]);
   }
@@ -474,15 +477,16 @@ export class ArtifactTabsStore {
       name: file.original, loading: true, error: "", preview: null, diff: null,
       revealLine: 0, loadingMore: false, loadedBytes: 0, blobUrl: "",
       fileId: file.id, mediaType: file.mediaType, mimeType: file.mimeType ?? "",
-      size: file.size, textContent: ""
+      size: file.size, textContent: "",
+      version: Date.now()
     };
     this.#commitTabs([...this.tabs, tab]);
     await this.#loadSessionFileTab(id, file);
   }
 
   /** Streaming URL for a session attachment (Range-supported, so video seeks). */
-  sessionFileUrl(fileId: string): string {
-    return desktopFileContentUrl(this.endpoint, this.profileId, this.sessionId, fileId, false, this.projectId || undefined);
+  sessionFileUrl(fileId: string, version?: number): string {
+    return desktopFileContentUrl(this.endpoint, this.profileId, this.sessionId, fileId, false, this.projectId || undefined, version);
   }
 
   async #loadSessionFileTab(id: string, file: DesktopSessionFile): Promise<void> {
@@ -520,6 +524,8 @@ export class ArtifactTabsStore {
           current.textContent = await blob.text();
         }
       }
+      const current = this.tabs.find((tab) => tab.id === id);
+      if (current) current.version = Date.now();
     } catch (cause) {
       if (generation !== this.#generation) return;
       const current = this.tabs.find((tab) => tab.id === id);
@@ -538,13 +544,17 @@ export class ArtifactTabsStore {
     this.selectTab(id, kind);
     if (existing) {
       existing.revealLine = revealLine;
-      if (!existing.loading && !existing.error && (existing.preview || existing.diff)) return;
+      if (!existing.loading && !existing.error && (existing.preview || existing.diff)) {
+        await this.reloadTab(id);
+        return;
+      }
     } else {
       const tab: ArtifactTab = {
         id, kind, scope: this.scope, path, appId: "", deepLinkPath: "", name: baseName(path),
         loading: true, error: "", preview: null, diff: null, revealLine,
         loadingMore: false, loadedBytes: 0, blobUrl: "",
-        fileId: "", mediaType: "", mimeType: "", size: 0, textContent: ""
+        fileId: "", mediaType: "", mimeType: "", size: 0, textContent: "",
+        version: Date.now()
       };
       // Drops the least-recently-opened tab, releasing whatever it held.
       this.#commitTabs([...this.tabs, tab]);
@@ -568,12 +578,14 @@ export class ArtifactTabsStore {
         if (!current) return;
         current.preview = preview;
         current.loadedBytes = preview.status === "text" ? preview.byteOffset + preview.byteLength : 0;
+        current.version = Date.now();
       } else {
         const diff = await loadDesktopProjectGitDiff(this.endpoint, this.projectId, target.path);
         if (generation !== this.#generation) return;
         const current = this.tabs.find((tab) => tab.id === id);
         if (!current) return;
         current.diff = diff;
+        current.version = Date.now();
       }
     } catch (cause) {
       if (generation !== this.#generation) return;
@@ -678,8 +690,8 @@ export class ArtifactTabsStore {
     }
   }
 
-  rawFileUrl(filePath: string): string {
-    return desktopProjectRawFileUrl(this.endpoint, this.projectId, filePath);
+  rawFileUrl(filePath: string, version?: number): string {
+    return desktopProjectRawFileUrl(this.endpoint, this.projectId, filePath, version);
   }
 
   async revealInFinder(filePath: string, mode: "reveal" | "open"): Promise<void> {

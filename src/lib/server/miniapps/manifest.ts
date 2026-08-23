@@ -81,7 +81,7 @@ const ALLOWED_UPLOAD_LIMIT_KEYS = new Set(["path", "maxBytes"]);
 const AI_CAPABILITIES = new Set<MiniAppAiCapability>(["text", "transcription"]);
 const MAX_AI_UPLOAD_BYTES = 25 * 1024 * 1024;
 const ALLOWED_HOST_KEYS = new Set(["capabilities"]);
-const HOST_CAPABILITIES = new Set<MiniAppHostCapability>(["audioCapture"]);
+const HOST_CAPABILITIES = new Set<MiniAppHostCapability>(["audioCapture", "fileSave"]);
 
 function validateHostManifest(raw: unknown): { ok: true; value: MiniAppHostManifest } | { ok: false; error: string } {
   if (!isPlainObject(raw)) return { ok: false, error: "host must be an object." };

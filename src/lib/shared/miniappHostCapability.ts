@@ -15,6 +15,14 @@ export type MiniAppHostCapabilityRequest =
       version: typeof MINIAPP_HOST_CAPABILITY_VERSION;
       requestId: string;
       action: "audio.pause" | "audio.resume" | "audio.stop" | "audio.status";
+    }
+  | {
+      protocol: typeof MINIAPP_HOST_CAPABILITY_PROTOCOL;
+      version: typeof MINIAPP_HOST_CAPABILITY_VERSION;
+      requestId: string;
+      action: "file.save";
+      filename: string;
+      dataUrl: string;
     };
 
 export interface MiniAppHostCapabilityResult {
@@ -59,6 +67,22 @@ export function parseMiniAppHostCapabilityMessage(value: unknown): MiniAppHostCa
       version: MINIAPP_HOST_CAPABILITY_VERSION,
       requestId: raw.requestId,
       action: raw.action as "audio.pause" | "audio.resume" | "audio.stop" | "audio.status"
+    } };
+  }
+  if (raw.action === "file.save") {
+    if (typeof raw.filename !== "string" || !raw.filename.trim() || raw.filename.length > 255) {
+      return { ok: false, reason: "invalid filename" };
+    }
+    if (typeof raw.dataUrl !== "string" || !raw.dataUrl.trim()) {
+      return { ok: false, reason: "invalid dataUrl" };
+    }
+    return { ok: true, value: {
+      protocol: MINIAPP_HOST_CAPABILITY_PROTOCOL,
+      version: MINIAPP_HOST_CAPABILITY_VERSION,
+      requestId: raw.requestId,
+      action: "file.save",
+      filename: raw.filename.trim(),
+      dataUrl: raw.dataUrl
     } };
   }
   return { ok: false, reason: "unsupported action" };

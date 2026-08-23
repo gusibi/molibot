@@ -500,7 +500,8 @@ a:focus-visible {
   top: 0;
   right: 0;
   left: 0;
-  height: 30px;
+  height: 42px;
+  pointer-events: auto;
 }
 .sidebar-section-head {
   display: flex;

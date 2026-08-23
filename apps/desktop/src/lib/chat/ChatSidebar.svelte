@@ -7,6 +7,7 @@
   import type { Translation } from "../i18n";
   import DurableExecutionSidebarSection from "./DurableExecutionSidebarSection.svelte";
   import type { DesktopDurableExecutionItem } from "@molibot/desktop-contract";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
 
   let {
     copy,
@@ -105,11 +106,18 @@
     forkedConversation: copy.forkedConversation,
     newChat: copy.newChat
   });
+
+  function startWindowDrag(event: MouseEvent): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    void getCurrentWindow().startDragging().catch((error) => console.error("window drag failed", error));
+  }
 </script>
 
 <aside class="chat-sidebar">
   <div class="sidebar-top-bar" data-tauri-drag-region>
-    <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true"></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true" onmousedown={startWindowDrag}></div>
     {#if onToggleCollapse}
       <button
         type="button"

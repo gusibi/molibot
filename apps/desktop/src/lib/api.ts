@@ -112,6 +112,7 @@ import type {
   DesktopProviderModel,
   DesktopProviderModelTag,
   DesktopProviderModelsResponse,
+  DesktopDiscoveredModelItem,
   DesktopProviderMutationResponse,
   DesktopProviderTestResponse,
   DesktopProviderUpdateRequest,
@@ -397,8 +398,9 @@ export async function loadDesktopProjectFile(
 }
 
 /** Streams a Project file's raw bytes; used for media, PDF and rendered SVG. */
-export function desktopProjectRawFileUrl(endpoint: string, projectId: string, filePath: string): string {
+export function desktopProjectRawFileUrl(endpoint: string, projectId: string, filePath: string, version?: number): string {
   const query = new URLSearchParams({ path: filePath, raw: "true" });
+  if (version) query.set("v", String(version));
   return serviceUrl(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/file?${query}`);
 }
 
@@ -2833,11 +2835,13 @@ export function desktopFileContentUrl(
   sessionId: string,
   fileId: string,
   download = false,
-  projectId?: string
+  projectId?: string,
+  version?: number
 ): string {
   const query = new URLSearchParams({ profileId, sessionId, fileId });
   if (download) query.set("download", "1");
   if (projectId) query.set("projectId", projectId);
+  if (version) query.set("v", String(version));
   return serviceUrl(endpoint, `/api/web/files?${query.toString()}`);
 }
 
@@ -2895,9 +2899,10 @@ export async function fetchDesktopFileBlob(
 export async function fetchDesktopProjectRawBlob(
   endpoint: string,
   projectId: string,
-  path: string
+  path: string,
+  version?: number
 ): Promise<Blob> {
-  const response = await fetchFromDesktop(desktopProjectRawFileUrl(endpoint, projectId, path));
+  const response = await fetchFromDesktop(desktopProjectRawFileUrl(endpoint, projectId, path, version));
   if (!response.ok) {
     throw new Error(`Failed to load file (${response.status})`);
   }
@@ -3553,7 +3558,7 @@ export async function discoverDesktopProviderModels(
     protocol?: string;
     path?: string;
   }
-): Promise<string[]> {
+): Promise<{ models: string[]; items?: DesktopDiscoveredModelItem[] }> {
   const payload = await requestJson<DesktopProviderModelsResponse>(endpoint, "/api/desktop/provider-models", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -3562,7 +3567,7 @@ export async function discoverDesktopProviderModels(
       ...options
     })
   });
-  return payload.models;
+  return { models: payload.models, items: payload.items };
 }
 
 export function providerItemToUpdateRequest(provider: DesktopProviderItem): DesktopProviderUpdateRequest {

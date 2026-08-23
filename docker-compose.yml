@@ -8,9 +8,9 @@ services:
     environment:
       NODE_ENV: production
       DATA_DIR: /data
-      PORT: 3000
+      PORT: 3040
     ports:
-      - "3000:3000"
+      - "3040:3040"
     volumes:
       - molibot-data:/data
 

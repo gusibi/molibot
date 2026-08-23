@@ -5,6 +5,135 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 - [2026 Q3 Features Archive (Jul - Sep)](docs/archive/features-archive-2026-Q3.md)
 
+## 2026-08-23
+
+### 服务器默认端口由 3000 调整为 3040（已完成，P1）
+
+- **背景与目标**：
+  - 避免默认端口 `3000` 容易与其它常见 Web 服务（如 React/Next.js/Grafana 等）冲突，将 Molibot 默认监听与配置端口提升并统一为 `3040`；
+- **改动范围与实现**：
+  - 服务端配置与环境：`src/lib/server/app/env.ts` 与 `src/lib/server/settings/defaults.ts` 中的 `PORT` / `serverPort` 默认值调整为 `3040`；
+  - 脚本与工具层：`scripts/runtime/service-port.mjs` 中的 `DEFAULT_SERVICE_PORT` 调整为 `3040`；`bin/molibot-manage.js` 默认 `PORT` 更新为 `3040`；
+  - 桌面端守护与 UI：`apps/desktop/src-tauri/src/supervisor.rs` 中的 `DEFAULT_PORT` 调整为 `3040`；`apps/desktop/src/App.svelte` 与 `apps/desktop/src/lib/i18n.ts` 默认端口与中英文说明更新；
+  - Web 设置页：`src/routes/settings/system/+page.svelte` 默认端口与提示文案更新为 `3040`；
+  - 开发与容器部署：`vite.config.ts`、`docker-compose.yml`、`Dockerfile`、`.env.example` 以及 `readme.md` / `readme.zh-CN.md` 同步更新。
+- **测试覆盖**：
+  - 更新 `scripts/runtime/service-port.test.mjs` 验证默认端口回退；
+  - `cargo test`、`npm run test:service-bootstrap`、`npm run desktop:test`、`npm run desktop:check`、`npm run test:desktop-chat`、`npm run test:projects` 均 100% 通过。
+
+### 项目文件面板图片与媒体即时更新及缓存击穿修复（已完成，P0）
+
+- **问题背景**：
+  - 用户在 Project 维度生成或覆盖图片（如 `1.png`）后，在 Finder 中确认文件内容已更新，但从右侧文件面板打开时仍显示旧图；
+  - 根因为多层缓存叠加：
+    1. 前端 `ArtifactTabsStore` 对已打开的 Tab 做复用，再次从树点击时直接跳过请求；
+    2. 图片和流式媒体的 URL 始终为固定的 `/api/settings/projects/{id}/inspection/file?path=1.png&raw=true`，Svelte 响应式（`$derived`）未感知变化；
+    3. WebKit WebView 内核对于 `<img src="...">` 具有强内存解码缓存（Decoded Image Cache），只要 URL 字符串未变，即使重新挂载也不发送网络请求；
+    4. HTTP 响应头原使用 `no-cache`，强化为 `no-cache, no-store, must-revalidate`。
+- **解决方案与实现**：
+  - **Tab 动态版本戳（`version: number`）**：
+    - `ArtifactTab` 引入 `version` 戳并在新建、重新打开或通过 Watcher 重新加载时自动刷新；
+    - 从文件树再次点击已打开的文件时，调用 `reloadTab` 重新抓取磁盘最新状态；
+  - **URL Cache Buster 动态透传**：
+    - `desktopProjectRawFileUrl` 与 `desktopFileContentUrl` 支持透传版本参数 `&v=${version}`；
+    - `ArtifactPanel.svelte` 中 `rawUrl` 与 `sessionStreamUrl` 基于 `activeTab.version` 动态派生，文件更新或刷新时 URL 自动改变，彻底击穿 WebKit 图片内存缓存；
+  - **流式文件响应头强化**：
+    - `streamFileWithRange` 默认 `Cache-Control` 设置为 `no-cache, no-store, must-revalidate`；
+  - **Web 端文件面板同步升级**：
+    - Web 界面 `buildPersistedFileUrl` 同步附带文件更新时间戳参数 `&v=...`。
+- **测试覆盖**：
+  - 更新 `inspection/file/server.test.ts` 验证 `cache-control` 响应头以及携带 `v` 参数的正确返回；
+  - 更新 `api.test.ts` 验证带有 `version` 参数的 URL 构造函数；
+  - 全量 `pnpm run test:projects`、`pnpm run desktop:test` 与 `pnpm run test:desktop-chat` 均 100% 通过。
+
+### Prompt Box（提示词箱）详情弹窗统一滚动与底栏按钮常驻修复 (v1.0.7)（已完成，P0）
+
+- **功能概述**：
+  - 参考 Raycast 官方扩展功能，为 Molibot 打造开箱即用的内置小程序 **Prompt Box（提示词箱）**，提供提示词的高效管理、云端双向同步、一键填入输入框以及 AI 回复右键存为提示词等全套功能；
+  - 升级至 `1.0.7`：
+    1. **弹窗布局统一滚动（Unified Dialog Scrolling）**：将详情弹窗与编辑弹窗的 Astryx `Layout` 设为 `height="fill"`，取消正文内部嵌套 `max-height` / 二级滚动条，使图片与完整 Markdown 提示词内容随 `LayoutContent` 一起自然平滑滚动；
+    2. **底部操作栏吸底常驻（Pinned Action Footer）**：无论图片和提示词内容多长，底部的【编辑】、【复制】与【填入输入框】操作按钮均牢固吸附在弹窗底部（`LayoutFooter`），100% 随时可见可用；
+    3. **外链图片跨域与 CSP 全量放通**：彻底解决图片加载、防盗链与莫兰迪主题配色；
+- **核心能力与 UI 便利性优化**：
+  - **莫兰迪色系视觉升级（Morandi Design System）**：
+    - 主色调采用柔和沉稳的雾霾蓝灰（`#4A6072`）与鼠尾草灰绿（`#5B7068`），搭配温润卡片白与深色底色，明暗主题深度调优；
+    - 小程序主图标 `icon.svg` 采用莫兰迪渐变重新设计，应用栏与侧边栏标签颜色同步；
+  - **API 示例图片字段（example_image_url）与正文图片即时解析**：
+    - 后端 SQLite 新增 `example_image_url` 字段与自动提取兼容层，即使未再次手动点击同步，也能即时从正文/描述中提取并呈现图片；
+    - 卡片右侧展示 `62x62px` 圆角缩略图，悬浮显示预览遮罩，点击即刻弹出居中高清大图 Lightbox 预览；
+  - **纯图标操作栏（Icon-only Card Actions）**：
+    - 卡片底部的【填入输入框】（`PaperAirplaneIcon`）、【复制】（`ClipboardDocumentIcon`）、【编辑】与【删除】采用独立 24px 极简图标按钮；
+    - 点击填入或复制时即时切换为打勾动画反馈；
+  - **API Key 设置与安全存储**：支持配置 `pb.onlinestool.com` 的 API Key 与服务端 Base URL，存储于本地独立的 SQLite 数据库设置表中，支持脱敏显示与随时修改；
+  - **云端与本地双向数据同步（刷新/同步）**：顶栏提供明确的刷新/同步按钮，支持一键将本地离线/新创建的提示词推送到云端，并将云端最新提示词拉取合并到本地，展示精确的推拉条数反馈；
+  - **多标签筛选与即时多维排序（纯本地计算）**：
+    - 标签栏展示库中所有标签及其提示词数量（如 `#coding (5)`），支持多标签组合筛选；
+    - 支持按【最近更新】、【最近创建】、【标题 A-Z / Z-A】、【内容长度】等 5 种维度即时本地排序，无额外网络开销；
+  - **高效编辑与创作体验（Rich Editing Experience）**：
+    - **交互式标签管理与常用标签推荐**：已选标签以 Chip 形式展示并支持一键删除，输入时支持回车/逗号/空格自动成词；下方聚合推荐已有标签，单键点击即可快速添加到当前提示词；
+    - **Markdown 快捷模板工具栏**：支持一键在光标处插入动态变量 `{{variable}}`、图片模板 `![图片](url)`、链接 `[标题](url)`、代码块 ```` ```` 以及角色预设模板；
+    - **编辑/实时预览双模式切换**：通过 SegmentedControl 支持随时在【编辑】与【Markdown 实时渲染预览】间切换；
+    - **字符与词数实时统计**：实时显示提示词当前字符数与词数；
+    - **快捷键保存**：支持 `⌘ + Enter` / `Ctrl + Enter` 一键保存；
+  - **一键填入聊天输入框（Composer Bridge）**：在提示词卡片或详情页点击【填入输入框】，通过宿主 Bridge（`composer.insert`）无缝将提示词正文写入 Molibot 聊天主输入框，支持动态变量占位符角标高亮；
+  - **AI 回复右键存为提示词（Message Action）**：在聊天消息气泡右键或悬浮操作栏中提供【存为提示词】操作，自动提取消息文本/选区、智能生成标题、持久化存入 Prompt Box，并在聊天中生成带深度链接的反馈卡片；
+  - **基于 Astryx 框架全套组件构建 UI**：使用 `@astryxdesign/core` + `@astryxdesign/theme-neutral` 构建现代卡片式响应式界面，中英多语言（zh/en）以及明暗主题自适应切换；
+- **平台集成与打包**：
+  - 在 `src/lib/server/miniapps/bootstrap.ts` 中注册 `prompt-box` 内置小程序包，支持开箱即用与单键安装；
+  - 新增 `scripts/build-prompt-box.mjs` 编译脚本并集成至 `package.json`；
+  - 编写全面单元与集成测试 `src/lib/server/miniapps/promptBox.test.ts`，覆盖 CRUD、设置脱敏、Message Capture、云端 Mock 双向同步与 Materialize 打包。
+
+### 项目会话模型别名与设置变更实时同步修复（已完成，P1）
+
+- **项目会话与设置变更事件打通**：
+  - 在 `ProjectChat.svelte` 与 `ProjectDetail.svelte` 中接入 `SETTINGS_CHANGED_EVENT`（`molibot:settings-changed`）事件监听与清理，在用户于“设置 › 供应商 / 模型”中修改别名或调整模型后，无需重启或切换页面，项目对话与项目设置弹窗即时同步最新模型列表与别名；
+- **激活模型标签 alias 优先级对齐**：
+  - 修复 `ProjectChat.svelte` 底部输入框激活模型标签（`activeModelLabel`）未优先读取 `alias` 的缺陷，与 `ChatView.svelte` 保持一致，优先展示用户配置的别名；
+- **服务端 textOptions alias 映射补齐**：
+  - 修复 `src/lib/server/app/desktopModels.ts` 中 `textOptions` 构造时遗漏 `alias: option.alias` 字段的问题；
+- **测试覆盖**：
+  - 补充 `desktopModels.test.ts` 路由别名断言以及 `chat-ui.test.mjs` 项目会话设置同步与别名优先级断言，全量测试通过。
+
+### 大文件打开防卡死与 Git Status 未跟踪文件检查性能优化（已完成，P0）
+
+- **后端 Git Status 遍历熔断与并发加速**：
+  - 针对工作区包含大量未跟踪文件（如 454 个未跟踪文件或大型小说/数据集）时导致 Node.js 主线程卡死的问题进行彻底重构；
+  - 引入 `MAX_UNTRACKED_STAT_BYTES = 256 * 1024`（256 KB）熔断阈值：大于 256 KB 的未跟踪文件直接跳过行数统计，返回 `+—`，不再将数兆字节读入内存做字符串切割；
+  - 小于等于 256 KB 的文件采用 Buffer 原生字节扫描 `countBufferLines` 统计换行，消除 `replaceAll().split("\n")` 带来的海量临时字符串与 GC 压力；
+  - 采用 16 路并发批次处理未跟踪文件状态检查，避免数百个文件串行 I/O 耗尽时间。
+- **前端代码查看器与大文本安全降级**：
+  - `CodeViewer` 引入 `MAX_SYNTAX_HIGHLIGHT_BYTES = 256 * 1024`：大于 256 KB 的文本内容跳过 heavy 正则语法高亮，降级为安全的纯文本转义，防止 UI 渲染主线程卡死；
+  - 对单行超过 4,000 字符的极端超长行引入 `safeEscapeLine` 安全截断保护，防止浏览器排版引擎冻结；
+  - 将单次挂载批次 `CHUNK_LINES` 由 2,000 降为 500，初次加载速度提升 4 倍并保持窗口拖拽随时响应。
+
+### Note 便签明暗主题文字对比度与分享按钮样式修复 (v1.8.10)（已完成，P1）
+
+- **分享按钮对比度提升**：
+  - 修复信纸主题编辑页底栏【分享】按钮在亮色模式下因浅色文字导致看不清的问题，采用 `#4a3828` 高对比度字色与白色渐变微浮雕质感；
+- **暗色主题标题与输入框样式补齐**：
+  - 补充暗色模式下 `.editor-title-input`、`.note-search`、`.note-input-title` 的深底浅字规则（`#e6ded6`）与金色光标，解决暗色主题下便签标题和搜索输入发黑无法阅读的问题；
+  - 补充暗色模式下分享预览弹窗操作按钮（复制文本、复制图片、保存图片）的深色拟物按钮风格；
+- **版本声明与 Bump**：
+  - `manifest.json` 版本升级至 `1.8.10`。
+
+### Note 便签分享卡片品牌署名统一为 Moli Note 与宿主原生文件保存支持 (v1.8.9)（已完成，P1）
+
+- **统一卡片品牌署名**：
+  - Keep 风格与锤子拟物风格生成的分享卡片底部/右下角品牌署名一律统一为 `Moli Note`，移除 `Smartisan Notes` 与 `Note` 差异；
+- **宿主原生文件保存桥接**：
+  - 在 `miniappHostCapability` 中新增 `file.save` 协议，Desktop 原生层提供 `save_file_dialog` 命令，通过原生 Save File Sheet 让用户自定义保存路径并直接落盘写入 PNG 文件；
+  - Note 小程序与宿主通过 postMessage 进行双向请求与状态响应，保存成功后即时展示“已保存至本地文件”；
+- **版本声明与 Bump**：
+  - `manifest.json` 声明 `host.capabilities: ["fileSave"]`，版本升级至 `1.8.9`。
+
+### Desktop 左侧栏顶部红绿灯与工具栏区域窗口拖拽响应修复（已完成，P1）
+
+- **问题定位**：Desktop 端左侧侧边栏顶部区域（macOS 红绿灯及折叠按钮周围）点击无法拖动窗口，原因是 `.sidebar-top-bar` 容器 `pointer-events: none` 阻断导致 `.sidebar-titlebar-drag` 未能接收鼠标事件，事件穿透到底层普通 `<aside>` 容器。
+- **修复方案**：
+  - 为 `.sidebar-titlebar-drag` 显式设置 `pointer-events: auto` 并将高度调整为 `42px` 铺满顶栏；
+  - 在 `ChatSidebar.svelte` 与 `SidebarShell.svelte` 中显式绑定 `onmousedown={startWindowDrag}` 调用 Tauri `getCurrentWindow().startDragging()`；
+  - 216 项桌面端与 59 项 Rust 全量测试通过。
+
 ## 2026-08-22
 
 ### Note 便签小程序分享保存图片多重降级与剪贴板双保险增强 (v1.8.8)（已完成，P1）

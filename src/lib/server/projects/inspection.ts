@@ -10,6 +10,8 @@ const MAX_TREE_LIMIT = 500;
 export const PREVIEW_WINDOW_BYTES = 512 * 1024;
 /** Above this a file is reported as oversized instead of being paged as text. */
 export const MAX_TEXT_PREVIEW_BYTES = 16 * 1024 * 1024;
+/** Untracked files above this size skip line counting to keep Git status instant and non-blocking. */
+export const MAX_UNTRACKED_STAT_BYTES = 256 * 1024;
 const ENCODING_SAMPLE_BYTES = 8_192;
 const MAX_GIT_BYTES = 2 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 8_000;
@@ -318,10 +320,30 @@ function parseGitNumstat(buffer: Buffer, normalizePath: (gitPath: string) => str
   return stats;
 }
 
-function countTextLines(content: string): number {
-  if (!content) return 0;
-  const normalized = content.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-  return normalized.endsWith("\n") ? normalized.slice(0, -1).split("\n").length : normalized.split("\n").length;
+export function countBufferLines(buffer: Buffer, encoding: TextEncodingGuess): number {
+  if (!buffer.length || encoding === "binary") return 0;
+  if (encoding === "utf16le" || encoding === "utf16be") {
+    const isLe = encoding === "utf16le";
+    let lines = 0;
+    const end = buffer.length - (buffer.length % 2);
+    for (let i = 0; i < end; i += 2) {
+      const low = isLe ? buffer[i] : buffer[i + 1];
+      const high = isLe ? buffer[i + 1] : buffer[i];
+      if (low === 0x0a && high === 0x00) lines += 1;
+    }
+    if (end >= 2) {
+      const lastLow = isLe ? buffer[end - 2] : buffer[end - 1];
+      const lastHigh = isLe ? buffer[end - 1] : buffer[end - 2];
+      if (lastLow !== 0x0a || lastHigh !== 0x00) lines += 1;
+    }
+    return lines;
+  }
+  let lines = 0;
+  for (let i = 0; i < buffer.length; i += 1) {
+    if (buffer[i] === 0x0a) lines += 1;
+  }
+  if (buffer[buffer.length - 1] !== 0x0a) lines += 1;
+  return lines;
 }
 
 async function getUntrackedChangeStats(project: ProjectRecord, entryPath: string): Promise<GitChangeStats> {
@@ -329,18 +351,11 @@ async function getUntrackedChangeStats(project: ProjectRecord, entryPath: string
   try {
     const resolved = await resolveProjectPath(project, entryPath, false, true);
     const stat = await fs.stat(resolved.target);
-    if (!stat.isFile() || stat.size > MAX_TEXT_PREVIEW_BYTES) return unknown;
+    if (!stat.isFile() || stat.size > MAX_UNTRACKED_STAT_BYTES) return unknown;
     const content = await fs.readFile(resolved.target);
     const encoding = detectTextEncoding(content);
     if (encoding === "binary") return { additions: null, deletions: null, binary: true };
-    const text = encoding === "utf16be"
-      ? (() => {
-          const start = utf16BomOf(content) ? 2 : 0;
-          const evenLength = content.length - start - ((content.length - start) % 2);
-          return Buffer.from(content.subarray(start, start + evenLength)).swap16().toString("utf16le");
-        })()
-      : content.toString(encoding === "utf16le" ? "utf16le" : "utf8");
-    return { additions: countTextLines(text), deletions: 0, binary: false };
+    return { additions: countBufferLines(content, encoding), deletions: 0, binary: false };
   } catch {
     return unknown;
   }
@@ -530,12 +545,20 @@ export async function getProjectGitStatus(project: ProjectRecord): Promise<GitSt
       entry.additions = trackedStats.additions;
       entry.deletions = trackedStats.deletions;
       entry.binary = trackedStats.binary;
-    } else if (entry.untracked) {
-      const untrackedStats = await getUntrackedChangeStats(project, entry.path);
-      entry.additions = untrackedStats.additions;
-      entry.deletions = untrackedStats.deletions;
-      entry.binary = untrackedStats.binary;
     }
+  }
+  const untrackedEntries = entries.filter((entry) => entry.untracked);
+  const UNTRACKED_BATCH_SIZE = 16;
+  for (let i = 0; i < untrackedEntries.length; i += UNTRACKED_BATCH_SIZE) {
+    const batch = untrackedEntries.slice(i, i + UNTRACKED_BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (entry) => {
+        const untrackedStats = await getUntrackedChangeStats(project, entry.path);
+        entry.additions = untrackedStats.additions;
+        entry.deletions = untrackedStats.deletions;
+        entry.binary = untrackedStats.binary;
+      })
+    );
   }
   return { status: "ok", entries, truncated: result.truncated };
 }

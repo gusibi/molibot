@@ -28,6 +28,14 @@ import miniChatUiScriptSource from "./builtin/mini-chat/ui/app.js?raw";
 import miniChatUiAstryxStyleSource from "./builtin/mini-chat/ui/astryx.css?raw";
 import miniChatUiStyleSource from "./builtin/mini-chat/ui/styles.css?raw";
 import miniChatUiIconSource from "./builtin/mini-chat/ui/icon.svg?raw";
+import promptBoxManifestSource from "./builtin/prompt-box/manifest.json?raw";
+import promptBoxNoticesSource from "./builtin/prompt-box/THIRD_PARTY_NOTICES.md?raw";
+import promptBoxServerSource from "./builtin/prompt-box/server/index.mjs?raw";
+import promptBoxUiHtmlSource from "./builtin/prompt-box/ui/index.html?raw";
+import promptBoxUiScriptSource from "./builtin/prompt-box/ui/app.js?raw";
+import promptBoxUiAstryxStyleSource from "./builtin/prompt-box/ui/astryx.css?raw";
+import promptBoxUiStyleSource from "./builtin/prompt-box/ui/styles.css?raw";
+import promptBoxUiIconSource from "./builtin/prompt-box/ui/icon.svg?raw";
 import mdPreviewManifestSource from "./builtin/md-preview/manifest.json?raw";
 import mdPreviewNoticesSource from "./builtin/md-preview/THIRD_PARTY_NOTICES.md?raw";
 import mdPreviewServerSource from "./builtin/md-preview/server/index.mjs?raw";
@@ -128,6 +136,19 @@ const BUILTIN_APPS: BuiltinMiniApp[] = [
       "ui/astryx.css": miniChatUiAstryxStyleSource,
       "ui/styles.css": miniChatUiStyleSource,
       "ui/icon.svg": miniChatUiIconSource
+    }
+  },
+  {
+    id: "prompt-box",
+    files: {
+      "THIRD_PARTY_NOTICES.md": promptBoxNoticesSource,
+      "manifest.json": promptBoxManifestSource,
+      "server/index.mjs": promptBoxServerSource,
+      "ui/index.html": promptBoxUiHtmlSource,
+      "ui/app.js": promptBoxUiScriptSource,
+      "ui/astryx.css": promptBoxUiAstryxStyleSource,
+      "ui/styles.css": promptBoxUiStyleSource,
+      "ui/icon.svg": promptBoxUiIconSource
     }
   },
   {

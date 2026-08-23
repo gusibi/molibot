@@ -107,7 +107,7 @@ molibot init
 molibot
 ```
 
-然后在浏览器中打开 `http://localhost:3000`，配置 AI 提供商，并在开始聊天前创建或确认一个智能体。
+然后在浏览器中打开 `http://localhost:3040`，配置 AI 提供商，并在开始聊天前创建或确认一个智能体。
 
 Molibot 使用 pi-mono 0.82 作为统一的服务运行时：内置模型目录、API-key/OAuth 解析、主/子智能体流式传输、会话精简和可读上下文 ID 共享上层相同的处理流程。新的常规会话在网页端、桌面端、项目和聊天渠道中均采用 `s-YYYYMMDD-xxxx` 命名规则；自动化任务上下文使用 `t-YYYYMMDD-xxxx`，原有的 UUID、`fork-*` 和 `task-*` 等历史 ID 依然保持可读。OAuth 认证提供商可通过 Web 端或桌面设置，使用浏览器、设备码或手动重定向等流程进行连接；常规的 Moonshot 国内/国际端点仍使用 `MOONSHOT_API_KEY`，Kimi 订阅登录仍使用 `kimi-coding`。自定义的 OpenAI 和 Anthropic 兼容端点保持隔离，保存在其独立的智能体/设置快照中，系统提示词保存在 pi 的顶层上下文而非序列化为对话消息。OpenAI 兼容端点会根据选定的自定义模型中保存的 `supportedRoles` 来选择 `system` 或 `developer` 角色，而不是从 SDK URL 启发式分析。
 

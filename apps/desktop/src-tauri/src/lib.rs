@@ -116,6 +116,53 @@ async fn pick_miniapp_archive(window: tauri::Window) -> Result<Option<String>, S
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
+/// Native save file dialog for saving images or exported files from Mini Apps / desktop.
+///
+/// Uses `tauri-plugin-dialog` native save panel with `set_parent(&window)` so it opens
+/// as a window-modal sheet and prevents multiple dialogs.
+#[tauri::command]
+async fn save_file_dialog(
+    window: tauri::Window,
+    default_name: String,
+    data_base64: String,
+) -> Result<Option<String>, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let mut builder = window.dialog().file().set_parent(&window);
+    if !default_name.is_empty() {
+        builder = builder.set_file_name(&default_name);
+    }
+    if default_name.ends_with(".png") {
+        builder = builder.add_filter("PNG Image", &["png"]);
+    } else if default_name.ends_with(".jpg") || default_name.ends_with(".jpeg") {
+        builder = builder.add_filter("JPEG Image", &["jpg", "jpeg"]);
+    } else if default_name.ends_with(".md") {
+        builder = builder.add_filter("Markdown", &["md"]);
+    }
+    builder.save_file(move |picked| {
+        let _ = sender.send(picked);
+    });
+    let picked = tauri::async_runtime::spawn_blocking(move || receiver.recv())
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|_| "The save dialog closed unexpectedly.".to_string())?;
+    let Some(path) = picked else { return Ok(None) };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+
+    let raw_b64 = if let Some(idx) = data_base64.find(";base64,") {
+        &data_base64[idx + 8..]
+    } else if let Some(idx) = data_base64.find(',') {
+        &data_base64[idx + 1..]
+    } else {
+        &data_base64
+    };
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(raw_b64.trim())
+        .map_err(|e| format!("Base64 decode failed: {e}"))?;
+    std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 #[tauri::command]
 fn desktop_status(
     app: AppHandle,
@@ -320,6 +367,7 @@ pub fn run() {
             show_main_window,
             pick_project_directory,
             pick_miniapp_archive,
+            save_file_dialog,
             desktop_status,
             set_login_start,
             set_close_behavior,

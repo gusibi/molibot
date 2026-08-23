@@ -7,8 +7,23 @@ import {
   listProviderModels,
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol";
+import { ModelRegistryService } from "$lib/server/providers/modelRegistry";
 import { isKnownProvider } from "$lib/server/settings/schema";
-import type { DesktopProviderModelsResponse } from "$lib/shared/desktop";
+import type { DesktopDiscoveredModelItem, DesktopProviderModelsResponse } from "$lib/shared/desktop";
+
+function buildDiscoveredItems(modelIds: string[]): DesktopDiscoveredModelItem[] {
+  const registry = ModelRegistryService.getInstance();
+  return modelIds.map((id) => {
+    const inferred = registry.inferModelCapabilities(id);
+    return {
+      id,
+      alias: inferred.matched ? inferred.alias : undefined,
+      tags: inferred.matched ? inferred.tags : ["text"],
+      contextWindow: inferred.matched ? inferred.contextWindow : undefined,
+      thinking: inferred.matched ? inferred.reasoning : undefined
+    };
+  });
+}
 
 export const POST: RequestHandler = async ({ request }) => {
   let providerId = "";
@@ -27,10 +42,15 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const registry = ModelRegistryService.getInstance();
+  await registry.ensureLoaded();
+
   if (isKnownProvider(providerId)) {
+    const models = getBuiltinProviderModelIds(providerId);
     const response: DesktopProviderModelsResponse = {
       ok: true,
-      models: getBuiltinProviderModelIds(providerId)
+      models,
+      items: buildDiscoveredItems(models)
     };
     return json(response, { headers: { "Cache-Control": "no-store" } });
   }
@@ -65,7 +85,11 @@ export const POST: RequestHandler = async ({ request }) => {
       apiKey: finalApiKey,
       path: finalPathParam
     });
-    const response: DesktopProviderModelsResponse = { ok: true, models };
+    const response: DesktopProviderModelsResponse = {
+      ok: true,
+      models,
+      items: buildDiscoveredItems(models)
+    };
     return json(response, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof ProviderModelsError) {
@@ -74,3 +98,4 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 };
+

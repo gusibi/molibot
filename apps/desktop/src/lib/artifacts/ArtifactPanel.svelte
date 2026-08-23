@@ -181,10 +181,14 @@
 
   /** What the viewer can stream for the open tab when it is not decodable text. */
   const rawKind = $derived(activeTab ? rawPreviewKindFromName(activeTab.name) : "file");
-  const rawUrl = $derived(activeTab && scope === "project" ? store.rawFileUrl(activeTab.path) : "");
+  const rawUrl = $derived(
+    activeTab && scope === "project" ? store.rawFileUrl(activeTab.path, activeTab.version) : ""
+  );
   /** Streaming URL for a session-scope attachment (Range-supported, so video seeks). */
   const sessionStreamUrl = $derived(
-    activeTab?.scope === "session" && activeTab.fileId ? store.sessionFileUrl(activeTab.fileId) : ""
+    activeTab?.scope === "session" && activeTab.fileId
+      ? store.sessionFileUrl(activeTab.fileId, activeTab.version)
+      : ""
   );
   /**
    * Registry dispatch for the active file tab; drives the viewer body. Session
@@ -240,7 +244,7 @@
     const tab = store.activeTab;
     if (!tab || tab.kind !== "file") throw new Error("No binary document is selected.");
     if (tab.scope === "project") {
-      return await fetchDesktopProjectRawBlob(endpoint, projectId, tab.path);
+      return await fetchDesktopProjectRawBlob(endpoint, projectId, tab.path, tab.version);
     }
     if (!tab.fileId) throw new Error("The binary attachment is unavailable.");
     return await fetchDesktopFileBlob(endpoint, profileId || "personal", sessionId, tab.fileId, false, projectId || undefined);
@@ -513,7 +517,7 @@
   function openAttachment(file: DesktopSessionFile): void {
     if (expandedAttachment === file.id) { closeAttachmentPreview(); return; }
     expandedAttachment = file.id;
-    attachmentUrl = desktopFileContentUrl(endpoint, "personal", sessionId, file.id, false, projectId);
+    attachmentUrl = desktopFileContentUrl(endpoint, "personal", sessionId, file.id, false, projectId, Date.now());
     attachmentPreview = file;
   }
 

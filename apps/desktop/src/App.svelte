@@ -33,7 +33,7 @@
   import IosSwitch from "./lib/components/ui/IosSwitch.svelte";
   import StatusBadge from "./lib/components/ui/StatusBadge.svelte";
   import { humanizeModelOption } from "./lib/presentation";
-  import { session } from "./lib/stores/session.svelte";
+  import { session, SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import { setTaskFeedbackPublisher } from "./lib/stores/tasks.svelte";
   import { initialLocale, normalizeLocale, translator, type Locale } from "./lib/i18n";
   import { initialStartupState, reduceStartup, type StartupState } from "./lib/native/startupCoordinator";
@@ -99,7 +99,7 @@
   let loadedReadinessEndpoint = "";
   let diagnosticsCopied = false;
   let appVersion: string | null = null;
-  let servicePort = 3000;
+  let servicePort = 3040;
   let servicePortLoadedFrom = "";
   let servicePortBusy = false;
   let systemAppearanceQuery: MediaQueryList | null = null;
@@ -512,7 +512,7 @@
         const response = await tauriFetch(`${endpoint}/api/settings/system`);
         const payload = await response.json();
         if (response.ok && payload?.ok) {
-          servicePort = Number(payload.serverPort) || 3000;
+          servicePort = Number(payload.serverPort) || 3040;
           servicePortLoadedFrom = endpoint;
         }
       }
@@ -733,6 +733,10 @@
     void startWindowState();
     void startFeedback();
     void startHaptics();
+    const onSettingsChanged = () => {
+      if (status?.service.endpoint) void loadReadiness(status.service.endpoint);
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
     window.addEventListener("storage", onThemeStorage);
     void loadAppVersion();
     startupDelayTimer = window.setTimeout(() => {
@@ -768,6 +772,7 @@
       feedbackCoordinator = null;
       hapticCoordinator = null;
       setTaskFeedbackPublisher(null);
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
       window.removeEventListener("storage", onThemeStorage);
       if (onSystemAppearanceChange) systemAppearanceQuery?.removeEventListener("change", onSystemAppearanceChange);
       onSystemAppearanceChange = null;

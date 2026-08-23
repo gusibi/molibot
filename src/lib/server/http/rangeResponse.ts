@@ -60,7 +60,7 @@ export function streamFileWithRange(input: RangeStreamInput): Response {
   const headers: Record<string, string> = {
     "content-type": input.mimeType || "application/octet-stream",
     "accept-ranges": "bytes",
-    "cache-control": input.cacheControl ?? "no-cache",
+    "cache-control": input.cacheControl ?? "no-cache, no-store, must-revalidate",
     etag,
     "last-modified": new Date(input.mtimeMs).toUTCString(),
     ...input.headers

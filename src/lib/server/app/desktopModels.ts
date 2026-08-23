@@ -39,6 +39,7 @@ function textOptions(settings: RuntimeSettings) {
   return buildModelOptions(settings, "text").map((option) => ({
     key: option.key,
     label: option.label,
+    alias: option.alias,
     contextWindow: option.contextWindow,
     thinkingLevels: option.thinkingLevels
   }));

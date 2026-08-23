@@ -361,7 +361,7 @@
               {/if}
               {#if app.hostCapabilities.length > 0}
                 <p class="miniapps-tools">
-                  {session.text.miniAppHostCapabilities}: {app.hostCapabilities.map((capability) => capability === "audioCapture" ? session.text.miniAppAudioCaptureCapability : capability).join(", ")}
+                  {session.text.miniAppHostCapabilities}: {app.hostCapabilities.map((capability) => capability === "audioCapture" ? session.text.miniAppAudioCaptureCapability : capability === "fileSave" ? session.text.miniAppFileSaveCapability : capability).join(", ")}
                 </p>
               {/if}
               {#if app.error}<p class="miniapps-error">{app.error}</p>{/if}

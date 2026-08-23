@@ -80,15 +80,27 @@ function splitHighlightedLines(html: string): string[] {
   return lines;
 }
 
+export const MAX_SYNTAX_HIGHLIGHT_BYTES = 256 * 1024;
+export const MAX_LINE_CHARACTERS = 4_000;
+
+export function safeEscapeLine(line: string): string {
+  if (line.length > MAX_LINE_CHARACTERS) {
+    return escapeHtml(line.slice(0, MAX_LINE_CHARACTERS)) + '<span class="code-line-truncated">…</span>';
+  }
+  return escapeHtml(line);
+}
+
 /** Highlights `content` and returns it as one ready-to-render HTML string per line. */
 export function highlightLines(content: string, filePath: string): string[] {
   const language = resolveLanguage(filePath);
-  if (!language) return content.split("\n").map(escapeHtml);
+  if (!language || content.length > MAX_SYNTAX_HIGHLIGHT_BYTES) {
+    return content.split("\n").map(safeEscapeLine);
+  }
   try {
     const { value } = hljs.highlight(content, { language, ignoreIllegals: true });
     return splitHighlightedLines(value);
   } catch {
-    return content.split("\n").map(escapeHtml);
+    return content.split("\n").map(safeEscapeLine);
   }
 }
 

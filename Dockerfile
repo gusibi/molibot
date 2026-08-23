@@ -14,7 +14,7 @@ FROM node:22-bookworm-slim AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=3040
 ENV DATA_DIR=/data
 
 # ripgrep/fd back the agent's `grep` and `find` tools. Installed here so pi
@@ -34,5 +34,5 @@ COPY --from=build /app/bin ./bin
 COPY --from=build /app/assets/test-images ./assets/test-images
 COPY --from=build /app/src/lib/server/agent/prompts ./src/lib/server/agent/prompts
 
-EXPOSE 3000
+EXPOSE 3040
 CMD ["node", "build"]

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getProjectGitDiff, getProjectGitStatus, listProjectTree, readProjectFile } from "./inspection.js";
+import { countBufferLines, getProjectGitDiff, getProjectGitStatus, listProjectTree, MAX_UNTRACKED_STAT_BYTES, readProjectFile } from "./inspection.js";
 import type { ProjectRecord } from "./store.js";
 
 function fixture(rootPath: string): ProjectRecord {
@@ -306,3 +306,55 @@ test("git inspection overrides repository fsmonitor commands", async () => {
     assert.equal(existsSync(marker), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("countBufferLines accurately counts UTF-8 and UTF-16 lines without string allocations", () => {
+  assert.equal(countBufferLines(Buffer.alloc(0), "utf8"), 0);
+  assert.equal(countBufferLines(Buffer.from(""), "utf8"), 0);
+  assert.equal(countBufferLines(Buffer.from("hello"), "utf8"), 1);
+  assert.equal(countBufferLines(Buffer.from("hello\n"), "utf8"), 1);
+  assert.equal(countBufferLines(Buffer.from("hello\nworld"), "utf8"), 2);
+  assert.equal(countBufferLines(Buffer.from("hello\r\nworld\r\n"), "utf8"), 2);
+  assert.equal(countBufferLines(Buffer.from("one\ntwo\nthree\n"), "utf8"), 3);
+
+  const utf16le = Buffer.from("one\ntwo\nthree\n", "utf16le");
+  assert.equal(countBufferLines(utf16le, "utf16le"), 3);
+  const utf16leNoTrailing = Buffer.from("one\ntwo\nthree", "utf16le");
+  assert.equal(countBufferLines(utf16leNoTrailing, "utf16le"), 3);
+
+  assert.equal(countBufferLines(Buffer.from([0x00, 0x01, 0x02]), "binary"), 0);
+});
+
+test("untracked files larger than MAX_UNTRACKED_STAT_BYTES skip line counting", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-inspection-large-untracked-"));
+  try {
+    git(root, "init");
+    git(root, "config", "user.email", "test@example.com");
+    git(root, "config", "user.name", "Test");
+    writeFileSync(join(root, "initial.txt"), "hello\n");
+    git(root, "add", ".");
+    git(root, "commit", "-m", "init");
+
+    // Create small untracked file
+    writeFileSync(join(root, "small-untracked.txt"), "line1\nline2\n");
+    // Create large untracked file (> 256KB)
+    const largeContent = "a".repeat(1000) + "\n";
+    const chunkCount = Math.ceil((MAX_UNTRACKED_STAT_BYTES + 4096) / 1001);
+    writeFileSync(join(root, "large-untracked.txt"), largeContent.repeat(chunkCount));
+
+    const status = await getProjectGitStatus(fixture(root));
+    assert.equal(status.status, "ok");
+    if (status.status !== "ok") return;
+
+    const small = status.entries.find((e) => e.path === "small-untracked.txt");
+    assert.ok(small?.untracked);
+    assert.equal(small?.additions, 2);
+    assert.equal(small?.deletions, 0);
+
+    const large = status.entries.find((e) => e.path === "large-untracked.txt");
+    assert.ok(large?.untracked);
+    assert.equal(large?.additions, null);
+    assert.equal(large?.deletions, null);
+    assert.equal(large?.binary, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+

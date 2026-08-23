@@ -155,7 +155,7 @@ test("desktop model routing exposes advanced settings and credential-safe text o
       apiKey: "must-not-leak",
       path: "/chat/completions",
       defaultModel: "private-model",
-      models: [{ id: "private-model", tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"], enabled: true }]
+      models: [{ id: "private-model", alias: "Private Fast", tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"], enabled: true }]
     }],
     modelRouting: { ...defaultRuntimeSettings.modelRouting, subagentHaikuModelKey: "custom|private-provider|private-model" },
     timezone: "Asia/Shanghai"
@@ -163,7 +163,8 @@ test("desktop model routing exposes advanced settings and credential-safe text o
   const routing = buildDesktopModelRoutingSettings(settings);
   assert.equal(routing.subagentHaikuModelKey, "custom|private-provider|private-model");
   assert.equal(routing.timezone, "Asia/Shanghai");
-  assert.equal(routing.textOptions.some((option) => option.key === "custom|private-provider|private-model"), true);
+  const privateOption = routing.textOptions.find((option) => option.key === "custom|private-provider|private-model");
+  assert.equal(privateOption?.alias, "Private Fast");
   assert.equal(JSON.stringify(routing).includes("must-not-leak"), false);
   assert.equal(JSON.stringify(routing).includes("private.example"), false);
 });

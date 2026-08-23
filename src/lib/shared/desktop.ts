@@ -1188,9 +1188,18 @@ export interface DesktopProviderMutationResponse {
   summary: DesktopProvidersSummary;
 }
 
+export interface DesktopDiscoveredModelItem {
+  id: string;
+  alias?: string;
+  tags?: DesktopProviderModelTag[];
+  contextWindow?: number;
+  thinking?: boolean;
+}
+
 export interface DesktopProviderModelsResponse {
   ok: true;
   models: string[];
+  items?: DesktopDiscoveredModelItem[];
 }
 
 /** Onboarding provider test — verifies a saved provider can answer. Key stays server-side. */
@@ -1792,7 +1801,7 @@ export interface DesktopMiniAppItem {
     accepts: Array<"text" | "image" | "file">;
   }>;
   aiCapabilities: Array<"text" | "transcription">;
-  hostCapabilities: Array<"audioCapture">;
+  hostCapabilities: Array<"audioCapture" | "fileSave">;
   /**
    * Live sidebar badge the app set on itself, or null.
    *

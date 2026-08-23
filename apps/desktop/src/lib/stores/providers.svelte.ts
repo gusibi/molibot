@@ -47,6 +47,7 @@ export const providersStore = $state({
   editApiKey: "",
   editClearApiKey: false,
   discoveredModels: [] as string[],
+  discoveredItems: {} as Record<string, { alias?: string; tags?: DesktopProviderModelTag[]; contextWindow?: number; thinking?: boolean }>,
   discovering: false,
   globals: { providerMode: "pi", piProvider: "", piModel: "", defaultCustomProviderId: "" } as DesktopProviderGlobalsRequest,
   globalsDirty: false,
@@ -401,12 +402,20 @@ export async function discoverProviderModels(): Promise<void> {
   try {
     const edit = providersStore.providerEdit;
     const apiKey = providersStore.editApiKey.trim() || undefined;
-    providersStore.discoveredModels = await discoverDesktopProviderModels(endpoint, edit.id, {
+    const result = await discoverDesktopProviderModels(endpoint, edit.id, {
       baseUrl: edit.baseUrl.trim(),
       apiKey,
       protocol: edit.protocol,
       path: edit.path.trim()
     });
+    providersStore.discoveredModels = result.models;
+    const itemsMap: Record<string, { alias?: string; tags?: DesktopProviderModelTag[]; contextWindow?: number; thinking?: boolean }> = {};
+    if (result.items) {
+      for (const item of result.items) {
+        itemsMap[item.id] = item;
+      }
+    }
+    providersStore.discoveredItems = itemsMap;
     providersStore.actionFailed = false;
     providersStore.actionMessage = session.text.providerModelsDiscovered.replace("{count}", String(providersStore.discoveredModels.length));
   } catch (cause) {

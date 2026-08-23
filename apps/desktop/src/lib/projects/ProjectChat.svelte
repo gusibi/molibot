@@ -40,7 +40,8 @@
   } from "../chat/transcript";
   import { lastTranscriptModelKey } from "../chat/modelSelection";
   import { projectsStore, projectsView, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
-  import { session } from "../stores/session.svelte";
+  import { session, SETTINGS_CHANGED_EVENT } from "../stores/session.svelte";
+  import { humanizeModelOption } from "../presentation";
   import { miniAppsCatalog } from "../stores/miniapps.svelte";
   import { catalogMessageActions, invokeTranscriptMessageAction } from "../miniapps/messageActions";
 
@@ -100,11 +101,10 @@
   const formatTime = (value: string) => formatMessageTime(value, copy.groupYesterday);
 
   $: modelReady = summarizeDesktopReadiness([], { currentKey: activeModelKey, options: modelOptions }).hasModel;
-  $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
-  $: activeModelLabel = (() => {
-    const slash = activeModelFullLabel.lastIndexOf("/");
-    return (slash >= 0 ? activeModelFullLabel.slice(slash + 1) : activeModelFullLabel).trim();
-  })();
+  $: activeModelOption = modelOptions.find((model) => model.key === activeModelKey);
+  $: activeModelFullLabel = activeModelOption?.label ?? copy.model;
+  $: activeModelLabel = activeModelOption?.alias
+    || (humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model);
   $: thinkingLevelOptions = modelOptions.find((model) => model.key === activeModelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
   $: clampedThinkingLevel = clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
   $: thinkingLabel = {
@@ -135,6 +135,13 @@
   $: if (view.endpoint && view.endpoint !== loadedModelEndpoint) {
     loadedModelEndpoint = view.endpoint;
     void loadModelOptions(view.endpoint);
+  }
+
+  function handleSettingsChanged(): void {
+    if (view.endpoint) void loadModelOptions(view.endpoint);
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
   }
   $: currentProject = view.projects.find((item) => item.id === view.selectedProjectId);
   $: projectToolProgress = currentProject?.toolProgress ?? "all";
@@ -919,6 +926,9 @@
   }
 
   onDestroy(() => {
+    if (typeof window !== "undefined") {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    }
     // The project runtime store is a module singleton: do NOT dispose it here,
     // or a background project turn would be aborted on pane/project switch. It
     // is torn down only by the host (ChatView) on disconnect / teardown.

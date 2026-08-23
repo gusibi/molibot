@@ -26,7 +26,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 const SUPPORTED_PROTOCOL_VERSION: u32 = 1;
-const DEFAULT_PORT: u16 = 3000;
+const DEFAULT_PORT: u16 = 3040;
 const READY_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTHY_RESET_AFTER: Duration = Duration::from_secs(60);
 /// Failures after which the service is *reported* as broken. It keeps being

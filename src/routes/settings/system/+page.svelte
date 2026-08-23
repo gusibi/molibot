@@ -76,7 +76,7 @@
       serverTitle: "服务端口",
       serverSubtitle: "Molibot Web 服务监听的本机端口。修改并保存后，需要重启服务才会生效。",
       serverPort: "端口",
-      serverPortHint: "允许范围 1024–65535，默认 3000。重启会中断正在执行的任务。",
+      serverPortHint: "允许范围 1024–65535，默认 3040。重启会中断正在执行的任务。",
       restart: "重启服务",
       restarting: "正在重启...",
       restartFailed: "重启服务失败",
@@ -158,7 +158,7 @@
       serverTitle: "Service Port",
       serverSubtitle: "The local port used by the Molibot web service. Save the change, then restart the service to apply it.",
       serverPort: "Port",
-      serverPortHint: "Allowed range: 1024–65535. Default: 3000. Restarting interrupts active tasks.",
+      serverPortHint: "Allowed range: 1024–65535. Default: 3040. Restarting interrupts active tasks.",
       restart: "Restart service",
       restarting: "Restarting...",
       restartFailed: "Failed to restart service",
@@ -233,7 +233,7 @@
 
   let selectedLocale: LocaleKey = "zh-CN";
   let timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  let serverPort = 3000;
+  let serverPort = 3040;
   let timezoneOptions: string[] = [];
   let versionInfo: VersionInfo | null = null;
   let status = "";

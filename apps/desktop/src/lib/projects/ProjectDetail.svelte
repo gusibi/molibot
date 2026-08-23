@@ -14,6 +14,7 @@
   import ProjectSettingsDialog from "./ProjectSettingsDialog.svelte";
   import { loadDesktopModels } from "../api";
   import type { DesktopModelOption } from "@molibot/desktop-contract";
+  import { SETTINGS_CHANGED_EVENT } from "../stores/session.svelte";
   // Runes mode (not legacy `$:`) so these derivations track the `projectsStore`
   // rune `$state`. A legacy `$:` only runs once at init and would leave `project`
   // undefined on first open (when projects are still loading), hiding the whole
@@ -86,9 +87,21 @@
     if (!activeMatchId) return;
     contentElement?.querySelector(`[data-message-id="${CSS.escape(activeMatchId)}"]`)?.scrollIntoView({ block: "center", behavior: "auto" });
   }
-  $effect(() => {
+  function refreshModels(): void {
     if (!projectsStore.endpoint) return;
     void loadDesktopModels(projectsStore.endpoint).then((state) => { modelOptions = state.options; }).catch(() => { modelOptions = []; });
+  }
+  $effect(() => {
+    if (!projectsStore.endpoint) return;
+    refreshModels();
+  });
+  if (typeof window !== "undefined") {
+    window.addEventListener(SETTINGS_CHANGED_EVENT, refreshModels);
+  }
+  onDestroy(() => {
+    if (typeof window !== "undefined") {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, refreshModels);
+    }
   });
 </script>
 

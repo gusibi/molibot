@@ -17,6 +17,7 @@ import {
   buildOnboardingHealthCheck,
   consumeDesktopSse,
   desktopFileContentUrl,
+  desktopProjectRawFileUrl,
   filterDesktopFiles,
   forkDesktopSession,
   filterSessionsByTitle,
@@ -354,7 +355,7 @@ test("filterDesktopFiles keeps only the matching media type", () => {
   );
 });
 
-test("desktopFileContentUrl scopes the request to the session file and adds download intent", () => {
+test("desktopFileContentUrl scopes the request to the session file and adds download intent and version", () => {
   const inline = desktopFileContentUrl("http://127.0.0.1:3210/", "p1", "s1", "fid");
   assert.equal(
     inline,
@@ -364,6 +365,22 @@ test("desktopFileContentUrl scopes the request to the session file and adds down
   assert.equal(
     download,
     "http://127.0.0.1:3210/api/web/files?profileId=p1&sessionId=s1&fileId=fid&download=1"
+  );
+  const versioned = desktopFileContentUrl("http://127.0.0.1:3210", "p1", "s1", "fid", false, undefined, 1719000);
+  assert.equal(
+    versioned,
+    "http://127.0.0.1:3210/api/web/files?profileId=p1&sessionId=s1&fileId=fid&v=1719000"
+  );
+});
+
+test("desktopProjectRawFileUrl produces raw inspection file url with optional version", () => {
+  assert.equal(
+    desktopProjectRawFileUrl("http://127.0.0.1:3210", "proj-1", "images/1.png"),
+    "http://127.0.0.1:3210/api/settings/projects/proj-1/inspection/file?path=images%2F1.png&raw=true"
+  );
+  assert.equal(
+    desktopProjectRawFileUrl("http://127.0.0.1:3210", "proj-1", "images/1.png", 1719000),
+    "http://127.0.0.1:3210/api/settings/projects/proj-1/inspection/file?path=images%2F1.png&raw=true&v=1719000"
   );
 });
 
@@ -1315,7 +1332,7 @@ test("desktop provider management uses fine-grained methods without requesting a
       providerMode: "custom", piProvider: "anthropic", piModel: "claude", defaultCustomProviderId: "p1"
     });
     await deleteDesktopProvider("http://127.0.0.1:3000", "p1");
-    assert.deepEqual(await discoverDesktopProviderModels("http://127.0.0.1:3000", "p1"), ["m1", "m2"]);
+    assert.deepEqual(await discoverDesktopProviderModels("http://127.0.0.1:3000", "p1"), { models: ["m1", "m2"], items: undefined });
     assert.deepEqual(calls.map((call) => call.method), ["PATCH", "PUT", "DELETE", "POST"]);
     assert.equal(JSON.stringify(calls).includes("apiKey"), false);
   } finally {

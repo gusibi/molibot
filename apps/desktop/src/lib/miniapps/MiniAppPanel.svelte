@@ -77,7 +77,40 @@
       return;
     }
     const request = parsed.value;
-    if (!app?.hostCapabilities.includes("audioCapture")) {
+    if (request.action === "file.save") {
+      if (!app?.hostCapabilities?.includes("fileSave")) {
+        frame?.contentWindow?.postMessage(miniAppHostCapabilityResult(request.requestId, {
+          ok: false,
+          error: "This Mini App is not allowed to save files."
+        }), "*");
+        return;
+      }
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const path = await invoke<string | null>("save_file_dialog", {
+          defaultName: request.filename,
+          dataBase64: request.dataUrl
+        });
+        if (path) {
+          frame?.contentWindow?.postMessage(miniAppHostCapabilityResult(request.requestId, {
+            ok: true,
+            payload: { path, filename: request.filename }
+          }), "*");
+        } else {
+          frame?.contentWindow?.postMessage(miniAppHostCapabilityResult(request.requestId, {
+            ok: false,
+            error: "cancelled"
+          }), "*");
+        }
+      } catch (cause) {
+        frame?.contentWindow?.postMessage(miniAppHostCapabilityResult(request.requestId, {
+          ok: false,
+          error: cause instanceof Error ? cause.message : String(cause)
+        }), "*");
+      }
+      return;
+    }
+    if (!app?.hostCapabilities?.includes("audioCapture")) {
       frame?.contentWindow?.postMessage(miniAppHostCapabilityResult(request.requestId, {
         ok: false,
         error: "This Mini App is not allowed to capture audio."

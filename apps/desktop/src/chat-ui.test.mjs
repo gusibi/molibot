@@ -1655,7 +1655,7 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*padding:\s*42px 12px 8px;/s);
   assert.match(chatSidebar, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
   assert.match(sidebarShell, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
-  assert.match(styles, /\.sidebar-titlebar-drag\s*\{[^}]*position:\s*absolute;[^}]*height:\s*30px;/s);
+  assert.match(styles, /\.sidebar-titlebar-drag\s*\{[^}]*position:\s*absolute;[^}]*height:\s*42px;[^}]*pointer-events:\s*auto;/s);
   assert.match(view, /class="chat-source-tag" data-tauri-drag-region/);
   assert.match(chatHeader, /class="chat-source-tag" data-tauri-drag-region/);
   assert.match(workspacePane, /class="workspace-page-title" data-tauri-drag-region/);
@@ -1868,8 +1868,14 @@ test("saving a provider refreshes Chat model options in the same window without 
   assert.match(view, /window\.addEventListener\(SETTINGS_CHANGED_EVENT, requestSettingsRefresh\)/);
   assert.match(view, /let pendingSettingsRefresh = false/);
   assert.match(view, /if \(loading \|\| refreshingSettings\) \{[\s\S]{0,120}pendingSettingsRefresh = true;[\s\S]{0,120}return;/);
-  assert.match(view, /if \(pendingSettingsRefresh\) \{[\s\S]{0,160}refreshModelsAndProfiles\(\)/);
-  assert.match(view, /refreshEndpoint !== connectedEndpoint \|\| refreshGeneration !== connectionGeneration/);
+  assert.match(view, /refreshEndpoint !== connectedEndpoint || refreshGeneration !== connectionGeneration/);
+  const projectChatSource = read("./lib/projects/ProjectChat.svelte");
+  const projectDetailSource = read("./lib/projects/ProjectDetail.svelte");
+  assert.match(projectChatSource, /window\.addEventListener\(SETTINGS_CHANGED_EVENT, handleSettingsChanged\)/);
+  assert.match(projectChatSource, /window\.removeEventListener\(SETTINGS_CHANGED_EVENT, handleSettingsChanged\)/);
+  assert.match(projectChatSource, /activeModelOption\?\.alias/);
+  assert.match(projectDetailSource, /window\.addEventListener\(SETTINGS_CHANGED_EVENT, refreshModels\)/);
+  assert.match(projectDetailSource, /window\.removeEventListener\(SETTINGS_CHANGED_EVENT, refreshModels\)/);
 });
 
 test("re-entering Models reloads provider-backed options even when the endpoint is unchanged", () => {

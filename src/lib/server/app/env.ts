@@ -111,7 +111,7 @@ export function liveServicesDisabled(): boolean {
 }
 
 export const config = {
-  port: intFromEnv("PORT", 3000),
+  port: intFromEnv("PORT", 3040),
   dataDir: resolvedDataDir,
   databaseDir: resolvedDatabaseDir,
   settingsFile: dataDirScope.resolve(

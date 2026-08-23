@@ -85,7 +85,7 @@ export interface MiniAppAiManifest {
   uploadLimits: MiniAppUploadLimitManifest[];
 }
 
-export type MiniAppHostCapability = "audioCapture";
+export type MiniAppHostCapability = "audioCapture" | "fileSave";
 
 export interface MiniAppHostManifest {
   capabilities: MiniAppHostCapability[];

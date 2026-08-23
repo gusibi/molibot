@@ -84,7 +84,7 @@ function withDefaults(config) {
     MOLIBOT_DEPLOY_DIR: deployDir,
     MOLIBOT_CURRENT_LINK: resolvePath(config.MOLIBOT_CURRENT_LINK || join(deployDir, "current")),
     DATA_DIR: resolvePath(config.DATA_DIR || defaultDataDir),
-    PORT: config.PORT || "3000",
+    PORT: config.PORT || "3040",
     MOLIBOT_LOG_FILE: resolvePath(config.MOLIBOT_LOG_FILE || join(os.homedir(), "logs", "molibot.log")),
     MOLIBOT_PID_FILE: resolvePath(config.MOLIBOT_PID_FILE || join(defaultDataDir, "molibot.pid")),
     MOLIBOT_CONTROL_TG_TOKEN: config.MOLIBOT_CONTROL_TG_TOKEN || "",

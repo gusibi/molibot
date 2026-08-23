@@ -1931,20 +1931,22 @@ body {
 }
 
 :root[data-app-theme="smartisan"] .editor-share-btn {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
-  border: 1px solid rgba(0, 0, 0, 0.35);
-  color: #fbf6ef;
+  background: linear-gradient(180deg, #ffffff 0%, #f0e6d8 100%);
+  border: 1px solid #c9bbae;
+  color: #4a3828;
   border-radius: 4px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: 0 1px 2px rgba(82, 60, 34, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  font-weight: 500;
 }
 
 :root[data-app-theme="smartisan"] .editor-share-btn:hover {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.12));
-  color: #ffffff;
+  background: linear-gradient(180deg, #ffffff 0%, #e6d9c8 100%);
+  border-color: #b3a190;
+  color: #2b1f14;
 }
 
 :root[data-app-theme="smartisan"] .editor-share-btn .share-btn-icon {
-  color: #fbf6ef;
+  color: #716053;
 }
 
 :root[data-app-theme="smartisan"] .share-preview-dialog {
@@ -2058,6 +2060,18 @@ body {
   color: #e6ded6;
 }
 
+:root[data-theme="dark"][data-app-theme="smartisan"] .note-search {
+  color: #e6ded6;
+  caret-color: #c99359;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .note-input-title,
+:root[data-theme="dark"][data-app-theme="smartisan"] .note-input-content,
+:root[data-theme="dark"][data-app-theme="smartisan"] .note-input-labels {
+  color: #e6ded6;
+  caret-color: #c99359;
+}
+
 :root[data-theme="dark"][data-app-theme="smartisan"] .editor-page-body {
   background-color: #1c1a1c;
   background-image: linear-gradient(180deg, transparent 23px, #282828 24px);
@@ -2067,8 +2081,14 @@ body {
   border-right: 1px solid #2a272a;
 }
 
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-title-input {
+  color: #e6ded6;
+  caret-color: #c99359;
+}
+
 :root[data-theme="dark"][data-app-theme="smartisan"] .editor-textarea {
   color: #e6ded6;
+  caret-color: #c99359;
 }
 
 :root[data-theme="dark"][data-app-theme="smartisan"] .editor-preview-title {
@@ -2083,6 +2103,24 @@ body {
 :root[data-theme="dark"][data-app-theme="smartisan"] .editor-page-footer {
   background: #181618;
   border-top-color: #2a272a;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-share-btn {
+  background: linear-gradient(180deg, #2e2a2c 0%, #221f21 100%);
+  border: 1px solid #443e42;
+  color: #e6ded6;
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-share-btn:hover {
+  background: linear-gradient(180deg, #383335 0%, #2a2628 100%);
+  border-color: #585055;
+  color: #ffffff;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .editor-share-btn .share-btn-icon {
+  color: #baa996;
 }
 
 :root[data-theme="dark"][data-app-theme="smartisan"] .share-preview-dialog {
@@ -2102,5 +2140,28 @@ body {
 
 :root[data-theme="dark"][data-app-theme="smartisan"] .share-preview-hint {
   color: #baa996;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .share-action-btn {
+  background: #2a272a;
+  border-color: #3f3a3f;
+  color: #e6ded6;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .share-action-btn:hover {
+  background: #343034;
+  border-color: #524c52;
+  color: #ffffff;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .share-action-btn.primary {
+  background: linear-gradient(180deg, #b07e47, #936534);
+  border-color: #754e24;
+  color: #ffffff;
+}
+
+:root[data-theme="dark"][data-app-theme="smartisan"] .share-action-btn.primary:hover {
+  background: linear-gradient(180deg, #be8b53, #9e6d3a);
 }
 

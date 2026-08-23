@@ -1051,8 +1051,20 @@
                 <div class="provider-model-rows">
                   {#each group.ids as id (id)}
                     {@const added = editModelIds.has(id)}
+                    {@const info = providersStore.discoveredItems[id]}
                     <div class="provider-model-row" class:added>
-                      <span class="provider-model-name">{id}</span>
+                      <span class="provider-model-name">
+                        {info?.alias || id}
+                        {#if info?.alias}<small class="provider-model-alias-id" title={id}>{id}</small>{/if}
+                      </span>
+                      {#if info}
+                        <span class="provider-model-caps">
+                          {#each (info.tags ?? []) as tag (tag)}
+                            <span class="provider-cap" data-tag={tag} title={capabilityLabel(tag)}><i class={`ph ${CAPABILITY_ICONS[tag]}`} aria-hidden="true"></i></span>
+                          {/each}
+                          {#if info.contextWindow}<span class="provider-model-context">{Math.round(info.contextWindow / 1000)}K</span>{/if}
+                        </span>
+                      {/if}
                       {#if added}
                         <span class="provider-model-added">{session.text.providerModelAdded}</span>
                         <button class="provider-icon-button danger-action" type="button" aria-label={`${session.text.providerModelRemove}: ${id}`} title={session.text.providerModelRemove} onclick={() => removeModelById(id)}><i class="ph ph-minus" aria-hidden="true"></i></button>

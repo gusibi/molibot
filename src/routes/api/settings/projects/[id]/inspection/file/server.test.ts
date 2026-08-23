@@ -28,7 +28,17 @@ test("raw Project file route returns media bytes instead of an HTML 404", async 
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("content-type"), "image/png");
     assert.equal(response.headers.get("accept-ranges"), "bytes");
+    assert.equal(response.headers.get("cache-control"), "no-cache, no-store, must-revalidate");
     assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+
+    const versionedUrl = `http://localhost/api/settings/projects/${project.id}/inspection/file?path=preview.png&raw=true&v=1719000`;
+    const versionedResponse = await GET({
+      params: { id: project.id },
+      url: new URL(versionedUrl),
+      request: new Request(versionedUrl)
+    } as never);
+    assert.equal(versionedResponse.status, 200);
+    assert.deepEqual(Buffer.from(await versionedResponse.arrayBuffer()), bytes);
 
     // A media element seeking into the file must get 206 with just that slice,
     // otherwise the WebView downloads the whole thing before it can play.
