@@ -69,6 +69,7 @@ export class ConversationActivityCollector {
       ...(Number.isInteger(event.lineCount) ? { lineCount: event.lineCount } : summary ? { lineCount: summary.split(/\r?\n/).length } : {}),
       ...(Number.isFinite(event.tokenUsage) ? { tokenUsage: event.tokenUsage } : {}),
       ...(diff ? { diff: diff.slice(0, MAX_DIFF_LENGTH) } : {}),
+      ...(event.fileOutput ? { fileOutput: { ...event.fileOutput } } : {}),
       ...(started?.paths?.length ? { paths: started.paths, mutates: started.mutates === true } : {})
     };
 

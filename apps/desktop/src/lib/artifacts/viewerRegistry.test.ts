@@ -7,6 +7,7 @@ import {
   hasSourceToggle,
   type ArtifactMeta
 } from "./viewerRegistry";
+import { shouldOpenArtifactAsDiff } from "./artifactOpenMode";
 
 function meta(name: string, overrides: Partial<ArtifactMeta> = {}): ArtifactMeta {
   return { name, scope: "project", ...overrides };
@@ -63,6 +64,14 @@ test("HTML maps to the sandboxed preview viewer, not source", () => {
   assert.equal(matchViewer(meta("page.xhtml")), "html");
   // An empty declared MIME does not downgrade an HTML file to source.
   assert.equal(matchViewer(meta("page.html", { mimeType: "" })), "html");
+});
+
+test("written HTML artifacts open rendered while other writes open as diffs", () => {
+  assert.equal(shouldOpenArtifactAsDiff("report.html", true), false);
+  assert.equal(shouldOpenArtifactAsDiff("nested/PAGE.HTM", true), false);
+  assert.equal(shouldOpenArtifactAsDiff("page.xhtml", true), false);
+  assert.equal(shouldOpenArtifactAsDiff("src/app.ts", true), true);
+  assert.equal(shouldOpenArtifactAsDiff("report.html", false), false);
 });
 
 test("Office formats without an inline viewer fall through to the system card", () => {

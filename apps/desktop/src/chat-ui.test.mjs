@@ -49,6 +49,8 @@ const charts = read("./lib/settings/charts.ts");
 const row = read("./lib/chat/ConversationRow.svelte");
 const transcript = read("./lib/chat/ConversationTranscript.svelte");
 const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
+const turnFilesCard = read("./lib/chat/TurnFilesCard.svelte");
+const turnFileList = read("./lib/chat/TurnFileList.svelte");
 const runActivity = read("./lib/chat/RunActivity.svelte");
 const thinkingCard = read("./lib/chat/ThinkingCard.svelte");
 const turnProcess = read("./lib/chat/TurnProcess.svelte");
@@ -1938,6 +1940,21 @@ test("shared transcript renders media inline and delegates tool activity", () =>
   assert.match(runActivity, /isFailed \? copy\.runFailed : copy\.runCompleted/);
 });
 
+test("completed turns and the Artifact Panel share one flat final-file list", () => {
+  assert.match(transcript, /collectTurnFiles/);
+  assert.match(transcript, /<TurnFilesCard/);
+  assert.match(turnFilesCard, /<TurnFileList/);
+  assert.match(turnFileList, /turnFileCreated/);
+  assert.match(turnFileList, /turnFileModified/);
+  assert.doesNotMatch(turnFileList, /createdFiles|modifiedFiles|section/);
+  assert.match(projectFilePanel, /tab === "turn"[\s\S]*<TurnFileList/);
+  assert.doesNotMatch(runActivity, /files\.written/);
+  assert.match(styles, /\.turn-file-action\.created/);
+  // Once outputs are represented by the completed-turn card, the legacy
+  // attachment strip must not render the same assistant files underneath it.
+  assert.match(transcript, /message\.attachments\?\.length && \(!turnFiles\.length \|\| !onOpenTurnFiles\)/);
+});
+
 test("completed reasoning stays opt-in while live reasoning remains visible", () => {
   assert.match(transcript, /<ThinkingCard text=\{message\.thinking\}/);
   assert.doesNotMatch(thinkingCard, /<details class="thinking-card"[^>]*\bopen>/);
@@ -2788,6 +2805,24 @@ test("agent-written files are marked in the tree and scope the Changes tab", () 
   assert.match(styles, /\.project-change-scope/);
   assert.match(styles, /\.file-tree-row\.touched \.file-tree-name \{ color: var\(--warning-text\)/);
   assert.match(styles, /\.file-tree-size \{[^}]*white-space: nowrap/);
+});
+
+test("agent-written HTML opens as a rendered artifact instead of an empty diff", () => {
+  // HTML is an executable/readable product artifact. A newly-created untracked
+  // file has no useful Git diff, so both the activity chip and follow-the-agent
+  // path must open the file viewer, where the registry selects HtmlPreview.
+  assert.match(view, /openPathAsDiff: shouldOpenArtifactAsDiff\(path, mutates\)/);
+  assert.match(projectFilePanel, /shouldOpenArtifactAsDiff\(latest, true\)\s*\?\s*void store\.openDiff\(latest\)\s*:\s*void store\.openFile\(latest\)/s);
+});
+
+test("background session-list refreshes keep existing rows mounted", () => {
+  // Turn completion and the one title-update event both revalidate ordering and
+  // timestamps. They must not set ChannelAccordion.loading, which replaces the
+  // whole list with an ellipsis and makes the sidebar flash on every turn.
+  assert.match(view, /async function loadChannel\(channel: DesktopConversationChannel, showLoading = true\)/);
+  assert.match(view, /refreshSidebar: \(\) => loadChannel\("web", false\)/);
+  assert.match(view, /if \(showLoading\) channelLoading = \{ \.\.\.channelLoading, \[channel\]: true \}/);
+  assert.match(view, /catch \{[\s\S]*?if \(showLoading\) \{[\s\S]*?channelItems = \{ \.\.\.channelItems, \[channel\]: \[\] \}/);
 });
 
 test("project file panel follows file changes live and stays resizable", () => {

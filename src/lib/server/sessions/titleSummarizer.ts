@@ -164,11 +164,16 @@ export async function tryAutoSummarizeConversationTitleAsync(params: {
   onTitleUpdated?: (newTitle: string) => void;
   options?: SummarizeTitleOptions;
 }): Promise<string | null> {
-  console.log(`[title-summarizer] >>> tryAutoSummarize triggered: conversationId=${params.conversationId}, channel=${params.channel ?? "web"}, externalUserId=${params.externalUserId}`);
   try {
     const { sessions, getSettings } = getRuntime();
-    const currentSettings = getSettings();
     const channel = params.channel ?? "web";
+    const userMessageCount = sessions
+      .listMessages(params.conversationId)
+      .filter((message) => message.role === "user").length;
+    if (userMessageCount !== 1) return null;
+
+    console.log(`[title-summarizer] >>> first-turn summarization: conversationId=${params.conversationId}, channel=${channel}, externalUserId=${params.externalUserId}`);
+    const currentSettings = getSettings();
 
     const conversation = sessions.getConversationById(params.conversationId, channel, params.externalUserId);
     if (!conversation) {

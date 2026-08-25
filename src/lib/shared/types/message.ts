@@ -29,6 +29,13 @@ export interface ConversationAttachment {
   size?: number;
 }
 
+export interface ConversationFileOutput {
+  /** Project-relative path opened by the Artifact Inspector. */
+  path: string;
+  /** Whether this turn created the file or updated one that already existed. */
+  action: "created" | "modified";
+}
+
 export interface ConversationActivity {
   key: string;
   kind: "tool" | "subagent" | "note";
@@ -56,6 +63,8 @@ export interface ConversationActivity {
   paths?: string[];
   /** True when the tool writes to those paths (`write`/`edit`) rather than reading them. */
   mutates?: boolean;
+  /** Successful Project file result used by the completed-turn file list. */
+  fileOutput?: ConversationFileOutput;
   startedAt?: string;
   finishedAt?: string;
   durationMs?: number;

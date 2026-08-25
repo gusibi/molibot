@@ -949,6 +949,11 @@ export interface DesktopConversationActivity {
   paths?: string[];
   /** True when the tool wrote to those paths rather than reading them. */
   mutates?: boolean;
+  /** Successful Project file result shown in the completed-turn file list. */
+  fileOutput?: {
+    path: string;
+    action: "created" | "modified";
+  };
   startedAt?: string;
   finishedAt?: string;
   durationMs?: number;

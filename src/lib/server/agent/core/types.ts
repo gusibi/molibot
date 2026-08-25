@@ -158,6 +158,11 @@ export type RunnerUiEvent =
        * to see; collapsing them would make one of the two readers worse.
        */
       diff?: string;
+      /** Successful Project file result, normalized from the tool receipt. */
+      fileOutput?: {
+        path: string;
+        action: "created" | "modified";
+      };
       finishedAt?: string;
       exitCode?: number;
       lineCount?: number;

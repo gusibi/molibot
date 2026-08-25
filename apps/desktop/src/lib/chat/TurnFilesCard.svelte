@@ -1,0 +1,18 @@
+<script lang="ts">
+  import type { Translation } from "../i18n";
+  import TurnFileList from "./TurnFileList.svelte";
+  import type { TurnFileItem } from "./turnFiles";
+
+  export let files: TurnFileItem[];
+  export let copy: Translation;
+  export let onOpen: (files: TurnFileItem[], selectedKey?: string) => void;
+</script>
+
+<section class="turn-files-card" aria-label={copy.turnFilesTitle}>
+  <button type="button" class="turn-files-head" onclick={() => onOpen(files)}>
+    <span><i class="ph ph-files" aria-hidden="true"></i>{copy.turnFilesTitle}</span>
+    <span class="turn-files-count">{copy.turnFilesCount.replace("{count}", String(files.length))}</span>
+    <span class="turn-files-review">{copy.turnFilesReview}<i class="ph ph-arrow-square-out" aria-hidden="true"></i></span>
+  </button>
+  <TurnFileList {files} {copy} onOpen={(file) => onOpen(files, file.key)} />
+</section>

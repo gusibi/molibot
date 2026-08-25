@@ -1,6 +1,7 @@
 import { writable } from "svelte/store";
 import { formatProjectFileReference } from "@molibot/shared/projectFileReference";
 import type { MiniAppComposerInsertMode } from "@molibot/shared/miniappBridge";
+import type { TurnFileItem } from "../chat/turnFiles";
 
 /**
  * One-way channel from the Project file panel to the Project chat composer.
@@ -100,10 +101,23 @@ export interface ArtifactPathOpen {
 const artifactPathOpen = writable<ArtifactPathOpen | null>(null);
 export const artifactPathOpenRequest = { subscribe: artifactPathOpen.subscribe };
 
+export interface ArtifactTurnOpen {
+  id: number;
+  files: TurnFileItem[];
+  selectedKey?: string;
+}
+
+const artifactTurnOpen = writable<ArtifactTurnOpen | null>(null);
+export const artifactTurnOpenRequest = { subscribe: artifactTurnOpen.subscribe };
+
 let sequence = 0;
 
 export function requestArtifactPathOpen(path: string, mutates: boolean): void {
   artifactPathOpen.set({ id: ++sequence, path, mutates });
+}
+
+export function requestArtifactTurnOpen(files: TurnFileItem[], selectedKey?: string): void {
+  artifactTurnOpen.set({ id: ++sequence, files, selectedKey });
 }
 
 /** Formats a file reference the way the composer should show it. */

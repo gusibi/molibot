@@ -33,11 +33,11 @@ const FORWARDED_RESPONSE_HEADERS: &[&str] = &[
 /// `authorization` and `origin`.
 const FORWARDED_REQUEST_HEADERS: &[&str] = &["accept", "accept-language", "content-type"];
 
-/// A scope/token pair is the artifact route's identity. Project ids are UUIDs or
-/// readable slugs; both are safe when limited to alphanumerics, `-` and `_`.
-fn is_valid_token(value: &str) -> bool {
+/// A scope/token pair is the artifact route's identity. Both Project ids and
+/// opaque Session tokens use the same safe alphabet, with scope-specific caps.
+fn is_valid_token(value: &str, max_len: usize) -> bool {
     let bytes = value.as_bytes();
-    if bytes.is_empty() || bytes.len() > 64 {
+    if bytes.is_empty() || bytes.len() > max_len {
         return false;
     }
     bytes
@@ -99,10 +99,15 @@ pub fn upstream_url(endpoint: &str, uri: &str) -> Option<String> {
     let mut segments = path.split('/').filter(|segment| !segment.is_empty());
     let scope = segments.next()?;
     let token = segments.next()?;
-    if scope != "project" {
-        return None;
-    }
-    if !is_valid_token(token) {
+    let token_max_len = match scope {
+        "project" => 64,
+        // Session identity is a base64url JSON payload containing profile,
+        // session and optional project ids, so even ordinary tokens exceed the
+        // Project-id cap. The service decodes and authorizes the payload.
+        "session" => 512,
+        _ => return None,
+    };
+    if !is_valid_token(token, token_max_len) {
         return None;
     }
     let rest_path: String = segments.collect::<Vec<_>>().join("/");
@@ -292,11 +297,28 @@ mod tests {
     }
 
     #[test]
-    fn refuses_a_scope_other_than_project() {
-        // Session-scope artifact serving arrives in Slice 1b; until then the
-        // transport refuses the scope rather than forwarding an unsupported route.
+    fn maps_a_session_html_request_onto_the_runtime_endpoint() {
+        // A real base64url Session token is longer than a Project id. Keeping
+        // this realistic catches both scope rejection and the old 64-byte cap.
+        let token = "eyJwcm9maWxlSWQiOiJwZXJzb25hbCIsInNlc3Npb25JZCI6InMtMjAyNjA4MjUtYWJjZCJ9";
         assert_eq!(
-            upstream_url(ENDPOINT, "molibot-artifact://artifact/session/abc-123/report.html"),
+            upstream_url(ENDPOINT, &format!("molibot-artifact://artifact/session/{token}/report.html")),
+            Some(format!("http://127.0.0.1:3117/api/desktop/artifacts/session/{token}/report.html"))
+        );
+    }
+
+    #[test]
+    fn refuses_unknown_scopes_and_oversized_session_tokens() {
+        assert_eq!(
+            upstream_url(ENDPOINT, "molibot-artifact://artifact/external/abc-123/report.html"),
+            None
+        );
+        let oversized = "a".repeat(513);
+        assert_eq!(
+            upstream_url(
+                ENDPOINT,
+                &format!("molibot-artifact://artifact/session/{oversized}/report.html")
+            ),
             None
         );
     }

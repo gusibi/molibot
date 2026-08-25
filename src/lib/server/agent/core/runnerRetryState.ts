@@ -142,13 +142,15 @@ export interface FileMutationReceipt {
   relativePath: string;
 }
 
-/** Extract the machine-owned receipt emitted by a successful write/edit call. */
-export function getFileMutationReceipt(
-  toolName: string,
-  isError: boolean,
-  result: unknown
-): FileMutationReceipt | null {
-  if ((toolName !== "write" && toolName !== "edit") || isError || !result || typeof result !== "object") return null;
+export interface FileOutputReceipt {
+  rootKind: "project" | "scratch";
+  action: "created" | "modified" | "generated";
+  relativePath: string;
+}
+
+/** Extract a successful file result emitted by any built-in producer. */
+export function getFileOutputReceipt(isError: boolean, result: unknown): FileOutputReceipt | null {
+  if (isError || !result || typeof result !== "object") return null;
   const details = (result as { details?: unknown }).details;
   if (!details || typeof details !== "object") return null;
   const receipt = details as Record<string, unknown>;
@@ -156,9 +158,25 @@ export function getFileMutationReceipt(
   const action = receipt.action;
   const relativePath = typeof receipt.relativePath === "string" ? receipt.relativePath.trim() : "";
   if ((rootKind !== "project" && rootKind !== "scratch") ||
-      (action !== "created" && action !== "modified") ||
+      (action !== "created" && action !== "modified" && action !== "generated") ||
       !relativePath) return null;
   return { rootKind, action, relativePath };
+}
+
+/** Extract the machine-owned receipt emitted by a successful write/edit call. */
+export function getFileMutationReceipt(
+  toolName: string,
+  isError: boolean,
+  result: unknown
+): FileMutationReceipt | null {
+  if (toolName !== "write" && toolName !== "edit") return null;
+  const receipt = getFileOutputReceipt(isError, result);
+  if (!receipt || receipt.action === "generated") return null;
+  return {
+    rootKind: receipt.rootKind,
+    action: receipt.action,
+    relativePath: receipt.relativePath
+  };
 }
 
 export function isProjectFileMutationReceipt(toolName: string, isError: boolean, result: unknown): boolean {

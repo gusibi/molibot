@@ -1,9 +1,10 @@
 {
   "name": "@molibot/desktop",
-  "version": "0.9.35",
+  "version": "0.9.36",
   "private": true,
   "type": "module",
   "scripts": {
+    "pretest": "corepack pnpm exec tsx --test src/lib/chat/turnFiles.test.ts",
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",

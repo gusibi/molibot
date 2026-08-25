@@ -5,6 +5,21 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
 
+### Added: 回复内本轮文件产物清单
+
+- Agent 完成回复后，以单一列表展示本轮创建或更新的文件，并可直接在右侧 Artifact Inspector 打开最终内容。
+- 清单基于持久化的工具产物回执和普通 Session 生成附件，不依赖 Git 快照；失败写入会被排除，同一文件会自动去重。
+- 回复卡片与右侧面板复用同一列表组件，支持中英文和明暗主题。
+- 修复同一生成附件同时出现在本轮文件卡片和旧附件条的问题，只保留本轮文件卡片。
+- 修复普通 Session HTML 被原生 Artifact transport 当作无效请求拒绝的问题；Session scope 与真实长度的安全 token 现在可以转发，未知 scope 和超长 token 仍会被拒绝。
+
+### Fixed: HTML 产物预览空白与 Session 列表每轮闪烁
+
+- 新写入的 HTML 现在从活动卡片和 follow-the-agent 直接进入 Artifact Inspector 的沙箱页面预览；其它文件写入仍默认展示 Git diff。
+- 自动 Session Title 总结只在第一条用户消息后运行，后续轮次不会因标题仍为默认值而重复调用模型。
+- Desktop 后台刷新 Session 标题、排序和时间时保留现有列表行，不再短暂替换为加载占位。
+- 增加 HTML 打开策略、非首轮标题跳过和静默列表刷新的回归守卫。
+
 ### Changed: 服务器默认端口由 3000 调整为 3040
 
 - **统一默认服务端口**：将服务端运行时、设置默认值、桌面 Supervisor 守护进程、开发环境配置及相关文档中的默认端口从 `3000` 调整为 `3040`；

@@ -180,13 +180,11 @@ export function createMomTools(options: {
   const toolOutputDir = options.project
     ? join(pathDirname(options.project.scratchDir), "tool-output")
     : undefined;
-  const outputLayout = options.project
-    ? buildRunOutputLayout({
-        cwd: options.cwd,
-        scratchRoot: artifactDir,
-        projectRoot: options.project.rootPath
-      })
-    : undefined;
+  const outputLayout = buildRunOutputLayout({
+    cwd: options.cwd,
+    scratchRoot: options.project ? artifactDir : join(options.cwd, artifactDir),
+    projectRoot: options.project?.rootPath
+  });
   const botId = basename(options.workspaceDir) || "unknown";
   const sandboxSettings = resolveEffectiveSandboxSettings({
     getSettings: options.getSettings,
@@ -275,9 +273,7 @@ export function createMomTools(options: {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     artifactDir,
-    outputLayout: outputLayout ?? {
-      scratchRoot: join(options.cwd, artifactDir)
-    },
+    outputLayout,
     uploadFile: options.uploadFile
   }));
   const imageGenerateRuntimeTool = wrapSerializedTool(createImageGenerateTool({

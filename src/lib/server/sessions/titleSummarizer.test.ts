@@ -39,7 +39,7 @@ function createMockStreamFn(
   stopReason = "stop",
   captureRef?: { context?: Context; options?: Record<string, unknown> }
 ) {
-  return (_model: unknown, context: Context, options?: Record<string, unknown>) => {
+  return (_model: unknown, context: Context, options?: any) => {
     if (captureRef) {
       captureRef.context = context;
       captureRef.options = options;
@@ -135,6 +135,7 @@ test("tryAutoSummarizeConversationTitleAsync reads settings through the runtime'
   const renames: Array<{ conversationId: string; channel: string; externalUserId: string; title: string }> = [];
   (globalThis as any).__molibotRuntime = {
     sessions: {
+      listMessages: () => [{ role: "user", content: "请帮我写一个 Python 脚本用于清理 CSV 数据文件中的重复项和空值" }],
       getConversationById: (conversationId: string, channel: string, externalUserId: string) => ({
         id: conversationId,
         title: "New Session",
@@ -167,6 +168,52 @@ test("tryAutoSummarizeConversationTitleAsync reads settings through the runtime'
     assert.equal(renames[0].conversationId, "conv-1");
     assert.equal(renames[0].channel, "web");
     assert.equal(renames[0].externalUserId, "user-1");
+  } finally {
+    delete (globalThis as any).__molibotRuntime;
+  }
+});
+
+test("tryAutoSummarizeConversationTitleAsync skips every turn after the first user message", async () => {
+  let streamCalls = 0;
+  let renameCalls = 0;
+  (globalThis as any).__molibotRuntime = {
+    sessions: {
+      getConversationById: () => ({
+        id: "conv-1",
+        title: "New Session",
+        channel: "web",
+        externalUserId: "user-1"
+      }),
+      listMessages: () => [
+        { role: "user", content: "first turn" },
+        { role: "assistant", content: "first answer" },
+        { role: "user", content: "second turn" }
+      ],
+      renameConversation: () => {
+        renameCalls += 1;
+        return true;
+      }
+    },
+    getSettings: () => mockZhSettings
+  };
+
+  try {
+    const title = await tryAutoSummarizeConversationTitleAsync({
+      conversationId: "conv-1",
+      externalUserId: "user-1",
+      firstUserMessage: "second turn",
+      options: {
+        streamFn: (model, context, options) => {
+          streamCalls += 1;
+          return createMockStreamFn("不应生成标题")(model, context, options);
+        },
+        resolveApiKeyFn: async () => "dummy-key"
+      }
+    });
+
+    assert.equal(title, null);
+    assert.equal(streamCalls, 0);
+    assert.equal(renameCalls, 0);
   } finally {
     delete (globalThis as any).__molibotRuntime;
   }

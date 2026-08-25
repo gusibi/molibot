@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   describesProjectFileMutationClaim,
+  getFileOutputReceipt,
   getFileMutationReceipt,
   isRetryableModelError,
   describesUnexecutedMiniAppChange,
@@ -58,6 +59,20 @@ test("Project file completion claims require a successful Project mutation recei
     }),
     { text: fabricated, corrected: false }
   );
+});
+
+test("successful file-producing tools expose a final output receipt", () => {
+  assert.deepEqual(getFileOutputReceipt(false, {
+    details: { rootKind: "project", action: "generated", relativePath: "dist/report.pdf" }
+  }), {
+    rootKind: "project",
+    action: "generated",
+    relativePath: "dist/report.pdf"
+  });
+  assert.equal(getFileOutputReceipt(true, {
+    details: { rootKind: "project", action: "created", relativePath: "failed.md" }
+  }), null);
+  assert.equal(getFileOutputReceipt(false, { details: { action: "created" } }), null);
 });
 
 test("Mini App completion prose is distinguishable from an honest blocked report", () => {

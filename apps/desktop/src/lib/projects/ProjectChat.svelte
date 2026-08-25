@@ -17,7 +17,7 @@
   import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import { projectChatStore } from "./projectChatStore.svelte";
-  import { appendReference, composerInsertion, insertComposerText, miniAppComposerInsertion, requestArtifactPathOpen, requestMiniAppDeepLinkOpen, type MiniAppComposerInsertion } from "./composerBridge";
+  import { appendReference, composerInsertion, insertComposerText, miniAppComposerInsertion, requestArtifactPathOpen, requestArtifactTurnOpen, requestMiniAppDeepLinkOpen, type MiniAppComposerInsertion } from "./composerBridge";
   import MiniAppActionToast from "../miniapps/MiniAppActionToast.svelte";
   import {
     fetchDesktopFileBlob,
@@ -965,6 +965,7 @@
     messageActions={messageActions}
     attachmentActions={transcriptAttachmentActions}
     onOpenActivityPath={requestArtifactPathOpen}
+    onOpenTurnFiles={requestArtifactTurnOpen}
     {searchMatchIds}
     {activeMatchId}
     attentionElement={approvalElement}

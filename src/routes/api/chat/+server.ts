@@ -747,18 +747,23 @@ export const POST: RequestHandler = async ({ request }) => {
       { status: 409 }
     );
   }
+  const shouldSummarizeTitle = !runtime.sessions
+    .listMessages(conversation.id)
+    .some((message) => message.role === "user");
   runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
     attachments: sessionAttachments,
     contextBacked: true,
     retention: turnRetention
   });
 
-  void tryAutoSummarizeConversationTitleAsync({
-    conversationId: conversation.id,
-    channel: "web",
-    externalUserId,
-    firstUserMessage: inboundText
-  });
+  if (shouldSummarizeTitle) {
+    void tryAutoSummarizeConversationTitleAsync({
+      conversationId: conversation.id,
+      channel: "web",
+      externalUserId,
+      firstUserMessage: inboundText
+    });
+  }
 
   const durableBotId = resolveWebDurableBotId(parsed.profileId, runtime.channelManagers);
   let durable;

@@ -24,6 +24,7 @@
   } from "../projects/composerBridge";
   import type { SessionFileTouches } from "../projects/sessionFileTouches";
   import { ArtifactTabsStore, flattenTree, type ArtifactTab } from "./artifactTabsStore.svelte";
+  import { shouldOpenArtifactAsDiff } from "./artifactOpenMode";
   import { matchViewer, hasSourceToggle, type ArtifactScope } from "./viewerRegistry";
   import HtmlPreview from "./HtmlPreview.svelte";
   import CsvTable from "./CsvTable.svelte";
@@ -34,6 +35,8 @@
   import JsonTree from "./JsonTree.svelte";
   import SvgViewer from "./SvgViewer.svelte";
   import SystemOpenCard from "./SystemOpenCard.svelte";
+  import TurnFileList from "../chat/TurnFileList.svelte";
+  import type { TurnFileItem } from "../chat/turnFiles";
 
   /**
    * Artifact Panel - the single right-hand inspector surface.
@@ -69,6 +72,10 @@
     openPath = "",
     openPathNonce = 0,
     openPathAsDiff = false,
+    turnFiles = [],
+    turnFilesNonce = 0,
+    turnFileKey = "",
+    onOpenTurnFile = null,
     locale,
     theme,
     copy,
@@ -100,6 +107,12 @@
     openPathNonce?: number;
     /** Open the path's diff rather than its contents — used for a written file. */
     openPathAsDiff?: boolean;
+    /** Flat file results selected from one completed assistant turn. */
+    turnFiles?: TurnFileItem[];
+    turnFilesNonce?: number;
+    turnFileKey?: string;
+    /** Lets the host switch Project/Session scope before opening a mixed-list row. */
+    onOpenTurnFile?: ((file: TurnFileItem) => void) | null;
     locale: string;
     theme: "light" | "dark";
     copy: Translation;
@@ -108,7 +121,7 @@
 
   const store = new ArtifactTabsStore();
 
-  let tab = $state<"files" | "changes" | "attachments">("files");
+  let tab = $state<"files" | "turn" | "changes" | "attachments">("files");
   let attachments = $state<DesktopSessionFile[]>([]);
   let attachmentsLoading = $state(false);
   let attachmentsError = $state("");
@@ -148,6 +161,7 @@
 
   let menu = $state<{ x: number; y: number; path: string; kind: string; items: FileMenuItem[] } | null>(null);
   let actionError = $state("");
+  let appliedTurnFilesNonce = $state(0);
 
   /** Changes tab scope: everything Git reports, or only what this session wrote. */
   let changeScope = $state<"session" | "all">("session");
@@ -503,6 +517,38 @@
     }
   }
 
+  async function openTurnFile(file: TurnFileItem): Promise<void> {
+    actionError = "";
+    store.setMode("files");
+    if (file.source === "project") {
+      await store.openFile(file.path);
+      return;
+    }
+
+    let sessionFile = attachments.find((candidate) =>
+      (file.fileId && candidate.id === file.fileId) || candidate.local === file.path
+    );
+    if (!sessionFile) {
+      await loadAttachments();
+      sessionFile = attachments.find((candidate) =>
+        (file.fileId && candidate.id === file.fileId) || candidate.local === file.path
+      );
+    }
+    if (!sessionFile) {
+      actionError = copy.turnFileUnavailable;
+      return;
+    }
+    await store.openSessionFile(sessionFile);
+  }
+
+  function selectTurnFile(file: TurnFileItem): void {
+    if (onOpenTurnFile) {
+      onOpenTurnFile(file);
+      return;
+    }
+    void openTurnFile(file);
+  }
+
   function closeAttachmentPreview(): void {
     attachmentUrl = "";
     attachmentPreview = null;
@@ -655,6 +701,18 @@
   });
 
   $effect(() => {
+    const nonce = turnFilesNonce;
+    const selected = turnFiles.find((file) => file.key === turnFileKey);
+    untrack(() => {
+      if (!nonce || nonce === appliedTurnFilesNonce || !turnFiles.length) return;
+      appliedTurnFilesNonce = nonce;
+      store.setMode("files");
+      tab = "turn";
+      if (selected) void openTurnFile(selected);
+    });
+  });
+
+  $effect(() => {
     const identity = `${endpoint}:${projectId}:${profileId}:${sessionId}`;
     untrack(() => {
       identity;
@@ -680,7 +738,9 @@
       }
       if (!shouldFollow || !latest || latest === lastFollowedPath) return;
       lastFollowedPath = latest;
-      void store.openDiff(latest);
+      shouldOpenArtifactAsDiff(latest, true)
+        ? void store.openDiff(latest)
+        : void store.openFile(latest);
       void store.revealPath(latest);
       store.cursorPath = latest;
     });
@@ -787,18 +847,24 @@
   {#if scope === "project" && store.searchOpen && !miniAppActive}
     <FileSearchPanel {store} {copy} />
   {:else}
-    {#if scope === "project" && !miniAppActive}
+    {#if !miniAppActive}
       <div class="project-file-tabs" role="tablist" aria-label={copy.projectFilesPanel}>
-        <button type="button" role="tab" aria-selected={tab === "files"} class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.projectFilesTab}</button>
-        <button type="button" role="tab" aria-selected={tab === "changes"} class:active={tab === "changes"} onclick={() => (tab = "changes")}>
-          {copy.projectChangesTab}
-          {#if sessionEntries.length}
-            <span class="project-tab-badge is-session">{sessionEntries.length}</span>
-          {:else if dirtyPaths.size}
-            <span class="project-tab-badge">{dirtyPaths.size}</span>
-          {/if}
-        </button>
-        <button type="button" role="tab" aria-selected={tab === "attachments"} class:active={tab === "attachments"} onclick={() => (tab = "attachments")}>{copy.projectAttachmentsTab}</button>
+        {#if scope === "project"}
+          <button type="button" role="tab" aria-selected={tab === "files"} class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.projectFilesTab}</button>
+          {#if turnFiles.length}<button type="button" role="tab" aria-selected={tab === "turn"} class:active={tab === "turn"} onclick={() => (tab = "turn")}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
+          <button type="button" role="tab" aria-selected={tab === "changes"} class:active={tab === "changes"} onclick={() => (tab = "changes")}>
+            {copy.projectChangesTab}
+            {#if sessionEntries.length}
+              <span class="project-tab-badge is-session">{sessionEntries.length}</span>
+            {:else if dirtyPaths.size}
+              <span class="project-tab-badge">{dirtyPaths.size}</span>
+            {/if}
+          </button>
+          <button type="button" role="tab" aria-selected={tab === "attachments"} class:active={tab === "attachments"} onclick={() => (tab = "attachments")}>{copy.projectAttachmentsTab}</button>
+        {:else}
+          {#if turnFiles.length}<button type="button" role="tab" aria-selected={tab === "turn"} class:active={tab === "turn"} onclick={() => (tab = "turn")}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
+          <button type="button" role="tab" aria-selected={tab === "files"} class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.files}</button>
+        {/if}
       </div>
     {/if}
 
@@ -876,7 +942,9 @@
           aria-label={copy.projectFilesTab}
           tabindex="-1"
         >
-          {#if tab === "files"}
+          {#if tab === "turn"}
+            <TurnFileList files={turnFiles} {copy} onOpen={selectTurnFile} />
+          {:else if tab === "files"}
             <div class="project-browser-actions">
               <button type="button" onclick={() => store.collapseAllDirs()}>
                 <i class="ph ph-arrows-in-line-vertical" aria-hidden="true"></i>{copy.projectCollapseAll}
@@ -1256,48 +1324,52 @@
           the panel back to Files landed on an empty surface.
         -->
         <div class="project-browser artifact-session-browser" aria-busy={attachmentsLoading}>
-          <div class="file-filters">
-            {#each sessionFilters as [value, label] (value)}
-              <button
-                type="button"
-                class:active={sessionFilter === value}
-                aria-pressed={sessionFilter === value}
-                onclick={() => (sessionFilter = value)}
-              >{label}</button>
-            {/each}
-          </div>
-          {#if attachmentsError}
-            <div class="project-panel-error" role="alert">{attachmentsError}</div>
-          {/if}
-          {#if attachmentsLoading && attachments.length === 0}
-            <p class="file-empty"><span>{copy.filesLoading}</span></p>
-          {:else if filteredAttachments.length === 0}
-            <p class="file-empty"><i class="ph ph-paperclip" aria-hidden="true"></i><span>{copy.noFiles}</span></p>
+          {#if tab === "turn"}
+            <TurnFileList files={turnFiles} {copy} onOpen={selectTurnFile} />
           {:else}
-            <ul class="project-entry-list project-session-file-list">
-              {#each filteredAttachments as file (file.id)}
-                <li class="project-entry">
-                  <button
-                    type="button"
-                    class="project-entry-button"
-                    class:selected={activeTab?.fileId === file.id}
-                    title={file.original}
-                    onclick={() => void store.openSessionFile(file)}
-                  >
-                    <i class={`ph ${fileIconName(file.original, "file")}`} style={fileIconStyle(file.original, "file")} aria-hidden="true"></i>
-                    <span>{file.original}</span>
-                    <small class="project-entry-size">{formatSize(file.size)}</small>
-                  </button>
-                  <button
-                    type="button"
-                    class="project-entry-action"
-                    aria-label={copy.download}
-                    title={copy.download}
-                    onclick={() => void downloadAttachment(file)}
-                  ><i class="ph ph-download-simple" aria-hidden="true"></i></button>
-                </li>
+            <div class="file-filters">
+              {#each sessionFilters as [value, label] (value)}
+                <button
+                  type="button"
+                  class:active={sessionFilter === value}
+                  aria-pressed={sessionFilter === value}
+                  onclick={() => (sessionFilter = value)}
+                >{label}</button>
               {/each}
-            </ul>
+            </div>
+            {#if attachmentsError}
+              <div class="project-panel-error" role="alert">{attachmentsError}</div>
+            {/if}
+            {#if attachmentsLoading && attachments.length === 0}
+              <p class="file-empty"><span>{copy.filesLoading}</span></p>
+            {:else if filteredAttachments.length === 0}
+              <p class="file-empty"><i class="ph ph-paperclip" aria-hidden="true"></i><span>{copy.noFiles}</span></p>
+            {:else}
+              <ul class="project-entry-list project-session-file-list">
+                {#each filteredAttachments as file (file.id)}
+                  <li class="project-entry">
+                    <button
+                      type="button"
+                      class="project-entry-button"
+                      class:selected={activeTab?.fileId === file.id}
+                      title={file.original}
+                      onclick={() => void store.openSessionFile(file)}
+                    >
+                      <i class={`ph ${fileIconName(file.original, "file")}`} style={fileIconStyle(file.original, "file")} aria-hidden="true"></i>
+                      <span>{file.original}</span>
+                      <small class="project-entry-size">{formatSize(file.size)}</small>
+                    </button>
+                    <button
+                      type="button"
+                      class="project-entry-action"
+                      aria-label={copy.download}
+                      title={copy.download}
+                      onclick={() => void downloadAttachment(file)}
+                    ><i class="ph ph-download-simple" aria-hidden="true"></i></button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
           {/if}
         </div>
 

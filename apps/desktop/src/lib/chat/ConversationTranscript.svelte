@@ -13,6 +13,8 @@
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
   import ChatMarkdown from "./ChatMarkdown.svelte";
+  import TurnFilesCard from "./TurnFilesCard.svelte";
+  import { collectTurnFiles, type TurnFileItem } from "./turnFiles";
 
   function findPreviousUserMessage(list: TranscriptMessage[], currentIndex: number): TranscriptMessage | null {
     for (let i = currentIndex - 1; i >= 0; i -= 1) {
@@ -32,6 +34,7 @@
   export let messageActions: TranscriptMessageActions | null = null;
   /** Opens a path a tool touched in the Artifact Panel; injected by the host. */
   export let onOpenActivityPath: ((path: string, mutates: boolean) => void) | null = null;
+  export let onOpenTurnFiles: ((files: TurnFileItem[], selectedKey?: string) => void) | null = null;
   export let endpoint = "";
 
   let expandedMessages = new Set<string>();
@@ -136,6 +139,7 @@
     && message.errorMessage.trim() !== displayContent.trim()
     ? message.errorMessage
     : ""}
+  {@const turnFiles = message.role === "assistant" ? collectTurnFiles(message, attachmentActions?.filesByLocal) : []}
   <article
     class:mine={message.role === "user"}
     class:assistant={message.role !== "user"}
@@ -259,6 +263,9 @@
         {#if assistantError}
           <div class="assistant-error-note"><i class="ph ph-warning-circle" aria-hidden="true"></i><span class="assistant-error-label">{copy.assistantErrorLabel}</span><span class="assistant-error-text">{assistantError}</span></div>
         {/if}
+        {#if turnFiles.length && onOpenTurnFiles}
+          <TurnFilesCard files={turnFiles} {copy} onOpen={onOpenTurnFiles} />
+        {/if}
         {#if (canShowActions && messageActions) || message.createdAt || hasTechnicalDetails}
           <div class="message-meta assistant-meta">
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
@@ -345,7 +352,7 @@
             {/if}
           </div>
         {/if}
-        {#if message.attachments?.length}
+        {#if message.attachments?.length && (!turnFiles.length || !onOpenTurnFiles)}
           <TranscriptAttachments attachments={message.attachments} {message} {copy} actions={attachmentActions} />
         {/if}
         </div>

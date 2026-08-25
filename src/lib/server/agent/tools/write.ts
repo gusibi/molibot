@@ -100,9 +100,11 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
       // Share the edit tool's per-file lock so a write cannot land in the middle
       // of a concurrent edit's read-modify-write cycle.
       const dir = dirname(filePath);
-      await withFileMutationQueue(filePath, async () => {
+      const action = await withFileMutationQueue(filePath, async () => {
+        const existed = await fs.promises.stat(filePath).then(() => true, () => false);
         await fs.promises.mkdir(dir, { recursive: true });
         await ctx.fs.writeText(filePath, params.content);
+        return existed ? "modified" as const : "created" as const;
       });
 
       const writtenBytes = Buffer.byteLength(params.content, "utf-8");
@@ -126,7 +128,7 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
           requestedPath,
           relativePath: relative(baseRoot, filePath).replaceAll("\\", "/"),
           rootKind,
-          action: "created",
+          action,
           sizeBytes: writtenBytes
         } : undefined
       };

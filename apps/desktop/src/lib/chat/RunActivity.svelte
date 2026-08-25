@@ -204,44 +204,22 @@
     </div>
   </details>
 
-  <!--
-    What the turn actually touched, from the `paths`/`mutates` the runtime has
-    recorded all along and nothing rendered. A sibling of the `<details>`, never
-    a child: a collapsed `<details>` hides every child after its `<summary>`, so
-    a summary nested inside would only appear once you had already expanded the
-    very thing it exists to save you from expanding.
-  -->
-  {#if files.written.length || files.read.length}
+  <!-- Writes belong to the completed-turn file list; only read context remains
+    attached to the execution trace. -->
+  {#if files.read.length}
     <div class="run-activity-files">
-      {#if files.written.length}
-        <span class="run-activity-files-label" data-mutates="true">
-          <i class="ph ph-pencil-simple-line" aria-hidden="true"></i>{fileChipLabel(copy.runActivityFilesChanged, files.written.length)}
-        </span>
-        {#each files.written as path (path)}
-          <button
-            type="button"
-            class="run-activity-file"
-            data-mutates="true"
-            disabled={!onOpenPath}
-            title={onOpenPath ? `${path} — ${copy.runActivityOpenFile}` : path}
-            onclick={() => onOpenPath?.(path, true)}
-          >{fileName(path)}</button>
-        {/each}
-      {/if}
-      {#if files.read.length}
-        <span class="run-activity-files-label">
-          <i class="ph ph-eye" aria-hidden="true"></i>{fileChipLabel(copy.runActivityFilesRead, files.read.length)}
-        </span>
-        {#each files.read as path (path)}
-          <button
-            type="button"
-            class="run-activity-file"
-            disabled={!onOpenPath}
-            title={onOpenPath ? `${path} — ${copy.runActivityOpenFile}` : path}
-            onclick={() => onOpenPath?.(path, false)}
-          >{fileName(path)}</button>
-        {/each}
-      {/if}
+      <span class="run-activity-files-label">
+        <i class="ph ph-eye" aria-hidden="true"></i>{fileChipLabel(copy.runActivityFilesRead, files.read.length)}
+      </span>
+      {#each files.read as path (path)}
+        <button
+          type="button"
+          class="run-activity-file"
+          disabled={!onOpenPath}
+          title={onOpenPath ? `${path} — ${copy.runActivityOpenFile}` : path}
+          onclick={() => onOpenPath?.(path, false)}
+        >{fileName(path)}</button>
+      {/each}
     </div>
   {/if}
 </div>

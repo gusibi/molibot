@@ -2329,6 +2329,21 @@ a:focus-visible {
 .assistant-error-note .ph { flex: none; color: var(--warning-text); font-size: var(--icon-sm); }
 .assistant-error-label { flex: none; color: var(--warning-text); font-weight: 600; }
 .assistant-error-text { color: var(--label-secondary); word-break: break-word; }
+.turn-files-card { overflow: hidden; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--card-bg); }
+.turn-files-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 8px 10px 8px 12px; border: 0; border-bottom: 1px solid var(--separator); background: transparent; color: var(--label-primary); font: inherit; text-align: left; cursor: pointer; }
+.turn-files-head:hover { background: var(--fill); }
+.turn-files-head > span:first-child { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 600; }
+.turn-files-head .ph { font-size: var(--icon-sm); }
+.turn-files-count { color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.turn-files-review { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.turn-file-list { margin: 0; padding: 4px; list-style: none; }
+.turn-file-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 7px; width: 100%; min-height: 34px; padding: 5px 7px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-secondary); font: inherit; text-align: left; cursor: pointer; }
+.turn-file-row:hover { background: var(--fill); }
+.turn-file-action { min-width: 32px; padding: 0 5px; border-radius: var(--radius-small); background: color-mix(in srgb, var(--warning) 12%, transparent); color: var(--warning-text); font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: 600; text-align: center; }
+.turn-file-action.created { background: color-mix(in srgb, var(--online) 11%, transparent); color: var(--online); }
+.turn-file-row > .ph { font-size: var(--icon-sm); }
+.turn-file-name { overflow: hidden; color: var(--label-primary); font-size: var(--fs-label); line-height: var(--lh-label); text-overflow: ellipsis; white-space: nowrap; }
+.turn-file-caret { color: var(--label-tertiary); }
 .message-time { font-size: var(--fs-meta); line-height: var(--lh-meta); color: var(--label-tertiary); padding: 0 2px; display: inline-flex; align-items: center; gap: 3px; }
 .message-meta { display: flex; align-items: center; gap: 7px; min-height: 24px; color: var(--label-tertiary); }
 .message-row.mine .message-meta { justify-self: end; }
@@ -6278,6 +6293,13 @@ html[data-increased-contrast="true"] .settings-sidebar {
 .artifact-panel .file-filters button:hover { background: var(--artifact-hover); color: var(--artifact-fg); }
 .artifact-panel .file-filters button.active { border-color: color-mix(in srgb, var(--artifact-accent) 42%, transparent); background: var(--artifact-accent-muted); color: var(--artifact-accent); }
 .artifact-panel .project-entry-list { padding-inline: 6px; }
+.artifact-panel .turn-file-list { padding: 6px; background: var(--artifact-canvas); }
+.artifact-panel .turn-file-row { color: var(--artifact-fg-muted); }
+.artifact-panel .turn-file-row:hover { background: var(--artifact-hover); }
+.artifact-panel .turn-file-name { color: var(--artifact-fg); font-family: var(--font-mono); }
+.artifact-panel .turn-file-caret { color: var(--artifact-fg-subtle); }
+.artifact-panel .turn-file-action { background: color-mix(in srgb, var(--artifact-attention) 15%, transparent); color: var(--artifact-attention); }
+.artifact-panel .turn-file-action.created { background: color-mix(in srgb, var(--artifact-success) 15%, transparent); color: var(--artifact-success); }
 .artifact-panel .project-entry-list .project-entry-button:hover,
 .artifact-panel .project-attachment-row:hover { background: var(--artifact-hover); }
 .artifact-panel .project-entry-list .project-entry-button.selected { background: var(--artifact-accent-muted); box-shadow: inset 2px 0 0 var(--artifact-accent); }

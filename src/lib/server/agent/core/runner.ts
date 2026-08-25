@@ -39,6 +39,7 @@ import {
 import {
   describesUnexecutedMiniAppChange,
   getFileMutationReceipt,
+  getFileOutputReceipt,
   type FileMutationReceipt,
   isMiniAppInstallReceipt,
   isRetryableModelError,
@@ -1505,6 +1506,7 @@ export class MomRunner implements RunnerLike {
       if (event.type === "tool_execution_end") {
         const body = extractTextFromResult(event.result);
         const fileMutationReceipt = getFileMutationReceipt(event.toolName, event.isError, event.result);
+        const fileOutputReceipt = getFileOutputReceipt(event.isError, event.result);
         if (fileMutationReceipt) {
           successfulFileMutationReceipts.set(
             `${fileMutationReceipt.rootKind}:${fileMutationReceipt.relativePath}`,
@@ -1567,6 +1569,12 @@ export class MomRunner implements RunnerLike {
             isError: event.isError,
             summary: body,
             diff: extractToolDiff(event.result),
+            fileOutput: fileOutputReceipt?.rootKind === "project"
+              ? {
+                  path: fileOutputReceipt.relativePath,
+                  action: fileOutputReceipt.action === "modified" ? "modified" : "created"
+                }
+              : undefined,
             finishedAt: new Date().toISOString(),
             exitCode: (() => {
               const match = body.match(/(?:exited with code|exit(?:ed)?\s+)(-?\d+)/i);

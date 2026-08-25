@@ -3073,7 +3073,27 @@ export function parseDesktopActivity(
     const label = String(item.label ?? "").trim();
     if (["tool", "subagent", "note"].includes(kind) && ["running", "success", "error", "info"].includes(state) && key && label) {
       const summary = String(item.summary ?? "").trim();
-      return { kind: kind as DesktopActivityEntry["kind"], state: state as DesktopActivityEntry["state"], key, label, ...(summary ? { summary } : {}) };
+      const paths = Array.isArray(item.paths) ? item.paths.filter((path): path is string => typeof path === "string" && Boolean(path.trim())) : [];
+      const rawOutput = item.fileOutput && typeof item.fileOutput === "object" ? item.fileOutput as Record<string, unknown> : null;
+      const outputPath = typeof rawOutput?.path === "string" ? rawOutput.path.trim() : "";
+      const outputAction = rawOutput?.action === "created" || rawOutput?.action === "modified" ? rawOutput.action : null;
+      return {
+        kind: kind as DesktopActivityEntry["kind"],
+        state: state as DesktopActivityEntry["state"],
+        key,
+        label,
+        ...(summary ? { summary } : {}),
+        ...(typeof item.tool === "string" && item.tool ? { tool: item.tool } : {}),
+        ...(typeof item.diff === "string" && item.diff ? { diff: item.diff } : {}),
+        ...(paths.length ? { paths, mutates: item.mutates === true } : {}),
+        ...(outputPath && outputAction ? { fileOutput: { path: outputPath, action: outputAction } } : {}),
+        ...(typeof item.startedAt === "string" ? { startedAt: item.startedAt } : {}),
+        ...(typeof item.finishedAt === "string" ? { finishedAt: item.finishedAt } : {}),
+        ...(Number.isFinite(item.durationMs) ? { durationMs: Number(item.durationMs) } : {}),
+        ...(Number.isInteger(item.exitCode) ? { exitCode: Number(item.exitCode) } : {}),
+        ...(Number.isInteger(item.lineCount) ? { lineCount: Number(item.lineCount) } : {}),
+        ...(Number.isFinite(item.tokenUsage) ? { tokenUsage: Number(item.tokenUsage) } : {})
+      };
     }
   }
   if (event === "thread_note") {

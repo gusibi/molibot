@@ -219,6 +219,9 @@ export const POST: RequestHandler = async ({ request }) => {
     mimeType: attachment.mimeType,
     size: attachment.size
   }));
+  const shouldSummarizeTitle = !resumePlanId && !runtime.sessions
+    .listMessages(conversation.id)
+    .some((entry) => entry.role === "user");
   if (!resumePlanId) {
     runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
       attachments: sessionAttachments,
@@ -327,18 +330,20 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      void tryAutoSummarizeConversationTitleAsync({
-        conversationId: conversation.id,
-        channel: "web",
-        externalUserId,
-        firstUserMessage: inboundText,
-        onTitleUpdated: (newTitle) => {
-          writeEvent(controller, encoder, "session_title_updated", {
-            conversationId: conversation.id,
-            title: newTitle
-          });
-        }
-      });
+      if (shouldSummarizeTitle) {
+        void tryAutoSummarizeConversationTitleAsync({
+          conversationId: conversation.id,
+          channel: "web",
+          externalUserId,
+          firstUserMessage: inboundText,
+          onTitleUpdated: (newTitle) => {
+            writeEvent(controller, encoder, "session_title_updated", {
+              conversationId: conversation.id,
+              title: newTitle
+            });
+          }
+        });
+      }
 
       void (async () => {
         let finalText = "";

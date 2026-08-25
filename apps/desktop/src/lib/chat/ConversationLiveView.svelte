@@ -2,7 +2,7 @@
   import type { Translation } from "../i18n";
   import type { DesktopActivityEntry } from "../api";
   import type { DesktopConversationStep } from "@molibot/desktop-contract";
-  import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./transcript";
+  import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions, TurnFileItem } from "./transcript";
   import { handleMarkdownBodyClick } from "../markdownInteractions";
   import ConversationTranscript from "./ConversationTranscript.svelte";
   import { renderMarkdown } from "../markdown";
@@ -29,6 +29,7 @@
   export let attachmentActions: TranscriptAttachmentActions | null = null;
   export let messageActions: TranscriptMessageActions | null = null;
   export let onOpenActivityPath: ((path: string, mutates: boolean) => void) | null = null;
+  export let onOpenTurnFiles: ((files: TurnFileItem[], selectedKey?: string) => void) | null = null;
   export let endpoint = "";
 
   // The streaming bubble is the same rendered Markdown as a committed message,
@@ -58,7 +59,7 @@
     <p>{emptyHint}</p>
   </div>
 {/if}
-<ConversationTranscript {messages} {copy} {formatTime} {assistantName} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} {onOpenActivityPath} {endpoint} />
+<ConversationTranscript {messages} {copy} {formatTime} {assistantName} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} {onOpenActivityPath} {onOpenTurnFiles} {endpoint} />
 {#if sending}
   <article class="message-row assistant streaming-message">
     <div class="assistant-layout">

@@ -5,6 +5,40 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 - [2026 Q3 PRD Archive (Jul - Sep)](docs/archive/prd-archive-2026-Q3.md)
 
+## 3.124 本轮文件产物清单（2026-08-25）
+
+- **Priority / Status**: P1 / Delivered (2026-08-25).
+- **Problem**: Agent 完成一轮修改后，用户需要从回复中直接看到本轮创建或更新了哪些文件，并在右侧文件面板查看最终内容；Git 快照不适用于普通 Session，复杂度也超出当前需求。
+- **Decision**:
+  - 工具成功结束时记录结构化文件产物回执，随消息持久化，不依赖 Git 快照。
+  - 回复末尾与 Artifact Inspector 共用一份扁平列表，只以“创建 / 更新”标识区分，不做文件分区。
+  - Project 文件打开磁盘当前内容；普通 Session 展示并打开本轮生成的最终附件。
+- **Acceptance**:
+  - 成功产物去重后按单一列表展示，失败工具不进入列表。
+  - 已进入本轮文件卡片的 assistant 附件不再在回复下方重复展示。
+  - 点击回复卡片或文件行可打开右侧面板，并查看对应最终内容。
+  - 普通 Session 的 HTML 通过原生 Artifact transport 转发并正常预览。
+  - 中英文、明暗主题、重启后的消息回读均可用。
+
+---
+
+## 3.123 HTML 产物预览与首轮 Session Title 更新修复（2026-08-25）
+
+- **Priority / Status**: P1 / Delivered (2026-08-25).
+- **Problem**:
+  - 新写入的 HTML 被活动卡片和 follow-the-agent 无条件送入 Git Diff；未跟踪的新文件没有有效 diff，右侧 Artifact Inspector 因而无法展示页面。
+  - 标题总结入口只判断标题是否仍为默认值，没有判断当前是否首轮；首次总结未成功时，后续每轮都会再次尝试。Desktop 的后台 Session 刷新同时切换加载态，以省略号替换整组列表，造成可见闪烁。
+- **Decision**:
+  - HTML 家族写入统一打开文件 viewer，其它写入仍打开 diff；两个入口复用同一判定函数。
+  - 标题总结在读取模型配置前，以持久化消息中的用户消息数强制限定为首条消息。
+  - 自动后台刷新保留已有 Session 行，仅更新请求完成后的数据；首次加载和用户主动展开仍显示加载态。
+- **Acceptance**:
+  - 新建 HTML 可直接在右侧沙箱预览，普通代码写入仍打开差异视图。
+  - 第二轮及之后不调用标题模型、不重命名 Session；后台同步不再清空 Session 列表。
+  - 标题总结、HTML 路由和 Desktop UI 回归测试通过。
+
+---
+
 ## 3.122 服务器默认端口调整为 3040（2026-08-23）
 
 - **Priority / Status**: P1 / Delivered (2026-08-23).

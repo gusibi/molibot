@@ -3,7 +3,7 @@
   import type { DesktopActivityEntry } from "../api";
   import type { DesktopConversationStep } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
-  import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./transcript";
+  import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions, TurnFileItem } from "./transcript";
   import ConversationLiveView from "./ConversationLiveView.svelte";
   import ConversationPromptNavigator from "./ConversationPromptNavigator.svelte";
   import TranscriptDock from "./TranscriptDock.svelte";
@@ -33,6 +33,7 @@
   export let attachmentActions: TranscriptAttachmentActions | null = null;
   export let messageActions: TranscriptMessageActions | null = null;
   export let onOpenActivityPath: ((path: string, mutates: boolean) => void) | null = null;
+  export let onOpenTurnFiles: ((files: TurnFileItem[], selectedKey?: string) => void) | null = null;
   export let messagesElement: HTMLDivElement | undefined = undefined;
   /**
    * A card rendered into the slot that the turn is blocked on. When it scrolls
@@ -118,6 +119,7 @@
         {attachmentActions}
         {messageActions}
         {onOpenActivityPath}
+        {onOpenTurnFiles}
         {endpoint}
       />
       <slot />

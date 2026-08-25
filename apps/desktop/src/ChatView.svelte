@@ -104,6 +104,7 @@
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
   import ArtifactPanel from "./lib/artifacts/ArtifactPanel.svelte";
+  import { shouldOpenArtifactAsDiff } from "./lib/artifacts/artifactOpenMode";
   import DurableExecutionCard from "./lib/chat/DurableExecutionCard.svelte";
   import DurableExecutionInspector from "./lib/chat/DurableExecutionInspector.svelte";
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
@@ -122,8 +123,10 @@
     miniAppComposerInsertion,
     miniAppDeepLinkOpenRequest,
     miniAppSessionOpenRequest,
-    artifactPathOpenRequest
+    artifactPathOpenRequest,
+    artifactTurnOpenRequest
   } from "./lib/projects/composerBridge";
+  import type { TurnFileItem } from "./lib/chat/turnFiles";
   import { parseMiniAppDeepLink } from "@molibot/shared/miniappDeepLink";
   import { mimeFromFilename } from "@molibot/shared/filePreview";
   // Files the active Project session has touched, projected for the file panel.
@@ -712,6 +715,9 @@
     openPath?: string;
     openPathNonce?: number;
     openPathAsDiff?: boolean;
+    turnFiles?: TurnFileItem[];
+    turnFilesNonce?: number;
+    turnFileKey?: string;
   } | {
     kind: "durable-execution";
     executionId: string;
@@ -720,6 +726,7 @@
   let miniAppSeq = 0;
   let sessionFileSeq = 0;
   let openPathSeq = 0;
+  let turnFilesSeq = 0;
   let miniAppsExpanded = localStorage.getItem(MINIAPPS_EXPANDED_KEY) !== "0";
 
   // A Mini App runs on its own origin and cannot inherit our CSS variables, so
@@ -1190,7 +1197,7 @@
         modelReady: () => modelReady,
         labels: () => conversationLabels(),
         loadTranscript,
-        refreshSidebar: () => loadChannel("web"),
+        refreshSidebar: () => loadChannel("web", false),
         resolveModel: (_profileId, sessionId) => sessionModelOverrides.get(sessionId),
         onDraftSessionCreated: async (_profileId, sessionId) => {
           // Carry the draft's model onto the freshly-created session so its first
@@ -1304,18 +1311,23 @@
     }
   }
 
-  async function loadChannel(channel: DesktopConversationChannel): Promise<void> {
+  async function loadChannel(channel: DesktopConversationChannel, showLoading = true): Promise<void> {
     if (!connectedEndpoint) return;
-    channelLoading = { ...channelLoading, [channel]: true };
+    if (showLoading) channelLoading = { ...channelLoading, [channel]: true };
     try {
       const res = await listDesktopConversations(connectedEndpoint, { channel, limit: 10 });
       channelItems = { ...channelItems, [channel]: res.items };
       channelHasMore = { ...channelHasMore, [channel]: Boolean(res.hasMore) || res.items.length >= 10 };
     } catch {
-      channelItems = { ...channelItems, [channel]: [] };
-      channelHasMore = { ...channelHasMore, [channel]: false };
+      // A background revalidation must keep the last good rows on a transient
+      // failure. Clearing is appropriate only for a foreground/first load,
+      // where stale data has not already been presented as current.
+      if (showLoading) {
+        channelItems = { ...channelItems, [channel]: [] };
+        channelHasMore = { ...channelHasMore, [channel]: false };
+      }
     } finally {
-      channelLoading = { ...channelLoading, [channel]: false };
+      if (showLoading) channelLoading = { ...channelLoading, [channel]: false };
     }
   }
 
@@ -2074,6 +2086,16 @@
     openActivityPath(request.path, request.mutates);
   }
 
+  let appliedArtifactTurnId = 0;
+  $: applyArtifactTurnOpen($artifactTurnOpenRequest);
+  function applyArtifactTurnOpen(
+    request: import("./lib/projects/composerBridge").ArtifactTurnOpen | null
+  ): void {
+    if (!request || request.id === appliedArtifactTurnId) return;
+    appliedArtifactTurnId = request.id;
+    openTurnFiles(request.files, request.selectedKey);
+  }
+
   $: applyMiniAppDeepLinkOpen($miniAppDeepLinkOpenRequest);
   function applyMiniAppDeepLinkOpen(
     request: import("./lib/projects/composerBridge").MiniAppDeepLinkOpen | null
@@ -2427,9 +2449,27 @@
       scope: "project",
       openPath: path,
       openPathNonce: ++openPathSeq,
-      // A written file is interesting for what changed; a read file for what it says.
-      openPathAsDiff: mutates
+      // HTML is useful as the rendered product; other writes open their diff.
+      openPathAsDiff: shouldOpenArtifactAsDiff(path, mutates)
     };
+  }
+
+  function openTurnFiles(files: TurnFileItem[], selectedKey?: string): void {
+    if (!files.length) return;
+    const selected = selectedKey ? files.find((file) => file.key === selectedKey) : undefined;
+    workspacePane = "chat";
+    inspector = {
+      kind: "artifact",
+      scope: selected ? selected.source : projectPaneActive ? "project" : "session",
+      turnFiles: files,
+      turnFilesNonce: ++turnFilesSeq,
+      turnFileKey: selectedKey
+    };
+  }
+
+  function reopenTurnFile(file: TurnFileItem): void {
+    if (inspector?.kind !== "artifact" || !inspector.turnFiles?.length) return;
+    openTurnFiles(inspector.turnFiles, file.key);
   }
 
   function openDurableExecutionInspector(executionId: string): void {
@@ -2986,6 +3026,7 @@
         showReadReceipt={true}
         attachmentActions={transcriptAttachmentActions}
         messageActions={messageActions}
+        onOpenTurnFiles={openTurnFiles}
         attentionElement={approvalElement}
         endpoint={connectedEndpoint || serviceEndpoint || ""}
         attentionLabel={copy.pendingApprovalNotice}
@@ -3148,6 +3189,10 @@
       openPath={inspector?.kind === "artifact" ? (inspector.openPath ?? "") : ""}
       openPathNonce={inspector?.kind === "artifact" ? (inspector.openPathNonce ?? 0) : 0}
       openPathAsDiff={inspector?.kind === "artifact" ? (inspector.openPathAsDiff ?? false) : false}
+      turnFiles={inspector?.kind === "artifact" ? (inspector.turnFiles ?? []) : []}
+      turnFilesNonce={inspector?.kind === "artifact" ? (inspector.turnFilesNonce ?? 0) : 0}
+      turnFileKey={inspector?.kind === "artifact" ? (inspector.turnFileKey ?? "") : ""}
+      onOpenTurnFile={reopenTurnFile}
       {locale}
       theme={resolvedTheme}
       {copy}

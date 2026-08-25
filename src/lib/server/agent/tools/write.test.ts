@@ -88,6 +88,12 @@ test("project write defaults plain names to the project root and supports explic
       action: "created",
       sizeBytes: 7
     });
+    const updatedProjectResult = await tool.execute("tool-3", {
+      label: "write",
+      path: "README.md",
+      content: "updated"
+    });
+    assert.equal((updatedProjectResult.details as any)?.action, "modified");
     assert.equal((scratchResult.details as any)?.rootKind, "scratch");
   } finally {
     rmSync(cwd, { recursive: true, force: true });

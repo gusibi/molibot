@@ -739,6 +739,11 @@ block, status color, and sidebar tint must resolve through the same family block
   reasoning or narration boundaries and use an inline hierarchy, not nested cards. A tool
   payload remains independently inspectable. The collapsed summary reports stable work facts
   (elapsed time, tool calls, changed files), never reasoning chunk count.
+- A completed assistant turn may expose its final file outputs beneath the answer.
+  Use one flat list shared with the Artifact Inspector—never separate created and
+  updated sections. Every row carries a textual Created/Updated status, filename,
+  and file affordance. Selecting a row opens the current final content; this surface
+  is an output receipt, not Git history, a snapshot browser, or an execution log.
 - Primary actions remain visible. Rare and destructive actions belong in an overflow
   menu and require confirmation when irreversible. A persistent outlined button is
   not a substitute for a switch, segmented control, or disclosure menu.

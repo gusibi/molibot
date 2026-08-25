@@ -131,13 +131,15 @@ test("file tool activities carry the touched path across the start/end merge", (
     toolName: "edit",
     displayName: "Edit",
     isError: false,
-    summary: "Updated src/lib/guard.ts"
+    summary: "Updated src/lib/guard.ts",
+    fileOutput: { path: "src/lib/guard.ts", action: "modified" }
   });
 
   // `tool_execution_end` carries no arguments, so the paths recorded at start
   // are the only copy; losing them here would empty the session change view.
   assert.deepEqual(ended?.paths, ["src/lib/guard.ts"]);
   assert.equal(ended?.mutates, true);
+  assert.deepEqual(ended?.fileOutput, { path: "src/lib/guard.ts", action: "modified" });
 });
 
 test("activities for tools without a file path stay free of path keys", () => {

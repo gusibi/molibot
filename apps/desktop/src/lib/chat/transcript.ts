@@ -24,6 +24,8 @@ export type TranscriptMessage = {
   memoryTrace?: DesktopMessageMemoryTraceMeta;
 };
 
+export type { TurnFileItem } from "./turnFiles";
+
 export type TranscriptRenderBlock =
   | { id: string; kind: "text"; content: string }
   | { id: string; kind: "thinking"; content: string }
