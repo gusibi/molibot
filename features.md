@@ -5,6 +5,21 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 - [2026 Q3 Features Archive (Jul - Sep)](docs/archive/features-archive-2026-Q3.md)
 
+## 2026-08-26
+
+### AI 回复分叉入口恢复（修复，P1）
+
+- 主 Chat 与 Project Chat 的 AI 回复操作栏恢复 Fork；子 Session 包含所选 AI 回复，父 Session 不变。
+- 用户消息操作栏继续只显示复制与编辑，不重新引入此前移除的 Fork。
+- 分叉请求在途时按钮进入忙碌态并阻止重复提交；运行中 Session 与过期消息沿用现有中英文错误提示。
+
+### 普通 Session scratch 产物自动登记（修复，P1）
+
+- 普通 Session 的 `write/edit` 成功后，scratch 文件回执直接进入本轮文件卡片和右侧 Artifact Inspector，不再要求 Agent 额外调用 `attach`。
+- 文件仍保留在 Session scratch 中；`attach` 只负责向渠道发送附件，不再承担产物是否可见的隐式开关。
+- Session 文件接口根据持久化回执定位最终磁盘内容，HTML 可直接预览；失败写入、越界路径和不存在的文件不会进入列表。
+- 回归覆盖 Runner scratch 回执、SSE 投影、消息持久化 round-trip、文件定位，以及回复卡片与右侧面板的同一列表映射。
+
 ## 2026-08-25
 
 ### 本轮文件产物清单（已完成，P1）

@@ -158,9 +158,10 @@ export type RunnerUiEvent =
        * to see; collapsing them would make one of the two readers worse.
        */
       diff?: string;
-      /** Successful Project file result, normalized from the tool receipt. */
+      /** Successful Project or Session scratch result, normalized from the tool receipt. */
       fileOutput?: {
         path: string;
+        rootKind: "project" | "scratch";
         action: "created" | "modified";
       };
       finishedAt?: string;

@@ -1569,9 +1569,10 @@ export class MomRunner implements RunnerLike {
             isError: event.isError,
             summary: body,
             diff: extractToolDiff(event.result),
-            fileOutput: fileOutputReceipt?.rootKind === "project"
+            fileOutput: fileOutputReceipt
               ? {
                   path: fileOutputReceipt.relativePath,
+                  rootKind: fileOutputReceipt.rootKind,
                   action: fileOutputReceipt.action === "modified" ? "modified" : "created"
                 }
               : undefined,

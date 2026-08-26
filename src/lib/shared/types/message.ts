@@ -30,8 +30,10 @@ export interface ConversationAttachment {
 }
 
 export interface ConversationFileOutput {
-  /** Project-relative path opened by the Artifact Inspector. */
+  /** Path relative to the Project root or this Session's scratch root. */
   path: string;
+  /** Selects the root and the Artifact Inspector opening path. */
+  rootKind: "project" | "scratch";
   /** Whether this turn created the file or updated one that already existed. */
   action: "created" | "modified";
 }
@@ -63,7 +65,7 @@ export interface ConversationActivity {
   paths?: string[];
   /** True when the tool writes to those paths (`write`/`edit`) rather than reading them. */
   mutates?: boolean;
-  /** Successful Project file result used by the completed-turn file list. */
+  /** Successful Project or Session scratch result used by the completed-turn file list. */
   fileOutput?: ConversationFileOutput;
   startedAt?: string;
   finishedAt?: string;

@@ -36,6 +36,7 @@
     createDesktopProvider,
     fetchDesktopFileBlob,
     deleteDesktopConversation,
+    forkDesktopSession,
     truncateDesktopMessages,
     listDesktopConversations,
     renameDesktopConversation,
@@ -240,6 +241,7 @@
   // before re-running the turn so the history stays coherent.
   let editingMessageId = "";
   let editingSessionId = "";
+  let forkingMessageId = "";
   let copiedMessageId = "";
   let miniAppActionPendingKey = "";
   let miniAppActionSuccessKey = "";
@@ -1837,6 +1839,10 @@
           ? undefined
           : (m: TranscriptMessage) => startEditUserMessage(m),
         editingId: editingMessageId,
+        onForkAssistant: viewMode === "external" || sending
+          ? undefined
+          : (m: TranscriptMessage) => void forkFromAssistantMessage(m),
+        forkingId: forkingMessageId,
         onOpenMemoryTrace: (traceId: string) => void openMemoryTrace(traceId),
         contributions: contributedMessageActions,
         pendingContributionKey: miniAppActionPendingKey,
@@ -2118,6 +2124,49 @@
   function cancelEditMessage(): void {
     editingMessageId = "";
     editingSessionId = "";
+  }
+
+  async function forkFromAssistantMessage(message: TranscriptMessage): Promise<void> {
+    const fromMessageId = message.id;
+    const sourceSessionId = activeSessionId;
+    if (message.role !== "assistant" || !fromMessageId || fromMessageId.startsWith("pending-") || !sourceSessionId) return;
+    if (!connectedEndpoint || !activeProfileId || sending || forkingMessageId) {
+      if (!connectedEndpoint || !activeProfileId) error = copy.forkMessageUnavailable;
+      return;
+    }
+    forkingMessageId = fromMessageId;
+    try {
+      const child = await forkDesktopSession(
+        connectedEndpoint,
+        activeProfileId,
+        sourceSessionId,
+        fromMessageId,
+        globalThis.crypto.randomUUID()
+      );
+      const inheritedModel = sessionModelOverrides.get(sourceSessionId);
+      if (inheritedModel) sessionModelOverrides.set(child.id, inheritedModel);
+      editingMessageId = "";
+      editingSessionId = "";
+      syncDraftOut();
+      chatStore.selectSession(activeProfileId, child.id);
+      loadDraftIn();
+      persistSelected(activeProfileId, child.id);
+      await loadChannel("web", false);
+      void refreshFiles(activeProfileId, child.id);
+      focusComposerAtEnd();
+    } catch (cause) {
+      const status = (cause as Error & { status?: number }).status;
+      if (status === 422) {
+        await chatStore.reloadActive();
+        error = copy.forkMessageStale;
+      } else if (status === 409) {
+        error = copy.forkMessageRunning;
+      } else {
+        error = cause instanceof Error ? cause.message : String(cause);
+      }
+    } finally {
+      forkingMessageId = "";
+    }
   }
 
   async function stopRun(): Promise<void> {

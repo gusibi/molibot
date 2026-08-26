@@ -160,8 +160,8 @@ export type TranscriptAttachmentActions = {
 
 /**
  * Hover actions for a transcript message. `onCopy` is always available; the
- * edit button is only surfaced for the user's own messages on
- * surfaces that opt in (never on the read-only external transcript view).
+ * edit button is only surfaced for the user's own messages, while fork is
+ * only surfaced for completed assistant messages on writable chat surfaces.
  * `copiedId` lets the copy button flash a check mark.
  *
  * `onEditUser` rewrites the current Session in place (the original message
@@ -172,6 +172,8 @@ export type TranscriptMessageActions = {
   onCopy: (message: TranscriptMessage) => void;
   onEditUser?: (message: TranscriptMessage) => void;
   editingId?: string;
+  onForkAssistant?: (message: TranscriptMessage) => void;
+  forkingId?: string;
   onOpenMemoryTrace?: (traceId: string) => void;
   contributions?: TranscriptContributionAction[];
   pendingContributionKey?: string;

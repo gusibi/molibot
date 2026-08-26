@@ -236,6 +236,24 @@ test("structured tool activity merges start and end into one stable item", () =>
   }]);
 });
 
+test("structured scratch output keeps its root through the Desktop SSE projection", () => {
+  assert.deepEqual(parseDesktopActivity("runner_event", {
+    activity: {
+      kind: "tool",
+      key: "write-1",
+      label: "Write HTML",
+      state: "success",
+      fileOutput: { path: "2026/08/26/report.html", action: "created", rootKind: "scratch" }
+    }
+  }), {
+    kind: "tool",
+    key: "write-1",
+    label: "Write HTML",
+    state: "success",
+    fileOutput: { path: "2026/08/26/report.html", action: "created", rootKind: "scratch" }
+  });
+});
+
 test("legacy task sessions decode JSON-string Agent blocks in the Desktop client", () => {
   assert.deepEqual(normalizeDesktopTaskSession({
     taskId: "task-1",

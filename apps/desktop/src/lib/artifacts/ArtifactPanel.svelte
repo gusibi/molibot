@@ -36,7 +36,7 @@
   import SvgViewer from "./SvgViewer.svelte";
   import SystemOpenCard from "./SystemOpenCard.svelte";
   import TurnFileList from "../chat/TurnFileList.svelte";
-  import type { TurnFileItem } from "../chat/turnFiles";
+  import { matchesSessionOutputPath, type TurnFileItem } from "../chat/turnFiles";
 
   /**
    * Artifact Panel - the single right-hand inspector surface.
@@ -526,12 +526,12 @@
     }
 
     let sessionFile = attachments.find((candidate) =>
-      (file.fileId && candidate.id === file.fileId) || candidate.local === file.path
+      (file.fileId && candidate.id === file.fileId) || matchesSessionOutputPath(candidate.local, file.path)
     );
     if (!sessionFile) {
       await loadAttachments();
       sessionFile = attachments.find((candidate) =>
-        (file.fileId && candidate.id === file.fileId) || candidate.local === file.path
+        (file.fileId && candidate.id === file.fileId) || matchesSessionOutputPath(candidate.local, file.path)
       );
     }
     if (!sessionFile) {

@@ -106,6 +106,7 @@ const imageLightbox = read("./lib/imageLightbox.ts");
 const attachmentGroups = read("./lib/chat/attachmentGroups.ts");
 const transcriptAttachmentsSource = read("./lib/chat/TranscriptAttachments.svelte");
 const conversationActivity = read("../../../src/lib/server/app/conversationActivity.ts");
+const runner = read("../../../src/lib/server/agent/core/runner.ts");
 const activityView = read("./lib/chat/activityView.ts");
 const streamingMarkdown = read("./lib/chat/streamingMarkdown.ts");
 const transcriptDock = read("./lib/chat/TranscriptDock.svelte");
@@ -160,18 +161,25 @@ test("the composer's model pill reflects the Session, never a stale global defau
   }
 });
 
-test("editing rewrites the current Session in place and user messages do not have a fork button", () => {
+test("editing rewrites the current Session in place while only assistant messages keep the fork button", () => {
   // Edit-and-resend stays destructive: it truncates the active Session in place.
   assert.match(view, /await truncateDesktopMessages\(connectedEndpoint, activeProfileId, activeSessionId, editingId\)/);
   assert.doesNotMatch(view, /forkDesktopSession\(\s*connectedEndpoint,\s*activeProfileId,\s*editingSession/);
-  // User messages do not offer a fork button.
-  assert.doesNotMatch(transcript, /messageActions\.onForkUser/);
-  assert.doesNotMatch(transcript, /ph-git-branch/);
+  const assistantBranchMarker = '{:else}\n      <div class="assistant-layout">';
+  const assistantBranchIndex = transcript.indexOf(assistantBranchMarker);
+  assert.notEqual(assistantBranchIndex, -1);
+  const userMessageBranch = transcript.slice(transcript.indexOf('{#if message.role === "user"}'), assistantBranchIndex);
+  const assistantMessageBranch = transcript.slice(assistantBranchIndex);
+  // User messages do not offer a fork button; completed assistant replies do.
+  assert.doesNotMatch(userMessageBranch, /onForkAssistant|ph-git-branch/);
+  assert.match(assistantMessageBranch, /messageActions\.onForkAssistant[\s\S]*ph-git-branch/);
   assert.doesNotMatch(transcriptHelpers, /onForkUser/);
-  // Project chat mirrors edit-and-resend without a fork button.
+  assert.match(transcriptHelpers, /onForkAssistant/);
+  assert.match(view, /onForkAssistant:[\s\S]*forkFromAssistantMessage/);
+  // Project chat mirrors edit-and-resend and the assistant-only fork action.
   assert.match(projectChat, /await truncateDesktopMessages\(/);
   assert.doesNotMatch(projectChat, /onForkUser/);
-  assert.doesNotMatch(projectChat, /editingForkRequestId/);
+  assert.match(projectChat, /onForkAssistant:[\s\S]*forkFromAssistantMessage/);
   assert.match(row, /class:forked=\{Boolean\(item\.parentSessionId\)\}/);
   assert.match(row, /row-branch/);
 });
@@ -1953,6 +1961,8 @@ test("completed turns and the Artifact Panel share one flat final-file list", ()
   // Once outputs are represented by the completed-turn card, the legacy
   // attachment strip must not render the same assistant files underneath it.
   assert.match(transcript, /message\.attachments\?\.length && \(!turnFiles\.length \|\| !onOpenTurnFiles\)/);
+  assert.doesNotMatch(runner, /fileOutputReceipt\?\.rootKind === "project"/);
+  assert.match(runner, /rootKind:\s*fileOutputReceipt\.rootKind/);
 });
 
 test("completed reasoning stays opt-in while live reasoning remains visible", () => {

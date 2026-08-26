@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -42,12 +42,15 @@ function normalizeMediaType(attachment: ConversationAttachment): SessionFileReco
   return "file";
 }
 
-function buildConversationFiles(workspaceDir: string, messages: ConversationMessage[]): SessionFileRecord[] {
-  const files: SessionFileRecord[] = [];
+export function _buildConversationFiles(
+  workspaceDir: string,
+  externalUserId: string,
+  messages: ConversationMessage[]
+): SessionFileRecord[] {
+  const files = new Map<string, SessionFileRecord>();
 
   for (const message of messages) {
-    if (!Array.isArray(message.attachments) || message.attachments.length === 0) continue;
-    for (const attachment of message.attachments) {
+    for (const attachment of message.attachments ?? []) {
       const local = String(attachment.local ?? "").trim();
       if (!local) continue;
       const fullPath = path.resolve(workspaceDir, local);
@@ -58,7 +61,7 @@ function buildConversationFiles(workspaceDir: string, messages: ConversationMess
       const stats = statSync(fullPath);
       const mediaType = normalizeMediaType(attachment);
       const mimeType = attachment.mimeType || undefined;
-      files.push({
+      files.set(local, {
         id: encodeFileId(local),
         original: String(attachment.original ?? "").trim() || path.basename(local),
         local,
@@ -74,9 +77,37 @@ function buildConversationFiles(workspaceDir: string, messages: ConversationMess
         })
       });
     }
+
+    for (const activity of message.activities ?? []) {
+      const output = activity.fileOutput;
+      if (activity.state !== "success" || output?.rootKind !== "scratch" || !output.path) continue;
+      const scratchRoot = path.resolve(workspaceDir, externalUserId, "scratch");
+      const fullPath = path.resolve(scratchRoot, output.path);
+      if (fullPath !== scratchRoot && !fullPath.startsWith(`${scratchRoot}${path.sep}`)) continue;
+      if (!existsSync(fullPath)) continue;
+      const realScratchRoot = realpathSync(scratchRoot);
+      const realFullPath = realpathSync(fullPath);
+      if (realFullPath !== realScratchRoot && !realFullPath.startsWith(`${realScratchRoot}${path.sep}`)) continue;
+      const stats = statSync(fullPath);
+      if (!stats.isFile()) continue;
+      const local = path.relative(workspaceDir, fullPath).replaceAll(path.sep, "/");
+      const original = path.basename(output.path);
+      const mimeType = mimeFromFilename(original) ?? undefined;
+      files.set(local, {
+        id: encodeFileId(local),
+        original,
+        local,
+        mimeType,
+        mediaType: mediaTypeFromName(original),
+        size: stats.size,
+        createdAt: String(message.createdAt ?? stats.mtime.toISOString()),
+        source: "persisted",
+        previewKind: classifyFilePreview({ name: original, mimeType, mediaType: mediaTypeFromName(original) })
+      });
+    }
   }
 
-  return files.sort((a, b) => {
+  return [...files.values()].sort((a, b) => {
     if (a.createdAt !== b.createdAt) return b.createdAt.localeCompare(a.createdAt);
     return a.original.localeCompare(b.original);
   });
@@ -212,7 +243,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
     return json({ ok: false, error: "Session not found" }, { status: 404 });
   }
 
-  const files = buildConversationFiles(resolved.workspaceDir, resolved.messages);
+  const files = _buildConversationFiles(resolved.workspaceDir, resolved.externalUserId, resolved.messages);
   if (!fileId) {
     return json({
       ok: true,

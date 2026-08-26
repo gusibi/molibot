@@ -2670,8 +2670,8 @@ export async function truncateDesktopMessages(
   return { removed: payload.removed ?? 0 };
 }
 
-/** Creates (or reuses) a visible child Session whose transcript ends just
- * before `fromMessageId`. The request id makes an ambiguous client retry
+/** Creates (or reuses) a visible child Session whose transcript includes
+ * `fromMessageId`. The request id makes an ambiguous client retry
  * idempotent, so it cannot create duplicate sibling Sessions. */
 export async function forkDesktopSession(
   endpoint: string,
@@ -3077,6 +3077,7 @@ export function parseDesktopActivity(
       const rawOutput = item.fileOutput && typeof item.fileOutput === "object" ? item.fileOutput as Record<string, unknown> : null;
       const outputPath = typeof rawOutput?.path === "string" ? rawOutput.path.trim() : "";
       const outputAction = rawOutput?.action === "created" || rawOutput?.action === "modified" ? rawOutput.action : null;
+      const outputRootKind = rawOutput?.rootKind === "project" || rawOutput?.rootKind === "scratch" ? rawOutput.rootKind : null;
       return {
         kind: kind as DesktopActivityEntry["kind"],
         state: state as DesktopActivityEntry["state"],
@@ -3086,7 +3087,7 @@ export function parseDesktopActivity(
         ...(typeof item.tool === "string" && item.tool ? { tool: item.tool } : {}),
         ...(typeof item.diff === "string" && item.diff ? { diff: item.diff } : {}),
         ...(paths.length ? { paths, mutates: item.mutates === true } : {}),
-        ...(outputPath && outputAction ? { fileOutput: { path: outputPath, action: outputAction } } : {}),
+        ...(outputPath && outputAction && outputRootKind ? { fileOutput: { path: outputPath, action: outputAction, rootKind: outputRootKind } } : {}),
         ...(typeof item.startedAt === "string" ? { startedAt: item.startedAt } : {}),
         ...(typeof item.finishedAt === "string" ? { finishedAt: item.finishedAt } : {}),
         ...(Number.isFinite(item.durationMs) ? { durationMs: Number(item.durationMs) } : {}),

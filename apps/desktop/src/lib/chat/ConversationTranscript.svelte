@@ -107,9 +107,11 @@
 {#each messages as message, index (message.id ?? `${index}-${message.role}`)}
   {@const displayContent = transcriptDisplayContent(message, copy.chatAssistantError)}
   {@const invocation = message.role === "user" ? classifyComposerInvocation(displayContent) : null}
-  {@const canShowActions = Boolean(messageActions && (displayContent || message.attachments?.length))}
+  {@const canForkAssistant = Boolean(message.role === "assistant" && message.id && messageActions?.onForkAssistant && !message.id.startsWith("pending-"))}
+  {@const canShowActions = Boolean(messageActions && (displayContent || message.attachments?.length || canForkAssistant))}
   {@const isCopied = Boolean(message.id && messageActions?.copiedId === message.id)}
   {@const isEditing = Boolean(message.id && messageActions?.editingId === message.id)}
+  {@const isForking = Boolean(message.id && messageActions?.forkingId === message.id)}
   {@const key = messageKey(message, index)}
   {@const isLongUserMessage = message.role === "user" && (displayContent.split(/\r?\n/).length > 20 || displayContent.length > 1000)}
   {@const isExpanded = expandedMessages.has(key)}
@@ -299,6 +301,16 @@
                   title={copy.copyMessage}
                   onclick={() => messageActions.onCopy(message)}
                 ><i class={`ph ${isCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i></button>
+                {#if canForkAssistant}
+                  <button
+                    type="button"
+                    class="message-action"
+                    aria-label={copy.forkMessage}
+                    title={copy.forkMessage}
+                    disabled={isForking}
+                    onclick={() => messageActions.onForkAssistant!(message)}
+                  ><i class={`ph ${isForking ? "ph-circle-notch message-action-spin" : "ph-git-branch"}`} aria-hidden="true"></i></button>
+                {/if}
               </div>
             {/if}
             {#if hasTechnicalDetails || (textContributions.length && messageActions?.onRunContribution)}

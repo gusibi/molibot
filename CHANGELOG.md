@@ -5,6 +5,17 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
 
+### Fixed: Chat 仅恢复 AI 消息的 Fork 操作
+
+- AI 回复下方重新显示分叉按钮，可从该回复复制出独立子 Session；用户消息仍只保留复制与编辑。
+- 主 Chat 与 Project Chat 共用同一角色边界，并恢复请求在途防重复、运行中与过期消息提示。
+
+### Fixed: 普通 Session scratch 产物无需 attach 即可展示
+
+- 普通 Session 的成功 `write/edit` 现在直接产生可持久化的 Session 文件回执；回复下方和右侧 Artifact Inspector 会展示并打开最终磁盘内容。
+- `attach` 继续只负责发送附件。Agent 仅保存 HTML 并回复路径时，HTML 也会进入本轮产物列表并可预览。
+- 文件服务只接受当前 Session scratch 根内、真实存在且被成功回执引用的文件。
+
 ### Added: 回复内本轮文件产物清单
 
 - Agent 完成回复后，以单一列表展示本轮创建或更新的文件，并可直接在右侧 Artifact Inspector 打开最终内容。

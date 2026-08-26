@@ -596,14 +596,14 @@ test("tool activity file paths survive a save → fresh store → load round tri
     const session = new SessionStore().createWebConversation(externalUserId);
     new SessionStore().appendMessage(session.id, "assistant", "done", {
       activities: [
-        { key: "edit-1", kind: "tool", label: "Edit", state: "success", paths: ["src/a.ts"], mutates: true, fileOutput: { path: "src/a.ts", action: "modified" } },
+        { key: "edit-1", kind: "tool", label: "Edit", state: "success", paths: ["report.html"], mutates: true, fileOutput: { path: "2026/08/26/report.html", action: "modified", rootKind: "scratch" } },
         { key: "read-1", kind: "tool", label: "Read", state: "success", paths: ["src/b.ts"], mutates: false },
         { key: "bash-1", kind: "tool", label: "Bash", state: "success" }
       ]
     });
 
     const reloaded = new SessionStore().listMessages(session.id)[0]?.activities ?? [];
-    assert.deepEqual(reloaded[0], { key: "edit-1", kind: "tool", label: "Edit", state: "success", paths: ["src/a.ts"], mutates: true, fileOutput: { path: "src/a.ts", action: "modified" } });
+    assert.deepEqual(reloaded[0], { key: "edit-1", kind: "tool", label: "Edit", state: "success", paths: ["report.html"], mutates: true, fileOutput: { path: "2026/08/26/report.html", action: "modified", rootKind: "scratch" } });
     assert.deepEqual(reloaded[1]?.paths, ["src/b.ts"]);
     assert.equal(reloaded[1]?.mutates, false);
     assert.equal("paths" in (reloaded[2] ?? {}), false);

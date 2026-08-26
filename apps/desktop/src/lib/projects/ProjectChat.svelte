@@ -21,6 +21,7 @@
   import MiniAppActionToast from "../miniapps/MiniAppActionToast.svelte";
   import {
     fetchDesktopFileBlob,
+    forkDesktopSession,
     truncateDesktopMessages,
     listDesktopSessionFiles,
     loadDesktopModels,
@@ -66,6 +67,7 @@
   // message before re-running the turn.
   let editingMessageId = "";
   let editingSessionId = "";
+  let forkingMessageId = "";
   let copiedMessageId = "";
   let miniAppActionPendingKey = "";
   let miniAppActionSuccessKey = "";
@@ -489,6 +491,44 @@
     editingSessionId = "";
   }
 
+  async function forkFromAssistantMessage(msg: TranscriptMessage): Promise<void> {
+    const fromMessageId = msg.id;
+    const sourceSessionId = projectsStore.selectedSessionId;
+    const projectId = projectsStore.selectedProjectId;
+    if (msg.role !== "assistant" || !fromMessageId || fromMessageId.startsWith("pending-") || !sourceSessionId || !projectId) return;
+    if (!projectsStore.endpoint || sending || forkingMessageId) {
+      if (!projectsStore.endpoint) projectsStore.error = copy.forkMessageUnavailable;
+      return;
+    }
+    forkingMessageId = fromMessageId;
+    try {
+      const child = await forkDesktopSession(
+        projectsStore.endpoint,
+        "personal",
+        sourceSessionId,
+        fromMessageId,
+        globalThis.crypto.randomUUID()
+      );
+      editingMessageId = "";
+      editingSessionId = "";
+      await refreshProjectSessionList(projectId);
+      await selectProjectSession(child.id, projectId);
+      focusComposerAtEnd();
+    } catch (cause) {
+      const status = (cause as Error & { status?: number }).status;
+      if (status === 422) {
+        await projectChatStore.reloadActive();
+        projectsStore.error = copy.forkMessageStale;
+      } else if (status === 409) {
+        projectsStore.error = copy.forkMessageRunning;
+      } else {
+        projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+      }
+    } finally {
+      forkingMessageId = "";
+    }
+  }
+
   function stopRun(): void {
     void projectChatStore.stopActive();
   }
@@ -611,6 +651,8 @@
         onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
         onEditUser: sending ? undefined : (m: TranscriptMessage) => startEditUserMessage(m),
         editingId: editingMessageId,
+        onForkAssistant: sending ? undefined : (m: TranscriptMessage) => void forkFromAssistantMessage(m),
+        forkingId: forkingMessageId,
         contributions: contributedMessageActions,
         pendingContributionKey: miniAppActionPendingKey,
         successfulContributionKey: miniAppActionSuccessKey,

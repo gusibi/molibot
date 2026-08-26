@@ -5,19 +5,32 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 - [2026 Q3 PRD Archive (Jul - Sep)](docs/archive/prd-archive-2026-Q3.md)
 
+## 3.125 AI 回复分叉入口恢复（2026-08-26）
+
+- **Priority / Status**: P1 / Delivered (2026-08-26).
+- **Problem**: 移除用户消息 Fork 时，AI 回复的分叉入口也随前端分叉绑定一起消失；后端仍支持任意消息作为分叉点。
+- **Decision**: Fork 只显示在可写 Session 的 AI 回复操作栏；用户消息继续只提供复制与编辑。主 Chat 与 Project Chat 使用相同边界。
+- **Acceptance**:
+  - AI 回复显示 Fork，用户消息不显示。
+  - 分叉生成包含所选 AI 回复的独立子 Session并自动切换，父 Session 不被改写。
+  - 重复点击、运行中 Session 和过期消息均有既有保护与中英文反馈。
+
+---
+
 ## 3.124 本轮文件产物清单（2026-08-25）
 
-- **Priority / Status**: P1 / Delivered (2026-08-25).
+- **Priority / Status**: P1 / Delivered (2026-08-26).
 - **Problem**: Agent 完成一轮修改后，用户需要从回复中直接看到本轮创建或更新了哪些文件，并在右侧文件面板查看最终内容；Git 快照不适用于普通 Session，复杂度也超出当前需求。
 - **Decision**:
   - 工具成功结束时记录结构化文件产物回执，随消息持久化，不依赖 Git 快照。
   - 回复末尾与 Artifact Inspector 共用一份扁平列表，只以“创建 / 更新”标识区分，不做文件分区。
-  - Project 文件打开磁盘当前内容；普通 Session 展示并打开本轮生成的最终附件。
+  - Project 文件打开磁盘当前内容；普通 Session 的 scratch 写入直接成为本轮产物并打开磁盘最终内容，不依赖 Agent 额外调用 `attach`。
 - **Acceptance**:
   - 成功产物去重后按单一列表展示，失败工具不进入列表。
   - 已进入本轮文件卡片的 assistant 附件不再在回复下方重复展示。
   - 点击回复卡片或文件行可打开右侧面板，并查看对应最终内容。
   - 普通 Session 的 HTML 通过原生 Artifact transport 转发并正常预览。
+  - 仅调用 `write/edit` 的普通 Session 在回复卡片和右侧文件面板均可看到 scratch 产物，重启后仍可回读。
   - 中英文、明暗主题、重启后的消息回读均可用。
 
 ---

@@ -949,9 +949,10 @@ export interface DesktopConversationActivity {
   paths?: string[];
   /** True when the tool wrote to those paths rather than reading them. */
   mutates?: boolean;
-  /** Successful Project file result shown in the completed-turn file list. */
+  /** Successful Project or Session scratch result shown in the completed-turn file list. */
   fileOutput?: {
     path: string;
+    rootKind: "project" | "scratch";
     action: "created" | "modified";
   };
   startedAt?: string;
