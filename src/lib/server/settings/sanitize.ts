@@ -726,6 +726,18 @@ export function sanitizeModelTags(input: unknown): ModelCapabilityTag[] {
   return out.length > 0 ? out : [...DEFAULT_MODEL_TAGS];
 }
 
+function sanitizeSamplingParams(input: unknown): Record<string, unknown> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  try {
+    const value = JSON.parse(JSON.stringify(input)) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0
+      ? value as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function sanitizeTelegramBots(input: unknown): TelegramBotConfig[] {
   if (!Array.isArray(input)) return [];
 
@@ -1274,6 +1286,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
         supportedRoles?: unknown;
         verification?: unknown;
         contextWindow?: unknown;
+        samplingParams?: unknown;
         enabled?: unknown;
       };
       const id = String(modelObj.id ?? modelObj.model ?? "").trim();
@@ -1296,6 +1309,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
         tags: sanitizeModelTags(modelObj.tags),
         supportedRoles: sanitizeRoles(modelObj.supportedRoles ?? (row as { supportedRoles?: unknown }).supportedRoles),
         contextWindow: typeof modelObj.contextWindow === "number" && modelObj.contextWindow > 0 ? modelObj.contextWindow : undefined,
+        samplingParams: sanitizeSamplingParams(modelObj.samplingParams),
         enabled: modelObj.enabled !== false,
         verification: Object.keys(verification ?? {}).length > 0 ? verification : undefined
       });

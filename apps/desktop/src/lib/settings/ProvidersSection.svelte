@@ -78,6 +78,8 @@
   let apiKeyVisible = $state(false);
   let modelEditorIndex = $state<number | null>(null);
   let modelEditorDraft = $state<DesktopProviderModel | null>(null);
+  let modelSamplingDraft = $state("");
+  let modelSamplingError = $state("");
   let modelVerificationMessage = $state("");
   let modelVerificationFailed = $state(false);
   let modelDiscoveryOpen = $state(false);
@@ -388,6 +390,8 @@
       enabled: true,
       verification: {}
     };
+    modelSamplingDraft = "";
+    modelSamplingError = "";
   }
 
   function openProviderEditModel(index: number): void {
@@ -403,6 +407,8 @@
       supportedRoles: [...(model.supportedRoles ?? [])],
       verification: { ...(model.verification ?? {}) }
     };
+    modelSamplingDraft = model.samplingParams ? JSON.stringify(model.samplingParams, null, 2) : "";
+    modelSamplingError = "";
   }
 
   function closeModelEditor(): void {
@@ -411,6 +417,8 @@
     modelVerificationMessage = "";
     modelVerificationFailed = false;
     modelAutoDetected = false;
+    modelSamplingDraft = "";
+    modelSamplingError = "";
   }
 
   let modelMatchTimer: number | null = null;
@@ -466,7 +474,18 @@
 
   function saveModelEditor(): void {
     if (!modelEditorDraft?.id.trim() || !providersStore.providerEdit) return;
-    const draft = { ...modelEditorDraft, id: modelEditorDraft.id.trim() };
+    let samplingParams: Record<string, unknown> | undefined;
+    if (modelSamplingDraft.trim()) {
+      try {
+        const parsed = JSON.parse(modelSamplingDraft) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+        samplingParams = parsed as Record<string, unknown>;
+      } catch {
+        modelSamplingError = session.text.providerModelSamplingInvalid;
+        return;
+      }
+    }
+    const draft = { ...modelEditorDraft, id: modelEditorDraft.id.trim(), samplingParams };
     if (modelEditorIndex === null) {
       const index = providersStore.providerEdit.models.length;
       addProviderModel(draft.id);
@@ -967,6 +986,12 @@
           <label class="provider-field">
             <span class="provider-field-label">{session.text.providerModelContext}</span>
             <input class="provider-input" type="number" min="1" value={modelEditorDraft.contextWindow ?? ""} placeholder="200000" oninput={(event) => { const value = Number((event.currentTarget as HTMLInputElement).value); modelEditorDraft = modelEditorDraft ? { ...modelEditorDraft, contextWindow: Number.isFinite(value) && value > 0 ? value : undefined } : null; }} />
+          </label>
+          <label class="provider-field">
+            <span class="provider-field-label">{session.text.providerModelSampling}</span>
+            <textarea class="provider-input" rows="5" value={modelSamplingDraft} placeholder={'{\n  "top_p": 0.9,\n  "top_k": 40\n}'} oninput={(event) => { modelSamplingDraft = (event.currentTarget as HTMLTextAreaElement).value; modelSamplingError = ""; }}></textarea>
+            <small>{session.text.providerModelSamplingHint}</small>
+            {#if modelSamplingError}<small class="provider-field-error" role="alert">{modelSamplingError}</small>{/if}
           </label>
           <div class="provider-model-edit-switch">
             <div><strong>{session.text.providerModelEnabled}</strong><small>{modelEditorDraft.id || session.text.providerModelId}</small></div>

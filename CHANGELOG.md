@@ -5,6 +5,18 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
 
+### Added: Pi Provider Registry、请求级 Sampling 与 Telemetry Trace
+
+- Web 与 Desktop 的 Provider 候选和内置模型目录改为由 Pi registry 派生，不再手工维护易漂移的静态清单。
+- 自定义模型支持按请求传入 JSON sampling 参数，经细粒度设置、SQLite 持久化和 Pi runtime 原样传递；Web 与 Desktop 编辑器均提供中英文校验。
+- Pi telemetry context 接入现有 Run/Trace，记录 Provider、模型、API、用量、首 chunk 耗时、终止原因和错误；`rawStopReason` / `endTurn` 同步保留在模型调用 Trace 中。
+
+### Changed: Pi Runtime 升级到 0.84.3
+
+- `pi-ai`、`pi-agent-core` 与 `pi-coding-agent` 从 0.82.0 整体升级到 0.84.3，继续通过共享 PiRuntime 服务主 Agent、子 Agent、认证、模型路由与 compaction。
+- 获得上游 OAuth 提前刷新与取消、模型目录竞态、严格工具 schema、reasoning/tool replay、截断恢复及模型目录更新；无关直接依赖保持原解析版本。
+- OAuth 并发回归更新为使用越过 5 分钟提前刷新窗口的替换凭证；聚焦运行时测试与生产构建通过。
+
 ### Fixed: Chat 仅恢复 AI 消息的 Fork 操作
 
 - AI 回复下方重新显示分叉按钮，可从该回复复制出独立子 Session；用户消息仍只保留复制与编辑。

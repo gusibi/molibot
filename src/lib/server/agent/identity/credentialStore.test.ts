@@ -63,7 +63,7 @@ test("Models refreshes one expired OAuth credential under the store lock", async
         refresh: async () => {
           refreshCount += 1;
           await new Promise((resolve) => setTimeout(resolve, 10));
-          return { type: "oauth", access: "refreshed", refresh: "refresh-token", expires: Date.now() + 60_000 };
+          return { type: "oauth", access: "refreshed", refresh: "refresh-token", expires: Date.now() + 10 * 60_000 };
         },
         toAuth: async (credential) => ({ apiKey: credential.access })
       }

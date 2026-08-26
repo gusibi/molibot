@@ -183,6 +183,7 @@ export function resolveCustomModel(selected: CustomProviderConfig, modelId: stri
     },
     contextWindow: configuredModel?.contextWindow || 200000,
     maxTokens: 8192,
+    samplingParams: configuredModel?.samplingParams,
     compat: protocol === "anthropic"
       ? undefined
       : {

@@ -4,6 +4,7 @@ import type {
   RuntimeThinkingLevel
 } from "$lib/server/settings/thinking.js";
 import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
+import { getPiProviders, isPiProvider } from "$lib/server/providers/piRegistry.js";
 
 export type ProviderMode = "pi" | "custom";
 export type CustomProviderProtocol = "openai-compatible" | "anthropic";
@@ -23,6 +24,8 @@ export interface ProviderModelConfig {
   tags: ModelCapabilityTag[];
   supportedRoles: ModelRole[];
   contextWindow?: number;
+  /** Provider request-body sampling fields for OpenAI-compatible models. */
+  samplingParams?: Record<string, unknown>;
   enabled: boolean;
   verification?: Partial<Record<ModelCapabilityTag, ModelCapabilityVerification>>;
 }
@@ -705,38 +708,8 @@ export interface GlobalDisplaySettings {
   runLogNotice: boolean;
 }
 
-export const KNOWN_PROVIDER_LIST: KnownProvider[] = [
-  "amazon-bedrock",
-  "anthropic",
-  "google",
-  "google-gemini-cli" as KnownProvider,
-  "google-antigravity" as KnownProvider,
-  "google-vertex",
-  "openai",
-  "azure-openai-responses",
-  "openai-codex",
-  "github-copilot",
-  "xai",
-  "groq",
-  "cerebras",
-  "deepseek",
-  "openrouter",
-  "vercel-ai-gateway",
-  "zai",
-  "mistral",
-  "minimax",
-  "minimax-cn",
-  "huggingface",
-  "opencode",
-  "kimi-coding",
-  // pi exposes an OAuth flow for Radius, and the Settings quick sign-in card is
-  // only rendered for providers present in this list. Leaving it out made the
-  // provider reachable through the login API but not through either UI.
-  "radius" as KnownProvider
-];
-
-const KNOWN_PROVIDERS: ReadonlySet<KnownProvider> = new Set(KNOWN_PROVIDER_LIST);
+export const KNOWN_PROVIDER_LIST: KnownProvider[] = getPiProviders().map((provider) => provider.id);
 
 export function isKnownProvider(value: string): value is KnownProvider {
-  return KNOWN_PROVIDERS.has(value as KnownProvider);
+  return isPiProvider(value);
 }

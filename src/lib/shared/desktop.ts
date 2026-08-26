@@ -1124,6 +1124,7 @@ export interface DesktopProviderModel {
   tags: DesktopProviderModelTag[];
   supportedRoles: DesktopProviderModelRole[];
   contextWindow?: number;
+  samplingParams?: Record<string, unknown>;
   enabled: boolean;
   verification: Partial<Record<DesktopProviderModelTag, "untested" | "passed" | "failed">>;
 }

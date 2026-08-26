@@ -40,6 +40,7 @@
         tags: ModelCapabilityTag[];
         supportedRoles: ModelRole[];
         contextWindow?: number;
+        samplingParams?: Record<string, unknown>;
         enabled: boolean;
         verification?: Partial<
             Record<ModelCapabilityTag, ModelCapabilityVerification>
@@ -192,6 +193,9 @@
             addModelAliasLabel: "别名（可选）",
             addModelAliasPlaceholder: "显示用的简短名称",
             addModelCwLabel: "上下文窗口 (Tokens)",
+            samplingParamsLabel: "请求采样参数（JSON）",
+            samplingParamsHint: "传给 OpenAI 兼容接口，例如 top_p、top_k、min_p 或 repetition_penalty。留空使用服务商默认值。",
+            samplingParamsInvalid: "采样参数必须是有效的 JSON 对象。",
             modelEnabledLabel: "启用此模型",
             cancelBtn: "取消",
             confirmAddModelBtn: "添加模型",
@@ -363,6 +367,9 @@
             addModelAliasLabel: "Alias (optional)",
             addModelAliasPlaceholder: "Short display name",
             addModelCwLabel: "Context Window (tokens)",
+            samplingParamsLabel: "Request sampling parameters (JSON)",
+            samplingParamsHint: "Passed to OpenAI-compatible APIs, for example top_p, top_k, min_p, or repetition_penalty. Leave empty for provider defaults.",
+            samplingParamsInvalid: "Sampling parameters must be a valid JSON object.",
             modelEnabledLabel: "Enable this model",
             cancelBtn: "Cancel",
             confirmAddModelBtn: "Add Model",
@@ -481,6 +488,7 @@
     let modelEditorAlias = "";
     let modelEditorTags: ModelCapabilityTag[] = ["text"];
     let modelEditorContextWindow: number | undefined = undefined;
+    let modelEditorSamplingParams = "";
     let modelEditorEnabled = true;
 
     /* ── Pull Models Modal ── */
@@ -920,6 +928,7 @@
         modelEditorAlias = "";
         modelEditorTags = ["text"];
         modelEditorContextWindow = undefined;
+        modelEditorSamplingParams = "";
         modelEditorEnabled = true;
         showModelEditor = true;
     }
@@ -933,6 +942,9 @@
         modelEditorAlias = model.alias ?? "";
         modelEditorTags = [...model.tags];
         modelEditorContextWindow = model.contextWindow;
+        modelEditorSamplingParams = model.samplingParams
+            ? JSON.stringify(model.samplingParams, null, 2)
+            : "";
         modelEditorEnabled = model.enabled !== false;
         showModelEditor = true;
     }
@@ -941,6 +953,17 @@
         const modelId = modelEditorId.trim();
         if (!modelId) return;
         const modelAlias = modelEditorAlias.trim() || undefined;
+        let samplingParams: Record<string, unknown> | undefined;
+        if (modelEditorSamplingParams.trim()) {
+            try {
+                const parsed = JSON.parse(modelEditorSamplingParams) as unknown;
+                if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+                samplingParams = parsed as Record<string, unknown>;
+            } catch {
+                error = copy.samplingParamsInvalid;
+                return;
+            }
+        }
         const targetIndex = modelEditorIndex;
         const provider = form.customProviders.find((row) => row.id === modelEditorTargetProviderId);
         if (!provider) return;
@@ -956,6 +979,7 @@
                     tags: [...modelEditorTags],
                     supportedRoles: ["system", "user", "assistant", "tool"],
                     contextWindow: modelEditorContextWindow,
+                    samplingParams,
                     enabled: modelEditorEnabled,
                 }
                 : {
@@ -964,6 +988,7 @@
                     alias: modelAlias,
                     tags: [...modelEditorTags],
                     contextWindow: modelEditorContextWindow,
+                    samplingParams,
                     enabled: modelEditorEnabled,
                 };
             const previousId = targetIndex === null ? "" : current.models[targetIndex]?.id ?? "";
@@ -1685,6 +1710,10 @@
                                                   "tool",
                                               ],
                                   contextWindow: typeof m.contextWindow === "number" && m.contextWindow > 0 ? m.contextWindow : undefined,
+                                  samplingParams:
+                                      m.samplingParams && typeof m.samplingParams === "object" && !Array.isArray(m.samplingParams)
+                                          ? structuredClone(m.samplingParams)
+                                          : undefined,
                                   enabled: m.enabled !== false,
                                   verification:
                                       m.verification &&
@@ -1751,6 +1780,7 @@
                         tags: [...model.tags],
                         supportedRoles: [...model.supportedRoles],
                         contextWindow: model.contextWindow && model.contextWindow > 0 ? model.contextWindow : undefined,
+                        samplingParams: model.samplingParams ? structuredClone(model.samplingParams) : undefined,
                         enabled: model.enabled !== false,
                         verification:
                             model.verification &&
@@ -2299,6 +2329,11 @@
                 <label class="providers-detail-form-label">
                     <span class="providers-detail-form-label-text">{copy.addModelIdLabel}</span>
                     <Input bind:value={modelEditorId} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
+                </label>
+                <label class="providers-detail-form-label">
+                    <span class="providers-detail-form-label-text">{copy.samplingParamsLabel}</span>
+                    <textarea class="channel-textarea" rows="5" bind:value={modelEditorSamplingParams} placeholder={'{\n  "top_p": 0.9,\n  "top_k": 40\n}'}></textarea>
+                    <small>{copy.samplingParamsHint}</small>
                 </label>
                 <label class="providers-detail-form-label">
                     <span class="providers-detail-form-label-text">{copy.addModelAliasLabel}</span>

@@ -12,6 +12,7 @@ export type HookStage =
   | "run.finished"
   | "model.call.before"
   | "model.call.after"
+  | "model.telemetry"
   | "assistant.message.stream" // (reserved)
   | "tool.call.before"
   | "tool.call.after"
@@ -80,6 +81,8 @@ export interface ModelCallPayload extends OpenPayload {
   api?: string;
   usage?: unknown;
   stopReason?: string;
+  rawStopReason?: string;
+  endTurn?: boolean;
 }
 
 export interface ToolCallPayload extends OpenPayload {
@@ -128,6 +131,7 @@ export interface StagePayloadMap {
   "run.finished": RunLifecyclePayload;
   "model.call.before": ModelCallPayload;
   "model.call.after": ModelCallPayload;
+  "model.telemetry": ModelCallPayload;
   "model.select.before": ModelCallPayload;
   "model.select.after": ModelCallPayload;
   "tool.call.before": ToolCallPayload;

@@ -135,6 +135,7 @@ export class TraceRecorderHook implements RuntimeHook {
     "input.enrich.after",
     "model.call.before",
     "model.call.after",
+    "model.telemetry",
     "tool.call.before",
     "tool.call.after",
     "tool.call.error",
@@ -249,6 +250,11 @@ export class TraceRecorderHook implements RuntimeHook {
     }
     if (event.stage === "model.call.after") {
       this.recordModelFact(event, payload, "success");
+      return;
+    }
+    if (event.stage === "model.telemetry") {
+      // The span is already persisted as a Trace event. The final model fact
+      // remains owned by model.call.after so raw termination data stays intact.
       return;
     }
     if (event.stage === "skill.selected") {

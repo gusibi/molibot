@@ -2,8 +2,31 @@
 
 > 实施状态（2026-07-21）：本报告的 P0/P1 与 P1.5 已完成，包括新 scope/0.81、Node 下限、共享 PiRuntime/CredentialStore、两个 Agent 的 `streamFunction`、compaction、subagent `ModelRuntime`、`addedToolNames` 和无用 Web UI 依赖移除。P2/P3 项继续按本文分开推进。
 
-日期：2026-07-21  
-范围：只做分析，不修改产品代码或依赖锁文件。
+> 复核（2026-08-26）：三个运行时包已从 0.82.0 整体升级到 0.84.3。以下复核补充当前可用能力；原文继续记录 0.73.1 → 0.81.0 的迁移背景。
+
+> 实施更新（2026-08-27）：P1 Provider registry、P2 `rawStopReason` / `endTurn` 与请求级 sampling、P3 Pi telemetry context 已交付。Durable deferred provider responses 仍是未排期的独立 slice。
+
+原始报告日期：2026-07-21
+原始报告范围：只做分析，不修改产品代码或依赖锁文件。
+
+## 0.84.3 复核结论
+
+依赖升级本身已经交付。Molibot 自动获得 OAuth 提前刷新与可取消认证、模型目录竞态修复、严格工具 schema、reasoning/tool replay、截断恢复、原始终止原因及新模型目录；这些不需要增加产品开关。
+
+后续能力按价值排序：
+
+| 建议 | 能力 | 当前判断 |
+| --- | --- | --- |
+| P1 | Provider 候选由 Pi registry 派生 | **已交付**。Web、Desktop 和 settings schema 共用 Pi registry 的 Provider/模型目录，不再维护独立静态名单。 |
+| P2 | Trace 保留 `rawStopReason` / `endTurn` | **已交付**。两个原始字段进入 `model.call.after` 事件和最终 model fact。 |
+| P2 | 自定义模型请求级 sampling | **已交付**。JSON 参数经 Web/Desktop、SQLite 重启 round-trip 和模型路由传入 Pi 请求。 |
+| P3 | Telemetry context | **已交付**。Pi span 按 Run/model attempt 写入现有 Trace，没有引入第二套观测存储。 |
+| P3 | Durable deferred provider responses | 适合异步模型端点，但会碰到 Runtime Task、取消和恢复语义，应作为独立端到端 slice。 |
+| 暂不产品化 | `toolChoice`、Cloudflare Workers binding fetch | Agent loop 已拥有工具选择；Workers binding 也不属于当前 Node/Desktop 主运行形态。保留底层可用性即可。 |
+
+0.84.3 继续沿用现有 `addedToolNames`、七档 thinking 和共享 PiRuntime；这些能力已经交付，不重复立项。
+
+## 原始 0.73.1 → 0.81.0 评估
 
 ## 一句话结论
 

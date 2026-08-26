@@ -5,6 +5,26 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 - [2026 Q3 PRD Archive (Jul - Sep)](docs/archive/prd-archive-2026-Q3.md)
 
+## 3.126 Pi Runtime 0.84.3 与后续能力（2026-08-26）
+
+- **Priority / Status**: P1 runtime upgrade delivered (2026-08-26); P1 registry, P2 diagnostics/sampling, and P3 telemetry delivered (2026-08-27); durable deferred responses remain unscheduled.
+- **Problem**: Molibot 已使用统一 PiRuntime，但运行时停在 0.82.0；同时设置层仍维护静态 Provider 列表，无法自动呈现 Pi 新增的全部 Provider 和请求能力。
+- **Decision**:
+  - 三个 Pi 运行时包整体升级到 0.84.3，不引入兼容层；现有共享 runtime、CredentialStore 和动态工具边界保持不变。
+  - 上游协议、认证、重试、tool schema 和 replay 修复直接作为运行时能力交付。
+  - Provider 候选和内置模型由 Pi registry 派生，Web/Desktop 共用同一真相源。
+  - 自定义模型支持请求级 JSON sampling 参数，并通过细粒度设置和 SQLite 重启 round-trip 持久化。
+  - `rawStopReason` / `endTurn` 与 Pi telemetry span 进入现有 Run/Trace；telemetry 只作为被动观测，不影响 Provider 请求结果。
+  - Durable deferred provider response 涉及取消、恢复和 Runtime Task 语义，保持为未排期的独立端到端 slice。
+- **Acceptance**:
+  - 三个直接依赖和安装策略统一解析为 0.84.3，冻结锁文件可安装。
+  - OAuth 并发刷新、Agent runner、compaction、thinking levels 等聚焦回归通过，生产构建通过。
+  - Provider registry 新增目录可在 Web/Desktop 出现，过期静态项不再出现。
+  - Sampling 参数经保存 → 新 store → 加载的整对象 round-trip 后保持不变，并进入 Pi 模型请求。
+  - Trace 能按 run/model attempt 查到原始终止字段和 Pi telemetry；telemetry 失败不改变请求的成功、失败或取消语义。
+
+---
+
 ## 3.125 AI 回复分叉入口恢复（2026-08-26）
 
 - **Priority / Status**: P1 / Delivered (2026-08-26).

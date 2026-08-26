@@ -236,6 +236,54 @@ test("custom provider model alias survives a settings store restart", () => {
   }
 });
 
+test("custom provider model sampling parameters survive a whole-settings restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-model-sampling-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      customProviders: [{
+        id: "vllm",
+        name: "vLLM",
+        enabled: true,
+        protocol: "openai-compatible",
+        baseUrl: "https://example.test",
+        apiKey: "sk-test",
+        models: [{
+          id: "reasoning-model",
+          tags: ["text"],
+          supportedRoles: ["system", "user", "assistant", "tool"],
+          samplingParams: {
+            top_p: 0.92,
+            top_k: 40,
+            repetition_penalty: 1.05,
+            chat_template_kwargs: { enable_thinking: true }
+          },
+          enabled: true
+        }],
+        defaultModel: "reasoning-model",
+        path: "/v1/chat/completions"
+      }]
+    });
+
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(restarted.customProviders[0]?.models[0]?.samplingParams, {
+      top_p: 0.92,
+      top_k: 40,
+      repetition_penalty: 1.05,
+      chat_template_kwargs: { enable_thinking: true }
+    });
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("custom image engines survive a settings store restart and can be removed", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-image-engine-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;

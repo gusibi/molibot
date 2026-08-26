@@ -5,7 +5,22 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 - [2026 Q3 Features Archive (Jul - Sep)](docs/archive/features-archive-2026-Q3.md)
 
+## 2026-08-27
+
+### Pi P1–P3 产品能力接入（已完成）
+
+- **P1 Provider registry**：Web API、Desktop API 与设置 schema 共用 Pi 模型目录作为内置 Provider 真相源，新增 Provider 和模型无需再同步静态列表。
+- **P2 请求级 sampling**：自定义模型可保存任意 JSON sampling 参数，Web/Desktop 中英文编辑和校验、SQLite 重启 round-trip、Desktop 窄投影与 Pi runtime 传递均已打通。
+- **P2 终止诊断**：`model.call.after` 保留 Pi 返回的 `rawStopReason` 与 `endTurn`，用于区分 Provider 终止和显式结束轮次。
+- **P3 telemetry context**：Pi 请求 span 按 run/model attempt 关联到现有 Trace，包含 Provider、模型、API、用量/成本、chunk/首 chunk 耗时、HTTP 状态和错误诊断；不新建第二套观测系统。
+
 ## 2026-08-26
+
+### Pi Runtime 0.84.3（已完成，P1）
+
+- 共享 `pi-ai`、`pi-agent-core` 与 `pi-coding-agent` 运行时从 0.82.0 升级到 0.84.3，主 Agent、子 Agent、模型路由、认证和 compaction 继续共用同一上层边界。
+- 内置 Provider 自动获得提前刷新 OAuth、可取消认证与模型目录请求、严格工具 schema、reasoning/tool replay、截断恢复和新模型目录等上游修复。
+- OAuth 并发回归按新的 5 分钟提前刷新窗口校准；替换凭证必须越过该窗口，才能验证多个等待者只触发一次刷新。
 
 ### AI 回复分叉入口恢复（修复，P1）
 

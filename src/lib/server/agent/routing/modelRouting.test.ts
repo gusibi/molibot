@@ -219,3 +219,28 @@ test("an unknown model on a built-in provider still falls back to the configured
   assert.equal(model.api, "openai-completions");
   assert.equal(model.id, "not-in-catalog");
 });
+
+test("a custom model carries request sampling parameters into Pi", () => {
+  const model = resolveCustomModel(
+    {
+      id: "vllm",
+      name: "vLLM",
+      enabled: true,
+      protocol: "openai-compatible",
+      baseUrl: "https://example.test",
+      apiKey: "k",
+      path: "/v1/chat/completions",
+      defaultModel: "reasoning-model",
+      models: [{
+        id: "reasoning-model",
+        tags: ["text"],
+        enabled: true,
+        supportedRoles: ["system", "user", "assistant", "tool"],
+        samplingParams: { top_p: 0.9, min_p: 0.05 }
+      }]
+    },
+    "reasoning-model"
+  );
+
+  assert.deepEqual(model.samplingParams, { top_p: 0.9, min_p: 0.05 });
+});

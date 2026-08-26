@@ -1,16 +1,17 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
-import { KNOWN_PROVIDER_LIST, type CustomProviderConfig } from "$lib/server/settings";
+import { getPiProviders } from "$lib/server/providers/piRegistry.js";
+import type { CustomProviderConfig } from "$lib/server/settings";
 
 export const GET: RequestHandler = async () => {
-  const providers = KNOWN_PROVIDER_LIST.map((provider) => ({
-    id: provider,
-    name: provider
+  const piProviders = getPiProviders();
+  const providers = piProviders.map((provider) => ({
+    id: provider.id,
+    name: provider.name
   }));
 
   const providerModels = Object.fromEntries(
-    KNOWN_PROVIDER_LIST.map((provider) => [provider, getModels(provider).map((m) => m.id)])
+    piProviders.map((provider) => [provider.id, provider.models.map((model) => model.id)])
   );
 
   const customTemplate: CustomProviderConfig = {

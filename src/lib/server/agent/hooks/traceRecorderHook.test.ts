@@ -118,6 +118,14 @@ test("TraceRecorderHook writes unified tool and model call facts for analysis", 
     modelAttemptId: "run-facts:0:0",
     modelCallSeq: 1,
     usage: { input: 10, output: 5, cacheRead: 3, cacheWrite: 2 },
+    stopReason: "stop",
+    rawStopReason: "end_turn",
+    endTurn: true
+  });
+  manager.emit("model.telemetry", runContext, {
+    modelAttemptId: "run-facts:0:0",
+    spanName: "pi.ai.request",
+    status: "success",
     stopReason: "stop"
   });
   await manager.flush({ timeoutMs: 1000 });
@@ -136,6 +144,8 @@ test("TraceRecorderHook writes unified tool and model call facts for analysis", 
   assert.equal(modelFacts[0]?.cacheReadTokens, 3);
   assert.equal(modelFacts[0]?.cacheWriteTokens, 2);
   assert.equal(modelFacts[0]?.totalTokens, 20);
+  assert.equal(modelFacts[0]?.payload.rawStopReason, "end_turn");
+  assert.equal(modelFacts[0]?.payload.endTurn, true);
   assert.equal(modelFacts[0]?.botId, "web-profile-1");
   assert.equal(toolFacts.find((row) => row.name === "memory")?.status, "success");
   assert.equal(toolFacts.find((row) => row.name === "bash")?.status, "error");

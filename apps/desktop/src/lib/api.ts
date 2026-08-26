@@ -3607,6 +3607,7 @@ export function providerItemToUpdateRequest(provider: DesktopProviderItem): Desk
       tags: [...model.tags],
       supportedRoles: [...model.supportedRoles],
       contextWindow: model.contextWindow,
+      samplingParams: model.samplingParams ? structuredClone(model.samplingParams) : undefined,
       enabled: model.enabled,
       verification: { ...model.verification }
     })),

@@ -1490,15 +1490,16 @@ test("provider editor draft is detached from the credential-safe source item", (
 // The inline editor is rebuilt from the saved item after every save, so a model
 // field this projection forgets vanishes from the pane immediately and from the
 // database on the next write — which is how the alias was lost (issue #28).
-test("provider editor draft carries every saved model field, including the alias", () => {
+test("provider editor draft carries every saved model field, including sampling parameters", () => {
   const draft = providerItemToUpdateRequest({
     id: "p1", name: "Provider", enabled: true, isDefault: true, protocol: "openai-compatible" as const,
     baseUrl: "https://example.com", hasApiKey: true, modelCount: 1, defaultModel: "m1", path: "/v1/chat/completions",
     thinkingFormat: null,
-    models: [{ id: "m1", alias: "Gateway DeepSeek", tags: ["text" as const], supportedRoles: ["system" as const], contextWindow: 128000, enabled: true, verification: {} }]
+    models: [{ id: "m1", alias: "Gateway DeepSeek", tags: ["text" as const], supportedRoles: ["system" as const], contextWindow: 128000, samplingParams: { top_p: 0.9 }, enabled: true, verification: {} }]
   });
   assert.equal(draft.models[0].alias, "Gateway DeepSeek");
   assert.equal(draft.models[0].contextWindow, 128000);
+  assert.deepEqual(draft.models[0].samplingParams, { top_p: 0.9 });
 });
 
 test("desktop memory actions and rejections use the narrow memory endpoint", async () => {

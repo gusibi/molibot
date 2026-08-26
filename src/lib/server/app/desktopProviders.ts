@@ -1,5 +1,6 @@
-import { KNOWN_PROVIDER_LIST, type CustomProviderConfig, type RuntimeSettings } from "$lib/server/settings/schema";
+import type { CustomProviderConfig, RuntimeSettings } from "$lib/server/settings/schema";
 import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
+import { getPiProviders } from "$lib/server/providers/piRegistry.js";
 import type {
   DesktopProviderModel,
   DesktopProviderModelRole,
@@ -21,6 +22,7 @@ function buildDesktopProviderModel(model: CustomProviderConfig["models"][number]
     tags: (Array.isArray(model.tags) ? model.tags : []).filter((tag): tag is DesktopProviderModelTag => MODEL_TAGS.has(tag as DesktopProviderModelTag)),
     supportedRoles: (Array.isArray(model.supportedRoles) ? model.supportedRoles : []).filter((role): role is DesktopProviderModelRole => MODEL_ROLES.has(role as DesktopProviderModelRole)),
     contextWindow: typeof model.contextWindow === "number" && model.contextWindow > 0 ? model.contextWindow : undefined,
+    samplingParams: model.samplingParams ? structuredClone(model.samplingParams) : undefined,
     enabled: model.enabled !== false,
     verification: { ...(model.verification ?? {}) }
   };
@@ -68,10 +70,10 @@ export function buildDesktopProvidersSummary(settings: RuntimeSettings): Desktop
     piProvider: settings.piModelProvider ?? "",
     piModel: settings.piModelName ?? "",
     defaultCustomProviderId: settings.defaultCustomProviderId ?? "",
-    builtinProviders: KNOWN_PROVIDER_LIST.map((provider) => ({
-      id: provider,
-      name: provider,
-      models: getBuiltinProviderModelIds(provider)
+    builtinProviders: getPiProviders().map((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      models: provider.models.map((model) => model.id)
     })),
     customProviders: providers.map((provider) =>
       buildDesktopProviderItem(provider, settings.defaultCustomProviderId ?? "")

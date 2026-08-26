@@ -32,7 +32,15 @@ function request(overrides: Partial<DesktopProviderUpdateRequest> = {}): Desktop
     protocol: "anthropic",
     baseUrl: "https://api.anthropic.com/",
     models: [
-      { id: "claude", tags: ["text", "vision"], supportedRoles: ["system", "user", "assistant", "tool"], contextWindow: 200000, enabled: true, verification: {} }
+      {
+        id: "claude",
+        tags: ["text", "vision"],
+        supportedRoles: ["system", "user", "assistant", "tool"],
+        contextWindow: 200000,
+        samplingParams: { top_p: 0.9, min_p: 0.05 },
+        enabled: true,
+        verification: {}
+      }
     ],
     defaultModel: "claude",
     path: "",
@@ -49,6 +57,7 @@ test("provider update preserves a saved key when no replacement is supplied", ()
   assert.equal(updated.path, "/v1/messages");
   assert.equal(updated.defaultModel, "claude");
   assert.equal(updated.models[0].contextWindow, 200000);
+  assert.deepEqual(updated.models[0].samplingParams, { top_p: 0.9, min_p: 0.05 });
 });
 
 test("provider update can replace or explicitly clear a key", () => {

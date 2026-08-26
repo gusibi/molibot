@@ -80,6 +80,8 @@ test("buildDesktopProvidersSummary maps mode + pi model and never leaks a key", 
   assert.equal(summary.customProviders.length, 1);
   assert.ok(summary.builtinProviders.length > 0);
   assert.ok(summary.builtinProviders.every((provider) => Array.isArray(provider.models)));
+  assert.equal(summary.builtinProviders.find((provider) => provider.id === "baseten")?.name, "Baseten");
+  assert.equal(summary.builtinProviders.some((provider) => provider.id === "google-antigravity"), false);
   assert.equal(JSON.stringify(summary).includes("sk-super-secret-key"), false);
 });
 

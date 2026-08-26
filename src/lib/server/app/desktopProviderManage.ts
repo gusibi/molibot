@@ -1,4 +1,4 @@
-import type { CustomProviderConfig, ProviderModelConfig, RuntimeSettings } from "$lib/server/settings/schema";
+import { isKnownProvider, type CustomProviderConfig, type ProviderModelConfig, type RuntimeSettings } from "$lib/server/settings/schema";
 import type {
   DesktopProviderGlobalsRequest,
   DesktopProviderModel,
@@ -17,11 +17,11 @@ function normalizeModel(model: DesktopProviderModel): ProviderModelConfig | null
   if (!id) return null;
   const inferred = ModelRegistryService.getInstance().inferModelCapabilities(id);
 
-  const tags = Array.isArray(model.tags) && model.tags.length > 0
+  const tags: ProviderModelConfig["tags"] = Array.isArray(model.tags) && model.tags.length > 0
     ? [...model.tags]
     : inferred.matched ? inferred.tags : ["text"];
 
-  const supportedRoles = Array.isArray(model.supportedRoles) && model.supportedRoles.length > 0
+  const supportedRoles: ProviderModelConfig["supportedRoles"] = Array.isArray(model.supportedRoles) && model.supportedRoles.length > 0
     ? [...model.supportedRoles]
     : inferred.matched ? inferred.supportedRoles : ["system", "user", "assistant", "tool"];
 
@@ -37,6 +37,9 @@ function normalizeModel(model: DesktopProviderModel): ProviderModelConfig | null
     tags,
     supportedRoles,
     contextWindow,
+    samplingParams: model.samplingParams && typeof model.samplingParams === "object" && !Array.isArray(model.samplingParams)
+      ? structuredClone(model.samplingParams)
+      : undefined,
     enabled: model.enabled !== false,
     verification: { ...(model.verification ?? {}) }
   };
@@ -107,9 +110,10 @@ export function buildProviderGlobalsPatch(
   const defaultCustomProviderId = providers.some((provider) => provider.id === requestedDefault && provider.enabled !== false)
     ? requestedDefault
     : providers.find((provider) => provider.enabled !== false)?.id ?? "";
+  const requestedPiProvider = String(request.piProvider ?? "").trim();
   return {
     providerMode: request.providerMode === "custom" ? "custom" : "pi",
-    piModelProvider: String(request.piProvider ?? "").trim(),
+    piModelProvider: isKnownProvider(requestedPiProvider) ? requestedPiProvider : settings.piModelProvider,
     piModelName: String(request.piModel ?? "").trim(),
     defaultCustomProviderId
   };

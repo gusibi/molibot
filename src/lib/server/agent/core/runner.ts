@@ -58,6 +58,7 @@ import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { resolveModelThinkingLevel } from "$lib/server/providers/modelThinking.js";
 import { hasPiProviderAuth, streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
+import { createPiTelemetryContext } from "$lib/server/providers/piTelemetry.js";
 import {
   DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
   resolvePreferredTransport
@@ -559,6 +560,14 @@ export class MomRunner implements RunnerLike {
           modelId: selectedModel.id,
           provider: selectedModel.provider
         });
+        const requestOptions = {
+          ...(opts as any),
+          telemetryContext: createPiTelemetryContext({
+            hookManager: this.hookManager,
+            getHookContext: () => this.activeHookContext,
+            getModelAttemptId: () => this.activeModelCallContext?.modelAttemptId
+          })
+        };
 
         // Guard the wait for the first streamed token. A model that accepts the
         // request but never starts responding would otherwise hang the run
@@ -566,7 +575,7 @@ export class MomRunner implements RunnerLike {
         // falls back to the next model (or surfaces an error once exhausted).
         const firstTokenTimeoutMs = settingsNow.modelFallback?.firstTokenTimeoutMs ?? 0;
         if (!(firstTokenTimeoutMs > 0)) {
-          return streamWithPiRuntime(selectedModel as any, patchedContext as any, opts as any);
+          return streamWithPiRuntime(selectedModel as any, patchedContext as any, requestOptions);
         }
 
         const upstreamSignal = (opts as { signal?: AbortSignal } | undefined)?.signal;
@@ -586,7 +595,7 @@ export class MomRunner implements RunnerLike {
         const stream = streamWithPiRuntime(
           selectedModel as any,
           patchedContext as any,
-          { ...(opts as any), signal: firstTokenController.signal },
+          { ...requestOptions, signal: firstTokenController.signal },
         );
         return withFirstTokenTimeout(stream, {
           timeoutMs: firstTokenTimeoutMs,
@@ -1696,6 +1705,8 @@ export class MomRunner implements RunnerLike {
             cacheWrite?: number;
             totalTokens?: number;
           };
+          rawStopReason?: string;
+          endTurn?: boolean;
         };
         if (msg.stopReason) {
           stopReason = msg.stopReason;
@@ -1712,6 +1723,8 @@ export class MomRunner implements RunnerLike {
           runId,
           chatId: this.chatId,
           stopReason: msg.stopReason,
+          rawStopReason: msg.rawStopReason,
+          endTurn: msg.endTurn,
           api: msg.api,
           provider: msg.provider,
           model: msg.model,
@@ -1745,7 +1758,10 @@ export class MomRunner implements RunnerLike {
             cacheWriteTokens: msg.usage.cacheWrite,
             totalTokens: msg.usage.totalTokens
           });
-          this.emitActiveModelCallAfter(msg.usage, msg.stopReason);
+          this.emitActiveModelCallAfter(msg.usage, msg.stopReason, {
+            rawStopReason: msg.rawStopReason,
+            endTurn: msg.endTurn
+          });
         }
 
         const text = (msg.content || [])
@@ -3501,7 +3517,8 @@ export class MomRunner implements RunnerLike {
       cacheWrite?: number;
       totalTokens?: number;
     },
-    stopReason?: string
+    stopReason?: string,
+    diagnostics: { rawStopReason?: string; endTurn?: boolean } = {}
   ): void {
     if (!this.activeHookContext || !this.activePayloadContext) return;
     const modelCallContext = this.activeModelCallContext ?? this.startActiveModelCallTrace();
@@ -3512,7 +3529,8 @@ export class MomRunner implements RunnerLike {
       model: this.activePayloadContext.model,
       api: this.activePayloadContext.api,
       usage,
-      stopReason
+      stopReason,
+      ...diagnostics
     });
   }
 

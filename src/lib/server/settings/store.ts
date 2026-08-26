@@ -676,6 +676,7 @@ function sanitizeModels(
       tags: sanitizeModelTags(obj.tags),
       supportedRoles: sanitizeRoles(obj.supportedRoles ?? providerRoles),
       contextWindow: typeof obj.contextWindow === "number" && obj.contextWindow > 0 ? obj.contextWindow : undefined,
+      samplingParams: sanitizeSamplingParams(obj.samplingParams),
       enabled: obj.enabled !== false,
       verification: sanitizeVerification(obj.verification)
     });
@@ -689,6 +690,18 @@ function sanitizeModels(
   const ids = models.map((m) => m.id);
   const defaultModel = ids.includes(defaultModelRaw) ? defaultModelRaw : (ids[0] ?? "");
   return { models, defaultModel };
+}
+
+function sanitizeSamplingParams(input: unknown): Record<string, unknown> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  try {
+    const value = JSON.parse(JSON.stringify(input)) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0
+      ? value as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function sanitizeMode(input: unknown): ProviderMode {
@@ -1335,6 +1348,7 @@ export class SettingsStore {
         tags_json TEXT NOT NULL,
         supported_roles_json TEXT NOT NULL,
         context_window INTEGER,
+        sampling_params_json TEXT,
         verification_json TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
         order_index INTEGER NOT NULL,
@@ -1390,6 +1404,11 @@ export class SettingsStore {
     }
     try {
       db.exec("ALTER TABLE settings_custom_provider_models ADD COLUMN alias TEXT");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_custom_provider_models ADD COLUMN sampling_params_json TEXT");
     } catch {
       // column already exists
     }
@@ -1695,7 +1714,7 @@ export class SettingsStore {
         reasoning_effort_map_json: string;
       }>;
       const modelRows = db.prepare(`
-        SELECT provider_id, model_id, alias, tags_json, supported_roles_json, context_window, verification_json, enabled
+        SELECT provider_id, model_id, alias, tags_json, supported_roles_json, context_window, sampling_params_json, verification_json, enabled
         FROM settings_custom_provider_models
         ORDER BY provider_id ASC, order_index ASC, model_id ASC
       `).all() as Array<{
@@ -1705,6 +1724,7 @@ export class SettingsStore {
         tags_json: string;
         supported_roles_json: string;
         context_window: number | null;
+        sampling_params_json: string | null;
         verification_json: string;
         enabled: number;
       }>;
@@ -1717,6 +1737,9 @@ export class SettingsStore {
           tags: this.parseDynamicValue(row.tags_json, []),
           supportedRoles: this.parseDynamicValue(row.supported_roles_json, []),
           contextWindow: row.context_window && row.context_window > 0 ? row.context_window : undefined,
+          samplingParams: row.sampling_params_json
+            ? this.parseDynamicValue(row.sampling_params_json, undefined)
+            : undefined,
           enabled: row.enabled !== 0,
           verification: this.parseDynamicValue(row.verification_json, undefined)
         });
@@ -1920,8 +1943,8 @@ export class SettingsStore {
         `);
         const insertModel = db.prepare(`
           INSERT INTO settings_custom_provider_models
-            (provider_id, model_id, alias, tags_json, supported_roles_json, context_window, verification_json, enabled, order_index, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (provider_id, model_id, alias, tags_json, supported_roles_json, context_window, sampling_params_json, verification_json, enabled, order_index, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const provider of settings.customProviders) {
           insertProvider.run(
@@ -1950,6 +1973,7 @@ export class SettingsStore {
               JSON.stringify(model.tags ?? []),
               JSON.stringify(model.supportedRoles ?? []),
               model.contextWindow && model.contextWindow > 0 ? model.contextWindow : null,
+              model.samplingParams ? JSON.stringify(model.samplingParams) : null,
               JSON.stringify(model.verification ?? null),
               model.enabled === false ? 0 : 1,
               orderIndex,

@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "2.9.37",
+  "version": "2.9.38",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
@@ -42,9 +42,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.26",
-    "@earendil-works/pi-agent-core": "^0.82.0",
-    "@earendil-works/pi-ai": "^0.82.0",
-    "@earendil-works/pi-coding-agent": "^0.82.0",
+    "@earendil-works/pi-agent-core": "^0.84.3",
+    "@earendil-works/pi-ai": "^0.84.3",
+    "@earendil-works/pi-coding-agent": "^0.84.3",
     "@fontsource-variable/noto-sans-sc": "5.3.0",
     "@larksuiteoapi/node-sdk": "^1.66.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
