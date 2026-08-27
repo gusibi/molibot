@@ -5,6 +5,26 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 - [2026 Q3 PRD Archive (Jul - Sep)](docs/archive/prd-archive-2026-Q3.md)
 
+## 3.127 Desktop 会话检索、渐进分页与 Agent 空状态（2026-08-27）
+
+- **Priority / Status**: P1 / Delivered (2026-08-27).
+- **Problem**: 会话搜索与“更多对话”共用入口，导致用户无法区分检索和继续浏览；空白 Agent 会话也缺少一个低干扰的开始方式。
+- **Decision**:
+  - 在侧栏折叠按钮旁放置唯一的全局搜索按钮；统一查询由共享 Desktop 服务聚合，不在 Web、Project 或 Channel 组件内重复实现。
+  - 搜索默认覆盖 Web、Project 和全部外部渠道，支持“全部 / Web / 项目 / 其他渠道”范围筛选；外部渠道可进一步细分。
+  - 结果按来源分组，每组独立按游标追加 10 条；结果展示所属 Agent、Project 或渠道 Bot、摘要和时间，并导航到对应会话。
+  - 各渠道首次加载 10 条会话，“更多对话”使用服务端游标在当前列表追加 10 条；后台重载不得缩回已展开记录。
+  - 空状态只增加三项常用起步提示；点击仅填入现有输入框并聚焦，保留用户编辑和发送决定。
+  - 归档及归档后会话产物的生命周期不纳入本次实现，另行定义后再开发。
+- **Acceptance**:
+  - 搜索和追加历史是两个独立入口，搜索不会改变当前侧栏分页状态；各区域不重复增加搜索按钮。
+  - 一个查询能返回 Web、Project、Telegram、飞书、QQ 与微信结果，范围筛选、分组计数和每组分页保持一致。
+  - Web 与 Project 结果进入可写会话，外部渠道结果进入只读 transcript；不可搜索的消息内容不作为匹配摘要。
+  - 每次“更多对话”最多追加 10 条且不重复，加载中保留已有列表；没有后续页时入口消失。
+  - 快速开始不会自动发送、不会覆盖已有草稿，并支持中英文、明暗主题、键盘焦点和窄窗口布局。
+
+---
+
 ## 3.126 Pi Runtime 0.84.3 与后续能力（2026-08-26）
 
 - **Priority / Status**: P1 runtime upgrade delivered (2026-08-26); P1 registry, P2 diagnostics/sampling, and P3 telemetry delivered (2026-08-27); durable deferred responses remain unscheduled.
@@ -49,6 +69,7 @@
   - 成功产物去重后按单一列表展示，失败工具不进入列表。
   - 已进入本轮文件卡片的 assistant 附件不再在回复下方重复展示。
   - 点击回复卡片或文件行可打开右侧面板，并查看对应最终内容。
+  - 面板初始化刷新与文件点击并发时，点击不得读取尚未更新的共享空列表而误报文件不可用。
   - 普通 Session 的 HTML 通过原生 Artifact transport 转发并正常预览。
   - 仅调用 `write/edit` 的普通 Session 在回复卡片和右侧文件面板均可看到 scratch 产物，重启后仍可回读。
   - 中英文、明暗主题、重启后的消息回读均可用。

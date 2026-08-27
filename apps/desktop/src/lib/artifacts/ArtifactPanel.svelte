@@ -499,8 +499,13 @@
     } catch { /* clipboard unavailable */ }
   }
 
-  async function loadAttachments(): Promise<void> {
+  async function loadAttachments(): Promise<DesktopSessionFile[]> {
     const current = ++attachmentGeneration;
+    const request = { endpoint, profileId, sessionId, projectId };
+    const isCurrentRequest = () => endpoint === request.endpoint
+      && profileId === request.profileId
+      && sessionId === request.sessionId
+      && projectId === request.projectId;
     attachmentsLoading = true;
     attachmentsError = "";
     try {
@@ -508,12 +513,18 @@
       // conversation belongs to whichever bot owns it, so the host's profile id
       // wins when it has one. Reading the wrong profile returns an empty list
       // with no error, which is indistinguishable from "no files".
-      const files = sessionId ? await listDesktopSessionFiles(endpoint, profileId || "personal", sessionId, projectId) : [];
-      if (current === attachmentGeneration) attachments = files;
+      const files = request.sessionId
+        ? await listDesktopSessionFiles(request.endpoint, request.profileId || "personal", request.sessionId, request.projectId)
+        : [];
+      const stillCurrent = isCurrentRequest();
+      if (current === attachmentGeneration && stillCurrent) attachments = files;
+      return stillCurrent ? files : [];
     } catch (cause) {
-      if (current === attachmentGeneration) attachmentsError = cause instanceof Error ? cause.message : String(cause);
+      const stillCurrent = isCurrentRequest();
+      if (current === attachmentGeneration && stillCurrent) attachmentsError = cause instanceof Error ? cause.message : String(cause);
+      return [];
     } finally {
-      if (current === attachmentGeneration) attachmentsLoading = false;
+      if (current === attachmentGeneration && isCurrentRequest()) attachmentsLoading = false;
     }
   }
 
@@ -529,8 +540,8 @@
       (file.fileId && candidate.id === file.fileId) || matchesSessionOutputPath(candidate.local, file.path)
     );
     if (!sessionFile) {
-      await loadAttachments();
-      sessionFile = attachments.find((candidate) =>
+      const refreshed = await loadAttachments();
+      sessionFile = refreshed.find((candidate) =>
         (file.fileId && candidate.id === file.fileId) || matchesSessionOutputPath(candidate.local, file.path)
       );
     }

@@ -97,7 +97,8 @@ import {
   updateDesktopProvider,
   updateDesktopProviderGlobals,
   ONBOARDING_STEPS,
-  renderDesktopD2
+  renderDesktopD2,
+  searchDesktopConversations
 } from "./api";
 
 test("desktop D2 rendering posts the source and resolved appearance to the service", async () => {
@@ -167,6 +168,27 @@ test("desktop provider OAuth uses narrow encoded session and credential routes",
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test("unified conversation search encodes scope, query, and cursor", async () => {
+  const original = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ ok: true, scope: "all", groups: [] }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    await searchDesktopConversations("http://127.0.0.1:3000", { scope: "all", query: "plan + review", limit: 10, cursor: "abc/==" });
+    await searchDesktopConversations("http://127.0.0.1:3000", { scope: "web" });
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.match(urls[0], /\/api\/desktop\/conversations\/search\?/);
+  assert.match(urls[0], /scope=all/);
+  assert.match(urls[0], /query=plan%20%2B%20review|query=plan\+%2B\+review/);
+  assert.match(urls[0], /limit=10/);
+  assert.match(urls[0], /cursor=abc%2F%3D%3D/);
+  assert.doesNotMatch(urls[1], /query=|limit=|cursor=/);
 });
 
 test("Desktop observability queries encode filters and clamp pagination", async () => {

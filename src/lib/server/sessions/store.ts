@@ -1145,8 +1145,10 @@ export class SessionStore {
         file.conversation.origin = internalOrigin;
         writeWebSession(owner.externalUserId, file);
       }
-      const messages = this.listMessages(id);
-      const lastMessageText = String(messages[messages.length - 1]?.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+      const lastSearchable = [...this.listMessages(id)].reverse().find((message) =>
+        (message.role === "user" || message.role === "assistant") && retentionCapabilities(message.retention).searchable
+      );
+      const lastMessageText = String(lastSearchable?.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
       out.push({ conversation: file.conversation, externalUserId: owner.externalUserId, lastMessageText });
     }
     return out;

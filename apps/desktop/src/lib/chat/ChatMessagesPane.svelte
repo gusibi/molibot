@@ -27,6 +27,10 @@
   export let liveSteps: DesktopConversationStep[] = [];
   export let emptyTitle: string;
   export let emptyHint: string;
+  export let emptyActionLabel = "";
+  export let emptyActionHint = "";
+  export let emptyActions: ReadonlyArray<{ icon: string; label: string; prompt: string }> = [];
+  export let onEmptyAction: ((prompt: string) => void) | null = null;
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
   export let showReadReceipt = false;
@@ -113,6 +117,10 @@
         {liveSteps}
         {emptyTitle}
         {emptyHint}
+        {emptyActionLabel}
+        {emptyActionHint}
+        {emptyActions}
+        {onEmptyAction}
         {searchMatchIds}
         {activeMatchId}
         {showReadReceipt}

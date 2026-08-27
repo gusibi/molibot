@@ -20,6 +20,7 @@
     activeSessionId = "",
     statusDots = new Map<string, SessionStatusDot>(),
     loading = false,
+    loadingMore = false,
     labels,
     formatTime,
     onToggle,
@@ -37,6 +38,7 @@
     activeSessionId?: string;
     statusDots?: Map<string, SessionStatusDot>;
     loading?: boolean;
+    loadingMore?: boolean;
     labels: {
       running: string;
       waitingApproval: string;
@@ -132,7 +134,7 @@
           {/each}
         </ul>
         {#if hasMore}
-          <button type="button" class="channel-more" onclick={onMore}>{labels.more}</button>
+          <button type="button" class="channel-more" disabled={loadingMore} onclick={onMore}>{loadingMore ? "…" : labels.more}</button>
         {/if}
       {/if}
     </div>
@@ -211,4 +213,5 @@
     text-align: left;
   }
   .channel-configure:hover, .channel-more:hover { text-decoration: underline; }
+  .channel-more:disabled { cursor: default; opacity: .55; text-decoration: none; }
 </style>

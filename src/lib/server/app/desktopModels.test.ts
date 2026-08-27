@@ -12,16 +12,16 @@ import {
   sanitizeDesktopModelRoute
 } from "./desktopModels";
 
-test("desktop model state follows pi 0.82 three-, five-, and seven-level metadata", () => {
+test("desktop model state follows pi 0.84 three-, five-, and seven-level metadata", () => {
   const cases = [
-    { provider: "deepseek", modelId: "deepseek-v4-flash", levels: ["off", "high", "max"] },
+    { provider: "deepseek", modelId: "deepseek-v4-flash", levels: ["off", "low", "high", "max"] },
     { provider: "openai", modelId: "gpt-5.5", levels: ["off", "low", "medium", "high", "xhigh"] },
     { provider: "openai-codex", modelId: "gpt-5.6-sol", levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] }
   ] as const;
 
   for (const fixture of cases) {
     const piModel = getPiCatalogModels(fixture.provider).find((model) => model.id === fixture.modelId);
-    assert.ok(piModel, `pi 0.82 should expose ${fixture.provider}/${fixture.modelId}`);
+    assert.ok(piModel, `pi 0.84 should expose ${fixture.provider}/${fixture.modelId}`);
     const settings: RuntimeSettings = {
       ...defaultRuntimeSettings,
       providerMode: "pi",

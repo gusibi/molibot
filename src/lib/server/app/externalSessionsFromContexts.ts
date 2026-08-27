@@ -9,6 +9,7 @@ import type { ExternalSessionEntry } from "$lib/server/app/desktopExternalSessio
 import type { Channel, Conversation, ConversationMessage, ConversationAttachment } from "$lib/shared/types/message.js";
 import { mediaTypeFromName, mimeFromFilename } from "$lib/shared/filePreview.js";
 import { isAuthorizedConversationSource, type AuthorizedConversationSource } from "$lib/server/sessions/conversationAuthorization.js";
+import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 
 /**
  * Read-only projection of external-channel conversations from the Agent
@@ -375,7 +376,10 @@ export function listExternalSessionsFromContexts(
             purpose: "chat"
           }))) continue;
           const conversation = buildConversation(ref, entries);
-          const lastMessage = messageEntries[messageEntries.length - 1];
+          const lastMessage = [...messageEntries].reverse().find((entry) =>
+            (entry.message.role === "user" || entry.message.role === "assistant")
+            && retentionCapabilities(entry.retention).searchable
+          );
           const preview = lastMessage
             ? contentText(messageContent(lastMessage.message)).replace(/\s+/g, " ").trim().slice(0, 300)
             : "";

@@ -23,6 +23,10 @@
   export let liveSteps: DesktopConversationStep[] = [];
   export let emptyTitle: string;
   export let emptyHint: string;
+  export let emptyActionLabel = "";
+  export let emptyActionHint = "";
+  export let emptyActions: ReadonlyArray<{ icon: string; label: string; prompt: string }> = [];
+  export let onEmptyAction: ((prompt: string) => void) | null = null;
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
   export let showReadReceipt = false;
@@ -57,6 +61,17 @@
     <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" /></div>
     <h2>{emptyTitle}</h2>
     <p>{emptyHint}</p>
+    {#if emptyActions.length > 0 && onEmptyAction}
+      <div class="conversation-empty-actions" role="group" aria-label={emptyActionLabel}>
+        {#each emptyActions as action (action.label)}
+          <button type="button" onclick={() => onEmptyAction?.(action.prompt)}>
+            <i class={`ph ph-${action.icon}`} aria-hidden="true"></i>
+            <span>{action.label}</span>
+          </button>
+        {/each}
+      </div>
+      {#if emptyActionHint}<small class="conversation-empty-action-hint">{emptyActionHint}</small>{/if}
+    {/if}
   </div>
 {/if}
 <ConversationTranscript {messages} {copy} {formatTime} {assistantName} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} {onOpenActivityPath} {onOpenTurnFiles} {endpoint} />

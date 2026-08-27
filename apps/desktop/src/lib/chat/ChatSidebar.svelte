@@ -20,6 +20,7 @@
     channelItems,
     channelHasMore,
     channelLoading,
+    channelLoadingMore,
     activeSessionId = "",
     activeProjectSessionId = "",
     endpoint,
@@ -46,6 +47,7 @@
     onToggleMiniApps,
     onOpenMiniApp,
     onOpenMiniApps,
+    onOpenConversationSearch,
     onToggleCollapse
   }: {
     copy: Translation;
@@ -58,6 +60,7 @@
     channelItems: Record<string, DesktopConversationItem[]>;
     channelHasMore: Record<string, boolean>;
     channelLoading: Record<string, boolean>;
+    channelLoadingMore: Record<string, boolean>;
     activeSessionId?: string;
     activeProjectSessionId?: string;
     endpoint: string;
@@ -84,6 +87,7 @@
     onToggleMiniApps: () => void;
     onOpenMiniApp: (appId: string) => void;
     onOpenMiniApps: () => void;
+    onOpenConversationSearch: () => void;
     onToggleCollapse?: () => void;
   } = $props();
 
@@ -118,17 +122,28 @@
   <div class="sidebar-top-bar" data-tauri-drag-region>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true" onmousedown={startWindowDrag}></div>
-    {#if onToggleCollapse}
+    <div class="sidebar-top-actions">
       <button
         type="button"
-        class="sidebar-collapse-btn"
-        aria-label={copy.collapseSidebar}
-        title={copy.collapseSidebar}
-        onclick={onToggleCollapse}
+        class="sidebar-titlebar-btn sidebar-search-btn"
+        aria-label={copy.searchConversations}
+        title={copy.searchConversations}
+        onclick={onOpenConversationSearch}
       >
-        <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
       </button>
-    {/if}
+      {#if onToggleCollapse}
+        <button
+          type="button"
+          class="sidebar-titlebar-btn sidebar-collapse-btn"
+          aria-label={copy.collapseSidebar}
+          title={copy.collapseSidebar}
+          onclick={onToggleCollapse}
+        >
+          <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+        </button>
+      {/if}
+    </div>
   </div>
   <nav class="sidebar-nav" aria-label={copy.newChat}>
     <button type="button" class="nav-item" onclick={onNewConversation}>
@@ -168,6 +183,7 @@
             items={channelItems[channel.id] ?? []}
             hasMore={Boolean(channelHasMore[channel.id])}
             loading={Boolean(channelLoading[channel.id])}
+            loadingMore={Boolean(channelLoadingMore[channel.id])}
             {activeSessionId}
             {statusDots}
             labels={accordionLabels}
@@ -228,7 +244,13 @@
     z-index: 32;
     pointer-events: none;
   }
-  .sidebar-collapse-btn {
+  .sidebar-top-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    pointer-events: auto;
+  }
+  .sidebar-titlebar-btn {
     position: relative;
     z-index: 33;
     pointer-events: auto;
@@ -245,11 +267,15 @@
     cursor: pointer;
     transition: background var(--duration-fast, 150ms) var(--ease-standard), color var(--duration-fast, 150ms) var(--ease-standard);
   }
-  .sidebar-collapse-btn:hover {
+  .sidebar-titlebar-btn:hover {
     background: var(--fill, rgba(0, 0, 0, 0.05));
     color: var(--label-primary, #171717);
   }
-  .sidebar-collapse-btn i {
+  .sidebar-titlebar-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  .sidebar-titlebar-btn i {
     font-size: var(--icon-md, 18px);
   }
   .sidebar-nav {

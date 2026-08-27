@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCsv, CSV_MAX_ROWS } from "./csvTable";
+import { parseCsv, sortCsvRows, CSV_MAX_ROWS } from "./csvTable";
 
 test("a simple comma-separated table uses the first row as headers", () => {
   const result = parseCsv("name,age\nAda,36\nAlan,41\n");
@@ -66,4 +66,36 @@ test("an empty input parses to an empty table", () => {
   assert.deepEqual(result.headers, []);
   assert.deepEqual(result.rows, []);
   assert.equal(result.truncated, false);
+});
+
+test("percent and thousands-separated cells sort numerically, not lexically", () => {
+  const rows = [["75%"], ["100%"], ["0%"], ["1,200"], ["900"]];
+  assert.deepEqual(sortCsvRows(rows, 0, 1).map((row) => row[0]), ["0%", "75%", "100%", "900", "1,200"]);
+  assert.deepEqual(sortCsvRows(rows, 0, -1).map((row) => row[0]), ["1,200", "900", "100%", "75%", "0%"]);
+});
+
+test("CJK cells sort by locale collation, not code points", () => {
+  const rows = [["进行中"], ["已完成"], ["未开始"]];
+  const sorted = sortCsvRows(rows, 0, 1).map((row) => row[0]);
+  assert.equal(sorted.length, 3);
+  assert.notDeepEqual(sorted, rows.map((row) => row[0]));
+  // Ascending and descending are exact mirrors of one another.
+  assert.deepEqual(sortCsvRows(rows, 0, -1).map((row) => row[0]), [...sorted].reverse());
+});
+
+test("mixed numeric and text cells fall back to string comparison", () => {
+  const rows = [["P0"], ["P1"], ["P10"], ["P2"]];
+  assert.deepEqual(sortCsvRows(rows, 0, 1).map((row) => row[0]), ["P0", "P1", "P2", "P10"]);
+});
+
+test("rows shorter than the sort column sort as empty cells", () => {
+  const rows = [["b", "1"], ["a"], ["c", "2"]];
+  assert.deepEqual(sortCsvRows(rows, 1, 1), [["a"], ["b", "1"], ["c", "2"]]);
+});
+
+test("sorting returns a new array and never mutates the parsed rows", () => {
+  const rows = [["2"], ["1"]];
+  const sorted = sortCsvRows(rows, 0, 1);
+  assert.deepEqual(sorted, [["1"], ["2"]]);
+  assert.deepEqual(rows, [["2"], ["1"]]);
 });

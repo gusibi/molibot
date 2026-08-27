@@ -14,14 +14,15 @@ import {
   decodeCursor,
   encodeCursor,
   parseWebProfileId,
+  queryConversationSearchGroup,
   queryConversations,
-  queryGroups,
   sortItems,
   type BotNameResolver
 } from "./desktopConversations.js";
 import type {
   DesktopConversationChannel,
-  DesktopConversationItem
+  DesktopConversationItem,
+  DesktopConversationSearchItem
 } from "$lib/shared/desktop.js";
 import type { ExternalSessionEntry } from "./desktopExternalSessions.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
@@ -38,6 +39,28 @@ function webItem(id: string, updatedAt: string, opts: Partial<DesktopConversatio
     purpose: "conversation",
     readOnly: false,
     latestMessagePreview: opts.latestMessagePreview
+  };
+}
+
+function searchItem(
+  source: DesktopConversationSearchItem["source"],
+  id: string,
+  updatedAt: string,
+  overrides: Partial<DesktopConversationSearchItem> = {}
+): DesktopConversationSearchItem {
+  return {
+    source,
+    sessionId: id,
+    title: overrides.title ?? `Session ${id}`,
+    updatedAt,
+    channel: source === "project" ? "web" : source,
+    contextId: overrides.contextId ?? `${source}-context`,
+    contextName: overrides.contextName ?? `${source} context`,
+    contextDeleted: false,
+    readOnly: source !== "web" && source !== "project",
+    latestMessagePreview: overrides.latestMessagePreview,
+    projectId: overrides.projectId,
+    botId: overrides.botId
   };
 }
 
@@ -138,28 +161,23 @@ test("queryConversations matches query across title, bot name and preview", () =
   assert.deepEqual(byPreview.items.map((it) => it.sessionId), ["s-1"]);
 });
 
-test("queryGroups groups by bot, pages each group, and orders groups by recency", () => {
+test("unified search matches source context and paginates each source independently", () => {
   const items = [
-    webItem("a1", "2026-07-01T00:00:00Z", { botId: "bot-a", botName: "Bot A" }),
-    webItem("a2", "2026-07-03T00:00:00Z", { botId: "bot-a", botName: "Bot A" }),
-    webItem("b1", "2026-07-02T00:00:00Z", { botId: "bot-b", botName: "Bot B" })
+    searchItem("project", "p-1", "2026-07-03T00:00:00Z", { contextName: "Molibot Desktop" }),
+    searchItem("project", "p-2", "2026-07-02T00:00:00Z", { latestMessagePreview: "pagination review" }),
+    searchItem("project", "p-3", "2026-07-01T00:00:00Z", { title: "Unrelated" })
   ];
-  // 11 sessions for bot-a so the group paginates.
-  for (let i = 3; i <= 11; i += 1) {
-    items.push(webItem(`a${i}`, `2026-07-0${i}T00:00:00Z`, { botId: "bot-a", botName: "Bot A" }));
-  }
+  const byProject = queryConversationSearchGroup("project", items, { query: "molibot", limit: 10 });
+  assert.deepEqual(byProject.items.map((item) => item.sessionId), ["p-1"]);
 
-  const { groups } = queryGroups(items, { groupLimit: 10 });
-  assert.equal(groups.length, 2);
-  // bot-a's most recent (a2 @ 07-03) is newer than bot-b's (b1 @ 07-02).
-  assert.equal(groups[0].botId, "bot-a");
-  assert.equal(groups[1].botId, "bot-b");
-  assert.equal(groups[0].total, 11);
-  assert.equal(groups[0].items.length, 10);
-  assert.equal(groups[0].hasMore, true);
-  assert.ok(groups[0].nextCursor);
-  assert.equal(groups[1].hasMore, false);
-  assert.equal(groups[1].nextCursor, null);
+  const first = queryConversationSearchGroup("project", items, { limit: 2 });
+  assert.deepEqual(first.items.map((item) => item.sessionId), ["p-1", "p-2"]);
+  assert.equal(first.hasMore, true);
+  assert.ok(first.nextCursor);
+  const second = queryConversationSearchGroup("project", items, { limit: 2, cursor: first.nextCursor });
+  assert.deepEqual(second.items.map((item) => item.sessionId), ["p-3"]);
+  assert.equal(second.total, 3);
+  assert.equal(second.hasMore, false);
 });
 
 test("buildWebItems maps entries, marks deleted profiles, and keeps web read/write", () => {
@@ -311,6 +329,7 @@ test("SessionStore.listAllWebConversations aggregates across profiles with a pre
     const store = new SessionStore();
     const a = store.createWebConversation("web:personal:web-anonymous");
     store.appendMessage(a.id, "user", "hello from personal");
+    store.appendMessage(a.id, "user", "private search exclusion", { retention: "not_searchable" });
     const b = store.createWebConversation("web:work:web-anonymous");
     store.appendMessage(b.id, "user", "hello from work");
 

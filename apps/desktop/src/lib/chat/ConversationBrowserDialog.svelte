@@ -1,17 +1,15 @@
 <script lang="ts">
-  import BotAvatar from "./BotAvatar.svelte";
-  import ConversationRow from "./ConversationRow.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
-  import { listDesktopConversationGroups, listDesktopConversations } from "../api.js";
+  import { searchDesktopConversations } from "../api.js";
   import type {
-    DesktopConversationBotGroup,
-    DesktopConversationChannel,
-    DesktopConversationItem
+    DesktopConversationSearchGroup,
+    DesktopConversationSearchItem,
+    DesktopConversationSearchScope,
+    DesktopConversationSearchSource
   } from "@molibot/desktop-contract";
 
   let {
     endpoint,
-    channel,
     open = false,
     labels,
     formatTime,
@@ -19,7 +17,6 @@
     onClose
   }: {
     endpoint: string;
-    channel: DesktopConversationChannel;
     open?: boolean;
     labels: {
       search: string;
@@ -27,23 +24,51 @@
       loading: string;
       loadMore: string;
       empty: string;
-      deletedBot: string;
-      unknownBot: string;
       close: string;
+      all: string;
+      web: string;
+      project: string;
+      channels: string;
+      allChannels: string;
+      scopeFilter: string;
+      telegram: string;
+      feishu: string;
+      qq: string;
+      weixin: string;
+      unknownBot: string;
     };
     formatTime: (iso: string) => string;
-    onSelect: (item: DesktopConversationItem) => void;
+    onSelect: (item: DesktopConversationSearchItem) => void;
     onClose: () => void;
   } = $props();
 
+  const PRIMARY_SCOPES: DesktopConversationSearchScope[] = ["all", "web", "project", "channels"];
+  const CHANNEL_SCOPES: DesktopConversationSearchScope[] = ["channels", "telegram", "feishu", "qq", "weixin"];
+  const SOURCE_ICONS: Record<DesktopConversationSearchSource, string> = {
+    web: "browser",
+    project: "folder-simple",
+    telegram: "telegram-logo",
+    feishu: "bird",
+    qq: "linux-logo",
+    weixin: "wechat-logo"
+  };
+
   let query = $state("");
-  let groups = $state<DesktopConversationBotGroup[]>([]);
+  let scope = $state<DesktopConversationSearchScope>("all");
+  let groups = $state<DesktopConversationSearchGroup[]>([]);
   let loading = $state(false);
   let loadingMore = $state<Record<string, boolean>>({});
   let error = $state("");
   let opened = false;
   let completing = false;
+  let generation = 0;
   let searchInput = $state<HTMLInputElement>();
+
+  const scopeLabel = (value: DesktopConversationSearchScope | DesktopConversationSearchSource): string => {
+    if (value === "all") return labels.all;
+    if (value === "channels") return labels.allChannels;
+    return labels[value];
+  };
 
   function requestClose(): void {
     if (completing) return;
@@ -55,16 +80,17 @@
     if (!next) requestClose();
   }
 
-  async function loadGroups(q: string): Promise<void> {
+  async function loadResults(q: string, nextScope: DesktopConversationSearchScope): Promise<void> {
+    const requestGeneration = ++generation;
     loading = true;
     error = "";
     try {
-      const res = await listDesktopConversationGroups(endpoint, { channel, query: q });
-      groups = res.groups;
+      const response = await searchDesktopConversations(endpoint, { scope: nextScope, query: q, limit: 10 });
+      if (requestGeneration === generation) groups = response.groups;
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
+      if (requestGeneration === generation) error = cause instanceof Error ? cause.message : String(cause);
     } finally {
-      loading = false;
+      if (requestGeneration === generation) loading = false;
     }
   }
 
@@ -75,32 +101,46 @@
       return;
     }
     const q = query;
+    const nextScope = scope;
     if (!opened) {
       opened = true;
-      void loadGroups(q);
+      void loadResults(q, nextScope);
       return;
     }
-    const timer = window.setTimeout(() => void loadGroups(q), 250);
+    const timer = window.setTimeout(() => void loadResults(q, nextScope), 250);
     return () => window.clearTimeout(timer);
   });
 
-  async function loadMore(botId: string): Promise<void> {
-    const group = groups.find((item) => item.botId === botId);
-    if (!group || !group.nextCursor) return;
-    loadingMore = { ...loadingMore, [botId]: true };
+  async function loadMore(group: DesktopConversationSearchGroup): Promise<void> {
+    if (!group.nextCursor || loadingMore[group.source]) return;
+    const requestedQuery = query;
+    const requestedScope = scope;
+    loadingMore = { ...loadingMore, [group.source]: true };
     try {
-      const res = await listDesktopConversations(endpoint, { channel, botId, cursor: group.nextCursor });
-      groups = groups.map((item) =>
-        item.botId === botId
-          ? { ...item, items: [...item.items, ...res.items], nextCursor: res.nextCursor, hasMore: res.hasMore }
-          : item
-      );
+      const response = await searchDesktopConversations(endpoint, {
+        scope: group.source,
+        query: requestedQuery,
+        limit: 10,
+        cursor: group.nextCursor
+      });
+      if (query !== requestedQuery || scope !== requestedScope) return;
+      const next = response.groups[0];
+      if (!next) return;
+      const seen = new Set(group.items.map((item) => item.sessionId));
+      const appended = next.items.filter((item) => !seen.has(item.sessionId));
+      groups = groups.map((item) => item.source === group.source
+        ? { ...item, items: [...item.items, ...appended], nextCursor: next.nextCursor, hasMore: next.hasMore }
+        : item);
+    } catch (cause) {
+      if (query === requestedQuery && scope === requestedScope) {
+        error = cause instanceof Error ? cause.message : String(cause);
+      }
     } finally {
-      loadingMore = { ...loadingMore, [botId]: false };
+      loadingMore = { ...loadingMore, [group.source]: false };
     }
   }
 
-  function pick(item: DesktopConversationItem): void {
+  function pick(item: DesktopConversationSearchItem): void {
     if (completing) return;
     completing = true;
     onSelect(item);
@@ -111,7 +151,15 @@
     searchInput?.focus();
   }
 
+  function selectScope(value: DesktopConversationSearchScope): void {
+    if (scope === value) return;
+    scope = value;
+    groups = [];
+    loading = true;
+  }
+
   let totalItems = $derived(groups.reduce((sum, group) => sum + group.items.length, 0));
+  let channelScopeActive = $derived(scope === "channels" || CHANNEL_SCOPES.includes(scope));
 </script>
 
 <Dialog
@@ -136,6 +184,26 @@
     </button>
   </header>
 
+  <div class="browser-scope-bar" role="group" aria-label={labels.scopeFilter}>
+    {#each PRIMARY_SCOPES as value (value)}
+      <button
+        type="button"
+        class:active={value === "channels" ? channelScopeActive : scope === value}
+        aria-pressed={value === "channels" ? channelScopeActive : scope === value}
+        onclick={() => selectScope(value)}
+      >{value === "channels" ? labels.channels : scopeLabel(value)}</button>
+    {/each}
+  </div>
+  {#if channelScopeActive}
+    <div class="browser-channel-scopes" role="group" aria-label={labels.allChannels}>
+      {#each CHANNEL_SCOPES as value (value)}
+        <button type="button" class:active={scope === value} aria-pressed={scope === value} onclick={() => selectScope(value)}>
+          {scopeLabel(value)}
+        </button>
+      {/each}
+    </div>
+  {/if}
+
   <div class="browser-body">
     <h2 id="conversation-browser-title" class="sr-only">{labels.search}</h2>
     {#if loading && groups.length === 0}
@@ -145,24 +213,30 @@
     {:else if groups.length === 0 || totalItems === 0}
       <p class="browser-state">{query ? labels.searchEmpty : labels.empty}</p>
     {:else}
-      {#each groups as group (group.botId)}
+      {#each groups as group (group.source)}
         <section class="browser-group">
           <header class="browser-group-header">
-            <BotAvatar botId={group.botId} name={group.botDeleted ? "" : group.botName} size={20} readOnly={group.readOnly} />
-            <span class="browser-group-name">{group.botDeleted ? labels.deletedBot : (group.botName || labels.unknownBot)}</span>
+            <i class={`ph ph-${SOURCE_ICONS[group.source]}`} aria-hidden="true"></i>
+            <span class="browser-group-name">{scopeLabel(group.source)}</span>
             <span class="browser-group-count">{group.total}</span>
           </header>
-          {#each group.items as item (item.sessionId)}
-            <ConversationRow
-              {item}
-              {formatTime}
-              labels={{ running: "", waitingApproval: "", completed: "", failed: "" }}
-              onSelect={() => pick(item)}
-            />
-          {/each}
+          <div class="browser-result-list">
+            {#each group.items as item (item.sessionId)}
+              <button type="button" class="browser-result" title={item.title} onclick={() => pick(item)}>
+                <span class="browser-result-icon"><i class={`ph ph-${SOURCE_ICONS[item.source]}`} aria-hidden="true"></i></span>
+                <span class="browser-result-copy">
+                  <span class="browser-result-title">{item.title}</span>
+                  <span class="browser-result-meta">
+                    <span>{item.contextName || labels.unknownBot}</span><span aria-hidden="true">·</span><time>{formatTime(item.updatedAt)}</time>
+                  </span>
+                  {#if item.latestMessagePreview}<span class="browser-result-preview">{item.latestMessagePreview}</span>{/if}
+                </span>
+              </button>
+            {/each}
+          </div>
           {#if group.hasMore}
-            <button type="button" class="browser-load-more" disabled={loadingMore[group.botId]} onclick={() => loadMore(group.botId)}>
-              {loadingMore[group.botId] ? labels.loading : labels.loadMore}
+            <button type="button" class="browser-load-more" disabled={loadingMore[group.source]} onclick={() => loadMore(group)}>
+              {loadingMore[group.source] ? labels.loading : labels.loadMore}
             </button>
           {/if}
         </section>

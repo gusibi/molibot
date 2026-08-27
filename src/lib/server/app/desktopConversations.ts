@@ -10,12 +10,17 @@ import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import { parseBotInstanceId, type ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { deleteWebSession, type WebSessionDeletionResult } from "$lib/server/web/sessionLifecycle.js";
+import { getProjectStore } from "$lib/server/projects/store.js";
+import { retentionCapabilities, type TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type {
-  DesktopConversationBotGroup,
   DesktopConversationChannel,
   DesktopConversationItem,
   DesktopConversationPurpose,
+  DesktopConversationSearchGroup,
+  DesktopConversationSearchItem,
+  DesktopConversationSearchScope,
+  DesktopConversationSearchSource,
   DesktopSessionRun,
   DesktopSessionRunStatus
 } from "$lib/shared/desktop.js";
@@ -30,6 +35,8 @@ import type {
 
 const PREVIEW_MAX = 300;
 const UNKNOWN_BOT_LABEL = "";
+const SEARCH_SOURCES: DesktopConversationSearchSource[] = ["web", "project", "telegram", "feishu", "qq", "weixin"];
+const EXTERNAL_SEARCH_SOURCES: DesktopConversationSearchSource[] = ["telegram", "feishu", "qq", "weixin"];
 
 export type DesktopConversationLimit = number;
 
@@ -160,8 +167,50 @@ export function sortItems(items: DesktopConversationItem[]): DesktopConversation
   });
 }
 
-export function encodeCursor(item: DesktopConversationItem): string {
+export function encodeCursor(item: { updatedAt: string; sessionId: string }): string {
   return Buffer.from(`${item.updatedAt}|${item.sessionId}`, "utf8").toString("base64url");
+}
+
+function searchSourcesForScope(scope: DesktopConversationSearchScope): DesktopConversationSearchSource[] {
+  if (scope === "all") return SEARCH_SOURCES;
+  if (scope === "channels") return EXTERNAL_SEARCH_SOURCES;
+  return [scope];
+}
+
+export function matchesConversationSearch(item: DesktopConversationSearchItem, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    item.title.toLowerCase().includes(q) ||
+    item.contextName.toLowerCase().includes(q) ||
+    (item.latestMessagePreview ?? "").toLowerCase().includes(q)
+  );
+}
+
+/** Filters and cursor-pages one source without mixing source-specific ordering. */
+export function queryConversationSearchGroup(
+  source: DesktopConversationSearchSource,
+  items: DesktopConversationSearchItem[],
+  options: { query?: string; limit?: number; cursor?: string | null }
+): DesktopConversationSearchGroup {
+  const limit = clampLimit(options.limit);
+  let filtered = [...items]
+    .filter((item) => !options.query || matchesConversationSearch(item, options.query))
+    .sort((a, b) => a.updatedAt === b.updatedAt
+      ? b.sessionId.localeCompare(a.sessionId)
+      : b.updatedAt.localeCompare(a.updatedAt));
+  const total = filtered.length;
+  const cursor = options.cursor ? decodeCursor(options.cursor) : null;
+  if (cursor) filtered = filtered.filter((item) => comesAfter(item, cursor));
+  const page = filtered.slice(0, limit);
+  const hasMore = filtered.length > limit;
+  return {
+    source,
+    total,
+    items: page,
+    nextCursor: hasMore && page.length > 0 ? encodeCursor(page[page.length - 1]) : null,
+    hasMore
+  };
 }
 
 export function decodeCursor(cursor: string): { updatedAt: string; sessionId: string } | null {
@@ -184,7 +233,7 @@ export function decodeCursor(cursor: string): { updatedAt: string; sessionId: st
  * (plan §5.3: no offset, no duplicate/omit on insert).
  */
 function comesAfter(
-  item: DesktopConversationItem,
+  item: { updatedAt: string; sessionId: string },
   cursor: { updatedAt: string; sessionId: string }
 ): boolean {
   if (item.updatedAt !== cursor.updatedAt) return item.updatedAt < cursor.updatedAt;
@@ -235,59 +284,6 @@ export function queryConversations(
   return { items: slice, nextCursor, hasMore };
 }
 
-/**
- * Groups an already-collected item set by Bot (plan §5.2). Each group is sorted
- * newest-first, takes its first page, and carries its own cursor so the browser
- * can page a single Bot independently. Groups are ordered by the Bot's most
- * recent session activity.
- */
-export function queryGroups(
-  items: DesktopConversationItem[],
-  options: { query?: string; groupLimit?: number }
-): { groups: DesktopConversationBotGroup[] } {
-  const groupLimit = clampLimit(options.groupLimit);
-  let filtered = items;
-  if (options.query) {
-    const q = options.query;
-    filtered = filtered.filter((item) => matchesQuery(item, q));
-  }
-
-  const byBot = new Map<string, DesktopConversationItem[]>();
-  for (const item of filtered) {
-    const key = item.botId;
-    const list = byBot.get(key) ?? [];
-    list.push(item);
-    byBot.set(key, list);
-  }
-
-  const groups: DesktopConversationBotGroup[] = [];
-  for (const [, list] of byBot) {
-    const sorted = sortItems(list);
-    const sample = sorted[0];
-    if (!sample) continue;
-    const slice = sorted.slice(0, groupLimit);
-    const hasMore = sorted.length > groupLimit;
-    const nextCursor = hasMore && slice.length > 0 ? encodeCursor(slice[slice.length - 1]) : null;
-    groups.push({
-      botId: sample.botId,
-      botName: sample.botName,
-      botDeleted: sample.botDeleted,
-      readOnly: sample.readOnly,
-      total: sorted.length,
-      items: slice,
-      nextCursor,
-      hasMore
-    });
-  }
-
-  groups.sort((a, b) => {
-    const aAt = a.items[0]?.updatedAt ?? "";
-    const bAt = b.items[0]?.updatedAt ?? "";
-    return bAt.localeCompare(aAt);
-  });
-  return { groups };
-}
-
 /** Collects the raw item set for a channel using live runtime data. */
 function collectItems(
   channel: DesktopConversationChannel,
@@ -309,6 +305,79 @@ function collectItems(
   return items.filter((item) => item.purpose === "conversation");
 }
 
+function channelSearchItems(
+  source: DesktopConversationChannel,
+  resolver: BotNameResolver
+): DesktopConversationSearchItem[] {
+  return collectItems(source, resolver).map((item) => ({
+    source,
+    sessionId: item.sessionId,
+    title: item.title,
+    updatedAt: item.updatedAt,
+    channel: item.channel,
+    contextId: item.botId,
+    contextName: item.botName,
+    contextDeleted: item.botDeleted,
+    readOnly: item.readOnly,
+    latestMessagePreview: item.latestMessagePreview,
+    botId: item.botId
+  }));
+}
+
+function latestConversationPreview(messages: ReadonlyArray<{ role: string; content: string; retention?: TurnRetentionPolicy }>): string | undefined {
+  const message = [...messages].reverse().find((item) =>
+    (item.role === "user" || item.role === "assistant") && retentionCapabilities(item.retention).searchable
+  );
+  const preview = String(message?.content ?? "").replace(/\s+/g, " ").trim().slice(0, PREVIEW_MAX);
+  return preview || undefined;
+}
+
+function projectSearchItems(): DesktopConversationSearchItem[] {
+  const sessions = getRuntime().sessions;
+  const items: DesktopConversationSearchItem[] = [];
+  for (const project of getProjectStore().list()) {
+    const conversations = sessions.listProjectConversations(project.id)
+      .filter((conversation) => conversation.origin !== "automation" && !conversation.origin?.startsWith("internal:"));
+    for (const conversation of conversations) {
+      const channel = SEARCH_SOURCES.includes(conversation.channel as DesktopConversationSearchSource)
+        && conversation.channel !== "project"
+        ? conversation.channel as DesktopConversationChannel
+        : "web";
+      items.push({
+        source: "project",
+        sessionId: conversation.id,
+        title: conversation.title || "New Session",
+        updatedAt: conversation.updatedAt,
+        channel,
+        contextId: project.id,
+        contextName: project.name,
+        contextDeleted: false,
+        readOnly: false,
+        latestMessagePreview: latestConversationPreview(sessions.listMessages(conversation.id, 20)),
+        projectId: project.id
+      });
+    }
+  }
+  return items;
+}
+
+/** Owner-level Desktop search across ordinary Web, Project and external conversations. */
+export function searchDesktopConversations(input: {
+  scope?: DesktopConversationSearchScope;
+  query?: string;
+  limit?: number;
+  cursor?: string | null;
+}): { scope: DesktopConversationSearchScope; groups: DesktopConversationSearchGroup[] } {
+  const scope = input.scope ?? "all";
+  const resolver = buildBotNameResolver(getRuntime().getSettings());
+  const groups = searchSourcesForScope(scope).map((source) => queryConversationSearchGroup(
+    source,
+    source === "project" ? projectSearchItems() : channelSearchItems(source, resolver),
+    { query: input.query, limit: input.limit, cursor: input.cursor }
+  )).filter((group) => group.total > 0);
+  return { scope, groups };
+}
+
 export function listDesktopConversations(input: {
   channel: DesktopConversationChannel;
   limit?: number;
@@ -324,16 +393,6 @@ export function listDesktopConversations(input: {
     query: input.query,
     botId: input.botId
   });
-}
-
-export function listDesktopConversationGroups(input: {
-  channel: DesktopConversationChannel;
-  query?: string;
-  groupLimit?: number;
-}): { groups: DesktopConversationBotGroup[] } {
-  const resolver = buildBotNameResolver(getRuntime().getSettings());
-  const items = collectItems(input.channel, resolver);
-  return queryGroups(items, { query: input.query, groupLimit: input.groupLimit });
 }
 
 /**

@@ -5,6 +5,35 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
 
+### Changed: 隔离预览重构为全屏灯箱
+
+- 聊天气泡的「隔离预览 HTML / SVG」与表格查看器不再弹 900×720 的小窗，改为与图片灯箱一致的深色全屏观感：近全屏浮动舞台、悬浮格式标签与圆形关闭按钮、弹性缩放入场，并随系统减弱动态效果降级。
+- 表格查看器按全屏阅读尺寸排版（13px、更宽松的行距与内边距），Inspector 内的同一查看器保持原有紧凑密度。
+- 表格查看器支持点击表头排序：升序 → 降序 → 取消，带 `aria-sort` 与方向指示；百分比、千分位数字按数值比较，其余按本地化字符串比较（排序逻辑位于共享 `csvTable.ts` 并有回归测试）。
+- 聊天 Markdown 表格的「在表格查看器中打开」不再作为表格上方的独立按钮，改为注入表格表头行末单元格的图标按钮（带本地化 aria-label 与 tooltip），点击行为不变。
+
+### Fixed: 隔离预览 HTML 的脚本可正常运行
+
+- 聊天气泡中“隔离预览 HTML / SVG”打开的预览 iframe 之前使用空 `sandbox`，导致页面 JS 全部失效；现在改为 `sandbox="allow-scripts"`，脚本可以执行，同时仍不带 `allow-same-origin`，预览页无法访问宿主 DOM、Cookie 与存储。
+
+### Fixed: 本轮文件点击不再被面板初始化刷新误判为不可用
+
+- Artifact Inspector 同时进行挂载刷新和点击刷新时，文件点击现在使用本次请求返回的 Session 文件记录；代次守卫仍只控制可见列表更新，不再丢弃调用方已经取得的结果。
+- 修复了文件随后已出现在面板计数中，但首次点击仍提示“文件当前不可用”的竞态。
+
+### Added: Desktop 会话搜索入口与轻量 Agent 快速开始
+
+- 左侧栏折叠按钮旁新增唯一的全局搜索入口，统一检索 Web、Project、Telegram、飞书、QQ 与微信会话。
+- 搜索支持“全部 / Web / 项目 / 其他渠道”范围筛选，外部渠道可继续细分；结果按来源分组并各自以 10 条为一页加载。
+- 结果可直接进入对应 Web、Project 或只读外部会话，并显示所属上下文、匹配摘要和时间；标记为不可搜索的消息不会进入摘要匹配。
+- 空白 Agent 会话新增三个轻量快速开始选项；选择后只填入并聚焦输入框，不会自动发送或覆盖已有草稿。
+
+### Changed: “更多对话”按 10 条原地展开
+
+- 各会话渠道默认显示 10 条记录；“更多对话”现在通过服务端游标追加下一批 10 条，不再跳转搜索界面。
+- 后台列表重载会保留用户已展开的记录数量，追加加载期间也不会清空已有列表。
+- 搜索界面升级为统一会话搜索后，旧的按 Bot 分组浏览器接口（`/api/desktop/conversations/groups`）已删除，统一走 `/api/desktop/conversations/search`。
+
 ### Added: Pi Provider Registry、请求级 Sampling 与 Telemetry Trace
 
 - Web 与 Desktop 的 Provider 候选和内置模型目录改为由 Pi registry 派生，不再手工维护易漂移的静态清单。

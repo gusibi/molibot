@@ -95,3 +95,27 @@ function detectDelimiter(line: string): "," | "\t" {
   }
   return tabs > commas ? "\t" : ",";
 }
+
+/**
+ * Column sort for the table viewer. Cells that read as numbers — optionally
+ * carrying `%`, thousands separators, or surrounding spaces — compare as
+ * numbers, so "75%" sorts before "100%"; everything else falls back to a
+ * locale-aware string compare, which keeps CJK stable and orders
+ * "2026-08" / "2026-Q3" style values predictably. Returns a new array: the
+ * viewer keeps the parsed order as the reset state.
+ */
+export function sortCsvRows(rows: string[][], column: number, dir: 1 | -1): string[][] {
+  return [...rows].sort((left, right) => dir * compareCells(left[column] ?? "", right[column] ?? ""));
+}
+
+function compareCells(left: string, right: string): number {
+  const leftNumber = numericValue(left);
+  const rightNumber = numericValue(right);
+  if (leftNumber !== null && rightNumber !== null) return leftNumber - rightNumber;
+  return left.trim().localeCompare(right.trim(), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function numericValue(cell: string): number | null {
+  const text = cell.trim().replace(/[,\s%]/g, "");
+  return /^[+-]?\d+(?:\.\d+)?$/.test(text) ? Number(text) : null;
+}

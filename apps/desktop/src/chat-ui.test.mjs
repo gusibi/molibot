@@ -539,6 +539,15 @@ test("empty local Chat starts an editable draft instead of disabling the compose
   assert.match(view, /if \(remaining\[0\]\) openSession\(remaining\[0\]\);\s*else \{\s*chatStore\.newConversationDraft\(defaultBot\(\)\);\s*loadDraftIn\(\);\s*\}/);
 });
 
+test("empty local Chat offers Agent quick starts that fill and focus without sending", () => {
+  assert.match(conversationLiveView, /conversation-empty-actions/);
+  assert.match(conversationLiveView, /onclick=\{\(\) => onEmptyAction\?\.\(action\.prompt\)\}/);
+  assert.match(view, /function fillEmptyPrompt\(prompt: string\)[\s\S]*messageInput = prompt;[\s\S]*draftStore\.setText[\s\S]*chatInputArea\?\.focusInput\(\)/);
+  assert.doesNotMatch(view.match(/function fillEmptyPrompt\(prompt: string\)[\s\S]*?\n  \}/)?.[0] ?? "", /sendMessage|onSend/);
+  assert.match(i18n, /emptyChatQuickStartHint: "选择一个起点，只会填入输入框/);
+  assert.match(i18n, /emptyChatQuickStartHint: "Choose a starting point\. It only fills the composer/);
+});
+
 test("sidebar resizing uses shared pointer manipulation and writes only on completion", () => {
   assert.match(view, /new DirectManipulation\(\{[\s\S]*mode: "continuous"/);
   assert.match(view, /setPointerCapture\(event\.pointerId\)/);
@@ -551,7 +560,7 @@ test("sidebar resizing uses shared pointer manipulation and writes only on compl
 
 test("sidebar supports collapsing with smooth animation, threshold snap, and expand button", () => {
   assert.match(chatSidebar, /class="sidebar-top-bar"/);
-  assert.match(chatSidebar, /class="sidebar-collapse-btn"/);
+  assert.match(chatSidebar, /class="sidebar-titlebar-btn sidebar-collapse-btn"/);
   assert.match(chatSidebar, /aria-label=\{copy\.collapseSidebar\}/);
   assert.match(view, /class:sidebar-collapsed=\{sidebarCollapsed\}/);
   assert.match(view, /class="icon-button sidebar-expand-btn"/);
@@ -562,6 +571,31 @@ test("sidebar supports collapsing with smooth animation, threshold snap, and exp
   assert.match(styles, /\.chat-layout\.sidebar-collapsed\s*\{\s*grid-template-columns:\s*0px minmax\(0, 1fr\);/);
   assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-sidebar\s*\{[\s\S]*transform:\s*translateX\(-100%\);/);
   assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header\s*\{\s*padding-left:\s*84px;/);
+});
+
+test("sidebar search is independent from incremental ten-conversation pagination", () => {
+  assert.match(chatSidebar, /class="sidebar-titlebar-btn sidebar-search-btn"/);
+  assert.match(chatSidebar, /onclick=\{onOpenConversationSearch\}/);
+  assert.match(view, /onOpenConversationSearch=\{openBrowser\}/);
+  assert.match(view, /onMoreChannel=\{\(channel\) => void loadMoreChannel\(channel as DesktopConversationChannel\)\}/);
+  assert.match(view, /listDesktopConversations\(connectedEndpoint, \{ channel, limit: 10, cursor \}\)/);
+  assert.match(view, /new Set\(existing\.map\(\(item\) => item\.sessionId\)\)/);
+  assert.match(view, /const visibleCount = Math\.max\(10, channelItems\[channel\]\?\.length \?\? 0\)/);
+  assert.match(view, /channelRefreshing\[channel\] \|\| channelLoadingMore\[channel\]/);
+  assert.match(view, /res\.hasMore && Boolean\(res\.nextCursor\)/);
+  assert.doesNotMatch(view, /onMoreChannel=\{\(channel\) => openBrowser/);
+});
+
+test("conversation search spans Web, Projects, and external channels from one dialog", () => {
+  const browser = read("./lib/chat/ConversationBrowserDialog.svelte");
+  const api = read("./lib/api.ts");
+  assert.match(browser, /PRIMARY_SCOPES[\s\S]*"all", "web", "project", "channels"/);
+  assert.match(browser, /CHANNEL_SCOPES[\s\S]*"telegram", "feishu", "qq", "weixin"/);
+  assert.match(browser, /searchDesktopConversations\(endpoint/);
+  assert.match(browser, /browser-result-preview/);
+  assert.match(api, /\/api\/desktop\/conversations\/search/);
+  assert.match(view, /async function openSearchResult\(item: DesktopConversationSearchItem\)/);
+  assert.match(view, /await selectProject\(item\.projectId\);[\s\S]*await selectProjectSession\(item\.sessionId, item\.projectId\)/);
 });
 
 test("Memory Trace drawer shares direct manipulation for interruption and cancellation", () => {
@@ -1083,6 +1117,12 @@ test("long message content cannot widen the bounded reading column", () => {
   assert.match(styles, /\.markdown-body\s*\{(?=[^}]*max-width:\s*100%)(?=[^}]*overflow-wrap:\s*anywhere)[^}]*\}/s);
   assert.match(styles, /\.markdown-table-wrap\s*\{(?=[^}]*max-width:\s*100%)(?=[^}]*overflow-x:\s*auto)[^}]*\}/s);
   assert.match(styles, /\.markdown-body \.katex-display\s*\{(?=[^}]*max-width:\s*100%)(?=[^}]*overflow-x:\s*auto)[^}]*\}/s);
+});
+
+test("HTML and SVG isolated preview frames enable scripts and interactive sandbox capabilities", () => {
+  const htmlPreview = read("./lib/artifacts/HtmlPreview.svelte");
+  assert.match(markdownArtifactOverlay, /sandbox="allow-scripts"/);
+  assert.match(htmlPreview, /sandbox="allow-scripts"/);
 });
 
 // One handler for every surface that mounts `renderMarkdown` output. The
@@ -2279,7 +2319,7 @@ test("project file panel exposes live files, Git changes, and session attachment
   // A Project session belongs to the personal profile, a plain conversation to
   // the bot that owns it; reading the wrong profile returns an empty list with
   // no error, which is indistinguishable from "this session has no files".
-  assert.match(projectFilePanel, /listDesktopSessionFiles\(endpoint, profileId \|\| "personal", sessionId, projectId\)/);
+  assert.match(projectFilePanel, /listDesktopSessionFiles\(request\.endpoint, request\.profileId \|\| "personal", request\.sessionId, request\.projectId\)/);
   assert.match(projectFilePanel, /projectReadOnlyHint/);
   assert.match(styles, /\.project-file-tabs/);
   // A change row stays on ONE line. With `flex-wrap: wrap` the line broke on
@@ -3605,6 +3645,18 @@ test("a Mini App survives a session switch, and Session scope always has a Files
   // panel body stopped matching when that wrapper was added and the collapse
   // button silently did nothing.
   assert.match(styles, /\.project-panel-body\.browser-collapsed \.artifact-file-surface > \.project-browser/);
+});
+
+test("opening a turn file uses its own refresh result when the panel mount refresh races it", () => {
+  const loadAttachments = projectFilePanel.match(/async function loadAttachments\(\): Promise<DesktopSessionFile\[]> \{[\s\S]*?\n  \}/)?.[0] ?? "";
+  const openTurnFile = projectFilePanel.match(/async function openTurnFile\(file: TurnFileItem\): Promise<void> \{[\s\S]*?\n  \}/)?.[0] ?? "";
+
+  assert.match(loadAttachments, /const request = \{ endpoint, profileId, sessionId, projectId \};/);
+  assert.match(loadAttachments, /const isCurrentRequest = \(\) => endpoint === request\.endpoint[\s\S]*sessionId === request\.sessionId/);
+  assert.match(loadAttachments, /return stillCurrent \? files : \[\];/);
+  assert.match(openTurnFile, /const refreshed = await loadAttachments\(\)/);
+  assert.match(openTurnFile, /sessionFile = refreshed\.find/);
+  assert.doesNotMatch(openTurnFile, /await loadAttachments\(\);\s*sessionFile = attachments\.find/);
 });
 
 test("files and Mini Apps are separate surfaces, never one mixed tab strip", () => {

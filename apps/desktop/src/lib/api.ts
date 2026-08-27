@@ -24,10 +24,10 @@ import type {
   DesktopChannelTestResponse,
   DesktopConversationActivity,
   DesktopConversationPlan,
-  DesktopConversationBotGroup,
   DesktopConversationChannel,
   DesktopConversationItem,
-  DesktopConversationsGroupsResponse,
+  DesktopConversationSearchResponse,
+  DesktopConversationSearchScope,
   DesktopConversationsResponse,
   DesktopExternalSession,
   DesktopExternalSessionsResponse,
@@ -2696,15 +2696,22 @@ export async function forkDesktopSession(
   return { ...payload.session, reused: payload.reused };
 }
 
-export async function listDesktopConversationGroups(
+export async function searchDesktopConversations(
   endpoint: string,
-  params: { channel: DesktopConversationChannel; query?: string }
-): Promise<DesktopConversationsGroupsResponse> {
-  const search = new URLSearchParams({ channel: params.channel });
+  params: {
+    scope: DesktopConversationSearchScope;
+    query?: string;
+    limit?: number;
+    cursor?: string | null;
+  }
+): Promise<DesktopConversationSearchResponse> {
+  const search = new URLSearchParams({ scope: params.scope });
   if (params.query) search.set("query", params.query);
-  return requestJson<DesktopConversationsGroupsResponse>(
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.cursor) search.set("cursor", params.cursor);
+  return requestJson<DesktopConversationSearchResponse>(
     endpoint,
-    `/api/desktop/conversations/groups?${search.toString()}`
+    `/api/desktop/conversations/search?${search.toString()}`
   );
 }
 

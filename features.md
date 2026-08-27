@@ -5,7 +5,31 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 - [2026 Q3 Features Archive (Jul - Sep)](docs/archive/features-archive-2026-Q3.md)
 
+## 2026-08-28
+
+### Markdown 产物预览重构（已完成）
+
+- 聊天气泡「隔离预览 HTML / SVG」与表格查看器弹窗重构为与图片灯箱一致的全屏观感：78% 黑色遮罩 + 近全屏浮动舞台（12px 圆角、弹性缩放入场），替代原先 900×720 的标题栏小窗。
+- 预览页脚本可用性修复：iframe 从空 `sandbox` 改为 `sandbox="allow-scripts"`，仍不带 `allow-same-origin`，预览页无法访问宿主 DOM、Cookie 与存储。
+- 表格查看器新增表头点击排序（升序 → 降序 → 取消，`aria-sort` + 方向指示），比较器在共享 `csvTable.ts`：数值/百分比/千分位按数值比较，其余按本地化字符串比较，并覆盖排序回归测试。
+- 全屏表格查看器使用大号排版（13px、宽松内边距，`CsvTable` 新增 `large` 模式）；Artifact Inspector 内保持紧凑密度。
+- 聊天 Markdown 表格的「在表格查看器中打开」按钮移入表头行末单元格（图标 + 本地化 tooltip），`wrapTables` 注入每个表格表尾 `</th></tr></thead>` 缝隙，多表格逐一生效。
+- 舞台内容上方悬浮格式标签（HTML / CSV）与圆形关闭按钮（复用 `closePreview` 文案，带 focus-visible 焦点环）；入场动画进入 `prefers-reduced-motion` 降级清单。
+- 覆盖选择器与 `.desktop-dialog-*` 基类成对书写，避免同文件后置基类在同等优先级下覆盖宽高（旧实现因此静默塌缩到 560px 默认宽度）。
+
 ## 2026-08-27
+
+### 本轮文件并发打开稳定性（修复，P1）
+
+- Artifact Inspector 挂载刷新与用户点击同一本轮文件并发时，点击操作直接使用自己取得的 Session 文件结果，不再因共享列表尚未落盘而误报“文件当前不可用”。
+- 回归守卫覆盖面板初始化刷新与点击刷新交错的路径；已有文件定位、越界拒绝和 scratch 产物测试继续通过。
+
+### Desktop 会话检索、渐进历史与 Agent 快速开始（已完成）
+
+- 左侧栏折叠按钮旁提供统一会话搜索入口；默认同时检索 Web、Project 与外部渠道，也可按来源筛选，结果按来源分组并各自分页。
+- 搜索结果展示所属 Agent、Project 或渠道 Bot、匹配摘要与时间；点击后进入对应 Web/Project Session，外部渠道保持只读。
+- 各会话渠道默认展示 10 条记录；点击“更多对话”按游标原地追加 10 条，并在后台刷新时保留已经展开的记录。
+- 空白 Agent 会话提供三个轻量快速开始入口，只把提示填入并聚焦输入框，不会自动发送或把空状态改造成仪表盘；交互支持中英文、明暗主题与窄窗口。
 
 ### Pi P1–P3 产品能力接入（已完成）
 

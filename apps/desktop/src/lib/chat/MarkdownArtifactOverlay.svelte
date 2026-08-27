@@ -21,16 +21,22 @@
   onDestroy(() => window.removeEventListener("molibot:markdown-artifact", show));
 </script>
 
-<Dialog {open} onOpenChange={(next) => (open = next)} contentClass="markdown-artifact-dialog">
-  <div class="markdown-artifact-head">
-    <strong>{kind === "table" ? copy.markdownOpenTable : copy.markdownPreviewArtifact}</strong>
-    <button type="button" aria-label={copy.cancel} onclick={() => (open = false)}><i class="ph ph-x" aria-hidden="true"></i></button>
-  </div>
-  <div class="markdown-artifact-content">
+<Dialog
+  {open}
+  onOpenChange={(next) => (open = next)}
+  overlayClass="markdown-artifact-overlay"
+  contentClass="markdown-artifact-dialog"
+  labelledBy="markdown-artifact-tag"
+>
+  <div class="markdown-artifact-stage">
     {#if kind === "table"}
-      <CsvTable name="chat-table.csv" content={source} {copy} />
+      <CsvTable name="chat-table.csv" content={source} {copy} large />
     {:else}
-      <iframe title={copy.markdownPreviewArtifact} sandbox="" srcdoc={source}></iframe>
+      <iframe title={copy.markdownPreviewArtifact} sandbox="allow-scripts" srcdoc={source}></iframe>
     {/if}
   </div>
+  <span id="markdown-artifact-tag" class="markdown-artifact-tag">{kind === "table" ? "CSV" : "HTML"}</span>
+  <button type="button" class="markdown-artifact-close" aria-label={copy.closePreview} onclick={() => (open = false)}>
+    <i class="ph ph-x" aria-hidden="true"></i>
+  </button>
 </Dialog>

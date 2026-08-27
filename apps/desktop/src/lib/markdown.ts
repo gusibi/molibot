@@ -62,12 +62,23 @@ export interface RenderMarkdownOptions {
  * no wrapper of its own and GFM tables cannot nest, so wrapping the emitted
  * markup is exact — and it keeps a renderer override, which in marked 16 means
  * re-implementing header, row and cell parsing, out of the picture entirely.
+ *
+ * The viewer affordance rides in the table's own header row (last cell, icon
+ * only): a separate button above the first row reads as an unrelated control.
+ * The button must sit inside a cell — a `<button>` between cells is foster-
+ * parented out of the table by the HTML parser — and the header row's end is
+ * the one seam every GFM table emits (`</th> </tr> </thead>`).
  */
 function wrapTables(html: string, label: string): string {
   if (!html.includes("<table")) return html;
-  return html
-    .replaceAll("<table>", `<div class="markdown-table-wrap">${label ? `<button type="button" class="markdown-artifact-action" data-open-table>${escapeHtml(label)}</button>` : ""}<table>`)
+  let result = html
+    .replaceAll("<table>", `<div class="markdown-table-wrap"><table>`)
     .replaceAll("</table>", "</table></div>");
+  if (label) {
+    const action = `<button type="button" class="markdown-artifact-action" data-open-table aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><i class="ph ph-table" aria-hidden="true"></i></button>`;
+    result = result.replaceAll(/<\/th>(\s*<\/tr>\s*<\/thead>)/g, (_match, tail: string) => `${action}</th>${tail}`);
+  }
+  return result;
 }
 
 // Completed messages re-render whenever the transcript updates; memoize so

@@ -2285,26 +2285,37 @@ export interface DesktopConversationsResponse {
   hasMore: boolean;
 }
 
-/**
- * One Bot group inside the "more conversations" browser (plan §5.2). Each
- * group carries its own cursor so a single Bot can be paged independently
- * without re-fetching the other groups.
- */
-export interface DesktopConversationBotGroup {
-  botId: string;
-  botName: string;
-  botDeleted: boolean;
+export type DesktopConversationSearchSource = DesktopConversationChannel | "project";
+export type DesktopConversationSearchScope = "all" | DesktopConversationSearchSource | "channels";
+
+/** One owner-visible result from the Desktop's cross-source conversation search. */
+export interface DesktopConversationSearchItem {
+  source: DesktopConversationSearchSource;
+  sessionId: string;
+  title: string;
+  updatedAt: string;
+  channel: DesktopConversationChannel;
+  contextId: string;
+  contextName: string;
+  contextDeleted: boolean;
   readOnly: boolean;
+  latestMessagePreview?: string;
+  botId?: string;
+  projectId?: string;
+}
+
+export interface DesktopConversationSearchGroup {
+  source: DesktopConversationSearchSource;
   total: number;
-  items: DesktopConversationItem[];
+  items: DesktopConversationSearchItem[];
   nextCursor: string | null;
   hasMore: boolean;
 }
 
-export interface DesktopConversationsGroupsResponse {
+export interface DesktopConversationSearchResponse {
   ok: true;
-  channel: DesktopConversationChannel;
-  groups: DesktopConversationBotGroup[];
+  scope: DesktopConversationSearchScope;
+  groups: DesktopConversationSearchGroup[];
 }
 
 /**

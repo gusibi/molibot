@@ -13,6 +13,7 @@
     type DesktopApprovalOwner,
     type DesktopConversationChannel,
     type DesktopConversationItem,
+    type DesktopConversationSearchItem,
     type DesktopConversationMessage,
     type DesktopDurableExecutionItem,
     type DesktopDurableExecutionStatus,
@@ -110,7 +111,7 @@
   import DurableExecutionInspector from "./lib/chat/DurableExecutionInspector.svelte";
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
   import { markMiniAppUsed } from "./lib/stores/miniapps.svelte";
-  import { projectsStore } from "./lib/stores/projects.svelte";
+  import { projectsStore, selectProject, selectProjectSession } from "./lib/stores/projects.svelte";
   import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
@@ -233,6 +234,7 @@
   let messageInput = "";
   let pendingFiles: File[] = [];
   let fileInput: HTMLInputElement;
+  let chatInputArea: ChatInputArea;
   let thinkingLevel: DesktopThinkingLevel = "medium";
 
   // Edit-and-resend state. `editingMessageId` is set when the user clicked the
@@ -304,8 +306,10 @@
   let expandedChannels: Record<DesktopConversationChannel, boolean> = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
   let channelItems: Record<string, DesktopConversationItem[]> = {};
   let channelHasMore: Record<string, boolean> = {};
+  let channelNextCursor: Record<string, string | null> = {};
   let channelLoading: Record<string, boolean> = {};
-  let browserChannel: DesktopConversationChannel = "web";
+  let channelRefreshing: Record<string, boolean> = {};
+  let channelLoadingMore: Record<string, boolean> = {};
   let browserOpen = false;
   let channelSummary: DesktopChannelsSummary | null = null;
 
@@ -993,7 +997,10 @@
     onboardingStep = "provider";
     channelItems = {};
     channelHasMore = {};
+    channelNextCursor = {};
     channelLoading = {};
+    channelRefreshing = {};
+    channelLoadingMore = {};
     expandedChannels = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
     projectPaneActive = false;
     activeProjectSessionId = "";
@@ -1314,12 +1321,29 @@
   }
 
   async function loadChannel(channel: DesktopConversationChannel, showLoading = true): Promise<void> {
-    if (!connectedEndpoint) return;
+    if (!connectedEndpoint || channelRefreshing[channel] || channelLoadingMore[channel]) return;
+    channelRefreshing = { ...channelRefreshing, [channel]: true };
     if (showLoading) channelLoading = { ...channelLoading, [channel]: true };
     try {
-      const res = await listDesktopConversations(connectedEndpoint, { channel, limit: 10 });
-      channelItems = { ...channelItems, [channel]: res.items };
-      channelHasMore = { ...channelHasMore, [channel]: Boolean(res.hasMore) || res.items.length >= 10 };
+      // Revalidation keeps however many rows the owner already revealed instead
+      // of snapping an expanded channel back to its first ten conversations.
+      const visibleCount = Math.max(10, channelItems[channel]?.length ?? 0);
+      const items: DesktopConversationItem[] = [];
+      let cursor: string | null = null;
+      let hasMore = true;
+      while (items.length < visibleCount && hasMore) {
+        const res = await listDesktopConversations(connectedEndpoint, {
+          channel,
+          limit: Math.min(100, visibleCount - items.length),
+          cursor
+        });
+        items.push(...res.items);
+        cursor = res.nextCursor;
+        hasMore = res.hasMore && Boolean(cursor);
+      }
+      channelItems = { ...channelItems, [channel]: items };
+      channelHasMore = { ...channelHasMore, [channel]: hasMore };
+      channelNextCursor = { ...channelNextCursor, [channel]: cursor };
     } catch {
       // A background revalidation must keep the last good rows on a transient
       // failure. Clearing is appropriate only for a foreground/first load,
@@ -1327,9 +1351,35 @@
       if (showLoading) {
         channelItems = { ...channelItems, [channel]: [] };
         channelHasMore = { ...channelHasMore, [channel]: false };
+        channelNextCursor = { ...channelNextCursor, [channel]: null };
       }
     } finally {
       if (showLoading) channelLoading = { ...channelLoading, [channel]: false };
+      channelRefreshing = { ...channelRefreshing, [channel]: false };
+    }
+  }
+
+  async function loadMoreChannel(channel: DesktopConversationChannel): Promise<void> {
+    if (!connectedEndpoint || channelRefreshing[channel] || channelLoadingMore[channel]) return;
+    const cursor = channelNextCursor[channel];
+    if (!cursor) {
+      channelHasMore = { ...channelHasMore, [channel]: false };
+      return;
+    }
+
+    channelLoadingMore = { ...channelLoadingMore, [channel]: true };
+    try {
+      const res = await listDesktopConversations(connectedEndpoint, { channel, limit: 10, cursor });
+      const existing = channelItems[channel] ?? [];
+      const seen = new Set(existing.map((item) => item.sessionId));
+      const appended = res.items.filter((item) => !seen.has(item.sessionId));
+      channelItems = { ...channelItems, [channel]: [...existing, ...appended] };
+      channelHasMore = { ...channelHasMore, [channel]: res.hasMore && Boolean(res.nextCursor) };
+      channelNextCursor = { ...channelNextCursor, [channel]: res.nextCursor };
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      channelLoadingMore = { ...channelLoadingMore, [channel]: false };
     }
   }
 
@@ -1429,9 +1479,42 @@
     }
   }
 
-  function openBrowser(channel: DesktopConversationChannel): void {
-    browserChannel = channel;
+  function openBrowser(): void {
+    if (!connectedEndpoint) return;
     browserOpen = true;
+  }
+
+  async function openSearchResult(item: DesktopConversationSearchItem): Promise<void> {
+    browserOpen = false;
+    if (item.source === "project" && item.projectId) {
+      projectsStore.endpoint = connectedEndpoint;
+      await selectProject(item.projectId);
+      await selectProjectSession(item.sessionId, item.projectId);
+      projectPaneActive = true;
+      workspacePane = "chat";
+      viewMode = "local";
+      activeProjectSessionId = item.sessionId;
+      return;
+    }
+    openSession({
+      sessionId: item.sessionId,
+      title: item.title,
+      updatedAt: item.updatedAt,
+      botId: item.botId ?? item.contextId,
+      botName: item.contextName,
+      botDeleted: item.contextDeleted,
+      channel: item.channel,
+      purpose: "conversation",
+      readOnly: item.readOnly,
+      latestMessagePreview: item.latestMessagePreview
+    });
+  }
+
+  function fillEmptyPrompt(prompt: string): void {
+    if (messageInput.trim()) return;
+    messageInput = prompt;
+    chatStore.draftStore.setText(chatStore.currentDraftKey(), prompt);
+    void tick().then(() => chatInputArea?.focusInput());
   }
 
   async function openExternalTranscript(sessionId: string, channel: string, title: string, botName: string): Promise<void> {
@@ -2837,6 +2920,7 @@
     {channelItems}
     {channelHasMore}
     {channelLoading}
+    {channelLoadingMore}
     activeSessionId={sidebarActiveSessionId}
     {activeProjectSessionId}
     endpoint={connectedEndpoint}
@@ -2854,7 +2938,7 @@
     onToggleProjects={toggleProjects}
     onToggleChannel={(channel) => toggleChannel(channel as DesktopConversationChannel)}
     onSelectSession={openSession}
-    onMoreChannel={(channel) => openBrowser(channel as DesktopConversationChannel)}
+    onMoreChannel={(channel) => void loadMoreChannel(channel as DesktopConversationChannel)}
     onRenameSession={renameSession}
     onDeleteSession={deleteSession}
     onActivateProjectSession={() => {
@@ -2868,6 +2952,7 @@
     onToggleMiniApps={toggleMiniAppsSection}
     onOpenMiniApp={openMiniAppInspector}
     onOpenMiniApps={() => openWorkspacePane("miniapps")}
+    onOpenConversationSearch={openBrowser}
     onToggleCollapse={toggleSidebarCollapse}
   />
 
@@ -3070,6 +3155,14 @@
         {liveSteps}
         emptyTitle={copy.emptyChatTitle}
         emptyHint={copy.emptyChatHint}
+        emptyActionLabel={copy.emptyChatQuickStart}
+        emptyActionHint={copy.emptyChatQuickStartHint}
+        emptyActions={messageInput.trim() ? [] : [
+          { icon: "list-checks", label: copy.emptyChatPlanLabel, prompt: copy.emptyChatPlanPrompt },
+          { icon: "magnifying-glass", label: copy.emptyChatAnalyzeLabel, prompt: copy.emptyChatAnalyzePrompt },
+          { icon: "notebook", label: copy.emptyChatOrganizeLabel, prompt: copy.emptyChatOrganizePrompt }
+        ]}
+        onEmptyAction={fillEmptyPrompt}
         {searchMatchIds}
         {activeMatchId}
         showReadReceipt={true}
@@ -3121,6 +3214,7 @@
         onchange={onFilesPicked}
       />
       <ChatInputArea
+        bind:this={chatInputArea}
         bind:value={messageInput}
         thinkingLevel={clampedThinkingLevel}
         {thinkingLevelOptions}
@@ -3260,11 +3354,28 @@
 
   <ConversationBrowserDialog
     endpoint={connectedEndpoint}
-    channel={browserChannel}
     open={browserOpen}
-    labels={{ search: copy.searchConversations, searchEmpty: copy.searchEmpty, loading: copy.loading, loadMore: copy.loadMore, empty: copy.noConversations, deletedBot: copy.deletedBot, unknownBot: copy.unknownBot, close: copy.closeConversationBrowser }}
+    labels={{
+      search: copy.searchConversations,
+      searchEmpty: copy.searchEmpty,
+      loading: copy.loading,
+      loadMore: copy.loadMore,
+      empty: copy.noConversations,
+      close: copy.closeConversationBrowser,
+      all: copy.searchScopeAll,
+      web: copy.channelWeb,
+      project: copy.projects,
+      channels: copy.searchScopeChannels,
+      allChannels: copy.searchScopeAllChannels,
+      scopeFilter: copy.searchScopeFilter,
+      telegram: copy.channelTelegram,
+      feishu: copy.channelFeishu,
+      qq: copy.channelQq,
+      weixin: copy.channelWeixin,
+      unknownBot: copy.unknownBot
+    }}
     formatTime={formatListTime}
-    onSelect={openSession}
+    onSelect={(item) => void openSearchResult(item)}
     onClose={() => (browserOpen = false)}
   />
 

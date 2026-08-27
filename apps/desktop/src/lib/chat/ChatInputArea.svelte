@@ -76,6 +76,11 @@
   let fileSearchGeneration = 0;
   let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Focuses the existing composer after a quick-start prompt fills its draft. */
+  export function focusInput(): void {
+    shell?.setSelection(value.length);
+  }
+
   $: if (endpoint) void ensureComposerSuggestions(endpoint, projectId);
   // Two trigger characters, one menu, and both fire on the token the caret sits
   // in — at any offset, not only as the first character. `/` offers commands and
