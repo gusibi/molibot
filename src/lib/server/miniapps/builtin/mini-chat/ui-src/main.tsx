@@ -23,15 +23,15 @@ import {
   ChatSystemMessage,
 } from '@astryxdesign/core/Chat';
 import {
-  ArrowPathIcon,
-  ChatBubbleLeftRightIcon,
-  ClipboardDocumentIcon,
-  Cog6ToothIcon,
-  PlusIcon,
-  Bars3BottomLeftIcon,
-  TrashIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline';
+  Refresh as ArrowPathIcon,
+  Chat as ChatBubbleLeftRightIcon,
+  Copy as ClipboardDocumentIcon,
+  Settings as Cog6ToothIcon,
+  Plus as PlusIcon,
+  Menu as Bars3BottomLeftIcon,
+  Trash as TrashIcon,
+  Xmark as XMarkIcon,
+} from 'reicon-react';
 
 type Conversation = {id: string; title: string; createdAt: string; updatedAt: string};
 type ModelOption = {key: string; label: string};

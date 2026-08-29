@@ -1,7 +1,10 @@
 # Third-party notices
 
 Mini Chat's chat interface is derived from the Astryx `ai-chat` template and
-uses `@astryxdesign/core` and `@astryxdesign/theme-neutral`.
+uses `@astryxdesign/core` and `@astryxdesign/theme-neutral`. Icons are provided
+by **Reicon** (`reicon-react`) — MIT License, Copyright (c) Dev Chauhan. Base
+icons derive from Solar Icons by 480 Design (CC BY 4.0),
+https://solar-icons.vercel.app/
 
 MIT License
 

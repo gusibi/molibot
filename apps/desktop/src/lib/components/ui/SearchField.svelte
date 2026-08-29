@@ -8,5 +8,6 @@
 <label class="search-field">
   <span class="sr-only">{label}</span>
   <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-  <input type="search" {value} {placeholder} aria-label={label} oninput={(event) => onInput(event.currentTarget.value)} />
+  <input type="search" {value} {placeholder} autocomplete="off" spellcheck="false" aria-label={label} oninput={(event) => onInput(event.currentTarget.value)} />
 </label>
+

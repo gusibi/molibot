@@ -8,6 +8,7 @@
   } from "@molibot/desktop-contract";
   import { matchModelCapabilities, type InferredModelMatchResponse } from "../api";
   import { invoke } from "@tauri-apps/api/core";
+  import { onDestroy } from "svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import SearchField from "../components/ui/SearchField.svelte";
@@ -21,6 +22,8 @@
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { humanizeProviderName } from "../presentation";
   import { session } from "../stores/session.svelte";
+  import { tablist } from "../a11y/tablist";
+  import { trackUnsaved } from "../unsavedGuard";
   import {
     beginProviderAuth,
     closeProviderAuth,
@@ -176,6 +179,9 @@
 
   let editor = $derived(providersStore.providerEdit);
   let editorIsDirty = $derived(providerEditDirty());
+
+  onDestroy(trackUnsaved(() => editorIsDirty));
+  onDestroy(trackUnsaved(() => providersStore.globalsDirty));
   let savedSelectedProvider = $derived(
     providersStore.providers?.customProviders.find((item) => item.id === selectedProvider?.provider.id) ?? null
   );
@@ -575,11 +581,13 @@
   {/if}
   <SettingGroup title={session.text.providerGlobalSettings}>
     <SettingRow title={session.text.providersMode}>
-      <div class="segmented" role="tablist" aria-label={session.text.providersMode}>
+      <div class="segmented" role="tablist" aria-label={session.text.providersMode} use:tablist>
         <button
           type="button"
           role="tab"
+          id="providers-mode-pi-tab"
           aria-selected={providersStore.globals.providerMode !== "custom"}
+          aria-controls="providers-mode-pi-panel"
           class="segmented-item"
           class:active={providersStore.globals.providerMode !== "custom"}
           onclick={() => {
@@ -590,7 +598,9 @@
         <button
           type="button"
           role="tab"
+          id="providers-mode-custom-tab"
           aria-selected={providersStore.globals.providerMode === "custom"}
+          aria-controls="providers-mode-custom-panel"
           class="segmented-item"
           class:active={providersStore.globals.providerMode === "custom"}
           onclick={() => {
@@ -601,6 +611,7 @@
       </div>
     </SettingRow>
     {#if providersStore.globals.providerMode !== "custom"}
+      <div id="providers-mode-pi-panel" role="tabpanel" aria-labelledby="providers-mode-pi-tab">
       <SettingRow title={session.text.providersPiProvider}>
         <SelectControl
           value={providersStore.globals.piProvider}
@@ -640,7 +651,9 @@
           }}
         />
       </SettingRow>
+      </div>
     {:else}
+      <div id="providers-mode-custom-panel" role="tabpanel" aria-labelledby="providers-mode-custom-tab">
       <SettingRow title={session.text.providerSetDefault}>
         <SelectControl
           value={providersStore.globals.defaultCustomProviderId}
@@ -658,6 +671,7 @@
           }}
         />
       </SettingRow>
+      </div>
     {/if}
   </SettingGroup>
 
@@ -670,9 +684,9 @@
           placeholder={session.text.providersFilterTitle}
           onInput={(value) => (providerSearch = value)}
         />
-        <div class="provider-rail-tabs" role="tablist" aria-label={session.text.providersCategoryTitle}>
-          <button type="button" role="tab" aria-selected={providerTab === "builtin"} class="provider-rail-tab" class:active={providerTab === "builtin"} onclick={() => switchTab("builtin")}>{session.text.providerBuiltinTitle}</button>
-          <button type="button" role="tab" aria-selected={providerTab === "custom"} class="provider-rail-tab" class:active={providerTab === "custom"} onclick={() => switchTab("custom")}>{session.text.providerSelfHostedTitle}</button>
+        <div class="provider-rail-tabs" role="tablist" aria-orientation="vertical" aria-label={session.text.providersCategoryTitle} use:tablist>
+          <button type="button" role="tab" id="provider-rail-tab-builtin" aria-selected={providerTab === "builtin"} aria-controls="provider-rail-list-panel" class="provider-rail-tab" class:active={providerTab === "builtin"} onclick={() => switchTab("builtin")}>{session.text.providerBuiltinTitle}</button>
+          <button type="button" role="tab" id="provider-rail-tab-custom" aria-selected={providerTab === "custom"} aria-controls="provider-rail-list-panel" class="provider-rail-tab" class:active={providerTab === "custom"} onclick={() => switchTab("custom")}>{session.text.providerSelfHostedTitle}</button>
           <button
             type="button"
             class="provider-rail-sort"
@@ -685,7 +699,7 @@
         </div>
       </div>
 
-      <div class="provider-rail-list" role="listbox" aria-label={session.text.providerListTitle} tabindex="-1">
+      <div class="provider-rail-list" id="provider-rail-list-panel" role="tabpanel" aria-labelledby={`provider-rail-tab-${providerTab}`}>
         {#if visibleProvidersList.length === 0}
           <EmptyState title={session.text.providersEmpty} icon="plugs" />
         {:else}
@@ -694,8 +708,6 @@
             {@const label = item.kind === "draft" ? provider.name.trim() || session.text.providerNewDraft : providerLabel(provider.name, provider.id)}
             <button
               type="button"
-              role="option"
-              aria-selected={selectedProvider?.provider.id === provider.id}
               class="provider-rail-row"
               class:selected={selectedProvider?.provider.id === provider.id}
               onclick={() => selectProvider(provider.id)}
@@ -705,7 +717,7 @@
                 <strong>{label}</strong>
                 <small>{item.kind === "draft" ? session.text.providerUnsaved : `${providerModelCount(item)} ${session.text.providerModels}`}</small>
               </span>
-              <span class="provider-state-pill" class:on={providerEnabled(item)}>{providerEnabled(item) ? "ON" : "OFF"}</span>
+              <span class="provider-state-pill" class:on={providerEnabled(item)}>{providerEnabled(item) ? session.text.providerStateOn : session.text.providerStateOff}</span>
             </button>
           {/each}
         {/if}
@@ -789,11 +801,11 @@
             <div class="provider-field-grid">
               <label class="provider-field">
                 <span class="provider-field-label">{session.text.onboardingProviderName}</span>
-                <input class="provider-input" value={editor.name} placeholder={session.text.providerNewNamePlaceholder} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} />
+                <input class="provider-input" value={editor.name} autocomplete="off" placeholder={session.text.providerNewNamePlaceholder} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} />
               </label>
               <label class="provider-field">
                 <span class="provider-field-label">{session.text.providerId}</span>
-                <input class="provider-input" value={editor.id} oninput={(event) => updateProviderEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} />
+                <input class="provider-input" value={editor.id} autocomplete="off" spellcheck="false" oninput={(event) => updateProviderEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} />
               </label>
             </div>
           {/if}
@@ -835,7 +847,7 @@
           {#if !editor.isBuiltin}
             <section class="provider-field">
               <div class="provider-field-head"><span class="provider-field-label">{session.text.providerBaseUrlLabel}</span></div>
-              <input class="provider-input" value={editor.baseUrl} placeholder="https://…" spellcheck="false" oninput={(event) => updateProviderEdit((draft) => ({ ...draft, baseUrl: (event.currentTarget as HTMLInputElement).value }))} />
+              <input class="provider-input" value={editor.baseUrl} autocomplete="off" aria-label={session.text.providerBaseUrlLabel} placeholder="https://…" spellcheck="false" oninput={(event) => updateProviderEdit((draft) => ({ ...draft, baseUrl: (event.currentTarget as HTMLInputElement).value }))} />
               <p class="provider-field-hint">{baseUrlPreview ? session.text.providerBaseUrlPreview.replace("{url}", baseUrlPreview) : session.text.providerSelfHostedHint}</p>
             </section>
           {/if}
@@ -934,7 +946,7 @@
                   </label>
                   <label class="provider-field">
                     <span class="provider-field-label">{session.text.providerPath}</span>
-                    <input class="provider-input" value={editor.path} spellcheck="false" oninput={(event) => updateProviderEdit((draft) => ({ ...draft, path: (event.currentTarget as HTMLInputElement).value }))} />
+                    <input class="provider-input" value={editor.path} autocomplete="off" spellcheck="false" oninput={(event) => updateProviderEdit((draft) => ({ ...draft, path: (event.currentTarget as HTMLInputElement).value }))} />
                   </label>
                 {/if}
               </div>
@@ -942,7 +954,7 @@
           </details>
 
           {#if providersStore.actionMessage && !modelEditorDraft}
-            <p class:run-history-failed={providersStore.actionFailed} class="settings-action-message provider-pane-message">{providersStore.actionMessage}</p>
+            <p class:run-history-failed={providersStore.actionFailed} class="settings-action-message provider-pane-message" aria-live="polite">{providersStore.actionMessage}</p>
           {/if}
         </div>
 
@@ -967,12 +979,12 @@
             <strong id="provider-model-edit-title">{modelEditorIndex === null ? session.text.providerAddModel : session.text.providerModelEditTitle}</strong>
             <p id="provider-model-edit-description">{session.text.providerModelEditHint}</p>
           </div>
-          <button class="modal-close" type="button" aria-label={session.text.cancel} onclick={closeModelEditor}><i class="ph ph-x"></i></button>
+          <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={closeModelEditor}><i class="ph ph-x" aria-hidden="true"></i></button>
         </header>
         <div class="modal-body provider-model-edit-body">
           <label class="provider-field">
             <span class="provider-field-label">{session.text.providerModelId}</span>
-            <input class="provider-input" value={modelEditorDraft.id} placeholder="gpt-5" spellcheck="false" oninput={onModelIdInput} />
+            <input class="provider-input" value={modelEditorDraft.id} autocomplete="off" placeholder="gpt-5" spellcheck="false" oninput={onModelIdInput} />
             {#if modelAutoDetected}
               <p class="provider-field-hint" style="color: var(--accent); display: flex; align-items: center; gap: 4px;">
                 <i class="ph ph-sparkle" aria-hidden="true"></i> {session.text.providerModelDetectedHint}
@@ -981,11 +993,11 @@
           </label>
           <label class="provider-field">
             <span class="provider-field-label">{session.text.providerModelAlias}</span>
-            <input class="provider-input" value={modelEditorDraft.alias ?? ""} placeholder={session.text.providerModelAliasHint} spellcheck="false" oninput={(event) => { const value = (event.currentTarget as HTMLInputElement).value; modelEditorDraft = modelEditorDraft ? { ...modelEditorDraft, alias: value.trim() ? value : undefined } : null; }} />
+            <input class="provider-input" value={modelEditorDraft.alias ?? ""} autocomplete="off" placeholder={session.text.providerModelAliasHint} spellcheck="false" oninput={(event) => { const value = (event.currentTarget as HTMLInputElement).value; modelEditorDraft = modelEditorDraft ? { ...modelEditorDraft, alias: value.trim() ? value : undefined } : null; }} />
           </label>
           <label class="provider-field">
             <span class="provider-field-label">{session.text.providerModelContext}</span>
-            <input class="provider-input" type="number" min="1" value={modelEditorDraft.contextWindow ?? ""} placeholder="200000" oninput={(event) => { const value = Number((event.currentTarget as HTMLInputElement).value); modelEditorDraft = modelEditorDraft ? { ...modelEditorDraft, contextWindow: Number.isFinite(value) && value > 0 ? value : undefined } : null; }} />
+            <input class="provider-input" type="number" min="1" autocomplete="off" value={modelEditorDraft.contextWindow ?? ""} placeholder="200000" oninput={(event) => { const value = Number((event.currentTarget as HTMLInputElement).value); modelEditorDraft = modelEditorDraft ? { ...modelEditorDraft, contextWindow: Number.isFinite(value) && value > 0 ? value : undefined } : null; }} />
           </label>
           <label class="provider-field">
             <span class="provider-field-label">{session.text.providerModelSampling}</span>
@@ -1046,19 +1058,20 @@
           <strong id="provider-model-discovery-title">{session.text.providerModelDialogTitle.replace("{provider}", editor ? providerLabel(editor.name, editor.id) : "")}</strong>
           <p id="provider-model-discovery-description">{session.text.providerModelsAvailableHint.replace("{count}", String(providersStore.discoveredModels.length))}</p>
         </div>
-        <button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (modelDiscoveryOpen = false)}><i class="ph ph-x"></i></button>
+        <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (modelDiscoveryOpen = false)}><i class="ph ph-x" aria-hidden="true"></i></button>
       </header>
       <div class="modal-body provider-model-discovery-body">
         <div class="provider-discovery-toolbar">
           <SearchField value={modelDiscoveryQuery} label={session.text.modelSearchPlaceholder} placeholder={session.text.modelSearchPlaceholder} onInput={(value) => (modelDiscoveryQuery = value)} />
           <button class="provider-icon-button" type="button" disabled={providersStore.discovering} aria-label={session.text.providerModelRefresh} title={session.text.providerModelRefresh} onclick={() => void discoverProviderModels()}><i class={`ph ph-arrows-clockwise ${providersStore.discovering ? "spin" : ""}`} aria-hidden="true"></i></button>
         </div>
-        <div class="provider-discovery-tabs" role="tablist" aria-label={session.text.providerModelsAvailableTitle}>
+        <div class="provider-discovery-tabs" role="tablist" aria-label={session.text.providerModelsAvailableTitle} use:tablist>
           {#each [["all", session.text.providerModelFilterAll], ["new", session.text.providerModelFilterNew], ["added", session.text.providerModelFilterAdded]] as option (option[0])}
-            <button type="button" role="tab" aria-selected={modelDiscoveryFilter === option[0]} class="provider-discovery-tab" class:active={modelDiscoveryFilter === option[0]} onclick={() => (modelDiscoveryFilter = option[0] as "all" | "added" | "new")}>{option[1]}</button>
+            <button type="button" role="tab" id={`provider-discovery-tab-${option[0]}`} aria-selected={modelDiscoveryFilter === option[0]} aria-controls="provider-discovery-panel" class="provider-discovery-tab" class:active={modelDiscoveryFilter === option[0]} onclick={() => (modelDiscoveryFilter = option[0] as "all" | "added" | "new")}>{option[1]}</button>
           {/each}
         </div>
 
+        <div id="provider-discovery-panel" role="tabpanel" aria-labelledby={`provider-discovery-tab-${modelDiscoveryFilter}`}>
         {#if providersStore.discovering}
           <SkeletonRows count={5} />
         {:else if discoveryVisibleCount === 0}
@@ -1103,6 +1116,7 @@
             {/each}
           </div>
         {/if}
+        </div>
       </div>
       <footer class="provider-modal-foot">
         <button class="primary-button" type="button" onclick={() => (modelDiscoveryOpen = false)}>{session.text.providerAuthClose}</button>
@@ -1111,7 +1125,7 @@
   {/if}
 
   {#if providersStore.actionMessage && !editor}
-    <p class:run-history-failed={providersStore.actionFailed} class="settings-action-message">{providersStore.actionMessage}</p>
+    <p class:run-history-failed={providersStore.actionFailed} class="settings-action-message" aria-live="polite">{providersStore.actionMessage}</p>
   {/if}
 {/if}
 
@@ -1145,7 +1159,7 @@
         <strong id="provider-auth-title">{providerAuthStore.providers.find((provider) => provider.id === authSession.providerId)?.loginLabel ?? session.text.providerAuthTitle}</strong>
         <p id="provider-auth-description">{session.text.providerAuthDialogHint}</p>
       </div>
-      <button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => void closeProviderAuth()}><i class="ph ph-x"></i></button>
+      <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => void closeProviderAuth()}><i class="ph ph-x" aria-hidden="true"></i></button>
     </header>
     <div class="modal-body provider-auth-dialog-body">
       {#if authSession.state === "done"}
@@ -1188,7 +1202,7 @@
               </div>
             {:else}
               <form class="provider-auth-answer" onsubmit={(event) => { event.preventDefault(); void submitProviderAuthAnswer(); }}>
-                <input type={authSession.prompt.type === "secret" ? "password" : "text"} bind:value={providerAuthStore.answer} placeholder={authSession.prompt.placeholder ?? session.text.providerAuthAnswerPlaceholder} autocomplete="off" />
+                <input type={authSession.prompt.type === "secret" ? "password" : "text"} bind:value={providerAuthStore.answer} aria-label={authSession.prompt.message || session.text.providerAuthAnswerPlaceholder} placeholder={authSession.prompt.placeholder ?? session.text.providerAuthAnswerPlaceholder} autocomplete="off" spellcheck="false" />
                 <button class="primary-button" type="submit" disabled={Boolean(providerAuthStore.actionProviderId) || (authSession.prompt.type !== "text" && !providerAuthStore.answer.trim())}>{session.text.providerAuthContinue}</button>
               </form>
             {/if}
@@ -1196,14 +1210,14 @@
         {/if}
 
         {#if authSession.messages.length > 0}
-          <div class="provider-auth-messages">
+          <div class="provider-auth-messages" aria-live="polite">
             {#each authSession.messages.slice(-4) as message (message.id)}
               <p>{message.message}</p>
             {/each}
           </div>
         {/if}
       {/if}
-      {#if providerAuthStore.error}<p class="settings-action-message run-history-failed">{providerAuthStore.error}</p>{/if}
+      {#if providerAuthStore.error}<p class="settings-action-message run-history-failed" aria-live="polite">{providerAuthStore.error}</p>{/if}
     </div>
     <footer class="provider-auth-dialog-foot">
       <button class="secondary-button" type="button" onclick={() => void closeProviderAuth()}>{providerAuthIsTerminal(authSession.state) ? session.text.providerAuthClose : session.text.cancel}</button>

@@ -221,6 +221,7 @@ test("service log rows open a readable JSON detail dialog and compact long Run I
 test("reported Desktop settings pages use the shared macOS-style IosSwitch", () => {
   const affectedSettingsSections = [
     "SkillsSection",
+    "ModelsSection",
     "ImageGenerateSection",
     "VideoGenerateSection",
     "TtsGenerateSection",
@@ -247,7 +248,8 @@ test("Desktop MCP settings distinguish configured enablement from live connectio
   assert.match(sections.mcp, /server\.lastError/);
   assert.match(sections.mcp, /\{#if server\.managed\}[^\n]*mcpManaged/);
   assert.match(sections.mcp, /\{#if !server\.managed\}<IosSwitch/);
-  assert.match(sections.mcp, /\{#if !server\.managed\}[\s\S]*beginMcpEdit\(server\)[\s\S]*removeMcpServer\(server\.id\)/);
+  assert.match(sections.mcp, /\{#if !server\.managed\}[\s\S]*beginMcpEdit\(server\)[\s\S]*deletingMcpServer\s*=\s*server/);
+  assert.match(sections.mcp, /removeMcpServer\(id\)/);
   assert.doesNotMatch(sections.mcp, /class="switch"/);
 });
 
@@ -311,7 +313,7 @@ test("enabled MCP servers reconcile on runtime cold start", () => {
 test("media tests and sandbox policies keep balanced settings layouts", () => {
   assert.match(sections.image, /class="settings-form tool-test-form"[\s\S]*toolImageSize[\s\S]*toolPrompt/);
   assert.match(sections.tts, /class="settings-form tool-provider-form"/);
-  assert.match(sections.tts, /settings-field settings-field-wide[^>]*>[\s\S]*webSearchApiKey/);
+  assert.match(sections.tts, /settings-field settings-field-wide[^>]*>[\s\S]*toolApiKey/);
   assert.match(sections.sandbox, /class="sandbox-policy-grid sandbox-policy-stack"/);
   assert.match(styles, /\.sandbox-policy-stack\s*\{[^}]*grid-template-columns:\s*1fr/s);
   // Sandbox policy cards must fill their grid cell; resetting only margin leaves
@@ -728,7 +730,7 @@ test("issue 13 macOS product tokens and accessibility preferences are shared", (
   assert.match(styles, /--font-ui:/);
   assert.match(styles, /--radius-control:\s*8px/);
   assert.match(styles, /--toolbar-height:\s*52px/);
-  assert.match(styles, /--settings-content-width:\s*720px/);
+  assert.match(styles, /--settings-content-width:\s*576px/);
   assert.match(styles, /--message-content-width:\s*720px/);
   assert.match(styles, /@media \(prefers-contrast: more\)/);
   assert.match(styles, /:root\[data-performance="low"\]/);
@@ -752,7 +754,10 @@ test("issue 13 target pages expose user-facing controls and secondary technical 
   assert.match(models, /technicalId=\{state\.currentKey\}/);
   assert.match(sections.providers, /humanizeProviderName/);
   assert.match(sections.providers, /aria-pressed=\{providerSortActive\}/);
-  assert.match(sections.providers, /class="provider-rail-list" role="listbox"/);
+  // The rail is a keyboard-navigable tablist whose panel carries the list — the
+  // old role="listbox" wrap was invalid ARIA (buttons cannot sit inside options).
+  assert.match(sections.providers, /class="provider-rail-tabs" role="tablist" aria-orientation="vertical"[^>]*use:tablist/);
+  assert.match(sections.providers, /class="provider-rail-list" id="provider-rail-list-panel" role="tabpanel"/);
   // Technical identity stays secondary: the raw id is a muted <code> in the
   // header and protocol/path live behind the Advanced disclosure.
   assert.match(sections.providers, /<code>\{editor\.id\}<\/code>/);
@@ -996,10 +1001,10 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   // stale responses are generation-guarded (pitfall 3).
   assert.match(chatInputArea, /searchDesktopProjectFiles/);
   assert.match(chatInputArea, /fileSearchGeneration/);
-  assert.match(slashSuggestionMenu, /FILES/);
+  assert.match(slashSuggestionMenu, /slashGroupFile/);
   assert.match(styles, /\.slash-suggestion-icon\[data-kind="file"\]/);
   assert.match(catalog, /\^@\[a-z0-9\]/);
-  assert.match(slashSuggestionMenu, /MINI APPS/);
+  assert.match(slashSuggestionMenu, /slashGroupMiniapp/);
   assert.match(transcript, /MINI APP/);
   assert.match(styles, /\.invocation-message\[data-kind="miniapp"\]/);
   assert.match(styles, /\.composer-token\[data-kind="miniapp"\]/);

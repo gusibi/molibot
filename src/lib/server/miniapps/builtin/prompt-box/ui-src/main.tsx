@@ -13,27 +13,27 @@ import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { Selector } from '@astryxdesign/core/Selector';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import {
-  MagnifyingGlassIcon,
-  PlusIcon,
-  ArrowPathIcon,
-  Cog6ToothIcon,
-  ClipboardDocumentIcon,
-  CheckIcon,
-  PencilSquareIcon,
-  TrashIcon,
-  PaperAirplaneIcon,
-  EyeIcon,
-  SparklesIcon,
-  KeyIcon,
-  CloudArrowDownIcon,
-  XMarkIcon,
-  PhotoIcon,
-  CodeBracketIcon,
-  LinkIcon,
-  CommandLineIcon,
-  VariableIcon,
-  ArrowsUpDownIcon
-} from '@heroicons/react/24/outline';
+  Search as MagnifyingGlassIcon,
+  Plus as PlusIcon,
+  Refresh as ArrowPathIcon,
+  Settings as Cog6ToothIcon,
+  Copy as ClipboardDocumentIcon,
+  Check as CheckIcon,
+  PenSquare as PencilSquareIcon,
+  Trash as TrashIcon,
+  PaperPlane as PaperAirplaneIcon,
+  Eye as EyeIcon,
+  Sparkles as SparklesIcon,
+  Key as KeyIcon,
+  CloudDownload as CloudArrowDownIcon,
+  Xmark as XMarkIcon,
+  Image as PhotoIcon,
+  Code as CodeBracketIcon,
+  Link as LinkIcon,
+  TerminalSquare as CommandLineIcon,
+  Math as VariableIcon,
+  TransferV as ArrowsUpDownIcon
+} from 'reicon-react';
 
 export interface PromptItem {
   id: string;

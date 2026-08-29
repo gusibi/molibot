@@ -8,7 +8,7 @@
   import PlanCard from "./PlanCard.svelte";
   import TurnProcess from "./TurnProcess.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
-  import { formatCompactTokens, humanizeModelOption, modelShortLabel } from "../presentation";
+  import { formatCompactTokens, formatDuration, humanizeModelOption, modelShortLabel } from "../presentation";
   import { handleMarkdownBodyClick } from "../markdownInteractions";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
@@ -233,7 +233,7 @@
       {/if}
     {:else}
       <div class="assistant-layout">
-        <img class="assistant-avatar" src="/molibot-icon.png" alt="" />
+        <img class="assistant-avatar" src="/molibot-icon.png" alt="" width="24" height="24" />
         <div class="message-stack">
         <div class="assistant-identity">
           <strong>{assistantName}</strong>
@@ -275,7 +275,7 @@
               <div class="message-meta-inline">
                 {#if hasTurnSummary && turnSummary}
                   <span class="turn-summary" aria-label={copy.turnSummaryLabel}>
-                    {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{turnSummary.durationMs < 1000 ? `${turnSummary.durationMs}ms` : `${(turnSummary.durationMs / 1000).toFixed(1)}s`}</span>{/if}
+                    {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{formatDuration(turnSummary.durationMs)}</span>{/if}
                     {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
                     {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
                     {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", formatCompactTokens(turnSummary.totalTokens))}</span>{/if}
@@ -324,7 +324,7 @@
                   {#if hasTechnicalDetails}<div class="message-meta-details">
                   {#if hasTurnSummary && turnSummary}
                     <div class="turn-summary" aria-label={copy.turnSummaryLabel}>
-                      {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{turnSummary.durationMs < 1000 ? `${turnSummary.durationMs}ms` : `${(turnSummary.durationMs / 1000).toFixed(1)}s`}</span>{/if}
+                      {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{formatDuration(turnSummary.durationMs)}</span>{/if}
                       {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
                       {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
                       {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", formatCompactTokens(turnSummary.totalTokens))}</span>{/if}

@@ -224,6 +224,7 @@
     queued={queuedMessages}
     label={copy.queued}
     removeLabel={copy.removeQueued}
+    confirmLabel={copy.confirmDelete}
     onRemove={onRemoveQueued}
     canSteer={sending}
     steerLabel={copy.steerQueued}
@@ -246,7 +247,7 @@
     onCaretMove={(position) => (caret = position)}
   >
     {#if filteredSuggestions.length > 0}
-      <SlashSuggestionMenu suggestions={filteredSuggestions} activeIndex={activeSuggestionIndex} onSelect={selectSuggestion} />
+      <SlashSuggestionMenu suggestions={filteredSuggestions} activeIndex={activeSuggestionIndex} onSelect={selectSuggestion} {copy} />
     {/if}
     <svelte:fragment slot="context"><slot /></svelte:fragment>
     {#if recording}

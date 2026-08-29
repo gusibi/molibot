@@ -417,8 +417,9 @@ overrides the generic Geist guidance below whenever the two conflict.
 - Standard corner radii are 6px for compact controls, 8px for controls and small
   cards, 12px for primary cards and inspectors, and fully rounded for status dots,
   avatars, and segmented pills. Do not invent intermediate radii.
-- The desktop toolbar/drag region is 52px high. Setting content is at most 576px;
-  data and chart content is 640–720px; messages and the composer are at most 720px.
+- The desktop toolbar/drag region is 52px high. Setting content — including the
+  usage, trace, and service-log pages — is at most 576px; only the memory center
+  uses the wider 720px data column; messages and the composer are at most 720px.
 - Prefer quiet, opaque surfaces and separators. Translucency may reinforce hierarchy
   but must preserve legibility with reduced transparency, increased contrast, dark
   mode, and inactive windows. Shadows are reserved for floating overlays.
@@ -532,11 +533,12 @@ block, status color, and sidebar tint must resolve through the same family block
   Settings keeps its secondary canvas. Hidden sidebar actions
   collapse out of layout and consume title width only on hover or keyboard focus. An empty
   local Chat is an editable new-conversation draft; its Session is created on first send.
-- Data pages use the same shell with a wider content column, compact metric cards,
-  semantic charts, and human-readable labels before technical identifiers.
+- Data pages (usage, trace, service logs) use the standard 576px settings column
+  with compact metric cards, semantic charts, and human-readable labels before
+  technical identifiers; the memory center is the only wider 720px data column.
 - Data-page filters use a compact toolbar: keep common dimensions visible in one row,
   place diagnostic or exact-ID fields behind an accessible disclosure, and show the
-  effective time window as quiet metadata. On the 720px data column, actions occupy a
+  effective time window as quiet metadata. On the settings column, actions occupy a
   shallow headline row and never compete with the filter controls for width. Reset is
   tertiary, refresh is an icon utility, and only an explicit commit action may use the
   primary-button weight. Disclosures stay transparent at rest rather than becoming a

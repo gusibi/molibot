@@ -4,6 +4,7 @@
   import ChatMarkdown from "./ChatMarkdown.svelte";
   import ProcessActivityItem from "./ProcessActivityItem.svelte";
   import { activityTimelineItems, type ActivityGroupAction, type ActivityTimelineItem } from "./activityView";
+  import { formatDuration } from "../presentation";
 
   export let blocks: TranscriptProcessBlock[];
   export let copy: Translation;
@@ -33,10 +34,7 @@
     return "terminal-window";
   }
 
-  function durationLabel(durationMs: number): string {
-    if (durationMs < 1_000) return `${durationMs}ms`;
-    return `${(durationMs / 1_000).toFixed(durationMs < 10_000 ? 1 : 0)}s`;
-  }
+  const durationLabel = formatDuration;
 </script>
 
 <div class="process-timeline" data-live={live}>

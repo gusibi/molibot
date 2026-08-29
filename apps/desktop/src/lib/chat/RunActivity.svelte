@@ -19,7 +19,7 @@
 
   $: hasRunning = activities.some((activity) => activity.state === "running");
   $: hasError = activities.some((activity) => activity.state === "error");
-  $: isFailed = failed || (activities.some((activity) => activity.state === "running") && !hasRunning);
+  $: isFailed = failed || hasError;
   $: headline = activityHeadline(activities);
   $: files = activityFileSummary(activities);
 

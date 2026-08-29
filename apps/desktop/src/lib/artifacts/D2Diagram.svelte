@@ -5,6 +5,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import type { Translation } from "../i18n";
+  import { tablist } from "../a11y/tablist";
   import { renderDesktopD2, type DesktopD2Theme } from "../api";
   import Dialog from "../components/ui/Dialog.svelte";
   import MediaViewer from "../projects/MediaViewer.svelte";
@@ -84,18 +85,22 @@
 
 <section class="mermaid-viewer d2-viewer">
   <div class="mermaid-viewer-toolbar">
-    <div class="mermaid-viewer-tabs" role="tablist" aria-label={copy.d2ViewMode}>
+    <div class="mermaid-viewer-tabs" role="tablist" aria-label={copy.d2ViewMode} use:tablist>
       <button
         type="button"
         role="tab"
+        id={`${titleId}-tab-preview`}
         aria-selected={mode === "preview"}
+        aria-controls={`${titleId}-panel`}
         class:active={mode === "preview"}
         onclick={() => (mode = "preview")}
       >{copy.preview}</button>
       <button
         type="button"
         role="tab"
+        id={`${titleId}-tab-source`}
         aria-selected={mode === "source"}
+        aria-controls={`${titleId}-panel`}
         class:active={mode === "source"}
         onclick={() => (mode = "source")}
       >{copy.d2Source}</button>
@@ -115,17 +120,17 @@
   </div>
 
   {#if mode === "source"}
-    <div class="mermaid-viewer-source"><pre><code>{source}</code></pre></div>
+    <div id={`${titleId}-panel`} class="mermaid-viewer-source" role="tabpanel" aria-labelledby={`${titleId}-tab-source`}><pre><code>{source}</code></pre></div>
   {:else if loading}
-    <div class="mermaid-viewer-pending" role="status">
+    <div id={`${titleId}-panel`} class="mermaid-viewer-pending" role="tabpanel" aria-labelledby={`${titleId}-tab-preview`}>
       <i class="ph ph-spinner-gap" aria-hidden="true"></i><span>{copy.loading}</span>
     </div>
   {:else if rendered?.status === "ok"}
-    <div class="mermaid-viewer-preview d2-viewer-preview">
+    <div id={`${titleId}-panel`} class="mermaid-viewer-preview d2-viewer-preview" role="tabpanel" aria-labelledby={`${titleId}-tab-preview`}>
       <img class="d2-viewer-image" src={svgDataUrl} alt={copy.d2Diagram} />
     </div>
   {:else}
-    <div class="mermaid-viewer-failed">
+    <div id={`${titleId}-panel`} class="mermaid-viewer-failed" role="tabpanel" aria-labelledby={`${titleId}-tab-preview`}>
       <p>{copy.artifactD2Failed}</p>
       <pre><code>{source}</code></pre>
     </div>

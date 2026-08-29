@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { cn, type WithElementRef } from "$lib/utils.js";
 	import type { HTMLSelectAttributes } from "svelte/elements";
-	// Inline SVG avoids @lucide/svelte hydration issue with Svelte 5.55+
+	// Inline SVG avoids icon-library hydration issues with Svelte 5.55+
 
 	type NativeSelectProps = Omit<WithElementRef<HTMLSelectAttributes>, "size"> & {
 		size?: "sm" | "default";

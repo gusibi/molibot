@@ -58,7 +58,7 @@
 
 {#if messages.length === 0 && !streamingText && !sending}
   <div class="conversation-empty">
-    <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" /></div>
+    <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" width="32" height="32" /></div>
     <h2>{emptyTitle}</h2>
     <p>{emptyHint}</p>
     {#if emptyActions.length > 0 && onEmptyAction}
@@ -78,7 +78,7 @@
 {#if sending}
   <article class="message-row assistant streaming-message">
     <div class="assistant-layout">
-      <img class="assistant-avatar" src="/molibot-icon.png" alt="" />
+      <img class="assistant-avatar" src="/molibot-icon.png" alt="" width="24" height="24" />
       <div class="message-stack">
         <div class="assistant-identity"><strong>{assistantName}</strong><span>{copy.agents}</span></div>
         <div class="message-status" role="status"><span class="message-status-pulse" aria-hidden="true"></span><span>{activity || copy.working}</span></div>

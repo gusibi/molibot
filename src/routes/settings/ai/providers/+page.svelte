@@ -4,7 +4,8 @@
     import { Input } from "$lib/components/ui/input";
     import { IosSwitch } from "$lib/components/ui/ios-switch";
     import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-    import { Eye, EyeOff } from "@lucide/svelte";
+    import Eye from "reicon-svelte/icons/Eye";
+    import EyeOff from "reicon-svelte/icons/EyeSlash";
     import type {
         DesktopProviderAuthItem,
         DesktopProviderAuthOverviewResponse,

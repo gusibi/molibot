@@ -1,28 +1,33 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import Dialog from "../components/ui/Dialog.svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
+  import Dialog from "../components/ui/Dialog.svelte";
+  import EmptyState from "../components/ui/EmptyState.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
+  import SettingGroup from "../components/ui/SettingGroup.svelte";
+  import SettingRow from "../components/ui/SettingRow.svelte";
+  import { formatTimestamp } from "../presentation";
   import { session } from "../stores/session.svelte";
+  import { trackUnsaved } from "../unsavedGuard";
   import {
     toolsStore,
+    BUILTIN_IMAGE_ENGINE_IDS,
+    addImageCustomEngine,
     closeMediaTaskDetail,
     ensureMediaPolling,
     stopMediaPolling,
+    isCustomImageEngine,
     loadImageGenerate,
     markToolSettingsDirty,
     mediaEngineLabel,
     openMediaTaskDetail,
+    removeImageCustomEngine,
     removeMediaTask,
     saveToolSettings,
     secretRevealed,
     testToolSettings,
-    toggleRevealSecret,
-    isCustomImageEngine,
-    addImageCustomEngine,
-    removeImageCustomEngine,
-    BUILTIN_IMAGE_ENGINE_IDS
+    toggleRevealSecret
   } from "../stores/tools.svelte";
 
   let addEngineOpen = $state(false);
@@ -31,6 +36,7 @@
   let newEngineProtocol = $state<"images-generations" | "chat-completions">("images-generations");
   let newEngineError = $state("");
   let removeEngineId = $state<string | null>(null);
+  let confirmingDelete = $state("");
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== toolsStore.imageGenerateEndpoint) {
@@ -43,28 +49,29 @@
   });
 
   onDestroy(() => stopMediaPolling("image"));
+  onDestroy(trackUnsaved(() => toolsStore.dirty.has("imageGenerate")));
+
+  // Two-step destructive delete: disarm when focus leaves the armed pair.
+  function disarmDeleteOnBlur(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    const container = event.currentTarget instanceof HTMLElement ? event.currentTarget.parentElement : null;
+    if (!(next instanceof Node) || !container?.contains(next)) confirmingDelete = "";
+  }
 
   function engineLabel(engine: { id: string; name?: string }): string {
     return engine.name || mediaEngineLabel("image", engine.id);
   }
 
-  function taskEngineLabel(id: string): string {
-    return toolsStore.imageGenerate?.engines.find((engine) => engine.id === id)?.name || mediaEngineLabel("image", id);
+  function taskEngineLabel(engineId: string): string {
+    const found = toolsStore.imageGenerateEdit?.engines.find((e) => e.id === engineId);
+    if (found?.name) return found.name;
+    return mediaEngineLabel("image", engineId);
   }
 
   function validateAndAddEngine(): void {
     newEngineError = "";
-    const id = newEngineId.trim().toLowerCase();
-    const name = newEngineName.trim();
-    if (!id) {
-      newEngineError = session.text.engineId;
-      return;
-    }
-    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(id)) {
-      newEngineError = session.text.engineIdHint;
-      return;
-    }
-    if (id === "auto") {
+    const id = newEngineId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    if (!id || !/^[a-z][a-z0-9_-]{0,63}$/.test(id) || id === "auto") {
       newEngineError = session.text.engineIdHint;
       return;
     }
@@ -72,6 +79,7 @@
       newEngineError = session.text.engineIdHint;
       return;
     }
+    const name = newEngineName.trim();
     addImageCustomEngine(id, name || id, newEngineProtocol);
     addEngineOpen = false;
     newEngineId = "";
@@ -95,28 +103,25 @@
 </script>
 
 {#if !session.serviceReady}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.imageGenerateUnavailable}</p></div></div>
+  <SettingGroup><EmptyState title={session.text.imageGenerateUnavailable} icon="image" /></SettingGroup>
 {:else if toolsStore.imageGenerateLoading || !toolsStore.imageGenerateEdit}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
+  <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
 {:else}
-  <div class="settings-card">
-    <div class="settings-row">
-      <strong>{session.text.webSearchEnabled}</strong>
-      <IosSwitch checked={toolsStore.imageGenerateEdit.enabled} ariaLabel={session.text.imageGenerate} onCheckedChange={(checked) => { if (toolsStore.imageGenerateEdit) toolsStore.imageGenerateEdit = { ...toolsStore.imageGenerateEdit, enabled: checked }; markToolSettingsDirty("imageGenerate"); }} />
-    </div>
-    <div class="settings-row">
-      <strong>{session.text.webSearchDefaultEngine}</strong>
+  <SettingGroup ariaLabel={session.text.imageGenerate}>
+    <SettingRow title={session.text.imageGenerateEnabled}>
+      <IosSwitch checked={toolsStore.imageGenerateEdit.enabled} ariaLabel={session.text.imageGenerateEnabled} onCheckedChange={(checked) => { if (toolsStore.imageGenerateEdit) toolsStore.imageGenerateEdit = { ...toolsStore.imageGenerateEdit, enabled: checked }; markToolSettingsDirty("imageGenerate"); }} />
+    </SettingRow>
+    <SettingRow title={session.text.imageDefaultEngine}>
       <SelectControl
         value={toolsStore.imageGenerateEdit.defaultEngine}
-        ariaLabel={session.text.webSearchDefaultEngine}
+        ariaLabel={session.text.imageDefaultEngine}
         options={[{ value: "auto", label: session.text.mediaEngineAuto }, ...toolsStore.imageGenerateEdit.engines.map((engine) => ({ value: engine.id, label: engineLabel(engine) }))]}
         onChange={(value) => { toolsStore.imageGenerateEdit!.defaultEngine = value; markToolSettingsDirty("imageGenerate"); }}
       />
-    </div>
-  </div>
+    </SettingRow>
+  </SettingGroup>
 
-  <p class="settings-group-title">{session.text.mediaEngines}</p>
-  <div class="settings-card tool-engine-list">
+  <SettingGroup title={session.text.mediaEngines} contentClass="tool-engine-list">
     {#each toolsStore.imageGenerateEdit.engines as engine (engine.id)}
       <details class="tool-engine-card">
         <summary>
@@ -137,18 +142,18 @@
           <div class="settings-form">
             <label class="settings-field">
               <span>{session.text.toolBaseUrl}</span>
-              <input bind:value={engine.baseUrl} oninput={() => markToolSettingsDirty("imageGenerate")} />
+              <input bind:value={engine.baseUrl} autocomplete="off" spellcheck="false" oninput={() => markToolSettingsDirty("imageGenerate")} />
             </label>
             <label class="settings-field">
               <span>{session.text.toolModel}</span>
-              <input bind:value={engine.model} oninput={() => markToolSettingsDirty("imageGenerate")} />
+              <input bind:value={engine.model} autocomplete="off" spellcheck="false" oninput={() => markToolSettingsDirty("imageGenerate")} />
             </label>
             <label class="settings-field settings-field-wide">
-              <span>{session.text.webSearchApiKey}</span>
+              <span>{session.text.toolApiKey}</span>
               <div class="secret-input">
-                <input type={secretRevealed(`image:${engine.id}`) ? "text" : "password"} bind:value={engine.apiKey} placeholder={engine.hasApiKey ? session.text.channelSecretConfigured : ""} autocomplete="new-password" oninput={() => markToolSettingsDirty("imageGenerate")} />
+                <input type={secretRevealed(`image:${engine.id}`) ? "text" : "password"} aria-label={session.text.toolApiKey} bind:value={engine.apiKey} placeholder={engine.hasApiKey ? session.text.channelSecretConfigured : ""} autocomplete="new-password" spellcheck="false" oninput={() => markToolSettingsDirty("imageGenerate")} />
                 <button class="secret-reveal" type="button" aria-label={session.text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`image:${engine.id}`); }}>
-                  <i class={`ph ${secretRevealed(`image:${engine.id}`) ? "ph-eye-slash" : "ph-eye"}`}></i>
+                  <i class={`ph ${secretRevealed(`image:${engine.id}`) ? "ph-eye-slash" : "ph-eye"}`} aria-hidden="true"></i>
                 </button>
               </div>
               {#if engine.hasApiKey && !engine.apiKey}
@@ -167,32 +172,28 @@
         </div>
       </details>
     {/each}
-  </div>
+  </SettingGroup>
 
-  <div class="settings-card">
-    <div class="settings-row">
-      <div>
-        <strong>{session.text.customEnginesTitle}</strong>
-        <p class="settings-hint">{session.text.customEnginesDesc}</p>
-      </div>
+  <SettingGroup title={session.text.customEnginesTitle} description={session.text.customEnginesDesc}>
+    <svelte:fragment slot="action">
       <button class="secondary-button" type="button" onclick={() => addEngineOpen = true}>{session.text.addEngine}</button>
-    </div>
-  </div>
+    </svelte:fragment>
+  </SettingGroup>
 
   <Dialog open={addEngineOpen} contentClass="modal-card" labelledBy="image-add-engine-title" onOpenChange={(next) => { if (!next) closeAddEngine(); }}>
     <header class="modal-head">
       <strong id="image-add-engine-title">{session.text.addEngineTitle}</strong>
-      <button class="modal-close" type="button" aria-label={session.text.cancel} onclick={closeAddEngine}><i class="ph ph-x"></i></button>
+      <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={closeAddEngine}><i class="ph ph-x" aria-hidden="true"></i></button>
     </header>
     <div class="modal-body">
       <div class="settings-form">
         <label class="settings-field">
           <span>{session.text.engineId}</span>
-          <input bind:value={newEngineId} placeholder={session.text.engineIdHint} />
+          <input bind:value={newEngineId} placeholder={session.text.engineIdHint} autocomplete="off" spellcheck="false" />
         </label>
         <label class="settings-field">
           <span>{session.text.engineName}</span>
-          <input bind:value={newEngineName} placeholder={session.text.engineName} />
+          <input bind:value={newEngineName} placeholder={session.text.engineName} autocomplete="off" />
         </label>
         <label class="settings-field">
           <span>{session.text.engineProtocol}</span>
@@ -236,12 +237,11 @@
     </AlertDialog>
   {/if}
 
-  <p class="settings-group-title">{session.text.toolTest}</p>
-  <div class="settings-card tool-test-card">
+  <SettingGroup title={session.text.toolTest} contentClass="tool-test-card">
     <div class="settings-form tool-test-form">
       <label class="settings-field">
-        <span>{session.text.webSearchDefaultEngine}</span>
-        <SelectControl value={toolsStore.imageTestEngine} ariaLabel={session.text.webSearchDefaultEngine} options={[{ value: "auto", label: session.text.mediaEngineAuto }, ...toolsStore.imageGenerateEdit.engines.map((engine) => ({ value: engine.id, label: engineLabel(engine) }))]} onChange={(value) => toolsStore.imageTestEngine = value} />
+        <span>{session.text.imageDefaultEngine}</span>
+        <SelectControl value={toolsStore.imageTestEngine} ariaLabel={session.text.imageDefaultEngine} options={[{ value: "auto", label: session.text.mediaEngineAuto }, ...toolsStore.imageGenerateEdit.engines.map((engine) => ({ value: engine.id, label: engineLabel(engine) }))]} onChange={(value) => toolsStore.imageTestEngine = value} />
       </label>
       <label class="settings-field">
         <span>{session.text.toolImageSize}</span>
@@ -249,7 +249,7 @@
       </label>
       <label class="settings-field settings-field-wide">
         <span>{session.text.toolPrompt}</span>
-        <input bind:value={toolsStore.imageTestPrompt} />
+        <input bind:value={toolsStore.imageTestPrompt} autocomplete="off" />
       </label>
     </div>
     <div class="settings-row-actions tool-test-actions">
@@ -258,28 +258,32 @@
     {#if toolsStore.testResult}
       <pre class:run-history-failed={!toolsStore.testResult.ok} class="tool-test-result">{JSON.stringify(toolsStore.testResult.result ?? toolsStore.testResult.error, null, 2)}</pre>
     {/if}
-  </div>
+  </SettingGroup>
 
-  <p class="settings-group-title">{session.text.mediaTasks}</p>
-  {#if toolsStore.imageTasks.length === 0}
-    <div class="settings-card"><div class="settings-row"><p>{session.text.mediaTasksEmpty}</p></div></div>
-  {:else}
-    <div class="settings-card">
+  <SettingGroup title={session.text.mediaTasks}>
+    {#if toolsStore.imageTasks.length === 0}
+      <EmptyState title={session.text.mediaTasksEmpty} icon="image" />
+    {:else}
       {#each toolsStore.imageTasks as task (task.id)}
         <div class="settings-row media-task-row">
           <div class="media-task-summary">
             <span class="status-badge" data-state={task.status === "completed" ? "ready" : task.status === "failed" ? "error" : "pending"}>{task.status === "completed" ? session.text.mediaTaskCompleted : task.status === "failed" ? session.text.mediaTaskFailed : session.text.mediaTaskProcessing}</span>
             <span class="media-task-prompt" title={task.prompt}>{task.prompt}</span>
-            <span class="media-task-meta">{taskEngineLabel(task.engine)} · {task.createdAt.slice(0, 19).replace("T", " ")}</span>
+            <span class="media-task-meta">{taskEngineLabel(task.engine)} · {formatTimestamp(task.createdAt, session.locale)}</span>
           </div>
           <div class="settings-row-actions">
             <button class="secondary-button" type="button" onclick={() => openMediaTaskDetail(task)}>{session.text.mediaTaskView}</button>
-            <button class="row-icon-btn danger-action" type="button" title={session.text.mediaTaskDelete} aria-label={session.text.mediaTaskDelete} disabled={toolsStore.mediaTaskBusy === task.id} onclick={() => void removeMediaTask("image", task.id)}><i class="ph ph-trash" aria-hidden="true"></i></button>
+            {#if confirmingDelete === task.id}
+              <button class="secondary-button danger-action" type="button" disabled={toolsStore.mediaTaskBusy === task.id} onblur={disarmDeleteOnBlur} onclick={() => void removeMediaTask("image", task.id)}>{session.text.confirmDelete}</button>
+              <button class="secondary-button" type="button" onblur={disarmDeleteOnBlur} onclick={() => (confirmingDelete = "")}>{session.text.cancel}</button>
+            {:else}
+              <button class="row-icon-btn danger-action" type="button" title={session.text.mediaTaskDelete} aria-label={session.text.mediaTaskDelete} disabled={toolsStore.mediaTaskBusy === task.id} onclick={() => (confirmingDelete = task.id)}><i class="ph ph-trash" aria-hidden="true"></i></button>
+            {/if}
           </div>
         </div>
       {/each}
-    </div>
-  {/if}
+    {/if}
+  </SettingGroup>
 
   {#if toolsStore.mediaTaskDetail && toolsStore.mediaTaskDetail.kind === "image"}
     <Dialog
@@ -290,7 +294,7 @@
     >
       <header class="modal-head">
         <strong id="image-media-task-detail-title">{session.text.mediaTaskDetail}</strong>
-        <button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => closeMediaTaskDetail()}><i class="ph ph-x"></i></button>
+        <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => closeMediaTaskDetail()}><i class="ph ph-x" aria-hidden="true"></i></button>
       </header>
       <div class="modal-body media-task-detail">
         {#if toolsStore.mediaTaskDetail.status === "completed"}
@@ -313,8 +317,8 @@
         {#if toolsStore.mediaTaskDetail.errorMessage}
           <div class="settings-row media-task-detail-block"><strong>{session.text.mediaTaskError}</strong><span class="run-history-failed">{toolsStore.mediaTaskDetail.errorMessage}</span></div>
         {/if}
-        <div class="settings-row"><strong>{session.text.mediaTaskCreatedAt}</strong><span>{toolsStore.mediaTaskDetail.createdAt.slice(0, 19).replace("T", " ")}</span></div>
-        <div class="settings-row"><strong>{session.text.mediaTaskUpdatedAt}</strong><span>{toolsStore.mediaTaskDetail.updatedAt.slice(0, 19).replace("T", " ")}</span></div>
+        <div class="settings-row"><strong>{session.text.mediaTaskCreatedAt}</strong><span>{formatTimestamp(toolsStore.mediaTaskDetail.createdAt, session.locale)}</span></div>
+        <div class="settings-row"><strong>{session.text.mediaTaskUpdatedAt}</strong><span>{formatTimestamp(toolsStore.mediaTaskDetail.updatedAt, session.locale)}</span></div>
         {#if toolsStore.mediaTaskDetailUrl}
           <div class="settings-row-actions media-task-detail-actions"><a class="secondary-button" href={toolsStore.mediaTaskDetailUrl} download={`image-${toolsStore.mediaTaskDetail.id}`}>{session.text.mediaTaskDownload}</a></div>
         {/if}
@@ -323,7 +327,7 @@
   {/if}
 {/if}
 
-{#if toolsStore.message}<p class="settings-action-message">{toolsStore.message}</p>{/if}
+{#if toolsStore.message}<p class="settings-action-message" aria-live="polite">{toolsStore.message}</p>{/if}
 {#if toolsStore.dirty.has("imageGenerate")}
   <footer class="settings-footbar">
     <span class="settings-footbar-label">{session.text.settingsUnsaved}</span>

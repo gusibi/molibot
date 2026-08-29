@@ -194,3 +194,29 @@ export function formatNaturalDateTime(value: string, locale: Locale): string {
     minute: "2-digit"
   }).format(date);
 }
+
+/** Formats an ISO timestamp in full for detail rows, falling back to the raw value when unparseable. */
+export function formatTimestamp(value: string | undefined | null, locale: Locale): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+/** Formats a millisecond duration compactly: 980 -> "980ms", 1500 -> "1.5s", 95_000 -> "1m 35s". */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  if (ms < 1_000) return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(ms)}ms`;
+  const seconds = ms / 1_000;
+  if (seconds < 60) return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Math.round(seconds % 60))}s`;
+}

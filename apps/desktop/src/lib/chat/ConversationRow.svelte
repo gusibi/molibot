@@ -46,6 +46,7 @@
   let menuOpen = $state(false);
   let menuPos = $state({ top: 0, left: 0 });
   let menuBtn: HTMLButtonElement | null = $state(null);
+  let menuEl: HTMLDivElement | null = $state(null);
   let confirmingDelete = $state(false);
 
   let editing = $state(false);
@@ -53,6 +54,28 @@
   let inputEl: HTMLInputElement | null = $state(null);
 
   const MENU_WIDTH = 148;
+
+  /** Focuses the menu container when it mounts so Escape/arrow keys work immediately. */
+  function autofocus(node: HTMLElement): void {
+    node.focus();
+  }
+
+  function onMenuKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      menuOpen = false;
+      menuBtn?.focus();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const items = Array.from(menuEl?.querySelectorAll<HTMLButtonElement>(".row-menu-item") ?? []);
+      if (!items.length) return;
+      const current = items.indexOf(document.activeElement as HTMLButtonElement);
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      items[(current + delta + items.length) % items.length]?.focus();
+    }
+  }
 
   function openMenu(event: MouseEvent): void {
     event.stopPropagation();
@@ -146,46 +169,37 @@
   class:menu-open={menuOpen}
   class:forked={Boolean(item.parentSessionId)}
   data-read-only={item.readOnly}
-  role="button"
-  tabindex="0"
-  title={item.title}
-  onclick={onRowClick}
-  onkeydown={(event) => {
-    if (editing) return;
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      onSelect();
-    }
-  }}
 >
-  <span class="row-avatar">
-    {#if item.parentSessionId}
-      <span class="row-branch" aria-label={labels.forkedConversation} title={labels.forkedConversation}>↳</span>
-    {/if}
-    <BotAvatar botId={item.botId} name={item.botDeleted ? "" : item.botName} size={24} readOnly={item.readOnly} />
-    {#if statusDot}
-      <span
-        class="status-dot"
-        data-color={statusDot.color}
-        role="status"
-        aria-label={labels[statusDot.labelKey]}
-        title={labels[statusDot.labelKey]}
-      ></span>
-    {/if}
-  </span>
   {#if editing}
     <input
       class="row-rename-input"
       bind:this={inputEl}
       bind:value={draftTitle}
       placeholder={labels.placeholder}
-      onclick={(e) => e.stopPropagation()}
+      aria-label={labels.rename}
       onkeydown={onEditKeydown}
       onblur={commitRename}
     />
   {:else}
-    <span class="row-title">{item.title}</span>
-    <span class="row-time">{formatTime(item.updatedAt)}</span>
+    <button type="button" class="row-open" title={item.title} onclick={onRowClick}>
+      <span class="row-avatar">
+        {#if item.parentSessionId}
+          <span class="row-branch" aria-label={labels.forkedConversation} title={labels.forkedConversation}>↳</span>
+        {/if}
+        <BotAvatar botId={item.botId} name={item.botDeleted ? "" : item.botName} size={24} readOnly={item.readOnly} />
+        {#if statusDot}
+          <span
+            class="status-dot"
+            data-color={statusDot.color}
+            role="status"
+            aria-label={labels[statusDot.labelKey]}
+            title={labels[statusDot.labelKey]}
+          ></span>
+        {/if}
+      </span>
+      <span class="row-title">{item.title}</span>
+      <span class="row-time">{formatTime(item.updatedAt)}</span>
+    </button>
     {#if canManage}
       <button
         type="button"
@@ -204,7 +218,7 @@
 </div>
 
 {#if menuOpen}
-  <div class="row-menu" role="menu" style={`top:${menuPos.top}px; left:${menuPos.left}px;`}>
+  <div class="row-menu" role="menu" tabindex="-1" bind:this={menuEl} use:autofocus onkeydown={onMenuKeydown} style={`top:${menuPos.top}px; left:${menuPos.left}px;`}>
     {#if confirmingDelete}
       <p class="row-menu-prompt">{labels.deletePrompt}</p>
       <div class="row-menu-confirm">
@@ -253,7 +267,7 @@
     line-height: 1;
   }
   .conversation-row:hover,
-  .conversation-row:focus-visible,
+  .conversation-row:focus-within,
   .conversation-row.menu-open {
     --conversation-row-overlay: var(--fill, rgba(0, 0, 0, 0.05));
     background: var(--fill, rgba(0, 0, 0, 0.05));
@@ -267,6 +281,27 @@
     font-weight: 500;
   }
   .conversation-row[data-read-only="true"] {
+    cursor: default;
+  }
+
+  /* The row's main clickable surface. A real button replaces the old
+     role="button" div so the nested menu button is valid markup. */
+  .row-open {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    border-radius: inherit;
+  }
+  .conversation-row[data-read-only="true"] .row-open {
     cursor: default;
   }
 
@@ -312,7 +347,11 @@
     background: var(--card-bg);
     color: var(--label-primary, #171717);
     font-size: var(--fs-label);
+  }
+  .row-rename-input:focus-visible {
     outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .status-dot {
     position: absolute;

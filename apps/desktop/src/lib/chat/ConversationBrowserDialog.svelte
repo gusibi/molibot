@@ -31,6 +31,7 @@
       channels: string;
       allChannels: string;
       scopeFilter: string;
+      clearSearch: string;
       telegram: string;
       feishu: string;
       qq: string;
@@ -172,9 +173,9 @@
   <header class="browser-header">
     <div class="browser-search">
       <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-      <input bind:this={searchInput} bind:value={query} placeholder={labels.search} aria-label={labels.search} />
+      <input bind:this={searchInput} bind:value={query} autocomplete="off" spellcheck="false" placeholder={labels.search} aria-label={labels.search} />
       {#if query}
-        <button type="button" aria-label={labels.search} onclick={() => (query = "")}>
+        <button type="button" aria-label={labels.clearSearch} title={labels.clearSearch} onclick={() => (query = "")}>
           <i class="ph-fill ph-x-circle" aria-hidden="true"></i>
         </button>
       {/if}

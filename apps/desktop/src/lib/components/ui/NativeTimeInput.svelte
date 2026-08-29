@@ -2,12 +2,18 @@
   interface Props {
     value?: string;
     disabled?: boolean;
+    ariaLabel?: string;
+    name?: string;
+    id?: string;
     onchange?: (event: Event) => void;
   }
 
   let {
     value = $bindable(""),
     disabled = false,
+    ariaLabel,
+    name,
+    id,
     onchange
   }: Props = $props();
 
@@ -24,4 +30,4 @@
   }
 </script>
 
-<input type="time" bind:value {disabled} onpointerdown={openNativePicker} {onchange} />
+<input type="time" bind:value {disabled} autocomplete="off" aria-label={ariaLabel} {name} {id} onpointerdown={openNativePicker} {onchange} />

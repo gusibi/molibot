@@ -1,4 +1,7 @@
 <script lang="ts">
+  import EmptyState from "../components/ui/EmptyState.svelte";
+  import SettingGroup from "../components/ui/SettingGroup.svelte";
+  import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
   import { runtimeEnvStore, loadRuntimeEnv } from "../stores/runtimeEnv.svelte";
 
@@ -10,17 +13,16 @@
 </script>
 
 {#if !session.serviceReady}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.unavailable}</p></div></div>
+  <SettingGroup><EmptyState title={session.text.unavailable} icon="shield-warning" /></SettingGroup>
 {:else if runtimeEnvStore.loading || !runtimeEnvStore.runtimeEnv}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
+  <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
 {:else}
-  <div class="settings-card">
-    <div class="settings-row">
-      <strong>{session.text.runtimeDepStatusInstalled}: {runtimeEnvStore.runtimeEnv.counts.installed}</strong>
+  <SettingGroup ariaLabel={session.text.runtimeEnv}>
+    <SettingRow title={`${session.text.runtimeDepStatusInstalled}: ${runtimeEnvStore.runtimeEnv.counts.installed}`}>
       <span class="diag-value">{session.text.runtimeDepStatusMissing}: {runtimeEnvStore.runtimeEnv.counts.missing} · {runtimeEnvStore.runtimeEnv.counts.total} {session.text.runtimeDepTotal}</span>
-    </div>
-  </div>
-  <div class="settings-card">
+    </SettingRow>
+  </SettingGroup>
+  <SettingGroup title={session.text.runtimeEnv} description={session.text.runtimeDepInstallDeferred}>
     {#each runtimeEnvStore.runtimeEnv.dependencies as dep (dep.id)}
       <div class="settings-row runtime-dep-row">
         <div class="profile-info">
@@ -36,6 +38,5 @@
         </div>
       </div>
     {/each}
-  </div>
-  <p class="settings-section-hint">{session.text.runtimeDepInstallDeferred}</p>
+  </SettingGroup>
 {/if}

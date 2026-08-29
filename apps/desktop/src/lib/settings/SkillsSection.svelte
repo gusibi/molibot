@@ -1,7 +1,12 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+  import EmptyState from "../components/ui/EmptyState.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
+  import SettingGroup from "../components/ui/SettingGroup.svelte";
+  import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
+  import { trackUnsaved } from "../unsavedGuard";
   import { skillsStore, discardSkillsSearch, loadSkills, saveSkillsSearch, toggleSkill, updateBuiltinSkill } from "../stores/skills.svelte";
 
   $effect(() => {
@@ -11,19 +16,22 @@
   });
 
   const skillsSearchDirty = $derived(skillsStore.searchDraft !== null && JSON.stringify(skillsStore.searchDraft) !== skillsStore.searchPristine);
+
+  onDestroy(trackUnsaved(() => skillsSearchDirty));
 </script>
 
 {#if !session.serviceReady}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.skillsUnavailable}</p></div></div>
+  <SettingGroup><EmptyState title={session.text.skillsUnavailable} icon="sparkle" /></SettingGroup>
 {:else if skillsStore.loading || !skillsStore.skills}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
+  <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
 {:else}
-  <div class="settings-card">
-    <div class="settings-row"><strong>{session.text.skillsTotal}</strong><span class="diag-value">{skillsStore.skills.counts.total} · {session.text.agentsEnabledCount}: {skillsStore.skills.counts.enabled} · {session.text.skillScopeGlobal}: {skillsStore.skills.counts.global} · {session.text.skillScopeBot}: {skillsStore.skills.counts.bot} · {session.text.skillScopeChat}: {skillsStore.skills.counts.chat}</span></div>
-  </div>
+  <SettingGroup ariaLabel={session.text.skillsTotal}>
+    <SettingRow title={session.text.skillsTotal}>
+      <span class="diag-value">{skillsStore.skills.counts.total} · {session.text.agentsEnabledCount}: {skillsStore.skills.counts.enabled} · {session.text.skillScopeGlobal}: {skillsStore.skills.counts.global} · {session.text.skillScopeBot}: {skillsStore.skills.counts.bot} · {session.text.skillScopeChat}: {skillsStore.skills.counts.chat}</span>
+    </SettingRow>
+  </SettingGroup>
   {#if skillsStore.skills.builtins.length > 0}
-    <div class="settings-card">
-      <div class="settings-row"><div class="profile-info"><strong>{session.text.skillBuiltins}</strong><p>{session.text.skillBuiltinsHint}</p></div></div>
+    <SettingGroup title={session.text.skillBuiltins} description={session.text.skillBuiltinsHint}>
       {#each skillsStore.skills.builtins as builtin (builtin.id)}
         <div class="settings-row">
           <div class="profile-info">
@@ -61,30 +69,36 @@
           </div>
         </div>
       {/each}
-    </div>
+    </SettingGroup>
   {/if}
   {#if skillsStore.searchDraft}
     {@const selectedSkillProvider = skillsStore.searchDraft.providers.find((provider) => provider.id === skillsStore.searchDraft?.apiProvider)}
     <details class="skills-search-config settings-card">
-      <summary><strong>{session.text.skillsSearchConfig}</strong></summary>
+      <summary><span>{session.text.skillsSearchConfig}</span><i class="ph ph-caret-down" aria-hidden="true"></i></summary>
       <form id="desktop-skills-search-form" onsubmit={(event) => { event.preventDefault(); void saveSkillsSearch(); }}>
-      <div class="settings-row"><strong>{session.text.skillSearchLocal}</strong><IosSwitch checked={skillsStore.searchDraft.localEnabled} ariaLabel={session.text.skillSearchLocal} onCheckedChange={(checked) => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, localEnabled: checked } : null)} /></div>
-      <div class="settings-row"><strong>{session.text.skillSearchApi}</strong><IosSwitch checked={skillsStore.searchDraft.apiEnabled} ariaLabel={session.text.skillSearchApi} onCheckedChange={(checked) => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, apiEnabled: checked } : null)} /></div>
-      <div class="settings-form">
-        <label class="settings-field"><span>{session.text.skillsSearchProvider}</span><SelectControl value={skillsStore.searchDraft.apiProvider} ariaLabel={session.text.skillsSearchProvider} options={[{ value: "", label: session.text.unavailable }, ...skillsStore.searchDraft.providers.map((provider) => ({ value: provider.id, label: provider.name }))]} onChange={(value) => { const provider = skillsStore.searchDraft?.providers.find((item) => item.id === value); if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiProvider: provider?.id ?? "", apiModel: provider?.models.includes(skillsStore.searchDraft.apiModel) ? skillsStore.searchDraft.apiModel : provider?.defaultModel ?? provider?.models[0] ?? "" }; }} /></label>
-        <label class="settings-field"><span>{session.text.skillsSearchModel}</span><SelectControl value={skillsStore.searchDraft.apiModel} ariaLabel={session.text.skillsSearchModel} options={[{ value: "", label: session.text.unavailable }, ...(selectedSkillProvider?.models ?? []).map((model) => ({ value: model, label: model }))]} onChange={(value) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiModel: value }; }} /></label>
-        <label class="settings-field"><span>{session.text.skillsMaxTokens}</span><input type="number" min="128" max="4096" value={skillsStore.searchDraft.maxTokens} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, maxTokens: Number(event.currentTarget.value) }; }} /></label>
-        <label class="settings-field"><span>{session.text.skillsTemperature}</span><input type="number" min="0" max="1" step="0.1" value={skillsStore.searchDraft.temperature} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, temperature: Number(event.currentTarget.value) }; }} /></label>
-        <label class="settings-field"><span>{session.text.skillsTimeout}</span><input type="number" min="1000" max="60000" step="500" value={skillsStore.searchDraft.timeoutMs} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, timeoutMs: Number(event.currentTarget.value) }; }} /></label>
-        <label class="settings-field"><span>{session.text.skillsConfidence}</span><input type="number" min="0" max="1" step="0.05" value={skillsStore.searchDraft.minConfidence} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, minConfidence: Number(event.currentTarget.value) }; }} /></label>
-      </div>
+        <div class="settings-row">
+          <strong>{session.text.skillSearchLocal}</strong>
+          <IosSwitch checked={skillsStore.searchDraft.localEnabled} ariaLabel={session.text.skillSearchLocal} onCheckedChange={(checked) => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, localEnabled: checked } : null)} />
+        </div>
+        <div class="settings-row">
+          <strong>{session.text.skillSearchApi}</strong>
+          <IosSwitch checked={skillsStore.searchDraft.apiEnabled} ariaLabel={session.text.skillSearchApi} onCheckedChange={(checked) => (skillsStore.searchDraft = skillsStore.searchDraft ? { ...skillsStore.searchDraft, apiEnabled: checked } : null)} />
+        </div>
+        <div class="settings-form">
+          <label class="settings-field"><span>{session.text.skillsSearchProvider}</span><SelectControl value={skillsStore.searchDraft.apiProvider} ariaLabel={session.text.skillsSearchProvider} options={[{ value: "", label: session.text.unavailable }, ...skillsStore.searchDraft.providers.map((provider) => ({ value: provider.id, label: provider.name }))]} onChange={(value) => { const provider = skillsStore.searchDraft?.providers.find((item) => item.id === value); if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiProvider: provider?.id ?? "", apiModel: provider?.models.includes(skillsStore.searchDraft.apiModel) ? skillsStore.searchDraft.apiModel : provider?.defaultModel ?? provider?.models[0] ?? "" }; }} /></label>
+          <label class="settings-field"><span>{session.text.skillsSearchModel}</span><SelectControl value={skillsStore.searchDraft.apiModel} ariaLabel={session.text.skillsSearchModel} options={[{ value: "", label: session.text.unavailable }, ...(selectedSkillProvider?.models ?? []).map((model) => ({ value: model, label: model }))]} onChange={(value) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiModel: value }; }} /></label>
+          <label class="settings-field"><span>{session.text.skillsMaxTokens}</span><input type="number" min="128" max="4096" autocomplete="off" aria-label={session.text.skillsMaxTokens} value={skillsStore.searchDraft.maxTokens} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, maxTokens: Number(event.currentTarget.value) }; }} /></label>
+          <label class="settings-field"><span>{session.text.skillsTemperature}</span><input type="number" min="0" max="1" step="0.1" autocomplete="off" aria-label={session.text.skillsTemperature} value={skillsStore.searchDraft.temperature} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, temperature: Number(event.currentTarget.value) }; }} /></label>
+          <label class="settings-field"><span>{session.text.skillsTimeout}</span><input type="number" min="1000" max="60000" step="500" autocomplete="off" aria-label={session.text.skillsTimeout} value={skillsStore.searchDraft.timeoutMs} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, timeoutMs: Number(event.currentTarget.value) }; }} /></label>
+          <label class="settings-field"><span>{session.text.skillsConfidence}</span><input type="number" min="0" max="1" step="0.05" autocomplete="off" aria-label={session.text.skillsConfidence} value={skillsStore.searchDraft.minConfidence} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, minConfidence: Number(event.currentTarget.value) }; }} /></label>
+        </div>
       </form>
     </details>
   {/if}
   {#if skillsStore.skills.counts.total === 0}
-    <div class="settings-card"><div class="settings-row"><p>{session.text.skillsEmpty}</p></div></div>
+    <EmptyState title={session.text.skillsEmpty} description={session.text.skillsHint} icon="sparkle" />
   {:else}
-    <div class="settings-card">
+    <SettingGroup ariaLabel={session.text.skillsTotal}>
       {#each skillsStore.skills.items as skill (skill.id)}
         <div class="settings-row">
           <div class="profile-info">
@@ -95,9 +109,9 @@
           <IosSwitch checked={skill.enabled} ariaLabel={skill.name} disabled={skillsStore.savingId === skill.id} onCheckedChange={(checked) => void toggleSkill(skill.id, checked)} />
         </div>
       {/each}
-    </div>
+    </SettingGroup>
   {/if}
-  {#if skillsStore.actionMessage}<p class="settings-action-message">{skillsStore.actionMessage}</p>{/if}
+  {#if skillsStore.actionMessage}<p class="settings-action-message" aria-live="polite">{skillsStore.actionMessage}</p>{/if}
 {/if}
 
 {#if skillsSearchDirty}

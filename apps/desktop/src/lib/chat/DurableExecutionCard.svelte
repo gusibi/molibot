@@ -34,7 +34,7 @@
 <article class="durable-execution-card" data-status={item.execution.status}>
   <header class="durable-execution-card-head">
     <div class="durable-execution-card-mark" aria-hidden="true">
-      <i class="ph ph-stack-simple"></i>
+      <i class="ph ph-stack-simple" aria-hidden="true"></i>
     </div>
     <div class="durable-execution-card-title">
       <p>{copy.durableExecution} · <code>{item.execution.shortHandle}</code></p>
@@ -46,8 +46,14 @@
   </header>
 
   <div class="durable-execution-card-progress" aria-label={copy.durableProgress}>
-    <div class="durable-execution-progress-track" aria-hidden="true">
-      <span style={"width: " + progress + "%"}></span>
+    <div
+      class="durable-execution-progress-track"
+      role="progressbar"
+      aria-valuenow={progress}
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
+      <span style={"transform: scaleX(" + progress / 100 + ")"}></span>
     </div>
     <div class="durable-execution-progress-meta">
       <span>{stepProgress}</span>
@@ -159,7 +165,8 @@
     height: 100%;
     border-radius: inherit;
     background: var(--accent);
-    transition: width 180ms var(--ease-standard);
+    transform-origin: left;
+    transition: transform 180ms var(--ease-standard);
   }
   .durable-execution-progress-meta {
     justify-content: space-between;

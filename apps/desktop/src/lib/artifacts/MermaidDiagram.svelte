@@ -5,6 +5,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import type { Translation } from "../i18n";
+  import { tablist } from "../a11y/tablist";
   import Dialog from "../components/ui/Dialog.svelte";
   import MediaViewer from "../projects/MediaViewer.svelte";
 
@@ -53,18 +54,22 @@
 
 <section class="mermaid-viewer">
   <div class="mermaid-viewer-toolbar">
-    <div class="mermaid-viewer-tabs" role="tablist" aria-label={copy.mermaidViewMode}>
+    <div class="mermaid-viewer-tabs" role="tablist" aria-label={copy.mermaidViewMode} use:tablist>
       <button
         type="button"
         role="tab"
+        id={`${titleId}-tab-preview`}
         aria-selected={mode === "preview"}
+        aria-controls={`${titleId}-panel`}
         class:active={mode === "preview"}
         onclick={() => (mode = "preview")}
       >{copy.preview}</button>
       <button
         type="button"
         role="tab"
+        id={`${titleId}-tab-source`}
         aria-selected={mode === "source"}
+        aria-controls={`${titleId}-panel`}
         class:active={mode === "source"}
         onclick={() => (mode = "source")}
       >{copy.mermaidSource}</button>
@@ -84,16 +89,18 @@
   </div>
 
   {#if mode === "source"}
-    <div class="mermaid-viewer-source"><pre><code>{source}</code></pre></div>
+    <div id={`${titleId}-panel`} class="mermaid-viewer-source" role="tabpanel" aria-labelledby={`${titleId}-tab-source`}><pre><code>{source}</code></pre></div>
   {:else if rendered?.status === "ok"}
-    <div class="mermaid-viewer-preview">{@html rendered.svg}</div>
+    <div id={`${titleId}-panel`} class="mermaid-viewer-preview" role="tabpanel" aria-labelledby={`${titleId}-tab-preview`}>
+      <div role="img" aria-label={copy.mermaidDiagram}>{@html rendered.svg}</div>
+    </div>
   {:else if rendered?.status === "failed"}
-    <div class="mermaid-viewer-failed">
+    <div id={`${titleId}-panel`} class="mermaid-viewer-failed" role="tabpanel" aria-labelledby={`${titleId}-tab-preview`}>
       <p>{copy.artifactMermaidFailed}</p>
       <pre><code>{source}</code></pre>
     </div>
   {:else}
-    <div class="mermaid-viewer-pending" role="status">
+    <div id={`${titleId}-panel`} class="mermaid-viewer-pending" role="tabpanel" aria-labelledby={`${titleId}-tab-preview`}>
       <i class="ph ph-spinner-gap" aria-hidden="true"></i><span>{copy.loading}</span>
     </div>
   {/if}

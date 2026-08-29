@@ -48,7 +48,7 @@
   <div class="workspace-empty"><p>{copy.skillsEmpty}</p></div>
 {:else}
   <div class="installed-skills-toolbar">
-    <label class="installed-skills-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input bind:value={query} aria-label={copy.skillsFilter} placeholder={copy.skillsFilterHint} /></label>
+    <label class="installed-skills-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input bind:value={query} autocomplete="off" spellcheck="false" aria-label={copy.skillsFilter} placeholder={copy.skillsFilterHint} /></label>
     <div class="installed-skills-summary"><span>{copy.skillsTotal} <strong>{skillsStore.skills.counts.total}</strong></span><span>{copy.agentsEnabledCount} <strong>{skillsStore.skills.counts.enabled}</strong></span></div>
   </div>
   {#if filteredSkills.length === 0}
@@ -57,7 +57,7 @@
   <div class="installed-skills-grid">
     {#each filteredSkills as skill (skill.id)}
       <article class="installed-skill-card">
-        <div class="installed-skill-icon" aria-hidden="true"><i class="ph-fill ph-magic-wand"></i></div>
+        <div class="installed-skill-icon" aria-hidden="true"><i class="ph-fill ph-magic-wand" aria-hidden="true"></i></div>
         <div class="installed-skill-copy">
           <div class="installed-skill-title">
             <strong>{skill.name}</strong>

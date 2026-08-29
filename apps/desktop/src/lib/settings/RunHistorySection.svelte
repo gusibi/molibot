@@ -170,6 +170,8 @@
           <input
             bind:value={runHistoryStore.query}
             oninput={onQueryInput}
+            autocomplete="off"
+            spellcheck="false"
             placeholder={session.text.runHistoryFilterHint}
           />
         </label>

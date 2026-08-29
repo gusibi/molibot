@@ -5,6 +5,61 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 - [2026 Q3 Features Archive (Jul - Sep)](docs/archive/features-archive-2026-Q3.md)
 
+## 2026-08-29
+
+### 用量 / Trace / 服务日志页宽度对齐标准设置列（已交付）
+
+- **问题**：三个页面被当作"data page"放宽到 720px（页头走 `dataPage`、用量/Trace 卡片走 `[data-section]` 覆盖、图表容器走 `--data-content-width`），与其它设置页的 576px 标准列不一致；服务日志页自身也不一致（页头 720px、卡片 576px）。
+- **修复**：删除 `settings-scroll[data-section="trace"/"usage"] > .settings-card` 宽度覆盖；`chart-kpi-grid` / `chart-split` / `usage-detail-grid` 宽度统一改用 `--settings-col`；`App.svelte` 的 `PageHeader` `dataPage` 只保留 memory（记忆中心仍是 720px 数据列，本轮未动）。顺带删除无组件引用的死 class `usage-split` 及其响应式残留。
+- **规范同步**：`DESIGN.md` 三处描述更新——设置内容（含用量/Trace/服务日志）统一 576px，仅记忆中心使用 720px 数据列；过滤器工具栏描述中的"720px data column"改为标准设置列。
+- **验证**：svelte-check 0/0、`vite build` 通过、node UI 测试 220/220；静态走查页确认 576px 下 KPI 四卡一行、过滤器四字段一行、双列图表布局正常（与运行历史页同构，观感一致）。
+
+### 沙箱设置页预设卡片布局修复（已交付）
+
+- **根因**：`SandboxSection` 重构（b9214414）时组件 class 更名为 `sandbox-spectrum-card` / `sandbox-tier-grid` 等，但 `styles.css` 仍停留在旧名（`sandbox-tier-cards`、`sandbox-presets-panel`、`sandbox-section-head`、`sandbox-form`），导致四张预设卡片失去网格布局，按按钮 shrink-to-fit 宽度竖向堆叠（用户截图所示乱象）。
+- **修复**：`styles.css` 双向同步——新增 `sandbox-spectrum-card`（卡片内边距 + 纵向 flex）、`sandbox-spectrum-title-row`（标题/提示排版，覆盖 `settings-section-hint` 全局宽度）与 `sandbox-tier-grid`（2×2 网格，576px 内容列下 4 列过挤）；删除全部无组件引用的旧 sandbox class 及其在响应式/减弱动效块中的残留（含 `sandbox-preset-card`）。
+- **响应式**：默认 2 列；≤820px（设置页窄布局断点）与 ≤440px 降为 1 列。
+- **验证**：svelte-check 0/0、`vite build` 通过；以真实 `styles.css` + 组件 DOM 结构搭建静态走查页，1200px 与 680px 两档宽度截图核对网格、选中态、标签换行与滑杆均正常。
+- **遗留（守卫）**：该根因（组件改 class 名、CSS 未同步）为首次出现，按流程暂不加机器守卫；可行的守卫方向已评估——"used-but-undefined" 全仓扫描需维护约 160 项白名单（图标库/JS 锚点类误报），"defined-but-unused" 需先分诊约 200 条存量死规则（hljs/d2h 库类、动态拼接类豁免），立项后再做。
+
+### Web Interface Guidelines 合规第二轮：共享层键盘导航 / 读屏反馈 / Intl 格式化 / 真实 bug 修复（已交付）
+
+- **逻辑 bug 修复**：`RunActivity.svelte` 的 `isFailed` 第二子句与 `hasRunning` 恒等（恒 false），声明的 `hasError` 从未使用，导致活动级 error 状态永远不显示失败——改为 `failed || hasError`。
+- **共享键盘导航 action**：新增 `lib/a11y/tablist.ts`（方向键/Home/End 移动焦点并激活、跳过禁用项，`use:tablist` 默认 `[role="tab"]`，可传 `'[role="radio"]'` 复用于 radiogroup），应用到 18 处 tablist（ArtifactPanel×4、Providers×3、Tasks、Trace、Usage、ImageSettings、FileSearchPanel、ProjectSettingsDialog、MiniAppsManager、D2/Mermaid/Spreadsheet）与 2 处 radiogroup（App.svelte、SandboxSection，含 roving tabindex），全部补齐 `aria-controls`/`role="tabpanel"`/`aria-labelledby` 关联。
+- **读屏反馈**：约 35 处异步保存/操作反馈、错误提示补 `aria-live="polite"` / `role="alert"`；`RecordingBar` 的 live region 不再包裹每秒跳动的计时器；`PendingFilesBar` 移除按钮的 accessible name 携带文件名；`DurableExecutionCard/Inspector` 进度条补 `role="progressbar"` + `aria-valuenow/min/max`。
+- **无效 ARIA 清理**：Providers/Tasks 的 `listbox>option(button)` 无效嵌套角色移除；`ConversationRow` 重构为真实 `<button class="row-open">` 主表面 + 菜单按钮兄弟节点（消除 interactive-in-interactive），行菜单补 Escape/方向键与焦点管理；`DecisionCard` 误用的 `role="alertdialog"` 移除；`FileTreeNode` 移除断裂的 tree 角色并支持 Shift+F10/ContextMenu 键打开右键菜单；`TranscriptAttachments` 四处右键专属操作补键盘路径。
+- **Intl 格式化统一**：新增 `formatTimestamp` / `formatDuration`（`lib/presentation.ts`，基于 `Intl.DateTimeFormat`/`Intl.NumberFormat`），替换 ImageGenerate/Memory/VideoGenerate 的 ISO 手工切片日期（10 处）与 chat 侧 5 处手搓时长格式化；`ModelsSection` K 值、`MemoryTraceDrawer` 百分比、`MiniAppsAiSettings` 秒数、`fileIcons.formatSize` 同步改 Intl。
+- **弹层滚动收敛**：`settings-scroll`/`modal-body`/`browser-body`/`project-settings-body`/`command-palette-results`/`agent-city-search`/`memory-trace-body`/`preview-body`/`onboarding-card`/`durable-inspector-scroll` 补 `overscroll-behavior: contain`。
+- **动效降级补漏**：全局 `prefers-reduced-motion` 块补齐 6 个遗漏的 infinite 动画（automation-spinner、project-spin×2、activity-spin×2、provider-auth-pulse）与 `mention-menu`；`DurableExecution` 进度条从 `transition: width` 改为 `transform: scaleX`。
+- **破坏性操作确认**：生图/视频媒体任务删除与排队消息移除改为两步确认（首次点击武装、再次点击执行、失焦解除）。
+- **未保存离开守卫**：新增 `lib/unsavedGuard.ts`（beforeunload 引用计数守卫），9 个设置页按各自 dirty 条件接入，窗口关闭/刷新不再静默丢弃未保存更改。
+- **X 关闭按钮语义**：新增 `dialogClose` i18n key，22 处 modal 关闭按钮 aria-label 从 "取消" 改为 "关闭"（读屏不再出现两个"取消"）。
+- **文案与杂项**：i18n 中 14 处加载/搜索文案 `...` → `…`、20+ placeholder 补省略号（保留 `mcpMapPlaceholder` 示例 token 等字面模式）；SlashSuggestionMenu 硬编码英文分组标题/aria-label 接入 i18n（新 key `slashMenuLabel`/`slashGroup*`）；`observatory` 原生 select 补显式背景/前景色（暗色适配）；`index.html` 补 `theme-color`（明暗双份）；`initialLocale` 改用 `navigator.languages` 链；`diag-value`/`host-bash` 统计数字补 `tabular-nums`；`chat-ui.test.mjs` 过时的 `role="listbox"` 断言更新为 tablist/tabpanel 结构断言。
+- **验证**：svelte-check 0 错误 0 警告；tsx 单测 233/233、node UI 测试 224/224、`vite build` 通过。
+- **有意跳过（已立项）**：大列表虚拟化（CSV/JSON/表格 5000 行、Trace 排行分页、Usage 移动端双份渲染）、PluginsSection 阻塞式 confirm 换应用内弹窗、MemorySection 过期时间输入校验——立项至 `prd.md` §3.130，不在本 slice 混做。
+
+### 图标库统一迁移到 Reicon（Web 端 + Mini Apps，已完成）
+
+- **Web 主应用**：`@lucide/svelte` → `reicon-svelte`（7 个文件、10 个图标：shadcn select/checkbox 的 ChevronDown/ChevronUp/Check/Minus、设置页 Cpu/MessageSquare/BookOpen/Settings、Provider 页 Eye/EyeSlash），全部使用 `reicon-svelte/icons/*` 子路径导入；`EyeSlash` 在 Provider 页以 `EyeOff` 别名导入，JSX 用法零改动。
+- **Mini Apps**：`@heroicons/react` → `reicon-react`（mini-chat 8 个、prompt-box 20 个图标），heroicons 名称通过导入别名映射到 Reicon（如 `Xmark as XMarkIcon`、`Refresh as ArrowPathIcon`），JSX 与 `width/height/strokeWidth/className` 用法零改动（reicon props 透传已核实）。
+- **依赖清理**：移除 `@lucide/svelte` 与 `@heroicons/react`；两个 Mini App 的 `THIRD_PARTY_NOTICES.md` 补充 Reicon（MIT）与 Solar Icons by 480 Design（CC BY 4.0）署名；native-select 中引用旧库名的注释同步更新。
+- **上游缺陷规避（已记入 CLAUDE.md pitfall 45）**：`reicon-svelte@1.0.102` barrel `index.js` 存在 `Icon` 重复导出，Rollup 生产构建直接失败（`Duplicate export "Icon"`）；因此全仓强制 `reicon-svelte/icons/*` 子路径导入，子路径组件不依赖 barrel。`reicon-react` 无此问题。
+- **Desktop 未迁移**：`@phosphor-icons/web`（CSS 字体方案，91 文件/165 图标/99 行 `.ph` CSS）迁移复杂度高（动态图标名组件 API 重设计 + 样式体系重做 + 守卫测试重写），已立项 `prd.md` §3.129 独立 slice，本轮零改动。
+- **验证**：root production build 通过；mini-chat/prompt-box esbuild 构建通过，产物 tree-shaking 生效（仅 73 行 diff）、无 heroicons 残留；全仓无 `@lucide`/`@heroicons` 引用残留；构建产物确认包含 reicon 组件。设置页与两个 Mini App 的真实冷启动走查待产品验收。
+
+### Desktop 设置与客户端 Web 界面设计规范全面对齐（P0 / P1 / P2 已交付）
+
+- **Web Interface Guidelines 全局审计与修复**：对照 Vercel Web Interface Guidelines 与 `DESIGN.md` 规范，对 `apps/desktop` 全仓进行了系统级合规审计与专项修复：
+  - **表单体验与密码管理**：非认证技术/配置/搜索输入框全面显式声明 `autocomplete="off"`，所有密码/API Key 输入框统一显式声明 `autocomplete="new-password"` 与 `spellcheck="false"`，所有代码/URL/ID 字段禁用拼写检查。
+  - **无障碍（A11y）与辅助技术支持**：全部纯装饰性图标元素（`i.ph*`、`i.ph-fill*`）补齐 `aria-hidden="true"`；遮罩与装饰层标注 `role="presentation"`；所有表单输入（含数字输入与动态插件表单字段）补齐 `aria-label` / `ariaLabel`。
+  - **排版规范统一**：代码与界面占位符中省略号全面规范为标准 Unicode 省略号字符（`…`，U+2026），杜绝连续英文句点（`...`）。
+  - **防布局偏移（CLS）**：全仓静态与头像类 `<img>` 标签补齐显式 `width` 与 `height` 属性（如 `ChatSidebar`、`ConversationLiveView`、`ConversationTranscript`、`MiniAppIcon`、`ProjectList`、`OpenConnectorSection`、`PluginsSection`）。
+- **设置容器宽度规范（P1）**：按照 `DESIGN.md` §420 布局规范，将 Desktop 设置页内容容器宽度 `--settings-content-width` 从 720px 统一校准为 576px（文本/表单最优可读宽度），同时保留数据与图表视图 `--data-content-width: 720px` 与聊天流 `--message-content-width: 720px`。
+- **组件结构统一（P1）**：全量迁移 Desktop 12 个设置子页面中的零散 `.settings-card`，统一采用标准化语义容器 `<SettingGroup>` / `<SettingRow>` 进行重构（涵盖 `WebSearchSection`、`ImageGenerateSection`、`ImageRecognitionSection`、`VideoGenerateSection`、`TtsGenerateSection`、`SkillsSection`、`AgentsSection`、`ProfilesSection`、`ChannelsSection`、`McpSection`、`RuntimeEnvSection`、`SandboxSection` 以及 `App.svelte` 诊断面板），并保留顶部动作插槽（`agentAdd` / `profileAdd` / `channelAdd` / `mcpAdd` / `diagnostics`）。
+- **多语言文案修复（P0）**：修复生图、视频生成、语音合成设置页面中因复制粘贴导致的 `webSearchEnabled`、`webSearchDefaultEngine`、`webSearchApiKey` 错乱问题，补齐中英文对应键值。
+- **Switch 控件规范（P0）**：彻底移除 `ModelsSection.svelte` 与 `ChatView.svelte` 中遗留的手写 `<button class="switch">`，统一使用共享的 `<IosSwitch>` 组件，并通过前端单元测试回归守卫。
+- **状态指示本地化（P0）**：`ProvidersSection` 列表项状态（`ON` / `OFF`）适配多语言。
+
 ## 2026-08-28
 
 ### Markdown 产物预览重构（已完成）

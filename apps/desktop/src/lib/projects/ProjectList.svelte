@@ -145,7 +145,7 @@
       <span>{copy.chat}</span>
     </button>
     <button class="sidebar-footer" type="button" onclick={openSettings}>
-      <img class="sidebar-avatar" src="/molibot-icon.png" alt="" aria-hidden="true" />
+      <img class="sidebar-avatar" src="/molibot-icon.png" alt="" aria-hidden="true" width="20" height="20" />
       <span class="sidebar-footer-info">Molibot</span>
       <i class="ph ph-gear" aria-hidden="true"></i>
     </button>
@@ -161,7 +161,7 @@
     onOpenChange={(next) => { if (!next) cancelAdding(); }}
   >
     <div class="project-dialog-heading">
-      <span class="project-dialog-icon" aria-hidden="true"><i class="ph-fill ph-folder-plus"></i></span>
+      <span class="project-dialog-icon" aria-hidden="true"><i class="ph-fill ph-folder-plus" aria-hidden="true"></i></span>
       <div>
         <h2 id="project-create-title">{copy.projectCreateTitle}</h2>
         <p>{createStep === "name" ? copy.projectCreateNameHint : copy.projectChooseLocationHint}</p>

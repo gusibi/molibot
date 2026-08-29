@@ -66,7 +66,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="file-menu-backdrop" onclick={onClose} oncontextmenu={(event) => { event.preventDefault(); onClose(); }}></div>
+<div class="file-menu-backdrop" role="presentation" aria-hidden="true" onclick={onClose} oncontextmenu={(event) => { event.preventDefault(); onClose(); }}></div>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div

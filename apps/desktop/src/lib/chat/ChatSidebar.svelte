@@ -108,7 +108,8 @@
     deletePrompt: copy.deleteConversationPrompt,
     cancel: copy.cancelAction,
     forkedConversation: copy.forkedConversation,
-    newChat: copy.newChat
+    newChat: copy.newChat,
+    loading: copy.loading
   });
 
   function startWindowDrag(event: MouseEvent): void {
@@ -217,7 +218,7 @@
 
   <button type="button" class="sidebar-footer" onclick={onOpenSettings} title={copy.goToSettings}>
     <span class="sidebar-footer-logo-wrap" data-state={serviceState} aria-hidden="true">
-      <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" />
+      <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" width="20" height="20" />
     </span>
     <span class="sidebar-footer-copy"><strong>{copy.appName}</strong><small>{serviceState === "ready" ? copy.statusOnline : copy.statusOffline}</small></span>
     <i class="ph ph-gear-six sidebar-footer-gear" aria-hidden="true"></i>

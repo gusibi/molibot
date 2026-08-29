@@ -70,14 +70,14 @@
     {#if draft.mode === "custom"}
       <label class="settings-field settings-field-wide">
         <span>{session.text.tasksCustomCron}</span>
-        <input bind:value={draft.customCron} oninput={commit} placeholder="0 9 * * *" spellcheck="false" />
+        <input bind:value={draft.customCron} autocomplete="off" oninput={commit} placeholder="0 9 * * *" spellcheck="false" />
         <small>{session.text.tasksCustomCronHint}</small>
         {#if !isTaskScheduleValid(draft)}<small class="task-schedule-error">{session.text.tasksCustomCronError}</small>{/if}
       </label>
     {:else}
       <label class="settings-field">
         <span>{session.text.tasksRunTime}</span>
-        <NativeTimeInput bind:value={draft.time} onchange={commit} />
+        <NativeTimeInput bind:value={draft.time} ariaLabel={session.text.tasksRunTime} onchange={commit} />
       </label>
     {/if}
   </div>

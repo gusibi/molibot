@@ -77,6 +77,16 @@
     menu = { x: event.clientX, y: event.clientY, file };
   }
 
+  /** Keyboard route (Enter/Space) to the same menu, anchored to the focused card. */
+  function openActionMenuFromKeyboard(event: KeyboardEvent, file: DesktopSessionFile): void {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const kind = file.mediaType === "image" ? "image" : "file";
+    if (!actions?.contributions?.some((action) => action.accepts.includes(kind))) return;
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    menu = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, file };
+  }
+
   /**
    * Opens the clicked image as a gallery over its whole run.
    *
@@ -118,7 +128,15 @@
         {#each group.items as entry, offset (`${entry.attachment.local ?? entry.attachment.original}-${offset}`)}
           {#if entry.file && actions}
             {@const file = entry.file}
-            <figure class="transcript-media transcript-image" oncontextmenu={(event) => openActionMenu(event, file)}>
+            <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role, a11y_no_noninteractive_tabindex -->
+            <figure
+              class="transcript-media transcript-image"
+              tabindex="0"
+              role="button"
+              aria-label={`${entry.attachment.original} · ${copy.conversationMenu}`}
+              oncontextmenu={(event) => openActionMenu(event, file)}
+              onkeydown={(event) => openActionMenuFromKeyboard(event, file)}
+            >
               {#if entry.mediaUrl}
                 <button
                   type="button"
@@ -126,7 +144,7 @@
                   aria-label={copy.preview}
                   title={entry.attachment.original}
                   onclick={() => openGallery(group.items, entry)}
-                ><img src={entry.mediaUrl} alt={entry.attachment.original} loading="lazy" /></button>
+                ><img src={entry.mediaUrl} alt={entry.attachment.original} loading="lazy" decoding="async" /></button>
               {:else if entry.failed}
                 <button class="transcript-media-error" type="button" onclick={() => actions?.loadMedia(file)}>{copy.mediaLoadFailed}</button>
               {:else}
@@ -139,7 +157,7 @@
                 viewer, so a thumbnail stays a thumbnail.
               -->
               {#if group.items.length === 1}
-                <figcaption><span title={entry.attachment.original}>{entry.attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><i class="ph ph-download-simple"></i></button></figcaption>
+                <figcaption><span title={entry.attachment.original}>{entry.attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><i class="ph ph-download-simple" aria-hidden="true"></i></button></figcaption>
               {/if}
             </figure>
           {:else}
@@ -163,8 +181,15 @@
 
       {#if file && actions && attachment.mediaType === "audio"}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="transcript-media transcript-audio" oncontextmenu={(event) => openActionMenu(event, file)}>
-          <div class="transcript-media-heading"><i class="ph-fill ph-waveform" aria-hidden="true"></i><span title={attachment.original}>{attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><i class="ph ph-download-simple"></i></button></div>
+        <div
+          class="transcript-media transcript-audio"
+          tabindex="0"
+          role="button"
+          aria-label={`${attachment.original} · ${copy.conversationMenu}`}
+          oncontextmenu={(event) => openActionMenu(event, file)}
+          onkeydown={(event) => openActionMenuFromKeyboard(event, file)}
+        >
+          <div class="transcript-media-heading"><i class="ph-fill ph-waveform" aria-hidden="true"></i><span title={attachment.original}>{attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><i class="ph ph-download-simple" aria-hidden="true"></i></button></div>
           {#if entry.mediaUrl}
             <!-- svelte-ignore a11y_media_has_caption -->
             <audio controls preload="metadata" src={entry.mediaUrl}></audio>
@@ -175,7 +200,15 @@
           {/if}
         </div>
       {:else if file && actions && attachment.mediaType === "video"}
-        <figure class="transcript-media transcript-video" oncontextmenu={(event) => openActionMenu(event, file)}>
+        <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role, a11y_no_noninteractive_tabindex -->
+        <figure
+          class="transcript-media transcript-video"
+          tabindex="0"
+          role="button"
+          aria-label={`${attachment.original} · ${copy.conversationMenu}`}
+          oncontextmenu={(event) => openActionMenu(event, file)}
+          onkeydown={(event) => openActionMenuFromKeyboard(event, file)}
+        >
           {#if entry.mediaUrl}
             <!-- svelte-ignore a11y_media_has_caption -->
             <video controls preload="metadata" src={entry.mediaUrl}></video>
@@ -184,11 +217,19 @@
           {:else}
             <div class="transcript-media-loading"><i class="ph ph-circle-notch" aria-hidden="true"></i><span>{copy.mediaLoading}</span></div>
           {/if}
-          <figcaption><span title={attachment.original}>{attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><i class="ph ph-download-simple"></i></button></figcaption>
+          <figcaption><span title={attachment.original}>{attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><i class="ph ph-download-simple" aria-hidden="true"></i></button></figcaption>
         </figure>
       {:else}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="attachment-chip" data-kind={attachment.mediaType} oncontextmenu={file ? (event) => openActionMenu(event, file) : undefined}>
+        <!-- svelte-ignore a11y_no_static_element_interactions, a11y_no_noninteractive_tabindex -->
+        <div
+          class="attachment-chip"
+          data-kind={attachment.mediaType}
+          tabindex={file ? 0 : undefined}
+          role={file ? "button" : undefined}
+          aria-label={file ? `${attachment.original} · ${copy.conversationMenu}` : undefined}
+          oncontextmenu={file ? (event) => openActionMenu(event, file) : undefined}
+          onkeydown={file ? (event) => openActionMenuFromKeyboard(event, file) : undefined}
+        >
           <span class="attachment-icon" data-kind={attachment.mediaType} aria-hidden="true"></span>
           <span class="attachment-name" title={attachment.original}>{attachment.original}</span>
           {#if file && actions}<button type="button" onclick={() => actions?.download(file)}>{copy.download}</button>{/if}

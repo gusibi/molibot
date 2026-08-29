@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import {
     DESKTOP_THINKING_LEVELS,
     type DesktopModelOption,
@@ -6,6 +7,7 @@
     type DesktopThinkingLevel
   } from "@molibot/desktop-contract";
   import EmptyState from "../components/ui/EmptyState.svelte";
+  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import MiniAppsAiSettings from "../miniapps/MiniAppsAiSettings.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
@@ -13,6 +15,7 @@
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
   import { groupModelOptions } from "../presentation";
   import { session } from "../stores/session.svelte";
+  import { trackUnsaved } from "../unsavedGuard";
   import { timezoneOptions } from "./timezones";
   import {
     modelsStore,
@@ -64,6 +67,13 @@
       })))
     ];
   }
+
+  // Token windows render as locale-formatted "K" values, e.g. 128000 → "128K".
+  function formatK(tokens: number): string {
+    return `${new Intl.NumberFormat(session.locale, { maximumFractionDigits: 1 }).format(tokens / 1000)}K`;
+  }
+
+  onDestroy(trackUnsaved(() => modelsStore.routingDirty));
 </script>
 
 {#if !session.serviceReady}
@@ -142,7 +152,7 @@
           />
         </SettingRow>
         <SettingRow title={session.text.modelFirstTokenTimeout} description={session.text.modelFirstTokenTimeoutHint}>
-          <input class="row-input model-number-input" type="number" min="0" step="1000" value={modelsStore.routing.modelFallback.firstTokenTimeoutMs} oninput={(event) => updateAdvancedModelRouting((draft) => ({ ...draft, modelFallback: { ...draft.modelFallback, firstTokenTimeoutMs: Number(event.currentTarget.value) } }))} />
+          <input class="row-input model-number-input" type="number" min="0" step="1000" autocomplete="off" aria-label={session.text.modelFirstTokenTimeout} value={modelsStore.routing.modelFallback.firstTokenTimeoutMs} oninput={(event) => updateAdvancedModelRouting((draft) => ({ ...draft, modelFallback: { ...draft.modelFallback, firstTokenTimeoutMs: Number(event.currentTarget.value) } }))} />
         </SettingRow>
         <SettingRow title={session.text.modelDefaultThinking}>
           <SelectControl
@@ -156,7 +166,11 @@
 
       <SettingGroup title={session.text.modelCompaction} contentClass="provider-editor">
         <SettingRow title={session.text.modelCompactionEnabled} description={session.text.modelCompactionEnabledHint}>
-          <button class:active={modelsStore.routing.compaction.enabled} class="switch" type="button" role="switch" aria-label={session.text.modelCompactionEnabled} aria-checked={modelsStore.routing.compaction.enabled} onclick={() => updateAdvancedModelRouting((draft) => ({ ...draft, compaction: { ...draft.compaction, enabled: !draft.compaction.enabled } }))}><span></span></button>
+          <IosSwitch
+            checked={modelsStore.routing.compaction.enabled}
+            ariaLabel={session.text.modelCompactionEnabled}
+            onCheckedChange={(checked) => updateAdvancedModelRouting((draft) => ({ ...draft, compaction: { ...draft.compaction, enabled: checked } }))}
+          />
         </SettingRow>
         <SettingRow title={session.text.modelCompactionModel}>
           <SelectControl
@@ -175,11 +189,11 @@
             { key: "reserveTokens", label: session.text.modelReserveTokens, min: 1024, step: 256 },
             { key: "keepRecentTokens", label: session.text.modelKeepRecentTokens, min: 2048, step: 512 }
           ] as field (field.key)}
-            <label class="settings-field"><span>{field.label}</span><input type="number" min={field.min} step={field.step} value={modelsStore.routing.compaction[field.key as keyof typeof modelsStore.routing.compaction]} oninput={(event) => updateAdvancedModelRouting((draft) => ({ ...draft, compaction: { ...draft.compaction, [field.key]: Number(event.currentTarget.value) } }))} /></label>
+            <label class="settings-field"><span>{field.label}</span><input type="number" min={field.min} step={field.step} autocomplete="off" value={modelsStore.routing.compaction[field.key as keyof typeof modelsStore.routing.compaction]} oninput={(event) => updateAdvancedModelRouting((draft) => ({ ...draft, compaction: { ...draft.compaction, [field.key]: Number(event.currentTarget.value) } }))} /></label>
           {/each}
         </div>
         <div class="routing-preview-callout">
-          <strong>{session.text.modelCompactionPreview}</strong> — {session.text.modelCompactionPreviewWindow} <strong>{(compactionTriggerPreview().window / 1000)}K</strong>，{session.text.modelCompactionFires} <strong>{(compactionTriggerPreview().trigger / 1000).toFixed(compactionTriggerPreview().trigger % 1000 !== 0 ? 1 : 0)}K</strong>（{compactionTriggerPreview().reason}）
+          <strong>{session.text.modelCompactionPreview}</strong> — {session.text.modelCompactionPreviewWindow} <strong>{formatK(compactionTriggerPreview().window)}</strong>，{session.text.modelCompactionFires} <strong>{formatK(compactionTriggerPreview().trigger)}</strong>（{compactionTriggerPreview().reason}）
           <span class="routing-preview-note">{compactionTriggerPreview().fromModel ? session.text.modelCompactionWindowFromMetadata : session.text.modelCompactionWindowFromDefault}</span>
         </div>
       </SettingGroup>

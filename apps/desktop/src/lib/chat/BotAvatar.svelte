@@ -60,7 +60,7 @@
   {#if initial}
     {initial}
   {:else}
-    <i class="ph-fill ph-robot"></i>
+    <i class="ph-fill ph-robot" aria-hidden="true"></i>
   {/if}
 </span>
 

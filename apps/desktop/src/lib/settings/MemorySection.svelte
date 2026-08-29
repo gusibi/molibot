@@ -3,6 +3,7 @@
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import type { Translation } from "../i18n";
+  import { formatTimestamp } from "../presentation";
   import { session } from "../stores/session.svelte";
   import {
     memoryStore,
@@ -299,7 +300,7 @@
       <div class="memory-all-view" data-memory-view="all">
         <div class="memory-all-toolbar">
           <div><strong>{session.text.memoryRecords}</strong><span>{filteredAllItems.length}</span></div>
-          <div class="memory-all-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input aria-label={session.text.memorySearch} bind:value={memoryStore.query} placeholder={session.text.memorySearchHint} onkeydown={(event) => event.key === "Enter" && void refreshMemoryRecords()} /><button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void refreshMemoryRecords()}>{session.text.memorySearchButton}</button></div>
+          <div class="memory-all-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input aria-label={session.text.memorySearch} bind:value={memoryStore.query} autocomplete="off" placeholder={session.text.memorySearchHint} onkeydown={(event) => event.key === "Enter" && void refreshMemoryRecords()} /><button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void refreshMemoryRecords()}>{session.text.memorySearchButton}</button></div>
         </div>
         {#if allTopicFilter}
           <div class="memory-filter-chip"><span>{session.text.memoryTopicFilter}: {topicCopy[allTopicFilter].label}</span><button type="button" aria-label={session.text.memoryClearFilter} onclick={() => allTopicFilter = null}><i class="ph ph-x" aria-hidden="true"></i></button></div>
@@ -334,14 +335,14 @@
       onOpenChange={(next) => { if (!next) memoryStore.candidateEdit = null; }}
     >
       <form class="memory-detail-form" onsubmit={(event) => { event.preventDefault(); if (memoryStore.candidateEdit) void confirmMemoryCandidate(memoryStore.candidateEdit); }}>
-        <header class="entity-editor-head"><div><strong id="memory-candidate-edit-title">{session.text.memoryCandidateEdit}</strong><p>{memoryStore.candidateEdit.createdAt.replace("T", " ").slice(0, 19)}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (memoryStore.candidateEdit = null)}><i class="ph ph-x"></i></button></header>
+        <header class="entity-editor-head"><div><strong id="memory-candidate-edit-title">{session.text.memoryCandidateEdit}</strong><p>{formatTimestamp(memoryStore.candidateEdit.createdAt, session.locale)}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (memoryStore.candidateEdit = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
         <div class="modal-body settings-form">
           <label class="settings-field settings-field-wide"><span>{session.text.memoryContent}</span><textarea rows="6" bind:value={memoryStore.candidateEdit.value}></textarea></label>
-          <label class="settings-field"><span>{session.text.memoryCandidateNamespace}</span><input bind:value={memoryStore.candidateEdit.namespace} /></label>
-          <label class="settings-field"><span>{session.text.memoryCandidateDomain}</span><input bind:value={memoryStore.candidateEdit.domain} /></label>
-          <label class="settings-field"><span>{session.text.memoryCandidateType}</span><input bind:value={memoryStore.candidateEdit.type} /></label>
-          <label class="settings-field"><span>{session.text.memoryCandidateSubject}</span><input bind:value={memoryStore.candidateEdit.subject} /></label>
-          <label class="settings-field settings-field-wide"><span>{session.text.memoryCandidateReason}</span><input bind:value={memoryStore.candidateEdit.reason} /></label>
+          <label class="settings-field"><span>{session.text.memoryCandidateNamespace}</span><input bind:value={memoryStore.candidateEdit.namespace} autocomplete="off" /></label>
+          <label class="settings-field"><span>{session.text.memoryCandidateDomain}</span><input bind:value={memoryStore.candidateEdit.domain} autocomplete="off" /></label>
+          <label class="settings-field"><span>{session.text.memoryCandidateType}</span><input bind:value={memoryStore.candidateEdit.type} autocomplete="off" /></label>
+          <label class="settings-field"><span>{session.text.memoryCandidateSubject}</span><input bind:value={memoryStore.candidateEdit.subject} autocomplete="off" /></label>
+          <label class="settings-field settings-field-wide"><span>{session.text.memoryCandidateReason}</span><input bind:value={memoryStore.candidateEdit.reason} autocomplete="off" /></label>
           {#if memoryStore.candidateEdit.skillDraftSuggestion}
             <div class="settings-field settings-field-wide">
               <span>{session.text.memorySkillDraftReview}</span>
@@ -366,12 +367,12 @@
       onOpenChange={(next) => { if (!next) memoryStore.memoryEdit = null; }}
     >
       <form id="desktop-memory-form" class="memory-detail-form" aria-label={session.text.memory} onsubmit={(event) => { event.preventDefault(); if (memoryStore.memoryEdit) void saveMemoryItem(memoryStore.memoryEdit); }}>
-        <header class="entity-editor-head"><div><strong id="memory-edit-title">{session.text.memory}</strong><p>{memoryStore.memoryEdit.channel}:{memoryStore.memoryEdit.externalUserId}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(memoryStore.busyAction)} onclick={() => (memoryStore.memoryEdit = null)}><i class="ph ph-x"></i></button></header>
+        <header class="entity-editor-head"><div><strong id="memory-edit-title">{session.text.memory}</strong><p>{memoryStore.memoryEdit.channel}:{memoryStore.memoryEdit.externalUserId}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={Boolean(memoryStore.busyAction)} onclick={() => (memoryStore.memoryEdit = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
         <div class="modal-body memory-detail-body">
           <div class="settings-form">
             <label class="settings-field settings-field-wide"><span>{session.text.memoryContent}</span><textarea rows="7" bind:value={memoryStore.memoryEdit.content}></textarea></label>
-            <label class="settings-field"><span>{session.text.memoryTags}</span><input value={memoryStore.memoryEdit.tags.join(",")} oninput={(event) => { if (memoryStore.memoryEdit) memoryStore.memoryEdit = { ...memoryStore.memoryEdit, tags: event.currentTarget.value.split(",").map((value) => value.trim()).filter(Boolean) }; }} /></label>
-            <label class="settings-field"><span>{session.text.memoryExpires}</span><input bind:value={memoryStore.memoryEdit.expiresAt} /></label>
+            <label class="settings-field"><span>{session.text.memoryTags}</span><input value={memoryStore.memoryEdit.tags.join(",")} autocomplete="off" oninput={(event) => { if (memoryStore.memoryEdit) memoryStore.memoryEdit = { ...memoryStore.memoryEdit, tags: event.currentTarget.value.split(",").map((value) => value.trim()).filter(Boolean) }; }} /></label>
+            <label class="settings-field"><span>{session.text.memoryExpires}</span><input bind:value={memoryStore.memoryEdit.expiresAt} autocomplete="off" /></label>
           </div>
           <div class="settings-row"><strong>{session.text.memoryPinned}</strong><IosSwitch
   checked={Boolean(memoryStore.memoryEdit.pinned)}
@@ -385,7 +386,7 @@
 /></div>
           {#if memoryStore.memoryEdit.reason}<div class="settings-row"><div class="profile-info"><strong>{session.text.memoryReason}</strong><p>{memoryStore.memoryEdit.reason}</p></div></div>{/if}
           {#if memoryStore.memoryEdit.sources?.length}<div class="settings-row"><div class="profile-info"><strong>{session.text.memorySources}</strong>{#each memoryStore.memoryEdit.sources as source}<p>{source.channel} · {source.sessionId} · {source.conversationMessageId} <button class="secondary-button" type="button" onclick={() => void openMemorySource(source)}>{session.text.memoryOpenSource}</button></p>{/each}</div></div>{/if}
-          <div class="settings-row"><div class="profile-info"><strong>{session.text.memoryVersions} · {memoryStore.memoryVersions.length}</strong>{#each memoryStore.memoryVersions as version}<p>{version.updatedAt.replace("T", " ").slice(0, 19)} · {version.content}</p>{/each}</div></div>
+          <div class="settings-row"><div class="profile-info"><strong>{session.text.memoryVersions} · {memoryStore.memoryVersions.length}</strong>{#each memoryStore.memoryVersions as version}<p>{formatTimestamp(version.updatedAt, session.locale)} · {version.content}</p>{/each}</div></div>
         </div>
         <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => (memoryStore.memoryEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(memoryStore.busyAction) || !memoryStore.memoryEdit.content.trim()}>{memoryStore.busyAction ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
       </form>
@@ -399,7 +400,7 @@
       labelledBy="memory-source-preview-title"
       onOpenChange={(next) => { if (!next) memoryStore.sourcePreview = null; }}
     >
-      <header class="entity-editor-head"><div><strong id="memory-source-preview-title">{session.text.memorySourcePreview}</strong><p>{memoryStore.sourcePreview.sessionId}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (memoryStore.sourcePreview = null)}><i class="ph ph-x"></i></button></header><div class="modal-body memory-source-list">{#each memoryStore.sourcePreview.messages as message}<article><strong>{message.role} · {message.createdAt.replace("T", " ").slice(0, 19)}{message.selected ? " · ←" : ""}</strong><p>{message.content}</p></article>{/each}</div>
+      <header class="entity-editor-head"><div><strong id="memory-source-preview-title">{session.text.memorySourcePreview}</strong><p>{memoryStore.sourcePreview.sessionId}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (memoryStore.sourcePreview = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header><div class="modal-body memory-source-list">{#each memoryStore.sourcePreview.messages as message}<article><strong>{message.role} · {formatTimestamp(message.createdAt, session.locale)}{message.selected ? " · ←" : ""}</strong><p>{message.content}</p></article>{/each}</div>
     </Dialog>
   {/if}
 
@@ -412,7 +413,7 @@
       describedBy="memory-advanced-hint"
       onOpenChange={(next) => { if (!next) advancedOpen = false; }}
     >
-      <header class="entity-editor-head"><div><strong id="memory-advanced-title">{session.text.memoryAdvanced}</strong><p id="memory-advanced-hint">{session.text.memoryAdvancedHint}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => advancedOpen = false}><i class="ph ph-x"></i></button></header>
+      <header class="entity-editor-head"><div><strong id="memory-advanced-title">{session.text.memoryAdvanced}</strong><p id="memory-advanced-hint">{session.text.memoryAdvancedHint}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => advancedOpen = false}><i class="ph ph-x" aria-hidden="true"></i></button></header>
         <div class="modal-body memory-advanced-body">
           <section class="settings-card">
             <div class="settings-row"><strong>{session.text.memoryRuntimeEnabled}</strong><span class="status-badge" data-state={memoryStore.memory.enabled ? "ready" : "disconnected"}>{memoryStore.memory.enabled ? session.text.yes : session.text.no}</span></div>
@@ -428,9 +429,9 @@
           <section class="settings-card provider-editor">
             <div class="provider-editor-toolbar"><strong>{session.text.memoryOperations}</strong></div>
             <div class="settings-form">
-              <label class="settings-field"><span>{session.text.memoryChannel}</span><input bind:value={memoryStore.channel} placeholder={session.text.memoryChannelPlaceholder} /></label>
-              <label class="settings-field"><span>{session.text.memoryUserId}</span><input bind:value={memoryStore.userId} placeholder={session.text.memoryUserIdPlaceholder} /></label>
-              <label class="settings-field settings-field-wide"><span>{session.text.memorySearch}</span><input bind:value={memoryStore.query} placeholder={session.text.memorySearchHint} /></label>
+              <label class="settings-field"><span>{session.text.memoryChannel}</span><input bind:value={memoryStore.channel} autocomplete="off" placeholder={session.text.memoryChannelPlaceholder} /></label>
+              <label class="settings-field"><span>{session.text.memoryUserId}</span><input bind:value={memoryStore.userId} autocomplete="off" placeholder={session.text.memoryUserIdPlaceholder} /></label>
+              <label class="settings-field settings-field-wide"><span>{session.text.memorySearch}</span><input bind:value={memoryStore.query} autocomplete="off" placeholder={session.text.memorySearchHint} /></label>
             </div>
             <div class="settings-row"><strong>{session.text.memoryAllScopes}</strong><IosSwitch
   checked={memoryStore.allScopes}
@@ -448,10 +449,10 @@
           </section>
           <section class="settings-card provider-editor">
             <div class="provider-editor-toolbar"><strong>{session.text.memoryRejections} · {memoryStore.rejections.length}</strong></div>
-            <label class="settings-field settings-field-wide memory-rejection-search"><span>{session.text.memoryRejectionSearch}</span><input bind:value={memoryStore.rejectionQuery} /></label>
-            {#if filteredMemoryRejections.length === 0}<div class="settings-row"><p>{session.text.memoryNoRejections}</p></div>{:else}{#each filteredMemoryRejections as item, index (`${item.createdAt}:${index}`)}<article class="memory-rejection-item"><strong>{item.action} · {item.channel}:{item.externalUserId}</strong><span>{item.createdAt?.replace("T", " ").slice(0, 19)} · {item.reason}</span><p>{item.content || session.text.unavailable}</p></article>{/each}{/if}
+            <label class="settings-field settings-field-wide memory-rejection-search"><span>{session.text.memoryRejectionSearch}</span><input bind:value={memoryStore.rejectionQuery} autocomplete="off" /></label>
+            {#if filteredMemoryRejections.length === 0}<div class="settings-row"><p>{session.text.memoryNoRejections}</p></div>{:else}{#each filteredMemoryRejections as item, index (`${item.createdAt}:${index}`)}<article class="memory-rejection-item"><strong>{item.action} · {item.channel}:{item.externalUserId}</strong><span>{item.createdAt ? formatTimestamp(item.createdAt, session.locale) : session.text.unavailable} · {item.reason}</span><p>{item.content || session.text.unavailable}</p></article>{/each}{/if}
           </section>
-          {#if memoryStore.actionMessage}<p class="settings-action-message">{memoryStore.actionMessage}</p>{/if}
+          {#if memoryStore.actionMessage}<p class="settings-action-message" aria-live="polite">{memoryStore.actionMessage}</p>{/if}
         </div>
     </Dialog>
   {/if}

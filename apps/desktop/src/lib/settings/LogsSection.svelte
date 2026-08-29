@@ -221,18 +221,18 @@
   <details class="observatory-advanced-filters">
     <summary><span class="observatory-disclosure-label"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>{session.text.logsMoreFilters}{#if advancedFilterCount}<em>{advancedFilterCount}</em>{/if}<i class="ph ph-caret-down observatory-disclosure-icon" aria-hidden="true"></i></span><span class="observatory-filter-updated">{session.text.logsTailWindow}</span></summary>
     <div class="observatory-filter-fields trace-advanced-filter-fields">
-      <label class="observatory-field"><span>{session.text.logsEvent}</span><input bind:value={event} list="service-log-events" placeholder="llm_request_sent" /><datalist id="service-log-events">{#each options.events as value}<option value={value}></option>{/each}</datalist></label>
-      <label class="observatory-field"><span>{session.text.logsRunId}</span><input bind:value={runId} placeholder={session.text.logsRunId} /></label>
-      <label class="observatory-field"><span>{session.text.logsProvider}</span><input bind:value={provider} list="service-log-providers" placeholder={session.text.logsProvider} /><datalist id="service-log-providers">{#each options.providers as value}<option value={value}></option>{/each}</datalist></label>
-      <label class="observatory-field"><span>{session.text.logsModel}</span><input bind:value={model} list="service-log-models" placeholder={session.text.logsModel} /><datalist id="service-log-models">{#each options.models as value}<option value={value}></option>{/each}</datalist></label>
-      <label class="observatory-field"><span>{session.text.logsTool}</span><input bind:value={tool} list="service-log-tools" placeholder={session.text.logsTool} /><datalist id="service-log-tools">{#each options.tools as value}<option value={value}></option>{/each}</datalist></label>
-      <label class="observatory-field"><span>{session.text.logsSubagent}</span><input bind:value={subagent} list="service-log-subagents" placeholder={session.text.logsSubagent} /><datalist id="service-log-subagents">{#each options.subagents as value}<option value={value}></option>{/each}</datalist></label>
+      <label class="observatory-field"><span>{session.text.logsEvent}</span><input bind:value={event} autocomplete="off" spellcheck="false" list="service-log-events" placeholder="llm_request_sent" /><datalist id="service-log-events">{#each options.events as value}<option value={value}></option>{/each}</datalist></label>
+      <label class="observatory-field"><span>{session.text.logsRunId}</span><input bind:value={runId} autocomplete="off" spellcheck="false" placeholder={session.text.logsRunId} /></label>
+      <label class="observatory-field"><span>{session.text.logsProvider}</span><input bind:value={provider} autocomplete="off" spellcheck="false" list="service-log-providers" placeholder={session.text.logsProvider} /><datalist id="service-log-providers">{#each options.providers as value}<option value={value}></option>{/each}</datalist></label>
+      <label class="observatory-field"><span>{session.text.logsModel}</span><input bind:value={model} autocomplete="off" spellcheck="false" list="service-log-models" placeholder={session.text.logsModel} /><datalist id="service-log-models">{#each options.models as value}<option value={value}></option>{/each}</datalist></label>
+      <label class="observatory-field"><span>{session.text.logsTool}</span><input bind:value={tool} autocomplete="off" spellcheck="false" list="service-log-tools" placeholder={session.text.logsTool} /><datalist id="service-log-tools">{#each options.tools as value}<option value={value}></option>{/each}</datalist></label>
+      <label class="observatory-field"><span>{session.text.logsSubagent}</span><input bind:value={subagent} autocomplete="off" spellcheck="false" list="service-log-subagents" placeholder={session.text.logsSubagent} /><datalist id="service-log-subagents">{#each options.subagents as value}<option value={value}></option>{/each}</datalist></label>
     </div>
   </details>
 </div>
 
 {#if error}
-  <div class="settings-card"><EmptyState title={error} icon="warning-circle" /></div>
+  <div class="settings-card" aria-live="polite"><EmptyState title={error} icon="warning-circle" /></div>
 {:else if loading}
   <div class="settings-card"><SkeletonRows count={6} label={session.text.loading} /></div>
 {:else if !result || result.items.length === 0}

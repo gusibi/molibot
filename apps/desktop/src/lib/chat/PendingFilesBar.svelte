@@ -16,7 +16,7 @@
           <!-- svelte-ignore a11y_media_has_caption -->
           <audio class="pending-audio" controls src={audioUrls.get(file)}></audio>
         {/if}
-        <button type="button" aria-label={removeLabel} {disabled} onclick={() => onRemove(index)}>×</button>
+        <button type="button" aria-label={`${removeLabel}: ${file.name}`} title={`${removeLabel}: ${file.name}`} {disabled} onclick={() => onRemove(index)}>×</button>
       </span>
     {/each}
   </div>

@@ -15,6 +15,11 @@
   export let onManageMemory: (memoryId: string) => void;
   export let onHapticCommit: (gestureId: string) => void = () => {};
 
+  /** Locale-aware percent label for memory confidence (0..1 -> "87%"). */
+  function formatConfidence(confidence: number): string {
+    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(confidence * 100)}%`;
+  }
+
   let panel: HTMLElement;
   let drawerHandle: HTMLButtonElement | null = null;
   let drawerOffset = 0;
@@ -195,7 +200,7 @@
                   <div class="memory-trace-tags">
                     <span class="memory-trace-source">{item.source === "cited" ? copy.memoryTraceSourceCited : copy.memoryTraceSourceToolRetrieved}</span>
                     <span>{item.snapshot.type || item.snapshot.layer}</span>
-                    {#if typeof item.snapshot.confidence === "number"}<span>{Math.round(item.snapshot.confidence * 100)}%</span>{/if}
+                    {#if typeof item.snapshot.confidence === "number"}<span>{formatConfidence(item.snapshot.confidence)}</span>{/if}
                   </div>
                   <div class="memory-trace-actions">
                     {#if recordedMemoryIds.has(item.memoryId)}
@@ -233,7 +238,7 @@
                   <p>{item.snapshot.displayText}</p>
                   <div class="memory-trace-tags">
                     <span>{item.snapshot.type || item.snapshot.layer}</span>
-                    {#if typeof item.snapshot.confidence === "number"}<span>{Math.round(item.snapshot.confidence * 100)}%</span>{/if}
+                    {#if typeof item.snapshot.confidence === "number"}<span>{formatConfidence(item.snapshot.confidence)}</span>{/if}
                   </div>
                   <div class="memory-trace-actions">
                     {#if recordedMemoryIds.has(item.memoryId)}

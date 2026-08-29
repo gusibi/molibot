@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
+  import { tablist } from "../a11y/tablist";
   import { escapeHtml } from "./codeHighlight";
   import { requestComposerInsertion } from "./composerBridge";
   import { fileIconName, fileIconStyle } from "./fileIcons";
@@ -80,6 +81,8 @@
       value={store.searchQuery}
       placeholder={store.searchMode === "name" ? copy.projectSearchNamePlaceholder : copy.projectSearchContentPlaceholder}
       aria-label={copy.projectSearch}
+      autocomplete="off"
+      spellcheck="false"
       oninput={(event) => store.setSearchQuery(event.currentTarget.value)}
       onkeydown={onKeydown}
     />
@@ -88,18 +91,22 @@
     </button>
   </div>
 
-  <div class="file-search-modes" role="tablist" aria-label={copy.projectSearch}>
+  <div class="file-search-modes" role="tablist" aria-label={copy.projectSearch} use:tablist>
     <button
       type="button"
       role="tab"
+      id="file-search-tab-name"
       aria-selected={store.searchMode === "name"}
+      aria-controls="file-search-results-panel"
       class:active={store.searchMode === "name"}
       onclick={() => store.setSearchMode("name")}
     >{copy.projectSearchByName}</button>
     <button
       type="button"
       role="tab"
+      id="file-search-tab-content"
       aria-selected={store.searchMode === "content"}
+      aria-controls="file-search-results-panel"
       class:active={store.searchMode === "content"}
       onclick={() => store.setSearchMode("content")}
     >{copy.projectSearchByContent}</button>
@@ -109,7 +116,7 @@
     <div class="project-panel-error" role="alert">{store.searchError}</div>
   {/if}
 
-  <div class="file-search-results">
+  <div id="file-search-results-panel" class="file-search-results" role="tabpanel" aria-labelledby={store.searchMode === "name" ? "file-search-tab-name" : "file-search-tab-content"}>
     {#if store.searchLoading && !flatHits.length}
       <div class="project-panel-loading"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
     {:else if !store.searchQuery.trim()}

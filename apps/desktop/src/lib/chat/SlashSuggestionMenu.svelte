@@ -1,17 +1,19 @@
 <script lang="ts">
   import type { ComposerMenuItem } from "./composerSuggestionCatalog";
+  import type { Translation } from "../i18n";
 
   export let suggestions: ComposerMenuItem[] = [];
   export let activeIndex = 0;
   export let onSelect: (suggestion: ComposerMenuItem) => void;
+  export let copy: Translation;
 </script>
 
-<div class="slash-suggestions" role="listbox" aria-label="Slash commands, Skills, Mini Apps and files">
+<div class="slash-suggestions" role="listbox" aria-label={copy.slashMenuLabel}>
   {#each ["command", "skill", "miniapp", "file"] as kind}
     {@const items = suggestions.filter((item) => item.kind === kind)}
     {#if items.length}
-      <div class="slash-suggestion-group">
-        <div class="slash-suggestion-heading">{kind === "command" ? "COMMANDS" : kind === "skill" ? "SKILLS" : kind === "miniapp" ? "MINI APPS" : "FILES"}</div>
+      <div class="slash-suggestion-group" role="group" aria-label={kind === "command" ? copy.slashGroupCommand : kind === "skill" ? copy.slashGroupSkill : kind === "miniapp" ? copy.slashGroupMiniapp : copy.slashGroupFile}>
+        <div class="slash-suggestion-heading">{kind === "command" ? copy.slashGroupCommand : kind === "skill" ? copy.slashGroupSkill : kind === "miniapp" ? copy.slashGroupMiniapp : copy.slashGroupFile}</div>
         {#each items as item (item.id)}
           {@const index = suggestions.indexOf(item)}
           <button

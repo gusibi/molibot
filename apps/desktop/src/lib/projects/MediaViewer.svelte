@@ -90,6 +90,23 @@
     if (fitted) actualSize();
     else fit();
   }
+
+  /** Arrow-key panning mirrors drag-to-pan for keyboard users. */
+  function onStageKeydown(event: KeyboardEvent): void {
+    if (kind !== "image" || fitted) return;
+    const STEP = 40;
+    const deltas: Record<string, [number, number]> = {
+      ArrowLeft: [STEP, 0],
+      ArrowRight: [-STEP, 0],
+      ArrowUp: [0, STEP],
+      ArrowDown: [0, -STEP]
+    };
+    const delta = deltas[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    offsetX += delta[0];
+    offsetY += delta[1];
+  }
 </script>
 
 <div class="media-viewer" class:is-image={kind === "image"}>
@@ -115,16 +132,19 @@
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
     class="media-viewer-stage"
     class:panning
     class:zoomed={!fitted}
+    tabindex={kind === "image" ? 0 : -1}
     onwheel={onWheel}
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
     onpointercancel={onPointerUp}
     ondblclick={onDoubleClick}
+    onkeydown={onStageKeydown}
   >
     {#if failed}
       <p class="project-viewer-note">{copy.mediaLoadFailed}</p>

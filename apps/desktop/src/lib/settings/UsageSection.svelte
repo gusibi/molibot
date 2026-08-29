@@ -7,6 +7,7 @@
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
   import { formatNaturalDateTime, humanizeModelOption } from "../presentation";
   import { session } from "../stores/session.svelte";
+  import { tablist } from "../a11y/tablist";
   import { USAGE_RANGES, loadUsage, resetUsageFilters, updateUsageQuery, usageStore, usageWindowLabel } from "../stores/usage.svelte";
   import { DONUT_R, donutSegments, percentOf, trendAreaPath, trendLinePath } from "./charts";
 
@@ -123,8 +124,8 @@
     <div class="window-bars">{#each usage.windows as window (window.label)}<div class="window-bar-row"><div class="window-bar-meta"><strong>{usageWindowLabel(window.label, session.text)}</strong><span>{formatTokenCount(window.requests)} {session.text.usageRequests}</span></div><div class="window-bar-track"><span class="window-seg" style="width:{percentOf(window.inputTokens, windowMax)}%;background:var(--chart-blue)"></span><span class="window-seg" style="width:{percentOf(window.outputTokens, windowMax)}%;background:var(--chart-teal)"></span><span class="window-seg" style="width:{percentOf(window.cacheReadTokens, windowMax)}%;background:var(--chart-purple)"></span><span class="window-seg" style="width:{percentOf(window.cacheWriteTokens, windowMax)}%;background:var(--chart-orange)"></span></div><span class="window-bar-total">{formatTokenCount(window.totalTokens)}</span></div>{/each}</div>
   </div>
 
-  <div class="settings-card observatory-data-card">
-    <div class="observatory-section-head"><div><strong>{session.text.usageRankings}</strong></div><div class="observatory-tabs" role="tablist">{#each rankingTabs as tab (tab.id)}<button type="button" role="tab" aria-selected={rankingView === tab.id} class:active={rankingView === tab.id} onclick={() => rankingView = tab.id}>{tab.label}</button>{/each}</div></div>
+  <div class="settings-card observatory-data-card" id="usage-ranking-panel" role="tabpanel" aria-labelledby={`usage-ranking-tab-${rankingView}`}>
+    <div class="observatory-section-head"><div><strong>{session.text.usageRankings}</strong></div><div class="observatory-tabs" role="tablist" aria-label={session.text.usageRankings} use:tablist>{#each rankingTabs as tab (tab.id)}<button type="button" role="tab" id={`usage-ranking-tab-${tab.id}`} aria-selected={rankingView === tab.id} aria-controls="usage-ranking-panel" class:active={rankingView === tab.id} onclick={() => rankingView = tab.id}>{tab.label}</button>{/each}</div></div>
     {#if rankingRows.length === 0}<EmptyState title={session.text.usageNoRankings} icon="ranking" />{:else}<div class="observatory-ranking-list">{#each rankingRows.slice(0, 12) as row (row.id)}<div class="observatory-ranking-row"><div class="observatory-ranking-copy"><strong>{rankingTitle(row)}</strong><span>{rankingSubtitle(row)}</span></div><div class="observatory-ranking-meter"><span style="width:{percentOf(row.totalTokens, rankingRows[0]?.totalTokens ?? 1)}%"></span></div><div class="observatory-ranking-value"><strong>{formatTokenCount(row.totalTokens)}</strong><span>{session.text.usageTokens}</span></div></div>{/each}</div>{/if}
   </div>
 

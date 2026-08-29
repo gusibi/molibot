@@ -201,7 +201,7 @@
           <span>{statusLabel(detail.execution.status)}</span>
         </div>
         <div class="durable-inspector-progress">
-          <div class="durable-inspector-progress-track" aria-hidden="true"><span style={"width: " + progress + "%"}></span></div>
+          <div class="durable-inspector-progress-track" role="progressbar" aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100"><span style={"transform: scaleX(" + progress / 100 + ")"}></span></div>
           <span>{detail.projection.progress.completed}/{detail.projection.progress.total}</span>
         </div>
         {#if detail.projection.queuePosition !== undefined}
@@ -366,7 +366,7 @@
   }
   .durable-inspector-close:hover { background: var(--fill); color: var(--label-primary); }
   .durable-inspector-close:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
-  .durable-inspector-scroll { min-height: 0; flex: 1; overflow: auto; }
+  .durable-inspector-scroll { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; }
   .durable-inspector-summary,
   .durable-inspector-section { padding: 16px; border-bottom: 1px solid var(--separator); }
   .durable-inspector-status { display: inline-flex; align-items: center; gap: 7px; color: var(--label-secondary); font-size: var(--fs-label); font-weight: 600; }
@@ -379,7 +379,7 @@
   .durable-inspector-status[data-status="recovery_required"] .durable-inspector-status-dot { background: var(--warning); }
   .durable-inspector-progress { display: flex; align-items: center; gap: 10px; margin-top: 14px; color: var(--label-secondary); font-size: var(--fs-label); line-height: var(--lh-label); font-family: var(--font-mono); }
   .durable-inspector-progress-track { flex: 1; height: 6px; overflow: hidden; border-radius: var(--radius-full); background: var(--fill); }
-  .durable-inspector-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 180ms var(--ease-standard); }
+  .durable-inspector-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left; transition: transform 180ms var(--ease-standard); }
   .durable-inspector-waiting,
   .durable-inspector-error { margin: 12px 0 0; padding: 9px 10px; border-radius: var(--radius-control); color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
   .durable-inspector-waiting { background: color-mix(in srgb, var(--warning) 10%, transparent); }

@@ -322,7 +322,7 @@
 
 {#if adding}
   <Dialog open={adding} busy={projectsStore.busy === "add"} contentClass="project-dialog project-create-dialog" labelledBy="project-create-title" onOpenChange={(next) => { if (!next) cancelAdding(); }}>
-    <div class="project-dialog-heading"><span class="project-dialog-icon" aria-hidden="true"><i class="ph-fill ph-folder-plus"></i></span><div><h2 id="project-create-title">{copy.projectCreateTitle}</h2><p>{createStep === "name" ? copy.projectCreateNameHint : copy.projectChooseLocationHint}</p></div></div>
+    <div class="project-dialog-heading"><span class="project-dialog-icon" aria-hidden="true"><i class="ph-fill ph-folder-plus" aria-hidden="true"></i></span><div><h2 id="project-create-title">{copy.projectCreateTitle}</h2><p>{createStep === "name" ? copy.projectCreateNameHint : copy.projectChooseLocationHint}</p></div></div>
     {#if createStep === "name"}
       <form onsubmit={(event) => { event.preventDefault(); if (name.trim()) createStep = "location"; }}><label class="project-name-field"><span>{copy.projectName}</span><input bind:this={nameInput} bind:value={name} autocomplete="off" required placeholder={copy.projectNamePlaceholder} /></label><div class="project-form-actions"><button class="secondary-button" type="button" onclick={cancelAdding}>{copy.cancel}</button><button class="primary-button" disabled={!name.trim()}>{copy.continueAction}</button></div></form>
     {:else}

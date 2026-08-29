@@ -29,7 +29,7 @@
 
 Molibot is a local-first personal AI Agent for people who want more than a new chat window. It is built around two promises:
 
-- **Current release.** v2.9.14 (Desktop v0.9.11)
+- **Current release.** v2.9.40 (Desktop v0.9.40)
 
 - **Easy to start.** Download the macOS app, pick a model provider, and start chatting — one runtime serves the Desktop app, Web, Telegram, Feishu, Weixin, QQ, and the CLI.
 - **Grows with you.** Governed long-term memory, daily memory reflection, and reviewable automations mean the Agent learns your preferences, projects, and habits over time — and you can keep or reject each daily candidate directly from private Telegram or Feishu buttons without opening the app.

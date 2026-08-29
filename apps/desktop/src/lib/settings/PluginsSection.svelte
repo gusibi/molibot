@@ -408,7 +408,7 @@
 <div class="plugin-settings-page">
   {#if selectedPluginId === null}
     <SettingGroup title={copy.installed} description={copy.installedDescription} contentClass="plugin-catalog-card">
-      {#if listMessage}<p class="plugin-page-message error">{listMessage}</p>{/if}
+      {#if listMessage}<p class="plugin-page-message error" aria-live="polite">{listMessage}</p>{/if}
       {#if loadingList && managedPlugins.length === 0}
         <p class="plugin-empty-state">{copy.loading}</p>
       {:else if managedPlugins.length === 0}
@@ -417,7 +417,7 @@
         {#each managedPlugins as plugin (plugin.id)}
           <div class="plugin-catalog-row">
             <button class="plugin-identity-button" type="button" onclick={() => openPluginDetail(plugin.id)}>
-              <span class="plugin-icon" aria-hidden="true">{#if plugin.iconUri}<img src={pluginIconSource(plugin.iconUri)} alt="" />{:else}{plugin.name.charAt(0).toUpperCase()}{/if}</span>
+              <span class="plugin-icon" aria-hidden="true">{#if plugin.iconUri}<img src={pluginIconSource(plugin.iconUri)} alt="" width="24" height="24" />{:else}{plugin.name.charAt(0).toUpperCase()}{/if}</span>
               <span class="plugin-copy"><span class="plugin-title-line"><strong>{plugin.name}</strong><small>{plugin.version === "built-in" ? plugin.sourceKind : `v${plugin.version} · ${plugin.sourceKind}`}</small></span><span class="plugin-description">{plugin.description}</span></span>
             </button>
             <span class="plugin-row-actions"><IosSwitch checked={plugin.enabled} ariaLabel={plugin.name} onCheckedChange={(enabled) => togglePlugin(plugin, enabled)} /><button class="secondary-button" type="button" onclick={() => openPluginDetail(plugin.id)}>{plugin.hasSettings ? copy.settings : copy.details}</button></span>
@@ -426,14 +426,14 @@
       {/if}
     </SettingGroup>
   {:else}
-    <div class="plugin-detail-toolbar"><button class="tertiary-button" type="button" onclick={backToList}><i class="ph ph-arrow-left" aria-hidden="true"></i>{copy.back}</button>{#if detailMessage}<span class="plugin-detail-message">{detailMessage}</span>{/if}</div>
+    <div class="plugin-detail-toolbar"><button class="tertiary-button" type="button" onclick={backToList}><i class="ph ph-arrow-left" aria-hidden="true"></i>{copy.back}</button>{#if detailMessage}<span class="plugin-detail-message" aria-live="polite">{detailMessage}</span>{/if}</div>
 
     {#if loadingDetail}
       <div class="settings-card"><p class="plugin-empty-state">{copy.loading}</p></div>
     {:else if selectedPlugin}
       <SettingGroup contentClass="plugin-summary-card">
         <div class="plugin-summary">
-          <span class="plugin-icon large" aria-hidden="true">{#if selectedPlugin.iconUri}<img src={pluginIconSource(selectedPlugin.iconUri)} alt="" />{:else}{selectedPlugin.name.charAt(0).toUpperCase()}{/if}</span>
+          <span class="plugin-icon large" aria-hidden="true">{#if selectedPlugin.iconUri}<img src={pluginIconSource(selectedPlugin.iconUri)} alt="" width="40" height="40" />{:else}{selectedPlugin.name.charAt(0).toUpperCase()}{/if}</span>
           <span class="plugin-copy"><span class="plugin-title-line"><strong>{selectedPlugin.name}</strong><small>{selectedPlugin.version === "built-in" ? selectedPlugin.sourceKind : `v${selectedPlugin.version} · ${selectedPlugin.sourceKind}`}</small></span><span class="plugin-description">{selectedPlugin.description}</span></span>
           <span class="plugin-summary-toggle"><small>{selectedPlugin.enabled ? copy.enabled : copy.disabled}</small><IosSwitch checked={selectedPlugin.enabled} ariaLabel={selectedPlugin.name} onCheckedChange={(enabled) => togglePlugin(selectedPlugin, enabled)} /></span>
         </div>
@@ -442,16 +442,16 @@
       {#if coreDetail?.id === "memory" && coreDraft && "backend" in coreDraft}
         <SettingGroup title={copy.configuration}>
           <SettingRow title={copy.memoryBackend}><SelectControl value={coreDraft.backend} ariaLabel={copy.memoryBackend} options={coreDetail.backends} onChange={(backend) => coreDraft = { ...coreDraft!, backend }} /></SettingRow>
-          <SettingRow title={copy.reflectionTime}><NativeTimeInput bind:value={coreDraft.reflectionTime} /></SettingRow>
+          <SettingRow title={copy.reflectionTime}><NativeTimeInput bind:value={coreDraft.reflectionTime} ariaLabel={copy.reflectionTime} /></SettingRow>
           <SettingRow title={copy.reflectionNotifications}><IosSwitch checked={coreDraft.reflectionNotifications} ariaLabel={copy.reflectionNotifications} onCheckedChange={(reflectionNotifications) => coreDraft = { ...coreDraft!, reflectionNotifications }} /></SettingRow>
         </SettingGroup>
       {:else if coreDetail?.id === "daily-materials" && coreDraft && "projectId" in coreDraft}
         <SettingGroup title={copy.configuration}>
-          <SettingRow title={copy.dailyTime}><NativeTimeInput bind:value={coreDraft.time} /></SettingRow>
+          <SettingRow title={copy.dailyTime}><NativeTimeInput bind:value={coreDraft.time} ariaLabel={copy.dailyTime} /></SettingRow>
           <SettingRow title={copy.project}><SelectControl value={coreDraft.projectId} ariaLabel={copy.project} options={[{ value: "", label: copy.noProject }, ...coreDetail.projects]} onChange={(projectId) => coreDraft = { ...coreDraft!, projectId }} /></SettingRow>
-          <SettingRow title={copy.outputDirectory}><input value={coreDraft.dir} oninput={(event) => coreDraft = { ...coreDraft!, dir: event.currentTarget.value }} /></SettingRow>
-          <SettingRow title={copy.promptPath}><input value={coreDraft.promptPath} oninput={(event) => coreDraft = { ...coreDraft!, promptPath: event.currentTarget.value }} /></SettingRow>
-          <SettingRow title={copy.scanBudget}><input type="number" min="8000" max="900000" step="1000" value={coreDraft.scanTokenBudget} oninput={(event) => coreDraft = { ...coreDraft!, scanTokenBudget: Number(event.currentTarget.value) }} /></SettingRow>
+          <SettingRow title={copy.outputDirectory}><input value={coreDraft.dir} autocomplete="off" spellcheck="false" aria-label={copy.outputDirectory} oninput={(event) => coreDraft = { ...coreDraft!, dir: event.currentTarget.value }} /></SettingRow>
+          <SettingRow title={copy.promptPath}><input value={coreDraft.promptPath} autocomplete="off" spellcheck="false" aria-label={copy.promptPath} oninput={(event) => coreDraft = { ...coreDraft!, promptPath: event.currentTarget.value }} /></SettingRow>
+          <SettingRow title={copy.scanBudget}><input type="number" min="8000" max="900000" step="1000" autocomplete="off" aria-label={copy.scanBudget} value={coreDraft.scanTokenBudget} oninput={(event) => coreDraft = { ...coreDraft!, scanTokenBudget: Number(event.currentTarget.value) }} /></SettingRow>
           <SettingRow title={copy.scanModel}><SelectControl value={coreDraft.scanModelKey} ariaLabel={copy.scanModel} options={[{ value: "", label: copy.followDefaultModel }, ...coreDetail.models]} onChange={(scanModelKey) => coreDraft = { ...coreDraft!, scanModelKey }} /></SettingRow>
           <SettingRow title={copy.notifications}><IosSwitch checked={coreDraft.notifications} ariaLabel={copy.notifications} onCheckedChange={(notifications) => coreDraft = { ...coreDraft!, notifications }} /></SettingRow>
         </SettingGroup>
@@ -464,14 +464,14 @@
               {@const isConfigured = Boolean(contractDetail.secretsPresence?.[field.key]?.present)}
               <label class="settings-field settings-field-wide"><span>{labelText}</span>{#if descText}<small>{descText}</small>{/if}
                 {#if field.secret}
-                  <span class="plugin-secret-control"><input type="password" placeholder={isConfigured ? copy.configuredSecret : (field.placeholder || "")} value={secretReplacements[field.key] ?? ""} oninput={(event) => { const value = event.currentTarget.value; secretReplacements = { ...secretReplacements, [field.key]: value }; if (value) { const next = new Set(secretClears); next.delete(field.key); secretClears = next; } }} />{#if isConfigured}<button class="secondary-button danger-action" type="button" onclick={() => { const next = new Set(secretClears); next.add(field.key); secretClears = next; secretReplacements = { ...secretReplacements, [field.key]: "" }; }}>{copy.clearSecret}</button>{/if}</span>
-                {:else}<input placeholder={field.placeholder || ""} value={String(formValues[field.key] ?? "")} oninput={(event) => formValues = { ...formValues, [field.key]: event.currentTarget.value }} />{/if}
+                  <span class="plugin-secret-control"><input type="password" autocomplete="new-password" spellcheck="false" placeholder={isConfigured ? copy.configuredSecret : (field.placeholder || "")} value={secretReplacements[field.key] ?? ""} oninput={(event) => { const value = event.currentTarget.value; secretReplacements = { ...secretReplacements, [field.key]: value }; if (value) { const next = new Set(secretClears); next.delete(field.key); secretClears = next; } }} />{#if isConfigured}<button class="secondary-button danger-action" type="button" onclick={() => { const next = new Set(secretClears); next.add(field.key); secretClears = next; secretReplacements = { ...secretReplacements, [field.key]: "" }; }}>{copy.clearSecret}</button>{/if}</span>
+                {:else}<input autocomplete="off" aria-label={labelText} placeholder={field.placeholder || ""} value={String(formValues[field.key] ?? "")} oninput={(event) => formValues = { ...formValues, [field.key]: event.currentTarget.value }} />{/if}
               </label>
             {/each}
           {:else if contractDetail.schema?.properties}
             {#each Object.entries(contractDetail.schema.properties as Record<string, any>) as [propKey, propDef] (propKey)}
               {#if propDef.type === "boolean"}<SettingRow title={propDef.title || propKey} description={propDef.description || ""}><IosSwitch checked={Boolean(formValues[propKey])} ariaLabel={propDef.title || propKey} onCheckedChange={(value) => formValues = { ...formValues, [propKey]: value }} /></SettingRow>
-              {:else}<label class="settings-field settings-field-wide"><span>{propDef.title || propKey}</span>{#if propDef.description}<small>{propDef.description}</small>{/if}<input type={propDef.type === "number" ? "number" : "text"} value={String(formValues[propKey] ?? "")} oninput={(event) => formValues = { ...formValues, [propKey]: propDef.type === "number" ? Number(event.currentTarget.value) : event.currentTarget.value }} /></label>{/if}
+              {:else}<label class="settings-field settings-field-wide"><span>{propDef.title || propKey}</span>{#if propDef.description}<small>{propDef.description}</small>{/if}<input type={propDef.type === "number" ? "number" : "text"} autocomplete="off" value={String(formValues[propKey] ?? "")} oninput={(event) => formValues = { ...formValues, [propKey]: propDef.type === "number" ? Number(event.currentTarget.value) : event.currentTarget.value }} /></label>{/if}
             {/each}
           {/if}
         </SettingGroup>
@@ -491,7 +491,7 @@
       {/if}
 
       {#if coreDetail || contractDetail?.manifest?.settings?.mode === "schema"}
-        <div class="settings-footbar"><span class="settings-footbar-label">{detailMessage}</span><div class="settings-footbar-actions"><button class="primary-button" type="button" disabled={savingDetail} onclick={coreDetail ? saveCoreSettings : saveContractSettings}>{savingDetail ? copy.saving : copy.save}</button></div></div>
+        <div class="settings-footbar"><span class="settings-footbar-label" aria-live="polite">{detailMessage}</span><div class="settings-footbar-actions"><button class="primary-button" type="button" disabled={savingDetail} onclick={coreDetail ? saveCoreSettings : saveContractSettings}>{savingDetail ? copy.saving : copy.save}</button></div></div>
       {/if}
     {/if}
   {/if}

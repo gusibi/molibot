@@ -38,6 +38,8 @@
     bind:value
     {placeholder}
     aria-label={placeholder}
+    autocomplete="off"
+    spellcheck="false"
     oninput={onInput}
     onkeydown={onKeydown}
   />

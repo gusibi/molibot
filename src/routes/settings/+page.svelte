@@ -1,10 +1,10 @@
 <script lang="ts">
   import { Badge } from "$lib/components/ui/badge";
   import { locale } from "$lib/ui/i18n";
-  import Cpu from "@lucide/svelte/icons/cpu";
-  import MessageSquare from "@lucide/svelte/icons/message-square";
-  import BookOpen from "@lucide/svelte/icons/book-open";
-  import Settings from "@lucide/svelte/icons/settings";
+  import Cpu from "reicon-svelte/icons/Cpu";
+  import MessageSquare from "reicon-svelte/icons/MessageSquare";
+  import BookOpen from "reicon-svelte/icons/BookOpen";
+  import Settings from "reicon-svelte/icons/Settings";
   import type { Component } from "svelte";
 
   type Section = { title: string; href: string };

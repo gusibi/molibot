@@ -30,6 +30,7 @@
     type DesktopWebProfile
   } from "@molibot/desktop-contract";
   import type { Translation } from "./lib/i18n";
+  import IosSwitch from "./lib/components/ui/IosSwitch.svelte";
   import SelectControl from "./lib/components/ui/SelectControl.svelte";
   import {
     buildOnboardingHealthCheck,
@@ -3013,7 +3014,7 @@
         </button>
       {/if}
       <div class="chat-title-block" data-tauri-drag-region>
-        <span class="chat-source-tag" data-tauri-drag-region aria-label={activeHeaderSourceLabel} title={activeHeaderSourceLabel}><span aria-hidden="true">#</span><b aria-hidden="true">{activeHeaderSourceInitial}</b></span>
+        <span class="chat-source-tag" data-tauri-drag-region role="img" aria-label={activeHeaderSourceLabel} title={activeHeaderSourceLabel}><span aria-hidden="true">#</span><b aria-hidden="true">{activeHeaderSourceInitial}</b></span>
         <span class="chat-title-separator" data-tauri-drag-region aria-hidden="true">/</span>
         <div class="chat-title-text" data-tauri-drag-region>
           <div class="chat-title-name" data-tauri-drag-region>{activeHeaderTitle}</div>
@@ -3077,9 +3078,9 @@
     {#if serviceState !== "ready"}
       <div class="empty-state" aria-live="polite">
         {#if startupPhase === "checking" || startupPhase === "starting" || startupPhase === "retrying"}
-          <div class="service-starting-spinner" aria-hidden="true"><img src="/molibot-icon.png" alt="" /><span></span></div>
+          <div class="service-starting-spinner" aria-hidden="true"><img src="/molibot-icon.png" alt="" width="32" height="32" /><span></span></div>
         {:else}
-          <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" /></div>
+          <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" width="32" height="32" /></div>
         {/if}
         <h2>{startupPhase === "delayed" ? copy.serviceStarting : startupPhase === "error" ? copy.diagStateError : copy.serviceStarting}</h2>
         <p>{startupError || (serviceEndpoint ? copy.serviceLaunching : copy.serviceChecking)}</p>
@@ -3101,7 +3102,7 @@
       </div>
     {:else if viewMode === "external" && !activeExternalSessionId}
       <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" /></div>
+        <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" width="32" height="32" /></div>
         <h2>{copy.chat}</h2>
         <p>{copy.externalChannelsHint}</p>
       </div>
@@ -3368,6 +3369,7 @@
       channels: copy.searchScopeChannels,
       allChannels: copy.searchScopeAllChannels,
       scopeFilter: copy.searchScopeFilter,
+      clearSearch: `${copy.channelQrClear} ${copy.search}`.trim(),
       telegram: copy.channelTelegram,
       feishu: copy.channelFeishu,
       qq: copy.channelQq,
@@ -3397,7 +3399,7 @@
             <p class="onboarding-hint">{copy.onboardingProviderHint}</p>
             <label class="onboarding-field">
               <span>{copy.onboardingProviderName}</span>
-              <input type="text" bind:value={providerDraft.name} placeholder="My Provider" />
+              <input type="text" bind:value={providerDraft.name} autocomplete="off" placeholder="My Provider…" />
               {#if providerValidation.errors.some((e) => e.field === "name")}
                 <small class="onboarding-error">{providerValidation.errors.find((e) => e.field === "name")?.message}</small>
               {/if}
@@ -3408,7 +3410,7 @@
             </label>
             <label class="onboarding-field">
               <span>{copy.onboardingProviderBaseUrl}</span>
-              <input type="text" bind:value={providerDraft.baseUrl} placeholder="https://api.example.com/v1" />
+              <input type="text" bind:value={providerDraft.baseUrl} autocomplete="off" spellcheck="false" placeholder="https://api.example.com/v1…" />
               {#if providerValidation.errors.some((e) => e.field === "baseUrl")}
                 <small class="onboarding-error">{providerValidation.errors.find((e) => e.field === "baseUrl")?.message}</small>
               {/if}
@@ -3423,11 +3425,11 @@
                   <div class="onboarding-model-fields">
                     <label class="onboarding-field">
                       <span>{copy.providerModelId}</span>
-                      <input type="text" value={model.id} disabled={providerSubmitted} placeholder="gpt-4o" oninput={(event) => updateOnboardingProviderModel(index, { id: event.currentTarget.value })} />
+                      <input type="text" value={model.id} disabled={providerSubmitted} autocomplete="off" spellcheck="false" placeholder="gpt-4o…" oninput={(event) => updateOnboardingProviderModel(index, { id: event.currentTarget.value })} />
                     </label>
                     <label class="onboarding-field onboarding-context-field">
                       <span>{copy.providerModelContext}</span>
-                      <input type="number" min="1" value={model.contextWindow ?? ""} disabled={providerSubmitted} placeholder="128000" oninput={(event) => { const value = Number(event.currentTarget.value); updateOnboardingProviderModel(index, { contextWindow: Number.isFinite(value) && value > 0 ? value : undefined }); }} />
+                      <input type="number" min="1" value={model.contextWindow ?? ""} disabled={providerSubmitted} autocomplete="off" placeholder="128000…" oninput={(event) => { const value = Number(event.currentTarget.value); updateOnboardingProviderModel(index, { contextWindow: Number.isFinite(value) && value > 0 ? value : undefined }); }} />
                     </label>
                   </div>
                   <div class="onboarding-model-tags" aria-label={copy.providerModelTags}>
@@ -3444,7 +3446,7 @@
             </div>
             <label class="onboarding-field">
               <span>{copy.onboardingProviderApiKey}</span>
-              <input type="password" value={providerApiKeyInput} oninput={onApiKeyInput} placeholder="sk-..." autocomplete="off" />
+              <input type="password" value={providerApiKeyInput} oninput={onApiKeyInput} placeholder="sk-…" autocomplete="new-password" spellcheck="false" />
               <small>{providerDraft.apiKeyPresent ? copy.onboardingProviderApiKeyEntered : copy.onboardingProviderApiKeyEmpty}</small>
               {#if providerValidation.errors.some((e) => e.field === "apiKeyPresent")}
                 <small class="onboarding-error">{providerValidation.errors.find((e) => e.field === "apiKeyPresent")?.message}</small>
@@ -3496,7 +3498,7 @@
             <p class="onboarding-hint">{copy.onboardingPersonalizationHint}</p>
             <label class="onboarding-field">
               <span>{copy.onboardingUserName}</span>
-              <input type="text" bind:value={onboardingUserName} placeholder={copy.onboardingUserNamePlaceholder} />
+              <input type="text" bind:value={onboardingUserName} autocomplete="off" placeholder={copy.onboardingUserNamePlaceholder} />
             </label>
             <label class="onboarding-field">
               <span>{copy.onboardingAiStyle}</span>
@@ -3517,18 +3519,25 @@
                 <strong>{copy.launchAtLogin}</strong>
                 <p>{copy.launchAtLoginDescription}</p>
               </div>
-              <button
-                class:active={onboardingLaunchChoice}
-                class="switch"
-                type="button"
-                role="switch"
-                aria-label={copy.launchAtLogin}
-                aria-checked={onboardingLaunchChoice}
+              <IosSwitch
+                checked={onboardingLaunchChoice}
+                ariaLabel={copy.launchAtLogin}
                 disabled={launchAtLoginBusy || onboardingLaunchChanging}
-                onclick={toggleOnboardingLaunch}
-              >
-                <span></span>
-              </button>
+                onCheckedChange={async (checked) => {
+                  if (launchAtLoginBusy || onboardingLaunchChanging) return;
+                  onboardingLaunchError = "";
+                  onboardingLaunchChanging = true;
+                  onboardingLaunchTouched = true;
+                  try {
+                    onboardingLaunchChoice = await setLaunchAtLogin(checked);
+                  } catch (cause) {
+                    onboardingLaunchError = cause instanceof Error ? cause.message : String(cause);
+                    onboardingLaunchTouched = false;
+                  } finally {
+                    onboardingLaunchChanging = false;
+                  }
+                }}
+              />
             </div>
             <p class="health-check-status">{onboardingLaunchChoice ? copy.onboardingLaunchEnabled : copy.onboardingLaunchDisabled}</p>
             {#if onboardingLaunchError}

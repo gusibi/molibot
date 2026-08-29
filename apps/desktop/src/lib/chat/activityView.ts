@@ -1,4 +1,5 @@
 import type { DesktopConversationActivity } from "@molibot/desktop-contract";
+import { formatDuration } from "../presentation";
 
 /**
  * How a tool result should be rendered in the transcript.
@@ -216,8 +217,7 @@ export function activityPreview(content: string, limit = 32): ActivityPreview {
 export function formatActivityMetadata(activity: DesktopConversationActivity): string[] {
   const items: string[] = [];
   if (Number.isFinite(activity.durationMs)) {
-    const ms = activity.durationMs ?? 0;
-    items.push(ms < 1_000 ? `${ms}ms` : `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`);
+    items.push(formatDuration(activity.durationMs ?? 0));
   }
   if (Number.isInteger(activity.lineCount)) items.push(`${activity.lineCount} lines`);
   if (Number.isInteger(activity.exitCode)) items.push(`exit ${activity.exitCode}`);

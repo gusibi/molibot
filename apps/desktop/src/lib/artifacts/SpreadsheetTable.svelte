@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
+  import { tablist } from "../a11y/tablist";
   import {
     parseSpreadsheet,
     type SpreadsheetWorkbook,
@@ -80,12 +81,14 @@
     <div class="spreadsheet-state"><i class="ph ph-table" aria-hidden="true"></i><span>{copy.artifactSpreadsheetEmpty}</span></div>
   {:else if activeSheet}
     <div class="spreadsheet-toolbar">
-      <div class="spreadsheet-sheets" role="tablist" aria-label={copy.artifactSpreadsheetSheet}>
+      <div class="spreadsheet-sheets" role="tablist" aria-label={copy.artifactSpreadsheetSheet} use:tablist>
         {#each workbook.sheets as sheet, index (index)}
           <button
             type="button"
             role="tab"
+            id={`spreadsheet-sheet-tab-${index}`}
             aria-selected={activeSheetIndex === index}
+            aria-controls="spreadsheet-sheet-panel"
             class:active={activeSheetIndex === index}
             title={sheet.name}
             onclick={() => (activeSheetIndex = index)}
@@ -100,7 +103,7 @@
     {#if activeSheet.headers.length === 0 && activeSheet.rows.length === 0}
       <div class="spreadsheet-state"><i class="ph ph-table" aria-hidden="true"></i><span>{copy.artifactSpreadsheetEmpty}</span></div>
     {:else}
-      <div class="spreadsheet-scroll">
+      <div id="spreadsheet-sheet-panel" class="spreadsheet-scroll" role="tabpanel" aria-labelledby={`spreadsheet-sheet-tab-${activeSheetIndex}`}>
         <table class="spreadsheet-table">
           <thead>
             <tr>

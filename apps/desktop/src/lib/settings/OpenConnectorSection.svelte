@@ -93,8 +93,8 @@
         <IosSwitch checked={openConnectorStore.draft.enabled} ariaLabel={session.text.openConnectorEnabled} onCheckedChange={(enabled) => (openConnectorStore.draft.enabled = enabled)} />
       </div>
       <div class="settings-form connector-config-form">
-        <label class="settings-field settings-field-wide"><span>{session.text.openConnectorBaseUrl}</span><input bind:value={openConnectorStore.draft.baseUrl} autocomplete="url" /></label>
-        <label class="settings-field settings-field-wide"><span>{session.text.openConnectorConsoleUrl}</span><input bind:value={openConnectorStore.draft.consoleUrl} autocomplete="url" /></label>
+        <label class="settings-field settings-field-wide"><span>{session.text.openConnectorBaseUrl}</span><input bind:value={openConnectorStore.draft.baseUrl} autocomplete="url" spellcheck="false" /></label>
+        <label class="settings-field settings-field-wide"><span>{session.text.openConnectorConsoleUrl}</span><input bind:value={openConnectorStore.draft.consoleUrl} autocomplete="url" spellcheck="false" /></label>
         <label class="settings-field settings-field-wide"><span>{session.text.openConnectorToken}</span><div class="secret-input"><input type={tokenVisible ? "text" : "password"} bind:value={openConnectorStore.draft.runtimeToken} placeholder={openConnectorStore.summary.config.tokenConfigured ? session.text.channelSecretConfigured : "oct_…"} autocomplete="new-password" spellcheck="false" /><button class="secret-reveal" type="button" aria-label={tokenVisible ? session.text.openConnectorHideToken : session.text.openConnectorShowToken} title={tokenVisible ? session.text.openConnectorHideToken : session.text.openConnectorShowToken} onclick={(event) => { event.preventDefault(); void toggleTokenVisibility(); }}><i class={`ph ${tokenVisible ? "ph-eye-slash" : "ph-eye"}`} aria-hidden="true"></i></button></div>
           {#if openConnectorStore.summary.config.tokenConfigured}<label class="inline-check"><input type="checkbox" bind:checked={openConnectorStore.draft.clearRuntimeToken} /> {session.text.openConnectorClearToken}</label>{/if}
         </label>
@@ -124,7 +124,7 @@
                 <button class="connector-card-head connector-provider-link" type="button" title={provider.homepageUrl} aria-label={session.text.openConnectorOpenHomepage.replace("{name}", provider.displayName)} onclick={() => void openUrl(provider.homepageUrl)}>
                   <div class="connector-icon">
                     <span>{provider.displayName.slice(0, 1).toUpperCase()}</span>
-                    {#if provider.iconUrl}<img src={provider.iconUrl} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={(event) => event.currentTarget.remove()} />{/if}
+                    {#if provider.iconUrl}<img src={provider.iconUrl} alt="" width="28" height="28" loading="lazy" referrerpolicy="no-referrer" onerror={(event) => event.currentTarget.remove()} />{/if}
                   </div>
                   <div class="connector-card-title"><strong><span>{provider.displayName}</span><i class="ph ph-arrow-square-out" aria-hidden="true"></i></strong><small>{provider.service}</small></div>
                 </button>
@@ -132,7 +132,7 @@
                 <div class="connector-card-head">
                   <div class="connector-icon">
                     <span>{provider.displayName.slice(0, 1).toUpperCase()}</span>
-                    {#if provider.iconUrl}<img src={provider.iconUrl} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={(event) => event.currentTarget.remove()} />{/if}
+                    {#if provider.iconUrl}<img src={provider.iconUrl} alt="" width="28" height="28" loading="lazy" referrerpolicy="no-referrer" onerror={(event) => event.currentTarget.remove()} />{/if}
                   </div>
                   <div class="connector-card-title"><strong><span>{provider.displayName}</span></strong><small>{provider.service}</small></div>
                 </div>
@@ -151,7 +151,7 @@
   {/if}
 
   <footer class="settings-footbar">
-    <span class="settings-footbar-label">{openConnectorStore.message || session.text.openConnectorSaveHint}</span>
+    <span class="settings-footbar-label" aria-live="polite">{openConnectorStore.message || session.text.openConnectorSaveHint}</span>
     <div class="settings-footbar-actions"><button class="primary-button" type="button" onclick={() => void saveOpenConnector()} disabled={openConnectorStore.saving || !openConnectorStore.draft.baseUrl.trim()}>{openConnectorStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button></div>
   </footer>
 {/if}

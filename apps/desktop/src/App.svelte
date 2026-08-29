@@ -4,6 +4,7 @@
   import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
   import { onMount } from "svelte";
   import ChatView from "./ChatView.svelte";
+  import { tablist } from "./lib/a11y/tablist";
   import SandboxSection from "./lib/settings/SandboxSection.svelte";
   import HostBashSection from "./lib/settings/HostBashSection.svelte";
   import RuntimeEnvSection from "./lib/settings/RuntimeEnvSection.svelte";
@@ -826,9 +827,9 @@
       </button>
       <div class="settings-search">
         <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-        <input bind:value={settingsFilter} aria-label={text.settingsSearch} placeholder={text.settingsSearch} />
+        <input type="search" autocomplete="off" spellcheck="false" bind:value={settingsFilter} aria-label={text.settingsSearch} placeholder={text.settingsSearch} />
         {#if settingsFilter}
-          <button type="button" aria-label={text.clearSettingsSearch} onclick={() => (settingsFilter = "")}><i class="ph-fill ph-x-circle"></i></button>
+          <button type="button" aria-label={text.clearSettingsSearch} onclick={() => (settingsFilter = "")}><i class="ph-fill ph-x-circle" aria-hidden="true"></i></button>
         {/if}
       </div>
       <nav class="settings-nav-list" aria-label={text.settings}>
@@ -836,7 +837,7 @@
           <p class="settings-nav-group-label">{group.label}</p>
           {#each group.items as item (item.id)}
             <button class:active={activeSection === item.id} class="settings-nav" type="button" onclick={() => selectSettingsSection(item.id)}>
-              <span class="nav-tile" aria-hidden="true"><i class={`ph-fill ph-${item.icon}`}></i></span>
+              <span class="nav-tile" aria-hidden="true"><i class={`ph-fill ph-${item.icon}`} aria-hidden="true"></i></span>
               <span class="nav-label">{item.label}</span>
             </button>
           {/each}
@@ -845,13 +846,13 @@
         {/each}
       </nav>
       <div class="settings-sidebar-footer">
-        <img class="settings-footer-avatar" src="/molibot-icon.png" alt="" />
+        <img class="settings-footer-avatar" src="/molipibot-icon.png" alt="" width="28" height="28" />
         <div class="settings-sidebar-footer-copy"><strong>{text.appName}</strong><small>{serviceStateLabel(status?.service.state, text)}</small></div>
         <span class="status-dot" data-state={status?.service.state ?? "disconnected"} aria-hidden="true"></span>
       </div>
     </aside>
     <section class="settings-content">
-      <PageHeader title={sectionLabel(activeSection, text)} description={sectionDescription(activeSection, text)} dataPage={activeSection === "trace" || activeSection === "usage" || activeSection === "memory" || activeSection === "logs"} scrolled={settingsScrolled} />
+      <PageHeader title={sectionLabel(activeSection, text)} description={sectionDescription(activeSection, text)} dataPage={activeSection === "memory"} scrolled={settingsScrolled} />
 
       <div class="settings-scroll" data-section={activeSection} onscroll={(event) => (settingsScrolled = event.currentTarget.scrollTop > 2)}>
 
@@ -901,13 +902,14 @@
           <div class="appearance-block">
             <p class="appearance-label">{text.appearanceMode}</p>
             <p class="appearance-description">{text.appearanceModeDescription}</p>
-            <div class="appearance-segmented" role="radiogroup" aria-label={text.appearanceMode}>
+            <div class="appearance-segmented" role="radiogroup" aria-label={text.appearanceMode} use:tablist={'[role="radio"]'}>
               {#each APPEARANCE_OPTIONS as option (option.value)}
                 <button
                   type="button"
                   class:active={appearance === option.value}
                   role="radio"
                   aria-checked={appearance === option.value}
+                  tabindex={appearance === option.value ? 0 : -1}
                   onclick={() => changeAppearance(option.value)}
                 >
                   {text[option.labelKey]}
@@ -943,7 +945,7 @@
             <StatusBadge label={ownershipText} state={status?.service.state ?? "disconnected"} />
           </SettingRow>
           <SettingRow title={text.servicePort} description={text.servicePortDescription}>
-            <input class="row-input" type="number" min="1024" max="65535" step="1" bind:value={servicePort} disabled={!serviceReady || servicePortBusy} />
+            <input class="row-input" type="number" min="1024" max="65535" step="1" autocomplete="off" aria-label={text.servicePort} bind:value={servicePort} disabled={!serviceReady || servicePortBusy} />
           </SettingRow>
           <SettingRow title={text.restartService} description={text.restartServiceDescription}>
             <button class="secondary-button" type="button" onclick={restartManagedService} disabled={!serviceReady || status?.service.ownership !== "managed" || servicePortBusy}>
@@ -966,20 +968,30 @@
         <ModelsSection />
       {:else if activeSection === "providers"}
         <ProvidersSection />
-      {:else if activeSection === "agents"}
-        <AgentsSection />
-      {:else if activeSection === "mcp"}
-        <McpSection />
-      {:else if activeSection === "openConnector"}
-        <OpenConnectorSection />
+      {:else if activeSection === "profiles"}
+        <ProfilesSection />
       {:else if activeSection === "skills"}
         <SkillsSection />
-      {:else if activeSection === "memory"}
-        <MemorySection />
+      {:else if activeSection === "agents"}
+        <AgentsSection />
       {:else if activeSection === "channels"}
         <ChannelsSection />
+      {:else if activeSection === "mcp"}
+        <McpSection />
       {:else if activeSection === "plugins"}
         <PluginsSection />
+      {:else if activeSection === "openConnector"}
+        <OpenConnectorSection />
+      {:else if activeSection === "memory"}
+        <MemorySection />
+      {:else if activeSection === "logs"}
+        <LogsSection />
+      {:else if activeSection === "trace"}
+        <TraceSection />
+      {:else if activeSection === "usage"}
+        <UsageSection />
+      {:else if activeSection === "runHistory"}
+        <RunHistorySection />
       {:else if activeSection === "webSearch"}
         <WebSearchSection />
       {:else if activeSection === "imageGenerate"}
@@ -988,16 +1000,6 @@
         <VideoGenerateSection />
       {:else if activeSection === "ttsGenerate"}
         <TtsGenerateSection />
-      {:else if activeSection === "profiles"}
-        <ProfilesSection />
-      {:else if activeSection === "usage"}
-        <UsageSection />
-      {:else if activeSection === "runHistory"}
-        <RunHistorySection />
-      {:else if activeSection === "logs"}
-        <LogsSection />
-      {:else if activeSection === "trace"}
-        <TraceSection />
       {:else if activeSection === "sandbox"}
         <SandboxSection />
       {:else if activeSection === "hostBash"}
@@ -1005,37 +1007,31 @@
       {:else if activeSection === "runtimeEnv"}
         <RuntimeEnvSection />
       {:else}
-        <p class="settings-section-hint">{text.diagnosticsHint}</p>
-        <div class="settings-card">
-          <div class="settings-row">
-            <strong>{text.diagAppVersion}</strong>
+        <SettingGroup title={text.diagnostics} description={text.diagnosticsHint}>
+          <SettingRow title={text.diagAppVersion}>
             <span class="diag-value">{appVersion ?? text.unknownValue}</span>
-          </div>
-          <div class="settings-row">
-            <strong>{text.diagServiceVersion}</strong>
+          </SettingRow>
+          <SettingRow title={text.diagServiceVersion}>
             <span class="diag-value">{status?.service.version ?? text.unknownValue}</span>
-          </div>
-          <div class="settings-row">
-            <strong>{text.diagOwnership}</strong>
+          </SettingRow>
+          <SettingRow title={text.diagOwnership}>
             <span class="diag-value">{ownershipText}</span>
-          </div>
-          <div class="settings-row">
-            <strong>{text.diagEndpoint}</strong>
+          </SettingRow>
+          <SettingRow title={text.diagEndpoint}>
             <span class="diag-value">{status?.service.endpoint ?? text.unavailable}</span>
-          </div>
-          <div class="settings-row">
-            <strong>{text.diagState}</strong>
-            <span class="status-badge" data-state={status?.service.state ?? "disconnected"}>{serviceStateLabel(status?.service.state, text)}</span>
-          </div>
-        </div>
-        <div class="diag-actions">
-          <button class="secondary-button" type="button" onclick={copyDiagnostics}>
-            {diagnosticsCopied ? text.copied : text.copyDiagnostics}
-          </button>
-        </div>
+          </SettingRow>
+          <SettingRow title={text.diagState}>
+            <StatusBadge label={serviceStateLabel(status?.service.state, text)} state={status?.service.state ?? "disconnected"} />
+          </SettingRow>
+          <SettingRow title={text.copyDiagnostics} description={diagnosticsCopied ? text.copied : ""}>
+            <button class="secondary-button" type="button" onclick={copyDiagnostics}>
+              {diagnosticsCopied ? text.copied : text.copyDiagnostics}
+            </button>
+          </SettingRow>
+        </SettingGroup>
       {/if}
 
-      {#if error || session.error}<p class="error-message">{error || session.error}</p>{/if}
+      {#if error || session.error}<p class="error-message" role="alert">{error || session.error}</p>{/if}
       {#if shouldShowServiceReconnect(serviceReady)}
         <footer class="settings-footbar settings-footbar-notice">
           <button class="secondary-button" type="button" onclick={refreshStatus}>{text.reconnectService}</button>

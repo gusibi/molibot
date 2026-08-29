@@ -31,13 +31,22 @@
   const level = $derived(store.dirs[dirPath]);
   const activePath = $derived(store.activeTab?.path ?? "");
   const cursorPath = $derived(store.cursorPath);
+
+  /** Keyboard route (Shift+F10 / ContextMenu key) to the same menu as right-click. */
+  function onContextMenuForKeyboard(event: KeyboardEvent, path: string, kind: string): void {
+    if (!((event.key === "F10" && event.shiftKey) || event.key === "ContextMenu")) return;
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    onContextMenu(new MouseEvent("contextmenu", { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 }), path, kind);
+  }
 </script>
 
 {#if level}
-  <ul class="file-tree-level" role="group">
+  <ul class="file-tree-level">
     {#each level.entries as entry (entry.path)}
       {@const expanded = Boolean(store.expanded[entry.path])}
       <li class="file-tree-item">
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="file-tree-row"
           class:selected={activePath === entry.path}
@@ -45,11 +54,12 @@
           class:dirty={dirtyPaths.has(entry.path)}
           class:touched={touchedPaths.has(entry.path)}
           data-tree-path={entry.path}
-          role="treeitem"
-          tabindex={-1}
-          aria-expanded={entry.kind === "directory" ? expanded : undefined}
-          aria-selected={activePath === entry.path}
-          oncontextmenu={(event) => onContextMenu(event, entry.path, entry.kind)}
+          onkeydown={(event) => {
+            // Keyboard route to the right-click-only menu (Shift+F10 / ContextMenu key).
+            if (!((event.key === "F10" && event.shiftKey) || event.key === "ContextMenu")) return;
+            event.preventDefault();
+            onContextMenuForKeyboard(event, entry.path, entry.kind);
+          }}
         >
           <button
             type="button"

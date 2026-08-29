@@ -110,7 +110,7 @@
         {#each usage as row (row.appId)}
           <li>
             <span><strong>{row.appId}</strong><small>{row.successes} ✓ · {row.failures} ✕</small></span>
-            <span>{session.text.miniAppAiUsageRequests.replace("{n}", String(row.requests))} · {session.text.miniAppAiUsageTokens.replace("{n}", String(row.totalTokens))} · {session.text.miniAppAiUsageAudio.replace("{n}", row.audioSeconds.toFixed(1))}</span>
+            <span>{session.text.miniAppAiUsageRequests.replace("{n}", String(row.requests))} · {session.text.miniAppAiUsageTokens.replace("{n}", String(row.totalTokens))} · {session.text.miniAppAiUsageAudio.replace("{n}", new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(row.audioSeconds))}</span>
           </li>
         {/each}
       </ul>

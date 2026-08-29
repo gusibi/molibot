@@ -2,6 +2,7 @@
   import type { Translation } from "../i18n";
   import type { TranscriptProcessBlock } from "./transcript";
   import { finalizeTranscriptActivities, transcriptProcessSummary } from "./transcript";
+  import { formatDuration } from "../presentation";
   import ProcessTimeline from "./ProcessTimeline.svelte";
 
   export let blocks: TranscriptProcessBlock[];
@@ -31,10 +32,7 @@
       ? { ...block, activities: finalizeTranscriptActivities(block.activities) ?? [] }
       : block);
 
-  function durationLabel(durationMs: number): string {
-    if (durationMs < 1000) return `${durationMs}ms`;
-    return `${(durationMs / 1000).toFixed(1)}s`;
-  }
+  const durationLabel = formatDuration;
 </script>
 
 <details class="turn-process" bind:open={opened} data-state={live ? "live" : isFailed ? "error" : "complete"}>

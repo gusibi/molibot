@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { tablist } from "../a11y/tablist";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import StatusBadge from "../components/ui/StatusBadge.svelte";
@@ -158,22 +159,24 @@
 
   <div class="miniapps-install">
     <div class="miniapps-install-head">
-      <span aria-hidden="true"><i class="ph ph-plus-circle"></i></span>
+      <span aria-hidden="true"><i class="ph ph-plus-circle" aria-hidden="true"></i></span>
       <strong>{session.text.miniAppInstallTitle}</strong>
     </div>
-    <div class="miniapps-install-tabs" role="tablist" aria-label={session.text.miniAppInstallTitle}>
+    <div class="miniapps-install-tabs" role="tablist" aria-label={session.text.miniAppInstallTitle} use:tablist>
       {#each [["builtin", session.text.miniAppInstallBuiltin], ["directory", session.text.miniAppInstallDirectory], ["zip", session.text.miniAppInstallZip], ["github", session.text.miniAppInstallGithub]] as [value, label] (value)}
         <button
           type="button"
           role="tab"
+          id={`miniapps-install-tab-${value}`}
           aria-selected={installTab === value}
+          aria-controls="miniapps-install-body"
           class:active={installTab === value}
           onclick={() => (installTab = value as InstallTab)}
         >{label}</button>
       {/each}
     </div>
 
-    <div class="miniapps-install-body">
+    <div id="miniapps-install-body" class="miniapps-install-body" role="tabpanel" aria-labelledby={`miniapps-install-tab-${installTab}`}>
       {#if installTab === "builtin"}
         <p class="miniapps-install-hint">{session.text.miniAppInstallBuiltinHint}</p>
         {#if miniAppsStore.builtin.length === 0}
@@ -252,15 +255,19 @@
           <input
             class="miniapps-install-input"
             bind:value={githubRepo}
-            placeholder="owner/repo"
+            placeholder="owner/repo…"
             aria-label={session.text.miniAppInstallGithub}
+            autocomplete="off"
+            spellcheck="false"
             onkeydown={(event) => { if (event.key === "Enter") void installFromGithub(); }}
           />
           <input
             class="miniapps-install-ref"
             bind:value={githubRef}
-            placeholder={session.text.miniAppInstallRefPlaceholder}
+            placeholder={`${session.text.miniAppInstallRefPlaceholder}…`}
             aria-label={session.text.miniAppInstallRefPlaceholder}
+            autocomplete="off"
+            spellcheck="false"
             onkeydown={(event) => { if (event.key === "Enter") void installFromGithub(); }}
           />
           <button
@@ -302,7 +309,7 @@
       needs no "am I inside Settings?" branch (pitfall #7).
     -->
     <button type="button" class="miniapps-ai-link" onclick={onOpenAiSettings}>
-      <span aria-hidden="true"><i class="ph ph-sliders-horizontal"></i></span>
+      <span aria-hidden="true"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i></span>
       <span class="miniapps-ai-link-text">
         <strong>{session.text.miniAppAiTitle}</strong>
         <small>{session.text.miniAppAiHint}</small>

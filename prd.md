@@ -5,6 +5,59 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 - [2026 Q3 PRD Archive (Jul - Sep)](docs/archive/prd-archive-2026-Q3.md)
 
+## 3.130 Web Interface Guidelines 合规第二轮遗留项（2026-08-29）
+
+- **Priority / Status**: P2 / Planned（2026-08-29 立项。来源：合规第二轮审计中有意跳过的四项，当时未影响功能与可访问性达标，但需要独立设计与实现，不适合混入合规修复 slice）。
+- **Problem**:
+  - **大列表虚拟化（性能专项）**：`CsvTable` / `JsonTree` / `SpreadsheetTable` 上限各 5000 行（`csvTable.ts` / `jsonTree.ts` / `spreadsheet.ts` 的 `*_MAX_ROWS`）全量渲染无虚拟化；`TraceSection` 排行表格未分页；`UsageSection` 移动端列表把每行渲染了两份（表格 + 列表，同页最多 ~200 行 DOM）。大产物与长排行下 DOM 量与内存显著偏高。
+  - **PluginsSection 危险操作确认形式**：卸载/删配置/删数据使用阻塞式 `window.confirm()`，能用但与全仓应用内两步确认/AlertDialog 形式不一致。
+  - **MemorySection 记忆过期时间输入**：过期时间为纯文本输入，无格式校验，用户可输入非法值。
+  - **UsageSection 移动端双份渲染**：与上面虚拟化同源，见第一条。
+- **Decision**:
+  - 虚拟化选型时先评估现有依赖是否已具备（长列表容器 + `content-visibility: auto` 起步），不重复造轮子；TraceSection 排行先补分页即可，不必上虚拟化。
+  - 插件确认弹窗迁移到共享 `AlertDialog`，统一两步确认交互后移除 `window.confirm`。
+  - 记忆过期输入改 `datetime-local`（复用 `NativeTimeInput` 模式）或至少加格式校验与错误提示；存储格式保持不变。
+  - UsageSection 移动端列表与表格二选一按断点渲染，避免同数据双份 DOM。
+- **Acceptance**:
+  - 5000 行 CSV/JSON/表格产物打开不卡顿，滚动帧率稳定；Trace 排行有分页；UsageSection 单份数据渲染。
+  - 插件卸载/删除走应用内确认弹窗，无阻塞式 `confirm`。
+  - 记忆过期时间非法输入被拦截并给出可读错误。
+  - `svelte-check` 0/0 + 既有测试 + build 通过；冷启动走查受影响面板。
+
+---
+
+## 3.129 Desktop 图标库统一迁移（Phosphor → Reicon）（2026-08-29）
+
+- **Priority / Status**: P2 / Planned（2026-08-29 立项；Web 端与 Mini Apps 的 Reicon 迁移已交付，见 features.md）。
+- **Problem**: Desktop 使用 `@phosphor-icons/web` CSS 字体方案（91 个文件、约 165 个去重图标、`styles.css` 中 99 行针对 `.ph*` 的规则），与 Web 端已统一的 Reicon 组件体系不一致。且字体方案的动态图标名深度嵌入了组件 API（`ph-caret-${…}` 插值、`EmptyState.icon` 字符串 prop、`ArtifactPanel` 上下文菜单数据内的图标字符串、`fileIcons.ts` 扩展名映射、`imageLightbox.ts` 动态拼 HTML），与组件方案存在结构差异，不是机械替换。
+- **Decision**:
+  - 独立 slice 分阶段迁移，不与其它改动混合；迁移期间 Phosphor 保持可用，不为未完成的迁移拆掉能跑的界面。
+  - 动态图标名的组件 API 重新设计：`EmptyState` / `OverflowMenu` / 上下文菜单等 `icon` 字符串 prop 改为组件引用或显式枚举。
+  - `.ph*` 字号样式体系改为组件 `size` prop 或 CSS 宽高；重写 `chat-ui.test.mjs` 中校验 `ph-*` 图标名有效性的守卫测试为 Reicon 子路径导入存在性守卫。
+  - 图标一律使用 `reicon-svelte/icons/*` 子路径导入（见 CLAUDE.md pitfall 45：barrel 有重复导出缺陷，Rollup 构建会失败）。
+- **Acceptance**:
+  - Desktop 全部面板图标显示正常（明暗主题、多语言、窗口缩放），无 Phosphor 字体残留。
+  - `svelte-check` 0/0 + Desktop UI 结构测试 + Desktop/root production build 通过。
+  - 冷启动冒烟走查全部受影响面板（pitfall 10 约定）。
+
+---
+
+## 3.128 Desktop 设计规范与设置面板合规（2026-08-29）
+
+- **Priority / Status**: P0, P1 & P2 Delivered (2026-08-29).
+- **Problem**: Desktop 设置页面与客户端界面存在生图/视频/TTS 文案 key 错乱、残留手写 Switch 控件、部分容器宽度、无障碍属性（A11y）、表单属性、省略号排版与图片宽高未全面对齐 Web Interface Guidelines 与 DESIGN.md。
+- **Decision**:
+  - P0：优先修正工具设置多语言错乱，补齐中英文键值，清理所有残余 `<button class="switch">` 换用 `<IosSwitch>`。
+  - P1：按照 `DESIGN.md` §420 布局规范对齐 576px 页面宽度，全量重构 12 个设置子页面散落的 `div.settings-card` 为标准化 `<SettingGroup>` / `<SettingRow>`。
+  - P2：系统化落实 Web Interface Guidelines：全仓补齐输入字段的 `autocomplete="off"` / `autocomplete="new-password"` / `spellcheck="false"` / `aria-label`；纯装饰性图标补充 `aria-hidden="true"`；省略号统一为 `…`（U+2026）；图片增加显式宽高杜绝 CLS。
+- **Acceptance**:
+  - 生图、视频与语音合成页面均使用专属的多语言 key。
+  - `ModelsSection` 与开机自启引导中的 Switch 均使用 `IosSwitch`，无残留 `class="switch"`。
+  - 设置页面宽度统一为 576px，所有设置页全部统一采用 `<SettingGroup>` / `<SettingRow>` 标准化容器。
+  - 全仓通过 Web Interface Guidelines 规则审计与单元测试（224 测试通过）。
+
+---
+
 ## 3.127 Desktop 会话检索、渐进分页与 Agent 空状态（2026-08-27）
 
 - **Priority / Status**: P1 / Delivered (2026-08-27).

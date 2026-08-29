@@ -5,6 +5,37 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
 
+### Changed: 用量 / Trace / 服务日志设置页宽度对齐标准列
+
+- 三个页面从 720px"data page"宽列收回至与其它设置页一致的 576px 标准列（页头、KPI 卡、图表、过滤器全部对齐；服务日志页此前页头 720px / 卡片 576px 自身不一致的问题一并解决）；记忆中心保留 720px 数据列。`DESIGN.md` 宽度规范同步更新。
+
+### Fixed: Desktop 沙箱设置页预设卡片布局
+
+- 修复沙箱设置页"沙箱严格程度"预设卡片竖向堆叠、宽窄不一的样式错乱：上一轮设置页重构时组件 class 名更新（`sandbox-tier-grid` 等）但 `styles.css` 未同步，网格布局整体丢失。现已补齐卡片/标题/网格样式并删除全部旧名死规则；预设卡片默认 2×2 网格，窄窗口降为单列。
+
+### Changed: Desktop Web Interface Guidelines 合规第二轮（键盘导航 / 读屏 / Intl / 未保存守卫）
+
+- 全仓 a11y 合规第二轮：新增共享 `tablist` 键盘导航 action 应用到 18 处 tabs 与 2 处 radiogroup（方向键/Home/End + tabpanel 关联），约 35 处异步反馈补 `aria-live`，清理无效 listbox/tree/alertdialog 角色，`ConversationRow` 重构消除嵌套交互，右键菜单补键盘替代。
+- 数字/日期全面走 `Intl`（新增共享 `formatTimestamp`/`formatDuration`），10 处手搓日期与 8 处 `toFixed` 替换；弹层补 `overscroll-behavior: contain`；`prefers-reduced-motion` 块补齐 6 个遗漏动画；生图/视频任务删除与排队消息移除改两步确认；新增 `unsavedGuard` 让 9 个设置页在窗口关闭/刷新前确认未保存更改；22 处 modal 关闭按钮 aria-label 从"取消"改为"关闭"（新增 `dialogClose` key）。
+- 顺带修复 `RunActivity` 真实逻辑 bug：`isFailed` 恒 false 导致活动级失败状态永不显示。
+- 验证：svelte-check 0/0，tsx 单测 233/233，node UI 测试 224/224，`vite build` 通过。
+
+### Changed: Web 端与 Mini Apps 图标库统一切换为 Reicon
+
+- Web 主应用（Svelte）从 `@lucide/svelte` 迁移到 `reicon-svelte`，Mini Apps（mini-chat / prompt-box）从 `@heroicons/react` 迁移到 `reicon-react`，两端统一为同一图标视觉体系（Solar 风格、Outline/Filled 双字重、MIT 许可）。
+- 因 `reicon-svelte` 上游 barrel 存在 `Icon` 重复导出缺陷（会让生产构建失败），全部图标使用子路径导入（`reicon-svelte/icons/*`），约束记入 CLAUDE.md pitfall 45。
+- 旧图标依赖已移除；Mini App 的 THIRD_PARTY_NOTICES 补充 Reicon 与 Solar Icons（CC BY 4.0）署名。
+- Desktop 端 Phosphor（CSS 字体方案）迁移另行立项（prd.md §3.129），本轮未改动。
+
+### Changed: Desktop 设置与客户端界面设计规范全面对齐（P0 / P1 / P2）
+
+- **Web Interface Guidelines 全局审计与修复**：对照 Web Interface Guidelines 与 `DESIGN.md`，对 `apps/desktop` 全仓进行合规审计与修复：密码/API Key 输入框统一显式标注 `autocomplete="new-password"` 与 `spellcheck="false"`；技术/配置/搜索输入框标注 `autocomplete="off"`；装饰性图标元素补齐 `aria-hidden="true"`；遮罩与装饰层标注 `role="presentation"`；排版规范中省略号统一为 Unicode `…`；静态与头像图片补齐显式 `width`/`height` 防止布局偏移（CLS）。
+- **设置容器宽度校准**：按照 `DESIGN.md` §420 布局规范，将 Desktop 设置页内容容器宽度 `--settings-content-width` 从 720px 统一校准为 576px，保留数据与图表视图 `--data-content-width: 720px`。
+- **设置组件标准化**：全面迁移 Desktop 设置子页面中的零散 `.settings-card` 结构，统一采用标准化语义容器 `<SettingGroup>` / `<SettingRow>`，包含生图、视频、语音、搜索、Agent、Web Profile、Channels、MCP、Runtime 环境、Sandbox、Skills 以及诊断面板。
+- **文案国际化修复**：修复生图、视频生成、语音合成设置页面中因复制粘贴导致的 `webSearchEnabled`、`webSearchDefaultEngine`、`webSearchApiKey` 错乱问题，补齐独立本地化字段（`imageGenerateEnabled`、`imageDefaultEngine`、`videoGenerateEnabled`、`videoDefaultEngine`、`videoTestEngine`、`ttsGenerateEnabled`、`toolApiKey`）。
+- **Switch 控件统一**：彻底移除 `ModelsSection.svelte`（模型上下文压缩）与 `ChatView.svelte`（开机自启引导）中残留的手写 `<button class="switch">`，统一迁移至共享的 `<IosSwitch>` 组件。
+- **状态指示本地化**：`ProvidersSection` 中的状态指示（`ON` / `OFF`）支持中英文国际化本地化显示（`providerStateOn` / `providerStateOff`）。
+
 ### Changed: 隔离预览重构为全屏灯箱
 
 - 聊天气泡的「隔离预览 HTML / SVG」与表格查看器不再弹 900×720 的小窗，改为与图片灯箱一致的深色全屏观感：近全屏浮动舞台、悬浮格式标签与圆形关闭按钮、弹性缩放入场，并随系统减弱动态效果降级。

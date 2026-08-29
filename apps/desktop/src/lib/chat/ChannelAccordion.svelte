@@ -57,6 +57,7 @@
       cancel: string;
       forkedConversation: string;
       newChat: string;
+      loading?: string;
     };
     formatTime: (iso: string) => string;
     onToggle: () => void;
@@ -110,7 +111,7 @@
   {#if expanded}
     <div class="channel-accordion-body">
       {#if loading}
-        <p class="channel-state">…</p>
+        <p class="channel-state" aria-busy="true">{labels.loading ?? "…"}</p>
       {:else if !channel.configured}
         <p class="channel-state">{labels.notConfigured}</p>
         <button type="button" class="channel-configure" onclick={onConfigure}>{labels.goToSettings}</button>
@@ -134,7 +135,7 @@
           {/each}
         </ul>
         {#if hasMore}
-          <button type="button" class="channel-more" disabled={loadingMore} onclick={onMore}>{loadingMore ? "…" : labels.more}</button>
+          <button type="button" class="channel-more" disabled={loadingMore} aria-busy={loadingMore} onclick={onMore}>{loadingMore ? `${labels.more}…` : labels.more}</button>
         {/if}
       {/if}
     </div>

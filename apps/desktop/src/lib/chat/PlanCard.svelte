@@ -66,7 +66,7 @@
   >
     {#if editing}
       <div class="plan-editor">
-        <label><span>{copy.planName}</span><input bind:value={title} /></label>
+        <label><span>{copy.planName}</span><input bind:value={title} autocomplete="off" /></label>
         <label><span>{copy.planSummary}</span><textarea rows="3" bind:value={summary}></textarea></label>
         <label><span>{copy.planSteps}</span><textarea rows="8" bind:value={steps}></textarea></label>
       </div>

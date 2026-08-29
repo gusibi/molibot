@@ -2,6 +2,7 @@
   import type { DesktopSessionFile } from "@molibot/desktop-contract";
   import { onDestroy, untrack } from "svelte";
   import type { Translation } from "../i18n";
+  import { tablist } from "../a11y/tablist";
   import { rawPreviewKindFromName } from "@molibot/shared/filePreview";
   import { desktopFileContentUrl, fetchDesktopFileBlob, fetchDesktopProjectRawBlob, filterDesktopFiles, listDesktopSessionFiles, artifactPreviewUrl, sessionArtifactToken, revealDesktopSessionFile, type DesktopFileFilter } from "../api";
   import { html as renderDiffHtml } from "diff2html";
@@ -403,11 +404,9 @@
     }
   }
 
-  function openContextMenu(event: MouseEvent, path: string, kind: string): void {
-    event.preventDefault();
-    event.stopPropagation();
+  function contextMenuItems(path: string, kind: string): FileMenuItem[] {
     const isDirectory = kind === "directory";
-    const items: FileMenuItem[] = [
+    return [
       isDirectory
         ? { id: "toggle", label: store.expanded[path] ? copy.projectCollapseFolder : copy.projectExpandFolder, icon: "ph-caret-right" }
         : { id: "open", label: copy.projectOpenFile, icon: "ph-file-arrow-up" },
@@ -417,7 +416,20 @@
       { id: "reveal", label: copy.projectRevealInFinder, icon: "ph-folder-open", startsGroup: true },
       { id: "external", label: copy.projectOpenExternally, icon: "ph-arrow-square-out" }
     ];
-    menu = { x: event.clientX, y: event.clientY, path, kind, items };
+  }
+
+  function openContextMenu(event: MouseEvent, path: string, kind: string): void {
+    event.preventDefault();
+    event.stopPropagation();
+    menu = { x: event.clientX, y: event.clientY, path, kind, items: contextMenuItems(path, kind) };
+  }
+
+  /** Keyboard route to the same menu (Shift+F10 / ContextMenu key on the focused row). */
+  function openContextMenuForKeyboard(event: KeyboardEvent, path: string, kind: string): void {
+    if (!((event.key === "F10" && event.shiftKey) || event.key === "ContextMenu")) return;
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    menu = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, path, kind, items: contextMenuItems(path, kind) };
   }
 
   function runMenuAction(id: string): void {
@@ -859,11 +871,11 @@
     <FileSearchPanel {store} {copy} />
   {:else}
     {#if !miniAppActive}
-      <div class="project-file-tabs" role="tablist" aria-label={copy.projectFilesPanel}>
+      <div class="project-file-tabs" role="tablist" aria-label={copy.projectFilesPanel} use:tablist>
         {#if scope === "project"}
-          <button type="button" role="tab" aria-selected={tab === "files"} class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.projectFilesTab}</button>
-          {#if turnFiles.length}<button type="button" role="tab" aria-selected={tab === "turn"} class:active={tab === "turn"} onclick={() => (tab = "turn")}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
-          <button type="button" role="tab" aria-selected={tab === "changes"} class:active={tab === "changes"} onclick={() => (tab = "changes")}>
+          <button type="button" role="tab" id="project-file-tab-files" aria-selected={tab === "files"} aria-controls="project-file-panel" class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.projectFilesTab}</button>
+          {#if turnFiles.length}<button type="button" role="tab" id="project-file-tab-turn" aria-selected={tab === "turn"} aria-controls="project-file-panel" class:active={tab === "turn"} onclick={() => (tab = "turn")}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
+          <button type="button" role="tab" id="project-file-tab-changes" aria-selected={tab === "changes"} aria-controls="project-file-panel" class:active={tab === "changes"} onclick={() => (tab = "changes")}>
             {copy.projectChangesTab}
             {#if sessionEntries.length}
               <span class="project-tab-badge is-session">{sessionEntries.length}</span>
@@ -871,15 +883,15 @@
               <span class="project-tab-badge">{dirtyPaths.size}</span>
             {/if}
           </button>
-          <button type="button" role="tab" aria-selected={tab === "attachments"} class:active={tab === "attachments"} onclick={() => (tab = "attachments")}>{copy.projectAttachmentsTab}</button>
+          <button type="button" role="tab" id="project-file-tab-attachments" aria-selected={tab === "attachments"} aria-controls="project-file-panel" class:active={tab === "attachments"} onclick={() => (tab = "attachments")}>{copy.projectAttachmentsTab}</button>
         {:else}
-          {#if turnFiles.length}<button type="button" role="tab" aria-selected={tab === "turn"} class:active={tab === "turn"} onclick={() => (tab = "turn")}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
-          <button type="button" role="tab" aria-selected={tab === "files"} class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.files}</button>
+          {#if turnFiles.length}<button type="button" role="tab" id="project-file-tab-turn" aria-selected={tab === "turn"} aria-controls="project-file-panel" class:active={tab === "turn"} onclick={() => (tab = "turn")}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
+          <button type="button" role="tab" id="project-file-tab-files" aria-selected={tab === "files"} aria-controls="project-file-panel" class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.files}</button>
         {/if}
       </div>
     {/if}
 
-    <div class="project-panel-body" class:browser-collapsed={(browserCollapsed && fileTabs.length) || miniAppActive}>
+    <div id="project-file-panel" class="project-panel-body" role="tabpanel" aria-labelledby={`project-file-tab-${tab}`} class:browser-collapsed={(browserCollapsed && fileTabs.length) || miniAppActive}>
       {#if actionError}
         <div class="project-panel-error" role="alert">{actionError}</div>
       {/if}
@@ -898,14 +910,16 @@
           aria-hidden={!miniAppActive}
           aria-label={miniAppEntry?.name ?? store.activeMiniAppTab?.appId ?? ""}
         >
-          <div class="project-viewer-tabs" role="tablist" aria-label={copy.artifactModeMiniApps}>
+          <div class="project-viewer-tabs" role="tablist" aria-label={copy.artifactModeMiniApps} use:tablist>
             {#each miniAppTabs as appTab (appTab.id)}
               {@const info = miniAppInfo(appTab.appId)}
               <div class="project-viewer-tab" class:active={appTab.id === store.activeMiniAppTabId}>
                 <button
                   type="button"
                   role="tab"
+                  id={`miniapp-tab-${appTab.id}`}
                   aria-selected={appTab.id === store.activeMiniAppTabId}
+                  aria-controls="miniapp-viewer-panel"
                   title={info?.name ?? appTab.appId}
                   onclick={() => store.selectTab(appTab.id, "miniapp")}
                 >
@@ -922,7 +936,7 @@
               </div>
             {/each}
           </div>
-          <div class="project-viewer-body miniapp-viewer-body">
+          <div id="miniapp-viewer-panel" class="project-viewer-body miniapp-viewer-body" role="tabpanel" aria-labelledby={store.activeMiniAppTabId ? `miniapp-tab-${store.activeMiniAppTabId}` : undefined}>
             {#each miniAppTabs as appTab (appTab.id)}
               <div class="artifact-miniapp-slot" class:is-hidden={appTab.id !== store.activeMiniAppTabId}>
                 <MiniAppPanel
@@ -981,10 +995,11 @@
             {:else if store.git?.status === "unavailable"}
               <p class="file-empty"><i class="ph ph-git-branch" aria-hidden="true"></i><span>{copy.projectGitUnavailable}</span><small>{store.git.reason}</small></p>
             {:else if gitEntries.length}
-              <div class="project-change-scope" role="tablist" aria-label={copy.projectChangesTab}>
+              <div class="project-change-scope" role="tablist" aria-label={copy.projectChangesTab} use:tablist>
                 <button
                   type="button"
                   role="tab"
+                  id="project-change-scope-session"
                   aria-selected={changeScope === "session"}
                   class:active={changeScope === "session"}
                   onclick={() => (changeScope = "session")}
@@ -992,6 +1007,7 @@
                 <button
                   type="button"
                   role="tab"
+                  id="project-change-scope-all"
                   aria-selected={changeScope === "all"}
                   class:active={changeScope === "all"}
                   onclick={() => (changeScope = "all")}
@@ -1005,7 +1021,7 @@
                 <ul class="project-entry-list project-change-list">
                   {#each visibleEntries as entry (entry.path)}
                     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                    <li class="project-entry" oncontextmenu={(event) => openContextMenu(event, entry.path, "file")}>
+                    <li class="project-entry" oncontextmenu={(event) => openContextMenu(event, entry.path, "file")} onkeydown={(event) => openContextMenuForKeyboard(event, entry.path, "file")}>
                       <button
                         type="button"
                         class="project-entry-button"
@@ -1098,13 +1114,15 @@
           ></div>
 
           <section class="project-viewer" aria-label={copy.projectViewer}>
-            <div class="project-viewer-tabs" role="tablist" aria-label={copy.projectViewer}>
+            <div class="project-viewer-tabs" role="tablist" aria-label={copy.projectViewer} use:tablist>
               {#each fileTabs as openTab (openTab.id)}
                 <div class="project-viewer-tab" class:active={openTab.id === store.activeFileTabId}>
                   <button
                     type="button"
                     role="tab"
+                    id={`project-viewer-tab-${openTab.id}`}
                     aria-selected={openTab.id === store.activeFileTabId}
+                    aria-controls={`project-viewer-panel-${openTab.id}`}
                     title={openTab.path}
                     onclick={() => store.selectTab(openTab.id, openTab.kind)}
                   >
@@ -1220,7 +1238,7 @@
                 </button>
               </div>
 
-              <div class="project-viewer-body">
+              <div id={`project-viewer-panel-${activeTab.id}`} class="project-viewer-body" role="tabpanel" aria-labelledby={`project-viewer-tab-${activeTab.id}`}>
                 {#if activeTab.loading}
                   <div class="project-panel-loading"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
                 {:else if activeTab.error}
@@ -1405,10 +1423,10 @@
           ></div>
 
           <section class="project-viewer artifact-session-viewer" aria-label={copy.projectViewer}>
-            <div class="project-viewer-tabs" role="tablist" aria-label={copy.projectViewer}>
+            <div class="project-viewer-tabs" role="tablist" aria-label={copy.projectViewer} use:tablist>
               {#each fileTabs as openTab (openTab.id)}
                 <div class="project-viewer-tab" class:active={openTab.id === store.activeFileTabId}>
-                  <button type="button" role="tab" aria-selected={openTab.id === store.activeFileTabId} title={openTab.name} onclick={() => store.selectTab(openTab.id, openTab.kind)}>
+                  <button type="button" role="tab" id={`project-viewer-tab-${openTab.id}`} aria-selected={openTab.id === store.activeFileTabId} aria-controls={`project-viewer-panel-${activeTab?.id}`} title={openTab.name} onclick={() => store.selectTab(openTab.id, openTab.kind)}>
                     <i class={`ph ${fileIconName(openTab.name, "file")}`} style={fileIconStyle(openTab.name, "file")} aria-hidden="true"></i>
                     <span>{openTab.name}</span>
                   </button>
@@ -1478,7 +1496,7 @@
                 </button>
               </div>
 
-              <div class="project-viewer-body">
+              <div id={`project-viewer-panel-${activeTab?.id}`} class="project-viewer-body" role="tabpanel" aria-labelledby={`project-viewer-tab-${activeTab?.id}`}>
                 {#if activeTab.loading}
                   <div class="project-panel-loading"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
                 {:else if activeTab.error}

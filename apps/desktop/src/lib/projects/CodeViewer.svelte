@@ -167,6 +167,8 @@
         bind:value={findQuery}
         placeholder={copy.codeViewerFindPlaceholder}
         aria-label={copy.codeViewerFind}
+        autocomplete="off"
+        spellcheck="false"
         onkeydown={onFindKeydown}
       />
       <button

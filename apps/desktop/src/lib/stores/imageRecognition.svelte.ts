@@ -59,6 +59,13 @@ export async function loadImageRecognition(endpoint: string): Promise<void> {
   }
 }
 
+export function discardImageRecognition(): void {
+  if (!imageRecognitionStore.summary) return;
+  imageRecognitionStore.draft = draftFromSummary(imageRecognitionStore.summary);
+  imageRecognitionStore.dirty = false;
+  imageRecognitionStore.message = "";
+}
+
 export function markImageRecognitionDirty(): void {
   imageRecognitionStore.dirty = true;
   imageRecognitionStore.message = "";

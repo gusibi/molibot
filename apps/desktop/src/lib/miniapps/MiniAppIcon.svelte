@@ -12,8 +12,8 @@
 
 <span class={`miniapp-icon miniapp-icon-${size}`} aria-hidden="true" title={label}>
   {#if src}
-    <img src={src} alt="" />
+    <img src={src} alt="" width="20" height="20" />
   {:else}
-    <i class="ph ph-app-window"></i>
+    <i class="ph ph-app-window" aria-hidden="true"></i>
   {/if}
 </span>

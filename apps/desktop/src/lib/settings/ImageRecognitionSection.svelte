@@ -1,10 +1,16 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
+  import EmptyState from "../components/ui/EmptyState.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
+  import SettingGroup from "../components/ui/SettingGroup.svelte";
+  import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
+  import { trackUnsaved } from "../unsavedGuard";
   import {
     addImageRecognitionEngine,
+    discardImageRecognition,
     imageRecognitionStore,
     loadImageRecognition,
     markImageRecognitionDirty,
@@ -36,6 +42,8 @@
     }
   });
 
+  onDestroy(trackUnsaved(() => imageRecognitionStore.dirty));
+
   function onTestFilePicked(event: Event): void {
     testFile = (event.currentTarget as HTMLInputElement).files?.[0] ?? null;
     imageRecognitionStore.testResult = null;
@@ -60,20 +68,19 @@
 </script>
 
 {#if !session.serviceReady}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.imageRecognitionUnavailable}</p></div></div>
+  <SettingGroup><EmptyState title={session.text.imageRecognitionUnavailable} icon="eye" /></SettingGroup>
 {:else if imageRecognitionStore.loading}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
+  <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
 {:else if !imageRecognitionStore.draft || !imageRecognitionStore.summary}
-  <div class="settings-card">
+  <SettingGroup>
     <div class="settings-row">
       <p>{session.text.imageRecognitionUnavailable}</p>
       <button class="secondary-button" type="button" onclick={() => session.endpoint && loadImageRecognition(session.endpoint)}>{session.text.retryLoading}</button>
     </div>
-  </div>
+  </SettingGroup>
 {:else}
-  <div class="settings-card">
-    <div class="settings-row">
-      <strong>{session.text.imageRecognitionEnabled}</strong>
+  <SettingGroup ariaLabel={session.text.imageRecognitionTab}>
+    <SettingRow title={session.text.imageRecognitionEnabled}>
       <IosSwitch
         checked={imageRecognitionStore.draft.enabled}
         ariaLabel={session.text.imageRecognitionEnabled}
@@ -82,12 +89,8 @@
           markImageRecognitionDirty();
         }}
       />
-    </div>
-    <div class="settings-row">
-      <div>
-        <strong>{session.text.imageRecognitionDefaultEngine}</strong>
-        <p class="settings-hint">{session.text.imageRecognitionOrderHint}</p>
-      </div>
+    </SettingRow>
+    <SettingRow title={session.text.imageRecognitionDefaultEngine} description={session.text.imageRecognitionOrderHint}>
       <SelectControl
         value={imageRecognitionStore.draft.defaultEngine}
         ariaLabel={session.text.imageRecognitionDefaultEngine}
@@ -97,14 +100,16 @@
           markImageRecognitionDirty();
         }}
       />
-    </div>
-  </div>
+    </SettingRow>
+  </SettingGroup>
 
-  <p class="settings-group-title">{session.text.imageRecognitionEngines}</p>
-  {#if modelOptions.length === 0}
-    <div class="settings-card"><div class="settings-row"><p>{session.text.imageRecognitionNoModels}</p></div></div>
-  {:else}
-    <div class="settings-card tool-engine-list">
+  <SettingGroup title={session.text.imageRecognitionEngines} contentClass="tool-engine-list">
+    <svelte:fragment slot="action">
+      <button class="secondary-button" type="button" onclick={addEngine}>{session.text.imageRecognitionAddEngine}</button>
+    </svelte:fragment>
+    {#if modelOptions.length === 0}
+      <EmptyState title={session.text.imageRecognitionNoModels} icon="eye-slash" />
+    {:else}
       {#each imageRecognitionStore.draft.engines as engine, index (engine.id)}
         <details
           class="tool-engine-card"
@@ -130,7 +135,7 @@
             <div class="settings-form">
               <label class="settings-field">
                 <span>{session.text.imageRecognitionEngineName}</span>
-                <input value={engine.name} oninput={(event) => updateImageRecognitionEngine(engine.id, { name: event.currentTarget.value })} />
+                <input value={engine.name} autocomplete="off" oninput={(event) => updateImageRecognitionEngine(engine.id, { name: event.currentTarget.value })} />
               </label>
               <label class="settings-field settings-field-wide">
                 <span>{session.text.imageRecognitionModel}</span>
@@ -139,79 +144,59 @@
                   ariaLabel={session.text.imageRecognitionModel}
                   options={modelOptions}
                   technicalId={engine.modelKey}
-                  technicalLabel={session.text.imageRecognitionModel}
-                  onChange={(modelKey) => updateImageRecognitionEngine(engine.id, { modelKey })}
+                  onChange={(value) => updateImageRecognitionEngine(engine.id, { modelKey: value })}
                 />
               </label>
             </div>
-            <div class="settings-row-actions tool-test-actions">
-              <button class="secondary-button danger-action" type="button" onclick={() => removeEngineId = engine.id}>{session.text.imageRecognitionRemove}</button>
+            <div class="tool-engine-card-actions">
+              <button class="secondary-button danger-action" type="button" disabled={imageRecognitionStore.draft.engines.length <= 1} onclick={() => (removeEngineId = engine.id)}>{session.text.imageRecognitionRemove}</button>
             </div>
           </div>
         </details>
       {/each}
-    </div>
+    {/if}
+  </SettingGroup>
 
-    <div class="settings-card">
-      <div class="settings-row">
-        <div>
-          <strong>{session.text.imageRecognitionAddEngine}</strong>
-          <p class="settings-hint">{session.text.imageRecognitionOrderHint}</p>
-        </div>
-        <button class="secondary-button" type="button" onclick={addEngine}>{session.text.imageRecognitionAddEngine}</button>
-      </div>
-    </div>
-  {/if}
-
-  <div class="settings-card">
-    <div class="settings-row">
-      <div>
-        <strong>{session.text.imageRecognitionCliTitle}</strong>
-        <p class="settings-hint">{session.text.imageRecognitionCliPlanned}</p>
-      </div>
-      <span class="status-badge" data-state="pending">Phase 2</span>
-    </div>
-  </div>
-
-  <p class="settings-group-title">{session.text.toolTest}</p>
-  <div class="settings-card tool-test-card">
-    <div class="settings-form tool-test-form">
+  <SettingGroup title={session.text.toolTest} contentClass="tool-test-card">
+    <div class="settings-form">
       <label class="settings-field">
-        <span>{session.text.webSearchDefaultEngine}</span>
+        <span>{session.text.imageRecognitionDefaultEngine}</span>
         <SelectControl
           value={imageRecognitionStore.testEngine}
-          ariaLabel={session.text.webSearchDefaultEngine}
+          ariaLabel={session.text.imageRecognitionDefaultEngine}
           options={[{ value: "auto", label: session.text.mediaEngineAuto }, ...imageRecognitionStore.draft.engines.map((engine) => ({ value: engine.id, label: engine.name || engine.id }))]}
-          onChange={(value) => imageRecognitionStore.testEngine = value}
+          onChange={(value) => (imageRecognitionStore.testEngine = value)}
         />
       </label>
       <label class="settings-field settings-field-wide">
-        <span>{session.text.imageRecognitionTestPrompt}</span>
-        <input bind:value={imageRecognitionStore.testPrompt} />
+        <span>{session.text.toolPrompt}</span>
+        <input bind:value={imageRecognitionStore.testPrompt} autocomplete="off" />
+      </label>
+      <label class="settings-field settings-field-wide">
+        <span>{session.text.imageRecognitionTestImage}</span>
+        <input type="file" accept="image/*" bind:this={testFileInput} onchange={onTestFilePicked} />
       </label>
     </div>
-    <div class="settings-row image-recognition-upload-row">
-      <div>
-        <strong>{session.text.imageRecognitionTestImage}</strong>
-        <p class="settings-hint">{testFile?.name || session.text.imageRecognitionNoImage}</p>
-      </div>
-      <div class="settings-row-actions">
-        <input bind:this={testFileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onchange={onTestFilePicked} />
-        <button class="secondary-button" type="button" onclick={() => testFileInput?.click()}>{session.text.imageRecognitionChooseImage}</button>
+    <div class="settings-row-actions tool-test-actions">
+      <div class="tool-test-actions-right">
+        {#if testFile}
+          <span class="tool-test-file-info">{testFile.name} ({(testFile.size / 1024).toFixed(1)} KB)</span>
+        {/if}
         <button class="secondary-button" type="button" disabled={!testFile || imageRecognitionStore.testBusy} onclick={() => void testImageRecognition(testFile)}>{imageRecognitionStore.testBusy ? session.text.loading : session.text.toolTest}</button>
       </div>
     </div>
     {#if imageRecognitionStore.testResult}
       <pre class:run-history-failed={!imageRecognitionStore.testResult.ok} class="tool-test-result">{JSON.stringify(imageRecognitionStore.testResult.result ?? imageRecognitionStore.testResult.error, null, 2)}</pre>
     {/if}
-  </div>
+  </SettingGroup>
 {/if}
 
-{#if imageRecognitionStore.message}<p class="settings-action-message">{imageRecognitionStore.message}</p>{/if}
+{#if imageRecognitionStore.message}<p class="settings-action-message" aria-live="polite">{imageRecognitionStore.message}</p>{/if}
 {#if imageRecognitionStore.dirty}
   <footer class="settings-footbar">
     <span class="settings-footbar-label">{session.text.settingsUnsaved}</span>
     <div class="settings-footbar-actions">
+      <button class="secondary-button" type="button" disabled={imageRecognitionStore.saving} onclick={discardImageRecognition}>{session.text.discardChanges}</button>
       <button class="primary-button" type="button" disabled={imageRecognitionStore.saving} onclick={() => void saveImageRecognition()}>{imageRecognitionStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button>
     </div>
   </footer>
