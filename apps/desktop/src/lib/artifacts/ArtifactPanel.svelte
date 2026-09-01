@@ -42,7 +42,9 @@
   import MiniAppIcon from "../miniapps/MiniAppIcon.svelte";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import { miniAppsStore } from "../stores/miniapps.svelte";
+  import { pickProjectDirectory, projectsStore } from "../stores/projects.svelte";
   import { fileIconKind, fileIconStyle, formatSize } from "../projects/fileIcons";
+  import { isProjectDirectoryAccessError, sameProjectDirectory } from "../projects/projectDirectoryAccess";
   import { FILE_KIND_ICONS } from "../projects/fileKindIcons";
   import type { FileMenuItem } from "../projects/fileMenu";
   import {
@@ -89,6 +91,7 @@
   let {
     endpoint,
     projectId,
+    projectRootPath = "",
     sessionId,
     profileId = "",
     scope,
@@ -112,6 +115,8 @@
   }: {
     endpoint: string;
     projectId: string;
+    /** Canonical Project root used to validate a native reauthorization pick. */
+    projectRootPath?: string;
     sessionId: string;
     /** Web profile id for session-scope attachment fetches. */
     profileId?: string;
@@ -190,6 +195,7 @@
 
   let menu = $state<{ x: number; y: number; path: string; kind: string; items: FileMenuItem[] } | null>(null);
   let actionError = $state("");
+  let reauthorizingProject = $state(false);
   let appliedTurnFilesNonce = $state(0);
 
   /** Changes tab scope: everything Git reports, or only what this session wrote. */
@@ -565,6 +571,29 @@
       return [];
     } finally {
       if (current === attachmentGeneration && isCurrentRequest()) attachmentsLoading = false;
+    }
+  }
+
+  async function reauthorizeProjectDirectory(): Promise<void> {
+    if (!projectRootPath || reauthorizingProject) return;
+    actionError = "";
+    reauthorizingProject = true;
+    try {
+      const selected = await pickProjectDirectory();
+      if (!selected) {
+        if (projectsStore.error) actionError = projectsStore.error;
+        return;
+      }
+      if (!sameProjectDirectory(selected, projectRootPath)) {
+        actionError = copy.projectDirectoryWrongSelection.replace("{path}", projectRootPath);
+        return;
+      }
+      await Promise.all([store.loadDir("", { force: true }), store.loadGit()]);
+      if (isProjectDirectoryAccessError(store.dirs[""]?.error)) {
+        actionError = copy.projectDirectoryAccessStillDenied;
+      }
+    } finally {
+      reauthorizingProject = false;
     }
   }
 
@@ -1003,7 +1032,14 @@
                 <Compress size={16} aria-hidden="true" />{copy.projectCollapseAll}
               </button>
             </div>
-            {#if store.dirs[""]?.error}
+            {#if isProjectDirectoryAccessError(store.dirs[""]?.error)}
+              <div class="project-panel-error project-directory-access-error" role="alert">
+                <span>{copy.projectDirectoryAccessDenied}</span>
+                <button class="secondary-button" type="button" disabled={reauthorizingProject} onclick={() => void reauthorizeProjectDirectory()}>
+                  {reauthorizingProject ? copy.loading : copy.projectReauthorizeDirectory}
+                </button>
+              </div>
+            {:else if store.dirs[""]?.error}
               <div class="project-panel-error" role="alert">{store.dirs[""].error}</div>
             {/if}
             <FileTreeNode

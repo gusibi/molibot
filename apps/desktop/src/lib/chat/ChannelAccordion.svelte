@@ -1,7 +1,7 @@
 <script lang="ts">
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import Plus from "reicon-svelte/icons/Plus";
-  import { CHANNEL_ICONS } from "./activityIcons";
+  import { CHANNEL_ICONS, CHANNEL_LOGOS } from "./activityIcons";
   import ConversationRow from "./ConversationRow.svelte";
   import BotAvatar from "./BotAvatar.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
@@ -78,6 +78,7 @@
   }
 
   let ChannelIcon = $derived(CHANNEL_ICONS[channel.icon] ?? CHANNEL_ICONS.globe);
+  let channelLogo = $derived(CHANNEL_LOGOS[channel.id]);
 </script>
 
 <section class="channel-accordion" data-expanded={expanded}>
@@ -88,7 +89,11 @@
       aria-expanded={expanded}
       onclick={onToggle}
     >
-      <i aria-hidden="true"><ChannelIcon size={16} /></i>
+      {#if channelLogo}
+        <img class="channel-logo" src={channelLogo} alt="" width="16" height="16" aria-hidden="true" />
+      {:else}
+        <i aria-hidden="true"><ChannelIcon size={16} /></i>
+      {/if}
       <span class="channel-accordion-name">{channel.name}</span>
     </button>
     {#if onNewSession}
@@ -174,6 +179,7 @@
     letter-spacing: 0;
   }
   .channel-accordion-header i:first-child { font-size: var(--icon-md); color: var(--label-secondary); }
+  .channel-logo { display: block; flex: none; width: var(--icon-md); height: var(--icon-md); object-fit: contain; }
   .channel-accordion-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .channel-new-session,
   .channel-caret-button {

@@ -55,10 +55,7 @@ export const ACTIVITY_GROUP_ICONS: Record<ActivityGroupAction, ReiconComponent> 
   command: TerminalSquare
 };
 
-/**
- * Channel/source glyphs. Brand logos are not part of Reicon, so each platform
- * keeps a distinguishable neutral glyph while the label carries the identity.
- */
+/** Channel/source glyphs for surfaces that do not use a bundled brand asset. */
 export const CHANNEL_ICONS: Record<string, ReiconComponent> = {
   globe: Globe,
   browser: Globe,
@@ -67,6 +64,19 @@ export const CHANNEL_ICONS: Record<string, ReiconComponent> = {
   bird: Chat,
   "linux-logo": ChatRound,
   "wechat-logo": ChatDots
+};
+
+/**
+ * Brand assets for channel groups in the Chat session list.
+ * These are bundled locally so the desktop sidebar does not depend on a
+ * network request while loading the session navigator.
+ */
+export const CHANNEL_LOGOS: Record<string, string> = {
+  web: "/channel-logos/web.svg",
+  telegram: "/channel-logos/telegram.svg",
+  feishu: "/channel-logos/doubao.svg",
+  qq: "/channel-logos/qq.svg",
+  weixin: "/channel-logos/wechat.svg"
 };
 
 /** Mini App message-action icons declared by manifests, plus the fallback. */

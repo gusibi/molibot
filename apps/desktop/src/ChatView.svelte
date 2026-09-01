@@ -647,12 +647,19 @@
   $: filePanelOpen = inspector?.kind === "artifact";
   $: durablePanelOpen = inspector?.kind === "durable-execution";
   $: miniAppPanelAppId = inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : "";
+  // A Project conversation can produce a Session-owned file (for example an
+  // imageGenerate result in scratch). The selected artifact owns this scope;
+  // deriving it again from the conversation pane routes that file back through
+  // the Project tree and leaves its Session viewer unreachable.
+  $: artifactScope = inspector?.kind === "artifact"
+    ? inspector.scope
+    : projectPaneActive ? "project" : "session";
   // One inspector for every scope: the Artifact Panel hosts Project files,
   // Session artifacts and Mini App tabs. A second right-hand aside for the
   // session file list is what made the panel unreachable while a Mini App was
   // open — and left the Files side of the panel empty in a conversation.
-  // Scope comes from the live pane, not from the (open-time) `inspector.scope`,
-  // so it can never disagree with the props the panel is actually given.
+  // Project/session identity still comes from the live pane below. Artifact
+  // ownership is independent and comes from `artifactScope` above.
   $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0);
   $: durablePanelVisible = durablePanelOpen && serviceState === "ready" && Boolean(connectedEndpoint);
   $: inspectorVisible = artifactPanelVisible || durablePanelVisible;
@@ -3330,9 +3337,10 @@
     <ArtifactPanel
       endpoint={connectedEndpoint || serviceEndpoint || ""}
       projectId={projectPaneActive ? (projectsStore.selectedProjectId ?? "") : ""}
+      projectRootPath={projectPaneActive ? (projectsStore.projects.find((project) => project.id === projectsStore.selectedProjectId)?.rootPath ?? "") : ""}
       sessionId={projectPaneActive ? (projectsStore.selectedSessionId ?? "") : inspectorSessionId}
-      profileId={projectPaneActive ? "" : inspectorProfileId}
-      scope={projectPaneActive ? "project" : "session"}
+      profileId={artifactScope === "session" ? (projectPaneActive ? "personal" : inspectorProfileId) : ""}
+      scope={artifactScope}
       touches={projectPaneActive ? $sessionFileTouches : EMPTY_TOUCHES}
       miniApp={inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : ""}
       miniAppNonce={inspector?.kind === "artifact" ? (inspector.miniAppNonce ?? 0) : 0}

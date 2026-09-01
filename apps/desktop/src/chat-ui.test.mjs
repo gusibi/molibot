@@ -67,6 +67,7 @@ const agentCityFallback = read("./lib/chat/AgentCityFallback.svelte");
 const agentCityScene = read("./lib/chat/agentCityScene.ts");
 const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
 const channelAccordion = read("./lib/chat/ChannelAccordion.svelte");
+const activityIcons = read("./lib/chat/activityIcons.ts");
 const chatWorkspace = read("./lib/chat/ChatWorkspacePane.svelte");
 const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
@@ -1754,11 +1755,25 @@ test("per-session model persistence commits caches only after the server save su
   assert.match(projectChat, /if \(projectsStore\.selectedSessionId === sessionId\) activeModelKey = value/);
 });
 
-test("external channel groups use mapped Reicon components", () => {
+test("external channel groups use bundled Reicon brand logos", () => {
   assert.match(view, /id: "telegram", icon: "telegram-logo"/);
   assert.match(view, /id: "feishu", icon: "bird"/);
   assert.match(view, /id: "qq", icon: "linux-logo"/);
   assert.match(view, /id: "weixin", icon: "wechat-logo"/);
+  assert.match(activityIcons, /web: "\/channel-logos\/web\.svg"/);
+  assert.match(activityIcons, /telegram: "\/channel-logos\/telegram\.svg"/);
+  assert.match(activityIcons, /feishu: "\/channel-logos\/doubao\.svg"/);
+  assert.match(activityIcons, /qq: "\/channel-logos\/qq\.svg"/);
+  assert.match(activityIcons, /weixin: "\/channel-logos\/wechat\.svg"/);
+  assert.match(channelAccordion, /CHANNEL_LOGOS\[channel\.id\]/);
+  assert.match(channelAccordion, /<img class="channel-logo" src=\{channelLogo\} alt="" width="16" height="16" aria-hidden="true" \/>/);
+  for (const asset of ["web", "telegram", "doubao", "qq", "wechat"]) {
+    const svg = read(`../public/channel-logos/${asset}.svg`);
+    assert.match(svg, /^<svg\b/);
+    assert.match(svg, /<path\b/);
+  }
+  assert.match(read("../public/channel-logos/web.svg"), /linearGradient/);
+  assert.match(read("../public/channel-logos/web.svg"), /#FF5264/);
   assert.doesNotMatch(view, /lark-logo|qq-logo/);
 });
 
@@ -3608,10 +3623,11 @@ test("Chat mounts one shared inspector host for artifact and durable surfaces", 
   assert.match(view, /kind: "durable-execution"/);
   assert.doesNotMatch(view, /sessionFilesAsideVisible/);
   assert.doesNotMatch(view, /class="file-list"/);
-  // Scope and identity come from the live pane, never from the open-time
-  // `inspector.scope`, so the visibility test cannot disagree with the props.
+  // Conversation identity comes from the live pane. Artifact scope comes from
+  // the selected output because a Project turn can own a Session scratch file.
   assert.match(view, /\$: artifactPanelVisible = filePanelOpen && serviceState === "ready" && \(projectPaneActive \|\| profiles\.length > 0\)/);
-  assert.match(view, /profileId=\{projectPaneActive \? "" : inspectorProfileId\}/);
+  assert.match(view, /sessionId=\{projectPaneActive \? \(projectsStore\.selectedSessionId \?\? ""\) : inspectorSessionId\}/);
+  assert.match(view, /profileId=\{artifactScope === "session" \? \(projectPaneActive \? "personal" : inspectorProfileId\) : ""\}/);
   // One grid class, one resizer, one max-width computation for both adapters —
   // a second panel must never introduce a fourth column.
   assert.match(view, /class:with-files=\{inspectorVisible\}/);
@@ -3674,6 +3690,26 @@ test("opening a turn file uses its own refresh result when the panel mount refre
   assert.match(openTurnFile, /const refreshed = await loadAttachments\(\)/);
   assert.match(openTurnFile, /sessionFile = refreshed\.find/);
   assert.doesNotMatch(openTurnFile, /await loadAttachments\(\);\s*sessionFile = attachments\.find/);
+});
+
+test("a Project turn's Session file keeps Session scope through the shared inspector host", () => {
+  // The conversation can belong to a Project while one of its outputs belongs
+  // to Session scratch. The selected file's scope must win at the Artifact
+  // Panel boundary; deriving it again from the active conversation silently
+  // routes generated images back through the Project tree/viewer.
+  assert.match(view, /\$: artifactScope = inspector\?\.kind === "artifact"\s*\? inspector\.scope\s*:\s*projectPaneActive \? "project" : "session"/);
+  const artifactMount = view.match(/<ArtifactPanel[\s\S]*?\n    \/>/)?.[0] ?? "";
+  assert.match(artifactMount, /scope=\{artifactScope\}/);
+  assert.match(artifactMount, /profileId=\{artifactScope === "session" \? \(projectPaneActive \? "personal" : inspectorProfileId\) : ""\}/);
+  assert.doesNotMatch(artifactMount, /scope=\{projectPaneActive \? "project" : "session"\}/);
+});
+
+test("a protected Project root offers same-directory reauthorization", () => {
+  assert.match(projectFilePanel, /isProjectDirectoryAccessError\(store\.dirs\[""\]\?\.error/);
+  assert.match(projectFilePanel, /const selected = await pickProjectDirectory\(\)/);
+  assert.match(projectFilePanel, /sameProjectDirectory\(selected, projectRootPath\)/);
+  assert.match(projectFilePanel, /copy\.projectReauthorizeDirectory/);
+  assert.match(projectFilePanel, /copy\.projectDirectoryAccessDenied/);
 });
 
 test("files and Mini Apps are separate surfaces, never one mixed tab strip", () => {

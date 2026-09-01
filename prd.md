@@ -5,6 +5,27 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 - [2026 Q3 PRD Archive (Jul - Sep)](docs/archive/prd-archive-2026-Q3.md)
 
+## 3.133 Project 受保护目录授权与 Session 产物预览（2026-09-02）
+
+- **Priority / Status**: P1 / Delivered（2026-09-02）。
+- **Problem**：macOS 拒绝 Desktop 进程扫描位于 iCloud 等受保护位置的 Project 根目录时，右侧面板只显示原始 `EPERM scandir`，用户无法在产品内恢复；同一 Project 会话生成到 Session scratch 的图片又被宿主按 Project 文件作用域打开，文件存在且流式接口正常却无法进入图片预览。
+- **Decision**：只对可识别的目录访问权限错误提供原生“重新选择同一目录”授权动作，并校验选择结果仍是原 Project 根目录；Artifact Inspector 保留被点击产物自己的 Project/Session 作用域，Project、Profile 与 Session 身份仍取当前会话；生成文件投影在去重前合并 scratch 工具回执与自动上传附件的授权定位信息，不新增兼容层或第二套文件面板。
+- **Acceptance**：受保护目录拒绝时不再只暴露原始错误，重新选择同一目录后可重试文件树；错选目录不会改变 Project；Project 会话的 Session 图片使用 Session 文件接口与预览器，工具回执路径和上传附件路径不同时仍能打开；普通目录错误、Project 文件预览和 Session 文件列表保持不变；相关单测、Desktop UI 测试、`svelte-check` 与 production build 通过。
+
+## 3.132 Desktop Chat Web Safari 风格 Logo（2026-09-01）
+
+- **Priority / Status**: P2 / Delivered（2026-09-01）。
+- **Problem**：Web 是 Chat 左侧 Session 列表中的主要渠道，但仍使用普通 Globe 图标，与已具备品牌识别的外部渠道不在同一视觉层级。
+- **Decision**：新增纯代码 `web.svg`，采用蓝青渐变圆盘、内圈与红白指南针的 Safari 风格；通过既有 `CHANNEL_LOGOS` 本地映射渲染，不引入外部请求、图片生成服务或新的组件层。
+- **Acceptance**：Web 渠道标题显示彩色指南针 Logo；保持 16px 槽位、装饰性无障碍语义、列表折叠和 Session 交互；离线加载不发起 Logo 网络请求，既有 Chat UI 检查保持通过。
+
+## 3.131 Desktop Chat 渠道品牌 Logo（2026-09-01）
+
+- **Priority / Status**: P2 / Delivered（2026-09-01）。
+- **Problem**：Chat 左侧 Session 列表中的 Telegram、QQ、微信和飞书使用相似的中性图标，难以快速区分真实来源。
+- **Decision**：使用 Reicon 对应品牌 SVG，并作为本地静态资源随 Desktop 包提供；替换已明确请求的四种外部渠道，Web 保留原有中性图标回退。Logo 固定在现有 16px 图标槽位中，不改变列表布局、折叠和 Session 交互。
+- **Acceptance**：Telegram、QQ、微信和飞书渠道标题显示各自品牌 Logo；离线加载不发起 Logo 网络请求；中英文、明暗主题、窄窗口和既有 Chat UI 检查保持通过。
+
 ## 3.130 Web Interface Guidelines 合规第二轮遗留项（2026-08-29）
 
 - **Priority / Status**: P2 / Planned（2026-08-29 立项。来源：合规第二轮审计中有意跳过的四项，当时未影响功能与可访问性达标，但需要独立设计与实现，不适合混入合规修复 slice）。

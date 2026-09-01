@@ -48,12 +48,19 @@ export function collectTurnFiles(
     const output = activity.fileOutput;
     if (output.rootKind !== "project" && output.rootKind !== "scratch") continue;
     const outputPath = output.path;
+    // Image generation first reports a scratch path, then automatic upload
+    // records the same output under a timestamped attachment path. Preserve the
+    // attachment locator before basename de-duplication removes the duplicate.
+    const uploadedAttachment = output.rootKind === "scratch"
+      ? message.attachments?.find((attachment) => baseName(attachment.original) === baseName(outputPath))
+      : undefined;
     const sessionFile = output.rootKind === "scratch"
       ? [...sessionFilesByLocal.values()].find((candidate) => matchesSessionOutputPath(candidate.local, outputPath))
+        ?? (uploadedAttachment?.local ? sessionFilesByLocal.get(uploadedAttachment.local) : undefined)
       : undefined;
     const source = output.rootKind === "scratch" ? "session" : "project";
-    const path = sessionFile?.local ?? outputPath;
-    const key = source === "session" ? `session:${sessionFile?.id ?? `scratch:${outputPath}`}` : `project:${outputPath}`;
+    const path = sessionFile?.local ?? uploadedAttachment?.local ?? outputPath;
+    const key = source === "session" ? `session:${sessionFile?.id ?? path}` : `project:${outputPath}`;
     const existing = files.get(key);
     files.set(key, {
       key,

@@ -1669,6 +1669,8 @@ a:focus-visible {
 .project-panel-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .project-panel-content { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: auto; }
 .project-panel-error { margin: 0 12px 8px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger); font-size: var(--fs-meta); line-height: 16px; }
+.project-directory-access-error { display: grid; gap: 8px; }
+.project-directory-access-error .secondary-button { justify-self: start; }
 .project-entry-list { display: grid; align-content: start; gap: 1px; margin: 0; padding: 0 8px 12px; list-style: none; }
 .project-entry-list li { min-width: 0; }
 /* A change row is always ONE line. `flex-wrap: wrap` broke the line using the
@@ -3918,9 +3920,32 @@ a:focus-visible {
   font-weight: 650;
   line-height: 1;
   user-select: none;
+  overflow: hidden;
 }
 .provider-avatar.large { width: 38px; height: 38px; font-size: var(--fs-heading); }
 .provider-avatar.xlarge { width: 64px; height: 64px; font-size: 26px; }
+
+.provider-avatar.has-logo {
+  background: var(--card-bg);
+  border: 1px solid var(--control-border);
+  color: var(--label-primary);
+}
+
+.provider-avatar .provider-logo-svg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+.provider-avatar.large .provider-logo-svg {
+  width: 20px;
+  height: 20px;
+}
+.provider-avatar.xlarge .provider-logo-svg {
+  width: 32px;
+  height: 32px;
+}
 
 .provider-state-pill {
   flex: none;

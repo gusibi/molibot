@@ -5,7 +5,34 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 - [2026 Q3 Features Archive (Jul - Sep)](docs/archive/features-archive-2026-Q3.md)
 
+## 2026-09-02
+
+### Project 受保护目录重新授权与本轮图片预览（已交付）
+
+- **受保护目录**：Project 根目录位于 iCloud、桌面或文稿等 macOS 受保护位置且文件树返回 `EPERM/EACCES` 时，Artifact Inspector 显示可执行的重新授权入口；用户通过原生目录选择器重新选择同一目录，不会静默改换 Project 根目录，其他类型错误仍保留原始诊断。
+- **本轮图片**：Project 会话中由 `imageGenerate` 等工具写入 Session scratch 的图片继续保持 Session 文件作用域；本轮文件投影会在去重前合并工具回执的 scratch 路径与自动上传附件的 `fileId/local`，再通过既有授权文件流进入图片预览。
+- **防复发**：新增目录权限错误分类/同目录校验单测，以及 Project 会话内 Session 产物作用域的 Desktop UI 回归守卫；完整 Desktop 测试（TypeScript/结构测试与 60 项 Rust 测试）、`svelte-check` 0 error / 0 warning、production build 和服务重启恢复检查通过。
+
 ## 2026-09-01
+
+### AI 供应商设置页支持自动替换品牌 Logo（已交付）
+
+- **范围**：Desktop 设置中心“AI 供应商”页面的左侧列表项、详情头部面板及 OAuth 快捷登录卡片，支持根据 Provider ID / Name 自动呈现对应的官方品牌 Logo（如 OpenAI、Anthropic / Claude、DeepSeek、Google / Gemini、Moonshot / Kimi、MiniMax、Qwen、Z.AI / 智谱、xAI / Grok、Groq、Mistral、OpenRouter、Together、Fireworks、Cloudflare、GitHub、Hugging Face、NVIDIA、Ollama、Bedrock、Azure、SiliconFlow 等）。
+- **实现**：新增 `ProviderAvatar.svelte` 与 `providerLogos.ts` 共享矢量图标规范，按 ID / 名称规则精准匹配；未命中预设品牌的自建 / 中转供应商自动平滑 fallback 回原有的基于 ID Hash 彩色首字母徽标。
+- **验证**：新增 `providerLogos.test.ts` 规则单测、Desktop UI 测试、`svelte-check` 0 error / 0 warning、Desktop production build 通过。
+
+### Desktop Chat 外部渠道使用 Reicon 品牌 Logo（已交付）
+
+- **范围**：Chat 左侧 Session 列表的 Telegram、QQ、微信和飞书渠道标题改用对应的品牌 Logo。
+- **实现**：将 Reicon 原始 SVG 随 Desktop 包本地保存，在现有 16px 图标槽位内渲染，避免侧栏加载依赖网络；图标保持装饰性语义，不改变渠道名称和列表交互。
+- **来源**：[Telegram](https://brands.reicon.dev/icon/telegram/)、[Doubao](https://brands.reicon.dev/icon/doubao/)、[QQ](https://brands.reicon.dev/icon/qq/)、[WeChat](https://brands.reicon.dev/icon/wechat/)。
+- **验证**：Desktop UI 结构测试 219/219、`svelte-check` 0 error / 0 warning、Desktop production build 通过。
+
+### Desktop Chat Web 渠道使用 Safari 风格 SVG Logo（已交付）
+
+- **范围**：Chat 左侧 Session 列表的 Web 渠道标题改用彩色指南针 Logo。
+- **实现**：新增纯代码 `web.svg`，用蓝青渐变圆盘、内圈和红白指南针构成 Safari 风格视觉，并复用现有 16px 图标槽位；资源随 Desktop 包本地提供，不依赖网络或图片生成服务。
+- **验证**：Desktop UI 结构测试 219/219、`svelte-check` 0 error / 0 warning、Desktop production build 通过。
 
 ### Desktop 图标库统一迁移到 Reicon（已交付）
 

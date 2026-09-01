@@ -28,14 +28,15 @@ export function resolveAuthorizedConversation(input: {
   projectId?: string;
 }): AuthorizedConversation | null {
   const runtime = getRuntime();
-  if (input.projectId) {
-    const conversation = runtime.sessions.getProjectConversation(input.projectId, input.sessionId);
+  const projectId = input.projectId || runtime.sessions.getConversationProjectId(input.sessionId) || undefined;
+  if (projectId) {
+    const conversation = runtime.sessions.getProjectConversation(projectId, input.sessionId);
     if (!conversation) return null;
     return {
       externalUserId: conversation.externalUserId,
       conversation,
       messages: runtime.sessions.listMessages(conversation.id),
-      workspaceDir: getProjectRuntimeContext(input.projectId).store.getWorkspaceDir()
+      workspaceDir: getProjectRuntimeContext(projectId).store.getWorkspaceDir()
     };
   }
   const externalUserId = toWebExternalUserId(input.userId, input.profileId);

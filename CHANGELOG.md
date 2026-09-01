@@ -5,6 +5,28 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
 
+### Fixed: Project 受保护目录访问与本轮图片预览
+
+- Project 根目录位于 iCloud、桌面或文稿等 macOS 受保护位置且访问被拒绝时，右侧 Artifact Inspector 提供原生目录重新授权；只能重新选择同一根目录，不会在修复权限时改写 Project。
+- Project 会话中生成到 Session scratch 的图片保留 Session 文件作用域；本轮文件投影会在去重前合并工具回执的 scratch 文件名与自动上传附件的 `fileId/local`，再进入既有授权图片流，不再显示“文件当前不可用”。
+- 新增真实生成图片双身份、目录权限分类、同目录校验和 Project-hosted Session 产物作用域回归测试；完整 Desktop 测试（含 60 项 Rust 测试）、`svelte-check` 0/0、production build 和服务重启恢复检查通过。
+
+### Added: AI 供应商设置页自动替换品牌 Logo
+
+- Desktop 设置中心的“AI 供应商”页面支持根据供应商的 ID 和名称自动匹配并渲染官方品牌 SVG Logo，覆盖 OpenAI、Anthropic / Claude、DeepSeek、Google / Gemini、Moonshot / Kimi、MiniMax、Qwen、Z.AI / 智谱、xAI、Groq、Mistral、OpenRouter、Together、Fireworks、Cloudflare、GitHub、Hugging Face、NVIDIA、Ollama、Bedrock、Azure、SiliconFlow 等数十种常见服务商。
+- 未匹配品牌时无缝 fallback 回原有的彩色首字母圆形徽标，确保第三方或私有中转站点显示正常。
+- 验证：`providerLogos.test.ts` 单元测试通过、Desktop UI 结构测试、`svelte-check` 0/0、Desktop production build 通过。
+
+### Changed: Desktop Chat 渠道使用 Reicon 品牌 Logo
+
+- Chat 左侧 Session 列表为 Telegram、QQ、微信和飞书使用对应的本地 Reicon SVG Logo（飞书使用 Doubao Logo），保持现有 16px 图标槽位和列表交互。
+- 验证：Desktop UI 结构测试 219/219、`svelte-check` 0/0、Desktop production build 通过。
+
+### Changed: Desktop Chat Web 使用 Safari 风格自制 SVG Logo
+
+- Chat 左侧 Session 列表的 Web 渠道改用随包本地的彩色指南针 SVG，采用蓝青渐变和红白指针表现 Safari 风格，保持 16px 图标槽位与现有列表交互。
+- 验证：Desktop UI 结构测试 219/219、`svelte-check` 0/0、Desktop production build 通过。
+
 ### Changed: Desktop 图标库统一迁移到 Reicon
 
 - Desktop 外壳、聊天、设置、项目、Artifact、Mini Apps 与原始 DOM/HTML 图标边界统一从 Phosphor CSS 字体迁移为 `reicon-svelte`，保留状态、尺寸、颜色、动效和无障碍语义。

@@ -57,6 +57,29 @@ test("collectTurnFiles adds generated session attachments and resolves their fil
   }]);
 });
 
+test("collectTurnFiles reconciles a generated scratch receipt with its uploaded attachment", () => {
+  const local = "web:personal:web-anonymous/attachments/1788274276724_mono_color_poster.png";
+  const files = collectTurnFiles({
+    activities: [{
+      key: "image-generate",
+      kind: "tool",
+      label: "imageGenerate",
+      state: "success",
+      fileOutput: { path: "mono_color_poster.png", action: "created", rootKind: "scratch" }
+    }],
+    attachments: [{ original: "mono_color_poster.png", local }]
+  }, new Map([[local, { id: "generated-image", local }]]));
+
+  assert.deepEqual(files, [{
+    key: "session:generated-image",
+    name: "mono_color_poster.png",
+    path: local,
+    action: "created",
+    source: "session",
+    fileId: "generated-image"
+  }]);
+});
+
 test("collectTurnFiles avoids listing an auto-attached Project output twice", () => {
   const files = collectTurnFiles({
     activities: [

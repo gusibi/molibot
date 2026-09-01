@@ -50,6 +50,7 @@
   import Dialog from "../components/ui/Dialog.svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
+  import ProviderAvatar from "../components/ui/ProviderAvatar.svelte";
   import { humanizeProviderName } from "../presentation";
   import { session } from "../stores/session.svelte";
   import { tablist } from "../a11y/tablist";
@@ -143,19 +144,6 @@
     if (tag === "stt") return session.text.providerCapabilityStt;
     if (tag === "tts") return session.text.providerCapabilityTts;
     return session.text.providerCapabilityTool;
-  }
-
-  /** Stable per-provider hue so the rail reads as a set of distinct marks, not a wall of text. */
-  function providerHue(id: string): number {
-    let hash = 0;
-    for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) % 360;
-    return hash;
-  }
-
-  function providerInitial(name: string, id: string): string {
-    const source = (name || id).trim().replace(/^\[[^\]]+\]\s*/, "");
-    const first = source[0] ?? "?";
-    return /[a-z0-9]/i.test(first) ? first.toUpperCase() : first;
   }
 
   let builtinProviderIds = $derived(new Set(providersStore.providers?.builtinProviders.map((provider) => provider.id) ?? []));
@@ -742,7 +730,7 @@
               class:selected={selectedProvider?.provider.id === provider.id}
               onclick={() => selectProvider(provider.id)}
             >
-              <span class="provider-avatar" style={`--provider-hue: ${providerHue(provider.id)}`} aria-hidden="true">{providerInitial(provider.name, provider.id)}</span>
+              <ProviderAvatar id={provider.id} name={provider.name} size="sm" />
               <span class="provider-rail-copy">
                 <strong>{label}</strong>
                 <small>{item.kind === "draft" ? session.text.providerUnsaved : `${providerModelCount(item)} ${session.text.providerModels}`}</small>
@@ -768,7 +756,7 @@
       {@const providerName = editor.name.trim() || (editor.isNew && !editor.isBuiltin ? session.text.providerNewDraft : providerLabel(editor.name, editor.id))}
       <section class="provider-pane" aria-label={providerName}>
         <header class="provider-pane-head">
-          <span class="provider-avatar large" style={`--provider-hue: ${providerHue(editor.id)}`} aria-hidden="true">{providerInitial(editor.name, editor.id)}</span>
+          <ProviderAvatar id={editor.id} name={editor.name} size="lg" />
           <div class="provider-pane-title">
             <h3>{providerName}</h3>
             <div class="provider-pane-meta">
@@ -795,7 +783,7 @@
         <div class="provider-pane-body">
           {#if selectedProviderAuth && !selectedProviderAuth.credential}
             <section class="provider-login-card">
-              <span class="provider-avatar xlarge" style={`--provider-hue: ${providerHue(editor.id)}`} aria-hidden="true">{providerInitial(editor.name, editor.id)}</span>
+              <ProviderAvatar id={editor.id} name={editor.name} size="xl" />
               <button class="primary-button provider-login-button" type="button" disabled={Boolean(providerAuthStore.actionProviderId)} onclick={() => void beginProviderAuth(editor.id)}>
                 <Login size={13} aria-hidden="true" />{providerAuthStore.actionProviderId === editor.id ? session.text.loading : selectedProviderAuth.loginLabel || session.text.providerAuthSignIn}
               </button>

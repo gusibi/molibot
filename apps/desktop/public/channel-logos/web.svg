@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Web</title>
+  <defs>
+    <linearGradient id="web-safari-sky" x1="5" y1="2" x2="27" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#67E8FF" />
+      <stop offset="0.46" stop-color="#2B9CF4" />
+      <stop offset="1" stop-color="#1746C4" />
+    </linearGradient>
+  </defs>
+  <circle cx="16" cy="16" r="15" fill="#1039A7" />
+  <circle cx="16" cy="16" r="14.2" fill="url(#web-safari-sky)" stroke="#E9FCFF" stroke-width="1" />
+  <ellipse cx="11" cy="9" rx="8" ry="4.4" fill="#FFFFFF" opacity="0.16" transform="rotate(-32 11 9)" />
+  <circle cx="16" cy="16" r="11.6" fill="none" stroke="#E6FAFF" stroke-width="0.8" opacity="0.46" />
+  <path d="M16 4.8v2.2M16 25v2.2M4.8 16H7M25 16h2.2" fill="none" stroke="#F5FDFF" stroke-width="0.9" stroke-linecap="round" opacity="0.68" />
+  <g transform="rotate(-35 16 16)">
+    <path d="M16 7L20.05 16L16 25L11.95 16Z" fill="#F7FDFF" stroke="#D8F7FF" stroke-width="0.55" stroke-linejoin="round" />
+    <path d="M16 7L20.05 16L16 16Z" fill="#FF5264" />
+    <path d="M16 25L11.95 16L16 16Z" fill="#D7F6FF" />
+  </g>
+  <circle cx="16" cy="16" r="2.25" fill="#FFFFFF" stroke="#146BDA" stroke-width="0.75" />
+  <circle cx="16" cy="16" r="0.7" fill="#FF5264" />
+</svg>
