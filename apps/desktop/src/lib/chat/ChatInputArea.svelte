@@ -1,4 +1,8 @@
 <script lang="ts">
+  import Paperclip from "reicon-svelte/icons/Paperclip";
+  import Microphone from "reicon-svelte/icons/Microphone";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import X from "reicon-svelte/icons/X";
   import { tick } from "svelte";
   import {
     DESKTOP_THINKING_LEVELS,
@@ -206,17 +210,17 @@
 
   {#if error}
     <div class="composer-error" role="alert">
-      <i class="ph ph-warning-circle" aria-hidden="true"></i>
+      <TriangleWarning size={16} aria-hidden="true" />
       <span><strong>{copy.chatErrorTitle}</strong>{error}</span>
-      <button type="button" aria-label={copy.chatErrorDismiss} onclick={onDismissError}><i class="ph ph-x" aria-hidden="true"></i></button>
+      <button type="button" aria-label={copy.chatErrorDismiss} onclick={onDismissError}><X size={14} aria-hidden="true" /></button>
     </div>
   {/if}
 
   {#if recordingError}
     <div class="composer-error" role="alert">
-      <i class="ph ph-warning-circle" aria-hidden="true"></i>
+      <TriangleWarning size={16} aria-hidden="true" />
       <span><strong>{copy.chatErrorTitle}</strong>{recordingError}</span>
-      <button type="button" aria-label={copy.chatErrorDismiss} onclick={onDismissRecordingError}><i class="ph ph-x" aria-hidden="true"></i></button>
+      <button type="button" aria-label={copy.chatErrorDismiss} onclick={onDismissRecordingError}><X size={14} aria-hidden="true" /></button>
     </div>
   {/if}
 
@@ -270,7 +274,7 @@
           title={copy.addFiles}
           disabled={fileToolDisabled}
           onclick={onPickFiles}
-        ><i class="ph ph-paperclip" aria-hidden="true"></i></button>
+        ><Paperclip size={18} aria-hidden="true" /></button>
       {/if}
       {#if onChangePermissionMode && permissionModeOptions.length > 1}
         <ComposerPermissionMenu
@@ -309,7 +313,7 @@
           aria-pressed={recording}
           disabled={recordingToolDisabled}
           onclick={onToggleRecording}
-        ><i class="ph ph-microphone" aria-hidden="true"></i></button>
+        ><Microphone size={18} aria-hidden="true" /></button>
       {/if}
     </svelte:fragment>
   </ChatComposerShell>

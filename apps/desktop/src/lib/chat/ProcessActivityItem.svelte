@@ -1,4 +1,9 @@
 <script lang="ts">
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import InfoCircle from "reicon-svelte/icons/InfoCircle";
+  import XCircle from "reicon-svelte/icons/XCircle";
+  import { ACTIVITY_TOOL_ICONS } from "./activityIcons";
   import type { DesktopConversationActivity } from "@molibot/desktop-contract";
   import { html as renderDiffHtml } from "diff2html";
   import type { Translation } from "../i18n";
@@ -15,12 +20,18 @@
   $: rawBodyContent = body?.kind === "diff" ? (body.diff ?? "") : (body?.content ?? "");
   $: preview = activityPreview(rawBodyContent);
   $: bodyContent = expanded ? rawBodyContent : preview.content;
-  $: toolIcon = activityToolIcon(activity);
+  $: ToolIcon = ACTIVITY_TOOL_ICONS[activityToolIcon(activity)];
 
-  function statusIcon(state: DesktopConversationActivity["state"]): string {
-    if (state === "success") return "check-circle";
-    if (state === "error") return "x-circle";
-    return "info";
+  const STATUS_ICONS = {
+    success: CheckCircle,
+    error: XCircle,
+    other: InfoCircle
+  } as const;
+
+  function statusIcon(state: DesktopConversationActivity["state"]): (typeof STATUS_ICONS)[keyof typeof STATUS_ICONS] {
+    if (state === "success") return STATUS_ICONS.success;
+    if (state === "error") return STATUS_ICONS.error;
+    return STATUS_ICONS.other;
   }
 
   function diffHtml(diff: string): string {
@@ -41,17 +52,18 @@
       <span class="timeline-wave-bar"></span>
     </div>
   {:else}
-    <i class={`ph-fill ph-${statusIcon(activity.state)}`} aria-hidden="true"></i>
+    {@const StatusIcon = statusIcon(activity.state)}
+    <StatusIcon weight="Filled" size={14} aria-hidden="true" />
   {/if}
   {#if body}
     <details class="process-tool-detail" open={activity.state === "error"}>
       <summary>
         <span class="process-tool-title">
-          <i class={`ph ph-${toolIcon} process-tool-icon`} class:process-tool-running={activity.state === "running"} aria-hidden="true"></i>
+          <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
           <span class="process-tool-label-text">{activity.label}</span>
         </span>
         {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
-        <i class="ph ph-caret-right" aria-hidden="true"></i>
+        <CaretRight size={14} aria-hidden="true" />
       </summary>
       <div class="run-activity-body">
         {#if body.kind === "diff" && body.diff}
@@ -77,7 +89,7 @@
     </details>
   {:else}
     <span class="process-timeline-label">
-      <i class={`ph ph-${toolIcon} process-tool-icon`} class:process-tool-running={activity.state === "running"} aria-hidden="true"></i>
+      <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
       <span class="process-tool-label-text">{activity.label}</span>
     </span>
   {/if}

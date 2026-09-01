@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Buildings from "reicon-svelte/icons/Buildings";
+  import TerminalSquare from "reicon-svelte/icons/TerminalSquare";
   import type { Translation } from "../i18n";
   import type { AgentCityFloor, AgentCityProjection, AgentCityStatus } from "./agentCityProjection";
 
@@ -33,11 +35,11 @@
 
 <div class="agent-city-fallback" aria-label={copy.agentCityFallbackLabel}>
   <div class="agent-city-fallback-landmark agent-city-fallback-owner">
-    <i class="ph ph-command" aria-hidden="true"></i>
+    <i aria-hidden="true"><TerminalSquare size={17} /></i>
     <div><strong>{copy.agentStudioOwner}</strong><span>{projection.owner.active ? copy.agentStudioCollaborating : copy.agentStudioOwnerIdle}</span></div>
   </div>
   <button class="agent-city-fallback-landmark agent-city-fallback-global" data-status={projection.globalFloor.state} type="button" aria-label={floorTitle(projection.globalFloor)} aria-describedby="agent-city-fallback-global-details">
-    <i class="ph ph-buildings" aria-hidden="true"></i>
+    <i aria-hidden="true"><Buildings size={17} /></i>
     <div><strong>{projection.globalFloor.agent.name}</strong><span>{statusLabel(projection.globalFloor.state)}</span></div>
     <span class="agent-city-fallback-details" id="agent-city-fallback-global-details" role="tooltip">
       <strong>{projection.globalFloor.agent.description || copy.agentStudioNoDescription}</strong>

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Eye from "reicon-svelte/icons/Eye";
+  import EyeSlash from "reicon-svelte/icons/EyeSlash";
   import { onDestroy } from "svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
@@ -82,7 +84,7 @@
                 <div class="secret-input">
                   <input type={secretRevealed(`tts:${provider.id}`) ? "text" : "password"} aria-label={session.text.toolApiKey} bind:value={provider.apiKey} placeholder={provider.hasApiKey ? session.text.channelSecretConfigured : ""} autocomplete="new-password" spellcheck="false" oninput={() => markToolSettingsDirty("ttsGenerate")} />
                   <button class="secret-reveal" type="button" aria-label={session.text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`tts:${provider.id}`); }}>
-                    <i class={`ph ${secretRevealed(`tts:${provider.id}`) ? "ph-eye-slash" : "ph-eye"}`} aria-hidden="true"></i>
+                    {#if secretRevealed(`tts:${provider.id}`)}<EyeSlash size={16} aria-hidden="true" />{:else}<Eye size={16} aria-hidden="true" />{/if}
                   </button>
                 </div>
                 {#if provider.hasApiKey}

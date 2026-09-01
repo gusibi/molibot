@@ -1,4 +1,18 @@
 <script lang="ts">
+  import BranchUp from "reicon-svelte/icons/BranchUp";
+  import Check from "reicon-svelte/icons/Check";
+  import CheckRead from "reicon-svelte/icons/CheckRead";
+  import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import Copy from "reicon-svelte/icons/Copy";
+  import Cpu from "reicon-svelte/icons/Cpu";
+  import Database from "reicon-svelte/icons/Database";
+  import Loader from "reicon-svelte/icons/Loader";
+  import More from "reicon-svelte/icons/More";
+  import PenLine from "reicon-svelte/icons/PenLine";
+  import StopCircle from "reicon-svelte/icons/StopCircle";
+  import Timer from "reicon-svelte/icons/Timer";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import { contributionIcon, INVOCATION_ICONS } from "./activityIcons";
   import type { Translation } from "../i18n";
   import { renderMarkdown } from "../markdown";
   import { finalizeTranscriptActivities, transcriptCompletedTurnSections, transcriptDisplayContent, transcriptRenderBlocks, transcriptTurnSummary, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
@@ -156,8 +170,9 @@
     {#if message.role === "user"}
       {#if displayContent}
         {#if invocation}
+          {@const KickerIcon = INVOCATION_ICONS[invocation.kind]}
           <div class="message-bubble invocation-message" data-kind={invocation.kind}>
-            <div class="invocation-kicker"><i class={`ph ${invocation.kind === "command" ? "ph-terminal-window" : invocation.kind === "skill" ? "ph-sparkle" : "ph-squares-four"}`} aria-hidden="true"></i><span>{invocation.kind === "command" ? "COMMAND" : invocation.kind === "skill" ? "SKILL" : "MINI APP"}</span><code>{invocation.token}</code></div>
+            <div class="invocation-kicker"><KickerIcon size={14} aria-hidden="true" /><span>{invocation.kind === "command" ? "COMMAND" : invocation.kind === "skill" ? "SKILL" : "MINI APP"}</span><code>{invocation.token}</code></div>
             {#if displayContent.slice(invocation.consumedLength).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.consumedLength).trim(), copy.copyCode, markdownOptions)}</div>{/if}
           </div>
         {:else}
@@ -180,7 +195,7 @@
                 aria-label={copy.copyMessage}
                 title={copy.copyMessage}
                 onclick={() => messageActions.onCopy(message)}
-              ><i class={`ph ${isCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i></button>
+              >{#if isCopied}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}</button>
               {#if messageActions.onEditUser && !(message.id?.startsWith("pending-"))}
                 <button
                   type="button"
@@ -190,7 +205,7 @@
                   aria-pressed={isEditing}
                   disabled={isEditing}
                   onclick={() => messageActions.onEditUser!(message)}
-                ><i class="ph ph-pencil-simple-line" aria-hidden="true"></i></button>
+                ><PenLine size={14} aria-hidden="true" /></button>
               {/if}
               <!-- Same menu as the assistant row: a message worth saving is
                    worth saving whoever wrote it, and two different action rows
@@ -200,16 +215,15 @@
                 {@const done = textContributions.some((action) => messageActions?.successfulContributionKey === contributionKey(message, action))}
                 <OverflowMenu label={copy.miniAppMessageActionsMenu}>
                   <svelte:fragment slot="trigger">
-                    <i
-                      class={`ph ${busy ? "ph-circle-notch message-action-spin" : done ? "ph-check" : "ph-dots-three"}`}
-                      aria-hidden="true"
-                    ></i>
+                    <span aria-hidden="true">
+                      {#if busy}<Loader class="message-action-spin" size={14} />{:else if done}<Check size={14} />{:else}<More size={14} />{/if}
+                    </span>
                   </svelte:fragment>
                   {#each textContributions as action (action.id)}
                     {@const actionKey = contributionKey(message, action)}
                     {@const pending = messageActions.pendingContributionKey === actionKey}
                     <button type="button" role="menuitem" disabled={pending} onclick={(event) => runContribution(event, action, message)}>
-                      <i class={`ph ${pending ? "ph-circle-notch message-action-spin" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i>
+                      {#if pending}<Loader class="message-action-spin" size={14} aria-hidden="true" />{:else}{@const ActionIcon = contributionIcon(action.icon)}<ActionIcon size={14} aria-hidden="true" />{/if}
                       <span>{action.label}</span>
                     </button>
                   {/each}
@@ -220,7 +234,7 @@
           {#if message.createdAt}
             <time class="message-time">
               {formatTime(message.createdAt)}
-              {#if showReadReceipt}<i class="ph ph-checks message-read" aria-hidden="true"></i>{/if}
+              {#if showReadReceipt}<CheckRead class="message-read" size={12} aria-hidden="true" />{/if}
             </time>
           {/if}
         </div>
@@ -238,7 +252,7 @@
         <div class="assistant-identity">
           <strong>{assistantName}</strong>
           <span>{copy.agentRole}</span>
-          {#if assistantStatus}<span class={`assistant-status ${assistantStatus}`}><i class={`ph ${assistantStatus === "error" ? "ph-warning-circle" : assistantStatus === "aborted" ? "ph-stop-circle" : "ph-check-circle"}`} aria-hidden="true"></i>{assistantStatus === "error" ? copy.assistantStatusError : assistantStatus === "aborted" ? copy.assistantStatusAborted : copy.assistantStatusComplete}</span>{/if}
+          {#if assistantStatus}<span class={`assistant-status ${assistantStatus}`}>{#if assistantStatus === "error"}<TriangleWarning size={12} aria-hidden="true" />{:else if assistantStatus === "aborted"}<StopCircle size={12} aria-hidden="true" />{:else}<CheckCircle size={12} aria-hidden="true" />{/if}{assistantStatus === "error" ? copy.assistantStatusError : assistantStatus === "aborted" ? copy.assistantStatusAborted : copy.assistantStatusComplete}</span>{/if}
         </div>
         {#if turnSections.process.length}
           <TurnProcess
@@ -263,7 +277,7 @@
           {/if}
         {/each}
         {#if assistantError}
-          <div class="assistant-error-note"><i class="ph ph-warning-circle" aria-hidden="true"></i><span class="assistant-error-label">{copy.assistantErrorLabel}</span><span class="assistant-error-text">{assistantError}</span></div>
+          <div class="assistant-error-note"><TriangleWarning size={14} aria-hidden="true" /><span class="assistant-error-label">{copy.assistantErrorLabel}</span><span class="assistant-error-text">{assistantError}</span></div>
         {/if}
         {#if turnFiles.length && onOpenTurnFiles}
           <TurnFilesCard files={turnFiles} {copy} onOpen={onOpenTurnFiles} />
@@ -275,16 +289,16 @@
               <div class="message-meta-inline">
                 {#if hasTurnSummary && turnSummary}
                   <span class="turn-summary" aria-label={copy.turnSummaryLabel}>
-                    {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{formatDuration(turnSummary.durationMs)}</span>{/if}
+                    {#if turnSummary.durationMs}<span><Timer size={12} aria-hidden="true" />{formatDuration(turnSummary.durationMs)}</span>{/if}
                     {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
                     {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
                     {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", formatCompactTokens(turnSummary.totalTokens))}</span>{/if}
                   </span>
                 {/if}
-                {#if message.model}<span class="message-model-inline"><i class="ph ph-cpu" aria-hidden="true"></i>{modelShortLabel(message.model)}</span>{/if}
+                {#if message.model}<span class="message-model-inline"><Cpu size={12} aria-hidden="true" />{modelShortLabel(message.model)}</span>{/if}
                 {#if hasMemoryMeta && message.memoryTrace && messageActions?.onOpenMemoryTrace}
                   <button type="button" class="message-memory-trace" onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}>
-                    <i class="ph ph-brain" aria-hidden="true"></i>
+                    <Database size={12} aria-hidden="true" />
                     {#if (message.memoryTrace.referencedCount ?? 0) > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.referencedCount))}{/if}
                     {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
                     {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
@@ -300,7 +314,7 @@
                   aria-label={copy.copyMessage}
                   title={copy.copyMessage}
                   onclick={() => messageActions.onCopy(message)}
-                ><i class={`ph ${isCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i></button>
+                >{#if isCopied}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}</button>
                 {#if canForkAssistant}
                   <button
                     type="button"
@@ -309,7 +323,7 @@
                     title={copy.forkMessage}
                     disabled={isForking}
                     onclick={() => messageActions.onForkAssistant!(message)}
-                  ><i class={`ph ${isForking ? "ph-circle-notch message-action-spin" : "ph-git-branch"}`} aria-hidden="true"></i></button>
+                  >{#if isForking}<Loader class="message-action-spin" size={14} aria-hidden="true" />{:else}<BranchUp size={14} aria-hidden="true" />{/if}</button>
                 {/if}
               </div>
             {/if}
@@ -319,18 +333,20 @@
               <div class:assistant-overflow-details-only={!textContributions.length || !messageActions?.onRunContribution} class="assistant-overflow">
                 <OverflowMenu label={copy.conversationMenu} placement="up" popoverRole="dialog" closeOnPointerLeave={true}>
                   <svelte:fragment slot="trigger">
-                    <i class={`ph ${busy ? "ph-circle-notch message-action-spin" : done ? "ph-check" : "ph-dots-three"}`} aria-hidden="true"></i>
+                    <span aria-hidden="true">
+                      {#if busy}<Loader class="message-action-spin" size={14} />{:else if done}<Check size={14} />{:else}<More size={14} />{/if}
+                    </span>
                   </svelte:fragment>
                   {#if hasTechnicalDetails}<div class="message-meta-details">
                   {#if hasTurnSummary && turnSummary}
                     <div class="turn-summary" aria-label={copy.turnSummaryLabel}>
-                      {#if turnSummary.durationMs}<span><i class="ph ph-timer" aria-hidden="true"></i>{formatDuration(turnSummary.durationMs)}</span>{/if}
+                      {#if turnSummary.durationMs}<span><Timer size={12} aria-hidden="true" />{formatDuration(turnSummary.durationMs)}</span>{/if}
                       {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
                       {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
                       {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", formatCompactTokens(turnSummary.totalTokens))}</span>{/if}
                     </div>
                   {/if}
-                  {#if message.model}<div class="message-model"><i class="ph ph-cpu" aria-hidden="true"></i><span>{humanizeModelOption(message.model, message.model).label}</span><code>{message.model}</code></div>{/if}
+                  {#if message.model}<div class="message-model"><Cpu size={12} aria-hidden="true" /><span>{humanizeModelOption(message.model, message.model).label}</span><code>{message.model}</code></div>{/if}
                   <!-- Only truly-used memories earn a row: referenced (cited or
                        tool-retrieved) and writes. Injected-but-unused memories
                        stay out so every reply does not imply an association. -->
@@ -340,7 +356,7 @@
                       class="message-memory-trace"
                       onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}
                     >
-                      <i class="ph ph-brain" aria-hidden="true"></i>
+                      <Database size={12} aria-hidden="true" />
                       {#if (message.memoryTrace.referencedCount ?? 0) > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.referencedCount))}{/if}
                       {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
                       {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
@@ -353,7 +369,7 @@
                         {@const actionKey = contributionKey(message, action)}
                         {@const pending = messageActions.pendingContributionKey === actionKey}
                         <button type="button" disabled={pending} onclick={(event) => runContribution(event, action, message)}>
-                          <i class={`ph ${pending ? "ph-circle-notch message-action-spin" : `ph-${action.icon || "paper-plane-tilt"}`}`} aria-hidden="true"></i>
+                          {#if pending}<Loader class="message-action-spin" size={14} aria-hidden="true" />{:else}{@const ActionIcon = contributionIcon(action.icon)}<ActionIcon size={14} aria-hidden="true" />{/if}
                           <span>{action.label}</span>
                         </button>
                       {/each}
@@ -379,7 +395,7 @@
     y={selectionMenu.y}
     items={messageActions.contributions
       .filter((action) => action.accepts.includes("text"))
-      .map((action) => ({ id: action.id, label: action.label, icon: `ph-${action.icon || "paper-plane-tilt"}` }))}
+      .map((action) => ({ id: action.id, label: action.label, icon: contributionIcon(action.icon) }))}
     onSelect={(id) => {
       const action = messageActions?.contributions?.find((candidate) => candidate.id === id);
       if (action && selectionMenu) messageActions?.onRunContribution?.(action, selectionMenu.message, selectionMenu.selection);

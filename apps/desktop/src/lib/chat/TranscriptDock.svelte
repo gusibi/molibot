@@ -19,6 +19,8 @@
    * this component knows nothing about approvals and the next such card reuses
    * it as-is (pitfall #7).
    */
+  import ArrowDown from "reicon-svelte/icons/ArrowDown";
+  import Hand from "reicon-svelte/icons/Hand";
   import { onDestroy } from "svelte";
   import { SCROLL_PINNED_EVENT, resumeStickToBottom } from "./stickToBottom";
 
@@ -94,13 +96,13 @@
   <!-- `assertive`: the run is blocked on this, so it must interrupt rather than
        wait for the reader to finish whatever they were being told. -->
   <div class="transcript-dock transcript-dock-attention" role="alert" aria-live="assertive">
-    <i class="ph ph-hand-palm" aria-hidden="true"></i>
+    <Hand size={14} aria-hidden="true" />
     <span class="transcript-dock-text">{attentionLabel}</span>
     <button type="button" class="transcript-dock-action" onclick={scrollToAttention}>{attentionAction}</button>
   </div>
 {:else if showJump}
   <button type="button" class="transcript-dock transcript-dock-jump" aria-label={label} title={label} onclick={scrollToLatest}>
-    <i class="ph ph-arrow-down" aria-hidden="true"></i>
+    <ArrowDown size={14} aria-hidden="true" />
     <span class="transcript-dock-text">{label}</span>
   </button>
 {/if}

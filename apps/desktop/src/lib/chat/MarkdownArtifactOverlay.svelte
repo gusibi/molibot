@@ -1,4 +1,5 @@
 <script lang="ts">
+  import X from "reicon-svelte/icons/X";
   import { onDestroy, onMount } from "svelte";
   import type { Translation } from "../i18n";
   import Dialog from "../components/ui/Dialog.svelte";
@@ -37,6 +38,6 @@
   </div>
   <span id="markdown-artifact-tag" class="markdown-artifact-tag">{kind === "table" ? "CSV" : "HTML"}</span>
   <button type="button" class="markdown-artifact-close" aria-label={copy.closePreview} onclick={() => (open = false)}>
-    <i class="ph ph-x" aria-hidden="true"></i>
+    <X size={16} aria-hidden="true" />
   </button>
 </Dialog>

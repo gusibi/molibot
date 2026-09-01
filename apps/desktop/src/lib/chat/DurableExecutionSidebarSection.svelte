@@ -1,4 +1,6 @@
 <script lang="ts">
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import Layers from "reicon-svelte/icons/Layers";
   import type { DesktopDurableExecutionItem, DesktopDurableExecutionStatus } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
 
@@ -41,12 +43,12 @@
           onclick={() => onOpen(item.execution.id)}
           aria-label={item.execution.shortHandle + " " + item.execution.goal}
         >
-          <span class="durable-sidebar-mark" aria-hidden="true"><i class="ph ph-stack-simple" aria-hidden="true"></i></span>
+          <span class="durable-sidebar-mark" aria-hidden="true"><Layers size={14} /></span>
           <span class="durable-sidebar-copy">
             <strong>{item.execution.goal}</strong>
             <small>{item.execution.shortHandle} · {copy[statusKeys[item.execution.status]]}{item.projection.queuePosition !== undefined ? ` · ${copy.durableQueueAhead.replace("{count}", String(Math.max(0, item.projection.queuePosition - 1)))}` : ""}</small>
           </span>
-          <i class="ph ph-caret-right durable-sidebar-arrow" aria-hidden="true"></i>
+          <i class="durable-sidebar-arrow" aria-hidden="true"><CaretRight size={12} /></i>
         </button>
       {/each}
     </div>

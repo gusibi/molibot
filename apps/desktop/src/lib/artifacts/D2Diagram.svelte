@@ -3,6 +3,11 @@
 </script>
 
 <script lang="ts">
+  import Check from "reicon-svelte/icons/Check";
+  import Copy from "reicon-svelte/icons/Copy";
+  import Expand from "reicon-svelte/icons/Expand";
+  import Loader from "reicon-svelte/icons/Loader";
+  import X from "reicon-svelte/icons/X";
   import { onDestroy } from "svelte";
   import type { Translation } from "../i18n";
   import { tablist } from "../a11y/tablist";
@@ -108,12 +113,12 @@
 
     {#if mode === "source"}
       <button type="button" class="mermaid-viewer-action" onclick={() => void copySource()}>
-        <i class={`ph ${copied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i>
+        {#if copied}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
         <span>{copied ? copy.copied : copy.copyCode}</span>
       </button>
     {:else if rendered?.status === "ok"}
       <button type="button" class="mermaid-viewer-action" onclick={() => (expanded = true)}>
-        <i class="ph ph-arrows-out" aria-hidden="true"></i>
+        <Expand size={14} aria-hidden="true" />
         <span>{copy.d2Expand}</span>
       </button>
     {/if}
@@ -123,7 +128,7 @@
     <div id={`${titleId}-panel`} class="mermaid-viewer-source" role="tabpanel" aria-labelledby={`${titleId}-tab-source`}><pre><code>{source}</code></pre></div>
   {:else if loading}
     <div id={`${titleId}-panel`} class="mermaid-viewer-pending" role="tabpanel" aria-labelledby={`${titleId}-tab-preview`}>
-      <i class="ph ph-spinner-gap" aria-hidden="true"></i><span>{copy.loading}</span>
+      <Loader size={18} aria-hidden="true" /><span>{copy.loading}</span>
     </div>
   {:else if rendered?.status === "ok"}
     <div id={`${titleId}-panel`} class="mermaid-viewer-preview d2-viewer-preview" role="tabpanel" aria-labelledby={`${titleId}-tab-preview`}>
@@ -147,7 +152,7 @@
     <header class="mermaid-zoom-head">
       <strong id={titleId}>{copy.d2Diagram}</strong>
       <button type="button" aria-label={copy.closePreview} title={copy.closePreview} onclick={() => (expanded = false)}>
-        <i class="ph ph-x" aria-hidden="true"></i>
+        <X size={14} aria-hidden="true" />
       </button>
     </header>
     <div class="mermaid-zoom-body">

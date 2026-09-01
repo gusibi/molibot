@@ -28,7 +28,7 @@
 
 ## 3.129 Desktop 图标库统一迁移（Phosphor → Reicon）（2026-08-29）
 
-- **Priority / Status**: P2 / Planned（2026-08-29 立项；Web 端与 Mini Apps 的 Reicon 迁移已交付，见 features.md）。
+- **Priority / Status**: P2 / Delivered（2026-09-01；Web 端、Mini Apps 与 Desktop 已统一到 Reicon）。
 - **Problem**: Desktop 使用 `@phosphor-icons/web` CSS 字体方案（91 个文件、约 165 个去重图标、`styles.css` 中 99 行针对 `.ph*` 的规则），与 Web 端已统一的 Reicon 组件体系不一致。且字体方案的动态图标名深度嵌入了组件 API（`ph-caret-${…}` 插值、`EmptyState.icon` 字符串 prop、`ArtifactPanel` 上下文菜单数据内的图标字符串、`fileIcons.ts` 扩展名映射、`imageLightbox.ts` 动态拼 HTML），与组件方案存在结构差异，不是机械替换。
 - **Decision**:
   - 独立 slice 分阶段迁移，不与其它改动混合；迁移期间 Phosphor 保持可用，不为未完成的迁移拆掉能跑的界面。
@@ -36,9 +36,9 @@
   - `.ph*` 字号样式体系改为组件 `size` prop 或 CSS 宽高；重写 `chat-ui.test.mjs` 中校验 `ph-*` 图标名有效性的守卫测试为 Reicon 子路径导入存在性守卫。
   - 图标一律使用 `reicon-svelte/icons/*` 子路径导入（见 CLAUDE.md pitfall 45：barrel 有重复导出缺陷，Rollup 构建会失败）。
 - **Acceptance**:
-  - Desktop 全部面板图标显示正常（明暗主题、多语言、窗口缩放），无 Phosphor 字体残留。
-  - `svelte-check` 0/0 + Desktop UI 结构测试 + Desktop/root production build 通过。
-  - 冷启动冒烟走查全部受影响面板（pitfall 10 约定）。
+  - Desktop 全部面板图标与原始 DOM/HTML 图标边界已迁移，源代码、样式、测试夹具、依赖和 lockfile 无 Phosphor 残留；所有图标使用 Reicon 子路径或明确的边界映射。
+  - Desktop UI 结构测试 219/219、完整 Desktop 测试、`svelte-check` 0 error / 0 warning、Desktop 与 root production build 通过，生产构建未引入 Reicon barrel。
+  - 应用内预览已覆盖聊天、设置、项目/Mini Apps 相关入口、明暗主题、中英文与服务停止—重启后的页面恢复；窄窗口断点由静态结构/样式守卫覆盖，当前会话未提供可控原生 Tauri 窗口尺寸和 supervisor 冷启动接口。
 
 ---
 

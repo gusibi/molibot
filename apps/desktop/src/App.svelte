@@ -1,4 +1,28 @@
 <script lang="ts">
+  import AddCircle from "reicon-svelte/icons/AddCircle";
+  import ArrowLeft from "reicon-svelte/icons/ArrowLeft";
+  import Box from "reicon-svelte/icons/Box";
+  import Card from "reicon-svelte/icons/Card";
+  import Chart from "reicon-svelte/icons/Chart";
+  import Cpu from "reicon-svelte/icons/Cpu";
+  import Database from "reicon-svelte/icons/Database";
+  import Film from "reicon-svelte/icons/Film";
+  import Gear from "reicon-svelte/icons/Gear";
+  import Globe from "reicon-svelte/icons/Globe";
+  import History from "reicon-svelte/icons/History";
+  import Image from "reicon-svelte/icons/Image";
+  import MagicWand from "reicon-svelte/icons/MagicWand";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Plug from "reicon-svelte/icons/Plug";
+  import PlugCircle from "reicon-svelte/icons/PlugCircle";
+  import PuzzlePiece from "reicon-svelte/icons/PuzzlePiece";
+  import Radio from "reicon-svelte/icons/Radio";
+  import Search from "reicon-svelte/icons/Search";
+  import ShieldCheck from "reicon-svelte/icons/ShieldCheck";
+  import Soundwave from "reicon-svelte/icons/Soundwave";
+  import Stethoscope from "reicon-svelte/icons/Stethoscope";
+  import TerminalSquare from "reicon-svelte/icons/TerminalSquare";
+  import XCircle from "reicon-svelte/icons/XCircle";
   import { invoke } from "@tauri-apps/api/core";
   import { getVersion } from "@tauri-apps/api/app";
   import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
@@ -33,6 +57,7 @@
   import SettingRow from "./lib/components/ui/SettingRow.svelte";
   import IosSwitch from "./lib/components/ui/IosSwitch.svelte";
   import StatusBadge from "./lib/components/ui/StatusBadge.svelte";
+  import type { ReiconComponent } from "./lib/components/ui/iconTypes";
   import { humanizeModelOption } from "./lib/presentation";
   import { session, SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import { setTaskFeedbackPublisher } from "./lib/stores/tasks.svelte";
@@ -232,30 +257,30 @@
     { value: "midnight", labelKey: "themeFamilyMidnight", lightVariantKey: "themeVariantDaybreak", darkVariantKey: "themeVariantMidnight" }
   ];
 
-  const SETTINGS_NAV: { id: SettingsSection; icon: string }[] = [
-    { id: "general", icon: "gear-six" },
-    { id: "models", icon: "cpu" },
-    { id: "providers", icon: "plugs" },
-    { id: "agents", icon: "robot" },
-    { id: "mcp", icon: "plugs-connected" },
-    { id: "openConnector", icon: "circles-three-plus" },
-    { id: "skills", icon: "magic-wand" },
-    { id: "memory", icon: "brain" },
-    { id: "channels", icon: "broadcast" },
-    { id: "plugins", icon: "puzzle-piece" },
-    { id: "webSearch", icon: "globe" },
-    { id: "imageGenerate", icon: "image-square" },
-    { id: "videoGenerate", icon: "film-slate" },
-    { id: "ttsGenerate", icon: "waveform" },
-    { id: "profiles", icon: "identification-card" },
-    { id: "usage", icon: "chart-bar" },
-    { id: "runHistory", icon: "clock-counter-clockwise" },
-    { id: "logs", icon: "terminal-window" },
-    { id: "trace", icon: "list-magnifying-glass" },
-    { id: "sandbox", icon: "shield-check" },
-    { id: "hostBash", icon: "terminal-window" },
-    { id: "diagnostics", icon: "stethoscope" },
-    { id: "runtimeEnv", icon: "package" }
+  const SETTINGS_NAV: { id: SettingsSection; icon: ReiconComponent }[] = [
+    { id: "general", icon: Gear },
+    { id: "models", icon: Cpu },
+    { id: "providers", icon: Plug },
+    { id: "agents", icon: Cpu },
+    { id: "mcp", icon: PlugCircle },
+    { id: "openConnector", icon: AddCircle },
+    { id: "skills", icon: MagicWand },
+    { id: "memory", icon: Database },
+    { id: "channels", icon: Radio },
+    { id: "plugins", icon: PuzzlePiece },
+    { id: "webSearch", icon: Globe },
+    { id: "imageGenerate", icon: Image },
+    { id: "videoGenerate", icon: Film },
+    { id: "ttsGenerate", icon: Soundwave },
+    { id: "profiles", icon: Card },
+    { id: "usage", icon: Chart },
+    { id: "runHistory", icon: History },
+    { id: "logs", icon: TerminalSquare },
+    { id: "trace", icon: Search },
+    { id: "sandbox", icon: ShieldCheck },
+    { id: "hostBash", icon: TerminalSquare },
+    { id: "diagnostics", icon: Stethoscope },
+    { id: "runtimeEnv", icon: Box }
   ];
 
   const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "tools" | "channels" | "activity" | "system"; sections: SettingsSection[] }[] = [
@@ -822,22 +847,23 @@
     <aside class="settings-sidebar">
       <div class="settings-titlebar-space" data-tauri-drag-region aria-hidden="true"></div>
       <button class="settings-back" type="button" onclick={closeSettings}>
-        <i class="ph ph-arrow-left" aria-hidden="true"></i>
+        <ArrowLeft size={16} aria-hidden="true" />
         <span>{text.back}</span>
       </button>
       <div class="settings-search">
-        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <Magnifier size={16} aria-hidden="true" />
         <input type="search" autocomplete="off" spellcheck="false" bind:value={settingsFilter} aria-label={text.settingsSearch} placeholder={text.settingsSearch} />
         {#if settingsFilter}
-          <button type="button" aria-label={text.clearSettingsSearch} onclick={() => (settingsFilter = "")}><i class="ph-fill ph-x-circle" aria-hidden="true"></i></button>
+          <button type="button" aria-label={text.clearSettingsSearch} onclick={() => (settingsFilter = "")}><XCircle size={16} weight="Filled" aria-hidden="true" /></button>
         {/if}
       </div>
       <nav class="settings-nav-list" aria-label={text.settings}>
         {#each localizedSettingsGroups as group (group.id)}
           <p class="settings-nav-group-label">{group.label}</p>
           {#each group.items as item (item.id)}
+            {@const NavIcon = item.icon}
             <button class:active={activeSection === item.id} class="settings-nav" type="button" onclick={() => selectSettingsSection(item.id)}>
-              <span class="nav-tile" aria-hidden="true"><i class={`ph-fill ph-${item.icon}`} aria-hidden="true"></i></span>
+              <span class="nav-tile" aria-hidden="true"><NavIcon size={16} weight="Filled" /></span>
               <span class="nav-label">{item.label}</span>
             </button>
           {/each}

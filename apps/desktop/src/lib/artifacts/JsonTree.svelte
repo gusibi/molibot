@@ -1,4 +1,9 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import CodeFile from "reicon-svelte/icons/CodeFile";
+  import DiagramTree from "reicon-svelte/icons/DiagramTree";
+  import Loader from "reicon-svelte/icons/Loader";
   import {
     buildJsonTree,
     visibleJsonRows,
@@ -107,7 +112,7 @@
 {#if !treeMode}
   <div class="json-source-wrap">
     <div class="json-tree-toolbar">
-      <span class="json-tree-mode-label"><i class="ph ph-file-code" aria-hidden="true"></i>{copy.artifactRawText}</span>
+      <span class="json-tree-mode-label"><CodeFile size={14} aria-hidden="true" />{copy.artifactRawText}</span>
       <button
         type="button"
         class="json-tree-mode-action"
@@ -115,7 +120,7 @@
         title={hasMoreBytes ? copy.artifactJsonLoadComplete : copy.artifactJsonTree}
         onclick={showTree}
       >
-        <i class="ph ph-tree-structure" aria-hidden="true"></i>{copy.artifactJsonTree}
+        <DiagramTree size={14} aria-hidden="true" />{copy.artifactJsonTree}
       </button>
     </div>
     <CodeViewer
@@ -133,7 +138,7 @@
   <div class="json-tree-wrap">
     <div class="json-tree-toolbar">
       <button type="button" class="json-tree-mode-action" onclick={showSource}>
-        <i class="ph ph-file-code" aria-hidden="true"></i>{copy.artifactJsonSource}
+        <CodeFile size={14} aria-hidden="true" />{copy.artifactJsonSource}
       </button>
       <button type="button" onclick={expandAll}>{copy.artifactExpandAll}</button>
       <button type="button" onclick={collapseAll}>{copy.artifactCollapseAll}</button>
@@ -149,7 +154,7 @@
               aria-label={row.key || copy.artifactJsonRoot}
               onclick={() => toggle(row.path)}
             >
-              <i class={`ph ph-caret-${collapsed.has(row.path) ? "right" : "down"}`} aria-hidden="true"></i>
+              {#if collapsed.has(row.path)}<CaretRight size={14} aria-hidden="true" />{:else}<AngleDown size={14} aria-hidden="true" />{/if}
             </button>
           {:else}
             <span class="json-tree-caret is-leaf" aria-hidden="true"></span>
@@ -168,7 +173,7 @@
   <div class="json-source-wrap">
     <div class="json-tree-toolbar">
       <button type="button" class="json-tree-mode-action" onclick={showSource}>
-        <i class="ph ph-file-code" aria-hidden="true"></i>{copy.artifactJsonSource}
+        <CodeFile size={14} aria-hidden="true" />{copy.artifactJsonSource}
       </button>
     </div>
     <p class="project-viewer-note">
@@ -190,7 +195,7 @@
     />
   </div>
 {:else}
-  <div class="project-panel-loading"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
+  <div class="project-panel-loading"><Loader size={18} aria-hidden="true" />{copy.loading}</div>
 {/if}
 
 <style>

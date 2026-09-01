@@ -1,4 +1,8 @@
 <script lang="ts">
+  import AngleRight from "reicon-svelte/icons/AngleRight";
+  import Bulb from "reicon-svelte/icons/Bulb";
+  import ChatLine from "reicon-svelte/icons/ChatLine";
+  import { ACTIVITY_GROUP_ICONS } from "./activityIcons";
   import type { Translation } from "../i18n";
   import type { TranscriptProcessBlock } from "./transcript";
   import ChatMarkdown from "./ChatMarkdown.svelte";
@@ -27,13 +31,6 @@
       .replace("{count}", String(count));
   }
 
-  function groupIcon(action: ActivityGroupAction): string {
-    if (action === "read") return "files";
-    if (action === "change") return "pencil-simple-line";
-    if (action === "search") return "magnifying-glass";
-    return "terminal-window";
-  }
-
   const durationLabel = formatDuration;
 </script>
 
@@ -41,7 +38,7 @@
   {#each blocks as block (block.id)}
     {#if block.kind === "thinking"}
       <div class="process-timeline-entry process-timeline-thinking">
-        <i class="ph ph-brain" aria-hidden="true"></i>
+        <Bulb size={14} aria-hidden="true" />
         <div>
           <span class="process-timeline-label">{copy.thinking}</span>
           <pre>{block.content}</pre>
@@ -51,13 +48,14 @@
       {@const items = activityTimelineItems(block.activities)}
       {#each items as item (item.key)}
         {#if item.kind === "group"}
+          {@const GroupIcon = ACTIVITY_GROUP_ICONS[item.action]}
           <div class="process-timeline-entry process-timeline-group">
-            <i class={`ph ph-${groupIcon(item.action)}`} aria-hidden="true"></i>
+            <GroupIcon size={14} aria-hidden="true" />
             <details class="process-activity-group">
               <summary>
                 <span>{groupLabel(item)}</span>
                 {#if item.durationMs}<small>{durationLabel(item.durationMs)}</small>{/if}
-                <i class="ph ph-caret-right" aria-hidden="true"></i>
+                <AngleRight class="process-activity-caret" size={14} aria-hidden="true" />
               </summary>
               <div class="process-activity-group-list">
                 {#each item.activities as activity (activity.key)}
@@ -72,7 +70,7 @@
       {/each}
     {:else if block.content}
       <div class="process-timeline-entry process-timeline-text">
-        <i class="ph ph-chat-circle-text" aria-hidden="true"></i>
+        <ChatLine size={14} aria-hidden="true" />
         <ChatMarkdown source={block.content} {copy} {endpoint} className="turn-process-text markdown-body" contentKey={`${stateKey}-${block.id}`} />
       </div>
     {/if}

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import ChartBar from "reicon-svelte/icons/ChartBar";
+  import Loader from "reicon-svelte/icons/Loader";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import type { Translation } from "../i18n";
   import { tablist } from "../a11y/tablist";
   import {
@@ -69,16 +73,16 @@
 
 <div class="spreadsheet-table-wrap" aria-label={name}>
   {#if loadState === "loading"}
-    <div class="spreadsheet-state"><i class="ph ph-spinner-gap" aria-hidden="true"></i><span>{copy.artifactSpreadsheetLoading}</span></div>
+    <div class="spreadsheet-state"><Loader size={18} aria-hidden="true" /><span>{copy.artifactSpreadsheetLoading}</span></div>
   {:else if loadState === "error"}
     <div class="spreadsheet-state spreadsheet-state-error" role="alert">
-      <i class="ph ph-warning-circle" aria-hidden="true"></i>
+      <TriangleWarning size={18} aria-hidden="true" />
       <strong>{copy.artifactSpreadsheetFailed}</strong>
       {#if error}<span>{error}</span>{/if}
-      <button type="button" onclick={retry}><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>{copy.artifactRefresh}</button>
+      <button type="button" onclick={retry}><Refresh size={14} aria-hidden="true" />{copy.artifactRefresh}</button>
     </div>
   {:else if !workbook || workbook.sheets.length === 0}
-    <div class="spreadsheet-state"><i class="ph ph-table" aria-hidden="true"></i><span>{copy.artifactSpreadsheetEmpty}</span></div>
+    <div class="spreadsheet-state"><ChartBar size={18} aria-hidden="true" /><span>{copy.artifactSpreadsheetEmpty}</span></div>
   {:else if activeSheet}
     <div class="spreadsheet-toolbar">
       <div class="spreadsheet-sheets" role="tablist" aria-label={copy.artifactSpreadsheetSheet} use:tablist>
@@ -101,7 +105,7 @@
       </span>
     </div>
     {#if activeSheet.headers.length === 0 && activeSheet.rows.length === 0}
-      <div class="spreadsheet-state"><i class="ph ph-table" aria-hidden="true"></i><span>{copy.artifactSpreadsheetEmpty}</span></div>
+      <div class="spreadsheet-state"><ChartBar size={18} aria-hidden="true" /><span>{copy.artifactSpreadsheetEmpty}</span></div>
     {:else}
       <div id="spreadsheet-sheet-panel" class="spreadsheet-scroll" role="tabpanel" aria-labelledby={`spreadsheet-sheet-tab-${activeSheetIndex}`}>
         <table class="spreadsheet-table">
@@ -230,7 +234,7 @@
     flex-direction: column;
     color: var(--label-secondary);
   }
-  .spreadsheet-state-error > i {
+  .spreadsheet-state-error > :global(svg) {
     color: var(--danger);
     font-size: var(--icon-lg);
   }

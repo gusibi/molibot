@@ -1,4 +1,13 @@
 <script lang="ts">
+  import CalendarDays from "reicon-svelte/icons/CalendarDays";
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import Cpu from "reicon-svelte/icons/Cpu";
+  import Gear from "reicon-svelte/icons/Gear";
+  import Grid from "reicon-svelte/icons/Grid";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Pen from "reicon-svelte/icons/Pen";
+  import PuzzlePiece from "reicon-svelte/icons/PuzzlePiece";
+  import Sidebar from "reicon-svelte/icons/Sidebar";
   import ChannelAccordion, { type ChannelDescriptor } from "./ChannelAccordion.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
@@ -131,7 +140,7 @@
         title={copy.searchConversations}
         onclick={onOpenConversationSearch}
       >
-        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <Magnifier size={16} aria-hidden="true" />
       </button>
       {#if onToggleCollapse}
         <button
@@ -141,31 +150,31 @@
           title={copy.collapseSidebar}
           onclick={onToggleCollapse}
         >
-          <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+          <Sidebar size={16} aria-hidden="true" />
         </button>
       {/if}
     </div>
   </div>
   <nav class="sidebar-nav" aria-label={copy.newChat}>
     <button type="button" class="nav-item" onclick={onNewConversation}>
-      <i class="ph ph-note-pencil" aria-hidden="true"></i>
+      <Pen size={16} aria-hidden="true" />
       <span>{copy.newChat}</span>
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "automations"} aria-current={activeWorkspacePane === "automations" ? "page" : undefined} onclick={onOpenAutoTasks}>
-      <i class="ph ph-calendar-dots" aria-hidden="true"></i>
+      <CalendarDays size={16} aria-hidden="true" />
       <span>{copy.autoTasks}</span>
       {#if automationUnreadCount > 0}<span class="nav-notification" aria-label={`${automationUnreadCount} ${copy.tasksReminderUnread}`}>{automationUnreadCount > 99 ? "99+" : automationUnreadCount}</span>{/if}
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "skills"} aria-current={activeWorkspacePane === "skills" ? "page" : undefined} onclick={onOpenSkills}>
-      <i class="ph ph-puzzle-piece" aria-hidden="true"></i>
+      <PuzzlePiece size={16} aria-hidden="true" />
       <span>{copy.skillsSquare}</span>
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "agents"} aria-current={activeWorkspacePane === "agents" ? "page" : undefined} onclick={onOpenAgents}>
-      <i class="ph ph-robot" aria-hidden="true"></i>
+      <Cpu size={16} aria-hidden="true" />
       <span>{copy.agentsNav}</span>
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "miniapps"} aria-current={activeWorkspacePane === "miniapps" ? "page" : undefined} onclick={onOpenMiniApps}>
-      <i class="ph ph-app-store-logo" aria-hidden="true"></i>
+      <Grid size={16} aria-hidden="true" />
       <span>{copy.miniAppsNav}</span>
     </button>
   </nav>
@@ -174,7 +183,7 @@
     <DurableExecutionSidebarSection items={durableExecutions} {copy} onOpen={onOpenDurableExecution} />
     <section class="sidebar-tree-section">
       <button type="button" class="sidebar-section-head sidebar-section-toggle" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>
-        <span>{copy.chat}</span><i class="ph ph-caret-right sidebar-section-caret" class:open={conversationsExpanded} aria-hidden="true"></i>
+        <span>{copy.chat}</span><i aria-hidden="true"><CaretRight class={conversationsExpanded ? "sidebar-section-caret open" : "sidebar-section-caret"} size={12} /></i>
       </button>
       {#if conversationsExpanded}
         {#each channels as channel (channel.id)}
@@ -221,7 +230,7 @@
       <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" width="20" height="20" />
     </span>
     <span class="sidebar-footer-copy"><strong>{copy.appName}</strong><small>{serviceState === "ready" ? copy.statusOnline : copy.statusOffline}</small></span>
-    <i class="ph ph-gear-six sidebar-footer-gear" aria-hidden="true"></i>
+    <Gear class="sidebar-footer-gear" size={16} aria-hidden="true" />
   </button>
 </aside>
 
@@ -276,9 +285,6 @@
     outline: none;
     box-shadow: inset 0 0 0 2px var(--accent);
   }
-  .sidebar-titlebar-btn i {
-    font-size: var(--icon-md, 18px);
-  }
   .sidebar-nav {
     display: flex;
     flex-direction: column;
@@ -306,8 +312,8 @@
   }
   .nav-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
-  .nav-item.active i { color: var(--accent, #006bff); }
-  .nav-item i { width: 16px; font-size: var(--icon-md); color: var(--label-secondary, #666); text-align: center; }
+  .nav-item.active :global(svg) { color: var(--accent, #006bff); }
+  .nav-item :global(svg) { color: var(--label-secondary, #666); }
   .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: var(--on-accent); font-size: var(--fs-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
   .sidebar-channels {
     flex: 1 1 auto;
@@ -369,5 +375,5 @@
   .sidebar-footer-copy { display: grid; flex: 1 1 auto; gap: 1px; min-width: 0; }
   .sidebar-footer-copy strong { overflow: hidden; font-weight: 600; font-size: var(--fs-label); text-overflow: ellipsis; white-space: nowrap; }
   .sidebar-footer-copy small { color: var(--label-secondary, #666); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-  .sidebar-footer-gear { opacity: 0.6; font-size: var(--icon-md); }
+  .sidebar-footer :global(.sidebar-footer-gear) { opacity: 0.6; }
 </style>

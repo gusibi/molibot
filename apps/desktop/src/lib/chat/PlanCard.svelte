@@ -1,4 +1,7 @@
 <script lang="ts">
+  import Check from "reicon-svelte/icons/Check";
+  import Record from "reicon-svelte/icons/Record";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import type { DesktopConversationPlan } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import DecisionCard from "./DecisionCard.svelte";
@@ -74,7 +77,7 @@
       {#if plan.summary}<p class="plan-summary">{plan.summary}</p>{/if}
       <ol class="plan-steps">
         {#each plan.steps as step (step.id)}
-          <li class:completed={step.status === "completed"}><span class="plan-step-marker"><i class={`ph ${step.status === "completed" ? "ph-check" : step.status === "blocked" ? "ph-warning" : "ph-circle"}`} aria-hidden="true"></i></span><span>{step.text}</span></li>
+          <li class:completed={step.status === "completed"}><span class="plan-step-marker">{#if step.status === "completed"}<Check size={12} aria-hidden="true" />{:else if step.status === "blocked"}<TriangleWarning size={12} aria-hidden="true" />{:else}<Record size={12} aria-hidden="true" />{/if}</span><span>{step.text}</span></li>
         {/each}
       </ol>
     {/if}

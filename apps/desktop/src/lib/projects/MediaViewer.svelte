@@ -1,4 +1,7 @@
 <script lang="ts">
+  import Compress from "reicon-svelte/icons/Compress";
+  import SearchMinus from "reicon-svelte/icons/SearchMinus";
+  import SearchPlus from "reicon-svelte/icons/SearchPlus";
   import type { Translation } from "../i18n";
   import type { RawPreviewKind } from "@molibot/shared/filePreview";
   import { formatSize } from "./fileIcons";
@@ -118,13 +121,13 @@
         <span>· {fitted ? copy.mediaViewerFit : `${Math.round(scale * 100)}%`}</span>
       </span>
       <button type="button" class="code-viewer-toggle" title={copy.mediaViewerZoomOut} aria-label={copy.mediaViewerZoomOut} onclick={() => step(1 / 1.25)}>
-        <i class="ph ph-magnifying-glass-minus" aria-hidden="true"></i>
+        <SearchMinus size={16} aria-hidden="true" />
       </button>
       <button type="button" class="code-viewer-toggle" title={copy.mediaViewerZoomIn} aria-label={copy.mediaViewerZoomIn} onclick={() => step(1.25)}>
-        <i class="ph ph-magnifying-glass-plus" aria-hidden="true"></i>
+        <SearchPlus size={16} aria-hidden="true" />
       </button>
       <button type="button" class="code-viewer-toggle" class:active={fitted} title={copy.mediaViewerFit} aria-label={copy.mediaViewerFit} onclick={fit}>
-        <i class="ph ph-corners-in" aria-hidden="true"></i>
+        <Compress size={16} aria-hidden="true" />
       </button>
       <button type="button" class="code-viewer-toggle" class:active={zoom === 1} title={copy.mediaViewerActualSize} aria-label={copy.mediaViewerActualSize} onclick={actualSize}>1:1</button>
     </div>

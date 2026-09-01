@@ -39,6 +39,8 @@
 </script>
 
 <script lang="ts">
+  import Cpu from "reicon-svelte/icons/Cpu";
+
   let {
     botId,
     name = "",
@@ -60,7 +62,7 @@
   {#if initial}
     {initial}
   {:else}
-    <i class="ph-fill ph-robot" aria-hidden="true"></i>
+    <Cpu weight="Filled" size={size * 0.55} />
   {/if}
 </span>
 
@@ -84,8 +86,5 @@
   .bot-avatar.readonly {
     background: color-mix(in srgb, var(--c) 9%, var(--fill, transparent));
     opacity: 0.92;
-  }
-  .bot-avatar i {
-    font-size: calc(var(--size) * 0.55);
   }
 </style>

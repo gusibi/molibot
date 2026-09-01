@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Files from "reicon-svelte/icons/Files";
+  import SquareArrowUp from "reicon-svelte/icons/SquareArrowUp";
   import type { Translation } from "../i18n";
   import TurnFileList from "./TurnFileList.svelte";
   import type { TurnFileItem } from "./turnFiles";
@@ -10,9 +12,9 @@
 
 <section class="turn-files-card" aria-label={copy.turnFilesTitle}>
   <button type="button" class="turn-files-head" onclick={() => onOpen(files)}>
-    <span><i class="ph ph-files" aria-hidden="true"></i>{copy.turnFilesTitle}</span>
+    <span><Files size={14} aria-hidden="true" />{copy.turnFilesTitle}</span>
     <span class="turn-files-count">{copy.turnFilesCount.replace("{count}", String(files.length))}</span>
-    <span class="turn-files-review">{copy.turnFilesReview}<i class="ph ph-arrow-square-out" aria-hidden="true"></i></span>
+    <span class="turn-files-review">{copy.turnFilesReview}<SquareArrowUp size={12} aria-hidden="true" /></span>
   </button>
   <TurnFileList {files} {copy} onOpen={(file) => onOpen(files, file.key)} />
 </section>

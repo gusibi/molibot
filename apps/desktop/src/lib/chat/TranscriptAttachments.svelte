@@ -1,4 +1,8 @@
 <script lang="ts">
+  import Download from "reicon-svelte/icons/Download";
+  import Loader from "reicon-svelte/icons/Loader";
+  import Soundwave from "reicon-svelte/icons/Soundwave";
+  import { contributionIcon } from "./activityIcons";
   import type { Translation } from "../i18n";
   import type { DesktopSessionFile } from "@molibot/desktop-contract";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
@@ -148,7 +152,7 @@
               {:else if entry.failed}
                 <button class="transcript-media-error" type="button" onclick={() => actions?.loadMedia(file)}>{copy.mediaLoadFailed}</button>
               {:else}
-                <div class="transcript-media-loading"><i class="ph ph-circle-notch" aria-hidden="true"></i><span>{copy.mediaLoading}</span></div>
+                <div class="transcript-media-loading"><Loader size={16} aria-hidden="true" /><span>{copy.mediaLoading}</span></div>
               {/if}
               <!--
                 The caption is the file name plus a download button, which does
@@ -157,7 +161,7 @@
                 viewer, so a thumbnail stays a thumbnail.
               -->
               {#if group.items.length === 1}
-                <figcaption><span title={entry.attachment.original}>{entry.attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><i class="ph ph-download-simple" aria-hidden="true"></i></button></figcaption>
+                <figcaption><span title={entry.attachment.original}>{entry.attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><Download size={14} aria-hidden="true" /></button></figcaption>
               {/if}
             </figure>
           {:else}
@@ -189,14 +193,14 @@
           oncontextmenu={(event) => openActionMenu(event, file)}
           onkeydown={(event) => openActionMenuFromKeyboard(event, file)}
         >
-          <div class="transcript-media-heading"><i class="ph-fill ph-waveform" aria-hidden="true"></i><span title={attachment.original}>{attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><i class="ph ph-download-simple" aria-hidden="true"></i></button></div>
+          <div class="transcript-media-heading"><Soundwave weight="Filled" size={18} aria-hidden="true" /><span title={attachment.original}>{attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><Download size={14} aria-hidden="true" /></button></div>
           {#if entry.mediaUrl}
             <!-- svelte-ignore a11y_media_has_caption -->
             <audio controls preload="metadata" src={entry.mediaUrl}></audio>
           {:else if entry.failed}
             <button class="transcript-media-error" type="button" onclick={() => actions?.loadMedia(file)}>{copy.mediaLoadFailed}</button>
           {:else}
-            <div class="transcript-media-loading"><i class="ph ph-circle-notch" aria-hidden="true"></i><span>{copy.mediaLoading}</span></div>
+            <div class="transcript-media-loading"><Loader size={16} aria-hidden="true" /><span>{copy.mediaLoading}</span></div>
           {/if}
         </div>
       {:else if file && actions && attachment.mediaType === "video"}
@@ -215,9 +219,9 @@
           {:else if entry.failed}
             <button class="transcript-media-error" type="button" onclick={() => actions?.loadMedia(file)}>{copy.mediaLoadFailed}</button>
           {:else}
-            <div class="transcript-media-loading"><i class="ph ph-circle-notch" aria-hidden="true"></i><span>{copy.mediaLoading}</span></div>
+            <div class="transcript-media-loading"><Loader size={16} aria-hidden="true" /><span>{copy.mediaLoading}</span></div>
           {/if}
-          <figcaption><span title={attachment.original}>{attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><i class="ph ph-download-simple" aria-hidden="true"></i></button></figcaption>
+          <figcaption><span title={attachment.original}>{attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><Download size={14} aria-hidden="true" /></button></figcaption>
         </figure>
       {:else}
         <!-- svelte-ignore a11y_no_static_element_interactions, a11y_no_noninteractive_tabindex -->
@@ -245,7 +249,7 @@
     y={menu.y}
     items={actions.contributions
       .filter((action) => action.accepts.includes(menu!.file.mediaType === "image" ? "image" : "file"))
-      .map((action) => ({ id: action.id, label: action.label, icon: `ph-${action.icon || "paper-plane-tilt"}` }))}
+      .map((action) => ({ id: action.id, label: action.label, icon: contributionIcon(action.icon) }))}
     onSelect={(id) => {
       const action = actions?.contributions?.find((candidate) => candidate.id === id);
       if (action && menu) actions?.onRunContribution?.(action, message, menu.file);

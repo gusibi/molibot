@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { fileIconName, fileIconStyle, formatSize } from "../projects/fileIcons";
+  import Download from "reicon-svelte/icons/Download";
+  import FolderOpen from "reicon-svelte/icons/FolderOpen";
+  import SquareArrowUp from "reicon-svelte/icons/SquareArrowUp";
+  import { fileIconKind, fileIconStyle, formatSize } from "../projects/fileIcons";
+  import { FILE_KIND_ICONS } from "../projects/fileKindIcons";
   import type { Translation } from "../i18n";
 
   /**
@@ -32,29 +36,32 @@
     onReveal?: () => void;
     onOpenExternally?: () => void;
   } = $props();
+
+  let CardIcon = $derived(FILE_KIND_ICONS[fileIconKind(name, "file")]);
 </script>
 
 <div class="system-open-card">
-  <i
-    class={`ph ${fileIconName(name, "file")} system-open-icon`}
+  <CardIcon
+    class="system-open-icon"
+    size={28}
     style={fileIconStyle(name, "file")}
     aria-hidden="true"
-  ></i>
+  />
   <strong class="system-open-name" title={name}>{name}</strong>
   <span class="system-open-meta">{reason}{sizeBytes > 0 ? ` · ${formatSize(sizeBytes)}` : ""}</span>
   <div class="system-open-actions">
     {#if onOpenExternally}
       <button type="button" class="system-open-primary" onclick={onOpenExternally}>
-        <i class="ph ph-arrow-square-out" aria-hidden="true"></i><span>{copy.projectOpenExternally}</span>
+        <SquareArrowUp size={14} aria-hidden="true" /><span>{copy.projectOpenExternally}</span>
       </button>
     {/if}
     {#if onReveal}
       <button type="button" onclick={onReveal}>
-        <i class="ph ph-folder-open" aria-hidden="true"></i><span>{copy.projectRevealInFinder}</span>
+        <FolderOpen size={14} aria-hidden="true" /><span>{copy.projectRevealInFinder}</span>
       </button>
     {/if}
     <button type="button" onclick={onDownload}>
-      <i class="ph ph-download-simple" aria-hidden="true"></i><span>{copy.artifactDownload}</span>
+      <Download size={14} aria-hidden="true" /><span>{copy.artifactDownload}</span>
     </button>
   </div>
 </div>
@@ -71,8 +78,7 @@
     padding: 24px 16px;
     text-align: center;
   }
-  .system-open-icon {
-    font-size: var(--icon-lg);
+  .system-open-card > :global(svg) {
     color: var(--label-tertiary);
   }
   .system-open-name {

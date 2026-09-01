@@ -1,4 +1,11 @@
 <script lang="ts">
+  import ArrowRight from "reicon-svelte/icons/ArrowRight";
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import FolderOpen from "reicon-svelte/icons/FolderOpen";
+  import FolderPlus from "reicon-svelte/icons/FolderPlus";
+  import Pen from "reicon-svelte/icons/Pen";
+  import Plus from "reicon-svelte/icons/Plus";
+  import Trash from "reicon-svelte/icons/Trash";
   import { tick } from "svelte";
   import type { Translation } from "../i18n";
   import {
@@ -275,9 +282,9 @@
 <div class="project-tree">
   <div class="sidebar-section-head" class:open={expanded}>
     <button type="button" class="sidebar-section-toggle" aria-expanded={expanded} onclick={onToggle}>
-      <span>{copy.projects}</span><i class="ph ph-caret-right sidebar-section-caret project-tree-caret" class:open={expanded} aria-hidden="true"></i>
+      <span>{copy.projects}</span><i class={expanded ? "sidebar-section-caret open project-tree-caret" : "sidebar-section-caret project-tree-caret"} aria-hidden="true"><CaretRight size={12} /></i>
     </button>
-    <button type="button" class="project-add" aria-label={copy.addProject} title={copy.addProject} onclick={() => void beginAdding()}><i class="ph ph-plus" aria-hidden="true"></i></button>
+    <button type="button" class="project-add" aria-label={copy.addProject} title={copy.addProject} onclick={() => void beginAdding()}><Plus size={16} aria-hidden="true" /></button>
   </div>
   {#if expanded}
     {#each projectsStore.projects as project (project.id)}
@@ -286,11 +293,11 @@
         ? projectSessions.slice(0, visibleSessionLimits[project.id] ?? SESSION_PAGE_SIZE)
         : (visibleSessionsByProject[project.id] ?? [])}
       <div class="project-tree-group">
-        <GroupHeader label={project.name} icon="ph-fill ph-folder" open={Boolean(expandedProjects[project.id])} actionLabel={copy.newChat} onAction={() => void createSession(project.id)} menuLabel={copy.conversationMenu} onMenu={() => (menuProjectId = menuProjectId === project.id ? "" : project.id)} onToggle={() => toggleProject(project.id)} />
+        <GroupHeader label={project.name} icon="folder" open={Boolean(expandedProjects[project.id])} actionLabel={copy.newChat} onAction={() => void createSession(project.id)} menuLabel={copy.conversationMenu} onMenu={() => (menuProjectId = menuProjectId === project.id ? "" : project.id)} onToggle={() => toggleProject(project.id)} />
         {#if menuProjectId === project.id}
           <div class="project-row-menu" role="menu">
-            <button type="button" role="menuitem" onclick={() => askToRenameProject(project.id, project.name)}><i class="ph ph-pencil-simple" aria-hidden="true"></i><span>{copy.renameProject}</span></button>
-            <button type="button" role="menuitem" class="danger-action" onclick={() => askToRemoveProject(project.id)}><i class="ph ph-trash" aria-hidden="true"></i><span>{copy.deleteProject}</span></button>
+            <button type="button" role="menuitem" onclick={() => askToRenameProject(project.id, project.name)}><Pen size={16} aria-hidden="true" /><span>{copy.renameProject}</span></button>
+            <button type="button" role="menuitem" class="danger-action" onclick={() => askToRemoveProject(project.id)}><Trash size={16} aria-hidden="true" /><span>{copy.deleteProject}</span></button>
           </div>
         {/if}
         {#if expandedProjects[project.id]}
@@ -322,12 +329,12 @@
 
 {#if adding}
   <Dialog open={adding} busy={projectsStore.busy === "add"} contentClass="project-dialog project-create-dialog" labelledBy="project-create-title" onOpenChange={(next) => { if (!next) cancelAdding(); }}>
-    <div class="project-dialog-heading"><span class="project-dialog-icon" aria-hidden="true"><i class="ph-fill ph-folder-plus" aria-hidden="true"></i></span><div><h2 id="project-create-title">{copy.projectCreateTitle}</h2><p>{createStep === "name" ? copy.projectCreateNameHint : copy.projectChooseLocationHint}</p></div></div>
+    <div class="project-dialog-heading"><span class="project-dialog-icon" aria-hidden="true"><FolderPlus weight="Filled" size={20} aria-hidden="true" /></span><div><h2 id="project-create-title">{copy.projectCreateTitle}</h2><p>{createStep === "name" ? copy.projectCreateNameHint : copy.projectChooseLocationHint}</p></div></div>
     {#if createStep === "name"}
       <form onsubmit={(event) => { event.preventDefault(); if (name.trim()) createStep = "location"; }}><label class="project-name-field"><span>{copy.projectName}</span><input bind:this={nameInput} bind:value={name} autocomplete="off" required placeholder={copy.projectNamePlaceholder} /></label><div class="project-form-actions"><button class="secondary-button" type="button" onclick={cancelAdding}>{copy.cancel}</button><button class="primary-button" disabled={!name.trim()}>{copy.continueAction}</button></div></form>
     {:else}
-      <div class="project-location-options" aria-label={copy.projectChooseLocation} aria-busy={projectsStore.pickingFolder}><button type="button" class="project-location-option" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void createProject({ name: name.trim(), createDirectory: true })}><span class="project-location-icon"><i class="ph-fill ph-folder-simple-plus" aria-hidden="true"></i></span><span><strong>{copy.projectCreateFolder}</strong><small>{copy.projectCreateFolderHint}</small></span><i class="ph ph-arrow-right" aria-hidden="true"></i></button><button type="button" class="project-location-option" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void useExistingProjectFolder()}><span class="project-location-icon"><i class="ph-fill ph-folder-open" aria-hidden="true"></i></span><span><strong>{copy.projectUseExistingFolder}</strong><small>{copy.projectUseExistingFolderHint}</small></span><i class="ph ph-arrow-right" aria-hidden="true"></i></button></div>
-      {#if selectedRootPath}<div class="project-selected-location"><i class="ph-fill ph-folder-open" aria-hidden="true"></i><span><small>{copy.projectSelectedLocation}</small><strong>{selectedRootPath}</strong></span></div>{/if}
+      <div class="project-location-options" aria-label={copy.projectChooseLocation} aria-busy={projectsStore.pickingFolder}><button type="button" class="project-location-option" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void createProject({ name: name.trim(), createDirectory: true })}><span class="project-location-icon"><FolderPlus weight="Filled" size={20} aria-hidden="true" /></span><span><strong>{copy.projectCreateFolder}</strong><small>{copy.projectCreateFolderHint}</small></span><ArrowRight size={16} aria-hidden="true" /></button><button type="button" class="project-location-option" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void useExistingProjectFolder()}><span class="project-location-icon"><FolderOpen weight="Filled" size={20} aria-hidden="true" /></span><span><strong>{copy.projectUseExistingFolder}</strong><small>{copy.projectUseExistingFolderHint}</small></span><ArrowRight size={16} aria-hidden="true" /></button></div>
+      {#if selectedRootPath}<div class="project-selected-location"><FolderOpen weight="Filled" size={20} aria-hidden="true" /><span><small>{copy.projectSelectedLocation}</small><strong>{selectedRootPath}</strong></span></div>{/if}
       <div class="project-form-actions project-location-actions"><button class="secondary-button" type="button" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => (createStep = "name")}>{copy.back}</button><button class="secondary-button" type="button" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={cancelAdding}>{copy.cancel}</button><button class="primary-button" type="button" disabled={!selectedRootPath || projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void createProject({ name: name.trim(), rootPath: selectedRootPath })}>{copy.projectCreateAction}</button></div>
     {/if}
   </Dialog>

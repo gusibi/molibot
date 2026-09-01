@@ -231,9 +231,6 @@ importers:
       '@fontsource/geist-sans':
         specifier: ^5.2.5
         version: 5.2.5
-      '@phosphor-icons/web':
-        specifier: ^2.1.2
-        version: 2.1.2
       '@silurus/ooxml':
         specifier: 0.76.2
         version: 0.76.2
@@ -279,6 +276,9 @@ importers:
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
+      reicon-svelte:
+        specifier: ^1.0.102
+        version: 1.0.102(svelte@5.56.4)
       svelte:
         specifier: ^5.38.10
         version: 5.56.4
@@ -880,9 +880,6 @@ packages:
 
   '@pdf-lib/upng@1.0.1':
     resolution: {integrity: sha512-dQK2FUMQtowVP00mtIksrlZhdFXQZPC+taih1q4CvPZ5vqdxR/LKBaFg0oAfzd1GlHZXXSPdQfzQnt+ViGvEIQ==}
-
-  '@phosphor-icons/web@2.1.2':
-    resolution: {integrity: sha512-rPAR9o/bEcp4Cw4DEeZHXf+nlGCMNGkNDRizYHM47NLxz9vvEHp/Tt6FMK1NcWadzw/pFDPnRBGi/ofRya958A==}
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
@@ -4100,8 +4097,6 @@ snapshots:
   '@pdf-lib/upng@1.0.1':
     dependencies:
       pako: 1.0.11
-
-  '@phosphor-icons/web@2.1.2': {}
 
   '@polka/url@1.0.0-next.29': {}
 

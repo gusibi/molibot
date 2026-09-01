@@ -1,4 +1,9 @@
 <script lang="ts">
+  import ArrowLeft from "reicon-svelte/icons/ArrowLeft";
+  import ArrowRight from "reicon-svelte/icons/ArrowRight";
+  import FolderOpen from "reicon-svelte/icons/FolderOpen";
+  import FolderPlus from "reicon-svelte/icons/FolderPlus";
+  import Gear from "reicon-svelte/icons/Gear";
   import { tick } from "svelte";
   import type { Translation } from "../i18n";
   import ConversationRow from "../chat/ConversationRow.svelte";
@@ -97,7 +102,7 @@
 <SidebarShell>
   <nav class="sidebar-nav" aria-label={copy.projects}>
     <button type="button" class="nav-item" class:active={adding} onclick={() => void beginAdding()}>
-      <i class="ph-fill ph-folder-plus" aria-hidden="true"></i>
+      <FolderPlus weight="Filled" size={20} aria-hidden="true" />
       <span>{copy.addProject}</span>
     </button>
   </nav>
@@ -108,7 +113,7 @@
       <div class="conv-group">
         <GroupHeader
           label={project.name}
-          icon="ph-fill ph-notebook"
+          icon="notebook"
           open={isActiveProject}
           actionLabel={copy.newChat}
           onAction={() => void newProjectSession()}
@@ -141,13 +146,13 @@
 
   <div class="sidebar-bottom-actions">
     <button class="sidebar-return" type="button" onclick={openChat}>
-      <i class="ph ph-arrow-left" aria-hidden="true"></i>
+      <ArrowLeft size={16} aria-hidden="true" />
       <span>{copy.chat}</span>
     </button>
     <button class="sidebar-footer" type="button" onclick={openSettings}>
       <img class="sidebar-avatar" src="/molibot-icon.png" alt="" aria-hidden="true" width="20" height="20" />
       <span class="sidebar-footer-info">Molibot</span>
-      <i class="ph ph-gear" aria-hidden="true"></i>
+      <Gear size={16} aria-hidden="true" />
     </button>
   </div>
 </SidebarShell>
@@ -161,7 +166,7 @@
     onOpenChange={(next) => { if (!next) cancelAdding(); }}
   >
     <div class="project-dialog-heading">
-      <span class="project-dialog-icon" aria-hidden="true"><i class="ph-fill ph-folder-plus" aria-hidden="true"></i></span>
+      <span class="project-dialog-icon" aria-hidden="true"><FolderPlus weight="Filled" size={20} aria-hidden="true" /></span>
       <div>
         <h2 id="project-create-title">{copy.projectCreateTitle}</h2>
         <p>{createStep === "name" ? copy.projectCreateNameHint : copy.projectChooseLocationHint}</p>
@@ -182,19 +187,19 @@
     {:else}
       <div class="project-location-options" aria-label={copy.projectChooseLocation} aria-busy={projectsStore.pickingFolder}>
         <button type="button" class="project-location-option" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void createManagedProject()}>
-          <span class="project-location-icon"><i class="ph-fill ph-folder-simple-plus" aria-hidden="true"></i></span>
+          <span class="project-location-icon"><FolderPlus weight="Filled" size={20} aria-hidden="true" /></span>
           <span><strong>{copy.projectCreateFolder}</strong><small>{copy.projectCreateFolderHint}</small></span>
-          <i class="ph ph-arrow-right" aria-hidden="true"></i>
+          <ArrowRight size={16} aria-hidden="true" />
         </button>
         <button type="button" class="project-location-option" disabled={projectsStore.busy === "add" || projectsStore.pickingFolder} onclick={() => void useExistingProjectFolder()}>
-          <span class="project-location-icon"><i class="ph-fill ph-folder-open" aria-hidden="true"></i></span>
+          <span class="project-location-icon"><FolderOpen weight="Filled" size={20} aria-hidden="true" /></span>
           <span><strong>{copy.projectUseExistingFolder}</strong><small>{copy.projectUseExistingFolderHint}</small></span>
-          <i class="ph ph-arrow-right" aria-hidden="true"></i>
+          <ArrowRight size={16} aria-hidden="true" />
         </button>
       </div>
       {#if selectedRootPath}
         <div class="project-selected-location">
-          <i class="ph-fill ph-folder-open" aria-hidden="true"></i>
+          <FolderOpen weight="Filled" size={20} aria-hidden="true" />
           <span><small>{copy.projectSelectedLocation}</small><strong>{selectedRootPath}</strong></span>
         </div>
       {/if}

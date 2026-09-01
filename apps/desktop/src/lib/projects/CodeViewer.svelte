@@ -1,4 +1,9 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import AngleUp from "reicon-svelte/icons/AngleUp";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import TextalignLeft from "reicon-svelte/icons/TextalignLeft";
+  import X from "reicon-svelte/icons/X";
   import { untrack } from "svelte";
   import type { Translation } from "../i18n";
   import { countMatchingLines, highlightLines, markMatches } from "./codeHighlight";
@@ -146,7 +151,7 @@
       title={copy.codeViewerWrap}
       aria-label={copy.codeViewerWrap}
       onclick={() => (wrap = !wrap)}
-    ><i class="ph ph-text-align-left" aria-hidden="true"></i></button>
+    ><TextalignLeft size={18} aria-hidden="true" /></button>
     <button
       type="button"
       class="code-viewer-toggle"
@@ -155,12 +160,12 @@
       title={copy.codeViewerFind}
       aria-label={copy.codeViewerFind}
       onclick={() => (findOpen ? closeFind() : openFind())}
-    ><i class="ph ph-magnifying-glass" aria-hidden="true"></i></button>
+    ><Magnifier size={18} aria-hidden="true" /></button>
   </div>
 
   {#if findOpen}
     <div class="code-viewer-find">
-      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <Magnifier size={18} aria-hidden="true" />
       <input
         type="search"
         bind:this={findInput}
@@ -184,13 +189,13 @@
         {matches.length ? `${Math.min(findIndex, matches.length - 1) + 1}/${matches.length}` : copy.codeViewerNoMatches}
       </span>
       <button type="button" aria-label={copy.prevMatch} title={copy.prevMatch} onclick={() => stepMatch(-1)} disabled={!matches.length}>
-        <i class="ph ph-caret-up" aria-hidden="true"></i>
+        <AngleUp size={14} aria-hidden="true" />
       </button>
       <button type="button" aria-label={copy.nextMatch} title={copy.nextMatch} onclick={() => stepMatch(1)} disabled={!matches.length}>
-        <i class="ph ph-caret-down" aria-hidden="true"></i>
+        <AngleDown size={14} aria-hidden="true" />
       </button>
       <button type="button" aria-label={copy.closePanel} title={copy.closePanel} onclick={closeFind}>
-        <i class="ph ph-x" aria-hidden="true"></i>
+        <X size={14} aria-hidden="true" />
       </button>
     </div>
   {/if}

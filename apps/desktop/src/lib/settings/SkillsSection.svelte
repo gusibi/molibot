@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
   import { onDestroy } from "svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
@@ -74,7 +75,7 @@
   {#if skillsStore.searchDraft}
     {@const selectedSkillProvider = skillsStore.searchDraft.providers.find((provider) => provider.id === skillsStore.searchDraft?.apiProvider)}
     <details class="skills-search-config settings-card">
-      <summary><span>{session.text.skillsSearchConfig}</span><i class="ph ph-caret-down" aria-hidden="true"></i></summary>
+      <summary><span>{session.text.skillsSearchConfig}</span><AngleDown size={14} aria-hidden="true" /></summary>
       <form id="desktop-skills-search-form" onsubmit={(event) => { event.preventDefault(); void saveSkillsSearch(); }}>
         <div class="settings-row">
           <strong>{session.text.skillSearchLocal}</strong>

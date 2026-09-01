@@ -18,7 +18,6 @@
   "dependencies": {
     "@fontsource/geist-mono": "^5.2.8",
     "@fontsource/geist-sans": "^5.2.5",
-    "@phosphor-icons/web": "^2.1.2",
     "@silurus/ooxml": "0.76.2",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
@@ -34,6 +33,7 @@
     "marked-katex-extension": "^5.1.10",
     "mermaid": "^11.16.1",
     "qrcode": "^1.5.4",
+    "reicon-svelte": "^1.0.102",
     "svelte": "^5.38.10",
     "three": "0.185.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

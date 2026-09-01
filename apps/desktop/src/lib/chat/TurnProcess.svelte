@@ -1,4 +1,7 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import type { Translation } from "../i18n";
   import type { TranscriptProcessBlock } from "./transcript";
   import { finalizeTranscriptActivities, transcriptProcessSummary } from "./transcript";
@@ -44,13 +47,13 @@
         <span class="timeline-wave-bar"></span>
       </span>
     {:else}
-      <i class={`ph ${isFailed ? "ph-warning-circle" : "ph-check-circle"}`} aria-hidden="true"></i>
+      {#if isFailed}<TriangleWarning size={14} aria-hidden="true" />{:else}<CheckCircle size={14} aria-hidden="true" />{/if}
     {/if}
     <span>{live ? copy.runProgress : isFailed ? copy.runFailed : copy.runCompleted}</span>
     {#if summary.toolCount}<small>{copy.turnSummaryTools.replace("{count}", String(summary.toolCount))}</small>{/if}
     {#if summary.fileCount}<small>{copy.turnSummaryFiles.replace("{count}", String(summary.fileCount))}</small>{/if}
     {#if summary.durationMs}<small class="turn-process-duration">{durationLabel(summary.durationMs)}</small>{/if}
-    <i class="ph ph-caret-down turn-process-caret" aria-hidden="true"></i>
+    <AngleDown class="turn-process-caret" size={14} aria-hidden="true" />
   </summary>
   {#if opened}
     <div class="turn-process-body">

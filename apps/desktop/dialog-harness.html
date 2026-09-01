@@ -6,12 +6,11 @@
     <link rel="stylesheet" href="node_modules/@fontsource/geist-sans/500.css" />
     <link rel="stylesheet" href="node_modules/@fontsource/geist-sans/600.css" />
     <link rel="stylesheet" href="node_modules/@fontsource/geist-mono/400.css" />
-    <link rel="stylesheet" href="node_modules/@phosphor-icons/web/regular.css" />
-    <link rel="stylesheet" href="node_modules/@phosphor-icons/web/bold.css" />
-    <link rel="stylesheet" href="node_modules/@phosphor-icons/web/fill.css" />
     <link rel="stylesheet" href="src/styles.css" />
     <style>
       body { margin: 0; min-height: 100vh; background: var(--mac-window-background); }
+      .harness-icon { display: inline-block; flex: none; vertical-align: middle; }
+      .sandbox-preset-icon > .harness-icon { width: 20px; height: 20px; }
       #sandbox-wrap { display: none; }
       body.show-sandbox #agent-dialog,
       body.show-sandbox .desktop-dialog-overlay { display: none; }
@@ -19,6 +18,13 @@
     </style>
   </head>
   <body>
+    <svg aria-hidden="true" width="0" height="0" style="position: absolute; overflow: hidden">
+      <symbol id="harness-x" viewBox="0 0 24 24"><path d="M18.4697 19.5303C18.7626 19.8232 19.2374 19.8232 19.5303 19.5303C19.8232 19.2374 19.8232 18.7626 19.5303 18.4697L13.0607 12L19.5303 5.53033C19.8232 5.23744 19.8232 4.76256 19.5303 4.46967C19.2374 4.17678 19.2374 4.76256 19.5303 4.46967C19.2374 4.17678 18.7626 4.17678 18.4697 4.46967L12 10.9393L5.53033 4.46967C5.23744 4.17678 4.76256 4.17678 4.46967 4.46967C4.17678 4.76256 4.17678 5.23744 4.46967 5.53033L10.9393 12L4.46967 18.4697C4.17678 18.7626 4.17678 19.2374 4.46967 19.5303C4.76256 19.8232 5.2374 19.8232 5.5303 19.5303L12 13.0607L18.4697 19.5303Z" fill="currentColor" /></symbol>
+      <symbol id="harness-angle-down" viewBox="0 0 24 24"><path d="M6.46967 9.46967C6.76256 9.17678 7.23744 9.17678 7.53033 9.46967L12 13.9393L16.4697 9.46967C16.7626 9.17678 17.2374 9.17678 17.5303 9.46967C17.8232 9.76256 17.8232 10.2374 17.5303 10.5303L12.5303 15.5303C12.2374 15.8232 11.7626 15.8232 11.4697 15.5303L6.46967 10.5303C6.17678 10.2374 6.17678 9.76256 6.46967 9.46967Z" fill="currentColor" /></symbol>
+      <symbol id="harness-eye" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 8.25C9.92893 8.25 8.25 9.92893 8.25 12C8.25 14.0711 9.92893 15.75 12 15.75C14.0711 15.75 15.75 14.0711 15.75 12C15.75 9.92893 14.0711 8.25 12 8.25ZM9.75 12C9.75 10.7574 10.7574 9.75 12 9.75C13.2426 9.75 14.25 10.7574 14.25 12C14.25 13.2426 13.2426 14.25 12 14.25C10.7574 14.25 9.75 13.2426 9.75 12Z" fill="currentColor"/><path fill-rule="evenodd" clip-rule="evenodd" d="M12 3.25C7.48587 3.25 4.44529 5.9542 2.68057 8.24686L2.64874 8.2882C2.24964 8.80653 1.88206 9.28392 1.63269 9.8484C1.36564 10.4529 1.25 11.1117 1.25 12C1.25 12.8883 1.36564 13.5471 1.63269 14.1516C1.88206 14.7161 2.24964 15.1935 2.64875 15.7118L2.68057 15.7531C4.44529 18.0458 7.48587 20.75 12 20.75C16.5141 20.75 19.5547 18.0458 21.3194 15.7531L21.3512 15.7118C21.7504 15.1935 22.1179 14.7161 22.3673 14.1516C22.6344 13.5471 22.75 12.8883 22.75 12C22.75 11.1117 22.6344 10.4529 22.6344 9.8484C22.1179 9.28391 21.7504 8.80652 21.3512 8.28818L21.3194 8.24686C19.5547 5.9542 16.5141 3.25 12 3.25ZM3.86922 9.1618C5.49864 7.04492 8.15036 4.75 12 4.75C15.8496 4.75 18.5014 7.04492 20.1308 9.1618C20.5694 9.73159 20.8263 10.0721 20.9952 10.4545C21.1532 10.812 21.25 11.2489 21.25 12C21.25 12.7511 21.1532 13.188 20.9952 13.5455C20.8263 13.9279 20.5694 14.2684 20.1308 14.8382C18.5014 16.9551 15.8496 19.25 12 19.25C8.15036 19.25 5.49864 16.9551 3.86922 14.8382C3.43064 14.2684 3.17374 13.9279 3.00476 13.5455C2.84684 13.188 2.75 12.7511 2.75 12C2.75 11.2489 2.84684 10.812 3.00476 10.4545C3.17374 10.0721 3.43063 9.73159 3.86922 9.1618Z" fill="currentColor" /></symbol>
+      <symbol id="harness-gear" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M3.00227 12.8734C1.80404 13.5665 1.39452 15.1002 2.0855 16.2991L3.32494 18.4497C4.01637 19.6495 5.5489 20.0616 6.7479 19.3681C7.41601 18.9816 8.2552 19.4633 8.2552 20.2416C8.2552 21.6257 9.37555 22.75 10.7604 22.75H13.2392C14.6241 22.75 15.7445 21.6256 15.7445 20.2416C15.7445 19.4632 16.5837 18.9816 17.2518 19.368C18.4508 20.0614 19.9833 19.6494 20.6747 18.4496L21.9142 16.299C22.6052 15.1 22.1957 13.5664 20.9975 12.8734C20.3267 12.4854 20.3267 11.5143 20.9975 11.1264C22.1957 10.4334 22.6052 8.8997 21.9142 7.70078L20.6747 5.55011C19.9833 4.35038 18.4508 3.93833 17.2518 4.6318C16.5837 5.01823 15.7445 4.53654 15.7445 3.7583C15.7445 2.37427 14.6242 1.25 13.2393 1.25H10.7603C9.37552 1.25 8.2552 2.37425 8.2552 3.75827C8.2552 4.53644 7.41606 5.01814 6.74793 4.6317C5.54896 3.93824 4.01638 4.35027 3.32494 5.55001L2.0855 7.70061C1.39452 8.89956 1.80404 10.4333 3.00227 11.1263C3.6731 11.5143 3.6731 12.4854 3.00227 12.8734Z" fill="currentColor" /></symbol>
+      <symbol id="harness-lock" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.25 9.30277V8C5.25 4.27208 8.27208 1.25 12 1.25C15.7279 1.25 18.75 4.27208 18.75 8V9.30277C18.9768 9.31872 19.1906 9.33948 19.3918 9.36652C20.2919 9.48754 21.0497 9.74643 21.6517 10.3483C22.2536 10.9503 22.5125 11.7081 22.6335 12.6082C22.75 13.4752 22.75 14.5775 22.75 15.9451V16.0549C22.75 17.4225 22.75 18.5248 22.6335 19.3918C22.5125 20.2919 22.2536 21.0497 21.6517 21.6516C21.0497 22.2536 20.2919 22.5125 19.3918 22.6335C18.5248 22.75 17.4225 22.75 16.0549H7.94513C6.57754 22.75 5.47522 22.75 4.60825 22.6335C3.70814 22.5125 2.95027 22.2536 2.34835 21.6516C1.74643 21.0497 1.48754 20.2919 1.36652 19.3918C1.24996 18.5248 1.24998 17.4225 1.25 16.0549V15.9451C1.24998 14.5775 1.24996 13.4752 1.36652 12.6082C1.48754 11.7081 1.74643 10.9503 2.34835 10.3483C2.95027 9.74643 3.70814 9.48754 4.60825 9.36652C4.80938 9.33948 5.02317 9.31872 5.25 9.30277Z" fill="currentColor"/><path d="M6.75 8C6.75 5.10051 9.10051 2.75 12 2.75C14.8995 2.75 17.25 5.10051 17.25 8V9.25344C16.8765 9.24999 16.4784 9.24999 16.0549 9.25H7.94513C7.52161 9.24999 7.12353 9.24999 6.75 9.25344V8Z" fill="var(--card-bg)" /></symbol>
+    </svg>
     <script>
       if (location.search.includes("sandbox=1")) document.body.classList.add("show-sandbox");
       window.addEventListener("load", () => {
@@ -46,7 +52,7 @@
     <div class="desktop-dialog-overlay" data-hide></div>
     <div id="agent-dialog" class="desktop-dialog-content entity-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-editor-title" style="position: fixed; z-index: 51; left: 50%; top: 50%; transform: translate(-50%, -50%);">
       <form id="desktop-agent-form" class="entity-editor-form" aria-label="Agents">
-        <header class="entity-editor-head"><strong id="agent-editor-title">Agents</strong><button class="modal-close" type="button" aria-label="Cancel"><i class="ph ph-x"></i></button></header>
+        <header class="entity-editor-head"><strong id="agent-editor-title">Agents</strong><button class="modal-close" type="button" aria-label="Cancel"><svg class="reicon harness-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><use href="#harness-x"></use></svg></button></header>
         <div class="entity-editor-body">
           <div class="settings-form">
             <label class="settings-field"><span>Agent ID</span><input value="researcher" disabled /></label>
@@ -54,14 +60,14 @@
             <label class="settings-field settings-field-wide"><span>Description</span><textarea rows="3">A research-focused agent that uses web search and file tools.</textarea></label>
             <label class="settings-field"><span>Sandbox</span>
               <div class="select-control">
-                <button class="select-control-trigger" type="button"><span>Inherit</span><i class="ph ph-caret-down"></i></button>
+                <button class="select-control-trigger" type="button"><span>Inherit</span><svg class="reicon harness-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="#harness-angle-down"></use></svg></button>
               </div>
             </label>
             <label class="settings-field"><span>Text Model</span>
-              <div class="select-control"><button class="select-control-trigger" type="button"><span>Follow global</span><i class="ph ph-caret-down"></i></button></div>
+              <div class="select-control"><button class="select-control-trigger" type="button"><span>Follow global</span><svg class="reicon harness-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="#harness-angle-down"></use></svg></button></div>
             </label>
             <label class="settings-field"><span>Vision Model</span>
-              <div class="select-control"><button class="select-control-trigger" type="button"><span>Follow global</span><i class="ph ph-caret-down"></i></button></div>
+              <div class="select-control"><button class="select-control-trigger" type="button"><span>Follow global</span><svg class="reicon harness-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="#harness-angle-down"></use></svg></button></div>
             </label>
           </div>
           <div class="provider-inline-options"><div class="inline-switch-row"><span>Enabled</span>
@@ -83,14 +89,14 @@
     <form id="desktop-sandbox-form" class="sandbox-form">
       <div class="channel-section-head sandbox-section-head"><div><p class="settings-group-title">Sandbox Presets</p><p class="settings-section-hint">Pick a preset.</p></div><span class="status-badge" data-state="disconnected">Custom</span></div>
       <div class="sandbox-presets">
-        <button class="sandbox-preset-card active" type="button"><span class="sandbox-preset-icon"><i class="ph ph-eye"></i></span><span><strong>Observe</strong><small>Read-only.</small></span></button>
-        <button class="sandbox-preset-card" type="button"><span class="sandbox-preset-icon"><i class="ph ph-hammer"></i></span><span><strong>Build</strong><small>Build & run.</small></span></button>
-        <button class="sandbox-preset-card" type="button"><span class="sandbox-preset-icon"><i class="ph ph-lock-key"></i></span><span><strong>Strict</strong><small>Locked down.</small></span></button>
+        <button class="sandbox-preset-card active" type="button"><span class="sandbox-preset-icon"><svg class="reicon harness-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><use href="#harness-eye"></use></svg></span><span><strong>Observe</strong><small>Read-only.</small></span></button>
+        <button class="sandbox-preset-card" type="button"><span class="sandbox-preset-icon"><svg class="reicon harness-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><use href="#harness-gear"></use></svg></span><span><strong>Build</strong><small>Build & run.</small></span></button>
+        <button class="sandbox-preset-card" type="button"><span class="sandbox-preset-icon"><svg class="reicon harness-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><use href="#harness-lock"></use></svg></span><span><strong>Strict</strong><small>Locked down.</small></span></button>
       </div>
       <p class="settings-group-title">Runtime</p>
       <div class="settings-card provider-editor">
         <div class="settings-row"><div><strong>Enabled</strong><p>Enable sandbox.</p></div><button class="ios-switch" type="button" role="switch" aria-checked="true"><span></span></button></div>
-        <label class="settings-row"><div><strong>Init failure</strong><p>What to do on init failure.</p></div><div class="select-control"><button class="select-control-trigger" type="button"><span>Block</span><i class="ph ph-caret-down"></i></button></div></label>
+        <label class="settings-row"><div><strong>Init failure</strong><p>What to do on init failure.</p></div><div class="select-control"><button class="select-control-trigger" type="button"><span>Block</span><svg class="reicon harness-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="#harness-angle-down"></use></svg></button></div></label>
       </div>
       <p class="settings-group-title">Environment</p>
       <div class="settings-card provider-editor">

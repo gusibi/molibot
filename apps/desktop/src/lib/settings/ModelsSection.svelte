@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Tuning from "reicon-svelte/icons/Tuning";
   import { onDestroy } from "svelte";
   import {
     DESKTOP_THINKING_LEVELS,
@@ -116,7 +117,7 @@
   {#if modelsStore.routing}
     <div class="settings-disclosure">
       <button class="secondary-button disclosure-button" type="button" aria-expanded={advancedOpen} onclick={() => (advancedOpen = !advancedOpen)}>
-        <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
+        <Tuning size={16} aria-hidden="true" />
         {advancedOpen ? session.text.modelAdvancedHide : session.text.modelAdvancedShow}
       </button>
     </div>

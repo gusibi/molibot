@@ -249,11 +249,31 @@ export function activityFileSummary(activities: DesktopConversationActivity[]): 
 }
 
 /**
- * Maps a tool activity to its semantic Phosphor icon name.
+ * The semantic class of glyph a tool activity renders with. The UI maps each
+ * class to a concrete Reicon component in `activityIcons.ts`.
+ */
+export type ActivityToolIconName =
+  | "terminal"
+  | "edit"
+  | "read"
+  | "web"
+  | "search"
+  | "folder"
+  | "memory"
+  | "agent"
+  | "app"
+  | "mcp"
+  | "plugin"
+  | "image"
+  | "audio"
+  | "tool";
+
+/**
+ * Maps a tool activity to its semantic icon class.
  */
 export function activityToolIcon(
   activity: Pick<DesktopConversationActivity, "tool" | "key"> & Partial<Pick<DesktopConversationActivity, "label" | "mutates">>
-): string {
+): ActivityToolIconName {
   const tool = activityToolName(activity).toLowerCase();
   const label = (activity.label ?? "").toLowerCase();
 
@@ -267,7 +287,7 @@ export function activityToolIcon(
     tool === "exec" ||
     tool === "cmd"
   ) {
-    return "terminal-window";
+    return "terminal";
   }
 
   if (
@@ -280,7 +300,7 @@ export function activityToolIcon(
     tool === "documentexport" ||
     tool === "patch"
   ) {
-    return "pencil-simple-line";
+    return "edit";
   }
 
   if (
@@ -291,7 +311,7 @@ export function activityToolIcon(
     tool === "docextract" ||
     tool === "file_preview"
   ) {
-    return "file-text";
+    return "read";
   }
 
   if (
@@ -303,7 +323,7 @@ export function activityToolIcon(
     tool === "read_browser_page" ||
     tool === "browser"
   ) {
-    return "globe";
+    return "web";
   }
 
   if (
@@ -320,15 +340,15 @@ export function activityToolIcon(
     tool === "search" ||
     tool === "rg"
   ) {
-    return "magnifying-glass";
+    return "search";
   }
 
   if (tool === "ls" || tool === "list_dir" || tool === "dir_list") {
-    return "folder-open";
+    return "folder";
   }
 
   if (tool.includes("memory") || tool === "remember" || tool === "recall" || tool === "store") {
-    return "brain";
+    return "memory";
   }
 
   if (
@@ -339,38 +359,38 @@ export function activityToolIcon(
     tool === "runtimetask" ||
     tool === "schedule"
   ) {
-    return "tree-structure";
+    return "agent";
   }
 
   if (tool.startsWith("miniapp__") || tool === "miniappmanage" || tool.startsWith("miniapp")) {
-    return "cube";
+    return "app";
   }
   if (tool.startsWith("mcp__") || tool.startsWith("mcp_") || tool === "mcp" || tool === "loadmcp" || tool === "mcpinvoke") {
-    return "plug";
+    return "mcp";
   }
   if (tool === "extensionmanage" || tool.includes("plugin") || tool.includes("extension")) {
-    return "puzzle-piece";
+    return "plugin";
   }
 
   if (tool.includes("image") || tool.includes("draw")) {
     return "image";
   }
   if (tool.includes("audio") || tool.includes("speech") || tool.includes("tts") || tool.includes("voice")) {
-    return "waveform";
+    return "audio";
   }
 
   if (label.includes("bash") || label.includes("command") || label.includes("terminal") || label.includes("终端") || label.includes("命令")) {
-    return "terminal-window";
+    return "terminal";
   }
   if (label.includes("write") || label.includes("edit") || label.includes("写入") || label.includes("修改") || label.includes("编辑")) {
-    return "pencil-simple-line";
+    return "edit";
   }
   if (label.includes("read") || label.includes("读取") || label.includes("查看文件")) {
-    return "file-text";
+    return "read";
   }
   if (label.includes("search") || label.includes("搜索") || label.includes("查找")) {
-    return "magnifying-glass";
+    return "search";
   }
 
-  return "wrench";
+  return "tool";
 }

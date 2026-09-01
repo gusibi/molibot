@@ -1,4 +1,9 @@
 <script lang="ts">
+  import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import Help from "reicon-svelte/icons/Help";
+  import Loader from "reicon-svelte/icons/Loader";
+  import X from "reicon-svelte/icons/X";
+  import XCircle from "reicon-svelte/icons/XCircle";
   import type {
     DesktopDurableExecutionActionRequest,
     DesktopDurableExecutionEvidenceRead,
@@ -185,12 +190,12 @@
       <h2>{detail?.execution.goal ?? copy.loading}</h2>
     </div>
     <button type="button" class="durable-inspector-close" aria-label={copy.closePanel} title={copy.closePanel} onclick={onClose}>
-      <i class="ph ph-x" aria-hidden="true"></i>
+      <X size={16} aria-hidden="true" />
     </button>
   </header>
 
   {#if loading && !detail}
-    <div class="durable-inspector-empty" role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
+    <div class="durable-inspector-empty" role="status"><Loader size={14} aria-hidden="true" />{copy.loading}</div>
   {:else if error && !detail}
     <div class="durable-inspector-empty" role="alert"><p>{copy.durableLoadFailed}</p><small>{error}</small><button type="button" class="secondary-button" onclick={() => void loadDetail()}>{copy.retryLoading}</button></div>
   {:else if detail}
@@ -233,7 +238,7 @@
         {#if currentCriteria.length > 0}
           <ul class="durable-criteria-list">
             {#each currentCriteria as criterion (criterion.id)}
-              <li data-result={criterion.result}><i class={"ph " + (criterion.result === "passed" ? "ph-check-circle" : criterion.result === "failed" ? "ph-x-circle" : "ph-question")} aria-hidden="true"></i><span>{criterion.description}</span></li>
+              <li data-result={criterion.result}>{#if criterion.result === "passed"}<CheckCircle size={14} aria-hidden="true" />{:else if criterion.result === "failed"}<XCircle size={14} aria-hidden="true" />{:else}<Help size={14} aria-hidden="true" />{/if}<span>{criterion.description}</span></li>
             {/each}
           </ul>
         {/if}
@@ -397,10 +402,10 @@
   .durable-step-copy small { overflow: hidden; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); text-overflow: ellipsis; white-space: nowrap; }
   .durable-step-status { flex: none; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-family: var(--font-mono); text-transform: uppercase; }
   .durable-criteria-list li { display: flex; align-items: flex-start; gap: 7px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-  .durable-criteria-list li i { flex: none; color: var(--label-tertiary); }
-  .durable-criteria-list li[data-result="passed"] i { color: var(--online); }
-  .durable-criteria-list li[data-result="failed"] i { color: var(--danger); }
-  .durable-criteria-list li[data-result="unproven"] i { color: var(--warning); }
+  .durable-criteria-list li :global(svg) { flex: none; color: var(--label-tertiary); }
+  .durable-criteria-list li[data-result="passed"] :global(svg) { color: var(--online); }
+  .durable-criteria-list li[data-result="failed"] :global(svg) { color: var(--danger); }
+  .durable-criteria-list li[data-result="unproven"] :global(svg) { color: var(--warning); }
   .durable-criteria-summary { margin: 10px 0 0; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
   .durable-decision { display: grid; gap: 10px; padding: 10px; border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--separator)); border-radius: var(--radius-control); background: color-mix(in srgb, var(--warning) 7%, transparent); }
   .durable-decision + .durable-decision { margin-top: 8px; }

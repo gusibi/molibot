@@ -1,4 +1,11 @@
 <script lang="ts">
+  import Archive from "reicon-svelte/icons/Archive";
+  import ArrowRight from "reicon-svelte/icons/ArrowRight";
+  import PlusCircle from "reicon-svelte/icons/PlusCircle";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import ShieldAlert from "reicon-svelte/icons/ShieldAlert";
+  import Trash from "reicon-svelte/icons/Trash";
+  import Tuning from "reicon-svelte/icons/Tuning";
   import { invoke } from "@tauri-apps/api/core";
   import { tablist } from "../a11y/tablist";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
@@ -159,7 +166,7 @@
 
   <div class="miniapps-install">
     <div class="miniapps-install-head">
-      <span aria-hidden="true"><i class="ph ph-plus-circle" aria-hidden="true"></i></span>
+      <span aria-hidden="true"><PlusCircle size={20} aria-hidden="true" /></span>
       <strong>{session.text.miniAppInstallTitle}</strong>
     </div>
     <div class="miniapps-install-tabs" role="tablist" aria-label={session.text.miniAppInstallTitle} use:tablist>
@@ -235,13 +242,13 @@
                         type="button"
                         onclick={() => void installBuiltinMiniApp(app.id)}
                       >
-                        <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>{session.text.miniAppBuiltinReinstall}
+                        <Refresh size={14} aria-hidden="true" />{session.text.miniAppBuiltinReinstall}
                       </button>
                       <button role="menuitem" type="button" onclick={() => confirmUninstall(app, false)}>
-                        <i class="ph ph-archive" aria-hidden="true"></i>{session.text.miniAppUninstallKeepData}
+                        <Archive size={14} aria-hidden="true" />{session.text.miniAppUninstallKeepData}
                       </button>
                       <button role="menuitem" type="button" class="danger-action" onclick={() => confirmUninstall(app, true)}>
-                        <i class="ph ph-trash" aria-hidden="true"></i>{session.text.miniAppUninstallDeleteData}
+                        <Trash size={14} aria-hidden="true" />{session.text.miniAppUninstallDeleteData}
                       </button>
                     </OverflowMenu>
                   {/if}
@@ -295,7 +302,7 @@
         <!-- The trust warning is about running code from somewhere else. A
              built-in shipped inside the app the owner is already running, so
              repeating it there would only teach people to ignore it. -->
-        <p class="miniapps-trust"><i class="ph ph-shield-warning" aria-hidden="true"></i><span>{session.text.miniAppInstallTrustWarning}</span></p>
+        <p class="miniapps-trust"><ShieldAlert size={14} aria-hidden="true" /><span>{session.text.miniAppInstallTrustWarning}</span></p>
       {/if}
     </div>
   </div>
@@ -309,12 +316,12 @@
       needs no "am I inside Settings?" branch (pitfall #7).
     -->
     <button type="button" class="miniapps-ai-link" onclick={onOpenAiSettings}>
-      <span aria-hidden="true"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i></span>
+      <span aria-hidden="true"><Tuning size={20} aria-hidden="true" /></span>
       <span class="miniapps-ai-link-text">
         <strong>{session.text.miniAppAiTitle}</strong>
         <small>{session.text.miniAppAiHint}</small>
       </span>
-      <i class="ph ph-arrow-right miniapps-ai-link-arrow" aria-hidden="true"></i>
+      <ArrowRight class="miniapps-ai-link-arrow" size={14} aria-hidden="true" />
     </button>
   {/if}
 
@@ -398,10 +405,10 @@
               {/if}
               <OverflowMenu label={session.text.miniAppUninstall}>
                 <button role="menuitem" type="button" onclick={() => confirmUninstall(app, false)}>
-                  <i class="ph ph-archive" aria-hidden="true"></i>{session.text.miniAppUninstallKeepData}
+                  <Archive size={14} aria-hidden="true" />{session.text.miniAppUninstallKeepData}
                 </button>
                 <button role="menuitem" type="button" class="danger-action" onclick={() => confirmUninstall(app, true)}>
-                  <i class="ph ph-trash" aria-hidden="true"></i>{session.text.miniAppUninstallDeleteData}
+                  <Trash size={14} aria-hidden="true" />{session.text.miniAppUninstallDeleteData}
                 </button>
               </OverflowMenu>
             </div>

@@ -1,4 +1,13 @@
 <script lang="ts">
+  import Crosshairs from "reicon-svelte/icons/Crosshairs";
+  import Loader from "reicon-svelte/icons/Loader";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Map from "reicon-svelte/icons/Map";
+  import Minus from "reicon-svelte/icons/Minus";
+  import Plug from "reicon-svelte/icons/Plug";
+  import Plus from "reicon-svelte/icons/Plus";
+  import Video from "reicon-svelte/icons/Video";
+  import X from "reicon-svelte/icons/X";
   import { onDestroy, onMount } from "svelte";
   import { ActivityScheduler, agentActivityPolicy, documentActivityVisibility } from "../native/activityScheduler";
   import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
@@ -282,29 +291,29 @@
   </div>
 
   {#if !serviceReady}
-    <div class="agent-studio-state"><i class="ph ph-plugs" aria-hidden="true"></i><p>{copy.agentStudioUnavailable}</p></div>
+    <div class="agent-studio-state"><Plug size={28} aria-hidden="true" /><p>{copy.agentStudioUnavailable}</p></div>
   {:else if loading}
-    <div class="agent-studio-state"><i class="ph ph-circle-notch agent-studio-spinner" aria-hidden="true"></i><p>{copy.loadingChat}</p></div>
+    <div class="agent-studio-state"><Loader class="agent-studio-spinner" size={28} aria-hidden="true" /><p>{copy.loadingChat}</p></div>
   {:else}
     <div class="agent-city-shell" class:agent-city-shell--fallback={fallback} bind:this={cityShell} style={`--agent-city-height:${cityHeight}px`}>
       <div class="agent-city-toolbar">
-        <span><i class="ph ph-map-trifold" aria-hidden="true"></i>{copy.agentCityDispatchCenter}</span>
+        <span><Map size={14} aria-hidden="true" />{copy.agentCityDispatchCenter}</span>
         {#if !fallback}
           <div class="agent-city-controls">
             <button type="button" class:agent-city-control-active={searchOpen} title={copy.agentCitySearchLabel} aria-label={copy.agentCitySearchLabel} aria-expanded={searchOpen} onclick={() => searchOpen ? closeSearch() : openSearch()}>
-              <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+              <Magnifier size={14} aria-hidden="true" />
             </button>
             <button type="button" class:agent-city-control-active={followWorking} title={copy.agentCityFollowWorking} aria-label={copy.agentCityFollowWorking} aria-pressed={followWorking} onclick={toggleFollow}>
-              <i class="ph ph-video-camera" aria-hidden="true"></i>
+              <Video size={14} aria-hidden="true" />
             </button>
             <button type="button" title={copy.agentCityZoomOut} aria-label={copy.agentCityZoomOut} onclick={() => cityCanvas?.zoom("out")}>
-              <i class="ph ph-minus" aria-hidden="true"></i>
+              <Minus size={14} aria-hidden="true" />
             </button>
             <button type="button" title={copy.agentCityZoomIn} aria-label={copy.agentCityZoomIn} onclick={() => cityCanvas?.zoom("in")}>
-              <i class="ph ph-plus" aria-hidden="true"></i>
+              <Plus size={14} aria-hidden="true" />
             </button>
             <button type="button" class:agent-city-control-active={viewAdjusted} title={copy.agentCityResetView} aria-label={copy.agentCityResetView} onclick={() => cityCanvas?.resetView()}>
-              <i class="ph ph-crosshair-simple" aria-hidden="true"></i>
+              <Crosshairs size={14} aria-hidden="true" />
             </button>
           </div>
         {/if}
@@ -356,7 +365,7 @@
               <strong>{selectedFloor.agent.name}</strong>
               <span data-status={selectedFloor.state}>{statusLabel(selectedFloor.state)}</span>
               <button type="button" title={copy.agentCityCloseDetail} aria-label={copy.agentCityCloseDetail} onclick={closeSelection}>
-                <i class="ph ph-x" aria-hidden="true"></i>
+                <X size={14} aria-hidden="true" />
               </button>
             </header>
             <p>{selectedFloor.agent.description || copy.agentStudioNoDescription}</p>

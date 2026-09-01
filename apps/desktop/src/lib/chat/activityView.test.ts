@@ -204,20 +204,20 @@ test("search and shell runs group, unknown tools remain explicit", () => {
 });
 
 test("activityToolIcon maps tools to distinct icons", () => {
-  assert.equal(activityToolIcon({ tool: "bash", key: "bash-1" }), "terminal-window");
-  assert.equal(activityToolIcon({ tool: "hostBash", key: "hostBash-1" }), "terminal-window");
-  assert.equal(activityToolIcon({ tool: "write", key: "write-1" }), "pencil-simple-line");
-  assert.equal(activityToolIcon({ tool: "edit", key: "edit-1" }), "pencil-simple-line");
-  assert.equal(activityToolIcon({ key: "edit-1", mutates: true }), "pencil-simple-line");
-  assert.equal(activityToolIcon({ tool: "read", key: "read-1" }), "file-text");
-  assert.equal(activityToolIcon({ tool: "docExtract", key: "doc-1" }), "file-text");
-  assert.equal(activityToolIcon({ tool: "webSearch", key: "search-1" }), "globe");
-  assert.equal(activityToolIcon({ tool: "grep", key: "grep-1" }), "magnifying-glass");
-  assert.equal(activityToolIcon({ tool: "ls", key: "ls-1" }), "folder-open");
-  assert.equal(activityToolIcon({ tool: "memory_store", key: "mem-1" }), "brain");
-  assert.equal(activityToolIcon({ tool: "subagent", key: "sub-1" }), "tree-structure");
-  assert.equal(activityToolIcon({ tool: "miniapp__todo", key: "app-1" }), "cube");
-  assert.equal(activityToolIcon({ tool: "mcp__github", key: "mcp-1" }), "plug");
-  assert.equal(activityToolIcon({ key: "generic-1", label: "Run shell command" }), "terminal-window");
-  assert.equal(activityToolIcon({ key: "generic-2", label: "Unknown tool" }), "wrench");
+  assert.equal(activityToolIcon({ tool: "bash", key: "bash-1" }), "terminal");
+  assert.equal(activityToolIcon({ tool: "hostBash", key: "hostBash-1" }), "terminal");
+  assert.equal(activityToolIcon({ tool: "write", key: "write-1" }), "edit");
+  assert.equal(activityToolIcon({ tool: "edit", key: "edit-1" }), "edit");
+  assert.equal(activityToolIcon({ key: "edit-1", mutates: true }), "edit");
+  assert.equal(activityToolIcon({ tool: "read", key: "read-1" }), "read");
+  assert.equal(activityToolIcon({ tool: "docExtract", key: "doc-1" }), "read");
+  assert.equal(activityToolIcon({ tool: "webSearch", key: "search-1" }), "web");
+  assert.equal(activityToolIcon({ tool: "grep", key: "grep-1" }), "search");
+  assert.equal(activityToolIcon({ tool: "ls", key: "ls-1" }), "folder");
+  assert.equal(activityToolIcon({ tool: "memory_store", key: "mem-1" }), "memory");
+  assert.equal(activityToolIcon({ tool: "subagent", key: "sub-1" }), "agent");
+  assert.equal(activityToolIcon({ tool: "miniapp__todo", key: "app-1" }), "app");
+  assert.equal(activityToolIcon({ tool: "mcp__github", key: "mcp-1" }), "mcp");
+  assert.equal(activityToolIcon({ key: "generic-1", label: "Run shell command" }), "terminal");
+  assert.equal(activityToolIcon({ key: "generic-2", label: "Unknown tool" }), "tool");
 });

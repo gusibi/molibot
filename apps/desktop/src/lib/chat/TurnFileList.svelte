@@ -1,4 +1,6 @@
 <script lang="ts">
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import File from "reicon-svelte/icons/File";
   import type { Translation } from "../i18n";
   import type { TurnFileItem } from "./turnFiles";
 
@@ -14,9 +16,9 @@
         <span class:created={file.action === "created"} class="turn-file-action">
           {file.action === "created" ? copy.turnFileCreated : copy.turnFileModified}
         </span>
-        <i class="ph ph-file" aria-hidden="true"></i>
+        <File size={14} aria-hidden="true" />
         <span class="turn-file-name">{file.name}</span>
-        <i class="ph ph-caret-right turn-file-caret" aria-hidden="true"></i>
+        <CaretRight class="turn-file-caret" size={14} aria-hidden="true" />
       </button>
     </li>
   {/each}

@@ -1,4 +1,10 @@
 <script lang="ts">
+  import Chart from "reicon-svelte/icons/Chart";
+  import Eye from "reicon-svelte/icons/Eye";
+  import InfoCircle from "reicon-svelte/icons/InfoCircle";
+  import Loader from "reicon-svelte/icons/Loader";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import { onDestroy, tick } from "svelte";
   import type { Translation } from "../i18n";
   import { PPTX_MAX_BYTES, preparePptxBytes } from "./pptx";
@@ -135,10 +141,10 @@
 <div class="pptx-preview" aria-label={name} aria-busy={loadState === "loading"}>
   {#if loadState === "ready"}
     <div class="pptx-toolbar">
-      <span class="pptx-read-only"><i class="ph ph-eye" aria-hidden="true"></i>{copy.artifactPptxReadOnly}</span>
+      <span class="pptx-read-only"><Eye size={12} aria-hidden="true" />{copy.artifactPptxReadOnly}</span>
       <span class="pptx-summary">{slideCount} {copy.artifactPptxSlides}</span>
       {#if warning}
-        <span class="pptx-warning" title={warning}><i class="ph ph-info" aria-hidden="true"></i>{copy.artifactPptxWarnings}</span>
+        <span class="pptx-warning" title={warning}><InfoCircle size={12} aria-hidden="true" />{copy.artifactPptxWarnings}</span>
       {/if}
     </div>
   {/if}
@@ -146,16 +152,16 @@
   <div class="pptx-viewer-host" bind:this={host}></div>
 
   {#if loadState === "loading"}
-    <div class="pptx-state" role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i><span>{copy.artifactPptxLoading}</span></div>
+    <div class="pptx-state" role="status"><Loader size={18} aria-hidden="true" /><span>{copy.artifactPptxLoading}</span></div>
   {:else if loadState === "error"}
     <div class="pptx-state pptx-state-error" role="alert">
-      <i class="ph ph-warning-circle" aria-hidden="true"></i>
+      <TriangleWarning size={18} aria-hidden="true" />
       <strong>{copy.artifactPptxFailed}</strong>
       {#if error}<span>{error}</span>{/if}
-      <button type="button" onclick={retry}><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>{copy.artifactRefresh}</button>
+      <button type="button" onclick={retry}><Refresh size={14} aria-hidden="true" />{copy.artifactRefresh}</button>
     </div>
   {:else if loadState === "empty"}
-    <div class="pptx-state"><i class="ph ph-presentation" aria-hidden="true"></i><span>{copy.artifactPptxEmpty}</span></div>
+    <div class="pptx-state"><Chart size={18} aria-hidden="true" /><span>{copy.artifactPptxEmpty}</span></div>
   {/if}
 </div>
 
@@ -215,7 +221,7 @@
   .pptx-state-error {
     flex-direction: column;
   }
-  .pptx-state-error > i {
+  .pptx-state-error > :global(svg) {
     color: var(--danger);
     font-size: var(--icon-lg);
   }

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import AngleUp from "reicon-svelte/icons/AngleUp";
+  import Sort from "reicon-svelte/icons/Sort";
   import { parseCsv, sortCsvRows } from "./csvTable";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import CodeViewer from "../projects/CodeViewer.svelte";
@@ -59,9 +62,11 @@
     return sort.dir === 1 ? "ascending" : "descending";
   }
 
-  function sortIcon(column: number): string {
-    if (sort?.column !== column) return "ph-caret-up-down";
-    return sort.dir === 1 ? "ph-caret-up" : "ph-caret-down";
+  const SORT_ICONS = { sort: Sort, asc: AngleUp, desc: AngleDown } as const;
+
+  function sortIcon(column: number): (typeof SORT_ICONS)[keyof typeof SORT_ICONS] {
+    if (sort?.column !== column) return SORT_ICONS.sort;
+    return sort.dir === 1 ? SORT_ICONS.asc : SORT_ICONS.desc;
   }
 </script>
 
@@ -84,10 +89,11 @@
         <thead>
           <tr>
             {#each parsed.result.headers as header, i (i)}
+              {@const SortIcon = sortIcon(i)}
               <th scope="col" aria-sort={sortState(i)}>
                 <button type="button" class="csv-sort" onclick={() => toggleSort(i)} title={copy.csvSortColumn} aria-label={`${copy.csvSortColumn}: ${header}`}>
                   <span>{header}</span>
-                  <i class="ph {sortIcon(i)}" aria-hidden="true"></i>
+                  <SortIcon size={12} aria-hidden="true" />
                 </button>
               </th>
             {/each}
@@ -184,12 +190,12 @@
     outline: 2px solid var(--accent);
     outline-offset: 0;
   }
-  .csv-sort i {
+  .csv-sort :global(svg) {
     font-size: 11px;
     opacity: 0.55;
   }
-  th[aria-sort="ascending"] .csv-sort i,
-  th[aria-sort="descending"] .csv-sort i {
+  th[aria-sort="ascending"] .csv-sort :global(svg),
+  th[aria-sort="descending"] .csv-sort :global(svg) {
     opacity: 0.95;
     color: var(--accent);
   }

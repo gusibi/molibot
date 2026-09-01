@@ -1,4 +1,13 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import Eye from "reicon-svelte/icons/Eye";
+  import InfoCircle from "reicon-svelte/icons/InfoCircle";
+  import Loader from "reicon-svelte/icons/Loader";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import XCircle from "reicon-svelte/icons/XCircle";
+  import { ACTIVITY_TOOL_ICONS } from "./activityIcons";
   import type { DesktopConversationActivity } from "@molibot/desktop-contract";
   import { html as renderDiffHtml } from "diff2html";
   import type { Translation } from "../i18n";
@@ -50,11 +59,11 @@
     saveActivityExpansion(stateKey, { opened, bodies: expandedBodies });
   }
 
-  function icon(state: DesktopConversationActivity["state"]): string {
-    if (state === "running") return "circle-notch";
-    if (state === "success") return "check-circle";
-    if (state === "error") return "x-circle";
-    return "info";
+  function icon(state: DesktopConversationActivity["state"]): typeof CheckCircle | typeof Loader | typeof XCircle | typeof InfoCircle {
+    if (state === "running") return Loader;
+    if (state === "success") return CheckCircle;
+    if (state === "error") return XCircle;
+    return InfoCircle;
   }
 
   function stepLabel(current: { index: number; total: number }): string {
@@ -97,7 +106,7 @@
           <span class="timeline-wave-bar"></span>
         </span>
       {:else}
-        <i class={`ph-fill ph-${isFailed ? "warning-circle" : "check-circle"}`} aria-hidden="true"></i>
+        {#if isFailed}<TriangleWarning weight="Filled" size={16} aria-hidden="true" />{:else}<CheckCircle weight="Filled" size={16} aria-hidden="true" />{/if}
       {/if}
       <span>{hasRunning ? copy.runProgress : isFailed ? copy.runFailed : copy.runCompleted}</span>
       <!--
@@ -110,7 +119,7 @@
         <span class="run-activity-current" title={headline.label}>{headline.label}</span>
       {/if}
       <span class="run-activity-count">{activities.length}</span>
-      <i class="ph ph-caret-down run-activity-caret" aria-hidden="true"></i>
+      <AngleDown class="run-activity-caret" size={14} aria-hidden="true" />
     </summary>
 
     <div class="run-activity-list">
@@ -121,7 +130,7 @@
           {@const rawBodyContent = body?.kind === "diff" ? (body.diff ?? "") : (body?.content ?? "")}
           {@const preview = activityPreview(rawBodyContent)}
           {@const bodyContent = expandedBodies.has(activity.key) ? rawBodyContent : preview.content}
-          {@const toolIcon = activityToolIcon(activity)}
+          {@const ToolIcon = ACTIVITY_TOOL_ICONS[activityToolIcon(activity)]}
           {#if body}
             <details class="run-activity-item" data-state={activity.state} data-body={body.kind} open={activity.state === "error"}>
               <summary>
@@ -132,14 +141,15 @@
                     <span class="timeline-wave-bar"></span>
                   </span>
                 {:else}
-                  <i class={`ph-fill ph-${icon(activity.state)}`} aria-hidden="true"></i>
+                  {@const StatusIcon = icon(activity.state)}
+                  <StatusIcon weight="Filled" size={14} aria-hidden="true" />
                 {/if}
                 <span class="process-tool-title">
-                  <i class={`ph ph-${toolIcon} process-tool-icon`} class:process-tool-running={activity.state === "running"} aria-hidden="true"></i>
+                  <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
                   <span class="process-tool-label-text">{activity.label}</span>
                   {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
                 </span>
-                <i class="ph ph-caret-right run-activity-item-caret" aria-hidden="true"></i>
+                <CaretRight class="run-activity-item-caret" size={14} aria-hidden="true" />
               </summary>
               <!--
                 One renderer per payload shape, all of them components the
@@ -191,10 +201,11 @@
                   <span class="timeline-wave-bar"></span>
                 </span>
               {:else}
-                <i class={`ph-fill ph-${icon(activity.state)}`} aria-hidden="true"></i>
+                {@const LineStatusIcon = icon(activity.state)}
+                <LineStatusIcon weight="Filled" size={14} aria-hidden="true" />
               {/if}
               <span class="process-timeline-label">
-                <i class={`ph ph-${toolIcon} process-tool-icon`} class:process-tool-running={activity.state === "running"} aria-hidden="true"></i>
+                <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
                 <span class="process-tool-label-text">{activity.label}</span>
               </span>
             </div>
@@ -209,7 +220,7 @@
   {#if files.read.length}
     <div class="run-activity-files">
       <span class="run-activity-files-label">
-        <i class="ph ph-eye" aria-hidden="true"></i>{fileChipLabel(copy.runActivityFilesRead, files.read.length)}
+        <Eye size={12} aria-hidden="true" />{fileChipLabel(copy.runActivityFilesRead, files.read.length)}
       </span>
       {#each files.read as path (path)}
         <button

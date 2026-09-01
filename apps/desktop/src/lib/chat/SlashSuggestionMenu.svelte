@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { INVOCATION_ICONS } from "./activityIcons";
   import type { ComposerMenuItem } from "./composerSuggestionCatalog";
   import type { Translation } from "../i18n";
 
@@ -16,6 +17,7 @@
         <div class="slash-suggestion-heading">{kind === "command" ? copy.slashGroupCommand : kind === "skill" ? copy.slashGroupSkill : kind === "miniapp" ? copy.slashGroupMiniapp : copy.slashGroupFile}</div>
         {#each items as item (item.id)}
           {@const index = suggestions.indexOf(item)}
+          {@const SuggestionIcon = INVOCATION_ICONS[item.kind] ?? INVOCATION_ICONS.file}
           <button
             class:active={index === activeIndex}
             class="slash-suggestion"
@@ -25,7 +27,9 @@
             onmousedown={(event) => event.preventDefault()}
             onclick={() => onSelect(item)}
           >
-            <span class="slash-suggestion-icon" data-kind={item.kind}><i class={`ph ${item.kind === "command" ? "ph-terminal-window" : item.kind === "skill" ? "ph-sparkle" : item.kind === "miniapp" ? "ph-squares-four" : "ph-file"}`} aria-hidden="true"></i></span>
+            <span class="slash-suggestion-icon" data-kind={item.kind}>
+              <SuggestionIcon size={14} aria-hidden="true" />
+            </span>
             <span class="slash-suggestion-copy"><strong>{item.label}</strong><small>{item.description}</small></span>
             {#if item.argumentHint}<code>{item.argumentHint}</code>{:else if item.scope}<span class="slash-suggestion-scope">{item.scope}</span>{/if}
           </button>

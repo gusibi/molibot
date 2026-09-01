@@ -1,4 +1,11 @@
 <script lang="ts">
+  import Check from "reicon-svelte/icons/Check";
+  import EyeSlash from "reicon-svelte/icons/EyeSlash";
+  import Loader from "reicon-svelte/icons/Loader";
+  import PenLine from "reicon-svelte/icons/PenLine";
+  import ThumbsUp from "reicon-svelte/icons/ThumbsUp";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import X from "reicon-svelte/icons/X";
   import { onDestroy, onMount, tick } from "svelte";
   import type { DesktopMemoryFeedbackValue, DesktopMemoryTraceResponse } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
@@ -174,13 +181,13 @@
         <p>{copy.memoryTraceHint}</p>
       </div>
       <button class="icon-button" type="button" aria-label={copy.memoryTraceClose} onclick={requestClose}>
-        <i class="ph ph-x" aria-hidden="true"></i>
+        <X size={16} aria-hidden="true" />
       </button>
     </header>
 
     <div class="memory-trace-body">
       {#if loading}
-        <div class="memory-trace-state" role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
+        <div class="memory-trace-state" role="status"><Loader size={14} aria-hidden="true" />{copy.loading}</div>
       {:else if error}
         <div class="memory-trace-state" role="alert">
           <p>{copy.memoryTraceLoadError}</p>
@@ -204,12 +211,12 @@
                   </div>
                   <div class="memory-trace-actions">
                     {#if recordedMemoryIds.has(item.memoryId)}
-                      <span class="memory-feedback-recorded"><i class="ph ph-check" aria-hidden="true"></i>{copy.memoryTraceRecorded}</span>
+                      <span class="memory-feedback-recorded"><Check size={11} aria-hidden="true" />{copy.memoryTraceRecorded}</span>
                     {:else}
-                      <button type="button" onclick={() => submit(item.memoryId, "helpful")}><i class="ph ph-thumbs-up" aria-hidden="true"></i>{copy.memoryTraceHelpful}</button>
-                      <button type="button" aria-expanded={feedbackMemoryId === item.memoryId} onclick={() => feedbackMemoryId = feedbackMemoryId === item.memoryId ? "" : item.memoryId}><i class="ph ph-warning-circle" aria-hidden="true"></i>{copy.memoryTraceNotForThisTurn}</button>
+                      <button type="button" onclick={() => submit(item.memoryId, "helpful")}><ThumbsUp size={11} aria-hidden="true" />{copy.memoryTraceHelpful}</button>
+                      <button type="button" aria-expanded={feedbackMemoryId === item.memoryId} onclick={() => feedbackMemoryId = feedbackMemoryId === item.memoryId ? "" : item.memoryId}><TriangleWarning size={11} aria-hidden="true" />{copy.memoryTraceNotForThisTurn}</button>
                     {/if}
-                    <button type="button" onclick={() => onManageMemory(item.memoryId)}><i class="ph ph-pencil-simple-line" aria-hidden="true"></i>{copy.memoryTraceEdit}</button>
+                    <button type="button" onclick={() => onManageMemory(item.memoryId)}><PenLine size={11} aria-hidden="true" />{copy.memoryTraceEdit}</button>
                   </div>
                   {#if feedbackMemoryId === item.memoryId}
                     <div class="memory-feedback-reasons">
@@ -242,14 +249,14 @@
                   </div>
                   <div class="memory-trace-actions">
                     {#if recordedMemoryIds.has(item.memoryId)}
-                      <span class="memory-feedback-recorded"><i class="ph ph-check" aria-hidden="true"></i>{copy.memoryTraceRecorded}</span>
+                      <span class="memory-feedback-recorded"><Check size={11} aria-hidden="true" />{copy.memoryTraceRecorded}</span>
                     {:else}
                       <!-- A memory that was only provided (not used) cannot be
                            "helpful"; the actionable signal is to stop auto-including it. -->
-                      <button type="button" onclick={() => submit(item.memoryId, "do_not_inject")}><i class="ph ph-eye-slash" aria-hidden="true"></i>{copy.memoryTraceDoNotInject}</button>
-                      <button type="button" aria-expanded={feedbackMemoryId === item.memoryId} onclick={() => feedbackMemoryId = feedbackMemoryId === item.memoryId ? "" : item.memoryId}><i class="ph ph-warning-circle" aria-hidden="true"></i>{copy.memoryTraceNotForThisTurn}</button>
+                      <button type="button" onclick={() => submit(item.memoryId, "do_not_inject")}><EyeSlash size={11} aria-hidden="true" />{copy.memoryTraceDoNotInject}</button>
+                      <button type="button" aria-expanded={feedbackMemoryId === item.memoryId} onclick={() => feedbackMemoryId = feedbackMemoryId === item.memoryId ? "" : item.memoryId}><TriangleWarning size={11} aria-hidden="true" />{copy.memoryTraceNotForThisTurn}</button>
                     {/if}
-                    <button type="button" onclick={() => onManageMemory(item.memoryId)}><i class="ph ph-pencil-simple-line" aria-hidden="true"></i>{copy.memoryTraceEdit}</button>
+                    <button type="button" onclick={() => onManageMemory(item.memoryId)}><PenLine size={11} aria-hidden="true" />{copy.memoryTraceEdit}</button>
                   </div>
                   {#if feedbackMemoryId === item.memoryId}
                     <div class="memory-feedback-reasons">

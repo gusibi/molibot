@@ -1,4 +1,7 @@
 <script lang="ts">
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import Plus from "reicon-svelte/icons/Plus";
+  import { CHANNEL_ICONS } from "./activityIcons";
   import ConversationRow from "./ConversationRow.svelte";
   import BotAvatar from "./BotAvatar.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
@@ -73,6 +76,8 @@
     if (item.readOnly) return null;
     return statusDots.get(sessionRuntimeKey(item.botId, item.sessionId)) ?? null;
   }
+
+  let ChannelIcon = $derived(CHANNEL_ICONS[channel.icon] ?? CHANNEL_ICONS.globe);
 </script>
 
 <section class="channel-accordion" data-expanded={expanded}>
@@ -83,7 +88,7 @@
       aria-expanded={expanded}
       onclick={onToggle}
     >
-      <i class={`ph ph-${channel.icon}`} aria-hidden="true"></i>
+      <i aria-hidden="true"><ChannelIcon size={16} /></i>
       <span class="channel-accordion-name">{channel.name}</span>
     </button>
     {#if onNewSession}
@@ -94,7 +99,7 @@
         title={labels.newChat}
         onclick={onNewSession}
       >
-        <i class="ph ph-plus" aria-hidden="true"></i>
+        <Plus size={14} aria-hidden="true" />
       </button>
     {/if}
     <button
@@ -104,7 +109,7 @@
       aria-expanded={expanded}
       onclick={onToggle}
     >
-      <i class="ph ph-caret-right chevron" class:open={expanded} aria-hidden="true"></i>
+      <i class={expanded ? "chevron open" : "chevron"} aria-hidden="true"><CaretRight size={12} /></i>
     </button>
   </div>
 
@@ -197,7 +202,7 @@
   .channel-caret-button:hover { background: var(--fill-hover); color: var(--label-primary); }
   .channel-new-session:focus-visible,
   .channel-caret-button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); color: var(--label-primary); }
-  .channel-new-session .ph { font-size: var(--icon-sm); }
+  .channel-new-session :global(svg) { width: var(--icon-sm); height: var(--icon-sm); }
   .chevron { flex: none; font-size: var(--icon-xs); color: inherit; transition: transform var(--duration-instant) var(--ease-standard); }
   .chevron.open { transform: rotate(90deg); }
   .channel-accordion-body { padding: 1px 0 4px; }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import X from "reicon-svelte/icons/X";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
@@ -127,7 +128,7 @@
 {#if agentsStore.agentEdit}
   <Dialog open={true} busy={agentsStore.saving} contentClass="entity-editor-dialog" labelledBy="agent-editor-title" onOpenChange={(next) => { if (!next) agentsStore.agentEdit = null; }}>
   <form id="desktop-agent-form" class="entity-editor-form" aria-label={session.text.agents} onsubmit={(event) => { event.preventDefault(); void saveAgentEditor(); }}>
-    <header class="entity-editor-head"><strong id="agent-editor-title">{session.text.agents}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+    <header class="entity-editor-head"><strong id="agent-editor-title">{session.text.agents}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}><X size={16} aria-hidden="true" /></button></header>
     <div class="entity-editor-body">
     <div class="settings-form">
       <label class="settings-field"><span>{session.text.agentId}</span><input value={agentsStore.agentEdit.id} disabled={!agentsStore.agentEdit.isNew} autocomplete="off" spellcheck="false" oninput={(event) => updateAgentEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>

@@ -1,4 +1,11 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import Check from "reicon-svelte/icons/Check";
+  import Copy from "reicon-svelte/icons/Copy";
+  import InfoCircle from "reicon-svelte/icons/InfoCircle";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import Tuning from "reicon-svelte/icons/Tuning";
+  import X from "reicon-svelte/icons/X";
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
   import Dialog from "../components/ui/Dialog.svelte";
@@ -207,7 +214,7 @@
       <div class="observatory-filter-title"><strong>{session.text.logsFilters}</strong><p>{result ? `${result.scannedLines} ${session.text.logsScanned}` : session.text.logsStructuredHint}</p></div>
       <div class="observatory-filter-actions">
         <button class="tertiary-button observatory-reset-button" type="button" onclick={clearFilters}>{session.text.logsClearFilters}</button>
-        <button class="icon-button observatory-refresh-button" type="button" aria-label={session.text.refreshLogs} title={session.text.refreshLogs} disabled={refreshing} onclick={() => loadLogs(page)}><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
+        <button class="icon-button observatory-refresh-button" type="button" aria-label={session.text.refreshLogs} title={session.text.refreshLogs} disabled={refreshing} onclick={() => loadLogs(page)}><Refresh size={16} aria-hidden="true" /></button>
         <button class="primary-button" type="button" disabled={refreshing} onclick={applyFilters}>{refreshing ? session.text.loading : session.text.logsApplyFilters}</button>
       </div>
     </div>
@@ -219,7 +226,7 @@
     </div>
   </div>
   <details class="observatory-advanced-filters">
-    <summary><span class="observatory-disclosure-label"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>{session.text.logsMoreFilters}{#if advancedFilterCount}<em>{advancedFilterCount}</em>{/if}<i class="ph ph-caret-down observatory-disclosure-icon" aria-hidden="true"></i></span><span class="observatory-filter-updated">{session.text.logsTailWindow}</span></summary>
+    <summary><span class="observatory-disclosure-label"><Tuning size={16} aria-hidden="true" />{session.text.logsMoreFilters}{#if advancedFilterCount}<em>{advancedFilterCount}</em>{/if}<AngleDown class="observatory-disclosure-icon" size={12} aria-hidden="true" /></span><span class="observatory-filter-updated">{session.text.logsTailWindow}</span></summary>
     <div class="observatory-filter-fields trace-advanced-filter-fields">
       <label class="observatory-field"><span>{session.text.logsEvent}</span><input bind:value={event} autocomplete="off" spellcheck="false" list="service-log-events" placeholder="llm_request_sent" /><datalist id="service-log-events">{#each options.events as value}<option value={value}></option>{/each}</datalist></label>
       <label class="observatory-field"><span>{session.text.logsRunId}</span><input bind:value={runId} autocomplete="off" spellcheck="false" placeholder={session.text.logsRunId} /></label>
@@ -238,7 +245,7 @@
 {:else if !result || result.items.length === 0}
   <div class="settings-card"><EmptyState title={result?.total === 0 ? session.text.logsEmpty : session.text.logsNoMatches} icon="file-text" /></div>
 {:else}
-  {#if result.truncated}<div class="service-log-notice"><i class="ph ph-info" aria-hidden="true"></i>{session.text.logsTailTruncated}</div>{/if}
+  {#if result.truncated}<div class="service-log-notice"><InfoCircle size={16} aria-hidden="true" />{session.text.logsTailTruncated}</div>{/if}
   <div class="settings-card observatory-data-card service-log-data-card">
     <div class="observatory-section-head"><div><strong>{session.text.logsRecords}</strong><p>{result.total} {session.text.logsMatches}{#if result.hasRawLines} · {session.text.logsRawCompatibility}{/if}</p></div><button class="tertiary-button" type="button" disabled={opening} onclick={openLogFile}>{session.text.openLogFile}</button></div>
     <div class="observatory-table-wrap"><table class="observatory-table service-log-table"><thead><tr><th>{session.text.logsTime}</th><th>{session.text.logsLevel}</th><th>{session.text.logsCategory}</th><th>{session.text.logsEvent}</th><th>{session.text.logsStatus}</th><th>{session.text.logsRunId}</th><th>{session.text.logsDetails}</th></tr></thead><tbody>{#each result.items as log (log.id)}<tr class="service-log-row" role="button" tabindex="0" aria-label={`${session.text.logsViewDetails}: ${log.event}`} onclick={() => openLogDetail(log)} onkeydown={(rowEvent) => handleRowKeydown(rowEvent, log)}><td>{log.ts ? formatNaturalDateTime(log.ts, session.locale) : "—"}</td><td><span class="service-log-level" data-level={log.level}>{log.level.toUpperCase()}</span></td><td>{humanizeTechnicalName(log.category)}</td><td><strong title={log.event}>{log.event}</strong><small title={log.message ?? contextFor(log)}>{log.message ?? contextFor(log)}</small></td><td>{#if log.status}<StatusBadge label={humanizeTechnicalName(log.status)} state={statusState(log.status)} />{:else}—{/if}</td><td class="observatory-id" title={log.runId ?? ""}><code class="service-log-run-id">{compactRunId(log.runId)}</code></td><td><span class="service-log-detail-button">{session.text.logsViewDetails}</span></td></tr>{/each}</tbody></table></div>
@@ -255,7 +262,7 @@
         <h2 id="service-log-detail-title">{session.text.logsDetailTitle}</h2>
         <p id="service-log-detail-description">{selectedLog.event} · {selectedLog.ts ? formatNaturalDateTime(selectedLog.ts, session.locale) : session.text.logsRawLine}</p>
       </div>
-      <button class="modal-close" type="button" aria-label={session.text.logsClose} onclick={closeLogDetail}><i class="ph ph-x" aria-hidden="true"></i></button>
+      <button class="modal-close" type="button" aria-label={session.text.logsClose} onclick={closeLogDetail}><X size={16} aria-hidden="true" /></button>
     </header>
     <div class="service-log-detail-body">
       <dl class="service-log-detail-metadata">
@@ -272,7 +279,7 @@
       </section>
     </div>
     <footer class="service-log-detail-foot">
-      <button class="tertiary-button" type="button" onclick={copyLogDetail}><i class={`ph ${detailCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i>{detailCopied ? session.text.logsCopied : session.text.logsCopyContent}</button>
+      <button class="tertiary-button" type="button" onclick={copyLogDetail}>{#if detailCopied}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}{detailCopied ? session.text.logsCopied : session.text.logsCopyContent}</button>
       <button class="primary-button" type="button" onclick={closeLogDetail}>{session.text.logsClose}</button>
     </footer>
   {/if}

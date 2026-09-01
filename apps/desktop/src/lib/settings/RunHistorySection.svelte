@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Refresh from "reicon-svelte/icons/Refresh";
   import { untrack } from "svelte";
   import { formatDurationMs } from "../api";
   import EmptyState from "../components/ui/EmptyState.svelte";
@@ -123,7 +124,7 @@
             disabled={runHistoryStore.refreshing}
             onclick={refreshRunHistory}
           >
-            <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+            <Refresh size={16} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -151,7 +152,7 @@
             disabled={runHistoryStore.refreshing}
             onclick={refreshRunHistory}
           >
-            <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+            <Refresh size={16} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -242,5 +243,4 @@
     </div>
   {/if}
 {/if}
-
 

@@ -1,4 +1,16 @@
 <script lang="ts">
+  import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import Code from "reicon-svelte/icons/Code";
+  import Folder from "reicon-svelte/icons/Folder";
+  import Globe from "reicon-svelte/icons/Globe";
+  import Hashtag from "reicon-svelte/icons/Hashtag";
+  import History from "reicon-svelte/icons/History";
+  import Hourglass from "reicon-svelte/icons/Hourglass";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import ShieldCheck from "reicon-svelte/icons/ShieldCheck";
+  import Trash from "reicon-svelte/icons/Trash";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import X from "reicon-svelte/icons/X";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
@@ -117,7 +129,7 @@
       >
         <div class="host-bash-stat-header">
           <span class="host-bash-stat-label">{session.text.hostBashPending}</span>
-          <span class="host-bash-stat-icon warning"><i class="ph ph-hourglass-high" aria-hidden="true"></i></span>
+          <span class="host-bash-stat-icon warning"><Hourglass size={14} aria-hidden="true" /></span>
         </div>
         <div class="host-bash-stat-value">{counts.pending}</div>
         <div class="host-bash-stat-sub">{session.text.hostBashPendingSub}</div>
@@ -131,7 +143,7 @@
       >
         <div class="host-bash-stat-header">
           <span class="host-bash-stat-label">{session.text.hostBashWhitelist}</span>
-          <span class="host-bash-stat-icon accent"><i class="ph ph-shield-check" aria-hidden="true"></i></span>
+          <span class="host-bash-stat-icon accent"><ShieldCheck size={14} aria-hidden="true" /></span>
         </div>
         <div class="host-bash-stat-value">{counts.whitelist}</div>
         <div class="host-bash-stat-sub">{session.text.hostBashWhitelistSub}</div>
@@ -145,7 +157,7 @@
       >
         <div class="host-bash-stat-header">
           <span class="host-bash-stat-label">{session.text.hostBashEnabled}</span>
-          <span class="host-bash-stat-icon online"><i class="ph ph-check-circle" aria-hidden="true"></i></span>
+          <span class="host-bash-stat-icon online"><CheckCircle size={14} aria-hidden="true" /></span>
         </div>
         <div class="host-bash-stat-value">{counts.whitelistEnabled}</div>
         <div class="host-bash-stat-sub">{session.text.hostBashEnabledSub}</div>
@@ -159,7 +171,7 @@
       >
         <div class="host-bash-stat-header">
           <span class="host-bash-stat-label">{session.text.hostBashHistory}</span>
-          <span class="host-bash-stat-icon info"><i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i></span>
+          <span class="host-bash-stat-icon info"><History size={14} aria-hidden="true" /></span>
         </div>
         <div class="host-bash-stat-value">{counts.history}</div>
         <div class="host-bash-stat-sub">{session.text.hostBashHistorySub}</div>
@@ -229,7 +241,7 @@
           title={session.text.hostBashTabAll}
           onclick={() => (hostBashStore.activeTab = "all")}
         >
-          <i class="ph ph-x" aria-hidden="true"></i>
+          <X size={14} aria-hidden="true" />
           <span>{session.text.hostBashTabAll}</span>
         </button>
       {/if}
@@ -241,7 +253,7 @@
         aria-label={session.text.hostBashRefresh}
         onclick={() => void refreshHostBash()}
       >
-        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+        <Refresh size={16} aria-hidden="true" />
       </button>
     </div>
 
@@ -284,11 +296,11 @@
                   {/if}
 
                   <div class="host-bash-permissions-bar">
-                    <span class="host-bash-perm-tag"><i class="ph ph-folder" aria-hidden="true"></i>{session.text.hostBashFs}: {item.permissions?.filesystem ?? "-"}</span>
-                    <span class="host-bash-perm-tag"><i class="ph ph-globe" aria-hidden="true"></i>{session.text.hostBashNet}: {item.permissions?.network ?? "-"}</span>
-                    <span class="host-bash-perm-tag"><i class="ph ph-code" aria-hidden="true"></i>{session.text.hostBashEnv}: {item.permissions?.envAllowlist?.length ?? 0}</span>
+                    <span class="host-bash-perm-tag"><Folder size={12} aria-hidden="true" />{session.text.hostBashFs}: {item.permissions?.filesystem ?? "-"}</span>
+                    <span class="host-bash-perm-tag"><Globe size={12} aria-hidden="true" />{session.text.hostBashNet}: {item.permissions?.network ?? "-"}</span>
+                    <span class="host-bash-perm-tag"><Code size={12} aria-hidden="true" />{session.text.hostBashEnv}: {item.permissions?.envAllowlist?.length ?? 0}</span>
                     {#if item.scopeId}
-                      <span class="host-bash-perm-tag"><i class="ph ph-hash" aria-hidden="true"></i>{session.text.hostBashColScope}: {item.scopeId}</span>
+                      <span class="host-bash-perm-tag"><Hashtag size={12} aria-hidden="true" />{session.text.hostBashColScope}: {item.scopeId}</span>
                     {/if}
                   </div>
                 </div>
@@ -342,11 +354,11 @@
                   {/if}
 
                   <div class="host-bash-permissions-bar">
-                    <span class="host-bash-perm-tag"><i class="ph ph-folder" aria-hidden="true"></i>{session.text.hostBashFs}: {item.permissions?.filesystem ?? "-"}</span>
-                    <span class="host-bash-perm-tag"><i class="ph ph-globe" aria-hidden="true"></i>{session.text.hostBashNet}: {item.permissions?.network ?? "-"}</span>
-                    <span class="host-bash-perm-tag"><i class="ph ph-code" aria-hidden="true"></i>{session.text.hostBashEnv}: {item.permissions?.envAllowlist?.length ?? 0}</span>
+                    <span class="host-bash-perm-tag"><Folder size={12} aria-hidden="true" />{session.text.hostBashFs}: {item.permissions?.filesystem ?? "-"}</span>
+                    <span class="host-bash-perm-tag"><Globe size={12} aria-hidden="true" />{session.text.hostBashNet}: {item.permissions?.network ?? "-"}</span>
+                    <span class="host-bash-perm-tag"><Code size={12} aria-hidden="true" />{session.text.hostBashEnv}: {item.permissions?.envAllowlist?.length ?? 0}</span>
                     {#if item.scopeId}
-                      <span class="host-bash-perm-tag"><i class="ph ph-hash" aria-hidden="true"></i>{session.text.hostBashColScope}: {item.scopeId}</span>
+                      <span class="host-bash-perm-tag"><Hashtag size={12} aria-hidden="true" />{session.text.hostBashColScope}: {item.scopeId}</span>
                     {/if}
                   </div>
                 </div>
@@ -366,7 +378,7 @@
                     disabled={hostBashStore.deletingId === item.id}
                     onclick={() => (deletingWhitelistItem = item)}
                   >
-                    <i class="ph ph-trash" aria-hidden="true"></i>
+                    <Trash size={14} aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -411,17 +423,17 @@
                   </div>
 
                   {#if item.errorText}
-                    <p class="host-bash-error-text"><i class="ph ph-warning-circle" aria-hidden="true"></i>{item.errorText}</p>
+                    <p class="host-bash-error-text"><TriangleWarning size={14} aria-hidden="true" />{item.errorText}</p>
                   {:else if item.reason}
                     <p class="host-bash-reason">{item.reason}</p>
                   {/if}
 
                   <div class="host-bash-permissions-bar">
-                    <span class="host-bash-perm-tag"><i class="ph ph-folder" aria-hidden="true"></i>{session.text.hostBashFs}: {item.permissions?.filesystem ?? "-"}</span>
-                    <span class="host-bash-perm-tag"><i class="ph ph-globe" aria-hidden="true"></i>{session.text.hostBashNet}: {item.permissions?.network ?? "-"}</span>
-                    <span class="host-bash-perm-tag"><i class="ph ph-code" aria-hidden="true"></i>{session.text.hostBashEnv}: {item.permissions?.envAllowlist?.length ?? 0}</span>
+                    <span class="host-bash-perm-tag"><Folder size={12} aria-hidden="true" />{session.text.hostBashFs}: {item.permissions?.filesystem ?? "-"}</span>
+                    <span class="host-bash-perm-tag"><Globe size={12} aria-hidden="true" />{session.text.hostBashNet}: {item.permissions?.network ?? "-"}</span>
+                    <span class="host-bash-perm-tag"><Code size={12} aria-hidden="true" />{session.text.hostBashEnv}: {item.permissions?.envAllowlist?.length ?? 0}</span>
                     {#if item.scopeId}
-                      <span class="host-bash-perm-tag"><i class="ph ph-hash" aria-hidden="true"></i>{session.text.hostBashColScope}: {item.scopeId}</span>
+                      <span class="host-bash-perm-tag"><Hashtag size={12} aria-hidden="true" />{session.text.hostBashColScope}: {item.scopeId}</span>
                     {/if}
                   </div>
                 </div>
@@ -435,7 +447,7 @@
                     disabled={hostBashStore.deletingId === item.id}
                     onclick={() => (deletingHistoryItem = item)}
                   >
-                    <i class="ph ph-trash" aria-hidden="true"></i>
+                    <Trash size={14} aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -811,10 +823,6 @@
     background: var(--fill);
     color: var(--label-tertiary);
     font-size: 11px;
-  }
-
-  .host-bash-perm-tag .ph {
-    font-size: 12px;
   }
 
   .host-bash-row-actions {

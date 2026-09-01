@@ -1,9 +1,14 @@
 <script lang="ts">
+  import At from "reicon-svelte/icons/At";
+  import Loader from "reicon-svelte/icons/Loader";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import X from "reicon-svelte/icons/X";
   import type { Translation } from "../i18n";
   import { tablist } from "../a11y/tablist";
   import { escapeHtml } from "./codeHighlight";
   import { requestComposerInsertion } from "./composerBridge";
-  import { fileIconName, fileIconStyle } from "./fileIcons";
+  import { fileIconKind, fileIconStyle } from "./fileIcons";
+  import { FILE_KIND_ICONS } from "./fileKindIcons";
   import type { ArtifactTabsStore } from "../artifacts/artifactTabsStore.svelte";
 
   let { store, copy }: { store: ArtifactTabsStore; copy: Translation } = $props();
@@ -74,7 +79,7 @@
 
 <div class="file-search">
   <div class="file-search-field">
-    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+    <Magnifier size={14} aria-hidden="true" />
     <input
       type="search"
       bind:this={input}
@@ -87,7 +92,7 @@
       onkeydown={onKeydown}
     />
     <button type="button" aria-label={copy.closePanel} title={copy.closePanel} onclick={() => store.closeSearch()}>
-      <i class="ph ph-x" aria-hidden="true"></i>
+      <X size={14} aria-hidden="true" />
     </button>
   </div>
 
@@ -118,7 +123,7 @@
 
   <div id="file-search-results-panel" class="file-search-results" role="tabpanel" aria-labelledby={store.searchMode === "name" ? "file-search-tab-name" : "file-search-tab-content"}>
     {#if store.searchLoading && !flatHits.length}
-      <div class="project-panel-loading"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
+      <div class="project-panel-loading"><Loader size={18} aria-hidden="true" />{copy.loading}</div>
     {:else if !store.searchQuery.trim()}
       <p class="file-search-hint">{copy.projectSearchHint}</p>
     {:else if !flatHits.length}
@@ -126,9 +131,10 @@
     {:else if result?.mode === "name"}
       <ul class="file-search-list">
         {#each result.hits as hit, index (hit.path)}
+          {@const HitIcon = FILE_KIND_ICONS[fileIconKind(hit.name, "file")]}
           <li class="file-search-row">
             <button type="button" class="file-search-hit" class:cursor={index === cursor} onclick={() => void choose(index)}>
-              <i class={`ph ${fileIconName(hit.name, "file")}`} style={fileIconStyle(hit.name, "file")} aria-hidden="true"></i>
+              <HitIcon size={16} style={fileIconStyle(hit.name, "file")} aria-hidden="true" />
               <span class="file-search-hit-name">{hit.name}</span>
               <small class="file-search-hit-path">{hit.path}</small>
             </button>
@@ -138,16 +144,17 @@
               aria-label={copy.projectMentionInChat}
               title={copy.projectMentionInChat}
               onclick={() => requestComposerInsertion(hit.path)}
-            ><i class="ph ph-at" aria-hidden="true"></i></button>
+            ><At size={16} aria-hidden="true" /></button>
           </li>
         {/each}
       </ul>
     {:else}
       <ul class="file-search-list file-search-content">
         {#each contentGroups as group (group.path)}
+          {@const GroupIcon = FILE_KIND_ICONS[fileIconKind(group.name, "file")]}
           <li class="file-search-group">
             <p class="file-search-group-head">
-              <i class={`ph ${fileIconName(group.name, "file")}`} style={fileIconStyle(group.name, "file")} aria-hidden="true"></i>
+              <GroupIcon size={16} style={fileIconStyle(group.name, "file")} aria-hidden="true" />
               <span>{group.path}</span>
             </p>
             {#each group.lines as entry (entry.line)}
@@ -167,7 +174,7 @@
                   aria-label={copy.projectMentionInChat}
                   title={copy.projectMentionInChat}
                   onclick={() => requestComposerInsertion(group.path, entry.line)}
-                ><i class="ph ph-at" aria-hidden="true"></i></button>
+                ><At size={16} aria-hidden="true" /></button>
               </div>
             {/each}
             {#if group.truncated}<p class="file-search-hint">{copy.projectInspectionTruncated}</p>{/if}

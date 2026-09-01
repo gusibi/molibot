@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ArrowRight from "reicon-svelte/icons/ArrowRight";
+  import { cardIcon } from "../chat/activityIcons";
   import type { DesktopMiniAppResultCard } from "@molibot/desktop-contract";
 
   /**
@@ -27,7 +29,8 @@
 <div class="miniapp-card">
   <div class="miniapp-card-head">
     {#if card.icon}
-      <i class={`ph ph-${card.icon} miniapp-card-icon`} aria-hidden="true"></i>
+      {@const CardIcon = cardIcon(card.icon)}
+      <CardIcon class="miniapp-card-icon" size={16} aria-hidden="true" />
     {/if}
     <div class="miniapp-card-heading">
       <strong class="miniapp-card-title">{card.title}</strong>
@@ -52,7 +55,7 @@
     {@const link = card.link}
     <button type="button" class="miniapp-card-link" onclick={() => onOpenLink(link)}>
       <span>{openLabel}</span>
-      <i class="ph ph-arrow-right" aria-hidden="true"></i>
+      <ArrowRight size={14} aria-hidden="true" />
     </button>
   {/if}
 </div>

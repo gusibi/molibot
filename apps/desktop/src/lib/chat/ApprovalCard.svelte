@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CodeFile from "reicon-svelte/icons/CodeFile";
   import DecisionCard from "./DecisionCard.svelte";
   import { html as renderDiffHtml } from "diff2html";
 
@@ -43,7 +44,7 @@
   {onResolve}
 >
   <code class="approval-command">{command}</code>
-  {#if payload?.path}<div class="approval-path"><i class="ph ph-file-code" aria-hidden="true"></i><code>{payload.path}</code></div>{/if}
+  {#if payload?.path}<div class="approval-path"><CodeFile size={11} aria-hidden="true" /><code>{payload.path}</code></div>{/if}
   {#if diffHtml}<div class="project-diff-preview approval-diff">{@html diffHtml}</div>{/if}
   {#if diffLines.length > 80}<p class="approval-truncated">{moreLinesLabel.replace("{count}", String(diffLines.length - 80))}</p>{/if}
   {#if reason}<p class="approval-reason"><span class="approval-reason-label">{reasonLabel}</span>{reason}</p>{/if}

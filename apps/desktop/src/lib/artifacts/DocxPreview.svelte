@@ -1,4 +1,10 @@
 <script lang="ts">
+  import Eye from "reicon-svelte/icons/Eye";
+  import FileText from "reicon-svelte/icons/FileText";
+  import InfoCircle from "reicon-svelte/icons/InfoCircle";
+  import Loader from "reicon-svelte/icons/Loader";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import type { Translation } from "../i18n";
   import MarkdownPreview from "./MarkdownPreview.svelte";
   import { parseDocx, type DocxDocument } from "./docx";
@@ -63,21 +69,21 @@
 
 <div class="docx-preview" aria-label={name}>
   {#if loadState === "loading"}
-    <div class="docx-state" role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i><span>{copy.artifactDocxLoading}</span></div>
+    <div class="docx-state" role="status"><Loader size={18} aria-hidden="true" /><span>{copy.artifactDocxLoading}</span></div>
   {:else if loadState === "error"}
     <div class="docx-state docx-state-error" role="alert">
-      <i class="ph ph-warning-circle" aria-hidden="true"></i>
+      <TriangleWarning size={18} aria-hidden="true" />
       <strong>{copy.artifactDocxFailed}</strong>
       {#if error}<span>{error}</span>{/if}
-      <button type="button" onclick={retry}><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>{copy.artifactRefresh}</button>
+      <button type="button" onclick={retry}><Refresh size={14} aria-hidden="true" />{copy.artifactRefresh}</button>
     </div>
   {:else if !document || !document.markdown.trim()}
-    <div class="docx-state"><i class="ph ph-file-text" aria-hidden="true"></i><span>{copy.artifactDocxEmpty}</span></div>
+    <div class="docx-state"><FileText size={18} aria-hidden="true" /><span>{copy.artifactDocxEmpty}</span></div>
   {:else}
     <div class="docx-toolbar">
-      <span class="docx-read-only"><i class="ph ph-eye" aria-hidden="true"></i>{copy.artifactDocxReadOnly}</span>
+      <span class="docx-read-only"><Eye size={12} aria-hidden="true" />{copy.artifactDocxReadOnly}</span>
       {#if document.warnings.length > 0}
-        <span class="docx-warning" title={document.warnings.join("\n")}><i class="ph ph-info" aria-hidden="true"></i>{copy.artifactDocxWarnings}</span>
+        <span class="docx-warning" title={document.warnings.join("\n")}><InfoCircle size={12} aria-hidden="true" />{copy.artifactDocxWarnings}</span>
       {/if}
     </div>
     <MarkdownPreview content={document.markdown} {copy} {theme} name={name} />
@@ -126,7 +132,7 @@
   .docx-state-error {
     flex-direction: column;
   }
-  .docx-state-error > i {
+  .docx-state-error > :global(svg) {
     color: var(--danger);
     font-size: var(--icon-lg);
   }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Check from "reicon-svelte/icons/Check";
   import BotAvatar from "./BotAvatar.svelte";
 
   let {
@@ -84,7 +85,7 @@
               {#if bot.subtitle}<span class="mention-option-sub">{bot.subtitle}</span>{/if}
             </span>
             {#if bot.id === selectedId}
-              <i class="ph-bold ph-check mention-check" aria-hidden="true"></i>
+              <Check class="mention-check" weight="Filled" size={12} aria-hidden="true" />
             {/if}
           </button>
         {/each}
@@ -209,7 +210,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .mention-check {
+  :global(.mention-check) {
     flex: none;
     font-size: var(--icon-sm);
     color: var(--accent);

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import X from "reicon-svelte/icons/X";
   import type { DesktopMiniAppResultCard } from "@molibot/desktop-contract";
   import MiniAppResultCard from "./MiniAppResultCard.svelte";
 
@@ -41,7 +42,7 @@
       aria-label={dismissLabel}
       title={dismissLabel}
       onclick={onDismiss}
-    ><i class="ph ph-x" aria-hidden="true"></i></button>
+    ><X size={14} aria-hidden="true" /></button>
   </div>
   {#if card}
     <MiniAppResultCard {card} {openLabel} {onOpenLink} />

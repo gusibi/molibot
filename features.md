@@ -5,6 +5,14 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 - [2026 Q3 Features Archive (Jul - Sep)](docs/archive/features-archive-2026-Q3.md)
 
+## 2026-09-01
+
+### Desktop 图标库统一迁移到 Reicon（已交付）
+
+- **范围**：Desktop 外壳、聊天、设置、项目文件树、Artifact、Mini Apps，以及图片灯箱和 Markdown 表格等原始 DOM/HTML 边界，全部从 `@phosphor-icons/web` 字体类迁移为 `reicon-svelte` 图标组件或类型安全的 Reicon SVG 边界映射。
+- **实现**：普通图标统一使用 `reicon-svelte/icons/*` 子路径导入；动态状态、菜单和文件类型图标改为显式组件/语义映射；保留现有语义、尺寸、颜色、旋转、减弱动效和无障碍属性；移除 Phosphor 字体入口、专用 CSS、依赖和 lockfile 记录。
+- **验证**：Desktop UI 结构测试 219/219、完整 Desktop 测试、`svelte-check` 0 error / 0 warning、Desktop 与 root production build 全部通过；应用内预览已走查聊天、设置、明暗主题、中英文、自动任务和 Mini Apps，页面无旧图标节点。
+
 ## 2026-08-29
 
 ### 用量 / Trace / 服务日志页宽度对齐标准设置列（已交付）
@@ -44,7 +52,7 @@
 - **Mini Apps**：`@heroicons/react` → `reicon-react`（mini-chat 8 个、prompt-box 20 个图标），heroicons 名称通过导入别名映射到 Reicon（如 `Xmark as XMarkIcon`、`Refresh as ArrowPathIcon`），JSX 与 `width/height/strokeWidth/className` 用法零改动（reicon props 透传已核实）。
 - **依赖清理**：移除 `@lucide/svelte` 与 `@heroicons/react`；两个 Mini App 的 `THIRD_PARTY_NOTICES.md` 补充 Reicon（MIT）与 Solar Icons by 480 Design（CC BY 4.0）署名；native-select 中引用旧库名的注释同步更新。
 - **上游缺陷规避（已记入 CLAUDE.md pitfall 45）**：`reicon-svelte@1.0.102` barrel `index.js` 存在 `Icon` 重复导出，Rollup 生产构建直接失败（`Duplicate export "Icon"`）；因此全仓强制 `reicon-svelte/icons/*` 子路径导入，子路径组件不依赖 barrel。`reicon-react` 无此问题。
-- **Desktop 未迁移**：`@phosphor-icons/web`（CSS 字体方案，91 文件/165 图标/99 行 `.ph` CSS）迁移复杂度高（动态图标名组件 API 重设计 + 样式体系重做 + 守卫测试重写），已立项 `prd.md` §3.129 独立 slice，本轮零改动。
+- **Desktop 当时未迁移**：`@phosphor-icons/web`（CSS 字体方案，91 文件/165 图标/99 行 `.ph` CSS）迁移复杂度高（动态图标名组件 API 重设计 + 样式体系重做 + 守卫测试重写），当时立项为 `prd.md` §3.129 独立 slice；该 slice 已于 2026-09-01 交付，见上方条目。
 - **验证**：root production build 通过；mini-chat/prompt-box esbuild 构建通过，产物 tree-shaking 生效（仅 73 行 diff）、无 heroicons 残留；全仓无 `@lucide`/`@heroicons` 引用残留；构建产物确认包含 reicon 组件。设置页与两个 Mini App 的真实冷启动走查待产品验收。
 
 ### Desktop 设置与客户端 Web 界面设计规范全面对齐（P0 / P1 / P2 已交付）

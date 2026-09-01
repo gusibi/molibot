@@ -1,4 +1,8 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import AngleUp from "reicon-svelte/icons/AngleUp";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import MagicWand from "reicon-svelte/icons/MagicWand";
   import type { Translation } from "../i18n";
   import { skillsStore, loadSkills } from "../stores/skills.svelte";
 
@@ -48,7 +52,7 @@
   <div class="workspace-empty"><p>{copy.skillsEmpty}</p></div>
 {:else}
   <div class="installed-skills-toolbar">
-    <label class="installed-skills-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input bind:value={query} autocomplete="off" spellcheck="false" aria-label={copy.skillsFilter} placeholder={copy.skillsFilterHint} /></label>
+    <label class="installed-skills-search"><Magnifier size={14} aria-hidden="true" /><input bind:value={query} autocomplete="off" spellcheck="false" aria-label={copy.skillsFilter} placeholder={copy.skillsFilterHint} /></label>
     <div class="installed-skills-summary"><span>{copy.skillsTotal} <strong>{skillsStore.skills.counts.total}</strong></span><span>{copy.agentsEnabledCount} <strong>{skillsStore.skills.counts.enabled}</strong></span></div>
   </div>
   {#if filteredSkills.length === 0}
@@ -57,7 +61,7 @@
   <div class="installed-skills-grid">
     {#each filteredSkills as skill (skill.id)}
       <article class="installed-skill-card">
-        <div class="installed-skill-icon" aria-hidden="true"><i class="ph-fill ph-magic-wand" aria-hidden="true"></i></div>
+        <div class="installed-skill-icon" aria-hidden="true"><MagicWand weight="Filled" size={16} /></div>
         <div class="installed-skill-copy">
           <div class="installed-skill-title">
             <strong>{skill.name}</strong>
@@ -72,7 +76,7 @@
             {#if skill.chatId}<span>{skill.chatId}</span>{/if}
             {#if skill.mcpServerCount > 0}<span>{copy.skillMcpServers}: {skill.mcpServerCount}</span>{/if}
           </div>
-          {#if skill.description}<button class="installed-skill-expand" type="button" aria-expanded={expandedIds.has(skill.id)} onclick={() => toggleDescription(skill.id)}>{expandedIds.has(skill.id) ? copy.skillsShowLess : copy.skillsShowMore}<i class={`ph ph-caret-${expandedIds.has(skill.id) ? "up" : "down"}`} aria-hidden="true"></i></button>{/if}
+          {#if skill.description}<button class="installed-skill-expand" type="button" aria-expanded={expandedIds.has(skill.id)} onclick={() => toggleDescription(skill.id)}>{expandedIds.has(skill.id) ? copy.skillsShowLess : copy.skillsShowMore}{#if expandedIds.has(skill.id)}<AngleUp size={12} aria-hidden="true" />{:else}<AngleDown size={12} aria-hidden="true" />{/if}</button>{/if}
         </div>
       </article>
     {/each}

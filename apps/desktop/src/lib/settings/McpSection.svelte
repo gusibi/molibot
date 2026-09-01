@@ -1,4 +1,5 @@
 <script lang="ts">
+  import X from "reicon-svelte/icons/X";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
@@ -93,7 +94,7 @@
     {@const savedMcp = mcpStore.mcp.items.find((item) => item.id === mcpStore.mcpEdit?.previousId)}
     <Dialog open={true} busy={mcpStore.saving} contentClass="entity-editor-dialog" labelledBy="mcp-editor-title" onOpenChange={(next) => { if (!next) mcpStore.mcpEdit = null; }}>
     <form id="desktop-mcp-form" class="entity-editor-form" aria-label={session.text.mcp} onsubmit={(event) => { event.preventDefault(); void saveMcpEditor(); }}>
-      <header class="entity-editor-head"><strong id="mcp-editor-title">{session.text.mcp}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={mcpStore.saving} onclick={() => (mcpStore.mcpEdit = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+      <header class="entity-editor-head"><strong id="mcp-editor-title">{session.text.mcp}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={mcpStore.saving} onclick={() => (mcpStore.mcpEdit = null)}><X size={16} aria-hidden="true" /></button></header>
       <div class="entity-editor-body">
       <div class="settings-form">
         <label class="settings-field"><span>{session.text.mcpId}</span><input value={mcpStore.mcpEdit.id} disabled={!mcpStore.mcpEdit.isNew} autocomplete="off" spellcheck="false" oninput={(event) => updateMcpEdit((draft) => ({ ...draft, id: event.currentTarget.value }))} /></label>

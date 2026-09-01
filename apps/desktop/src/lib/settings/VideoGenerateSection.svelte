@@ -1,4 +1,9 @@
 <script lang="ts">
+  import Eye from "reicon-svelte/icons/Eye";
+  import EyeSlash from "reicon-svelte/icons/EyeSlash";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import Trash from "reicon-svelte/icons/Trash";
+  import X from "reicon-svelte/icons/X";
   import { onDestroy } from "svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
@@ -88,7 +93,7 @@
               <div class="secret-input">
                 <input type={secretRevealed(`video:${engine.id}`) ? "text" : "password"} aria-label={session.text.toolApiKey} bind:value={engine.apiKey} placeholder={engine.hasApiKey ? session.text.channelSecretConfigured : ""} autocomplete="new-password" spellcheck="false" oninput={() => markToolSettingsDirty("videoGenerate")} />
                 <button class="secret-reveal" type="button" aria-label={session.text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`video:${engine.id}`); }}>
-                  <i class={`ph ${secretRevealed(`video:${engine.id}`) ? "ph-eye-slash" : "ph-eye"}`} aria-hidden="true"></i>
+                  {#if secretRevealed(`video:${engine.id}`)}<EyeSlash size={16} aria-hidden="true" />{:else}<Eye size={16} aria-hidden="true" />{/if}
                 </button>
               </div>
               {#if engine.hasApiKey}
@@ -140,7 +145,7 @@
               <button class="secondary-button danger-action" type="button" disabled={toolsStore.mediaTaskBusy === task.id} onblur={disarmDeleteOnBlur} onclick={() => void removeMediaTask("video", task.id)}>{session.text.confirmDelete}</button>
               <button class="secondary-button" type="button" onblur={disarmDeleteOnBlur} onclick={() => (confirmingDelete = "")}>{session.text.cancel}</button>
             {:else}
-              <button class="row-icon-btn danger-action" type="button" title={session.text.mediaTaskDelete} aria-label={session.text.mediaTaskDelete} disabled={toolsStore.mediaTaskBusy === task.id} onclick={() => (confirmingDelete = task.id)}><i class="ph ph-trash" aria-hidden="true"></i></button>
+              <button class="row-icon-btn danger-action" type="button" title={session.text.mediaTaskDelete} aria-label={session.text.mediaTaskDelete} disabled={toolsStore.mediaTaskBusy === task.id} onclick={() => (confirmingDelete = task.id)}><Trash size={16} aria-hidden="true" /></button>
             {/if}
           </div>
         </div>
@@ -156,7 +161,7 @@
     >
       <header class="modal-head">
         <strong id="video-media-task-detail-title">{session.text.mediaTaskDetail}</strong>
-        <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => closeMediaTaskDetail()}><i class="ph ph-x" aria-hidden="true"></i></button>
+        <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => closeMediaTaskDetail()}><X size={16} aria-hidden="true" /></button>
       </header>
       <div class="modal-body media-task-detail">
         {#if toolsStore.mediaTaskDetail.status === "completed"}
@@ -166,7 +171,7 @@
             {:else if toolsStore.mediaTaskDetailFailed}
               <button class="media-task-preview-state" type="button" onclick={() => toolsStore.mediaTaskDetail && openMediaTaskDetail(toolsStore.mediaTaskDetail)}>{session.text.mediaLoadFailed}</button>
             {:else}
-              <div class="media-task-preview-state" aria-live="polite"><i class="ph ph-circle-notch" aria-hidden="true"></i><span>{session.text.mediaLoading}</span></div>
+              <div class="media-task-preview-state" aria-live="polite"><Refresh class="media-task-spinner" size={16} aria-hidden="true" /><span>{session.text.mediaLoading}</span></div>
             {/if}
           </div>
         {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CaretRight from "reicon-svelte/icons/CaretRight";
   import { miniAppsStore, recentMiniApps, hasMoreThanRecent, loadMiniApps } from "../stores/miniapps.svelte";
   import MiniAppIcon from "./MiniAppIcon.svelte";
 
@@ -47,7 +48,7 @@
   <section class="miniapps-section">
     <button type="button" class="sidebar-section-head sidebar-section-toggle" aria-expanded={expanded} onclick={onToggle}>
       <span>{copy.miniAppsRecent}</span>
-      <i class="ph ph-caret-right sidebar-section-caret" class:open={expanded} aria-hidden="true"></i>
+      <i class={expanded ? "sidebar-section-caret open" : "sidebar-section-caret"} aria-hidden="true"><CaretRight size={12} /></i>
     </button>
 
     {#if expanded}

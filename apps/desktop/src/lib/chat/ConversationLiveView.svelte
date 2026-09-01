@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { emptyActionIcon, type EmptyActionIcon } from "./activityIcons";
   import type { Translation } from "../i18n";
   import type { DesktopActivityEntry } from "../api";
   import type { DesktopConversationStep } from "@molibot/desktop-contract";
@@ -25,7 +26,7 @@
   export let emptyHint: string;
   export let emptyActionLabel = "";
   export let emptyActionHint = "";
-  export let emptyActions: ReadonlyArray<{ icon: string; label: string; prompt: string }> = [];
+  export let emptyActions: ReadonlyArray<{ icon: EmptyActionIcon; label: string; prompt: string }> = [];
   export let onEmptyAction: ((prompt: string) => void) | null = null;
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
@@ -64,8 +65,9 @@
     {#if emptyActions.length > 0 && onEmptyAction}
       <div class="conversation-empty-actions" role="group" aria-label={emptyActionLabel}>
         {#each emptyActions as action (action.label)}
+          {@const ActionIcon = emptyActionIcon(action.icon)}
           <button type="button" onclick={() => onEmptyAction?.(action.prompt)}>
-            <i class={`ph ph-${action.icon}`} aria-hidden="true"></i>
+            <ActionIcon size={18} aria-hidden="true" />
             <span>{action.label}</span>
           </button>
         {/each}

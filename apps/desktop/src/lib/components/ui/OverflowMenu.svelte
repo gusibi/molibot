@@ -1,4 +1,5 @@
 <script lang="ts">
+  import More from "reicon-svelte/icons/More";
   import { onDestroy, tick } from "svelte";
 
   export let label: string;
@@ -74,7 +75,7 @@
 
 <details class={`overflow-menu overflow-menu-${variant} overflow-menu-${placement}`} bind:this={menu} ontoggle={(event) => (open = event.currentTarget.open)} onpointerenter={onPointerEnter} onpointerleave={onPointerLeave}>
   <summary bind:this={trigger} aria-label={label} title={label} onkeydown={onTriggerKeydown}>
-    <slot name="trigger"><i class="ph ph-dots-three" aria-hidden="true"></i></slot>
+    <slot name="trigger"><More class="overflow-menu-icon" size={16} aria-hidden="true" /></slot>
   </summary>
   {#if open}<div class="overflow-menu-popover" role={popoverRole} aria-label={label} tabindex="-1" onkeydown={onMenuKeydown} onclick={onMenuClick}><slot /></div>{/if}
 </details>

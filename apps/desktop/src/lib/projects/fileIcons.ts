@@ -1,45 +1,70 @@
-const FILE_ICON_BY_EXT: Record<string, string> = {
-  ts: "ph-file-ts", tsx: "ph-file-tsx", mts: "ph-file-ts", cts: "ph-file-ts",
-  js: "ph-file-js", jsx: "ph-file-jsx", mjs: "ph-file-js", cjs: "ph-file-js",
-  vue: "ph-file-vue", svelte: "ph-file-code", astro: "ph-file-code",
-  py: "ph-file-py", pyw: "ph-file-py", rs: "ph-file-rs",
-  c: "ph-file-c", h: "ph-file-c", cpp: "ph-file-cpp", cc: "ph-file-cpp", cxx: "ph-file-cpp", hpp: "ph-file-cpp", hh: "ph-file-cpp",
-  cs: "ph-file-c-sharp", java: "ph-file-code", kt: "ph-file-code", go: "ph-file-code", rb: "ph-file-code", php: "ph-file-code", swift: "ph-file-code",
-  css: "ph-file-css", scss: "ph-file-css", sass: "ph-file-css", less: "ph-file-css",
-  html: "ph-file-html", htm: "ph-file-html",
-  md: "ph-file-md", mdx: "ph-file-md",
-  json: "ph-file-code", json5: "ph-file-code", yaml: "ph-file-code", yml: "ph-file-code", toml: "ph-file-code", xml: "ph-file-code",
-  sql: "ph-file-sql", graphql: "ph-file-code", prisma: "ph-file-code",
-  sh: "ph-file-code", bash: "ph-file-code", zsh: "ph-file-code",
-  ini: "ph-file-ini", conf: "ph-file-ini", cfg: "ph-file-ini", env: "ph-file-ini",
-  csv: "ph-file-csv", tsv: "ph-file-csv",
-  svg: "ph-file-svg", pdf: "ph-file-pdf",
-  png: "ph-file-png", jpg: "ph-file-jpg", jpeg: "ph-file-jpg", gif: "ph-file-image", bmp: "ph-file-image", webp: "ph-file-image", ico: "ph-file-image",
-  mp3: "ph-file-audio", wav: "ph-file-audio", flac: "ph-file-audio", m4a: "ph-file-audio", ogg: "ph-file-audio", aac: "ph-file-audio",
-  mp4: "ph-file-video", mov: "ph-file-video", webm: "ph-file-video", avi: "ph-file-video", mkv: "ph-file-video",
-  zip: "ph-file-zip", tar: "ph-file-archive", gz: "ph-file-archive", tgz: "ph-file-archive", rar: "ph-file-archive", "7z": "ph-file-archive",
-  xls: "ph-file-xls", xlsx: "ph-file-xls", doc: "ph-file-doc", docx: "ph-file-doc", ppt: "ph-file-ppt", pptx: "ph-file-ppt",
-  txt: "ph-file-txt", log: "ph-file-txt", lock: "ph-file-lock"
+/**
+ * Semantic glyph categories a file can render with. The UI maps each category
+ * to a concrete Reicon component in `fileKindIcons.ts`; repository colours
+ * (see `FILE_ICON_COLOR_BY_*`) carry language identity on top.
+ */
+export type FileIconKind =
+  | "folder"
+  | "folder-open"
+  | "symlink"
+  | "code"
+  | "data"
+  | "config"
+  | "lock"
+  | "text"
+  | "document"
+  | "sheet"
+  | "slides"
+  | "pdf"
+  | "image"
+  | "audio"
+  | "video"
+  | "zip"
+  | "archive"
+  | "file";
+
+const FILE_KIND_BY_EXT: Record<string, FileIconKind> = {
+  ts: "code", tsx: "code", mts: "code", cts: "code",
+  js: "code", jsx: "code", mjs: "code", cjs: "code",
+  vue: "code", svelte: "code", astro: "code",
+  py: "code", pyw: "code", rs: "code",
+  c: "code", h: "code", cpp: "code", cc: "code", cxx: "code", hpp: "code", hh: "code",
+  cs: "code", java: "code", kt: "code", go: "code", rb: "code", php: "code", swift: "code",
+  css: "code", scss: "code", sass: "code", less: "code",
+  html: "code", htm: "code",
+  md: "text", mdx: "text",
+  json: "data", json5: "data", yaml: "data", yml: "data", toml: "data", xml: "data",
+  sql: "data", graphql: "code", prisma: "code",
+  sh: "code", bash: "code", zsh: "code",
+  ini: "config", conf: "config", cfg: "config", env: "config",
+  csv: "sheet", tsv: "sheet",
+  svg: "image", pdf: "pdf",
+  png: "image", jpg: "image", jpeg: "image", gif: "image", bmp: "image", webp: "image", ico: "image",
+  mp3: "audio", wav: "audio", flac: "audio", m4a: "audio", ogg: "audio", aac: "audio",
+  mp4: "video", mov: "video", webm: "video", avi: "video", mkv: "video",
+  zip: "zip", tar: "archive", gz: "archive", tgz: "archive", rar: "archive", "7z": "archive",
+  xls: "sheet", xlsx: "sheet", doc: "document", docx: "document", ppt: "slides", pptx: "slides",
+  txt: "text", log: "text", lock: "lock"
 };
 
-const FILE_ICON_BY_NAME: Record<string, string> = {
-  "dockerfile": "ph-file-code",
-  "makefile": "ph-file-code",
-  "cmakelists.txt": "ph-file-code",
-  "readme": "ph-file-md",
-  "readme.md": "ph-file-md",
-  "changelog.md": "ph-file-md",
-  "license": "ph-file-text",
-  "license.md": "ph-file-md",
-  ".gitignore": "ph-file-dotted",
-  ".gitattributes": "ph-file-dotted",
-  ".editorconfig": "ph-file-ini",
-  ".env": "ph-file-ini",
-  ".env.local": "ph-file-ini",
-  "package.json": "ph-file-code",
-  "package-lock.json": "ph-file-lock",
-  "pnpm-lock.yaml": "ph-file-lock",
-  "yarn.lock": "ph-file-lock"
+const FILE_KIND_BY_NAME: Record<string, FileIconKind> = {
+  "dockerfile": "code",
+  "makefile": "code",
+  "cmakelists.txt": "code",
+  "readme": "text",
+  "readme.md": "text",
+  "changelog.md": "text",
+  "license": "text",
+  "license.md": "text",
+  ".gitignore": "config",
+  ".gitattributes": "config",
+  ".editorconfig": "config",
+  ".env": "config",
+  ".env.local": "config",
+  "package.json": "data",
+  "package-lock.json": "lock",
+  "pnpm-lock.yaml": "lock",
+  "yarn.lock": "lock"
 };
 
 /*
@@ -95,12 +120,12 @@ function extensionOf(name: string): string {
   return name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
 }
 
-export function fileIconName(name: string, kind: string, expanded = false): string {
-  if (kind === "directory") return expanded ? "ph-folder-open" : "ph-folder-simple";
-  if (kind === "symlink") return "ph-link";
-  const namedIcon = FILE_ICON_BY_NAME[name.toLowerCase()];
-  if (namedIcon) return namedIcon;
-  return FILE_ICON_BY_EXT[extensionOf(name)] || "ph-file-text";
+export function fileIconKind(name: string, kind: string, expanded = false): FileIconKind {
+  if (kind === "directory") return expanded ? "folder-open" : "folder";
+  if (kind === "symlink") return "symlink";
+  const namedKind = FILE_KIND_BY_NAME[name.toLowerCase()];
+  if (namedKind) return namedKind;
+  return FILE_KIND_BY_EXT[extensionOf(name)] || "file";
 }
 
 export function fileIconStyle(name: string, kind: string): string {

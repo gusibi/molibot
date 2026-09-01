@@ -13,6 +13,9 @@ const app = read("./App.svelte");
 const i18n = read("./lib/i18n.ts");
 const styles = read("./styles.css");
 const multiSelectControl = read("./lib/components/ui/MultiSelectControl.svelte");
+const emptyState = read("./lib/components/ui/EmptyState.svelte");
+const searchField = read("./lib/components/ui/SearchField.svelte");
+const groupHeader = read("./lib/chat/GroupHeader.svelte");
 const design = read("../../../DESIGN.md");
 const tauriConfig = JSON.parse(read("../src-tauri/tauri.conf.json"));
 const tauriCargo = read("../src-tauri/Cargo.toml");
@@ -171,8 +174,8 @@ test("editing rewrites the current Session in place while only assistant message
   const userMessageBranch = transcript.slice(transcript.indexOf('{#if message.role === "user"}'), assistantBranchIndex);
   const assistantMessageBranch = transcript.slice(assistantBranchIndex);
   // User messages do not offer a fork button; completed assistant replies do.
-  assert.doesNotMatch(userMessageBranch, /onForkAssistant|ph-git-branch/);
-  assert.match(assistantMessageBranch, /messageActions\.onForkAssistant[\s\S]*ph-git-branch/);
+  assert.doesNotMatch(userMessageBranch, /onForkAssistant|BranchUp/);
+  assert.match(assistantMessageBranch, /messageActions\.onForkAssistant[\s\S]*BranchUp/);
   assert.doesNotMatch(transcriptHelpers, /onForkUser/);
   assert.match(transcriptHelpers, /onForkAssistant/);
   assert.match(view, /onForkAssistant:[\s\S]*forkFromAssistantMessage/);
@@ -1751,7 +1754,7 @@ test("per-session model persistence commits caches only after the server save su
   assert.match(projectChat, /if \(projectsStore\.selectedSessionId === sessionId\) activeModelKey = value/);
 });
 
-test("external channel groups use icons that exist in the bundled icon font", () => {
+test("external channel groups use mapped Reicon components", () => {
   assert.match(view, /id: "telegram", icon: "telegram-logo"/);
   assert.match(view, /id: "feishu", icon: "bird"/);
   assert.match(view, /id: "qq", icon: "linux-logo"/);
@@ -2932,16 +2935,26 @@ test("project sessions support rename and delete from the session list", () => {
 
 test("projects expose a guarded remove action without deleting the working directory", () => {
   const projectTree = readFileSync(new URL("./lib/projects/ProjectTree.svelte", import.meta.url), "utf8");
-  const groupHeader = readFileSync(new URL("./lib/chat/GroupHeader.svelte", import.meta.url), "utf8");
   const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
-  assert.match(groupHeader, /ph-dots-three/);
+  assert.match(groupHeader, /reicon-svelte\/icons\/More/);
   assert.match(projectTree, /copy\.renameProject/);
   assert.match(projectTree, /renameProject\(renameProjectId, renameProjectName\)/);
-  assert.doesNotMatch(groupHeader, /conv-group-remove|ph-trash/);
+  assert.doesNotMatch(groupHeader, /conv-group-remove|reicon-svelte\/icons\/Trash/);
   assert.match(projectTree, /copy\.projectDeleteNotice/);
   assert.match(projectTree, /copy\.projectDeleteSessions/);
   assert.match(projectTree, /removeProject\(deleteProjectId, deleteProjectSessions\)/);
   assert.match(projectsStore, /deleteDesktopProject\(projectsStore\.endpoint, projectId, removeSessions\)/);
+});
+
+test("shared icon boundaries use Reicon subpath imports and typed semantic maps", () => {
+  for (const source of [emptyState, overflowMenu, searchField, selectControl, multiSelectControl, groupHeader]) {
+    assert.doesNotMatch(source, /from ["']reicon-svelte["']/);
+    assert.doesNotMatch(source, new RegExp(`\\b${String.fromCharCode(112, 104)}-[A-Za-z]`));
+  }
+  assert.match(emptyState, /const EMPTY_STATE_ICONS = \{/);
+  assert.match(emptyState, /export let icon: EmptyStateIcon/);
+  assert.match(groupHeader, /const GROUP_ICONS = \{ folder: Folder, notebook: Notebook \}/);
+  assert.match(groupHeader, /export let icon: keyof typeof GROUP_ICONS/);
 });
 
 test("project session delete uses Chat's shared row menu", () => {
@@ -3340,31 +3353,30 @@ test("composer token pill sizes its two axes against their real budgets", () => 
   }
 });
 
-// A `ph-*` class that Phosphor does not ship renders as an empty box with no
-// error — the same silent failure mode as an undefined CSS token. Every icon
-// name in the app is checked against the installed icon set.
-test("every Phosphor icon name used in the UI exists in the installed icon set", () => {
-  const iconCss = readFileSync(
-    new URL("../node_modules/@phosphor-icons/web/src/fill/style.css", import.meta.url),
-    "utf8"
-  );
-  const available = new Set([...iconCss.matchAll(/\.(ph-[a-z0-9-]+):/g)].map((match) => match[1]));
-  assert.ok(available.size > 1000, "Phosphor icon stylesheet was not read");
+test("Desktop icon sources use Reicon subpaths and have no legacy icon tokens", () => {
+  const iconSources = [
+    ...listSvelteSources(),
+    read("./lib/projects/fileIcons.ts"),
+    read("./lib/projects/fileKindIcons.ts"),
+    read("./lib/projects/fileMenu.ts"),
+    read("./lib/reiconSvg.ts"),
+    read("./lib/imageLightbox.ts"),
+    read("./lib/markdown.ts"),
+    read("./main.ts"),
+    read("../dialog-harness.html"),
+    read("../package.json"),
+    styles
+  ];
+  const combined = iconSources.join("\n");
+  const reiconImports = combined.match(/from ["']reicon-svelte\/icons\/[^"']+["']/g) ?? [];
+  assert.ok(reiconImports.length > 100, "Reicon subpath imports were not collected");
 
-  const used = new Set();
-  for (const source of listSvelteSources()) {
-    for (const match of source.matchAll(/\bph-[a-z0-9-]+/g)) {
-      const name = match[0];
-      // `ph-fill` / `ph-duotone` etc. select a weight, not an icon.
-      if (["ph-fill", "ph-bold", "ph-thin", "ph-light", "ph-duotone"].includes(name)) continue;
-      // A trailing dash means the suffix is interpolated (`ph-caret-${…}`);
-      // only the literal part is visible here, so it cannot be checked.
-      if (name.endsWith("-")) continue;
-      used.add(name);
-    }
-  }
-  assert.ok(used.size > 50, "no icon usages were collected");
-  assert.deepEqual([...used].filter((name) => !available.has(name)).sort(), []);
+  const iconPrefix = String.fromCharCode(112, 104);
+  const legacyPackage = ["@", iconPrefix, "osphor-icons", "/", "web"].join("");
+  const legacyClass = `${iconPrefix}-`;
+  const legacySelector = `\\.${iconPrefix}\\b`;
+  const legacyTokens = new RegExp(`${legacyPackage}|${legacyClass}[A-Za-z]|${legacySelector}`);
+  assert.doesNotMatch(combined, legacyTokens);
 });
 
 // Issue #24: a queue with no way out. Stop threw away everything the user had
@@ -3416,7 +3428,7 @@ test("OpenConnector is a first-class peer to MCP with a safe catalog and fixed s
   assert.match(connector, /class="connector-card-actions">[\s\S]*class="status-badge"[\s\S]*class="connector-card-action"/);
   assert.match(connector, /\{#if provider\.homepageUrl\}[\s\S]*class="connector-card-head connector-provider-link"[\s\S]*openUrl\(provider\.homepageUrl\)/);
   assert.match(connector, /openConnectorOpenHomepage\.replace\("\{name\}", provider\.displayName\)/);
-  assert.match(connector, /ph-arrow-square-out/);
+  assert.match(connector, /reicon-svelte\/icons\/SquareArrowUp/);
   assert.doesNotMatch(connector, /class="connector-description"/);
   assert.match(connector, /<details class="settings-card connector-config-panel">/);
   assert.doesNotMatch(connector, /<details class="settings-card connector-config-panel" open/);
@@ -3702,7 +3714,8 @@ test("files and Mini Apps are separate surfaces, never one mixed tab strip", () 
   // surface and adds a caret rather than restating both choices permanently.
   assert.match(head, /<OverflowMenu variant="inline" label=\{copy\.artifactModeSwitch\}>/);
   assert.match(head, /class="artifact-mode-trigger" slot="trigger"/);
-  assert.match(head, /ph-caret-down artifact-mode-caret/);
+  assert.match(projectFilePanel, /import AngleDown from "reicon-svelte\/icons\/AngleDown"/);
+  assert.match(head, /class="artifact-mode-caret"/);
   assert.doesNotMatch(head, /role="tablist"/);
   // Reused, not re-implemented: OverflowMenu owns dismiss / Escape / arrow keys,
   // and a bespoke popover here would be a fork of all three (pitfall #7).
@@ -3775,7 +3788,7 @@ test("Mini Apps are reachable as a primary destination and a recent-first app se
   // the bottom of a Settings page.
   assert.match(chatSidebar, /class="nav-item"[\s\S]{0,200}onclick=\{onOpenMiniApps\}/);
   assert.match(chatSidebar, /copy\.miniAppsNav/);
-  assert.match(chatSidebar, /ph-app-store-logo/);
+  assert.match(chatSidebar, /Grid size=\{16\} aria-hidden="true" \/>/);
   assert.match(workspacePane, /pane === "miniapps"[\s\S]{0,120}<MiniAppsManager/);
 
   // The tree section keeps the Mini Apps label, while ordering a bounded list
@@ -3865,8 +3878,9 @@ test("Mini App icons are inlined so no CSP or path leak is needed", () => {
   assert.doesNotMatch(csp, /img-src[^;]*molibot-miniapp/);
   // Every icon-bearing surface shares one neutral fallback rather than drifting
   // back to the generic four-cell grid.
-  assert.match(miniAppIcon, /\{:else\}[\s\S]{0,120}ph-app-window/);
-  assert.doesNotMatch(miniAppIcon, /ph-squares-four/);
+  assert.match(miniAppIcon, /import Window from "reicon-svelte\/icons\/Window"/);
+  assert.match(miniAppIcon, /\{:else\}[\s\S]{0,120}<Window/);
+  assert.doesNotMatch(miniAppIcon, /squares-four/);
 });
 
 test("the Mini App manager follows the bounded data-page layout", () => {
@@ -4125,7 +4139,7 @@ test("Mini App message actions are always a labelled menu, never loose glyphs", 
   assert.match(transcript, /role="menuitem"[\s\S]{0,400}<span>\{action\.label\}<\/span>/);
   // The trigger reports the outcome, because the menu has closed by the time
   // the call settles.
-  assert.match(transcript, /busy \? "ph-circle-notch message-action-spin" : done \? "ph-check" : "ph-dots-three"/);
+  assert.match(transcript, /\{#if busy\}<Loader class="message-action-spin" size=\{14\} \/>\{:else if done\}<Check size=\{14\} \/>\{:else\}<More size=\{14\} \/>\{\/if\}/);
   // A pending entry cannot be fired twice.
   assert.match(transcript, /role="menuitem" disabled=\{pending\}/);
 });
@@ -4243,7 +4257,7 @@ test("permission mode is an independent control immediately after Attach", () =>
   // peer control in the left tool group, after the attachment button.
   assert.doesNotMatch(composerModelMenu, /permissionMode|permissionModeOptions|onChangePermissionMode/);
   assert.match(chatInputArea, /import ComposerPermissionMenu/);
-  assert.match(chatInputArea, /ph-paperclip[\s\S]{0,500}<ComposerPermissionMenu/);
+  assert.match(chatInputArea, /<Paperclip size=\{18\} aria-hidden="true" \/>[\s\S]{0,500}<ComposerPermissionMenu/);
   assert.match(chatInputArea, /export let permissionMode/);
   assert.match(chatInputArea, /export let onChangePermissionMode/);
   assert.match(chatInputArea, /value=\{permissionMode\}[\s\S]{0,160}onChange=\{onChangePermissionMode\}/);
@@ -4260,8 +4274,8 @@ test("permission mode is an independent control immediately after Attach", () =>
   assert.match(composerPermissionMenu, /role="menuitemradio"/);
   assert.match(composerPermissionMenu, /event\.key === "Escape"/);
   assert.match(composerPermissionMenu, /document\.addEventListener\("pointerdown"/);
-  assert.doesNotMatch(composerPermissionMenu, /ph-caret-down/);
-  assert.doesNotMatch(styles, /\.composer-permission-trigger \.ph-caret-down/);
+  assert.doesNotMatch(composerPermissionMenu, /composer-model-caret/);
+  assert.doesNotMatch(styles, /\.composer-permission-trigger \.composer-model-caret/);
 });
 
 test("composer selector pills still have no inline-size containment", () => {

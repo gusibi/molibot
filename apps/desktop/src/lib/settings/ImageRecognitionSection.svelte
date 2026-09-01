@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ArrowDown from "reicon-svelte/icons/ArrowDown";
+  import ArrowUp from "reicon-svelte/icons/ArrowUp";
   import { onDestroy } from "svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
@@ -127,8 +129,8 @@
                 <p class="settings-hint">API · {index + 1}</p>
               </div>
               <div class="settings-row-actions">
-                <button class="row-icon-btn" type="button" title={session.text.imageRecognitionMoveUp} aria-label={session.text.imageRecognitionMoveUp} disabled={index === 0} onclick={() => moveImageRecognitionEngine(engine.id, -1)}><i class="ph ph-arrow-up" aria-hidden="true"></i></button>
-                <button class="row-icon-btn" type="button" title={session.text.imageRecognitionMoveDown} aria-label={session.text.imageRecognitionMoveDown} disabled={index === imageRecognitionStore.draft!.engines.length - 1} onclick={() => moveImageRecognitionEngine(engine.id, 1)}><i class="ph ph-arrow-down" aria-hidden="true"></i></button>
+                <button class="row-icon-btn" type="button" title={session.text.imageRecognitionMoveUp} aria-label={session.text.imageRecognitionMoveUp} disabled={index === 0} onclick={() => moveImageRecognitionEngine(engine.id, -1)}><ArrowUp size={16} aria-hidden="true" /></button>
+                <button class="row-icon-btn" type="button" title={session.text.imageRecognitionMoveDown} aria-label={session.text.imageRecognitionMoveDown} disabled={index === imageRecognitionStore.draft!.engines.length - 1} onclick={() => moveImageRecognitionEngine(engine.id, 1)}><ArrowDown size={16} aria-hidden="true" /></button>
                 <IosSwitch checked={engine.enabled} ariaLabel={engine.name || engine.id} onCheckedChange={(checked) => updateImageRecognitionEngine(engine.id, { enabled: checked })} />
               </div>
             </div>

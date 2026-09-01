@@ -1,4 +1,34 @@
 <script lang="ts">
+  import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import Component from "reicon-svelte/icons/Component";
+  import Eye from "reicon-svelte/icons/Eye";
+  import EyeSlash from "reicon-svelte/icons/EyeSlash";
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import Gear from "reicon-svelte/icons/Gear";
+  import Globe from "reicon-svelte/icons/Globe";
+  import Loader from "reicon-svelte/icons/Loader";
+  import Login from "reicon-svelte/icons/Login";
+  import Microphone from "reicon-svelte/icons/Microphone";
+  import Minus from "reicon-svelte/icons/Minus";
+  import PenLine from "reicon-svelte/icons/PenLine";
+  import PlugCircle from "reicon-svelte/icons/PlugCircle";
+  import Plus from "reicon-svelte/icons/Plus";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import SortDesc from "reicon-svelte/icons/SortDesc";
+  import Soundwave from "reicon-svelte/icons/Soundwave";
+  import Speaker from "reicon-svelte/icons/Speaker";
+  import Sparkle from "reicon-svelte/icons/Sparkle";
+  import SquareArrowUp from "reicon-svelte/icons/SquareArrowUp";
+  import Star from "reicon-svelte/icons/Star";
+  import Text from "reicon-svelte/icons/Text";
+  import Timer from "reicon-svelte/icons/Timer";
+  import Trash from "reicon-svelte/icons/Trash";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import Tuning from "reicon-svelte/icons/Tuning";
+  import X from "reicon-svelte/icons/X";
+  import XCircle from "reicon-svelte/icons/XCircle";
+  import type { ReiconComponent } from "../components/ui/iconTypes";
   import {
     type DesktopProviderItem,
     type DesktopProviderModel,
@@ -97,13 +127,13 @@
     | { kind: "custom"; provider: DesktopProviderItem; index: number }
     | { kind: "draft"; provider: { id: string; name: string }; index: number };
 
-  const CAPABILITY_ICONS: Record<DesktopProviderModelTag, string> = {
-    text: "ph-text-aa",
-    vision: "ph-eye",
-    audio_input: "ph-microphone",
-    stt: "ph-waveform",
-    tts: "ph-speaker-high",
-    tool: "ph-wrench"
+  const CAPABILITY_ICONS: Record<DesktopProviderModelTag, ReiconComponent> = {
+    text: Text,
+    vision: Eye,
+    audio_input: Microphone,
+    stt: Soundwave,
+    tts: Speaker,
+    tool: Component
   };
 
   function capabilityLabel(tag: DesktopProviderModelTag): string {
@@ -695,7 +725,7 @@
             title={session.text.modelSortActive}
             aria-label={session.text.modelSortActive}
             onclick={() => (providerSortActive = !providerSortActive)}
-          ><i class="ph ph-sort-descending" aria-hidden="true"></i></button>
+          ><SortDesc size={13} aria-hidden="true" /></button>
         </div>
       </div>
 
@@ -725,7 +755,7 @@
 
       <div class="provider-rail-foot">
         <button class="provider-rail-add" type="button" onclick={startNewProvider}>
-          <i class="ph ph-plus" aria-hidden="true"></i>{session.text.providerAdd}
+          <Plus size={11} aria-hidden="true" />{session.text.providerAdd}
         </button>
       </div>
     </aside>
@@ -751,10 +781,10 @@
           <div class="provider-pane-head-actions">
             {#if !editor.isNew}
               <OverflowMenu label={session.text.more}>
-                <button role="menuitem" type="button" disabled={savedSelectedProvider?.isDefault || providersStore.saving} onclick={() => void setProviderAsDefault(editor.id)}><i class="ph ph-star" aria-hidden="true"></i>{session.text.providersSetDefault}</button>
-                <button role="menuitem" type="button" disabled={providersStore.testingId !== null || !savedSelectedProvider?.hasApiKey} onclick={() => void verifyProvider(editor.id)}><i class="ph ph-plugs-connected" aria-hidden="true"></i>{providersStore.testingId === editor.id ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button>
+                <button role="menuitem" type="button" disabled={savedSelectedProvider?.isDefault || providersStore.saving} onclick={() => void setProviderAsDefault(editor.id)}><Star size={14} aria-hidden="true" />{session.text.providersSetDefault}</button>
+                <button role="menuitem" type="button" disabled={providersStore.testingId !== null || !savedSelectedProvider?.hasApiKey} onclick={() => void verifyProvider(editor.id)}><PlugCircle size={14} aria-hidden="true" />{providersStore.testingId === editor.id ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}</button>
                 {#if !editor.isBuiltin}
-                  <button role="menuitem" class="danger-action" type="button" disabled={providersStore.saving} onclick={() => (pendingDeleteProviderId = editor.id)}><i class="ph ph-trash" aria-hidden="true"></i>{session.text.providerDelete}</button>
+                  <button role="menuitem" class="danger-action" type="button" disabled={providersStore.saving} onclick={() => (pendingDeleteProviderId = editor.id)}><Trash size={14} aria-hidden="true" />{session.text.providerDelete}</button>
                 {/if}
               </OverflowMenu>
             {/if}
@@ -767,7 +797,7 @@
             <section class="provider-login-card">
               <span class="provider-avatar xlarge" style={`--provider-hue: ${providerHue(editor.id)}`} aria-hidden="true">{providerInitial(editor.name, editor.id)}</span>
               <button class="primary-button provider-login-button" type="button" disabled={Boolean(providerAuthStore.actionProviderId)} onclick={() => void beginProviderAuth(editor.id)}>
-                <i class="ph ph-sign-in" aria-hidden="true"></i>{providerAuthStore.actionProviderId === editor.id ? session.text.loading : selectedProviderAuth.loginLabel || session.text.providerAuthSignIn}
+                <Login size={13} aria-hidden="true" />{providerAuthStore.actionProviderId === editor.id ? session.text.loading : selectedProviderAuth.loginLabel || session.text.providerAuthSignIn}
               </button>
               <p>{session.text.providerAuthHint}</p>
             </section>
@@ -785,9 +815,9 @@
               {#if selectedProviderVerification}
                 <p class="provider-auth-card-verdict" class:ok={selectedProviderVerification.ok}>
                   {#if selectedProviderVerification.ok}
-                    <i class="ph ph-check-circle" aria-hidden="true"></i>{session.text.providerAuthVerifyOk.replace("{model}", selectedProviderVerification.modelId).replace("{ms}", String(selectedProviderVerification.elapsedMs))}
+                    <i aria-hidden="true"><CheckCircle size={11} /></i>{session.text.providerAuthVerifyOk.replace("{model}", selectedProviderVerification.modelId).replace("{ms}", String(selectedProviderVerification.elapsedMs))}
                   {:else}
-                    <i class="ph ph-warning-circle" aria-hidden="true"></i>{session.text.providerAuthVerifyFailed.replace("{model}", selectedProviderVerification.modelId)}<span>{selectedProviderVerification.error}</span>
+                    <i aria-hidden="true"><TriangleWarning size={11} /></i>{session.text.providerAuthVerifyFailed.replace("{model}", selectedProviderVerification.modelId)}<span>{selectedProviderVerification.error}</span>
                   {/if}
                 </p>
               {/if}
@@ -832,7 +862,7 @@
                 aria-label={apiKeyVisible ? session.text.providerApiKeyHide : session.text.providerApiKeyShow}
                 title={apiKeyVisible ? session.text.providerApiKeyHide : session.text.providerApiKeyShow}
                 onclick={() => (apiKeyVisible = !apiKeyVisible)}
-              ><i class={`ph ${apiKeyVisible ? "ph-eye-slash" : "ph-eye"}`} aria-hidden="true"></i></button>
+              >{#if apiKeyVisible}<EyeSlash size={15} aria-hidden="true" />{:else}<Eye size={15} aria-hidden="true" />{/if}</button>
               <button
                 class="provider-input-action"
                 type="button"
@@ -867,19 +897,19 @@
                   onclick={() => void openModelDiscovery()}
                 >
                   {#if providersStore.discovering}
-                    <i class="ph ph-circle-notch spin" aria-hidden="true"></i>{session.text.loading}
+                    <Loader class="spin" size={14} aria-hidden="true" />{session.text.loading}
                   {:else}
-                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>{session.text.providerPullModels}
+                    <Refresh size={14} aria-hidden="true" />{session.text.providerPullModels}
                   {/if}
                 </button>
-                <button class="provider-icon-button" type="button" aria-label={session.text.providerAddModel} title={session.text.providerAddModel} onclick={openNewModelEditor}><i class="ph ph-plus" aria-hidden="true"></i></button>
+                <button class="provider-icon-button" type="button" aria-label={session.text.providerAddModel} title={session.text.providerAddModel} onclick={openNewModelEditor}><Plus size={14} aria-hidden="true" /></button>
               </div>
             </header>
 
             {#if editor.models.length > 4}
               <div class="provider-models-filter">
                 <SearchField value={modelSearch} label={session.text.modelSearchPlaceholder} placeholder={session.text.modelSearchPlaceholder} onInput={(value) => (modelSearch = value)} />
-                <button type="button" class="provider-icon-button" class:active={sortActiveFirst} aria-pressed={sortActiveFirst} aria-label={session.text.modelSortActive} title={sortActiveFirst ? session.text.modelSortActive : session.text.modelSortDefault} onclick={() => (sortActiveFirst = !sortActiveFirst)}><i class="ph ph-sort-descending" aria-hidden="true"></i></button>
+                <button type="button" class="provider-icon-button" class:active={sortActiveFirst} aria-pressed={sortActiveFirst} aria-label={session.text.modelSortActive} title={sortActiveFirst ? session.text.modelSortActive : session.text.modelSortDefault} onclick={() => (sortActiveFirst = !sortActiveFirst)}><SortDesc size={14} aria-hidden="true" /></button>
               </div>
             {/if}
 
@@ -891,7 +921,7 @@
                   {@const collapsed = collapsedGroups.includes(group.name)}
                   <div class="provider-model-group">
                     <button type="button" class="provider-model-group-head" aria-expanded={!collapsed} onclick={() => toggleGroup(group.name)}>
-                      <i class={`ph ${collapsed ? "ph-caret-right" : "ph-caret-down"}`} aria-hidden="true"></i>
+                      <i aria-hidden="true">{#if collapsed}<CaretRight size={11} />{:else}<AngleDown size={11} />{/if}</i>
                       <strong>{group.name}</strong>
                       <span class="provider-count">{group.items.length}</span>
                     </button>
@@ -906,13 +936,14 @@
                             </span>
                             <span class="provider-model-caps">
                               {#each model.tags as tag (tag)}
-                                <span class="provider-cap" data-tag={tag} title={capabilityLabel(tag)}><i class={`ph ${CAPABILITY_ICONS[tag]}`} aria-hidden="true"></i><span class="sr-only">{capabilityLabel(tag)}</span></span>
+                                {@const CapIcon = CAPABILITY_ICONS[tag]}
+                                <span class="provider-cap" data-tag={tag} title={capabilityLabel(tag)}><CapIcon size={11} aria-hidden="true" /><span class="sr-only">{capabilityLabel(tag)}</span></span>
                               {/each}
                               {#if model.contextWindow}<span class="provider-model-context">{Math.round(model.contextWindow / 1000)}K</span>{/if}
                             </span>
                             <IosSwitch checked={model.enabled} ariaLabel={`${session.text.providerModelEnabled}: ${model.id}`} onCheckedChange={(enabled) => updateProviderModel(item.index, { enabled })} />
-                            <button class="provider-icon-button" type="button" aria-label={`${session.text.providerModelEditTitle}: ${model.id}`} title={session.text.providerModelEditTitle} onclick={() => openProviderEditModel(item.index)}><i class="ph ph-gear-six" aria-hidden="true"></i></button>
-                            <button class="provider-icon-button danger-action" type="button" aria-label={`${session.text.providerModelRemove}: ${model.id}`} title={session.text.providerModelRemove} onclick={() => removeProviderModel(item.index)}><i class="ph ph-minus" aria-hidden="true"></i></button>
+                            <button class="provider-icon-button" type="button" aria-label={`${session.text.providerModelEditTitle}: ${model.id}`} title={session.text.providerModelEditTitle} onclick={() => openProviderEditModel(item.index)}><Gear size={14} aria-hidden="true" /></button>
+                            <button class="provider-icon-button danger-action" type="button" aria-label={`${session.text.providerModelRemove}: ${model.id}`} title={session.text.providerModelRemove} onclick={() => removeProviderModel(item.index)}><Minus size={14} aria-hidden="true" /></button>
                           </div>
                         {/each}
                       </div>
@@ -924,7 +955,7 @@
           </section>
 
           <details class="provider-advanced">
-            <summary><i class="ph ph-caret-right provider-advanced-caret" aria-hidden="true"></i><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span>{session.text.providerAdvanced}</span></summary>
+            <summary><CaretRight class="provider-advanced-caret" size={13} aria-hidden="true" /><Tuning class="provider-advanced-sliders" size={15} aria-hidden="true" /><span>{session.text.providerAdvanced}</span></summary>
             <div class="provider-advanced-body">
               <div class="provider-field-grid">
                 <label class="provider-field">
@@ -960,7 +991,7 @@
 
         {#if editorIsDirty || editor.isNew}
           <footer class="provider-pane-foot">
-            <span class="provider-pane-foot-label"><i class="ph ph-pencil-simple-line" aria-hidden="true"></i>{session.text.providerUnsaved}</span>
+            <span class="provider-pane-foot-label"><i aria-hidden="true"><PenLine size={11} /></i>{session.text.providerUnsaved}</span>
             <div class="provider-pane-foot-actions">
               <button class="secondary-button" type="button" disabled={providersStore.saving} onclick={() => { const item = visibleProvidersList.find((entry) => entry.provider.id === selectedProviderId); closeProviderEdit(); if (item && item.kind !== "draft") applySelection(item.provider.id); else selectedProviderId = ""; }}>{session.text.providerDiscard}</button>
               <button class="primary-button" type="button" disabled={!canSaveEditor} onclick={() => void saveProviderEdit()}>{providersStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button>
@@ -979,7 +1010,7 @@
             <strong id="provider-model-edit-title">{modelEditorIndex === null ? session.text.providerAddModel : session.text.providerModelEditTitle}</strong>
             <p id="provider-model-edit-description">{session.text.providerModelEditHint}</p>
           </div>
-          <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={closeModelEditor}><i class="ph ph-x" aria-hidden="true"></i></button>
+          <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={closeModelEditor}><X size={16} aria-hidden="true" /></button>
         </header>
         <div class="modal-body provider-model-edit-body">
           <label class="provider-field">
@@ -987,7 +1018,7 @@
             <input class="provider-input" value={modelEditorDraft.id} autocomplete="off" placeholder="gpt-5" spellcheck="false" oninput={onModelIdInput} />
             {#if modelAutoDetected}
               <p class="provider-field-hint" style="color: var(--accent); display: flex; align-items: center; gap: 4px;">
-                <i class="ph ph-sparkle" aria-hidden="true"></i> {session.text.providerModelDetectedHint}
+                <Sparkle size={11} aria-hidden="true" /> {session.text.providerModelDetectedHint}
               </p>
             {/if}
           </label>
@@ -1013,7 +1044,8 @@
             <legend>{session.text.providerModelTags}</legend>
             <div>
               {#each PROVIDER_MODEL_TAGS as tag (tag)}
-                <button type="button" class:active={modelEditorDraft.tags.includes(tag)} class="model-chip" onclick={() => toggleModelEditorTag(tag)}><i class={`ph ${CAPABILITY_ICONS[tag]}`} aria-hidden="true"></i>{capabilityLabel(tag)}</button>
+                {@const CapIcon = CAPABILITY_ICONS[tag]}
+                <button type="button" class:active={modelEditorDraft.tags.includes(tag)} class="model-chip" onclick={() => toggleModelEditorTag(tag)}><CapIcon size={11} aria-hidden="true" />{capabilityLabel(tag)}</button>
               {/each}
             </div>
           </fieldset>
@@ -1058,12 +1090,12 @@
           <strong id="provider-model-discovery-title">{session.text.providerModelDialogTitle.replace("{provider}", editor ? providerLabel(editor.name, editor.id) : "")}</strong>
           <p id="provider-model-discovery-description">{session.text.providerModelsAvailableHint.replace("{count}", String(providersStore.discoveredModels.length))}</p>
         </div>
-        <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (modelDiscoveryOpen = false)}><i class="ph ph-x" aria-hidden="true"></i></button>
+        <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (modelDiscoveryOpen = false)}><X size={16} aria-hidden="true" /></button>
       </header>
       <div class="modal-body provider-model-discovery-body">
         <div class="provider-discovery-toolbar">
           <SearchField value={modelDiscoveryQuery} label={session.text.modelSearchPlaceholder} placeholder={session.text.modelSearchPlaceholder} onInput={(value) => (modelDiscoveryQuery = value)} />
-          <button class="provider-icon-button" type="button" disabled={providersStore.discovering} aria-label={session.text.providerModelRefresh} title={session.text.providerModelRefresh} onclick={() => void discoverProviderModels()}><i class={`ph ph-arrows-clockwise ${providersStore.discovering ? "spin" : ""}`} aria-hidden="true"></i></button>
+          <button class="provider-icon-button" type="button" disabled={providersStore.discovering} aria-label={session.text.providerModelRefresh} title={session.text.providerModelRefresh} onclick={() => void discoverProviderModels()}><Refresh class={providersStore.discovering ? "spin" : ""} size={14} aria-hidden="true" /></button>
         </div>
         <div class="provider-discovery-tabs" role="tablist" aria-label={session.text.providerModelsAvailableTitle} use:tablist>
           {#each [["all", session.text.providerModelFilterAll], ["new", session.text.providerModelFilterNew], ["added", session.text.providerModelFilterAdded]] as option (option[0])}
@@ -1084,7 +1116,7 @@
                 <div class="provider-model-group-head static">
                   <strong>{group.name}</strong>
                   <span class="provider-count">{group.ids.length}</span>
-                  <button class="provider-icon-button" type="button" disabled={pending.length === 0} aria-label={session.text.providerModelGroupAddAll} title={session.text.providerModelGroupAddAll} onclick={() => addDiscoveredGroup(pending)}><i class="ph ph-plus" aria-hidden="true"></i></button>
+                  <button class="provider-icon-button" type="button" disabled={pending.length === 0} aria-label={session.text.providerModelGroupAddAll} title={session.text.providerModelGroupAddAll} onclick={() => addDiscoveredGroup(pending)}><Plus size={14} aria-hidden="true" /></button>
                 </div>
                 <div class="provider-model-rows">
                   {#each group.ids as id (id)}
@@ -1098,16 +1130,17 @@
                       {#if info}
                         <span class="provider-model-caps">
                           {#each (info.tags ?? []) as tag (tag)}
-                            <span class="provider-cap" data-tag={tag} title={capabilityLabel(tag)}><i class={`ph ${CAPABILITY_ICONS[tag]}`} aria-hidden="true"></i></span>
+                            {@const CapIcon = CAPABILITY_ICONS[tag]}
+                            <span class="provider-cap" data-tag={tag} title={capabilityLabel(tag)}><CapIcon size={11} aria-hidden="true" /></span>
                           {/each}
                           {#if info.contextWindow}<span class="provider-model-context">{Math.round(info.contextWindow / 1000)}K</span>{/if}
                         </span>
                       {/if}
                       {#if added}
                         <span class="provider-model-added">{session.text.providerModelAdded}</span>
-                        <button class="provider-icon-button danger-action" type="button" aria-label={`${session.text.providerModelRemove}: ${id}`} title={session.text.providerModelRemove} onclick={() => removeModelById(id)}><i class="ph ph-minus" aria-hidden="true"></i></button>
+                        <button class="provider-icon-button danger-action" type="button" aria-label={`${session.text.providerModelRemove}: ${id}`} title={session.text.providerModelRemove} onclick={() => removeModelById(id)}><Minus size={14} aria-hidden="true" /></button>
                       {:else}
-                        <button class="provider-icon-button accent" type="button" aria-label={`${session.text.providerAddModel}: ${id}`} title={session.text.providerAddModel} onclick={() => addDiscoveredModel(id)}><i class="ph ph-plus" aria-hidden="true"></i></button>
+                        <button class="provider-icon-button accent" type="button" aria-label={`${session.text.providerAddModel}: ${id}`} title={session.text.providerAddModel} onclick={() => addDiscoveredModel(id)}><Plus size={14} aria-hidden="true" /></button>
                       {/if}
                     </div>
                   {/each}
@@ -1159,24 +1192,24 @@
         <strong id="provider-auth-title">{providerAuthStore.providers.find((provider) => provider.id === authSession.providerId)?.loginLabel ?? session.text.providerAuthTitle}</strong>
         <p id="provider-auth-description">{session.text.providerAuthDialogHint}</p>
       </div>
-      <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => void closeProviderAuth()}><i class="ph ph-x" aria-hidden="true"></i></button>
+      <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => void closeProviderAuth()}><X size={16} aria-hidden="true" /></button>
     </header>
     <div class="modal-body provider-auth-dialog-body">
       {#if authSession.state === "done"}
-        <div class="provider-auth-terminal success"><i class="ph ph-check-circle" aria-hidden="true"></i><strong>{session.text.providerAuthDone}</strong></div>
+        <div class="provider-auth-terminal success"><i aria-hidden="true"><CheckCircle size={30} /></i><strong>{session.text.providerAuthDone}</strong></div>
       {:else if authSession.state === "failed"}
-        <div class="provider-auth-terminal danger"><i class="ph ph-warning-circle" aria-hidden="true"></i><strong>{session.text.providerAuthFailed}</strong><span>{authSession.error ?? providerAuthStore.error}</span></div>
+        <div class="provider-auth-terminal danger"><i aria-hidden="true"><TriangleWarning size={30} /></i><strong>{session.text.providerAuthFailed}</strong><span>{authSession.error ?? providerAuthStore.error}</span></div>
       {:else if authSession.state === "cancelled"}
-        <div class="provider-auth-terminal"><i class="ph ph-x-circle" aria-hidden="true"></i><strong>{session.text.providerAuthCancelled}</strong></div>
+        <div class="provider-auth-terminal"><i aria-hidden="true"><XCircle size={30} /></i><strong>{session.text.providerAuthCancelled}</strong></div>
       {:else if authSession.state === "expired"}
-        <div class="provider-auth-terminal danger"><i class="ph ph-clock-countdown" aria-hidden="true"></i><strong>{session.text.providerAuthExpired}</strong></div>
+        <div class="provider-auth-terminal danger"><i aria-hidden="true"><Timer size={30} /></i><strong>{session.text.providerAuthExpired}</strong></div>
       {:else}
         <div class="provider-auth-progress-head"><span class="provider-auth-pulse" aria-hidden="true"></span><strong>{session.text.providerAuthWaiting}</strong></div>
 
         {#if authSession.authUrl}
           <section class="provider-auth-step">
-            <div><i class="ph ph-browser" aria-hidden="true"></i><span>{authSession.authUrl.instructions ?? session.text.providerAuthOpenBrowser}</span></div>
-            <button class="primary-button" type="button" onclick={() => void openProviderAuthUrl(authSession.authUrl!.url)}>{session.text.providerAuthOpenBrowser}<i class="ph ph-arrow-square-out" aria-hidden="true"></i></button>
+            <div><i aria-hidden="true"><Globe size={15} /></i><span>{authSession.authUrl.instructions ?? session.text.providerAuthOpenBrowser}</span></div>
+            <button class="primary-button" type="button" onclick={() => void openProviderAuthUrl(authSession.authUrl!.url)}>{session.text.providerAuthOpenBrowser}<SquareArrowUp size={13} aria-hidden="true" /></button>
           </section>
         {/if}
 
@@ -1186,7 +1219,7 @@
             <code>{authSession.deviceCode.userCode}</code>
             <div>
               <button class="secondary-button" type="button" onclick={() => void copyProviderAuthCode(authSession.deviceCode!.userCode)}>{authCopiedCode === authSession.deviceCode.userCode ? session.text.providerAuthCodeCopied : session.text.providerAuthCopyCode}</button>
-              <button class="primary-button" type="button" onclick={() => void openProviderAuthUrl(authSession.deviceCode!.verificationUri)}>{session.text.providerAuthOpenBrowser}<i class="ph ph-arrow-square-out" aria-hidden="true"></i></button>
+              <button class="primary-button" type="button" onclick={() => void openProviderAuthUrl(authSession.deviceCode!.verificationUri)}>{session.text.providerAuthOpenBrowser}<SquareArrowUp size={13} aria-hidden="true" /></button>
             </div>
           </section>
         {/if}
@@ -1197,7 +1230,7 @@
             {#if authSession.prompt.type === "select"}
               <div class="provider-auth-options">
                 {#each authSession.prompt.options ?? [] as option (option.id)}
-                  <button class="provider-auth-option" type="button" disabled={Boolean(providerAuthStore.actionProviderId)} onclick={() => void submitProviderAuthAnswer(option.id)}><span>{option.label}</span>{#if option.description}<small>{option.description}</small>{/if}<i class="ph ph-caret-right" aria-hidden="true"></i></button>
+                  <button class="provider-auth-option" type="button" disabled={Boolean(providerAuthStore.actionProviderId)} onclick={() => void submitProviderAuthAnswer(option.id)}><span>{option.label}</span>{#if option.description}<small>{option.description}</small>{/if}<CaretRight size={14} aria-hidden="true" /></button>
                 {/each}
               </div>
             {:else}

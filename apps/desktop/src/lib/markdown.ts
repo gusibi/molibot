@@ -11,6 +11,7 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import { marked } from "marked";
 import markedKatex from "marked-katex-extension";
+import { reiconSvg } from "./reiconSvg";
 
 hljs.registerLanguage("bash", bash);
 hljs.registerLanguage("css", css);
@@ -75,7 +76,7 @@ function wrapTables(html: string, label: string): string {
     .replaceAll("<table>", `<div class="markdown-table-wrap"><table>`)
     .replaceAll("</table>", "</table></div>");
   if (label) {
-    const action = `<button type="button" class="markdown-artifact-action" data-open-table aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><i class="ph ph-table" aria-hidden="true"></i></button>`;
+    const action = `<button type="button" class="markdown-artifact-action" data-open-table aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${reiconSvg("grid", 14)}</button>`;
     result = result.replaceAll(/<\/th>(\s*<\/tr>\s*<\/thead>)/g, (_match, tail: string) => `${action}</th>${tail}`);
   }
   return result;

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import Folder from "reicon-svelte/icons/Folder";
+  import Gear from "reicon-svelte/icons/Gear";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Sidebar from "reicon-svelte/icons/Sidebar";
   import { onDestroy, tick } from "svelte";
   import type { Translation } from "../i18n";
   import { newProjectSession, projectsStore } from "../stores/projects.svelte";
@@ -134,18 +138,18 @@
         />
         {#if !searchOpen}
           <button class="icon-button" type="button" aria-label={copy.search} title={copy.search} onclick={toggleSearch}>
-            <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+            <Magnifier size={16} aria-hidden="true" />
           </button>
         {/if}
         <button class="icon-button" type="button" aria-label={copy.files} title={copy.files} onclick={onOpenFiles}>
-          <i class="ph ph-sidebar-simple flip" aria-hidden="true"></i>
+          <Sidebar class="flip" size={16} aria-hidden="true" />
         </button>
-        <button class="icon-button" type="button" aria-label={copy.projectSettings} title={copy.projectSettings} onclick={() => (settingsOpen = true)}><i class="ph ph-gear-six" aria-hidden="true"></i></button>
+        <button class="icon-button" type="button" aria-label={copy.projectSettings} title={copy.projectSettings} onclick={() => (settingsOpen = true)}><Gear size={16} aria-hidden="true" /></button>
       </svelte:fragment>
     </ChatHeader>
     <div class="project-body">{#if projectsStore.selectedSessionId}<ProjectChat {copy} {searchMatchIds} {activeMatchId} />{:else}<div class="project-empty"><strong>{copy.projectNoSessions}</strong><button class="primary-button" type="button" onclick={() => void newProjectSession()}>{copy.newChat}</button></div>{/if}</div>
   </section>
   {#if settingsOpen}<ProjectSettingsDialog {project} {copy} {modelOptions} onClose={() => (settingsOpen = false)} />{/if}
 {:else}
-  <section class="project-welcome"><i class="ph ph-folders" aria-hidden="true"></i><h1>{copy.projectWelcome}</h1><p>{copy.projectWelcomeHint}</p></section>
+  <section class="project-welcome"><Folder size={28} aria-hidden="true" /><h1>{copy.projectWelcome}</h1><p>{copy.projectWelcomeHint}</p></section>
 {/if}

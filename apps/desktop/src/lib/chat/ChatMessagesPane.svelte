@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Loader from "reicon-svelte/icons/Loader";
+  import type { EmptyActionIcon } from "./activityIcons";
   import { afterUpdate } from "svelte";
   import type { DesktopActivityEntry } from "../api";
   import type { DesktopConversationStep } from "@molibot/desktop-contract";
@@ -29,7 +31,7 @@
   export let emptyHint: string;
   export let emptyActionLabel = "";
   export let emptyActionHint = "";
-  export let emptyActions: ReadonlyArray<{ icon: string; label: string; prompt: string }> = [];
+  export let emptyActions: ReadonlyArray<{ icon: EmptyActionIcon; label: string; prompt: string }> = [];
   export let onEmptyAction: ((prompt: string) => void) | null = null;
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
@@ -98,7 +100,7 @@
   <div class="messages" bind:this={messagesElement} use:stickToBottom={{ key: stickKey, live: sending }} use:settleEntrances={`${stickKey}:${loading}:${turnEndCount}`} aria-live="polite" aria-busy={loading}>
     {#if loading}
       <div class="project-transcript-loading" role="status">
-        <i class="ph ph-spinner-gap" aria-hidden="true"></i>{loadingLabel}
+        <Loader size={18} aria-hidden="true" />{loadingLabel}
       </div>
     {:else}
       {#if hiddenCount > 0}

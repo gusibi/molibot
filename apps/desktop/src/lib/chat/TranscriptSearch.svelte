@@ -1,4 +1,8 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import AngleUp from "reicon-svelte/icons/AngleUp";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import X from "reicon-svelte/icons/X";
   import { tick } from "svelte";
 
   export let open = false;
@@ -31,7 +35,7 @@
 </script>
 
 <div class:open class="search-bar" role="search" aria-hidden={!open} inert={!open}>
-  <i class="ph ph-magnifying-glass search-bar-icon" aria-hidden="true"></i>
+  <Magnifier class="search-bar-icon" size={14} aria-hidden="true" />
   <input
     bind:this={input}
     type="search"
@@ -48,13 +52,13 @@
   </span>
   <div class="search-actions">
     <button type="button" aria-label={previousLabel} title={previousLabel} disabled={matchCount === 0} onclick={onPrevious}>
-      <i class="ph ph-caret-up" aria-hidden="true"></i>
+      <AngleUp size={14} aria-hidden="true" />
     </button>
     <button type="button" aria-label={nextLabel} title={nextLabel} disabled={matchCount === 0} onclick={onNext}>
-      <i class="ph ph-caret-down" aria-hidden="true"></i>
+      <AngleDown size={14} aria-hidden="true" />
     </button>
     <button type="button" aria-label={closeLabel} title={closeLabel} onclick={onClose}>
-      <i class="ph ph-x" aria-hidden="true"></i>
+      <X size={14} aria-hidden="true" />
     </button>
   </div>
 </div>

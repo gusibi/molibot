@@ -1,4 +1,10 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import ArrowRight from "reicon-svelte/icons/ArrowRight";
+  import Eye from "reicon-svelte/icons/Eye";
+  import EyeSlash from "reicon-svelte/icons/EyeSlash";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import SquareArrowUp from "reicon-svelte/icons/SquareArrowUp";
   import { invoke } from "@tauri-apps/api/core";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SearchField from "../components/ui/SearchField.svelte";
@@ -79,13 +85,13 @@
       <span class="status-badge" data-state={openConnectorStore.summary.state === "ready" ? "ready" : openConnectorStore.summary.state === "error" ? "error" : "disconnected"}>{stateLabel()}</span>
       <p>{session.text.openConnectorOverview}</p>
     </div>
-    <button class="secondary-button" type="button" onclick={() => void refreshOpenConnector()} disabled={openConnectorStore.loading}><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>{session.text.openConnectorRefresh}</button>
+    <button class="secondary-button" type="button" onclick={() => void refreshOpenConnector()} disabled={openConnectorStore.loading}><Refresh size={16} aria-hidden="true" />{session.text.openConnectorRefresh}</button>
   </div>
 
   <details class="settings-card connector-config-panel">
     <summary>
       <div class="profile-info"><strong>{session.text.openConnectorConfiguration}</strong><p>{openConnectorStore.summary.config.baseUrl}</p></div>
-      <span class="connector-config-summary-state"><span class="status-badge" data-state={openConnectorStore.summary.config.enabled ? "ready" : "disconnected"}>{openConnectorStore.summary.config.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span><i class="ph ph-caret-down" aria-hidden="true"></i></span>
+      <span class="connector-config-summary-state"><span class="status-badge" data-state={openConnectorStore.summary.config.enabled ? "ready" : "disconnected"}>{openConnectorStore.summary.config.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span><AngleDown size={12} aria-hidden="true" /></span>
     </summary>
     <div class="connector-config-body">
       <div class="settings-row">
@@ -95,7 +101,7 @@
       <div class="settings-form connector-config-form">
         <label class="settings-field settings-field-wide"><span>{session.text.openConnectorBaseUrl}</span><input bind:value={openConnectorStore.draft.baseUrl} autocomplete="url" spellcheck="false" /></label>
         <label class="settings-field settings-field-wide"><span>{session.text.openConnectorConsoleUrl}</span><input bind:value={openConnectorStore.draft.consoleUrl} autocomplete="url" spellcheck="false" /></label>
-        <label class="settings-field settings-field-wide"><span>{session.text.openConnectorToken}</span><div class="secret-input"><input type={tokenVisible ? "text" : "password"} bind:value={openConnectorStore.draft.runtimeToken} placeholder={openConnectorStore.summary.config.tokenConfigured ? session.text.channelSecretConfigured : "oct_…"} autocomplete="new-password" spellcheck="false" /><button class="secret-reveal" type="button" aria-label={tokenVisible ? session.text.openConnectorHideToken : session.text.openConnectorShowToken} title={tokenVisible ? session.text.openConnectorHideToken : session.text.openConnectorShowToken} onclick={(event) => { event.preventDefault(); void toggleTokenVisibility(); }}><i class={`ph ${tokenVisible ? "ph-eye-slash" : "ph-eye"}`} aria-hidden="true"></i></button></div>
+        <label class="settings-field settings-field-wide"><span>{session.text.openConnectorToken}</span><div class="secret-input"><input type={tokenVisible ? "text" : "password"} bind:value={openConnectorStore.draft.runtimeToken} placeholder={openConnectorStore.summary.config.tokenConfigured ? session.text.channelSecretConfigured : "oct_…"} autocomplete="new-password" spellcheck="false" /><button class="secret-reveal" type="button" aria-label={tokenVisible ? session.text.openConnectorHideToken : session.text.openConnectorShowToken} title={tokenVisible ? session.text.openConnectorHideToken : session.text.openConnectorShowToken} onclick={(event) => { event.preventDefault(); void toggleTokenVisibility(); }}>{#if tokenVisible}<EyeSlash size={16} aria-hidden="true" />{:else}<Eye size={16} aria-hidden="true" />{/if}</button></div>
           {#if openConnectorStore.summary.config.tokenConfigured}<label class="inline-check"><input type="checkbox" bind:checked={openConnectorStore.draft.clearRuntimeToken} /> {session.text.openConnectorClearToken}</label>{/if}
         </label>
       </div>
@@ -106,7 +112,7 @@
     <div class="connector-catalog">
       <div class="connector-catalog-head">
         <div><strong>{session.text.openConnectorCatalog}</strong><p>{session.text.openConnectorCatalogHint.replace("{count}", String(openConnectorStore.summary.providers.length)).replace("{connected}", String(connectionsByService.size))}</p></div>
-        <button class="secondary-button" type="button" onclick={() => void openUrl(openConnectorStore.summary!.config.consoleUrl)}>{session.text.openConnectorOpenConsole}<i class="ph ph-arrow-square-out" aria-hidden="true"></i></button>
+        <button class="secondary-button" type="button" onclick={() => void openUrl(openConnectorStore.summary!.config.consoleUrl)}>{session.text.openConnectorOpenConsole}<SquareArrowUp size={16} aria-hidden="true" /></button>
       </div>
       <div class="connector-filter-toolbar">
         <SearchField value={query} placeholder={session.text.openConnectorSearch} label={session.text.openConnectorSearch} onInput={(value) => (query = value)} />
@@ -126,7 +132,7 @@
                     <span>{provider.displayName.slice(0, 1).toUpperCase()}</span>
                     {#if provider.iconUrl}<img src={provider.iconUrl} alt="" width="28" height="28" loading="lazy" referrerpolicy="no-referrer" onerror={(event) => event.currentTarget.remove()} />{/if}
                   </div>
-                  <div class="connector-card-title"><strong><span>{provider.displayName}</span><i class="ph ph-arrow-square-out" aria-hidden="true"></i></strong><small>{provider.service}</small></div>
+                  <div class="connector-card-title"><strong><span>{provider.displayName}</span><SquareArrowUp size={14} aria-hidden="true" /></strong><small>{provider.service}</small></div>
                 </button>
               {:else}
                 <div class="connector-card-head">
@@ -139,7 +145,7 @@
               {/if}
               <div class="connector-card-actions">
                 <span class="status-badge" data-state={connections.length ? "ready" : "disconnected"}>{connections.length ? session.text.openConnectorConnected : session.text.openConnectorAvailable}</span>
-                <button class="connector-card-action" type="button" aria-label={connections.length ? session.text.openConnectorManage : session.text.openConnectorConnect} onclick={() => void openUrl(providerUrl(provider.service))}><span>{connections.length ? session.text.openConnectorManage : session.text.openConnectorConnect}</span><i class="ph ph-caret-right" aria-hidden="true"></i></button>
+                <button class="connector-card-action" type="button" aria-label={connections.length ? session.text.openConnectorManage : session.text.openConnectorConnect} onclick={() => void openUrl(providerUrl(provider.service))}><span>{connections.length ? session.text.openConnectorManage : session.text.openConnectorConnect}</span><ArrowRight size={14} aria-hidden="true" /></button>
               </div>
             </article>
           {/each}

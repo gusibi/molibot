@@ -1,4 +1,8 @@
 <script lang="ts">
+  import Plus from "reicon-svelte/icons/Plus";
+  import Trash from "reicon-svelte/icons/Trash";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import X from "reicon-svelte/icons/X";
   import {
     DESKTOP_THINKING_LEVELS,
     type DesktopModelOption,
@@ -115,7 +119,7 @@
 </script>
 
 <Dialog open={true} busy={Boolean(projectsStore.busy)} contentClass="project-settings-modal" labelledBy="project-settings-title" describedBy="project-settings-hint" onOpenChange={(next) => { if (!next) onClose(); }}>
-  <header class="modal-head"><div><strong id="project-settings-title">{copy.projectSettings}</strong><p id="project-settings-hint">{copy.projectSettingsHint}</p></div><button class="modal-close" type="button" aria-label={copy.dialogClose} disabled={Boolean(projectsStore.busy)} onclick={onClose}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+  <header class="modal-head"><div><strong id="project-settings-title">{copy.projectSettings}</strong><p id="project-settings-hint">{copy.projectSettingsHint}</p></div><button class="modal-close" type="button" aria-label={copy.dialogClose} disabled={Boolean(projectsStore.busy)} onclick={onClose}><X size={16} aria-hidden="true" /></button></header>
   <div class="project-settings-tabs" role="tablist" aria-label={copy.projectSettings} use:tablist>
     <button id="project-settings-tab-general" class:active={activeTab === "general"} type="button" role="tab" aria-selected={activeTab === "general"} aria-controls="project-settings-panel-general" onclick={() => activeTab = "general"}>{copy.projectGeneralTab}</button>
     <button id="project-settings-tab-automations" class:active={activeTab === "automations"} type="button" role="tab" aria-selected={activeTab === "automations"} aria-controls="project-settings-panel-automations" onclick={() => activeTab = "automations"}>{copy.projectAutomationsTab}</button>
@@ -145,7 +149,7 @@
               <div class="project-command-row">
                 <label class="project-command-label" for={`project-command-name-${index}`}>{copy.projectCommandNameLabel}</label>
                 <div class="project-command-slash"><span class="project-command-slash-mark" aria-hidden="true">/</span><input id={`project-command-name-${index}`} class="project-command-name" value={command.name} placeholder={withEllipsis(copy.projectCommandNamePlaceholder)} autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" oninput={(event) => updateCustomCommand(index, { name: (event.currentTarget as HTMLInputElement).value })} onblur={(event) => updateCustomCommand(index, { name: normalizeCommandName((event.currentTarget as HTMLInputElement).value) })} /></div>
-                <button class="project-command-remove" type="button" aria-label={copy.projectCommandRemove} title={copy.projectCommandRemove} onclick={() => removeCustomCommand(index)}><i class="ph ph-trash" aria-hidden="true"></i></button>
+                <button class="project-command-remove" type="button" aria-label={copy.projectCommandRemove} title={copy.projectCommandRemove} onclick={() => removeCustomCommand(index)}><Trash size={14} aria-hidden="true" /></button>
                 <label class="project-command-label" for={`project-command-desc-${index}`}>{copy.projectCommandDescriptionLabel}</label>
                 <input id={`project-command-desc-${index}`} class="project-command-desc" value={command.description ?? ""} placeholder={withEllipsis(copy.projectCommandDescriptionPlaceholder)} autocomplete="off" oninput={(event) => updateCustomCommand(index, { description: (event.currentTarget as HTMLInputElement).value })} />
                 <label class="project-command-label project-command-label-top" for={`project-command-content-${index}`}>{copy.projectCommandContentLabel}</label>
@@ -154,8 +158,8 @@
             {/each}
           </div>
           <div class="project-commands-foot">
-            <button class="secondary-button project-command-add" type="button" onclick={addCustomCommand}><i class="ph ph-plus" aria-hidden="true"></i>{copy.projectCommandAdd}</button>
-            {#if commandError}<small class="project-commands-error" role="alert"><i class="ph-fill ph-warning-circle" aria-hidden="true"></i>{commandError}</small>{/if}
+            <button class="secondary-button project-command-add" type="button" onclick={addCustomCommand}><Plus size={14} aria-hidden="true" />{copy.projectCommandAdd}</button>
+            {#if commandError}<small class="project-commands-error" role="alert"><TriangleWarning weight="Filled" size={12} aria-hidden="true" />{commandError}</small>{/if}
           </div>
         </div>
       </div>

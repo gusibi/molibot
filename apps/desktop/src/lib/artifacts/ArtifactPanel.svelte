@@ -1,4 +1,31 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import At from "reicon-svelte/icons/At";
+  import BranchUp from "reicon-svelte/icons/BranchUp";
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import Check from "reicon-svelte/icons/Check";
+  import Cloud from "reicon-svelte/icons/Cloud";
+  import Code from "reicon-svelte/icons/Code";
+  import CodeFile from "reicon-svelte/icons/CodeFile";
+  import Compress from "reicon-svelte/icons/Compress";
+  import Copy from "reicon-svelte/icons/Copy";
+  import Crosshairs from "reicon-svelte/icons/Crosshairs";
+  import Download from "reicon-svelte/icons/Download";
+  import Expand from "reicon-svelte/icons/Expand";
+  import Eye from "reicon-svelte/icons/Eye";
+  import Folder from "reicon-svelte/icons/Folder";
+  import FolderOpen from "reicon-svelte/icons/FolderOpen";
+  import FileUp from "reicon-svelte/icons/FileUp";
+  import Grid from "reicon-svelte/icons/Grid";
+  import Home from "reicon-svelte/icons/Home";
+  import Loader from "reicon-svelte/icons/Loader";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Paperclip from "reicon-svelte/icons/Paperclip";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import RowVertical from "reicon-svelte/icons/RowVertical";
+  import SquareArrowUp from "reicon-svelte/icons/SquareArrowUp";
+  import X from "reicon-svelte/icons/X";
+  import XCircle from "reicon-svelte/icons/XCircle";
   import type { DesktopSessionFile } from "@molibot/desktop-contract";
   import { onDestroy, untrack } from "svelte";
   import type { Translation } from "../i18n";
@@ -15,7 +42,8 @@
   import MiniAppIcon from "../miniapps/MiniAppIcon.svelte";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import { miniAppsStore } from "../stores/miniapps.svelte";
-  import { fileIconName, fileIconStyle, formatSize } from "../projects/fileIcons";
+  import { fileIconKind, fileIconStyle, formatSize } from "../projects/fileIcons";
+  import { FILE_KIND_ICONS } from "../projects/fileKindIcons";
   import type { FileMenuItem } from "../projects/fileMenu";
   import {
     requestComposerInsertion,
@@ -408,13 +436,13 @@
     const isDirectory = kind === "directory";
     return [
       isDirectory
-        ? { id: "toggle", label: store.expanded[path] ? copy.projectCollapseFolder : copy.projectExpandFolder, icon: "ph-caret-right" }
-        : { id: "open", label: copy.projectOpenFile, icon: "ph-file-arrow-up" },
-      { id: "diff", label: copy.projectViewDiff, icon: "ph-git-diff", disabled: isDirectory || !dirtyPaths.has(path) },
-      { id: "mention", label: copy.projectMentionInChat, icon: "ph-at", startsGroup: true },
-      { id: "copy", label: copy.projectCopyPath, icon: "ph-copy" },
-      { id: "reveal", label: copy.projectRevealInFinder, icon: "ph-folder-open", startsGroup: true },
-      { id: "external", label: copy.projectOpenExternally, icon: "ph-arrow-square-out" }
+        ? { id: "toggle", label: store.expanded[path] ? copy.projectCollapseFolder : copy.projectExpandFolder, icon: CaretRight }
+        : { id: "open", label: copy.projectOpenFile, icon: FileUp },
+      { id: "diff", label: copy.projectViewDiff, icon: CodeFile, disabled: isDirectory || !dirtyPaths.has(path) },
+      { id: "mention", label: copy.projectMentionInChat, icon: At, startsGroup: true },
+      { id: "copy", label: copy.projectCopyPath, icon: Copy },
+      { id: "reveal", label: copy.projectRevealInFinder, icon: FolderOpen, startsGroup: true },
+      { id: "external", label: copy.projectOpenExternally, icon: SquareArrowUp }
     ];
   }
 
@@ -804,24 +832,24 @@
       -->
       <OverflowMenu variant="inline" label={copy.artifactModeSwitch}>
         <span class="artifact-mode-trigger" slot="trigger">
-          <i class={`ph ${miniAppActive ? "ph-squares-four" : "ph-folder-simple"}`} aria-hidden="true"></i>
+          {#if miniAppActive}<Grid size={16} aria-hidden="true" />{:else}<Folder size={16} aria-hidden="true" />{/if}
           <strong class="artifact-mode-current">{miniAppActive ? copy.artifactModeMiniApps : copy.artifactModeFiles}</strong>
-          <i class="ph ph-caret-down artifact-mode-caret" aria-hidden="true"></i>
+          <AngleDown class="artifact-mode-caret" size={12} aria-hidden="true" />
         </span>
         <button role="menuitem" type="button" aria-current={!miniAppActive} onclick={() => store.setMode("files")}>
-          <i class="ph ph-folder-simple" aria-hidden="true"></i>
+          <Folder size={16} aria-hidden="true" />
           <span>{copy.artifactModeFiles}</span>
-          {#if !miniAppActive}<i class="ph ph-check artifact-mode-tick" aria-hidden="true"></i>{/if}
+          {#if !miniAppActive}<Check class="artifact-mode-tick" size={12} aria-hidden="true" />{/if}
         </button>
         <button role="menuitem" type="button" aria-current={miniAppActive} onclick={() => store.setMode("miniapps")}>
-          <i class="ph ph-squares-four" aria-hidden="true"></i>
+          <Grid size={16} aria-hidden="true" />
           <span>{copy.artifactModeMiniApps}</span>
           <span class="artifact-mode-count">{miniAppTabs.length}</span>
-          {#if miniAppActive}<i class="ph ph-check artifact-mode-tick" aria-hidden="true"></i>{/if}
+          {#if miniAppActive}<Check class="artifact-mode-tick" size={12} aria-hidden="true" />{/if}
         </button>
       </OverflowMenu>
     {:else}
-      <i class="ph ph-folder-simple file-panel-icon" aria-hidden="true"></i>
+      <Folder class="file-panel-icon" size={16} aria-hidden="true" />
       <strong>{panelTitle}</strong>
     {/if}
 
@@ -837,7 +865,7 @@
           title={`${copy.projectSearch} (⌘P)`}
           onclick={() => (store.searchOpen ? store.closeSearch() : (store.searchOpen = true))}
         >
-          <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+          <Magnifier size={16} aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -848,7 +876,7 @@
           title={followAgentWrites ? copy.projectFollowAgentOn : copy.projectFollowAgent}
           onclick={toggleFollow}
         >
-          <i class="ph ph-crosshair-simple" aria-hidden="true"></i>
+          <Crosshairs size={16} aria-hidden="true" />
         </button>
       {/if}
       <button
@@ -858,12 +886,12 @@
         title={store.watching ? copy.projectWatchLive : copy.projectRefresh}
         onclick={() => { if (scope === "project") store.refreshAll(); else void loadAttachments(); }}
       >
-        <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+        <Refresh size={16} aria-hidden="true" />
         {#if store.watching}<span class="project-watch-dot" aria-hidden="true"></span>{/if}
       </button>
     {/if}
     <button type="button" class="file-panel-close" aria-label={copy.closePanel} title={copy.closePanel} onclick={onClose}>
-      <i class="ph ph-x" aria-hidden="true"></i>
+      <X size={14} aria-hidden="true" />
     </button>
   </div>
 
@@ -926,12 +954,12 @@
                   {#if info?.iconDataUri}
                     <MiniAppIcon src={info.iconDataUri} label={info.name} size="tab" />
                   {:else}
-                    <i class="ph ph-squares-four" aria-hidden="true"></i>
+                    <Grid size={16} aria-hidden="true" />
                   {/if}
                   <span>{info?.name ?? appTab.appId}</span>
                 </button>
                 <button type="button" class="project-viewer-tab-close" aria-label={copy.closeTab} title={copy.closeTab} onclick={() => handleCloseTab(appTab.id)}>
-                  <i class="ph ph-x" aria-hidden="true"></i>
+                  <X size={14} aria-hidden="true" />
                 </button>
               </div>
             {/each}
@@ -972,7 +1000,7 @@
           {:else if tab === "files"}
             <div class="project-browser-actions">
               <button type="button" onclick={() => store.collapseAllDirs()}>
-                <i class="ph ph-arrows-in-line-vertical" aria-hidden="true"></i>{copy.projectCollapseAll}
+                <Compress size={16} aria-hidden="true" />{copy.projectCollapseAll}
               </button>
             </div>
             {#if store.dirs[""]?.error}
@@ -993,7 +1021,7 @@
             {#if store.gitError}
               <div class="project-panel-error" role="alert">{store.gitError}</div>
             {:else if store.git?.status === "unavailable"}
-              <p class="file-empty"><i class="ph ph-git-branch" aria-hidden="true"></i><span>{copy.projectGitUnavailable}</span><small>{store.git.reason}</small></p>
+              <p class="file-empty"><BranchUp size={20} aria-hidden="true" /><span>{copy.projectGitUnavailable}</span><small>{store.git.reason}</small></p>
             {:else if gitEntries.length}
               <div class="project-change-scope" role="tablist" aria-label={copy.projectChangesTab} use:tablist>
                 <button
@@ -1045,15 +1073,15 @@
                         aria-label={copy.projectMentionInChat}
                         title={copy.projectMentionInChat}
                         onclick={() => mentionInChat(entry.path)}
-                      ><i class="ph ph-at" aria-hidden="true"></i></button>
+                      ><At size={16} aria-hidden="true" /></button>
                     </li>
                   {/each}
                 </ul>
               {:else}
-                <p class="file-empty"><i class="ph ph-git-diff" aria-hidden="true"></i><span>{copy.projectChangesSessionEmpty}</span></p>
+                <p class="file-empty"><CodeFile size={20} aria-hidden="true" /><span>{copy.projectChangesSessionEmpty}</span></p>
               {/if}
             {:else if !store.gitLoading}
-              <p class="file-empty"><i class="ph ph-git-diff" aria-hidden="true"></i><span>{copy.projectChangesEmpty}</span></p>
+              <p class="file-empty"><CodeFile size={20} aria-hidden="true" /><span>{copy.projectChangesEmpty}</span></p>
             {/if}
           {:else}
             <p class="project-panel-scope">{copy.projectAttachmentsHint}</p>
@@ -1063,10 +1091,10 @@
                 {#each attachments as file (file.id)}
                   <li class="project-entry">
                     <div class="project-attachment-row">
-                      <i class="ph ph-paperclip" aria-hidden="true"></i>
+                      <Paperclip size={16} aria-hidden="true" />
                       <span title={file.original}>{file.original}<small>{formatSize(file.size)}</small></span>
-                      <button type="button" aria-label={copy.preview} title={copy.preview} onclick={() => openAttachment(file)}><i class="ph ph-eye" aria-hidden="true"></i></button>
-                      <button type="button" aria-label={copy.download} title={copy.download} onclick={() => void downloadAttachment(file)}><i class="ph ph-download-simple" aria-hidden="true"></i></button>
+                      <button type="button" aria-label={copy.preview} title={copy.preview} onclick={() => openAttachment(file)}><Eye size={14} aria-hidden="true" /></button>
+                      <button type="button" aria-label={copy.download} title={copy.download} onclick={() => void downloadAttachment(file)}><Download size={14} aria-hidden="true" /></button>
                     </div>
                     {#if expandedAttachment === file.id && attachmentPreview && attachmentUrl}
                       {@const attachmentKind = rawPreviewKindFromName(attachmentPreview.original)}
@@ -1088,7 +1116,7 @@
                 {/each}
               </ul>
             {:else if !attachmentsLoading}
-              <p class="file-empty"><i class="ph ph-paperclip" aria-hidden="true"></i><span>{copy.projectAttachmentsEmpty}</span></p>
+              <p class="file-empty"><Paperclip size={20} aria-hidden="true" /><span>{copy.projectAttachmentsEmpty}</span></p>
             {/if}
           {/if}
         </div>
@@ -1127,9 +1155,9 @@
                     onclick={() => store.selectTab(openTab.id, openTab.kind)}
                   >
                     {#if openTab.kind === "diff"}
-                      <i class="ph ph-git-diff" aria-hidden="true"></i>
+                      <CodeFile class="project-viewer-tab-icon-diff" size={14} aria-hidden="true" />
                     {:else}
-                      <i class={`ph ${fileIconName(openTab.name, "file")}`} style={fileIconStyle(openTab.name, "file")} aria-hidden="true"></i>
+                      {@const TabIcon = FILE_KIND_ICONS[fileIconKind(openTab.name, "file")]}<TabIcon size={14} style={fileIconStyle(openTab.name, "file")} aria-hidden="true" />
                     {/if}
                     <span>{openTab.name}</span>
                   </button>
@@ -1139,7 +1167,7 @@
                     aria-label={copy.closeTab}
                     title={copy.closeTab}
                     onclick={() => handleCloseTab(openTab.id)}
-                  ><i class="ph ph-x" aria-hidden="true"></i></button>
+                  ><X size={14} aria-hidden="true" /></button>
                 </div>
               {/each}
               <button
@@ -1149,10 +1177,10 @@
                 title={browserCollapsed ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
                 onclick={toggleBrowser}
               >
-                <i class={`ph ${browserCollapsed ? "ph-arrows-out-line-vertical" : "ph-arrows-in-line-vertical"}`} aria-hidden="true"></i>
+                {#if browserCollapsed}<Expand size={16} aria-hidden="true" />{:else}<Compress size={16} aria-hidden="true" />{/if}
               </button>
               <button type="button" class="project-viewer-tab-clear" aria-label={copy.closeAllTabs} title={copy.closeAllTabs} onclick={() => store.closeAllTabs()}>
-                <i class="ph ph-x-circle" aria-hidden="true"></i>
+                <XCircle size={16} aria-hidden="true" />
               </button>
             </div>
 
@@ -1172,10 +1200,10 @@
                     aria-label={copy.projectBreadcrumbRoot}
                     onclick={() => { tab = "files"; browserCollapsed = false; store.collapseAllDirs(); }}
                   >
-                    <i class="ph ph-house-simple" aria-hidden="true"></i>
+                    <Home size={16} aria-hidden="true" />
                   </button>
                   {#each breadcrumb as crumb (crumb.path)}
-                    <i class="ph ph-caret-right project-breadcrumb-sep" aria-hidden="true"></i>
+                    <CaretRight class="project-breadcrumb-sep" size={14} aria-hidden="true" />
                     <button
                       type="button"
                       class="project-breadcrumb-crumb"
@@ -1199,7 +1227,7 @@
                     title={copy.projectDiffSideBySide}
                     aria-label={copy.projectDiffSideBySide}
                     onclick={() => (diffLayout = diffLayout === "side-by-side" ? "line-by-line" : "side-by-side")}
-                  ><i class="ph ph-columns" aria-hidden="true"></i></button>
+                  ><RowVertical size={16} aria-hidden="true" /></button>
                 {/if}
                 {#if sourceToggleAvailable && activeTab.kind === "file"}
                   <button
@@ -1210,7 +1238,7 @@
                     title={copy.artifactShowSource}
                     aria-label={copy.artifactShowSource}
                     onclick={() => (showSource = !showSource)}
-                  ><i class="ph ph-code" aria-hidden="true"></i></button>
+                  ><Code size={16} aria-hidden="true" /></button>
                 {/if}
                 {#if viewer === "html"}
                   <button
@@ -1219,28 +1247,28 @@
                     aria-label={copy.artifactRefresh}
                     title={copy.artifactRefresh}
                     onclick={() => (htmlRefreshKey += 1)}
-                  ><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
+                  ><Refresh size={16} aria-hidden="true" /></button>
                 {/if}
                 <button type="button" class="code-viewer-toggle" aria-label={copy.projectMentionInChat} title={copy.projectMentionInChat} onclick={() => mentionInChat(activeTab.path)}>
-                  <i class="ph ph-at" aria-hidden="true"></i>
+                  <At size={16} aria-hidden="true" />
                 </button>
                 <button type="button" class="code-viewer-toggle" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
-                  <i class={`ph ph-${copiedPath === activeTab.path ? "check" : "copy"}`} aria-hidden="true"></i>
+                  {#if copiedPath === activeTab.path}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
                 </button>
                 <button type="button" class="code-viewer-toggle" aria-label={copy.artifactDownload} title={copy.artifactDownload} onclick={() => void downloadProjectFile(activeTab.path)}>
-                  <i class="ph ph-download-simple" aria-hidden="true"></i>
+                  <Download size={14} aria-hidden="true" />
                 </button>
                 <button type="button" class="code-viewer-toggle" aria-label={copy.projectRevealInFinder} title={copy.projectRevealInFinder} onclick={() => void revealInFinder(activeTab.path, "reveal")}>
-                  <i class="ph ph-folder-open" aria-hidden="true"></i>
+                  <FolderOpen size={14} aria-hidden="true" />
                 </button>
                 <button type="button" class="code-viewer-toggle" aria-label={copy.projectOpenExternally} title={copy.projectOpenExternally} onclick={() => void revealInFinder(activeTab.path, "open")}>
-                  <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
+                  <SquareArrowUp size={14} aria-hidden="true" />
                 </button>
               </div>
 
               <div id={`project-viewer-panel-${activeTab.id}`} class="project-viewer-body" role="tabpanel" aria-labelledby={`project-viewer-tab-${activeTab.id}`}>
                 {#if activeTab.loading}
-                  <div class="project-panel-loading"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
+                  <div class="project-panel-loading"><Loader size={18} aria-hidden="true" />{copy.loading}</div>
                 {:else if activeTab.error}
                   <div class="project-panel-error" role="alert">{activeTab.error}</div>
                 {:else if activeTab.kind === "file" && activeTab.preview}
@@ -1372,10 +1400,11 @@
             {#if attachmentsLoading && attachments.length === 0}
               <p class="file-empty"><span>{copy.filesLoading}</span></p>
             {:else if filteredAttachments.length === 0}
-              <p class="file-empty"><i class="ph ph-paperclip" aria-hidden="true"></i><span>{copy.noFiles}</span></p>
+              <p class="file-empty"><Paperclip size={20} aria-hidden="true" /><span>{copy.noFiles}</span></p>
             {:else}
               <ul class="project-entry-list project-session-file-list">
                 {#each filteredAttachments as file (file.id)}
+                  {@const FileIcon = FILE_KIND_ICONS[fileIconKind(file.original, "file")]}
                   <li class="project-entry">
                     <button
                       type="button"
@@ -1384,7 +1413,7 @@
                       title={file.original}
                       onclick={() => void store.openSessionFile(file)}
                     >
-                      <i class={`ph ${fileIconName(file.original, "file")}`} style={fileIconStyle(file.original, "file")} aria-hidden="true"></i>
+                      <FileIcon size={16} style={fileIconStyle(file.original, "file")} aria-hidden="true" />
                       <span>{file.original}</span>
                       <small class="project-entry-size">{formatSize(file.size)}</small>
                     </button>
@@ -1394,7 +1423,7 @@
                       aria-label={copy.download}
                       title={copy.download}
                       onclick={() => void downloadAttachment(file)}
-                    ><i class="ph ph-download-simple" aria-hidden="true"></i></button>
+                    ><Download size={14} aria-hidden="true" /></button>
                   </li>
                 {/each}
               </ul>
@@ -1425,13 +1454,14 @@
           <section class="project-viewer artifact-session-viewer" aria-label={copy.projectViewer}>
             <div class="project-viewer-tabs" role="tablist" aria-label={copy.projectViewer} use:tablist>
               {#each fileTabs as openTab (openTab.id)}
+                {@const TabIcon = FILE_KIND_ICONS[fileIconKind(openTab.name, "file")]}
                 <div class="project-viewer-tab" class:active={openTab.id === store.activeFileTabId}>
                   <button type="button" role="tab" id={`project-viewer-tab-${openTab.id}`} aria-selected={openTab.id === store.activeFileTabId} aria-controls={`project-viewer-panel-${activeTab?.id}`} title={openTab.name} onclick={() => store.selectTab(openTab.id, openTab.kind)}>
-                    <i class={`ph ${fileIconName(openTab.name, "file")}`} style={fileIconStyle(openTab.name, "file")} aria-hidden="true"></i>
+                    <TabIcon size={14} style={fileIconStyle(openTab.name, "file")} aria-hidden="true" />
                     <span>{openTab.name}</span>
                   </button>
                   <button type="button" class="project-viewer-tab-close" aria-label={copy.closeTab} title={copy.closeTab} onclick={() => handleCloseTab(openTab.id)}>
-                    <i class="ph ph-x" aria-hidden="true"></i>
+                    <X size={14} aria-hidden="true" />
                   </button>
                 </div>
               {/each}
@@ -1442,10 +1472,10 @@
                 title={browserCollapsed ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
                 onclick={toggleBrowser}
               >
-                <i class={`ph ${browserCollapsed ? "ph-arrows-out-line-vertical" : "ph-arrows-in-line-vertical"}`} aria-hidden="true"></i>
+                {#if browserCollapsed}<Expand size={16} aria-hidden="true" />{:else}<Compress size={16} aria-hidden="true" />{/if}
               </button>
               <button type="button" class="project-viewer-tab-clear" aria-label={copy.closeAllTabs} title={copy.closeAllTabs} onclick={() => store.closeAllTabs()}>
-                <i class="ph ph-x-circle" aria-hidden="true"></i>
+                <XCircle size={16} aria-hidden="true" />
               </button>
             </div>
 
@@ -1461,7 +1491,7 @@
                     title={copy.artifactShowSource}
                     aria-label={copy.artifactShowSource}
                     onclick={() => (showSource = !showSource)}
-                  ><i class="ph ph-code" aria-hidden="true"></i></button>
+                  ><Code size={16} aria-hidden="true" /></button>
                 {/if}
                 {#if viewer === "html"}
                   <button
@@ -1470,35 +1500,35 @@
                     aria-label={copy.artifactRefresh}
                     title={copy.artifactRefresh}
                     onclick={() => (htmlRefreshKey += 1)}
-                  ><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
+                  ><Refresh size={16} aria-hidden="true" /></button>
                 {/if}
                 {#if activeTab.kind === "file" && activeTab.path}
                   <!-- Same file actions as a Project tab, minus the `@` insertion:
                        an ordinary Session has no Project root for the Runtime to
                        validate a file reference against (PRD §3.35). -->
                   <button type="button" class="code-viewer-toggle" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
-                    <i class={`ph ph-${copiedPath === activeTab.path ? "check" : "copy"}`} aria-hidden="true"></i>
+                    {#if copiedPath === activeTab.path}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
                   </button>
                 {/if}
                 <button type="button" class="code-viewer-toggle" aria-label={copy.artifactDownload} title={copy.artifactDownload} onclick={() => void downloadSessionFile(activeTab)}>
-                  <i class="ph ph-download-simple" aria-hidden="true"></i>
+                  <Download size={14} aria-hidden="true" />
                 </button>
                 {#if activeTab.kind === "file" && activeTab.path}
                   <button type="button" class="code-viewer-toggle" aria-label={copy.projectRevealInFinder} title={copy.projectRevealInFinder} onclick={() => void revealSessionFile(activeTab.path, "reveal")}>
-                    <i class="ph ph-folder-open" aria-hidden="true"></i>
+                    <FolderOpen size={14} aria-hidden="true" />
                   </button>
                   <button type="button" class="code-viewer-toggle" aria-label={copy.projectOpenExternally} title={copy.projectOpenExternally} onclick={() => void revealSessionFile(activeTab.path, "open")}>
-                    <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
+                    <SquareArrowUp size={14} aria-hidden="true" />
                   </button>
                 {/if}
                 <button type="button" class="code-viewer-toggle" aria-label={copy.closePanel} title={copy.closePanel} onclick={onClose}>
-                  <i class="ph ph-x" aria-hidden="true"></i>
+                  <X size={14} aria-hidden="true" />
                 </button>
               </div>
 
               <div id={`project-viewer-panel-${activeTab?.id}`} class="project-viewer-body" role="tabpanel" aria-labelledby={`project-viewer-tab-${activeTab?.id}`}>
                 {#if activeTab.loading}
-                  <div class="project-panel-loading"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
+                  <div class="project-panel-loading"><Loader size={18} aria-hidden="true" />{copy.loading}</div>
                 {:else if activeTab.error}
                   <div class="project-panel-error" role="alert">{activeTab.error}</div>
                 {:else if activeTab.kind === "file"}
@@ -1572,12 +1602,12 @@
   {#if !miniAppActive}
     {#if scope === "project"}
       <div class="file-panel-footer">
-        <i class="ph ph-eye" aria-hidden="true"></i>
+        <Eye size={14} aria-hidden="true" />
         <span>{store.watching ? copy.projectReadOnlyLiveHint : copy.projectReadOnlyHint}</span>
       </div>
     {:else}
       <div class="file-panel-footer">
-        <i class="ph ph-cloud" aria-hidden="true"></i>
+        <Cloud size={20} aria-hidden="true" />
         <span>{attachments.length} {copy.files} · {formatSize(attachmentsTotalSize)}</span>
       </div>
     {/if}

@@ -1,5 +1,31 @@
 <script lang="ts">
   import type { DesktopMemoryCandidate, DesktopMemoryItem } from "@molibot/desktop-contract";
+  import ArrowRight from "reicon-svelte/icons/ArrowRight";
+  import Bookmark from "reicon-svelte/icons/Bookmark";
+  import Briefcase from "reicon-svelte/icons/Briefcase";
+  import CalendarCheck from "reicon-svelte/icons/CalendarCheck";
+  import ChatDots from "reicon-svelte/icons/ChatDots";
+  import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import Code from "reicon-svelte/icons/Code";
+  import Crosshairs from "reicon-svelte/icons/Crosshairs";
+  import Flag from "reicon-svelte/icons/Flag";
+  import Heart from "reicon-svelte/icons/Heart";
+  import History from "reicon-svelte/icons/History";
+  import Inbox from "reicon-svelte/icons/Inbox";
+  import Layers from "reicon-svelte/icons/Layers";
+  import Notebook from "reicon-svelte/icons/Notebook";
+  import Pen from "reicon-svelte/icons/Pen";
+  import Search from "reicon-svelte/icons/Search";
+  import Tag from "reicon-svelte/icons/Tag";
+  import Target from "reicon-svelte/icons/Target";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import UserCircle from "reicon-svelte/icons/UserCircle";
+  import X from "reicon-svelte/icons/X";
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import AngleRight from "reicon-svelte/icons/AngleRight";
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import Tuning from "reicon-svelte/icons/Tuning";
+  import type { ReiconComponent } from "../components/ui/iconTypes";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import type { Translation } from "../i18n";
@@ -38,13 +64,13 @@
   const filteredMemoryRejections = $derived(
     memoryStore.rejections.filter((item) => !memoryStore.rejectionQuery.trim() || [item.reason, item.content, item.channel, item.externalUserId, item.tags.join(",")].join("\n").toLowerCase().includes(memoryStore.rejectionQuery.trim().toLowerCase()))
   );
-  const topicCopy = $derived<Record<MemoryTopicId, { label: string; description: string; icon: string }>>({
-    projects: { label: session.text.memoryTopicProjects, description: session.text.memoryTopicProjectsHint, icon: "briefcase" },
-    technology: { label: session.text.memoryTopicTechnology, description: session.text.memoryTopicTechnologyHint, icon: "code" },
-    design: { label: session.text.memoryTopicDesign, description: session.text.memoryTopicDesignHint, icon: "pencil-simple" },
-    wellness: { label: session.text.memoryTopicWellness, description: session.text.memoryTopicWellnessHint, icon: "heart" },
-    content: { label: session.text.memoryTopicContent, description: session.text.memoryTopicContentHint, icon: "notebook" },
-    habits: { label: session.text.memoryTopicHabits, description: session.text.memoryTopicHabitsHint, icon: "calendar-check" }
+  const topicCopy = $derived<Record<MemoryTopicId, { label: string; description: string; icon: ReiconComponent }>>({
+    projects: { label: session.text.memoryTopicProjects, description: session.text.memoryTopicProjectsHint, icon: Briefcase },
+    technology: { label: session.text.memoryTopicTechnology, description: session.text.memoryTopicTechnologyHint, icon: Code },
+    design: { label: session.text.memoryTopicDesign, description: session.text.memoryTopicDesignHint, icon: Pen },
+    wellness: { label: session.text.memoryTopicWellness, description: session.text.memoryTopicWellnessHint, icon: Heart },
+    content: { label: session.text.memoryTopicContent, description: session.text.memoryTopicContentHint, icon: Notebook },
+    habits: { label: session.text.memoryTopicHabits, description: session.text.memoryTopicHabitsHint, icon: CalendarCheck }
   });
 
   $effect(() => {
@@ -92,12 +118,12 @@
     return sourceCount > 1 ? replaceCount(copy.memorySourcesCount, sourceCount) : copy.memoryStoredFact;
   }
 
-  function factIcon(item: DesktopMemoryItem): string {
-    if (item.type === "task") return "target";
-    if (item.type === "skill") return "stack";
-    if (item.type === "event") return "flag";
-    if (item.type === "user_preference") return "heart";
-    return "bookmark-simple";
+  function factIcon(item: DesktopMemoryItem): ReiconComponent {
+    if (item.type === "task") return Target;
+    if (item.type === "skill") return Layers;
+    if (item.type === "event") return Flag;
+    if (item.type === "user_preference") return Heart;
+    return Bookmark;
   }
 
   function openTopicMemories(topic: MemoryTopicId): void {
@@ -119,44 +145,44 @@
         <button type="button" class:active={activeTab === "all"} aria-current={activeTab === "all" ? "page" : undefined} onclick={() => activeTab = "all"}>{session.text.memoryAll}</button>
       </nav>
       <span class="memory-runtime-state" data-enabled={memoryStore.memory.enabled}>
-        <i class={memoryStore.memory.enabled ? "ph-fill ph-check-circle" : "ph ph-warning-circle"} aria-hidden="true"></i>
+        <i aria-hidden="true">{#if memoryStore.memory.enabled}<CheckCircle weight="Filled" size={13} />{:else}<TriangleWarning size={13} />{/if}</i>
         {memoryStore.memory.enabled ? session.text.memoryEnabledStatus : session.text.memoryDisabledStatus}
       </span>
       <button class="secondary-button memory-advanced-button" type="button" onclick={() => advancedOpen = true}>
-        <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>{session.text.memoryAdvanced}
+        <Tuning size={13} aria-hidden="true" />{session.text.memoryAdvanced}
       </button>
     </div>
 
     {#if activeTab === "overview"}
       <div class="memory-overview" data-memory-view="overview">
         <header class="memory-profile-intro">
-          <i class="ph ph-user-circle" aria-hidden="true"></i>
+          <i aria-hidden="true"><UserCircle size={17} /></i>
           <div class="memory-profile-copy">
             <div>
               <p class="memory-eyebrow">{session.text.memoryUnderstandingEyebrow}</p>
               <h3>{session.text.memoryUnderstandingTitle}</h3>
             </div>
             <p>{center.summary || session.text.memoryUnderstandingEmpty}</p>
-            <span><i class="ph ph-chat-circle-dots" aria-hidden="true"></i>{profileMetaText()}</span>
+            <span><ChatDots size={11} aria-hidden="true" />{profileMetaText()}</span>
           </div>
         </header>
 
         <div class="memory-overview-grid">
           <section class="memory-overview-panel">
-            <header><div><i class="ph ph-crosshair" aria-hidden="true"></i><h4>{session.text.memoryCurrentFocus}</h4></div></header>
+            <header><div><i aria-hidden="true"><Crosshairs size={15} /></i><h4>{session.text.memoryCurrentFocus}</h4></div></header>
             {#if center.currentFocus.length === 0}
               <p class="memory-panel-empty">{session.text.memoryNoCurrentFocus}</p>
             {:else}
               <ul class="memory-reading-list">
                 {#each center.currentFocus as item (item.id)}
-                  <li><button type="button" onclick={() => void beginMemoryEdit(item)}>{compactMemoryText(item.content, 92)}<i class="ph ph-caret-right" aria-hidden="true"></i></button></li>
+                  <li><button type="button" onclick={() => void beginMemoryEdit(item)}>{compactMemoryText(item.content, 92)}<i aria-hidden="true"><CaretRight size={11} /></i></button></li>
                 {/each}
               </ul>
             {/if}
           </section>
 
           <section class="memory-overview-panel">
-            <header><div><i class="ph ph-warning-circle" aria-hidden="true"></i><h4>{session.text.memoryNeedsAttention}</h4></div></header>
+            <header><div><i aria-hidden="true"><TriangleWarning size={15} /></i><h4>{session.text.memoryNeedsAttention}</h4></div></header>
             {#if center.attentionItems.length === 0}
               <p class="memory-panel-empty">{session.text.memoryNoAttention}</p>
             {:else}
@@ -169,7 +195,7 @@
           </section>
 
           <section class="memory-overview-panel">
-            <header><div><i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><h4>{session.text.memoryRecent}</h4></div><button type="button" onclick={() => activeTab = "all"}>{session.text.memoryViewAll}</button></header>
+            <header><div><i aria-hidden="true"><History size={15} /></i><h4>{session.text.memoryRecent}</h4></div><button type="button" onclick={() => activeTab = "all"}>{session.text.memoryViewAll}</button></header>
             {#if center.recentItems.length === 0}
               <p class="memory-panel-empty">{session.text.memoryNoRecent}</p>
             {:else}
@@ -182,7 +208,7 @@
           </section>
 
           <section class="memory-overview-panel">
-            <header><div><i class="ph ph-heart" aria-hidden="true"></i><h4>{session.text.memoryStablePreferences}</h4></div></header>
+            <header><div><i aria-hidden="true"><Heart size={15} /></i><h4>{session.text.memoryStablePreferences}</h4></div></header>
             {#if center.stablePreferences.length === 0}
               <p class="memory-panel-empty">{session.text.memoryNoStablePreferences}</p>
             {:else}
@@ -207,7 +233,7 @@
                 </div>
               </article>
             {/snippet}
-            <header><div><i class="ph ph-tray" aria-hidden="true"></i><h4>{session.text.memoryPendingReview}</h4><span>{center.pendingCandidates.length}</span></div>{#if candidateGroups.aboutOwner.length > 3}<button type="button" onclick={() => showAllCandidates = !showAllCandidates}>{showAllCandidates ? session.text.memoryViewLess : session.text.memoryViewAll}</button>{/if}</header>
+            <header><div><i aria-hidden="true"><Inbox size={15} /></i><h4>{session.text.memoryPendingReview}</h4><span>{center.pendingCandidates.length}</span></div>{#if candidateGroups.aboutOwner.length > 3}<button type="button" onclick={() => showAllCandidates = !showAllCandidates}>{showAllCandidates ? session.text.memoryViewLess : session.text.memoryViewAll}</button>{/if}</header>
             {#if center.pendingCandidates.length === 0}
               <p class="memory-panel-empty">{session.text.memoryNoCandidates}</p>
             {:else}
@@ -223,7 +249,7 @@
               {/if}
               {#if candidateGroups.agentLearnings.length > 0}
                 <button class="memory-candidate-group-toggle" type="button" aria-expanded={agentCandidatesOpen} onclick={() => agentCandidatesOpen = !agentCandidatesOpen}>
-                  <i class={`ph ph-caret-${agentCandidatesOpen ? "down" : "right"}`} aria-hidden="true"></i>
+                  {#if agentCandidatesOpen}<AngleDown size={11} aria-hidden="true" />{:else}<AngleRight size={11} aria-hidden="true" />{/if}
                   <span>{session.text.memoryCandidateGroupAgent}</span>
                   <small>{candidateGroups.agentLearnings.length}</small>
                 </button>
@@ -243,8 +269,9 @@
       <div class="memory-topic-workspace" data-memory-view="topics">
         <aside class="memory-topic-list" aria-label={session.text.memoryTopics}>
           {#each center.topics as topic (topic.id)}
+            {@const TopicIcon = topicCopy[topic.id].icon}
             <button type="button" class:active={selectedTopic === topic.id} aria-current={selectedTopic === topic.id ? "true" : undefined} onclick={() => selectedTopic = topic.id}>
-              <i class={`ph ph-${topicCopy[topic.id].icon}`} aria-hidden="true"></i>
+              <i aria-hidden="true"><TopicIcon size={16} /></i>
               <span><strong>{topicCopy[topic.id].label}</strong><small>{replaceCount(session.text.memoryTopicCount, topic.items.length)} · {formatMemoryDate(topic.updatedAt, session.locale)}</small></span>
             </button>
           {/each}
@@ -257,7 +284,8 @@
           </header>
 
           {#if !selectedTopicData || selectedTopicData.items.length === 0}
-            <div class="memory-topic-empty"><i class={`ph ph-${topicCopy[selectedTopic].icon}`} aria-hidden="true"></i><strong>{session.text.memoryNoTopicMemories}</strong><p>{session.text.memoryNoTopicMemoriesHint}</p></div>
+            {@const TopicIcon = topicCopy[selectedTopic].icon}
+            <div class="memory-topic-empty"><i aria-hidden="true"><TopicIcon size={20} /></i><strong>{session.text.memoryNoTopicMemories}</strong><p>{session.text.memoryNoTopicMemoriesHint}</p></div>
           {:else}
             <section class="memory-agent-summary">
               <h4>{session.text.memoryAgentSummary}</h4>
@@ -267,17 +295,18 @@
               <header><h4>{session.text.memoryKeyFacts}</h4><span>{replaceCount(session.text.memoryTopicCount, selectedTopicData.items.length)}</span></header>
               <div>
                 {#each selectedTopicData.items.slice(0, 5) as item (item.id)}
+                  {@const FactIcon = factIcon(item)}
                   <button class="memory-fact-row" type="button" onclick={() => void beginMemoryEdit(item)}>
-                    <i class={`ph ph-${factIcon(item)}`} aria-hidden="true"></i>
+                    <i aria-hidden="true"><FactIcon size={14} /></i>
                     <span class="memory-fact-kind">{item.subject || item.type || session.text.memoryStoredFact}</span>
                     <strong>{compactMemoryText(item.content, 108)}</strong>
                     <span class="memory-fact-trust" data-level={typeof item.confidence === "number" && item.confidence < 0.55 ? "low" : typeof item.confidence === "number" && item.confidence < 0.8 ? "medium" : "high"}><i aria-hidden="true"></i>{confidenceLabel(item, session.text)}</span>
                     <time>{formatMemoryDate(item.updatedAt, session.locale)}</time>
-                    <i class="ph ph-caret-right" aria-hidden="true"></i>
+                    <i aria-hidden="true"><CaretRight size={14} /></i>
                   </button>
                 {/each}
               </div>
-              <button class="memory-view-topic" type="button" onclick={() => openTopicMemories(selectedTopic)}>{replaceCount(session.text.memoryViewTopicMemories, selectedTopicData.items.length)}<i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+              <button class="memory-view-topic" type="button" onclick={() => openTopicMemories(selectedTopic)}>{replaceCount(session.text.memoryViewTopicMemories, selectedTopicData.items.length)}<ArrowRight size={11} aria-hidden="true" /></button>
             </section>
             {#if selectedTopicData.relatedEntities.length > 0}
               <section class="memory-related-entities">
@@ -285,7 +314,7 @@
                 <div>
                   {#each selectedTopicData.relatedEntities as entity (entity.label)}
                     <article>
-                      <i class="ph ph-tag" aria-hidden="true"></i>
+                      <i aria-hidden="true"><Tag size={15} /></i>
                       <span><strong>{entity.label}</strong><small>{entity.detail}</small></span>
                       <em>{replaceCount(session.text.memoryRelatedCount, entity.count)}</em>
                     </article>
@@ -300,10 +329,10 @@
       <div class="memory-all-view" data-memory-view="all">
         <div class="memory-all-toolbar">
           <div><strong>{session.text.memoryRecords}</strong><span>{filteredAllItems.length}</span></div>
-          <div class="memory-all-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input aria-label={session.text.memorySearch} bind:value={memoryStore.query} autocomplete="off" placeholder={session.text.memorySearchHint} onkeydown={(event) => event.key === "Enter" && void refreshMemoryRecords()} /><button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void refreshMemoryRecords()}>{session.text.memorySearchButton}</button></div>
+          <div class="memory-all-search"><Search size={14} aria-hidden="true" /><input aria-label={session.text.memorySearch} bind:value={memoryStore.query} autocomplete="off" placeholder={session.text.memorySearchHint} onkeydown={(event) => event.key === "Enter" && void refreshMemoryRecords()} /><button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void refreshMemoryRecords()}>{session.text.memorySearchButton}</button></div>
         </div>
         {#if allTopicFilter}
-          <div class="memory-filter-chip"><span>{session.text.memoryTopicFilter}: {topicCopy[allTopicFilter].label}</span><button type="button" aria-label={session.text.memoryClearFilter} onclick={() => allTopicFilter = null}><i class="ph ph-x" aria-hidden="true"></i></button></div>
+          <div class="memory-filter-chip"><span>{session.text.memoryTopicFilter}: {topicCopy[allTopicFilter].label}</span><button type="button" aria-label={session.text.memoryClearFilter} onclick={() => allTopicFilter = null}><X size={11} aria-hidden="true" /></button></div>
         {/if}
         <div class="memory-all-list">
           {#if filteredAllItems.length === 0}
@@ -335,7 +364,7 @@
       onOpenChange={(next) => { if (!next) memoryStore.candidateEdit = null; }}
     >
       <form class="memory-detail-form" onsubmit={(event) => { event.preventDefault(); if (memoryStore.candidateEdit) void confirmMemoryCandidate(memoryStore.candidateEdit); }}>
-        <header class="entity-editor-head"><div><strong id="memory-candidate-edit-title">{session.text.memoryCandidateEdit}</strong><p>{formatTimestamp(memoryStore.candidateEdit.createdAt, session.locale)}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (memoryStore.candidateEdit = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+        <header class="entity-editor-head"><div><strong id="memory-candidate-edit-title">{session.text.memoryCandidateEdit}</strong><p>{formatTimestamp(memoryStore.candidateEdit.createdAt, session.locale)}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (memoryStore.candidateEdit = null)}><X size={16} aria-hidden="true" /></button></header>
         <div class="modal-body settings-form">
           <label class="settings-field settings-field-wide"><span>{session.text.memoryContent}</span><textarea rows="6" bind:value={memoryStore.candidateEdit.value}></textarea></label>
           <label class="settings-field"><span>{session.text.memoryCandidateNamespace}</span><input bind:value={memoryStore.candidateEdit.namespace} autocomplete="off" /></label>
@@ -367,7 +396,7 @@
       onOpenChange={(next) => { if (!next) memoryStore.memoryEdit = null; }}
     >
       <form id="desktop-memory-form" class="memory-detail-form" aria-label={session.text.memory} onsubmit={(event) => { event.preventDefault(); if (memoryStore.memoryEdit) void saveMemoryItem(memoryStore.memoryEdit); }}>
-        <header class="entity-editor-head"><div><strong id="memory-edit-title">{session.text.memory}</strong><p>{memoryStore.memoryEdit.channel}:{memoryStore.memoryEdit.externalUserId}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={Boolean(memoryStore.busyAction)} onclick={() => (memoryStore.memoryEdit = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+        <header class="entity-editor-head"><div><strong id="memory-edit-title">{session.text.memory}</strong><p>{memoryStore.memoryEdit.channel}:{memoryStore.memoryEdit.externalUserId}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={Boolean(memoryStore.busyAction)} onclick={() => (memoryStore.memoryEdit = null)}><X size={16} aria-hidden="true" /></button></header>
         <div class="modal-body memory-detail-body">
           <div class="settings-form">
             <label class="settings-field settings-field-wide"><span>{session.text.memoryContent}</span><textarea rows="7" bind:value={memoryStore.memoryEdit.content}></textarea></label>
@@ -400,7 +429,7 @@
       labelledBy="memory-source-preview-title"
       onOpenChange={(next) => { if (!next) memoryStore.sourcePreview = null; }}
     >
-      <header class="entity-editor-head"><div><strong id="memory-source-preview-title">{session.text.memorySourcePreview}</strong><p>{memoryStore.sourcePreview.sessionId}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (memoryStore.sourcePreview = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header><div class="modal-body memory-source-list">{#each memoryStore.sourcePreview.messages as message}<article><strong>{message.role} · {formatTimestamp(message.createdAt, session.locale)}{message.selected ? " · ←" : ""}</strong><p>{message.content}</p></article>{/each}</div>
+      <header class="entity-editor-head"><div><strong id="memory-source-preview-title">{session.text.memorySourcePreview}</strong><p>{memoryStore.sourcePreview.sessionId}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (memoryStore.sourcePreview = null)}><X size={16} aria-hidden="true" /></button></header><div class="modal-body memory-source-list">{#each memoryStore.sourcePreview.messages as message}<article><strong>{message.role} · {formatTimestamp(message.createdAt, session.locale)}{message.selected ? " · ←" : ""}</strong><p>{message.content}</p></article>{/each}</div>
     </Dialog>
   {/if}
 
@@ -413,7 +442,7 @@
       describedBy="memory-advanced-hint"
       onOpenChange={(next) => { if (!next) advancedOpen = false; }}
     >
-      <header class="entity-editor-head"><div><strong id="memory-advanced-title">{session.text.memoryAdvanced}</strong><p id="memory-advanced-hint">{session.text.memoryAdvancedHint}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => advancedOpen = false}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+      <header class="entity-editor-head"><div><strong id="memory-advanced-title">{session.text.memoryAdvanced}</strong><p id="memory-advanced-hint">{session.text.memoryAdvancedHint}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => advancedOpen = false}><X size={16} aria-hidden="true" /></button></header>
         <div class="modal-body memory-advanced-body">
           <section class="settings-card">
             <div class="settings-row"><strong>{session.text.memoryRuntimeEnabled}</strong><span class="status-badge" data-state={memoryStore.memory.enabled ? "ready" : "disconnected"}>{memoryStore.memory.enabled ? session.text.yes : session.text.no}</span></div>

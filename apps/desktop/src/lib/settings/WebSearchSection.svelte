@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Eye from "reicon-svelte/icons/Eye";
+  import EyeSlash from "reicon-svelte/icons/EyeSlash";
   import { onDestroy } from "svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
@@ -81,7 +83,7 @@
               <div class="secret-input">
                 <input type={secretRevealed(`webSearch:${engine.id}`) ? "text" : "password"} aria-label={session.text.webSearchApiKey} bind:value={engine.apiKey} placeholder={engine.hasApiKey ? session.text.channelSecretConfigured : ""} autocomplete="new-password" spellcheck="false" oninput={() => markToolSettingsDirty("webSearch")} />
                 <button class="secret-reveal" type="button" aria-label={session.text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`webSearch:${engine.id}`); }}>
-                  <i class={`ph ${secretRevealed(`webSearch:${engine.id}`) ? "ph-eye-slash" : "ph-eye"}`} aria-hidden="true"></i>
+                  {#if secretRevealed(`webSearch:${engine.id}`)}<EyeSlash size={16} aria-hidden="true" />{:else}<Eye size={16} aria-hidden="true" />{/if}
                 </button>
               </div>
               {#if engine.hasApiKey}

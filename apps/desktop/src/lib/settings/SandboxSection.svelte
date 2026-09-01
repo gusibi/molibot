@@ -1,4 +1,14 @@
 <script lang="ts">
+  import Check from "reicon-svelte/icons/Check";
+  import Folder from "reicon-svelte/icons/Folder";
+  import Globe from "reicon-svelte/icons/Globe";
+  import Lightning from "reicon-svelte/icons/Lightning";
+  import LockOpen from "reicon-svelte/icons/LockOpen";
+  import Pen from "reicon-svelte/icons/Pen";
+  import Shield from "reicon-svelte/icons/Shield";
+  import ShieldCheck from "reicon-svelte/icons/ShieldCheck";
+  import TerminalSquare from "reicon-svelte/icons/TerminalSquare";
+  import Tuning from "reicon-svelte/icons/Tuning";
   import { onDestroy } from "svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import type { DesktopSandboxPreset } from "../api";
@@ -118,24 +128,13 @@
           <div class="sandbox-tier-card-header">
             <div class="sandbox-tier-icon-wrap" data-tier={level.id}>
               {#if level.id === "locked"}
-                <svg class="sandbox-tier-icon" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M10 2.5L3.5 5.5v5c0 5 3.5 8 6.5 9 3-1 6.5-4 6.5-9v-5L10 2.5z"/>
-                  <path d="M8 10l1.5 1.5L13 8"/>
-                </svg>
+                <ShieldCheck class="sandbox-tier-icon" size={15} aria-hidden="true" />
               {:else if level.id === "readonly"}
-                <svg class="sandbox-tier-icon" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="10" cy="10" r="7.5"/>
-                  <path d="M2.5 10h15M10 2.5a11 11 0 0 1 0 15M10 2.5a11 11 0 0 0 0 15"/>
-                </svg>
+                <Globe class="sandbox-tier-icon" size={15} aria-hidden="true" />
               {:else if level.id === "standard"}
-                <svg class="sandbox-tier-icon" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M13 3l4 4-10 10H3v-4L13 3zM11 5l4 4"/>
-                </svg>
+                <Pen class="sandbox-tier-icon" size={15} aria-hidden="true" />
               {:else}
-                <svg class="sandbox-tier-icon" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3.5" y="8.5" width="13" height="9" rx="2"/>
-                  <path d="M7 8.5V5.5a3 3 0 0 1 6 0v1.5"/>
-                </svg>
+                <LockOpen class="sandbox-tier-icon" size={15} aria-hidden="true" />
               {/if}
             </div>
             <div class="sandbox-tier-title-group">
@@ -144,9 +143,7 @@
             </div>
             {#if selected}
               <div class="sandbox-tier-check-mark" aria-hidden="true">
-                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 7.2l2.8 2.8L11 4"/>
-                </svg>
+                <Check size={10} />
               </div>
             {/if}
           </div>
@@ -155,23 +152,15 @@
 
           <div class="sandbox-tier-tags">
             <span class="sandbox-tier-tag" title={session.text.sandboxNetwork}>
-              <svg class="sandbox-pill-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="8" cy="8" r="6"/>
-                <path d="M2 8h12M8 2a9 9 0 0 1 0 12M8 2a9 9 0 0 0 0 12"/>
-              </svg>
+              <Globe class="sandbox-pill-icon" size={11} aria-hidden="true" />
               {level.network}
             </span>
             <span class="sandbox-tier-tag" title={session.text.sandboxFilesystem}>
-              <svg class="sandbox-pill-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M2.5 4.5h3l1.5 2h6.5v6.5h-11z"/>
-              </svg>
+              <Folder class="sandbox-pill-icon" size={11} aria-hidden="true" />
               {level.filesystem}
             </span>
             <span class="sandbox-tier-tag" title={session.text.sandboxEnvironment}>
-              <svg class="sandbox-pill-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/>
-                <path d="M5.5 7l2 2-2 2M9.5 11h2"/>
-              </svg>
+              <TerminalSquare class="sandbox-pill-icon" size={11} aria-hidden="true" />
               {level.env}
             </span>
           </div>
@@ -183,9 +172,7 @@
     <div class="sandbox-slider" data-level={isCustom ? "custom" : SLIDER_LEVELS[sliderIndex].id}>
       <div class="sandbox-spectrum-meta">
         <span class="sandbox-spectrum-bound">
-          <svg aria-hidden="true" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M7 1.5L2 3.8v3.5c0 3.5 2.5 5.7 5 6.4 2.5-.7 5-2.9 5-6.4V3.8L7 1.5z"/>
-          </svg>
+          <Shield size={12} aria-hidden="true" />
           {session.text.sandboxPresetStrictest}
         </span>
         <span class="sandbox-spectrum-status">
@@ -197,9 +184,7 @@
         </span>
         <span class="sandbox-spectrum-bound">
           {session.text.sandboxPresetPermissive}
-          <svg aria-hidden="true" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M7.5 1.5l-5 6h4.5l-1 5 6-7h-4.5l1-4z"/>
-          </svg>
+          <Lightning size={12} aria-hidden="true" />
         </span>
       </div>
 
@@ -238,9 +223,7 @@
     {#if isCustom}
       <div class="sandbox-custom-callout">
         <div class="sandbox-custom-callout-icon">
-          <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
-            <path d="M2.5 13.5l11-11M9 2.5h4.5v4.5M10.5 9.5l3 3M2.5 5.5l3 3"/>
-          </svg>
+          <Tuning size={15} aria-hidden="true" />
         </div>
         <div class="sandbox-custom-callout-text">
           <strong>{session.text.sandboxPresetCustom}</strong>

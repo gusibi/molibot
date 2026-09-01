@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Clock from "reicon-svelte/icons/Clock";
   import { onDestroy, onMount } from "svelte";
   import { ownsDecisionShortcuts, registerDecisionCard } from "./decisionShortcuts";
 
@@ -77,7 +78,7 @@
   <div class="approval-head">
     <strong class="approval-title">{title}</strong>
     {#if subtitle}<span class="approval-subtitle">{subtitle}</span>{/if}
-    {#if waitingText}<span class="approval-waiting"><i class="ph ph-clock" aria-hidden="true"></i>{waitingText}</span>{/if}
+    {#if waitingText}<span class="approval-waiting"><Clock size={12} aria-hidden="true" />{waitingText}</span>{/if}
   </div>
 
   <slot />

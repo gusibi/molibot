@@ -1,4 +1,25 @@
 <script lang="ts">
+  import ArrowLeft from "reicon-svelte/icons/ArrowLeft";
+  import ArrowRight from "reicon-svelte/icons/ArrowRight";
+  import Bell from "reicon-svelte/icons/Bell";
+  import CalendarDays from "reicon-svelte/icons/CalendarDays";
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import ChatDots from "reicon-svelte/icons/ChatDots";
+  import Check from "reicon-svelte/icons/Check";
+  import Clock from "reicon-svelte/icons/Clock";
+  import Cpu from "reicon-svelte/icons/Cpu";
+  import Folder from "reicon-svelte/icons/Folder";
+  import Loader from "reicon-svelte/icons/Loader";
+  import Pause from "reicon-svelte/icons/Pause";
+  import Pen from "reicon-svelte/icons/Pen";
+  import Play from "reicon-svelte/icons/Play";
+  import Plus from "reicon-svelte/icons/Plus";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import SquareArrowUp from "reicon-svelte/icons/SquareArrowUp";
+  import StopCircle from "reicon-svelte/icons/StopCircle";
+  import Trash from "reicon-svelte/icons/Trash";
+  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import X from "reicon-svelte/icons/X";
   import { onMount, onDestroy } from "svelte";
   import { session } from "../stores/session.svelte";
   import type { DesktopTaskSummary } from "@molibot/desktop-contract";
@@ -339,10 +360,10 @@
        it stays `fit-content` so its single rounded fill hugs the segments. -->
   {#if !projectId}<div class:workspace={presentation === "workspace"} class="automation-category-bar">
     <div class="automation-category-tabs" role="tablist" aria-label={session.text.tasksCategories} use:tablist>
-      <button class:active={activeTaskView === "user"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-user" aria-selected={activeTaskView === "user"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("user")}><i class="ph ph-arrows-clockwise" aria-hidden="true"></i><span>{session.text.tasksUserTab}</span><small>{taskCategoryCounts.user}</small></button>
-      <button class:active={activeTaskView === "project"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-project" aria-selected={activeTaskView === "project"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("project")}><i class="ph ph-folder" aria-hidden="true"></i><span>{session.text.tasksProjectTab}</span><small>{taskCategoryCounts.project}</small></button>
-      <button class:active={activeTaskView === "one-shot"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-one-shot" aria-selected={activeTaskView === "one-shot"} aria-controls="tasks-one-shot-panel" onclick={() => selectTaskCategory("one-shot")}><i class="ph ph-bell" aria-hidden="true"></i><span>{session.text.tasksOneShotTab}</span><small>{taskCategoryCounts["one-shot"]}</small></button>
-      <button class:active={activeTaskView === "system"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-system" aria-selected={activeTaskView === "system"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("system")}><i class="ph ph-cpu" aria-hidden="true"></i><span>{session.text.tasksSystemTab}</span><small>{taskCategoryCounts.system}</small></button>
+      <button class:active={activeTaskView === "user"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-user" aria-selected={activeTaskView === "user"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("user")}><Refresh size={13} aria-hidden="true" /><span>{session.text.tasksUserTab}</span><small>{taskCategoryCounts.user}</small></button>
+      <button class:active={activeTaskView === "project"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-project" aria-selected={activeTaskView === "project"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("project")}><Folder size={13} aria-hidden="true" /><span>{session.text.tasksProjectTab}</span><small>{taskCategoryCounts.project}</small></button>
+      <button class:active={activeTaskView === "one-shot"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-one-shot" aria-selected={activeTaskView === "one-shot"} aria-controls="tasks-one-shot-panel" onclick={() => selectTaskCategory("one-shot")}><Bell size={13} aria-hidden="true" /><span>{session.text.tasksOneShotTab}</span><small>{taskCategoryCounts["one-shot"]}</small></button>
+      <button class:active={activeTaskView === "system"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-system" aria-selected={activeTaskView === "system"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("system")}><Cpu size={13} aria-hidden="true" /><span>{session.text.tasksSystemTab}</span><small>{taskCategoryCounts.system}</small></button>
     </div>
   </div>{/if}
   {#if activeTaskView === "one-shot"}
@@ -362,12 +383,12 @@
         <ul class="one-shot-list" aria-label={session.text.tasksOneShotTab}>
           {#each oneShotTaskItems as task (task.id)}
             <li class:unread={task.reminderUnread} class:reminded={task.status === "completed"} class:error={task.status === "error" || task.status === "skipped"} class="one-shot-row">
-              <span class="one-shot-check" aria-hidden="true"><i class={`ph ${task.status === "completed" ? "ph-check" : task.status === "error" || task.status === "skipped" ? "ph-warning" : "ph-bell"}`} aria-hidden="true"></i></span>
-              <span class="one-shot-copy"><strong>{taskTitle(task)}</strong>{#if taskBody(task.text)}<span>{taskBody(task.text)}</span>{/if}<small><i class="ph ph-clock" aria-hidden="true"></i>{taskScheduleText(task)}</small></span>
+              <span class="one-shot-check" aria-hidden="true">{#if task.status === "completed"}<Check size={14} />{:else if task.status === "error" || task.status === "skipped"}<TriangleWarning size={14} />{:else}<Bell size={14} />{/if}</span>
+              <span class="one-shot-copy"><strong>{taskTitle(task)}</strong>{#if taskBody(task.text)}<span>{taskBody(task.text)}</span>{/if}<small><Clock size={11} aria-hidden="true" />{taskScheduleText(task)}</small></span>
               <span class="one-shot-actions">
                 <span class="one-shot-state" data-status={task.status}>{#if task.reminderUnread}<i aria-hidden="true"></i>{/if}{oneShotStatusText(task)}</span>
                 {#if task.executions[0]}
-                  <button class="task-session-link one-shot-session-link" type="button" title={task.executions[0].sessionId} disabled={Boolean(tasksStore.busy) || !task.executions[0].sessionId} onclick={() => void openTaskSession(task.id, task.executions[0].id)}><i class="ph ph-chat-circle-dots" aria-hidden="true"></i>{task.executions[0].sessionId ? session.text.tasksOpenSession : session.text.tasksSessionCleaned}</button>
+                  <button class="task-session-link one-shot-session-link" type="button" title={task.executions[0].sessionId} disabled={Boolean(tasksStore.busy) || !task.executions[0].sessionId} onclick={() => void openTaskSession(task.id, task.executions[0].id)}><ChatDots size={14} aria-hidden="true" />{task.executions[0].sessionId ? session.text.tasksOpenSession : session.text.tasksSessionCleaned}</button>
                 {/if}
               </span>
             </li>
@@ -379,7 +400,7 @@
     <div class="automation-workspace" id="tasks-main-panel" role="tabpanel" aria-labelledby={!projectId ? `tasks-tab-${activeTaskView}` : undefined} aria-label={session.text.tasks}>
       <div class="automation-workspace-toolbar">
         <SearchField value={tasksStore.query} label={session.text.tasksFilter} placeholder={session.text.tasksFilterHint} onInput={(value) => (tasksStore.query = value)} />
-        {#if activeTaskView === "user" || activeTaskView === "project"}<button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || taskTargetGroups.length === 0} onclick={beginCreateForView}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>{/if}
+        {#if activeTaskView === "user" || activeTaskView === "project"}<button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || taskTargetGroups.length === 0} onclick={beginCreateForView}><Plus size={13} aria-hidden="true" />{session.text.tasksCreate}</button>{/if}
         <div class="automation-workspace-summary" aria-label={session.text.tasksTotal}>
           <span><strong>{taskCategoryCounts[activeTaskView]}</strong>{session.text.tasksTotal}</span>
           <span><strong>{executionTotals.total}</strong>{session.text.tasksRunCount}</span>
@@ -394,9 +415,9 @@
           <div class="automation-workspace-list">
             {#each filteredTaskItems as task (task.id)}
               <button class:active={selectedTask?.id === task.id} class:running={isTaskRunning(task.id)} class:paused={!task.enabled} class="automation-task-row" data-status={task.status} type="button" onclick={() => (selectedTaskId = task.id)}>
-                <span class="automation-task-row-mark" aria-hidden="true">{#if isTaskRunning(task.id)}<i class="ph ph-spinner-gap automation-spinner" aria-hidden="true"></i>{:else}<i></i>{/if}</span>
+                <span class="automation-task-row-mark" aria-hidden="true">{#if isTaskRunning(task.id)}<Loader class="automation-spinner" size={14} aria-hidden="true" />{:else}<i></i>{/if}</span>
                 <span class="automation-task-row-copy"><strong>{taskTitle(task)}</strong><span>{taskScheduleText(task)}</span><small><span class={`row-outcome outcome-${task.lastRun?.status ?? "none"}`}>{taskStatusText(task)}</span><span>{formatTaskTime(task.lastRun?.startedAt || task.lastTriggeredAt || "")}</span></small></span>
-                <i class="ph ph-caret-right" aria-hidden="true"></i>
+                <CaretRight size={12} aria-hidden="true" />
               </button>
             {/each}
           </div>
@@ -404,17 +425,17 @@
             <div class="automation-detail-scrim" role="presentation" aria-hidden="true" onclick={() => (selectedTaskId = "")}></div>
             <article class:dragging={detailGesturePhase === "dragging"} class:settling={detailGesturePhase === "settling"} class="automation-task-detail" style={`--detail-drag:${detailDragOffset}px`} aria-labelledby={`automation-task-${selectedTask.id}`}>
               <button class="automation-detail-drag-handle" type="button" aria-label={session.text.tasksSwipeClose} onpointerdown={beginDetailDrag} onpointermove={moveDetailDrag} onpointerup={endDetailDrag} onpointercancel={cancelDetailDrag}><span aria-hidden="true"></span></button>
-              <button class="automation-detail-close" type="button" title={session.text.tasksCloseDetails} aria-label={session.text.tasksCloseDetails} onclick={() => (selectedTaskId = "")}><i class="ph ph-x" aria-hidden="true"></i></button>
+              <button class="automation-detail-close" type="button" title={session.text.tasksCloseDetails} aria-label={session.text.tasksCloseDetails} onclick={() => (selectedTaskId = "")}><X size={14} aria-hidden="true" /></button>
               <header class="automation-task-detail-head">
                 <div class="automation-task-detail-topbar">
                   <span class:active={isTaskRunning(selectedTask.id)} class:error={selectedTask.status === "error"} class:paused={!selectedTask.enabled} class="automation-status"><i></i>{taskStatusText(selectedTask)}</span>
                   <div class="automation-task-detail-actions">
                     {#if isTaskRunning(selectedTask.id) && runningExecution(selectedTask)?.runId}
-                      <button class="automation-run-button danger-action" type="button" disabled={isTaskUpdating(selectedTask.id)} onclick={() => void stopTaskRun(selectedTask.id, runningExecution(selectedTask)?.runId ?? "")}><i class="ph ph-stop-circle" aria-hidden="true"></i>{session.text.tasksStop}</button>
+                      <button class="automation-run-button danger-action" type="button" disabled={isTaskUpdating(selectedTask.id)} onclick={() => void stopTaskRun(selectedTask.id, runningExecution(selectedTask)?.runId ?? "")}><StopCircle size={13} aria-hidden="true" />{session.text.tasksStop}</button>
                     {:else}
-                      <button class="automation-run-button" type="button" disabled={!selectedTask.enabled || isTaskStarting(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void executeTaskAction("trigger", [selectedTask.id])}>{#if isTaskStarting(selectedTask.id)}<i class="ph ph-spinner-gap automation-spinner" aria-hidden="true"></i>{:else}<i class="ph-fill ph-play" aria-hidden="true"></i>{/if}{isTaskStarting(selectedTask.id) ? session.text.tasksStarting : session.text.tasksTrigger}</button>
+                      <button class="automation-run-button" type="button" disabled={!selectedTask.enabled || isTaskStarting(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void executeTaskAction("trigger", [selectedTask.id])}>{#if isTaskStarting(selectedTask.id)}<Loader class="automation-spinner" size={13} aria-hidden="true" />{:else}<Play weight="Filled" size={13} aria-hidden="true" />{/if}{isTaskStarting(selectedTask.id) ? session.text.tasksStarting : session.text.tasksTrigger}</button>
                     {/if}
-                    {#if selectedTask.category !== "system"}<OverflowMenu label={session.text.more}><button role="menuitem" type="button" disabled={isTaskRunning(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void setTaskEnabled(selectedTask.id, !selectedTask.enabled)}><i class={`ph ${selectedTask.enabled ? "ph-pause" : "ph-play"}`} aria-hidden="true"></i>{selectedTask.enabled ? session.text.tasksPause : session.text.tasksResume}</button><button role="menuitem" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(selectedTask)}><i class="ph ph-pencil-simple" aria-hidden="true"></i>{session.text.channelEdit}</button><button role="menuitem" class="danger-action" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([selectedTask.id])}><i class="ph ph-trash" aria-hidden="true"></i>{session.text.channelDelete}</button></OverflowMenu>{/if}
+                    {#if selectedTask.category !== "system"}<OverflowMenu label={session.text.more}><button role="menuitem" type="button" disabled={isTaskRunning(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void setTaskEnabled(selectedTask.id, !selectedTask.enabled)}>{#if selectedTask.enabled}<Pause size={14} aria-hidden="true" />{:else}<Play size={14} aria-hidden="true" />{/if}{selectedTask.enabled ? session.text.tasksPause : session.text.tasksResume}</button><button role="menuitem" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(selectedTask)}><Pen size={14} aria-hidden="true" />{session.text.channelEdit}</button><button role="menuitem" class="danger-action" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([selectedTask.id])}><Trash size={14} aria-hidden="true" />{session.text.channelDelete}</button></OverflowMenu>{/if}
                   </div>
                 </div>
                 <div>
@@ -428,7 +449,7 @@
                 <div><dt>{session.text.tasksCurrentRun}</dt><dd>{taskExecutionStatusText(selectedTask)}</dd></div>
                 <div><dt>{session.text.tasksScheduleState}</dt><dd>{taskScheduleStatusText(selectedTask)}</dd></div>
                 <div><dt>{session.text.tasksLatestResult}</dt><dd><span class={`execution-state state-${selectedTask.lastRun?.status ?? "none"}`}><i></i>{taskLatestResultText(selectedTask)}</span></dd></div>
-                <div><dt>{session.text.tasksSchedule}</dt><dd><i class="ph ph-calendar-dots" aria-hidden="true"></i>{taskScheduleText(selectedTask)}</dd></div>
+                <div><dt>{session.text.tasksSchedule}</dt><dd><CalendarDays size={13} aria-hidden="true" />{taskScheduleText(selectedTask)}</dd></div>
                 <div><dt>{session.text.tasksLastRun}</dt><dd>{formatTaskTime(selectedTask.lastRun?.startedAt || selectedTask.lastTriggeredAt || "")}</dd></div>
               </dl>
               <details class="automation-task-technical technical-detail">
@@ -455,7 +476,7 @@
                     </div>
                   {/each}
                 {/if}
-                <button class="task-history-toggle" type="button" disabled={Boolean(tasksStore.busy) && tasksStore.busy !== `history:${selectedTask.id}`} onclick={() => void openTaskHistory(selectedTask.id)}>{session.text.tasksViewAllRuns}<i class="ph ph-arrow-square-out" aria-hidden="true"></i></button>
+                <button class="task-history-toggle" type="button" disabled={Boolean(tasksStore.busy) && tasksStore.busy !== `history:${selectedTask.id}`} onclick={() => void openTaskHistory(selectedTask.id)}>{session.text.tasksViewAllRuns}<SquareArrowUp size={13} aria-hidden="true" /></button>
               </section>
             </article>
           {/if}
@@ -466,7 +487,7 @@
   {#if tasksStore.taskCreate}
     <Dialog open={Boolean(tasksStore.taskCreate)} busy={tasksStore.busy === "create"} contentClass="task-editor-modal" labelledBy="task-create-title" describedBy="task-create-hint" onOpenChange={(next) => { if (!next) tasksStore.taskCreate = null; }}>
       <form id="desktop-task-create-form" onsubmit={(event) => { event.preventDefault(); void saveTaskCreate(); }}>
-        <header class="modal-head"><div><strong id="task-create-title">{session.text.tasksCreate}</strong><p id="task-create-hint">{session.text.tasksCreateHint}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (tasksStore.taskCreate = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+        <header class="modal-head"><div><strong id="task-create-title">{session.text.tasksCreate}</strong><p id="task-create-hint">{session.text.tasksCreateHint}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (tasksStore.taskCreate = null)}><X size={16} aria-hidden="true" /></button></header>
         <div class="modal-body task-editor-body">
           {#if tasksStore.taskCreate.kind === "project" && projectId}<div class="task-target-picker">
             <label class="settings-field"><span>{session.text.tasksProjectTarget}</span><input value={tasksStore.taskCreate.projectName} autocomplete="off" readonly /></label>
@@ -491,7 +512,7 @@
     {@const historyTask = tasksStore.tasks.items.find((item) => item.id === tasksStore.historyTaskId)}
     {@const history = tasksStore.histories[tasksStore.historyTaskId]}
     <Dialog open={Boolean(tasksStore.historyTaskId)} busy={Boolean(tasksStore.busy)} contentClass="task-history-modal" labelledBy="task-history-title" onOpenChange={(next) => { if (!next) tasksStore.historyTaskId = ""; }}>
-      <header class="modal-head task-history-modal-head"><div><span id="task-history-title">{session.text.tasksExecutions}</span><strong>{historyTask?.text.split(/\r?\n/)[0] || session.text.tasks}</strong></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (tasksStore.historyTaskId = "")}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+      <header class="modal-head task-history-modal-head"><div><span id="task-history-title">{session.text.tasksExecutions}</span><strong>{historyTask?.text.split(/\r?\n/)[0] || session.text.tasks}</strong></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (tasksStore.historyTaskId = "")}><X size={16} aria-hidden="true" /></button></header>
       <div class="modal-body task-history-modal-body">
         {#if !history}<p class="task-history-loading">{session.text.loading}</p>{:else if history.items.length === 0}<p class="task-history-loading">{session.text.tasksNoExecutions}</p>{:else}
           <div class="task-history-table-head"><span>{session.text.tasksByStatus}</span><span>{session.text.tasksLastTriggered}</span><span>{session.text.tasksSession}</span></div>
@@ -500,13 +521,13 @@
           {/each}
         {/if}
       </div>
-      {#if history}<footer class="task-history-modal-foot"><span>{pageSummary(history.page, history.pageSize, history.total)}</span><div><button class="secondary-button" type="button" disabled={history.page <= 1 || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page - 1)}><i class="ph ph-arrow-left" aria-hidden="true"></i>{session.text.tasksPreviousPage}</button><button class="secondary-button" type="button" disabled={history.page * history.pageSize >= history.total || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page + 1)}>{session.text.tasksNextPage}<i class="ph ph-arrow-right" aria-hidden="true"></i></button></div></footer>{/if}
+      {#if history}<footer class="task-history-modal-foot"><span>{pageSummary(history.page, history.pageSize, history.total)}</span><div><button class="secondary-button" type="button" disabled={history.page <= 1 || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page - 1)}><ArrowLeft size={13} aria-hidden="true" />{session.text.tasksPreviousPage}</button><button class="secondary-button" type="button" disabled={history.page * history.pageSize >= history.total || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page + 1)}>{session.text.tasksNextPage}<ArrowRight size={13} aria-hidden="true" /></button></div></footer>{/if}
     </Dialog>
   {/if}
   {#if tasksStore.taskEdit}
     <Dialog open={Boolean(tasksStore.taskEdit)} busy={Boolean(tasksStore.busy)} contentClass="task-editor-modal" labelledBy="task-edit-title" onOpenChange={(next) => { if (!next) tasksStore.taskEdit = null; }}>
       <form id="desktop-task-form" aria-label={session.text.channelEdit} onsubmit={(event) => { event.preventDefault(); void saveTaskEditor(); }}>
-        <header class="modal-head"><div><strong id="task-edit-title">{session.text.channelEdit}</strong><p>{tasksStore.taskEdit.category === "project" ? tasksStore.taskEdit.projectName : `${tasksStore.taskEdit.channel} / ${tasksStore.taskEdit.botId}${tasksStore.taskEdit.chatId ? ` / ${tasksStore.taskEdit.chatId}` : ""}`}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+        <header class="modal-head"><div><strong id="task-edit-title">{session.text.channelEdit}</strong><p>{tasksStore.taskEdit.category === "project" ? tasksStore.taskEdit.projectName : `${tasksStore.taskEdit.channel} / ${tasksStore.taskEdit.botId}${tasksStore.taskEdit.chatId ? ` / ${tasksStore.taskEdit.chatId}` : ""}`}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}><X size={16} aria-hidden="true" /></button></header>
         <div class="modal-body task-editor-body"><label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskEdit.draftText}></textarea></label><TaskScheduleBuilder bind:schedule={tasksStore.taskEdit.draftSchedule} /><div class="settings-form task-advanced-settings"><label class="settings-field"><span>{session.text.tasksTimezone}</span><SelectControl value={tasksStore.taskEdit.draftTimezone} ariaLabel={session.text.tasksTimezone} options={[...(!timezoneOptions().includes(tasksStore.taskEdit.draftTimezone) ? [{ value: tasksStore.taskEdit.draftTimezone, label: tasksStore.taskEdit.draftTimezone }] : []), ...timezoneOptions().map((tz) => ({ value: tz, label: tz }))]} onChange={(value) => tasksStore.taskEdit!.draftTimezone = value} /></label>{#if tasksStore.taskEdit.category !== "project"}<label class="settings-field"><span>{session.text.tasksDelivery}</span><SelectControl value={tasksStore.taskEdit.draftDelivery} ariaLabel={session.text.tasksDelivery} options={[{ value: "agent", label: session.text.tasksDeliveryAgent }, { value: "text", label: session.text.tasksDeliveryText }]} onChange={(value) => tasksStore.taskEdit!.draftDelivery = value as "agent" | "text"} /></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><SelectControl value={tasksStore.taskEdit.draftSessionMode} ariaLabel={session.text.tasksSessionMode} options={[{ value: "fresh", label: session.text.tasksSessionFresh }, { value: "chat", label: session.text.tasksSessionChat }]} onChange={(value) => tasksStore.taskEdit!.draftSessionMode = value as "fresh" | "chat"} /></label>{/if}</div></div>
         <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskEdit.draftText.trim() || tasksStore.taskEdit.draftSchedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
       </form>
@@ -519,7 +540,7 @@
     <Dialog open={Boolean(tasksStore.taskSession)} contentClass="task-session-modal" labelledBy="task-session-title" onOpenChange={(next) => { if (!next) tasksStore.taskSession = null; }}>
       <header class="modal-head">
         <strong id="task-session-title">{tasksStore.taskSession.execution ? session.text.tasksExecutionDetail : session.text.tasksSession}</strong>
-        <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (tasksStore.taskSession = null)}><i class="ph ph-x" aria-hidden="true"></i></button>
+        <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (tasksStore.taskSession = null)}><X size={16} aria-hidden="true" /></button>
       </header>
       <div class="modal-body messages task-session-detail" aria-live="polite">
         <details class="technical-detail task-session-technical"><summary>{session.text.technicalDetails}</summary><code>{tasksStore.taskSession.sessionId}</code></details>

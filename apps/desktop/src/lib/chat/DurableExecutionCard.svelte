@@ -1,4 +1,7 @@
 <script lang="ts">
+  import ArrowRightUp from "reicon-svelte/icons/ArrowRightUp";
+  import Layers from "reicon-svelte/icons/Layers";
+  import PauseCircle from "reicon-svelte/icons/PauseCircle";
   import type { DesktopDurableExecutionItem, DesktopDurableExecutionStatus } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
 
@@ -34,7 +37,7 @@
 <article class="durable-execution-card" data-status={item.execution.status}>
   <header class="durable-execution-card-head">
     <div class="durable-execution-card-mark" aria-hidden="true">
-      <i class="ph ph-stack-simple" aria-hidden="true"></i>
+      <Layers size={14} />
     </div>
     <div class="durable-execution-card-title">
       <p>{copy.durableExecution} · <code>{item.execution.shortHandle}</code></p>
@@ -69,7 +72,7 @@
 
   {#if item.projection.waiting}
     <p class="durable-execution-waiting">
-      <i class="ph ph-pause-circle" aria-hidden="true"></i>
+      <PauseCircle size={14} aria-hidden="true" />
       <span><strong>{copy.durableWaitingReason}</strong>{item.projection.waiting.reason}</span>
     </p>
   {/if}
@@ -77,7 +80,7 @@
   <footer class="durable-execution-card-foot">
     <span>{copy.durableUpdated.replace("{time}", formatTime(item.execution.updatedAt))}</span>
     <button type="button" class="durable-execution-open" onclick={() => onOpen(item.execution.id)}>
-      {copy.durableOpen}<i class="ph ph-arrow-up-right" aria-hidden="true"></i>
+      {copy.durableOpen}<ArrowRightUp size={12} aria-hidden="true" />
     </button>
   </footer>
 </article>
@@ -192,7 +195,7 @@
     font-size: var(--fs-meta);
     line-height: var(--lh-meta);
   }
-  .durable-execution-waiting i { flex: none; color: var(--warning); font-size: var(--icon-sm); }
+  .durable-execution-waiting :global(svg) { flex: none; color: var(--warning); }
   .durable-execution-waiting strong { margin-right: 5px; color: var(--label-primary); }
   .durable-execution-card-foot {
     justify-content: space-between;

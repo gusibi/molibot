@@ -5,6 +5,12 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
 
+### Changed: Desktop 图标库统一迁移到 Reicon
+
+- Desktop 外壳、聊天、设置、项目、Artifact、Mini Apps 与原始 DOM/HTML 图标边界统一从 Phosphor CSS 字体迁移为 `reicon-svelte`，保留状态、尺寸、颜色、动效和无障碍语义。
+- 移除 Phosphor 字体入口、CSS 规则、依赖和 lockfile 记录；所有 Reicon 图标使用子路径导入，避免上游 barrel 的重复导出缺陷。
+- 验证：Desktop UI 结构测试 219/219、完整 Desktop 测试、`svelte-check` 0/0、Desktop 与 root production build 通过。
+
 ### Changed: 用量 / Trace / 服务日志设置页宽度对齐标准列
 
 - 三个页面从 720px"data page"宽列收回至与其它设置页一致的 576px 标准列（页头、KPI 卡、图表、过滤器全部对齐；服务日志页此前页头 720px / 卡片 576px 自身不一致的问题一并解决）；记忆中心保留 720px 数据列。`DESIGN.md` 宽度规范同步更新。

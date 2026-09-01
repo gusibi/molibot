@@ -1,4 +1,9 @@
 <script lang="ts">
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import X from "reicon-svelte/icons/X";
+  import XCircle from "reicon-svelte/icons/XCircle";
+  import { CHANNEL_ICONS } from "./activityIcons";
+  import type { ReiconComponent } from "../components/ui/iconTypes";
   import Dialog from "../components/ui/Dialog.svelte";
   import { searchDesktopConversations } from "../api.js";
   import type {
@@ -45,13 +50,13 @@
 
   const PRIMARY_SCOPES: DesktopConversationSearchScope[] = ["all", "web", "project", "channels"];
   const CHANNEL_SCOPES: DesktopConversationSearchScope[] = ["channels", "telegram", "feishu", "qq", "weixin"];
-  const SOURCE_ICONS: Record<DesktopConversationSearchSource, string> = {
-    web: "browser",
-    project: "folder-simple",
-    telegram: "telegram-logo",
-    feishu: "bird",
-    qq: "linux-logo",
-    weixin: "wechat-logo"
+  const SOURCE_ICONS: Record<DesktopConversationSearchSource, ReiconComponent> = {
+    web: CHANNEL_ICONS.browser,
+    project: CHANNEL_ICONS["folder-simple"],
+    telegram: CHANNEL_ICONS["telegram-logo"],
+    feishu: CHANNEL_ICONS.bird,
+    qq: CHANNEL_ICONS["linux-logo"],
+    weixin: CHANNEL_ICONS["wechat-logo"]
   };
 
   let query = $state("");
@@ -172,16 +177,16 @@
 >
   <header class="browser-header">
     <div class="browser-search">
-      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <Magnifier size={14} aria-hidden="true" />
       <input bind:this={searchInput} bind:value={query} autocomplete="off" spellcheck="false" placeholder={labels.search} aria-label={labels.search} />
       {#if query}
         <button type="button" aria-label={labels.clearSearch} title={labels.clearSearch} onclick={() => (query = "")}>
-          <i class="ph-fill ph-x-circle" aria-hidden="true"></i>
+          <XCircle weight="Filled" size={14} aria-hidden="true" />
         </button>
       {/if}
     </div>
     <button type="button" class="browser-close" aria-label={labels.close} onclick={requestClose}>
-      <i class="ph ph-x" aria-hidden="true"></i>
+      <X size={16} aria-hidden="true" />
     </button>
   </header>
 
@@ -215,16 +220,18 @@
       <p class="browser-state">{query ? labels.searchEmpty : labels.empty}</p>
     {:else}
       {#each groups as group (group.source)}
+        {@const GroupIcon = SOURCE_ICONS[group.source]}
         <section class="browser-group">
           <header class="browser-group-header">
-            <i class={`ph ph-${SOURCE_ICONS[group.source]}`} aria-hidden="true"></i>
+            <GroupIcon size={16} aria-hidden="true" />
             <span class="browser-group-name">{scopeLabel(group.source)}</span>
             <span class="browser-group-count">{group.total}</span>
           </header>
           <div class="browser-result-list">
             {#each group.items as item (item.sessionId)}
+              {@const ResultIcon = SOURCE_ICONS[item.source]}
               <button type="button" class="browser-result" title={item.title} onclick={() => pick(item)}>
-                <span class="browser-result-icon"><i class={`ph ph-${SOURCE_ICONS[item.source]}`} aria-hidden="true"></i></span>
+                <span class="browser-result-icon"><ResultIcon size={14} aria-hidden="true" /></span>
                 <span class="browser-result-copy">
                   <span class="browser-result-title">{item.title}</span>
                   <span class="browser-result-meta">

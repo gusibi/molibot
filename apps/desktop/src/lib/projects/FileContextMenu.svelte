@@ -78,6 +78,7 @@
   onkeydown={onKeydown}
 >
   {#each items as item (item.id)}
+    {@const ItemIcon = item.icon}
     {#if item.startsGroup}<div class="file-menu-separator" role="separator"></div>{/if}
     <button
       type="button"
@@ -88,7 +89,7 @@
       onclick={() => choose(item)}
       onmouseenter={() => (cursor = enabled.findIndex((candidate) => candidate.id === item.id))}
     >
-      <i class={`ph ${item.icon}`} aria-hidden="true"></i>
+      <ItemIcon size={14} aria-hidden="true" />
       <span>{item.label}</span>
     </button>
   {/each}

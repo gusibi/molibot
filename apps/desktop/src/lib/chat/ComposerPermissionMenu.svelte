@@ -1,8 +1,21 @@
 <script lang="ts">
+  import Check from "reicon-svelte/icons/Check";
+  import Hand from "reicon-svelte/icons/Hand";
+  import Lightning from "reicon-svelte/icons/Lightning";
+  import ListCheck from "reicon-svelte/icons/ListCheck";
+  import PenLine from "reicon-svelte/icons/PenLine";
+  import type { ReiconComponent } from "../components/ui/iconTypes";
   import { onMount, tick } from "svelte";
   import type { Translation } from "../i18n";
 
   type PermissionModeOption = "plan" | "manual" | "accept_edits" | "auto";
+
+  const MODE_ICONS: Record<PermissionModeOption, ReiconComponent> = {
+    plan: ListCheck,
+    manual: Hand,
+    accept_edits: PenLine,
+    auto: Lightning
+  };
 
   export let copy: Translation;
   export let value: PermissionModeOption = "accept_edits";
@@ -15,6 +28,7 @@
   let open = false;
 
   $: label = modeLabel(value);
+  $: TriggerIcon = modeIcon(value);
 
   function modeLabel(mode: PermissionModeOption): string {
     return {
@@ -34,13 +48,8 @@
     }[mode];
   }
 
-  function modeIcon(mode: PermissionModeOption): string {
-    return {
-      plan: "ph-list-checks",
-      manual: "ph-hand",
-      accept_edits: "ph-pencil-simple-line",
-      auto: "ph-lightning"
-    }[mode];
+  function modeIcon(mode: PermissionModeOption): ReiconComponent {
+    return MODE_ICONS[mode];
   }
 
   function close(restoreFocus = false): void {
@@ -102,7 +111,7 @@
     onkeydown={onTriggerKeydown}
     onclick={(event) => disabled && event.preventDefault()}
   >
-    <i class={`ph ${modeIcon(value)}`} aria-hidden="true"></i>
+    <TriggerIcon size={14} aria-hidden="true" />
     <span>{label}</span>
   </summary>
 
@@ -110,13 +119,14 @@
     <div class="composer-model-popover composer-permission-popover" role="menu" tabindex="-1" aria-label={copy.permissionMode} onkeydown={onMenuKeydown}>
       <div class="composer-menu-options">
         {#each options as mode (mode)}
+          {@const ModeIcon = modeIcon(mode)}
           <button type="button" role="menuitemradio" aria-checked={mode === value} onclick={() => selectMode(mode)}>
-            <i class={`ph ${modeIcon(mode)}`} aria-hidden="true"></i>
+            <ModeIcon size={16} aria-hidden="true" />
             <span class="composer-model-option-copy">
               <span class="composer-model-option-name">{modeLabel(mode)}</span>
               <small class="composer-model-option-id">{modeHint(mode)}</small>
             </span>
-            {#if mode === value}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
+            {#if mode === value}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
           </button>
         {/each}
       </div>

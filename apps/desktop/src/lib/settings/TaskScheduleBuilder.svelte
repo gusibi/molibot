@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Clock from "reicon-svelte/icons/Clock";
   import { session } from "../stores/session.svelte";
   import NativeTimeInput from "../components/ui/NativeTimeInput.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
@@ -83,7 +84,7 @@
   </div>
 
   <div class="task-schedule-result" aria-live="polite">
-    <i class="ph ph-clock" aria-hidden="true"></i>
+    <Clock size={16} aria-hidden="true" />
     <span>{session.text.tasksGeneratedCron}</span>
     <code>{schedule}</code>
   </div>

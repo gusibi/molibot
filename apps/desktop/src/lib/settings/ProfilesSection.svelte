@@ -1,4 +1,5 @@
 <script lang="ts">
+  import X from "reicon-svelte/icons/X";
   import { hasEnabledWebProfile } from "../api";
   import type { DesktopWebProfile } from "@molibot/desktop-contract";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
@@ -82,7 +83,7 @@
 {#if profilesStore.profileEdit}
   <Dialog open={true} busy={profilesStore.saving} contentClass="entity-editor-dialog" labelledBy="profile-editor-title" onOpenChange={(next) => { if (!next) profilesStore.profileEdit = null; }}>
   <form id="desktop-profile-form" class="entity-editor-form" aria-label={session.text.profiles} onsubmit={(event) => { event.preventDefault(); void saveProfileEditor(); }}>
-    <header class="entity-editor-head"><strong id="profile-editor-title">{session.text.profiles}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={profilesStore.saving} onclick={() => (profilesStore.profileEdit = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+    <header class="entity-editor-head"><strong id="profile-editor-title">{session.text.profiles}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={profilesStore.saving} onclick={() => (profilesStore.profileEdit = null)}><X size={16} aria-hidden="true" /></button></header>
     <div class="entity-editor-body">
     <div class="settings-form">
       <label class="settings-field"><span>{session.text.profileId}</span><input value={profilesStore.profileEdit.id} disabled={!profilesStore.profileEdit.isNew} autocomplete="off" spellcheck="false" oninput={(event) => updateProfileEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>

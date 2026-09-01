@@ -1,4 +1,5 @@
 <script lang="ts">
+  import X from "reicon-svelte/icons/X";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
@@ -87,7 +88,7 @@
     {@const savedInstance = channelsStore.channels.groups.find((group) => group.channel === channelsStore.channelEdit?.channel)?.instances.find((instance) => instance.id === channelsStore.channelEdit?.previousId)}
     <Dialog open={true} busy={channelsStore.saving} contentClass="entity-editor-dialog" labelledBy="channel-editor-title" onOpenChange={(next) => { if (!next) channelsStore.channelEdit = null; }}>
     <form id="desktop-channel-form" class="entity-editor-form" aria-label={session.text.channels} onsubmit={(event) => { event.preventDefault(); void saveChannelEditor(); }}>
-      <header class="entity-editor-head"><strong id="channel-editor-title">{session.text.channels} · {externalChannelLabel(channelsStore.channelEdit.channel, session.locale)}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={channelsStore.saving} onclick={() => (channelsStore.channelEdit = null)}><i class="ph ph-x" aria-hidden="true"></i></button></header>
+      <header class="entity-editor-head"><strong id="channel-editor-title">{session.text.channels} · {externalChannelLabel(channelsStore.channelEdit.channel, session.locale)}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={channelsStore.saving} onclick={() => (channelsStore.channelEdit = null)}><X size={16} aria-hidden="true" /></button></header>
       <div class="entity-editor-body">
       <div class="settings-form">
         <label class="settings-field"><span>{session.text.channelInstanceId}</span><input value={channelsStore.channelEdit.id} disabled={!channelsStore.channelEdit.isNew} autocomplete="off" spellcheck="false" oninput={(event) => updateChannelEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>

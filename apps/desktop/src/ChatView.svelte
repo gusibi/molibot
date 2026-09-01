@@ -1,4 +1,11 @@
 <script lang="ts">
+  import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import Layers from "reicon-svelte/icons/Layers";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Pen from "reicon-svelte/icons/Pen";
+  import Sidebar from "reicon-svelte/icons/Sidebar";
+  import X from "reicon-svelte/icons/X";
+  import type { EmptyActionIcon } from "./lib/chat/activityIcons";
   import { onDestroy, onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -3010,7 +3017,7 @@
           title={copy.expandSidebar}
           onclick={toggleSidebarCollapse}
         >
-          <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+          <Sidebar size={16} aria-hidden="true" />
         </button>
       {/if}
       <div class="chat-title-block" data-tauri-drag-region>
@@ -3029,7 +3036,7 @@
             title={copy.durableInProgress}
             onclick={() => openDurableExecutionInspector(activeDurableExecution?.execution.id ?? durableExecutions[0]?.execution.id ?? "")}
           >
-            <i class="ph ph-stack-simple" aria-hidden="true"></i>
+            <Layers size={16} aria-hidden="true" />
             <span>{durableActiveCount > 99 ? "99+" : durableActiveCount}</span>
           </button>
         {/if}
@@ -3057,7 +3064,7 @@
               title={copy.search}
               onclick={toggleSearch}
             >
-              <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+              <Magnifier size={16} aria-hidden="true" />
             </button>
           {/if}
           <button
@@ -3068,7 +3075,7 @@
             title={copy.files}
             onclick={toggleFilesInspector}
           >
-            <i class="ph ph-sidebar-simple flip" aria-hidden="true"></i>
+            <Sidebar class="flip" size={16} aria-hidden="true" />
             {#if sessionFiles.length}<span class="icon-badge">{sessionFiles.length}</span>{/if}
           </button>
         {/if}
@@ -3162,7 +3169,7 @@
           { icon: "list-checks", label: copy.emptyChatPlanLabel, prompt: copy.emptyChatPlanPrompt },
           { icon: "magnifying-glass", label: copy.emptyChatAnalyzeLabel, prompt: copy.emptyChatAnalyzePrompt },
           { icon: "notebook", label: copy.emptyChatOrganizeLabel, prompt: copy.emptyChatOrganizePrompt }
-        ]}
+        ] satisfies { icon: EmptyActionIcon; label: string; prompt: string }[]}
         onEmptyAction={fillEmptyPrompt}
         {searchMatchIds}
         {activeMatchId}
@@ -3275,10 +3282,10 @@
         </svelte:fragment>
         {#if editingMessageId}
           <div class="composer-edit-banner" role="status">
-            <i class="ph ph-pencil-simple-line" aria-hidden="true"></i>
+            <Pen size={16} aria-hidden="true" />
             <span>{copy.editingMessage}</span>
             <button type="button" aria-label={copy.cancelEdit} title={copy.cancelEdit} onclick={cancelEditMessage}>
-              <i class="ph ph-x" aria-hidden="true"></i>{copy.cancelEdit}
+              <X size={16} aria-hidden="true" />{copy.cancelEdit}
             </button>
           </div>
         {/if}
@@ -3391,7 +3398,7 @@
           <p class="onboarding-step-of">{onboardingStepOfText} · {onboardingStepLabels[onboardingStep]}</p>
           <ol class="onboarding-steps">
             {#each ONBOARDING_STEPS as step, i (step)}
-              <li class:active={i === onboardingStepIndex} class:done={i < onboardingStepIndex}>{#if i < onboardingStepIndex}<i class="ph ph-check-circle" aria-hidden="true"></i>{/if}{onboardingStepLabels[step]}</li>
+              <li class:active={i === onboardingStepIndex} class:done={i < onboardingStepIndex}>{#if i < onboardingStepIndex}<CheckCircle size={14} aria-hidden="true" />{/if}{onboardingStepLabels[step]}</li>
             {/each}
           </ol>
 

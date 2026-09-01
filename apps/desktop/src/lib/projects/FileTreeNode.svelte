@@ -1,6 +1,12 @@
 <script lang="ts">
+  import At from "reicon-svelte/icons/At";
+  import CaretRight from "reicon-svelte/icons/CaretRight";
+  import Check from "reicon-svelte/icons/Check";
+  import Copy from "reicon-svelte/icons/Copy";
+  import FolderOpen from "reicon-svelte/icons/FolderOpen";
   import type { Translation } from "../i18n";
-  import { fileIconName, fileIconStyle, formatSize } from "./fileIcons";
+  import { fileIconKind, fileIconStyle, formatSize } from "./fileIcons";
+  import { FILE_KIND_ICONS } from "./fileKindIcons";
   import type { ArtifactTabsStore } from "../artifacts/artifactTabsStore.svelte";
   import FileTreeNode from "./FileTreeNode.svelte";
 
@@ -45,6 +51,7 @@
   <ul class="file-tree-level">
     {#each level.entries as entry (entry.path)}
       {@const expanded = Boolean(store.expanded[entry.path])}
+      {@const NodeIcon = FILE_KIND_ICONS[fileIconKind(entry.name, entry.kind, expanded)]}
       <li class="file-tree-item">
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
@@ -75,15 +82,16 @@
             }}
           >
             {#if entry.kind === "directory"}
-              <i class="ph ph-caret-right file-tree-caret" class:open={expanded} aria-hidden="true"></i>
+              <i class={expanded ? "file-tree-caret open" : "file-tree-caret"} aria-hidden="true"><CaretRight size={11} /></i>
             {:else}
               <span class="file-tree-caret-spacer" aria-hidden="true"></span>
             {/if}
-            <i
-              class={`ph ${fileIconName(entry.name, entry.kind, expanded)} file-tree-icon`}
+            <NodeIcon
+              class="file-tree-icon"
+              size={16}
               style={fileIconStyle(entry.name, entry.kind)}
               aria-hidden="true"
-            ></i>
+            />
             <span class="file-tree-name">{entry.name}</span>
             {#if entry.sizeBytes !== undefined}<small class="file-tree-size">{formatSize(entry.sizeBytes)}</small>{/if}
           </button>
@@ -95,7 +103,7 @@
               title={copy.projectMentionInChat}
               onclick={() => onMention(entry.path)}
             >
-              <i class="ph ph-at" aria-hidden="true"></i>
+              <At size={16} aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -104,7 +112,7 @@
               title={copy.projectCopyPath}
               onclick={() => onCopyPath(entry.path)}
             >
-              <i class={`ph ph-${copiedPath === entry.path ? "check" : "copy"}`} aria-hidden="true"></i>
+              {#if copiedPath === entry.path}<Check size={16} aria-hidden="true" />{:else}<Copy size={16} aria-hidden="true" />{/if}
             </button>
           {/if}
         </div>
@@ -142,6 +150,6 @@
       disabled={level.loading}
     >{level.loading ? copy.loading : copy.loadMore}</button>
   {:else if !level.entries.length && !level.loading && !dirPath}
-    <p class="file-empty"><i class="ph ph-folder-open" aria-hidden="true"></i><span>{copy.projectFilesEmpty}</span></p>
+    <p class="file-empty"><FolderOpen size={20} aria-hidden="true" /><span>{copy.projectFilesEmpty}</span></p>
   {/if}
 {/if}

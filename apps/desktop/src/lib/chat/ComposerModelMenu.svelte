@@ -1,4 +1,9 @@
 <script lang="ts">
+  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import AngleLeft from "reicon-svelte/icons/AngleLeft";
+  import AngleRight from "reicon-svelte/icons/AngleRight";
+  import Check from "reicon-svelte/icons/Check";
+  import Cpu from "reicon-svelte/icons/Cpu";
   import { onMount, tick } from "svelte";
   import type { DesktopModelOption, DesktopThinkingLevel } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
@@ -121,10 +126,10 @@
     onkeydown={onTriggerKeydown}
     onclick={(event) => disabled && event.preventDefault()}
   >
-    <i class="ph ph-cpu" aria-hidden="true"></i>
+    <Cpu size={16} aria-hidden="true" />
     <span class="composer-model-label"><span class="composer-model-label-text">{modelLabel}</span></span>
     <span class="composer-model-level">{levelLabel}</span>
-    <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
+    <AngleDown class="composer-model-caret" weight="Filled" size={14} aria-hidden="true" />
   </summary>
 
   {#if open}
@@ -132,15 +137,15 @@
       {#if page === "overview"}
         <button type="button" role="menuitem" disabled={changingModel || modelOptions.length === 0} onclick={() => showPage("model", true)}>
           <span class="composer-menu-copy"><strong>{copy.model}</strong><small title={activeModelTitle || modelLabel}>{modelLabel}</small></span>
-          <i class="ph ph-caret-right" aria-hidden="true"></i>
+          <AngleRight size={14} aria-hidden="true" />
         </button>
         <button type="button" role="menuitem" disabled={thinkingLevelOptions.length <= 1} onclick={() => showPage("thinking", true)}>
           <span class="composer-menu-copy"><strong>{copy.thinkingLevel}</strong><small>{levelLabel}</small></span>
-          <i class="ph ph-caret-right" aria-hidden="true"></i>
+          <AngleRight size={14} aria-hidden="true" />
         </button>
       {:else}
         <div class="composer-menu-heading">
-          <button type="button" class="composer-menu-back" aria-label={copy.cancelAction} onclick={() => showPage("overview", true)}><i class="ph ph-caret-left" aria-hidden="true"></i></button>
+          <button type="button" class="composer-menu-back" aria-label={copy.cancelAction} onclick={() => showPage("overview", true)}><AngleLeft size={14} aria-hidden="true" /></button>
           <strong>{page === "model" ? copy.model : copy.thinkingLevel}</strong>
         </div>
         <div class="composer-menu-options">
@@ -151,7 +156,7 @@
                 {#each group.options as item (item.option.key)}
                   <button type="button" role="menuitemradio" aria-checked={item.option.key === activeModelKey} title={item.option.label} onclick={() => selectModel(item.option.key)}>
                     <span class="composer-model-option-name">{item.name}</span>
-                    {#if item.option.key === activeModelKey}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
+                    {#if item.option.key === activeModelKey}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
                   </button>
                 {/each}
               </div>
@@ -160,7 +165,7 @@
             {#each thinkingLevelOptions as level (level)}
               <button type="button" role="menuitemradio" aria-checked={level === thinkingLevel} onclick={() => selectThinking(level)}>
                 <span>{thinkingOptionLabel(level)}</span>
-                {#if level === thinkingLevel}<i class="ph-bold ph-check" aria-hidden="true"></i>{/if}
+                {#if level === thinkingLevel}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
               </button>
             {/each}
           {/if}

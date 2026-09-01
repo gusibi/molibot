@@ -1,4 +1,7 @@
 <script lang="ts">
+  import More from "reicon-svelte/icons/More";
+  import Pen from "reicon-svelte/icons/Pen";
+  import Trash from "reicon-svelte/icons/Trash";
   import { tick } from "svelte";
   import BotAvatar from "./BotAvatar.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
@@ -211,7 +214,7 @@
         title={labels.menu}
         onclick={openMenu}
       >
-        <i class="ph ph-dots-three" aria-hidden="true"></i>
+        <More size={16} aria-hidden="true" />
       </button>
     {/if}
   {/if}
@@ -227,11 +230,11 @@
       </div>
     {:else}
       <button type="button" class="row-menu-item" role="menuitem" onclick={startRename}>
-        <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+        <Pen size={16} aria-hidden="true" />
         <span>{labels.rename}</span>
       </button>
       <button type="button" class="row-menu-item danger" role="menuitem" onclick={askDelete}>
-        <i class="ph ph-trash" aria-hidden="true"></i>
+        <Trash size={16} aria-hidden="true" />
         <span>{labels.delete}</span>
       </button>
     {/if}
@@ -400,7 +403,6 @@
     cursor: pointer;
     transition: background var(--duration-instant) var(--ease-standard);
   }
-  .row-menu-btn i { font-size: var(--icon-md); }
   .conversation-row:hover .row-menu-btn,
   .conversation-row:focus-within .row-menu-btn,
   .conversation-row.menu-open .row-menu-btn {
@@ -434,7 +436,7 @@
     text-align: left;
     cursor: pointer;
   }
-  .row-menu-item i { font-size: var(--icon-md); opacity: 0.8; }
+  .row-menu-item :global(svg) { opacity: 0.8; }
   .row-menu-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .row-menu-item.danger { color: var(--danger); }
   .row-menu-item.danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }

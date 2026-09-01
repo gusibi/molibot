@@ -11,6 +11,8 @@
  * clipped or trapped.
  */
 
+import { reiconSvg, type RawReiconName } from "./reiconSvg";
+
 export interface LightboxItem {
   src: string;
   alt?: string;
@@ -29,8 +31,8 @@ export interface LightboxCopy {
 
 const OVERLAY_CLASS = "image-lightbox";
 
-function icon(name: string): string {
-  return `<i class="ph ph-${name}" aria-hidden="true"></i>`;
+function icon(name: RawReiconName, size: number): string {
+  return reiconSvg(name, size);
 }
 
 /** Closes any open viewer. Safe to call when none is open. */
@@ -61,19 +63,19 @@ export function openImageLightbox(items: LightboxItem[], startIndex: number, cop
   close.type = "button";
   close.className = "image-lightbox-close";
   close.setAttribute("aria-label", copy.closeImage || "Close");
-  close.innerHTML = icon("x");
+  close.innerHTML = icon("x", 16);
 
   const prev = document.createElement("button");
   prev.type = "button";
   prev.className = "image-lightbox-nav is-prev";
   prev.setAttribute("aria-label", copy.prevImage || "Previous");
-  prev.innerHTML = icon("caret-left");
+  prev.innerHTML = icon("caret-left", 20);
 
   const next = document.createElement("button");
   next.type = "button";
   next.className = "image-lightbox-nav is-next";
   next.setAttribute("aria-label", copy.nextImage || "Next");
-  next.innerHTML = icon("caret-right");
+  next.innerHTML = icon("caret-right", 20);
 
   const bar = document.createElement("div");
   bar.className = "image-lightbox-bar";
@@ -83,7 +85,7 @@ export function openImageLightbox(items: LightboxItem[], startIndex: number, cop
   download.type = "button";
   download.className = "image-lightbox-download";
   download.setAttribute("aria-label", copy.download || "Download");
-  download.innerHTML = icon("download-simple");
+  download.innerHTML = icon("download", 16);
   bar.append(counter, download);
 
   // A single image is not a gallery: the arrows and the "1 / 1" readout would

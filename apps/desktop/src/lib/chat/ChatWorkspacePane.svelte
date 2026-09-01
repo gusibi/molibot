@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sidebar from "reicon-svelte/icons/Sidebar";
   import type { Component } from "svelte";
   import type { Translation } from "../i18n";
   import TasksSection from "../settings/TasksSection.svelte";
@@ -49,7 +50,7 @@
       title={copy.expandSidebar}
       onclick={onToggleSidebar}
     >
-      <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+      <Sidebar size={16} aria-hidden="true" />
     </button>
   {/if}
   <h1 class="workspace-page-title" data-tauri-drag-region>{pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : copy.agentsNav}</h1>

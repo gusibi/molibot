@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sidebar from "reicon-svelte/icons/Sidebar";
   export let sourceInitial = "";
   export let sourceLabel = "";
   export let title: string;
@@ -18,7 +19,7 @@
       title={expandLabel || "展开侧边栏"}
       onclick={onToggleSidebar}
     >
-      <i class="ph ph-sidebar-simple" aria-hidden="true"></i>
+      <Sidebar size={16} aria-hidden="true" />
     </button>
   {/if}
   <div class="chat-title-block" data-tauri-drag-region>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ArrowLeft from "reicon-svelte/icons/ArrowLeft";
   import { onMount } from "svelte";
   import { parsePluginToHostMessage, type HostToPluginMessage } from "@molibot/shared/pluginBridge";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
@@ -426,7 +427,7 @@
       {/if}
     </SettingGroup>
   {:else}
-    <div class="plugin-detail-toolbar"><button class="tertiary-button" type="button" onclick={backToList}><i class="ph ph-arrow-left" aria-hidden="true"></i>{copy.back}</button>{#if detailMessage}<span class="plugin-detail-message" aria-live="polite">{detailMessage}</span>{/if}</div>
+    <div class="plugin-detail-toolbar"><button class="tertiary-button" type="button" onclick={backToList}><ArrowLeft size={14} aria-hidden="true" />{copy.back}</button>{#if detailMessage}<span class="plugin-detail-message" aria-live="polite">{detailMessage}</span>{/if}</div>
 
     {#if loadingDetail}
       <div class="settings-card"><p class="plugin-empty-state">{copy.loading}</p></div>

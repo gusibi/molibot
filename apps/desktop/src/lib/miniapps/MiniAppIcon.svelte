@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Window from "reicon-svelte/icons/Window";
   let {
     src = "",
     label,
@@ -14,6 +15,6 @@
   {#if src}
     <img src={src} alt="" width="20" height="20" />
   {:else}
-    <i class="ph ph-app-window" aria-hidden="true"></i>
+    <Window size={24} aria-hidden="true" />
   {/if}
 </span>

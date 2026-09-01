@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Coins from "reicon-svelte/icons/Coins";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
@@ -100,7 +101,7 @@
       onChange={(value) => void updateSetting("transcriptionModelKey", value)}
     />
   </SettingRow>
-  <p class="miniapps-trust miniapps-ai-note"><i class="ph ph-coins" aria-hidden="true"></i><span>{session.text.miniAppAiCostWarning}</span></p>
+  <p class="miniapps-trust miniapps-ai-note"><Coins size={14} aria-hidden="true" /><span>{session.text.miniAppAiCostWarning}</span></p>
   <div class="miniapps-ai-usage">
     <strong>{session.text.miniAppAiUsageTitle}</strong>
     {#if usage.length === 0}

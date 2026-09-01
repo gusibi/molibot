@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Refresh from "reicon-svelte/icons/Refresh";
   import { untrack } from "svelte";
   import type { DesktopUsageRange } from "@molibot/desktop-contract";
   import { formatTokenCount } from "../api";
@@ -82,7 +83,7 @@
         <div class="observatory-filter-title"><strong>{session.text.usageFilters}</strong><p>{usage.window.startDate} → {usage.window.endDate} · {usage.timezone} · {session.text.usageUpdatedAt} {formatDate(usage.generatedAt)}</p></div>
         <div class="observatory-filter-actions">
           <button class="tertiary-button observatory-reset-button" type="button" onclick={resetUsageFilters}>{session.text.usageClearFilters}</button>
-          <button class="icon-button observatory-refresh-button" type="button" aria-label={session.text.usageRefresh} title={session.text.usageRefresh} disabled={usageStore.refreshing} onclick={() => session.endpoint && loadUsage(session.endpoint)}><i class="ph ph-arrow-clockwise" aria-hidden="true"></i></button>
+          <button class="icon-button observatory-refresh-button" type="button" aria-label={session.text.usageRefresh} title={session.text.usageRefresh} disabled={usageStore.refreshing} onclick={() => session.endpoint && loadUsage(session.endpoint)}><Refresh size={16} aria-hidden="true" /></button>
         </div>
       </div>
       <div class="observatory-filter-fields usage-filter-fields">

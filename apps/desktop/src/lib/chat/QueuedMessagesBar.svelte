@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Compass from "reicon-svelte/icons/Compass";
+  import X from "reicon-svelte/icons/X";
   export let queued: string[] = [];
   export let label: string;
   export let removeLabel: string;
@@ -42,7 +44,7 @@
             title={steerLabel}
             disabled={!canSteer}
             onclick={() => onSteer?.(index)}
-          ><i class="ph ph-steering-wheel" aria-hidden="true"></i></button>
+          ><Compass size={14} aria-hidden="true" /></button>
         {/if}
         <button
           type="button"
@@ -53,7 +55,7 @@
           onclick={() => toggleRemove(index)}
           onblur={() => (confirmingRemove = "")}
         >
-          {#if confirmingRemove === String(index)}{confirmLabel || removeLabel}{:else}<i class="ph ph-x" aria-hidden="true"></i>{/if}
+          {#if confirmingRemove === String(index)}{confirmLabel || removeLabel}{:else}<X size={14} aria-hidden="true" />{/if}
         </button>
       </div>
     {/each}

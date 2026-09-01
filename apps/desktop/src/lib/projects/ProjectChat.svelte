@@ -1,4 +1,6 @@
 <script lang="ts">
+  import PenLine from "reicon-svelte/icons/PenLine";
+  import X from "reicon-svelte/icons/X";
   import { onDestroy, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import {
@@ -1098,10 +1100,10 @@
   >
     {#if editingMessageId}
       <div class="composer-edit-banner" role="status">
-        <i class="ph ph-pencil-simple-line" aria-hidden="true"></i>
+        <PenLine size={14} aria-hidden="true" />
         <span>{copy.editingMessage}</span>
         <button type="button" aria-label={copy.cancelEdit} title={copy.cancelEdit} onclick={cancelEditMessage}>
-          <i class="ph ph-x" aria-hidden="true"></i>{copy.cancelEdit}
+          <X size={14} aria-hidden="true" />{copy.cancelEdit}
         </button>
       </div>
     {/if}
