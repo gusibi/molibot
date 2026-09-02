@@ -53,6 +53,15 @@ export interface RenderMarkdownOptions {
   /** Labels for the controls the renderer emits into code blocks. */
   labels?: { copyCode?: string; wrapLines?: string; previewArtifact?: string; openTable?: string };
   headingPrefix?: string;
+  /**
+   * Rewrites a markdown image's href into a loadable URL. The file preview
+   * panel resolves sibling images against the open file's own directory and
+   * streams them through the file routes; returning null keeps the original
+   * href (absolute URLs, data URIs). Callers that don't know the source file's
+   * location — the chat transcript — leave it unset, and hrefs render as
+   * written.
+   */
+  resolveImage?: (href: string) => string | null | undefined;
 }
 
 /**
@@ -93,7 +102,10 @@ export function renderMarkdown(source: string, copyCodeLabel = "Copy code", opti
   const previewArtifactLabel = options.labels?.previewArtifact ?? "";
   const openTableLabel = options.labels?.openTable ?? "";
   const headingPrefix = options.headingPrefix ?? "";
-  const cacheKey = streaming ? null : `${copyCodeLabel}\u0000${wrapLinesLabel}\u0000${previewArtifactLabel}\u0000${openTableLabel}\u0000${headingPrefix}\u0000${source}`;
+  const resolveImage = options.resolveImage;
+  // The cache key cannot represent a resolver, and two files sharing markdown
+  // while sitting in different directories would poison each other's images.
+  const cacheKey = streaming || resolveImage ? null : `${copyCodeLabel}\u0000${wrapLinesLabel}\u0000${previewArtifactLabel}\u0000${openTableLabel}\u0000${headingPrefix}\u0000${source}`;
   if (cacheKey !== null) {
     const cached = renderCache.get(cacheKey);
     if (cached !== undefined) {
@@ -129,6 +141,14 @@ export function renderMarkdown(source: string, copyCodeLabel = "Copy code", opti
         ? `<button type="button" data-preview-artifact>${escapeHtml(previewArtifactLabel)}</button>`
         : "";
       return `<div class="code-block"><div class="code-block-head"><span>${escapeHtml(languageLabel)}</span>${previewButton}${wrapButton}<button type="button" data-copy-code aria-label="${escapeHtml(copyCodeLabel)}">${escapeHtml(copyCodeLabel)}</button></div><pre><code class="hljs${language ? ` language-${escapeHtml(language)}` : ""}">${highlighted}</code></pre></div>`;
+  };
+  // Mirrors marked's default image renderer (alt text via the text renderer,
+  // optional title) with one difference: the href may be resolved to a loadable
+  // URL before it lands in the markup.
+  renderer.image = function ({ href, title, text, tokens }): string {
+    const alt = tokens ? this.parser.parseInline(tokens, this.parser.textRenderer) : text;
+    const src = resolveImage ? resolveImage(String(href ?? "")) ?? String(href ?? "") : String(href ?? "");
+    return `<img src="${escapeHtml(src)}" alt="${escapeHtml(String(alt ?? ""))}"${title ? ` title="${escapeHtml(String(title))}"` : ""}>`;
   };
   const html = marked.parse(String(source ?? ""), { async: false, renderer }) as string;
   const sanitized = wrapTables(DOMPurify.sanitize(html, {

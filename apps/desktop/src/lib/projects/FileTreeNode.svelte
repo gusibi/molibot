@@ -61,6 +61,7 @@
           class:dirty={dirtyPaths.has(entry.path)}
           class:touched={touchedPaths.has(entry.path)}
           data-tree-path={entry.path}
+          oncontextmenu={(event) => onContextMenu(event, entry.path, entry.kind)}
           onkeydown={(event) => {
             // Keyboard route to the right-click-only menu (Shift+F10 / ContextMenu key).
             if (!((event.key === "F10" && event.shiftKey) || event.key === "ContextMenu")) return;

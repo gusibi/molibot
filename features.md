@@ -5,7 +5,51 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 - [2026 Q3 Features Archive (Jul - Sep)](docs/archive/features-archive-2026-Q3.md)
 
+## 2026-09-03
+
+### Project 会话内打开本轮 Session 文件不再吞掉文件面板（已交付）
+
+- **范围**：Project 会话中点击"本轮文件"卡片或其中的 Session scratch 文件（如生成的图片）时，右侧面板保持 Project 作用域——文件树/变更/附件三个页签全部保留，文件以 Session 作用域页签在预览区打开；不再把整个面板替换成只剩"本轮文件/文件"两个页签、无法回到文件列表的 Session 视图。
+- **实现**：根因是 `ChatView.openTurnFiles` 按被点文件的 `source` 重设整个面板的 `scope`，`ArtifactTabsStore.connect()` 随之清空 Project 树与页签。现改为：面板作用域恒等于会话面板（`projectPaneActive` 派生，`inspector.scope` 字段删除）；会话身份（`profileId`/`sessionId`）无条件传入 store，Project 作用域内 Session 页签经既有授权文件路由加载；`ArtifactPanel` 把按面板作用域分叉的两套预览区合并为按活动页签自身 `scope` 渲染的一套（工具栏/数据源/HTML 预览路由/markdown 图片解析均按页签 scope 取向），并删除"页签行点击回传宿主换作用域"的 `onOpenTurnFile` 回环；store 的 `connect()` 改为仅表面身份（endpoint/Project/Session 会话）变化才整体重置，Project 内切换会话只回收上一会话遗留的 Session 页签（blob 释放），树、Git 与 Project 页签保留。
+- **防复发**：`chat-ui.test.mjs` 重写作用域模型守卫（scope 恒随面板、`selected.source` 不得回归、面板内直开 turn 文件、合并预览区必须单一、store 会话身份携带与孤儿 Session 页签回收），Desktop 全量结构测试 229 项通过、`svelte-check` 0/0、production build 通过。
+
 ## 2026-09-02
+
+### 文件树右键菜单修复 + 复制绝对路径（已交付）
+
+- **范围**：文件树（文件页签）的行现在有右键菜单（与变更列表同一套：打开/查看改动/引用到对话/复制路径/复制绝对路径/在访达中显示/用默认应用打开）；Project 与 Session 两个作用域的右键菜单统一新增"复制绝对路径"。
+- **实现**：根因是 `FileTreeNode` 接收了 `onContextMenu` 却从未在行元素上绑定 `oncontextmenu`，文件树右键一直无响应；补上绑定。绝对路径由面板已有的 `projectRootPath`（项目规范根目录）拼接，root 未知时菜单项置灰而不是复制错误内容。
+- **验证**：`svelte-check` 0/0、Desktop 结构测试 228 项、production build 通过。
+
+### 文件预览页签条的动作按钮统一靠右（已交付）
+
+- **范围**：文件预览页签条右侧的两个动作按钮（折叠文件树/关闭全部页签）不再平分剩余宽度，统一靠右排列；Project 与 Session 两个作用域一致。
+- **实现**：根因是 `.project-viewer-tab-clear` 每个按钮都带 `margin-left: auto`，flex 布局把剩余空间在两个按钮之间平分；改为仅第一个动作按钮吸收自由空间（`:first-of-type`），第二个按钮补 2px 间距。
+- **验证**：`svelte-check` 0/0、Desktop 结构测试、production build 通过。
+
+### 文件面板头部移除手动刷新按钮（已交付）
+
+- **范围**：Project/Session 文件面板头部的刷新按钮移除（用户反馈从未使用）；面板仍通过文件监听自动同步（底部"只读检查 · 实时跟随文件变更"状态不变），搜索（⌘P）与"跟随 Agent 改动"开关保留。
+- **实现**：删除按钮、`artifactTabsStore.refreshAll()`（唯一调用方）、`projectRefresh`/`projectWatchLive` 双语文案与 `.project-watch-dot` 样式；`Refresh` 图标保留（HTML 预览刷新仍用）。
+- **验证**：`svelte-check` 0/0、Desktop 结构测试 228 项 + 单元测试、production build 通过。
+
+### 切换会话时右侧文件面板跟随新会话（已交付）
+
+- **范围**：从 Project 会话切到 Web 会话（或任意会话/项目会话间切换、进入项目面板、新建草稿）时，右侧 Artifact 面板不再残留上一会话的本轮文件列表和 Project 作用域；面板跟随新会话重置为对应作用域，点击旧文件报 404 错误卡片的问题一并消除。
+- **实现**：`ChatView` 增加会话上下文 key（`projectPaneActive` + Project/会话身份）的响应式守卫，上下文变化时"移植"打开中的 Inspector——清空 turn files/openPath/sessionFile 请求、scope 按当前面板重新派生，Mini App 字段保留（与 store 的 miniapp tab 存活语义一致），关闭状态保持关闭；Project 身份读取 `projectsView` 投影（pitfall #2，直接读 `projectsStore` 属性在 legacy `$:` 里不会跟踪）。`ArtifactPanel` 在 turn files 清空且停留在"本轮文件"页签时回退到文件页签。`api.ts` 的 `requestJson` 对非 JSON 错误响应体（路由 404 HTML 页）不再原样抛出，统一为 `Request failed (status)`，避免整页 HTML 被画进错误卡片。
+- **防复发**：`chat-ui.test.mjs` 新增结构守卫：上下文 key 守卫必须存在且清空文件类请求、保留 miniApp 字段、Project 身份必须走 `projectsView` 投影、面板 turn 页签回退逻辑必须存在；Desktop 全量测试 228 项结构 + 41 项单元、`svelte-check` 0/0、production build 通过。
+
+### Artifact 面板 Markdown 预览支持相对图片引用（已交付）
+
+- **范围**：Project 文件与 Session 附件面板中的 markdown 预览，`![alt](cloudflare-error-1102.png)` 这类与 md 文件同目录/子目录/上级目录的相对图片引用可正常显示（leaf bundle 标准写法），预览与灯箱点击共用重写后的 URL。
+- **实现**：`markdown.ts` 的 `renderMarkdown` 新增 `resolveImage` 选项并覆写 `renderer.image`；`MarkdownPreview` 透传；`ArtifactPanel` 按打开文件的目录解析相对路径后重写为可加载 URL——Project scope 走既有 raw 文件路由（`?raw=true`，mtime ETag 重校验，CSP 已放行 loopback），Session scope 走 HTML 预览同款 `molibot-artifact://` 路由（`tauri.conf.json` 的 `img-src` 补充放行）。绝对 URL、data URI、根绝对路径与逃逸根目录的引用不重写；带 resolver 时绕过渲染缓存，防止不同目录同内容文件互相污染。
+- **防复发**：新增 `markdownImages.test.ts`（6 项：同目录/子目录/上级、逃逸根、绝对 URL 与 data URI 不解析、根目录文件）；完整 Desktop 测试 242 + 227 项、`svelte-check` 0 error / 0 warning、production build 通过。
+
+### 设置页内容列宽度对齐 Chat（已交付）
+
+- **范围**：Desktop 设置中心全部页面的内容列从 576px 放宽到 720px，与 Chat 会话列等宽，页头、设置卡、供应商工作台、数据页与记忆中心全部对齐同一列。
+- **实现**：只改 `--settings-content-width` 一个 token（576px → 720px）；同时把 6 处手抄的宽度表达式收敛为共享 token `--settings-col`，防止后续漂移；`DESIGN.md` 宽度规范同步更新。
+- **验证**：完整 Desktop 测试（含 UI 结构断言更新与 60 项 Rust 测试）、`svelte-check` 0 error / 0 warning 通过。
 
 ### Project 受保护目录重新授权与本轮图片预览（已交付）
 

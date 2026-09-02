@@ -229,9 +229,15 @@ export class ArtifactTabsStore {
   }
 
   /**
-   * Points the store at a Project (or a non-Project session). Resets the view
-   * state that belongs to the previous context and, for Project scope, restarts
-   * the change stream; the generation bump invalidates every in-flight request.
+   * Points the store at a Project (or a non-Project session) and carries the
+   * session fetch identity alongside, so Session-scope tabs can load their
+   * bytes whichever surface is on screen.
+   *
+   * The reset fires when the SURFACE changes (endpoint, Project, or the
+   * Session-conversation identity in Session scope, where the conversation is
+   * the surface). Switching conversations inside one Project only invalidates
+   * what belongs to the old conversation - its Session tabs - and keeps the
+   * tree, Git state and Project tabs the surface exists to show.
    *
    * Mini App tabs deliberately SURVIVE: an app is a workspace of its own, not
    * an artifact of the conversation it was opened beside. Clearing them here is
@@ -239,20 +245,24 @@ export class ArtifactTabsStore {
    * destroyed with the tab) and drop the panel back to an empty file surface.
    */
   connect(endpoint: string, projectId: string, scope: ArtifactScope, profileId = "", sessionId = ""): void {
-    if (
-      this.endpoint === endpoint &&
-      this.projectId === projectId &&
-      this.scope === scope &&
-      this.profileId === profileId &&
-      this.sessionId === sessionId
-    )
+    const surfaceChanged =
+      this.endpoint !== endpoint || this.projectId !== projectId || this.scope !== scope;
+    const fetchIdentityChanged = this.profileId !== profileId || this.sessionId !== sessionId;
+    // The fetch identity always follows the host: Session-tab URLs and blobs
+    // are built from it, stale or not.
+    this.profileId = profileId;
+    this.sessionId = sessionId;
+    // In Session scope the conversation IS the surface, so a conversation
+    // switch resets it like any other. In Project scope the switch only orphans
+    // the previous conversation's Session tabs.
+    if (!surfaceChanged && !(scope === "session" && fetchIdentityChanged)) {
+      if (fetchIdentityChanged) this.#dropSessionTabs();
       return;
+    }
     this.#generation += 1;
     this.endpoint = endpoint;
     this.projectId = projectId;
     this.scope = scope;
-    this.profileId = profileId;
-    this.sessionId = sessionId;
     this.#revokeBlobUrls();
     // Mini App tabs are carried over; their `scope` follows the new context so
     // nothing downstream reads a stale one.
@@ -300,6 +310,23 @@ export class ArtifactTabsStore {
       if (tab.blobUrl) URL.revokeObjectURL(tab.blobUrl);
       tab.blobUrl = "";
     }
+  }
+
+  /**
+   * Closes every Session-scope file tab. They belong to one conversation: once
+   * the panel's session identity moves on, their file ids no longer resolve and
+   * the tabs would only render fetch errors. Project tabs and Mini Apps stay.
+   */
+  #dropSessionTabs(): void {
+    const stale = new Set(
+      this.tabs.filter((tab) => tab.kind !== "miniapp" && tab.scope === "session").map((tab) => tab.id)
+    );
+    if (!stale.size) return;
+    for (const tab of this.tabs) {
+      if (stale.has(tab.id) && tab.blobUrl) URL.revokeObjectURL(tab.blobUrl);
+    }
+    this.tabs = this.tabs.filter((tab) => !stale.has(tab.id));
+    if (stale.has(this.activeFileTabId)) this.activeFileTabId = this.fileTabs[0]?.id ?? "";
   }
 
   /**
@@ -834,12 +861,5 @@ export class ArtifactTabsStore {
   #scheduleGitRefresh(): void {
     if (this.#gitRefreshTimer) clearTimeout(this.#gitRefreshTimer);
     this.#gitRefreshTimer = setTimeout(() => void this.loadGit(), 400);
-  }
-
-  /** Reloads every visible surface - the refresh button and the manual fallback. */
-  refreshAll(): void {
-    for (const path of Object.keys(this.dirs)) void this.loadDir(path, { force: true });
-    for (const tab of this.tabs) if (tab.kind !== "miniapp") void this.reloadTab(tab.id);
-    void this.loadGit();
   }
 }

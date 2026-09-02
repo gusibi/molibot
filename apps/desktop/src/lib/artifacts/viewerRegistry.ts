@@ -48,7 +48,10 @@ export interface ArtifactMeta {
   mimeType?: string;
   /** Coarse media category from intake, when available. */
   mediaType?: string;
-  /** Owning scope; does not change the viewer, only the action bar / @-reference. */
+  /**
+   * Owning scope. Never changes which viewer renders the tab — it decides
+   * which transports and actions serve it (route URLs, reveal, download).
+   */
   scope: ArtifactScope;
 }
 

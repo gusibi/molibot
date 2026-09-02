@@ -26,7 +26,8 @@
     theme,
     name,
     showSource = false,
-    endpoint = ""
+    endpoint = "",
+    resolveImage
   }: {
     content: string;
     copy: Translation;
@@ -37,6 +38,12 @@
     showSource?: boolean;
     /** Service endpoint used by the server-side D2 renderer. */
     endpoint?: string;
+    /**
+     * Rewrites image hrefs to loadable URLs — the panel resolves sibling
+     * images against the open file's directory. Absent for viewers without a
+     * source location (docx), where hrefs render as written.
+     */
+    resolveImage?: (href: string) => string | null;
   } = $props();
 
   const segments = $derived(splitDiagramBlocks(content));
@@ -48,7 +55,7 @@
 
   function markdownHtml(segment: MarkdownSegment): string {
     return segment.kind === "markdown"
-      ? renderMarkdown(segment.content, copy.copyCode, { labels: { wrapLines: copy.wrapLines } })
+      ? renderMarkdown(segment.content, copy.copyCode, { labels: { wrapLines: copy.wrapLines }, resolveImage })
       : "";
   }
 

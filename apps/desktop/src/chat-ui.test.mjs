@@ -734,7 +734,7 @@ test("issue 13 macOS product tokens and accessibility preferences are shared", (
   assert.match(styles, /--font-ui:/);
   assert.match(styles, /--radius-control:\s*8px/);
   assert.match(styles, /--toolbar-height:\s*52px/);
-  assert.match(styles, /--settings-content-width:\s*576px/);
+  assert.match(styles, /--settings-content-width:\s*720px/);
   assert.match(styles, /--message-content-width:\s*720px/);
   assert.match(styles, /@media \(prefers-contrast: more\)/);
   assert.match(styles, /:root\[data-performance="low"\]/);
@@ -2520,33 +2520,34 @@ test("a session tab's path means the same thing every file action reads it", () 
 });
 
 test("Session file tabs carry the same actions as Project tabs, minus the @ insertion", () => {
-  const sessionBranch = projectFilePanel.slice(projectFilePanel.indexOf('{:else if scope === "session"}'));
+  const sessionActions = projectFilePanel.slice(
+    projectFilePanel.indexOf("Same file actions as a Project tab, minus"),
+    projectFilePanel.indexOf("</div>", projectFilePanel.indexOf("Same file actions as a Project tab, minus"))
+  );
   for (const action of ["projectCopyPath", "artifactDownload", "projectRevealInFinder", "projectOpenExternally"]) {
-    assert.match(sessionBranch, new RegExp(action), `${action} missing from the Session action bar`);
+    assert.match(sessionActions, new RegExp(action), `${action} missing from the Session action bar`);
   }
   // `@` insertion is deliberately absent: the shared Runtime validates a file
   // reference against a Project root (PRD §3.35), which an ordinary Session has
   // no equivalent of. A button here would insert a reference that fails closed.
-  assert.doesNotMatch(sessionBranch, /mentionInChat/);
+  assert.doesNotMatch(sessionActions, /mentionInChat/);
   // Reveal/open resolve the absolute path service-side; the panel only ever
   // sends the workspace-relative path.
   assert.match(projectFilePanel, /revealDesktopSessionFile\(\s*endpoint,\s*\{ profileId, sessionId, projectId: projectId \|\| undefined, path \}/);
 });
 
-test("every Slice 2/3 viewer is reachable from both artifact scopes", () => {
-  // PRD §3.38: one registry, two entrances. A viewer wired into only the
-  // Project branch is exactly the fork the panel exists to prevent (pitfall #7),
-  // and it is invisible to any test that looks at one scope only.
-  const projectBranch = projectFilePanel.slice(
-    projectFilePanel.indexOf('activeTab.kind === "file" && activeTab.preview'),
-    projectFilePanel.indexOf('{:else if scope === "session"}')
-  );
-  const sessionBranch = projectFilePanel.slice(projectFilePanel.indexOf('{:else if scope === "session"}'));
-  assert.ok(projectBranch.length > 0 && sessionBranch.length > 0);
+test("every viewer serves both scopes through one tab-scope-keyed body", () => {
+  // PRD §3.38: one registry, one viewer body. The body used to exist twice (a
+  // Project copy and a Session copy) and the copies drifted; the merged body is
+  // keyed on the active tab's own scope, so a Session tab renders inside a
+  // Project panel through the session transports without re-scoping the panel.
   for (const component of ["HtmlPreview", "CsvTable", "SpreadsheetTable", "DocxPreview", "PptxPreview", "MarkdownPreview", "JsonTree", "SvgViewer", "SystemOpenCard"]) {
-    assert.match(projectBranch, new RegExp(`<${component}\\b`), `${component} missing from project scope`);
-    assert.match(sessionBranch, new RegExp(`<${component}\\b`), `${component} missing from session scope`);
+    assert.match(projectFilePanel, new RegExp(`<${component}\\b`), `${component} missing from the merged viewer`);
   }
+  assert.equal(projectFilePanel.match(/<section class="project-viewer"/g)?.length, 1, "the viewer body must not fork per scope again");
+  // The scope the body serves is the tab's, not the panel's.
+  assert.match(projectFilePanel, /class:artifact-session-viewer=\{activeTab\?\.scope === "session"\}/);
+  assert.match(projectFilePanel, /const activeMediaSrc = \$derived\(activeTab\?\.scope === "project" \? rawUrl : sessionStreamUrl\)/);
 });
 
 test("no file is a dead end: the system card always offers a way out", () => {
@@ -2614,8 +2615,8 @@ test("the source toggle is a registry fact and is offered in both scopes", () =>
   const registry = read("./lib/artifacts/viewerRegistry.ts");
   assert.match(registry, /export function hasSourceToggle/);
   assert.match(projectFilePanel, /hasSourceToggle\(viewer\)/);
-  // Both toolbars read the same derived flag and the same shared state.
-  assert.equal(projectFilePanel.match(/sourceToggleAvailable && activeTab\.kind === "file"/g)?.length, 2);
+  // One merged toolbar reads the same derived flag and the same shared state.
+  assert.equal(projectFilePanel.match(/sourceToggleAvailable && activeTab\.kind === "file"/g)?.length, 1);
   assert.match(projectFilePanel, /artifactShowSource/);
   // The toggle resets per tab; a sticky source view would carry into the next file.
   assert.match(projectFilePanel, /store\.activeTabId;[\s\S]*?showSource = false/);
@@ -3615,7 +3616,7 @@ test("Chat mounts one shared inspector host for artifact and durable surfaces", 
   // Panel hosts both, so there is still exactly one inspector column, one
   // resizer and one width budget. The two surfaces inside it are separate
   // (see the tab-separation guard below) but the mount seam is single.
-  assert.match(view, /type ChatInspector =[\s\S]*?kind: "artifact"[\s\S]*?scope: "project" \| "session"[\s\S]*?miniApp\?: string[\s\S]*?miniAppNonce\?: number[\s\S]*?\} \| null/);
+  assert.match(view, /type ChatInspector =[\s\S]*?kind: "artifact"[\s\S]*?miniApp\?: string[\s\S]*?miniAppNonce\?: number[\s\S]*?\} \| null/);
   assert.match(view, /\$: filePanelOpen = inspector\?\.kind === "artifact"/);
   // ONE inspector host, every surface. Durable Execution is a third mode in the
   // same right-hand host, so it cannot introduce a second aside or width budget.
@@ -3623,11 +3624,12 @@ test("Chat mounts one shared inspector host for artifact and durable surfaces", 
   assert.match(view, /kind: "durable-execution"/);
   assert.doesNotMatch(view, /sessionFilesAsideVisible/);
   assert.doesNotMatch(view, /class="file-list"/);
-  // Conversation identity comes from the live pane. Artifact scope comes from
-  // the selected output because a Project turn can own a Session scratch file.
+  // Conversation identity comes from the live pane, and so does the scope: the
+  // panel never re-scopes per selected artifact (that used to swap the Project
+  // tree for a two-tab session view with no way back).
   assert.match(view, /\$: artifactPanelVisible = filePanelOpen && serviceState === "ready" && \(projectPaneActive \|\| profiles\.length > 0\)/);
   assert.match(view, /sessionId=\{projectPaneActive \? \(projectsStore\.selectedSessionId \?\? ""\) : inspectorSessionId\}/);
-  assert.match(view, /profileId=\{artifactScope === "session" \? \(projectPaneActive \? "personal" : inspectorProfileId\) : ""\}/);
+  assert.match(view, /profileId=\{projectPaneActive \? "personal" : inspectorProfileId\}/);
   // One grid class, one resizer, one max-width computation for both adapters —
   // a second panel must never introduce a fourth column.
   assert.match(view, /class:with-files=\{inspectorVisible\}/);
@@ -3642,8 +3644,8 @@ test("Chat mounts one shared inspector host for artifact and durable surfaces", 
   assert.doesNotMatch(view, /<MiniAppPanel\b/);
   assert.doesNotMatch(view, /<ProjectFilePanel\b/);
   // Opening a Mini App keeps any open files alive rather than replacing them.
-  assert.match(view, /inspector = \{\s*kind: "artifact",\s*scope: projectPaneActive \? "project" : "session",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq,\s*miniAppDeepLinkPath: deepLinkPath\s*\}/);
-  assert.match(view, /inspector = inspector\?\.kind === "artifact" \? null : \{ kind: "artifact", scope: projectPaneActive \? "project" : "session" \}/);
+  assert.match(view, /inspector = \{\s*kind: "artifact",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq,\s*miniAppDeepLinkPath: deepLinkPath\s*\}/);
+  assert.match(view, /inspector = inspector\?\.kind === "artifact" \? null : \{ kind: "artifact" \}/);
 });
 
 test("a Mini App survives a session switch, and Session scope always has a Files surface", () => {
@@ -3680,6 +3682,33 @@ test("a Mini App survives a session switch, and Session scope always has a Files
   assert.match(styles, /\.project-panel-body\.browser-collapsed \.artifact-file-surface > \.project-browser/);
 });
 
+test("the store carries the session identity into Project scope and retires orphaned session tabs", () => {
+  // Gating the session identity on the panel scope is what made a scratch image
+  // from a Project turn unopenable without re-scoping the whole panel (which
+  // threw away the tree). The identity now always rides along; only a real
+  // surface change resets, and a Project conversation switch retires just the
+  // previous conversation's session tabs.
+  const filesStore = read("./lib/artifacts/artifactTabsStore.svelte.ts");
+  const connect = filesStore.slice(
+    filesStore.indexOf("connect(endpoint: string"),
+    filesStore.indexOf("dispose(): void")
+  );
+  // Fetch identity is written before any early return.
+  assert.match(connect, /this\.profileId = profileId;\s*this\.sessionId = sessionId;/);
+  // In Session scope the conversation IS the surface; in Project scope a
+  // conversation switch must not reset the tree and Project tabs.
+  assert.match(connect, /!\(scope === "session" && fetchIdentityChanged\)/);
+  assert.match(connect, /if \(fetchIdentityChanged\) this\.#dropSessionTabs\(\);/);
+  // Orphaned session tabs are closed (blobs revoked), not left to 404 forever.
+  const drop = filesStore.match(/#dropSessionTabs\(\): void \{[\s\S]*?\n  \}/)?.[0] ?? "";
+  assert.ok(drop.length > 0, "#dropSessionTabs must exist");
+  assert.match(drop, /tab\.scope === "session"/);
+  assert.match(drop, /URL\.revokeObjectURL\(tab\.blobUrl\)/);
+  // The panel hands the identity over unconditionally - no scope gating left.
+  assert.doesNotMatch(projectFilePanel, /scope === "session" \? profileId : ""/);
+  assert.match(projectFilePanel, /store\.connect\(nextEndpoint, nextProjectId, nextScope, nextProfileId, nextSessionId\)/);
+});
+
 test("opening a turn file uses its own refresh result when the panel mount refresh races it", () => {
   const loadAttachments = projectFilePanel.match(/async function loadAttachments\(\): Promise<DesktopSessionFile\[]> \{[\s\S]*?\n  \}/)?.[0] ?? "";
   const openTurnFile = projectFilePanel.match(/async function openTurnFile\(file: TurnFileItem\): Promise<void> \{[\s\S]*?\n  \}/)?.[0] ?? "";
@@ -3692,16 +3721,45 @@ test("opening a turn file uses its own refresh result when the panel mount refre
   assert.doesNotMatch(openTurnFile, /await loadAttachments\(\);\s*sessionFile = attachments\.find/);
 });
 
-test("a Project turn's Session file keeps Session scope through the shared inspector host", () => {
-  // The conversation can belong to a Project while one of its outputs belongs
-  // to Session scratch. The selected file's scope must win at the Artifact
-  // Panel boundary; deriving it again from the active conversation silently
-  // routes generated images back through the Project tree/viewer.
-  assert.match(view, /\$: artifactScope = inspector\?\.kind === "artifact"\s*\? inspector\.scope\s*:\s*projectPaneActive \? "project" : "session"/);
+test("a Project conversation keeps its panel scope, and session tabs carry their own", () => {
+  // A Project turn can own a Session scratch file. Re-scoping the whole panel
+  // to that file's scope used to replace the Project tree/changes/attachments
+  // surface with a two-tab session view that had no way back. Now the panel's
+  // scope follows the conversation pane, the session identity rides along for
+  // Session-tab fetches, and each tab renders through its own scope.
+  assert.match(view, /let artifactScope: ArtifactScope = "project";\s*\$: artifactScope = projectPaneActive \? "project" : "session";/);
   const artifactMount = view.match(/<ArtifactPanel[\s\S]*?\n    \/>/)?.[0] ?? "";
   assert.match(artifactMount, /scope=\{artifactScope\}/);
-  assert.match(artifactMount, /profileId=\{artifactScope === "session" \? \(projectPaneActive \? "personal" : inspectorProfileId\) : ""\}/);
-  assert.doesNotMatch(artifactMount, /scope=\{projectPaneActive \? "project" : "session"\}/);
+  assert.match(artifactMount, /profileId=\{projectPaneActive \? "personal" : inspectorProfileId\}/);
+  // The turn-files card must not pick the panel's scope from the clicked row.
+  assert.doesNotMatch(view, /selected\.source/);
+  // The panel opens a turn-file row in place - no host round trip to switch scope.
+  assert.doesNotMatch(projectFilePanel, /onOpenTurnFile/);
+  assert.match(projectFilePanel, /function selectTurnFile\(file: TurnFileItem\): void \{\s*void openTurnFile\(file\);\s*\}/);
+});
+
+test("the artifact inspector is transplanted on a conversation switch, not carried over", () => {
+  // The Inspector belongs to the conversation it was opened beside. Carried
+  // across a switch, the previous conversation's turn files stayed listed, and
+  // a stale Project scope over the new session's id sent every fetch to
+  // `/api/settings/projects//inspection/file` - a router 404 whose HTML page
+  // was painted verbatim into the panel's error card.
+  const transplant = view.match(/let inspectorContextKey[\s\S]*?\n  \}/)?.[0] ?? "";
+  assert.ok(transplant.length > 0, "the context-key guard must exist");
+  assert.match(transplant, /key !== inspectorContextKey/);
+  assert.match(transplant, /turnFiles: \[\], turnFilesNonce: 0, turnFileKey: ""/);
+  assert.match(transplant, /openPath: "", openPathNonce: 0, openPathAsDiff: false/);
+  // A Mini App is a workspace of its own: the transplant keeps its fields.
+  assert.doesNotMatch(transplant, /miniApp: undefined/);
+  // The Project half of the identity must read the projected store - a legacy
+  // `$:` reading `projectsStore.selectedSessionId` directly goes stale at mount
+  // (pitfall #2) and the guard would never fire on a Project conversation switch.
+  assert.match(transplant, /projectsViewSnapshot\.selectedProjectId/);
+  assert.match(transplant, /projectsViewSnapshot\.selectedSessionId/);
+  assert.match(view, /\$: projectsViewSnapshot = \$projectsViewStore;/);
+  // A transplant empties the turn-file list; a panel left on the "turn" tab
+  // must fall back to the file tree instead of rendering a blank body.
+  assert.match(projectFilePanel, /if \(empty && tab === "turn"\) tab = "files";/);
 });
 
 test("a protected Project root offers same-directory reauthorization", () => {

@@ -57,6 +57,7 @@
   import { ArtifactTabsStore, flattenTree, type ArtifactTab } from "./artifactTabsStore.svelte";
   import { shouldOpenArtifactAsDiff } from "./artifactOpenMode";
   import { matchViewer, hasSourceToggle, type ArtifactScope } from "./viewerRegistry";
+  import { resolveRelativeResourcePath } from "./markdownImages";
   import HtmlPreview from "./HtmlPreview.svelte";
   import CsvTable from "./CsvTable.svelte";
   import SpreadsheetTable from "./SpreadsheetTable.svelte";
@@ -107,7 +108,6 @@
     turnFiles = [],
     turnFilesNonce = 0,
     turnFileKey = "",
-    onOpenTurnFile = null,
     locale,
     theme,
     copy,
@@ -145,8 +145,6 @@
     turnFiles?: TurnFileItem[];
     turnFilesNonce?: number;
     turnFileKey?: string;
-    /** Lets the host switch Project/Session scope before opening a mixed-list row. */
-    onOpenTurnFile?: ((file: TurnFileItem) => void) | null;
     locale: string;
     theme: "light" | "dark";
     copy: Translation;
@@ -230,8 +228,9 @@
 
   /** What the viewer can stream for the open tab when it is not decodable text. */
   const rawKind = $derived(activeTab ? rawPreviewKindFromName(activeTab.name) : "file");
+  /** Project raw streaming URL; session tabs stream through `sessionStreamUrl` instead. */
   const rawUrl = $derived(
-    activeTab && scope === "project" ? store.rawFileUrl(activeTab.path, activeTab.version) : ""
+    activeTab && activeTab.scope === "project" ? store.rawFileUrl(activeTab.path, activeTab.version) : ""
   );
   /** Streaming URL for a session-scope attachment (Range-supported, so video seeks). */
   const sessionStreamUrl = $derived(
@@ -239,11 +238,13 @@
       ? store.sessionFileUrl(activeTab.fileId, activeTab.version)
       : ""
   );
+  /** Whichever stream serves the open tab; every media-grade viewer reads this. */
+  const activeMediaSrc = $derived(activeTab?.scope === "project" ? rawUrl : sessionStreamUrl);
   /**
-   * Registry dispatch for the active file tab; drives the viewer body. Session
-   * tabs carry a declared MIME and media type from intake, so they are passed
-   * through - the store's loader dispatches on exactly the same inputs, and the
-   * two must never disagree about a tab.
+   * Registry dispatch for the active file tab; drives the viewer body. Tabs
+   * carry a declared MIME and media type, so they are passed through - the
+   * store's loader dispatches on exactly the same inputs, and the two must
+   * never disagree about a tab.
    */
   const viewer = $derived(
     activeTab && activeTab.kind === "file"
@@ -251,7 +252,7 @@
           name: activeTab.name,
           mimeType: activeTab.mimeType,
           mediaType: activeTab.mediaType,
-          scope
+          scope: activeTab.scope
         })
       : null
   );
@@ -261,7 +262,7 @@
   const activeText = $derived(
     activeTab?.kind !== "file"
       ? ""
-      : scope === "project"
+      : activeTab.scope === "project"
         ? activeTab.preview?.status === "text"
           ? activeTab.preview.content
           : ""
@@ -280,12 +281,45 @@
    */
   const htmlPreviewSrc = $derived.by(() => {
     if (viewer !== "html" || activeTab?.kind !== "file") return "";
-    if (scope === "project") {
+    if (activeTab.scope === "project") {
       return projectId ? artifactPreviewUrl("project", projectId, activeTab.path, locale, theme) : "";
     }
     if (!sessionId || !activeTab.path) return "";
     const token = sessionArtifactToken({ profileId, sessionId, projectId: projectId || undefined });
     return artifactPreviewUrl("session", token, activeTab.path, locale, theme);
+  });
+
+  /**
+   * Rewrites a markdown preview's relative image references to loadable URLs.
+   *
+   * A leaf-bundle `index.md` references its images by name
+   * (`![alt](cloudflare-error-1102.png)`), but the preview renders in the
+   * app's own document, where that relative src resolves against the app
+   * origin and loads nothing. Resolving against the markdown file's own
+   * directory and streaming the bytes through the file routes the panel
+   * already uses — the raw Project route here, the artifact Session route (the
+   * same transport the HTML preview rides) there — makes a moved-with-its-
+   * images document render whole. References that are not relative (absolute
+   * URLs, data URIs, paths escaping the root) pass through untouched.
+   */
+  const markdownImageResolver = $derived.by(() => {
+    if (viewer !== "markdown" || activeTab?.kind !== "file" || !activeTab.path) return undefined;
+    const baseDirectory = activeTab.path.includes("/")
+      ? activeTab.path.slice(0, activeTab.path.lastIndexOf("/"))
+      : "";
+    if (activeTab.scope === "project") {
+      if (!projectId) return undefined;
+      return (href: string): string | null => {
+        const resolved = resolveRelativeResourcePath(baseDirectory, href);
+        return resolved ? store.rawFileUrl(resolved, activeTab.version) : null;
+      };
+    }
+    if (!sessionId) return undefined;
+    const token = sessionArtifactToken({ profileId, sessionId, projectId: projectId || undefined });
+    return (href: string): string | null => {
+      const resolved = resolveRelativeResourcePath(baseDirectory, href);
+      return resolved ? artifactPreviewUrl("session", token, resolved, locale, theme) : null;
+    };
   });
 
   /** Loads binary document bytes through the authorized desktop transport. */
@@ -447,6 +481,9 @@
       { id: "diff", label: copy.projectViewDiff, icon: CodeFile, disabled: isDirectory || !dirtyPaths.has(path) },
       { id: "mention", label: copy.projectMentionInChat, icon: At, startsGroup: true },
       { id: "copy", label: copy.projectCopyPath, icon: Copy },
+      // Joining onto the root needs the canonical root the host passes for
+      // reauthorization; without it the item has nothing truthful to copy.
+      { id: "copyAbs", label: copy.projectCopyAbsolutePath, icon: Copy, disabled: !projectRootPath },
       { id: "reveal", label: copy.projectRevealInFinder, icon: FolderOpen, startsGroup: true },
       { id: "external", label: copy.projectOpenExternally, icon: SquareArrowUp }
     ];
@@ -474,6 +511,10 @@
     else if (id === "diff") void store.openDiff(target.path);
     else if (id === "mention") mentionInChat(target.path);
     else if (id === "copy") void copyPath(target.path);
+    else if (id === "copyAbs") {
+      const root = projectRootPath.replace(/\/+$/, "");
+      if (root) void copyPath(`${root}/${target.path.replace(/^\/+/, "")}`);
+    }
     else if (id === "reveal") void revealInFinder(target.path, "reveal");
     else if (id === "external") void revealInFinder(target.path, "open");
   }
@@ -622,10 +663,6 @@
   }
 
   function selectTurnFile(file: TurnFileItem): void {
-    if (onOpenTurnFile) {
-      onOpenTurnFile(file);
-      return;
-    }
     void openTurnFile(file);
   }
 
@@ -712,12 +749,18 @@
     store.closeTab(id);
   }
 
+  /**
+   * The store carries both identities at once: the surface (Project or plain
+   * session) it renders, and the conversation's session identity its
+   * Session-scope tabs fetch through. Gating the session identity on the scope
+   * is what used to make a Session-scope tab unopenable inside a Project.
+   */
   $effect(() => {
     const nextEndpoint = endpoint;
     const nextProjectId = projectId;
     const nextScope = scope;
-    const nextProfileId = scope === "session" ? profileId : "";
-    const nextSessionId = scope === "session" ? sessionId : "";
+    const nextProfileId = profileId;
+    const nextSessionId = sessionId;
     untrack(() => store.connect(nextEndpoint, nextProjectId, nextScope, nextProfileId, nextSessionId));
   });
 
@@ -789,6 +832,16 @@
       store.setMode("files");
       tab = "turn";
       if (selected) void openTurnFile(selected);
+    });
+  });
+
+  // A context transplant (the host resetting file requests on a conversation
+  // switch) empties the turn-file list; a "turn" tab pointing at nothing would
+  // render a blank panel body, so fall back to the file tree.
+  $effect(() => {
+    const empty = turnFiles.length === 0;
+    untrack(() => {
+      if (empty && tab === "turn") tab = "files";
     });
   });
 
@@ -884,7 +937,9 @@
 
     {#if !miniAppActive}
       <!-- Search and follow-the-agent read the Project tree and its Git status,
-           so they exist only in Project scope; refresh serves both surfaces. -->
+           so they exist only in Project scope. The tree and its Git badges are
+           live-watched (the footer states it), so there is no refresh button:
+           the tree keeps itself current. -->
       {#if scope === "project"}
         <button
           type="button"
@@ -908,16 +963,6 @@
           <Crosshairs size={16} aria-hidden="true" />
         </button>
       {/if}
-      <button
-        type="button"
-        class="project-panel-refresh"
-        aria-label={copy.projectRefresh}
-        title={store.watching ? copy.projectWatchLive : copy.projectRefresh}
-        onclick={() => { if (scope === "project") store.refreshAll(); else void loadAttachments(); }}
-      >
-        <Refresh size={16} aria-hidden="true" />
-        {#if store.watching}<span class="project-watch-dot" aria-hidden="true"></span>{/if}
-      </button>
     {/if}
     <button type="button" class="file-panel-close" aria-label={copy.closePanel} title={copy.closePanel} onclick={onClose}>
       <X size={14} aria-hidden="true" />
@@ -1157,258 +1202,7 @@
           {/if}
         </div>
 
-        {#if fileTabs.length}
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <div
-            class="project-split-handle"
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label={copy.projectResizeViewer}
-            aria-valuenow={splitPercent}
-            aria-valuemin={20}
-            aria-valuemax={80}
-            tabindex="0"
-            onpointerdown={startSplit}
-            onpointermove={moveSplit}
-            onpointerup={stopSplit}
-            onpointercancel={stopSplit}
-            onlostpointercapture={() => (splitting = false)}
-            onkeydown={onSplitKeydown}
-          ></div>
-
-          <section class="project-viewer" aria-label={copy.projectViewer}>
-            <div class="project-viewer-tabs" role="tablist" aria-label={copy.projectViewer} use:tablist>
-              {#each fileTabs as openTab (openTab.id)}
-                <div class="project-viewer-tab" class:active={openTab.id === store.activeFileTabId}>
-                  <button
-                    type="button"
-                    role="tab"
-                    id={`project-viewer-tab-${openTab.id}`}
-                    aria-selected={openTab.id === store.activeFileTabId}
-                    aria-controls={`project-viewer-panel-${openTab.id}`}
-                    title={openTab.path}
-                    onclick={() => store.selectTab(openTab.id, openTab.kind)}
-                  >
-                    {#if openTab.kind === "diff"}
-                      <CodeFile class="project-viewer-tab-icon-diff" size={14} aria-hidden="true" />
-                    {:else}
-                      {@const TabIcon = FILE_KIND_ICONS[fileIconKind(openTab.name, "file")]}<TabIcon size={14} style={fileIconStyle(openTab.name, "file")} aria-hidden="true" />
-                    {/if}
-                    <span>{openTab.name}</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="project-viewer-tab-close"
-                    aria-label={copy.closeTab}
-                    title={copy.closeTab}
-                    onclick={() => handleCloseTab(openTab.id)}
-                  ><X size={14} aria-hidden="true" /></button>
-                </div>
-              {/each}
-              <button
-                type="button"
-                class="project-viewer-tab-clear"
-                aria-label={browserCollapsed ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
-                title={browserCollapsed ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
-                onclick={toggleBrowser}
-              >
-                {#if browserCollapsed}<Expand size={16} aria-hidden="true" />{:else}<Compress size={16} aria-hidden="true" />{/if}
-              </button>
-              <button type="button" class="project-viewer-tab-clear" aria-label={copy.closeAllTabs} title={copy.closeAllTabs} onclick={() => store.closeAllTabs()}>
-                <XCircle size={16} aria-hidden="true" />
-              </button>
-            </div>
-
-            {#if activeTab}
-              <div
-                class="project-viewer-path"
-                role="toolbar"
-                tabindex={-1}
-                aria-label={copy.projectViewer}
-                oncontextmenu={(event) => openContextMenu(event, activeTab.path, "file")}
-              >
-                <nav class="project-breadcrumb" aria-label={copy.projectPath}>
-                  <button
-                    type="button"
-                    class="project-breadcrumb-crumb"
-                    title={copy.projectBreadcrumbRoot}
-                    aria-label={copy.projectBreadcrumbRoot}
-                    onclick={() => { tab = "files"; browserCollapsed = false; store.collapseAllDirs(); }}
-                  >
-                    <Home size={16} aria-hidden="true" />
-                  </button>
-                  {#each breadcrumb as crumb (crumb.path)}
-                    <CaretRight class="project-breadcrumb-sep" size={14} aria-hidden="true" />
-                    <button
-                      type="button"
-                      class="project-breadcrumb-crumb"
-                      class:is-last={crumb.isLast}
-                      title={crumb.path}
-                      onclick={async () => {
-                        tab = "files";
-                        browserCollapsed = false;
-                        if (!crumb.isLast) await store.expandDir(crumb.path);
-                        focusTreeRow(crumb.path);
-                      }}
-                    >{crumb.name}</button>
-                  {/each}
-                </nav>
-                {#if activeTab.kind === "diff"}
-                  <button
-                    type="button"
-                    class="code-viewer-toggle"
-                    class:active={diffLayout === "side-by-side"}
-                    aria-pressed={diffLayout === "side-by-side"}
-                    title={copy.projectDiffSideBySide}
-                    aria-label={copy.projectDiffSideBySide}
-                    onclick={() => (diffLayout = diffLayout === "side-by-side" ? "line-by-line" : "side-by-side")}
-                  ><RowVertical size={16} aria-hidden="true" /></button>
-                {/if}
-                {#if sourceToggleAvailable && activeTab.kind === "file"}
-                  <button
-                    type="button"
-                    class="code-viewer-toggle"
-                    class:active={showSource}
-                    aria-pressed={showSource}
-                    title={copy.artifactShowSource}
-                    aria-label={copy.artifactShowSource}
-                    onclick={() => (showSource = !showSource)}
-                  ><Code size={16} aria-hidden="true" /></button>
-                {/if}
-                {#if viewer === "html"}
-                  <button
-                    type="button"
-                    class="code-viewer-toggle"
-                    aria-label={copy.artifactRefresh}
-                    title={copy.artifactRefresh}
-                    onclick={() => (htmlRefreshKey += 1)}
-                  ><Refresh size={16} aria-hidden="true" /></button>
-                {/if}
-                <button type="button" class="code-viewer-toggle" aria-label={copy.projectMentionInChat} title={copy.projectMentionInChat} onclick={() => mentionInChat(activeTab.path)}>
-                  <At size={16} aria-hidden="true" />
-                </button>
-                <button type="button" class="code-viewer-toggle" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
-                  {#if copiedPath === activeTab.path}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
-                </button>
-                <button type="button" class="code-viewer-toggle" aria-label={copy.artifactDownload} title={copy.artifactDownload} onclick={() => void downloadProjectFile(activeTab.path)}>
-                  <Download size={14} aria-hidden="true" />
-                </button>
-                <button type="button" class="code-viewer-toggle" aria-label={copy.projectRevealInFinder} title={copy.projectRevealInFinder} onclick={() => void revealInFinder(activeTab.path, "reveal")}>
-                  <FolderOpen size={14} aria-hidden="true" />
-                </button>
-                <button type="button" class="code-viewer-toggle" aria-label={copy.projectOpenExternally} title={copy.projectOpenExternally} onclick={() => void revealInFinder(activeTab.path, "open")}>
-                  <SquareArrowUp size={14} aria-hidden="true" />
-                </button>
-              </div>
-
-              <div id={`project-viewer-panel-${activeTab.id}`} class="project-viewer-body" role="tabpanel" aria-labelledby={`project-viewer-tab-${activeTab.id}`}>
-                {#if activeTab.loading}
-                  <div class="project-panel-loading"><Loader size={18} aria-hidden="true" />{copy.loading}</div>
-                {:else if activeTab.error}
-                  <div class="project-panel-error" role="alert">{activeTab.error}</div>
-                {:else if activeTab.kind === "file" && activeTab.preview}
-                  {#if viewer === "html" && htmlPreviewSrc}
-                    <HtmlPreview src={htmlPreviewSrc} refreshKey={htmlRefreshKey} />
-                  {:else if viewer === "spreadsheet"}
-                    <SpreadsheetTable
-                      name={activeTab.name}
-                      {copy}
-                      sourceKey={activeTab.id}
-                      version={activeTab.preview}
-                      loadBytes={loadActiveBinaryBytes}
-                    />
-                  {:else if viewer === "docx"}
-                    <DocxPreview
-                      name={activeTab.name}
-                      {copy}
-                      {theme}
-                      sourceKey={activeTab.id}
-                      version={activeTab.preview}
-                      loadBytes={loadActiveBinaryBytes}
-                    />
-                  {:else if viewer === "pptx"}
-                    <PptxPreview
-                      name={activeTab.name}
-                      {copy}
-                      {theme}
-                      sourceKey={activeTab.id}
-                      version={activeTab.preview}
-                      loadBytes={loadActiveBinaryBytes}
-                    />
-                  {:else if viewer === "svg"}
-                    <SvgViewer src={rawUrl} source={activeText} name={activeTab.name} {showSource} {copy} />
-                  {:else if viewer === "csv" && activeTab.preview.status === "text"}
-                    <CsvTable content={activeTab.preview.content} name={activeTab.name} {copy} />
-                  {:else if viewer === "markdown" && activeTab.preview.status === "text"}
-                    <MarkdownPreview content={activeTab.preview.content} name={activeTab.name} {copy} {theme} {showSource} {endpoint} />
-                  {:else if viewer === "json" && activeTab.preview.status === "text"}
-                    <JsonTree
-                      content={activeTab.preview.content}
-                      name={activeTab.name}
-                      {copy}
-                      hasMoreBytes={activeTab.preview.truncated}
-                      loadingMore={activeTab.loadingMore}
-                      loadedBytes={activeTab.loadedBytes}
-                      sizeBytes={activeTab.preview.sizeBytes}
-                      onLoadMoreBytes={() => void store.loadMoreBytes(activeTab.id)}
-                    />
-                  {:else if viewer !== "system" && activeTab.preview.status === "text"}
-                    <CodeViewer
-                      content={activeTab.preview.content}
-                      filePath={activeTab.path}
-                      {copy}
-                      revealLine={activeTab.revealLine}
-                      onRevealed={() => store.clearReveal(activeTab.id)}
-                      hasMoreBytes={activeTab.preview.truncated}
-                      loadingMore={activeTab.loadingMore}
-                      loadedBytes={activeTab.loadedBytes}
-                      sizeBytes={activeTab.preview.sizeBytes}
-                      onLoadMoreBytes={() => void store.loadMoreBytes(activeTab.id)}
-                    />
-                  {:else if viewer === "media"}
-                    <!-- Streamed raw bytes: works for any size, and lets video seek. -->
-                    <MediaViewer
-                      kind={rawKind}
-                      src={rawUrl}
-                      name={activeTab.name}
-                      sizeBytes={activeTab.preview.sizeBytes}
-                      {copy}
-                    />
-                  {:else}
-                    <!-- No inline renderer: never a dead end, always a way out. -->
-                    <SystemOpenCard
-                      name={activeTab.name}
-                      sizeBytes={activeTab.preview.sizeBytes}
-                      reason={activeTab.preview.status === "binary"
-                        ? (viewer === "system" ? copy.artifactUnsupportedFormat : copy.projectBinaryFile)
-                        : copy.projectOversizedFile}
-                      {copy}
-                      onDownload={() => void downloadProjectFile(activeTab.path)}
-                      onReveal={() => void revealInFinder(activeTab.path, "reveal")}
-                      onOpenExternally={() => void revealInFinder(activeTab.path, "open")}
-                    />
-                  {/if}
-                {:else if activeTab.kind === "diff" && activeTab.diff}
-                  {#if activeTab.diff.status === "diff"}
-                    {#if activeTab.diff.truncated}<p class="project-truncated-note">{copy.projectInspectionTruncated}</p>{/if}
-                    <div class="project-diff-preview">{@html diffHtml}</div>
-                  {:else if activeTab.diff.status === "untracked" && activeTab.diff.preview.status === "text"}
-                    <p class="project-preview-label">{copy.projectFileUntracked}</p>
-                    <CodeViewer content={activeTab.diff.preview.content} filePath={activeTab.path} {copy} />
-                  {:else if activeTab.diff.status !== "unavailable" && rawKind !== "file"}
-                    <!-- A newly added image or video has no text diff; show the file itself. -->
-                    <p class="project-preview-label">{copy.projectFileUntracked}</p>
-                    <MediaViewer kind={rawKind} src={rawUrl} name={activeTab.name} {copy} />
-                  {:else}
-                    <p class="project-viewer-note">{activeTab.diff.status === "unavailable" ? activeTab.diff.reason : copy.projectBinaryFile}</p>
-                  {/if}
-                {/if}
-              </div>
-            {/if}
-          </section>
-        {/if}
-      {:else if scope === "session"}
+      {:else}
         <!--
           The Session artifact list. This is the Files surface of a conversation
           - the peer of the Project tree - so it lives inside the panel rather
@@ -1463,11 +1257,12 @@
                   </li>
                 {/each}
               </ul>
-            {/if}
-          {/if}
-        </div>
+             {/if}
+           {/if}
+         </div>
+      {/if}
 
-        {#if fileTabs.length}
+      {#if fileTabs.length}
           <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
@@ -1487,18 +1282,40 @@
             onkeydown={onSplitKeydown}
           ></div>
 
-          <section class="project-viewer artifact-session-viewer" aria-label={copy.projectViewer}>
+          <!--
+            One viewer for both scopes, keyed on the open tab's own scope. A
+            Project conversation can hold session tabs (a scratch image from the
+            turn-files list), and they render through the session transports
+            here without re-scoping the panel - the browser beside this viewer
+            stays on whatever surface the user was reading.
+          -->
+          <section class="project-viewer" class:artifact-session-viewer={activeTab?.scope === "session"} aria-label={copy.projectViewer}>
             <div class="project-viewer-tabs" role="tablist" aria-label={copy.projectViewer} use:tablist>
               {#each fileTabs as openTab (openTab.id)}
-                {@const TabIcon = FILE_KIND_ICONS[fileIconKind(openTab.name, "file")]}
                 <div class="project-viewer-tab" class:active={openTab.id === store.activeFileTabId}>
-                  <button type="button" role="tab" id={`project-viewer-tab-${openTab.id}`} aria-selected={openTab.id === store.activeFileTabId} aria-controls={`project-viewer-panel-${activeTab?.id}`} title={openTab.name} onclick={() => store.selectTab(openTab.id, openTab.kind)}>
-                    <TabIcon size={14} style={fileIconStyle(openTab.name, "file")} aria-hidden="true" />
+                  <button
+                    type="button"
+                    role="tab"
+                    id={`project-viewer-tab-${openTab.id}`}
+                    aria-selected={openTab.id === store.activeFileTabId}
+                    aria-controls={`project-viewer-panel-${openTab.id}`}
+                    title={openTab.path || openTab.name}
+                    onclick={() => store.selectTab(openTab.id, openTab.kind)}
+                  >
+                    {#if openTab.kind === "diff"}
+                      <CodeFile class="project-viewer-tab-icon-diff" size={14} aria-hidden="true" />
+                    {:else}
+                      {@const TabIcon = FILE_KIND_ICONS[fileIconKind(openTab.name, "file")]}<TabIcon size={14} style={fileIconStyle(openTab.name, "file")} aria-hidden="true" />
+                    {/if}
                     <span>{openTab.name}</span>
                   </button>
-                  <button type="button" class="project-viewer-tab-close" aria-label={copy.closeTab} title={copy.closeTab} onclick={() => handleCloseTab(openTab.id)}>
-                    <X size={14} aria-hidden="true" />
-                  </button>
+                  <button
+                    type="button"
+                    class="project-viewer-tab-close"
+                    aria-label={copy.closeTab}
+                    title={copy.closeTab}
+                    onclick={() => handleCloseTab(openTab.id)}
+                  ><X size={14} aria-hidden="true" /></button>
                 </div>
               {/each}
               <button
@@ -1516,8 +1333,55 @@
             </div>
 
             {#if activeTab}
-              <div class="project-viewer-path artifact-session-path" role="toolbar" aria-label={copy.projectViewer}>
-                <strong class="artifact-session-name" title={activeTab.name}>{activeTab.name}</strong>
+              <div
+                class="project-viewer-path"
+                class:artifact-session-path={activeTab.scope === "session"}
+                role="toolbar"
+                tabindex={activeTab.scope === "project" ? -1 : undefined}
+                aria-label={copy.projectViewer}
+                oncontextmenu={activeTab.scope === "project" ? (event) => openContextMenu(event, activeTab.path, "file") : undefined}
+              >
+                {#if activeTab.scope === "project"}
+                  <nav class="project-breadcrumb" aria-label={copy.projectPath}>
+                    <button
+                      type="button"
+                      class="project-breadcrumb-crumb"
+                      title={copy.projectBreadcrumbRoot}
+                      aria-label={copy.projectBreadcrumbRoot}
+                      onclick={() => { tab = "files"; browserCollapsed = false; store.collapseAllDirs(); }}
+                    >
+                      <Home size={16} aria-hidden="true" />
+                    </button>
+                    {#each breadcrumb as crumb (crumb.path)}
+                      <CaretRight class="project-breadcrumb-sep" size={14} aria-hidden="true" />
+                      <button
+                        type="button"
+                        class="project-breadcrumb-crumb"
+                        class:is-last={crumb.isLast}
+                        title={crumb.path}
+                        onclick={async () => {
+                          tab = "files";
+                          browserCollapsed = false;
+                          if (!crumb.isLast) await store.expandDir(crumb.path);
+                          focusTreeRow(crumb.path);
+                        }}
+                      >{crumb.name}</button>
+                    {/each}
+                  </nav>
+                {:else}
+                  <strong class="artifact-session-name" title={activeTab.name}>{activeTab.name}</strong>
+                {/if}
+                {#if activeTab.kind === "diff"}
+                  <button
+                    type="button"
+                    class="code-viewer-toggle"
+                    class:active={diffLayout === "side-by-side"}
+                    aria-pressed={diffLayout === "side-by-side"}
+                    title={copy.projectDiffSideBySide}
+                    aria-label={copy.projectDiffSideBySide}
+                    onclick={() => (diffLayout = diffLayout === "side-by-side" ? "line-by-line" : "side-by-side")}
+                  ><RowVertical size={16} aria-hidden="true" /></button>
+                {/if}
                 {#if sourceToggleAvailable && activeTab.kind === "file"}
                   <button
                     type="button"
@@ -1538,35 +1402,64 @@
                     onclick={() => (htmlRefreshKey += 1)}
                   ><Refresh size={16} aria-hidden="true" /></button>
                 {/if}
-                {#if activeTab.kind === "file" && activeTab.path}
-                  <!-- Same file actions as a Project tab, minus the `@` insertion:
-                       an ordinary Session has no Project root for the Runtime to
-                       validate a file reference against (PRD §3.35). -->
+                {#if activeTab.scope === "project"}
+                  <button type="button" class="code-viewer-toggle" aria-label={copy.projectMentionInChat} title={copy.projectMentionInChat} onclick={() => mentionInChat(activeTab.path)}>
+                    <At size={16} aria-hidden="true" />
+                  </button>
                   <button type="button" class="code-viewer-toggle" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
                     {#if copiedPath === activeTab.path}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
                   </button>
-                {/if}
-                <button type="button" class="code-viewer-toggle" aria-label={copy.artifactDownload} title={copy.artifactDownload} onclick={() => void downloadSessionFile(activeTab)}>
-                  <Download size={14} aria-hidden="true" />
-                </button>
-                {#if activeTab.kind === "file" && activeTab.path}
-                  <button type="button" class="code-viewer-toggle" aria-label={copy.projectRevealInFinder} title={copy.projectRevealInFinder} onclick={() => void revealSessionFile(activeTab.path, "reveal")}>
+                  <button type="button" class="code-viewer-toggle" aria-label={copy.artifactDownload} title={copy.artifactDownload} onclick={() => void downloadProjectFile(activeTab.path)}>
+                    <Download size={14} aria-hidden="true" />
+                  </button>
+                  <button type="button" class="code-viewer-toggle" aria-label={copy.projectRevealInFinder} title={copy.projectRevealInFinder} onclick={() => void revealInFinder(activeTab.path, "reveal")}>
                     <FolderOpen size={14} aria-hidden="true" />
                   </button>
-                  <button type="button" class="code-viewer-toggle" aria-label={copy.projectOpenExternally} title={copy.projectOpenExternally} onclick={() => void revealSessionFile(activeTab.path, "open")}>
+                  <button type="button" class="code-viewer-toggle" aria-label={copy.projectOpenExternally} title={copy.projectOpenExternally} onclick={() => void revealInFinder(activeTab.path, "open")}>
                     <SquareArrowUp size={14} aria-hidden="true" />
                   </button>
+                {:else}
+                  <!-- Same file actions as a Project tab, minus the `@` insertion:
+                       an ordinary Session has no Project root for the Runtime to
+                       validate a file reference against (PRD §3.35). -->
+                  {#if activeTab.path}
+                    <button type="button" class="code-viewer-toggle" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
+                      {#if copiedPath === activeTab.path}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
+                    </button>
+                  {/if}
+                  <button type="button" class="code-viewer-toggle" aria-label={copy.artifactDownload} title={copy.artifactDownload} onclick={() => void downloadSessionFile(activeTab)}>
+                    <Download size={14} aria-hidden="true" />
+                  </button>
+                  {#if activeTab.path}
+                    <button type="button" class="code-viewer-toggle" aria-label={copy.projectRevealInFinder} title={copy.projectRevealInFinder} onclick={() => void revealSessionFile(activeTab.path, "reveal")}>
+                      <FolderOpen size={14} aria-hidden="true" />
+                    </button>
+                    <button type="button" class="code-viewer-toggle" aria-label={copy.projectOpenExternally} title={copy.projectOpenExternally} onclick={() => void revealSessionFile(activeTab.path, "open")}>
+                      <SquareArrowUp size={14} aria-hidden="true" />
+                    </button>
+                  {/if}
                 {/if}
-                <button type="button" class="code-viewer-toggle" aria-label={copy.closePanel} title={copy.closePanel} onclick={onClose}>
-                  <X size={14} aria-hidden="true" />
-                </button>
               </div>
 
-              <div id={`project-viewer-panel-${activeTab?.id}`} class="project-viewer-body" role="tabpanel" aria-labelledby={`project-viewer-tab-${activeTab?.id}`}>
+              <div id={`project-viewer-panel-${activeTab.id}`} class="project-viewer-body" role="tabpanel" aria-labelledby={`project-viewer-tab-${activeTab.id}`}>
                 {#if activeTab.loading}
                   <div class="project-panel-loading"><Loader size={18} aria-hidden="true" />{copy.loading}</div>
                 {:else if activeTab.error}
                   <div class="project-panel-error" role="alert">{activeTab.error}</div>
+                {:else if activeTab.kind === "diff" && activeTab.diff}
+                  {#if activeTab.diff.status === "diff"}
+                    {#if activeTab.diff.truncated}<p class="project-truncated-note">{copy.projectInspectionTruncated}</p>{/if}
+                    <div class="project-diff-preview">{@html diffHtml}</div>
+                  {:else if activeTab.diff.status === "untracked" && activeTab.diff.preview.status === "text"}
+                    <p class="project-preview-label">{copy.projectFileUntracked}</p>
+                    <CodeViewer content={activeTab.diff.preview.content} filePath={activeTab.path} {copy} />
+                  {:else if activeTab.diff.status !== "unavailable" && rawKind !== "file"}
+                    <!-- A newly added image or video has no text diff; show the file itself. -->
+                    <p class="project-preview-label">{copy.projectFileUntracked}</p>
+                    <MediaViewer kind={rawKind} src={rawUrl} name={activeTab.name} {copy} />
+                  {:else}
+                    <p class="project-viewer-note">{activeTab.diff.status === "unavailable" ? activeTab.diff.reason : copy.projectBinaryFile}</p>
+                  {/if}
                 {:else if activeTab.kind === "file"}
                   {#if viewer === "html" && (htmlPreviewSrc || activeTab.blobUrl)}
                     <!-- Route URL first: a blob has no path, so relative assets
@@ -1578,7 +1471,7 @@
                       name={activeTab.name}
                       {copy}
                       sourceKey={activeTab.id}
-                      version={activeTab.size}
+                      version={activeTab.version}
                       loadBytes={loadActiveBinaryBytes}
                     />
                   {:else if viewer === "docx"}
@@ -1587,7 +1480,7 @@
                       {copy}
                       {theme}
                       sourceKey={activeTab.id}
-                      version={activeTab.size}
+                      version={activeTab.version}
                       loadBytes={loadActiveBinaryBytes}
                     />
                   {:else if viewer === "pptx"}
@@ -1596,23 +1489,70 @@
                       {copy}
                       {theme}
                       sourceKey={activeTab.id}
-                      version={activeTab.size}
+                      version={activeTab.version}
                       loadBytes={loadActiveBinaryBytes}
                     />
-                  {:else if viewer === "svg" && sessionStreamUrl}
-                    <SvgViewer src={sessionStreamUrl} source={activeTab.textContent} name={activeTab.name} {showSource} {copy} />
-                  {:else if viewer === "csv" && activeTab.textContent}
-                    <CsvTable content={activeTab.textContent} name={activeTab.name} {copy} />
-                  {:else if viewer === "markdown" && activeTab.textContent}
-                    <MarkdownPreview content={activeTab.textContent} name={activeTab.name} {copy} {theme} {showSource} {endpoint} />
-                  {:else if viewer === "json" && activeTab.textContent}
-                    <JsonTree content={activeTab.textContent} name={activeTab.name} sizeBytes={activeTab.size} {copy} />
-                  {:else if viewer === "media" && sessionStreamUrl}
-                    <!-- Streamed from the desktop file route so video can seek. -->
-                    <MediaViewer kind={rawKind} src={sessionStreamUrl} name={activeTab.name} sizeBytes={activeTab.size} {copy} />
-                  {:else if viewer === "code" && activeTab.textContent}
-                    <CodeViewer content={activeTab.textContent} filePath={activeTab.name} {copy} />
-                  {:else}
+                  {:else if viewer === "svg" && activeMediaSrc}
+                    <SvgViewer src={activeMediaSrc} source={activeText} name={activeTab.name} {showSource} {copy} />
+                  {:else if viewer === "csv" && activeText}
+                    <CsvTable content={activeText} name={activeTab.name} {copy} />
+                  {:else if viewer === "markdown" && activeText}
+                    <MarkdownPreview content={activeText} name={activeTab.name} {copy} {theme} {showSource} {endpoint} resolveImage={markdownImageResolver} />
+                  {:else if viewer === "json" && activeText}
+                    {#if activeTab.scope === "project" && activeTab.preview?.status === "text"}
+                      <JsonTree
+                        content={activeTab.preview.content}
+                        name={activeTab.name}
+                        {copy}
+                        hasMoreBytes={activeTab.preview.truncated}
+                        loadingMore={activeTab.loadingMore}
+                        loadedBytes={activeTab.loadedBytes}
+                        sizeBytes={activeTab.preview.sizeBytes}
+                        onLoadMoreBytes={() => void store.loadMoreBytes(activeTab.id)}
+                      />
+                    {:else if activeTab.scope === "session"}
+                      <JsonTree content={activeTab.textContent} name={activeTab.name} sizeBytes={activeTab.size} {copy} />
+                    {/if}
+                  {:else if viewer === "media" && activeMediaSrc}
+                    <!-- Streamed raw bytes: works for any size, and lets video seek. -->
+                    <MediaViewer
+                      kind={rawKind}
+                      src={activeMediaSrc}
+                      name={activeTab.name}
+                      sizeBytes={activeTab.scope === "project" ? (activeTab.preview?.sizeBytes ?? 0) : activeTab.size}
+                      {copy}
+                    />
+                  {:else if viewer === "code" && activeText}
+                    {#if activeTab.scope === "project" && activeTab.preview?.status === "text"}
+                      <CodeViewer
+                        content={activeTab.preview.content}
+                        filePath={activeTab.path}
+                        {copy}
+                        revealLine={activeTab.revealLine}
+                        onRevealed={() => store.clearReveal(activeTab.id)}
+                        hasMoreBytes={activeTab.preview.truncated}
+                        loadingMore={activeTab.loadingMore}
+                        loadedBytes={activeTab.loadedBytes}
+                        sizeBytes={activeTab.preview.sizeBytes}
+                        onLoadMoreBytes={() => void store.loadMoreBytes(activeTab.id)}
+                      />
+                    {:else if activeTab.scope === "session"}
+                      <CodeViewer content={activeTab.textContent} filePath={activeTab.name} {copy} />
+                    {/if}
+                  {:else if activeTab.scope === "project" && activeTab.preview}
+                    <!-- No inline renderer: never a dead end, always a way out. -->
+                    <SystemOpenCard
+                      name={activeTab.name}
+                      sizeBytes={activeTab.preview.sizeBytes}
+                      reason={activeTab.preview.status === "binary"
+                        ? (viewer === "system" ? copy.artifactUnsupportedFormat : copy.projectBinaryFile)
+                        : copy.projectOversizedFile}
+                      {copy}
+                      onDownload={() => void downloadProjectFile(activeTab.path)}
+                      onReveal={() => void revealInFinder(activeTab.path, "reveal")}
+                      onOpenExternally={() => void revealInFinder(activeTab.path, "open")}
+                    />
+                  {:else if activeTab.scope === "session"}
                     <!-- An attachment does live in the Session workspace, so an
                          unsupported binary gets the system app here too, not only download. -->
                     <SystemOpenCard
@@ -1630,7 +1570,6 @@
             {/if}
           </section>
         {/if}
-      {/if}
       </div>
     </div>
   {/if}

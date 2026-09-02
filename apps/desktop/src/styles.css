@@ -128,7 +128,7 @@
   /* Settings is the reference rail; Chat may still be resized from this base. */
   --sidebar-nav-w: 228px;
   --sidebar-nav-w-narrow: 170px;
-  --settings-content-width: 576px;
+  --settings-content-width: 720px;
   --data-content-width: 720px;
   /* Shared centered content column: every settings block aligns to this. */
   --settings-col: min(calc(100% - 56px), var(--settings-content-width));
@@ -1814,7 +1814,6 @@ a:focus-visible {
 /* Project file panel — tree, viewer and search (see DESIGN.vercel.md scale) */
 .project-panel-refresh { position: relative; }
 .project-panel-refresh.active { background: var(--fill); color: var(--label-primary); }
-.project-watch-dot { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--online); }
 .project-tab-badge { margin-left: 4px; padding: 0 5px; border-radius: var(--radius-full); background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); font-size: var(--fs-meta); line-height: var(--lh-meta); font-family: var(--font-mono); }
 
 .project-browser { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: auto; }
@@ -1978,7 +1977,11 @@ a:focus-visible {
 .project-viewer-tab > button:first-child span { overflow: hidden; font: 12px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
 .project-viewer-tab-close { display: grid; place-items: center; width: 20px; height: 20px; margin-right: 4px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); font-size: var(--fs-meta); cursor: pointer; }
 .project-viewer-tab-close:hover { background: var(--fill-hover); color: var(--label-primary); }
-.project-viewer-tab-clear { display: grid; place-items: center; flex: none; width: 24px; height: 24px; margin-left: auto; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
+.project-viewer-tab-clear { display: grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
+/* Only the first action absorbs the free space; one `margin-left: auto` per
+   button made two actions split the strip's leftover width between them. */
+.project-viewer-tabs .project-viewer-tab-clear:first-of-type { margin-left: auto; }
+.project-viewer-tab-clear + .project-viewer-tab-clear { margin-left: 2px; }
 .project-viewer-tab-clear:hover { background: var(--fill-hover); color: var(--label-primary); }
 .project-viewer-path { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 4px 8px; border-bottom: 1px solid var(--separator); color: var(--label-tertiary); font: 11px var(--font-mono); }
 .project-viewer-path > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
@@ -3352,11 +3355,11 @@ a:focus-visible {
 .settings-sidebar-footer-copy small { color: var(--label-secondary); font-size: var(--fs-meta); }
 .settings-sidebar-footer .status-dot { width: 7px; height: 7px; }
 .settings-footer-avatar { display: block; width: 28px; height: 28px; border-radius: var(--radius-full); object-fit: cover; }
-.settings-section-hint { width: min(calc(100% - 56px), var(--settings-content-width)); margin: 4px auto 18px; color: var(--label-secondary); font-size: var(--fs-label); line-height: 1.55; }
-.settings-group-title { width: min(calc(100% - 56px), var(--settings-content-width)); margin: 30px auto 10px; font-size: var(--fs-label); font-weight: 600; color: var(--label-secondary); letter-spacing: 0.01em; }
+.settings-section-hint { width: var(--settings-col); margin: 4px auto 18px; color: var(--label-secondary); font-size: var(--fs-label); line-height: 1.55; }
+.settings-group-title { width: var(--settings-col); margin: 30px auto 10px; font-size: var(--fs-label); font-weight: 600; color: var(--label-secondary); letter-spacing: 0.01em; }
 .settings-group-title:first-of-type { margin-top: 8px; }
 .settings-card {
-  width: min(calc(100% - 56px), var(--settings-content-width));
+  width: var(--settings-col);
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid var(--hairline);
@@ -3368,7 +3371,7 @@ a:focus-visible {
 .settings-card + .settings-card { margin-top: 16px; }
 .settings-card .settings-row + .settings-row { border-top: 0.5px solid var(--gray-alpha-100); }
 
-.setting-group-section { width: min(calc(100% - 56px), var(--settings-content-width)); margin: 0 auto 24px; }
+.setting-group-section { width: var(--settings-col); margin: 0 auto 24px; }
 .setting-group-section .settings-card { width: 100%; margin: 0; }
 .section-header { display: flex; align-items: end; justify-content: space-between; gap: 16px; min-height: 36px; padding: 0 0 8px; }
 .section-header h3 { margin: 0; color: var(--label-primary); font-size: var(--fs-label); font-weight: 600; line-height: 18px; }
@@ -3450,7 +3453,7 @@ a:focus-visible {
 .skeleton-row i { width: 100%; }
 @keyframes skeleton-pulse { to { opacity: .46; } }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.settings-disclosure { display: flex; justify-content: flex-start; width: min(calc(100% - 56px), var(--settings-content-width)); margin: -8px auto 24px; }
+.settings-disclosure { display: flex; justify-content: flex-start; width: var(--settings-col); margin: -8px auto 24px; }
 .disclosure-button { gap: 7px; }
 
 .settings-row .select-control { flex: 0 1 320px; width: 320px; max-width: 58%; }
@@ -4511,7 +4514,7 @@ select.provider-input { padding-right: 6px; }
 .plugin-title-line small { flex: none; color: var(--label-tertiary); font: var(--fs-meta)/var(--lh-meta) var(--font-mono); }
 .plugin-description { overflow: hidden; color: var(--label-secondary); font-size: var(--fs-label); line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
 .plugin-row-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
-.plugin-detail-toolbar { display: flex; width: min(calc(100% - 56px), var(--settings-content-width)); min-height: 36px; align-items: center; justify-content: space-between; gap: 12px; margin: 0 auto 12px; }
+.plugin-detail-toolbar { display: flex; width: var(--settings-col); min-height: 36px; align-items: center; justify-content: space-between; gap: 12px; margin: 0 auto 12px; }
 .plugin-detail-toolbar .tertiary-button { display: inline-flex; align-items: center; gap: 6px; }
 .plugin-detail-message { overflow: hidden; color: var(--label-secondary); font-size: var(--fs-label); text-overflow: ellipsis; white-space: nowrap; }
 .plugin-summary-card { padding: 14px; }

@@ -38,7 +38,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob: http://127.0.0.1:* http://localhost:*; media-src 'self' blob: http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline'; frame-src molibot-miniapp: http://molibot-miniapp.localhost molibot-artifact: http://molibot-artifact.localhost molibot-plugin: http://molibot-plugin.localhost"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob: http://127.0.0.1:* http://localhost:* molibot-artifact: http://molibot-artifact.localhost; media-src 'self' blob: http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline'; frame-src molibot-miniapp: http://molibot-miniapp.localhost molibot-artifact: http://molibot-artifact.localhost molibot-plugin: http://molibot-plugin.localhost"
     }
   },
   "bundle": {

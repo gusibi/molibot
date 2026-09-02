@@ -505,7 +505,7 @@
 
 <style>
   .host-bash-section {
-    width: min(calc(100% - 56px), var(--settings-content-width));
+    width: var(--settings-col);
     margin: 0 auto;
     display: flex;
     flex-direction: column;

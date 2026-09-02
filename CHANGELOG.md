@@ -5,6 +5,46 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
 
+### Fixed: Project 会话内打开本轮文件不再丢失文件列表
+
+- 在 Project 会话里点击"本轮文件"卡片（或其中的 scratch 文件，如生成的图片）时，右侧面板此前会整体切到 Session 作用域，只剩"本轮文件/文件"两个页签，文件树/变更/附件全部消失且无法返回。
+- 现在面板作用域恒随会话面板：Project 作用域保持完整页签，Session 产物以自身作用域的页签在预览区打开（会话身份随面板传入 store，经既有授权路由加载）。面板内两套按作用域复制的预览区合并为按页签 scope 渲染的一套；store 仅在表面身份变化时整体重置，Project 内切换会话只回收上一会话的 Session 页签。
+- 验证：`chat-ui.test.mjs` 作用域模型结构守卫重写（229 项通过）、`svelte-check` 0/0、production build 通过。
+
+### Fixed: 文件树右键菜单 + 右键菜单支持复制绝对路径
+
+- 文件树的行此前从未绑定 `oncontextmenu`（菜单回调传进了组件却没有接到元素上），右键一直无响应；现在文件树与变更列表共用同一套菜单。
+- 右键菜单在"复制路径"（相对路径）旁新增"复制绝对路径"，由项目规范根目录拼接，根目录未知时置灰。
+- 验证：`svelte-check` 0/0、Desktop 结构测试、production build 通过。
+
+### Changed: 文件面板头部移除手动刷新按钮
+
+- 文件树与 Git 状态本就实时监听自动同步（面板底部有状态提示），手动刷新按钮从未被使用，连同 store 的 `refreshAll()` 与双语文案一起删除；搜索（⌘P）与"跟随 Agent 改动"开关保留。
+- 验证：`svelte-check` 0/0、Desktop 结构测试与单元测试、production build 通过。
+
+### Fixed: 文件预览页签条右侧动作按钮统一靠右
+
+- 折叠文件树与关闭全部页签两个按钮此前各自带 `margin-left: auto`，把页签条剩余宽度平分了；改为仅第一个动作吸收自由空间，两个作用域统一靠右排列。
+- 验证：`svelte-check` 0/0、Desktop 结构测试、production build 通过。
+
+### Fixed: 切换会话后右侧文件面板跟随新会话，不再残留上一会话状态
+
+- 从 Project 会话切到 Web 会话时，右侧 Artifact 面板此前仍显示上一会话的本轮文件和 Project 作用域，点击旧文件会以空 Project id 请求接口、把路由 404 的整页 HTML 画进错误卡片。
+- 现在 `ChatView` 以会话上下文 key 的响应式守卫"移植"打开中的 Inspector：文件/本轮文件/附件打开请求随上下文重置、scope 按当前面板重新派生，Mini App 面板存活语义不变；Project 身份读取 `projectsView` 投影避免 legacy `$:` 失踪跟踪（pitfall #2）。面板 turn 页签在列表清空时回退文件页签；`requestJson` 对非 JSON 错误体统一为简短的状态码信息。
+- 验证：`chat-ui.test.mjs` 新增结构回归守卫；Desktop 全量测试（228 结构 + 全部单元）、`svelte-check` 0/0、production build 通过。
+
+### Fixed: Artifact 面板 Markdown 预览的相对图片可正常显示
+
+- leaf-bundle 形态的 markdown（`index.md` 与图片同目录，`![alt](xxx.png)` 相对引用）在右侧面板预览时图片不再破图：预览把相对图片引用解析到 markdown 文件所在目录，Project scope 经既有 raw 文件路由流式返回字节，Session scope 经 HTML 预览同款 artifact 路由，CSP `img-src` 相应放行 `molibot-artifact`。
+- 绝对 URL、data URI、逃逸根目录的引用保持原样不重写；带 resolver 的渲染绕过 markdown 渲染缓存，避免不同目录的同内容文件互相污染图片。
+- 验证：新增 `markdownImages.test.ts` 路径解析单测，完整 Desktop 测试（242 + 227 项）、`svelte-check` 0/0、production build 通过。
+
+### Changed: Desktop 设置页内容列宽度对齐 Chat（576px → 720px）
+
+- 设置中心所有页面（含通用设置、供应商工作台、数据页和记忆中心）的内容列从 576px 标准列统一放宽到与 Chat 会话列一致的 720px，页头标题与内容卡共享同一左边缘；窄窗口下仍按 `min(calc(100% - 56px), 720px)` 自适应收缩。
+- 顺带把 6 处手抄的 `min(calc(100% - 56px), var(--settings-content-width))` 收敛为共享 token `--settings-col`，消除宽度表达式漂移的隐患；`DESIGN.md` 宽度规范同步更新。
+- 验证：完整 Desktop 测试（含 UI 结构断言更新与 60 项 Rust 测试）、`svelte-check` 0/0 通过。
+
 ### Fixed: Project 受保护目录访问与本轮图片预览
 
 - Project 根目录位于 iCloud、桌面或文稿等 macOS 受保护位置且访问被拒绝时，右侧 Artifact Inspector 提供原生目录重新授权；只能重新选择同一根目录，不会在修复权限时改写 Project。

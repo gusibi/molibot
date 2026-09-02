@@ -179,7 +179,10 @@ async function requestJson<T>(endpoint: string, route: string, init?: RequestIni
   try {
     payload = text ? JSON.parse(text) as Record<string, unknown> : {};
   } catch {
-    throw new Error(text || `Request failed (${response.status})`);
+    // A non-JSON body is an infrastructure response (a router 404 page, a
+    // proxy error) - surfacing it verbatim once painted an entire HTML
+    // document into a panel error card. The status is the useful part.
+    throw new Error(`Request failed (${response.status})`);
   }
   if (!response.ok || payload.ok === false) {
     throw new Error(String(payload.error ?? `Request failed (${response.status})`));

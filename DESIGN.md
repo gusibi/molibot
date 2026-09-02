@@ -418,8 +418,9 @@ overrides the generic Geist guidance below whenever the two conflict.
   cards, 12px for primary cards and inspectors, and fully rounded for status dots,
   avatars, and segmented pills. Do not invent intermediate radii.
 - The desktop toolbar/drag region is 52px high. Setting content — including the
-  usage, trace, and service-log pages — is at most 576px; only the memory center
-  uses the wider 720px data column; messages and the composer are at most 720px.
+  usage, trace, and service-log data pages and the memory center — and the chat
+  transcript share one centered column capped at 720px, so settings and chat
+  content align edge to edge.
 - Prefer quiet, opaque surfaces and separators. Translucency may reinforce hierarchy
   but must preserve legibility with reduced transparency, increased contrast, dark
   mode, and inactive windows. Shadows are reserved for floating overlays.
@@ -533,9 +534,9 @@ block, status color, and sidebar tint must resolve through the same family block
   Settings keeps its secondary canvas. Hidden sidebar actions
   collapse out of layout and consume title width only on hover or keyboard focus. An empty
   local Chat is an editable new-conversation draft; its Session is created on first send.
-- Data pages (usage, trace, service logs) use the standard 576px settings column
-  with compact metric cards, semantic charts, and human-readable labels before
-  technical identifiers; the memory center is the only wider 720px data column.
+- Data pages (usage, trace, service logs) use the standard 720px settings column,
+  the same width as the chat transcript column, with compact metric cards,
+  semantic charts, and human-readable labels before technical identifiers.
 - Data-page filters use a compact toolbar: keep common dimensions visible in one row,
   place diagnostic or exact-ID fields behind an accessible disclosure, and show the
   effective time window as quiet metadata. On the settings column, actions occupy a

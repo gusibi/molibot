@@ -114,12 +114,13 @@
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
   import ArtifactPanel from "./lib/artifacts/ArtifactPanel.svelte";
+  import type { ArtifactScope } from "./lib/artifacts/viewerRegistry";
   import { shouldOpenArtifactAsDiff } from "./lib/artifacts/artifactOpenMode";
   import DurableExecutionCard from "./lib/chat/DurableExecutionCard.svelte";
   import DurableExecutionInspector from "./lib/chat/DurableExecutionInspector.svelte";
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
   import { markMiniAppUsed } from "./lib/stores/miniapps.svelte";
-  import { projectsStore, selectProject, selectProjectSession } from "./lib/stores/projects.svelte";
+  import { projectsStore, projectsView, selectProject, selectProjectSession } from "./lib/stores/projects.svelte";
   import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
@@ -647,19 +648,19 @@
   $: filePanelOpen = inspector?.kind === "artifact";
   $: durablePanelOpen = inspector?.kind === "durable-execution";
   $: miniAppPanelAppId = inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : "";
-  // A Project conversation can produce a Session-owned file (for example an
-  // imageGenerate result in scratch). The selected artifact owns this scope;
-  // deriving it again from the conversation pane routes that file back through
-  // the Project tree and leaves its Session viewer unreachable.
-  $: artifactScope = inspector?.kind === "artifact"
-    ? inspector.scope
-    : projectPaneActive ? "project" : "session";
+  // The panel's scope IS the conversation pane's scope: a Project conversation
+  // keeps the Project tree, changes and attachments tabs on screen no matter
+  // what it opens, and a Session-owned artifact (a scratch image from the turn
+  // files) renders as a session-scope tab inside that panel. Re-scoping the
+  // whole panel per selected artifact is what used to replace the Project
+  // surface with a two-tab session view that had no way back.
+  let artifactScope: ArtifactScope = "project";
+  $: artifactScope = projectPaneActive ? "project" : "session";
   // One inspector for every scope: the Artifact Panel hosts Project files,
   // Session artifacts and Mini App tabs. A second right-hand aside for the
   // session file list is what made the panel unreachable while a Mini App was
   // open — and left the Files side of the panel empty in a conversation.
-  // Project/session identity still comes from the live pane below. Artifact
-  // ownership is independent and comes from `artifactScope` above.
+  // Project/session identity still comes from the live pane below.
   $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0);
   $: durablePanelVisible = durablePanelOpen && serviceState === "ready" && Boolean(connectedEndpoint);
   $: inspectorVisible = artifactPanelVisible || durablePanelVisible;
@@ -721,7 +722,6 @@
   // close behaviour below exist exactly once and serve both.
   type ChatInspector = {
     kind: "artifact";
-    scope: "project" | "session";
     /** Mini App id to open as a tab on mount or on a live open request. */
     miniApp?: string;
     /** Bumped so a repeat open of the same app re-activates its tab. */
@@ -889,6 +889,38 @@
   // transcript belongs to the bot that owns it, not to the active web profile.
   $: inspectorProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
   $: inspectorSessionId = viewMode === "external" ? (activeExternalSessionId ?? "") : (activeSessionId ?? "");
+  /**
+   * The file Inspector belongs to the conversation it was opened beside: its
+   * turn files, open request and scope all describe that conversation. Carried
+   * across a switch, the previous conversation's turn files stayed listed, and
+   * a stale Project scope over the new session's id sent every fetch to a
+   * project that no longer exists (a 404 error card). So a context change
+   * transplants the open Inspector into the new context: file and turn-file
+   * requests reset, and the scope follows the pane it now lives in. A Mini App
+   * is a workspace of its own, not an artifact of one conversation, and
+   * survives like its store tab does; a closed Inspector stays closed.
+   */
+  let inspectorContextKey = "";
+  // Legacy `$:` cannot track properties of an imported runes `$state` object
+  // (pitfall #2), so the Project half of the key reads the projected store.
+  const projectsViewStore = projectsView;
+  $: projectsViewSnapshot = $projectsViewStore;
+  $: {
+    const key = projectPaneActive
+      ? `project:${projectsViewSnapshot.selectedProjectId ?? ""}:${projectsViewSnapshot.selectedSessionId ?? ""}`
+      : `chat:${inspectorProfileId}:${inspectorSessionId}`;
+    if (key !== inspectorContextKey) {
+      inspectorContextKey = key;
+      if (inspector?.kind === "artifact") {
+        inspector = {
+          ...inspector,
+          turnFiles: [], turnFilesNonce: 0, turnFileKey: "",
+          openPath: "", openPathNonce: 0, openPathAsDiff: false,
+          sessionFile: undefined, sessionFileNonce: 0
+        };
+      }
+    }
+  }
   $: botOptions = profiles.map((profile) => ({
     id: profile.id,
     name: profile.agentName || copy.agentStudioGlobalName,
@@ -2577,7 +2609,7 @@
   // other. Toggling the same target closes it; re-selecting the Mini App
   // already shown is a no-op, which keeps its iframe (and its state) alive.
   function toggleFilesInspector(): void {
-    inspector = inspector?.kind === "artifact" ? null : { kind: "artifact", scope: projectPaneActive ? "project" : "session" };
+    inspector = inspector?.kind === "artifact" ? null : { kind: "artifact" };
   }
 
   /**
@@ -2593,7 +2625,6 @@
     workspacePane = "chat";
     inspector = {
       kind: "artifact",
-      scope: "project",
       openPath: path,
       openPathNonce: ++openPathSeq,
       // HTML is useful as the rendered product; other writes open their diff.
@@ -2601,22 +2632,20 @@
     };
   }
 
+  /**
+   * The turn-files card, raised from any transcript. The panel keeps the
+   * conversation's scope; each file opens as a tab of its own scope, so a
+   * Project conversation shows a scratch image without surrendering its tree.
+   */
   function openTurnFiles(files: TurnFileItem[], selectedKey?: string): void {
     if (!files.length) return;
-    const selected = selectedKey ? files.find((file) => file.key === selectedKey) : undefined;
     workspacePane = "chat";
     inspector = {
       kind: "artifact",
-      scope: selected ? selected.source : projectPaneActive ? "project" : "session",
       turnFiles: files,
       turnFilesNonce: ++turnFilesSeq,
       turnFileKey: selectedKey
     };
-  }
-
-  function reopenTurnFile(file: TurnFileItem): void {
-    if (inspector?.kind !== "artifact" || !inspector.turnFiles?.length) return;
-    openTurnFiles(inspector.turnFiles, file.key);
   }
 
   function openDurableExecutionInspector(executionId: string): void {
@@ -2638,7 +2667,6 @@
     workspacePane = "chat";
     inspector = {
       kind: "artifact",
-      scope: projectPaneActive ? "project" : "session",
       miniApp: appId,
       miniAppNonce: ++miniAppSeq,
       miniAppDeepLinkPath: deepLinkPath
@@ -3339,7 +3367,7 @@
       projectId={projectPaneActive ? (projectsStore.selectedProjectId ?? "") : ""}
       projectRootPath={projectPaneActive ? (projectsStore.projects.find((project) => project.id === projectsStore.selectedProjectId)?.rootPath ?? "") : ""}
       sessionId={projectPaneActive ? (projectsStore.selectedSessionId ?? "") : inspectorSessionId}
-      profileId={artifactScope === "session" ? (projectPaneActive ? "personal" : inspectorProfileId) : ""}
+      profileId={projectPaneActive ? "personal" : inspectorProfileId}
       scope={artifactScope}
       touches={projectPaneActive ? $sessionFileTouches : EMPTY_TOUCHES}
       miniApp={inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : ""}
@@ -3351,7 +3379,6 @@
       turnFiles={inspector?.kind === "artifact" ? (inspector.turnFiles ?? []) : []}
       turnFilesNonce={inspector?.kind === "artifact" ? (inspector.turnFilesNonce ?? 0) : 0}
       turnFileKey={inspector?.kind === "artifact" ? (inspector.turnFileKey ?? "") : ""}
-      onOpenTurnFile={reopenTurnFile}
       {locale}
       theme={resolvedTheme}
       {copy}

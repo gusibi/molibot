@@ -872,7 +872,7 @@
         {/each}
       </nav>
       <div class="settings-sidebar-footer">
-        <img class="settings-footer-avatar" src="/molipibot-icon.png" alt="" width="28" height="28" />
+        <img class="settings-footer-avatar" src="/molibot-icon.png" alt="" width="28" height="28" />
         <div class="settings-sidebar-footer-copy"><strong>{text.appName}</strong><small>{serviceStateLabel(status?.service.state, text)}</small></div>
         <span class="status-dot" data-state={status?.service.state ?? "disconnected"} aria-hidden="true"></span>
       </div>
