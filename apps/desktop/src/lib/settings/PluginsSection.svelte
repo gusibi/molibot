@@ -7,7 +7,7 @@
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
-  import { session } from "../stores/session.svelte";
+  import { session, notifySettingsChanged, NAVIGATE_SETTINGS_EVENT } from "../stores/session.svelte";
   import {
     desktopPluginSettingsFrameUrl,
     invokeDesktopContractPluginAction,
@@ -85,6 +85,13 @@
     configuration: "插件配置",
     isolatedConfiguration: "外置插件配置独立存储，不写入全局设置。",
     memoryBackend: "记忆后端",
+    embeddingProvider: "向量服务商",
+    embeddingProviderHint: "选择用于生成记忆向量特征的 AI 服务商。留空则仅使用关键词/词法检索。",
+    noEmbeddingProvider: "未启用（纯词法检索）",
+    noEmbeddingProvidersConfigured: "暂无可用 AI 服务商。请先在「AI 服务商」中添加并启用带有 API Key 的 Provider。",
+    embeddingModel: "向量模型",
+    embeddingModelHint: "指定所选服务商下的 Embedding 向量模型名称。",
+    embeddingModelPlaceholder: "例如：text-embedding-3-small 或 bge-m3",
     reflectionTime: "每日反思时间",
     reflectionNotifications: "反思完成后通知",
     dailyTime: "每日执行时间",
@@ -134,6 +141,13 @@
     configuration: "Plugin Configuration",
     isolatedConfiguration: "External plugin configuration is isolated from global settings.",
     memoryBackend: "Memory backend",
+    embeddingProvider: "Embedding provider",
+    embeddingProviderHint: "Select the AI provider used to generate memory vector embeddings. Leave empty for lexical retrieval only.",
+    noEmbeddingProvider: "Disabled (Lexical Only)",
+    noEmbeddingProvidersConfigured: "No enabled AI providers found. Add and enable a provider in AI Providers first.",
+    embeddingModel: "Embedding model",
+    embeddingModelHint: "The model name for embeddings provided by the selected provider.",
+    embeddingModelPlaceholder: "e.g. text-embedding-3-small or bge-m3",
     reflectionTime: "Daily reflection time",
     reflectionNotifications: "Notify after reflection",
     dailyTime: "Daily run time",
@@ -281,6 +295,7 @@
       await saveDesktopCorePluginSettings(session.endpoint, selectedPluginId, coreDraft as Record<string, unknown>);
       await openPluginDetail(selectedPluginId);
       detailMessage = copy.saved;
+      notifySettingsChanged();
       await refreshPluginList();
     } catch (error) {
       detailMessage = error instanceof Error ? error.message : String(error);
@@ -374,6 +389,13 @@
 
   onMount(() => {
     window.addEventListener("message", handleCustomPluginMessage);
+    const handleNavigate = (event: Event) => {
+      const custom = event as CustomEvent<{ pluginId?: string }>;
+      if (custom.detail?.pluginId) {
+        void openPluginDetail(custom.detail.pluginId);
+      }
+    };
+    window.addEventListener(NAVIGATE_SETTINGS_EVENT, handleNavigate);
     pluginTheme = readPluginTheme();
     pluginThemeFamily = document.documentElement.dataset.themeFamily ?? "";
     const themeObserver = new MutationObserver(() => {
@@ -383,6 +405,7 @@
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance", "data-theme-family"] });
     return () => {
       window.removeEventListener("message", handleCustomPluginMessage);
+      window.removeEventListener(NAVIGATE_SETTINGS_EVENT, handleNavigate);
       themeObserver.disconnect();
     };
   });
@@ -443,6 +466,33 @@
       {#if coreDetail?.id === "memory" && coreDraft && "backend" in coreDraft}
         <SettingGroup title={copy.configuration}>
           <SettingRow title={copy.memoryBackend}><SelectControl value={coreDraft.backend} ariaLabel={copy.memoryBackend} options={coreDetail.backends} onChange={(backend) => coreDraft = { ...coreDraft!, backend }} /></SettingRow>
+          <SettingRow
+            title={copy.embeddingProvider}
+            description={coreDetail.embeddingProviders?.length ? copy.embeddingProviderHint : copy.noEmbeddingProvidersConfigured}
+          >
+            <SelectControl
+              value={coreDraft.embeddingProviderId ?? ""}
+              ariaLabel={copy.embeddingProvider}
+              options={[{ value: "", label: copy.noEmbeddingProvider }, ...(coreDetail.embeddingProviders ?? [])]}
+              onChange={(embeddingProviderId) => {
+                if (coreDraft) coreDraft = { ...coreDraft, embeddingProviderId };
+              }}
+            />
+          </SettingRow>
+          {#if coreDraft.embeddingProviderId}
+            <SettingRow title={copy.embeddingModel} description={copy.embeddingModelHint}>
+              <input
+                value={coreDraft.embeddingModel ?? ""}
+                autocomplete="off"
+                spellcheck="false"
+                aria-label={copy.embeddingModel}
+                placeholder={copy.embeddingModelPlaceholder}
+                oninput={(event) => {
+                  if (coreDraft) coreDraft = { ...coreDraft, embeddingModel: event.currentTarget.value };
+                }}
+              />
+            </SettingRow>
+          {/if}
           <SettingRow title={copy.reflectionTime}><NativeTimeInput bind:value={coreDraft.reflectionTime} ariaLabel={copy.reflectionTime} /></SettingRow>
           <SettingRow title={copy.reflectionNotifications}><IosSwitch checked={coreDraft.reflectionNotifications} ariaLabel={copy.reflectionNotifications} onCheckedChange={(reflectionNotifications) => coreDraft = { ...coreDraft!, reflectionNotifications }} /></SettingRow>
         </SettingGroup>

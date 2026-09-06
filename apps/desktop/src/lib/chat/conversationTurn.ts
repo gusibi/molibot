@@ -76,7 +76,7 @@ export async function runDesktopConversationTurn(input: {
       const approval = parseDesktopApproval(data);
       if (approval) handlers.onApproval?.(approval);
     }
-    if (event === "plan_proposal") handlers.onPlan?.(data as unknown as DesktopConversationPlan);
+    if (event === "plan_proposal" || event === "plan_progress") handlers.onPlan?.(data as unknown as DesktopConversationPlan);
     if (event === "session_title_updated") {
       const title = String(data.title ?? "").trim();
       const targetId = String(data.conversationId ?? "").trim();

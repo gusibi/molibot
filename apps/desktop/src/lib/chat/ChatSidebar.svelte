@@ -12,7 +12,6 @@
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
   import ProjectTree from "../projects/ProjectTree.svelte";
-  import MiniAppsSidebarSection from "../miniapps/MiniAppsSidebarSection.svelte";
   import type { Translation } from "../i18n";
   import DurableExecutionSidebarSection from "./DurableExecutionSidebarSection.svelte";
   import type { DesktopDurableExecutionItem } from "@molibot/desktop-contract";
@@ -51,10 +50,6 @@
     onActivateProjectSession,
     durableExecutions = [],
     onOpenDurableExecution,
-    miniAppsExpanded = true,
-    activeMiniAppId = "",
-    onToggleMiniApps,
-    onOpenMiniApp,
     onOpenMiniApps,
     onOpenConversationSearch,
     onToggleCollapse
@@ -91,10 +86,6 @@
     onActivateProjectSession: () => void;
     durableExecutions?: DesktopDurableExecutionItem[];
     onOpenDurableExecution: (executionId: string) => void;
-    miniAppsExpanded?: boolean;
-    activeMiniAppId?: string;
-    onToggleMiniApps: () => void;
-    onOpenMiniApp: (appId: string) => void;
     onOpenMiniApps: () => void;
     onOpenConversationSearch: () => void;
     onToggleCollapse?: () => void;
@@ -211,17 +202,6 @@
     </section>
     <section class="sidebar-tree-section">
       <ProjectTree {copy} {endpoint} expanded={projectsExpanded} activeSessionId={activeProjectSessionId} {formatTime} onToggle={onToggleProjects} onActivateSession={onActivateProjectSession} />
-    </section>
-    <section class="sidebar-tree-section">
-      <MiniAppsSidebarSection
-        {copy}
-        {endpoint}
-        expanded={miniAppsExpanded}
-        activeAppId={activeMiniAppId}
-        onToggle={onToggleMiniApps}
-        onOpenApp={onOpenMiniApp}
-        onSeeAll={onOpenMiniApps}
-      />
     </section>
   </div>
 

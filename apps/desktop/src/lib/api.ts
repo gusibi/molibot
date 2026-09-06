@@ -584,10 +584,13 @@ export interface DesktopMemoryPluginDetail {
   values: {
     enabled: boolean;
     backend: string;
+    embeddingProviderId: string;
+    embeddingModel: string;
     reflectionTime: string;
     reflectionNotifications: boolean;
   };
   backends: Array<{ value: string; label: string }>;
+  embeddingProviders: Array<{ value: string; label: string }>;
 }
 
 export interface DesktopDailyMaterialsPluginDetail {
@@ -623,7 +626,7 @@ export async function loadDesktopCorePluginDetail(
   const path = `/api/settings/plugins/core/${encodeURIComponent(pluginId)}`;
   if (pluginId === "memory") {
     const payload = await requestJson<Omit<DesktopMemoryPluginDetail, "id"> & { ok: boolean }>(endpoint, path);
-    return { id: "memory", values: payload.values, backends: payload.backends };
+    return { id: "memory", values: payload.values, backends: payload.backends, embeddingProviders: payload.embeddingProviders };
   }
   const payload = await requestJson<Omit<DesktopDailyMaterialsPluginDetail, "id"> & { ok: boolean }>(endpoint, path);
   return { id: "daily-materials", values: payload.values, projects: payload.projects, models: payload.models };
@@ -810,7 +813,7 @@ export async function resolveDesktopPlan(
     profileId: string;
     conversationId: string;
     planId: string;
-    decision: "accept" | "reject" | "modify";
+    decision: "accept" | "reject" | "modify" | "complete";
     mode?: "manual" | "accept_edits";
     title?: string;
     summary?: string;
@@ -3273,7 +3276,19 @@ export async function consumeDesktopSse(
         const block = buffer.slice(0, separator);
         buffer = buffer.slice(separator + 2);
         const parsed = parseSseBlock(block);
-        if (parsed) await onEvent(parsed.event, parsed.data);
+        if (parsed) {
+          try {
+            await onEvent(parsed.event, parsed.data);
+          } catch (cause) {
+            // The protocol `error` frame and the caller's abort are real turn
+            // failures and must propagate. Anything else is one bad frame — a
+            // malformed payload that crashed a handler — and swallowing it lets
+            // the later frames (e.g. a host_bash_approval after a broken
+            // activity) still reach the UI instead of dying with it.
+            if (parsed.event === "error" || (cause instanceof Error && cause.name === "AbortError")) throw cause;
+            console.warn(`[desktop-sse] handler failed for "${parsed.event}"`, cause);
+          }
+        }
         separator = buffer.indexOf("\n\n");
       }
       if (done) break;
@@ -3445,6 +3460,38 @@ export async function resolveDesktopHostBash(
       action: "resolve_approval",
       profileId,
       sessionId,
+      requestId,
+      decision
+    })
+  });
+  const status = String(payload.approval?.status ?? "").trim();
+  return {
+    response: payload.response,
+    status: status ? status as DesktopApprovalResult["status"] : undefined,
+    error: payload.approval?.error
+  };
+}
+
+/**
+ * Resolve a pending Host Bash approval by ID alone (settings-page operator
+ * form). Settings lists every scope's approvals but has no chat session
+ * context, so the server locates the record by its request ID and routes the
+ * resolution through the owning scope's own resume machinery.
+ */
+export async function resolveDesktopHostBashById(
+  endpoint: string,
+  requestId: string,
+  decision: DesktopApprovalDecision
+): Promise<DesktopApprovalResult> {
+  const payload = await requestJson<{
+    ok: true;
+    response: string;
+    approval?: { status?: string; error?: string };
+  }>(endpoint, "/api/desktop/host-bash", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "resolve_approval",
       requestId,
       decision
     })

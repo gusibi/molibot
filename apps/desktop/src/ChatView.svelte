@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isActiveDurableExecution, isOpenDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Layers from "reicon-svelte/icons/Layers";
   import Magnifier from "reicon-svelte/icons/Magnifier";
@@ -6,7 +7,7 @@
   import Sidebar from "reicon-svelte/icons/Sidebar";
   import X from "reicon-svelte/icons/X";
   import type { EmptyActionIcon } from "./lib/chat/activityIcons";
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import {
@@ -94,6 +95,7 @@
   const sessionPermissionModes = new Map<string, PermissionMode>();
   let permissionHydrationSession = "";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
+  import { saveBlobAsFile } from "./lib/saveFile";
   import { formatMessageTime } from "./lib/chat/messageTime";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
   import {
@@ -117,9 +119,9 @@
   import type { ArtifactScope } from "./lib/artifacts/viewerRegistry";
   import { shouldOpenArtifactAsDiff } from "./lib/artifacts/artifactOpenMode";
   import DurableExecutionCard from "./lib/chat/DurableExecutionCard.svelte";
+  import SessionPlanInspector from "./lib/chat/SessionPlanInspector.svelte";
   import DurableExecutionInspector from "./lib/chat/DurableExecutionInspector.svelte";
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
-  import { markMiniAppUsed } from "./lib/stores/miniapps.svelte";
   import { projectsStore, projectsView, selectProject, selectProjectSession } from "./lib/stores/projects.svelte";
   import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
@@ -166,10 +168,9 @@
   import { DirectManipulation } from "./lib/native/directManipulation";
   import { ActivityScheduler, backgroundActivityPolicy, documentActivityVisibility, reconnectActivityPolicy } from "./lib/native/activityScheduler";
   import MemoryTraceDrawer from "./lib/chat/MemoryTraceDrawer.svelte";
-  import { miniAppsCatalog } from "./lib/stores/miniapps.svelte";
+  import { miniAppsCatalog, clearMiniAppBadge } from "./lib/stores/miniapps.svelte";
   import { catalogMessageActions, invokeTranscriptMessageAction } from "./lib/miniapps/messageActions";
   import { fetchDesktopMiniAppAttachment } from "./lib/api";
-  import { clearMiniAppBadge } from "./lib/stores/miniapps.svelte";
   import type { FeedbackEvent } from "./lib/native/feedbackCoordinator";
 
   export let copy: Translation;
@@ -309,7 +310,6 @@
   // Sidebar expansion is separate from selection. Every group may be open and
   // the preference survives restarts.
   const SIDEBAR_TREE_KEY = "molibot-desktop-sidebar-tree-v2";
-  const MINIAPPS_EXPANDED_KEY = "molibot-desktop-miniapps-expanded";
   let conversationsExpanded = true;
   let projectsExpanded = true;
   let expandedChannels: Record<DesktopConversationChannel, boolean> = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
@@ -647,7 +647,6 @@
   // freeze the budget at its first value.
   $: filePanelOpen = inspector?.kind === "artifact";
   $: durablePanelOpen = inspector?.kind === "durable-execution";
-  $: miniAppPanelAppId = inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : "";
   // The panel's scope IS the conversation pane's scope: a Project conversation
   // keeps the Project tree, changes and attachments tabs on screen no matter
   // what it opens, and a Session-owned artifact (a scratch image from the turn
@@ -663,7 +662,7 @@
   // Project/session identity still comes from the live pane below.
   $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0);
   $: durablePanelVisible = durablePanelOpen && serviceState === "ready" && Boolean(connectedEndpoint);
-  $: inspectorVisible = artifactPanelVisible || durablePanelVisible;
+  $: inspectorVisible = artifactPanelVisible || durablePanelVisible || inspector?.kind === "session-plan";
   $: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH;
   // Below NARROW_WIDTH the sidebar is hidden and only two tracks share the
   // window, so the budget drops the sidebar term and uses the lower floor the
@@ -742,13 +741,13 @@
   } | {
     kind: "durable-execution";
     executionId: string;
-  } | null;
+  } | { kind: "session-plan" } | null;
   let inspector: ChatInspector = null;
+  $: if ($sessionPlanInspector) inspector = { kind: "session-plan" };
   let miniAppSeq = 0;
   let sessionFileSeq = 0;
   let openPathSeq = 0;
   let turnFilesSeq = 0;
-  let miniAppsExpanded = localStorage.getItem(MINIAPPS_EXPANDED_KEY) !== "0";
 
   // A Mini App runs on its own origin and cannot inherit our CSS variables, so
   // the panel passes the *resolved* appearance (never "system") as a URL hint.
@@ -911,6 +910,7 @@
       : `chat:${inspectorProfileId}:${inspectorSessionId}`;
     if (key !== inspectorContextKey) {
       inspectorContextKey = key;
+      if (inspector?.kind === "session-plan") closeInspector();
       if (inspector?.kind === "artifact") {
         inspector = {
           ...inspector,
@@ -989,9 +989,13 @@
   $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (activeSessionItem?.title || copy.chat);
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
   $: activeDurableExecution = viewMode === "local" && activeSessionId
-    ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId) ?? null)
+    ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId && isActiveDurableExecution(item)) ?? null)
     : null;
-  $: durableActiveCount = durableExecutions.filter((item) => !["partial", "completed", "failed", "cancelled"].includes(item.execution.status)).length;
+  $: sessionDurableExecution = viewMode === "local" && activeSessionId
+    ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId && isOpenDurableExecution(item)) ?? null)
+    : null;
+  $: activeDurableExecutions = durableExecutions.filter(isActiveDurableExecution);
+  $: durableActiveCount = activeDurableExecutions.length;
   $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
   $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "", copy.chatAssistantError);
   $: if (searchMatchIds.length !== previousSearchMatchCount) {
@@ -1004,6 +1008,11 @@
     id: option.id,
     label: approvalOptionLabel(option)
   })) ?? [];
+  /**
+   * The view-restore closure captured when the service dropped, consumed by
+   * the next successful connect(). Null on first launch → default selection.
+   */
+  let reconnectRestore: (() => void) | null = null;
   $: if (
     serviceState === "ready" &&
     serviceEndpoint &&
@@ -1012,6 +1021,11 @@
     void connect(serviceEndpoint);
   }
   $: if (serviceState !== "ready" && connectedEndpoint) {
+    // Untracked: the snapshot must read the CURRENT view exactly once at the
+    // flip. Runtime-tracked reads would re-run this teardown whenever the
+    // registry mutates below and re-capture an already-disposed registry
+    // (capture → null), losing the restore target.
+    reconnectRestore = untrack(captureViewForRestore);
     connectionGeneration += 1;
     connectedEndpoint = "";
     connectionReady = false;
@@ -1088,8 +1102,7 @@
     };
   }
 
-  async function loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[]> {
-    const detail = await loadDesktopSession(connectedEndpoint, profileId, sessionId);
+  async function loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[]> {    const detail = await loadDesktopSession(connectedEndpoint, profileId, sessionId);
     return detail.messages
       .filter((message) => message.role === "user" || message.role === "assistant")
       .map((message) => ({ ...message }));
@@ -1098,20 +1111,29 @@
   async function resolvePlan(
     message: TranscriptMessage,
     plan: import("@molibot/desktop-contract").DesktopConversationPlan,
-    decision: "accept" | "reject" | "modify",
+    decision: "accept" | "reject" | "modify" | "complete",
     edits?: { title: string; summary: string; steps: string[]; mode?: "manual" | "accept_edits" }
   ): Promise<void> {
     if (!connectedEndpoint || !activeSessionId || !activeProfileId) return;
+    const entry = chatStore.registry.active;
     try {
-      await resolveDesktopPlan(connectedEndpoint, {
+      const resolved = await resolveDesktopPlan(connectedEndpoint, {
         profileId: activeProfileId,
         conversationId: activeSessionId,
         planId: plan.id,
         decision,
         ...edits
       });
-      await chatStore.reloadActive();
-      if (decision === "accept") await chatStore.resumeActivePlan(plan.id);
+      publishSessionPlan(resolved.plan);
+      if (decision === "accept" && chatStore.registry.active === entry) {
+        permissionMode = resolved.mode;
+        sessionPlanInspector.set({
+          plan: resolved.plan,
+          complete: () => void resolvePlan(message, resolved.plan, "complete")
+        });
+      }
+      await entry?.reloadFromServer();
+      if (decision === "accept") await entry?.controller.resumePlan(plan.id);
     } catch (cause) {
       chatStore.setActiveError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -1272,6 +1294,10 @@
         },
         onSessionCreated: (profileId, sessionId) => {
           localStorage.setItem(LAST_BOT_KEY, profileId);
+          // A session created by sending from the draft never went through
+          // openSession; without this the reconnect/first-launch restore points
+          // at an older conversation instead of the one the user is now in.
+          persistSelected(profileId, sessionId);
           void loadChannel("web");
           void refreshFiles(profileId, sessionId);
         },
@@ -1290,7 +1316,16 @@
       loading = false;
       startAutomationUnreadPolling();
       startDurableExecutionPolling();
-      void selectDefaultSession(generation);
+      const restoreView = reconnectRestore;
+      reconnectRestore = null;
+      if (restoreView) {
+        restoreSidebarTree();
+        await loadExpandedChannels();
+        if (generation !== connectionGeneration) return;
+        restoreView();
+      } else {
+        void selectDefaultSession(generation);
+      }
       void chatStore.reconnect();
       startReconnectPoll();
     } catch (cause) {
@@ -1347,9 +1382,53 @@
     localStorage.setItem(SIDEBAR_TREE_KEY, JSON.stringify({ conversationsExpanded, projectsExpanded, expandedChannels }));
   }
 
+  /** Loads every channel the sidebar currently has expanded. */
+  async function loadExpandedChannels(): Promise<void> {
+    await Promise.all((Object.entries(expandedChannels) as Array<[DesktopConversationChannel, boolean]>).filter(([, open]) => open).map(([channel]) => loadChannel(channel)));
+  }
+
+  /**
+   * Snapshot of whatever the user is looking at, taken as the service drops.
+   * The disconnect teardown wipes runtime state (a stuck "sending" flag must
+   * die with the service), but the reconnect must bring THIS view back:
+   * re-running default selection instead yanked the pane to a new-conversation
+   * draft or the newest session after every service restart, which read as
+   * "clicked a session, got a new conversation".
+   */
+  function captureViewForRestore(): (() => void) | null {
+    if (projectPaneActive) {
+      const projectId = projectsStore.selectedProjectId;
+      const sessionId = projectsStore.selectedSessionId;
+      if (!projectId || !sessionId) return null;
+      return () => {
+        projectPaneActive = true;
+        workspacePane = "chat";
+        viewMode = "local";
+        activeProjectSessionId = sessionId;
+        void selectProjectSession(sessionId, projectId);
+      };
+    }
+    if (viewMode === "external" && activeExternalSessionId) {
+      const sessionId = activeExternalSessionId;
+      const channel = activeExternalChannel;
+      const title = activeExternalTitle;
+      const botName = activeExternalBotName;
+      return () => { void openExternalTranscript(sessionId, channel, title, botName); };
+    }
+    const entry = chatStore.registry.active;
+    if (!entry) return null;
+    const profileId = entry.profileId;
+    const sessionId = entry.sessionId;
+    return () => {
+      void chatStore.selectSession(profileId, sessionId);
+      loadDraftIn();
+      void refreshFiles(profileId, sessionId);
+    };
+  }
+
   async function selectDefaultSession(generation = connectionGeneration): Promise<void> {
     restoreSidebarTree();
-    await Promise.all((Object.entries(expandedChannels) as Array<[DesktopConversationChannel, boolean]>).filter(([, open]) => open).map(([channel]) => loadChannel(channel)));
+    await loadExpandedChannels();
     if (generation !== connectionGeneration) return;
     const webItems = channelItems.web ?? [];
     const last = restoreSelected();
@@ -1843,14 +1922,7 @@
     if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     try {
       const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id, true);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = file.original;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      await saveBlobAsFile(blob, file.original);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     }
@@ -1918,6 +1990,28 @@
   } satisfies TranscriptAttachmentActions;
   $: contributedMessageActions = catalogMessageActions($miniAppsCatalog, locale);
 
+  /**
+   * Sole entry point for the mini-app toast: it owns both the text and the
+   * auto-dismiss timer. Assigning `miniAppActionFeedback` directly skips the
+   * timer and leaves the toast up forever.
+   */
+  function showMiniAppFeedback(
+    text: string,
+    card: import("@molibot/desktop-contract").DesktopMiniAppResultCard | null = null
+  ): void {
+    miniAppActionFeedback = text;
+    miniAppActionCard = card;
+    if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
+    miniAppActionFeedbackTimer = null;
+    // A card is something to read, so it stays until dismissed; a bare
+    // sentence self-clears. Both always offer the close button.
+    if (!card) {
+      miniAppActionFeedbackTimer = setTimeout(() => {
+        dismissMiniAppFeedback();
+      }, 3000);
+    }
+  }
+
   async function runMiniAppMessageAction(
     action: TranscriptContributionAction,
     message: TranscriptMessage,
@@ -1941,23 +2035,12 @@
           }
         } : {})
       });
-      miniAppActionFeedback = outcome.text;
-      miniAppActionCard = outcome.card;
       miniAppActionSuccessKey = key;
+      showMiniAppFeedback(outcome.text, outcome.card);
     } catch (cause) {
-      miniAppActionFeedback = cause instanceof Error ? cause.message : String(cause);
-      miniAppActionCard = null;
+      showMiniAppFeedback(cause instanceof Error ? cause.message : String(cause));
     } finally {
       miniAppActionPendingKey = "";
-      if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
-      miniAppActionFeedbackTimer = null;
-      // A card is something to read, so it stays until dismissed; a bare
-      // sentence self-clears. Both always offer the close button.
-      if (!miniAppActionCard) {
-        miniAppActionFeedbackTimer = setTimeout(() => {
-          dismissMiniAppFeedback();
-        }, 3000);
-      }
     }
   }
   $: messageActions = messages.length === 0
@@ -2129,16 +2212,16 @@
     if (!request || request.scope !== "session" || request.id === appliedMiniAppInsertionId) return;
     appliedMiniAppInsertionId = request.id;
     if (viewMode === "external") {
-      miniAppActionFeedback = copy.miniAppComposerReadOnly;
+      showMiniAppFeedback(copy.miniAppComposerReadOnly);
       return;
     }
     if (editingMessageId) {
-      miniAppActionFeedback = copy.miniAppComposerEditing;
+      showMiniAppFeedback(copy.miniAppComposerEditing);
       return;
     }
     workspacePane = "chat";
     messageInput = insertComposerText(messageInput, request.text, request.mode);
-    miniAppActionFeedback = copy.miniAppComposerInserted;
+    showMiniAppFeedback(copy.miniAppComposerInserted);
     focusComposerAtEnd();
   }
 
@@ -2150,8 +2233,8 @@
     // Claimed before the await so a second store tick during the fetch cannot
     // start the same attachment again (pitfall #3).
     appliedMiniAppAttachmentId = request.id;
-    if (viewMode === "external") { miniAppActionFeedback = copy.miniAppComposerReadOnly; return; }
-    if (editingMessageId) { miniAppActionFeedback = copy.miniAppComposerEditing; return; }
+    if (viewMode === "external") { showMiniAppFeedback(copy.miniAppComposerReadOnly); return; }
+    if (editingMessageId) { showMiniAppFeedback(copy.miniAppComposerEditing); return; }
     if (!connectedEndpoint) return;
     try {
       const file = await fetchDesktopMiniAppAttachment(
@@ -2164,13 +2247,13 @@
       );
       workspacePane = "chat";
       pendingFiles = [...pendingFiles, file];
-      miniAppActionFeedback = copy.miniAppComposerAttached.replace("{name}", file.name);
+      showMiniAppFeedback(copy.miniAppComposerAttached.replace("{name}", file.name));
     } catch (cause) {
       // Never silent: "the button did nothing" is the worst failure shape.
-      miniAppActionFeedback = copy.miniAppComposerAttachFailed.replace(
+      showMiniAppFeedback(copy.miniAppComposerAttachFailed.replace(
         "{reason}",
         cause instanceof Error ? cause.message : String(cause)
-      );
+      ));
     }
   }
 
@@ -2185,7 +2268,7 @@
       .find((item) => item.sessionId === request.sessionId);
     // An App may hold a session id that has since been deleted; say so rather
     // than leaving the click looking ignored.
-    if (!match) { miniAppActionFeedback = copy.miniAppSessionNotFound; return; }
+    if (!match) { showMiniAppFeedback(copy.miniAppSessionNotFound); return; }
     openSession(match);
   }
 
@@ -2392,13 +2475,16 @@
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
-    // Command/Ctrl+Return is the product-wide send shortcut. Shift+Enter remains
-    // supported for existing users; a bare Enter inserts a newline.
-    if (event.key === "Enter" && (event.shiftKey || event.metaKey || event.ctrlKey) && !event.isComposing) {
-      event.preventDefault();
-      if (sending) queueFollowUp();
-      else void sendMessage();
-    }
+    // Enter sends, Shift+Enter stays with the textarea as a newline, and
+    // Cmd/Ctrl+Enter keeps sending as the product-wide shortcut. An IME
+    // confirm keystroke arrives as Enter too; WebKit fires it after
+    // compositionend with keyCode still 229, so isComposing alone misses it
+    // and the composition would be "sent" instead of committed.
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key !== "Enter" || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (sending) queueFollowUp();
+    else void sendMessage();
   }
 
   function queueFollowUp(): void {
@@ -2648,7 +2734,20 @@
     };
   }
 
-  function openDurableExecutionInspector(executionId: string): void {
+  async function openDurableExecutionInspector(executionId: string): Promise<void> {
+    const source = durableExecutions.find((item) => item.execution.id === executionId)?.execution;
+    if (source?.sourceProjectId && source.sourceUiSessionId) {
+      projectsStore.endpoint = connectedEndpoint;
+      await selectProject(source.sourceProjectId);
+      await selectProjectSession(source.sourceUiSessionId, source.sourceProjectId);
+      projectPaneActive = true;
+      viewMode = "local";
+      activeProjectSessionId = source.sourceUiSessionId;
+    } else if (source?.sourceUiSessionId) {
+      const conversation = Object.values(channelItems).flat().find((item) => item.sessionId === source.sourceUiSessionId);
+      if (conversation) openSession(conversation);
+    }
+    sessionPlanInspector.set(null);
     workspacePane = "chat";
     searchOpen = false;
     inspector = { kind: "durable-execution", executionId };
@@ -2656,9 +2755,6 @@
   }
 
   function openMiniAppInspector(appId: string, deepLinkPath = ""): void {
-    // Recency drives the sidebar's short list, so it is recorded even when the
-    // app is already open — reopening is still a use.
-    markMiniAppUsed(appId);
     // Opening the panel is the owner seeing whatever the badge was announcing,
     // so the badge is retired here rather than by the app guessing.
     void clearMiniAppBadge(appId);
@@ -2674,12 +2770,8 @@
   }
 
   function closeInspector(): void {
+    sessionPlanInspector.set(null);
     inspector = null;
-  }
-
-  function toggleMiniAppsSection(): void {
-    miniAppsExpanded = !miniAppsExpanded;
-    localStorage.setItem(MINIAPPS_EXPANDED_KEY, miniAppsExpanded ? "1" : "0");
   }
 
   function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
@@ -2990,10 +3082,6 @@
       viewMode = "local";
       activeProjectSessionId = projectsStore.selectedSessionId;
     }}
-    miniAppsExpanded={miniAppsExpanded}
-    activeMiniAppId={miniAppPanelAppId}
-    onToggleMiniApps={toggleMiniAppsSection}
-    onOpenMiniApp={openMiniAppInspector}
     onOpenMiniApps={() => openWorkspacePane("miniapps")}
     onOpenConversationSearch={openBrowser}
     onToggleCollapse={toggleSidebarCollapse}
@@ -3069,7 +3157,7 @@
             class="durable-header-badge"
             aria-label={copy.durableInProgress}
             title={copy.durableInProgress}
-            onclick={() => openDurableExecutionInspector(activeDurableExecution?.execution.id ?? durableExecutions[0]?.execution.id ?? "")}
+            onclick={() => openDurableExecutionInspector(activeDurableExecution?.execution.id ?? activeDurableExecutions[0]?.execution.id ?? "")}
           >
             <Layers size={16} aria-hidden="true" />
             <span>{durableActiveCount > 99 ? "99+" : durableActiveCount}</span>
@@ -3240,9 +3328,9 @@
             />
           </div>
         {/if}
-        {#if activeDurableExecution}
+        {#if sessionDurableExecution}
           <DurableExecutionCard
-            item={activeDurableExecution}
+            item={sessionDurableExecution}
             {copy}
             formatTime={formatListTime}
             onOpen={openDurableExecutionInspector}
@@ -3391,8 +3479,13 @@
       executionId={inspector.executionId}
       {copy}
       onClose={closeInspector}
-      onChanged={() => void refreshDurableExecutions()}
+      onRequestFeedback={() => { closeInspector(); focusComposerAtEnd(); }}
+      onChanged={() => { void refreshDurableExecutions(); void chatStore.reloadActive(); void projectChatStore.reloadActive(); }}
     />
+  {/if}
+
+  {#if inspector?.kind === "session-plan"}
+    <SessionPlanInspector {copy} onClose={closeInspector} />
   {/if}
 
   <ConversationBrowserDialog

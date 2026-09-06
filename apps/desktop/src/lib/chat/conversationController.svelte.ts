@@ -1,8 +1,11 @@
+import { followApprovalContinuation } from "./approvalContinuation";
+import { publishSessionPlan } from "./sessionPlanUi";
 import { toStore } from "svelte/store";
 import type { Readable } from "svelte/store";
 import {
   addToFollowUpQueue,
   loadDesktopPendingApprovals,
+  listDesktopSessionRuns,
   nextFollowUp,
   resolveDesktopHostBash,
   steerDesktopChat,
@@ -83,8 +86,6 @@ export interface ConversationHost {
   /** Guard for readiness (e.g. a configured model); a turn is skipped when false. */
   canSend?(): boolean;
   labels(): ConversationLabels;
-  /** Current transcript roles, used to detect the resumed answer after an approval. */
-  getMessages(): ReadonlyArray<{ role: string }>;
   /** Optimistically append the outgoing user message to the host transcript. */
   appendUserMessage(content: string, files: File[]): void;
   /** Re-fetch the session transcript into the host after a turn settles. */
@@ -438,7 +439,7 @@ export class ConversationController {
         onStatus: (text) => { if (text) this.activity = text; },
         onActivities: (next) => (this.activities = next),
         onActivity: (entry) => this.upsertLiveActivity(entry),
-        onPlan: (plan) => this.appendLivePlan(plan),
+        onPlan: (plan) => { publishSessionPlan(plan); if (plan.status === "proposed") this.appendLivePlan(plan); },
         onApproval: (approval) => {
           if (this.pendingApprovals.some((item) => item.requestId === approval.requestId)) return;
           this.pendingApprovals = [...this.pendingApprovals, approval];
@@ -551,43 +552,51 @@ export class ConversationController {
     if (!endpoint || !this.pendingApproval) return;
     const labels = this.host.labels();
     const requestId = this.pendingApproval.requestId;
-    const sessionId = this.turnSessionId || this.host.sessionId();
-    const profileId = this.turnContext?.profileId ?? this.host.profileId();
+    const sessionId = this.sending ? this.turnSessionId || this.host.sessionId() : this.host.sessionId();
+    const profileId = this.sending ? this.turnContext?.profileId ?? this.host.profileId() : this.host.profileId();
     this.pendingApprovals = this.pendingApprovals.filter((approval) => approval.requestId !== requestId);
     this.host.clearError();
     this.activity = labels.resuming;
 
-    if (this.sending) {
+    let decisionResolved = false;
+    if (this.sending && this.abort) {
       // The SSE stream from send() is still active. Just send the decision so
       // the server can continue the run; the live stream will pick up the
       // resumed output and send() will handle reload/cleanup when it ends.
       try {
         this.reportApprovalOutcome(await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision));
+        decisionResolved = true;
       } catch (cause) {
         this.host.setError(cause instanceof Error ? cause.message : String(cause));
       }
-      return;
+      if (!decisionResolved || this.sending) return;
     }
 
     // Offline path: the SSE stream already ended before the user acted.
     // Drive the approval → poll cycle ourselves.
+    if (sessionId !== this.host.sessionId()) return;
+    this.turnSessionId = sessionId;
+    this.turnContext = { profileId, projectId: this.host.projectId?.(), modelKey: this.host.modelKey?.(), thinkingLevel: this.host.thinkingLevel() };
+    this.stopRequested = false;
     this.sending = true;
     try {
-      this.reportApprovalOutcome(await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision));
+      if (!decisionResolved) {
+        const result = await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision);
+        if (sessionId !== this.host.sessionId()) return;
+        this.reportApprovalOutcome(result);
+        if (result.status === "not_found") return;
+      }
       // The approved command runs and the original turn resumes in the background,
       // appending its answer asynchronously; poll the transcript until it lands.
-      const before = this.host.getMessages().filter((message) => message.role === "assistant").length;
-      for (let attempt = 0; attempt < 15; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        if (sessionId !== this.host.sessionId()) return;
-        await this.host.reload(sessionId);
-        // The resumed turn has no SSE stream, so an approval it raises is never
-        // pushed to us. Ask for it, or the user is left reading an assistant
-        // message telling them to click a card that was never rendered.
-        if (await this.syncPendingApproval(endpoint, profileId, sessionId)) break;
-        const after = this.host.getMessages().filter((message) => message.role === "assistant").length;
-        if (decision === "reject" || after > before) break;
-      }
+      await followApprovalContinuation({
+        isCurrent: () => this.sending && !this.stopRequested && sessionId === this.host.sessionId(),
+        reload: () => this.host.reload(sessionId),
+        adoptApproval: () => this.syncPendingApproval(endpoint, profileId, sessionId),
+        isRunning: async () => (await listDesktopSessionRuns(endpoint)).runs.some((run) =>
+          run.sessionId === sessionId && (run.status === "running" || run.status === "waiting_for_approval")),
+        pause: () => new Promise((resolve) => setTimeout(resolve, 1000))
+      });
+      if (this.sending && !this.stopRequested && sessionId === this.host.sessionId() && !this.pendingApproval) this.host.clearError();
       await this.host.refreshSessions?.();
     } catch (cause) {
       this.host.setError(cause instanceof Error ? cause.message : String(cause));
@@ -618,6 +627,20 @@ export class ConversationController {
       // resume loop that is also waiting for the answer itself.
       return false;
     }
+  }
+
+  /**
+   * Adopt a server-side pending approval for this controller's own session.
+   * Called when a session is opened/switched to: the card normally arrives via
+   * the turn's SSE stream or the post-turn poll, but a stream drop, a stopped
+   * turn, or an app restart leaves the approval pending with no card anywhere —
+   * the user is told to "click the card" and there is no card. Idempotent.
+   */
+  async adoptPendingApproval(): Promise<boolean> {
+    const endpoint = this.host.endpoint();
+    const sessionId = this.host.sessionId();
+    if (!endpoint || !sessionId || this.pendingApproval) return false;
+    return this.syncPendingApproval(endpoint, this.host.profileId(), sessionId);
   }
 
   /**

@@ -59,7 +59,6 @@
 
 {#if messages.length === 0 && !streamingText && !sending}
   <div class="conversation-empty">
-    <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" width="32" height="32" /></div>
     <h2>{emptyTitle}</h2>
     <p>{emptyHint}</p>
     {#if emptyActions.length > 0 && onEmptyAction}

@@ -39,3 +39,9 @@ export function clearError(): void {
 export function notifySettingsChanged(): void {
   window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
 }
+
+export const NAVIGATE_SETTINGS_EVENT = "molibot:navigate-settings";
+
+export function navigateSettings(section: string, detail?: Record<string, unknown>): void {
+  window.dispatchEvent(new CustomEvent(NAVIGATE_SETTINGS_EVENT, { detail: { section, ...detail } }));
+}

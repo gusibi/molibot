@@ -7,7 +7,7 @@
   }: {
     src?: string;
     label: string;
-    size?: "sidebar" | "list" | "tab";
+    size?: "list" | "tab" | "launchpad";
   } = $props();
 </script>
 

@@ -59,7 +59,7 @@
   import StatusBadge from "./lib/components/ui/StatusBadge.svelte";
   import type { ReiconComponent } from "./lib/components/ui/iconTypes";
   import { humanizeModelOption } from "./lib/presentation";
-  import { session, SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
+  import { session, SETTINGS_CHANGED_EVENT, NAVIGATE_SETTINGS_EVENT } from "./lib/stores/session.svelte";
   import { setTaskFeedbackPublisher } from "./lib/stores/tasks.svelte";
   import { initialLocale, normalizeLocale, translator, type Locale } from "./lib/i18n";
   import { initialStartupState, reduceStartup, type StartupState } from "./lib/native/startupCoordinator";
@@ -762,7 +762,15 @@
     const onSettingsChanged = () => {
       if (status?.service.endpoint) void loadReadiness(status.service.endpoint);
     };
+    const onNavigateSettings = (event: Event) => {
+      const custom = event as CustomEvent<{ section?: SettingsSection }>;
+      if (custom.detail?.section) {
+        selectSettingsSection(custom.detail.section);
+        settingsOpen = true;
+      }
+    };
     window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+    window.addEventListener(NAVIGATE_SETTINGS_EVENT, onNavigateSettings);
     window.addEventListener("storage", onThemeStorage);
     void loadAppVersion();
     startupDelayTimer = window.setTimeout(() => {
@@ -799,6 +807,7 @@
       hapticCoordinator = null;
       setTaskFeedbackPublisher(null);
       window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+      window.removeEventListener(NAVIGATE_SETTINGS_EVENT, onNavigateSettings);
       window.removeEventListener("storage", onThemeStorage);
       if (onSystemAppearanceChange) systemAppearanceQuery?.removeEventListener("change", onSystemAppearanceChange);
       onSystemAppearanceChange = null;

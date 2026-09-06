@@ -78,11 +78,13 @@ export interface ConversationActivity {
 export type ConversationPlanStepStatus = "pending" | "in_progress" | "completed" | "blocked";
 
 export interface ConversationPlan {
+  updatedAt?: string;
+  progressSummary?: string;
   id: string;
   title: string;
   summary: string;
   steps: Array<{ id: string; text: string; status: ConversationPlanStepStatus }>;
-  status: "proposed" | "accepted" | "rejected" | "executing" | "completed" | "blocked";
+  status: "proposed" | "accepted" | "rejected" | "executing" | "completed" | "blocked" | "waiting_review" | "paused" | "queued" | "verifying" | "waiting_for_approval" | "waiting_for_user" | "cancelled" | "failed";
   recommendedMode: "manual" | "accept_edits";
   artifactPath: string;
   /** Durable Execution created from this accepted plan, if execution has started. */
@@ -103,6 +105,8 @@ export interface InboundMessage {
 }
 
 export interface ConversationMessage {
+  /** Execution duration, excluding time spent waiting before this run started. */
+  durationMs?: number;
   id: string;
   conversationId: string;
   role: Role;

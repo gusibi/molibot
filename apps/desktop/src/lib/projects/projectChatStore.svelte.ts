@@ -187,6 +187,10 @@ export class ProjectChatStore {
     this.sessionProjectIds.set(sessionId, projectId);
     const entry = this.registry.getOrCreate(PROJECT_PROFILE_ID, sessionId);
     this.registry.setActive(PROJECT_PROFILE_ID, sessionId);
+    // A pending approval whose card was missed (stream drop, stopped turn, app
+    // restart) must reappear the moment its session is opened — the operator
+    // cannot act on it anywhere else.
+    void entry.controller.adoptPendingApproval();
     const hydration = entry.beginTranscriptHydration();
     if (messages) hydration.commit(messages);
     else void entry.reloadFromServer();

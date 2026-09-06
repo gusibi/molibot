@@ -11,10 +11,12 @@
 </script>
 
 <section class="turn-files-card" aria-label={copy.turnFilesTitle}>
-  <button type="button" class="turn-files-head" onclick={() => onOpen(files)}>
-    <span><Files size={14} aria-hidden="true" />{copy.turnFilesTitle}</span>
-    <span class="turn-files-count">{copy.turnFilesCount.replace("{count}", String(files.length))}</span>
-    <span class="turn-files-review">{copy.turnFilesReview}<SquareArrowUp size={12} aria-hidden="true" /></span>
-  </button>
+  {#if files.length > 1}
+    <button type="button" class="turn-files-head" onclick={() => onOpen(files)}>
+      <span><Files size={14} aria-hidden="true" />{copy.turnFilesTitle}</span>
+      <span class="turn-files-count">{copy.turnFilesCount.replace("{count}", String(files.length))}</span>
+      <span class="turn-files-review">{copy.turnFilesReview}<SquareArrowUp size={12} aria-hidden="true" /></span>
+    </button>
+  {/if}
   <TurnFileList {files} {copy} onOpen={(file) => onOpen(files, file.key)} />
 </section>

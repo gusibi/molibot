@@ -3,12 +3,12 @@
   import Layers from "reicon-svelte/icons/Layers";
   import type { DesktopDurableExecutionItem, DesktopDurableExecutionStatus } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
+  import { isActiveDurableExecution } from "./sessionPlanUi";
 
   export let items: DesktopDurableExecutionItem[] = [];
   export let copy: Translation;
   export let onOpen: (executionId: string) => void;
 
-  const terminalStatuses = new Set<DesktopDurableExecutionStatus>(["partial", "completed", "failed", "cancelled"]);
   const statusKeys: Record<DesktopDurableExecutionStatus, keyof Translation> = {
     planned: "durableStatusPlanned",
     queued: "durableStatusQueued",
@@ -24,7 +24,7 @@
     cancelled: "durableStatusCancelled"
   };
 
-  $: visibleItems = items.filter((item) => !terminalStatuses.has(item.execution.status)).slice(0, 8);
+  $: visibleItems = items.filter(isActiveDurableExecution).slice(0, 8);
   $: countLabel = visibleItems.length > 99 ? "99+" : String(visibleItems.length);
 </script>
 
@@ -46,7 +46,7 @@
           <span class="durable-sidebar-mark" aria-hidden="true"><Layers size={14} /></span>
           <span class="durable-sidebar-copy">
             <strong>{item.execution.goal}</strong>
-            <small>{item.execution.shortHandle} · {copy[statusKeys[item.execution.status]]}{item.projection.queuePosition !== undefined ? ` · ${copy.durableQueueAhead.replace("{count}", String(Math.max(0, item.projection.queuePosition - 1)))}` : ""}</small>
+            <small>{item.execution.shortHandle} · {item.projection.waiting?.kind === "review" ? copy.planStatusReview : copy[statusKeys[item.execution.status]]}{item.projection.queuePosition !== undefined ? ` · ${copy.durableQueueAhead.replace("{count}", String(Math.max(0, item.projection.queuePosition - 1)))}` : ""}</small>
           </span>
           <i class="durable-sidebar-arrow" aria-hidden="true"><CaretRight size={12} /></i>
         </button>

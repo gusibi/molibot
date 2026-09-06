@@ -603,7 +603,7 @@ export interface DesktopDurableExecutionItem {
     queuePosition?: number;
     nextStep?: { id: string; title: string; status: DesktopDurableExecutionStepStatus };
     requiredCriteria: { total: number; passed: number; unproven: number; failed: number };
-    waiting?: { kind: "user" | "approval" | "recovery"; reason: string };
+    waiting?: { kind: "user" | "approval" | "recovery" | "review"; reason: string };
     active: boolean;
   };
 }
@@ -866,6 +866,8 @@ export interface DesktopMessageAttachment {
 }
 
 export interface DesktopConversationMessage {
+  /** Execution duration, excluding time spent waiting before this run started. */
+  durationMs?: number;
   id: string;
   conversationId: string;
   role: "user" | "assistant";
@@ -978,11 +980,13 @@ export type DesktopConversationStep =
   | { id: string; kind: "plan"; plan: DesktopConversationPlan };
 
 export interface DesktopConversationPlan {
+  updatedAt?: string;
+  progressSummary?: string;
   id: string;
   title: string;
   summary: string;
   steps: Array<{ id: string; text: string; status: "pending" | "in_progress" | "completed" | "blocked" }>;
-  status: "proposed" | "accepted" | "rejected" | "executing" | "completed" | "blocked";
+  status: "proposed" | "accepted" | "rejected" | "executing" | "completed" | "blocked" | "waiting_review" | "paused" | "queued" | "verifying" | "waiting_for_approval" | "waiting_for_user" | "cancelled" | "failed";
   recommendedMode: "manual" | "accept_edits";
   artifactPath: string;
   durableExecutionId?: string;
@@ -1018,7 +1022,7 @@ export interface DesktopPlanDecisionRequest {
   profileId: string;
   conversationId: string;
   planId: string;
-  decision: "accept" | "reject" | "modify";
+  decision: "accept" | "reject" | "modify" | "complete";
   mode?: "manual" | "accept_edits";
   title?: string;
   summary?: string;

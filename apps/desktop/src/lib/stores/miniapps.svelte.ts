@@ -1,4 +1,4 @@
-// Mini App catalog — state + orchestration for the sidebar and the Settings group.
+// Mini App catalog — state + orchestration for the manager pane and the Settings group.
 import {
   clearDesktopMiniAppBadge,
   installDesktopBuiltinMiniApp,
@@ -15,19 +15,6 @@ import type { DesktopMiniAppBuiltinItem, DesktopMiniAppItem } from "@molibot/des
 import { session, setError } from "./session.svelte";
 import { invalidateComposerSuggestions } from "../chat/composerSuggestions.svelte";
 import { toStore } from "svelte/store";
-
-/** Most-recently-opened app ids, newest first. Purely a desktop preference. */
-const RECENT_KEY = "molibot-desktop-miniapps-recent";
-const RECENT_LIMIT = 10;
-
-function readRecent(): string[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]") as unknown;
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
 export const miniAppsStore = $state({
   items: [] as DesktopMiniAppItem[],
@@ -46,8 +33,7 @@ export const miniAppsStore = $state({
    * section needs the same answer. One loader means the warning and the
    * selector can never disagree about what is configured.
    */
-  aiAvailability: { text: false, transcription: false },
-  recentIds: readRecent()
+  aiAvailability: { text: false, transcription: false }
 });
 
 /**
@@ -64,48 +50,6 @@ function applyCatalogs(catalogs: DesktopMiniAppCatalogs): void {
 
 /** Legacy `$:` chat containers subscribe here instead of reading runes state naked. */
 export const miniAppsCatalog = toStore(() => miniAppsStore.items);
-
-/**
- * Records that an app was opened, so the sidebar can show recent apps instead
- * of an unbounded list. Ordering is newest-first with no duplicates.
- */
-export function markMiniAppUsed(appId: string): void {
-  const next = [appId, ...miniAppsStore.recentIds.filter((id) => id !== appId)].slice(0, RECENT_LIMIT * 4);
-  miniAppsStore.recentIds = next;
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-  } catch {
-    // A full or unavailable localStorage must not break opening an app.
-  }
-}
-
-/**
- * Recently used apps for the sidebar, filtered to what is actually openable and
- * capped. Apps never opened are not listed here — the manager shows everything.
- */
-export function recentMiniApps(): DesktopMiniAppItem[] {
-  const openable = openableMiniApps();
-  const byId = new Map(openable.map((item) => [item.id, item]));
-  const recent = miniAppsStore.recentIds
-    .map((id) => byId.get(id))
-    .filter((item): item is DesktopMiniAppItem => Boolean(item));
-  // Before anything has been opened, showing nothing would read as "no apps".
-  // Fall back to the natural order so the section is useful on first run.
-  const filler = openable.filter((item) => !miniAppsStore.recentIds.includes(item.id));
-  return [...recent, ...filler].slice(0, RECENT_LIMIT);
-}
-
-export function hasMoreThanRecent(): boolean {
-  return openableMiniApps().length > RECENT_LIMIT;
-}
-
-/**
- * Apps the sidebar may offer. An app that is disabled or failed to load belongs
- * in Settings, where the reason is visible — not in a list of things to click.
- */
-export function openableMiniApps(): DesktopMiniAppItem[] {
-  return miniAppsStore.items.filter((item) => item.enabled && item.status === "active" && !item.error);
-}
 
 /**
  * Retires an app's badge because the owner opened it.

@@ -184,6 +184,10 @@
     return (a.status === "completed" ? b.completedAt.localeCompare(a.completedAt) : a.scheduleText.localeCompare(b.scheduleText));
   }));
 
+  const displayTaskItems = $derived(
+    activeTaskView === "one-shot" ? oneShotTaskItems : filteredTaskItems
+  );
+
   const taskCategoryCounts = $derived({
     user: tasksStore.tasks?.items.filter((item) => item.category === "user" && item.type === "periodic").length ?? 0,
     project: tasksStore.tasks?.items.filter((item) => item.category === "project" && item.type === "periodic" && (!projectId || item.projectId === projectId)).length ?? 0,
@@ -199,6 +203,14 @@
 
   const selectedTask = $derived(selectedTaskId ? filteredTaskItems.find((task) => task.id === selectedTaskId) ?? null : null);
   const executionTotals = $derived(tasksStore.tasks?.counts.executions ?? { total: 0, completed: 0, failed: 0 });
+  // The global execution counters span every scope (system, all projects, all
+  // channels), so in a single project's view they would pair "0 tasks" with
+  // hundreds of unrelated runs. Scope the run total to this project's tasks.
+  const projectRunTotal = $derived(
+    tasksStore.tasks?.items
+      .filter((item) => item.category === "project" && item.projectId === projectId && item.type === "periodic")
+      .reduce((sum, item) => sum + (Number(item.executionCount) || 0), 0) ?? 0
+  );
 
   const taskTargetGroups = $derived.by(() => {
     const groups = new Map<string, { key: string; label: string; options: Array<{ index: number; label: string }> }>();
@@ -248,11 +260,18 @@
   }
 
   function formatTaskTime(value: string): string {
+    if (!value) return session.text.tasksNeverRun;
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? session.text.tasksNeverRun : new Intl.DateTimeFormat(session.locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
+    return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(session.locale, {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(date);
   }
 
   function taskStatusText(task: DesktopTaskSummary["items"][number]): string {
+    if (task.type === "one-shot") return oneShotStatusText(task);
     if (isTaskStarting(task.id)) return session.text.tasksStarting;
     if (!task.enabled) return session.text.tasksPaused;
     if (task.active) return session.text.taskStatusRunning;
@@ -340,6 +359,11 @@
     return session.text.taskTypeImmediate;
   }
 
+  /** Raw last-run timestamp; empty means the task never ran, so cards stay quiet instead of repeating the badge's "never run". */
+  function taskLastRunAt(task: DesktopTaskSummary["items"][number]): string {
+    return task.lastRun?.startedAt || task.lastTriggeredAt || task.completedAt || "";
+  }
+
   function runningExecution(task: DesktopTaskSummary["items"][number]) {
     return task.executions.find((execution) => execution.status === "running" || execution.status === "retry_wait");
   }
@@ -362,128 +386,165 @@
     <div class="automation-category-tabs" role="tablist" aria-label={session.text.tasksCategories} use:tablist>
       <button class:active={activeTaskView === "user"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-user" aria-selected={activeTaskView === "user"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("user")}><Refresh size={13} aria-hidden="true" /><span>{session.text.tasksUserTab}</span><small>{taskCategoryCounts.user}</small></button>
       <button class:active={activeTaskView === "project"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-project" aria-selected={activeTaskView === "project"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("project")}><Folder size={13} aria-hidden="true" /><span>{session.text.tasksProjectTab}</span><small>{taskCategoryCounts.project}</small></button>
-      <button class:active={activeTaskView === "one-shot"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-one-shot" aria-selected={activeTaskView === "one-shot"} aria-controls="tasks-one-shot-panel" onclick={() => selectTaskCategory("one-shot")}><Bell size={13} aria-hidden="true" /><span>{session.text.tasksOneShotTab}</span><small>{taskCategoryCounts["one-shot"]}</small></button>
+      <button class:active={activeTaskView === "one-shot"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-one-shot" aria-selected={activeTaskView === "one-shot"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("one-shot")}><Bell size={13} aria-hidden="true" /><span>{session.text.tasksOneShotTab}</span><small>{taskCategoryCounts["one-shot"]}</small></button>
       <button class:active={activeTaskView === "system"} class="automation-category-tab" type="button" role="tab" id="tasks-tab-system" aria-selected={activeTaskView === "system"} aria-controls="tasks-main-panel" onclick={() => selectTaskCategory("system")}><Cpu size={13} aria-hidden="true" /><span>{session.text.tasksSystemTab}</span><small>{taskCategoryCounts.system}</small></button>
     </div>
   </div>{/if}
-  {#if activeTaskView === "one-shot"}
-    <div class="automation-workspace one-shot-workspace" id="tasks-one-shot-panel" role="tabpanel" aria-labelledby="tasks-tab-one-shot" aria-label={session.text.tasksOneShotTab}>
-      <div class="automation-workspace-toolbar">
-        <SearchField value={tasksStore.query} label={session.text.tasksFilter} placeholder={session.text.tasksReminderFilterHint} onInput={(value) => (tasksStore.query = value)} />
-        <div class="automation-workspace-summary" aria-label={session.text.tasksReminderSummary}>
+
+  <div class="automation-workspace" id="tasks-main-panel" role="tabpanel" aria-labelledby={!projectId ? `tasks-tab-${activeTaskView}` : undefined} aria-label={session.text.tasks}>
+    <div class="automation-workspace-toolbar">
+      <SearchField value={tasksStore.query} label={session.text.tasksFilter} placeholder={activeTaskView === "one-shot" ? session.text.tasksReminderFilterHint : session.text.tasksFilterHint} onInput={(value) => (tasksStore.query = value)} />
+      {#if activeTaskView === "user" || activeTaskView === "project"}<button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || taskTargetGroups.length === 0} onclick={beginCreateForView}><Plus size={13} aria-hidden="true" />{session.text.tasksCreate}</button>{/if}
+      <div class="automation-workspace-summary" aria-label={session.text.tasksTotal}>
+        {#if activeTaskView === "one-shot"}
           <span><strong>{taskCategoryCounts["one-shot"]}</strong>{session.text.tasksTotal}</span>
           <span><strong>{oneShotCounts.pending}</strong>{session.text.tasksReminderPending}</span>
           <span><strong>{oneShotCounts.reminded}</strong>{session.text.tasksReminderReminded}</span>
           <span><strong>{oneShotCounts.unread}</strong>{session.text.tasksReminderUnread}</span>
-        </div>
-      </div>
-      {#if oneShotTaskItems.length === 0}
-        <div class="workspace-empty compact"><EmptyState title={session.text.tasksReminderEmpty} icon="bell" /></div>
-      {:else}
-        <ul class="one-shot-list" aria-label={session.text.tasksOneShotTab}>
-          {#each oneShotTaskItems as task (task.id)}
-            <li class:unread={task.reminderUnread} class:reminded={task.status === "completed"} class:error={task.status === "error" || task.status === "skipped"} class="one-shot-row">
-              <span class="one-shot-check" aria-hidden="true">{#if task.status === "completed"}<Check size={14} />{:else if task.status === "error" || task.status === "skipped"}<TriangleWarning size={14} />{:else}<Bell size={14} />{/if}</span>
-              <span class="one-shot-copy"><strong>{taskTitle(task)}</strong>{#if taskBody(task.text)}<span>{taskBody(task.text)}</span>{/if}<small><Clock size={11} aria-hidden="true" />{taskScheduleText(task)}</small></span>
-              <span class="one-shot-actions">
-                <span class="one-shot-state" data-status={task.status}>{#if task.reminderUnread}<i aria-hidden="true"></i>{/if}{oneShotStatusText(task)}</span>
-                {#if task.executions[0]}
-                  <button class="task-session-link one-shot-session-link" type="button" title={task.executions[0].sessionId} disabled={Boolean(tasksStore.busy) || !task.executions[0].sessionId} onclick={() => void openTaskSession(task.id, task.executions[0].id)}><ChatDots size={14} aria-hidden="true" />{task.executions[0].sessionId ? session.text.tasksOpenSession : session.text.tasksSessionCleaned}</button>
-                {/if}
-              </span>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
-  {:else}
-    <div class="automation-workspace" id="tasks-main-panel" role="tabpanel" aria-labelledby={!projectId ? `tasks-tab-${activeTaskView}` : undefined} aria-label={session.text.tasks}>
-      <div class="automation-workspace-toolbar">
-        <SearchField value={tasksStore.query} label={session.text.tasksFilter} placeholder={session.text.tasksFilterHint} onInput={(value) => (tasksStore.query = value)} />
-        {#if activeTaskView === "user" || activeTaskView === "project"}<button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || taskTargetGroups.length === 0} onclick={beginCreateForView}><Plus size={13} aria-hidden="true" />{session.text.tasksCreate}</button>{/if}
-        <div class="automation-workspace-summary" aria-label={session.text.tasksTotal}>
+        {:else if projectId}
+          <span><strong>{taskCategoryCounts.project}</strong>{session.text.tasksTotal}</span>
+          <span><strong>{projectRunTotal}</strong>{session.text.tasksRunCount}</span>
+        {:else}
           <span><strong>{taskCategoryCounts[activeTaskView]}</strong>{session.text.tasksTotal}</span>
           <span><strong>{executionTotals.total}</strong>{session.text.tasksRunCount}</span>
           <span><strong>{executionTotals.completed}</strong>{session.text.tasksSuccessful}</span>
           <span><strong>{executionTotals.failed}</strong>{session.text.tasksFailed}</span>
-        </div>
+        {/if}
       </div>
-      {#if filteredTaskItems.length === 0}
-        <div class="workspace-empty compact"><EmptyState title={session.text.tasksEmpty} icon="clock-countdown" /></div>
-      {:else}
-        <div class:detail-open={Boolean(selectedTask)} class="automation-workspace-layout">
-          <div class="automation-workspace-list">
-            {#each filteredTaskItems as task (task.id)}
-              <button class:active={selectedTask?.id === task.id} class:running={isTaskRunning(task.id)} class:paused={!task.enabled} class="automation-task-row" data-status={task.status} type="button" onclick={() => (selectedTaskId = task.id)}>
-                <span class="automation-task-row-mark" aria-hidden="true">{#if isTaskRunning(task.id)}<Loader class="automation-spinner" size={14} aria-hidden="true" />{:else}<i></i>{/if}</span>
-                <span class="automation-task-row-copy"><strong>{taskTitle(task)}</strong><span>{taskScheduleText(task)}</span><small><span class={`row-outcome outcome-${task.lastRun?.status ?? "none"}`}>{taskStatusText(task)}</span><span>{formatTaskTime(task.lastRun?.startedAt || task.lastTriggeredAt || "")}</span></small></span>
-                <CaretRight size={12} aria-hidden="true" />
-              </button>
-            {/each}
-          </div>
-          {#if selectedTask}
-            <div class="automation-detail-scrim" role="presentation" aria-hidden="true" onclick={() => (selectedTaskId = "")}></div>
+    </div>
+    {#if displayTaskItems.length === 0}
+      <div class="workspace-empty compact">
+        <EmptyState title={activeTaskView === "one-shot" ? session.text.tasksReminderEmpty : session.text.tasksEmpty} description={activeTaskView === "one-shot" ? "" : session.text.tasksEmptyHint} icon={activeTaskView === "one-shot" ? "bell" : "clock-countdown"}>
+          {#if activeTaskView === "user" || activeTaskView === "project"}
+            <button class="secondary-button" type="button" disabled={Boolean(tasksStore.busy) || (!projectId && taskTargetGroups.length === 0)} onclick={beginCreateForView}><Plus size={13} aria-hidden="true" />{session.text.tasksCreate}</button>
+          {/if}
+        </EmptyState>
+      </div>
+    {:else}
+      <div class:detail-open={Boolean(selectedTask)} class="automation-workspace-layout">
+        <div class="automation-workspace-list">
+          {#each displayTaskItems as task (task.id)}
+            <div role="button" tabindex="0" class:active={selectedTask?.id === task.id} class:running={isTaskRunning(task.id)} class:paused={!task.enabled} class:unread={task.reminderUnread} class="automation-task-row" data-status={task.status} onclick={() => (selectedTaskId = task.id)} onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectedTaskId = task.id; } }}>
+              <div class="automation-task-card-top">
+                {#if isTaskRunning(task.id) || task.type === "one-shot"}
+                  <span class="automation-task-row-mark" aria-hidden="true">
+                    {#if isTaskRunning(task.id)}
+                      <Loader class="automation-spinner" size={13} aria-hidden="true" />
+                    {:else if task.status === "completed"}
+                      <Check size={13} class="one-shot-mark-completed" />
+                    {:else if task.status === "error" || task.status === "skipped"}
+                      <TriangleWarning size={13} class="one-shot-mark-error" />
+                    {:else}
+                      <Bell size={13} class="one-shot-mark-pending" />
+                    {/if}
+                  </span>
+                {/if}
+                <strong class="automation-task-card-title">{taskTitle(task)}</strong>
+                <span class={`row-outcome outcome-${task.lastRun?.status ?? "none"} state-${task.status}`}>
+                  {#if task.reminderUnread}<i class="unread-dot" aria-hidden="true"></i>{/if}
+                  {taskStatusText(task)}
+                </span>
+              </div>
+
+              {#if taskBody(task.text)}
+                <p class="automation-task-card-preview">{taskBody(task.text)}</p>
+              {/if}
+
+              <div class="automation-task-card-footer">
+                {#if !projectId}
+                  {#if task.category === "project" && task.projectName}
+                    <span class="task-target-pill">{task.projectName}</span>
+                  {:else if task.channel}
+                    <span class="task-target-pill">{task.channel}</span>
+                  {:else if task.type === "one-shot"}
+                    <span class="task-target-pill">{session.text.tasksOneShotTab}</span>
+                  {:else if task.category === "system"}
+                    <span class="task-target-pill">{session.text.tasksSystemTab}</span>
+                  {/if}
+                {/if}
+                <span class="task-schedule-line">
+                  <Clock size={12} aria-hidden="true" />
+                  <span>{taskScheduleText(task)}</span>
+                </span>
+                {#if task.executions[0]}
+                  <button class="task-session-link one-shot-session-link" type="button" title={task.executions[0].sessionId} disabled={Boolean(tasksStore.busy) || !task.executions[0].sessionId} onclick={(event) => { event.stopPropagation(); void openTaskSession(task.id, task.executions[0].id); }}><ChatDots size={12} aria-hidden="true" /><span>{task.executions[0].sessionId ? session.text.tasksOpenSession : session.text.tasksSessionCleaned}</span></button>
+                {:else if taskLastRunAt(task)}
+                  <span class="task-last-run-time">{formatTaskTime(taskLastRunAt(task))}</span>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+        {#if selectedTask}
+          {#key selectedTask.id}
             <article class:dragging={detailGesturePhase === "dragging"} class:settling={detailGesturePhase === "settling"} class="automation-task-detail" style={`--detail-drag:${detailDragOffset}px`} aria-labelledby={`automation-task-${selectedTask.id}`}>
-              <button class="automation-detail-drag-handle" type="button" aria-label={session.text.tasksSwipeClose} onpointerdown={beginDetailDrag} onpointermove={moveDetailDrag} onpointerup={endDetailDrag} onpointercancel={cancelDetailDrag}><span aria-hidden="true"></span></button>
-              <button class="automation-detail-close" type="button" title={session.text.tasksCloseDetails} aria-label={session.text.tasksCloseDetails} onclick={() => (selectedTaskId = "")}><X size={14} aria-hidden="true" /></button>
-              <header class="automation-task-detail-head">
-                <div class="automation-task-detail-topbar">
-                  <span class:active={isTaskRunning(selectedTask.id)} class:error={selectedTask.status === "error"} class:paused={!selectedTask.enabled} class="automation-status"><i></i>{taskStatusText(selectedTask)}</span>
-                  <div class="automation-task-detail-actions">
+            <button class="automation-detail-drag-handle" type="button" aria-label={session.text.tasksSwipeClose} onpointerdown={beginDetailDrag} onpointermove={moveDetailDrag} onpointerup={endDetailDrag} onpointercancel={cancelDetailDrag}><span aria-hidden="true"></span></button>
+            <button class="automation-detail-close" type="button" title={session.text.tasksCloseDetails} aria-label={session.text.tasksCloseDetails} onclick={() => (selectedTaskId = "")}><X size={14} aria-hidden="true" /></button>
+            <header class="automation-task-detail-head">
+              <div class="automation-task-detail-topbar">
+                <span class:active={isTaskRunning(selectedTask.id)} class:error={selectedTask.status === "error"} class:paused={!selectedTask.enabled} class="automation-status"><i></i>{taskStatusText(selectedTask)}</span>
+                <div class="automation-task-detail-actions">
+                  {#if selectedTask.type === "one-shot"}
+                    {#if selectedTask.executions[0]}
+                      <button class="task-session-link" type="button" title={selectedTask.executions[0].sessionId} disabled={Boolean(tasksStore.busy) || !selectedTask.executions[0].sessionId} onclick={() => void openTaskSession(selectedTask.id, selectedTask.executions[0].id)}><ChatDots size={13} aria-hidden="true" />{selectedTask.executions[0].sessionId ? session.text.tasksOpenSession : session.text.tasksSessionCleaned}</button>
+                    {/if}
+                    <button class="danger-action" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([selectedTask.id])}><Trash size={13} aria-hidden="true" />{session.text.channelDelete}</button>
+                  {:else}
                     {#if isTaskRunning(selectedTask.id) && runningExecution(selectedTask)?.runId}
                       <button class="automation-run-button danger-action" type="button" disabled={isTaskUpdating(selectedTask.id)} onclick={() => void stopTaskRun(selectedTask.id, runningExecution(selectedTask)?.runId ?? "")}><StopCircle size={13} aria-hidden="true" />{session.text.tasksStop}</button>
                     {:else}
                       <button class="automation-run-button" type="button" disabled={!selectedTask.enabled || isTaskStarting(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void executeTaskAction("trigger", [selectedTask.id])}>{#if isTaskStarting(selectedTask.id)}<Loader class="automation-spinner" size={13} aria-hidden="true" />{:else}<Play weight="Filled" size={13} aria-hidden="true" />{/if}{isTaskStarting(selectedTask.id) ? session.text.tasksStarting : session.text.tasksTrigger}</button>
                     {/if}
                     {#if selectedTask.category !== "system"}<OverflowMenu label={session.text.more}><button role="menuitem" type="button" disabled={isTaskRunning(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void setTaskEnabled(selectedTask.id, !selectedTask.enabled)}>{#if selectedTask.enabled}<Pause size={14} aria-hidden="true" />{:else}<Play size={14} aria-hidden="true" />{/if}{selectedTask.enabled ? session.text.tasksPause : session.text.tasksResume}</button><button role="menuitem" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(selectedTask)}><Pen size={14} aria-hidden="true" />{session.text.channelEdit}</button><button role="menuitem" class="danger-action" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([selectedTask.id])}><Trash size={14} aria-hidden="true" />{session.text.channelDelete}</button></OverflowMenu>{/if}
-                  </div>
+                  {/if}
                 </div>
-                <div>
-                  <h2 id={`automation-task-${selectedTask.id}`}>{taskTitle(selectedTask)}</h2>
-                  <p>{selectedTask.category === "system" ? session.text.tasksSystemOwner : selectedTask.category === "project" ? selectedTask.projectName : session.text.tasksUserOwner}</p>
-                </div>
-              </header>
-              <section class="automation-task-detail-copy" aria-label={session.text.tasksText}><span>{session.text.tasksText}</span><p>{selectedTask.text}</p></section>
-              <dl class="automation-task-facts">
-                <div><dt>{session.text.tasksEnabledState}</dt><dd>{selectedTask.enabled ? session.text.tasksEnabled : session.text.tasksDisabled}</dd></div>
-                <div><dt>{session.text.tasksCurrentRun}</dt><dd>{taskExecutionStatusText(selectedTask)}</dd></div>
-                <div><dt>{session.text.tasksScheduleState}</dt><dd>{taskScheduleStatusText(selectedTask)}</dd></div>
-                <div><dt>{session.text.tasksLatestResult}</dt><dd><span class={`execution-state state-${selectedTask.lastRun?.status ?? "none"}`}><i></i>{taskLatestResultText(selectedTask)}</span></dd></div>
-                <div><dt>{session.text.tasksSchedule}</dt><dd><CalendarDays size={13} aria-hidden="true" />{taskScheduleText(selectedTask)}</dd></div>
-                <div><dt>{session.text.tasksLastRun}</dt><dd>{formatTaskTime(selectedTask.lastRun?.startedAt || selectedTask.lastTriggeredAt || "")}</dd></div>
+              </div>
+              <div>
+                <h2 id={`automation-task-${selectedTask.id}`}>{taskTitle(selectedTask)}</h2>
+                <p>{selectedTask.type === "one-shot" ? session.text.tasksOneShotTab : selectedTask.category === "system" ? session.text.tasksSystemOwner : selectedTask.category === "project" ? selectedTask.projectName : session.text.tasksUserOwner}</p>
+              </div>
+            </header>
+            <section class="automation-task-detail-copy" aria-label={session.text.tasksText}><span>{session.text.tasksText}</span><p>{selectedTask.text}</p></section>
+            <dl class="automation-task-facts">
+              <div><dt>{session.text.tasksEnabledState}</dt><dd>{selectedTask.type === "one-shot" ? oneShotStatusText(selectedTask) : selectedTask.enabled ? session.text.tasksEnabled : session.text.tasksDisabled}</dd></div>
+              <div><dt>{session.text.tasksCurrentRun}</dt><dd>{selectedTask.type === "one-shot" ? (selectedTask.status === "completed" ? session.text.tasksReminderReminded : session.text.tasksReminderPending) : taskExecutionStatusText(selectedTask)}</dd></div>
+              <div><dt>{session.text.tasksScheduleState}</dt><dd>{selectedTask.type === "one-shot" ? oneShotStatusText(selectedTask) : taskScheduleStatusText(selectedTask)}</dd></div>
+              <div><dt>{session.text.tasksLatestResult}</dt><dd><span class={`execution-state state-${selectedTask.lastRun?.status ?? "none"}`}><i></i>{selectedTask.type === "one-shot" ? oneShotStatusText(selectedTask) : taskLatestResultText(selectedTask)}</span></dd></div>
+              <div><dt>{session.text.tasksSchedule}</dt><dd><CalendarDays size={13} aria-hidden="true" />{taskScheduleText(selectedTask)}</dd></div>
+              <div><dt>{session.text.tasksLastRun}</dt><dd>{formatTaskTime(selectedTask.lastRun?.startedAt || selectedTask.lastTriggeredAt || selectedTask.completedAt || "")}</dd></div>
+            </dl>
+            <details class="automation-task-technical technical-detail">
+              <summary>{session.text.technicalDetails}</summary>
+              <dl>
+                <div><dt>{session.text.tasksTaskId}</dt><dd><code>{selectedTask.id}</code></dd></div>
+                <div><dt>{session.text.tasksTarget}</dt><dd>{selectedTask.category === "project" ? selectedTask.projectName : `${selectedTask.channel} / ${selectedTask.botId} / ${selectedTask.chatId}`}</dd></div>
+                <div><dt>{session.text.tasksCustomCron}</dt><dd><code>{selectedTask.scheduleText}</code></dd></div>
+                <div><dt>{session.text.tasksTimezone}</dt><dd>{selectedTask.timezone}</dd></div>
+                <div><dt>{session.text.tasksDelivery}</dt><dd>{selectedTask.delivery}</dd></div>
               </dl>
-              <details class="automation-task-technical technical-detail">
-                <summary>{session.text.technicalDetails}</summary>
-                <dl>
-                  <div><dt>{session.text.tasksTaskId}</dt><dd><code>{selectedTask.id}</code></dd></div>
-                  <div><dt>{session.text.tasksTarget}</dt><dd>{selectedTask.category === "project" ? selectedTask.projectName : `${selectedTask.channel} / ${selectedTask.botId} / ${selectedTask.chatId}`}</dd></div>
-                  <div><dt>{session.text.tasksCustomCron}</dt><dd><code>{selectedTask.scheduleText}</code></dd></div>
-                  <div><dt>{session.text.tasksTimezone}</dt><dd>{selectedTask.timezone}</dd></div>
-                  <div><dt>{session.text.tasksDelivery}</dt><dd>{selectedTask.delivery}</dd></div>
-                </dl>
-              </details>
-              {#if taskErrorText(selectedTask)}<p class="run-history-failed">{taskErrorText(selectedTask)}</p>{/if}
-              <section class="automation-task-runs" aria-labelledby={`automation-task-runs-${selectedTask.id}`}>
-                <header><h3 id={`automation-task-runs-${selectedTask.id}`}>{session.text.tasksRecentRuns}</h3><span>{selectedTask.executionCount}</span></header>
-                {#if selectedTask.executions.length === 0}
-                  <p>{session.text.tasksNoExecutions}</p>
-                {:else}
-                  {#each selectedTask.executions as execution (execution.id)}
-                    <div class="automation-task-run-row">
-                      <span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span>
-                      <span>{formatTaskTime(execution.startedAt)}</span>
-                      <button class="task-session-link" type="button" title={execution.sessionId} disabled={Boolean(tasksStore.busy) || !execution.sessionId} onclick={() => void openTaskSession(selectedTask.id, execution.id)}>{execution.sessionId ? (selectedTask.category === "system" ? session.text.tasksOpenExecution : session.text.tasksOpenSession) : session.text.tasksSessionCleaned}</button>
-                    </div>
-                  {/each}
-                {/if}
-                <button class="task-history-toggle" type="button" disabled={Boolean(tasksStore.busy) && tasksStore.busy !== `history:${selectedTask.id}`} onclick={() => void openTaskHistory(selectedTask.id)}>{session.text.tasksViewAllRuns}<SquareArrowUp size={13} aria-hidden="true" /></button>
-              </section>
-            </article>
-          {/if}
-        </div>
+            </details>
+            {#if taskErrorText(selectedTask)}<p class="run-history-failed">{taskErrorText(selectedTask)}</p>{/if}
+            <section class="automation-task-runs" aria-labelledby={`automation-task-runs-${selectedTask.id}`}>
+              <header><h3 id={`automation-task-runs-${selectedTask.id}`}>{session.text.tasksRecentRuns}</h3><span>{selectedTask.executionCount}</span></header>
+              {#if selectedTask.executions.length === 0}
+                <p>{session.text.tasksNoExecutions}</p>
+              {:else}
+                {#each selectedTask.executions as execution (execution.id)}
+                  <div class="automation-task-run-row">
+                    <span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span>
+                    <span>{formatTaskTime(execution.startedAt)}</span>
+                    <button class="task-session-link" type="button" title={execution.sessionId} disabled={Boolean(tasksStore.busy) || !execution.sessionId} onclick={() => void openTaskSession(selectedTask.id, execution.id)}>{execution.sessionId ? (selectedTask.category === "system" ? session.text.tasksOpenExecution : session.text.tasksOpenSession) : session.text.tasksSessionCleaned}</button>
+                  </div>
+                {/each}
+              {/if}
+              <button class="task-history-toggle" type="button" disabled={Boolean(tasksStore.busy) && tasksStore.busy !== `history:${selectedTask.id}`} onclick={() => void openTaskHistory(selectedTask.id)}>{session.text.tasksViewAllRuns}<SquareArrowUp size={13} aria-hidden="true" /></button>
+            </section>
+          </article>
+        {/key}
       {/if}
-    </div>
-  {/if}
+      </div>
+    {/if}
+  </div>
   {#if tasksStore.taskCreate}
     <Dialog open={Boolean(tasksStore.taskCreate)} busy={tasksStore.busy === "create"} contentClass="task-editor-modal" labelledBy="task-create-title" describedBy="task-create-hint" onOpenChange={(next) => { if (!next) tasksStore.taskCreate = null; }}>
       <form id="desktop-task-create-form" onsubmit={(event) => { event.preventDefault(); void saveTaskCreate(); }}>

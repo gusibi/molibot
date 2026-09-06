@@ -127,7 +127,6 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
         draftStore.get(sessionDraftKey(profileId, sessionId)).thinkingLevel,
       canSend: () => Boolean(profileId) && Boolean(sessionId) && deps.modelReady(),
       labels: () => deps.labels(),
-      getMessages: () => self.messages,
       appendUserMessage: (content, files) => self.appendUser(content, files),
       reload: () => self.reloadFromServerForTurn(),
       refreshSessions: () => deps.refreshSessions?.() ?? Promise.resolve(),

@@ -28,7 +28,7 @@
   $: progress = item.projection.progress.total > 0
     ? Math.min(100, Math.round(item.projection.progress.completed / item.projection.progress.total * 100))
     : 0;
-  $: statusLabel = copy[statusKeys[item.execution.status]];
+  $: statusLabel = item.projection.waiting?.kind === "review" ? copy.planStatusReview : copy[statusKeys[item.execution.status]];
   $: stepProgress = copy.durableStepProgress
     .replace("{completed}", String(item.projection.progress.completed))
     .replace("{total}", String(item.projection.progress.total));

@@ -9,6 +9,8 @@ export type TranscriptAttachment = {
 };
 
 export type TranscriptMessage = {
+  /** Execution duration, excluding time spent waiting before this run started. */
+  durationMs?: number;
   id?: string;
   role: string;
   content: string;
@@ -136,7 +138,7 @@ export function transcriptTurnSummary(
   return {
     toolCount: activities.filter((activity) => activity.kind === "tool").length,
     fileCount: files.size,
-    durationMs,
+    durationMs: message.durationMs ?? durationMs,
     totalTokens: message.usage?.totalTokens ?? 0
   };
 }
@@ -186,7 +188,7 @@ export type TranscriptMessageActions = {
   onResolvePlan?: (
     message: TranscriptMessage,
     plan: DesktopConversationPlan,
-    decision: "accept" | "reject" | "modify",
+    decision: "accept" | "reject" | "modify" | "complete",
     edits?: { title: string; summary: string; steps: string[]; mode?: "manual" | "accept_edits" }
   ) => void;
 };

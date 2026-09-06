@@ -2,9 +2,10 @@
   import Sidebar from "reicon-svelte/icons/Sidebar";
   import type { Component } from "svelte";
   import type { Translation } from "../i18n";
+  import PageHeader from "../components/ui/PageHeader.svelte";
   import TasksSection from "../settings/TasksSection.svelte";
   import InstalledSkillsPane from "./InstalledSkillsPane.svelte";
-  import MiniAppsManager from "../miniapps/MiniAppsManager.svelte";
+  import MiniAppsLaunchpad from "../miniapps/MiniAppsLaunchpad.svelte";
   import type { ChatWorkspacePane } from "./workspace";
 
   export let pane: Exclude<ChatWorkspacePane, "chat">;
@@ -39,22 +40,26 @@
       loadingAgentStudio = false;
     });
   }
+
+  $: workspaceTitle = pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : copy.agentsNav;
+  $: workspaceDescription = pane === "automations" ? copy.autoTasksHint : pane === "skills" ? copy.skillsSquareHint : pane === "miniapps" ? copy.miniAppsHint : copy.agentStudioHint;
 </script>
 
-<header class="chat-header workspace-header" data-tauri-drag-region>
-  {#if sidebarCollapsed}
-    <button
-      type="button"
-      class="icon-button sidebar-expand-btn"
-      aria-label={copy.expandSidebar}
-      title={copy.expandSidebar}
-      onclick={onToggleSidebar}
-    >
-      <Sidebar size={16} aria-hidden="true" />
-    </button>
-  {/if}
-  <h1 class="workspace-page-title" data-tauri-drag-region>{pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : copy.agentsNav}</h1>
-</header>
+<PageHeader title={workspaceTitle} description={workspaceDescription} workspace>
+  <div slot="actions">
+    {#if sidebarCollapsed}
+      <button
+        type="button"
+        class="icon-button sidebar-expand-btn workspace-header-expand"
+        aria-label={copy.expandSidebar}
+        title={copy.expandSidebar}
+        onclick={onToggleSidebar}
+      >
+        <Sidebar size={16} aria-hidden="true" />
+      </button>
+    {/if}
+  </div>
+</PageHeader>
 
 <div class="workspace-scroll" data-workspace-pane={pane}>
   {#if !serviceReady}
@@ -67,7 +72,7 @@
   {:else if pane === "skills"}
     <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />
   {:else if pane === "miniapps"}
-    <MiniAppsManager onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
+    <MiniAppsLaunchpad onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
   {:else if AgentStudioComponent}
     <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} />
   {:else}

@@ -26,6 +26,7 @@
     toggleHostBashWhitelist,
     deleteHostBashWhitelist,
     deleteHostBashHistory,
+    resolveHostBashApproval,
     type HostBashTab,
     type HostBashStatusFilter,
     type HostBashModeFilter
@@ -34,6 +35,7 @@
 
   let deletingWhitelistItem = $state<DesktopHostBashWhitelistEntry | null>(null);
   let deletingHistoryItem = $state<DesktopHostBashPendingRecord | null>(null);
+  let resolvedNotice = $state("");
 
   $effect(() => {
     if (session.serviceReady && session.endpoint) {
@@ -110,6 +112,25 @@
     const id = deletingHistoryItem.id;
     deletingHistoryItem = null;
     await deleteHostBashHistory(id);
+  }
+
+  /**
+   * Resolve a pending approval right here. The row disappears on success, so
+   * the outcome (approved but the command failed, not found, other-channel
+   * record) must be surfaced explicitly or the user is left guessing.
+   */
+  async function handleResolve(item: DesktopHostBashPendingRecord, decision: "approve_once" | "approve_persistent" | "reject"): Promise<void> {
+    const result = await resolveHostBashApproval(item.id, decision);
+    if (!result) return;
+    if (result.status === "not_found") {
+      session.error = result.response;
+      return;
+    }
+    if (result.status === "failed") {
+      session.error = `${session.text.hostBashApprovedFailed}: ${result.error || result.response}`;
+      return;
+    }
+    resolvedNotice = result.response;
   }
 </script>
 
@@ -257,6 +278,17 @@
       </button>
     </div>
 
+    <!-- Resolution feedback: the row disappears on success, so say what happened. -->
+    {#if resolvedNotice}
+      <div class="settings-card host-bash-resolved-card" role="status">
+        <CheckCircle size={16} aria-hidden="true" />
+        <p>{session.text.hostBashResolved}</p>
+        <button type="button" class="host-bash-action-btn" aria-label={session.text.dialogClose} onclick={() => (resolvedNotice = "")}>
+          <X size={14} aria-hidden="true" />
+        </button>
+      </div>
+    {/if}
+
     <!-- Section: Pending Approvals -->
     {#if hostBashStore.activeTab === "all" || hostBashStore.activeTab === "pending"}
       <div class="host-bash-group">
@@ -303,6 +335,36 @@
                       <span class="host-bash-perm-tag"><Hashtag size={12} aria-hidden="true" />{session.text.hostBashColScope}: {item.scopeId}</span>
                     {/if}
                   </div>
+                </div>
+
+                <div class="host-bash-row-actions">
+                  <button
+                    type="button"
+                    class="primary-button host-bash-resolve-btn"
+                    disabled={hostBashStore.resolvingId === item.id}
+                    onclick={() => void handleResolve(item, "approve_once")}
+                  >
+                    <CheckCircle size={14} aria-hidden="true" />
+                    <span>{session.text.hostBashApproveOnceAction}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="secondary-button host-bash-resolve-btn"
+                    disabled={hostBashStore.resolvingId === item.id}
+                    onclick={() => void handleResolve(item, "approve_persistent")}
+                  >
+                    <ShieldCheck size={14} aria-hidden="true" />
+                    <span>{session.text.hostBashApprovePersistentAction}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="secondary-button danger-action host-bash-resolve-btn"
+                    disabled={hostBashStore.resolvingId === item.id}
+                    onclick={() => void handleResolve(item, "reject")}
+                  >
+                    <X size={14} aria-hidden="true" />
+                    <span>{session.text.hostBashRejectAction}</span>
+                  </button>
                 </div>
               </div>
             {/each}
@@ -618,7 +680,7 @@
   }
 
   .host-bash-select-filter :global(.select-control-trigger) {
-    height: 32px;
+    height: var(--control-h);
     font-size: var(--fs-meta);
     padding: 0 8px 0 10px;
   }
@@ -690,10 +752,33 @@
 
   .host-bash-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
     padding: 12px 16px;
+  }
+
+  .host-bash-resolve-btn {
+    height: 28px;
+    padding: 0 10px;
+    font-size: var(--fs-meta);
+    gap: 4px;
+  }
+
+  .host-bash-resolved-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    color: var(--online);
+  }
+
+  .host-bash-resolved-card p {
+    margin: 0;
+    flex: 1;
+    font-size: var(--fs-meta);
+    color: var(--label-primary);
   }
 
   .host-bash-row + .host-bash-row {

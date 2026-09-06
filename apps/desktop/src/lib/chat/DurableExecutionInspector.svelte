@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Help from "reicon-svelte/icons/Help";
   import Loader from "reicon-svelte/icons/Loader";
@@ -18,6 +19,7 @@
   export let copy: Translation;
   export let onClose: () => void;
   export let onChanged: () => void = () => {};
+  export let onRequestFeedback: () => void = () => {};
 
   let detail: DesktopDurableExecutionInspection | null = null;
   let loading = false;
@@ -64,10 +66,17 @@
     ? Math.round(detail.projection.progress.completed / detail.projection.progress.total * 100)
     : 0;
 
+  onMount(() => {
+    const timer = setInterval(() => { if (!loading && !busy && !document.hidden) void loadDetail(); }, 2000);
+    return () => clearInterval(timer);
+  });
+
   async function loadDetail(): Promise<void> {
     loading = true;
     try {
-      detail = await loadDesktopDurableExecution(endpoint, executionId);
+      const key = requestKey;
+      const next = await loadDesktopDurableExecution(endpoint, executionId);
+      if (key === requestKey) detail = next;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -179,7 +188,31 @@
   }
 
   function statusLabel(status: DesktopDurableExecutionStatus): string {
-    return copy[statusKeys[status]];
+    return detail?.projection.waiting?.kind === "review" ? copy.planStatusReview : copy[statusKeys[status]];
+  }
+
+  function waitingReason(): string {
+    return detail?.projection.waiting?.kind === "review"
+      ? copy.planReviewPrompt
+      : detail?.execution.waitingReason ?? "";
+  }
+
+  function stepOutputSummary(summary: string | undefined): string {
+    return summary === "The bounded Agent attempt completed this plan step."
+      ? copy.durableStepAttemptCompleted
+      : summary ?? "";
+  }
+
+  function criterionDescription(description: string): string {
+    return description === "Every step in the accepted plan has completed."
+      ? copy.durableCriterionAllStepsComplete
+      : description;
+  }
+
+  function evidenceSummary(evidence: DesktopDurableExecutionInspection["evidenceRefs"][number]): string {
+    if (!evidence.summary.startsWith("Run detail for completed step")) return evidence.summary;
+    const title = currentSteps.find((step) => step.id === evidence.stepId)?.title ?? copy.durableEvidence;
+    return copy.durableEvidenceForStep.replace("{step}", title);
   }
 </script>
 
@@ -212,8 +245,8 @@
         {#if detail.projection.queuePosition !== undefined}
           <p class="durable-inspector-queue">{copy.durableStatusQueued} · {copy.durableQueueAhead.replace("{count}", String(Math.max(0, detail.projection.queuePosition - 1)))}</p>
         {/if}
-        {#if detail.execution.waitingReason}
-          <p class="durable-inspector-waiting"><strong>{copy.durableWaitingReason}</strong>{detail.execution.waitingReason}</p>
+        {#if waitingReason()}
+          <p class="durable-inspector-waiting"><strong>{copy.durableWaitingReason}</strong>{waitingReason()}</p>
         {/if}
         {#if detail.execution.lastError}
           <p class="durable-inspector-error">{detail.execution.lastError}</p>
@@ -226,8 +259,8 @@
           {#each currentSteps as step (step.id)}
             <li class="durable-step" data-status={step.status}>
               <span class="durable-step-index" aria-hidden="true">{step.status === "completed" ? "✓" : step.index + 1}</span>
-              <span class="durable-step-copy"><strong>{step.title}</strong><small>{step.description || step.sideEffectClass}</small></span>
-              <span class="durable-step-status">{step.status}</span>
+              <span class="durable-step-copy"><strong>{step.title}</strong>{#if stepOutputSummary(step.outputSummary)}<small>{stepOutputSummary(step.outputSummary)}</small>{/if}</span>
+              <span class="durable-step-status">{step.status === "completed" ? copy.planStatusCompleted : step.status === "running" ? copy.planStatusExecuting : step.status === "pending" ? copy.durableStatusPlanned : copy.planStatusBlocked}</span>
             </li>
           {/each}
         </ol>
@@ -238,7 +271,7 @@
         {#if currentCriteria.length > 0}
           <ul class="durable-criteria-list">
             {#each currentCriteria as criterion (criterion.id)}
-              <li data-result={criterion.result}>{#if criterion.result === "passed"}<CheckCircle size={14} aria-hidden="true" />{:else if criterion.result === "failed"}<XCircle size={14} aria-hidden="true" />{:else}<Help size={14} aria-hidden="true" />{/if}<span>{criterion.description}</span></li>
+              <li data-result={criterion.result}>{#if criterion.result === "passed"}<CheckCircle size={14} aria-hidden="true" />{:else if criterion.result === "failed"}<XCircle size={14} aria-hidden="true" />{:else}<Help size={14} aria-hidden="true" />{/if}<span>{criterionDescription(criterion.description)}</span></li>
             {/each}
           </ul>
         {/if}
@@ -257,7 +290,7 @@
             {#each detail.evidenceRefs as evidence (evidence.id)}
               <article class="durable-evidence" data-status={evidence.status}>
                 <div class="durable-evidence-head">
-                  <span>{evidence.summary}</span>
+                  <span>{evidenceSummary(evidence)}</span>
                   <button type="button" class="secondary-button" disabled={busy} onclick={() => void readEvidence(evidence.id)}>
                     {copy.durableReadEvidence}
                   </button>
@@ -284,11 +317,11 @@
           <h3>{copy.durableDecision}</h3>
           {#each openDecisions as decision (decision.id)}
             <div class="durable-decision" data-decision-id={decision.id}>
-              <p>{decision.question}</p>
+              <p>{detail.projection.waiting?.kind === "review" ? copy.planReviewPrompt : decision.question}</p>
               <div class="durable-decision-options">
                 {#each decision.options as option (option)}
-                  <button type="button" class="secondary-button" disabled={busy} onclick={() => void answerDecision(decision.id, option)}>
-                    {decisionOptionLabel(option)}
+                  <button type="button" class="secondary-button" disabled={busy} onclick={() => option === "continue_work" && detail?.projection.waiting?.kind === "review" ? onRequestFeedback() : void answerDecision(decision.id, option)}>
+                    {option === "continue_work" && detail.projection.waiting?.kind === "review" ? copy.planContinueEditing : decisionOptionLabel(option)}
                   </button>
                 {/each}
               </div>
@@ -325,7 +358,7 @@
       {:else if detail.execution.status === "planned" || detail.execution.status === "queued" || detail.execution.status === "running"}
         <button type="button" class="secondary-button" disabled={busy} onclick={() => void runAction("pause")}>{copy.durablePause}</button>
       {/if}
-      {#if !["completed", "failed", "cancelled"].includes(detail.execution.status)}
+      {#if !["completed", "failed", "cancelled"].includes(detail.execution.status) && detail.projection.waiting?.kind !== "review"}
         <button type="button" class="danger-button" disabled={busy} onclick={() => void runAction("cancel")}>{copy.durableCancel}</button>
       {/if}
     </footer>

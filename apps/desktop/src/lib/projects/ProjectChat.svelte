@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { publishSessionPlan, sessionPlanInspector } from "../chat/sessionPlanUi";
   import PenLine from "reicon-svelte/icons/PenLine";
   import X from "reicon-svelte/icons/X";
   import { onDestroy, tick } from "svelte";
@@ -43,6 +44,7 @@
   } from "../chat/transcript";
   import { lastTranscriptModelKey } from "../chat/modelSelection";
   import { projectsStore, projectsView, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
+  import { saveBlobAsFile } from "../saveFile";
   import { session, SETTINGS_CHANGED_EVENT } from "../stores/session.svelte";
   import { humanizeModelOption } from "../presentation";
   import { miniAppsCatalog } from "../stores/miniapps.svelte";
@@ -354,11 +356,11 @@
     if (!request || request.scope !== "project" || request.id === appliedMiniAppInsertionId) return;
     appliedMiniAppInsertionId = request.id;
     if (editingMessageId) {
-      miniAppActionFeedback = copy.miniAppComposerEditing;
+      showMiniAppFeedback(copy.miniAppComposerEditing);
       return;
     }
     message = insertComposerText(message, request.text, request.mode);
-    miniAppActionFeedback = copy.miniAppComposerInserted;
+    showMiniAppFeedback(copy.miniAppComposerInserted);
     focusComposerAtEnd();
   }
 
@@ -540,14 +542,18 @@
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
-    if (event.key === "Enter" && (event.shiftKey || event.metaKey || event.ctrlKey) && !event.isComposing) {
-      event.preventDefault();
-      // `sending` reflects the VIEWED session's pinned controller, so enqueuing
-      // a follow-up while it runs always targets the right session; a background
-      // turn on another session never leaks into this composer.
-      if (sending) queueFollowUp();
-      else sendMessage();
-    }
+    // Enter sends, Shift+Enter stays with the textarea as a newline. An IME
+    // confirm keystroke arrives as Enter too; WebKit fires it after
+    // compositionend with keyCode still 229, so isComposing alone misses it
+    // and the composition would be "sent" instead of committed.
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key !== "Enter" || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    // `sending` reflects the VIEWED session's pinned controller, so enqueuing
+    // a follow-up while it runs always targets the right session; a background
+    // turn on another session never leaks into this composer.
+    if (sending) queueFollowUp();
+    else sendMessage();
   }
 
   function removeQueued(index: number): void {
@@ -599,6 +605,28 @@
     miniAppActionSuccessKey = "";
   }
 
+  /**
+   * Sole entry point for the mini-app toast: it owns both the text and the
+   * auto-dismiss timer. Assigning `miniAppActionFeedback` directly skips the
+   * timer and leaves the toast up forever.
+   */
+  function showMiniAppFeedback(
+    text: string,
+    card: import("@molibot/desktop-contract").DesktopMiniAppResultCard | null = null
+  ): void {
+    miniAppActionFeedback = text;
+    miniAppActionCard = card;
+    if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
+    miniAppActionFeedbackTimer = null;
+    // A card is something to read, so it stays until dismissed; a bare
+    // sentence self-clears. Both always offer the close button.
+    if (!card) {
+      miniAppActionFeedbackTimer = setTimeout(() => {
+        dismissMiniAppFeedback();
+      }, 3000);
+    }
+  }
+
   async function runMiniAppMessageAction(
     action: TranscriptContributionAction,
     transcriptMessage: TranscriptMessage,
@@ -627,23 +655,12 @@
           } : {})
         }
       );
-      miniAppActionFeedback = outcome.text;
-      miniAppActionCard = outcome.card;
       miniAppActionSuccessKey = key;
+      showMiniAppFeedback(outcome.text, outcome.card);
     } catch (cause) {
-      miniAppActionFeedback = cause instanceof Error ? cause.message : String(cause);
-      miniAppActionCard = null;
+      showMiniAppFeedback(cause instanceof Error ? cause.message : String(cause));
     } finally {
       miniAppActionPendingKey = "";
-      if (miniAppActionFeedbackTimer) clearTimeout(miniAppActionFeedbackTimer);
-      miniAppActionFeedbackTimer = null;
-      // A card is something to read, so it stays until dismissed; a bare
-      // sentence self-clears. Both always offer the close button.
-      if (!miniAppActionCard) {
-        miniAppActionFeedbackTimer = setTimeout(() => {
-          dismissMiniAppFeedback();
-        }, 3000);
-      }
     }
   }
   $: messageActions = messages.length === 0
@@ -663,22 +680,31 @@
       } satisfies TranscriptMessageActions;
 
   async function resolvePlan(
-    _message: TranscriptMessage,
+    message: TranscriptMessage,
     plan: import("@molibot/desktop-contract").DesktopConversationPlan,
-    decision: "accept" | "reject" | "modify",
+    decision: "accept" | "reject" | "modify" | "complete",
     edits?: { title: string; summary: string; steps: string[]; mode?: "manual" | "accept_edits" }
   ): Promise<void> {
     if (!projectsStore.endpoint || !projectsStore.selectedSessionId) return;
+    const entry = projectChatStore.registry.active;
     try {
-      await resolveDesktopPlan(projectsStore.endpoint, {
+      const resolved = await resolveDesktopPlan(projectsStore.endpoint, {
         profileId: "personal",
         conversationId: projectsStore.selectedSessionId,
         planId: plan.id,
         decision,
         ...edits
       });
-      await projectChatStore.reloadActive();
-      if (decision === "accept") await projectChatStore.resumeActivePlan(plan.id);
+      publishSessionPlan(resolved.plan);
+      if (decision === "accept" && projectChatStore.registry.active === entry) {
+        permissionMode = resolved.mode;
+        sessionPlanInspector.set({
+          plan: resolved.plan,
+          complete: () => void resolvePlan(message, resolved.plan, "complete")
+        });
+      }
+      await entry?.reloadFromServer();
+      if (decision === "accept") await entry?.controller.resumePlan(plan.id);
     } catch (cause) {
       projectsStore.error = cause instanceof Error ? cause.message : String(cause);
     }
@@ -817,14 +843,7 @@
         true,
         projectsStore.selectedProjectId
       );
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = file.original;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      await saveBlobAsFile(blob, file.original);
     } catch (cause) {
       projectsStore.error = cause instanceof Error ? cause.message : String(cause);
     }

@@ -45,6 +45,7 @@ import {
   resolveOnboardingRepairTarget,
   resolveOnboardingStartStep,
   resolveDesktopHostBash,
+  resolveDesktopHostBashById,
   runDesktopMemoryAction,
   runDesktopTaskAction,
   loadDesktopTrace,
@@ -712,6 +713,29 @@ test("Desktop Host Bash approval surfaces a failed execution instead of dropping
     const result = await resolveDesktopHostBash("http://127.0.0.1:3000", "default", "s1", "a1", "approve_once");
     assert.equal(result.status, "failed");
     assert.equal(result.error, "fatal: not a git repository");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+// The settings page has no chat context: it must resolve by request ID alone
+// (the server locates the record and routes through the owning scope).
+test("Desktop Host Bash operator resolution posts only requestId and decision", async () => {
+  const original = globalThis.fetch;
+  const captured: Array<Record<string, unknown>> = [];
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    captured.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(
+      JSON.stringify({ ok: true, response: "Approved Host Bash: twitter.sh", approval: { status: "approved" } }),
+      { status: 200 }
+    );
+  }) as typeof globalThis.fetch;
+  try {
+    assert.deepEqual(
+      await resolveDesktopHostBashById("http://127.0.0.1:3000", "hba-1", "approve_once"),
+      { response: "Approved Host Bash: twitter.sh", status: "approved", error: undefined }
+    );
+    assert.deepEqual(captured[0], { action: "resolve_approval", requestId: "hba-1", decision: "approve_once" });
   } finally {
     globalThis.fetch = original;
   }

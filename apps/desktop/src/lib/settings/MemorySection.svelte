@@ -30,7 +30,7 @@
   import Dialog from "../components/ui/Dialog.svelte";
   import type { Translation } from "../i18n";
   import { formatTimestamp } from "../presentation";
-  import { session } from "../stores/session.svelte";
+  import { session, SETTINGS_CHANGED_EVENT, navigateSettings } from "../stores/session.svelte";
   import {
     memoryStore,
     beginCandidateEdit,
@@ -75,6 +75,14 @@
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== memoryStore.endpoint) void loadMemory(session.endpoint);
+  });
+
+  $effect(() => {
+    const handleSettingsChanged = () => {
+      if (session.serviceReady && session.endpoint) void loadMemory(session.endpoint);
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
   });
 
   $effect(() => {
@@ -447,11 +455,36 @@
           <section class="settings-card">
             <div class="settings-row"><strong>{session.text.memoryRuntimeEnabled}</strong><span class="status-badge" data-state={memoryStore.memory.enabled ? "ready" : "disconnected"}>{memoryStore.memory.enabled ? session.text.yes : session.text.no}</span></div>
             <div class="settings-row"><strong>{session.text.memoryConfigEnabled}</strong><span class="status-badge" data-state={memoryStore.memory.configEnabled ? "ready" : "disconnected"}>{memoryStore.memory.configEnabled ? session.text.yes : session.text.no}</span></div>
-            <div class="settings-row"><strong>{session.text.memoryBackend}</strong><span class="diag-value">{memoryStore.memory.backend || session.text.unavailable}</span></div>
+            <div class="settings-row">
+              <strong>{session.text.memoryBackend}</strong>
+              <div class="memory-advanced-action-row">
+                <span class="diag-value">{memoryStore.memory.backend || session.text.unavailable}</span>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  onclick={() => { advancedOpen = false; navigateSettings("plugins", { pluginId: "memory" }); }}
+                >{session.text.memoryConfigure}</button>
+              </div>
+            </div>
           </section>
           <section class="settings-card">
             <div class="settings-row"><strong>{session.text.memoryCapHybrid}</strong><span>{memoryStore.memory.capabilities.hybridSearch ? session.text.yes : session.text.no}</span></div>
-            <div class="settings-row"><strong>{session.text.memoryCapVector}</strong><span>{memoryStore.memory.capabilities.vectorSearch ? session.text.yes : session.text.no}</span></div>
+            <div class="settings-row">
+              <strong>{session.text.memoryCapVector}</strong>
+              <div class="memory-advanced-action-row">
+                <span>
+                  {memoryStore.memory.capabilities.vectorSearch ? session.text.yes : session.text.no}
+                  {#if memoryStore.memory.embeddingModel}
+                    <small>({memoryStore.memory.embeddingModel})</small>
+                  {/if}
+                </span>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  onclick={() => { advancedOpen = false; navigateSettings("plugins", { pluginId: "memory" }); }}
+                >{session.text.memoryConfigureVector}</button>
+              </div>
+            </div>
             <div class="settings-row"><strong>{session.text.memoryCapFlush}</strong><span>{memoryStore.memory.capabilities.incrementalFlush ? session.text.yes : session.text.no}</span></div>
             <div class="settings-row"><strong>{session.text.memoryCapLayered}</strong><span>{memoryStore.memory.capabilities.layeredMemory ? session.text.yes : session.text.no}</span></div>
           </section>

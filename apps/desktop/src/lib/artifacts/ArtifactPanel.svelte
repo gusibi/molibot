@@ -32,6 +32,7 @@
   import { tablist } from "../a11y/tablist";
   import { rawPreviewKindFromName } from "@molibot/shared/filePreview";
   import { desktopFileContentUrl, fetchDesktopFileBlob, fetchDesktopProjectRawBlob, filterDesktopFiles, listDesktopSessionFiles, artifactPreviewUrl, sessionArtifactToken, revealDesktopSessionFile, type DesktopFileFilter } from "../api";
+  import { saveBlobAsFile } from "../saveFile";
   import { html as renderDiffHtml } from "diff2html";
   import CodeViewer from "../projects/CodeViewer.svelte";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
@@ -440,14 +441,7 @@
     actionError = "";
     try {
       const blob = await fetchDesktopProjectRawBlob(endpoint, projectId, path);
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = path.split("/").pop() || path;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      await saveBlobAsFile(blob, path.split("/").pop() || path);
     } catch (cause) {
       actionError = cause instanceof Error ? cause.message : String(cause);
     }
@@ -459,14 +453,7 @@
     actionError = "";
     try {
       const blob = await fetchDesktopFileBlob(endpoint, profileId, sessionId, tab.fileId, true, projectId || undefined);
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = tab.name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      await saveBlobAsFile(blob, tab.name);
     } catch (cause) {
       actionError = cause instanceof Error ? cause.message : String(cause);
     }
@@ -686,13 +673,8 @@
 
   async function downloadAttachment(file: DesktopSessionFile): Promise<void> {
     try {
-      const blob = await fetchDesktopFileBlob(endpoint, "personal", sessionId, file.id, true, projectId);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = file.original;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      const blob = await fetchDesktopFileBlob(endpoint, profileId || "personal", sessionId, file.id, true, projectId);
+      await saveBlobAsFile(blob, file.original);
     } catch (cause) {
       attachmentsError = cause instanceof Error ? cause.message : String(cause);
     }

@@ -203,3 +203,10 @@ test("modelShortLabel strips provider prefix and returns only the model display 
   assert.equal(modelShortLabel("gemini-3.7-flash-high"), "Gemini 3.7 Flash High");
 });
 
+
+test("approval continuation duration excludes the earlier user turn and approval wait", () => {
+  const summary = transcriptTurnSummary({
+    role: "assistant", content: "Build passed", createdAt: "2026-09-06T02:36:28.000Z", durationMs: 40871
+  }, { role: "user", content: "Continue", createdAt: "2026-09-06T02:28:38.000Z" });
+  assert.equal(summary.durationMs, 40871);
+});

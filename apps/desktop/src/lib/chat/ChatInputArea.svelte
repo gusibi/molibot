@@ -147,7 +147,9 @@
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
-    if (filteredSuggestions.length > 0 && !event.isComposing) {
+    // keyCode 229 catches WebKit's IME-confirm Enter, which fires after
+    // compositionend with isComposing already reset to false.
+    if (filteredSuggestions.length > 0 && !event.isComposing && event.keyCode !== 229) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const delta = event.key === "ArrowDown" ? 1 : -1;

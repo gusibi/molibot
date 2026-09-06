@@ -155,6 +155,10 @@ export class ChatSessionStore {
     this.draftMode = false;
     const entry = this.registry.getOrCreate(profileId, sessionId);
     this.registry.setActive(profileId, sessionId);
+    // A pending approval whose card was missed (stream drop, stopped turn, app
+    // restart) must reappear the moment its session is opened — the operator
+    // cannot act on it anywhere else.
+    void entry.controller.adoptPendingApproval();
     await entry.reloadFromServer();
   }
 

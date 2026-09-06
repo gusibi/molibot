@@ -3,9 +3,11 @@
   export let description = "";
   export let dataPage = false;
   export let scrolled = false;
+  /** Workspace destinations center on the wider `--workspace-col` column. */
+  export let workspace = false;
 </script>
 
-<header class:data-page={dataPage} class:is-scrolled={scrolled} class="page-header settings-page-header" data-tauri-drag-region>
+<header class:data-page={dataPage} class:is-scrolled={scrolled} class:is-workspace={workspace} class="page-header settings-page-header" data-tauri-drag-region>
   <div data-tauri-drag-region>
     <h2 data-tauri-drag-region>{title}</h2>
     {#if description}<p class="page-header-description">{description}</p>{/if}

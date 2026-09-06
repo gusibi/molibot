@@ -1,9 +1,11 @@
 // Host bash whitelist & approval settings — state + orchestration.
+import type { DesktopApprovalDecision, DesktopApprovalResult } from "@molibot/desktop-contract";
 import {
   loadDesktopHostBashSettings,
   toggleDesktopHostBashWhitelistItem,
   deleteDesktopHostBashWhitelistItem,
   deleteDesktopHostBashHistoryRecord,
+  resolveDesktopHostBashById,
   type DesktopHostBashSettingsData
 } from "../api";
 import { session, setError } from "./session.svelte";
@@ -19,6 +21,7 @@ export const hostBashStore = $state({
   endpoint: "",
   togglingId: null as string | null,
   deletingId: null as string | null,
+  resolvingId: null as string | null,
   query: "",
   categoryFilter: "all" as HostBashCategoryFilter,
   statusFilter: "all" as HostBashStatusFilter,
@@ -103,5 +106,27 @@ export async function deleteHostBashHistory(id: string): Promise<void> {
     setError(cause);
   } finally {
     hostBashStore.deletingId = null;
+  }
+}
+
+/**
+ * Resolve a pending approval from the settings page. Returns the server's
+ * outcome so the caller can surface "approved but the command itself failed" —
+ * the row disappearing alone would hide that.
+ */
+export async function resolveHostBashApproval(requestId: string, decision: DesktopApprovalDecision): Promise<DesktopApprovalResult | null> {
+  const endpoint = session.endpoint || hostBashStore.endpoint;
+  if (!endpoint || hostBashStore.resolvingId) return null;
+  hostBashStore.resolvingId = requestId;
+  session.error = "";
+  try {
+    const result = await resolveDesktopHostBashById(endpoint, requestId, decision);
+    await refreshHostBash();
+    return result;
+  } catch (cause) {
+    setError(cause);
+    return null;
+  } finally {
+    hostBashStore.resolvingId = null;
   }
 }

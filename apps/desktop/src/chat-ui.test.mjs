@@ -12,6 +12,13 @@ const view = read("./ChatView.svelte");
 const app = read("./App.svelte");
 const i18n = read("./lib/i18n.ts");
 const styles = read("./styles.css");
+
+test("compact numeric settings do not shrink inside auto-sized control wrappers", () => {
+  const rule = styles.match(/\.model-number-input\s*\{([^}]+)\}/)?.[1] ?? "";
+  assert.match(rule, /width:\s*120px/);
+  assert.match(rule, /flex:\s*none/);
+  assert.doesNotMatch(rule, /%/);
+});
 const multiSelectControl = read("./lib/components/ui/MultiSelectControl.svelte");
 const emptyState = read("./lib/components/ui/EmptyState.svelte");
 const searchField = read("./lib/components/ui/SearchField.svelte");
@@ -783,10 +790,23 @@ test("issue 13 automation uses a fixed list-detail template with separated statu
   assert.match(sections.tasks, /stopTaskRun\(selectedTask\.id/);
   assert.match(chatWorkspace, /<TasksSection presentation="workspace"/);
   assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*minmax\(280px, 320px\) minmax\(0, 1fr\)/s);
-  // The detail pane overlays the list only when the workspace CONTAINER (not
-  // the viewport — the sidebar eats ~220px) is too narrow for side-by-side.
+  // The detail pane maintains unified split view on desktop with smooth slide-in,
+  // completely eliminating jarring 880px overlay mutation.
   assert.match(styles, /\.automation-workspace\s*\{[^}]*container-type:\s*inline-size/s);
-  assert.match(styles, /@container \(max-width: 880px\)[\s\S]*\.automation-task-detail\s*\{[^}]*position:\s*absolute/s);
+  assert.match(styles, /\.automation-task-detail\s*\{[^}]*animation:\s*automation-detail-slide-in/s);
+  // Status outcomes and tone indicators strictly use dynamic theme tokens with zero hardcoded colors
+  assert.doesNotMatch(styles, /\.row-outcome[^{]*\{[^}]*#[0-9a-fA-F]{3,6}/s);
+  assert.doesNotMatch(styles, /\.automation-task-row-mark[^{]*\{[^}]*#[0-9a-fA-F]{3,6}/s);
+  assert.doesNotMatch(styles, /\.installed-skill-icon[^{]*\{[^}]*#[0-9a-fA-F]{3,6}/s);
+  assert.match(styles, /\.row-outcome\.outcome-completed[^{]*\{[^}]*var\(--online\)/s);
+  assert.match(styles, /\.row-outcome\.outcome-failed[^{]*\{[^}]*var\(--danger\)/s);
+  // Workspace destinations share the settings PageHeader (title + description)
+  // centered on the wider workspace column, replacing the old bare title bar.
+  assert.match(chatWorkspace, /<PageHeader title=\{workspaceTitle\} description=\{workspaceDescription\} workspace>/);
+  assert.match(styles, /\.settings-page-header\.is-workspace > div:not\(\.page-header-actions\)\s*\{[^}]*width:\s*var\(--workspace-col\)/s);
+  assert.match(styles, /\.automation-workspace-toolbar \.search-field\s*\{[^}]*height:\s*32px/s);
+  assert.match(styles, /\.automation-category-tabs button\s*\{[^}]*white-space:\s*nowrap/s);
+  assert.match(styles, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.automation-workspace-layout\.detail-open \.automation-workspace-list\s*\{[^}]*display:\s*none/s);
 });
 
 test("issue 13 Chat renders an Agent message unit and a compact 720px composer", () => {
@@ -833,6 +853,8 @@ test("shared composer provides keyboard slash suggestions and transcript invocat
   assert.match(chatInputArea, /ensureComposerSuggestions/);
   assert.match(chatInputArea, /ArrowDown/);
   assert.match(chatInputArea, /event\.isComposing/);
+  // The suggestion menu must also ignore WebKit's IME-confirm Enter.
+  assert.match(chatInputArea, /event\.keyCode !== 229/);
   assert.match(chatInputArea, /event\.key === "Tab"/);
   assert.match(slashSuggestionMenu, /role="listbox"/);
   assert.match(transcript, /classifyComposerInvocation/);
@@ -1056,7 +1078,13 @@ test("issue 8 chat polish stays wired across shared Chat and Project surfaces", 
   assert.match(markdown, /highlightAuto/);
   assert.match(markdown, /data-copy-code/);
   assert.match(queuedMessagesBar, /class="queued-message-row"/);
-  assert.match(projectChat, /event\.key === "Enter" && \(event\.shiftKey \|\| event\.metaKey \|\| event\.ctrlKey\)/);
+  // Enter sends; Shift+Enter stays with the textarea as a newline; the IME
+  // confirm keystroke (keyCode 229 in WebKit, even after compositionend)
+  // must commit the composition instead of sending.
+  assert.match(projectChat, /event\.isComposing \|\| event\.keyCode === 229\) return/);
+  assert.match(projectChat, /event\.key !== "Enter" \|\| event\.shiftKey \|\| event\.altKey\) return/);
+  assert.match(view, /event\.isComposing \|\| event\.keyCode === 229\) return/);
+  assert.match(view, /event\.key !== "Enter" \|\| event\.shiftKey \|\| event\.altKey\) return/);
   assert.match(view, /event\.key === ","[\s\S]*openSettings\(\)/);
   assert.match(view, /event\.key\.toLowerCase\(\) === "k"[\s\S]*toggleCommandPalette/);
   assert.match(view, /class="command-palette"[\s\S]*commandResults as command, index/);
@@ -1392,7 +1420,7 @@ test("Project Session groups reveal history in batches of 10", () => {
   assert.match(projectTree, /class="project-more"[\s\S]*\{copy\.more\}/);
 });
 
-test("conversation, project, and Mini App titles share a clean section header layout", () => {
+test("conversation and project titles share a clean section header layout", () => {
   const projectTree = read("./lib/projects/ProjectTree.svelte");
   const sharedHeader = styles.slice(styles.indexOf(".sidebar-section-head {"), styles.indexOf(".brand-row {"));
   assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*min-height:\s*32px/s);
@@ -1400,7 +1428,7 @@ test("conversation, project, and Mini App titles share a clean section header la
   assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*background:\s*transparent/s);
   // The old gradient's private token must not linger once nothing reads it (pitfall 4).
   assert.doesNotMatch(styles, /--sidebar-section-glass/);
-  for (const source of [chatSidebar, projectTree, miniAppSidebar]) {
+  for (const source of [chatSidebar, projectTree]) {
     assert.match(source, /sidebar-section-head/);
     assert.match(source, /sidebar-section-toggle/);
     assert.match(source, /sidebar-section-caret/);
@@ -1717,7 +1745,10 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.match(styles, /\.sidebar-titlebar-drag\s*\{[^}]*position:\s*absolute;[^}]*height:\s*42px;[^}]*pointer-events:\s*auto;/s);
   assert.match(view, /class="chat-source-tag" data-tauri-drag-region/);
   assert.match(chatHeader, /class="chat-source-tag" data-tauri-drag-region/);
-  assert.match(workspacePane, /class="workspace-page-title" data-tauri-drag-region/);
+  const pageHeader = read("./lib/components/ui/PageHeader.svelte");
+  assert.match(pageHeader, /class="page-header settings-page-header" data-tauri-drag-region/);
+  // Workspace destinations reuse the shared draggable PageHeader for their chrome.
+  assert.match(workspacePane, /<PageHeader title=\{workspaceTitle\} description=\{workspaceDescription\} workspace>/);
   assert.match(styles, /\.header-actions\s*\{[^}]*z-index:\s*31;/s);
   // The stretched action row sits above the drag mask, so its empty space must
   // stay transparent to pointer events or the toolbar stops dragging the window.
@@ -1887,9 +1918,9 @@ test("automation header shares one content column and the segmented control hugs
   // at the far edge, and the totals then cost a third stacked header row.
   assert.match(styles, /\.automation-workspace-toolbar \.search-field \{[^}]*max-width:\s*320px/s);
   assert.match(styles, /\.automation-workspace-summary \{[^}]*margin:\s*0 0 0 auto/s);
-  assert.match(sections.tasks, /class="automation-workspace-toolbar">[\s\S]{0,900}?class="automation-workspace-summary"[\s\S]{0,900}?<\/div>\s*<\/div>/);
+  assert.match(sections.tasks, /class="automation-workspace-toolbar">[\s\S]{0,900}?class="automation-workspace-summary"[\s\S]{0,1200}?<\/div>\s*<\/div>/);
   // Wrapped totals must fall back to the grid's left edge, not stay right.
-  assert.match(styles, /@container \(max-width: 720px\) \{[^}]*\.automation-workspace-summary \{[^}]*margin-left:\s*0/s);
+  assert.match(styles, /@container \(max-width: 560px\) \{[^}]*\.automation-workspace-summary \{[^}]*margin-left:\s*0/s);
 });
 
 test("automation details are opt-in and execution state stays task-scoped", () => {
@@ -2231,16 +2262,20 @@ test("settings uses the flat Geist layout", () => {
   assert.doesNotMatch(sections.plugins, /pluginsStore|saveDesktopPlugins\(/);
 });
 
-test("settings form controls share the DESIGN input height and time fields use the native picker", () => {
-  assert.match(design, /input:\s*[\s\S]*?height:\s*40px/);
-  assert.match(styles, /\.settings-field input\s*\{[^}]*height:\s*40px[^}]*padding:\s*0 12px/s);
-  assert.match(styles, /\.select-control-trigger\s*\{[^}]*height:\s*40px[^}]*padding:\s*0 11px 0 12px/s);
+test("settings form controls share standardized macOS control tokens and time fields use the native picker", () => {
+  assert.match(styles, /--control-h:\s*28px;/);
+  assert.match(styles, /--select-trigger-h:\s*var\(--control-h\);/);
+  assert.match(styles, /--select-min-w:\s*130px;/);
+  assert.match(styles, /--select-max-w:\s*260px;/);
+  assert.match(design, /--control-h:\s*28px/);
+  assert.match(styles, /\.settings-field input\s*\{[^}]*height:\s*var\(--control-h\)/s);
+  assert.match(styles, /\.select-control-trigger\s*\{[^}]*height:\s*var\(--select-trigger-h\)/s);
   assert.match(selectControl, /Select\.Root/);
   assert.match(selectControl, /Select\.Content/);
   assert.match(selectControl, /<Select\.Item[^>]*>[\s\S]*<span title=\{option\.label\}>\{option\.label\}<\/span>[\s\S]*<\/Select\.Item>/);
   assert.doesNotMatch(selectControl, /#snippet child/);
-  assert.match(styles, /\.settings-row \.select-control\s*\{[^}]*flex:\s*0 1 320px;[^}]*width:\s*320px;[^}]*max-width:\s*58%/s);
-  assert.match(styles, /\.setting-row-control:has\(> \.select-control\)\s*\{[^}]*flex:\s*0 1 320px;[^}]*width:\s*320px;[^}]*max-width:\s*58%/s);
+  assert.match(styles, /\.settings-row \.select-control\s*\{[^}]*min-width:\s*var\(--select-min-w\)[^}]*max-width:\s*var\(--select-max-w\)/s);
+  assert.match(styles, /\.setting-row-control:has\(> \.select-control\)\s*\{[^}]*min-width:\s*var\(--select-min-w\)[^}]*max-width:\s*var\(--select-max-w\)/s);
   assert.doesNotMatch(listSvelteSources().join("\n"), /<select(?:\s|>)/);
   assert.equal(sections.plugins.match(/<NativeTimeInput/g)?.length, 2);
   assert.equal(taskScheduleBuilder.match(/<NativeTimeInput/g)?.length, 1);
@@ -2440,6 +2475,28 @@ test("the Artifact Panel action bar is the same set of file actions on every fil
   assert.match(projectFilePanel, /artifactDownload/);
   // The registry, not an inline if/else, picks the viewer for a file tab.
   assert.match(projectFilePanel, /matchViewer/);
+});
+
+test("every file download goes through saveBlobAsFile, never a raw anchor click", () => {
+  // WKWebView (the Tauri shell) silently drops `<a download>` clicks - no
+  // `on_download` handler is registered - so a hand-rolled anchor download
+  // saves nothing and shows no error. All bytes must go through
+  // `lib/saveFile.ts`, which routes to the native save dialog inside Tauri.
+  for (const source of listSvelteSources()) {
+    assert.doesNotMatch(source, /anchor\.download/, "hand-rolled anchor download must stay out of components");
+    assert.doesNotMatch(source, /createElement\("a"\)/, "anchor downloads only belong in lib/saveFile.ts");
+  }
+  const downloadSources = [
+    ["./ChatView.svelte", view],
+    ["./lib/projects/ProjectChat.svelte", projectChat],
+    ["./lib/artifacts/ArtifactPanel.svelte", projectFilePanel]
+  ];
+  for (const [name, source] of downloadSources) {
+    assert.match(source, /from "\.\/lib\/saveFile"|from "\.\.\/saveFile"/, `${name} must import saveBlobAsFile`);
+  }
+  const helper = read("./lib/saveFile.ts");
+  assert.match(helper, /save_file_dialog/);
+  assert.match(helper, /__TAURI_INTERNALS__/);
 });
 
 test("the HTML preview iframe is sandboxed without same-origin access", () => {
@@ -3123,6 +3180,17 @@ test("Memory Center keeps overview, topics, and all memories as separate product
   assert.match(sections.memory, /busy=\{Boolean\(memoryStore\.busyAction\)\}/);
   assert.doesNotMatch(sections.memory, /modal-overlay|aria-modal="true"|onWindowKeydown|class="switch"/);
   assert.doesNotMatch(sections.memory, /activeTab === "advanced"/);
+  // Recurring pitfall 16c: .modal-body must pass the height budget down with min-height: 0
+  // and flex: 1 1 auto, otherwise it retains its content height and refuses to scroll inside
+  // max-height constrained dialogs (Memory advanced modal was clipped without scrolling).
+  assert.match(styles, /\.modal-body\s*\{[^}]*flex:\s*1\s+1\s+auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
+  assert.match(styles, /\.memory-advanced-modal\s*\{[^}]*width:\s*min\(680px/s);
+  assert.match(styles, /\.memory-advanced-modal\s*\{[^}]*max-height:\s*min\(85vh/s);
+  assert.match(styles, /\.memory-advanced-body\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*overflow-y:\s*auto/s);
+  assert.match(styles, /\.memory-advanced-body\s*>\s*\.settings-card\s*\{[^}]*flex:\s*none/s);
+  assert.match(styles, /\.memory-advanced-body\s+\.settings-row\s*\{[^}]*min-height:\s*32px/s);
+  assert.match(styles, /\.memory-advanced-body\s+\.settings-row\s+strong\s*\{[^}]*font-size:\s*var\(--fs-label\)/s);
+  assert.match(styles, /\.memory-detail-form\s*\{[^}]*flex:\s*1\s+1\s+auto[^}]*min-height:\s*0[^}]*overflow:\s*hidden/s);
 });
 
 test("AI provider configuration is an inline workbench, not a modal, and separates provider and model concepts", () => {
@@ -3276,6 +3344,8 @@ test("Chat and sidebar typography goes through the type scale, never raw px", ()
     "--fs-title": "15px", "--lh-title": "20px",
     "--fs-heading": "16px", "--lh-heading": "22px",
     "--fs-page": "22px", "--lh-page": "28px",
+    "--fs-section": "19px", "--lh-section": "24px",
+    "--fs-body-lg": "14.5px", "--lh-body-lg": "18px",
     "--icon-xs": "12px", "--icon-sm": "14px", "--icon-md": "16px", "--icon-lg": "18px"
   };
   for (const [name, value] of Object.entries(scale)) {
@@ -3483,9 +3553,9 @@ const miniAppPanel = read("./lib/miniapps/MiniAppPanel.svelte");
 const audioCaptureCoordinator = read("./lib/miniapps/audioCaptureCoordinator.ts");
 const nativeAudio = read("../src-tauri/src/audio.rs");
 const tauriLib = read("../src-tauri/src/lib.rs");
-const miniAppSidebar = read("./lib/miniapps/MiniAppsSidebarSection.svelte");
 const modelsSection = read("./lib/settings/ModelsSection.svelte");
 const miniAppManager = read("./lib/miniapps/MiniAppsManager.svelte");
+const miniAppsLaunchpad = read("./lib/miniapps/MiniAppsLaunchpad.svelte");
 const miniAppIcon = read("./lib/miniapps/MiniAppIcon.svelte");
 const miniAppInstall = read("../../../src/lib/server/miniapps/install.ts");
 const workspacePane = read("./lib/chat/ChatWorkspacePane.svelte");
@@ -3611,17 +3681,19 @@ test("the Mini App panel is generic chrome with no per-app knowledge", () => {
   assert.match(miniAppPanel, /miniAppLoadFailed/);
 });
 
-test("Chat mounts one shared inspector host for artifact and durable surfaces", () => {
+test("Chat mounts one shared inspector host for artifact, durable, and session Plan surfaces", () => {
   // The old discriminated union (`files` | `miniapp`) is gone: one Artifact
   // Panel hosts both, so there is still exactly one inspector column, one
   // resizer and one width budget. The two surfaces inside it are separate
   // (see the tab-separation guard below) but the mount seam is single.
   assert.match(view, /type ChatInspector =[\s\S]*?kind: "artifact"[\s\S]*?miniApp\?: string[\s\S]*?miniAppNonce\?: number[\s\S]*?\} \| null/);
   assert.match(view, /\$: filePanelOpen = inspector\?\.kind === "artifact"/);
-  // ONE inspector host, every surface. Durable Execution is a third mode in the
-  // same right-hand host, so it cannot introduce a second aside or width budget.
-  assert.match(view, /\$: inspectorVisible = artifactPanelVisible \|\| durablePanelVisible;/);
+  // ONE inspector host, every surface. Durable Execution and the Session Plan
+  // are modes in the same right-hand host, so neither can introduce another
+  // width budget or replace the conversation.
+  assert.match(view, /\$: inspectorVisible = artifactPanelVisible \|\| durablePanelVisible \|\| inspector\?\.kind === "session-plan";/);
   assert.match(view, /kind: "durable-execution"/);
+  assert.match(view, /kind: "session-plan"/);
   assert.doesNotMatch(view, /sessionFilesAsideVisible/);
   assert.doesNotMatch(view, /class="file-list"/);
   // Conversation identity comes from the live pane, and so does the scope: the
@@ -3641,11 +3713,18 @@ test("Chat mounts one shared inspector host for artifact and durable surfaces", 
   // no longer appear as direct mounts (PRD test seam #4).
   assert.match(view, /<ArtifactPanel/);
   assert.match(view, /<DurableExecutionInspector/);
+  assert.match(view, /<SessionPlanInspector/);
   assert.doesNotMatch(view, /<MiniAppPanel\b/);
   assert.doesNotMatch(view, /<ProjectFilePanel\b/);
   // Opening a Mini App keeps any open files alive rather than replacing them.
   assert.match(view, /inspector = \{\s*kind: "artifact",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq,\s*miniAppDeepLinkPath: deepLinkPath\s*\}/);
   assert.match(view, /inspector = inspector\?\.kind === "artifact" \? null : \{ kind: "artifact" \}/);
+});
+
+test("completed reasoning uses a borderless disclosure instead of a card", () => {
+  assert.match(styles, /\.turn-process \{[^}]*border: 0;[^}]*background: transparent;/);
+  assert.match(styles, /\.turn-process\[open\] \{ background: transparent; \}/);
+  assert.doesNotMatch(styles, /\.turn-process\[open\] \{[^}]*var\(--card-bg\)/);
 });
 
 test("a Mini App survives a session switch, and Session scope always has a Files surface", () => {
@@ -3863,7 +3942,7 @@ test("an open Mini App survives a trip to the file surface", () => {
 test("the Mini App panel obeys the shared panel layout rules", () => {
   // Column-relative sizing only: a `vw` here keeps its full-window value after
   // the panel narrows the content column.
-  const panelBlock = styles.slice(styles.indexOf(".miniapp-panel {"), styles.indexOf(".miniapps-list"));
+  const panelBlock = styles.slice(styles.indexOf(".miniapp-panel {"), styles.indexOf(".miniapp-card"));
   assert.doesNotMatch(panelBlock, /\d+vw/);
   assert.doesNotMatch(panelBlock, /position:\s*fixed/);
   assert.match(panelBlock, /\.miniapp-panel \{[^}]*min-width: 0/s);
@@ -3877,33 +3956,37 @@ test("the Mini App panel obeys the shared panel layout rules", () => {
   assert.match(styles, /\.file-panel-head \{[^}]*z-index: 31/s);
 });
 
-test("Mini Apps are reachable as a primary destination and a recent-first app section", () => {
-  // The manager is a first-class sidebar destination, not something buried at
-  // the bottom of a Settings page.
+test("Mini Apps are reachable as a primary destination", () => {
+  // The destination is a first-class sidebar entry that opens on the Launchpad:
+  // the recent-apps tree section was removed as redundant with it.
   assert.match(chatSidebar, /class="nav-item"[\s\S]{0,200}onclick=\{onOpenMiniApps\}/);
   assert.match(chatSidebar, /copy\.miniAppsNav/);
   assert.match(chatSidebar, /Grid size=\{16\} aria-hidden="true" \/>/);
-  assert.match(workspacePane, /pane === "miniapps"[\s\S]{0,120}<MiniAppsManager/);
+  assert.match(workspacePane, /pane === "miniapps"[\s\S]{0,120}<MiniAppsLaunchpad/);
+  assert.doesNotMatch(chatSidebar, /MiniAppsSidebarSection/);
+});
 
-  // The tree section keeps the Mini Apps label, while ordering a bounded list
-  // by recent use and retaining a way to reach the complete manager.
-  assert.match(chatSidebar, /<MiniAppsSidebarSection/);
-  assert.match(miniAppSidebar, /copy\.miniAppsRecent/);
-  assert.match(i18n, /miniAppsRecent: "小程序"/);
-  assert.match(miniAppSidebar, /recentMiniApps\(\)/);
-  assert.match(miniAppSidebar, /onSeeAll/);
-  assert.match(miniAppStore, /const RECENT_LIMIT = 10/);
-  // Recency is recorded on open, so the list reflects real use.
-  assert.match(view, /markMiniAppUsed\(appId\)/);
-
-  // Only enabled, loaded apps are offered for opening.
-  assert.match(miniAppStore, /item\.enabled && item\.status === "active" && !item\.error/);
+test("the Mini Apps destination opens on a Launchpad of usable apps, management one click away", () => {
+  // Only apps that can actually open belong on the launcher: a disabled or
+  // failed app has no UI to launch, and its reason stays visible in Manage.
+  assert.match(miniAppsLaunchpad, /app\.enabled &&\s*\n\s*app\.status === "active"/);
+  // A tile is one button — icon + name — and clicking it launches the app.
+  assert.match(miniAppIcon, /"list" \| "tab" \| "launchpad"/);
+  assert.match(miniAppsLaunchpad, /class="miniapps-launchpad-item"[\s\S]{0,200}onclick=\{\(\) => onOpenApp\?\.\(app\.id\)\}/);
+  assert.match(styles, /\.miniapps-launchpad-grid/);
+  // Lifecycle work (install, toggle, uninstall) stays in the manager, reached
+  // through the manage view — not duplicated on the launcher.
+  assert.match(miniAppsLaunchpad, /<MiniAppsManager \{onOpenApp\} \{onOpenAiSettings\} \/>/);
+  assert.match(miniAppsLaunchpad, /miniAppsBackToLaunchpad/);
+  // The staggered entrance is animation, so reduced motion must turn it off.
+  assert.match(styles, /\.miniapps-launchpad-cell \{ animation: none !important; \}/);
 });
 
 test("browsing and installing Mini Apps has exactly one home: the sidebar destination", () => {
   // A second management surface in Settings could only drift from this one, so
-  // the manager is mounted from the workspace pane and nowhere else.
-  assert.match(workspacePane, /<MiniAppsManager/);
+  // the manager is mounted from the launchpad's manage view and nowhere else.
+  assert.match(workspacePane, /<MiniAppsLaunchpad/);
+  assert.match(miniAppsLaunchpad, /<MiniAppsManager/);
   for (const [name, source] of Object.entries(sections)) {
     assert.doesNotMatch(source, /<MiniAppsManager/, `Settings › ${name} must not mount the Mini App manager`);
   }
@@ -3963,8 +4046,8 @@ test("Mini App icons are inlined so no CSP or path leak is needed", () => {
   // A URL-based icon would need `img-src molibot-miniapp:` in the app CSP and a
   // resolvable asset path in the Desktop contract; a data URI keeps both closed.
   // The Mini App tab's head lives in the Artifact Panel now, so the icon-bearing
-  // surfaces are the manager, the sidebar, and the Artifact Panel (not the frame).
-  for (const source of [miniAppManager, miniAppSidebar, projectFilePanel]) {
+  // surfaces are the manager and the Artifact Panel (not the frame).
+  for (const source of [miniAppManager, projectFilePanel]) {
     assert.match(source, /<MiniAppIcon/);
     assert.match(source, /iconDataUri/);
   }
@@ -3977,8 +4060,10 @@ test("Mini App icons are inlined so no CSP or path leak is needed", () => {
   assert.doesNotMatch(miniAppIcon, /squares-four/);
 });
 
-test("the Mini App manager follows the bounded data-page layout", () => {
-  assert.match(styles, /\.workspace-scroll\[data-workspace-pane="miniapps"\] > \.miniapps-manager \{[^}]*var\(--data-content-width\)[^}]*margin: 0 auto/s);
+test("the Mini App launchpad follows the unified workspace layout", () => {
+  // The launchpad owns the destination's container geometry; the manager is
+  // nested inside it in the manage view and inherits the same column.
+  assert.match(styles, /\.workspace-scroll\[data-workspace-pane="miniapps"\] > \.miniapps-launchpad \{[^}]*var\(--workspace-col\)[^}]*margin: 0 auto/s);
   assert.match(styles, /\.miniapps-settings-row \{[^}]*grid-template-columns: 40px minmax\(0, 1fr\) auto/s);
   assert.match(styles, /@media \(max-width: 600px\)[\s\S]*\.miniapps-settings-row \{[^}]*grid-template-columns: 40px minmax\(0, 1fr\)/s);
 });
@@ -4079,9 +4164,11 @@ test("Mini App copy exists in both locales", () => {
     "miniAppDisabledPanel",
     "miniAppLoadFailed",
     "miniAppManageHint",
+    "miniAppsSearchPlaceholder",
+    "miniAppsSearchEmpty",
+    "miniAppsNoneEnabled",
+    "miniAppsBackToLaunchpad",
     "miniAppsNav",
-    "miniAppsRecent",
-    "miniAppsSeeAll",
     "miniAppInstallDirectory",
     "miniAppInstallZip",
     "miniAppInstallGithub",
@@ -4179,16 +4266,10 @@ test("a result card is display-only and cannot write anything", () => {
   assert.doesNotMatch(card, /\btodo\b|\bfavorite|\bamount\b|\bexpense/i);
 });
 
-test("an app badge is host-owned, quiet, and cleared by opening the app", () => {
-  // §2.5 is deliberately small: a count or a dot on the sidebar row. No system
-  // notification and no interrupting popup.
-  assert.match(miniAppSidebar, /\{#if app\.badge\}/);
-  assert.match(miniAppSidebar, /app\.badge\.kind === "count" \? app\.badge\.count : ""/);
-  assert.doesNotMatch(miniAppSidebar, /Notification\(|requestPermission|alert\(/);
-  // The count must not be what gets ellipsised when the row is tight.
-  assert.match(styles, /\.miniapps-badge \{[^}]*flex: 0 0 auto/s);
-  assert.match(styles, /\.miniapps-badge \{[^}]*font-size: var\(--fs-meta\)[^}]*line-height: var\(--lh-meta\)/s);
-
+test("an app badge is host-owned and cleared by opening the app", () => {
+  // §2.5's badge has no display surface since the sidebar's recent-apps section
+  // was removed; the host-side state still exists, so opening a panel still
+  // retires it through the server rather than letting it linger forever.
   // Opening the panel is what retires the badge, and the server's answer is
   // applied rather than the count being cleared locally.
   assert.match(view, /function openMiniAppInspector\(appId: string, deepLinkPath = ""\): void \{[\s\S]*?void clearMiniAppBadge\(appId\)/);
@@ -4331,8 +4412,17 @@ test("the Mini App action toast is one shared component and is always dismissibl
   assert.match(toast, /aria-label=\{dismissLabel\}/);
 
   // A card is read, so it waits for the owner; a bare sentence self-clears.
+  // The timer policy lives only inside `showMiniAppFeedback`: the guard below
+  // forbids assigning `miniAppActionFeedback` anywhere else, because a direct
+  // assignment has no timer behind it and the toast never leaves — exactly
+  // how the composer-insert toast got stuck on screen.
   for (const source of [view, projectChat]) {
-    assert.match(source, /if \(!miniAppActionCard\) \{\s*\n\s*miniAppActionFeedbackTimer = setTimeout\(/);
+    assert.match(source, /function showMiniAppFeedback\([\s\S]{0,600}if \(!card\) \{\s*\n\s*miniAppActionFeedbackTimer = setTimeout\(/);
+    assert.equal(
+      [...source.matchAll(/miniAppActionFeedback = (?!text;|"")/g)].length,
+      0,
+      "miniAppActionFeedback assigned outside showMiniAppFeedback/dismiss — the toast would never auto-dismiss"
+    );
     // Dismissing clears the pending timer too, or it would fire onto a toast
     // that is already gone and wipe a newer one.
     assert.match(source, /function dismissMiniAppFeedback\(\)[\s\S]{0,320}clearTimeout\(miniAppActionFeedbackTimer\)/);
@@ -4384,4 +4474,26 @@ test("desktop application styles slim 6px scrollbars", () => {
   assert.match(styles, /scrollbar-width:\s*thin;/);
   assert.match(styles, /::-webkit-scrollbar\s*\{[^}]*width:\s*6px;/);
   assert.match(styles, /::-webkit-scrollbar-thumb\s*\{[^}]*background-clip:\s*padding-box;/);
+});
+
+test("a service reconnect restores the viewed conversation instead of re-running default selection", () => {
+  // Root fix for "click an updated session, get a new conversation": the
+  // disconnect teardown must snapshot what the user is looking at, and the
+  // next connect() must restore THAT view — never yank the pane to a draft or
+  // the newest web session via selectDefaultSession.
+  assert.match(view, /let reconnectRestore: \(\(\) => void\) \| null = null;/);
+  // Capture happens inside the disconnect teardown, BEFORE state is wiped, and
+  // untracked (pitfall #2): runtime-tracked reads would re-run this teardown
+  // whenever the registry mutates below (disposeAll) and re-capture an already
+  // disposed registry — the restore target would silently become null.
+  assert.match(view, /serviceState !== "ready" && connectedEndpoint\) \{\s*(?:\/\/[^\n]*\n\s*)*reconnectRestore = untrack\(captureViewForRestore\);/);
+  // The snapshot covers every pane the user can be reading.
+  assert.match(view, /function captureViewForRestore\(\): \(\(\) => void\) \| null \{/);
+  assert.match(view, /captureViewForRestore[\s\S]*?projectsStore\.selectedSessionId[\s\S]*?activeExternalSessionId[\s\S]*?chatStore\.registry\.active/s);
+  // connect() consumes the snapshot first; default selection is only the
+  // first-launch fallback (no snapshot = nothing to restore).
+  assert.match(view, /const restoreView = reconnectRestore;\s*reconnectRestore = null;\s*if \(restoreView\) \{[\s\S]*?restoreView\(\);\s*\} else \{\s*void selectDefaultSession\(generation\);/s);
+  // A session created by sending from the draft never passed through
+  // openSession — it must still become the restore anchor.
+  assert.match(view, /onSessionCreated: \(profileId, sessionId\) => \{[\s\S]*?persistSelected\(profileId, sessionId\);/s);
 });
