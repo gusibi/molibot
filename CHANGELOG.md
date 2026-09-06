@@ -1,5 +1,9 @@
 # Molibot ChangeLog
 
+### Fixed: HTML previews stay readable in dark mode (2026-09-06)
+
+Previewing an `.html` file in the project files panel — a Hugo template partial, for example — painted default black text over the dark panel and was unreadable. The artifact preview route now injects a theme-aware base style (driven by the `theme` hint the panel already sends) ahead of every served document's own styles, so template text and unstyled pages render light-on-dark in dark appearance and unchanged in light. Documents that are actually templates (`{{ }}`, `{% %}`, `<% %>`, PHP tags) now open as syntax-highlighted source instead of a broken "rendered" view, with a toggle to switch back; real styled pages render exactly as authored.
+
 ### Changed: Workspace pages adopt the Settings page header (2026-09-06)
 
 Automations, Skills, Agents, and Mini Apps now open with the same header pattern as Settings — a centered title with a one-line description on the shared content column — instead of a bare left-aligned title in a narrow bar. Each page explains its scope in both languages, the header stays aligned with the content column while scrolling, and the sidebar-restore control moves to the header's right edge so it never collides with the title.

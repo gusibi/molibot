@@ -5,6 +5,7 @@ import {
   isInlineViewer,
   needsTextContent,
   hasSourceToggle,
+  isTemplateDocument,
   type ArtifactMeta
 } from "./viewerRegistry";
 import { shouldOpenArtifactAsDiff } from "./artifactOpenMode";
@@ -156,8 +157,23 @@ test("needsTextContent covers exactly the viewers that render decoded text", () 
 test("hasSourceToggle is a registry fact, not a template condition", () => {
   assert.equal(hasSourceToggle("markdown"), true);
   assert.equal(hasSourceToggle("svg"), true);
-  // CSV owns its own Table/Raw switch inside the viewer; HTML has no source view.
+  // HTML joins so a template partial can fall back to readable source.
+  assert.equal(hasSourceToggle("html"), true);
+  // CSV owns its own Table/Raw switch inside the viewer.
   assert.equal(hasSourceToggle("csv"), false);
-  assert.equal(hasSourceToggle("html"), false);
   assert.equal(hasSourceToggle("code"), false);
+});
+
+test("template directives mark an HTML document as source, not a page", () => {
+  assert.equal(isTemplateDocument('{{- if or (.Params.mermaid) (.Site.Params.mermaid) -}}'), true);
+  assert.equal(isTemplateDocument("{% extends \"base.html\" %}"), true);
+  assert.equal(isTemplateDocument("<%= user.name %>"), true);
+  assert.equal(isTemplateDocument("<?php echo $title; ?>"), true);
+  assert.equal(isTemplateDocument("<?= $title ?>"), true);
+  // A directive only counts in the head window; deep in the body it is a page
+  // that merely prints braces.
+  const pad = "<!doctype html><html><head><title>t</title></head><body>" + "x".repeat(5000);
+  assert.equal(isTemplateDocument(`${pad}{{ next }}`), false);
+  assert.equal(isTemplateDocument("<!doctype html><html><head></head><body><p>hi</p></body></html>"), false);
+  assert.equal(isTemplateDocument(""), false);
 });

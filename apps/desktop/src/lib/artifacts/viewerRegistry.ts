@@ -168,10 +168,30 @@ export function needsTextContent(viewer: ArtifactViewerId): boolean {
 /**
  * Viewers that offer a rendered/source toggle. The toggle state lives in the
  * panel so switching tabs resets it, but which viewers *have* one is a registry
- * fact, not a template condition.
+ * fact, not a template condition. HTML joins so a template partial can fall back
+ * to readable source without leaving its tab.
  */
 export function hasSourceToggle(viewer: ArtifactViewerId): boolean {
-  return viewer === "markdown" || viewer === "svg";
+  return viewer === "html" || viewer === "markdown" || viewer === "svg";
+}
+
+/** Template directives Hugo/Jinja/Handlebars (`{{`), Jinja/Liquid/Django (`{%`),
+ * EJS/ERB (`<%`), and PHP (`<?php`, `<?=`) share: they render as stray text when
+ * the file is treated as a page, so the document is source, not an artifact. */
+const TEMPLATE_DIRECTIVE = /\{\{|\{%|<%|<\?php|<\?=/;
+
+/** Directives live in the head/first template block; a body mention past this
+ * window is a real page that merely prints braces. */
+const TEMPLATE_SNIFF_CHARACTERS = 4096;
+
+/**
+ * True when HTML text carries template directives and must open as source.
+ * Rendered, a partial like `layouts/partials/extend_footer.html` shows its
+ * directives as stray text while its inline scripts run against nothing - the
+ * source view is the honest one.
+ */
+export function isTemplateDocument(text: string): boolean {
+  return TEMPLATE_DIRECTIVE.test(text.slice(0, TEMPLATE_SNIFF_CHARACTERS));
 }
 
 function isSpreadsheetMime(mimeType: string | undefined): boolean {

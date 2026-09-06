@@ -2,11 +2,10 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { promises as fs } from "node:fs";
 import {
-  artifactDocumentCsp,
+  artifactPreviewResponse,
   hasArtifactProxyHeader,
   resolveArtifactTarget
 } from "$lib/server/web/artifactRoute.js";
-import { streamFileWithRange } from "$lib/server/http/rangeResponse.js";
 
 /**
  * Serves Project-rooted artifact files (HTML + their relative css/js/img) for the
@@ -14,8 +13,12 @@ import { streamFileWithRange } from "$lib/server/http/rangeResponse.js";
  * Tauri transport, which sets `x-molibot-artifact-proxy: v1`; a plain web page
  * cannot forge that header (no CORS allowlist is ever returned), so a port scan
  * of the loopback service learns nothing and drives nothing.
+ *
+ * Response assembly — including the theme-driven base style an HTML preview
+ * document gets injected ahead of its own styles — lives in
+ * `artifactPreviewResponse`, where the gate and its ETag semantics are tested.
  */
-export const GET: RequestHandler = async ({ params, request }) => {
+export const GET: RequestHandler = async ({ params, url, request }) => {
   if (!hasArtifactProxyHeader(request)) {
     return json({ ok: false, error: "Artifact routes are only reachable through the Molibot desktop transport." }, { status: 403 });
   }
@@ -34,20 +37,12 @@ export const GET: RequestHandler = async ({ params, request }) => {
   }
 
   const stat = await fs.stat(resolved.target);
-  const headers: Record<string, string> = {
-    "cache-control": "no-store",
-    "x-content-type-options": "nosniff"
-  };
-  if (resolved.isHtml) {
-    headers["content-security-policy"] = artifactDocumentCsp();
-  }
-  return streamFileWithRange({
-    path: resolved.target,
+  return artifactPreviewResponse({
+    resolved,
     size: stat.size,
     mtimeMs: stat.mtimeMs,
-    mimeType: resolved.contentType,
+    theme: url.searchParams.get("theme"),
     rangeHeader: request.headers.get("range"),
-    ifNoneMatch: request.headers.get("if-none-match"),
-    headers
+    ifNoneMatch: request.headers.get("if-none-match")
   });
 };

@@ -3,6 +3,7 @@ import path from "node:path";
 import { getProjectStore } from "$lib/server/projects/store.js";
 import { resolveProjectPath } from "$lib/server/projects/inspection.js";
 import { decodeSessionArtifactToken } from "$lib/shared/artifactToken.js";
+import { streamFileWithRange, weakEtagFor } from "$lib/server/http/rangeResponse.js";
 
 /**
  * Static artifact serving for the Artifact Panel's HTML preview (PRD §3.38
@@ -92,6 +93,91 @@ export function artifactContentType(fileName: string): { contentType: string; is
   const ext = path.extname(fileName).toLowerCase();
   const contentType = ARTIFACT_CONTENT_TYPES[ext] ?? "application/octet-stream";
   return { contentType, isHtml: ext === ".html" || ext === ".htm" || ext === ".xhtml" };
+}
+
+/**
+ * Above this size a document is served raw instead of base-style injected: a
+ * multi-megabyte HTML file is pathological for an inline preview, and reading it
+ * onto the heap buys nothing.
+ */
+export const MAX_PREVIEW_INJECT_BYTES = 4 * 1024 * 1024;
+
+/**
+ * The base style injected ahead of every served preview document's own styles.
+ *
+ * A template partial (Hugo/Jinja) or an unstyled page declares no colors: the
+ * WebView paints default black text on a transparent canvas, which lands on the
+ * panel background and turns unreadable in dark appearance. The `theme` query
+ * param the panel already appends (`artifactPreviewUrl`) drives the palette so
+ * the preview follows the app appearance. The values mirror the GitHub/Primer
+ * `--syntax-code-bg` / `--syntax-code-fg` pair in the desktop `styles.css` — a
+ * neutral document canvas, not app chrome. Injected first, so any style the page
+ * declares wins and a real styled page renders exactly as authored.
+ */
+export function injectPreviewBaseStyle(html: string, theme: "light" | "dark"): string {
+  const tag =
+    theme === "dark"
+      ? "<style>html{color-scheme:dark;background:#0d1117;color:#e6edf3}</style>"
+      : "<style>html{color-scheme:light;background:#ffffff;color:#1f2328}</style>";
+  // Only ASCII rides ahead of a `<meta charset>`, so early injection cannot
+  // re-encode the document. `<head>` wins over `<html>` so strict XHTML keeps
+  // the style inside head; the lookahead keeps `<header>` from matching.
+  const head = /<head(?=[\s>])[^>]*>/i.exec(html);
+  const anchor = head ?? /<html(?=[\s>])[^>]*>/i.exec(html);
+  if (!anchor) return tag + html;
+  const cut = anchor.index + anchor[0].length;
+  return html.slice(0, cut) + tag + html.slice(cut);
+}
+
+/**
+ * Builds the response for one resolved artifact file: HTML documents carry the
+ * theme-injected base style when the panel sent its `theme` hint (and the
+ * request is a plain full-document GET), everything else — and every HTML
+ * request outside those conditions — streams raw with range support. Split from
+ * the route so the injection gate, the theme-variant ETag, and the raw fallback
+ * stay unit-testable without booting SvelteKit.
+ */
+export async function artifactPreviewResponse(input: {
+  resolved: ArtifactTarget;
+  size: number;
+  mtimeMs: number;
+  theme: string | null;
+  rangeHeader: string | null;
+  ifNoneMatch: string | null;
+}): Promise<Response> {
+  if (
+    input.resolved.isHtml &&
+    (input.theme === "light" || input.theme === "dark") &&
+    !input.rangeHeader &&
+    input.size <= MAX_PREVIEW_INJECT_BYTES
+  ) {
+    const injected = injectPreviewBaseStyle(await fs.readFile(input.resolved.target, "utf8"), input.theme);
+    // The variant keeps a same-file response cached under the other theme from
+    // revalidating to 304 and repainting the stale canvas.
+    const etag = weakEtagFor({ size: input.size, mtimeMs: input.mtimeMs, variant: input.theme });
+    const headers: Record<string, string> = {
+      "content-type": input.resolved.contentType,
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": artifactDocumentCsp(),
+      etag
+    };
+    if (input.ifNoneMatch === etag) return new Response(null, { status: 304, headers });
+    return new Response(injected, { headers });
+  }
+  return streamFileWithRange({
+    path: input.resolved.target,
+    size: input.size,
+    mtimeMs: input.mtimeMs,
+    mimeType: input.resolved.contentType,
+    rangeHeader: input.rangeHeader,
+    ifNoneMatch: input.ifNoneMatch,
+    headers: {
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      ...(input.resolved.isHtml ? { "content-security-policy": artifactDocumentCsp() } : {})
+    }
+  });
 }
 
 export interface ArtifactTarget {

@@ -7,7 +7,9 @@ import {
   ArtifactNotFoundError,
   artifactContentType,
   artifactDocumentCsp,
+  artifactPreviewResponse,
   hasArtifactProxyHeader,
+  injectPreviewBaseStyle,
   resolveArtifactFile
 } from "./artifactRoute.js";
 import {
@@ -149,6 +151,82 @@ test("artifactContentType maps html, css, js and unknown", () => {
   assert.match(artifactContentType("a.js").contentType, /^text\/javascript/);
   assert.equal(artifactContentType("a.bin").contentType, "application/octet-stream");
   assert.equal(artifactContentType("a.bin").isHtml, false);
+});
+
+test("the preview base style is injected ahead of every page style", () => {
+  const styled =
+    "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><style>body{color:pink}</style></head></html>";
+  const dark = injectPreviewBaseStyle(styled, "dark");
+  // Injected as the first thing in <head>, so the page's own <style> wins.
+  assert.ok(dark.indexOf("<style>html{color-scheme:dark;background:#0d1117;color:#e6edf3}</style>") < dark.indexOf("<style>body{color:pink}"));
+  const light = injectPreviewBaseStyle(styled, "light");
+  assert.ok(light.includes("<style>html{color-scheme:light;background:#ffffff;color:#1f2328}</style>"));
+  // A fragment with no <head> anchors on <html>; bare template text prepends.
+  assert.match(injectPreviewBaseStyle("<html><body>{{ x }}</body></html>", "dark"), /^<html><style>/);
+  assert.ok(injectPreviewBaseStyle("{{- if or .Params.mermaid -}}", "dark").startsWith("<style>"));
+  // `<header>` is a body element, not the head anchor.
+  const headerDoc = injectPreviewBaseStyle("<body><header>nav</header></body>", "dark");
+  assert.ok(headerDoc.startsWith("<style>"));
+  assert.ok(headerDoc.endsWith("<body><header>nav</header></body>"));
+  // ASCII-only injection can sit before a late <meta charset> without
+  // re-encoding the document.
+  assert.equal(
+    injectPreviewBaseStyle("<head></head>", "dark"),
+    "<head><style>html{color-scheme:dark;background:#0d1117;color:#e6edf3}</style></head>"
+  );
+});
+
+test("the preview response injects the theme base style into HTML documents", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-artifact-"));
+  try {
+    writeFileSync(join(root, "page.html"), "<!doctype html><html><head><title>t</title></head></html>");
+    const target = await resolveArtifactFile(fixture(root), "page.html");
+    const base = { resolved: target, size: 74, mtimeMs: 1_000 };
+
+    const dark = await artifactPreviewResponse({ ...base, theme: "dark", rangeHeader: null, ifNoneMatch: null });
+    assert.equal(dark.status, 200);
+    assert.match(await dark.text(), /color-scheme:dark;background:#0d1117/);
+    assert.equal(dark.headers.get("content-security-policy"), artifactDocumentCsp());
+
+    // The ETag is theme-specific, so a light-theme cache can never 304 a dark
+    // request into repainting the stale canvas.
+    const darkEtag = dark.headers.get("etag");
+    const light = await artifactPreviewResponse({ ...base, theme: "light", rangeHeader: null, ifNoneMatch: null });
+    assert.notEqual(light.headers.get("etag"), darkEtag);
+
+    const revalidate = await artifactPreviewResponse({ ...base, theme: "dark", rangeHeader: null, ifNoneMatch: darkEtag });
+    assert.equal(revalidate.status, 304);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("requests outside the injection gate stream the raw file", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-artifact-"));
+  try {
+    writeFileSync(join(root, "page.html"), "<!doctype html><html><body>raw</body></html>");
+    const target = await resolveArtifactFile(fixture(root), "page.html");
+    const base = { resolved: target, size: 43, mtimeMs: 1_000 };
+
+    // No theme hint: a non-panel caller gets the file verbatim.
+    const raw = await artifactPreviewResponse({ ...base, size: 44, theme: null, rangeHeader: null, ifNoneMatch: null });
+    assert.equal(await raw.text(), "<!doctype html><html><body>raw</body></html>");
+    assert.equal(raw.headers.get("content-security-policy"), artifactDocumentCsp());
+
+    // A ranged request (never sent for documents, always for media) streams.
+    const ranged = await artifactPreviewResponse({ ...base, theme: "dark", rangeHeader: "bytes=0-6", ifNoneMatch: null });
+    assert.equal(ranged.status, 206);
+    assert.equal(await ranged.text(), "<!docty");
+
+    // Non-HTML assets never get a style injected.
+    writeFileSync(join(root, "app.js"), "console.log(1);");
+    const js = await resolveArtifactFile(fixture(root), "app.js");
+    const rawJs = await artifactPreviewResponse({ resolved: js, size: 15, mtimeMs: 1_000, theme: "dark", rangeHeader: null, ifNoneMatch: null });
+    assert.equal(await rawJs.text(), "console.log(1);");
+    assert.equal(rawJs.headers.get("content-security-policy"), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("a session artifact token round-trips profile, session and project ids", () => {

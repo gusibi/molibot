@@ -2676,7 +2676,7 @@ test("the source toggle is a registry fact and is offered in both scopes", () =>
   assert.equal(projectFilePanel.match(/sourceToggleAvailable && activeTab\.kind === "file"/g)?.length, 1);
   assert.match(projectFilePanel, /artifactShowSource/);
   // The toggle resets per tab; a sticky source view would carry into the next file.
-  assert.match(projectFilePanel, /store\.activeTabId;[\s\S]*?showSource = false/);
+  assert.match(projectFilePanel, /store\.activeTabId;[\s\S]*?sourceOverride = null/);
 });
 
 test("the session loader decodes text for exactly the viewers that render it", () => {

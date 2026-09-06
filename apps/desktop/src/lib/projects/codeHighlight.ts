@@ -9,7 +9,7 @@ const LANGUAGE_BY_EXTENSION: Record<string, string> = {
   ts: "typescript", tsx: "typescript", mts: "typescript", cts: "typescript",
   js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
   json: "json", json5: "json", jsonc: "json",
-  html: "xml", htm: "xml", xml: "xml", svg: "xml", vue: "xml", svelte: "xml",
+  html: "xml", htm: "xml", xhtml: "xml", xml: "xml", svg: "xml", vue: "xml", svelte: "xml",
   css: "css", scss: "scss", sass: "scss", less: "less",
   md: "markdown", mdx: "markdown", markdown: "markdown",
   yml: "yaml", yaml: "yaml",

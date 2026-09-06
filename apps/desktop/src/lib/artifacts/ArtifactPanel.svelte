@@ -57,7 +57,7 @@
   import type { SessionFileTouches } from "../projects/sessionFileTouches";
   import { ArtifactTabsStore, flattenTree, type ArtifactTab } from "./artifactTabsStore.svelte";
   import { shouldOpenArtifactAsDiff } from "./artifactOpenMode";
-  import { matchViewer, hasSourceToggle, type ArtifactScope } from "./viewerRegistry";
+  import { matchViewer, hasSourceToggle, isTemplateDocument, type ArtifactScope } from "./viewerRegistry";
   import { resolveRelativeResourcePath } from "./markdownImages";
   import HtmlPreview from "./HtmlPreview.svelte";
   import CsvTable from "./CsvTable.svelte";
@@ -184,11 +184,14 @@
 
   let diffLayout = $state<"line-by-line" | "side-by-side">("line-by-line");
   /**
-   * Markdown and SVG open rendered; this drops back to their source. Which
-   * viewers offer the toggle is the registry's call (`hasSourceToggle`), not a
-   * per-format condition in the template.
+   * The user's explicit rendered/source choice; `null` defers to each viewer's
+   * default. Markdown and SVG default rendered. HTML defaults rendered too -
+   * unless the document carries template directives (`isTemplateDocument`), in
+   * which case it is source wearing an `.html` extension: rendered it would show
+   * stray `{{ }}` text and run its scripts against nothing. Derived next to
+   * `viewer`/`activeText`, which decide the fallback.
    */
-  let showSource = $state(false);
+  let sourceOverride = $state<boolean | null>(null);
   /** Bumps to reload the HtmlPreview iframe after the agent rewrites the file. */
   let htmlRefreshKey = $state(0);
 
@@ -268,6 +271,10 @@
           ? activeTab.preview.content
           : ""
         : activeTab.textContent
+  );
+  /** Rendered/source switch: the user's explicit choice wins, else the viewer default. */
+  const showSource = $derived(
+    sourceOverride ?? (viewer === "html" && activeText !== "" && isTemplateDocument(activeText))
   );
   /**
    * Iframe URL for the HTML preview, served through the artifact route in both
@@ -788,11 +795,12 @@
     });
   });
 
-  // Markdown and SVG always open rendered; the source toggle is per file, not
-  // sticky across tabs.
+  // Markdown and SVG always open rendered, HTML opens rendered unless the
+  // document is a template; the explicit toggle is per file, not sticky across
+  // tabs.
   $effect(() => {
     store.activeTabId;
-    untrack(() => { showSource = false; });
+    untrack(() => { sourceOverride = null; });
   });
 
   // Follow-the-agent for HTML: when the watcher reloads the active HTML tab's
@@ -1372,7 +1380,7 @@
                     aria-pressed={showSource}
                     title={copy.artifactShowSource}
                     aria-label={copy.artifactShowSource}
-                    onclick={() => (showSource = !showSource)}
+                    onclick={() => (sourceOverride = !showSource)}
                   ><Code size={16} aria-hidden="true" /></button>
                 {/if}
                 {#if viewer === "html"}
@@ -1443,7 +1451,11 @@
                     <p class="project-viewer-note">{activeTab.diff.status === "unavailable" ? activeTab.diff.reason : copy.projectBinaryFile}</p>
                   {/if}
                 {:else if activeTab.kind === "file"}
-                  {#if viewer === "html" && (htmlPreviewSrc || activeTab.blobUrl)}
+                  {#if viewer === "html" && showSource && activeText}
+                    <!-- A template document opens as source: the rendered frame
+                         would print the directives as stray text. -->
+                    <CodeViewer content={activeText} filePath={activeTab.path || activeTab.name} {copy} />
+                  {:else if viewer === "html" && (htmlPreviewSrc || activeTab.blobUrl)}
                     <!-- Route URL first: a blob has no path, so relative assets
                          would not resolve. The blob is the external-transcript
                          fallback, where the route declines to serve. -->

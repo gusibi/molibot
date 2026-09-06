@@ -111,6 +111,10 @@ export function flattenTree(
 
 const MAX_OPEN_TABS = 12;
 
+/** Above this, an HTML tab stays rendered-only: the source toggle and template
+ * sniff need decoded text, but a bigger string in memory buys nothing. */
+const HTML_SOURCE_DECODE_BYTES = 4 * 1024 * 1024;
+
 function tabId(kind: ArtifactTabKind, key: string): string {
   return `${kind}:${key}`;
 }
@@ -546,6 +550,11 @@ export class ArtifactTabsStore {
         if (!current) return;
         if (viewer === "html") {
           current.blobUrl = URL.createObjectURL(blob);
+          // The rendered/source toggle and the template sniff read decoded text;
+          // the bytes are already in memory, so this adds no second fetch.
+          // Oversized documents stay rendered-only rather than doubling the
+          // blob with an equally large string.
+          if (blob.size <= HTML_SOURCE_DECODE_BYTES) current.textContent = await blob.text();
         } else {
           // code/csv/markdown/json/svg: decode once; the viewer reads text.
           current.textContent = await blob.text();

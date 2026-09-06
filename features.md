@@ -1,5 +1,14 @@
 # Molibot Features
 
+### 文件面板 HTML 预览暗色可读性根修 + 模板文件默认源码视图（2026-09-06，已实现）
+
+- **症状**：右侧项目文件面板预览 `.html` 文件时，暗色主题下内容接近纯黑、完全看不清（如 Hugo 模板 `layouts/partials/extend_footer.html`）。
+- **根因**：`.html` 一律走 sandboxed iframe 渲染预览，artifact 路由直接回吐原始字节——`artifactPreviewUrl` 一路携带的 `theme` 查询参数从未被消费。Hugo 模板不是完整网页，浏览器把模板指令当正文用 UA 默认黑色渲染；iframe 文档画布透明，露出暗色面板，形成黑字叠暗底。无 `<style>` 的真实页面同样命中。
+- **根修（共享层）**：`artifactRoute.ts` 新增 `injectPreviewBaseStyle` / `artifactPreviewResponse`——HTML 文档按 `theme` 注入一段置于文档最前的基底样式（dark `#0d1117/#e6edf3`、light `#ffffff/#1f2328`，与桌面 Primer 语法色板一致；页面自有样式在后必然覆盖，真实带样式页面不受影响）；ETag 折入 theme variant，跨主题缓存不会 304 出旧画布；无 theme、Range 请求、超 4MB 走原流式路径。路由层只保留薄壳。
+- **视图修正**：`viewerRegistry` 新增 `isTemplateDocument`（头部 4096 字符内含 `{{`/`{%`/`<%`/`<?php`/`<?=` 即模板）；含模板指令的 HTML 默认打开源码视图（CodeViewer 语法高亮，明暗主题均正常），`</>` 源码切换扩展到 HTML，用户可手动切回渲染视图；session 作用域 html 标签页在既有 blob 上顺带解码文本，无二次请求。
+- **机器守卫**：`artifactRoute.test.ts` 新增注入位置/主题色/ASCII 注入、ETag theme variant 与 304、无 theme/Range/非 HTML 回退流式等 3 组测试；`viewerRegistry.test.ts` 新增模板嗅探与 hasSourceToggle(html) 断言；`chat-ui.test.mjs` 源码切换重置守卫迁移为 `sourceOverride = null` 契约。
+- 验证：`test:projects` 80 项、桌面 tsx 238 项、node 236 项、`svelte-check` 0 错误、`vite build` 通过；隔离冒烟（Chromium 读取注入后文档计算样式）确认 dark 注入为浅字暗底、light 为白底黑字、原始字节复现黑字透明画布。真机冷启动走查（重启桌面端 → 打开 `layouts/*.html` → 暗色查看 → 明暗切换）待用户下次打开桌面端确认。
+
 ### 工作区四面板 header 统一为设置页「标题 + 描述」风格（2026-09-06，已实现）
 
 - **问题**：自动任务、技能、Agent、小程序四个工作区面板的顶部只有一条 42px 窄栏里左对齐的纯标题，与设置页（居中列 + 标题 + 灰色描述）的观感割裂。

@@ -34,8 +34,15 @@ export function parseByteRange(header: string | null | undefined, size: number):
   return { start, end: Math.min(end, size - 1) };
 }
 
-export function weakEtagFor(input: { size: number; mtimeMs: number }): string {
-  return `W/"${input.size.toString(16)}-${Math.floor(input.mtimeMs).toString(16)}"`;
+/**
+ * The variant suffix folds any transformation the caller applies to the served
+ * bytes (e.g. the preview's theme-driven base style) into the tag, so a cached
+ * body can never be revalidated into a response that differs from what was
+ * cached.
+ */
+export function weakEtagFor(input: { size: number; mtimeMs: number; variant?: string }): string {
+  const seed = `${input.size.toString(16)}-${Math.floor(input.mtimeMs).toString(16)}`;
+  return `W/"${input.variant ? `${seed}-${input.variant}` : seed}"`;
 }
 
 export interface RangeStreamInput {
