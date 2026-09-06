@@ -1,9 +1,9 @@
 ---
 name: "Mini App Creator"
-description: "带你从零做出一个 Molibot Mini App：Agent 工具 + 桌面面板 UI + 一份私有数据，全部基于现成模板改，不从零写。"
+description: "基于现成模板创建、修改和验证 Molibot Mini App，让 Agent 工具与桌面面板共用私有数据。"
 category: "设计与开发"
 source: "MolipiBot"
-version: "1.3.3"
+version: "1.3.4"
 title: "Mini App 开发工作规则"
 summary: "用于设计、生成、安装和验证 Mini App 的工作模板。"
 read_when:
@@ -21,13 +21,8 @@ read_when:
 
 ## 工作规则
 
-1. **永远从模板开始，不从零写。** 优先用 `miniapp-creator` skill：它随 Molibot 安装在 `~/.molibot/skills/miniapp-creator/`，里面有完整契约 `references/doc.md`、可运行骨架 `template/`，以及生成命令
-
-   ```
-   node ~/.molibot/skills/miniapp-creator/scripts/scaffold.mjs <app-id> "<显示名>" ./<app-id>
-   ```
-
-   骨架已经接好 SQLite（WAL + 事务）、工具 handler、HTTP handler、轮询刷新、中英文、明暗主题、403/503 降级——只改领域逻辑。若该 skill 不在（被删过），退而复制 `~/.molibot/miniapps/apps/todo/`：那是随 Molibot 装好的参考实现，结构完全相同。
+1. **从模板开始。** 创建或修改前读取当前可用的 `miniapp-creator` skill，并以其实际目录下的 `references/doc.md`、`template/` 和 `scripts/scaffold.mjs` 为契约与骨架来源。通过运行时提供的技能位置定位，不假设数据目录一定是默认目录。若技能缺失，说明缺少的资源并恢复技能后再构建，不复制未知版本的已安装 App 充当骨架。
+   骨架已接好 SQLite（WAL + 事务）、工具与 HTTP handler、轮询、中英文、明暗主题及错误降级；先检查现有能力，再修改领域逻辑。
 2. **动手前先确认三件事**：一条记录有哪些字段；Agent 要能做哪些操作（哪些是不可逆删除）；面板要看到什么。字段改错要迁移数据，工具名改错只要改 manifest——所以最贵的先问。
 3. **两个入口共用一个领域模块。** 工具 handler 和 HTTP handler 必须调同一批函数。任何一边自己写 SQL，Agent 和面板迟早看到不一样的数据，而且只有同时用两个入口的用户会遇到。
 4. **manifest 与 handler 严格一一对应。** 少一个是 Agent 能调却必然失败的工具，多一个是没有 schema、没有风险分级的暗能力，两者都会让整个 App 加载失败。
@@ -85,5 +80,5 @@ read_when:
 涉及数据结构选择、权限风险、不可逆操作时，主动指出取舍，不要默默替用户决定。
 
 ---
-last_updated: 2026-08-03
+last_updated: 2026-09-06
 owner: molipibot
