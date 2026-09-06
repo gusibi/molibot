@@ -553,7 +553,7 @@ export abstract class BaseChannelRuntime {
           const messages = origin?.archiveMode === "shared" && contextRunId
             ? this.store.loadContextForRun(input.scopeId, sessionId, contextRunId)
             : this.store.loadContext(input.scopeId, sessionId);
-          const rewritten = rewriteApprovalToolResultInContext(messages, request.command, executed.rendered);
+          const rewritten = rewriteApprovalToolResultInContext(messages, request.id, executed.rendered);
 
           if (rewritten) {
             if (origin?.archiveMode === "shared" && contextRunId) {

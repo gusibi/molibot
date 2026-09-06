@@ -8,38 +8,31 @@ import {
 } from "$lib/server/web/identity";
 import { deleteWebSession } from "$lib/server/web/sessionLifecycle.js";
 import { loadConversationMessages } from "$lib/server/web/conversationProjection.js";
-import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
-import { projectDurableConversationPlan } from "$lib/server/agent/durable/planProjection.js";
-
-const durableCoordinator = new DurableExecutionCoordinator();
-
+import { resolveWebConversationIdentity } from "$lib/server/web/runtimeContext.js";
 export const GET: RequestHandler = async ({ params, url }) => {
   const id = params.id;
   const userId = sanitizeWebUserId(url.searchParams.get("userId"));
   const profileId = sanitizeWebProfileId(url.searchParams.get("profileId"));
-  const externalUserId = toWebExternalUserId(userId, profileId);
   if (!id) {
     return json({ ok: false, error: "Session ID is required" }, { status: 400 });
   }
 
   const { sessions } = getRuntime();
-  const conversation = sessions.getConversationById(id, "web", externalUserId);
+  // The Desktop sidebar aggregates every Web owner's conversations (plan §12),
+  // so a read must resolve the conversation's real owner from the index. Trusting
+  // the caller's derived identity (the Desktop's is `web:<profile>:web-anonymous`)
+  // 404'd browser-created sessions, which rendered as an empty "new conversation"
+  // pane with only an error banner.
+  const identity = resolveWebConversationIdentity({ profileId, userId, conversationId: id });
+  const conversation = sessions.getConversationById(id, "web", identity.externalUserId);
   if (!conversation) {
     return json({ ok: false, error: "Session not found" }, { status: 404 });
   }
 
-  const messages = loadConversationMessages({ profileId, userId, conversationId: id }).map((message) => {
-    const plan = message.plan;
-    if (!plan?.durableExecutionId) return message;
-    try {
-      const durable = durableCoordinator.inspect("owner", plan.durableExecutionId);
-      return {
-        ...message,
-        plan: projectDurableConversationPlan(plan, durable)
-      };
-    } catch {
-      return message;
-    }
+  const messages = loadConversationMessages({
+    profileId: identity.profileId,
+    userId: identity.userId,
+    conversationId: id
   });
   return json({
     ok: true,

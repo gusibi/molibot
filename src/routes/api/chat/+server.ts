@@ -1,3 +1,4 @@
+import { runBackgroundConversation } from "$lib/server/app/backgroundConversation.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
@@ -21,14 +22,14 @@ import {
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,
-  resolveWebDurableBotId,
-  toWebExternalUserId
+  resolveWebDurableBotId
 } from "$lib/server/web/identity";
 import {
   getWebRuntimeContext,
   getRuntimeContextForConversation,
   resolveRunnerChatId,
-  resolveRuntimeContext
+  resolveRuntimeContext,
+  resolveWebConversationIdentity
 } from "$lib/server/web/runtimeContext";
 import { sanitizeOptionalRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
 import type { RunnerUiEvent } from "$lib/server/agent/core/types";
@@ -65,7 +66,7 @@ import {
   type DurableRequestMode
 } from "$lib/server/agent/durable/activation.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
-import { tryAutoSummarizeConversationTitleAsync } from "$lib/server/sessions/titleSummarizer.js";
+import { tryAutoSummarizeConversationTitleAsync, hasDefaultConversationTitle } from "$lib/server/sessions/titleSummarizer.js";
 
 interface ChatBody {
   userId?: string;
@@ -370,7 +371,7 @@ export async function _handleWebHostToolsCommand(
     const resumeWithToolResult = (rendered: string): void => {
       try {
         const messages = store.loadContext(scopeId, sessionId);
-        const rewritten = rewriteApprovalToolResultInContext(messages, approved.record.command, rendered);
+        const rewritten = rewriteApprovalToolResultInContext(messages, approved.record.id, rendered);
 
         if (rewritten) {
           store.saveContext(scopeId, messages, sessionId);
@@ -385,7 +386,7 @@ export async function _handleWebHostToolsCommand(
           // crashes the sidecar process).
           void retryApprovalAutoResume({
             run: async () => {
-              await pool.get(scopeId, sessionId).run({
+              await runBackgroundConversation(pool.get(scopeId, sessionId), {
                 channel: "web",
                 workspaceDir: store.getWorkspaceDir(),
                 chatDir: store.getChatDir(scopeId),
@@ -407,26 +408,7 @@ export async function _handleWebHostToolsCommand(
                   sessionId,
                   isEvent: true
                 },
-                respond: async (text: string) => {
-                  if (text.trim()) {
-                    getRuntime().sessions.appendMessage(sessionId, "assistant", text);
-                  }
-                },
-                replaceMessage: async (text: string) => {
-                  if (text.trim()) {
-                    getRuntime().sessions.appendMessage(sessionId, "assistant", text);
-                  }
-                },
-                respondInThread: async (text: string) => {
-                  if (text.trim()) {
-                    getRuntime().sessions.appendMessage(sessionId, "assistant", text);
-                  }
-                },
-                setTyping: async () => {},
-                setWorking: async () => {},
-                deleteMessage: async () => {},
-                uploadFile: async () => {}
-                });
+              }, getRuntime().sessions);
             },
             maxAttempts: APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS,
             delayMs: APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
@@ -664,12 +646,16 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   if (parsed.files.length === 0) {
-    const externalUserId = toWebExternalUserId(parsed.userId, parsed.profileId);
+    const identity = resolveWebConversationIdentity({
+      profileId: parsed.profileId,
+      userId: parsed.userId,
+      conversationId: parsed.conversationId
+    });
     const command = await tryHandleWebCommand(
       parsed.message,
       parsed.profileId,
       parsed.conversationId,
-      externalUserId,
+      identity.externalUserId,
       parsed.projectId
     );
     if (command) {
@@ -678,7 +664,7 @@ export const POST: RequestHandler = async ({ request }) => {
       if (!projectResult.ok) return json({ ok: false, error: projectResult.error }, { status: projectResult.status });
       const conversation = runtime.sessions.getOrCreateConversation(
         "web",
-        externalUserId,
+        identity.externalUserId,
         parsed.conversationId,
         { projectId: projectResult.project?.id }
       );
@@ -699,7 +685,16 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!projectResult.ok) return json({ ok: false, error: projectResult.error }, { status: projectResult.status });
   const project = projectResult.project;
   const workspaceId = resolveWorkspaceId();
-  const externalUserId = toWebExternalUserId(parsed.userId, parsed.profileId);
+  // Act under the conversation's own identity: the Desktop sidebar lists every
+  // Web owner's conversations, and sending under the caller's derived identity
+  // used to miss the conversation and silently continue (or create) a different
+  // session via the getOrCreateConversation fallback.
+  const identity = resolveWebConversationIdentity({
+    profileId: parsed.profileId,
+    userId: parsed.userId,
+    conversationId: parsed.conversationId
+  });
+  const externalUserId = identity.externalUserId;
   const conversation = runtime.sessions.getOrCreateConversation(
     "web",
     externalUserId,
@@ -707,11 +702,11 @@ export const POST: RequestHandler = async ({ request }) => {
     { projectId: project?.id }
   );
 
-  const { store, pool } = resolveRuntimeContext({ profileId: parsed.profileId, projectId: project?.id });
-  // Project conversations may originate on a channel bot (e.g. Feishu); keying
-  // the runner by the conversation's own externalUserId reopens that exact
-  // agent context instead of forking a Web-keyed copy.
-  const runnerChatId = project ? conversation.externalUserId : externalUserId;
+  const { store, pool } = resolveRuntimeContext({ profileId: identity.profileId, projectId: project?.id });
+  // The runner is always keyed by the conversation's own identity (project or
+  // Web owner) so the turn reopens the exact agent context that wrote this
+  // session's history instead of forking a caller-keyed copy.
+  const runnerChatId = resolveRunnerChatId(conversation.id, externalUserId);
   const ts = `${Date.now() / 1000}`;
   const messageId = Date.now();
   const attachments: FileAttachment[] = [];
@@ -747,9 +742,10 @@ export const POST: RequestHandler = async ({ request }) => {
       { status: 409 }
     );
   }
-  const shouldSummarizeTitle = !runtime.sessions
-    .listMessages(conversation.id)
-    .some((message) => message.role === "user");
+  // Retry gate, not a first-turn gate: a failed earlier attempt (LLM timeout,
+  // missing key) left the session titled "New Session" forever. The title check
+  // inside the summarizer still protects user-renamed sessions.
+  const shouldSummarizeTitle = hasDefaultConversationTitle(conversation.title);
   runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
     attachments: sessionAttachments,
     contextBacked: true,

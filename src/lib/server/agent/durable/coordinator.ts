@@ -39,7 +39,7 @@ function projectDetail(detail: DurableExecutionDetail, queuePosition?: number): 
       failed: requiredCriteria.filter((criterion) => criterion.result === "failed").length
     },
     ...(detail.execution.waitingKind
-      ? { waiting: { kind: detail.execution.waitingKind, reason: detail.execution.waitingReason ?? "Waiting for the next safe action." } }
+      ? { waiting: { kind: detail.execution.status === "waiting_for_user" && detail.decisions.some((decision) => decision.status === "open" && decision.options.includes("confirm_completion")) ? "review" as const : detail.execution.waitingKind, reason: detail.execution.waitingReason ?? "Waiting for the next safe action." } }
       : {}),
     active: detail.execution.status === "running" || detail.execution.status === "verifying"
   };

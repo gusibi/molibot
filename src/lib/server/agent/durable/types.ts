@@ -260,7 +260,7 @@ export interface DurableExecutionProjection {
   queuePosition?: number;
   nextStep?: { id: string; title: string; status: ExecutionStepStatus };
   requiredCriteria: { total: number; passed: number; unproven: number; failed: number };
-  waiting?: { kind: "user" | "approval" | "recovery"; reason: string };
+  waiting?: { kind: "user" | "approval" | "recovery" | "review"; reason: string };
   active: boolean;
 }
 

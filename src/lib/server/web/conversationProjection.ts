@@ -1,11 +1,12 @@
+import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
+import { projectDurableConversationPlan } from "$lib/server/agent/durable/planProjection.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import {
   projectConversationMessages,
   type ConversationProjection,
   type ProjectedConversationMessage
 } from "$lib/server/app/conversationProjection.js";
-import { sanitizeWebProfileId, sanitizeWebUserId, toWebExternalUserId } from "$lib/server/web/identity.js";
-import { getRuntimeContextForConversation, resolveRunnerChatId } from "$lib/server/web/runtimeContext.js";
+import { getRuntimeContextForConversation, resolveRunnerChatId, resolveWebConversationIdentity } from "$lib/server/web/runtimeContext.js";
 import { getMemoryTraceStore } from "$lib/server/memory/traceStore.js";
 
 interface ProjectionRuntime {
@@ -31,20 +32,15 @@ function projectionRuntime(): ProjectionRuntime {
 }
 
 function projectionContext(input: { profileId: string; userId?: string; conversationId: string }) {
-  const profileId = sanitizeWebProfileId(input.profileId);
-  const userId = sanitizeWebUserId(input.userId);
+  const identity = resolveWebConversationIdentity(input);
   const runtime = projectionRuntime();
-  const projectId = runtime.sessions.getConversationProjectId(input.conversationId);
-  const projectConversation = projectId
-    ? runtime.sessions.getProjectConversation(projectId, input.conversationId)
-    : null;
-  const fallback = projectConversation?.externalUserId || toWebExternalUserId(userId, profileId);
-  const { store } = getRuntimeContextForConversation(profileId, input.conversationId);
+  const { store, pool } = getRuntimeContextForConversation(identity.profileId, input.conversationId);
   return {
     runtime,
     store,
-    chatId: resolveRunnerChatId(input.conversationId, fallback),
-    profileId
+    pool,
+    chatId: resolveRunnerChatId(input.conversationId, identity.externalUserId),
+    profileId: identity.profileId
   };
 }
 
@@ -53,7 +49,7 @@ export function loadConversationProjection(input: {
   userId?: string;
   conversationId: string;
 }): ConversationProjection {
-  const { runtime, store, chatId } = projectionContext(input);
+  const { runtime, store, pool, chatId } = projectionContext(input);
   const result = projectConversationMessages({
     conversationId: input.conversationId,
     // Display read: bound the synchronous parse of a long session's entries
@@ -80,6 +76,20 @@ export function loadConversationProjection(input: {
   } catch {
     // Memory observability must never prevent conversation history from loading.
   }
+  for (const message of result.messages) {
+    if (!message.plan) continue;
+    if (message.plan.durableExecutionId) {
+      try {
+        const detail = new DurableExecutionCoordinator().inspect("owner", message.plan.durableExecutionId);
+        if (detail.execution.sourceUiSessionId === input.conversationId) message.plan = projectDurableConversationPlan(message.plan, detail);
+      } catch {
+        message.plan = { ...message.plan, status: "blocked" };
+      }
+    } else if (message.plan.status === "executing" && !pool.snapshotRunning().some((run) => run.chatId === chatId && run.sessionId === input.conversationId)) {
+      message.plan = runtime.sessions.updateConversationPlan(input.conversationId, message.plan.id, (plan) => ({ ...plan, status: "paused", updatedAt: new Date().toISOString() })) ?? message.plan;
+    }
+    message.steps = message.steps?.map((step) => step.kind === "plan" && step.plan.id === message.plan?.id ? { ...step, plan: message.plan } : step);
+  }
   return result;
 }
 
@@ -97,11 +107,10 @@ export function loadStoredConversationMessages(conversationId: string): Projecte
   if (projectId) {
     return loadConversationMessages({ profileId: "default", conversationId });
   }
-  const externalUserId = sessions.getWebConversationOwner(conversationId) ?? "";
-  const match = externalUserId.match(/^web:([^:]+):(.*)$/);
+  const identity = resolveWebConversationIdentity({ profileId: "default", conversationId });
   return loadConversationMessages({
-    profileId: match?.[1] || "default",
-    userId: match?.[2] || "web-anonymous",
+    profileId: identity.profileId,
+    userId: identity.userId,
     conversationId
   });
 }

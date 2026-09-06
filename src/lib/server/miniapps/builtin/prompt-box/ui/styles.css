@@ -101,20 +101,13 @@
     place-items: center;
     width: 24px;
     height: 24px;
-    border-radius: 6px;
-    background: linear-gradient(135deg, #4A6072 0%, #5B7068 100%);
-    color: #FFFFFF;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: -0.3px;
-    box-shadow: 0 2px 6px rgba(74, 96, 114, 0.25);
     user-select: none;
   }
 
-  [data-theme="dark"] .prompt-box-logo-badge {
-    background: linear-gradient(135deg, #3A4C5A 0%, #465751 100%);
-    color: #E2ECF3;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  .prompt-box-logo-badge img {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   .prompt-box-count-pill {

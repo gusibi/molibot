@@ -225,7 +225,7 @@ test("pairs by stored sourceEntryId regardless of list position", () => {
   assert.equal(result.resolvedSourceEntries.some((e) => e.id === "m-a"), false);
 });
 
-test("preserves multiple terminal assistant replies from the same user turn", () => {
+test("folds multiple terminal assistant replies from one user turn into one answer", () => {
   const result = projectConversationMessages({
     conversationId: "session",
     entries: [
@@ -245,15 +245,16 @@ test("preserves multiple terminal assistant replies from the same user turn", ()
     ]
   });
 
-  assert.deepEqual(
-    result.messages
-      .filter((message) => message.role === "assistant")
-      .map((message) => [result.sourceEntryByMessageId.get(message.id), message.content]),
-    [
-      ["a-primary", "完整交付报告"],
-      ["a-supplement", "补充收尾说明"]
-    ]
-  );
+  const replies = result.messages.filter((message) => message.role === "assistant");
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0]?.content, "完整交付报告\n\n补充收尾说明");
+  assert.equal(result.sourceEntryByMessageId.get(replies[0]!.id), "a-supplement");
+  assert.deepEqual(replies[0]?.steps?.map((step) => step.kind === "activity" ? step.kind : `${step.kind}:${step.content}`), [
+    "thinking:A queued runtime follow-up arrived.",
+    "text:处理中间状态",
+    "activity",
+    "text:完整交付报告\n\n补充收尾说明"
+  ]);
 });
 
 test("projects a persisted Plan onto the turn decision instead of an orphan retry block", () => {

@@ -1,3 +1,4 @@
+import { runBackgroundConversation } from "$lib/server/app/backgroundConversation.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { ChannelRunnerPoolLike } from "$lib/server/agent/core/runnerPool.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
@@ -117,7 +118,7 @@ export async function resumeSuspendedBrokerApproval(
 
   void retryApprovalAutoResume({
     run: async () => {
-      await pool.get(scopeId, sessionId).run({
+      await runBackgroundConversation(pool.get(scopeId, sessionId), {
         channel,
         workspaceDir: store.getWorkspaceDir(),
         chatDir: store.getChatDir(scopeId),
@@ -136,26 +137,7 @@ export async function resumeSuspendedBrokerApproval(
           runId: waitingRun.id,
           isEvent: true
         },
-        respond: async (text: string) => {
-          if (text.trim()) {
-            sessions.appendMessage(sessionId, "assistant", text);
-          }
-        },
-        replaceMessage: async (text: string) => {
-          if (text.trim()) {
-            sessions.appendMessage(sessionId, "assistant", text);
-          }
-        },
-        respondInThread: async (text: string) => {
-          if (text.trim()) {
-            sessions.appendMessage(sessionId, "assistant", text);
-          }
-        },
-        setTyping: async () => {},
-        setWorking: async () => {},
-        deleteMessage: async () => {},
-        uploadFile: async () => {}
-      });
+      }, sessions);
     },
     maxAttempts: APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS,
     delayMs: APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,

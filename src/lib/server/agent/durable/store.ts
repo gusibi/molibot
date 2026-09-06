@@ -1424,6 +1424,9 @@ export class DurableExecutionStore {
       answer, text(input.answeredBy, "user"), timestamp, input.decisionId
     );
     if (answer === "confirm_completion") {
+      const unfinished = this.db.prepare("SELECT COUNT(*) AS count FROM durable_steps WHERE execution_id = ? AND plan_version = ? AND status NOT IN ('completed', 'skipped')").get(input.executionId, current.current_plan_version) as { count: number };
+      if (unfinished.count > 0) throw new Error("The plan still has unfinished steps.");
+      this.db.prepare("UPDATE durable_acceptance_criteria SET result = 'passed', updated_at = ? WHERE execution_id = ? AND plan_version = ? AND checker_type = 'deterministic' AND checker_key IN ('all_steps_completed', 'steps_completed')").run(timestamp, input.executionId, current.current_plan_version);
       this.db.prepare(`
         UPDATE durable_acceptance_criteria
         SET result = 'passed', user_edited = 1, updated_at = ?
@@ -1433,8 +1436,11 @@ export class DurableExecutionStore {
     } else if (answer === "continue_work") {
       this.appendContinuationPlanInTransaction(current, timestamp);
     }
-    this.db.prepare("UPDATE durable_executions SET status = 'queued', version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = NULL, waiting_reason = NULL, next_run_at = NULL, last_error = NULL, updated_at = ? WHERE id = ? AND version = ?").run(
-      timestamp, input.executionId, input.expectedVersion
+    const unresolved = this.db.prepare("SELECT COUNT(*) AS count FROM durable_acceptance_criteria WHERE execution_id = ? AND plan_version = ? AND required = 1 AND result != 'passed'").get(input.executionId, current.current_plan_version) as { count: number };
+    if (answer === "confirm_completion" && unresolved.count > 0) throw new Error("Required verification has not passed. Review the remaining acceptance criteria.");
+    const nextStatus = answer === "confirm_completion" ? "completed" : "queued";
+    this.db.prepare("UPDATE durable_executions SET status = ?, version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = NULL, waiting_reason = NULL, next_run_at = NULL, last_error = NULL, updated_at = ? WHERE id = ? AND version = ?").run(
+      nextStatus, timestamp, input.executionId, input.expectedVersion
     );
     return rowToExecution(this.requireRow(input.executionId));
   }

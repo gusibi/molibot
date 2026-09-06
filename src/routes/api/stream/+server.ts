@@ -1,3 +1,6 @@
+import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
+import { describeExecutionHistory } from "$lib/server/agent/session/executionHistory.js";
+import { applyPlanProgress, finishPlanTurn } from "$lib/server/agent/session/planProgress.js";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
@@ -7,10 +10,9 @@ import { sanitizeOptionalRuntimeThinkingLevel } from "$lib/server/settings";
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,
-  resolveWebDurableBotId,
-  toWebExternalUserId
+  resolveWebDurableBotId
 } from "$lib/server/web/identity";
-import { resolveRuntimeContext } from "$lib/server/web/runtimeContext";
+import { resolveRuntimeContext, resolveRunnerChatId, resolveWebConversationIdentity } from "$lib/server/web/runtimeContext";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { resolveWebInboundFileMeta, saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment, ConversationPlan } from "$lib/shared/types/message";
@@ -19,12 +21,11 @@ import { buildRunnerProjectContext, resolveProjectContext } from "$lib/server/pr
 import { parseStreamRequest, type ParsedStreamRequest } from "./request";
 import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 import {
-  activateAcceptedPlan,
   activateDurableExecution,
   formatDurableActivationAcknowledgement
 } from "$lib/server/agent/durable/activation.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
-import { tryAutoSummarizeConversationTitleAsync } from "$lib/server/sessions/titleSummarizer.js";
+import { tryAutoSummarizeConversationTitleAsync, hasDefaultConversationTitle } from "$lib/server/sessions/titleSummarizer.js";
 
 function writeEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
@@ -160,18 +161,22 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const runtime = getRuntime();
   const workspaceId = resolveWorkspaceId();
-  const externalUserId = toWebExternalUserId(userId, profileId);
+  // Act under the conversation's own identity (same rule as /api/chat): the
+  // caller's derived identity would miss conversations created by another Web
+  // surface and silently continue or create a different session.
+  const identity = resolveWebConversationIdentity({ profileId, userId, conversationId });
+  const externalUserId = identity.externalUserId;
   const conversation = runtime.sessions.getOrCreateConversation(
     "web",
     externalUserId,
     conversationId,
     { projectId: project?.id }
   );
-  const { store, pool } = resolveRuntimeContext({ profileId, projectId: project?.id });
-  // Project conversations may originate on a channel bot (e.g. Feishu); keying
-  // the runner by the conversation's own externalUserId reopens that exact
-  // agent context instead of forking a Web-keyed copy.
-  const runnerChatId = project ? conversation.externalUserId : externalUserId;
+  const { store, pool } = resolveRuntimeContext({ profileId: identity.profileId, projectId: project?.id });
+  // The runner is always keyed by the conversation's own identity (project or
+  // Web owner) so the turn reopens the exact agent context that wrote this
+  // session's history instead of forking a caller-keyed copy.
+  const runnerChatId = resolveRunnerChatId(conversation.id, externalUserId);
   const runner = pool.get(runnerChatId, conversation.id);
   if (runner.isRunning()) {
     return new Response(
@@ -210,7 +215,16 @@ export const POST: RequestHandler = async ({ request }) => {
       });
     }
   }
-  const inboundText = message || "(attachment)";
+  const sessionPlan = acceptedPlan ?? runtime.sessions.listMessages(conversation.id)
+    .map((entry) => entry.plan).filter((plan): plan is ConversationPlan => Boolean(plan && !["proposed", "rejected", "cancelled"].includes(plan.status) && !plan.durableExecutionId)).at(-1);
+  const linkedPlan = runtime.sessions.listMessages(conversation.id).map((entry) => entry.plan).filter((plan) => plan?.durableExecutionId).at(-1);
+  const coordinator = linkedPlan ? new DurableExecutionCoordinator() : undefined;
+  const linkedExecution = coordinator && linkedPlan?.durableExecutionId ? coordinator.inspect("owner", linkedPlan.durableExecutionId) : undefined;
+  const executionHistory = linkedExecution ? describeExecutionHistory(linkedExecution, conversation.id) : undefined;
+  const evidenceManager = linkedExecution ? runtime.channelManagers.get(linkedExecution.execution.sourceChannel)?.get(linkedExecution.execution.botId) : undefined;
+  const inboundText = acceptedPlan
+    ? `执行已批准的计划：${acceptedPlan.title}\n${acceptedPlan.summary}\n${acceptedPlan.steps.map((step) => `${step.id}: ${step.text}`).join("\n")}`
+    : message || "(attachment)";
   const turnRetention = classifyTurnRetention(inboundText);
   const sessionAttachments: ConversationAttachment[] = attachments.map((attachment) => ({
     original: attachment.original,
@@ -219,10 +233,10 @@ export const POST: RequestHandler = async ({ request }) => {
     mimeType: attachment.mimeType,
     size: attachment.size
   }));
-  const shouldSummarizeTitle = !resumePlanId && !runtime.sessions
-    .listMessages(conversation.id)
-    .some((entry) => entry.role === "user");
-  if (!resumePlanId) {
+  // Retry gate, not a first-turn gate (see /api/chat): retry while the title is
+  // still the default; the summarizer's own title check protects renames.
+  const shouldSummarizeTitle = !resumePlanId && hasDefaultConversationTitle(conversation.title);
+  {
     runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
       attachments: sessionAttachments,
       contextBacked: true,
@@ -243,17 +257,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const durableBotId = resolveWebDurableBotId(profileId, runtime.channelManagers);
   let durable;
   try {
-    durable = acceptedPlan
-      ? activateAcceptedPlan({
-          plan: acceptedPlan,
-          ownerId: "owner",
-          botId: durableBotId,
-          sourceChannel: "web",
-          sourceChatId: runnerChatId,
-          sourceUiSessionId: conversation.id,
-          sourceProjectId: project?.id
-        })
-      : activateDurableExecution({
+    durable = sessionPlan || linkedExecution ? null : activateDurableExecution({
           message: inboundText,
           mode: body.durableMode,
           ownerId: "owner",
@@ -292,13 +296,6 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error;
   }
   if (durable) {
-    if (acceptedPlan) {
-      runtime.sessions.updateConversationPlan(conversation.id, acceptedPlan.id, (plan) => ({
-        ...plan,
-        status: "executing",
-        durableExecutionId: durable.item.execution.id
-      }));
-    }
     const response = formatDurableActivationAcknowledgement(
       durable.item,
       isChineseLocale(runtime.getSettings().locale)
@@ -362,7 +359,21 @@ export const POST: RequestHandler = async ({ request }) => {
         const stopHeartbeat = startStreamHeartbeat(controller, encoder);
 
         try {
+          if (sessionPlan && !["completed", "waiting_review"].includes(sessionPlan.status)) {
+            runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (plan) => ({ ...plan, status: "executing", updatedAt: new Date().toISOString() }));
+            writeEvent(controller, encoder, "plan_progress", { ...sessionPlan, status: "executing", updatedAt: new Date().toISOString() });
+          }
           const result = await runner.run({
+            executionHistory,
+            readDurableEvidence: linkedExecution && coordinator ? async (evidenceId) => coordinator.readEvidence("owner", linkedExecution.execution.id, evidenceId, evidenceManager?.readDurableRunDetail?.bind(evidenceManager)) : undefined,
+            sessionPlanProgress: sessionPlan ? {
+              description: JSON.stringify(sessionPlan.steps),
+              update: async (update) => {
+                const plan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => applyPlanProgress(current, update));
+                if (!plan) throw new Error("Session plan no longer exists.");
+                writeEvent(controller, encoder, "plan_progress", plan);
+              }
+            } : undefined,
             channel: "web",
             workspaceDir: store.getWorkspaceDir(),
             chatDir: store.getChatDir(runnerChatId),
@@ -496,6 +507,10 @@ export const POST: RequestHandler = async ({ request }) => {
             }
           });
 
+          if (sessionPlan) {
+            const plan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => finishPlanTurn(current, result.stopReason));
+            writeEvent(controller, encoder, "plan_progress", plan);
+          }
           const assistantText =
             finalText.trim() ||
             threadNotes.at(-1) ||
@@ -527,6 +542,10 @@ export const POST: RequestHandler = async ({ request }) => {
             thinkingText
           });
         } catch (error) {
+          if (sessionPlan) {
+            const plan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => finishPlanTurn(current, "error"));
+            writeEvent(controller, encoder, "plan_progress", plan);
+          }
           const messageText = error instanceof Error ? error.message : String(error);
           // Never drop what the run already produced: persist the partial
           // answer + tool timeline so the transcript survives the failure and

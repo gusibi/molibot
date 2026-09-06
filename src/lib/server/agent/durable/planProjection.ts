@@ -15,11 +15,12 @@ export function projectDurableConversationPlan(
   const terminalFailure = TERMINAL_FAILURES.has(durable.execution.status);
   return {
     ...plan,
-    status: durable.execution.status === "completed"
-      ? "completed"
-      : terminalFailure
-        ? "blocked"
-        : "executing",
+    updatedAt: durable.execution.updatedAt,
+    status: durable.execution.status === "running" ? "executing"
+      : durable.execution.status === "waiting_for_user" && durable.steps.every((step) => step.planVersion !== durable.execution.currentPlanVersion || ["completed", "skipped"].includes(step.status)) ? "waiting_review"
+      : durable.execution.status === "planned" ? "accepted"
+      : (durable.execution.status === "partial" || durable.execution.status === "recovery_required") ? "blocked"
+      : durable.execution.status,
     steps: plan.steps.map((step, index) => {
       const durableStep = currentSteps[index];
       if (!durableStep) return step;

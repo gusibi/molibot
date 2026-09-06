@@ -168,3 +168,89 @@ test("runtimeTask rejects fields from the wrong task type", async () => {
     rmSync(workspaceDir, { recursive: true, force: true });
   }
 });
+
+function makeProjectTool(workspaceDir: string, projectEventsDir: string) {
+  return createRuntimeTaskTool({
+    workspaceDir,
+    chatId: "web:personal:web-anonymous",
+    sessionId: "session-1",
+    timezone: "Asia/Shanghai",
+    projectId: "onlinestool",
+    projectEventsDir
+  });
+}
+
+test("runtimeTask creates project automations in the project events dir with a project target", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runtime-project-chat-"));
+  const projectEventsDir = join(mkdtempSync(join(tmpdir(), "molibot-runtime-project-root-")), "events");
+  try {
+    const tool = makeProjectTool(workspaceDir, projectEventsDir);
+    const created = resultJson(await tool.execute("create", {
+      action: "create",
+      type: "periodic",
+      schedule: "30 8 * * *",
+      timezone: "Asia/Shanghai",
+      text: "Daily AI news blog"
+    }));
+    const task = created.task as { taskId: string };
+    assert.match(String(task.taskId), /^task-[a-z0-9]{4}$/);
+    // Nothing may leak into the chat runtime events dir.
+    assert.equal(existsSync(join(workspaceDir, "events")), false);
+
+    const [createdFilename] = readdirSync(projectEventsDir).filter((name) => name.endsWith(".json"));
+    const persisted = JSON.parse(readFileSync(join(projectEventsDir, createdFilename), "utf8")) as MomEvent;
+    assert.equal(persisted.type, "periodic");
+    assert.deepEqual(persisted.target, { kind: "project", projectId: "onlinestool" });
+    assert.equal(persisted.chatId, "project:onlinestool");
+    assert.equal(persisted.delivery, "agent");
+    assert.equal(persisted.sessionMode, "fresh");
+
+    const listed = resultJson(await tool.execute("list", { action: "list" }));
+    assert.equal(listed.count, 1);
+    await assert.rejects(() => tool.execute("delete", { action: "delete", taskId: "missing-task" }), /not found/);
+    resultJson(await tool.execute("delete", { action: "delete", taskId: task.taskId }));
+    assert.equal(readdirSync(projectEventsDir).filter((name) => name.endsWith(".json")).length, 0);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(projectEventsDir, { recursive: true, force: true });
+  }
+});
+
+test("runtimeTask rejects reminders and non-project invariants inside a project chat", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runtime-project-guard-"));
+  const projectEventsDir = join(mkdtempSync(join(tmpdir(), "molibot-runtime-project-guard-root-")), "events");
+  try {
+    const tool = makeProjectTool(workspaceDir, projectEventsDir);
+    await assert.rejects(() => tool.execute("one-shot", {
+      action: "create",
+      type: "one-shot",
+      at: "2999-01-01T09:00:00+08:00",
+      text: "Remind me"
+    }), /only support periodic automations/);
+    await assert.rejects(() => tool.execute("todo", {
+      action: "create",
+      type: "todo",
+      text: "Buy milk"
+    }), /only support periodic automations/);
+    await assert.rejects(() => tool.execute("text-delivery", {
+      action: "create",
+      type: "periodic",
+      schedule: "30 8 * * *",
+      timezone: "Asia/Shanghai",
+      delivery: "text",
+      text: "Daily note"
+    }), /delivery must be agent/);
+    await assert.rejects(() => tool.execute("chat-session", {
+      action: "create",
+      type: "periodic",
+      schedule: "30 8 * * *",
+      timezone: "Asia/Shanghai",
+      sessionMode: "chat",
+      text: "Daily note"
+    }), /sessionMode must be fresh/);
+    assert.equal(existsSync(projectEventsDir), false);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(projectEventsDir, { recursive: true, force: true });
+  }
+});

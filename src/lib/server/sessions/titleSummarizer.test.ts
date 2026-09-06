@@ -173,9 +173,13 @@ test("tryAutoSummarizeConversationTitleAsync reads settings through the runtime'
   }
 });
 
-test("tryAutoSummarizeConversationTitleAsync skips every turn after the first user message", async () => {
+// Regression: a failed first attempt (LLM timeout, missing key) used to leave
+// the session titled "New Session" forever, because only the turn with exactly
+// one user message could summarize. The retry gate is now the title state
+// itself: default title → summarize on any turn; real title → never touch it.
+test("tryAutoSummarizeConversationTitleAsync retries on later turns while the title is still default", async () => {
   let streamCalls = 0;
-  let renameCalls = 0;
+  const renames: Array<{ conversationId: string; title: string }> = [];
   (globalThis as any).__molibotRuntime = {
     sessions: {
       getConversationById: () => ({
@@ -187,6 +191,52 @@ test("tryAutoSummarizeConversationTitleAsync skips every turn after the first us
       listMessages: () => [
         { role: "user", content: "first turn" },
         { role: "assistant", content: "first answer" },
+        { role: "user", content: "second turn" }
+      ],
+      renameConversation: (conversationId: string, _channel: string, _externalUserId: string, title: string) => {
+        renames.push({ conversationId, title });
+        return true;
+      }
+    },
+    getSettings: () => mockZhSettings
+  };
+
+  try {
+    const title = await tryAutoSummarizeConversationTitleAsync({
+      conversationId: "conv-1",
+      externalUserId: "user-1",
+      firstUserMessage: "second turn",
+      options: {
+        streamFn: (model, context, options) => {
+          streamCalls += 1;
+          return createMockStreamFn("第二轮主题")(model, context, options);
+        },
+        resolveApiKeyFn: async () => "dummy-key"
+      }
+    });
+
+    assert.equal(title, "第二轮主题");
+    assert.equal(streamCalls, 1);
+    assert.equal(renames.length, 1);
+    assert.equal(renames[0].title, "第二轮主题");
+  } finally {
+    delete (globalThis as any).__molibotRuntime;
+  }
+});
+
+test("tryAutoSummarizeConversationTitleAsync never overwrites a customized title", async () => {
+  let streamCalls = 0;
+  let renameCalls = 0;
+  (globalThis as any).__molibotRuntime = {
+    sessions: {
+      getConversationById: () => ({
+        id: "conv-1",
+        title: "用户自己改过的标题",
+        channel: "web",
+        externalUserId: "user-1"
+      }),
+      listMessages: () => [
+        { role: "user", content: "first turn" },
         { role: "user", content: "second turn" }
       ],
       renameConversation: () => {

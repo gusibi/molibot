@@ -154,6 +154,18 @@ export async function summarizeSessionTitleWithLlm(
 }
 
 /**
+ * True when a conversation still carries the default (or raw snippet) title,
+ * i.e. auto-summarization has not succeeded yet. Used as the send-time gate:
+ * a failed first attempt (LLM timeout, missing key) must retry on later turns
+ * instead of leaving the session titled "New Session" forever, while a title
+ * the user (or a previous successful summary) set is never overwritten.
+ */
+export function hasDefaultConversationTitle(title: string | undefined | null): boolean {
+  const current = String(title ?? "").trim();
+  return !current || current === DEFAULT_SESSION_TITLE;
+}
+
+/**
  * Triggers background AI title summarization for a conversation if it is still using the default title or raw snippet title.
  */
 export async function tryAutoSummarizeConversationTitleAsync(params: {
@@ -167,24 +179,19 @@ export async function tryAutoSummarizeConversationTitleAsync(params: {
   try {
     const { sessions, getSettings } = getRuntime();
     const channel = params.channel ?? "web";
-    const userMessageCount = sessions
-      .listMessages(params.conversationId)
-      .filter((message) => message.role === "user").length;
-    if (userMessageCount !== 1) return null;
-
-    console.log(`[title-summarizer] >>> first-turn summarization: conversationId=${params.conversationId}, channel=${channel}, externalUserId=${params.externalUserId}`);
-    const currentSettings = getSettings();
-
     const conversation = sessions.getConversationById(params.conversationId, channel, params.externalUserId);
     if (!conversation) {
       console.warn(`[title-summarizer] conversation not found: ${params.conversationId} (channel=${channel}, externalUserId=${params.externalUserId})`);
       return null;
     }
 
-    // Only auto-summarize if title is currently default or matches early user-message truncation/full snippet
+    // Only auto-summarize if title is currently default or matches early user-message truncation/full snippet.
+    // This is also the retry gate: a failed earlier attempt leaves the default
+    // title in place, so a later turn tries again — once a real title exists,
+    // this skips without calling the LLM.
     const currentTitle = conversation.title;
     const cleanMsg = params.firstUserMessage.replace(/\s+/g, " ").trim();
-    const isDefaultTitle = !currentTitle || currentTitle === DEFAULT_SESSION_TITLE;
+    const isDefaultTitle = hasDefaultConversationTitle(currentTitle);
     const isTruncatedSnippet = currentTitle === cleanMsg.slice(0, 40) ||
                                currentTitle === `${cleanMsg.slice(0, 40)}...` ||
                                currentTitle === cleanMsg;
@@ -199,7 +206,7 @@ export async function tryAutoSummarizeConversationTitleAsync(params: {
     console.log(`[title-summarizer] starting LLM summarization for conversationId=${params.conversationId}...`);
     const generatedTitle = await summarizeSessionTitleWithLlm(
       params.firstUserMessage,
-      currentSettings,
+      getSettings(),
       params.options
     );
 

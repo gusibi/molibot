@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS deleted_remote_prompts (
+  remote_id TEXT PRIMARY KEY,
+  deleted_at TEXT NOT NULL
+);
 `;
 
 const DEFAULT_API_URL = "https://pb.onlinestool.com/api";
@@ -180,6 +185,9 @@ class Store {
 
   upsertFromRemote(remoteItem) {
     const remoteId = remoteItem.id ? String(remoteItem.id) : null;
+    // A tombstoned remote item was deleted by the owner on this device; it must
+    // never come back through a pull. Returns null so sync can skip counting it.
+    if (this.isRemotelyDeleted(remoteId)) return null;
     const title = this.#cleanString(remoteItem.title, 300);
     const content = this.#cleanString(remoteItem.content, 10000);
     const description = this.#cleanString(remoteItem.description, 1000);
@@ -219,7 +227,23 @@ class Store {
       throw new AppError(`Prompt "${id}" not found.`, 404);
     }
     this.db.prepare("DELETE FROM prompts WHERE id = ?").run(id);
+    // The remote server has no delete endpoint, so a deletion has to be
+    // remembered locally: without the tombstone the next sync would re-import
+    // the row the owner just removed.
+    if (existing.remoteId) {
+      this.db.prepare(`
+        INSERT INTO deleted_remote_prompts (remote_id, deleted_at)
+        VALUES (?, ?)
+        ON CONFLICT(remote_id) DO NOTHING
+      `).run(existing.remoteId, new Date().toISOString());
+    }
     return existing;
+  }
+
+  isRemotelyDeleted(remoteId) {
+    if (!remoteId) return false;
+    const row = this.db.prepare("SELECT 1 FROM deleted_remote_prompts WHERE remote_id = ?").get(remoteId);
+    return Boolean(row);
   }
 
   getSetting(key, defaultValue = "") {
@@ -301,10 +325,12 @@ class Store {
     const rawList = Array.isArray(result.data) ? result.data : (Array.isArray(result) ? result : []);
 
     let pulledCount = 0;
+    let skippedDeletedCount = 0;
     for (const item of rawList) {
       if (item && typeof item === "object" && (item.title || item.content)) {
-        this.upsertFromRemote(item);
-        pulledCount++;
+        const upserted = this.upsertFromRemote(item);
+        if (upserted) pulledCount++;
+        else skippedDeletedCount++;
       }
     }
 
@@ -315,6 +341,7 @@ class Store {
       success: true,
       pushedCount,
       pulledCount,
+      skippedDeletedCount,
       syncedCount: pulledCount + pushedCount,
       lastSyncTime: now
     };
@@ -421,7 +448,7 @@ function promptCard(appId, prompt, title) {
 
 function formatPromptSummary(prompt) {
   const tagsStr = prompt.tags && prompt.tags.length > 0 ? ` [${prompt.tags.join(", ")}]` : "";
-  return `- **${prompt.title || "Untitled"}**${tagsStr}\n  ${prompt.content.replace(/\n+/g, " ").slice(0, 120)}`;
+  return `- **${prompt.title || "Untitled"}** (id: ${prompt.id})${tagsStr}\n  ${prompt.content.replace(/\n+/g, " ").slice(0, 120)}`;
 }
 
 function extractPromptFromCapture(capture) {

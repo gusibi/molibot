@@ -68,6 +68,7 @@ test("context-backed UI messages persist metadata without transcript content", (
     const session = store.createWebConversation("web:default:web-anonymous");
     const message = store.appendMessage(session.id, "user", "only Agent entries own this text", {
       contextBacked: true,
+      durationMs: 40871,
       attachments: [{ original: "note.txt", local: "attachments/note.txt", mediaType: "file" }]
     });
     const file = JSON.parse(readFileSync(path.join(
@@ -82,6 +83,7 @@ test("context-backed UI messages persist metadata without transcript content", (
     assert.equal(file.messageMetadata[0].id, message.id);
     assert.equal("content" in file.messageMetadata[0], false);
     assert.equal(file.messageMetadata[0].attachments[0].original, "note.txt");
+    assert.equal(new SessionStore().listMessageMetadata(session.id)[0].durationMs, 40871);
   } finally {
     Object.assign(storagePaths, original);
     rmSync(root, { recursive: true, force: true });
@@ -637,10 +639,25 @@ test("conversation plans survive save, edit, and a fresh store", () => {
       }
     });
     store.updateConversationPlan(session.id, "plan-1", (plan) => ({ ...plan, title: "Approved", status: "accepted" }));
-    const plan = new SessionStore().listMessages(session.id)[0]?.plan;
-    assert.equal(plan?.title, "Approved");
-    assert.equal(plan?.status, "accepted");
-    assert.equal(plan?.steps[0]?.text, "Inspect");
+    store.appendMessage(session.id, "assistant", "", {
+      contextBacked: true,
+      plan: {
+        id: "plan-call-2",
+        title: "Follow-up",
+        summary: "Second plan in the same session",
+        steps: [{ id: "plan-call-2-1", text: "Revise", status: "pending" }],
+        status: "proposed",
+        recommendedMode: "accept_edits",
+        artifactPath: "plans/plan-call-2.md"
+      }
+    });
+    store.updateConversationPlan(session.id, "plan-call-2", (plan) => ({ ...plan, status: "accepted" }));
+    const plans = new SessionStore().listMessages(session.id).flatMap((message) => message.plan ? [message.plan] : []);
+    assert.equal(plans[0]?.title, "Approved");
+    assert.equal(plans[0]?.status, "accepted");
+    assert.equal(plans[0]?.steps[0]?.text, "Inspect");
+    assert.equal(plans[1]?.id, "plan-call-2");
+    assert.equal(plans[1]?.status, "accepted");
   } finally {
     Object.assign(storagePaths, original);
     rmSync(root, { recursive: true, force: true });

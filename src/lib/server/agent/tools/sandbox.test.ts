@@ -292,6 +292,49 @@ test("pluggable sandbox provider dynamically intercepts sandbox execution", asyn
   }
 });
 
+test("sandbox network keeps loopback reachable despite upstream NO_PROXY bypass", async () => {
+  const originalProvider = getSandboxProvider();
+
+  let initializedWithConfig: any = null;
+  const capturingProvider: SandboxProvider = {
+    name: "capture-loopback-sandbox",
+    checkDependencies() {
+      return true;
+    },
+    async initialize(config) {
+      initializedWithConfig = config;
+    },
+    async reset() {},
+    async wrapWithSandbox(command) {
+      return command;
+    },
+    isInitialized() {
+      return initializedWithConfig !== null;
+    },
+    getLastError() {
+      return undefined;
+    }
+  };
+
+  try {
+    setSandboxProvider(capturingProvider);
+    await prepareToolSandboxExecution({
+      settings: sanitizeToolSandboxSettings({ ...defaultToolSandboxSettings, enabled: true }),
+      cwd: "/mock-cwd",
+      workspaceDir: "/mock-workspace",
+      command: "curl http://localhost:5040/health",
+      env: {}
+    });
+    // The upstream runtime always injects NO_PROXY=localhost,127.0.0.1,::1, so
+    // HTTP clients connect to loopback directly and the seatbelt profile must
+    // allow that — otherwise every localhost service fails with
+    // "Couldn't connect to server" even while running.
+    assert.equal(initializedWithConfig.network.allowLocalBinding, true);
+  } finally {
+    setSandboxProvider(originalProvider);
+  }
+});
+
 test("enabled sandbox blocks execution when its provider is unavailable", async () => {
   const originalProvider = getSandboxProvider();
   const unavailableProvider: SandboxProvider = {

@@ -21,8 +21,11 @@ export function createExitPlanTool(options: {
     label: "Propose plan",
     description: "Finish read-only planning by proposing a structured plan for the user to accept, modify, or reject.",
     parameters: schema,
-    execute: async (_toolCallId, params) => {
-      const id = `plan-${Date.now().toString(36)}`;
+    execute: async (toolCallId, params) => {
+      // The transcript can reconstruct a Plan from the persisted tool call
+      // before its UI metadata arrives. Use the stable call id in both places
+      // so accepting that reconstructed card always resolves the stored Plan.
+      const id = `plan-${toolCallId}`;
       const artifactPath = `plans/${options.sessionId}-${id}.md`;
       const plan: ConversationPlan = {
         id,

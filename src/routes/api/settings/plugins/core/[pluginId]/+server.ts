@@ -27,10 +27,13 @@ export const GET: RequestHandler = ({ params }) => {
       values: {
         enabled: settings.plugins.memory.enabled,
         backend: settings.plugins.memory.backend,
+        embeddingProviderId: settings.plugins.memory.embeddingProviderId,
+        embeddingModel: settings.plugins.memory.embeddingModel,
         reflectionTime: settings.plugins.memory.reflectionTime,
         reflectionNotifications: settings.plugins.memory.reflectionNotifications
       },
-      backends: runtime.pluginCatalog.memoryBackends.map((item) => ({ value: item.key, label: item.name }))
+      backends: runtime.pluginCatalog.memoryBackends.map((item) => ({ value: item.key, label: item.name })),
+      embeddingProviders: (settings?.customProviders ?? []).filter((provider) => provider.enabled).map((provider) => ({ value: provider.id, label: provider.name || provider.id }))
     });
   }
   return json({
@@ -68,6 +71,12 @@ export const PUT: RequestHandler = async ({ params, request }) => {
         memory: {
           enabled: body.enabled === undefined ? settings.plugins.memory.enabled : Boolean(body.enabled),
           backend,
+          embeddingProviderId: body.embeddingProviderId === undefined
+            ? settings.plugins.memory.embeddingProviderId
+            : String(body.embeddingProviderId ?? "").trim(),
+          embeddingModel: body.embeddingModel === undefined
+            ? settings.plugins.memory.embeddingModel
+            : String(body.embeddingModel ?? "").trim(),
           reflectionTime,
           reflectionNotifications: body.reflectionNotifications === undefined
             ? settings.plugins.memory.reflectionNotifications

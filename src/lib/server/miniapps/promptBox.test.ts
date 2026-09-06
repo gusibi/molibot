@@ -86,7 +86,102 @@ test("Prompt Box stores, lists, updates, and deletes prompts via HTTP API and Ag
   const listAfterDelete = await app.handleHttp(request("/prompts", "GET"));
   assert.equal(listAfterDelete.body.prompts.length, 1);
 
+  // 6. list_prompts tool output must expose ids so the agent can address
+  // delete_prompt / update_prompt / get_prompt without guessing.
+  const listTool = await app.tools.list_prompts({});
+  const listedText = listTool.content[0].text as string;
+  assert.match(listedText, /\(id: [0-9a-f-]{36}\)/);
+
   app.dispose();
+});
+
+test("Prompt Box delete survives sync: tombstoned remote items never resurrect", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "molibot-prompt-box-delete-sync-"));
+  const app = createPromptBox(contextOver(dataDir));
+
+  await app.handleHttp(
+    request("/settings", "POST", {
+      apiKey: "test_key",
+      apiUrl: "https://mock.pb.local/api"
+    })
+  );
+
+  // Remote holds two prompts; the owner deletes one of them locally.
+  const mockRemotePrompts = [
+    {
+      id: "rem_keep_1",
+      title: "Keep Me",
+      content: "Survives every sync.",
+      tags: ["cloud"]
+    },
+    {
+      id: "rem_delete_1",
+      title: "Delete Me",
+      content: "Was deleted on this device.",
+      tags: ["cloud"]
+    }
+  ];
+
+  const remoteCalls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input: any, init?: any) => {
+    const url = String(input);
+    const method = init?.method || "GET";
+    remoteCalls.push(`${method} ${url}`);
+    if (method === "GET" && url.endsWith("/prompts")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: mockRemotePrompts })
+      } as any;
+    }
+    // The real remote has no delete endpoint; nothing else may be attempted.
+    return { ok: false, status: 404, text: async () => "Not Found" } as any;
+  };
+
+  try {
+    // First sync imports both remote prompts.
+    await app.handleHttp(request("/sync", "POST"));
+    let listRes = await app.handleHttp(request("/prompts", "GET"));
+    assert.equal(listRes.body.prompts.length, 2);
+    const doomed = listRes.body.prompts.find((p: any) => p.title === "Delete Me");
+    assert.ok(doomed?.remoteId);
+
+    // Owner deletes one prompt via the HTTP API.
+    const deleteRes = await app.handleHttp(request(`/prompts/${doomed.id}`, "DELETE"));
+    assert.equal(deleteRes.body.prompt.id, doomed.id);
+    assert.equal(deleteRes.changed, true);
+
+    // A later sync must NOT resurrect the deleted prompt even though the
+    // remote still returns it, and must keep importing the surviving one.
+    const syncRes = await app.handleHttp(request("/sync", "POST"));
+    assert.equal(syncRes.body.success, true);
+    assert.equal(syncRes.body.pulledCount, 1);
+    assert.equal(syncRes.body.skippedDeletedCount, 1);
+
+    listRes = await app.handleHttp(request("/prompts", "GET"));
+    assert.equal(listRes.body.prompts.length, 1);
+    assert.equal(listRes.body.prompts[0].title, "Keep Me");
+
+    // The same guarantee holds for the agent-facing delete tool.
+    const toolDelete = await app.tools.delete_prompt({ id: listRes.body.prompts[0].id });
+    assert.equal(toolDelete.changed, true);
+    const syncAfterToolDelete = await app.handleHttp(request("/sync", "POST"));
+    assert.equal(syncAfterToolDelete.body.pulledCount, 0);
+    assert.equal(syncAfterToolDelete.body.skippedDeletedCount, 2);
+    const finalList = await app.handleHttp(request("/prompts", "GET"));
+    assert.equal(finalList.body.prompts.length, 0);
+
+    // The remote offers only a read-only list; deletes are enforced purely by
+    // local tombstones, so sync must never attempt a mutating remote call.
+    assert.ok(
+      remoteCalls.every((call) => call.startsWith("GET ")),
+      `Remote must only ever be listed, never mutated: ${remoteCalls.join(", ")}`
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    app.dispose();
+  }
 });
 
 test("Prompt Box manages API Key and settings correctly", async () => {

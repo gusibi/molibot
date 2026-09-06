@@ -674,7 +674,7 @@ export class SessionStore {
     conversationId: string,
     role: Role,
     content: string,
-    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; plan?: ConversationMessage["plan"]; usage?: ConversationMessage["usage"]; platformMessageId?: string; model?: string; contextBacked?: boolean; sourceEntryId?: string; retention?: TurnRetentionPolicy }
+    options?: { durationMs?: number; attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; plan?: ConversationMessage["plan"]; usage?: ConversationMessage["usage"]; platformMessageId?: string; model?: string; contextBacked?: boolean; sourceEntryId?: string; retention?: TurnRetentionPolicy }
   ): ConversationMessage {
     const createdAt = new Date().toISOString();
     const message: ConversationMessage = {
@@ -683,6 +683,7 @@ export class SessionStore {
       role,
       content,
       createdAt,
+      durationMs: options?.durationMs,
       model: options?.model,
       platformMessageId: options?.platformMessageId,
       attachments: options?.attachments?.length ? options.attachments : undefined,
@@ -713,6 +714,7 @@ export class SessionStore {
       conversationId,
       role,
       createdAt,
+      durationMs: message.durationMs,
       model: message.model,
       platformMessageId: message.platformMessageId,
       attachments: message.attachments,

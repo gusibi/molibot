@@ -265,6 +265,67 @@ test("continue_work creates a new plan version instead of looping the completed 
   }
 });
 
+test("confirm_completion ends the execution without requeueing", () => {
+  const database = tempDatabase();
+  const store = new DurableExecutionStore(database.file);
+  try {
+    const created = store.create(createInput({
+      acceptanceCriteria: [{ description: "The report is useful", checkerType: "subjective" as const }]
+    }));
+    const claimed = store.claimAttempt({
+      executionId: created.id,
+      expectedVersion: created.version,
+      processOwnerId: "process-a",
+      runId: "run-a",
+      contextSessionId: "session-a",
+      leaseDurationMs: 60_000
+    });
+    for (const step of store.getDetail(created.id)!.steps) {
+      store.markStepRunning(created.id, step.id, store.getById(created.id)!.version, "process-a");
+      store.completeStep({ executionId: created.id, stepId: step.id, expectedVersion: store.getById(created.id)!.version, processOwnerId: "process-a", outputSummary: "Verified output" });
+    }
+    store.finishAttempt({
+      executionId: created.id,
+      attemptId: claimed.attempt.id,
+      expectedVersion: store.getById(created.id)!.version,
+      processOwnerId: "process-a",
+      status: "completed",
+      nextExecutionStatus: "verifying"
+    });
+    const verifying = store.getById(created.id)!;
+    const verifier = store.claimAttempt({
+      executionId: created.id,
+      expectedVersion: verifying.version,
+      processOwnerId: "process-a",
+      runId: "run-verifier",
+      contextSessionId: "session-verifier",
+      leaseDurationMs: 60_000,
+      countTowardsAttemptBudget: false
+    });
+    const decision = store.openDecision({
+      executionId: created.id,
+      expectedVersion: verifier.execution.version,
+      processOwnerId: "process-a",
+      question: "Continue?",
+      options: ["confirm_completion", "continue_work"]
+    });
+    const continued = store.answerDecision({
+      executionId: created.id,
+      decisionId: decision.id,
+      answer: "confirm_completion",
+      answeredBy: "owner-1",
+      expectedVersion: store.getById(created.id)!.version
+    });
+    const detail = store.getDetail(created.id)!;
+    assert.equal(continued.status, "completed");
+    assert.equal(detail.execution.currentPlanVersion, 1);
+    assert.equal(detail.acceptanceCriteria[0].result, "passed");
+  } finally {
+    store.close();
+    database.cleanup();
+  }
+});
+
 test("attempt lease, step evidence, and side-effect intent/receipt use versioned writes", () => {
   const database = tempDatabase();
   const store = new DurableExecutionStore(database.file);

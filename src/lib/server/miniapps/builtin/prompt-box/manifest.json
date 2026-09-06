@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "prompt-box",
   "name": "Prompt Box",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A prompt management and quick usage Mini App with cloud sync, composer insertion, and message actions.",
   "engines": {
     "molibot": ">=2.9.9 <4"

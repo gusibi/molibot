@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -232,12 +232,9 @@ test("subjective verification creates a user decision and only explicit confirma
       expectedVersion: waiting.execution.version,
       actionId: "confirm-subjective-1"
     });
-    assert.equal(answered.execution.status, "queued");
+    assert.equal(answered.execution.status, "completed");
     const continuationFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${answered.execution.version}.json`);
-    await runtime.run(JSON.parse(readFileSync(continuationFile, "utf8")) as MomEvent, continuationFile);
-    const finalVerifyVersion = store.getById(created.execution.id)!.version;
-    const finalVerifyFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${finalVerifyVersion}.json`);
-    await runtime.run(JSON.parse(readFileSync(finalVerifyFile, "utf8")) as MomEvent, finalVerifyFile);
+    assert.equal(existsSync(continuationFile), false);
     const completed = store.getDetail(created.execution.id)!;
     assert.equal(completed.execution.status, "completed");
     assert.equal(completed.acceptanceCriteria[0]?.result, "passed");

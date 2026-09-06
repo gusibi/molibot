@@ -63,7 +63,6 @@ const zh = (params.get('locale') || navigator.language).toLowerCase().startsWith
 const themeMode = params.get('theme') === 'dark' ? 'dark' : params.get('theme') === 'light' ? 'light' : 'system';
 
 const copy = zh ? {
-  title: 'PB',
   searchPlaceholder: '搜索提示词…',
   allTags: '全部',
   addPrompt: '新建提示词',
@@ -132,7 +131,6 @@ const copy = zh ? {
   snippetRole: '角色',
   previewImage: '图片预览'
 } : {
-  title: 'PB',
   searchPlaceholder: 'Search prompts…',
   allTags: 'All',
   addPrompt: 'New Prompt',
@@ -612,10 +610,10 @@ function PromptBoxApp() {
         header={
           <LayoutHeader>
             <div className="prompt-box-header">
-              {/* Ultra-compact Left Morandi Logo & Count */}
+              {/* App icon: same artwork the manager and sidebar show */}
               <div className="prompt-box-header-left">
                 <div className="prompt-box-logo-badge">
-                  <span>PB</span>
+                  <img src="icon.svg" alt="Prompt Box" draggable={false} />
                 </div>
                 <span className="prompt-box-count-pill">{prompts.length}</span>
               </div>

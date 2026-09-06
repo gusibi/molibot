@@ -1,3 +1,4 @@
+import type { SessionPlanProgress } from "../tools/updatePlan.js";
 import type { AssistantMessageEvent, ImageContent } from "@earendil-works/pi-ai";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
@@ -230,6 +231,8 @@ export interface MomContext {
   onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
   consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
   readDurableEvidence?: ToolExecutionContext["readDurableEvidence"];
+  sessionPlanProgress?: SessionPlanProgress;
+  executionHistory?: string;
   onDurablePromotion?: (input: DurablePromotionRequest) => Promise<DurablePromotionResult>;
 }
 

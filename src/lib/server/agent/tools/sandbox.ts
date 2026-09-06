@@ -14,6 +14,7 @@ import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 export interface SandboxNetworkConfig {
   allowedDomains: string[];
   deniedDomains?: string[];
+  allowLocalBinding?: boolean;
 }
 
 export interface SandboxFilesystemConfig {
@@ -362,7 +363,15 @@ function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string,
       allowedDomains: isAllowAll(settings.network.allowedDomains)
         ? ["*"]
         : settings.network.allowedDomains,
-      deniedDomains: settings.network.deniedDomains
+      deniedDomains: settings.network.deniedDomains,
+      // Loopback must stay reachable inside the sandbox: the upstream runtime
+      // injects NO_PROXY=localhost,127.0.0.1,::1 so HTTP clients bypass its
+      // filtering proxy and connect directly, while the seatbelt profile only
+      // permits the proxy ports — together that deadlocked every localhost
+      // service (curl: "Couldn't connect to server", indistinguishable from a
+      // service that is down). allowLocalBinding adds the direct loopback
+      // outbound/bind rules; domain filtering keeps governing external hosts.
+      allowLocalBinding: true
     },
     filesystem: {
       denyRead: unique([...settings.filesystem.denyRead, envFilePath]),

@@ -171,13 +171,15 @@ export class SqliteApprovalStore implements ApprovalBrokerStore {
     this.writeRequest(request);
   }
 
+  // bash:* requests belong to HostBashStore, which executes their stored action.
+  // Resolving them through the broker records a decision without executing it.
   listPendingRequests(): ApprovalRequest[] {
-    const rows = this.db.prepare("SELECT * FROM approvals WHERE type = 'request' AND status = ? ORDER BY created_at ASC").all("pending") as unknown as ApprovalRequestRow[];
+    const rows = this.db.prepare("SELECT * FROM approvals WHERE type = 'request' AND capability NOT LIKE 'bash:%' AND status = ? ORDER BY created_at ASC").all("pending") as unknown as ApprovalRequestRow[];
     return rows.map(rowToRequest);
   }
 
   getRequest(id: string): ApprovalRequest | null {
-    const row = this.db.prepare("SELECT * FROM approvals WHERE type = 'request' AND id = ?").get(id) as unknown as ApprovalRequestRow | undefined;
+    const row = this.db.prepare("SELECT * FROM approvals WHERE type = 'request' AND capability NOT LIKE 'bash:%' AND id = ?").get(id) as unknown as ApprovalRequestRow | undefined;
     return row ? rowToRequest(row) : null;
   }
 

@@ -1,3 +1,4 @@
+import { createUpdatePlanTool, type SessionPlanProgress } from "./updatePlan.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { promises as fs } from "node:fs";
@@ -10,6 +11,7 @@ import { decideBashToolPolicy } from "$lib/server/agent/tools/bashPolicy.js";
 import { getEditToolDefinition } from "$lib/server/agent/tools/edit.js";
 import { createFileSearchTools } from "$lib/server/agent/tools/fileSearch.js";
 import { createRuntimeTaskTool } from "$lib/server/agent/tools/runtimeTask.js";
+import { projectWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
 import { createMcpInvokeTool } from "$lib/server/agent/tools/mcpInvoke.js";
 import { createLoadMcpTool } from "$lib/server/agent/tools/loadMcp.js";
 import type { McpServerStatus } from "$lib/server/agent/tools/mcp.js";
@@ -139,6 +141,7 @@ function createDeferredToolEntry(options: {
 }
 
 export function createMomTools(options: {
+  sessionPlanProgress?: SessionPlanProgress;
   channel: string;
   cwd: string;
   workspaceDir: string;
@@ -235,7 +238,12 @@ export function createMomTools(options: {
     workspaceDir: options.workspaceDir,
     chatId: options.chatId,
     sessionId: options.sessionId,
-    timezone: options.timezone
+    timezone: options.timezone,
+    // Project chats store automations in the Project events dir, the only place
+    // both the scheduler and the tasks list look.
+    ...(options.project?.id
+      ? { projectId: options.project.id, projectEventsDir: join(projectWorkspaceDir(options.project.id), "events") }
+      : {})
   }));
   const switchModelRuntimeTool = wrapSerializedTool(createSwitchModelTool({
     getSettings: options.getSettings,
@@ -675,7 +683,7 @@ export function createMomTools(options: {
         exitPlanTool
       ];
     }
-    return scopedTools.map(tool => wrapWithToolRuntime(tool));
+    return [...scopedTools.map(tool => wrapWithToolRuntime(tool)), ...(options.sessionPlanProgress ? [createUpdatePlanTool(options.sessionPlanProgress)] : [])];
   };
   const loadDeferredTools = (toolNames: string[]): string[] => {
     const loaded: string[] = [];

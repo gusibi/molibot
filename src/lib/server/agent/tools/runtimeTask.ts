@@ -152,8 +152,17 @@ export function createRuntimeTaskTool(options: {
   chatId: string;
   sessionId?: string;
   timezone: string;
+  projectId?: string;
+  /** Resolved by the host for project chats; tasks there are watched and listed. */
+  projectEventsDir?: string;
 }): AgentTool<typeof runtimeTaskSchema> {
-  const eventsDir = resolve(options.workspaceDir, "events");
+  // Project tasks must live in the Project events dir: that is the only place
+  // the scheduler watches and the tasks list reads. The runtime workspace has
+  // its own events dir, but nothing consumes tasks written there, so they would
+  // silently never run nor show up anywhere.
+  const eventsDir = options.projectId && options.projectEventsDir
+    ? resolve(options.projectEventsDir)
+    : resolve(options.workspaceDir, "events");
   return {
     name: "runtimeTask",
     label: "runtimeTask",
@@ -163,12 +172,11 @@ export function createRuntimeTaskTool(options: {
       "Runtime Events are execution records and notifications are delivery outcomes; neither is a separate user CRUD resource.",
       "This tool never reads or writes Mini App Todo data. Mini Apps own their own optional data and business rules.",
       "Use action=create for reminders and automations; list/get before changing an ambiguous task; update by taskId; delete only when the user asked to remove it.",
-      "Never use memory, shell sleeps, OS schedulers, or manually edited event JSON files for scheduling."
+      "Never use memory, shell sleeps, OS schedulers, or manually edited event JSON files for scheduling.",
+      "In a Project chat this tool manages the Project's automations: only periodic Agent tasks are supported there (agent delivery, fresh session mode), and reminders or todos are rejected."
     ].join("\n"),
     parameters: runtimeTaskSchema,
     execute: async (_toolCallId, params) => {
-      mkdirSync(eventsDir, { recursive: true });
-
       if (params.action === "list") {
         const tasks = readTaskFiles(eventsDir)
           .filter((row) => !params.type || row.event.type === params.type)
@@ -225,11 +233,23 @@ export function createRuntimeTaskTool(options: {
 
       const text = params.text.trim();
       if (!text) throw new Error("text cannot be empty.");
+      const isProjectChat = Boolean(options.projectId);
+      if (isProjectChat && params.type !== "periodic") {
+        throw new Error("Project chats only support periodic automations; one-shot reminders and todos are not available here.");
+      }
+      if (isProjectChat && (params.delivery ?? "agent") !== "agent") {
+        throw new Error("Project automations always run through the Agent; delivery must be agent.");
+      }
+      if (isProjectChat && (params.sessionMode ?? "fresh") !== "fresh") {
+        throw new Error("Project automations always run in a fresh session; sessionMode must be fresh.");
+      }
+      mkdirSync(eventsDir, { recursive: true });
       const taskId = newTaskId(eventsDir, params.name);
       const common = {
         taskId,
         enabled: true,
-        chatId: options.chatId,
+        chatId: isProjectChat ? `project:${options.projectId}` : options.chatId,
+        ...(isProjectChat ? { target: { kind: "project" as const, projectId: options.projectId! } } : {}),
         sessionId: options.sessionId,
         text,
         status: { state: "pending" as const, runCount: 0 }

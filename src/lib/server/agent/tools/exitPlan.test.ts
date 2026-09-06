@@ -11,8 +11,9 @@ test("exitPlan persists one structured proposal and terminates Plan mode", async
   try {
     const result = await createExitPlanTool({ scratchDir, sessionId: "s-1", emit: (plan) => emitted.push(plan) })
       .execute("call-1", { title: "Ship chat", summary: "Finish the transcript", steps: ["Model steps", "Render plan"] }, undefined, undefined);
-    const plan = emitted[0] as { artifactPath: string; steps: Array<{ text: string }>; status: string };
+    const plan = emitted[0] as { id: string; artifactPath: string; steps: Array<{ text: string }>; status: string };
     assert.equal(result.terminate, true);
+    assert.equal(plan.id, "plan-call-1");
     assert.equal(plan.status, "proposed");
     assert.deepEqual(plan.steps.map((step) => step.text), ["Model steps", "Render plan"]);
     assert.equal(existsSync(join(scratchDir, plan.artifactPath)), true);

@@ -47,9 +47,21 @@ export const POST: RequestHandler = async ({ request }) => {
 
   if ("planId" in body) {
     const decision = body.decision;
+    if (decision === "complete") {
+      const current = runtime.sessions.updateConversationPlan(conversationId, body.planId, (plan) => plan);
+      if (!current || !["waiting_review", "completed"].includes(current.status) || current.durableExecutionId) return json({ ok: false, error: "Plan is not awaiting review." }, { status: 409 });
+      const plan = runtime.sessions.updateConversationPlan(conversationId, body.planId, (value) => ({ ...value, status: "completed", progressSummary: undefined, updatedAt: new Date().toISOString() }));
+      return json({ ok: true, plan }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (!["accept", "reject", "modify"].includes(decision)) return json({ ok: false, error: "Invalid plan decision" }, { status: 400 });
+    const existing = runtime.sessions.updateConversationPlan(conversationId, body.planId, (plan) => plan);
+    if (!existing) return json({ ok: false, error: "Plan not found" }, { status: 404 });
+    if (existing.status !== "proposed" && !(decision === "accept" && existing.status === "accepted")) {
+      return json({ ok: false, error: "This plan has already been resolved. Continue in the current conversation." }, { status: 409 });
+    }
     const plan = runtime.sessions.updateConversationPlan(conversationId, body.planId, (current) => ({
       ...current,
+      updatedAt: new Date().toISOString(),
       title: String(body.title ?? current.title).trim() || current.title,
       summary: String(body.summary ?? current.summary).trim() || current.summary,
       steps: Array.isArray(body.steps) && body.steps.length

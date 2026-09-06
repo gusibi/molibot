@@ -1,9 +1,7 @@
-import { createHash } from "node:crypto";
 import { DurableExecutionCoordinator } from "./coordinator.js";
-import { DurableExecutionNotFoundError, DurableExecutionQuotaError, type DurableExecutionListItem } from "./types.js";
+import { DurableExecutionQuotaError, type DurableExecutionListItem } from "./types.js";
 import type { DurablePrefixEntry } from "./types.js";
 import type { DurablePreflightDecision } from "./preflight.js";
-import type { ConversationPlan } from "$lib/shared/types/message.js";
 
 export type DurableRequestMode = "auto" | "force" | "suppress";
 
@@ -28,16 +26,6 @@ export interface DurableActivationRequest {
 export interface ActivatedDurableExecution {
   decision: DurableActivationDecision;
   item: DurableExecutionListItem;
-}
-
-export interface AcceptedPlanActivationRequest {
-  plan: ConversationPlan;
-  ownerId: string;
-  botId: string;
-  sourceChannel: string;
-  sourceChatId: string;
-  sourceUiSessionId: string;
-  sourceProjectId?: string;
 }
 
 const EXPLICIT_COMMAND = /^\/(?:durable|long[-_]?task|long[-_]?execution)\b\s*/i;
@@ -119,97 +107,6 @@ export function activateDurableExecution(
     expectedVersion: created.execution.version
   });
   return { decision, item };
-}
-
-/**
- * Converts one accepted, user-reviewed Session plan into the durable aggregate.
- * The deterministic id closes the crash gap between creating the aggregate and
- * writing its id back to the Session plan: retrying the acceptance cannot fork
- * a second execution.
- */
-export function activateAcceptedPlan(
-  request: AcceptedPlanActivationRequest,
-  coordinator = new DurableExecutionCoordinator()
-): ActivatedDurableExecution {
-  const executionId = `durable-plan-${createHash("sha256")
-    .update(`${request.ownerId}\0${request.sourceUiSessionId}\0${request.plan.id}`)
-    .digest("hex")
-    .slice(0, 24)}`;
-  try {
-    const existing = coordinator.inspect(request.ownerId, executionId);
-    const item = existing.execution.status === "planned"
-      ? coordinator.activate({
-          ownerId: request.ownerId,
-          executionId,
-          expectedVersion: existing.execution.version
-        })
-      : { execution: existing.execution, projection: existing.projection };
-    return {
-      decision: {
-        goal: item.execution.goal,
-        activationPath: "forced",
-        reason: "accepted_conversation_plan"
-      },
-      item
-    };
-  } catch (cause) {
-    if (!(cause instanceof DurableExecutionNotFoundError)) throw cause;
-  }
-
-  const steps = request.plan.steps.map((step, index) => {
-    const full = step.text.trim();
-    const title = full.length > 160 ? `${full.slice(0, 159)}…` : full;
-    return {
-      title: title || `Step ${index + 1}`,
-      description: full.length > 160 ? full : "Execute only this accepted plan step and leave inspectable evidence.",
-      inputSummary: full,
-      // The plan does not know which tool will implement the step. Runtime tool
-      // metadata remains authoritative; this conservative value only applies if
-      // an interruption occurs before a more precise side-effect intent exists.
-      sideEffectClass: "non_idempotent" as const
-    };
-  });
-  let created: DurableExecutionListItem;
-  try {
-    created = coordinator.create({
-      executionId,
-      ownerId: request.ownerId,
-      botId: request.botId,
-      sourceChannel: request.sourceChannel,
-      sourceChatId: request.sourceChatId,
-      sourceUiSessionId: request.sourceUiSessionId,
-      sourceProjectId: request.sourceProjectId,
-      goal: request.plan.title,
-      constraints: request.plan.summary ? [request.plan.summary] : [],
-      steps,
-      acceptanceCriteria: [{
-        description: "Every step in the accepted plan has completed.",
-        checkerType: "deterministic",
-        checkerKey: "all_steps_completed",
-        author: "user"
-      }],
-      activationPath: "forced",
-      activationReason: "accepted_conversation_plan"
-    });
-  } catch (cause) {
-    // A concurrent retry may win the deterministic insert. Inspecting the
-    // aggregate distinguishes that idempotent race from a real create error.
-    try {
-      const existing = coordinator.inspect(request.ownerId, executionId);
-      created = { execution: existing.execution, projection: existing.projection };
-    } catch {
-      throw cause;
-    }
-  }
-  const item = coordinator.activate({
-    ownerId: request.ownerId,
-    executionId: created.execution.id,
-    expectedVersion: created.execution.version
-  });
-  return {
-    decision: { goal: request.plan.title, activationPath: "forced", reason: "accepted_conversation_plan" },
-    item
-  };
 }
 
 export function promoteDurableExecution(

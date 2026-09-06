@@ -84,6 +84,57 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   /**
+   * Operator resolution: resolve a pending approval by ID alone, without a
+   * profile/session context. The settings page lists every scope's approvals
+   * (the GET above is already the operator surface), so it can act on records
+   * from sessions nobody currently has open — the exact state a missed approval
+   * card leaves behind. Web-scoped records resume through the same machinery
+   * the chat card uses; other channels must resolve in their own channel.
+   */
+  if (body.action === "resolve_approval" && !body.sessionId && !body.profileId) {
+    const requestId = String(body.requestId ?? "").trim();
+    const decision = String(body.decision ?? "") as DesktopApprovalDecision;
+    if (!requestId || !Object.hasOwn(APPROVAL_SUBCOMMANDS, decision)) {
+      return json({ ok: false, error: "requestId and a valid decision are required" }, { status: 400 });
+    }
+    const runtime = getRuntime();
+    const record = runtime.hostBashStore.listPending().find((item) => item.id === requestId);
+    if (!record) {
+      return json({
+        ok: true,
+        response: "No matching pending Host Bash approval found.",
+        approval: { status: "not_found" }
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (!record.scopeId.startsWith("web:")) {
+      if (decision === "reject") {
+        const rejected = runtime.hostBashStore.reject(record.scopeId, requestId, record.sessionId);
+        return json({
+          ok: true,
+          response: rejected
+            ? `Rejected Host Bash approval ${rejected.id} (${rejected.displayName}).`
+            : "No matching pending Host Bash approval found.",
+          approval: { status: rejected ? "rejected" : "not_found" }
+        }, { headers: { "Cache-Control": "no-store" } });
+      }
+      return json({
+        ok: true,
+        response: "This approval was raised on another channel; approve or reject it from that channel's chat.",
+        approval: { status: "not_found" }
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+    // web:<profileId>:<user…> — the same scope string the web runner is keyed by.
+    const profileId = sanitizeWebProfileId(record.scopeId.split(":")[1]);
+    const result = await _handleWebHostToolsCommand(
+      `${APPROVAL_SUBCOMMANDS[decision]} ${requestId}`,
+      sanitizeWebProfileId(profileId),
+      record.sessionId || undefined,
+      record.scopeId
+    );
+    return json(result, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  /**
    * Pending approvals for one session.
    *
    * The approval card is normally pushed over the chat SSE stream, but a turn

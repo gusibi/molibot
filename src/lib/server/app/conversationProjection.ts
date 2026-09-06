@@ -205,11 +205,12 @@ function assistantStatus(message: AgentMessage): { stopReason?: string; errorMes
   return { stopReason: stopReason || undefined, errorMessage: errorMessage || undefined };
 }
 
-/** Collapse tool-loop progress, while preserving every terminal assistant reply in a turn. */
+/** Collapse one user turn into one answer while preserving all terminal text. */
 function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: string): AgentDisplayMessage[] {
   const out: AgentDisplayMessage[] = [];
   let assistant: AgentDisplayMessage | null = null;
   let terminalCommitted = false;
+  let terminalReplies: string[] = [];
 
   const flushAssistant = () => {
     if (assistant) {
@@ -224,10 +225,18 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
           content: assistant.content
         }];
       }
+      if (terminalCommitted && assistant.content.trim()) {
+        assistant.steps = [...(assistant.steps ?? []), {
+          id: `${assistant.sourceEntryId}-response`,
+          kind: "text",
+          content: assistant.content.trim()
+        }];
+      }
       if (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim()) out.push(assistant);
     }
     assistant = null;
     terminalCommitted = false;
+    terminalReplies = [];
   };
 
   for (const entry of entries) {
@@ -259,7 +268,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     const steps = orderedAssistantSteps(entry.message, entry.id);
     const usage = messageUsage(entry.message);
     const isTerminalReply = status.stopReason === "stop" && Boolean(content);
-    if (isTerminalReply && terminalCommitted) flushAssistant();
+    const displaySteps = isTerminalReply ? steps.filter((step) => step.kind !== "text") : steps;
     if (!assistant) {
       assistant = {
         id: entry.id,
@@ -271,16 +280,25 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
         retention: entry.retention,
         model: modelLabel(entry.message),
         thinking: thinking || undefined,
-        steps,
+        steps: displaySteps,
         usage,
         ...status
       };
       terminalCommitted = isTerminalReply;
+      terminalReplies = isTerminalReply ? [content] : [];
       continue;
     }
-    // Once a terminal reply exists, later tool-loop progress must not replace
-    // it. A second terminal reply is flushed separately above.
-    if (content && (!terminalCommitted || isTerminalReply)) {
+    // A provider/runtime continuation may emit another terminal assistant
+    // message without another user prompt. Keep one answer container for the
+    // turn and append its terminal text instead of manufacturing another row.
+    // Non-terminal progress remains in ordered `steps` and cannot overwrite a
+    // committed answer.
+    if (isTerminalReply) {
+      if (!terminalReplies.includes(content)) terminalReplies.push(content);
+      assistant.content = terminalReplies.join("\n\n");
+      assistant.sourceEntryId = entry.id;
+      assistant.createdAt = entry.timestamp;
+    } else if (content && !terminalCommitted) {
       assistant.content = content;
       assistant.sourceEntryId = entry.id;
       assistant.createdAt = entry.timestamp;
@@ -288,7 +306,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     const model = modelLabel(entry.message);
     if (model) assistant.model = model;
     if (thinking) assistant.thinking = [assistant.thinking, thinking].filter(Boolean).join("\n\n");
-    assistant.steps = [...(assistant.steps ?? []), ...steps];
+    assistant.steps = [...(assistant.steps ?? []), ...displaySteps];
     assistant.usage = addUsage(assistant.usage, usage);
     if (status.stopReason && (!terminalCommitted || status.stopReason !== "toolUse")) {
       assistant.stopReason = status.stopReason;
@@ -391,6 +409,7 @@ export function projectConversationMessages(input: {
       id: metadata.id,
       createdAt: metadata.createdAt || source.createdAt,
       model: metadata.model || source.model,
+      durationMs: metadata.durationMs ?? source.durationMs,
       platformMessageId: metadata.platformMessageId,
       attachments: metadata.attachments,
       activities,
