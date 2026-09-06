@@ -1,9 +1,161 @@
 # Molibot ChangeLog
 
+### Changed: Workspace pages adopt the Settings page header (2026-09-06)
+
+Automations, Skills, Agents, and Mini Apps now open with the same header pattern as Settings — a centered title with a one-line description on the shared content column — instead of a bare left-aligned title in a narrow bar. Each page explains its scope in both languages, the header stays aligned with the content column while scrolling, and the sidebar-restore control moves to the header's right edge so it never collides with the title.
+
+### Fixed: Mini App toasts dismiss themselves again (2026-09-06)
+
+The "Added to the composer" toast (and its siblings for attachments, read-only composers, and missing sessions) stayed on screen forever until manually closed: only one code path ever scheduled the auto-dismiss timer while the rest assigned the toast text directly. Every Mini App toast now flows through a single helper that owns the 3-second self-clear, with a guard test that fails if any code path ever bypasses it again. Toasts carrying a readable result card keep their stay-until-dismissed behavior.
+
+### Fixed: Clicking a session no longer lands on a new conversation (2026-09-06)
+
+Three root causes fixed together. A service reconnect no longer resets the view to a default conversation: the app now snapshots what you are reading when the service drops and restores exactly that on reconnect (previously every service restart could yank the pane to a brand-new draft). Sessions created by other surfaces (e.g. the browser Web UI) now open from the Desktop sidebar — reads, sends, stops and steers resolve the conversation's recorded owner instead of trusting the caller's identity, which also stops sends from silently continuing a different session. Session titles that failed their one-shot auto-summary no longer stay "New Session" forever: summarization retries on later turns while the title is still the default and never touches a renamed session.
+
+### Changed: Project settings dialog keeps one fixed size across tabs (2026-09-06)
+
+The project settings dialog no longer resizes when switching between General and Automations: width and height are set by the window, and the panel bodies scroll. The Automations tab inside the dialog also adopts the dialog presentation — shadow-floating task cards without visible borders, a 22px dialog title with 19px section headlines and 14.5px body/date text (two new type-scale tokens, guarded by the typography test), 38px pill buttons with an inset highlight, and 1px separator dividers.
+
+### Changed: Built-in Agent templates clarify task scope and evidence (2026-09-06)
+
+Eight templates now distinguish quick answers from full workflows, clarify research and calculation evidence, and resolve Mini App tooling from its actual location. Investment research removes fictional career credentials and personal position directives. Updated template versions are offered through the existing backup-preserving update flow.
+
+### Documentation: Clarify contributor autonomy and approval boundaries (2026-09-06)
+
+Contributor instructions now distinguish routine implementation from decisions requiring approval, preserve authorization across execution steps, and define completion and blocked-validation reporting. Documentation updates follow actual impact.
+
+### Changed: The Mini Apps destination opens on a macOS-style Launchpad (2026-09-06)
+
+The Mini Apps page now opens as a Launchpad: a grid of icon-and-name tiles for enabled, healthy apps only, one click to launch. Search, live counts, and a "Manage" CTA stay in the workspace toolbar; every lifecycle control (install, enable/disable, update, uninstall, AI routing) moved one click into a manage view that reuses the existing manager unchanged, so the launcher stays a launcher.
+
+### Fixed: Prompt Box deletions survive cloud sync, plus a real icon (2026-09-06)
+
+Deleting a prompt in Prompt Box never stuck: the remote pb.onlinestool.com API has no delete endpoint, so every sync re-imported exactly what the owner had just removed. Deletions of cloud-synced prompts now record a local tombstone that sync skips (surfaced as `skippedDeletedCount`), and prompt listings shown to the agent now carry their ids so agent-driven delete/update/get actually work. The app also gets a meaningful icon — an open box with rising sparkles and a terminal prompt glyph, in the same flat style as the other built-in Mini Apps — replacing the abstract "PB" badge in the header as well. Manifest bumped to 1.1.0 so installed copies are offered the update (the previous 1.0.7 UI fixes never shipped to installed copies because the version was never bumped).
+
+### Fixed: Desktop file downloads open the native save dialog (2026-09-06)
+
+Every download button in the desktop shell (project files, session file tabs, attachments in chat) silently did nothing: Tauri's WKWebView drops `<a download>` clicks because no `on_download` handler is registered. All download paths now route through one shared helper that, inside Tauri, hands the bytes to the existing native `save_file_dialog` command (the same channel Mini App image saving uses) so the system save panel appears; plain-browser dev keeps the anchor fallback. Attachment downloads also stop hard-coding the `personal` profile, fixing downloads in conversations owned by other bots. A machine guard test forbids reintroducing hand-rolled anchor downloads.
+
+### Changed: Enter sends, Shift+Enter breaks the line (2026-09-06)
+
+The chat composer (main sessions and Project chat) now sends with Enter and inserts a newline with Shift+Enter, matching every mainstream chat app. The IME confirm keystroke commits the composition instead of sending: the guard also checks `keyCode 229`, which WebKit still reports after `compositionend`, so confirming Chinese/English input no longer fires the message. Composer placeholder hints were updated in both languages.
+
+### Fixed: Desktop approval continuation transcript and completion tracking (2026-09-06)
+
+Background approval turns now keep tool progress in structured activities and persist one answer linked to the Agent transcript. Desktop follows server run status beyond fifteen seconds, handles subsequent approvals, and displays continuation execution time without counting the earlier approval wait.
+
+### Fixed: Host Bash approvals execute and return results after Desktop approval (2026-09-06)
+
+Host Bash requests now remain owned by their executor when sharing the approvals database with the generic broker. Approved command results are matched to the suspended tool result by request ID, including commands with arguments and repeated commands.
+
+### Fixed: Sandbox localhost access and approval card reachability (2026-09-06)
+
+Commands in the OS sandbox could never reach localhost services: the sandbox runtime tells HTTP clients to bypass its proxy for loopback (`NO_PROXY`) while the seatbelt profile only permits the proxy ports, so direct loopback connects were denied with a "Couldn't connect to server" that is indistinguishable from a dead service. The sandbox now always allows loopback outbound/bind, keeping domain filtering for external hosts. Missed Host Bash approval cards are no longer lost either: pending approvals can be resolved from the Settings approval list (approve once / always allow / reject), opening or switching to a session re-adopts its pending card, and one malformed SSE frame no longer starves later frames such as an approval push.
+
+### Changed: Mini Apps have a single sidebar entry (2026-09-06)
+
+The sidebar now offers Mini Apps only as the primary nav destination that opens the full manager. The redundant recent-apps tree section below the Projects tree is removed together with its recency tracking, badge rendering, and locale strings; the server-side `ctx.badge` capability and its retire-on-open flow are untouched.
+
+### Fixed: Session Plan execution continuity and status clarity (2026-09-05)
+
+Accepted Plans now execute and continue inside their originating Session, with the right panel acting as a progress view. Review-ready work leaves the running list, completion removes pause/cancel actions, later feedback returns to the same conversation, stable Plan ids prevent second-Plan acceptance failures, and one user turn renders as one answer without losing supplemental text or tool history. The reasoning disclosure is compact and borderless again.
+
+### Changed: Desktop numeric typography (2026-09-04)
+
+All data numerals now render with tabular figures via one shared rule on `body`, so counts, durations, sizes, and table columns no longer shift width as values change; rendered prose keeps proportional figures. A machine guard test (`numeric-typography.test.mjs`) protects the shared block and any future proportional opt-out.
+
+### Changed: Desktop conversation presentation (2026-09-04)
+
+Refined the welcome, composer, execution disclosure, and file receipts with clearer hierarchy and restrained depth. A single output now appears as one actionable row; existing task execution and file-opening behavior remain intact.
+
+### Documentation: Desktop visual direction (2026-09-04)
+
+Defined a Wealthsimple-inspired direction for future Desktop UI work: clear hierarchy, selective tactile depth, and continuous state changes within the existing macOS component system. Product restyling remains subject to visual validation.
+
+### Fixed: Desktop numeric settings fields (2026-09-04)
+
+Search limits and model timeout inputs retain enough width for complete values and native stepper buttons, including when cleared.
+
 ## Archive Index / 归档索引
 - [2026 Q2 Archive (Apr - Jun)](docs/archive/changelog-2026-Q2.md)
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 - [2026 Q3 Archive (Jul - Sep)](docs/archive/changelog-2026-Q3.md)
+
+### Fixed: Desktop 设置页记忆高级管理弹窗与全局 Modal 滚动与排版重塑
+
+- **WebKit 顺畅上下滚动与弹性压缩根治**：
+  - 根因定位：`.memory-advanced-body` 原本使用了 `display: grid; align-content: start;`。在 macOS WKWebView 中，带有 `align-content: start` 的 Grid 滚动容器在触控板与鼠标滚轮事件命中测试（Hit Testing）时无法正确派发滚轮事件，导致用户滚轮“滚不动”；且父容器缺少明确高度预算。
+  - 禁止卡片被 Flex 压扁：声明 `.memory-advanced-body > .settings-card { flex: none; }` 及直属子项 `flex-shrink: 0;`。根治因 `.settings-card` 的 `overflow: hidden` 使 Flexbox 强制收缩子项至 50px、将多行诊断压缩切片、导致弹窗无溢出且滚不动的关键缺陷。
+  - 标准 Flex 纵向滚动：将 `.memory-advanced-body` 改为标准 Flex 纵向容器：`display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;`；
+  - 弹窗整体纵向滚动：外层声明 `width: min(680px, calc(100vw - 48px)); max-height: min(85vh, calc(100vh - 48px), 760px);`，内部 4 张卡片自然铺开，超出部分由外层 `.memory-advanced-body` 顺畅上下滚动；
+  - 共享层根治：在全局 `.modal-body` 中保持 `flex: 1 1 auto; min-height: 0; overflow-y: auto;`。
+- **桌面级原生精致排版重构**：
+  - 只读诊断行收敛：重写 `.memory-advanced-body .settings-row`，行高从 50px 降为 32px，标题字号从 14px 粗体降为 13px `var(--fs-label)`（500 字重，二级色），数值 13px，状态 badge 收敛为 20px 紧凑胶囊（11px `var(--fs-meta)`）；
+  - 运维表单与按钮：工具栏标题统一为 13px，输入框继承 `--control-h: 28px`，6 个运维操作按钮高度统一下调至 28px（`var(--control-h)`），内边距 `0 12px`，字体 13px，紧凑整齐；
+  - 拒绝记录列表：搜索框统一为 28px 高度，记录项重构为清晰紧凑图文行（标题 13px，元信息 11px，内容 11px），单项高度腰斩，消除臃肿感；
+  - 弹窗副标题排版：统一 `.entity-editor-head p` 样式为 11px `var(--fs-meta)`。
+- **防复发机器测试守卫**：
+  - 更新 `CLAUDE.md` Pitfall 16(c)；
+  - 在 `apps/desktop/src/chat-ui.test.mjs` 中添加针对 `.memory-advanced-modal` 明确高度、`.memory-advanced-body` 纵向 Flex 滚动、`flex: none` 卡片防收缩、32px 紧凑行高与 13px 字体规范的自动化测试守卫。
+- **验证**：`svelte-check` 0 error/0 warning，Desktop 229 项单元与结构测试全绿。
+
+### Changed: Desktop 设置页控件标准化与下拉菜单轻量原生重构
+
+- **全局统一控件尺寸 Token（消除 Hard-coded 尺寸）**：
+  - 在 `:root` 中确立原生 macOS 桌面端控件尺寸变量：`--control-h: 28px`（表单输入与下拉菜单触发器）、`--control-h-button: 32px`（按钮与独立搜索框）、`--control-h-compact: 24px`（密集表格与分页器）。
+  - 下拉菜单专项变量：`--select-trigger-h: var(--control-h)`（28px）、`--select-item-h: 24px`、`--select-min-w: 130px`、`--select-max-w: 260px`、`--select-popover-min-w: 140px`、`--select-popover-max-w: min(380px, calc(100vw - 24px))`。
+- **根治下拉菜单（SelectControl）“大、宽、高”问题**：
+  - **高度精简**：触发器高度从 40px 大幅降至 28px（`var(--select-trigger-h)`），菜单选项高度从 34px 降至 24px（`var(--select-item-h)`），与 22px 的 Switch 和 32px 的按钮形成优雅和谐的桌面层级。
+  - **宽度自适应（Content-adaptive）**：在设置行中彻底废除硬编码 `width: 320px; flex: 0 1 320px; max-width: 58%` 的粗暴霸屏规则，改为 `min-width: 130px; max-width: 260px; width: auto;`。短选项（如“简体中文 / English”）紧凑贴合内容靠右对齐，长选项平滑展开并优雅省略，释放左侧标题与说明空间。
+  - **弹层浮窗智能收敛**：浮窗宽度采用 `min(max(var(--select-popover-min-w), var(--bits-select-anchor-width)), var(--select-popover-max-w))`，内边距收敛至 4px，视口上限收敛，彻底杜绝了 320px~450px 笨重黑块弹出的突兀感。
+- **全局表单输入控件统一归拢**：
+  - 同步重构 `.settings-field input`、`.row-input`、`.provider-input`、`.observatory-field input/select`、`.connector-filter-toolbar .select-control-trigger`，全面继承 `--control-h: 28px`，根治此前不同页面各写 40px、36px、34px、32px、30px 零碎覆盖补丁的架构问题。
+- **规范与测试守卫同步对齐**：
+  - 修正 [DESIGN.md](file:///Users/gusi/Github/molipibot/DESIGN.md) 中误套用 Web Geist 40px 的条款，在 macOS product layer 正式确立 `--control-h: 28px` 规范；同步更新 `chat-ui.test.mjs` 中的静态测试断言。
+- **验证**：`svelte-check` 0 error/0 warning，Desktop 229 项单元与结构测试全量通过。
+
+### Changed: Desktop 自动任务窄屏自适应与工作区顶栏排版根治
+
+- **工作区顶栏标题定位修复**：给 `.workspace-header` 明确指定 `justify-content: flex-start; gap: 12px;`，根治侧边栏折叠时标题“自动任务”被抛至视口最右侧的布局问题，恢复标准 macOS 顶栏左对齐体验。
+- **搜索框与工具栏尺寸防变形**：给 `.search-field` 锁定 `height: 32px; min-height: 32px; max-height: 32px; box-sizing: border-box;`，移除窄屏媒体查询中导致搜索框主轴误拉伸为 200px 巨型白块的 `flex-direction: column`；窄屏下搜索框与创建按钮并排于 Row 1，统计指标并排于 Row 2。
+- **分类 Tab 防折行平滑滚动**：为分类 Tab 按钮设置 `white-space: nowrap; flex: none;`，分类条容器开启静默水平滑动（`overflow-x: auto; scrollbar-width: none;`），彻底杜绝窄屏下“Project 自动化任务”被生硬压成两行碎字的排版瑕疵。
+- **窄屏 Master-Detail 钻取规范**：在窄屏视口（`< 760px`）下，点击任务查看详情时列表平滑隐藏并由详情卡片全宽呈现，避免卡片列表与详情纵向生硬挤压；点击 `X` 或按 `Escape` 瞬间切回列表。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）。
+
+### Changed: Desktop 自动任务详情面板统一平铺分栏与丝滑交互重构
+
+- **根治平铺与覆盖逻辑不一致**：彻底移除 `@container (max-width: 880px)` 导致的临界突变规则与半屏遮挡弹层，在桌面端统一为纯粹自洽的左右平铺分栏（Split View）。左栏（280px~320px）收敛为任务导览列，右栏自适应展开为详情工作台。
+- **剔除移动端拖拽把手与遮罩**：彻底移除怪异的手机端拖拽把手 `—`（`automation-detail-drag-handle`）与局部遮罩（`automation-detail-scrim`），消除一切视线遮挡；左侧卡片始终可见并支持一键切换。
+- **丝滑过渡动画与快捷键**：详情面板新增 200ms 平滑滑入淡入动画（`automation-detail-slide-in`），支持点击常驻 `X` 按钮或键盘 `Escape` 瞬间退出并平滑恢复为三列 Bento 网格。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）。
+
+### Changed: Desktop 自动任务与技能面板全系统主题动态配色适配
+
+- **彻底清除 Hard-coded 颜色**：清查并移除了状态胶囊（`.row-outcome`）、任务行状态标记（`.automation-task-row-mark`）与技能图标（`.installed-skill-icon`）中误引入的所有硬编码 Hex / 自定义私有颜色（`#EDF3EC`、`#346538`、`#FBF3DB`、`#9F2F2D`、`#E1F3FE` 等）。
+- **100% 遵从系统主题 Token 与动态计算**：
+  - 严格映射至系统主题语义变量（`var(--online)` 完成、`var(--danger)` 失败、`var(--accent)` 运行/代码、`var(--warning)`/`var(--warning-text)` 待办/文档、`var(--skill-accent)` 设计/技能）。
+  - 通过 `color-mix(in srgb, var(...) %, var(--fill))` 基于当前主题表面基底动态混合，去除多余的 `[data-theme="dark"]` 人工硬写色块，完美自适应系统所有主题（macOS Light/Dark、Rose Pine Dawn/Moon、Catppuccin Latte/Frappé、Midnight）。
+- **静态机器守卫拦截**：在 `chat-ui.test.mjs` 中固化测试守卫，确保未来任何针对状态胶囊与技能色相的提交无法带入硬编码 Hex 颜色。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）。
+
+### Changed: Desktop 工作区技能面板分类分流与精细化卡片重构
+
+- **技能分类分流 Tab**：在技能中心顶栏引入 macOS 风格的分段控制分类栏（`.automation-category-tabs`），按「全部」、「内置 Skill」、「工作区」与「Agent 专有」四个维度实时统计与过滤技能，解决过去所有来源技能混杂平铺且难以检索的问题。
+- **差异化语义图标与视觉层级**：消除所有卡片清一色 MagicWand 图标的视觉单调感，根据技能属性智能分配代码（Code/蓝色）、文档规范（FileText/橙色）、设计排版（Palette/紫色）、运行时与 Agent（Cpu/绿色）等语义图标与柔和背景色相；卡片增加来源与 MCP 服务徽标。
+- **开关统一靠右对齐与冗余徽标精简**：移除卡片内与开关重复的「已启用/已禁用」文字 Badge，消除视觉干扰与错位；技能开关通过 `margin-left: auto` 统一严格对齐到卡片右上边缘。
+- **就地启停与详情弹窗**：
+  - 每个技能卡片集成原生无障碍 `IosSwitch`，支持在工作区内直接就地启停技能；内置技能有新版本时直接提供一键「更新」按钮。
+  - 新增「详情」模态对话框（`<Dialog>`），清晰展示完整说明、作用域、挂载 Bot/Chat、MCP 服务以及版本状态。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）。
+
+### Changed: Desktop 工作区外壳几何统一与小程序应用启动台卡片重构
+
+- **工作区几何统一**：Desktop 核心工作区（自动任务、技能、小程序）从过去 1240px、全宽无限制拉伸、720px 窄条的分裂状态，统一对齐至 `--workspace-col: min(1240px, calc(100% - 48px))` 居中布局，消除侧边栏切换时的视口跳跃与呼吸感撕裂。
+- **小程序应用启动台（A+A 模式）**：
+  - **首屏重构**：将小程序页面从过去被开发者安装表单霸占首屏的表单列表，重构为现代 App Launcher 卡片网格（突出应用图标、名称、版本、运行状态徽章与一键「打开应用」主操作按钮）。
+  - **安装器模态收敛**：右上角提供清晰的「+ 安装小程序」主操作，点击呼出原生 Dialog 对话框（包含内置推荐一键安装、本地目录导入、ZIP 文件解压与 GitHub 仓库安装），不再常驻霸占日常使用空间。
+  - **安全与卸载交互原生化**：卸载应用（保留数据/清理数据）全面采用桌面端无障碍 `<AlertDialog>` 确认框，彻底替代了侵入式阻塞主线程的浏览器 `window.confirm`。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）、`chat-ui.test.mjs` 守卫同步更新并通过。
 
 ### Fixed: Project 会话内打开本轮文件不再丢失文件列表
 

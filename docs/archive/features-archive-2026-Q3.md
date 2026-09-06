@@ -2314,3 +2314,113 @@ Agent City 里所有浮层——悬浮卡、详情卡、搜索框、提示条、
 | BL-02 | Lark adapter | Backlog | Post V1 |
 | BL-03 | Slack adapter | Backlog | Post V1 |
 | BL-04 | Vector memory | Backlog | Post V1 |
+
+## 2026-08-06
+
+### Mini App ↔ 主程序通信平台（新增，P0/P1）
+
+- 消息、选区和附件现在可由 Desktop 通过 manifest `contributions.messageActions` 确定性送入 Mini App，不经过模型。服务端重建时间/来源/截断状态，正文按 UTF-8 64 KiB 安全截断；附件从真实会话 locator 解析后以不透明文件名暂存到目标 App `incoming/`，不暴露会话 id、宿主路径或原路径。
+- Bridge v1 只接受来自当前 iframe 的 `molibot-miniapp` / `composer.insert`，32 KiB 上限，支持 append/replace；填入并聚焦 Session/Project 当前草稿，但不发送、不改模型/附件/队列，历史编辑态和只读 external view 会拒绝并保留原草稿。
+- Runtime 新增 `ctx.ai.generateText()` / `transcribe()`：能力声明、实时模型路由、宿主凭据、无工具非流式文本、App dataDir realpath、25 MiB/10 分钟音频、BCP-47、Abort、每 App 并发 2 + 30/min、稳定脱敏错误和成功/失败 JSONL 计量。Manager 提供细粒度模型设置、费用/不可用提示及近 30 天按 App 汇总；设置已做 fresh-store round-trip。
+- HTTP raw body 只在 manifest 明确允许的 `/api/*` 路由开放，路径段匹配并在 Runtime 前 413；Tauri transport 绝对硬顶 25 MiB。第三方 AI App 初装默认 disabled，须用户看过费用提示后显式启用。
+- Todo v1.0.2 增加「存为待办」活体动作；新增按需安装的 Meeting Notes v1.0.0，按 60 秒永久保存音频分段、独立转写/重试、失败不中断后续段、尾段完成后生成 Markdown 纪要，支持重启 interrupted、失败段重试、重新生成、重命名和不可恢复删除。
+- `miniapp-creator` Skill/Agent 模板升级到 1.3.0，模板与作者指南覆盖 message actions、bridge、`ctx.ai`、raw 上传和 restart-safe job。
+- 机器证据：消息/bridge/manifest/AI/settings/resources 聚焦测试 23/23；HTTP、built-in 与 Meeting 测试 32/32；用量/settings/manifest 16/16；Desktop `svelte-check` 0/0；服务端生产构建通过。该切片当时尚缺真实验收；产品负责人已于 2026-08-09 在真实 App 确认麦克风可用，当前状态以能力矩阵为准。
+
+### 内置小程序独立成 tab：可安装 / 可更新 / 可卸载（新增，P1）
+
+此前「内置」只是一个标签，不是一类可管理的东西：管理页只列**已安装**的应用，于是被卸载的内置应用会从产品里彻底消失（卸载墓碑正确地阻止了下次启动自动装回），而这个版本自带、但从未安装过的应用根本无从发现。而且内置应用是不问自取地装进工作区的。
+
+- **「管理小程序 › 安装小应用 › 内置应用」新增一个 tab**，排在四个安装来源的第一位。每行直接回答用户真正会问的两个问题——*装了没有？有没有新版？*——名称、描述、图标、版本、工具列表都从**打包进构建的那份副本**里读，所以磁盘上有没有东西都能显示一行。状态：`未安装` / `已卸载`（用户主动删的）/ `已是最新` / `有新版本 v1.2.0`。
+- **安装、更新、卸载都在这一行完成。** 安装与更新在宿主里是同一个操作（`installBuiltin`），区别只在于「之前有没有」；同样遵守 挂起 → 排空 → dispose → 覆盖 的顺序，因为正在运行的应用可能持有被替换目录里的 SQLite 句柄。只覆盖代码：应用数据目录从不触碰，启用状态保留（关着的应用拿到新代码，仍然是关着的）。安装会清除卸载墓碑，否则下次启动就会把用户刚要回来的东西再删一遍。
+- **`Note` 作为内置应用发布**；并且新增内置应用一律「按需安装」：`autoInstall` 按应用声明，`todo` 保留（空工作区首次启动仍自带这个参考应用，行为不变），其余只在列表里作为「可安装项」出现。升级不会往用户工作区里塞新应用。
+- 内置 id 列表改为从打包清单推导（`builtinMiniAppIds()`），不再在 `registry.ts` 里手写第二份——正是 pitfall #22 的形状：漏登记会让某个应用「发布了但不被认作内置」，没有更新、没有内置重装、provenance 还写成 `directory`。
+- 所有 Mini App 路由现在统一通过 `buildDesktopMiniAppsPayload()` 返回**两份目录**（`{ items, builtin }`），store 也成对赋值：安装/更新/卸载会同时改变两份列表，只返回其中一份就会让另一份停留在点击前的状态。桌面端遇到不返回 `builtin` 的旧服务，降级为「没有可装的内置应用」而不是抛错。
+- 新增路由 `GET/POST /api/desktop/miniapps/builtin`。它不并入 `/install`：这里没有需要用户判断是否可信的来源，因此该 tab 不重复第三方信任警告（在自家应用上重复这句话，只会训练用户忽略它）。
+- 机器防护：`src/lib/server/miniapps/bootstrap.test.ts` 覆盖内置目录、按需安装、墓碑往返、旧副本更新、id 推导；`src/lib/server/app/desktopMiniApps.test.ts` 覆盖双目录投影；`apps/desktop/src/chat-ui.test.mjs` 断言 tab 与 `applyCatalogs`。其中一条通用用例会安装并 smoke test **每一个**打包的内置应用，新增内置应用不可能只在目录里出现却加载失败。
+- 附带：Todo 图标按 Note 的风格重画（24×24、无底板、同色系三阶平涂）。
+- 验证：Mini App bootstrap 17/17、host/install/manifest 48/48、投影 5/5、desktop UI 168/168 + unit 143/143 + Rust 52/52，`svelte-check` 0/0，`vite build` 与 desktop `vite build` 均通过。并对着临时数据目录上的真实服务走了一遍 HTTP：列出 → 安装（`note` 出现并加载）→ 卸载（写入墓碑）→ 重新安装（清除墓碑）→ 改旧版本号后重启（`updateAvailable: true`）→ 更新（回到打包版本）。
+
+### 打开小程序后切换会话丢失小程序、会话里「文件面板」为空（已修复，P1）
+
+两个现象，同一个接缝。
+
+- **切换 Session 时小程序被销毁。** `ArtifactTabsStore.connect()` 在上下文（endpoint / project / profile / session）变化时清空**所有** tab，于是选中另一个会话就把正在运行的小程序 iframe 一并拆掉，面板退回文件侧。小程序是独立的工作面，不是「它恰好被打开时那个会话」的产物：现在 `connect()` 保留小程序 tab、当前选中项与所处 mode，只清理确实属于旧上下文的 file/diff tab。`{#each}` 的 key 不变，保留下来的 tab 复用原 DOM，iframe 文档不重载。
+- **会话里切回「文件」是空的。** Session scope 下面板只渲染已打开的文件 tab，背后是一句「暂无工件」；真正的会话产物列表在 `ChatView` 的**另一个**右侧 aside 里，而宿主只在「没有打开小程序」时才渲染它。所以一旦开着小程序，那个列表根本无法到达，文件侧从结构上就是空的。现在产物列表移进面板内部（媒体类型筛选、数量/体积页脚、点击在下方查看器打开、下载），旧 aside 删除，Chat 在任何 scope 下都只挂一个右侧检查器。
+- 合并时暴露的两处旧问题：面板读取附件时把 profile 硬编码成 `"personal"`，对属于其它 bot 的会话会返回空列表且不报错——现在接收宿主传入的 `profileId`，与转写区自己的预览/下载走同一套身份解析；`.project-panel-body.browser-collapsed > .project-browser` 自 `.artifact-file-surface` 包装层引入后就不再匹配，折叠按钮点了没反应，规则改写到包装层上。
+- 面板可见性改由实时的 `projectPaneActive` 推导，不再读打开时写死的 `inspector.scope`，可见性判断与真正传给面板的 props 不可能再打架。
+- 机器防护：`apps/desktop/src/chat-ui.test.mjs` 断言 `connect()` 保留小程序 tab 与 mode、Session 产物列表面存在、不再有 `artifactEmpty`、关闭最后一个 tab 不关面板、单一检查器（`inspectorVisible = artifactPanelVisible`，无 `sessionFilesAsideVisible`、无 `file-list`）、折叠选择器写在包装层上。
+- 验证：desktop UI 167/167 + unit 143/143 + Rust 52/52，`svelte-check` 0/0，`vite build` 通过。并对着真实服务走了一遍冷路径：打开小程序 → 切会话（小程序还在）→ 切到「文件」（列出会话产物）→ 打开文件（列表上、查看器下分屏）→ 关闭 tab（列表仍在）→ 切到项目会话（文件树/变更/附件正常，小程序 tab 仍在）→ 折叠再展开列表。
+
+### 工件面板四个文件预览 bug 修复（issue #31，已修复，P1）
+
+统一工件面板上线后，项目文件面板里 CSV 和图片预览空白/一直转圈、`.gitignore` 打开后是系统打开卡片而非内容、Markdown 源码视图无行号。四个 bug，四个不同根因。
+
+- **CSV 遇到重复值就空白。** `CsvTable` 的三个 `{#each}` 都用**值**做 key（`row.join("\0")`、`cell`、`header`）。Svelte 5 在**生产环境**也会抛 `each_key_duplicate`（不是只 dev 警告），所以一行 `yes,yes,yes,yes`、两行完全相同、或重复列名都会在渲染时抛错，tab 直接空白--数据类 CSV 极常见。改为按行/列 index 做 key：CSV 是静态列表，追加行只新增 index，重载则在原 index 原地更新，安全。顺手去掉 `row.join` 里嵌的原始 NUL 字节（git 因此把 `CsvTable.svelte` 当二进制）。
+- **图片被 CSP 挡住。** `app.security.csp` 的 `media-src` 允许了 `http://127.0.0.1:*`（所以 video/audio 能流式播放），但 `img-src` **没有**，于是 `<img src={serviceUrl}>` 被拦、video/audio 却正常--这正是只有图片被报坏的原因。`img-src` 现与 `media-src` 对齐；同一改动也修好了 SVG 流式渲染图和会话附件图片。
+- **`.gitignore` 打开成系统卡片。** `classifyFilePreview` 对 dotfile 返回 `"binary"`（`extensionOf` 把 `.gitignore` 整串当扩展名），`matchViewer` 据此路由到 `"system"`，面板只给「在外部打开/在 Finder 中显示/下载」。新增 `TEXT_DOTFILES` 集合，把常见配置 dotfile（`.gitignore`/`.gitattributes`/`.gitmodules`/`.dockerignore`/`.editorconfig`/`.npmrc`/`.nvmrc`/`.prettierrc`/`.eslintrc`/`.babelrc` 等）判成 `"text"`；服务端本就用 `detectTextEncoding` 把它们读成文本，于是直接在 CodeViewer 里打开。`.DS_Store` 等二进制 dotfile 仍走系统卡片。
+- **Markdown/CSV/SVG 源码视图无行号。** 三者原本都是裸 `<pre>`，现统一复用共享的 `CodeViewer`，源码视图 thus 带行号、查找、换行，和其它文本文件一致。`MarkdownPreview`、`CsvTable` 新增 `name` prop 供 CodeViewer 按路径高亮。
+- 机器防护：`apps/desktop/src/chat-ui.test.mjs` 断言 CsvTable 用 index key、无原始 NUL、源码视图走 CodeViewer、`name` prop、CSP `img-src` 含 loopback；`viewerRegistry.test.ts` 断言 `.gitignore` -> `code`；新建 `src/lib/shared/filePreview.test.ts` 覆盖 dotfile 分类（接入 `test:projects`）。
+- 验证：desktop UI 166/166 + unit 143/143 + Rust 52/52，`test:projects` 68/68，`svelte-check` 0/0，`vite build` 通过。CSP 改动烧在 Tauri 构建里，需要 Rust 重建（pitfall #18），WebView reload 不生效。
+
+### 单个 MCP 工具结果可撑爆上下文，且压缩永远救不回来（已修复，P0）
+
+现象是 provider 返回 400：一次请求携带约 288 万 token 文本，而端点上限 100 万。这不是多轮累积——是约 11 MB 在**一个工具步骤**里一次性进来的——它暴露了两个看起来像一个 bug 的缺口。
+
+- **MCP 结果此前原样内联**：`read`、`bash` 都会把自己的输出截到 `DEFAULT_MAX_BYTES` / `DEFAULT_MAX_LINES` 并把全文落盘，但 `normalizeToolContent` 把 `item.text`、`resource.text`、`structuredContent`（还带缩进美化，比线上载荷更大）无上限地直接塞进上下文。MCP server 是第三方代码，「它的回答可以多大」从来就不该交给它决定。现在统一走 `capMcpToolContent`：同一个结果的**所有**文本 part 共享一份预算——把载荷拆成 50 段的 server 和返回单个大块的 server 受到完全相同的约束——全文落盘到与 bash 相同的位置，图片 part 原样保留。
+- **压缩修不好这条消息**：`findFirstKeptIndex` 无条件以最新一条消息作为保留切片的起点（丢掉模型刚产出或刚消费的那条会破坏该轮），所以当**单条**消息就大于整个窗口时，每次压缩要么返回 `changed: false`，要么压完仍然超窗，溢出重试随之放弃，该会话从此再也跑不动——那条消息被之后每一轮继承。现在 `capOversizedMessages` 会重写任何超过 keep-recent 预算的单条消息；由于 `appendCompaction` 持久化的正是压缩后的列表，这个大块是真正离开了活动上下文，而不是每轮重截一次。
+- 两个细节，任一处做错都会让修复「看起来生效、实际什么也没做」：`truncateHead` 从不切分行，所以压缩后的 JSON（一整行）会返回**空内容**——两条路径都回退到按字节安全切分的 `sliceToBytes`，它会跨过 UTF-8 续字节，不把一个字符劈成两半；压缩侧的字节预算取每 token 2 字节，对中文（1 个 3 字节字符 = 1 token）和 ASCII 都低于估算器的真实成本（pitfall 8）。
+- 落盘代码此前已在 `bash.ts` 与 `hostToolExec.ts` 里写了四遍；这次没有加第五遍，两者统一委托给 `outputSpill.ts`，其写入永不抛错——只读的临时目录应当降级成「已截断、无全文指针」，而不是让产出这份输出的工具调用失败（pitfall 7）。
+- 机器防护：`compaction.test.ts` 覆盖单条超窗、无历史可摘要、toolCall 块不得被改写、中文预算四类用例；`mcp.test.ts` 覆盖小结果原样透传、跨 part 共享预算、单行载荷、图片不被丢弃、落盘全文往返。
+- 验证：`compaction.test.ts` + `compactionFileOps.test.ts` + `bash-output.test.ts` + `read.test.ts` + `runnerHelpers.test.ts` 64/64，`mcp.test.ts` 9/9，`tools/index|path|sandbox` + `hostBashExecContext` + `hostBash/approval` 31/31，全部改动文件 `tsc --noEmit` 无新增报错。
+- **明确暂不做**：请求前的尺寸闸门。上面全部仍是反应式的——请求照发，靠工具层上限兜底或被拒后重试。在发请求前用 `contextWindow` 校验已组装的上下文，才能不再依赖 `isContextOverflowError` 里那约 25 种 provider 报错措辞。此项立项而非半做。
+
+### 工件面板拆成「文件 / 小程序」两个界面（已完成，P0）
+
+用户使用实际构建后反馈：「点击文件后会回到文件窗口，小程序就丢失了」。背后是两个问题，而 tab 混排只是其中之一。
+
+- **混排的 tab 条本身是错的模型**：Slice 0 把「小程序只是另一种 tab」当作核心决策。实际用起来，一条 tab 条里 `AGENTS.md` 挨着一个正在运行的记账应用，「去看个文件」和「离开我的应用」变成了同一个手势。现在面板头部有「文件 / 小程序」分段控件，两侧各有自己的 tab 条、各自记住自己的选中项，切回来还在原处。多个小程序之间仍然用 tab 并存。
+- **切换器是头部里一个低调的下拉菜单，不是独立控件**：面板只有约 380px 宽，两个方向上空间都紧张 —— 单独占一行会把内容往下压、且重复显示 tab 条已有的应用名；改成分段控件后又用头部宽度长期陈列两个选项。相对于在一个界面里的阅读时间，切换界面本身是低频动作，所以现在只显示当前界面名 + 一个下拉箭头，点开是两项菜单。两个头部合并为一个：触发器占用原标题的弹性空间（优先压缩文字，让操作按钮保持自然宽度，pitfall 16a），文件类操作只在文件模式出现，没有打开小程序时头部保持纯标题。
+- 复用 `OverflowMenu`（为其增加可选 `trigger` slot 与 `inline` 变体），而不是新写一个浮层 —— 否则关闭、Esc、方向键三套行为都会被 fork（pitfall 7）。浮层在触发器下方左对齐展开；祖先链上没有裁剪它的 overflow，头部已有的 `z-index: 31` 让两者都盖过窗口拖拽遮罩。
+- 换头部时带出的两个问题一并修掉：原本是标题的 `flex: 1` 把操作按钮顶到右边，而按内容定宽的触发器没有任何元素吸收空白，按钮就贴着触发器堆在左侧 —— 现在触发器带 `margin-right: auto`，既保持按标签定宽（低调控件不该拥有一整条头部宽的悬停区），又让操作按钮固定在右边缘。另外 `.file-panel-head strong` 是**后代**选择器，连菜单触发器里的 `<strong>` 一起命中，把它的字号覆盖成裸 13px 并让它在触发器内拉伸；已改为直接子选择器，这本来就是它的原意。
+- 由此 `.miniapp-panel-head` / `-title` / `-close` 与 `.miniapp-icon-panel` 成为死代码并删除；原本断言 `.miniapp-panel-head` 的 `z-index: 31` 拖拽遮罩防护改为断言 `.file-panel-head` —— 现在真正存在的那个头部。指向死规则的断言等于没有防护，而这条覆盖的是 pitfall 18，其失败表现正是按钮静默失灵。
+- **真正丢数据的是生命周期 bug**：`{#if miniAppActive}` 和文件分支是兄弟分支，激活文件 tab 会销毁所有 `MiniAppPanel` 及其 iframe —— 小程序回到初始界面，填了一半的内容全没。现在所有已打开的小程序始终挂载，用 `display: none` 隐藏（这能让 iframe 的 document 保持存活）；文件界面同样用隐藏而非移除，因此往返一趟后滚动位置还在。**只拆 tab 条并不能修好这一点** —— 每次切换应用照样会被拆掉。
+- 连带处理：`MAX_OPEN_TABS` 改为按类型分别计数，浏览十几个文件不会悄悄挤掉用户在另一侧开着的小程序；`closeTab` 在同类型内回退，不会跨类型跳走；`closeAllTabs` 只关当前模式，且只 revoke 这一部分。
+- Slice 0 中正确的部分保留了：一个面板、一列 inspector、一个 resizer、一份宽度预算、一套 viewer 注册表。挂载缝隙仍然唯一，拆开的只是 tab 模型。
+- 机器防护：原「co-hosts files and Mini Apps」断言替换为分离断言（两份 tab 列表、两个选中项、任何 tab 条都不得遍历合并后的 `store.tabs`、按类型封顶、按类型回退）与存活断言（三处 `class:is-hidden`、面板内有且仅有一个 `MiniAppPanel` 挂载、`display: none` 规则存在）。已验证移除隐藏后存活断言会失败。
+- 验证：桌面 UI 测试 163/163 + 单元 142/142 + Rust 52/52，`test:projects` 62/62，`svelte-check` 0/0，两侧 build 通过。
+
+### 工件 tab 超上限淘汰时泄漏 blob URL（已修复，P1）
+
+补 PRD §3.38 test seam #5（「关闭 tab 必须 revoke blob URL」）时，正是这条断言找出了唯一没有释放的移除路径。`closeTab`、`closeAllTabs`、`connect`、`dispose` 四条都正确 revoke，但 `MAX_OPEN_TABS` 上限是在三处 open 路径里各自内联 `next.slice(next.length - MAX_OPEN_TABS)` 实现的，每一处都在悄悄丢掉最旧的 tab 而不释放它。打开第 13 个会话附件，第一个的字节就会在整个 WebView 生命周期内泄漏，且任何 console 都看不到。
+
+- 淘汰即关闭，三条 open 路径现在统一经由 `#commitTabs` 提交，由它负责 revoke 被挤出去的 tab。`MAX_OPEN_TABS` 只被其声明处和该 helper 引用。
+- `apps/desktop/src/chat-ui.test.mjs` machine guard：`createObjectURL` 有且仅有一处、五条移除路径各自 revoke、不得再出现内联封顶、上限不得在 helper 之外被引用。已验证该断言在修复前的代码上失败、修复后通过。
+
+### Session scope 的 HTML 预览与文件操作条补齐（已完成，P0）
+
+Slice 2/3 落地后按 PRD §3.38 逐条核对代码发现的两个缺口。
+
+- **Session scope 下相对资源加载不出来**：artifact 路由此前只接受 `scope === "project"`，聊天附件的 HTML 预览退回 `URL.createObjectURL(blob)`。blob URL 没有路径，页面里所有相对 `css/`、`img/`、`../assets/` 引用一律解析失败，多文件页面只剩骨架，且任何地方都不报错。现在 Session 预览走与 Project 相同的按根托管通道，根为该 Session 的 workspace，`..` 与符号链接逃逸沿用同一套 fail-closed 校验。blob 仅保留为路由拒绝服务时的兜底——外部渠道会话的 workspace 里是别人发来的文件，渲染执行比只流式传字节能力更强，故明确排除。
+- **Session token 是单一共享编解码**：Session 没有 Project 那样的单一 id（profile + session + 可选 project），三者打包成一个不透明 base64url 段，只带 id、绝不带宿主路径。它放在 `src/lib/shared/artifactToken.ts`，WebView 与服务端共同引用——客户端另写一份，正是编码端与解码端漂移成静默 404 的经典路径，而那个 404 表现出来又恰好是「相对资源又坏了」。
+- **Session 操作条此前只有「下载」**：现在补齐复制路径、在 Finder 显示、用系统应用打开，经新增的 `POST /api/web/files/reveal`，与 Project 的 inspection reveal 对称——共用同一个 spawn 辅助（`shell: false` + 参数数组），绝对路径在服务端根校验之内解析且从不回传。同一组动作也接进了 `SystemOpenCard`，`.docx` 附件终于可以打开而不只是下载。
+- `resolveAuthorizedConversation` 从 `/api/web/files/+server.ts` 抽到 `src/lib/server/web/sessionWorkspace.ts`，字节路由、预览路由、reveal 路由现在对「这个 Session 属于哪个 workspace、调用方是否有权访问」共用同一个答案（pitfall 7）。
+- Session tab 的 `path` 由空串改为附件的 workspace 相对路径，使同一个路径字符串在每个读取它的动作里含义一致（pitfall 6 推论）。
+- **明确暂不做**：Session scope 的「作为 `@` 引用插入」。composer bridge 目前只服务 Project，更根本的是共享 Runtime 会把 `@[name](path)` 对照已注册的 Project root 校验（§3.35），普通会话没有对应物，按钮插进去的引用会被 Runtime fail closed 拒绝。这需要 Runtime 先有 Session 附件的引用模型，不是接根线的事。
+- 机器防护：`artifactRoute.test.ts` 覆盖 token 往返 / 只含 id / 非法拒绝，以及 Session workspace 的逃逸用例；`apps/desktop/src/lib/api.test.ts` 覆盖客户端↔服务端 token 一致性（含 CJK id）；`chat-ui.test.mjs` 覆盖路由优先于 blob、客户端不得自建 token、session tab path、Session 动作集合（含刻意缺席的 `mentionInChat`）。
+- 验证：桌面 UI 测试 160/160 + 单元测试 142/142 + Rust 52/52，`test:projects` 62/62，`svelte-check` 0/0，两侧 build 均通过。冷启动 smoke walk 仍未做（见下条）。
+
+### 工件面板补齐 Markdown / JSON / SVG / mermaid 与不可预览兜底（已完成，P1+P2）
+
+PRD §3.38 Slice 2、Slice 3。右侧统一工件面板的容器（Slice 0：一个 tab 容器 + viewer 注册表，小程序作为一种 tab）与 Slice 1（沙箱 HTML 预览、聊天附件接入面板、CSV 表格）此前已在工作区完成，本次补齐剩余查看器。
+
+- **Markdown** 复用聊天转录自己的 `renderMarkdown`（同一套 marked + highlight.js + DOMPurify），不新起第二条渲染链路，Agent 写的报告在面板里和在对话里读起来完全一致。外链跳转与代码块复制按钮的点击行为原本要被复制一份，因此抽到共享的 `lib/markdownInteractions.ts`，转录与面板共用（pitfall 7）；面板以 action 形式挂载，避免给纯布局容器编造 ARIA role。
+- **mermaid** 图表在 Markdown 内渲染，用动态 `import()` 且以「文档里确实有图」为前提加载——库约 590 kB，始终是独立 chunk，不进初始包。`securityLevel: "strict"`，因为图表文本是 Agent 生成内容。渲染失败只回退该图的源码，不会让整个 tab 空白。主题切换会重新渲染，因为 mermaid 把配色烘进 SVG 而不是读 CSS。
+- **JSON** 默认以原始源码打开，使用 CodeViewer 高亮和分块加载；点击显式操作后才进入可折叠树，超过两层的容器默认折叠。解析失败、超过 1 MB 或超过行数预算都可见且回退源码。上限按 UTF-8 字节计，不按字符数——按字符数会把中文少算约 3 倍（pitfall 8）。
+- **SVG** 拥有独立 viewer 且排在媒体判定之前，因此在两种 scope 下都能「渲染 + 一键看源码」。渲染走 `<img src=…>` 而非内联标记：`<img>` 文档无法执行脚本，也无法拉取外部资源。
+- **音频**此前已由 `MediaViewer` 支持，现在通过同一套注册表分发，Session scope 同样可用。
+- **无法预览的格式**（Office、未知二进制、超大文本）给出真正的卡片：图标、文件名、大小、原因，以及「用系统应用打开 / 在 Finder 中显示 / 下载」。Office 明确不做内嵌预览——转换链路重、收益低，产品答案就是系统应用。Session scope 下附件没有宿主路径，故不显示前两项，下载始终可用。
+- 渲染/源码切换现在是注册表事实（`hasSourceToggle`），两个 scope 的工具栏共读；哪些 viewer 需要解码文本是 `needsTextContent`，由 session 加载器直接读取，而不是自己维护一份排除名单。新增一种 viewer 只需在 `viewerRegistry.ts` 加一个分支，别处没有会被忘记更新的名单。
+- 顺带移除 `src/lib/shared/filePreview.ts` 中已无引用的 `isRenderableTextName`（该判断已归注册表所有）。
+- 机器防护：`viewerRegistry.test.ts` 覆盖分发、`needsTextContent` / `hasSourceToggle`、空 MIME 兜底；`jsonTree.test.ts` 覆盖扁平化、按路径前缀折叠（折叠 `/a` 不得连带隐藏兄弟节点 `/ab`）、两种失败与 UTF-8 上限；`mermaidBlocks.test.ts` 覆盖围栏解析（未闭合、更长围栏、波浪号围栏）；`chat-ui.test.mjs` 新增：每个 viewer 在**两个 scope** 都可达（这条断言专门拦「只接了 Project 分支」）、系统卡片动作且下载不可选、切换开关单一来源、mermaid 懒加载 + strict + 代次防护、不存在第二条 markdown 链路、SVG 永不 `{@html}`、新增文案双语齐全。
+- 验证：桌面 UI 测试 157/157 + 单元测试 142/142 + Rust 52/52，`test:projects` 58/58，`svelte-check` 0 error / 0 warning，服务端与桌面 `vite build` 均通过。**未做：冷启动 smoke walk**（pitfall 10）——它需要打包后的 Tauri 窗口，当前环境无法驱动；HTML 预览与小程序 tab 尤其依赖只在该环境存在的自定义协议。

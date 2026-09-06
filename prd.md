@@ -1,9 +1,93 @@
 # Molibot PRD (V1)
 
+## 内置 Agent 模板优化验收（2026-09-06）
+
+- **P2 / 已完成模板修订与加载验证**：简单问题不强制展开完整专业流程；研究和计算不虚构数据或经历；模板更新可发现，用户修改副本可备份；实际提示词保留角色与 Bot 规则。
+- **验证边界**：真实模型的多场景回答质量尚未做 A/B 评估；本次不新增模型配置或运行时路由。
+
+## 协作规则明确化（2026-09-06）
+
+- **阶段**：已完成本次规则修订，无新增产品排期。
+- **验收口径**：常规排错不触发额外确认，已有授权持续有效；关键决策仍须批准，阻塞项明确报告，必需验证不因流程简化而省略。
+
+## 审批续跑展示与链路审查（2026-09-06）
+
+- **P0 / 已实现，原生验收待验证**：后台统一记录一次最终回答及结构化活动；Desktop 按服务端运行状态等待，耗时不包含之前的审批等待。
+- **P1 / 待评估，未排期**：统一 Host Bash 内联等待器与异步审批处理器的执行认领和结果交付。目前 Web 执行入口未完整使用原子认领；内联窗口内批准时仍需覆盖执行一次、结果消费一次和会话上下文保存竞态。验收应使用两入口并发测试，不能仅测存储层 claim。
+- **P1 / 待评估，未排期**：通用工具审批恢复应携带项目与会话模型配置，并统一按审批 ID 定位等待结果；当前共享恢复函数尚未携带项目上下文，模糊匹配与写入模型历史的运行控制文本也需清理。
+- **P2 / 待评估，未排期**：为无 SSE 的续跑提供可重连的事件订阅和明确的排队/执行/完成回执，取代 Desktop 轮询；服务重启后仍能确认原审批的执行结果和续跑归属。
+
+## Host Bash 审批通过后续跑（2026-09-06）
+
+- **优先级 / 阶段**：P0 / 代码修复及共享数据库回归完成，原生冷启动验收待验证。
+- **验收**：Desktop 批准 Host Bash 后执行已保存命令，按审批 ID 回写原工具结果并继续原会话；拒绝及执行终态不能被通用 Broker 再次消费。
+
+## Desktop Session 计划执行闭环（2026-09-05）
+
+- **优先级 / 状态**：P0 / 已交付。
+- **问题**：接受计划后另开后台任务，使原 Session 丢失真实执行上下文；执行中缺少同一对话内的思考和工具轨迹；检查态仍显示为运行并提供暂停/取消；第二个计划偶发无法接受；同一问题会产生多条回答。
+- **决策**：规划、执行、检查、反馈和继续修改均发生在原 Session。右侧面板只显示结构化步骤投影。一个用户轮次对应一个回答容器，补充终止片段合并且不丢内容。计划 ID 由持久化工具调用 ID 稳定生成。检查态退出所有运行入口，旧任务引导用户返回原对话反馈。
+- **验收**：接受后原对话立即续跑并显示过程；切换 Session 后执行仍归属原 Session；第二个计划可独立接受；待检查任务不出现在“进行中”；确认完成后没有暂停/取消；思考区无卡片背景；每个用户问题只出现一个回答容器。
+
+## Desktop 任务链路视觉验证（2026-09-04）
+
+- **优先级 / 阶段**：P2 / 视觉方向已确认，共享组件代码已实现，原生端到端待验证。
+- **范围**：以“整理资料并生成报告”为示例，验证新对话 → 执行过程 → 回答与文件产物；演示内容为样例，不代表任务已经执行。
+- **验收**：视觉主次清晰，执行与完成保持连续，详情可追溯，产物沿用文件列表与 Inspector。共享组件的中英、明暗、窄列和键盘折叠已在隔离样例验证；原生冷启动、真实任务与服务恢复仍待走查，减少动态效果沿用既有规则。
+- **规范**：[DESIGN.md](DESIGN.md#art-direction)。当前未批准全应用批量改版。
+
 ## Archive Index / 归档索引
 - [2026 Q2 PRD Archive (Apr - Jun)](docs/archive/prd-archive-2026-Q2.md)
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 - [2026 Q3 PRD Archive (Jul - Sep)](docs/archive/prd-archive-2026-Q3.md)
+
+## Desktop 数字设置输入框可读性（2026-09-04）
+
+- **优先级 / 状态**：P1 / 已交付。
+- **验收**：搜索结果数和六位超时值完整显示，清空不收缩；复用该样式的模型超时同步修正。中英、明暗和窄容器布局由浏览器回归覆盖；不改变字段和存储逻辑。
+
+## 3.136 Desktop 记忆高级管理弹窗与全局 Modal 滚动与排版重塑（2026-09-04）
+
+- **Priority / Status**: P1 / Delivered（2026-09-04 全部交付）。
+- **Problem**：Desktop APP 设置页记忆面板中点击「高级管理」弹窗后，存在两大严重缺陷：① 弹窗无法上下滚动（“现在我打开弹窗还是无法上下滚动”），底部的运维按钮与拒绝记录被截断遮挡；② 弹窗字体与 UI 视觉严重割裂（“字体 UI 都有问题，字体那么大，和其它页面完全不搭”）。
+  - **滚动失效根因**：`.memory-advanced-body` 声明为 `display: grid; align-content: start;`。在 macOS WKWebView（WebKit）中，带有 `align-content: start` 的 Grid 滚动容器在触控板与鼠标滚轮事件命中测试（Hit Testing）时存在严重缺陷，不会正确捕获与派发滚轮滚动事件；且父容器仅有 `max-height` 而未声明明确的 `height` 预算，导致弹性链路在 WebKit 渲染树中未形成确定边界。
+  - **排版字体过大根因**：弹窗内直接套用了为 720px 宽全页设计的 `.settings-row`（固定 50px 行高、14px 粗体标题），7 行只读诊断状态单独占据近 400px 竖向空间，配合 40px 的输入框与大间隙，导致页面视觉极其笨拙、字体巨大、在弹窗浮层中格格不入。
+- **Decision**：
+  - **WebKit 顺畅滚动与弹性压缩根治**：
+    - **禁止卡片弹性收缩**：为 `.memory-advanced-body > .settings-card` 显式设置 `flex: none;`（`flex-shrink: 0`），并将所有直属子项声明 `flex-shrink: 0;`。根治因 `.settings-card` 的 `overflow: hidden` 导致 `min-height: auto` 归零、全部卡片被强制纵向挤压（第一张卡片 3 行只读诊断被压扁至 1.5 行高、运维按钮与拒绝记录被就地吞噬且无法滚动）的严重 Flexbox 缺陷；
+    - **标准 Flex 纵向容器**：`.memory-advanced-body` 采用 `display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;`；
+    - **弹窗整体纵向滚动**：卡片不再被压扁，全部 4 张卡片完整展开其自然高度（自然高度约 850px+），弹窗外层 `max-height: min(85vh, calc(100vh - 48px), 760px)`，溢出部分通过外层 `.memory-advanced-body` 顺畅上下滚动触达；
+    - 在共享层 `.modal-body` 保持 `flex: 1 1 auto; min-height: 0; overflow-y: auto;`。
+  - **桌面级原生精致排版重构**：
+    - **只读诊断与能力清单**：在 `.memory-advanced-body` 下将 `.settings-row` 行高大幅收敛至 32px（内边距 `6px 14px`），标题由 14px 降为 13px `var(--fs-label)`（500 字重，二级标签色），数值为 13px `var(--fs-label)`，状态胶囊由 28px 收敛为 20px 紧凑胶囊（`var(--fs-meta)` 11px），7 行诊断总高度由 400px 缩减至约 230px；
+    - **记忆操作运维栏**：模块标题降为 13px 粗体；表单输入框继承桌面级 `--control-h: 28px`，字体 13px；6 项运维按钮高度统一降为 28px（`var(--control-h)`），内边距 `0 12px`，字体 13px，整齐排布；
+    - **拒绝记录列表**：搜索框统一为 28px 高度，列表项重构为紧凑布局（标题 13px，时间/原因 11px，拒绝内容 11px），单项高度由 70px+ 精简为 40px+，带有极细分割线；
+    - **弹窗副标题排版**：统一 `.entity-editor-head p` 样式为 11px `var(--fs-meta)`，行高 16px，颜色次级标签色。
+  - **机器守卫沉淀**：在 `chat-ui.test.mjs` 中补充针对 `.memory-advanced-modal` 明确高度、`.memory-advanced-body` 纵向 Flex 滚动、`flex: none` 卡片防收缩、32px 紧凑行高与 13px 字体规范的自动化测试守卫。
+- **Acceptance**：点击「高级管理」后弹窗在任何屏幕尺寸下居中展开，卡片自身绝不发生高度挤压变形，所有内容（状态、能力、运维表单、6 个按钮、拒绝记录列表）均完整展开，并通过弹窗整体垂直滚动条顺畅上下滚动浏览；`svelte-check` 0 error/0 warning，桌面 229 项测试全绿。
+
+## 3.135 Desktop 设置页控件标准化与下拉菜单轻量原生重构（2026-09-04）
+
+- **Priority / Status**: P1 / Delivered（2026-09-04 全部交付）。
+- **Problem**：Desktop APP 设置页中下拉菜单（`SelectControl`）视觉上“很大、很宽、很高”，且存在多重体验与架构异味：① 触发器与输入框高度硬编码 40px，在桌面端极其笨重，与 macOS HIG（标准 28px、按钮 32px、Switch 22px）严重冲突；② 设置行右侧下拉菜单强行硬编码 `width: 320px; flex: 0 1 320px; max-width: 58%`，导致短选项（如中英文语言切换）霸占过半屏幕空间挤压标题，弹出浮窗也受制于 anchor width 膨胀为 320px 巨块；③ 历史遗留规范冲突——`DESIGN.md` 中曾直接照搬 Web Geist 规范的 40px 条款，且测试中编写了硬性正则，导致代码“符合条款却违背 macOS 桌面原生感”；④ 其它面板表单控件散落各种 36px、34px、32px 等临时补丁覆盖。
+- **Decision**：
+  - **设计规范与 Token 架构**：在 `DESIGN.md` 与 `apps/desktop/src/styles.css` 的 `:root` 中正式确立 macOS 桌面端控件分层尺寸变量：`--control-h: 28px`（表单控件与下拉菜单触发器）、`--control-h-button: 32px`（独立动作按钮）、`--control-h-compact: 24px`（紧凑表格与密集控件）。
+  - **下拉菜单（SelectControl）轻量原生重构**：
+    - 触发器高度降至 28px（`var(--select-trigger-h: var(--control-h))`），内边距收敛至 `0 8px 0 10px`；
+    - 宽度改为内容自适应：`min-width: 130px; max-width: 260px; width: auto;`，短内容紧凑靠右，长内容自适应展开并省略；
+    - 弹出浮窗智能收敛：选项高度降至 24px（`var(--select-item-h)`），浮窗宽度采用 `min(max(var(--select-popover-min-w), var(--bits-select-anchor-width)), var(--select-popover-max-w))`，内边距收敛为 4px。
+  - **全局表单输入归拢与全仓守卫**：全局输入框与筛选控件全面继承 `var(--control-h)`，消除散落硬编码覆盖；同步更新 `chat-ui.test.mjs` 测试守卫，确保 0 hardcoded 40px/320px 倒退。
+- **Acceptance**：设置页所有下拉菜单高 28px、行高与选项高 24px，宽度随内容紧凑自适应（130px~260px），弹出浮窗精致不笨重；各面板输入框高度整齐划一；`DESIGN.md` 规范与真实代码一致；桌面 229 项测试全绿，`svelte-check` 0 error/0 warning。
+
+## 3.134 Desktop 工作区面板视觉与交互重塑（2026-09-04）
+
+- **Priority / Status**: P1 / Delivered（2026-09-04 全部交付）。
+- **Problem**：侧边栏自动任务、技能、小程序三大主面板存在“尺寸漂移”（1240px、全宽无限制拉伸、720px 窄条）、工作区双重标题（Header 与内容 H2 重复出现）、角色错位（小程序首屏被大面积技术性安装表单占据，而非应用启动台）等体验异味，切换时产生割裂感；自动任务多个 Tab 存在形态割裂（周期任务为卡片网格，一次性提醒为无框扁平清单且无法查看详情）；详情面板历史遗留 880px 规则导致在不同窗口尺寸下“一会儿平铺分栏、一会儿覆盖遮挡卡片”，遮挡模式带怪异手机拖拽把手 `—` 且缺乏过渡动画。
+- **Decision**：
+  - **Phase 1（已交付）**：定义共享 `--workspace-col: min(1240px, calc(100% - 48px))`；小程序主界面重构为现代卡片应用网格（A 模式）；安装表单收敛至右上角模态弹窗（A 模式）；危险操作采用 `<AlertDialog>` 两步确认。
+  - **Phase 2（已交付）**：技能中心分流与卡片重构（全部 / 内置 / 工作区 / Agent 专有分类分段控制，语义化差异图标，卡片就地 `IosSwitch` 启停与详情抽屉 Dialog）。
+  - **Phase 3（已交付）**：自动任务全 Tab 统一卡片网格规范；基于 `minimalist-ui` 规范升级为三段式 Bento 架构与详情去盒化；彻底废除 880px 覆盖突变与手机拖拽把手，在桌面端统一为纯粹平铺分栏（Split View，左侧收敛为导览列随时切换，右侧自适应展开并带有 200ms 丝滑滑入动效）；全面清除硬编码颜色，状态色与胶囊 100% 遵从系统主题 Token（`var(--online)`、`var(--danger)`、`var(--accent)`、`var(--warning)`、`var(--skill-accent)`、`var(--fill)`）与 `color-mix` 动态混合，适配系统全套主题切换（macOS、Rose Pine、Catppuccin、Midnight）；根治窄屏与缩窄窗口下的顶栏标题靠右、搜索框异常拉伸、分类文字断行挤压及卡片详情纵向硬塞等响应式缺陷。
+- **Acceptance**：小程序主面板以应用卡片网格呈现，支持搜索和即时启动；点击安装弹出模态；技能面板支持分类分流与就地启停；自动任务面板全 Tab 保持统一 Bento 卡片形态，点击卡片始终丝滑平铺分栏展开详情；状态与图标配色杜绝任何硬编码 Hex，无缝自适应所有主题；工作区各面板左边距与宽度稳定，窄屏缩放时标题稳妥居左、搜索框高度锁定、分类 Tab 不折行断字、选中详情全宽下钻无挤压；桌面测试（223 项）、`svelte-check` 0 error/0 warning 保持全绿。
 
 ## 3.133 Project 受保护目录授权与 Session 产物预览（2026-09-02）
 
@@ -1103,8 +1187,8 @@
 
 - **Priority / Status**: P0 / Delivered (2026-08-02).
 - **Problem**: one Agent run can legitimately persist multiple terminal assistant replies, including a primary answer plus a supplement. Web/Desktop conversation projection collapsed every assistant entry before the next visible user message into one bubble, so the last reply silently replaced the earlier, more complete answer. Runtime-authored corrective notices also used the follow-up queue, allowing a notice raised mid-tool-loop to run only after the task had already answered.
-- **Decision**: collapse non-terminal tool progress but preserve each textual terminal assistant as its own projected message. Runtime-authored corrective controls steer the active loop before its next model call; only owner-authored follow-ups retain post-completion queue semantics.
-- **Acceptance**: the captured `s-20260802-grja` pattern projects both terminal replies; an intervening tool-use message cannot replace either one; a trailing abort/error remains status on the existing answer; repeated-failure, tool-failure-budget, and subagent-delegation notices are machine-guarded as steering controls.
+- **Decision**: collapse non-terminal tool progress and fold every textual terminal assistant from one user turn into one projected answer, preserving each text segment in order. Runtime-authored corrective controls steer the active loop before its next model call; only owner-authored follow-ups retain post-completion queue semantics.
+- **Acceptance**: the captured `s-20260802-grja` pattern projects one answer containing both terminal replies; an intervening tool-use message cannot replace either one; a trailing abort/error remains status on the existing answer; repeated-failure, tool-failure-budget, and subagent-delegation notices are machine-guarded as steering controls.
 
 ## 3.33 Evidence-backed Mini App Creator delivery (2026-08-02)
 
@@ -1125,6 +1209,7 @@
 - **Priority / Status**: P1 / **Delivered 2026-08-02** (GitHub Issue [#26](https://github.com/gusibi/molibot/issues/26)). Slices 0-6 complete; see `features.md` for the delivered scope. **Scope expanded 2026-08-02 after review**: Mini Apps became a primary sidebar destination with a full manager (the original Settings-only entry was undiscoverable); the peer sidebar section keeps the product name while prioritizing the 10 most recently used apps; manifests gained an optional `ui.icon` rendered consistently in the manager, quick list, and Inspector; and graphical installation from a local folder / ZIP / GitHub repo was added. Remote install deliberately relaxes the original trust model — app server code runs in a fault-isolated child process but remains **unsandboxed for owner permissions** — so the UI confirms provenance before every install and the catalog records where each app came from. Hot activation was delivered in §3.44 and process fault isolation in §3.51. Still deferred: SSE push (V1 polls a revision), an app marketplace with signing/permission scopes, per-agent or per-project app instances, app-to-app calls, automatic data-schema migration.
 - **Delivered follow-up**: every channel supports `/miniapps` (aliases `/mini-apps`, `/apps`) to list the active catalog and the exact `@<app-id>` invocation form. A leading `@todo` / `@<installed-app>` narrows that turn's Mini App tool catalog to the selected app. The selector is a transient runtime control, stripped before persistence and never replayed in later turns.
 - **Delivered UI follow-up**: Conversation, Project, and Mini App sidebar sections share one global 32px sticky header contract. Mini Apps must not depend on a parent component's scoped CSS. Headers remain transparent in normal flow; only the title actually pinned to the scroll container reveals an extended, masked glass pseudo-element whose blur and tint fade vertically. Dark mode lifts the material rather than laying down a dark rectangle, with no-blur accessibility/performance fallbacks.
+- **Delivered UI follow-up (2026-09-06)**: the peer sidebar recent-apps section is removed as redundant with the primary nav destination — the manager is the single browse/open surface. The server-side `ctx.badge` capability stays; whether to retire it now that no surface renders badges is a separate platform decision.
 - **Reliability guard**: explicit `@<app-id>` calls preload only the selected Mini App's Agent tools into the first loop snapshot and exclude generic fallback tools. Deferred discovery refreshes the active loop snapshot between model turns, so a toolSearch result is genuinely callable in that same run.
 - **Problem**: agent-managed daily data (todos, expenses, schedules) has no visual surface — it lives in memory or files and is only reachable by asking in chat; building bespoke UI per domain would bloat the main app indefinitely.
 - **Decision** (v2 after review, fault boundary superseded by §3.51): introduce Mini Apps as a new plugin kind reusing the existing manifest/discovery/catalog/enable patterns, installed owner-globally under the fixed owner workspace root — `miniapps/apps/<app-id>/` (replaceable code) separated from `miniapps/data/<app-id>/` (independent-lifecycle data, the single source of truth shared by all channels); never derive the install root from a per-channel `workspaceDir`. Agent tools and the app's own UI API handlers share one domain module over the app's database — no host-provided file-level data API and no MCP/postMessage bridge for the UI (both explicitly rejected as too heavy; full MCP Apps host protocol stays out of scope, concept alignment only). Tools register internally as `miniapp__<appId>__<tool>` (display `<appId>.<tool>`), classify as `source: plugin` with manifest risk hints, and enforce enablement at invoke time (disabled apps also 403 their routes). App server code is owner-trusted but executes in a per-App child process; this contains crashes but does not restrict owner permissions. The UI iframe remains a separate browser isolation boundary. v3 pins: owner workspace = `config.dataDir` (`~/.molibot`); iframe transport uses the fixed custom protocol `molibot-miniapp://` forwarded by a Tauri adapter (Slice 0 WKWebView spike gates it; never widen CSP to localhost port ranges); installs and replacements hot-activate through the shared Host without restarting Molibot; Mini App tools load via toolSearch deferral; Ajv + SemVer + esbuild are production dependencies. MVP ships a Todo reference app (SQLite + polling revision); SSE later. Implementation plan: [docs/archive/requirements/miniapp-platform-implementation-plan.md](docs/archive/requirements/miniapp-platform-implementation-plan.md).

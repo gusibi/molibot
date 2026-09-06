@@ -61,7 +61,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 
 - **Remember what matters.** Governed memory keeps useful preferences and project context available, while giving you visibility and control over what is saved and injected.
 - **Choose what survives a turn.** Explicit “do not remember”, “not searchable”, and “this turn only” instructions independently control memory, conversation search, and future model context; deleting data remains a separate, target-specific action.
-- **Shape your own Agent.** Profiles, Skills, tools, and model routes let you define how an Agent should work instead of relying on one fixed assistant.
+- **Shape your own Agent.** Profiles, Skills, tools, and model routes let you define how an Agent should work instead of relying on one fixed assistant. Built-in Agent template updates are applied from Agent settings; edited copies are backed up before replacement.
 - **Keep each conversation on its chosen model.** Chat model selection is Session-scoped and restart-persistent, while Settings remains the explicit place for changing global defaults.
 - **Choose model and thinking depth without losing provider context.** Desktop Chat, Project Chat, and Settings group model choices by provider into single-line rows; Settings reloads the inventory after Provider edits, while each Session keeps its own selected model.
 - **Use consistent controls everywhere.** Desktop settings, Project settings, and onboarding share one accessible, theme-aware macOS-style selection menu with independently clickable rows, keyboard navigation, checked state, and enough width for long model names.
@@ -92,7 +92,7 @@ Most AI chats start from scratch. Molibot focuses on the work that accumulates.
 - **Explore without destroying history.** Fork from an AI reply in main Chat or Project Chat to create a visible child Session that includes that reply while leaving the parent untouched; editing a user message remains an explicit in-place rewrite.
 - **Work where you already are.** Use one local runtime from Web, macOS Desktop, Telegram, Feishu, Weixin, QQ, or the CLI.
 - **Diagnose media failures at the shared boundary.** Voice-transcription errors carry safe provider/model, audio, timing, and upstream trace details across every channel without logging credentials or cookies.
-- **Keep execution in your hands.** Tasks, approvals, sandbox policy, and run records make automation visible rather than opaque; Desktop resolves approvals across Host Bash, MCP tools, and file writes through the same Session-scoped card flow.
+- **Keep execution in your hands.** Tasks, approvals, sandbox policy, and run records make automation visible rather than opaque; Desktop resolves approvals across Host Bash, MCP tools, and file writes through the same Session-scoped card flow. Host Bash decisions execute the stored command and return its result to the originating tool call before continuation. Background approval continuations retain structured tool activity and one final answer; Desktop follows server run status until the turn settles or needs another approval.
 - **Manage Agent todos, reminders, and automations as real resources.** Runtime Tasks support create, list, inspect, update, and delete by stable id; unscheduled todos never trigger, and the optional Todo Mini App keeps its own data and never becomes a dependency of the base Agent.
 - **Keep Todo titles readable.** Built-in Todo row actions float over the right edge instead of taking a permanent flex slot, so long task titles use the full list width while hover, touch, and keyboard actions remain available.
 - **Deliver formal documents with a verification receipt.** The Agent can generate DOCX, XLSX, and PDF files in Project or Session scratch, then re-open and validate their text, sheets, and typed cells before it reports success or attaches them; PPTX export remains deferred.
@@ -190,7 +190,7 @@ A local usage dashboard tracks requests, token trends, cache hit ratio, and toke
 | [Assistant Capability Matrix](docs/requirements/personal-assistant-capability-matrix.md) | The single current four-state view of delivered, partial, pending-verification, and not-started work/life assistant capabilities. |
 | [Automatic Durable Execution](docs/requirements/automatic-durable-execution-prd.md) | Persistent, inspectable long-task foundation with accepted-Plan step execution, tiered lazy promotion, virtual Web profile routing, versioned progress, side-effect receipts, fail-closed recovery, bounded untrusted evidence reads, source-channel approvals, short-handle controls, and Desktop status surfaces; full cold-start/cross-channel acceptance remains in progress. |
 | [Project Automations PRD](docs/requirements/project-automations-prd.md) | Periodic Runtime Tasks scoped to a Project, with watched JSON scheduling, current Project context, fresh app-only Sessions, shared Desktop CRUD/history, and no Bot or Channel delivery. |
-| [Session Permission Modes](docs/requirements/permission-modes-prd.md) | Plan, Manual, Accept edits, and Auto in an independent composer control, with pre-inference tool narrowing, artifact-backed checklists, unified decisions, and same-session Durable continuation. |
+| [Session Permission Modes](docs/requirements/permission-modes-prd.md) | Plan, Manual, Accept edits, and Auto in an independent composer control, with pre-inference tool narrowing, artifact-backed checklists, unified decisions, and planning, execution, review, feedback, and revision in the same Session. |
 | [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | Connect third-party services with secure runtime tokens and dynamic remote MCP integration. |
 | [Mini App Platform](docs/guides/miniapps/authoring.md) | Build local-first apps with tools, hosted UI, message actions, the composer bridge, controlled uploads and host AI. |
 | [Plugin-owned Settings and Storage](docs/requirements/plugin-owned-settings-prd.md) | Partially delivered plugin contract: Web and native Desktop provide the same four-item catalog and dedicated pages, independent storage, theme/height-aware and clone-safe custom UI hosting, and the External Subagent reference migration with environment-gated enablement plus fail-closed per-provider execution; enhanced-pi installation and remaining migrations are tracked here. |
@@ -264,8 +264,9 @@ Conversations follow you: a chat started on the Web can continue on Desktop, and
 - [Current feature record](features.md)
 - [Product roadmap](prd.md)
 - [Release notes](CHANGELOG.md)
-- [UI Design Guidelines](DESIGN.md) & [Dark Theme Spec](design.dark.md)
-- [Collaboration and contribution rules](AGENTS.md)
+- [UI Design Guidelines](DESIGN.md) — macOS product rules and the [quiet, precise, tactile art direction](DESIGN.md#art-direction), applied through shared conversation components; [Dark Theme Spec](design.dark.md)
+- Desktop numeric-field layout regression: set `CHROME_BIN` to a Chromium executable and run `node --test apps/desktop/src/number-input-layout.test.mjs` (isolated fixtures; no user settings access).
+- [Collaboration and contribution rules](AGENTS.md) — Defines execution and approval boundaries, required validation, and documentation updates by impact.
 
 ## Current boundaries
 

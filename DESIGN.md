@@ -409,21 +409,79 @@ components:
 This section defines the product-level rules for the Molibot Desktop app. It
 overrides the generic Geist guidance below whenever the two conflict.
 
+## Art direction
+
+Molibot is quiet, precise, and tactile. Keep the native macOS workspace and
+compact controls; establish emphasis through typography, spacing, and alignment.
+Give a few important objects a soft sense of depth, and keep state changes
+visually continuous. This direction applies to future UI work; it does not imply
+that every existing screen has been restyled.
+
+The reference is [Wealthsimple: one year post-acquisition](https://performance.dev/wealthsimple-year-one),
+especially its product demonstrations and Mint component system. Borrow their
+hierarchy, selective material detail, and responsiveness. The article's serif
+body typography, financial imagery, and presentation frames are not app defaults.
+
+- Use generous space around the primary task or result and compact rows for
+  supporting records. Keep existing reading-column widths and control metrics;
+  do not enlarge all controls or turn ordinary lists into individual cards.
+- Concentrate visual expression in the new-conversation welcome, task disclosure,
+  and output presentation. Keep settings, logs, navigation, and inspectors quiet.
+  An output receipt remains the shared flat file list; inspecting an output opens
+  the existing Inspector rather than introducing another preview-card hierarchy.
+- The welcome uses a task-oriented heading and compact, wrapping quick-start
+  actions. The composer uses the shared focal shadow and a neutral circular send
+  action. Process disclosures use a quiet outline and gain a surface when open;
+  a single output file is one actionable row, while multiple outputs retain the
+  shared list heading and count.
+- Use the existing system typography. Make headings and primary content distinct
+  from metadata; use tabular numerals for changing counts and durations. Do not
+  shrink secondary information or weaken contrast merely to make a screen quieter.
+- Build depth with semantic surfaces first. A focal content surface may use one
+  subtle, shared shadow treatment; ordinary setting groups, list rows, and sidebars
+  remain shadow-free. Keep existing radius roles. Texture and gloss belong only to
+  meaningful imagery, never to everyday controls or the workspace background.
+- Preserve an object's position and identity when its state changes. Execution
+  details fold when the answer begins, retain reader-controlled expansion, and
+  leave failures visible under the existing process-disclosure rules. Do not add
+  artificial progress, delays, or success effects before work actually completes.
+- Responsiveness is part of the visual design: preserve known layout while loading,
+  avoid navigation flashes and numeric jitter, and retain the reader's scroll
+  ownership. Prefetch only safe reads when useful; never pre-execute mutations.
+- Encode these choices in shared shadcn-svelte / Bits UI components and semantic
+  tokens. Validate the same components in Chinese and English, paired light/dark
+  themes, narrow layouts, and reduced-motion modes. Motion keeps the existing
+  duration and property limits below; tactile does not mean slower.
+
 ## Foundations
 
 - Use the macOS system UI stack first (`-apple-system`, `BlinkMacSystemFont`,
   `SF Pro Text`, `PingFang SC`). Use the display stack only for large titles and
   the monospace stack only for IDs, paths, code, and raw schedules.
+- Data numerals render tabular so counts, durations, sizes, and table columns
+  never shift width as values change. The default is declared once on `body` in
+  `styles.css` and inherited; `time`, `input`, `select`, `td`, and `th`
+  re-declare it because a concrete `font:` shorthand resets
+  `font-variant-numeric`. Rendered prose (`.markdown-body`) opts out and
+  re-includes its own tables; a counter set through a `font:` shorthand opts
+  back in with `.tnum`. The composer intentionally stays tabular: its token
+  overlay mirrors the textarea glyph-for-glyph, so both twins must resolve the
+  same figures. `numeric-typography.test.mjs` guards the shared block; extend
+  its prose allowlist only for genuine prose surfaces.
 - Standard corner radii are 6px for compact controls, 8px for controls and small
   cards, 12px for primary cards and inspectors, and fully rounded for status dots,
-  avatars, and segmented pills. Do not invent intermediate radii.
+  avatars, and segmented pills. Do not invent intermediate radii. Standard control
+  heights are defined by unified tokens: 28px (`--control-h`) for settings form controls
+  and selects, 32px (`--control-h-button`) for buttons and search fields, and 24px
+  (`--control-h-compact`) for compact table/list actions.
 - The desktop toolbar/drag region is 52px high. Setting content — including the
   usage, trace, and service-log data pages and the memory center — and the chat
   transcript share one centered column capped at 720px, so settings and chat
   content align edge to edge.
 - Prefer quiet, opaque surfaces and separators. Translucency may reinforce hierarchy
   but must preserve legibility with reduced transparency, increased contrast, dark
-  mode, and inactive windows. Shadows are reserved for floating overlays.
+  mode, and inactive windows. Shadows are reserved for floating overlays and the
+  focal content surfaces defined in Art direction.
 - Status never relies on color alone. Pair color with readable text and, where useful,
   a dot, icon, or shape. Reserve red for terminal failure or destructive actions.
 
@@ -507,6 +565,13 @@ block, status color, and sidebar tint must resolve through the same family block
   schedule builder, history, status, and confirmation components. The entity entry
   is a tab with a locked target; its mutations stay independent from the General
   settings form and only the General tab owns that form's fixed save footer.
+  The inspector dialog owns a fixed viewport: width and height are set by the
+  window, never by the active tab, so switching tabs never resizes the dialog —
+  the panel bodies are the scrollers. Inside the dialog, presentation uses the
+  dialog ranks (`--fs-page` title, `--fs-section` section headlines,
+  `--fs-body-lg` body/date text), cards float on layered shadows instead of
+  visible borders, primary controls are pill buttons with an inset highlight
+  and a soft drop shadow, and dividers stay 1px `--separator`.
 - Settings and Chat use the native macOS sidebar material, not a WebView imitation.
   Both windows are transparent and apply the system `sidebar` window effect; the WebView
   root and layout stay transparent while the right content pane remains opaque. The
@@ -550,6 +615,25 @@ block, status color, and sidebar tint must resolve through the same family block
 - List/detail workspaces use Global Sidebar → 300–320px list pane → flexible detail
   inspector. Below 1100px the inspector becomes a right-side overlay; the minimum
   supported desktop window is 860×620.
+- Primary workspace destinations (Automations, Skills, Mini Apps) share one unified
+  centered container geometry (`--workspace-col: min(1200px, calc(100% - 48px))`) to
+  prevent jarring viewport jumps and alignment drift when switching sidebar items.
+  Each destination opens with the shared PageHeader (title plus one-line description
+  in secondary label color) centered on that same column — the settings-header
+  pattern, not a bare left-aligned title bar — so the header column and the content
+  columns stay aligned. The scroll container reserves a symmetric scrollbar gutter
+  (`stable both-edges`) to keep that alignment while scrolling. The sidebar-restore
+  control, shown only while the sidebar is collapsed, sits at the header's right
+  column edge where it never collides with the centered title.
+  Each destination uses a consistent workspace toolbar (search/filter, live counts,
+  and a primary CTA button). Mini Apps opens on a Launchpad pattern: an icon-and-name
+  tile grid of enabled, healthy apps where one click launches, with install workflows,
+  toggles, updates, and trust/destructive confirmations one "Manage" click away in the
+  focused `<Dialog>` and `<AlertDialog>` primitives rather than invasive blocking
+  window prompts. Launchpad tiles carry a 64px squircle icon and the app name only —
+  no chrome, badges beyond the update dot, or metadata; the hover surface is the
+  neutral fill and the press compresses the icon, and the entrance stagger is the
+  only animation, disabled under reduced motion.
 - AI Provider settings use one provider-first master/detail workspace on Web and
   Desktop: the provider rail owns search, source filters, status, and creation;
   the detail pane owns connection/authentication, defaults, and the model inventory.
@@ -653,15 +737,15 @@ block, status color, and sidebar tint must resolve through the same family block
   malformed or over-budget decks show a recoverable error state. Editing,
   animations, presenter controls, and legacy `.ppt` conversion remain out of
   scope.
-- Mini Apps have two coordinated entry points: a primary navigation destination for
-  installation and management, plus a peer first-level sidebar section alongside the
-  conversation and Project trees for opening apps quickly. The sidebar section is named
-  "Mini Apps" (not "Recent"), orders enabled and loaded apps by recent use, fills unused
-  slots from the catalog, and shows at most 10. Every app-identity surface (manager row,
-  sidebar row, and inspector chrome) uses the manifest icon when present and a neutral
-  app-window glyph only as fallback. Disabled and failed apps stay in the manager, where
-  their reason is visible. The primary destination uses the regular App Store glyph so
-  it reads as an application library rather than a generic four-cell grid.
+- Mini Apps have one primary navigation destination that opens on the Launchpad, with
+  management (installation, enable/disable, uninstall, AI routing signpost) in a
+  secondary manage view inside it backed by the same manager component. Every
+  app-identity surface (launchpad tile, manager row, and inspector chrome) uses the
+  manifest icon when present and a neutral app-window glyph only as fallback. Disabled
+  and failed apps stay out of the launcher — only usable apps tile it — and remain in
+  the manage view, where their reason is visible. The primary destination uses the
+  regular App Store glyph so it reads as an application library rather than a generic
+  four-cell grid.
 - A Mini App's UI runs in a sandboxed iframe on its own origin and cannot inherit the
   app's design tokens. The panel passes the resolved locale and theme as URL hints and
   reloads on change; each app ships its own strings and Light/Dark palette, and must
@@ -704,13 +788,22 @@ block, status color, and sidebar tint must resolve through the same family block
 - Reuse shared semantic components for PageHeader, SettingGroup, search, select,
   switch, badge, cards, overflow menus, empty states, MessageItem, and composer.
   Page-local copies of these controls are not permitted.
-- Settings form text, number, time, and select controls use the default `input`
-  token at 40px; compact 32px controls are reserved for toolbars and dense lists.
-  Time fields remain native `input[type="time"]` controls and make the whole field
-  invoke the platform picker when the host WebView supports it.
-- Enumeration fields use the shared Bits UI-backed `SelectControl`: a 40px semantic
-  trigger, 12px floating menu, checked current item, bounded internal scrolling,
-  typeahead, full keyboard navigation, and token-driven Light/Dark states. Desktop
+- Standard control metrics follow macOS desktop roles through unified tokens
+  (`--control-h: 28px`, `--control-h-button: 32px`, `--control-h-compact: 24px`):
+  settings form text, number, and select controls use `--control-h` (28px); action
+  buttons and standalone search fields use `--control-h-button` (32px); dense lists
+  and table pagination use `--control-h-compact` (24px). Time fields remain native
+  `input[type="time"]` controls and make the whole field invoke the platform picker
+  when the host WebView supports it.
+- Compact numeric setting fields use a stable 120px width and do not flex-shrink.
+  Reserve space for six-digit values and native steppers, including while empty;
+  never size them as a percentage of an auto-sized control wrapper.
+- Enumeration fields use the shared Bits UI-backed `SelectControl`: a `--control-h` (28px)
+  semantic trigger, content-adaptive width bounded by `--select-min-w` (130px) and
+  `--select-max-w` (260px) in setting rows, compact 24px menu items (`--select-item-h`),
+  checked current item, bounded internal scrolling, typeahead, full keyboard navigation,
+  and token-driven Light/Dark states. The floating popover scales to fit menu options
+  bounded by `--select-popover-min-w` (140px) and `--select-popover-max-w`. Desktop
   Svelte surfaces must not render native `<select>` elements; native time and numeric
   inputs remain appropriate for direct entry and platform pickers.
 - Transcript search belongs inside the Header action row and must remain in normal
@@ -914,3 +1007,11 @@ Copy is part of the design; keep it precise and free of filler.
 - Don’t use `background-200` as a general fill; it is for subtle separation only.
 - Don’t mix rounded and sharp corners, or more than two font weights, in one view.
 - Don’t swap `gray-*` for `background-*`; they are separate scales.
+
+## Session 计划执行
+
+批准计划在当前 Session 的下一轮执行，工具活动、结果与后续反馈保留在同一对话。右侧计划面板是进度视图，不拥有独立对话。运行、等待授权、受阻、执行结束待检查、完成必须使用一致状态；完成后不显示暂停或取消。进度来自结构化步骤更新，不从耗时或工具调用次数推算。
+
+同一用户轮次只呈现一个回答容器；模型或运行时产生的补充终止片段合并到该回答，过程轨迹仍按原顺序保留。思考与工具过程使用无边框、透明背景的可折叠披露，避免在正文前再制造一张高权重卡片。
+
+审批续跑沿用普通对话的结构化工具过程与最终回答。进度提示不独立成为回答；等待结束以服务端运行状态为准，不以消息条数判断。续跑耗时排除之前的用户轮次和审批等待。
