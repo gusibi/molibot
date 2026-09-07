@@ -1,5 +1,12 @@
 import type { Conversation } from "$lib/shared/types/message.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
+import type { ConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
+import {
+  queryManagedSessions,
+  type ExternalManagedCandidate,
+  type ManagedSessionFilters,
+  type ManagedSessionResult
+} from "$lib/server/sessions/sessionQueryService.js";
 import {
   SessionLifecycleVersionConflictError,
   type SessionLifecycleRow,
@@ -33,6 +40,8 @@ type SessionsPort = Pick<
   | "getProjectConversation"
   | "listConversations"
   | "listProjectConversations"
+  | "listAllWebConversationMeta"
+  | "listProjectIds"
   | "listMessageMetadata"
   | "removeConversationSearchProjection"
   | "restoreConversationSearchProjection"
@@ -45,6 +54,8 @@ export interface SessionLifecycleServiceDeps {
   isBusy?: (conversationId: string) => boolean;
   clock?: () => Date;
   trashRetentionDays?: number;
+  search?: { index: Pick<ConversationSearchIndex, "search">; botId: string };
+  listExternal?: () => ExternalManagedCandidate[];
 }
 
 interface LocatedSession {
@@ -66,6 +77,8 @@ export class SessionLifecycleService {
   private readonly isBusy: (conversationId: string) => boolean;
   private readonly clock: () => Date;
   private readonly trashRetentionDays: number;
+  private readonly search?: { index: Pick<ConversationSearchIndex, "search">; botId: string };
+  private readonly listExternal?: () => ExternalManagedCandidate[];
 
   constructor(deps: SessionLifecycleServiceDeps) {
     this.sessions = deps.sessions;
@@ -73,6 +86,8 @@ export class SessionLifecycleService {
     this.isBusy = deps.isBusy ?? (() => false);
     this.clock = deps.clock ?? (() => new Date());
     this.trashRetentionDays = deps.trashRetentionDays ?? TRASH_RETENTION_DAYS;
+    this.search = deps.search;
+    this.listExternal = deps.listExternal;
   }
 
   private nowIso(): string {
@@ -206,6 +221,25 @@ export class SessionLifecycleService {
       return a.conversation.id.localeCompare(b.conversation.id);
     });
     return items;
+  }
+
+  /**
+   * Shared management query: multi-BOT, local/Project/external sources,
+   * keyword via the authorized search projection, inactivity presets and
+   * timezone-aware custom ranges, empty/short lengths, server-side
+   * pagination plus per-state counts. Items carry display metadata only.
+   */
+  queryManaged(filters: ManagedSessionFilters = {}): ManagedSessionResult {
+    return queryManagedSessions(
+      {
+        sessions: this.sessions,
+        lifecycle: this.lifecycle,
+        clock: this.clock,
+        search: this.search,
+        listExternal: this.listExternal
+      },
+      filters
+    );
   }
 
   archive(input: { conversationId: string; requesterExternalUserId?: string; expectedVersion?: number }): LifecycleItemOutcome {
