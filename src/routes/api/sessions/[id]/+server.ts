@@ -106,6 +106,9 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
   if (result === "running") {
     return json({ ok: false, error: "Cannot delete a session while it is running" }, { status: 409 });
   }
+  if (result === "protected") {
+    return json({ ok: false, error: "Remove the long-term retention marker before deletion" }, { status: 409 });
+  }
   if (result === "not_found") {
     return json({ ok: false, error: "Session not found" }, { status: 404 });
   }

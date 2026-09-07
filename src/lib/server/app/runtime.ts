@@ -18,6 +18,8 @@ import { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { PluginCatalog, ProviderPlugin } from "$lib/server/plugins/types.js";
 import { AssistantService } from "$lib/server/providers/assistantService.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
+import { getSessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleStore.js";
+import { SessionLifecycleService } from "$lib/server/sessions/sessionLifecycleService.js";
 import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
 import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
@@ -43,6 +45,7 @@ import {
 
 interface RuntimeState {
   sessions: SessionStore;
+  sessionLifecycle: SessionLifecycleService;
   router: MessageRouter;
   channelManagers: Map<string, Map<string, ChannelManager>>;
   pluginCatalog: PluginCatalog;
@@ -181,6 +184,11 @@ function initializeRuntime(): RuntimeState {
 
     const sessions = new SessionStore();
     sessions.setConversationSearchIndex(getConversationSearchIndex(storagePaths.moryDbFile), "web");
+    const sessionLifecycle = new SessionLifecycleService({
+      sessions,
+      lifecycle: getSessionLifecycleStore()
+    });
+    sessions.setSessionActivitySink(sessionLifecycle);
     const usageTracker = new AiUsageTracker();
     const modelErrorTracker = new ModelErrorTracker();
     const memory = new MemoryGateway(
@@ -442,6 +450,7 @@ function initializeRuntime(): RuntimeState {
     });
     state = {
       sessions,
+      sessionLifecycle,
       router,
       channelManagers: new Map<string, Map<string, ChannelManager>>(),
       pluginCatalog: { channels: [], providers: [], features: [], memoryBackends: [], extensions: [], miniApps: [] },

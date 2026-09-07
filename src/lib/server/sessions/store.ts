@@ -337,9 +337,25 @@ function ensureWebIndexEntry(index: WebSessionsIndex, externalUserId: string, co
 export class SessionStore {
   private messageProjector?: (conversationId: string) => ConversationMessage[];
   private conversationSearch?: { index: ConversationSearchIndex; botId: string };
+  private activitySink?: {
+    recordConversationActivity(conversationId: string, message: { role: string; createdAt?: string }): unknown;
+  };
 
   setMessageProjector(projector: (conversationId: string) => ConversationMessage[]): void {
     this.messageProjector = projector;
+  }
+
+  /**
+   * Shared lifecycle service entry for conversation-activity advancement.
+   * Wired once by the application layer; Channel adapters never touch it.
+   * Only accepted user/assistant appends report here (see `appendMessage`).
+   */
+  setSessionActivitySink(
+    sink: {
+      recordConversationActivity(conversationId: string, message: { role: string; createdAt?: string }): unknown;
+    } | null
+  ): void {
+    this.activitySink = sink ?? undefined;
   }
 
   setConversationSearchIndex(index: ConversationSearchIndex, botId: string): void {
@@ -388,6 +404,60 @@ export class SessionStore {
     const index = this.conversationSearch?.index;
     if (!index) return;
     try { run(index); } catch { /* durable pending changes replay on the next index pass */ }
+  }
+
+  /**
+   * Removes a conversation's search projection immediately on trash. The
+   * transcript stays on disk for full restore; only searchability is revoked.
+   */
+  removeConversationSearchProjection(conversation: Conversation): void {
+    const source = this.searchSource(conversation);
+    if (!source) return;
+    this.enqueueSearchDelete((index) => index.enqueueDeleteConversation(source.sourceKey, conversation.id));
+  }
+
+  /**
+   * Reinstates eligible search entries when a trashed conversation is
+   * restored. Only rows that still carry content are re-indexed; nothing is
+   * republished or replayed.
+   */
+  restoreConversationSearchProjection(conversation: Conversation): void {
+    const configured = this.conversationSearch;
+    const source = this.searchSource(conversation);
+    if (!configured || !source) return;
+    const located = this.resolveSessionStorage(conversation.id);
+    if (!located) return;
+    try {
+      // Lift the trash tombstone first so the reinstated entries below are
+      // not suppressed by it; both steps are ordered durable changes.
+      configured.index.enqueueRestoreConversation(source.sourceKey, conversation.id);
+    } catch {
+      return;
+    }
+    for (const item of located.file.messageMetadata) {
+      if (item.role !== "user" && item.role !== "assistant") continue;
+      if (item.content === undefined) continue;
+      if (!retentionCapabilities(item.retention).searchable) continue;
+      try {
+        configured.index.enqueueUpsert({
+          messageId: item.id,
+          conversationId: conversation.id,
+          role: item.role,
+          content: item.content,
+          createdAt: item.createdAt,
+          botId: configured.botId,
+          channel: conversation.channel,
+          chatId: conversation.projectId ? undefined : conversation.externalUserId,
+          projectId: conversation.projectId,
+          origin: conversation.origin,
+          purpose: source.purpose,
+          sourceKey: source.sourceKey
+        });
+      } catch {
+        // Same durability contract as the live append path: the change row is
+        // committed before projection, replayPending repairs interruptions.
+      }
+    }
   }
 
   private createConversation(channel: Channel, externalUserId: string, projectId?: string, origin?: string): Conversation {
@@ -735,23 +805,26 @@ export class SessionStore {
     if (located?.type === "web") {
       writeWebSession(located.externalUserId, file);
       this.indexConversationMessage(file.conversation, message);
-      return message;
-    }
-
-    if (located?.type === "project") {
+    } else if (located?.type === "project") {
       writeProjectSession(located.projectId, file);
       this.indexConversationMessage(file.conversation, message);
-      return message;
-    }
-
-    if (located?.type === "legacy") {
+    } else {
       writeLegacySession(file);
       this.indexConversationMessage(file.conversation, message);
-      return message;
     }
 
-    writeLegacySession(file);
-    this.indexConversationMessage(file.conversation, message);
+    // Last conversation activity advances for accepted conversational
+    // messages and visible assistant replies only. Metadata-only changes
+    // (open, rename, index, extract, lifecycle edits) never reach this path.
+    // The shared lifecycle service owns the timestamp; the sink is a no-op
+    // when the application layer hasn't wired one.
+    if (role === "user" || role === "assistant") {
+      try {
+        this.activitySink?.recordConversationActivity(conversationId, { role, createdAt });
+      } catch {
+        // Activity bookkeeping must never fail an accepted message.
+      }
+    }
     return message;
   }
 
