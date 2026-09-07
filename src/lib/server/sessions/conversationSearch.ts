@@ -39,7 +39,7 @@ export interface ConversationSearchHit {
   projectId?: string;
 }
 
-type ChangeKind = "upsert" | "delete-message" | "delete-conversation" | "revoke-source";
+type ChangeKind = "upsert" | "delete-message" | "delete-conversation" | "revoke-source" | "restore-conversation";
 
 function searchTokens(input: string): string[] {
   const words = tokenizeWords(input).map((item) => item.toLowerCase()).filter(Boolean);
@@ -142,6 +142,16 @@ export class ConversationSearchIndex {
     return this.enqueue("revoke-source", sourceKey);
   }
 
+  /**
+   * Lifts the conversation-level tombstone written by
+   * `enqueueDeleteConversation` so eligible entries can be reinstated (trash
+   * restore). Recorded as an ordered change like every other mutation, so a
+   * crash between restore and re-index replays in order.
+   */
+  enqueueRestoreConversation(sourceKey: string, conversationId: string): number {
+    return this.enqueue("restore-conversation", sourceKey, conversationId);
+  }
+
   private enqueue(kind: ChangeKind, sourceKey: string, conversationId?: string, messageId?: string, payload?: unknown): number {
     const result = this.db.prepare(`INSERT INTO conversation_search_changes
       (kind, source_key, conversation_id, message_id, payload_json, created_at)
@@ -201,8 +211,11 @@ export class ConversationSearchIndex {
         const ids = this.db.prepare("SELECT message_id FROM conversation_search_documents WHERE source_key = ? AND conversation_id = ?")
           .all(row.source_key, row.conversation_id) as Array<{ message_id: string }>;
         for (const item of ids) this.deleteIndexedMessage(item.message_id);
-      } else if (row.kind === "revoke-source") {
-        const rows = this.db.prepare("SELECT DISTINCT conversation_id FROM conversation_search_documents WHERE source_key = ?")
+      } else if (row.kind === "restore-conversation") {
+        this.db.prepare(`DELETE FROM conversation_search_tombstones
+          WHERE source_key = ? AND conversation_id = ? AND message_id = ''`)
+          .run(row.source_key, row.conversation_id);
+      } else if (row.kind === "revoke-source") {        const rows = this.db.prepare("SELECT DISTINCT conversation_id FROM conversation_search_documents WHERE source_key = ?")
           .all(row.source_key) as Array<{ conversation_id: string }>;
         for (const item of rows) {
           this.db.prepare(`INSERT INTO conversation_search_tombstones(source_key, conversation_id, message_id, change_seq)
