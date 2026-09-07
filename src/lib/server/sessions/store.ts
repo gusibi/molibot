@@ -334,9 +334,17 @@ function ensureWebIndexEntry(index: WebSessionsIndex, externalUserId: string, co
   index.byConversationId[conversationId] = { externalUserId };
 }
 
+export interface SessionInboundLifecyclePolicy {
+  /** Null means unknown/unauthorized/no row yet — proceed as active. Read-only, never restores. */
+  peekState(conversationId: string, requesterExternalUserId?: string): "active" | "archived" | "trashed" | null;
+  /** Best-effort archived → active resume on the same identity. Never throws to fail inbound. */
+  resumeForInbound(conversationId: string, requesterExternalUserId?: string): void;
+}
+
 export class SessionStore {
   private messageProjector?: (conversationId: string) => ConversationMessage[];
   private conversationSearch?: { index: ConversationSearchIndex; botId: string };
+  private inboundLifecycle?: SessionInboundLifecyclePolicy;
   private activitySink?: {
     recordConversationActivity(conversationId: string, message: { role: string; createdAt?: string }): unknown;
   };
@@ -356,6 +364,43 @@ export class SessionStore {
     } | null
   ): void {
     this.activitySink = sink ?? undefined;
+  }
+
+  /**
+   * Shared upper-layer inbound policy for archived/trash衔接. Wired once by
+   * the application layer (runtime); Channel adapters never touch it.
+   * Browsing paths never consult this — reading an archived session leaves it
+   * archived; only `getOrCreateConversation` (new-message admission) resumes.
+   */
+  setInboundLifecyclePolicy(policy: SessionInboundLifecyclePolicy | null): void {
+    this.inboundLifecycle = policy ?? undefined;
+  }
+
+  /**
+   * Inbound reuse gate for one resolved conversation. Archived resumes in
+   * place (same identity, admission wins over races); trashed refuses reuse
+   * so the caller falls through to the new-conversation path. Restoring an
+   * old trash never bumps `updatedAt`, so it cannot overtake a newer active
+   * binding in latest-first ordering.
+   */
+  private inboundReuseAllowed(conversationId: string, requesterExternalUserId?: string): boolean {
+    const policy = this.inboundLifecycle;
+    if (!policy) return true;
+    let state: "active" | "archived" | "trashed" | null = null;
+    try {
+      state = policy.peekState(conversationId, requesterExternalUserId);
+    } catch {
+      return true;
+    }
+    if (state === null || state === "active") return true;
+    if (state === "trashed") return false;
+    try {
+      policy.resumeForInbound(conversationId, requesterExternalUserId);
+    } catch {
+      // Admission is best-effort: a resume failure still reuses the existing
+      // identity rather than dropping the message or forking a duplicate.
+    }
+    return true;
   }
 
   setConversationSearchIndex(index: ConversationSearchIndex, botId: string): void {
@@ -676,8 +721,10 @@ export class SessionStore {
         // Project sessions are owner-scoped: any surface (Desktop, channel bot)
         // may continue any conversation of the project by id, so a chat started
         // on Feishu can be picked up on the Mac app and vice versa.
+        // Trashed identities refuse reuse so inbound falls through to the
+        // new-conversation path; archived resumes on the same identity.
         const file = readProjectSession(opts.projectId, conversationId);
-        if (file) {
+        if (file && this.inboundReuseAllowed(conversationId)) {
           file.conversation.updatedAt = now;
           writeProjectSession(opts.projectId, file);
           return file.conversation;
@@ -685,7 +732,7 @@ export class SessionStore {
       }
       const list = this.listProjectConversations(opts.projectId);
       const latest = list.find((item) => item.externalUserId === externalUserId);
-      if (latest) {
+      if (latest && this.inboundReuseAllowed(latest.id)) {
         const file = readProjectSession(opts.projectId, latest.id);
         if (file) {
           file.conversation.updatedAt = now;
@@ -698,7 +745,7 @@ export class SessionStore {
 
     if (conversationId) {
       const found = this.getConversationById(conversationId, channel, externalUserId);
-      if (found) {
+      if (found && this.inboundReuseAllowed(found.id, externalUserId)) {
         const located = this.resolveSessionStorage(found.id);
         if (located) {
           located.file.conversation.updatedAt = now;
@@ -720,6 +767,9 @@ export class SessionStore {
     const list = this.listConversations(channel, externalUserId);
     if (list.length > 0) {
       const latest = list[0];
+      if (!this.inboundReuseAllowed(latest.id, externalUserId)) {
+        return this.createConversation(channel, externalUserId, undefined, opts?.origin);
+      }
       const located = this.resolveSessionStorage(latest.id);
       if (located) {
         located.file.conversation.updatedAt = now;

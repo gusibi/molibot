@@ -189,6 +189,15 @@ function initializeRuntime(): RuntimeState {
       lifecycle: getSessionLifecycleStore()
     });
     sessions.setSessionActivitySink(sessionLifecycle);
+    // T5 inbound衔接:归档新消息同身份恢复、trash 走新建. Channel 只收发,
+    // 决策统一在这里装配;浏览路径不经过该策略,不恢复归档.
+    sessions.setInboundLifecyclePolicy({
+      peekState: (conversationId, requesterExternalUserId) =>
+        sessionLifecycle.peekLifecycleState(conversationId, requesterExternalUserId),
+      resumeForInbound: (conversationId, requesterExternalUserId) => {
+        sessionLifecycle.resumeForInboundMessage({ conversationId, requesterExternalUserId });
+      }
+    });
     const usageTracker = new AiUsageTracker();
     const modelErrorTracker = new ModelErrorTracker();
     const memory = new MemoryGateway(
