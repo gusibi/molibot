@@ -174,6 +174,82 @@ export class SessionLifecycleService {
     return this.lifecycle.get(id);
   }
 
+  /**
+   * Read-only lifecycle probe for inbound routing. Returns null when the
+   * conversation is unknown, unauthorized or has no lifecycle row yet — the
+   * caller treats all three as "proceed as active" and never creates rows on
+   * a pure read. Browsing (preview/query) must use this or `query`, never a
+   * mutating entry, so inspection leaves archived sessions archived.
+   */
+  peekLifecycleState(
+    conversationId: string,
+    requesterExternalUserId?: string
+  ): SessionLifecycleState | null {
+    const located = this.locate(conversationId);
+    if (!located) return null;
+    if (!this.checkAccess(located, requesterExternalUserId)) return null;
+    return this.lifecycle.get(located.conversation.id)?.state ?? null;
+  }
+
+  /**
+   * Inbound admission for an authorized new message on an existing session.
+   * Archived sessions resume to active on the same identity; trashed sessions
+   * never resume (the caller creates a new conversation instead). Busy work
+   * never blocks admission — archive/deletion already refuse busy targets, so
+   * a message arriving mid-race must win rather than be dropped. Version
+   * conflicts retry against the fresh row so concurrent restore/message pairs
+   * converge instead of acting on stale previews. Never cancels work.
+   */
+  resumeForInboundMessage(input: {
+    conversationId: string;
+    requesterExternalUserId?: string;
+  }): {
+    decision: "reused" | "resumed" | "new-required" | "not-found";
+    conversationId: string;
+    state: SessionLifecycleState | null;
+    version: number | null;
+  } {
+    const id = String(input.conversationId ?? "").trim();
+    if (!id) return { decision: "not-found", conversationId: id, state: null, version: null };
+    const located = this.locate(id);
+    if (!located) return { decision: "not-found", conversationId: id, state: null, version: null };
+    if (!this.checkAccess(located, input.requesterExternalUserId)) {
+      return { decision: "not-found", conversationId: id, state: null, version: null };
+    }
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const row = this.lifecycle.ensureRow(located.conversation.id, {
+        createdAt: located.conversation.createdAt,
+        lastActivityAt: this.lastActivityFromMessages(located.conversation.id) ?? null
+      });
+      if (row.state === "active") {
+        return { decision: "reused", conversationId: row.conversationId, state: row.state, version: row.version };
+      }
+      if (row.state === "trashed") {
+        return { decision: "new-required", conversationId: row.conversationId, state: row.state, version: row.version };
+      }
+      try {
+        const next = this.lifecycle.updateWithVersion(row.conversationId, row.version, {
+          state: "active",
+          archivedAt: null
+        });
+        return { decision: "resumed", conversationId: next.conversationId, state: next.state, version: next.version };
+      } catch (error) {
+        if (!(error instanceof SessionLifecycleVersionConflictError)) throw error;
+      }
+    }
+    const current = this.lifecycle.get(located.conversation.id);
+    if (!current) return { decision: "not-found", conversationId: id, state: null, version: null };
+    if (current.state === "trashed") {
+      return { decision: "new-required", conversationId: current.conversationId, state: current.state, version: current.version };
+    }
+    return {
+      decision: current.state === "active" ? "reused" : "resumed",
+      conversationId: current.conversationId,
+      state: current.state,
+      version: current.version
+    };
+  }
+
   query(options?: {
     requesterExternalUserId?: string;
     state?: SessionLifecycleState;
