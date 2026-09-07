@@ -1230,6 +1230,43 @@ export class SessionStore {
   }
 
   /**
+   * Lightweight cross-profile enumeration for the shared management query.
+   * Single file read per conversation, no message preview: list rendering
+   * must not load every full transcript, so callers fetch message counts or
+   * previews on demand for the current page only.
+   */
+  listAllWebConversationMeta(): Array<{ conversation: Conversation; externalUserId: string }> {
+    this.migrateAllLegacyWebUsers();
+    const webIndex = readWebIndex();
+    const out: Array<{ conversation: Conversation; externalUserId: string }> = [];
+    for (const [id, owner] of Object.entries(webIndex.byConversationId)) {
+      const file = readWebSession(owner.externalUserId, id);
+      if (!file) continue;
+      const internalOrigin = inferHistoricalInternalOrigin(file.conversation);
+      if (internalOrigin) {
+        file.conversation.origin = internalOrigin;
+        writeWebSession(owner.externalUserId, file);
+      }
+      out.push({ conversation: file.conversation, externalUserId: owner.externalUserId });
+    }
+    return out;
+  }
+
+  /**
+   * Owning project ids visible in this workspace. Used by the shared
+   * management query to enumerate Project candidates without coupling the
+   * query layer to the projects directory layout.
+   */
+  listProjectIds(): string[] {
+    if (!fs.existsSync(storagePaths.projectsDir)) return [];
+    return fs
+      .readdirSync(storagePaths.projectsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  }
+
+  /**
    * Returns the Web externalUserId that owns a conversation id, or null. Used
    * by the desktop session-run query (plan §11.3) to resolve a run's
    * `session_id` back to its Web profile id without exposing the index shape.
