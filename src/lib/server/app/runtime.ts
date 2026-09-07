@@ -20,6 +20,8 @@ import { AssistantService } from "$lib/server/providers/assistantService.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import { getSessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleStore.js";
 import { SessionLifecycleService } from "$lib/server/sessions/sessionLifecycleService.js";
+import { SessionAutoArchiveStore } from "$lib/server/sessions/sessionAutoArchiveStore.js";
+import { SessionAutoArchiveService } from "$lib/server/sessions/sessionAutoArchiveService.js";
 import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
 import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
@@ -65,6 +67,7 @@ interface RuntimeState {
   maintenanceService: MemoryMaintenanceService;
   dailyMaterialsService: DailyMaterialsService;
   dailyMaterialsBackfill: DailyMaterialsBackfillJob;
+  sessionAutoArchive: SessionAutoArchiveService;
   runInternalEvent: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>;
   hookManager: HookManager;
   getSettings: () => RuntimeSettings;
@@ -189,6 +192,12 @@ function initializeRuntime(): RuntimeState {
       lifecycle: getSessionLifecycleStore()
     });
     sessions.setSessionActivitySink(sessionLifecycle);
+    // T6 automatic archive: the sweep reuses the same mutation service as
+    // manual archive and persists progress in the Session-owned store.
+    const sessionAutoArchive = new SessionAutoArchiveService({
+      lifecycle: sessionLifecycle,
+      runs: new SessionAutoArchiveStore(storagePaths.sessionsDbFile)
+    });
     // T5 inbound衔接:归档新消息同身份恢复、trash 走新建. Channel 只收发,
     // 决策统一在这里装配;浏览路径不经过该策略,不恢复归档.
     sessions.setInboundLifecyclePolicy({
@@ -450,6 +459,17 @@ function initializeRuntime(): RuntimeState {
         }
         return { kind: "daily-materials", completedTargets, scannedConversations, scannedMessages, createdFiles };
       }
+      if (event.internal?.kind === "session-auto-archive") {
+        // Daily maintenance sweep: no user-visible session is created and no
+        // per-session notification is sent — the last-run result is served to
+        // management from the owning store. The switch governs archiving
+        // only; trash expiry is never touched here.
+        const result = sessionAutoArchive.runSweep(currentSettings.value.sessionAutoArchive);
+        console.log(
+          `[session-auto-archive] completed file=${filename} candidates=${result.candidateCount} archived=${result.archivedCount} skipped=${result.skippedCount} failed=${result.failedCount}`
+        );
+        return { kind: "session-auto-archive" };
+      }
       throw new Error("Unsupported internal event.");
     };
     const dailyMaterialsBackfill = new DailyMaterialsBackfillJob(dailyMaterialsService);
@@ -479,6 +499,7 @@ function initializeRuntime(): RuntimeState {
       maintenanceService,
       dailyMaterialsService,
       dailyMaterialsBackfill,
+      sessionAutoArchive,
       runInternalEvent,
       hookManager,
       getSettings: () => state.settings,
