@@ -21,6 +21,20 @@ export class SessionLifecycleVersionConflictError extends Error {
   readonly code = "SESSION_LIFECYCLE_VERSION_CONFLICT";
 }
 
+export interface SessionCleanupIntent {
+  conversationId: string;
+  failedStep: string;
+  error: string;
+  updatedAt: string;
+}
+
+interface CleanupIntentRaw {
+  conversation_id: string;
+  failed_step: string;
+  error: string;
+  updated_at: string;
+}
+
 interface LifecycleRowRaw {
   conversation_id: string;
   state: string;
@@ -87,6 +101,12 @@ export class SessionLifecycleStore {
       );
       CREATE INDEX IF NOT EXISTS idx_session_lifecycle_state_activity
         ON session_lifecycle (state, last_activity_at);
+      CREATE TABLE IF NOT EXISTS session_cleanup_intents (
+        conversation_id TEXT PRIMARY KEY,
+        failed_step TEXT NOT NULL,
+        error TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+      );
     `);
   }
 
@@ -203,6 +223,42 @@ export class SessionLifecycleStore {
 
   deleteRow(conversationId: string): void {
     this.db.prepare("DELETE FROM session_lifecycle WHERE conversation_id = ?").run(String(conversationId ?? "").trim());
+  }
+
+  /**
+   * Recoverable cross-store cleanup work left by a partially failed purge.
+   * The trashed lifecycle row is never removed on failure, so recording the
+   * intent here can never resurrect the session — it only lets startup
+   * reconciliation retry the remaining steps.
+   */
+  recordCleanupIntent(conversationId: string, failedStep: string, error: string): SessionCleanupIntent {
+    const id = String(conversationId ?? "").trim();
+    if (!id) throw new Error("conversationId is required");
+    const now = this.nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO session_cleanup_intents (conversation_id, failed_step, error, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(conversation_id) DO UPDATE SET failed_step = excluded.failed_step, error = excluded.error, updated_at = excluded.updated_at`
+      )
+      .run(id, failedStep, String(error ?? "").slice(0, 2000), now);
+    return { conversationId: id, failedStep, error: String(error ?? "").slice(0, 2000), updatedAt: now };
+  }
+
+  listCleanupIntents(): SessionCleanupIntent[] {
+    const rows = this.db
+      .prepare("SELECT * FROM session_cleanup_intents ORDER BY updated_at ASC, conversation_id ASC")
+      .all() as unknown as CleanupIntentRaw[];
+    return rows.map((row) => ({
+      conversationId: row.conversation_id,
+      failedStep: row.failed_step,
+      error: row.error,
+      updatedAt: row.updated_at
+    }));
+  }
+
+  clearCleanupIntent(conversationId: string): void {
+    this.db.prepare("DELETE FROM session_cleanup_intents WHERE conversation_id = ?").run(String(conversationId ?? "").trim());
   }
 }
 

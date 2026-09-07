@@ -389,6 +389,10 @@ export class SessionLifecycleService {
         ? { status: "succeeded", conversationId: row.conversationId, state: row.state, version: row.version }
         : this.skipped(row.conversationId, "not_applicable", `state is ${row.state}`);
     }
+    // Reevaluate current runtime constraints instead of reviving obsolete
+    // approvals: a restore never republishes messages, replays tools or
+    // recreates approvals, and it refuses while fresh work is running.
+    if (this.isBusy(row.conversationId)) return this.skipped(row.conversationId, "busy");
     try {
       const restoreTo = row.preTrashState === "archived" ? "archived" : "active";
       const next = this.mutate(

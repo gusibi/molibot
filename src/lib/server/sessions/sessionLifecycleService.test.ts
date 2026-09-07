@@ -257,8 +257,7 @@ test("lifecycle state survives store restart", (t) => {
   assert.equal(service.query({ requesterExternalUserId: OWNER, state: "archived" }).length, 1);
 });
 
-test("purgeExpired clears only expired trash", (t) => {
-  const fx = setup();
+test("purgeExpired clears only expired trash", (t) => {  const fx = setup();
   t.after(() => fx.cleanup());
   const oldSession = fx.sessions.createWebConversation(OWNER);
   assert.equal(fx.service.trash({ conversationId: oldSession.id, requesterExternalUserId: OWNER }).status, "succeeded");
@@ -281,4 +280,29 @@ test("purgeExpired clears only expired trash", (t) => {
   assert.deepEqual(purged, [oldSession.id]);
   assert.equal(fx.sessions.getConversationById(oldSession.id, "web", OWNER), null);
   assert.deepEqual(fx.service.query({ requesterExternalUserId: OWNER, state: "trashed" }).map((item) => item.conversation.id), [freshSession.id]);
+});
+
+test("restore refuses while fresh work is running and never replays the transcript", (t) => {
+  const busy = new Set<string>();
+  const fx = setup({ busy: (id) => busy.has(id) });
+  t.after(() => fx.cleanup());
+  const conversation = fx.sessions.createWebConversation(OWNER);
+  fx.sessions.appendMessage(conversation.id, "user", "restore replay uniquekey omega");
+  fx.sessions.appendMessage(conversation.id, "assistant", "reply here");
+  assert.equal(fx.service.trash({ conversationId: conversation.id, requesterExternalUserId: OWNER }).status, "succeeded");
+
+  busy.add(conversation.id);
+  assert.deepEqual(fx.service.restoreTrashed({ conversationId: conversation.id, requesterExternalUserId: OWNER }), {
+    status: "skipped",
+    conversationId: conversation.id,
+    reason: "busy"
+  });
+  busy.delete(conversation.id);
+
+  const restored = fx.service.restoreTrashed({ conversationId: conversation.id, requesterExternalUserId: OWNER });
+  assert.equal(restored.status, "succeeded");
+  // No republishing, no tool replay: the transcript is byte-identical and the
+  // rebuilt search projection holds exactly the eligible entries.
+  assert.equal(fx.sessions.listMessages(conversation.id).length, 2);
+  assert.equal(authorizedHits(fx, "omega").length, 1);
 });

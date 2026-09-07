@@ -288,9 +288,11 @@ function initializeRuntime(): RuntimeState {
         });
       }
     };
+    const reflectionTrashExcluded = (conversationId: string): boolean =>
+      getSessionLifecycleStore().get(conversationId)?.state === "trashed";
     const reflectionService = new MemoryReflectionService(
       memory,
-      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir),
+      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir, undefined, reflectionTrashExcluded),
       reflectionState,
       reflectionExtractor
     );
@@ -300,7 +302,7 @@ function initializeRuntime(): RuntimeState {
       (sourceEntryId) => Boolean(getMemoryTraceStore().getBySourceEntryId(sourceEntryId))
     );
     const dailyMaterialsService = new DailyMaterialsService(
-      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir, dailyMaterialsTargetId),
+      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir, dailyMaterialsTargetId, reflectionTrashExcluded),
       reflectionState,
       (prompt) => assistant.reply([{
         id: `daily-materials:${Date.now()}`,
