@@ -15,7 +15,7 @@ import { projectWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
 
 export interface InternalTaskExecutionResult {
   notificationText?: string;
-  kind?: "memory-reflection" | "memory-maintenance" | "daily-materials" | "durable-execution";
+  kind?: "memory-reflection" | "memory-maintenance" | "daily-materials" | "durable-execution" | "session-auto-archive";
   completedTargets?: number;
   scannedConversations?: number;
   scannedMessages?: number;
@@ -320,6 +320,32 @@ export function ensureOwnerDailyMaterialsEvent(eventsDir: string, settings?: Run
   return filePath;
 }
 
+export function ensureOwnerSessionAutoArchiveEvent(eventsDir: string, settings?: RuntimeSettings): string | null {
+  const filePath = join(eventsDir, "session-auto-archive.json");
+  if (!settings?.sessionAutoArchive.enabled) return disableManagedEvent(filePath);
+  const event: MomEvent = {
+    type: "periodic",
+    enabled: true,
+    taskId: "session-auto-archive-owner",
+    managed: { by: "molibot", scope: "owner", kind: "session-auto-archive", ownerId: SYSTEM_TASK_OWNER_ID },
+    chatId: "internal-session-auto-archive",
+    text: "Daily session auto-archive sweep",
+    schedule: "30 4 * * *",
+    timezone: settings.timezone,
+    execution: "internal",
+    internal: { kind: "session-auto-archive" }
+  };
+  if (existsSync(filePath)) {
+    try {
+      const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
+      if (managedEventMatches(current, event)) return filePath;
+      event.status = current.status;
+    } catch { /* replace malformed managed event */ }
+  }
+  writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+  return filePath;
+}
+
 export function migrateLegacyManagedMemoryEvents(botsRoot: string): string[] {
   if (!existsSync(botsRoot)) return [];
   const removed: string[] = [];
@@ -399,6 +425,7 @@ export class TaskScheduler {
     ensureOwnerMemoryReflectionEvent(ownerEventsDir, settings);
     ensureOwnerMemoryMaintenanceEvent(ownerEventsDir, settings);
     ensureOwnerDailyMaterialsEvent(ownerEventsDir, settings);
+    ensureOwnerSessionAutoArchiveEvent(ownerEventsDir, settings);
     const ownerWatcher = new EventsWatcher(
       ownerEventsDir,
       async (event, filename) => {

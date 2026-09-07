@@ -38,6 +38,8 @@ import {
   type CompactionSettings,
   type ModelFallbackSettings,
   type ModelRoutingConfig,
+  type SessionAutoArchiveBotPolicy,
+  type SessionAutoArchiveSettings,
   sanitizeHostToolSettings,
   sanitizeToolSandboxSettings
 } from "$lib/server/settings/index.js";
@@ -855,6 +857,49 @@ export function sanitizeQQBots(input: unknown): QQBotConfig[] {
   return out;
 }
 
+export function sanitizeSessionAutoArchiveDays(input: unknown, fallback: number): number {
+  const n = Math.round(Number(input));
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.max(1, Math.min(365, n));
+}
+
+export function sanitizeSessionAutoArchiveSettings(
+  input: unknown,
+  fallback: SessionAutoArchiveSettings = defaultRuntimeSettings.sessionAutoArchive
+): SessionAutoArchiveSettings {
+  const source = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const enabledRaw = source.enabled;
+  const enabled = typeof enabledRaw === "boolean"
+    ? enabledRaw
+    : enabledRaw === undefined
+      ? fallback.enabled
+      : String(enabledRaw).toLowerCase() === "true";
+  const inactiveDays = sanitizeSessionAutoArchiveDays(source.inactiveDays, fallback.inactiveDays);
+  const bots: Record<string, SessionAutoArchiveBotPolicy> = {};
+  const rawBots = source.bots;
+  if (rawBots && typeof rawBots === "object" && !Array.isArray(rawBots)) {
+    for (const [key, value] of Object.entries(rawBots as Record<string, unknown>)) {
+      const botId = String(key ?? "").trim();
+      if (!botId || Object.keys(bots).length >= 200) continue;
+      if (!value || typeof value !== "object") continue;
+      const row = value as Record<string, unknown>;
+      const mode = String(row.mode ?? "inherit").trim();
+      if (mode !== "inherit" && mode !== "disabled" && mode !== "custom") continue;
+      if (mode === "custom") {
+        const days = Math.round(Number(row.inactiveDays));
+        if (!Number.isFinite(days) || days < 1) {
+          bots[botId] = { mode };
+        } else {
+          bots[botId] = { mode, inactiveDays: Math.max(1, Math.min(365, days)) };
+        }
+      } else {
+        bots[botId] = { mode: mode as SessionAutoArchiveBotPolicy["mode"] };
+      }
+    }
+  }
+  return { enabled, inactiveDays, bots };
+}
+
 export function sanitizeMcpServers(input: unknown): McpServerConfig[] {
   const rows: Array<{ id: string; value: Record<string, unknown> }> = Array.isArray(input)
     ? input
@@ -1524,6 +1569,10 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
       ? Math.max(5000, Math.min(300000, Math.round(Number(browserTimeoutRaw))))
       : current.browserAutomation.defaultTimeoutMs
   };
+  next.sessionAutoArchive = sanitizeSessionAutoArchiveSettings(
+    next.sessionAutoArchive ?? current.sessionAutoArchive,
+    current.sessionAutoArchive ?? defaultRuntimeSettings.sessionAutoArchive
+  );
 
   return next;
 }
