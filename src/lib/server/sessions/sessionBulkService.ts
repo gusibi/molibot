@@ -41,6 +41,8 @@ export interface BulkDeletePreview {
   retainsMemoriesAndArtifacts: true;
   /** The conversation search projection is removed immediately on delete. */
   searchRemovedImmediately: true;
+  /** Where to inspect the associated retained items; deleting those needs their own explicit operation. */
+  retainedItemsPath: "/settings/memory";
 }
 
 export interface SessionBulkServiceDeps {
@@ -221,7 +223,8 @@ export class SessionBulkService {
       count,
       retentionDays: this.trashRetentionDays,
       retainsMemoriesAndArtifacts: true,
-      searchRemovedImmediately: true
+      searchRemovedImmediately: true,
+      retainedItemsPath: "/settings/memory"
     };
   }
 

@@ -323,6 +323,7 @@ test("delete preview states exact count, recovery period and data scope", (t) =>
   assert.equal(preview.retentionDays, 30);
   assert.equal(preview.retainsMemoriesAndArtifacts, true);
   assert.equal(preview.searchRemovedImmediately, true);
+  assert.equal(preview.retainedItemsPath, "/settings/memory");
 });
 
 test("bulk requests validate operation, targets and idempotency key", (t) => {
