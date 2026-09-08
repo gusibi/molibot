@@ -217,6 +217,17 @@ export class SessionBulkService {
     return stored ? this.toResult(stored.operationId, stored.kind, stored.items) : null;
   }
 
+  /**
+   * Reads back an immutable all-matching snapshot for non-lifecycle batch
+   * consumers (phase-two managed extraction). Ownership is rechecked by the
+   * consuming service per item; unknown ids throw.
+   */
+  getSelectionTargets(selectionId: string): BulkTarget[] {
+    const selection = this.bulk.getSelection(String(selectionId ?? "").trim());
+    if (!selection) throw new Error(`Unknown selection: ${selectionId}`);
+    return selection.targets;
+  }
+
   /** Exact count plus recovery period and data scope, shown before deletion. */
   describeDelete(count: number): BulkDeletePreview {
     return {

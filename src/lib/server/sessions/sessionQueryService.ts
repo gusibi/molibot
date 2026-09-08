@@ -2,9 +2,29 @@ import type { Conversation } from "$lib/shared/types/message.js";
 import type { AuthorizedConversationSource } from "$lib/server/sessions/conversationAuthorization.js";
 import type { ConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import type { SessionLifecycleRow, SessionLifecycleState, SessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleStore.js";
+import {
+  buildExtractionRevision,
+  type SessionExtractionStatus
+} from "$lib/server/sessions/sessionExtractionService.js";
+import type { ExtractionDocRef } from "$lib/server/sessions/sessionExtractionStore.js";
 
 export type ManagedSessionSource = "local" | "project" | "external";
 export type ManagedSessionLength = "empty" | "short" | "normal";
+
+/** Durable receipt view the managed list needs: status, exact source range and retained references. */
+export interface SessionExtractionReceiptView {
+  status: "saved" | "no-useful-information" | "pending-review" | "failed";
+  messageRevision: string;
+  processedThroughId: string | null;
+  savedMemoryIds: string[];
+  savedDocRefs: ExtractionDocRef[];
+  pendingCandidateIds: string[];
+}
+
+/** Narrow port over the Session-owned extraction receipt store (T8). */
+export interface SessionExtractionStatusSource {
+  get(conversationId: string): SessionExtractionReceiptView | null;
+}
 
 export interface ManagedSessionFilters {
   requesterExternalUserId?: string;
@@ -18,6 +38,10 @@ export interface ManagedSessionFilters {
   activityToDate?: string;
   timeZone?: string;
   lengths?: ManagedSessionLength[];
+  /** Phase-two extraction states (derived: unprocessed / receipt status / partially-processed). */
+  extractionStates?: SessionExtractionStatus[];
+  /** Processed (any durable receipt) but still active — the remaining cleanup work. */
+  processedNotArchived?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -40,6 +64,15 @@ export interface ManagedSessionItem {
   retain: boolean;
   archivedAt: string | null;
   trashedAt: string | null;
+  /** Derived extraction status: unprocessed, receipt status, or partially-processed after new messages. */
+  extractionStatus: SessionExtractionStatus;
+  /** Source revision the receipt was captured at; null while unprocessed. */
+  extractionRevision: string | null;
+  /** Exact processed-through message id; null while unprocessed. */
+  processedThroughId: string | null;
+  savedMemoryIds: string[];
+  savedDocRefs: ExtractionDocRef[];
+  pendingCandidateIds: string[];
 }
 
 export interface ManagedSessionCounts {
@@ -66,7 +99,7 @@ export interface SessionQuerySessionsPort {
   listAllWebConversationMeta(): Array<{ conversation: Conversation; externalUserId: string }>;
   listProjectIds(): string[];
   listProjectConversations(projectId: string): Conversation[];
-  listMessageMetadata(conversationId: string): Array<{ role: string; createdAt?: string }>;
+  listMessageMetadata(conversationId: string): Array<{ id: string; role: string; createdAt?: string }>;
 }
 
 export interface SessionQueryDeps {
@@ -75,6 +108,7 @@ export interface SessionQueryDeps {
   clock?: () => Date;
   search?: { index: Pick<ConversationSearchIndex, "search">; botId: string };
   listExternal?: () => ExternalManagedCandidate[];
+  extraction?: SessionExtractionStatusSource;
 }
 
 interface Candidate {
@@ -318,6 +352,58 @@ export function queryManagedSessions(deps: SessionQueryDeps, filters: ManagedSes
   const hitIds = keyword ? keywordHitIds(deps, scoped, keyword) : null;
 
   const turnCache = new Map<string, { user: number; assistant: number }>();
+  const extractionStates = filters.extractionStates?.length ? new Set(filters.extractionStates) : null;
+  const processedNotArchived = filters.processedNotArchived === true;
+  const revisionCache = new Map<string, string>();
+  interface DerivedExtraction {
+    status: SessionExtractionStatus;
+    revision: string | null;
+    processedThroughId: string | null;
+    savedMemoryIds: string[];
+    savedDocRefs: ExtractionDocRef[];
+    pendingCandidateIds: string[];
+  }
+  const UNPROCESSED: DerivedExtraction = {
+    status: "unprocessed",
+    revision: null,
+    processedThroughId: null,
+    savedMemoryIds: [],
+    savedDocRefs: [],
+    pendingCandidateIds: []
+  };
+  const derivedCache = new Map<string, DerivedExtraction>();
+  function deriveExtraction(candidate: Candidate): DerivedExtraction {
+    const cached = derivedCache.get(candidate.conversation.id);
+    if (cached) return cached;
+    let derived: DerivedExtraction = UNPROCESSED;
+    // External transcripts live in contexts/ with no extraction receipts;
+    // the T8 service only locates local/Project sessions.
+    if (candidate.source !== "external") {
+      const receipt = deps.extraction?.get(candidate.conversation.id) ?? null;
+      if (receipt) {
+        let revision = revisionCache.get(candidate.conversation.id);
+        if (revision === undefined) {
+          revision = buildExtractionRevision(deps.sessions.listMessageMetadata(candidate.conversation.id));
+          revisionCache.set(candidate.conversation.id, revision);
+        }
+        // Same formula as the T8 service: a revision mismatch means later
+        // messages arrived after the receipt, so the Session reads back as
+        // partially processed regardless of the previous outcome.
+        const status: SessionExtractionStatus =
+          receipt.messageRevision !== revision ? "partially-processed" : receipt.status;
+        derived = {
+          status,
+          revision: receipt.messageRevision,
+          processedThroughId: receipt.processedThroughId,
+          savedMemoryIds: [...receipt.savedMemoryIds],
+          savedDocRefs: receipt.savedDocRefs.map((ref) => ({ ...ref })),
+          pendingCandidateIds: [...receipt.pendingCandidateIds]
+        };
+      }
+    }
+    derivedCache.set(candidate.conversation.id, derived);
+    return derived;
+  }
   const matching = scoped.filter((candidate) => {
     const row = rows.get(candidate.conversation.id);
     if (!row) return false;
@@ -345,6 +431,14 @@ export function queryManagedSessions(deps: SessionQueryDeps, filters: ManagedSes
         if (!lengths.has("normal")) return false;
       } else if (!lengths.has(lengthOf(counts))) return false;
     }
+    if (extractionStates || processedNotArchived) {
+      const derived = deriveExtraction(candidate);
+      if (extractionStates && !extractionStates.has(derived.status)) return false;
+      if (processedNotArchived) {
+        const rowState = rows.get(candidate.conversation.id)?.state ?? "active";
+        if (derived.status === "unprocessed" || rowState !== "active") return false;
+      }
+    }
     return true;
   });
 
@@ -369,6 +463,7 @@ export function queryManagedSessions(deps: SessionQueryDeps, filters: ManagedSes
       candidate.source === "external"
         ? { user: 0, assistant: 0 }
         : countTurns(deps.sessions, candidate.conversation.id, turnCache);
+    const derived = deriveExtraction(candidate);
     return {
       conversationId: candidate.conversation.id,
       title: candidate.conversation.title,
@@ -386,7 +481,13 @@ export function queryManagedSessions(deps: SessionQueryDeps, filters: ManagedSes
       version: row?.version ?? 1,
       retain: row?.retain ?? false,
       archivedAt: row?.archivedAt ?? null,
-      trashedAt: row?.trashedAt ?? null
+      trashedAt: row?.trashedAt ?? null,
+      extractionStatus: derived.status,
+      extractionRevision: derived.revision,
+      processedThroughId: derived.processedThroughId,
+      savedMemoryIds: derived.savedMemoryIds,
+      savedDocRefs: derived.savedDocRefs,
+      pendingCandidateIds: derived.pendingCandidateIds
     };
   });
 

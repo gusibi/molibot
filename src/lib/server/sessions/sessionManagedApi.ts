@@ -5,6 +5,7 @@ import type {
   ManagedSessionItem
 } from "$lib/server/sessions/sessionQueryService.js";
 import type { BulkOperationKind } from "$lib/server/sessions/sessionBulkStore.js";
+import type { SessionExtractionStatus } from "$lib/server/sessions/sessionExtractionService.js";
 
 export interface ParsedManagedQuery extends ManagedSessionFilters {
   state: "active" | "archived" | "trashed";
@@ -15,7 +16,18 @@ export interface ParsedManagedQuery extends ManagedSessionFilters {
 const STATES = new Set(["active", "archived", "trashed"]);
 const SOURCES = new Set(["local", "project", "external"]);
 const LENGTHS = new Set(["empty", "short", "normal"]);
+const EXTRACTION_STATES: SessionExtractionStatus[] = [
+  "unprocessed",
+  "processing",
+  "saved",
+  "no-useful-information",
+  "pending-review",
+  "partially-processed",
+  "failed"
+];
+const EXTRACTION_STATE_SET = new Set<string>(EXTRACTION_STATES);
 const BULK_KINDS: BulkOperationKind[] = ["archive", "restore", "delete"];
+const EXTRACTION_MODES = ["extract", "extract-and-archive"] as const;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function isValidCalendarDate(dateStr: string): boolean {
@@ -83,6 +95,17 @@ export function parseManagedQuery(params: URLSearchParams): ParsedManagedQuery {
       throw new Error(`Invalid timeZone: ${timeZone}`);
     }
   }
+  const extractionStates = splitList(params.get("extraction") ?? params.get("extractionStates")).filter((item) => {
+    if (!EXTRACTION_STATE_SET.has(item)) throw new Error(`Invalid extraction state: ${item}`);
+    return true;
+  }) as SessionExtractionStatus[];
+  const processedRaw = params.get("processedNotArchived")?.trim().toLowerCase();
+  let processedNotArchived: boolean | undefined;
+  if (processedRaw !== undefined && processedRaw !== "") {
+    if (["true", "1", "yes"].includes(processedRaw)) processedNotArchived = true;
+    else if (["false", "0", "no"].includes(processedRaw)) processedNotArchived = false;
+    else throw new Error(`Invalid processedNotArchived: ${params.get("processedNotArchived")}`);
+  }
   return {
     state: state as ParsedManagedQuery["state"],
     limit,
@@ -91,6 +114,8 @@ export function parseManagedQuery(params: URLSearchParams): ParsedManagedQuery {
     sources: sources && sources.length > 0 ? sources : undefined,
     projectIds: projectIds.length > 0 ? projectIds : undefined,
     lengths: lengths && lengths.length > 0 ? lengths : undefined,
+    extractionStates: extractionStates.length > 0 ? extractionStates : undefined,
+    processedNotArchived,
     inactiveDays,
     activityFromDate,
     activityToDate,
@@ -179,7 +204,13 @@ export function projectManagedItem(item: ManagedSessionItem & Record<string, unk
     version: item.version,
     retain: item.retain,
     archivedAt: item.archivedAt,
-    trashedAt: item.trashedAt
+    trashedAt: item.trashedAt,
+    extractionStatus: item.extractionStatus,
+    extractionRevision: item.extractionRevision,
+    processedThroughId: item.processedThroughId,
+    savedMemoryIds: [...(item.savedMemoryIds ?? [])],
+    savedDocRefs: (item.savedDocRefs ?? []).map((ref) => ({ ...ref })),
+    pendingCandidateIds: [...(item.pendingCandidateIds ?? [])]
   };
 }
 
@@ -197,6 +228,85 @@ export function projectBulkResult(result: BulkOperationResult): BulkOperationRes
       detail: item.detail,
       state: item.state,
       version: item.version
+    }))
+  };
+}
+
+export type ManagedExtractionMode = (typeof EXTRACTION_MODES)[number];
+
+export interface ValidExtractionExecute {
+  mode: ManagedExtractionMode;
+  targets?: BulkTarget[];
+  selectionId?: string;
+  idempotencyKey: string;
+}
+
+/** API adapter: validates managed extraction bodies (mode/targets/idempotency). */
+export function validateExtractionExecute(body: Record<string, unknown>): ValidExtractionExecute {
+  const mode = String((body.mode ?? "") as string).trim();
+  if (!EXTRACTION_MODES.includes(mode as ManagedExtractionMode)) {
+    throw new Error(`Unknown extraction mode: ${mode || "(missing)"} (expected extract or extract-and-archive)`);
+  }
+  const idempotencyKey = String((body.idempotencyKey ?? "") as string).trim();
+  if (!idempotencyKey) throw new Error("execute requires an idempotencyKey");
+  const hasTargets = body.targets !== undefined;
+  const hasSelection = body.selectionId !== undefined && String(body.selectionId ?? "").trim() !== "";
+  if (hasTargets && hasSelection) throw new Error("execute accepts either targets or selectionId, not both");
+  if (!hasTargets && !hasSelection) throw new Error("execute requires targets or selectionId");
+  if (hasSelection) {
+    const selectionId = String(body.selectionId ?? "").trim();
+    if (!selectionId) throw new Error("execute requires targets or selectionId");
+    return { mode: mode as ManagedExtractionMode, selectionId, idempotencyKey };
+  }
+  const raw = body.targets;
+  if (!Array.isArray(raw) || raw.length === 0) throw new Error("execute requires at least one target");
+  const seen = new Set<string>();
+  const targets: BulkTarget[] = [];
+  for (const entry of raw) {
+    const conversationId =
+      typeof entry === "string" ? entry.trim() : String((entry as BulkTarget)?.conversationId ?? "").trim();
+    if (!conversationId || seen.has(conversationId)) continue;
+    seen.add(conversationId);
+    targets.push({
+      conversationId,
+      expectedVersion: typeof entry === "string" ? null : ((entry as BulkTarget).expectedVersion ?? null)
+    });
+  }
+  if (targets.length === 0) throw new Error("execute requires at least one target");
+  return { mode: mode as ManagedExtractionMode, targets, idempotencyKey };
+}
+
+export interface ManagedExtractionItemResult {
+  conversationId: string;
+  status: SessionExtractionStatus;
+  archived: boolean;
+  archiveReason?: string;
+  messageRevision: string;
+  processedThroughId: string | null;
+  failureReasons: string[];
+}
+
+export interface ManagedExtractionBatchResult {
+  mode: ManagedExtractionMode;
+  idempotencyKey: string;
+  counts: { total: number; archived: number; failed: number };
+  items: ManagedExtractionItemResult[];
+}
+
+/** Extraction batch projection: mode, gate outcomes and per-item results. */
+export function projectExtractionResult(result: ManagedExtractionBatchResult): ManagedExtractionBatchResult {
+  return {
+    mode: result.mode,
+    idempotencyKey: result.idempotencyKey,
+    counts: { ...result.counts },
+    items: result.items.map((item) => ({
+      conversationId: item.conversationId,
+      status: item.status,
+      archived: item.archived,
+      archiveReason: item.archiveReason,
+      messageRevision: item.messageRevision,
+      processedThroughId: item.processedThroughId,
+      failureReasons: [...(item.failureReasons ?? [])]
     }))
   };
 }

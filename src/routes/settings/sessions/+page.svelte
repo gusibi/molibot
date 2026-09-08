@@ -30,6 +30,32 @@
     state: View;
     version: number;
     retain: boolean;
+    extractionStatus: string;
+    extractionRevision: string | null;
+    processedThroughId: string | null;
+    savedMemoryIds: string[];
+    savedDocRefs: Array<{ docId: string; title?: string }>;
+    pendingCandidateIds: string[];
+  }
+
+  interface ExtractionDetail {
+    status: string;
+    messageRevision: string | null;
+    processedThroughId: string | null;
+    savedMemoryIds: string[];
+    savedDocRefs: Array<{ docId: string; title?: string }>;
+    pendingCandidateIds: string[];
+    failureReasons: string[];
+  }
+
+  interface ExtractItemResult {
+    conversationId: string;
+    status: string;
+    archived: boolean;
+    archiveReason?: string;
+    messageRevision: string;
+    processedThroughId: string | null;
+    failureReasons: string[];
   }
 
   interface PreviewMessage {
@@ -64,6 +90,16 @@
       filterTo: "结束日期",
       filterEmpty: "空会话",
       filterShort: "短会话（1–2 轮）",
+      filterExtraction: "提炼状态",
+      extractionAll: "不限提炼状态",
+      extractionProcessedOnly: "仅看已提炼未归档",
+      stUnprocessed: "未提炼",
+      stProcessing: "提炼中",
+      stSaved: "已保存",
+      stNoUseful: "无需保留",
+      stPending: "待审核",
+      stPartial: "部分已处理",
+      stFailed: "失败",
       btnSearch: "筛选",
       btnReset: "重置",
       selectPage: "全选本页",
@@ -76,12 +112,24 @@
       btnArchive: "归档",
       btnRestore: "恢复",
       btnDelete: "删除",
+      btnExtractArchive: "提炼并归档",
+      consequenceExtract: "提炼后仅在全部成功、需保留的结果已保存、无待审核且来源无变化时归档；失败、待审核或有新消息时不归档并明示原因。提炼永不删除会话。",
+      extractDone: "提炼完成：{archived} 个已归档，共 {total} 项，失败 {fail} 项。",
+      extractNotArchived: "未归档",
+      extractRange: "来源范围",
+      extractRetained: "保留信息",
+      extractMemories: "记忆",
+      extractDocs: "文档",
+      extractPending: "待审核候选",
+      extractFailures: "失败原因",
+      extractViewMemory: "在记忆中查看 →",
       btnRetry: "重试失败项",
       colTitle: "标题",
       colSource: "来源",
       colActivity: "最后对话",
       colTurns: "轮数",
       colStatus: "状态",
+      colExtraction: "提炼",
       colPreview: "预览",
       btnPreview: "查看",
       noItems: "没有符合条件的会话。",
@@ -152,6 +200,16 @@
       filterTo: "To date",
       filterEmpty: "Empty sessions",
       filterShort: "Short (1–2 turns)",
+      filterExtraction: "Extraction",
+      extractionAll: "Any extraction state",
+      extractionProcessedOnly: "Processed, not archived",
+      stUnprocessed: "Not extracted",
+      stProcessing: "Extracting",
+      stSaved: "Saved",
+      stNoUseful: "Nothing to keep",
+      stPending: "Pending review",
+      stPartial: "Partially processed",
+      stFailed: "Failed",
       btnSearch: "Apply",
       btnReset: "Reset",
       selectPage: "Select page",
@@ -164,12 +222,24 @@
       btnArchive: "Archive",
       btnRestore: "Restore",
       btnDelete: "Delete",
+      btnExtractArchive: "Extract & archive",
+      consequenceExtract: "Extract-and-archive only archives when everything succeeds, required outputs are saved, nothing awaits review and the source is unchanged. Failed, pending-review or concurrently messaged sessions stay unarchived with a reason. Extraction never deletes.",
+      extractDone: "Extraction done: {archived} archived of {total}, {fail} failed.",
+      extractNotArchived: "Not archived",
+      extractRange: "Source range",
+      extractRetained: "Retained",
+      extractMemories: "Memories",
+      extractDocs: "Documents",
+      extractPending: "Pending candidates",
+      extractFailures: "Failure reasons",
+      extractViewMemory: "Inspect in memories →",
       btnRetry: "Retry failed",
       colTitle: "Title",
       colSource: "Source",
       colActivity: "Last activity",
       colTurns: "Turns",
       colStatus: "Status",
+      colExtraction: "Extraction",
       colPreview: "Preview",
       btnPreview: "View",
       noItems: "No matching sessions.",
@@ -238,6 +308,8 @@
   let toDate = "";
   let lenEmpty = false;
   let lenShort = false;
+  let extractionFilter = "any";
+  let processedOnly = false;
 
   let pageIdx = 0;
   let items: ManagedItem[] = [];
@@ -255,12 +327,16 @@
   let previewMessages: PreviewMessage[] = [];
   let previewLoading = false;
   let previewError: string | null = null;
+  let previewExtraction: ExtractionDetail | null = null;
+  let previewExtractionLoading = false;
   let savedScrollY = 0;
 
   let bulkBusy = false;
   let bulkMessage: string | null = null;
   let bulkError: string | null = null;
   let bulkFailed = 0;
+  let extractResults: ExtractItemResult[] = [];
+  let extractingIds: Record<string, true> = {};
   let lastOperationId: string | null = null;
   let confirmDelete = false;
   let deleteFacts: { count: number; retentionDays: number } | null = null;
@@ -301,6 +377,8 @@
     if (lenEmpty) lengths.push("empty");
     if (lenShort) lengths.push("short");
     if (lengths.length > 0) params.set("lengths", lengths.join(","));
+    if (extractionFilter !== "any") params.set("extraction", extractionFilter);
+    if (processedOnly) params.set("processedNotArchived", "true");
     return params.toString();
   }
 
@@ -335,6 +413,7 @@
 
   function onFilterChange(): void {
     clearSelection();
+    extractResults = [];
     pageIdx = 0;
     void load();
   }
@@ -438,6 +517,8 @@
     previewMessages = [];
     previewError = null;
     previewLoading = true;
+    previewExtraction = null;
+    previewExtractionLoading = true;
     try {
       const response = await fetch(`/api/sessions/managed/preview?conversationId=${encodeURIComponent(id)}`);
       const payload = (await response.json()) as {
@@ -447,14 +528,27 @@
       };
       if (!response.ok || !payload?.ok) {
         previewError = payload?.error === "source-unavailable" ? t("sourceUnavailable") : payload?.error || t("previewFailed");
-        return;
+      } else {
+        previewTitle = payload.preview?.title || "";
+        previewMessages = payload.preview?.messages ?? [];
       }
-      previewTitle = payload.preview?.title || "";
-      previewMessages = payload.preview?.messages ?? [];
     } catch (error) {
       previewError = error instanceof Error ? error.message : String(error);
     } finally {
       previewLoading = false;
+    }
+    try {
+      const response = await fetch(`/api/sessions/managed/extraction/status?conversationId=${encodeURIComponent(id)}`);
+      const payload = (await response.json()) as { ok?: boolean; error?: string; extraction?: ExtractionDetail };
+      if (response.ok && payload?.ok && payload.extraction) {
+        previewExtraction = payload.extraction;
+      } else if (payload?.error === "source-unavailable") {
+        previewExtraction = null;
+      }
+    } catch {
+      previewExtraction = null;
+    } finally {
+      previewExtractionLoading = false;
     }
   }
 
@@ -462,6 +556,7 @@
     previewId = null;
     previewMessages = [];
     previewError = null;
+    previewExtraction = null;
     requestAnimationFrame(() => window.scrollTo({ top: savedScrollY }));
   }
 
@@ -553,6 +648,75 @@
     if (item.source === "project") return item.projectId ? `Project · ${item.projectId}` : t("sourceProject");
     if (item.source === "external") return item.botId ? `${item.channel} · ${item.botId}` : t("sourceExternal");
     return item.botId ? `${t("sourceLocal")} · ${item.botId}` : t("sourceLocal");
+  }
+
+  function extractionLabel(status: string): string {
+    switch (status) {
+      case "processing": return t("stProcessing");
+      case "saved": return t("stSaved");
+      case "no-useful-information": return t("stNoUseful");
+      case "pending-review": return t("stPending");
+      case "partially-processed": return t("stPartial");
+      case "failed": return t("stFailed");
+      default: return t("stUnprocessed");
+    }
+  }
+
+  function rowExtractionStatus(item: ManagedItem): string {
+    if (item.conversationId in extractingIds) return "processing";
+    return item.extractionStatus || "unprocessed";
+  }
+
+  async function doExtract(): Promise<void> {
+    if (selCount === 0 || bulkBusy) return;
+    bulkBusy = true;
+    bulkError = null;
+    bulkMessage = null;
+    extractResults = [];
+    const targetIds = selectAll ? null : Object.keys(selected);
+    if (targetIds) {
+      const next: Record<string, true> = {};
+      for (const id of targetIds) next[id] = true;
+      extractingIds = next;
+    }
+    try {
+      const body = selectAll?.selectionId
+        ? { mode: "extract-and-archive", selectionId: selectAll.selectionId, idempotencyKey: crypto.randomUUID() }
+        : {
+            mode: "extract-and-archive",
+            targets: (targetIds ?? []).map((conversationId) => ({
+              conversationId,
+              expectedVersion: selected[conversationId] ?? null
+            })),
+            idempotencyKey: crypto.randomUUID()
+          };
+      const response = await fetch("/api/sessions/managed/extraction", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        counts?: { total: number; archived: number; failed: number };
+        items?: ExtractItemResult[];
+      };
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || t("loadFailed"));
+      extractResults = payload.items ?? [];
+      bulkFailed = payload.counts?.failed ?? 0;
+      bulkMessage = fill(t("extractDone"), {
+        archived: payload.counts?.archived ?? 0,
+        total: payload.counts?.total ?? 0,
+        fail: payload.counts?.failed ?? 0
+      });
+      clearSelection();
+      await load();
+    } catch (error) {
+      bulkError = error instanceof Error ? error.message : String(error);
+    } finally {
+      extractingIds = {};
+      bulkBusy = false;
+    }
   }
 
   function formatDate(iso: string | null): string {
@@ -678,6 +842,8 @@
     toDate = "";
     lenEmpty = false;
     lenShort = false;
+    extractionFilter = "any";
+    processedOnly = false;
     onFilterChange();
   }
 
@@ -752,6 +918,25 @@
         </div>
       </div>
 
+      <div class="channel-field-row">
+        <div class="channel-field">
+          <Label for="sm-extraction">{t("filterExtraction")}</Label>
+          <NativeSelect id="sm-extraction" bind:value={extractionFilter} on:change={onFilterChange}>
+            <NativeSelectOption value="any">{t("extractionAll")}</NativeSelectOption>
+            <NativeSelectOption value="unprocessed">{t("stUnprocessed")}</NativeSelectOption>
+            <NativeSelectOption value="saved">{t("stSaved")}</NativeSelectOption>
+            <NativeSelectOption value="no-useful-information">{t("stNoUseful")}</NativeSelectOption>
+            <NativeSelectOption value="pending-review">{t("stPending")}</NativeSelectOption>
+            <NativeSelectOption value="partially-processed">{t("stPartial")}</NativeSelectOption>
+            <NativeSelectOption value="failed">{t("stFailed")}</NativeSelectOption>
+          </NativeSelect>
+        </div>
+        <div class="channel-field">
+          <Label for="sm-processed-only">{t("extractionProcessedOnly")}</Label>
+          <Checkbox id="sm-processed-only" checked={processedOnly} onCheckedChange={(v) => { processedOnly = v === true; onFilterChange(); }} />
+        </div>
+      </div>
+
       <div class="channel-actions">
         <Button size="sm" onclick={onFilterChange}>{t("btnSearch")}</Button>
         <Button size="sm" variant="outline" onclick={resetFilters}>{t("btnReset")}</Button>
@@ -771,6 +956,7 @@
       <div>
         <h2 class="channel-card-title">{fill(t("selectedCount"), { count: selCount })}</h2>
         <p class="channel-card-desc">{t(consequenceKey)} {t("consequenceDelete")}</p>
+        <p class="channel-card-desc">{t("consequenceExtract")}</p>
         {#if selectAll}
           <p class="channel-card-desc">{fill(t("selectAllNote"), { count: selectAll.count })}</p>
         {/if}
@@ -788,6 +974,9 @@
         {#if showRestore}
           <Button size="sm" disabled={selCount === 0 || bulkBusy} onclick={() => doBulk("restore")}>{t("btnRestore")}</Button>
         {/if}
+        <Button size="sm" variant="secondary" disabled={selCount === 0 || bulkBusy} onclick={doExtract}>
+          {t("btnExtractArchive")}
+        </Button>
         <Button size="sm" variant="destructive" disabled={selCount === 0 || bulkBusy} onclick={() => doBulk("delete")}>{t("btnDelete")}</Button>
         {#if bulkFailed > 0 && lastOperationId}
           <Button size="sm" variant="outline" disabled={bulkBusy} onclick={retryFailed}>{t("btnRetry")}</Button>
@@ -798,6 +987,21 @@
     <div class="channel-card-body">
       {#if bulkMessage}
         <div class="channel-hint">{bulkMessage}</div>
+      {/if}
+      {#if extractResults.length > 0}
+        {#each extractResults as result (result.conversationId)}
+          <div class="channel-field">
+            <p class="settings-item-label">
+              {result.conversationId} · {extractionLabel(result.status)} · {result.archived ? t("tabArchived") : t("extractNotArchived")}
+            </p>
+            {#if result.archiveReason}
+              <p class="settings-item-desc">{result.archiveReason}</p>
+            {/if}
+            {#each result.failureReasons as reason}
+              <p class="settings-item-desc">{reason}</p>
+            {/each}
+          </div>
+        {/each}
       {/if}
       {#if bulkError}
         <Alert variant="destructive"><AlertDescription>{bulkError}</AlertDescription></Alert>
@@ -817,6 +1021,7 @@
               <TableHead>{t("colActivity")}</TableHead>
               <TableHead>{t("colTurns")}</TableHead>
               <TableHead>{t("colStatus")}</TableHead>
+              <TableHead>{t("colExtraction")}</TableHead>
               <TableHead>{t("colPreview")}</TableHead>
             </TableRow>
           </TableHeader>
@@ -842,6 +1047,15 @@
                 <TableCell>{item.userTurnCount}</TableCell>
                 <TableCell>
                   {#if item.retain}<Badge>{item.state} · retain</Badge>{:else}<Badge variant="outline">{item.state}</Badge>{/if}
+                </TableCell>
+                <TableCell>
+                  {#if rowExtractionStatus(item) === "unprocessed"}
+                    <Badge variant="outline">{extractionLabel("unprocessed")}</Badge>
+                  {:else if rowExtractionStatus(item) === "failed"}
+                    <Badge variant="destructive">{extractionLabel("failed")}</Badge>
+                  {:else}
+                    <Badge variant="secondary">{extractionLabel(rowExtractionStatus(item))}</Badge>
+                  {/if}
                 </TableCell>
                 <TableCell>
                   <Button size="sm" variant="ghost" onclick={(event) => { event.stopPropagation(); void openPreview(item.conversationId); }}>
@@ -887,6 +1101,35 @@
               <p class="settings-item-desc">{message.content}</p>
             </div>
           {/each}
+        {/if}
+        {#if previewExtractionLoading}
+          <Skeleton />
+        {:else if previewExtraction}
+          <div class="channel-field">
+            <p class="settings-item-label">{t("colExtraction")} · {extractionLabel(previewExtraction.status)}</p>
+            {#if previewExtraction.processedThroughId || previewExtraction.messageRevision}
+              <p class="settings-item-desc">
+                {t("extractRange")}: {previewExtraction.processedThroughId ?? "—"}{previewExtraction.messageRevision
+                  ? ` · ${previewExtraction.messageRevision}`
+                  : ""}
+              </p>
+            {/if}
+            {#if previewExtraction.savedMemoryIds.length > 0 || previewExtraction.savedDocRefs.length > 0}
+              <p class="settings-item-desc">
+                {t("extractRetained")}: {t("extractMemories")} {previewExtraction.savedMemoryIds.length} · {t("extractDocs")} {previewExtraction.savedDocRefs.length}
+                <a class="text-primary hover:underline font-medium" href="/settings/memory">{t("extractViewMemory")}</a>
+              </p>
+            {/if}
+            {#each previewExtraction.savedDocRefs as doc}
+              <p class="settings-item-desc">{doc.title ?? doc.docId} · {doc.docId}</p>
+            {/each}
+            {#if previewExtraction.pendingCandidateIds.length > 0}
+              <p class="settings-item-desc">{t("extractPending")}: {previewExtraction.pendingCandidateIds.join(", ")}</p>
+            {/if}
+            {#each previewExtraction.failureReasons as reason}
+              <p class="settings-item-desc">{reason}</p>
+            {/each}
+          </div>
         {/if}
       </div>
     </div>

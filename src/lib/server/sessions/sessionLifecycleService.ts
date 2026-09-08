@@ -5,7 +5,8 @@ import {
   queryManagedSessions,
   type ExternalManagedCandidate,
   type ManagedSessionFilters,
-  type ManagedSessionResult
+  type ManagedSessionResult,
+  type SessionExtractionStatusSource
 } from "$lib/server/sessions/sessionQueryService.js";
 import {
   SessionLifecycleVersionConflictError,
@@ -56,6 +57,8 @@ export interface SessionLifecycleServiceDeps {
   trashRetentionDays?: number;
   search?: { index: Pick<ConversationSearchIndex, "search">; botId: string };
   listExternal?: () => ExternalManagedCandidate[];
+  /** Phase-two extraction receipts for managed-list status display and filtering. */
+  extraction?: SessionExtractionStatusSource;
 }
 
 interface LocatedSession {
@@ -79,6 +82,7 @@ export class SessionLifecycleService {
   private readonly trashRetentionDays: number;
   private readonly search?: { index: Pick<ConversationSearchIndex, "search">; botId: string };
   private readonly listExternal?: () => ExternalManagedCandidate[];
+  private readonly extraction?: SessionExtractionStatusSource;
 
   constructor(deps: SessionLifecycleServiceDeps) {
     this.sessions = deps.sessions;
@@ -88,6 +92,7 @@ export class SessionLifecycleService {
     this.trashRetentionDays = deps.trashRetentionDays ?? TRASH_RETENTION_DAYS;
     this.search = deps.search;
     this.listExternal = deps.listExternal;
+    this.extraction = deps.extraction;
   }
 
   private nowIso(): string {
@@ -312,7 +317,8 @@ export class SessionLifecycleService {
         lifecycle: this.lifecycle,
         clock: this.clock,
         search: this.search,
-        listExternal: this.listExternal
+        listExternal: this.listExternal,
+        extraction: this.extraction
       },
       filters
     );
