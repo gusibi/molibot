@@ -180,6 +180,8 @@ export type TranscriptMessageActions = {
   contributions?: TranscriptContributionAction[];
   pendingContributionKey?: string;
   successfulContributionKey?: string;
+  /** Opens the Mini App named by a persisted `@app-id` invocation. */
+  onOpenMiniApp?: (appId: string) => void;
   onRunContribution?: (
     action: TranscriptContributionAction,
     message: TranscriptMessage,

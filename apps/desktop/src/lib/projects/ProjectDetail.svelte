@@ -16,6 +16,7 @@
   import ProjectChat from "./ProjectChat.svelte";
   import { projectChatStore } from "./projectChatStore.svelte";
   import ProjectSettingsDialog from "./ProjectSettingsDialog.svelte";
+  import MiniAppsQuickMenu from "../miniapps/MiniAppsQuickMenu.svelte";
   import { loadDesktopModels } from "../api";
   import type { DesktopModelOption } from "@molibot/desktop-contract";
   import { SETTINGS_CHANGED_EVENT } from "../stores/session.svelte";
@@ -27,11 +28,15 @@
   let {
     copy,
     onOpenFiles = () => {},
+    onOpenMiniApp = () => {},
+    onOpenMiniApps = () => {},
     sidebarCollapsed = false,
     onToggleSidebar = () => {}
   }: {
     copy: Translation;
     onOpenFiles?: () => void;
+    onOpenMiniApp?: (appId: string) => void;
+    onOpenMiniApps?: () => void;
     sidebarCollapsed?: boolean;
     onToggleSidebar?: () => void;
   } = $props();
@@ -141,6 +146,12 @@
             <Magnifier size={16} aria-hidden="true" />
           </button>
         {/if}
+        <MiniAppsQuickMenu
+          {copy}
+          endpoint={projectsStore.endpoint}
+          onOpenApp={onOpenMiniApp}
+          onOpenLaunchpad={onOpenMiniApps}
+        />
         <button class="icon-button" type="button" aria-label={copy.files} title={copy.files} onclick={onOpenFiles}>
           <Sidebar class="flip" size={16} aria-hidden="true" />
         </button>

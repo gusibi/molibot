@@ -1,5 +1,6 @@
 <script lang="ts">
   import BranchUp from "reicon-svelte/icons/BranchUp";
+  import ArrowRight from "reicon-svelte/icons/ArrowRight";
   import Check from "reicon-svelte/icons/Check";
   import CheckRead from "reicon-svelte/icons/CheckRead";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
@@ -172,7 +173,22 @@
         {#if invocation}
           {@const KickerIcon = INVOCATION_ICONS[invocation.kind]}
           <div class="message-bubble invocation-message" data-kind={invocation.kind}>
-            <div class="invocation-kicker"><KickerIcon size={14} aria-hidden="true" /><span>{invocation.kind === "command" ? "COMMAND" : invocation.kind === "skill" ? "SKILL" : "MINI APP"}</span><code>{invocation.token}</code></div>
+            <div class="invocation-kicker">
+              <KickerIcon size={14} aria-hidden="true" />
+              <span>{invocation.kind === "command" ? "COMMAND" : invocation.kind === "skill" ? "SKILL" : "MINI APP"}</span>
+              <code>{invocation.token}</code>
+              {#if invocation.kind === "miniapp" && messageActions?.onOpenMiniApp}
+                <button
+                  type="button"
+                  class="invocation-open-app"
+                  aria-label={copy.miniAppCardOpen}
+                  onclick={() => messageActions?.onOpenMiniApp?.(invocation.token.slice(1))}
+                >
+                  <span>{copy.miniAppCardOpen}</span>
+                  <ArrowRight size={13} aria-hidden="true" />
+                </button>
+              {/if}
+            </div>
             {#if displayContent.slice(invocation.consumedLength).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.consumedLength).trim(), copy.copyCode, markdownOptions)}</div>{/if}
           </div>
         {:else}

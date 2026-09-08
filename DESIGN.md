@@ -746,6 +746,15 @@ block, status color, and sidebar tint must resolve through the same family block
   the manage view, where their reason is visible. The primary destination uses the
   regular App Store glyph so it reads as an application library rather than a generic
   four-cell grid.
+- Conversation headers may expose a compact Mini Apps quick menu beside the existing
+  search and file actions. It is an anchored, keyboard-accessible popover that lists
+  only enabled, healthy apps, searches name and description, and keeps favorites and
+  the five most recent app opens as connection-scoped UI preferences. A persisted
+  Mini App invocation may expose the same single-purpose Open action; both entry
+  points use the existing Inspector seam and preserve the active conversation, draft,
+  reader position, and streaming turn. The menu must provide explicit loading,
+  empty, no-match, and retry states, follow the active locale and theme, and collapse
+  cleanly at narrow widths.
 - A Mini App's UI runs in a sandboxed iframe on its own origin and cannot inherit the
   app's design tokens. The panel passes the resolved locale and theme as URL hints and
   reloads on change; each app ships its own strings and Light/Dark palette, and must

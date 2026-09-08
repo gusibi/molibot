@@ -1,5 +1,9 @@
 # Molibot ChangeLog
 
+### Added: Open Mini Apps without leaving the conversation (2026-09-09)
+
+Chat and Project headers now offer a searchable Mini App quick menu with icons, favorites, recent apps, loading/error states, and a link back to the full Launchpad. Persisted `@app-id` invocations also expose a localized Open button. Both routes reuse the existing right-side Inspector, preserve the current conversation state, and keep quick-access preferences scoped to the connected service.
+
 ### Fixed: Mini Chat input corruption and frequent reply interruptions (2026-09-08)
 
 Mini Chat replies no longer die mid-generation: the send/retry endpoints now return immediately and generation continues in the app's background process, so long replies stop hitting the desktop transport's 30s request timeout and the 60s app-process watchdog that used to kill the whole app (surfacing as "Could not reach the Molibot service." / "回复已中断"). The UI tracks the generating conversation directly — streaming via polling, releasing on terminal status, and letting other conversations, new chats and settings be used while one reply is still generating — and provider failures now persist a readable `error_message` on the failed row instead of vanishing with the aborted request. The composer's Chinese-input corruption (raw pinyin like "wff" left in the box) came from the vendored UI library lacking IME-composition guards; `@astryxdesign/core`/`theme-neutral` move 0.1.4 → 0.5.4 (with `@stylexjs/stylex` 0.19), rebuilding the mini-chat and prompt-box bundles — both built-in apps bump to v1.2.0 so existing installs receive the update.

@@ -22,6 +22,7 @@ export const miniAppsStore = $state({
   builtin: [] as DesktopMiniAppBuiltinItem[],
   loading: false,
   loaded: false,
+  loadError: "",
   busyId: "",
   actionMessage: "",
   installing: false,
@@ -35,6 +36,8 @@ export const miniAppsStore = $state({
    */
   aiAvailability: { text: false, transcription: false }
 });
+
+let catalogLoadGeneration = 0;
 
 /**
  * Applies a route's answer to both catalogs at once.
@@ -74,14 +77,20 @@ export async function clearMiniAppBadge(appId: string, endpoint = session.endpoi
 
 export async function loadMiniApps(endpoint = session.endpoint): Promise<void> {
   if (!endpoint) return;
+  const generation = ++catalogLoadGeneration;
   miniAppsStore.loading = true;
+  miniAppsStore.loadError = "";
   try {
-    applyCatalogs(await loadDesktopMiniApps(endpoint));
+    const catalogs = await loadDesktopMiniApps(endpoint);
+    if (generation !== catalogLoadGeneration) return;
+    applyCatalogs(catalogs);
     miniAppsStore.loaded = true;
   } catch (cause) {
+    if (generation !== catalogLoadGeneration) return;
+    miniAppsStore.loadError = cause instanceof Error ? cause.message : String(cause);
     setError(cause);
   } finally {
-    miniAppsStore.loading = false;
+    if (generation === catalogLoadGeneration) miniAppsStore.loading = false;
   }
   // Separate from the catalog load and deliberately not fatal: a failure here
   // costs a per-app warning, and must not stop the app list from rendering.
@@ -90,10 +99,12 @@ export async function loadMiniApps(endpoint = session.endpoint): Promise<void> {
       loadDesktopModels(endpoint, "text"),
       loadDesktopModels(endpoint, "stt")
     ]);
-    miniAppsStore.aiAvailability = {
-      text: text.options.length > 0,
-      transcription: transcription.options.length > 0
-    };
+    if (generation === catalogLoadGeneration) {
+      miniAppsStore.aiAvailability = {
+        text: text.options.length > 0,
+        transcription: transcription.options.length > 0
+      };
+    }
   } catch {
     // Leave the last known answer rather than claiming nothing is configured.
   }

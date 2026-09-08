@@ -992,6 +992,77 @@ a:focus-visible {
 .header-actions { pointer-events: none; }
 .header-actions > * { pointer-events: auto; }
 .header-actions .secondary-button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+
+/* The chat header launcher is a small selector for the apps people use while
+   reading a conversation. The full Mini Apps workspace remains the place for
+   installation and management. */
+.miniapps-quick { position: relative; z-index: 60; }
+.miniapps-quick-trigger {
+  display: inline-flex;
+  width: auto !important;
+  min-width: 28px;
+  gap: 6px;
+  padding-inline: 8px;
+  color: var(--label-secondary);
+}
+.miniapps-quick-trigger[aria-expanded="true"],
+.miniapps-quick-trigger:hover { background: var(--fill); color: var(--label-primary); }
+.miniapps-quick-trigger-label { font-size: var(--fs-meta); line-height: 1; }
+.miniapps-quick-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(520px, calc(100vh - 72px));
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid var(--separator);
+  border-radius: var(--rounded-md);
+  background: var(--popover-bg, var(--card-bg));
+  box-shadow: var(--popover-shadow);
+  color: var(--label-primary);
+}
+.miniapps-quick-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--fill);
+  color: var(--label-tertiary);
+}
+.miniapps-quick-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+.miniapps-quick-search input { min-width: 0; flex: 1 1 auto; height: 30px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--label-primary); font: inherit; }
+.miniapps-quick-search input::placeholder { color: var(--label-tertiary); }
+.miniapps-quick-group { min-height: 0; margin-top: 10px; }
+.miniapps-quick-group h3 { margin: 0 8px 5px; color: var(--label-tertiary); font-size: var(--fs-meta); font-weight: 600; line-height: var(--lh-meta); }
+.miniapps-quick-list { display: grid; gap: 2px; max-height: 250px; overflow-y: auto; }
+.miniapps-quick-row { display: flex; align-items: center; min-width: 0; border-radius: var(--radius-control); }
+.miniapps-quick-row:hover { background: var(--fill); }
+.miniapps-quick-open { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; padding: 6px 7px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.miniapps-quick-open > .miniapp-icon { width: 28px; height: 28px; border-radius: var(--radius-small); }
+.miniapps-quick-open > .miniapp-icon img { width: 22px; height: 22px; }
+.miniapps-quick-name { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; gap: 1px; }
+.miniapps-quick-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-label); font-weight: 500; line-height: var(--lh-label); }
+.miniapps-quick-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.miniapps-quick-open > .reicon { flex: none; color: var(--label-tertiary); }
+.miniapps-quick-favorite { display: grid; flex: none; place-items: center; width: 28px; height: 28px; margin-right: 4px; padding: 0; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-tertiary); cursor: pointer; }
+.miniapps-quick-favorite:hover, .miniapps-quick-favorite.active { color: var(--accent); background: var(--accent-soft); }
+.miniapps-quick-state { margin: 18px 8px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: 1.5; }
+.miniapps-quick-error { display: flex; flex-direction: column; gap: 8px; }
+.miniapps-quick-retry { align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: var(--fs-meta); cursor: pointer; }
+.miniapps-quick-all { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; margin-top: 8px; padding: 0 8px; border: 0; border-top: 1px solid var(--separator); background: transparent; color: var(--accent); font-size: var(--fs-meta); text-align: left; cursor: pointer; }
+.miniapps-quick-all:hover { color: var(--label-primary); }
+.miniapps-quick button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--popover-bg, var(--card-bg)), 0 0 0 4px var(--accent); }
+@media (max-width: 720px) {
+  .miniapps-quick-trigger-label { display: none; }
+}
+
 .durable-header-badge {
   display: inline-flex;
   align-items: center;
@@ -3228,6 +3299,9 @@ a:focus-visible {
 .invocation-message[data-kind="miniapp"] .invocation-kicker { color: var(--miniapp-accent); }
 .invocation-kicker span { font-size: var(--fs-meta); font-weight: 600; letter-spacing: var(--tracking-caps); }
 .invocation-kicker code { font: 600 var(--fs-label)/var(--lh-label) var(--font-mono); }
+.invocation-open-app { display: inline-flex; align-items: center; gap: 3px; min-height: 24px; margin-left: auto; padding: 0 7px; border: 1px solid color-mix(in srgb, currentColor 28%, var(--separator)); border-radius: var(--radius-small); background: transparent; color: inherit; font-size: var(--fs-meta); cursor: pointer; }
+.invocation-open-app:hover { background: var(--accent-soft); }
+.invocation-open-app:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
 .invocation-message > .markdown-body { margin-top: 7px; color: var(--label-primary); }
 /* A recognized command/skill at the start of the input is highlighted in place:
    an overlay mirrors the textarea's text metrics and paints a colored pill

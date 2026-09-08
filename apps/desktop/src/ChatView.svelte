@@ -122,6 +122,7 @@
   import SessionPlanInspector from "./lib/chat/SessionPlanInspector.svelte";
   import DurableExecutionInspector from "./lib/chat/DurableExecutionInspector.svelte";
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
+  import MiniAppsQuickMenu from "./lib/miniapps/MiniAppsQuickMenu.svelte";
   import { projectsStore, projectsView, selectProject, selectProjectSession } from "./lib/stores/projects.svelte";
   import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
@@ -2060,6 +2061,7 @@
         contributions: contributedMessageActions,
         pendingContributionKey: miniAppActionPendingKey,
         successfulContributionKey: miniAppActionSuccessKey,
+        onOpenMiniApp: (appId) => openMiniAppInspector(appId),
         onRunContribution: (action, message, selection) => void runMiniAppMessageAction(action, message, selection)
         ,onResolvePlan: (message, plan, decision, edits) => void resolvePlan(message, plan, decision, edits)
       } satisfies TranscriptMessageActions;
@@ -2073,6 +2075,7 @@
         contributions: contributedMessageActions,
         pendingContributionKey: miniAppActionPendingKey,
         successfulContributionKey: miniAppActionSuccessKey,
+        onOpenMiniApp: (appId) => openMiniAppInspector(appId),
         onRunContribution: (action, message, selection) => void runMiniAppMessageAction(action, message, selection)
       } satisfies TranscriptMessageActions
     : null;
@@ -3110,6 +3113,8 @@
     <ProjectDetail
       {copy}
       onOpenFiles={toggleFilesInspector}
+      onOpenMiniApp={openMiniAppInspector}
+      onOpenMiniApps={() => openWorkspacePane("miniapps")}
       {sidebarCollapsed}
       onToggleSidebar={toggleSidebarCollapse}
     />
@@ -3190,6 +3195,12 @@
               <Magnifier size={16} aria-hidden="true" />
             </button>
           {/if}
+          <MiniAppsQuickMenu
+            {copy}
+            endpoint={connectedEndpoint || serviceEndpoint || ""}
+            onOpenApp={openMiniAppInspector}
+            onOpenLaunchpad={() => openWorkspacePane("miniapps")}
+          />
           <button
             class="icon-button"
             type="button"

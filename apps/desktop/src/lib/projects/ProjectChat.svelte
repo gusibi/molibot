@@ -49,6 +49,7 @@
   import { humanizeModelOption } from "../presentation";
   import { miniAppsCatalog } from "../stores/miniapps.svelte";
   import { catalogMessageActions, invokeTranscriptMessageAction } from "../miniapps/messageActions";
+  import { formatMiniAppDeepLink } from "@molibot/shared/miniappDeepLink";
 
   export let copy: Translation;
   export let searchMatchIds: string[] = [];
@@ -675,6 +676,7 @@
         contributions: contributedMessageActions,
         pendingContributionKey: miniAppActionPendingKey,
         successfulContributionKey: miniAppActionSuccessKey,
+        onOpenMiniApp: (appId) => requestMiniAppDeepLinkOpen(formatMiniAppDeepLink(appId)),
         onRunContribution: (action, transcriptMessage, selection) => void runMiniAppMessageAction(action, transcriptMessage, selection),
         onResolvePlan: (transcriptMessage, plan, decision, edits) => void resolvePlan(transcriptMessage, plan, decision, edits)
       } satisfies TranscriptMessageActions;

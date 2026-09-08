@@ -92,6 +92,7 @@ const conversationPromptNavigator = read("./lib/chat/ConversationPromptNavigator
 const conversationNavigation = read("./lib/chat/conversationNavigation.ts");
 const stickToBottom = read("./lib/chat/stickToBottom.ts");
 const chatHeader = read("./lib/chat/ChatHeader.svelte");
+const miniAppsQuickMenu = read("./lib/miniapps/MiniAppsQuickMenu.svelte");
 const transcriptSearch = read("./lib/chat/TranscriptSearch.svelte");
 const pageHeader = read("./lib/components/ui/PageHeader.svelte");
 const overflowMenu = read("./lib/components/ui/OverflowMenu.svelte");
@@ -4203,6 +4204,22 @@ test("an interrupted turn keeps its answer and shows why it stopped as a separat
 });
 
 // ------------------------------------------- Mini App platform §2.2-§2.5
+
+test("the conversation offers one shared Mini App opener from the header and invocation pill", () => {
+  assert.match(view, /<MiniAppsQuickMenu[\s\S]*onOpenApp=\{openMiniAppInspector\}/);
+  assert.match(projectDetail, /<MiniAppsQuickMenu[\s\S]*onOpenApp=\{onOpenMiniApp\}/);
+  assert.match(miniAppsQuickMenu, /onOpenApp\(app\.id\)/);
+  assert.match(miniAppsQuickMenu, /loadMiniAppQuickAccess/);
+  assert.match(miniAppsQuickMenu, /recordMiniAppRecent/);
+  assert.match(miniAppsQuickMenu, /catalogEndpoint/);
+  assert.match(miniAppsQuickMenu, /loadMiniApps\(endpoint\)\.then/);
+  assert.match(miniAppsQuickMenu, /miniAppsStore\.loadError/);
+  assert.match(miniAppsQuickMenu, /onOpenLaunchpad/);
+  assert.match(transcript, /messageActions\?\.onOpenMiniApp/);
+  assert.match(transcript, /invocation\.token\.slice\(1\)/);
+  assert.match(styles, /\.miniapps-quick-menu\s*\{/);
+  assert.match(styles, /\.invocation-open-app\s*\{/);
+});
 
 test("the panel routes every bridge action through injected callbacks, source-checked first", () => {
   // The `event.source` comparison is the primary check: it binds a message to
