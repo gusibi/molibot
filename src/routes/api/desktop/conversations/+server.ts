@@ -84,6 +84,9 @@ export const DELETE: RequestHandler = async ({ url }) => {
   if (result === "running") {
     return json({ ok: false, error: "conversation is running" }, { status: 409 });
   }
+  if (result === "protected") {
+    return json({ ok: false, error: "remove the long-term retention marker before deletion" }, { status: 409 });
+  }
   if (result === "not_found") {
     return json({ ok: false, error: "conversation not found" }, { status: 404 });
   }

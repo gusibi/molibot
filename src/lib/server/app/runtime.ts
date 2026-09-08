@@ -18,6 +18,20 @@ import { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { PluginCatalog, ProviderPlugin } from "$lib/server/plugins/types.js";
 import { AssistantService } from "$lib/server/providers/assistantService.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
+import { getSessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleStore.js";
+import { SessionLifecycleService } from "$lib/server/sessions/sessionLifecycleService.js";
+import { SessionAutoArchiveStore } from "$lib/server/sessions/sessionAutoArchiveStore.js";
+import { SessionAutoArchiveService } from "$lib/server/sessions/sessionAutoArchiveService.js";
+import { SessionTrashCleanupService } from "$lib/server/sessions/sessionTrashCleanup.js";
+import { buildProductionSessionLifecycle, buildSessionTrashCleanup } from "$lib/server/app/sessionMaintenance.js";
+import { SessionBulkStore } from "$lib/server/sessions/sessionBulkStore.js";
+import { SessionBulkService } from "$lib/server/sessions/sessionBulkService.js";
+import { SessionExtractionStore } from "$lib/server/sessions/sessionExtractionStore.js";
+import {
+  SessionExtractionService,
+  type ExtractionOutput,
+  type SessionExtractionExtractor
+} from "$lib/server/sessions/sessionExtractionService.js";
 import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
 import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
@@ -43,6 +57,7 @@ import {
 
 interface RuntimeState {
   sessions: SessionStore;
+  sessionLifecycle: SessionLifecycleService;
   router: MessageRouter;
   channelManagers: Map<string, Map<string, ChannelManager>>;
   pluginCatalog: PluginCatalog;
@@ -62,6 +77,10 @@ interface RuntimeState {
   maintenanceService: MemoryMaintenanceService;
   dailyMaterialsService: DailyMaterialsService;
   dailyMaterialsBackfill: DailyMaterialsBackfillJob;
+  sessionAutoArchive: SessionAutoArchiveService;
+  sessionTrashCleanup: SessionTrashCleanupService;
+  sessionBulk: SessionBulkService;
+  sessionExtraction: SessionExtractionService;
   runInternalEvent: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>;
   hookManager: HookManager;
   getSettings: () => RuntimeSettings;
@@ -181,6 +200,43 @@ function initializeRuntime(): RuntimeState {
 
     const sessions = new SessionStore();
     sessions.setConversationSearchIndex(getConversationSearchIndex(storagePaths.moryDbFile), "web");
+    // T9 managed extraction: receipts live in the Session-owned store
+    // (sessions.db) so the managed list can derive per-Session status and
+    // the processed-but-not-archived filter without a second index.
+    const sessionExtractionStore = new SessionExtractionStore(storagePaths.sessionsDbFile);
+    // Production lifecycle assembly: authorized search projection, read-only
+    // external-channel projection and the real busy probe (live runner turns,
+    // pending approvals, nonterminal linked tasks) — archive/delete genuinely
+    // refuse busy targets instead of a constant-false probe.
+    const sessionLifecycle = buildProductionSessionLifecycle({ sessions, extraction: sessionExtractionStore });
+    sessions.setSessionActivitySink(sessionLifecycle);
+    // T6 automatic archive: the sweep reuses the same mutation service as
+    // manual archive and persists progress in the Session-owned store.
+    const sessionAutoArchive = new SessionAutoArchiveService({
+      lifecycle: sessionLifecycle,
+      runs: new SessionAutoArchiveStore(storagePaths.sessionsDbFile)
+    });
+    // T7 management bulk engine: immutable all-matching selections plus
+    // idempotent per-item execution through the same lifecycle service as
+    // manual operations. Durable in the Session-owned store (sessions.db).
+    const sessionBulk = new SessionBulkService({
+      lifecycle: sessionLifecycle,
+      lifecycleRows: getSessionLifecycleStore(),
+      bulk: new SessionBulkStore(storagePaths.sessionsDbFile)
+    });
+    // T4 expired trash: purge + startup reconciliation ride the watched-event
+    // JSON + Runtime dispatcher with the same mechanism as auto-archive, over
+    // Session-owned data only (UI file, Agent Context, search projection).
+    const sessionTrashCleanup = buildSessionTrashCleanup(sessions);
+    // T5 inbound衔接:归档新消息同身份恢复、trash 走新建. Channel 只收发,
+    // 决策统一在这里装配;浏览路径不经过该策略,不恢复归档.
+    sessions.setInboundLifecyclePolicy({
+      peekState: (conversationId, requesterExternalUserId) =>
+        sessionLifecycle.peekLifecycleState(conversationId, requesterExternalUserId),
+      resumeForInbound: (conversationId, requesterExternalUserId) => {
+        sessionLifecycle.resumeForInboundMessage({ conversationId, requesterExternalUserId });
+      }
+    });
     const usageTracker = new AiUsageTracker();
     const modelErrorTracker = new ModelErrorTracker();
     const memory = new MemoryGateway(
@@ -189,6 +245,55 @@ function initializeRuntime(): RuntimeState {
       `${config.dataDir}/memory-governance/rejections.jsonl`
     );
     const assistant = new AssistantService(() => currentSettings.value, usageTracker, modelErrorTracker);
+    // T9 managed extraction: same assistant-reply + JSON pattern as the
+    // reflection extractor. The model proposes memories/artifact links; the
+    // T8 service validates, routes namespaces and records durable receipts.
+    // No document saver is wired: transcript-only artifact proposals fail
+    // that sibling explicitly instead of claiming preservation, and the
+    // archive gate blocks archiving while anything is unsaved or pending.
+    const sessionExtractor: SessionExtractionExtractor = async (input) => {
+      const transcript = input.messages
+        .map((message) => `${message.role} [${message.createdAt}]: ${message.content}`)
+        .join("\n");
+      const prompt = [
+        "Extract durable information from this Session transcript for long-term memory.",
+        "Return JSON only: {\"noUsefulInformation\":false,\"memories\":[{\"domain\":\"owner|project|agent_self|content\",\"type\":\"user_preference|user_fact|skill|event|task|world_knowledge\",\"subject\":\"stable_snake_case\",\"value\":\"complete durable statement\",\"confidence\":0.0-1.0,\"reason\":\"why it matters\"}],\"artifactLinks\":[{\"artifactId\":\"existing artifact id\",\"title\":\"optional title\"}],\"artifactSaves\":[{\"title\":\"...\",\"content\":\"...\"}]}",
+        "Rules: only stable preferences, facts, project decisions and complete artifacts — never reminders, transient execution state, guesses, or secrets. Reference existing artifacts via artifactLinks (never recopy them into a memory). Propose artifactSaves only when a complete result exists solely in the transcript and deserves its own document. When nothing is worth keeping, return exactly {\"noUsefulInformation\":true}.",
+        `Session: ${input.sessionId} (channel ${input.channel}${input.projectId ? `, project ${input.projectId}` : ""})`,
+        transcript || "(no eligible messages)"
+      ].join("\n\n");
+      const response = await assistant.reply(
+        [
+          {
+            id: `session-extract:${input.conversationId}`,
+            conversationId: input.conversationId,
+            role: "user",
+            content: prompt,
+            createdAt: new Date().toISOString()
+          }
+        ],
+        prompt
+      );
+      const raw = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? response;
+      // A throw here is intentional: malformed model output must surface as
+      // a failed extraction, never as proof of nothing-to-save.
+      return JSON.parse(raw) as ExtractionOutput;
+    };
+    const sessionExtraction = new SessionExtractionService({
+      sessions,
+      lifecycle: sessionLifecycle,
+      lifecycleRows: getSessionLifecycleStore(),
+      store: sessionExtractionStore,
+      gateway: {
+        createCandidate: (candidateInput) => memory.createCandidate(candidateInput),
+        maybeAutoConfirmCandidate: (id) => memory.maybeAutoConfirmCandidate(id),
+        getCandidate: (id) => memory.getCandidate(id),
+        isPrivacySuppressed: (candidateInput) => memory.isPrivacySuppressed(candidateInput)
+      },
+      extractor: sessionExtractor,
+      ownerId: "owner",
+      botId: "web"
+    });
     memory.setProfileSummarizer(async (profile) => {
       const lines = [...profile.stablePreferences, ...profile.profileFacts, ...profile.currentFocus]
         .map((record) => `- [${record.type}] ${record.content.replace(/\s+/g, " ").trim()}`)
@@ -271,9 +376,11 @@ function initializeRuntime(): RuntimeState {
         });
       }
     };
+    const reflectionTrashExcluded = (conversationId: string): boolean =>
+      getSessionLifecycleStore().get(conversationId)?.state === "trashed";
     const reflectionService = new MemoryReflectionService(
       memory,
-      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir),
+      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir, undefined, reflectionTrashExcluded),
       reflectionState,
       reflectionExtractor
     );
@@ -283,7 +390,7 @@ function initializeRuntime(): RuntimeState {
       (sourceEntryId) => Boolean(getMemoryTraceStore().getBySourceEntryId(sourceEntryId))
     );
     const dailyMaterialsService = new DailyMaterialsService(
-      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir, dailyMaterialsTargetId),
+      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir, dailyMaterialsTargetId, reflectionTrashExcluded),
       reflectionState,
       (prompt) => assistant.reply([{
         id: `daily-materials:${Date.now()}`,
@@ -433,6 +540,30 @@ function initializeRuntime(): RuntimeState {
         }
         return { kind: "daily-materials", completedTargets, scannedConversations, scannedMessages, createdFiles };
       }
+      if (event.internal?.kind === "session-auto-archive") {
+        // Daily maintenance sweep: no user-visible session is created and no
+        // per-session notification is sent — the last-run result is served to
+        // management from the owning store. The switch governs archiving
+        // only; trash expiry is never touched here.
+        const result = sessionAutoArchive.runSweep(currentSettings.value.sessionAutoArchive);
+        console.log(
+          `[session-auto-archive] completed file=${filename} candidates=${result.candidateCount} archived=${result.archivedCount} skipped=${result.skippedCount} failed=${result.failedCount}`
+        );
+        return { kind: "session-auto-archive" };
+      }
+      if (event.internal?.kind === "session-trash-expiry") {
+        // Expired-trash purge: same watched-event + dispatcher mechanism as
+        // the auto-archive sweep. Reconciliation retries recorded cleanup
+        // intents first, then purges trash past the 30-day recovery period.
+        // Partial failures stay as recoverable work and never resurrect.
+        const outcomes = sessionTrashCleanup.reconcilePending();
+        const purged = outcomes.filter((item) => item.status === "succeeded").length;
+        const failed = outcomes.filter((item) => item.status === "failed").length;
+        console.log(
+          `[session-trash-expiry] completed file=${filename} total=${outcomes.length} purged=${purged} failed=${failed}`
+        );
+        return { kind: "session-trash-expiry" };
+      }
       throw new Error("Unsupported internal event.");
     };
     const dailyMaterialsBackfill = new DailyMaterialsBackfillJob(dailyMaterialsService);
@@ -442,6 +573,7 @@ function initializeRuntime(): RuntimeState {
     });
     state = {
       sessions,
+      sessionLifecycle,
       router,
       channelManagers: new Map<string, Map<string, ChannelManager>>(),
       pluginCatalog: { channels: [], providers: [], features: [], memoryBackends: [], extensions: [], miniApps: [] },
@@ -461,6 +593,10 @@ function initializeRuntime(): RuntimeState {
       maintenanceService,
       dailyMaterialsService,
       dailyMaterialsBackfill,
+      sessionAutoArchive,
+      sessionBulk,
+      sessionTrashCleanup,
+      sessionExtraction,
       runInternalEvent,
       hookManager,
       getSettings: () => state.settings,
@@ -475,6 +611,18 @@ function initializeRuntime(): RuntimeState {
     const queuedDurableEvents = durableExecutionRuntime.ensureQueuedEvents("owner");
     if (recoveredDurableAttempts > 0 || queuedDurableEvents > 0) {
       console.log(`[runtime] durable_execution_reconciled attempts=${recoveredDurableAttempts} queued_events=${queuedDurableEvents}`);
+    }
+    // Startup reconciliation for expired trash: retries recorded cleanup
+    // intents from an interrupted purge, then sweeps trash past the recovery
+    // deadline — downtime never leaves expired sessions behind.
+    try {
+      const trashRecovered = state.sessionTrashCleanup.reconcilePending();
+      if (trashRecovered.length > 0) {
+        const purged = trashRecovered.filter((item) => item.status === "succeeded").length;
+        console.log(`[runtime] session_trash_reconciled total=${trashRecovered.length} purged=${purged}`);
+      }
+    } catch (error) {
+      console.error("[runtime] session_trash_reconcile_failed", error);
     }
 
     state.settings = sanitizeSettings({}, state.settings);

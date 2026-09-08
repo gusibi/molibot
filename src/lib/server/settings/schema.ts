@@ -621,6 +621,27 @@ export interface BrowserAutomationSettings {
   defaultTimeoutMs: number;
 }
 
+export type SessionAutoArchiveBotMode = "inherit" | "disabled" | "custom";
+
+export interface SessionAutoArchiveBotPolicy {
+  mode: SessionAutoArchiveBotMode;
+  /** Whole-day threshold used only when mode is custom. Empty falls back to global. */
+  inactiveDays?: number;
+}
+
+/**
+ * Automatic archiving policy (session-mgmt T6). Off by default; when enabled
+ * the daily sweep archives sessions inactive for the global threshold.
+ * Per-BOT overrides apply to external-channel sessions only — local and
+ * Project sessions always inherit the global threshold in this version.
+ * The switch governs archiving only, never trash expiry.
+ */
+export interface SessionAutoArchiveSettings {
+  enabled: boolean;
+  inactiveDays: number;
+  bots: Record<string, SessionAutoArchiveBotPolicy>;
+}
+
 export interface EventExecutionSettings {
   executionTimeoutMs: number;
   maxAttempts: number;
@@ -698,6 +719,7 @@ export interface RuntimeSettings {
   subagentRuntime: SubagentRuntimeSettings;
   events: EventExecutionSettings;
   browserAutomation: BrowserAutomationSettings;
+  sessionAutoArchive: SessionAutoArchiveSettings;
   display?: GlobalDisplaySettings;
 }
 

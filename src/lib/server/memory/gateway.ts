@@ -211,6 +211,21 @@ export class MemoryGateway {
     return this.candidates.get(id);
   }
 
+  /**
+   * Memory-deletion suppression check for Session extraction: cleanup must
+   * never recreate a forgotten item. Delegates to the candidate store so
+   * extraction and reflection share one suppression source of truth.
+   */
+  isPrivacySuppressed(
+    input: Pick<MemoryCandidateCreateInput, "namespace" | "domain" | "type" | "subject" | "value">
+  ): boolean {
+    try {
+      return this.candidates.isPrivacySuppressed(input);
+    } catch {
+      return false;
+    }
+  }
+
   async confirmCandidate(id: string, edit?: MemoryCandidateEdit): Promise<MemoryCandidate | null> {
     if (!this.isEnabled() || this.getActiveBackendKey() !== "mory") return null;
     const reserved = this.candidates.reserveConfirmation(id);

@@ -746,6 +746,28 @@ export class DurableExecutionStore {
     return Number(row?.count ?? 0);
   }
 
+  /**
+   * Session lifecycle busy probe: true while any nonterminal execution links
+   * to this UI session — either as its originating session
+   * (`source_ui_session_id`) or as an attempt's agent context
+   * (`context_session_id`). Queued, running, paused and waiting executions
+   * all block destructive cleanup; only terminal executions release it.
+   */
+  hasNonterminalForSession(sessionId: string): boolean {
+    const id = text(sessionId);
+    if (!id) return false;
+    const row = this.db.prepare(`
+      SELECT 1 AS found FROM durable_executions
+      WHERE status NOT IN ('partial', 'completed', 'failed', 'cancelled')
+        AND (
+          source_ui_session_id = ?
+          OR id IN (SELECT execution_id FROM durable_attempts WHERE context_session_id = ?)
+        )
+      LIMIT 1
+    `).get(id, id) as { found?: number } | undefined;
+    return Number(row?.found ?? 0) === 1;
+  }
+
   countActive(ownerId: string, now = new Date()): number {
     const row = this.db.prepare("SELECT COUNT(*) AS count FROM durable_executions WHERE owner_id = ? AND status IN ('running', 'verifying') AND lease_expires_at IS NOT NULL AND lease_expires_at > ?").get(text(ownerId), nowIso(now)) as { count: number };
     return Number(row?.count ?? 0);

@@ -126,13 +126,31 @@ function dateInTimezone(value: string, timezone: string): string {
 }
 
 export class SessionReflectionSourceReader implements ReflectionSourceReader {
+  private readonly isExcluded: (conversationId: string) => boolean;
+
   constructor(
     private readonly sessions: SessionStore,
     private readonly state: ReflectionStateStore,
     private readonly summaryReader?: (conversationId: string) => string | undefined,
     private readonly externalDataRoot?: string,
-    private readonly targetIdOf: (target: ReflectionTarget) => string = reflectionTargetId
-  ) {}
+    private readonly targetIdOf: (target: ReflectionTarget) => string = reflectionTargetId,
+    isExcluded?: (conversationId: string) => boolean
+  ) {
+    // Trashed sessions are excluded from reflection/extraction inputs: their
+    // search projection is already gone and their transcript is pending
+    // expiry. The production wiring passes a lifecycle-state check here.
+    this.isExcluded = isExcluded ?? (() => false);
+  }
+
+  private excluded(conversationId: string): boolean {
+    try {
+      return this.isExcluded(conversationId);
+    } catch {
+      // Fail open: a broken exclusion check must not hide live sessions from
+      // reflection; trash still hides via the search-projection removal.
+      return false;
+    }
+  }
 
   async read(target: ReflectionTarget, localDate: string): Promise<ReflectionSourceProjection[]> {
     const targetId = this.targetIdOf(target);
@@ -150,6 +168,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
           return ref?.channel === scope.channel && ref.botId === target.botId && ref.chatId === scope.externalUserId;
         });
         for (const entry of entries) {
+          if (this.excluded(entry.conversation.id)) continue;
           const transcript = readExternalTranscriptFromContexts(this.externalDataRoot, entry.conversation.id);
           if (!transcript) continue;
           const watermark = this.state.get(targetId, entry.conversation.id);
@@ -166,6 +185,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
         ? this.sessions.listProjectConversations(scope.projectId)
         : this.sessions.listConversations(scope.channel as Channel, scope.externalUserId);
       for (const conversation of conversations) {
+        if (this.excluded(conversation.id)) continue;
         const watermark = this.state.get(targetId, conversation.id);
         const messages = this.sessions.listMessages(conversation.id)
           .filter((message) => retentionCapabilities(message.retention).memoryEligible)
@@ -201,6 +221,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
           return ref?.channel === scope.channel && ref.botId === target.botId && ref.chatId === scope.externalUserId;
         });
         for (const entry of entries) {
+          if (this.excluded(entry.conversation.id)) continue;
           const transcript = readExternalTranscriptFromContexts(this.externalDataRoot, entry.conversation.id);
           for (const message of transcript?.messages ?? []) consider(message.createdAt);
         }
@@ -210,6 +231,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
         ? this.sessions.listProjectConversations(scope.projectId)
         : this.sessions.listConversations(scope.channel as Channel, scope.externalUserId);
       for (const conversation of conversations) {
+        if (this.excluded(conversation.id)) continue;
         for (const message of this.sessions.listMessages(conversation.id)) consider(message.createdAt);
       }
     }

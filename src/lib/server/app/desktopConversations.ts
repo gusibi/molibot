@@ -10,6 +10,7 @@ import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import { parseBotInstanceId, type ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { deleteWebSession, type WebSessionDeletionResult } from "$lib/server/web/sessionLifecycle.js";
+import { getSessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleStore.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
 import { retentionCapabilities, type TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
@@ -284,10 +285,26 @@ export function queryConversations(
   return { items: slice, nextCursor, hasMore };
 }
 
+/**
+ * Daily lists show ordinary active sessions only. Archived and trashed
+ * sessions stay reachable through the management views, never the sidebar.
+ * Missing rows (pre-lifecycle history) count as active; lookup failures fail
+ * open so a lifecycle outage cannot empty the daily list.
+ */
+export function isActiveLifecycleSession(conversationId: string): boolean {
+  try {
+    const row = getSessionLifecycleStore().get(conversationId);
+    return !row || row.state === "active";
+  } catch {
+    return true;
+  }
+}
+
 /** Collects the raw item set for a channel using live runtime data. */
 function collectItems(
   channel: DesktopConversationChannel,
-  resolver: BotNameResolver
+  resolver: BotNameResolver,
+  isActive: (conversationId: string) => boolean = isActiveLifecycleSession
 ): DesktopConversationItem[] {
   let items: DesktopConversationItem[];
   if (channel === "web") {
@@ -302,7 +319,9 @@ function collectItems(
   // The sidebar / browser only show ordinary conversations (plan §7/§16):
   // project / automation / diagnostic / test sessions are excluded here, in
   // the shared query layer, rather than duplicated into channels or UI.
-  return items.filter((item) => item.purpose === "conversation");
+  // Session management archiving is enforced at the same layer: only active
+  // sessions appear in daily lists.
+  return items.filter((item) => item.purpose === "conversation" && isActive(item.sessionId));
 }
 
 function channelSearchItems(
@@ -332,12 +351,15 @@ function latestConversationPreview(messages: ReadonlyArray<{ role: string; conte
   return preview || undefined;
 }
 
-function projectSearchItems(): DesktopConversationSearchItem[] {
+function projectSearchItems(
+  isActive: (conversationId: string) => boolean = isActiveLifecycleSession
+): DesktopConversationSearchItem[] {
   const sessions = getRuntime().sessions;
   const items: DesktopConversationSearchItem[] = [];
   for (const project of getProjectStore().list()) {
     const conversations = sessions.listProjectConversations(project.id)
-      .filter((conversation) => conversation.origin !== "automation" && !conversation.origin?.startsWith("internal:"));
+      .filter((conversation) => conversation.origin !== "automation" && !conversation.origin?.startsWith("internal:"))
+      .filter((conversation) => isActive(conversation.id));
     for (const conversation of conversations) {
       const channel = SEARCH_SOURCES.includes(conversation.channel as DesktopConversationSearchSource)
         && conversation.channel !== "project"
@@ -367,12 +389,16 @@ export function searchDesktopConversations(input: {
   query?: string;
   limit?: number;
   cursor?: string | null;
+  isActive?: (conversationId: string) => boolean;
 }): { scope: DesktopConversationSearchScope; groups: DesktopConversationSearchGroup[] } {
   const scope = input.scope ?? "all";
+  const isActive = input.isActive ?? isActiveLifecycleSession;
   const resolver = buildBotNameResolver(getRuntime().getSettings());
   const groups = searchSourcesForScope(scope).map((source) => queryConversationSearchGroup(
     source,
-    source === "project" ? projectSearchItems() : channelSearchItems(source, resolver),
+    source === "project"
+      ? projectSearchItems(isActive)
+      : channelSearchItems(source, resolver).filter((item) => isActive(item.sessionId)),
     { query: input.query, limit: input.limit, cursor: input.cursor }
   )).filter((group) => group.total > 0);
   return { scope, groups };
@@ -384,9 +410,10 @@ export function listDesktopConversations(input: {
   cursor?: string | null;
   query?: string;
   botId?: string;
+  isActive?: (conversationId: string) => boolean;
 }): { items: DesktopConversationItem[]; nextCursor: string | null; hasMore: boolean } {
   const resolver = buildBotNameResolver(getRuntime().getSettings());
-  const items = collectItems(input.channel, resolver);
+  const items = collectItems(input.channel, resolver, input.isActive ?? isActiveLifecycleSession);
   return queryConversations(items, {
     limit: input.limit,
     cursor: input.cursor,

@@ -10,6 +10,7 @@ import {
   type QQBotConfig,
   type McpServerConfig,
   type ProviderMode,
+  type SessionAutoArchiveSettings,
   type SkillDraftSettings,
   type SkillSearchSettings,
   type WebSearchEngineId,
@@ -420,6 +421,12 @@ const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflar
   objectPrefix: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_OBJECT_PREFIX ?? "html/").trim() || "html/"
 };
 
+export const defaultSessionAutoArchiveSettings: SessionAutoArchiveSettings = {
+  enabled: false,
+  inactiveDays: 30,
+  bots: {}
+};
+
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
   piModelProvider: providerFromEnv("PI_MODEL_PROVIDER", "anthropic"),
@@ -584,6 +591,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   browserAutomation: {
     defaultTimeoutMs: Math.max(5000, Number(process.env.AGENT_BROWSER_DEFAULT_TIMEOUT ?? 60000) || 60000)
   },
+  sessionAutoArchive: { ...defaultSessionAutoArchiveSettings, bots: {} },
   display: {
     toolProgress: "all",
     showReasoning: "off",

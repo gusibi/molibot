@@ -191,6 +191,7 @@
       voiceRecordFailed: "录音失败，请重试。",
       micUnavailable: "麦克风不可用。",
       openSettings: "打开设置",
+      manageSessions: "管理会话",
       currentThemeFile: "主题文件",
       thinkingMode: "思考档位",
       thinkingOff: "关闭",
@@ -366,6 +367,7 @@
       voiceRecordFailed: "Voice recording failed. Please retry.",
       micUnavailable: "Microphone unavailable.",
       openSettings: "Open Settings",
+      manageSessions: "Manage sessions",
       currentThemeFile: "Theme file",
       thinkingMode: "Thinking",
       thinkingOff: "Off",
@@ -2054,6 +2056,9 @@
         </button>
         <a class="flex h-9 w-9 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]" href="/settings" aria-label={t("settings")}>
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v8M8 12h8" /><path d="M5 4h14v16H5z" /></svg>
+        </a>
+        <a class="flex h-9 w-9 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]" href="/settings/sessions" aria-label={t("manageSessions")}>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16v9H9l-5 4V6Z" /><path d="M8 10h8M8 13h5" /></svg>
         </a>
         <button class="flex h-9 w-9 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]" type="button" on:click={openSystemPromptPreview} aria-label={t("previewSystemPrompt")}>
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 4 7l8 4 8-4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 17 8 4 8-4" /></svg>
