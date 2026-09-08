@@ -1,5 +1,9 @@
 # Molibot ChangeLog
 
+### Fixed: Session management production wiring — real busy guard, external sessions, trash schedule (2026-09-08)
+
+Archive and delete now genuinely refuse sessions with live work: the production lifecycle is assembled with a real busy probe (running agent turns, pending approvals, nonterminal linked tasks) instead of a constant-false check. External-channel conversations appear in management as read-only (listed, searchable by title, previewable) while every lifecycle mutation honestly reports "exists but read-only" instead of "not found". Expired trash purges on its own daily watched-event schedule with startup reconciliation, and editing the auto-archive policy round-trips the whole settings object without dropping provider or assistant configuration. The management tabs also stop double-driving their selection state, and extraction namespaces now follow each session's own assistant.
+
 ### Added: Session management can extract value before archiving (2026-09-08)
 
 The Session management page now offers "Extract & archive" bulk processing: valuable preferences, facts, decisions and artifacts are distilled into memories (or linked artifacts) and the Session archives only when everything succeeded with nothing awaiting review. Per-session extraction states, a processed-but-not-archived filter, exact source ranges and links to retained information make it clear what still needs cleanup; failed or concurrently-messaged Sessions stay put with an explicit reason, and extraction never deletes anything.

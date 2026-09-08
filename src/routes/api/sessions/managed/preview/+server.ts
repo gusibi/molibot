@@ -1,6 +1,9 @@
+import { resolve } from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { config } from "$lib/server/app/env.js";
+import { readExternalTranscriptFromContexts } from "$lib/server/app/externalSessionsFromContexts.js";
 import { sanitizeWebProfileId, sanitizeWebUserId, toWebExternalUserId } from "$lib/server/web/identity";
 
 const PREVIEW_LIMIT = 100;
@@ -67,7 +70,28 @@ export const GET: RequestHandler = async ({ url }) => {
         }
       });
     }
-    return json({ ok: false, error: "source-unavailable", conversationId }, { status: 404 });
+    // External-channel sessions are a read-only projection of the Agent
+    // `contexts/` store: serve the transcript read-only, or an honest
+    // source-unavailable with the reason when it is gone.
+    const external = readExternalTranscriptFromContexts(resolve(config.dataDir), conversationId);
+    if (external) {
+      const messages = external.messages.slice(-PREVIEW_LIMIT).map((message) => ({
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt
+      }));
+      return json({
+        ok: true,
+        preview: {
+          conversationId,
+          title: external.conversation.title,
+          state: sessionLifecycle.peekLifecycleState(conversationId, requester) ?? "active",
+          readOnly: true,
+          messages
+        }
+      });
+    }
+    return json({ ok: false, error: "source-unavailable", reason: "external transcript is missing or expired", conversationId }, { status: 404 });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }

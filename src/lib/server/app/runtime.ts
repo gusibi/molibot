@@ -22,6 +22,8 @@ import { getSessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleS
 import { SessionLifecycleService } from "$lib/server/sessions/sessionLifecycleService.js";
 import { SessionAutoArchiveStore } from "$lib/server/sessions/sessionAutoArchiveStore.js";
 import { SessionAutoArchiveService } from "$lib/server/sessions/sessionAutoArchiveService.js";
+import { SessionTrashCleanupService } from "$lib/server/sessions/sessionTrashCleanup.js";
+import { buildProductionSessionLifecycle, buildSessionTrashCleanup } from "$lib/server/app/sessionMaintenance.js";
 import { SessionBulkStore } from "$lib/server/sessions/sessionBulkStore.js";
 import { SessionBulkService } from "$lib/server/sessions/sessionBulkService.js";
 import { SessionExtractionStore } from "$lib/server/sessions/sessionExtractionStore.js";
@@ -76,6 +78,7 @@ interface RuntimeState {
   dailyMaterialsService: DailyMaterialsService;
   dailyMaterialsBackfill: DailyMaterialsBackfillJob;
   sessionAutoArchive: SessionAutoArchiveService;
+  sessionTrashCleanup: SessionTrashCleanupService;
   sessionBulk: SessionBulkService;
   sessionExtraction: SessionExtractionService;
   runInternalEvent: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>;
@@ -201,11 +204,11 @@ function initializeRuntime(): RuntimeState {
     // (sessions.db) so the managed list can derive per-Session status and
     // the processed-but-not-archived filter without a second index.
     const sessionExtractionStore = new SessionExtractionStore(storagePaths.sessionsDbFile);
-    const sessionLifecycle = new SessionLifecycleService({
-      sessions,
-      lifecycle: getSessionLifecycleStore(),
-      extraction: sessionExtractionStore
-    });
+    // Production lifecycle assembly: authorized search projection, read-only
+    // external-channel projection and the real busy probe (live runner turns,
+    // pending approvals, nonterminal linked tasks) — archive/delete genuinely
+    // refuse busy targets instead of a constant-false probe.
+    const sessionLifecycle = buildProductionSessionLifecycle({ sessions, extraction: sessionExtractionStore });
     sessions.setSessionActivitySink(sessionLifecycle);
     // T6 automatic archive: the sweep reuses the same mutation service as
     // manual archive and persists progress in the Session-owned store.
@@ -221,6 +224,10 @@ function initializeRuntime(): RuntimeState {
       lifecycleRows: getSessionLifecycleStore(),
       bulk: new SessionBulkStore(storagePaths.sessionsDbFile)
     });
+    // T4 expired trash: purge + startup reconciliation ride the watched-event
+    // JSON + Runtime dispatcher with the same mechanism as auto-archive, over
+    // Session-owned data only (UI file, Agent Context, search projection).
+    const sessionTrashCleanup = buildSessionTrashCleanup(sessions);
     // T5 inbound衔接:归档新消息同身份恢复、trash 走新建. Channel 只收发,
     // 决策统一在这里装配;浏览路径不经过该策略,不恢复归档.
     sessions.setInboundLifecyclePolicy({
@@ -544,6 +551,19 @@ function initializeRuntime(): RuntimeState {
         );
         return { kind: "session-auto-archive" };
       }
+      if (event.internal?.kind === "session-trash-expiry") {
+        // Expired-trash purge: same watched-event + dispatcher mechanism as
+        // the auto-archive sweep. Reconciliation retries recorded cleanup
+        // intents first, then purges trash past the 30-day recovery period.
+        // Partial failures stay as recoverable work and never resurrect.
+        const outcomes = sessionTrashCleanup.reconcilePending();
+        const purged = outcomes.filter((item) => item.status === "succeeded").length;
+        const failed = outcomes.filter((item) => item.status === "failed").length;
+        console.log(
+          `[session-trash-expiry] completed file=${filename} total=${outcomes.length} purged=${purged} failed=${failed}`
+        );
+        return { kind: "session-trash-expiry" };
+      }
       throw new Error("Unsupported internal event.");
     };
     const dailyMaterialsBackfill = new DailyMaterialsBackfillJob(dailyMaterialsService);
@@ -575,6 +595,7 @@ function initializeRuntime(): RuntimeState {
       dailyMaterialsBackfill,
       sessionAutoArchive,
       sessionBulk,
+      sessionTrashCleanup,
       sessionExtraction,
       runInternalEvent,
       hookManager,
@@ -590,6 +611,18 @@ function initializeRuntime(): RuntimeState {
     const queuedDurableEvents = durableExecutionRuntime.ensureQueuedEvents("owner");
     if (recoveredDurableAttempts > 0 || queuedDurableEvents > 0) {
       console.log(`[runtime] durable_execution_reconciled attempts=${recoveredDurableAttempts} queued_events=${queuedDurableEvents}`);
+    }
+    // Startup reconciliation for expired trash: retries recorded cleanup
+    // intents from an interrupted purge, then sweeps trash past the recovery
+    // deadline — downtime never leaves expired sessions behind.
+    try {
+      const trashRecovered = state.sessionTrashCleanup.reconcilePending();
+      if (trashRecovered.length > 0) {
+        const purged = trashRecovered.filter((item) => item.status === "succeeded").length;
+        console.log(`[runtime] session_trash_reconciled total=${trashRecovered.length} purged=${purged}`);
+      }
+    } catch (error) {
+      console.error("[runtime] session_trash_reconcile_failed", error);
     }
 
     state.settings = sanitizeSettings({}, state.settings);
