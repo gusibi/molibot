@@ -22,6 +22,8 @@ import { getSessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleS
 import { SessionLifecycleService } from "$lib/server/sessions/sessionLifecycleService.js";
 import { SessionAutoArchiveStore } from "$lib/server/sessions/sessionAutoArchiveStore.js";
 import { SessionAutoArchiveService } from "$lib/server/sessions/sessionAutoArchiveService.js";
+import { SessionBulkStore } from "$lib/server/sessions/sessionBulkStore.js";
+import { SessionBulkService } from "$lib/server/sessions/sessionBulkService.js";
 import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
 import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
@@ -68,6 +70,7 @@ interface RuntimeState {
   dailyMaterialsService: DailyMaterialsService;
   dailyMaterialsBackfill: DailyMaterialsBackfillJob;
   sessionAutoArchive: SessionAutoArchiveService;
+  sessionBulk: SessionBulkService;
   runInternalEvent: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>;
   hookManager: HookManager;
   getSettings: () => RuntimeSettings;
@@ -197,6 +200,14 @@ function initializeRuntime(): RuntimeState {
     const sessionAutoArchive = new SessionAutoArchiveService({
       lifecycle: sessionLifecycle,
       runs: new SessionAutoArchiveStore(storagePaths.sessionsDbFile)
+    });
+    // T7 management bulk engine: immutable all-matching selections plus
+    // idempotent per-item execution through the same lifecycle service as
+    // manual operations. Durable in the Session-owned store (sessions.db).
+    const sessionBulk = new SessionBulkService({
+      lifecycle: sessionLifecycle,
+      lifecycleRows: getSessionLifecycleStore(),
+      bulk: new SessionBulkStore(storagePaths.sessionsDbFile)
     });
     // T5 inbound衔接:归档新消息同身份恢复、trash 走新建. Channel 只收发,
     // 决策统一在这里装配;浏览路径不经过该策略,不恢复归档.
@@ -502,6 +513,7 @@ function initializeRuntime(): RuntimeState {
       dailyMaterialsService,
       dailyMaterialsBackfill,
       sessionAutoArchive,
+      sessionBulk,
       runInternalEvent,
       hookManager,
       getSettings: () => state.settings,
