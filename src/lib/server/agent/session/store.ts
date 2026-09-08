@@ -643,6 +643,18 @@ export class MomRuntimeStore {
     return { deleted: id, active, remaining };
   }
 
+  private reserveAttachmentPath(chatId: string, millis: number, safeName: string): string {
+    const attachmentsDir = join(this.workspaceDir, chatId, "attachments");
+    let candidate = `${millis}_${safeName}`;
+    for (let counter = 2; existsSync(join(attachmentsDir, candidate)); counter += 1) {
+      const dot = safeName.lastIndexOf(".");
+      candidate = dot > 0
+        ? `${millis}_${safeName.slice(0, dot)}-${counter}${safeName.slice(dot)}`
+        : `${millis}_${safeName}-${counter}`;
+    }
+    return candidate;
+  }
+
   saveAttachment(
     chatId: string,
     filename: string,
@@ -652,7 +664,10 @@ export class MomRuntimeStore {
   ): FileAttachment {
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_") || "file.bin";
     const millis = Math.floor(parseFloat(ts) * 1000);
-    const local = `${chatId}/attachments/${millis}_${safeName}`;
+    // Attachments sharing a millisecond and a filename (e.g. several pasted
+    // images all named "image.png" in one message) must not overwrite each
+    // other: suffix -2, -3, … before the extension on path collision.
+    const local = `${chatId}/attachments/${this.reserveAttachmentPath(chatId, millis, safeName)}`;
     const fullPath = join(this.workspaceDir, local);
     ensureDir(dirname(fullPath));
     writeFileSync(fullPath, content);

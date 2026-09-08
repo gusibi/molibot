@@ -309,7 +309,7 @@
       approvalNotFound: copy.approvalNotFound,
       transcriptLoadFailed: copy.transcriptLoadFailed
     }),
-    refreshSessions: () => refreshProjectSessionList(projectsStore.selectedProjectId),
+    refreshSessions: (projectId) => refreshProjectSessionList(projectId, true),
     resolveModel: resolveSessionModel,
     resolveThinking: resolveSessionThinking
   });
@@ -515,7 +515,7 @@
       );
       editingMessageId = "";
       editingSessionId = "";
-      await refreshProjectSessionList(projectId);
+      await refreshProjectSessionList(projectId, true);
       await selectProjectSession(child.id, projectId);
       focusComposerAtEnd();
     } catch (cause) {

@@ -1413,8 +1413,8 @@ test("composer Bot identity is initial-only and uses restrained distinct menu co
 test("Project Session groups reveal history in batches of 10", () => {
   const projectTree = read("./lib/projects/ProjectTree.svelte");
   assert.match(projectTree, /const SESSION_PAGE_SIZE = 10/);
-  assert.match(projectTree, /visibleSessionsByProject = \$derived\.by/);
-  assert.match(projectTree, /sessions\.slice\(0, visibleSessionLimits\[projectId\] \?\? SESSION_PAGE_SIZE\)/);
+  assert.match(projectTree, /projectSessions = projectsStore\.sessionsByProject\[project\.id\]/);
+  assert.match(projectTree, /projectSessions\.slice\(0, visibleSessionLimits\[project\.id\] \?\? SESSION_PAGE_SIZE\)/);
   assert.match(projectTree, /\[projectId\]: \(visibleSessionLimits\[projectId\] \?\? SESSION_PAGE_SIZE\) \+ SESSION_PAGE_SIZE/);
   assert.match(projectTree, /projectSessions\.length > visibleProjectSessions\.length/);
   assert.match(projectTree, /class="project-more"[\s\S]*\{copy\.more\}/);
@@ -2979,11 +2979,14 @@ test("project file panel follows file changes live and stays resizable", () => {
 
 test("selectProjectSession discards stale transcript responses when switching sessions", () => {
   // Project and Session request generations prevent stale list/transcript
-  // responses from taking ownership after the user changes selection.
+  // responses from taking ownership after the user changes selection. The
+  // session list additionally gates publication on per-project request
+  // ownership, so a superseded or invalidated read can never publish.
   const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
-  assert.match(projectsStore, /generation !== projectSelectionGeneration/);
+  assert.match(projectsStore, /projectGeneration !== projectSelectionGeneration/);
   assert.match(projectsStore, /generation !== sessionSelectionGeneration/);
   assert.match(projectsStore, /projectsStore\.selectedProjectId !== projectId/);
+  assert.match(projectsStore, /sessionListRequests\.get\(id\) === request/);
 });
 
 test("selected project sessions keep the shared conversation visible in the detail pane", () => {

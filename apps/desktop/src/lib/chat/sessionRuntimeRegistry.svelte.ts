@@ -37,7 +37,7 @@ export interface SessionRuntimeDeps {
   labels(): ConversationLabels;
   /** Re-fetches a session's transcript as `UiMessage[]` (host owns the mapping). */
   loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[]>;
-  refreshSessions?(): Promise<void>;
+  refreshSessions?(profileId: string, sessionId: string): Promise<void>;
   afterMutate?(profileId: string, sessionId: string): void;
   /**
    * Optional per-entry resolvers injected by surfaces that pin extra turn
@@ -129,7 +129,7 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
       labels: () => deps.labels(),
       appendUserMessage: (content, files) => self.appendUser(content, files),
       reload: () => self.reloadFromServerForTurn(),
-      refreshSessions: () => deps.refreshSessions?.() ?? Promise.resolve(),
+      refreshSessions: () => deps.refreshSessions?.(this.profileId, this.sessionId) ?? Promise.resolve(),
       clearComposer: () => draftStore.clear(sessionDraftKey(profileId, sessionId)),
       afterMutate: () => deps.afterMutate?.(profileId, sessionId),
       setError: (message) => self.setError(message),

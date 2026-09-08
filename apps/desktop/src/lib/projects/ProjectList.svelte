@@ -116,7 +116,7 @@
           icon="notebook"
           open={isActiveProject}
           actionLabel={copy.newChat}
-          onAction={() => void newProjectSession()}
+          onAction={() => void newProjectSession(project.id)}
           onToggle={() => void selectProject(project.id)}
         />
 

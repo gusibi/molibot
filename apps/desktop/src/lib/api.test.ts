@@ -605,6 +605,23 @@ test("one clipboard image with multiple image representations becomes one attach
   assert.equal(files[0]?.type, "image/png");
 });
 
+test("pasting several named clipboard images attaches every one of them", () => {
+  const first = new File([new Uint8Array([1])], "image.png", { type: "image/png" });
+  const second = new File([new Uint8Array([2])], "image.png", { type: "image/png" });
+  const third = new File([new Uint8Array([3])], "photo.jpg", { type: "image/jpeg" });
+  const files = clipboardImageFiles([
+    { kind: "file", type: "image/png", getAsFile: () => first },
+    { kind: "file", type: "image/png", getAsFile: () => second },
+    { kind: "file", type: "image/jpeg", getAsFile: () => third }
+  ]);
+
+  assert.equal(files.length, 3);
+  assert.equal(files[0], first);
+  assert.equal(files[1], second);
+  assert.equal(files[2], third);
+});
+
+
 test("attachment turns keep upload, recognition, and response streaming live", async () => {
   const original = globalThis.fetch;
   let requestBody: BodyInit | null | undefined;

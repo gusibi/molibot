@@ -1,5 +1,13 @@
 # Molibot ChangeLog
 
+### Fixed: Project session titles no longer revert and lists no longer go blank (2026-09-07)
+
+Project session lists lived in two places — the sidebar tree kept its own cache while the store held a second copy for the open project — so a freshly generated title could revert after switching sessions, and a successful list request could still leave the sidebar empty. Both surfaces now read and write the single per-project list in the shared store: the sidebar keeps only display state (expand/collapse, paging), and every create/rename/delete/turn-complete refresh goes through the store, which deduplicates in-flight requests and only lets the latest one publish, so stale responses can no longer undo a rename or deletion. Background refreshes keep existing rows mounted (open row menus survive), failures show an inline alert with retry instead of wiping the list, and newly created sessions appear immediately and stay visible even when their follow-up list refresh fails.
+
+### Fixed: Pasting several images no longer keeps only the last one (2026-09-07)
+
+Pasting multiple images into a conversation (screenshots arrive all named `image.png`) silently kept only the final one: attachment files are stored under `<chatId>/attachments/<millis>_<filename>`, and the chat endpoints stamped every file of one message with the same timestamp, so same-named images wrote to the identical path and each overwrote the previous. The shared attachment store now detects the collision and suffixes `-2`, `-3`, … before the extension, so every attachment keeps its own bytes — this protects every channel (web, desktop, Feishu, QQ, Telegram, Weixin) at once. Pasting multiple image files in one go now attaches all of them instead of just the first, while multi-format representations of a single pasted image (e.g. Safari's png + tiff) still collapse to one attachment.
+
 ### Fixed: HTML previews stay readable in dark mode (2026-09-06)
 
 Previewing an `.html` file in the project files panel — a Hugo template partial, for example — painted default black text over the dark panel and was unreadable. The artifact preview route now injects a theme-aware base style (driven by the `theme` hint the panel already sends) ahead of every served document's own styles, so template text and unstyled pages render light-on-dark in dark appearance and unchanged in light. Documents that are actually templates (`{{ }}`, `{% %}`, `<% %>`, PHP tags) now open as syntax-highlighted source instead of a broken "rendered" view, with a toggle to switch back; real styled pages render exactly as authored.

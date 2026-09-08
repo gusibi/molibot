@@ -48,8 +48,8 @@ export interface ProjectChatStoreDeps {
   endpoint(): string;
   modelReady(): boolean;
   labels(): ConversationLabels;
-  /** Refresh the selected project's session list (titles/order) after a turn. */
-  refreshSessions?(): Promise<void>;
+  /** Refresh the turn's owning project session list (titles/order) after a turn. */
+  refreshSessions?(projectId: string): Promise<void>;
   /** Post-mutation hook (e.g. scroll to bottom). */
   afterMutate?(profileId: string, sessionId: string): void;
   /** Model key a turn on this session should run with (per-session override →
@@ -112,7 +112,10 @@ export class ProjectChatStore {
       modelReady: () => this.deps?.modelReady() ?? false,
       labels: () => this.deps?.labels() ?? deps.labels(),
       loadTranscript: (profileId, sessionId) => this.loadTranscript(profileId, sessionId),
-      refreshSessions: () => this.deps?.refreshSessions?.() ?? Promise.resolve(),
+      refreshSessions: (_profileId, sessionId) => {
+        const projectId = this.sessionProjectIds.get(sessionId);
+        return projectId ? this.deps?.refreshSessions?.(projectId) ?? Promise.resolve() : Promise.resolve();
+      },
       afterMutate: (profileId, sessionId) => this.deps?.afterMutate?.(profileId, sessionId),
       projectId: (_profileId, sessionId) => this.sessionProjectIds.get(sessionId),
       modelKey: (_profileId, sessionId) => this.deps?.resolveModel(sessionId),

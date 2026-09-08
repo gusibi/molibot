@@ -21,7 +21,12 @@ export const projectsStore = $state({
   endpoint: "",
   projects: [] as DesktopProject[],
   selectedProjectId: "",
-  sessions: [] as DesktopProjectSession[],
+  sessionsByProject: {} as Record<string, DesktopProjectSession[]>,
+  sessionListLoading: {} as Record<string, boolean>,
+  sessionListErrors: {} as Record<string, string>,
+  get sessions(): DesktopProjectSession[] {
+    return this.sessionsByProject[this.selectedProjectId] ?? [];
+  },
   selectedSessionId: "",
   messages: [] as DesktopProjectMessage[],
   loading: false,
@@ -83,6 +88,7 @@ export async function addProject(input: { name: string; rootPath?: string; creat
   try {
     const project = await createDesktopProject(projectsStore.endpoint, input);
     projectsStore.projects = [project, ...projectsStore.projects];
+    projectsStore.sessionsByProject[project.id] = [];
     return true;
   } catch (cause) {
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);
@@ -114,32 +120,32 @@ export async function pickProjectDirectory(): Promise<string> {
 }
 
 export async function selectProject(id: string): Promise<void> {
-  const generation = ++projectSelectionGeneration;
+  ++projectSelectionGeneration;
   projectsStore.selectedProjectId = id;
   projectsStore.selectedSessionId = "";
-  projectsStore.sessions = [];
   projectsStore.messages = [];
   projectsStore.error = "";
-  try {
-    const sessions = await loadDesktopProjectSessions(projectsStore.endpoint, id);
-    if (generation !== projectSelectionGeneration || projectsStore.selectedProjectId !== id) return;
-    projectsStore.sessions = sessions;
-  } catch (cause) {
-    if (generation !== projectSelectionGeneration || projectsStore.selectedProjectId !== id) return;
-    projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-  }
+  await refreshProjectSessionList(id);
 }
 
 async function createAndSelectProjectSession(projectId: string, projectGeneration = projectSelectionGeneration): Promise<void> {
   const { session } = await createDesktopProjectSession(projectsStore.endpoint, projectId);
-  const sessions = await loadDesktopProjectSessions(projectsStore.endpoint, projectId);
+  // Show the created session immediately (server lists are newest-first). The
+  // follow-up refresh owns the canonical order; if it fails, the session stays
+  // visible here instead of vanishing behind an error banner.
+  const existing = projectsStore.sessionsByProject[projectId] ?? [];
+  if (!existing.some((item) => item.conversationId === session.conversationId)) {
+    projectsStore.sessionsByProject[projectId] = [session, ...existing];
+  }
+  await refreshProjectSessionList(projectId, true);
   if (projectGeneration !== projectSelectionGeneration || projectsStore.selectedProjectId !== projectId) return;
-  projectsStore.sessions = sessions;
   await selectProjectSession(session.conversationId, projectId);
 }
 
 export async function selectProjectSession(id: string, projectId = projectsStore.selectedProjectId): Promise<void> {
   const generation = ++sessionSelectionGeneration;
+  ++projectSelectionGeneration;
+  projectsStore.selectedProjectId = projectId;
   projectsStore.selectedSessionId = id;
   // Cache-first: a session the user already opened keeps its transcript in its
   // pinned registry entry, so show that immediately and revalidate behind it.
@@ -169,22 +175,60 @@ export async function selectProjectSession(id: string, projectId = projectsStore
   }
 }
 
-// Refresh session titles/order after a turn without changing the active session.
-export async function refreshProjectSessionList(id: string): Promise<void> {
-  if (!projectsStore.endpoint || !id) return;
-  try {
-    const sessions = await loadDesktopProjectSessions(projectsStore.endpoint, id);
-    if (projectsStore.selectedProjectId === id) projectsStore.sessions = sessions;
-  } catch (cause) {
-    projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-  }
+// Only the latest request for a project may publish, including after a mutation.
+const sessionListRequests = new Map<string, Promise<void>>();
+let listEndpoint = "";
+
+function invalidateSessionList(id: string): void {
+  sessionListRequests.delete(id);
+  projectsStore.sessionListLoading[id] = false;
+  // A mutation just succeeded, so a previously failed list read is stale news.
+  projectsStore.sessionListErrors[id] = "";
 }
 
-export async function newProjectSession(): Promise<void> {
-  if (!projectsStore.selectedProjectId || projectsStore.busy) return;
+export function refreshProjectSessionList(id: string, force = false): Promise<void> {
+  const endpoint = projectsStore.endpoint;
+  if (!endpoint || !id) return Promise.resolve();
+  if (listEndpoint !== endpoint) {
+    listEndpoint = endpoint;
+    sessionListRequests.clear();
+    projectsStore.sessionsByProject = {};
+    projectsStore.sessionListLoading = {};
+    projectsStore.sessionListErrors = {};
+  }
+  const pending = sessionListRequests.get(id);
+  if (pending && !force) return pending;
+  projectsStore.sessionListLoading[id] = true;
+  projectsStore.sessionListErrors[id] = "";
+  const request = Promise.resolve().then(async () => {
+    const ownsResult = () => projectsStore.endpoint === endpoint && sessionListRequests.get(id) === request;
+    try {
+      const sessions = await loadDesktopProjectSessions(endpoint, id);
+      if (ownsResult()) projectsStore.sessionsByProject[id] = sessions;
+    } catch (cause) {
+      if (ownsResult()) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        projectsStore.sessionListErrors[id] = error;
+        projectsStore.error = error;
+      }
+    } finally {
+      if (ownsResult()) {
+        projectsStore.sessionListLoading[id] = false;
+        sessionListRequests.delete(id);
+      }
+    }
+  });
+  sessionListRequests.set(id, request);
+  return request;
+}
+
+export async function newProjectSession(projectId = projectsStore.selectedProjectId): Promise<void> {
+  if (!projectId || projectsStore.busy) return;
+  ++projectSelectionGeneration;
+  projectsStore.selectedProjectId = projectId;
   projectsStore.busy = "session";
   try {
-    await createAndSelectProjectSession(projectsStore.selectedProjectId);
+    await createAndSelectProjectSession(projectId);
   } catch (cause) {
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -192,26 +236,28 @@ export async function newProjectSession(): Promise<void> {
   }
 }
 
-export async function renameProjectSession(conversationId: string, title: string): Promise<void> {
-  if (!projectsStore.endpoint || !projectsStore.selectedProjectId) return;
+export async function renameProjectSession(conversationId: string, title: string, projectId = projectsStore.selectedProjectId): Promise<void> {
+  if (!projectsStore.endpoint || !projectId) return;
   try {
-    const updated = await renameDesktopProjectSession(projectsStore.endpoint, projectsStore.selectedProjectId, conversationId, title);
-    projectsStore.sessions = projectsStore.sessions.map((item) => item.conversationId === updated.conversationId ? updated : item);
+    const updated = await renameDesktopProjectSession(projectsStore.endpoint, projectId, conversationId, title);
+    invalidateSessionList(projectId);
+    projectsStore.sessionsByProject[projectId] = (projectsStore.sessionsByProject[projectId] ?? []).map((item) => item.conversationId === updated.conversationId ? updated : item);
   } catch (cause) {
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);
   }
 }
 
-export async function removeProjectSession(conversationId: string): Promise<void> {
-  if (!projectsStore.endpoint || !projectsStore.selectedProjectId) return;
+export async function removeProjectSession(conversationId: string, projectId = projectsStore.selectedProjectId): Promise<void> {
+  if (!projectsStore.endpoint || !projectId) return;
   try {
-    await deleteDesktopProjectSession(projectsStore.endpoint, projectsStore.selectedProjectId, conversationId);
+    await deleteDesktopProjectSession(projectsStore.endpoint, projectId, conversationId);
+    invalidateSessionList(projectId);
     // Tear down the deleted session's pinned runtime so its controller/state is
     // not left orphaned (parity with the main chat's delete → disposeSession).
     projectChatStore.disposeSession(conversationId);
-    const remaining = projectsStore.sessions.filter((item) => item.conversationId !== conversationId);
-    projectsStore.sessions = remaining;
-    if (projectsStore.selectedSessionId === conversationId) {
+    const remaining = (projectsStore.sessionsByProject[projectId] ?? []).filter((item) => item.conversationId !== conversationId);
+    projectsStore.sessionsByProject[projectId] = remaining;
+    if (projectsStore.selectedProjectId === projectId && projectsStore.selectedSessionId === conversationId) {
       const next = remaining[0]?.conversationId ?? "";
       if (next) await selectProjectSession(next);
       else {
@@ -231,10 +277,13 @@ export async function removeProject(projectId: string, removeSessions: boolean):
   try {
     await deleteDesktopProject(projectsStore.endpoint, projectId, removeSessions);
     projectsStore.projects = projectsStore.projects.filter((item) => item.id !== projectId);
+    invalidateSessionList(projectId);
+    delete projectsStore.sessionsByProject[projectId];
+    delete projectsStore.sessionListLoading[projectId];
+    delete projectsStore.sessionListErrors[projectId];
     if (projectsStore.selectedProjectId === projectId) {
       projectsStore.selectedProjectId = "";
       projectsStore.selectedSessionId = "";
-      projectsStore.sessions = [];
       projectsStore.messages = [];
     }
     return true;

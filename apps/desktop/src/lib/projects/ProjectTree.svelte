@@ -8,12 +8,6 @@
   import Trash from "reicon-svelte/icons/Trash";
   import { tick } from "svelte";
   import type { Translation } from "../i18n";
-  import {
-    deleteDesktopProjectSession,
-    loadDesktopProjectSessions,
-    renameDesktopProjectSession,
-    type DesktopProjectSession
-  } from "../api";
   import ConversationRow from "../chat/ConversationRow.svelte";
   import GroupHeader from "../chat/GroupHeader.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
@@ -25,7 +19,10 @@
     projectsStore,
     removeProject,
     renameProject,
-    selectProjectSession
+    selectProjectSession,
+    refreshProjectSessionList,
+    renameProjectSession,
+    removeProjectSession
   } from "../stores/projects.svelte";
 
   let {
@@ -50,9 +47,7 @@
   const SESSION_PAGE_SIZE = 10;
   let loadedEndpoint = "";
   let expandedProjects = $state<Record<string, boolean>>(readExpandedProjects());
-  let sessionsByProject = $state<Record<string, DesktopProjectSession[]>>({});
   let visibleSessionLimits = $state<Record<string, number>>({});
-  let loadingProjects = $state<Record<string, boolean>>({});
   let adding = $state(false);
   let createStep = $state<"name" | "location">("name");
   let name = $state("");
@@ -63,12 +58,6 @@
   let renameProjectId = $state("");
   let renameProjectName = $state("");
   let nameInput = $state<HTMLInputElement>();
-  let visibleSessionsByProject = $derived.by(() => Object.fromEntries(
-    Object.entries(sessionsByProject).map(([projectId, sessions]) => [
-      projectId,
-      sessions.slice(0, visibleSessionLimits[projectId] ?? SESSION_PAGE_SIZE)
-    ])
-  ));
 
   const rowLabels = $derived({
     running: copy.running,
@@ -108,33 +97,24 @@
   }
 
   $effect(() => {
-    if (!endpoint || endpoint === loadedEndpoint) return;
+    if (endpoint === loadedEndpoint) return;
     loadedEndpoint = endpoint;
     projectsStore.endpoint = endpoint;
-    void loadProjects();
+    if (endpoint) void loadProjects();
   });
 
   async function loadProjects(): Promise<void> {
+    const requestEndpoint = endpoint;
     const { loadDesktopProjects } = await import("../api");
     try {
-      projectsStore.projects = await loadDesktopProjects(endpoint);
+      const projects = await loadDesktopProjects(requestEndpoint);
+      if (endpoint !== requestEndpoint) return;
+      projectsStore.projects = projects;
       for (const project of projectsStore.projects) {
-        if (expandedProjects[project.id]) void loadSessions(project.id);
+        if (expandedProjects[project.id]) void refreshProjectSessionList(project.id, true);
       }
     } catch (cause) {
       projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-    }
-  }
-
-  async function loadSessions(projectId: string): Promise<void> {
-    if (!endpoint || loadingProjects[projectId]) return;
-    loadingProjects = { ...loadingProjects, [projectId]: true };
-    try {
-      sessionsByProject = { ...sessionsByProject, [projectId]: await loadDesktopProjectSessions(endpoint, projectId) };
-    } catch (cause) {
-      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      loadingProjects = { ...loadingProjects, [projectId]: false };
     }
   }
 
@@ -142,7 +122,7 @@
     const open = !expandedProjects[projectId];
     expandedProjects = { ...expandedProjects, [projectId]: open };
     persistExpandedProjects();
-    if (open) void loadSessions(projectId);
+    if (open) void refreshProjectSessionList(projectId);
   }
 
   function showMoreSessions(projectId: string): void {
@@ -153,53 +133,13 @@
   }
 
   async function openSession(projectId: string, sessionId: string): Promise<void> {
-    projectsStore.selectedProjectId = projectId;
-    projectsStore.sessions = sessionsByProject[projectId] ?? [];
     await selectProjectSession(sessionId, projectId);
     onActivateSession();
   }
 
   async function createSession(projectId: string): Promise<void> {
-    projectsStore.selectedProjectId = projectId;
-    projectsStore.sessions = sessionsByProject[projectId] ?? [];
-    await newProjectSession();
-    await loadSessions(projectId);
+    await newProjectSession(projectId);
     onActivateSession();
-  }
-
-  async function renameSession(projectId: string, sessionId: string, title: string): Promise<void> {
-    const trimmed = title.trim();
-    if (!trimmed || !endpoint) return;
-    try {
-      const updated = await renameDesktopProjectSession(endpoint, projectId, sessionId, trimmed);
-      sessionsByProject = {
-        ...sessionsByProject,
-        [projectId]: (sessionsByProject[projectId] ?? []).map((item) => item.conversationId === sessionId ? updated : item)
-      };
-      if (projectsStore.selectedProjectId === projectId) {
-        projectsStore.sessions = sessionsByProject[projectId];
-      }
-    } catch (cause) {
-      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-    }
-  }
-
-  async function deleteSession(projectId: string, sessionId: string): Promise<void> {
-    if (!endpoint) return;
-    try {
-      await deleteDesktopProjectSession(endpoint, projectId, sessionId);
-      const remaining = (sessionsByProject[projectId] ?? []).filter((item) => item.conversationId !== sessionId);
-      sessionsByProject = { ...sessionsByProject, [projectId]: remaining };
-      if (projectsStore.selectedProjectId === projectId && projectsStore.selectedSessionId === sessionId) {
-        projectsStore.sessions = remaining;
-        projectsStore.selectedSessionId = "";
-        projectsStore.messages = [];
-        if (remaining[0]) await openSession(projectId, remaining[0].conversationId);
-        else onActivateSession();
-      }
-    } catch (cause) {
-      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-    }
   }
 
   async function beginAdding(): Promise<void> {
@@ -226,7 +166,6 @@
       if (project) {
         expandedProjects = { ...expandedProjects, [project.id]: true };
         persistExpandedProjects();
-        sessionsByProject = { ...sessionsByProject, [project.id]: [] };
       }
       cancelAdding();
     }
@@ -270,9 +209,7 @@
     if (!deleteProjectId) return;
     const projectId = deleteProjectId;
     if (!(await removeProject(deleteProjectId, deleteProjectSessions))) return;
-    const { [projectId]: _sessions, ...remainingSessions } = sessionsByProject;
     const { [projectId]: _expanded, ...remainingExpanded } = expandedProjects;
-    sessionsByProject = remainingSessions;
     expandedProjects = remainingExpanded;
     persistExpandedProjects();
     cancelRemoveProject();
@@ -288,10 +225,8 @@
   </div>
   {#if expanded}
     {#each projectsStore.projects as project (project.id)}
-      {@const projectSessions = project.id === projectsStore.selectedProjectId ? projectsStore.sessions : (sessionsByProject[project.id] ?? [])}
-      {@const visibleProjectSessions = project.id === projectsStore.selectedProjectId
-        ? projectSessions.slice(0, visibleSessionLimits[project.id] ?? SESSION_PAGE_SIZE)
-        : (visibleSessionsByProject[project.id] ?? [])}
+      {@const projectSessions = projectsStore.sessionsByProject[project.id] ?? []}
+      {@const visibleProjectSessions = projectSessions.slice(0, visibleSessionLimits[project.id] ?? SESSION_PAGE_SIZE)}
       <div class="project-tree-group">
         <GroupHeader label={project.name} icon="folder" open={Boolean(expandedProjects[project.id])} actionLabel={copy.newChat} onAction={() => void createSession(project.id)} menuLabel={copy.conversationMenu} onMenu={() => (menuProjectId = menuProjectId === project.id ? "" : project.id)} onToggle={() => toggleProject(project.id)} />
         {#if menuProjectId === project.id}
@@ -301,9 +236,13 @@
           </div>
         {/if}
         {#if expandedProjects[project.id]}
-          {#if loadingProjects[project.id]}
+          {#if projectsStore.sessionListErrors[project.id]}
+            <p class="project-tree-state" role="alert">{projectsStore.sessionListErrors[project.id]}</p>
+            <button type="button" class="project-more" onclick={() => void refreshProjectSessionList(project.id)}>{copy.retryLoading}</button>
+          {/if}
+          {#if projectsStore.sessionListLoading[project.id] && projectSessions.length === 0}
             <p class="project-tree-state">…</p>
-          {:else if projectSessions.length === 0}
+          {:else if projectSessions.length === 0 && !projectsStore.sessionListErrors[project.id]}
             <p class="project-tree-state">{copy.projectNoSessions}</p>
           {:else}
             {#each visibleProjectSessions as session (session.conversationId)}
@@ -313,8 +252,8 @@
                 formatTime={formatTime}
                 labels={rowLabels}
                 onSelect={() => void openSession(project.id, session.conversationId)}
-                onRename={(title) => void renameSession(project.id, session.conversationId, title)}
-                onDelete={() => void deleteSession(project.id, session.conversationId)}
+                onRename={(title) => void renameProjectSession(session.conversationId, title, project.id)}
+                onDelete={() => void removeProjectSession(session.conversationId, project.id)}
               />
             {/each}
             {#if projectSessions.length > visibleProjectSessions.length}

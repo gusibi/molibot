@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+(globalThis as any).$derived = (value: unknown) => value;
+
 type DeferredResponse = {
   resolve: (response: Response) => void;
   promise: Promise<Response>;
@@ -19,14 +21,14 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-test("the latest project selection owns the session list and transcript", async () => {
+test("the latest project selection owns the session list without selecting a transcript", async () => {
   (globalThis as any).$state = <T>(value: T): T => value;
   const { projectsStore, selectProject } = await import("./projects.svelte.js");
   Object.assign(projectsStore, {
     endpoint: "http://desktop.test",
     projects: [],
     selectedProjectId: "",
-    sessions: [],
+    sessionsByProject: {},
     selectedSessionId: "",
     messages: [],
     loading: false,
@@ -61,9 +63,9 @@ test("the latest project selection owns the session list and transcript", async 
     await selectingA;
 
     assert.equal(projectsStore.selectedProjectId, "b");
-    assert.equal(projectsStore.selectedSessionId, "b-1");
+    assert.equal(projectsStore.selectedSessionId, "");
     assert.equal(projectsStore.sessions[0]?.conversationId, "b-1");
-    assert.equal(projectsStore.messages[0]?.content, "Project B");
+    assert.deepEqual(projectsStore.messages, []);
     assert.equal(projectsStore.error, "");
   } finally {
     globalThis.fetch = originalFetch;
@@ -231,4 +233,98 @@ test("an overlapping Project transcript hydration does not duplicate the live as
     globalThis.fetch = originalFetch;
     projectChatStore.disposeAll();
   }
+});
+
+
+test("project lists retain refreshed titles across project selection and failed revalidation", async () => {
+  (globalThis as any).$state = <T>(value: T): T => value;
+  const { projectsStore, selectProject, refreshProjectSessionList } = await import("./projects.svelte.js");
+  projectsStore.endpoint = "http://desktop.test";
+  const originalFetch = globalThis.fetch;
+  let fail = false;
+  globalThis.fetch = (async () => {
+    if (fail) throw new Error("offline");
+    return jsonResponse({ ok: true, sessions: [{ conversationId: "cache-session", title: "Updated title", updatedAt: "2026-09-07", origin: "web" }] });
+  }) as typeof fetch;
+  try {
+    await selectProject("cached-project");
+    await refreshProjectSessionList("cached-project");
+    await selectProject("other-project");
+    fail = true;
+    const selecting = selectProject("cached-project");
+    assert.equal(projectsStore.sessions[0]?.title, "Updated title");
+    await selecting;
+    assert.equal(projectsStore.sessions[0]?.title, "Updated title");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("project refreshes deduplicate and an older response cannot undo a rename or deletion", async () => {
+  const { projectsStore, refreshProjectSessionList, renameProjectSession, removeProjectSession } = await import("./projects.svelte.js");
+  projectsStore.endpoint = "http://desktop.test";
+  const session = { conversationId: "race-session", title: "New Session", updatedAt: "2026-09-07", origin: "web" };
+  projectsStore.sessionsByProject["race-project"] = [session];
+  const originalFetch = globalThis.fetch;
+  let pending = deferredResponse();
+  let reads = 0;
+  globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+    if (init?.method === "PATCH") return jsonResponse({ ok: true, conversation: { ...session, id: session.conversationId, title: "Renamed" } });
+    if (init?.method === "DELETE") return jsonResponse({ ok: true });
+    reads++;
+    return pending.promise;
+  }) as typeof fetch;
+  try {
+    const first = refreshProjectSessionList("race-project");
+    const duplicate = refreshProjectSessionList("race-project");
+    await Promise.resolve();
+    assert.equal(reads, 1);
+    await renameProjectSession("race-session", "Renamed", "race-project");
+    pending.resolve(jsonResponse({ ok: true, sessions: [session] }));
+    await Promise.all([first, duplicate]);
+    assert.equal(projectsStore.sessionsByProject["race-project"][0].title, "Renamed");
+    pending = deferredResponse();
+    const beforeDelete = refreshProjectSessionList("race-project");
+    await Promise.resolve();
+    await removeProjectSession("race-session", "race-project");
+    pending.resolve(jsonResponse({ ok: true, sessions: [session] }));
+    await beforeDelete;
+    assert.deepEqual(projectsStore.sessionsByProject["race-project"], []);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a newer forced refresh owns the result", async () => {
+  const { projectsStore, refreshProjectSessionList } = await import("./projects.svelte.js");
+  const originalFetch = globalThis.fetch;
+  const old = deferredResponse();
+  const fresh = deferredResponse();
+  let calls = 0;
+  globalThis.fetch = (async () => (++calls === 1 ? old.promise : fresh.promise)) as typeof fetch;
+  try {
+    const first = refreshProjectSessionList("ordered-project");
+    await Promise.resolve();
+    const second = refreshProjectSessionList("ordered-project", true);
+    await Promise.resolve();
+    fresh.resolve(jsonResponse({ ok: true, sessions: [{ conversationId: "new", title: "Fresh" }] }));
+    await second;
+    old.resolve(jsonResponse({ ok: true, sessions: [] }));
+    await first;
+    assert.equal(projectsStore.sessionsByProject["ordered-project"][0].title, "Fresh");
+    assert.equal(projectsStore.sessionListLoading["ordered-project"], false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a created session remains visible when its follow-up list request fails", async () => {
+  const { projectsStore, newProjectSession } = await import("./projects.svelte.js");
+  const originalFetch = globalThis.fetch;
+  projectsStore.endpoint = "http://desktop.test";
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    if (init?.method === "POST") return jsonResponse({ ok: true, reused: false, session: { conversationId: "created-session", title: "New Session", updatedAt: "2026-09-07", origin: "web" } });
+    if (String(input).endsWith("/created-session")) return jsonResponse({ ok: true, messages: [] });
+    return jsonResponse({ ok: false, error: "offline" }, 503);
+  }) as typeof fetch;
+  try {
+    await newProjectSession("created-project");
+    assert.equal(projectsStore.selectedProjectId, "created-project");
+    assert.equal(projectsStore.selectedSessionId, "created-session");
+    assert.equal(projectsStore.sessions[0]?.conversationId, "created-session");
+  } finally { globalThis.fetch = originalFetch; }
 });

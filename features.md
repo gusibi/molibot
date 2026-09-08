@@ -1,5 +1,23 @@
 # Molibot Features
 
+### Project 会话列表合并到共享 store：标题回退与空列表根修（2026-09-07，已实现）
+
+- **症状**：Project 会话生成新标题后在切换会话/项目时回退；列表请求成功后侧栏仍可能显示为空；行菜单会被普通列表刷新卸载。此前历史修复只覆盖了单侧列表，未覆盖 ProjectTree 侧栏与共享 store 各自维护列表的重复状态。
+- **根因**：侧栏组件内维护了第二份 `sessionsByProject` 缓存和独立加载入口，与 `projectsStore.sessions` 双写互不同步——显示读一份、刷新写另一份，竞态下旧结果覆盖新状态。
+- **根修（共享层）**：`projectsStore` 按项目 ID 持有唯一 `sessionsByProject` 列表及 `sessionListLoading/Errors` 状态；`sessions` 改为由选中项目派生的 getter，不再有可独立写入的副本。侧栏只保留展开/折叠/分页等展示状态；创建、重命名、删除、对话完成刷新统一走 store 的 `newProjectSession/renameProjectSession/removeProjectSession/refreshProjectSessionList`。同项目请求去重（in-flight 复用），按"最新请求所有权"发布结果——过期请求、被变更（rename/delete/create）作废的请求一律不发布，旧结果无法覆盖新状态；后台刷新保留已有行，错误显示为行内 alert + 重试按钮，空列表只在成功读取且结果为空时出现；新建会话先乐观插入列表顶部（服务端即 newest-first），后续列表刷新失败也不会隐藏。会话完成刷新改为携带该会话所属项目 ID（`sessionRuntimeRegistry`/`projectChatStore` 接口相应从无参改为传入 profileId/sessionId），在 A 项目后台完成对话不会再刷错列表。
+- **机器守卫**：`projectsStore.test.ts` 扩展为共享 store 行为测试（项目切换保留刷新标题、去重与"旧响应不能撤销改名/删除"、强制刷新乱序所有权、创建会话在后续列表请求失败时仍可见）；新增 `project-sidebar.test.mjs` 联合行为测试，用 vite SSR 渲染真实 ProjectTree + 真实 store，覆盖单测 store 无法捕获的"双列表覆盖"路径；`chat-ui.test.mjs` 守卫断言同步到新所有权机制（`sessionListRequests` 所有权检查）。
+- **清理**：删除侧栏重复缓存、`loadSessions/renameSession/deleteSession` 本地实现及赋值同步代码，不保留兼容层；后端会话存储格式与 API 不变。
+- **验证**：store 8/8、联合行为测试、tsx 240 项、node 237 项、`svelte-check` 0 错误 0 警告、生产构建通过；隔离实例（mock 服务 + 冒烟页）冷启动走查通过：首发展开加载、选中/行内重命名、服务端标题变更后刷新生效、定时后台刷新期间行菜单保持挂载（行未重建）、断线保留列表/重连恢复、读取失败显示错误 + 重试按钮且行保留、重试恢复、跨项目切换标题不回退、新建会话立即出现、删除选中会话自动回落、中文即时切换。
+
+### 同一消息多张同名图片互相覆盖修复（2026-09-07，已实现，fix #35）
+
+- **症状**：对话中通过复制粘贴添加多张图片（剪贴板给的名字都是 `image.png`）后发送，无论传几张，会话里只能看到最后一张的内容。
+- **根因**：`MomRuntimeStore.saveAttachment` 用 `chatId/attachments/<毫秒>_<文件名>` 落盘；`/api/chat` 与 `/api/stream` 都在循环外只取一次时间戳，同一条消息里的多张同名文件得到完全相同的路径，`writeFileSync` 逐个覆盖，所有附件记录最终指向最后一张的字节。该碰撞是共享层的类缺陷，渠道侧同名同毫秒到达的附件同样命中。
+- **根修（共享层）**：`saveAttachment` 新增 `reserveAttachmentPath`——目标路径已存在时在扩展名前追加 `-2`、`-3` 序号，保证同名同毫秒附件各自独立落盘；`original` 展示名、类型/媒体类型推断（后缀位于扩展名前，`isImage` 等判断不受影响）不变。所有调用方（Web/Desktop 聊天、Feishu、QQ、Telegram、Weixin）无需逐个改动。
+- **粘贴多图补齐**：`clipboardImageFiles` 原来只返回第一张图片就提前返回，一次粘贴多张文件只会有第一张进入待发送列表；现改为返回全部图片文件，未命名条目（同一张图的多格式表示，如 Safari 的 png+tiff）仍只取第一个，保持既有去重语义。ProjectChat 与 ChatView 共用该 helper 与 `ChatComposerShell` 粘贴链路，自动生效。
+- **机器守卫**：新增 `storeAttachments.test.ts`（同名同毫秒三次保存得到三个不同路径且字节各自独立、后缀在扩展名前且 `isImage` 保持 true；不同毫秒同名仍走无后缀确定性路径）；`api.test.ts` 新增多张命名剪贴板图片全部附加的回归。
+- 验证：storeAttachments/session/storeContextCheckpoint/web attachments/streamRequest/feishu/weixin 渠道测试、桌面 `api.test.ts` 93 项、`chat-ui.test.mjs` 227/228 项（唯一失败为项目侧边栏进行中改动的既有断言 `chat-ui.test.mjs:2986`，与本次无关，已用 diff 验证）、`svelte-check` 0 错误 0 警告。真机冷启动粘贴走查待桌面端下次使用确认。
+
 ### 文件面板 HTML 预览暗色可读性根修 + 模板文件默认源码视图（2026-09-06，已实现）
 
 - **症状**：右侧项目文件面板预览 `.html` 文件时，暗色主题下内容接近纯黑、完全看不清（如 Hugo 模板 `layouts/partials/extend_footer.html`）。
