@@ -11,7 +11,7 @@ import { SessionExtractionStore } from "$lib/server/sessions/sessionExtractionSt
 import { SessionExtractionService, type ExtractionOutput } from "$lib/server/sessions/sessionExtractionService.js";
 import { MemoryCandidateValidationError } from "$lib/server/memory/gateway.js";
 import { candidateFingerprint, candidateSuppressionKey } from "$lib/server/memory/candidateStore.js";
-import { ownerNamespace, projectNamespace } from "$lib/server/memory/namespaces.js";
+import { agentNamespace, ownerNamespace, projectNamespace } from "$lib/server/memory/namespaces.js";
 import { resolveSessionEvidence } from "$lib/server/sessions/sessionEvidence.js";
 import type { MemoryCandidate, MemoryCandidateCreateInput } from "$lib/server/memory/types.js";
 
@@ -201,8 +201,7 @@ test("owner preference lands in the owner namespace", async (t) => {
   assert.equal(sent.domain, "owner");
 });
 
-test("project fact stays project-scoped and never leaks to the owner namespace", async (t) => {
-  const fx = setup();
+test("project fact stays project-scoped and never leaks to the owner namespace", async (t) => {  const fx = setup();
   t.after(() => fx.cleanup());
   const conversation = fx.sessions.createProjectConversation("proj-1", OWNER);
   fx.sessions.appendMessage(conversation.id, "user", "Project decision: migrate the API to version two next sprint");
@@ -219,6 +218,33 @@ test("project fact stays project-scoped and never leaks to the owner namespace",
   assert.ok(sent.namespace.startsWith("project:"), `expected project namespace, got ${sent.namespace}`);
   assert.ok(!sent.namespace.startsWith("owner:"), "project fact must not leak into the owner namespace");
   assert.equal(sent.namespace, projectNamespace({ channel: "web", externalUserId: OWNER, ownerId: "owner", projectId: "proj-1" }));
+});
+
+test("S2: agent_self memories route to the session's BOT namespace, not the service default", async (t) => {
+  const fx = setup();
+  t.after(() => fx.cleanup());
+  const otherOwner = "web:work:web-anonymous";
+  const first = fx.sessions.createWebConversation(OWNER);
+  fx.sessions.appendMessage(first.id, "user", "The assistant helped me debug the deploy script");
+  const second = fx.sessions.createWebConversation(otherOwner);
+  fx.sessions.appendMessage(second.id, "user", "The assistant helped me plan the launch checklist");
+  for (const id of [first.id, second.id]) {
+    fx.outputs.set(id, {
+      memories: [
+        { domain: "agent_self", type: "skill", subject: "debug_help", value: "The assistant is good at debugging deploy scripts" }
+      ]
+    });
+  }
+
+  const service = fx.service();
+  const one = await service.extract({ conversationId: first.id, requesterExternalUserId: OWNER });
+  const two = await service.extract({ conversationId: second.id, requesterExternalUserId: otherOwner });
+  assert.equal(one.status, "saved");
+  assert.equal(two.status, "saved");
+  assert.equal(fx.gateway.createCalls[0]?.namespace, agentNamespace("personal"));
+  assert.equal(fx.gateway.createCalls[1]?.namespace, agentNamespace("work"));
+  assert.equal(fx.extractionStore.get(first.id)?.botId, "personal");
+  assert.equal(fx.extractionStore.get(second.id)?.botId, "work");
 });
 
 test("turn-retention restricted turns are never promoted into durable output", async (t) => {

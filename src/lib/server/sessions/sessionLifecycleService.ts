@@ -57,6 +57,13 @@ export interface SessionLifecycleServiceDeps {
   trashRetentionDays?: number;
   search?: { index: Pick<ConversationSearchIndex, "search">; botId: string };
   listExternal?: () => ExternalManagedCandidate[];
+  /**
+   * True for opaque external-channel session ids. External sessions are a
+   * read-only projection of the Agent `contexts/` store: they appear in the
+   * managed query and transcript preview, but every lifecycle mutation skips
+   * them as `not_applicable` instead of misleading `not_found`.
+   */
+  isExternalSession?: (conversationId: string) => boolean;
   /** Phase-two extraction receipts for managed-list status display and filtering. */
   extraction?: SessionExtractionStatusSource;
 }
@@ -82,6 +89,7 @@ export class SessionLifecycleService {
   private readonly trashRetentionDays: number;
   private readonly search?: { index: Pick<ConversationSearchIndex, "search">; botId: string };
   private readonly listExternal?: () => ExternalManagedCandidate[];
+  private readonly isExternalSession: (conversationId: string) => boolean;
   private readonly extraction?: SessionExtractionStatusSource;
 
   constructor(deps: SessionLifecycleServiceDeps) {
@@ -92,6 +100,7 @@ export class SessionLifecycleService {
     this.trashRetentionDays = deps.trashRetentionDays ?? TRASH_RETENTION_DAYS;
     this.search = deps.search;
     this.listExternal = deps.listExternal;
+    this.isExternalSession = deps.isExternalSession ?? (() => false);
     this.extraction = deps.extraction;
   }
 
@@ -138,7 +147,15 @@ export class SessionLifecycleService {
     requesterExternalUserId?: string
   ): { located: LocatedSession; row: SessionLifecycleRow } | LifecycleItemOutcome {
     const located = this.locate(conversationId);
-    if (!located) return this.skipped(conversationId, "not_found");
+    if (!located) {
+      const id = String(conversationId ?? "").trim();
+      // Read-only external projection: mutations skip as not_applicable so
+      // callers see "exists but read-only" instead of a misleading not_found.
+      if (id && this.isExternalSession(id)) {
+        return this.skipped(id, "not_applicable", "external sessions are read-only");
+      }
+      return this.skipped(conversationId, "not_found");
+    }
     if (!this.checkAccess(located, requesterExternalUserId)) {
       return this.skipped(conversationId, "unauthorized");
     }

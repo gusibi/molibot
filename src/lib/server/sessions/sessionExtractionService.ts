@@ -146,6 +146,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Per-session BOT identity for namespace routing. The authorized source
+ * identity captured at job start (`web:<botId>:<userId>`) decides the
+ * `agent_self`/`content` namespaces — a service-level default must never
+ * route one assistant's sessions into another BOT's namespace. Project
+ * sessions carry no BOT owner, so they keep the configured fallback.
+ */
+function sessionBotIdOf(
+  located: { ownerExternalUserId: string | null },
+  fallback: string
+): string {
+  const parts = String(located.ownerExternalUserId ?? "").split(":");
+  if (parts.length >= 3 && parts[0] === "web" && parts[1]) return parts[1];
+  return fallback;
+}
+
+/**
  * Shared application-layer Session extraction. Channel adapters never own
  * this: source identity and message revision are captured at job start,
  * receipts persist processed-through progress plus result references, and
@@ -280,6 +296,7 @@ export class SessionExtractionService {
     }));
     const lastEligible = eligible.at(-1);
     const runKey = `extract:${id}:${startRevision}`;
+    const sessionBotId = sessionBotIdOf(located, this.botId);
 
     let output: ExtractionOutput | null | undefined;
     try {
@@ -289,7 +306,7 @@ export class SessionExtractionService {
         sessionId: id,
         projectId: located.projectId,
         ownerExternalUserId: located.ownerExternalUserId,
-        botId: this.botId,
+        botId: sessionBotId,
         messages: eligibleMessages
       });
     } catch (error) {
@@ -298,6 +315,7 @@ export class SessionExtractionService {
         channel: located.channel,
         projectId: located.projectId,
         ownerExternalUserId: located.ownerExternalUserId,
+        botId: sessionBotId,
         messageRevision: startRevision,
         processedThroughId: lastEligible?.id ?? null,
         processedThroughAt: lastEligible?.createdAt ?? null,
@@ -315,6 +333,7 @@ export class SessionExtractionService {
         channel: located.channel,
         projectId: located.projectId,
         ownerExternalUserId: located.ownerExternalUserId,
+        botId: sessionBotId,
         messageRevision: startRevision,
         processedThroughId: lastEligible?.id ?? null,
         processedThroughAt: lastEligible?.createdAt ?? null,
@@ -332,6 +351,7 @@ export class SessionExtractionService {
         channel: located.channel,
         projectId: located.projectId,
         ownerExternalUserId: located.ownerExternalUserId,
+        botId: sessionBotId,
         messageRevision: startRevision,
         processedThroughId: lastEligible?.id ?? null,
         processedThroughAt: lastEligible?.createdAt ?? null,
@@ -362,7 +382,7 @@ export class SessionExtractionService {
       const item = proposal as ExtractionMemoryProposal;
       let namespace: MemoryNamespace;
       try {
-        namespace = this.namespaceFor(item.domain, located.projectId);
+        namespace = this.namespaceFor(item.domain, located.projectId, sessionBotId);
       } catch (error) {
         failureReasons.push(error instanceof Error ? error.message : String(error));
         continue;
@@ -461,6 +481,7 @@ export class SessionExtractionService {
         channel: located.channel,
         projectId: located.projectId,
         ownerExternalUserId: located.ownerExternalUserId,
+        botId: sessionBotId,
         messageRevision: startRevision,
         processedThroughId: lastEligible?.id ?? null,
         processedThroughAt: lastEligible?.createdAt ?? null,
@@ -476,6 +497,7 @@ export class SessionExtractionService {
       channel: located.channel,
       projectId: located.projectId,
       ownerExternalUserId: located.ownerExternalUserId,
+      botId: sessionBotId,
       messageRevision: startRevision,
       processedThroughId: lastEligible?.id ?? null,
       processedThroughAt: lastEligible?.createdAt ?? null,
@@ -551,7 +573,7 @@ export class SessionExtractionService {
     return buildExtractionRevision(this.sessions.listMessages(conversationId));
   }
 
-  private namespaceFor(domain: MemoryDomain, projectId: string | null): MemoryNamespace {
+  private namespaceFor(domain: MemoryDomain, projectId: string | null, botId: string): MemoryNamespace {
     if (domain === "owner") return ownerNamespace(this.ownerId);
     // Project facts and decisions remain Project-scoped, never owner-scoped.
     if (domain === "project") {
@@ -560,8 +582,8 @@ export class SessionExtractionService {
       if (!namespace) throw new Error("Project-scoped facts require a Project session.");
       return namespace;
     }
-    if (domain === "agent_self") return agentNamespace(this.botId);
-    return contentNamespace(this.botId);
+    if (domain === "agent_self") return agentNamespace(botId);
+    return contentNamespace(botId);
   }
 
   private checkProposal(proposal: unknown, projectId: string | null): string | null {
@@ -598,6 +620,8 @@ export class SessionExtractionService {
     channel: string;
     projectId: string | null;
     ownerExternalUserId: string | null;
+    /** Per-session BOT identity for the receipt (namespaces already routed per session). */
+    botId: string;
     messageRevision: string;
     processedThroughId: string | null;
     processedThroughAt: string | null;
@@ -635,7 +659,7 @@ export class SessionExtractionService {
       sessionId: input.conversationId,
       projectId: input.projectId,
       ownerExternalUserId: input.ownerExternalUserId,
-      botId: this.botId,
+      botId: input.botId,
       messageRevision: input.messageRevision,
       processedThroughId: input.processedThroughId,
       processedThroughAt: input.processedThroughAt,

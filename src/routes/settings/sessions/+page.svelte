@@ -862,7 +862,7 @@
 
   <div class="channel-card">
     <div class="channel-card-body">
-      <Tabs bind:value={view} onValueChange={(next) => next && onViewChange(next)}>
+      <Tabs value={view} onValueChange={(next) => next && onViewChange(next)}>
         <TabsList aria-label={t("title")}>
           <TabsTrigger value="active">{t("tabActive")} ({counts.active})</TabsTrigger>
           <TabsTrigger value="archived">{t("tabArchived")} ({counts.archived})</TabsTrigger>
