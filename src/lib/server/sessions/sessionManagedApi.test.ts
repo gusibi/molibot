@@ -5,8 +5,10 @@ import test from "node:test";
 import {
   parseManagedQuery,
   projectBulkResult,
+  projectExtractionResult,
   projectManagedItem,
   validateBulkExecute,
+  validateExtractionExecute,
   validateSelectionCreate
 } from "$lib/server/sessions/sessionManagedApi.js";
 
@@ -112,4 +114,111 @@ test("projectBulkResult: per-item outcomes carry status and reason, no internals
   assert.equal(projected.operationId, "op1");
   assert.equal(projected.items.length, 2);
   assert.equal(projected.items[1].reason, "busy");
+});
+
+test("parseManagedQuery: accepts extraction states and processed-not-archived", () => {
+  const parsed = parseManagedQuery(
+    new URLSearchParams("extraction=saved,failed&processedNotArchived=true")
+  );
+  assert.deepEqual(parsed.extractionStates, ["saved", "failed"]);
+  assert.equal(parsed.processedNotArchived, true);
+  const off = parseManagedQuery(new URLSearchParams("processedNotArchived=0"));
+  assert.equal(off.processedNotArchived, false);
+  assert.throws(() => parseManagedQuery(new URLSearchParams("extraction=bogus")), /Invalid extraction/);
+  assert.throws(() => parseManagedQuery(new URLSearchParams("processedNotArchived=maybe")), /Invalid processedNotArchived/);
+});
+
+test("projectManagedItem: carries extraction status, source range and retained references", () => {
+  const projected = projectManagedItem({
+    conversationId: "c1",
+    title: "Hello",
+    source: "local",
+    channel: "web",
+    botId: "personal",
+    ownerExternalUserId: "web:personal:x",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-02T00:00:00.000Z",
+    lastActivityAt: "2026-01-02T00:00:00.000Z",
+    userTurnCount: 1,
+    assistantTurnCount: 1,
+    state: "active",
+    version: 2,
+    retain: false,
+    archivedAt: null,
+    trashedAt: null,
+    extractionStatus: "saved",
+    extractionRevision: "3:m9:2026-01-02T00:00:00.000Z",
+    processedThroughId: "m9",
+    savedMemoryIds: ["mem-1"],
+    savedDocRefs: [{ docId: "doc-1", title: "Notes" }],
+    pendingCandidateIds: [],
+    messages: [{ role: "user", content: "secret transcript body" }]
+  } as unknown as Parameters<typeof projectManagedItem>[0]);
+  assert.equal(projected.extractionStatus, "saved");
+  assert.equal(projected.processedThroughId, "m9");
+  assert.deepEqual(projected.savedMemoryIds, ["mem-1"]);
+  assert.ok(!("messages" in (projected as unknown as Record<string, unknown>)));
+});
+
+test("validateExtractionExecute: mode plus exactly one of targets/selectionId plus idempotency key", () => {
+  assert.throws(
+    () => validateExtractionExecute({ idempotencyKey: "k1" }),
+    /mode/
+  );
+  assert.throws(
+    () => validateExtractionExecute({ mode: "summarize", targets: ["a"], idempotencyKey: "k1" }),
+    /Unknown extraction mode/
+  );
+  assert.throws(
+    () => validateExtractionExecute({ mode: "extract", idempotencyKey: "k1" }),
+    /targets or selectionId/
+  );
+  assert.throws(
+    () =>
+      validateExtractionExecute({
+        mode: "extract-and-archive",
+        targets: ["a"],
+        selectionId: "s",
+        idempotencyKey: "k1"
+      }),
+    /either targets or selectionId, not both/
+  );
+  assert.throws(() => validateExtractionExecute({ mode: "extract", targets: ["a"], idempotencyKey: " " }), /idempotencyKey/);
+  const ok = validateExtractionExecute({
+    mode: "extract-and-archive",
+    targets: [{ conversationId: "a", expectedVersion: 3 }],
+    idempotencyKey: "k1"
+  });
+  assert.equal(ok.mode, "extract-and-archive");
+  assert.equal(ok.targets?.length, 1);
+});
+
+test("projectExtractionResult: per-item extraction outcomes with archive gate state", () => {
+  const projected = projectExtractionResult({
+    mode: "extract-and-archive",
+    idempotencyKey: "k1",
+    counts: { total: 2, archived: 1, failed: 1 },
+    items: [
+      {
+        conversationId: "a",
+        status: "saved",
+        archived: true,
+        messageRevision: "1:m1:2026-01-01T00:00:00.000Z",
+        processedThroughId: "m1",
+        failureReasons: []
+      },
+      {
+        conversationId: "b",
+        status: "pending-review",
+        archived: false,
+        archiveReason: "pending-review",
+        messageRevision: "1:m2:2026-01-01T00:00:00.000Z",
+        processedThroughId: "m2",
+        failureReasons: []
+      }
+    ]
+  });
+  assert.equal(projected.items.length, 2);
+  assert.equal(projected.items[0].archived, true);
+  assert.equal(projected.items[1].archiveReason, "pending-review");
 });

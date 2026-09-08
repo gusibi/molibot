@@ -67,6 +67,19 @@ test("privacy suppression survives candidate recreation until explicit audited r
   assert.ok(store.create(input));
 }));
 
+test("gateway exposes the privacy-suppression check for session extraction", () => withStore((store) => {
+  const input = candidate();
+  const gateway = new MemoryGateway(
+    () => ({ plugins: { memory: { enabled: true, backend: "mory" } } }) as any,
+    {} as any,
+    undefined,
+    { candidateStore: store }
+  );
+  assert.equal(gateway.isPrivacySuppressed(input), false);
+  store.suppressForPrivacy(input, { memoryId: "memory-private", idempotencyKey: "privacy-1", reason: "too_private" });
+  assert.equal(gateway.isPrivacySuppressed(input), true);
+}));
+
 test("candidate evidence aggregates across dates and sessions without same-day session inflation", () => withStore((store) => {
   const first = store.create({ ...candidate(), sources: [{ channel: "web", sessionId: "session-1", conversationMessageId: "message-1", observedAt: "2026-07-10T08:00:00.000Z" }] });
   assert.ok(first);
@@ -125,8 +138,7 @@ test("gateway confirmation is the only transition that writes the backend", () =
   assert.equal(writes.length, 1);
 }));
 
-test("ignore cannot add suppression after confirmation has reserved the candidate", () => withStore(async (store) => {
-  let releaseWrite: (() => void) | undefined;
+test("ignore cannot add suppression after confirmation has reserved the candidate", () => withStore(async (store) => {  let releaseWrite: (() => void) | undefined;
   let writeStarted: (() => void) | undefined;
   const started = new Promise<void>((resolve) => { writeStarted = resolve; });
   const gate = new Promise<void>((resolve) => { releaseWrite = resolve; });

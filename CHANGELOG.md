@@ -1,5 +1,9 @@
 # Molibot ChangeLog
 
+### Added: Session management can extract value before archiving (2026-09-08)
+
+The Session management page now offers "Extract & archive" bulk processing: valuable preferences, facts, decisions and artifacts are distilled into memories (or linked artifacts) and the Session archives only when everything succeeded with nothing awaiting review. Per-session extraction states, a processed-but-not-archived filter, exact source ranges and links to retained information make it clear what still needs cleanup; failed or concurrently-messaged Sessions stay put with an explicit reason, and extraction never deletes anything.
+
 ### Fixed: HTML previews stay readable in dark mode (2026-09-06)
 
 Previewing an `.html` file in the project files panel — a Hugo template partial, for example — painted default black text over the dark panel and was unreadable. The artifact preview route now injects a theme-aware base style (driven by the `theme` hint the panel already sends) ahead of every served document's own styles, so template text and unstyled pages render light-on-dark in dark appearance and unchanged in light. Documents that are actually templates (`{{ }}`, `{% %}`, `<% %>`, PHP tags) now open as syntax-highlighted source instead of a broken "rendered" view, with a toggle to switch back; real styled pages render exactly as authored.

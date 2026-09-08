@@ -24,6 +24,12 @@ import { SessionAutoArchiveStore } from "$lib/server/sessions/sessionAutoArchive
 import { SessionAutoArchiveService } from "$lib/server/sessions/sessionAutoArchiveService.js";
 import { SessionBulkStore } from "$lib/server/sessions/sessionBulkStore.js";
 import { SessionBulkService } from "$lib/server/sessions/sessionBulkService.js";
+import { SessionExtractionStore } from "$lib/server/sessions/sessionExtractionStore.js";
+import {
+  SessionExtractionService,
+  type ExtractionOutput,
+  type SessionExtractionExtractor
+} from "$lib/server/sessions/sessionExtractionService.js";
 import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
 import { effectiveMcpServers } from "$lib/server/settings/openConnector.js";
@@ -71,6 +77,7 @@ interface RuntimeState {
   dailyMaterialsBackfill: DailyMaterialsBackfillJob;
   sessionAutoArchive: SessionAutoArchiveService;
   sessionBulk: SessionBulkService;
+  sessionExtraction: SessionExtractionService;
   runInternalEvent: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>;
   hookManager: HookManager;
   getSettings: () => RuntimeSettings;
@@ -190,9 +197,14 @@ function initializeRuntime(): RuntimeState {
 
     const sessions = new SessionStore();
     sessions.setConversationSearchIndex(getConversationSearchIndex(storagePaths.moryDbFile), "web");
+    // T9 managed extraction: receipts live in the Session-owned store
+    // (sessions.db) so the managed list can derive per-Session status and
+    // the processed-but-not-archived filter without a second index.
+    const sessionExtractionStore = new SessionExtractionStore(storagePaths.sessionsDbFile);
     const sessionLifecycle = new SessionLifecycleService({
       sessions,
-      lifecycle: getSessionLifecycleStore()
+      lifecycle: getSessionLifecycleStore(),
+      extraction: sessionExtractionStore
     });
     sessions.setSessionActivitySink(sessionLifecycle);
     // T6 automatic archive: the sweep reuses the same mutation service as
@@ -226,6 +238,55 @@ function initializeRuntime(): RuntimeState {
       `${config.dataDir}/memory-governance/rejections.jsonl`
     );
     const assistant = new AssistantService(() => currentSettings.value, usageTracker, modelErrorTracker);
+    // T9 managed extraction: same assistant-reply + JSON pattern as the
+    // reflection extractor. The model proposes memories/artifact links; the
+    // T8 service validates, routes namespaces and records durable receipts.
+    // No document saver is wired: transcript-only artifact proposals fail
+    // that sibling explicitly instead of claiming preservation, and the
+    // archive gate blocks archiving while anything is unsaved or pending.
+    const sessionExtractor: SessionExtractionExtractor = async (input) => {
+      const transcript = input.messages
+        .map((message) => `${message.role} [${message.createdAt}]: ${message.content}`)
+        .join("\n");
+      const prompt = [
+        "Extract durable information from this Session transcript for long-term memory.",
+        "Return JSON only: {\"noUsefulInformation\":false,\"memories\":[{\"domain\":\"owner|project|agent_self|content\",\"type\":\"user_preference|user_fact|skill|event|task|world_knowledge\",\"subject\":\"stable_snake_case\",\"value\":\"complete durable statement\",\"confidence\":0.0-1.0,\"reason\":\"why it matters\"}],\"artifactLinks\":[{\"artifactId\":\"existing artifact id\",\"title\":\"optional title\"}],\"artifactSaves\":[{\"title\":\"...\",\"content\":\"...\"}]}",
+        "Rules: only stable preferences, facts, project decisions and complete artifacts — never reminders, transient execution state, guesses, or secrets. Reference existing artifacts via artifactLinks (never recopy them into a memory). Propose artifactSaves only when a complete result exists solely in the transcript and deserves its own document. When nothing is worth keeping, return exactly {\"noUsefulInformation\":true}.",
+        `Session: ${input.sessionId} (channel ${input.channel}${input.projectId ? `, project ${input.projectId}` : ""})`,
+        transcript || "(no eligible messages)"
+      ].join("\n\n");
+      const response = await assistant.reply(
+        [
+          {
+            id: `session-extract:${input.conversationId}`,
+            conversationId: input.conversationId,
+            role: "user",
+            content: prompt,
+            createdAt: new Date().toISOString()
+          }
+        ],
+        prompt
+      );
+      const raw = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? response;
+      // A throw here is intentional: malformed model output must surface as
+      // a failed extraction, never as proof of nothing-to-save.
+      return JSON.parse(raw) as ExtractionOutput;
+    };
+    const sessionExtraction = new SessionExtractionService({
+      sessions,
+      lifecycle: sessionLifecycle,
+      lifecycleRows: getSessionLifecycleStore(),
+      store: sessionExtractionStore,
+      gateway: {
+        createCandidate: (candidateInput) => memory.createCandidate(candidateInput),
+        maybeAutoConfirmCandidate: (id) => memory.maybeAutoConfirmCandidate(id),
+        getCandidate: (id) => memory.getCandidate(id),
+        isPrivacySuppressed: (candidateInput) => memory.isPrivacySuppressed(candidateInput)
+      },
+      extractor: sessionExtractor,
+      ownerId: "owner",
+      botId: "web"
+    });
     memory.setProfileSummarizer(async (profile) => {
       const lines = [...profile.stablePreferences, ...profile.profileFacts, ...profile.currentFocus]
         .map((record) => `- [${record.type}] ${record.content.replace(/\s+/g, " ").trim()}`)
@@ -514,6 +575,7 @@ function initializeRuntime(): RuntimeState {
       dailyMaterialsBackfill,
       sessionAutoArchive,
       sessionBulk,
+      sessionExtraction,
       runInternalEvent,
       hookManager,
       getSettings: () => state.settings,

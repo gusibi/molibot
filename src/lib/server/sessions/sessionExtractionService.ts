@@ -127,6 +127,20 @@ export interface ExtractAndArchiveResult extends SessionExtractionResult {
 const DOMAINS: MemoryDomain[] = ["owner", "project", "agent_self", "content"];
 const TYPES: MemorySemanticType[] = ["user_preference", "user_fact", "skill", "event", "task", "world_knowledge"];
 
+/**
+ * Shared source-revision formula: user/assistant message count plus the last
+ * message identity. The managed list reuses this so a receipt whose revision
+ * differs from the live transcript reads back as partially processed —
+ * later messages are never hidden behind an old completion marker.
+ */
+export function buildExtractionRevision(
+  messages: Array<{ id?: string; role?: string; createdAt?: string | null }>
+): string {
+  const convo = messages.filter((message) => message.role === "user" || message.role === "assistant");
+  const last = convo.at(-1);
+  return `${convo.length}:${last?.id ?? "empty"}:${last?.createdAt ?? ""}`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -177,6 +191,61 @@ export class SessionExtractionService {
       return { status: "partially-processed", conversationId: id };
     }
     return { status: receipt.status, conversationId: id };
+  }
+
+  /**
+   * Full read model for the management UI: derived status plus the exact
+   * source range and retained references. Returns null when the source is
+   * missing or unauthorized so routes render `source-unavailable` instead of
+   * leaking or crashing — mirroring the preview/evidence contract.
+   */
+  describe(input: { conversationId: string; requesterExternalUserId?: string }): {
+    status: SessionExtractionStatus;
+    conversationId: string;
+    messageRevision: string | null;
+    processedThroughId: string | null;
+    savedMemoryIds: string[];
+    savedDocRefs: ExtractionDocRef[];
+    pendingCandidateIds: string[];
+    failureReasons: string[];
+  } | null {
+    const id = String(input.conversationId ?? "").trim();
+    if (!id || !this.locate(id, input.requesterExternalUserId)) return null;
+    const receipt = this.store.get(id);
+    if (!receipt) {
+      return {
+        status: "unprocessed",
+        conversationId: id,
+        messageRevision: null,
+        processedThroughId: null,
+        savedMemoryIds: [],
+        savedDocRefs: [],
+        pendingCandidateIds: [],
+        failureReasons: []
+      };
+    }
+    if (receipt.messageRevision !== this.revisionOf(id)) {
+      return {
+        status: "partially-processed",
+        conversationId: id,
+        messageRevision: receipt.messageRevision,
+        processedThroughId: receipt.processedThroughId,
+        savedMemoryIds: [...receipt.savedMemoryIds],
+        savedDocRefs: receipt.savedDocRefs.map((ref) => ({ ...ref })),
+        pendingCandidateIds: [...receipt.pendingCandidateIds],
+        failureReasons: [...receipt.failureReasons]
+      };
+    }
+    return {
+      status: receipt.status,
+      conversationId: id,
+      messageRevision: receipt.messageRevision,
+      processedThroughId: receipt.processedThroughId,
+      savedMemoryIds: [...receipt.savedMemoryIds],
+      savedDocRefs: receipt.savedDocRefs.map((ref) => ({ ...ref })),
+      pendingCandidateIds: [...receipt.pendingCandidateIds],
+      failureReasons: [...receipt.failureReasons]
+    };
   }
 
   async extract(input: { conversationId: string; requesterExternalUserId?: string }): Promise<SessionExtractionResult> {
@@ -479,11 +548,7 @@ export class SessionExtractionService {
   }
 
   private revisionOf(conversationId: string): string {
-    const all = this.sessions
-      .listMessages(conversationId)
-      .filter((message) => message.role === "user" || message.role === "assistant");
-    const last = all.at(-1);
-    return `${all.length}:${last?.id ?? "empty"}:${last?.createdAt ?? ""}`;
+    return buildExtractionRevision(this.sessions.listMessages(conversationId));
   }
 
   private namespaceFor(domain: MemoryDomain, projectId: string | null): MemoryNamespace {

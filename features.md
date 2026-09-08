@@ -1,5 +1,13 @@
 # Molibot Features
 
+### 会话管理 Phase 2 UI：提炼并归档/状态/待归档筛选（2026-09-08，已实现，T9 closes #45）
+
+- **范围**：管理页固定「提炼并归档」批量控件（走 T8 门控：仅全部成功、需保留结果已保存、无待审核、来源无变化时归档；失败/待审/并发新消息不归档并明示原因；提炼永不删除）；列表新增提炼状态列（unprocessed/processing/saved/no-useful-information/pending-review/partially-processed/failed）与提炼筛选 + processed-but-not-archived 筛选；预览面板展示精确来源范围（processedThroughId + messageRevision）与保留信息（记忆数/文档标题 + 记忆页链接、待审核候选、失败原因）；purge 后预览与状态接口统一返回 source-unavailable。
+- **后端**：`queryManagedSessions` 经 `SessionExtractionStatusSource` 窄端口派生状态（revision 公式与 T8 共用 `buildExtractionRevision`，新消息到达即 partially-processed；空/畸形模型输出只记 failed，永不记无价值）；`SessionBulkService.getSelectionTargets` 供跨页选择复用；`SessionExtractionService.describe` 只读聚合；`POST /api/sessions/managed/extraction` + `GET .../extraction/status`（鉴权+校验+投影）；runtime 接线（assistant-reply JSON extractor + MemoryGateway + 隐私抑制透传，不接 document saver——纯 transcript 产物 siblings 显式失败而非谎称已保存）。
+- **机器守卫**：`sessionManagedExtraction.test.ts`（6：状态派生/范围/引用、partial、双筛选、failed≠无价值）、`sessionExtractionBatch.test.ts`（4：门控语义/selection/永不删除）、`sessionManagedApi.test.ts`（+5：解析/校验/投影）、gateway 抑制透传（1）；双语 key 机器核对 105/105。
+- 验证：sessions 136/136、memory 98/98 全过；`vite build` 通过；新增文件 tsc 0 错误（`sessionManagedApi` 旧坏 import 与 qqbot 缺 SDK 等基线错误未动）。
+- **已知局限**：多 BOT 下 content/agent_self 命名空间沿用默认 botId（未改 T8 构造）；文档引用仅展示标题+docId（尚无独立文档查看路由）；记忆链接到记忆设置页（无单条深链）。
+
 ### 文件面板 HTML 预览暗色可读性根修 + 模板文件默认源码视图（2026-09-06，已实现）
 
 - **症状**：右侧项目文件面板预览 `.html` 文件时，暗色主题下内容接近纯黑、完全看不清（如 Hugo 模板 `layouts/partials/extend_footer.html`）。
