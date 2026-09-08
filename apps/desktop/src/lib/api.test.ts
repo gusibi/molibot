@@ -99,7 +99,21 @@ import {
   updateDesktopProviderGlobals,
   ONBOARDING_STEPS,
   renderDesktopD2,
-  searchDesktopConversations
+  searchDesktopConversations,
+  loadDesktopManagedSessions,
+  loadDesktopManagedPreview,
+  createDesktopManagedSelection,
+  executeDesktopManagedBulk,
+  retryDesktopManagedBulk,
+  loadDesktopBulkOperation,
+  describeDesktopDelete,
+  executeDesktopManagedExtraction,
+  loadDesktopExtractionStatus,
+  loadDesktopSessionAutoArchive,
+  previewDesktopSessionAutoArchive,
+  saveDesktopSessionAutoArchiveGlobal,
+  saveDesktopSessionAutoArchiveBot,
+  deleteDesktopSessionAutoArchiveBot
 } from "./api";
 
 test("desktop D2 rendering posts the source and resolved appearance to the service", async () => {
@@ -1882,6 +1896,339 @@ test("loadDesktopRunHistory requests the run history endpoint with custom limit"
     assert.equal(items.length, 1);
     assert.equal(items[0]?.runId, "run-1");
     assert.equal(requestedUrl, "http://127.0.0.1:3000/api/desktop/run-history?limit=50");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+// --- Session management adapter (owner-scoped query-param auth, no requester fields) ---
+
+function jsonOk(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+test("loadDesktopManagedSessions projects every filter into the shared managed-list URL", async () => {
+  const original = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requestedUrl = String(input);
+    return jsonOk({
+      ok: true,
+      items: [{
+        conversationId: "conv-1",
+        title: "清理计划",
+        source: "external",
+        channel: "telegram",
+        botId: "personal",
+        ownerExternalUserId: null,
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-02T00:00:00.000Z",
+        lastActivityAt: "2026-09-02T00:00:00.000Z",
+        userTurnCount: 3,
+        assistantTurnCount: 4,
+        state: "active",
+        version: 5,
+        retain: false,
+        archivedAt: null,
+        trashedAt: null,
+        extractionStatus: "partially-processed",
+        extractionRevision: "rev-2",
+        processedThroughId: "m-1",
+        savedMemoryIds: ["mem-1"],
+        savedDocRefs: [{ docId: "doc-1", title: "Notes" }],
+        pendingCandidateIds: ["c-1"]
+      }],
+      total: 41,
+      counts: { active: 30, archived: 9, trashed: 2 },
+      limit: 20,
+      offset: 40
+    });
+  }) as typeof globalThis.fetch;
+  try {
+    const result = await loadDesktopManagedSessions("http://127.0.0.1:3000", {
+      state: "archived",
+      botIds: "personal, work",
+      sources: "external",
+      keyword: "清理",
+      inactiveDays: "30",
+      activityFromDate: "2026-08-01",
+      activityToDate: "2026-08-31",
+      lengths: "empty,short",
+      extractionState: "failed",
+      processedNotArchived: true,
+      limit: 20,
+      offset: 40
+    });
+    const url = new URL(requestedUrl);
+    assert.equal(url.pathname, "/api/sessions/managed");
+    assert.equal(url.searchParams.get("state"), "archived");
+    assert.equal(url.searchParams.get("botIds"), "personal, work");
+    assert.equal(url.searchParams.get("sources"), "external");
+    assert.equal(url.searchParams.get("keyword"), "清理");
+    assert.equal(url.searchParams.get("inactiveDays"), "30");
+    assert.equal(url.searchParams.get("activityFromDate"), "2026-08-01");
+    assert.equal(url.searchParams.get("activityToDate"), "2026-08-31");
+    assert.equal(url.searchParams.get("lengths"), "empty,short");
+    assert.equal(url.searchParams.get("extraction"), "failed");
+    assert.equal(url.searchParams.get("processedNotArchived"), "true");
+    assert.equal(url.searchParams.get("limit"), "20");
+    assert.equal(url.searchParams.get("offset"), "40");
+    assert.ok(!url.searchParams.has("userId") && !url.searchParams.has("profileId"));
+    assert.equal(result.total, 41);
+    assert.deepEqual(result.counts, { active: 30, archived: 9, trashed: 2 });
+    assert.equal(result.items[0]?.extractionStatus, "partially-processed");
+    assert.deepEqual(result.items[0]?.savedDocRefs, [{ docId: "doc-1", title: "Notes" }]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("loadDesktopManagedSessions omits unset filters and defaults paging", async () => {
+  const original = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requestedUrl = String(input);
+    return jsonOk({ ok: true, items: [], total: 0, counts: { active: 0, archived: 0, trashed: 0 }, limit: 20, offset: 0 });
+  }) as typeof globalThis.fetch;
+  try {
+    await loadDesktopManagedSessions("http://127.0.0.1:3000", { state: "active" });
+    const url = new URL(requestedUrl);
+    assert.equal(`${url.pathname}?${url.searchParams.toString()}`, "/api/sessions/managed?state=active&limit=20&offset=0");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("managed list 400 responses surface the server error message", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => jsonOk({ ok: false, error: "Invalid state: nope" })) as typeof globalThis.fetch;
+  try {
+    await assert.rejects(
+      () => loadDesktopManagedSessions("http://127.0.0.1:3000", { state: "nope" as never }),
+      /Invalid state: nope/
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("managed preview loads the transcript and extraction status reads the derived receipt", async () => {
+  const original = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    urls.push(url);
+    if (url.includes("/api/sessions/managed/preview")) {
+      return jsonOk({
+        ok: true,
+        preview: { conversationId: "conv-1", title: "T", state: "archived", readOnly: true, messages: [{ role: "user", content: "hi", createdAt: "2026-09-01T00:00:00.000Z" }] }
+      });
+    }
+    return jsonOk({
+      ok: true,
+      extraction: {
+        status: "saved",
+        conversationId: "conv-1",
+        messageRevision: "rev-9",
+        processedThroughId: "m-9",
+        savedMemoryIds: ["mem-1", "mem-2"],
+        savedDocRefs: [{ docId: "doc-1" }],
+        pendingCandidateIds: [],
+        failureReasons: []
+      }
+    });
+  }) as typeof globalThis.fetch;
+  try {
+    const preview = await loadDesktopManagedPreview("http://127.0.0.1:3000", "conv 1");
+    assert.equal(preview.readOnly, true);
+    assert.equal(preview.messages.length, 1);
+    assert.equal(urls[0], "http://127.0.0.1:3000/api/sessions/managed/preview?conversationId=conv%201");
+    const detail = await loadDesktopExtractionStatus("http://127.0.0.1:3000", "conv-1");
+    assert.equal(detail.status, "saved");
+    assert.deepEqual(detail.savedMemoryIds, ["mem-1", "mem-2"]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("createDesktopManagedSelection posts current-page ids and returns the snapshot", async () => {
+  const original = globalThis.fetch;
+  let captured: { url: string; method: string; body: unknown } | null = null;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    captured = { url: String(input), method: init?.method ?? "GET", body: JSON.parse(String(init?.body)) };
+    return jsonOk({ ok: true, selectionId: "sel-1", count: 3 });
+  }) as typeof globalThis.fetch;
+  try {
+    const snapshot = await createDesktopManagedSelection("http://127.0.0.1:3000", ["a", "b", "c"]);
+    assert.deepEqual(captured, {
+      url: "http://127.0.0.1:3000/api/sessions/managed/selections",
+      method: "POST",
+      body: { targets: ["a", "b", "c"] }
+    });
+    assert.deepEqual(snapshot, { selectionId: "sel-1", count: 3 });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("executeDesktopManagedBulk sends targets or a selectionId with the idempotency key", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ body: unknown }> = [];
+  globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+    calls.push({ body: JSON.parse(String(init?.body)) });
+    return jsonOk({
+      ok: true,
+      operationId: "op-1",
+      kind: "archive",
+      counts: { total: 2, succeeded: 1, skipped: 1, failed: 0 },
+      items: [
+        { conversationId: "a", expectedVersion: 1, status: "succeeded", state: "archived", version: 2 },
+        { conversationId: "b", expectedVersion: 1, status: "skipped", reason: "protected" }
+      ]
+    });
+  }) as typeof globalThis.fetch;
+  try {
+    const byTargets = await executeDesktopManagedBulk("http://127.0.0.1:3000", {
+      kind: "archive",
+      targets: [{ conversationId: "a", expectedVersion: 1 }, { conversationId: "b", expectedVersion: 1 }],
+      idempotencyKey: "idem-1"
+    });
+    assert.deepEqual(calls[0]?.body, {
+      kind: "archive",
+      targets: [{ conversationId: "a", expectedVersion: 1 }, { conversationId: "b", expectedVersion: 1 }],
+      idempotencyKey: "idem-1"
+    });
+    assert.equal(byTargets.operationId, "op-1");
+    assert.equal(byTargets.items[1]?.reason, "protected");
+
+    await executeDesktopManagedBulk("http://127.0.0.1:3000", {
+      kind: "delete",
+      selectionId: "sel-1",
+      idempotencyKey: "idem-2"
+    });
+    assert.deepEqual(calls[1]?.body, { kind: "delete", selectionId: "sel-1", idempotencyKey: "idem-2" });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("bulk retry and durable operation reads target their dedicated routes", async () => {
+  const original = globalThis.fetch;
+  const urls: Array<{ url: string; method: string }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    urls.push({ url: String(input), method: init?.method ?? "GET" });
+    if (String(input).includes("/retry")) {
+      assert.equal(String(init?.body), JSON.stringify({ operationId: "op-1" }));
+    }
+    return jsonOk({ ok: true, operationId: "op-1", kind: "delete", counts: { total: 1, succeeded: 0, skipped: 0, failed: 1 }, items: [] });
+  }) as typeof globalThis.fetch;
+  try {
+    await retryDesktopManagedBulk("http://127.0.0.1:3000", "op-1");
+    const operation = await loadDesktopBulkOperation("http://127.0.0.1:3000", "op 1");
+    assert.equal(operation.counts.failed, 1);
+    assert.deepEqual(urls, [
+      { url: "http://127.0.0.1:3000/api/sessions/managed/bulk/retry", method: "POST" },
+      { url: "http://127.0.0.1:3000/api/sessions/managed/bulk/operations/op%201", method: "GET" }
+    ]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("describeDesktopDelete returns the recovery facts for the confirmation dialog", async () => {
+  const original = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requestedUrl = String(input);
+    return jsonOk({
+      ok: true,
+      count: 12,
+      retentionDays: 30,
+      retainsMemoriesAndArtifacts: true,
+      searchRemovedImmediately: true,
+      retainedItemsPath: "/settings/memory"
+    });
+  }) as typeof globalThis.fetch;
+  try {
+    const facts = await describeDesktopDelete("http://127.0.0.1:3000", 12);
+    assert.equal(requestedUrl, "http://127.0.0.1:3000/api/sessions/managed/bulk/describe-delete?count=12");
+    assert.equal(facts.retentionDays, 30);
+    assert.equal(facts.retainsMemoriesAndArtifacts, true);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("executeDesktopManagedExtraction posts the gated mode and projects per-item outcomes", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; body: unknown }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+    return jsonOk({
+      ok: true,
+      mode: "extract-and-archive",
+      idempotencyKey: "idem-9",
+      counts: { total: 2, archived: 1, failed: 1 },
+      items: [
+        { conversationId: "a", status: "saved", archived: true, messageRevision: "rev-1", processedThroughId: "m-1", failureReasons: [] },
+        { conversationId: "b", status: "failed", archived: false, archiveReason: "pending review", messageRevision: "rev-2", processedThroughId: null, failureReasons: ["model output malformed"] }
+      ]
+    });
+  }) as typeof globalThis.fetch;
+  try {
+    const result = await executeDesktopManagedExtraction("http://127.0.0.1:3000", {
+      mode: "extract-and-archive",
+      targets: [{ conversationId: "a", expectedVersion: 3 }, { conversationId: "b" }],
+      idempotencyKey: "idem-9"
+    });
+    assert.equal(calls[0]?.url, "http://127.0.0.1:3000/api/sessions/managed/extraction");
+    assert.deepEqual(calls[0]?.body, {
+      mode: "extract-and-archive",
+      targets: [{ conversationId: "a", expectedVersion: 3 }, { conversationId: "b" }],
+      idempotencyKey: "idem-9"
+    });
+    assert.equal(result.counts.archived, 1);
+    assert.equal(result.items[1]?.archiveReason, "pending review");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("session auto-archive policy routes map to fine-grained settings operations", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; method: string; body: unknown }> = [];
+  const overview = {
+    ok: true,
+    policy: { enabled: true, inactiveDays: 30, bots: { personal: { mode: "custom", inactiveDays: 7 } } },
+    previewCount: 4,
+    lastRun: { runId: "r1", startedAt: "2026-09-07T00:00:00.000Z", finishedAt: "2026-09-07T00:01:00.000Z", status: "completed", candidateCount: 5, archivedCount: 4, skippedCount: 1, failedCount: 0 }
+  };
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(input), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+    if (calls.length === 1) return jsonOk(overview);
+    return jsonOk(overview);
+  }) as typeof globalThis.fetch;
+  try {
+    const loaded = await loadDesktopSessionAutoArchive("http://127.0.0.1:3000");
+    assert.equal(loaded.previewCount, 4);
+    assert.equal(loaded.lastRun?.archivedCount, 4);
+
+    const previewCount = await previewDesktopSessionAutoArchive("http://127.0.0.1:3000", {
+      enabled: false, inactiveDays: 14, bots: {}
+    });
+    assert.equal(previewCount, 4);
+
+    await saveDesktopSessionAutoArchiveGlobal("http://127.0.0.1:3000", { enabled: true, inactiveDays: 30 });
+    await saveDesktopSessionAutoArchiveBot("http://127.0.0.1:3000", "work", { mode: "custom", inactiveDays: 90 });
+    await deleteDesktopSessionAutoArchiveBot("http://127.0.0.1:3000", "work");
+
+    assert.deepEqual(calls.map((call) => [call.method, call.body]), [
+      ["GET", null],
+      ["POST", { policy: { enabled: false, inactiveDays: 14, bots: {} } }],
+      ["PUT", { global: { enabled: true, inactiveDays: 30 } }],
+      ["PUT", { botId: "work", bot: { mode: "custom", inactiveDays: 90 } }],
+      ["DELETE", { botId: "work" }]
+    ]);
   } finally {
     globalThis.fetch = original;
   }
