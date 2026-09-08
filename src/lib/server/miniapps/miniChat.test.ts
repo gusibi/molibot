@@ -12,6 +12,51 @@ function request(path: string, method = "GET", body?: unknown) {
   return { method, path, body, query: {}, signal: new AbortController().signal };
 }
 
+// Generation now outlives the POST that started it, so tests observe progress
+// by polling GET messages until the last assistant row reaches a terminal
+// status — the same way the app's own UI does.
+async function waitForStatus(runtime: { handleHttp: (request: unknown) => Promise<{ body: { messages: any[] } }> }, conversationId: string, statuses: string[]) {
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    const loaded = await runtime.handleHttp(request(`/conversations/${conversationId}/messages`));
+    const last = loaded.body.messages.at(-1);
+    if (statuses.includes(last.status)) return last;
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${statuses.join("/")} (got ${last.status})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function waitFor(condition: () => boolean, what: string) {
+  const deadline = Date.now() + 5_000;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+// Same poll as waitForStatus, one layer out: through the host's HTTP bridge,
+// for the tests that exercise the child-process boundary.
+async function waitForStatusVia(appId: string, conversationId: string, statuses: string[]) {
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    const path = `/conversations/${conversationId}/messages`;
+    const response = await hostRef.handleHttp(appId, new Request(`http://127.0.0.1/miniapps/${appId}/api${path}`), path);
+    const body = await response.json() as { messages: any[] };
+    const last = body.messages.at(-1);
+    if (statuses.includes(last.status)) return last;
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${statuses.join("/")} (got ${last?.status})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+// Each process-boundary test builds its own host; the helper above reads the
+// one under test through this mutable binding.
+let hostRef: { handleHttp: (appId: string, request: Request, path: string) => Promise<Response> };
+
 function contextOver(
   dataDir: string,
   chat: (input: any) => Promise<any>,
@@ -35,8 +80,11 @@ test("Mini Chat persists its own conversations and sends structured history with
   const created = await first.handleHttp(request("/conversations", "POST", {}));
   const id = created.body.conversation.id as string;
 
-  await first.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "First question" }));
+  const queued = await first.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "First question" }));
+  assert.equal(queued.status, 201, "the POST returns before generation finishes");
+  await waitForStatus(first, id, ["completed"]);
   await first.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "Second question" }));
+  await waitForStatus(first, id, ["completed"]);
 
   assert.deepEqual(calls.map(({ messages, system }) => ({ messages, system })), [
     { messages: [{ role: "user", content: "First question" }], system: undefined },
@@ -82,7 +130,8 @@ test("Mini Chat exposes streamed text while the final reply is still pending", a
   const created = await runtime.handleHttp(request("/conversations", "POST", {}));
   const id = created.body.conversation.id as string;
 
-  const pending = runtime.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "Hello?" }));
+  const queued = await runtime.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "Hello?" }));
+  assert.equal(queued.status, 201);
   await deltaSeen;
   const during = await runtime.handleHttp(request(`/conversations/${id}/messages`));
   try {
@@ -93,10 +142,8 @@ test("Mini Chat exposes streamed text while the final reply is still pending", a
   } finally {
     release();
   }
-  await pending;
-  const completed = await runtime.handleHttp(request(`/conversations/${id}/messages`));
-  assert.equal(completed.body.messages.at(-1).content, "Hello");
-  assert.equal(completed.body.messages.at(-1).status, "completed");
+  const completed = await waitForStatus(runtime, id, ["completed"]);
+  assert.equal(completed.content, "Hello");
   runtime.dispose();
 });
 
@@ -132,7 +179,9 @@ test("Mini Chat settings select a model and system prompt and survive restart", 
     systemPrompt: "Answer briefly and warmly."
   });
   const created = await restarted.handleHttp(request("/conversations", "POST", {}));
-  await restarted.handleHttp(request(`/conversations/${created.body.conversation.id}/messages`, "POST", { content: "Hello" }));
+  const id = created.body.conversation.id as string;
+  await restarted.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "Hello" }));
+  await waitForStatus(restarted, id, ["completed"]);
   assert.equal(calls.at(-1).modelKey, "custom|provider|careful");
   assert.equal(calls.at(-1).system, "Answer briefly and warmly.");
 
@@ -165,17 +214,16 @@ test("Mini Chat cancellation aborts the host model call and leaves a retryable r
   const created = await runtime.handleHttp(request("/conversations", "POST", {}));
   const id = created.body.conversation.id as string;
 
-  const pending = runtime.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "Please wait" }));
-  await Promise.resolve();
+  await runtime.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "Please wait" }));
   const cancelled = await runtime.handleHttp(request(`/conversations/${id}/cancel`, "POST"));
-  await pending;
+  await waitFor(() => observedAbort, "the host model call to observe the abort");
 
   assert.equal(cancelled.body.cancelled, true);
-  assert.equal(observedAbort, true);
   const loaded = await runtime.handleHttp(request(`/conversations/${id}/messages`));
   assert.equal(loaded.body.messages.at(-1).status, "cancelled");
   const retried = await runtime.handleHttp(request(`/conversations/${id}/retry`, "POST"));
   assert.notEqual(retried.status, 409, "cancelled replies remain retryable");
+  await waitForStatus(runtime, id, ["completed"]);
   runtime.dispose();
 });
 
@@ -189,12 +237,13 @@ test("Mini Chat returns an actionable host AI error instead of a generic request
   const created = await runtime.handleHttp(request("/conversations", "POST", {}));
   const id = created.body.conversation.id as string;
 
-  const failed = await runtime.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "Hello" }));
+  const queued = await runtime.handleHttp(request(`/conversations/${id}/messages`, "POST", { content: "Hello" }));
+  assert.equal(queued.status, 201);
+  const failed = await waitForStatus(runtime, id, ["failed"]);
 
-  assert.equal(failed.status, 500);
-  assert.equal(failed.body.code, "provider_failed");
+  assert.equal(failed.errorCode, "provider_failed");
   assert.equal(
-    failed.body.error,
+    failed.errorMessage,
     'Model request failed (400): reasoning level "low" is not supported; choose medium or high.'
   );
   runtime.dispose();
@@ -248,12 +297,16 @@ test("Mini Chat model settings cross the child-process host boundary", async () 
   });
   assert.equal(saved.status, 200);
   const created = await (await call("/conversations", { method: "POST", body: "{}" })).json() as any;
-  await call(`/conversations/${created.conversation.id}/messages`, {
+  const id = created.conversation.id as string;
+  await call(`/conversations/${id}/messages`, {
     method: "POST",
     body: JSON.stringify({ content: "Hello" })
   });
+  await waitFor(() => calls.length > 0, "the child process to reach the host AI facade");
   assert.equal(calls[0].modelKey, "custom|provider|careful");
   assert.equal(calls[0].system, "Be concise.");
+  hostRef = host;
+  await waitForStatusVia("mini-chat", id, ["completed"]);
 });
 
 test("Mini Chat preserves actionable AI errors across the child-process boundary", async () => {
@@ -292,17 +345,18 @@ test("Mini Chat preserves actionable AI errors across the child-process boundary
   );
   const created = await (await call("/conversations", { method: "POST", body: "{}" })).json() as any;
   const id = created.conversation.id as string;
+  hostRef = host;
 
-  const failed = await call(`/conversations/${id}/messages`, {
+  const queued = await call(`/conversations/${id}/messages`, {
     method: "POST",
     body: JSON.stringify({ content: "Hello" })
   });
-  const body = await failed.json() as any;
+  assert.equal(queued.status, 201);
+  const failed = await waitForStatusVia("mini-chat", id, ["failed"]);
 
-  assert.equal(failed.status, 500);
-  assert.equal(body.code, "provider_failed");
+  assert.equal(failed.errorCode, "provider_failed");
   assert.equal(
-    body.error,
+    failed.errorMessage,
     'Model request failed (400): reasoning level "low" is not supported; choose medium or high.'
   );
 });
@@ -348,13 +402,14 @@ test("Mini Chat cancellation crosses the child-process host boundary", async () 
   );
   const created = await (await call("/conversations", { method: "POST", body: "{}" })).json() as any;
   const id = created.conversation.id as string;
-  const pending = call(`/conversations/${id}/messages`, {
+  hostRef = host;
+  await call(`/conversations/${id}/messages`, {
     method: "POST",
     body: JSON.stringify({ content: "Cancel across IPC" })
   });
   await started;
   const cancelled = await call(`/conversations/${id}/cancel`, { method: "POST", body: "{}" });
-  await pending;
+  await waitFor(() => observedAbort, "host_cancel to abort the parent-side Provider call");
 
   assert.equal(cancelled.status, 200);
   assert.equal(observedAbort, true, "host_cancel must abort the parent-side Provider call");
@@ -401,20 +456,72 @@ test("Mini Chat forwards text deltas across the child-process host boundary", as
   );
   const created = await (await call("/conversations", { method: "POST", body: "{}" })).json() as any;
   const id = created.conversation.id as string;
-  const pending = call(`/conversations/${id}/messages`, {
+  hostRef = host;
+  await call(`/conversations/${id}/messages`, {
     method: "POST",
     body: JSON.stringify({ content: "Stream across IPC" })
   });
 
   await deltaSeen;
   const during = await (await call(`/conversations/${id}/messages`)).json() as any;
-  try {
-    assert.equal(during.messages.at(-1).content, "cross-process");
-    assert.equal(during.messages.at(-1).status, "pending");
-  } finally {
-    release();
-  }
-  await pending;
+  assert.equal(during.messages.at(-1).content, "cross-process");
+  assert.equal(during.messages.at(-1).status, "pending");
+  release();
+  const completed = await waitForStatusVia("mini-chat", id, ["completed"]);
+  assert.equal(completed.content, "cross-process");
+});
+
+test("Mini Chat replies outlive transport watchdogs because generation is not tied to a request", async () => {
+  // Reproduces issue #47: the desktop protocol transport aborted requests at
+  // 30s and the app-process watchdog killed the runtime at 60s, interrupting
+  // every long reply. Both ceilings are compressed to 300ms here; the queued
+  // POST must return at once and the slow reply must still complete.
+  const root = mkdtempSync(join(tmpdir(), "molibot-mini-chat-process-watchdog-"));
+  const codeRoot = join(root, "apps");
+  const dataRoot = join(root, "data");
+  mkdirSync(codeRoot, { recursive: true });
+  mkdirSync(dataRoot, { recursive: true });
+  materializeBuiltinMiniApp(codeRoot, getBuiltinMiniApp("mini-chat")!);
+
+  const host = createMiniAppHost({
+    codeRoot,
+    dataRoot,
+    getEnablement: () => ({}),
+    setEnablement() {},
+    builtinAppIds: ["mini-chat"],
+    processCallTimeoutMs: 300,
+    createAiFacade: () => ({
+      listTextModels: async () => ({ currentKey: "", options: [] }),
+      generateText: async () => { throw new Error("unused"); },
+      transcribe: async () => { throw new Error("unused"); },
+      chat: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        return { text: "survived the watchdog", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } };
+      }
+    })
+  });
+  hostRef = host;
+  const call = (path: string, init?: RequestInit) => host.handleHttp(
+    "mini-chat",
+    new Request(`http://127.0.0.1/miniapps/mini-chat/api${path}`, {
+      headers: { "content-type": "application/json" },
+      ...init
+    }),
+    path
+  );
+  const created = await (await call("/conversations", { method: "POST", body: "{}" })).json() as any;
+  const id = created.conversation.id as string;
+
+  const startedAt = Date.now();
+  const queued = await call(`/conversations/${id}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content: "Take your time" })
+  });
+  assert.equal(queued.status, 201);
+  assert.ok(Date.now() - startedAt < 250, "the POST must not block on generation");
+
+  const completed = await waitForStatusVia("mini-chat", id, ["completed"]);
+  assert.equal(completed.content, "survived the watchdog");
 });
 
 test("Mini Chat removes the assistant initials avatar to preserve narrow-screen width", () => {

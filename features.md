@@ -1,5 +1,23 @@
 # Molibot Features
 
+### Mini Chat 输入乱码与频繁中断修复：后台生成 + IME 守卫升级（2026-09-08，已实现，closes #47）
+
+- **症状**（issue #47）：Mini Chat 输入框输入中文后残留拼音乱码（如 "wff"）；回复频繁显示「回复已中断」/「Could not reach the Molibot service.」，长回复几乎必中断。
+- **中断根因**：发消息 POST 同步等待整个 LLM 生成完成，撞上传输链两级看门狗——桌面 Tauri 协议传输 30s 请求超时（返回 502 "Could not reach the Molibot service."）+ MiniApp 宿主→子进程 RPC 60s 看门狗（超时直接 SIGKILL 整个 App 子进程并中止生成），下次启动把 pending 消息标记为 interrupted。超过 30s 的回复 100% 中断。
+- **根修（共享层）**：`POST /messages` 与 `/retry` 改为追加轮次后立即返回 201（实测 <2ms），生成在后台继续（App→宿主 `ai.chat` host_call 无看门狗，时长不再受限）；UI 用 `generatingId`（会话级）轮询驱动整个生成生命周期——200ms 轮询流式渲染、终态自动释放、404 自愈、切换会话/新建/设置在生成期间不再被全局锁死；其他会话仍可正常对话（服务端本就按会话粒度并发）。失败原因不再随 30s 超时丢失：消息行新增 `error_message`（SQLite `PRAGMA table_info` 守卫式 ALTER 兼容既有库），失败/中断文案带出可读原因（保留「Provider 错误可见」修复的承诺），`GET /messages` 投影透出。
+- **输入乱码根因**：内置的 `@astryxdesign/core` 0.1.4 的 contentEditable 输入框没有 IME 组合输入守卫，组合期间按 Enter（选词）会误触发提交并重写 DOM，打断组合、残留拼音原文。升级 `@astryxdesign/core`/`@astryxdesign/theme-neutral` 0.1.4→0.5.4、`@stylexjs/stylex` 0.18.3→0.19.0（React 19 已满足 peer），重建 mini-chat（1.1MB→757KB）与 prompt-box 产物，两个内置包版本 bump 至 1.2.0 让现有安装收到更新。
+- **机器守卫**：`miniChat.test.ts` 全套改用「POST 立即返回 + 轮询终态」语义（14 项），新增看门狗回归测试——`processCallTimeoutMs` 压缩到 300ms + 900ms 慢生成，断言 POST 不阻塞且回复最终 completed（旧实现此场景必失败）。
+- 验证：miniapps 套件 209/209、desktopMiniApps 7/7、`vite build` 通过、tsc 改动文件零错误；隔离实例（临时 DATA_DIR）冷路径走查：内置目录版本 1.2.0 → 安装激活 → UI 资产 200 + IME 守卫在产物中（`isComposing||keyCode===229`）→ 发消息 POST 201 立即返回 → 无模型时失败原因落到消息行 → retry 201 立即返回，全部符合预期。
+
+### 会话预览弹窗化：还原真实 chat UI（图片/附件可见）（2026-09-08，已实现）
+
+- **症状**：会话管理页点击「查看」是在列表下方追加一个纯文本「相邻预览」卡片——既打断了浏览位置，也只显示 role+content 纯文本，图片/音频/视频附件全部不可见，无法还原对话的真实样子。桌面端策略区还持续报 `url not allowed on the configured scope: .../api/settings/session-auto-archive`（上一轮接入桌面端时漏配 Tauri HTTP scope）。
+- **根修（共享层）**：`/api/sessions/managed/preview` 改为返回与聊天界面完全相同的投影消息（`loadStoredConversationMessages`：attachments/thinking/steps/model 全量，web/project 走 owner 索引解析，external 透传 contexts 投影），不再丢字段只留三字段；`resolveAuthorizedConversation` 的 web 分支同样改为 owner 索引解析（与 sessions 读 API 对齐），修复浏览器创建会话（真实 userId owner）的附件 404。Web 聊天页的 markdown 渲染抽为共享模块 `src/lib/ui/markdown.ts`，并允许安全的 markdown 图片（同源/绝对安全协议、lazy 加载），聊天页与设置页共用一份实现。
+- **桌面端**：`SessionManagementSection` 预览改为 Dialog 弹窗，内部直接挂 `ConversationTranscript`（桌面聊天同款渲染器：气泡/markdown/代码高亮/复制），附件经 `listDesktopSessionFiles` + `fetchDesktopFileBlob` 加载真实字节（object URL，关闭/切换时 revoke，在途请求有会话一致性守卫）；预览目标行（botId/projectId/source）存入 store 供文件 API 推导参数。Tauri capabilities 补 `/api/settings/session-auto-archive*`（127.0.0.1 + localhost）。
+- **Web 端**：`settings/sessions` 预览同样弹窗化（providers-modal 系 + 新 session-preview-* 语义 CSS，全部主题 token），消息气泡布局 + markdown 渲染 + 附件图片/音频/视频（经 `/api/web/files` 同源 URL）/文件 chip；提炼详情随弹窗展示；双语 + 明暗主题。
+- **机器守卫**：`http-scope.test.mjs` 新增 session-auto-archive scope 断言（此类漏配第二次出现，守卫升级为整类）；`sessionManagement.test.ts` 新增「成功预览保留完整投影（attachments/thinking）且记住来源行」用例（共 12 项）。
+- 验证：桌面 `svelte-check` 0 错 0 警、store 测试 12/12、scope 测试 5/5、`vite build` 通过（桌面 + Web）；Web 基线 svelte-check 错误数不变（存量错误未动）；隔离实例冷路径走查（临时 DATA_DIR + 种子会话）：列表 → 查看 → 弹窗（用户/助手气泡、附件图片、markdown 图片/粗体/代码/列表、提炼摘要）→ 关闭 → 英文界面复验 → 暗色主题复验，全部通过。
+
 ### Desktop 设置页接入会话管理：api 适配层 + runes store + SessionManagementSection（2026-09-08，已实现）
 
 - **范围**：desktop app 同等获得已交付的 Web「会话管理」能力——后端零改动，直接调共享 HTTP 端点（owner 级查询参数式授权，不传 requester）。`apps/desktop/src/lib/api.ts` 新增类型化适配函数（managed 列表/预览/selection/bulk/retry/describe-delete/extraction/extraction-status/auto-archive 设置，沿用 requestJson 模式）；`stores/sessionManagement.svelte.ts` runes store（筛选/服务端分页/本页多选+shift 范围/跨页全选快照/预览含提炼详情与 source-unavailable/批量与重试/策略编辑，列表请求 generation 所有权防串写）；`settings/SessionManagementSection.svelte` 三视图+全量筛选+批量控件+策略区（`.settings-footbar` 保存），复用既有语义 CSS/组件（SelectControl/StatusBadge/Dialog/EmptyState/IosSwitch/SkeletonRows），i18n 新增 sessionMgmt* 双语 key；App.svelte assistant 组 memory 后新增导航。

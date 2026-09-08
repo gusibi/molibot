@@ -46,6 +46,7 @@ type Message = {
   status: 'pending' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
   usage: {inputTokens: number; outputTokens: number; totalTokens: number};
   errorCode: string | null;
+  errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -139,16 +140,19 @@ function formatTime(value: string): string {
 }
 
 function statusText(message: Message): string {
-  if (message.status === 'cancelled') return copy.cancelled;
-  if (message.status === 'interrupted') return copy.interrupted;
-  return copy.failed;
+  const base = message.status === 'cancelled'
+    ? copy.cancelled
+    : message.status === 'interrupted'
+      ? copy.interrupted
+      : copy.failed;
+  return message.errorMessage ? `${base} ${message.errorMessage}` : base;
 }
 
 function MiniChat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [generatingId, setGeneratingId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -162,6 +166,9 @@ function MiniChat() {
   const [settingsError, setSettingsError] = useState('');
 
   const active = useMemo(() => conversations.find((item) => item.id === activeId) || null, [conversations, activeId]);
+  // The server keeps generating after the POST returns; `generatingId` tracks
+  // that background work per conversation, so other conversations stay usable.
+  const generatingHere = activeId !== '' && generatingId === activeId;
   const retryable = [...messages].reverse().find((message) => message.role === 'assistant')?.status !== 'completed';
   const activeModelKey = settings.modelKey || models.currentKey;
   const activeModelLabel = models.options.find((option) => option.key === activeModelKey)?.label || copy.defaultModel;
@@ -194,6 +201,12 @@ function MiniChat() {
     const result = await api<{conversation: Conversation; messages: Message[]}>(`/conversations/${id}/messages`);
     if (!Array.isArray(result.messages)) throw new Error(copy.requestFailed);
     setMessages(result.messages);
+    // A pending row while the service is up means a generation is genuinely
+    // running (restarts mark stale rows interrupted), so re-attach to it —
+    // this is what resumes the stream after a panel reload.
+    if (result.messages.some((message) => message.status === 'pending')) {
+      setGeneratingId(id);
+    }
   }
 
   useEffect(() => {
@@ -211,27 +224,42 @@ function MiniChat() {
   }, []);
 
   useEffect(() => {
-    if (!busy || !activeId) return;
+    if (!generatingId) return;
     let stopped = false;
     let timer = 0;
     const poll = async () => {
       try {
-        const result = await api<{messages: Message[]}>(`/conversations/${activeId}/messages`);
-        if (!stopped && Array.isArray(result.messages)) setMessages(result.messages);
-      } catch {
-        // The pending POST owns the user-facing error; polling only paints deltas.
+        const result = await api<{messages: Message[]}>(`/conversations/${generatingId}/messages`);
+        if (stopped) return;
+        if (Array.isArray(result.messages)) {
+          const stillRunning = result.messages.some((message) => message.status === 'pending');
+          if (activeId === generatingId) setMessages(result.messages);
+          if (!stillRunning) {
+            setGeneratingId('');
+            void refreshConversations(generatingId).catch(() => undefined);
+            return;
+          }
+        }
+      } catch (cause: any) {
+        if (cause?.status === 404) {
+          // The conversation is gone (deleted elsewhere); nothing to watch.
+          setGeneratingId('');
+          return;
+        }
+        // Transient transport/service errors keep the poll alive; terminal
+        // failures reach the UI through the message status instead.
       }
-      if (!stopped) timer = window.setTimeout(poll, 80);
+      if (!stopped) timer = window.setTimeout(poll, 200);
     };
     timer = window.setTimeout(poll, 0);
     return () => {
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, [busy, activeId]);
+  }, [generatingId, activeId]);
 
   async function selectConversation(id: string) {
-    if (busy || id === activeId) return;
+    if (id === activeId) return;
     setError('');
     setActiveId(id);
     setSidebarOpen(false);
@@ -248,32 +276,32 @@ function MiniChat() {
   }
 
   async function submit(content: string) {
-    if (busy) return;
+    if (activeId !== '' && generatingId === activeId) return;
     setError('');
     let id = activeId;
     try {
       if (!id) id = await createConversation();
       const now = new Date().toISOString();
       setMessages((current) => [...current,
-        {id: `local-user-${now}`, conversationId: id, role: 'user', content, status: 'completed', usage: {inputTokens: 0, outputTokens: 0, totalTokens: 0}, errorCode: null, createdAt: now, updatedAt: now},
-        {id: `local-assistant-${now}`, conversationId: id, role: 'assistant', content: '', status: 'pending', usage: {inputTokens: 0, outputTokens: 0, totalTokens: 0}, errorCode: null, createdAt: now, updatedAt: now},
+        {id: `local-user-${now}`, conversationId: id, role: 'user', content, status: 'completed', usage: {inputTokens: 0, outputTokens: 0, totalTokens: 0}, errorCode: null, errorMessage: null, createdAt: now, updatedAt: now},
+        {id: `local-assistant-${now}`, conversationId: id, role: 'assistant', content: '', status: 'pending', usage: {inputTokens: 0, outputTokens: 0, totalTokens: 0}, errorCode: null, errorMessage: null, createdAt: now, updatedAt: now},
       ]);
-      setBusy(true);
+      setGeneratingId(id);
+      // Returns as soon as the turn is queued; the poller owns the outcome.
       await api(`/conversations/${id}/messages`, {method: 'POST', body: JSON.stringify({content})});
     } catch (cause: any) {
+      setGeneratingId((current) => current === id ? '' : current);
       setError(cause?.code === 'capability_unavailable' ? copy.noModel : cause?.message || copy.requestFailed);
-    } finally {
-      setBusy(false);
       await loadMessages(id).catch(() => undefined);
       await refreshConversations(id).catch(() => undefined);
     }
   }
 
   async function stop() {
-    if (!activeId || !busy) return;
+    if (!activeId || generatingId !== activeId) return;
     try {
       await api(`/conversations/${activeId}/cancel`, {method: 'POST', body: '{}'});
-      setBusy(false);
+      setGeneratingId((current) => current === activeId ? '' : current);
       await loadMessages(activeId);
     } catch (cause: any) {
       setError(cause?.message || copy.requestFailed);
@@ -281,22 +309,21 @@ function MiniChat() {
   }
 
   async function retry() {
-    if (!activeId || busy) return;
-    setBusy(true);
+    if (!activeId || generatingId === activeId) return;
     setError('');
+    setGeneratingId(activeId);
     try {
       await api(`/conversations/${activeId}/retry`, {method: 'POST', body: '{}'});
     } catch (cause: any) {
+      setGeneratingId((current) => current === activeId ? '' : current);
       setError(cause?.code === 'capability_unavailable' ? copy.noModel : cause?.message || copy.requestFailed);
-    } finally {
-      setBusy(false);
       await loadMessages(activeId).catch(() => undefined);
       await refreshConversations(activeId).catch(() => undefined);
     }
   }
 
   async function removeConversation() {
-    if (!activeId || busy) return;
+    if (!activeId || generatingId === activeId) return;
     try {
       await api(`/conversations/${activeId}`, {method: 'DELETE'});
       setMessages([]);
@@ -354,7 +381,7 @@ function MiniChat() {
             <StackItem size="fill"><Heading level={2}>{copy.title}</Heading></StackItem>
             <span className="mobile-close"><Button label={copy.closeMenu} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} onClick={() => setSidebarOpen(false)} /></span>
           </HStack>
-          <Button label={copy.newChat} variant="primary" size="md" isDisabled={busy} icon={<Icon icon={PlusIcon} size="sm" />} onClick={() => void createConversation()} />
+          <Button label={copy.newChat} variant="primary" size="md" icon={<Icon icon={PlusIcon} size="sm" />} onClick={() => void createConversation()} />
         </div>
         <nav className="session-list">
           {conversations.map((conversation) => (
@@ -382,8 +409,8 @@ function MiniChat() {
                 <span className="model-summary"><Text type="supporting" color="secondary">{activeModelLabel} · {copy.subtitle}</Text></span>
               </VStack>
             </StackItem>
-            <Button label={copy.settings} variant="ghost" size="sm" isIconOnly icon={<Icon icon={Cog6ToothIcon} size="sm" />} isDisabled={busy} onClick={openSettings} />
-            {active && <Button label={copy.delete} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} isDisabled={busy} onClick={() => setDeleteOpen(true)} />}
+            <Button label={copy.settings} variant="ghost" size="sm" isIconOnly icon={<Icon icon={Cog6ToothIcon} size="sm" />} onClick={openSettings} />
+            {active && <Button label={copy.delete} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} isDisabled={generatingHere} onClick={() => setDeleteOpen(true)} />}
           </HStack>
         </header>
 
@@ -392,7 +419,7 @@ function MiniChat() {
           composer={<ChatComposer
             onSubmit={(value) => void submit(value)}
             onStop={() => void stop()}
-            isStopShown={busy}
+            isStopShown={generatingHere}
             isDisabled={loading}
             placeholder={copy.placeholder}
             input={<ChatComposerInput />}
@@ -400,7 +427,7 @@ function MiniChat() {
           />}>
           <ChatMessageList
             density="spacious"
-            isStreaming={busy}>
+            isStreaming={generatingHere}>
             {messages.length === 0 && <div className="empty-state">
               <div className="empty-orbit" aria-hidden="true"><ChatBubbleLeftRightIcon /></div>
               <Heading level={2}>{copy.emptyTitle}</Heading>
@@ -426,7 +453,7 @@ function MiniChat() {
                 </ChatMessageBubble>
               </ChatMessage>
             ))}
-            {!busy && retryable && messages.length > 0 && <div className="retry-row"><Button label={copy.retry} variant="secondary" size="sm" icon={<Icon icon={ArrowPathIcon} size="sm" />} onClick={() => void retry()} /></div>}
+            {!generatingHere && retryable && messages.length > 0 && <div className="retry-row"><Button label={copy.retry} variant="secondary" size="sm" icon={<Icon icon={ArrowPathIcon} size="sm" />} onClick={() => void retry()} /></div>}
           </ChatMessageList>
         </ChatLayout>
       </main>
@@ -437,8 +464,8 @@ function MiniChat() {
           header={<DialogHeader title={copy.delete} subtitle={copy.deleteConfirm} onOpenChange={setDeleteOpen} />}
           footer={<LayoutFooter hasDivider>
             <HStack gap={2} hAlign="end">
-              <Button label={copy.cancel} variant="secondary" size="md" isDisabled={busy} onClick={() => setDeleteOpen(false)} />
-              <Button label={copy.delete} variant="primary" size="md" isDisabled={busy} onClick={() => void removeConversation()} />
+              <Button label={copy.cancel} variant="secondary" size="md" isDisabled={generatingHere} onClick={() => setDeleteOpen(false)} />
+              <Button label={copy.delete} variant="primary" size="md" isDisabled={generatingHere} onClick={() => void removeConversation()} />
             </HStack>
           </LayoutFooter>}
         />

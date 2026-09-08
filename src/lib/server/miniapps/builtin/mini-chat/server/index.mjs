@@ -33,12 +33,22 @@ CREATE TABLE IF NOT EXISTS messages (
   output_tokens INTEGER NOT NULL DEFAULT 0,
   total_tokens INTEGER NOT NULL DEFAULT 0,
   error_code TEXT,
+  error_message TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mini_chat_conversations_updated_idx ON conversations(updated_at DESC);
 CREATE INDEX IF NOT EXISTS mini_chat_messages_conversation_idx ON messages(conversation_id, created_at);
 `;
+
+// Databases written by 1.1.x predate error_message; adding the column in place
+// keeps those conversations readable instead of stranding them on upgrade.
+function ensureErrorColumn(db) {
+  const columns = db.prepare("PRAGMA table_info(messages)").all().map((column) => column.name);
+  if (!columns.includes("error_message")) {
+    db.exec("ALTER TABLE messages ADD COLUMN error_message TEXT");
+  }
+}
 
 class AppError extends Error {
   constructor(message, status = 400, code = "bad_request") {
@@ -54,6 +64,7 @@ function openDatabase(dataDir) {
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(SCHEMA);
+  ensureErrorColumn(db);
   const now = new Date().toISOString();
   db.prepare("UPDATE messages SET status = 'interrupted', error_code = 'service_restarted', updated_at = ? WHERE status = 'pending'").run(now);
   return db;
@@ -72,6 +83,7 @@ function messageRecord(row) {
       totalTokens: Number(row.total_tokens || 0)
     },
     errorCode: row.error_code || null,
+    errorMessage: row.error_message || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -239,10 +251,10 @@ class Store {
     });
   }
 
-  failAssistant(id, status, code) {
+  failAssistant(id, status, code, message) {
     const now = new Date().toISOString();
-    this.db.prepare("UPDATE messages SET status = ?, error_code = ?, updated_at = ? WHERE id = ? AND status = 'pending'")
-      .run(status, code, now, id);
+    this.db.prepare("UPDATE messages SET status = ?, error_code = ?, error_message = ?, updated_at = ? WHERE id = ? AND status = 'pending'")
+      .run(status, code, message ? String(message).slice(0, 300) : null, now, id);
   }
 
   close() {
@@ -286,7 +298,12 @@ export default function createApp(context) {
       store.completeAssistant(running.assistantId, result);
     } catch (error) {
       const aborted = running.controller.signal.aborted || error?.code === "aborted";
-      store.failAssistant(running.assistantId, aborted ? "cancelled" : "failed", String(error?.code || "provider_failed"));
+      store.failAssistant(
+        running.assistantId,
+        aborted ? "cancelled" : "failed",
+        String(error?.code || "provider_failed"),
+        aborted ? null : error instanceof Error ? error.message : String(error)
+      );
       context.logger.error("ai_request_failed", {
         conversationId,
         code: String(error?.code || "provider_failed"),
@@ -296,6 +313,15 @@ export default function createApp(context) {
     } finally {
       active.delete(conversationId);
     }
+  }
+
+  // Generation outlives the HTTP request that started it: the request returns
+  // immediately and the UI watches progress through GET polling. A blocking
+  // await here would run into every transport watchdog in the chain (the
+  // desktop protocol kills requests at 30s, the app-process call watchdog at
+  // 60s), which is what used to interrupt every long reply.
+  function startGeneration(conversationId, running) {
+    void generate(conversationId, running).catch(() => undefined);
   }
 
   return {
@@ -348,7 +374,7 @@ export default function createApp(context) {
           const { assistantId } = store.appendTurn(conversationId, content);
           const running = { controller: new AbortController(), assistantId, text: "" };
           active.set(conversationId, running);
-          await generate(conversationId, running);
+          startGeneration(conversationId, running);
           return response(201, { conversation: store.getConversation(conversationId), messages: store.listMessages(conversationId) }, true);
         }
         if (request.method === "POST" && parts.length === 3 && parts[2] === "retry") {
@@ -356,14 +382,14 @@ export default function createApp(context) {
           const { assistantId } = store.appendRetry(conversationId);
           const running = { controller: new AbortController(), assistantId, text: "" };
           active.set(conversationId, running);
-          await generate(conversationId, running);
+          startGeneration(conversationId, running);
           return response(201, { conversation: store.getConversation(conversationId), messages: store.listMessages(conversationId) }, true);
         }
         if (request.method === "POST" && parts.length === 3 && parts[2] === "cancel") {
           const running = active.get(conversationId);
           if (!running) return response(200, { cancelled: false });
           running.controller.abort();
-          store.failAssistant(running.assistantId, "cancelled", "aborted");
+          store.failAssistant(running.assistantId, "cancelled", "aborted", null);
           return response(200, { cancelled: true }, true);
         }
         throw new AppError("Route not found.", 404, "not_found");

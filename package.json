@@ -81,13 +81,13 @@
     "yauzl": "^3.4.0"
   },
   "devDependencies": {
-    "@astryxdesign/core": "0.1.4",
-    "@astryxdesign/theme-neutral": "0.1.4",
+    "@astryxdesign/core": "0.5.4",
+    "@astryxdesign/theme-neutral": "0.5.4",
     "@internationalized/date": "^3.12.1",
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "@stylexjs/stylex": "0.18.3",
+    "@stylexjs/stylex": "0.19.0",
     "@sveltejs/adapter-node": "^5.2.12",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@tailwindcss/vite": "^4.2.0",
