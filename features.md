@@ -1,5 +1,23 @@
 # Molibot Features
 
+### 会话管理生产装配根修：真实忙碌探针/外部只读/Trash 调度/设置 round-trip（2026-09-08，已实现，Session 管理 Phase1 Blockers）
+
+- **B1 生产忙碌探针**：`runtime.ts` 经新装配 `assembleSessionLifecycle`（`sessionServiceAssembly.ts`）装配 lifecycle——真实探针 `createSessionBusyProbe` 覆盖 live runner（`snapshotAllRuntimeRuns`）、待审批（`HostBashStore.listPending` session 维）、非终态关联任务（`DurableExecutionStore.hasNonterminalForSession` 新增：`source_ui_session_id`/attempt `context_session_id` 任一命中即忙）；archive/delete 在生产真正阻塞（busy skip），读失败降级为不忙、永不把监控故障变成 500。机器守卫：`sessionServiceAssembly.test.ts` B1（可控三信号逐个阻塞、清空后成功、默认装配不误伤）。
+- **B2 外部渠道生产可管理**：生产装配传入 `listExternal`（复用 `listExternalSessionsFromContexts` 只读投影→`ExternalManagedCandidate`，含 botId/授权 search 投影）；`isExternalSession` 谓词接入 `authorizedRow`——外部 id 的 archive/restore/trash/setRetain 一律 `skipped/not_applicable`（存在但只读），未知 id 仍 `not_found`；管理预览新增外部只读分支（`readExternalTranscriptFromContexts` transcript 只读 + `readOnly` 标记，缺失则诚实 `source-unavailable`+原因）；keyword 对 external 按标题生效、botIds/sources 筛选直通。机器守卫：US2/US3 级测试（列表可见性、按 BOT、keyword、mutation skip 语义）。
+- **B3 Trash 过期生产调度**：`ensureOwnerSessionTrashExpiryEvent`（常开、无 opt-in——以删除时展示的 30 天期限为准）+ `InternalEventKind session-trash-expiry` + `TaskScheduler.start` 接入；dispatcher 分支走 `reconcilePending`（先重试 intent 再扫过期，auto-archive sweep 只管归档的注释保持不动）；启动时对账一次（`session_trash_reconciled` 日志）；真实 purge 端口 `buildSessionTrashPorts`（UI 文件/Project 文件、Agent Context `deleteSessionArtifacts` 幂等、search 投影、owner/project 鉴权）。机器守卫：`sessionTrashExpiry.test.ts`（事件常开/kind/执行体）+ `sessionMaintenance.test.ts`（真实端口 purge、跨 owner 拒绝、recorded intent 重启对账）。
+- **B4 设置整对象 round-trip**：`sessionAutoArchiveRoundtrip.test.ts`（settings 目录）：富配置（custom provider+model alias、agent、per-bot 策略）save→新 store→load→改策略→save→新 store→load，策略生效且 provider/agent 原样。
+- **建议顺手修**：S2 提炼按会话 BOT 路由（`sessionBotIdOf` 解析 `web:<bot>:<user>`，`agent_self`/`content` 命名空间 + receipt `botId` + extractor 输入逐会话；project 回退默认；S2 测试断言 personal/work 分流）；S3 Tabs 单驱动（`bind:value`+`onValueChange` 二写一 → 受控 `value`+`onValueChange`，`onViewChange` 唯一写 `view`）；S4 sanitize 截断走 API 回执声明（PUT/GET 均返回应用后 policy + previewCount，不改静默 clamp 语义，已验证）。
+- 验证：回归全过 225 项（会话域 179：assembly 5、maintenance 3、expiry 1、roundtrip 1、extraction 17 含 S2、其余会话/查询/批量/入站/归档/清理既有；相邻域 46：taskScheduler、settings store、sanitize、hostBash store、durable store）；`vite build` 通过；`tsc --noEmit` 新增文件 0 错误（svelte-check 未安装且 npx 无源——未改 package.json；基线 qqbot 缺 SDK/tabs-list svelte 类型/channels hookManager 等错误未动）；隔离冷启动冒烟（临时 DATA_DIR：重启→首开管理页 200→建会话→预览→策略启用→bulk archive/delete→operation 可读→优雅重启→kill -9→状态/策略/operation 全部恢复；trash-expiry 事件与启用后的 auto-archive 事件均落盘）。
+- **已知局限**：Phase2 无 document saver（transcript-only 产物显式失败并阻塞归档，见矩阵部分交付）；排队信号经 queued/waiting Durable + 运行中 turn 覆盖，无独立逐会话队列存储。
+
+### 会话管理 Phase 2 UI：提炼并归档/状态/待归档筛选（2026-09-08，已实现，T9 closes #45）
+
+- **范围**：管理页固定「提炼并归档」批量控件（走 T8 门控：仅全部成功、需保留结果已保存、无待审核、来源无变化时归档；失败/待审/并发新消息不归档并明示原因；提炼永不删除）；列表新增提炼状态列（unprocessed/processing/saved/no-useful-information/pending-review/partially-processed/failed）与提炼筛选 + processed-but-not-archived 筛选；预览面板展示精确来源范围（processedThroughId + messageRevision）与保留信息（记忆数/文档标题 + 记忆页链接、待审核候选、失败原因）；purge 后预览与状态接口统一返回 source-unavailable。
+- **后端**：`queryManagedSessions` 经 `SessionExtractionStatusSource` 窄端口派生状态（revision 公式与 T8 共用 `buildExtractionRevision`，新消息到达即 partially-processed；空/畸形模型输出只记 failed，永不记无价值）；`SessionBulkService.getSelectionTargets` 供跨页选择复用；`SessionExtractionService.describe` 只读聚合；`POST /api/sessions/managed/extraction` + `GET .../extraction/status`（鉴权+校验+投影）；runtime 接线（assistant-reply JSON extractor + MemoryGateway + 隐私抑制透传，不接 document saver——纯 transcript 产物 siblings 显式失败而非谎称已保存）。
+- **机器守卫**：`sessionManagedExtraction.test.ts`（6：状态派生/范围/引用、partial、双筛选、failed≠无价值）、`sessionExtractionBatch.test.ts`（4：门控语义/selection/永不删除）、`sessionManagedApi.test.ts`（+5：解析/校验/投影）、gateway 抑制透传（1）；双语 key 机器核对 105/105。
+- 验证：sessions 136/136、memory 98/98 全过；`vite build` 通过；新增文件 tsc 0 错误（`sessionManagedApi` 旧坏 import 与 qqbot 缺 SDK 等基线错误未动）。
+- **已知局限**：多 BOT 下 content/agent_self 命名空间沿用默认 botId（未改 T8 构造）；文档引用仅展示标题+docId（尚无独立文档查看路由）；记忆链接到记忆设置页（无单条深链）。
+
 ### 文件面板 HTML 预览暗色可读性根修 + 模板文件默认源码视图（2026-09-06，已实现）
 
 - **症状**：右侧项目文件面板预览 `.html` 文件时，暗色主题下内容接近纯黑、完全看不清（如 Hugo 模板 `layouts/partials/extend_footer.html`）。

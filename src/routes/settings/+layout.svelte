@@ -36,6 +36,7 @@
       skillDrafts: "技能草稿",
       runHistory: "运行历史",
       tasks: "任务",
+      sessions: "会话管理",
       approvals: "审批管理",
       hostBash: "Host Bash",
       systemGroup: "系统",
@@ -77,6 +78,7 @@
       skillDrafts: "Skill Drafts",
       runHistory: "Run History",
       tasks: "Tasks",
+      sessions: "Sessions",
       approvals: "Approvals",
       hostBash: "Host Bash",
       systemGroup: "System",
@@ -106,7 +108,7 @@
     const p = normalizePath(pathname);
     if (p.startsWith("/settings/ai") || p === "/settings/mcp" || p === "/settings/search" || p === "/settings/image" || p === "/settings/video" || p === "/settings/tts") return "ai";
     if (p.startsWith("/settings/web") || p.startsWith("/settings/telegram") || p.startsWith("/settings/weixin") || p.startsWith("/settings/feishu") || p.startsWith("/settings/qq")) return "channels";
-    if (p.startsWith("/settings/agents") || p.startsWith("/settings/memory") || p.startsWith("/settings/skills") || p.startsWith("/settings/skill-drafts") || p.startsWith("/settings/run-history") || p.startsWith("/settings/tasks") || p.startsWith("/settings/approvals") || p.startsWith("/settings/host-bash")) return "data";
+    if (p.startsWith("/settings/agents") || p.startsWith("/settings/memory") || p.startsWith("/settings/skills") || p.startsWith("/settings/skill-drafts") || p.startsWith("/settings/run-history") || p.startsWith("/settings/tasks") || p.startsWith("/settings/sessions") || p.startsWith("/settings/approvals") || p.startsWith("/settings/host-bash")) return "data";
     if (p.startsWith("/settings/system") || p.startsWith("/settings/sandbox") || p.startsWith("/settings/plugins")) return "system";
     return "general";
   }
@@ -141,6 +143,7 @@
         { href: "/settings/skill-drafts", label: t("skillDrafts"), exact: true },
         { href: "/settings/run-history", label: t("runHistory"), exact: true },
         { href: "/settings/tasks", label: t("tasks"), exact: true },
+        { href: "/settings/sessions", label: t("sessions"), exact: true },
         { href: "/settings/approvals", label: t("approvals"), exact: true },
       ] },
     { key: "system", icon: "⚙️", title: t("systemGroup"), links: [

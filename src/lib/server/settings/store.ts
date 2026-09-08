@@ -38,6 +38,7 @@ import {
   sanitizeMiniAppSettings,
   sanitizePiExtensionSettings,
   sanitizePluginEntries,
+  sanitizeSessionAutoArchiveSettings,
   sanitizeTtsGenerateSettings
 } from "$lib/server/settings/sanitize.js";
 import {
@@ -181,6 +182,11 @@ interface RawSettings {
   display?: unknown;
   browserAutomation?: {
     defaultTimeoutMs?: number | string;
+  };
+  sessionAutoArchive?: {
+    enabled?: boolean | string;
+    inactiveDays?: number | string;
+    bots?: unknown;
   };
 }
 
@@ -439,6 +445,7 @@ function sanitizeSubagentRuntimeSettings(input: unknown): RuntimeSettings["subag
       : String(source.persistSessions).toLowerCase() !== "false"
   };
 }
+
 
 function sanitizeBrowserAutomationSettings(input: unknown): RuntimeSettings["browserAutomation"] {
   const source = input && typeof input === "object"
@@ -1186,6 +1193,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const subagentRuntime = sanitizeSubagentRuntimeSettings(raw.subagentRuntime);
   const events = sanitizeEventExecutionSettings(raw.events);
   const browserAutomation = sanitizeBrowserAutomationSettings(raw.browserAutomation);
+  const sessionAutoArchive = sanitizeSessionAutoArchiveSettings(raw.sessionAutoArchive);
   const displayInput = raw.display ?? defaultRuntimeSettings.display;
   const display = {
     toolProgress: displayInput && ["off", "new", "all", "verbose"].includes(String((displayInput as any).toolProgress)) ? ((displayInput as any).toolProgress as any) : (defaultRuntimeSettings.display?.toolProgress ?? "all"),
@@ -1291,6 +1299,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     subagentRuntime,
     events,
     browserAutomation,
+    sessionAutoArchive,
     display
   };
 }
@@ -2097,6 +2106,11 @@ export class SettingsStore {
       } : undefined,
       browserAutomation: {
         defaultTimeoutMs: settings.browserAutomation.defaultTimeoutMs
+      },
+      sessionAutoArchive: {
+        enabled: settings.sessionAutoArchive.enabled,
+        inactiveDays: settings.sessionAutoArchive.inactiveDays,
+        bots: { ...settings.sessionAutoArchive.bots }
       }
     };
   }

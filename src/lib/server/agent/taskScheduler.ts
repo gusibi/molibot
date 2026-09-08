@@ -15,7 +15,7 @@ import { projectWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
 
 export interface InternalTaskExecutionResult {
   notificationText?: string;
-  kind?: "memory-reflection" | "memory-maintenance" | "daily-materials" | "durable-execution";
+  kind?: "memory-reflection" | "memory-maintenance" | "daily-materials" | "durable-execution" | "session-auto-archive" | "session-trash-expiry";
   completedTargets?: number;
   scannedConversations?: number;
   scannedMessages?: number;
@@ -320,6 +320,65 @@ export function ensureOwnerDailyMaterialsEvent(eventsDir: string, settings?: Run
   return filePath;
 }
 
+export function ensureOwnerSessionAutoArchiveEvent(eventsDir: string, settings?: RuntimeSettings): string | null {
+  const filePath = join(eventsDir, "session-auto-archive.json");
+  if (!settings?.sessionAutoArchive.enabled) return disableManagedEvent(filePath);
+  const event: MomEvent = {
+    type: "periodic",
+    enabled: true,
+    taskId: "session-auto-archive-owner",
+    managed: { by: "molibot", scope: "owner", kind: "session-auto-archive", ownerId: SYSTEM_TASK_OWNER_ID },
+    chatId: "internal-session-auto-archive",
+    text: "Daily session auto-archive sweep",
+    schedule: "30 4 * * *",
+    timezone: settings.timezone,
+    execution: "internal",
+    internal: { kind: "session-auto-archive" }
+  };
+  if (existsSync(filePath)) {
+    try {
+      const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
+      if (managedEventMatches(current, event)) return filePath;
+      event.status = current.status;
+    } catch { /* replace malformed managed event */ }
+  }
+  writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+  return filePath;
+}
+
+/**
+ * Daily expired-trash purge. Unlike auto-archive there is no opt-in switch:
+ * the fixed 30-day recovery deadline shown at deletion time governs it, so
+ * the watched event is always enabled. Scheduling rides the same
+ * watched-event JSON + Runtime dispatcher mechanism as auto-archive; the
+ * sweep itself only purges (never restores — restore always wins over a
+ * stale intent) and partial failures stay as recoverable cleanup work.
+ */
+export function ensureOwnerSessionTrashExpiryEvent(eventsDir: string, settings?: RuntimeSettings): string | null {
+  const filePath = join(eventsDir, "session-trash-expiry.json");
+  const event: MomEvent = {
+    type: "periodic",
+    enabled: true,
+    taskId: "session-trash-expiry-owner",
+    managed: { by: "molibot", scope: "owner", kind: "session-trash-expiry", ownerId: SYSTEM_TASK_OWNER_ID },
+    chatId: "internal-session-trash-expiry",
+    text: "Daily expired-trash purge",
+    schedule: "45 4 * * *",
+    timezone: settings?.timezone ?? "UTC",
+    execution: "internal",
+    internal: { kind: "session-trash-expiry" }
+  };
+  if (existsSync(filePath)) {
+    try {
+      const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
+      if (managedEventMatches(current, event)) return filePath;
+      event.status = current.status;
+    } catch { /* replace malformed managed event */ }
+  }
+  writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+  return filePath;
+}
+
 export function migrateLegacyManagedMemoryEvents(botsRoot: string): string[] {
   if (!existsSync(botsRoot)) return [];
   const removed: string[] = [];
@@ -399,6 +458,8 @@ export class TaskScheduler {
     ensureOwnerMemoryReflectionEvent(ownerEventsDir, settings);
     ensureOwnerMemoryMaintenanceEvent(ownerEventsDir, settings);
     ensureOwnerDailyMaterialsEvent(ownerEventsDir, settings);
+    ensureOwnerSessionAutoArchiveEvent(ownerEventsDir, settings);
+    ensureOwnerSessionTrashExpiryEvent(ownerEventsDir, settings);
     const ownerWatcher = new EventsWatcher(
       ownerEventsDir,
       async (event, filename) => {
