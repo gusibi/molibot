@@ -4,6 +4,7 @@ packages:
 blockExoticSubdeps: false
 
 allowBuilds:
+  '@astryxdesign/core': false
   '@google/genai': true
   esbuild: true
   koffi: true
