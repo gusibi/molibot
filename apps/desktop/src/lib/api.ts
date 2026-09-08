@@ -3673,3 +3673,368 @@ export function providerItemToUpdateRequest(provider: DesktopProviderItem): Desk
     thinkingFormat: provider.thinkingFormat
   };
 }
+
+// --- Session management (mirror of the shared managed-session HTTP contract) ---
+
+export type DesktopManagedViewState = "active" | "archived" | "trashed";
+export type DesktopManagedSource = "local" | "project" | "external";
+export type DesktopManagedLength = "empty" | "short";
+export type DesktopExtractionStatus =
+  | "unprocessed"
+  | "processing"
+  | "saved"
+  | "no-useful-information"
+  | "pending-review"
+  | "partially-processed"
+  | "failed";
+
+export interface DesktopExtractionDocRef {
+  docId: string;
+  title?: string;
+}
+
+export interface DesktopManagedSessionItem {
+  conversationId: string;
+  title: string;
+  source: DesktopManagedSource;
+  channel: string;
+  botId: string;
+  projectId?: string;
+  ownerExternalUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastActivityAt: string | null;
+  userTurnCount: number;
+  assistantTurnCount: number;
+  state: DesktopManagedViewState;
+  version: number;
+  retain: boolean;
+  archivedAt: string | null;
+  trashedAt: string | null;
+  extractionStatus: DesktopExtractionStatus;
+  extractionRevision: string | null;
+  processedThroughId: string | null;
+  savedMemoryIds: string[];
+  savedDocRefs: DesktopExtractionDocRef[];
+  pendingCandidateIds: string[];
+}
+
+export interface DesktopManagedSessionCounts {
+  active: number;
+  archived: number;
+  trashed: number;
+}
+
+export interface DesktopManagedListQuery {
+  state: DesktopManagedViewState;
+  botIds?: string;
+  sources?: string;
+  keyword?: string;
+  inactiveDays?: string;
+  activityFromDate?: string;
+  activityToDate?: string;
+  lengths?: string;
+  extractionState?: string;
+  processedNotArchived?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface DesktopManagedListResult {
+  items: DesktopManagedSessionItem[];
+  total: number;
+  counts: DesktopManagedSessionCounts;
+  limit: number;
+  offset: number;
+}
+
+export interface DesktopManagedPreviewMessage {
+  role: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface DesktopManagedPreview {
+  conversationId: string;
+  title: string;
+  state: DesktopManagedViewState;
+  projectId?: string;
+  readOnly?: boolean;
+  messages: DesktopManagedPreviewMessage[];
+}
+
+export interface DesktopExtractionDetail {
+  status: DesktopExtractionStatus;
+  conversationId: string;
+  messageRevision: string | null;
+  processedThroughId: string | null;
+  savedMemoryIds: string[];
+  savedDocRefs: DesktopExtractionDocRef[];
+  pendingCandidateIds: string[];
+  failureReasons: string[];
+}
+
+export interface DesktopBulkTarget {
+  conversationId: string;
+  expectedVersion?: number | null;
+}
+
+export interface DesktopBulkCounts {
+  total: number;
+  succeeded: number;
+  skipped: number;
+  failed: number;
+}
+
+export interface DesktopBulkResultItem {
+  conversationId: string;
+  expectedVersion: number | null;
+  status: "succeeded" | "skipped" | "failed";
+  reason?: string;
+  detail?: string;
+  state?: DesktopManagedViewState;
+  version?: number;
+}
+
+export interface DesktopBulkResult {
+  operationId: string;
+  kind: "archive" | "restore" | "delete";
+  counts: DesktopBulkCounts;
+  items: DesktopBulkResultItem[];
+}
+
+export interface DesktopDescribeDelete {
+  count: number;
+  retentionDays: number;
+  retainsMemoriesAndArtifacts: true;
+  searchRemovedImmediately: true;
+  retainedItemsPath: string;
+}
+
+export interface DesktopExtractionItemResult {
+  conversationId: string;
+  status: DesktopExtractionStatus;
+  archived: boolean;
+  archiveReason?: string;
+  messageRevision: string;
+  processedThroughId: string | null;
+  failureReasons: string[];
+}
+
+export interface DesktopExtractionBatchResult {
+  mode: "extract" | "extract-and-archive";
+  idempotencyKey: string;
+  counts: { total: number; archived: number; failed: number };
+  items: DesktopExtractionItemResult[];
+}
+
+export type DesktopSessionAutoArchiveBotMode = "inherit" | "disabled" | "custom";
+
+export interface DesktopSessionAutoArchiveBotPolicy {
+  mode: DesktopSessionAutoArchiveBotMode;
+  inactiveDays?: number;
+}
+
+export interface DesktopSessionAutoArchivePolicy {
+  enabled: boolean;
+  inactiveDays: number;
+  bots: Record<string, DesktopSessionAutoArchiveBotPolicy>;
+}
+
+export interface DesktopSessionAutoArchiveLastRun {
+  runId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: string;
+  candidateCount: number;
+  archivedCount: number;
+  skippedCount: number;
+  failedCount: number;
+}
+
+export interface DesktopSessionAutoArchiveOverview {
+  policy: DesktopSessionAutoArchivePolicy;
+  previewCount: number;
+  lastRun: DesktopSessionAutoArchiveLastRun | null;
+}
+
+/** Serializes a managed-list query into the shared endpoint's search params. */
+export function desktopManagedQueryParams(query: DesktopManagedListQuery): URLSearchParams {
+  const params = new URLSearchParams({ state: query.state });
+  params.set("limit", String(query.limit ?? 20));
+  params.set("offset", String(query.offset ?? 0));
+  if (query.botIds?.trim()) params.set("botIds", query.botIds.trim());
+  if (query.sources) params.set("sources", query.sources);
+  if (query.keyword?.trim()) params.set("keyword", query.keyword.trim());
+  if (query.inactiveDays) params.set("inactiveDays", query.inactiveDays);
+  if (query.activityFromDate) params.set("activityFromDate", query.activityFromDate);
+  if (query.activityToDate) params.set("activityToDate", query.activityToDate);
+  if (query.lengths) params.set("lengths", query.lengths);
+  if (query.extractionState) params.set("extraction", query.extractionState);
+  if (query.processedNotArchived) params.set("processedNotArchived", "true");
+  return params;
+}
+
+export async function loadDesktopManagedSessions(
+  endpoint: string,
+  query: DesktopManagedListQuery,
+  signal?: AbortSignal
+): Promise<DesktopManagedListResult> {
+  return requestJson<DesktopManagedListResult>(
+    endpoint,
+    `/api/sessions/managed?${desktopManagedQueryParams(query).toString()}`,
+    signal ? { signal } : undefined
+  );
+}
+
+/** Owner-scoped transcript preview; the server answers `source-unavailable` for purged sources. */
+export async function loadDesktopManagedPreview(
+  endpoint: string,
+  conversationId: string
+): Promise<DesktopManagedPreview> {
+  const payload = await requestJson<{ ok: true; preview: DesktopManagedPreview }>(
+    endpoint,
+    `/api/sessions/managed/preview?conversationId=${encodeURIComponent(conversationId)}`
+  );
+  return payload.preview;
+}
+
+export async function createDesktopManagedSelection(
+  endpoint: string,
+  targetIds: string[]
+): Promise<{ selectionId: string; count: number }> {
+  const payload = await requestJson<{ ok: true; selectionId: string; count: number }>(
+    endpoint,
+    "/api/sessions/managed/selections",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targets: targetIds })
+    }
+  );
+  return { selectionId: payload.selectionId, count: payload.count };
+}
+
+export interface DesktopBulkExecuteInput {
+  kind: "archive" | "restore" | "delete";
+  targets?: DesktopBulkTarget[];
+  selectionId?: string;
+  idempotencyKey: string;
+}
+
+export async function executeDesktopManagedBulk(
+  endpoint: string,
+  input: DesktopBulkExecuteInput
+): Promise<DesktopBulkResult> {
+  return requestJson<DesktopBulkResult>(endpoint, "/api/sessions/managed/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+}
+
+export async function retryDesktopManagedBulk(
+  endpoint: string,
+  operationId: string
+): Promise<DesktopBulkResult> {
+  return requestJson<DesktopBulkResult>(endpoint, "/api/sessions/managed/bulk/retry", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ operationId })
+  });
+}
+
+export async function loadDesktopBulkOperation(
+  endpoint: string,
+  operationId: string
+): Promise<DesktopBulkResult> {
+  return requestJson<DesktopBulkResult>(
+    endpoint,
+    `/api/sessions/managed/bulk/operations/${encodeURIComponent(operationId)}`
+  );
+}
+
+export async function describeDesktopDelete(endpoint: string, count: number): Promise<DesktopDescribeDelete> {
+  return requestJson<DesktopDescribeDelete>(
+    endpoint,
+    `/api/sessions/managed/bulk/describe-delete?count=${count}`
+  );
+}
+
+export interface DesktopExtractionExecuteInput {
+  mode: "extract" | "extract-and-archive";
+  targets?: DesktopBulkTarget[];
+  selectionId?: string;
+  idempotencyKey: string;
+}
+
+export async function executeDesktopManagedExtraction(
+  endpoint: string,
+  input: DesktopExtractionExecuteInput
+): Promise<DesktopExtractionBatchResult> {
+  return requestJson<DesktopExtractionBatchResult>(endpoint, "/api/sessions/managed/extraction", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+}
+
+export async function loadDesktopExtractionStatus(
+  endpoint: string,
+  conversationId: string
+): Promise<DesktopExtractionDetail> {
+  const payload = await requestJson<{ ok: true; extraction: DesktopExtractionDetail }>(
+    endpoint,
+    `/api/sessions/managed/extraction/status?conversationId=${encodeURIComponent(conversationId)}`
+  );
+  return payload.extraction;
+}
+
+export async function loadDesktopSessionAutoArchive(endpoint: string): Promise<DesktopSessionAutoArchiveOverview> {
+  return requestJson<DesktopSessionAutoArchiveOverview>(endpoint, "/api/settings/session-auto-archive");
+}
+
+export async function previewDesktopSessionAutoArchive(
+  endpoint: string,
+  policy: DesktopSessionAutoArchivePolicy
+): Promise<number> {
+  return (await requestJson<{ ok: true; previewCount: number }>(endpoint, "/api/settings/session-auto-archive", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ policy })
+  })).previewCount;
+}
+
+export async function saveDesktopSessionAutoArchiveGlobal(
+  endpoint: string,
+  global: { enabled: boolean; inactiveDays: number }
+): Promise<DesktopSessionAutoArchiveOverview> {
+  return requestJson<DesktopSessionAutoArchiveOverview>(endpoint, "/api/settings/session-auto-archive", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ global })
+  });
+}
+
+export async function saveDesktopSessionAutoArchiveBot(
+  endpoint: string,
+  botId: string,
+  bot: DesktopSessionAutoArchiveBotPolicy
+): Promise<DesktopSessionAutoArchiveOverview> {
+  return requestJson<DesktopSessionAutoArchiveOverview>(endpoint, "/api/settings/session-auto-archive", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ botId, bot })
+  });
+}
+
+export async function deleteDesktopSessionAutoArchiveBot(
+  endpoint: string,
+  botId: string
+): Promise<DesktopSessionAutoArchiveOverview> {
+  return requestJson<DesktopSessionAutoArchiveOverview>(endpoint, "/api/settings/session-auto-archive", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ botId })
+  });
+}

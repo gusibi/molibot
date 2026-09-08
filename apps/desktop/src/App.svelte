@@ -8,6 +8,7 @@
   import Database from "reicon-svelte/icons/Database";
   import Film from "reicon-svelte/icons/Film";
   import Gear from "reicon-svelte/icons/Gear";
+  import Archive2 from "reicon-svelte/icons/Archive2";
   import Globe from "reicon-svelte/icons/Globe";
   import History from "reicon-svelte/icons/History";
   import Image from "reicon-svelte/icons/Image";
@@ -38,6 +39,7 @@
   import OpenConnectorSection from "./lib/settings/OpenConnectorSection.svelte";
   import SkillsSection from "./lib/settings/SkillsSection.svelte";
   import MemorySection from "./lib/settings/MemorySection.svelte";
+  import SessionManagementSection from "./lib/settings/SessionManagementSection.svelte";
   import ChannelsSection from "./lib/settings/ChannelsSection.svelte";
   import ProfilesSection from "./lib/settings/ProfilesSection.svelte";
   import PluginsSection from "./lib/settings/PluginsSection.svelte";
@@ -98,7 +100,7 @@
     hapticPreference: HapticPreference;
   };
 
-  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "sandbox" | "hostBash" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "sandbox" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -266,6 +268,7 @@
     { id: "openConnector", icon: AddCircle },
     { id: "skills", icon: MagicWand },
     { id: "memory", icon: Database },
+    { id: "sessionManagement", icon: Archive2 },
     { id: "channels", icon: Radio },
     { id: "plugins", icon: PuzzlePiece },
     { id: "webSearch", icon: Globe },
@@ -286,7 +289,7 @@
   const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "tools" | "channels" | "activity" | "system"; sections: SettingsSection[] }[] = [
     { id: "general", sections: ["general"] },
     { id: "models", sections: ["models", "providers"] },
-    { id: "assistant", sections: ["agents", "skills", "memory"] },
+    { id: "assistant", sections: ["agents", "skills", "memory", "sessionManagement"] },
     { id: "tools", sections: ["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
     { id: "channels", sections: ["profiles", "channels"] },
     { id: "activity", sections: ["runHistory", "usage", "trace", "logs", "hostBash"] },
@@ -329,6 +332,7 @@
       case "openConnector": return copy.openConnector;
       case "skills": return copy.skills;
       case "memory": return copy.memory;
+      case "sessionManagement": return copy.sessionMgmt;
       case "channels": return copy.channels;
       case "plugins": return copy.plugins;
       case "webSearch": return copy.webSearch;
@@ -357,6 +361,7 @@
       case "openConnector": return copy.openConnectorHint;
       case "skills": return copy.skillsHint;
       case "memory": return copy.memoryHint;
+      case "sessionManagement": return copy.sessionMgmtHint;
       case "channels": return copy.channelsHint;
       case "plugins": return copy.pluginsHint;
       case "webSearch": return copy.webSearchHint;
@@ -1019,6 +1024,8 @@
         <OpenConnectorSection />
       {:else if activeSection === "memory"}
         <MemorySection />
+      {:else if activeSection === "sessionManagement"}
+        <SessionManagementSection />
       {:else if activeSection === "logs"}
         <LogsSection />
       {:else if activeSection === "trace"}

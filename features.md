@@ -1,5 +1,11 @@
 # Molibot Features
 
+### Desktop 设置页接入会话管理：api 适配层 + runes store + SessionManagementSection（2026-09-08，已实现）
+
+- **范围**：desktop app 同等获得已交付的 Web「会话管理」能力——后端零改动，直接调共享 HTTP 端点（owner 级查询参数式授权，不传 requester）。`apps/desktop/src/lib/api.ts` 新增类型化适配函数（managed 列表/预览/selection/bulk/retry/describe-delete/extraction/extraction-status/auto-archive 设置，沿用 requestJson 模式）；`stores/sessionManagement.svelte.ts` runes store（筛选/服务端分页/本页多选+shift 范围/跨页全选快照/预览含提炼详情与 source-unavailable/批量与重试/策略编辑，列表请求 generation 所有权防串写）；`settings/SessionManagementSection.svelte` 三视图+全量筛选+批量控件+策略区（`.settings-footbar` 保存），复用既有语义 CSS/组件（SelectControl/StatusBadge/Dialog/EmptyState/IosSwitch/SkeletonRows），i18n 新增 sessionMgmt* 双语 key；App.svelte assistant 组 memory 后新增导航。
+- **机器守卫**：`api.test.ts` +10（URL/方法/载荷/逐项投影/400 透传）、`sessionManagement.test.ts` 11 项（筛选清选择、跨页快照、删除确认门控、archive 逐目标版本、提炼门控模式、策略细粒度路由、失败保留旧行、旧响应不覆盖新结果）；`chat-ui.test.mjs` taxonomy 断言同步 assistant 组扩展。
+- 验证：桌面 tsx 114/114（含既有 api 103 项不回归）、全量 tsx 288 项与 node --test 237 项不回归、`vite build` 通过、`tsc --noEmit` 0 错误。
+
 ### 会话管理生产装配根修：真实忙碌探针/外部只读/Trash 调度/设置 round-trip（2026-09-08，已实现，Session 管理 Phase1 Blockers）
 
 - **B1 生产忙碌探针**：`runtime.ts` 经新装配 `assembleSessionLifecycle`（`sessionServiceAssembly.ts`）装配 lifecycle——真实探针 `createSessionBusyProbe` 覆盖 live runner（`snapshotAllRuntimeRuns`）、待审批（`HostBashStore.listPending` session 维）、非终态关联任务（`DurableExecutionStore.hasNonterminalForSession` 新增：`source_ui_session_id`/attempt `context_session_id` 任一命中即忙）；archive/delete 在生产真正阻塞（busy skip），读失败降级为不忙、永不把监控故障变成 500。机器守卫：`sessionServiceAssembly.test.ts` B1（可控三信号逐个阻塞、清空后成功、默认装配不误伤）。

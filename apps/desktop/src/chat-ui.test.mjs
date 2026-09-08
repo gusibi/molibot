@@ -3139,7 +3139,7 @@ test("Desktop Stop waits for server finalization and reloads preserved output", 
 test("settings navigation keeps the current product taxonomy and entity editors open as dialogs", () => {
   assert.match(app, /id: "general", sections: \["general"\]/);
   assert.match(app, /id: "models", sections: \["models", "providers"\]/);
-  assert.match(app, /id: "assistant", sections: \["agents", "skills", "memory"\]/);
+  assert.match(app, /id: "assistant", sections: \["agents", "skills", "memory", "sessionManagement"\]/);
   assert.match(app, /id: "tools", sections: \["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"\]/);
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
   assert.match(app, /id: "activity", sections: \["runHistory", "usage", "trace", "logs", "hostBash"\]/);
