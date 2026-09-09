@@ -1,5 +1,28 @@
 # Molibot Features
 
+### 图标体系引入 Reicon Duotone：混合字重规范 + 生成管线（2026-09-09，已实现）
+
+- **背景**：桌面端此前只用 Reicon 的 Outline/Filled 两种字重，希望采用官网已展示的 duotone 双色调风格。核查结论：官方框架包（reicon-svelte 最新 1.0.104）仍只含 Outline/Filled，duotone 只存在于官网与官方数据同步（Iconify 官方包 `@iconify-json/reicon` 1.2.4 收录 1238 个 `-duotone` 变体）；且项目在用的 150 个图标中仅约六成有同字形 duotone，Check/X/Loader/Chevron 等 UI 骨架图标官方就没有 duotone 形态——全量切换不可行，细线条功能图标做 duotone 也无意义。
+- **方案（混合字重体系，规范先落 `DESIGN.md` Foundations）**：16px 及以下的功能/状态图标（导航、行内操作、按钮、spinner、全部状态信号）保持 Outline，Filled 仍仅用于既有激活态；20px 及以上的装饰展示位改用 duotone，并在同一 slice 统一应用：`EmptyState` 共享组件 29 个语义图标名中 28 个走 duotone（仅 `activity` 无同概念 duotone 且会与 `pulse` 撞字形，保留 Outline 兜底）、`ProjectDetail` 欢迎位 Folder 28px、`ArtifactPanel` 5 处 `file-empty` 空列表图标。新增生成管线：`@iconify-json/reicon`（devDependency）+ `scripts/generate-duotone-icons.mjs`——manifest 内 EXACT 同名映射 + SUBSTITUTIONS 同概念显式映射（`Timer`→Stopwatch、`Image`→Gallery、`Sparkle`→Wand、`Film`→Clapperboard、`Search`→search2、`ShieldSlash`→shield-cross、`TriangleWarning`→alert-triangle），产出 `apps/desktop/src/lib/icons/duotone/bodies.generated.ts`（32 个 body，禁止手改）；配套手写 `DuotoneIcon.svelte`，API 对齐 reicon 组件（size/color/class/style + restProps，`aria-hidden` 默认 true）。duotone 层走 `currentColor` + 官方烘焙的 50% 次层透明度，明暗主题与全部主题家族自动适配，不做单独图层重绘。
+- **机器守卫**：生成脚本对 manifest 逐名校验存在性，缺名即非零退出；`DuotoneIcon` 的 `name` 类型派生自生成 map（`DuotoneIconName`），引用不存在的名字直接 svelte-check 报错；DESIGN.md 规范禁止手改生成模块。
+- **验证**：生成脚本 32 body 产出；svelte-check 0 错 0 警；desktop tsx 单测 276/276、`node --test` 结构守卫 241/241；vite build 通过（同时解除了上一条 Markdown 修复记录里因图标线缺 `bodies.generated` 而无法本机跑 build 的阻塞）。隔离实例冷启动视觉走查（独立 vite 1428 端口 + 无后端让空态自然呈现，不触碰用户运行中的服务与真实设置）：暗色下 AI 服务商（cloud-cross）、Skills（wand）、图像（gallery）、视频（clapperboard）、搜索（search2）空状态渲染正确；本地强制亮色（`data-resolved-appearance`，不持久化）复验 Skills/搜索正常；settings 侧栏小图标保持 Outline 符合规范。**未完成**：自动任务页因无后端停在「正在加载」，bell/stopwatch 两个 duotone 未在真实面板过目（同一组件管线、数据已校验存在）；ProjectDetail 欢迎位与 ArtifactPanel 空列表需后端会话才能走到，未截图过目。
+
+### Chat Markdown 渲染修复：价格 $ 不再被当成公式，KaTeX 真公式恢复正常排版（2026-09-09，已实现）
+
+- **症状**：回复同一行出现两个 `$` 时（价格、金额最常见），两个 `$` 之间的中英文正文被渲染成斜体数学公式——「订阅费每月 $10，一年 $120」里「10，一年」变公式、「120。」孤离开；表格单元格（`$10/月，年付 $100`）同样中招，流式与最终渲染都错。真写 LaTeX 公式时排版也是错位的。
+- **根因**：desktop `src/lib/markdown.ts` 给 marked 挂 `marked-katex-extension` 时开了 `nonStandard: true`（非标准规则：同行任意两个 `$` 即成 inline math，不要求定界符贴空白），这是价格文本误伤的直接来源；同时 DOMPurify 配置 `FORBID_ATTR: ["style"]` 且只开 html profile，把 KaTeX 视觉层依赖的内联样式（strut 高度、间距）和 MathML 语义层整段剥掉，真公式因此错位。
+- **修复**：`nonStandard` 回归库默认 `false`——标准规则要求闭合 `$` 贴着空白/标点，实测常见价格形态（`$10、 $20`、`支出 $100（收入 $200）`、`总计 $10，其中 $3。`、`costs $5 and $6`、`"$a 和 $b"`）全部保持字面量，残留边界只剩「孤立 `$` 后跟空格」这类刻意写法；sanitize 改为 `USE_PROFILES: { html: true, mathMl: true }`，新增 `uponSanitizeAttribute` hook 把 style 属性限定在 `.katex` 子树内保留、其余一律剥除，模型输出里的原始 HTML 仍然不能带样式或脚本。hook 懒注册：无 DOM 的 Node 导入拿到的 DOMPurify 没有 addHook/sanitize，只在真实消毒路径首次执行时安装。
+- **机器守卫**：新增 `src/lib/markdown.test.ts` 12 项回归（中英价格、表格内价格、单 `$`、标准 inline/display/`$$` 数学、边界形态固化、代码块 chrome、表格查看器注入、heading id 命名空间），接入 desktop test script；`chat-ui.test.mjs` 新增结构守卫锁定 `nonStandard: false`、mathMl profile、`.katex` 范围 style hook、`FORBID_TAGS` 与 `katex.min.css` 引入，防止配置回潮。
+- **验证**：desktop tsx 单测 276/276、`node --test` 结构守卫 241/241 通过；`svelte-check` 报的 4 个错误全部来自进行中的 DuotoneIcon 图标线（`bodies.generated` 未生成、`aria-hidden` prop 类型），与本次改动文件无关；DOMPurify hook 行为在真实浏览器用真实管线输出夹具验证：`.katex` 内 style 存活且计算高度生效（17.37px strut）、KaTeX_Main 字体解析成功、MathML 层在位、原始 HTML 的 style 属性被剥除、内联 script 被拦截。**未完成**：desktop `vite build` 因图标线缺失 `bodies.generated`（`@iconify-json/reicon` 数据包未安装、生成脚本无法运行）无法在本机构跑，待该线完成后补跑；应用内冷启动冒烟走查同样待 build 恢复后进行。
+
+### 输入框富文本实体高亮：按类型着色的 pill + 持久化引用纳入高亮（2026-09-09，已实现）
+
+- **背景**：composer 里 `/grabby` 这类调用 token 原本的 tint 只有 11% 透明度，暗色主题下几乎不可见，也没有按类型区分；从 `@` 菜单选文件后落进输入框的 `@[文件](路径)` Markdown 原文则完全没有高亮，读起来是链接汤。
+- **方案（保持 textarea + overlay 镜像架构不变）**：`segmentComposerInvocations` 升级为通用实体分段——在既有 `[/@]` 词边界 token 之外，复用共享 `parseProjectFileReferences` 识别 `@[file.md](path)`（含 `:行号`、转义），并识别 `[$Skill](.../SKILL.md)`（与提交分类同构），引用在任何偏移都算一个实体，实体内部不再二次起 pill；`ComposerSegment.kind` 扩宽出 `file`。CSS 侧每种类型用「同色系 tint + 1px inset ring（box-shadow，零布局影响）」双通道区分：command 蓝、skill 紫、miniapp 青、file 中性（与建议菜单/invocation 卡片同一套色相），色相从菜单 → 输入框 → 会话记录保持一致。不引入 `$` 之类视觉前缀：任何改变文本 advance 的装饰都会破坏 overlay 与 textarea 的逐字形镜像、挤歪 CJK 输入法候选窗。
+- **pill 尺寸按实测预算放宽**：bleed 从 x2/y3 放宽到 **x4/y3.5**，让胶囊明显大于文字（用户反馈：原来左右紧贴字符）。约束全部实测验证：垂直方向超过 3.5px 后，跨行折行的上下两个 pill 会触碰粘连（4px 时 ring 融成一块，样张确认）；水平方向 4px 是常见场景（行首、两侧有空格）下 ring 不压到相邻字形的最大留白，CJK 无空格紧邻（`让@timer提醒`）在旧值 2px 时本就互压，软 tint 保持可读。`.composer-highlight` 的 `overflow-clip-margin` 相应改为 `max(bleed-x, bleed-y)`，否则盒边缘会削掉首尾 pill 的 bleed；chat-ui 守卫测试同步钉住新值。
+- **机器守卫**：`composerSuggestionCatalog.test.ts` 新增 7 项分段单测（任意偏移 pill、普通文本/未知 token/邮箱/`3/4` 不误报、文件与 Skill 引用各成一实体、引用内部不嵌套 pill、混合实体按阅读顺序合并且拼接恒等于原文）；`chat-ui.test.mjs` 结构守卫补 `parseProjectFileReferences`、SKILL.md 模式与 `.composer-token[data-kind="file"]` 断言。
+- 验证：catalog 单测 8/8、chat-ui 结构守卫 233/233（含 numeric-typography）、相关 chat 模块批 98/98、desktop 全量 tsx 264/264、`svelte-check` 0 错 0 警、`vite build` 通过；另用应用真实 CSS 值搭样张在浏览器截图核对明暗两套主题下四种类型 pill 的观感、折行对齐、无空格 CJK 相邻与上下行堆叠最坏情况（据此选定 x4/y3.5，否决 y4 粘连方案；临时样张与服务已清理）。
+
 ### 会话内 Mini App 快捷入口：顶部菜单与消息打开按钮（2026-09-09，已实现）
 
 - **顶部入口**：普通会话和 Project 会话标题栏都提供可键盘操作的图标菜单；目录只显示已启用且健康的小程序，支持名称/描述搜索、收藏、最近打开的 10 个应用、加载失败重试和「全部小程序」返回既有启动台。

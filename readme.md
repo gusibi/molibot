@@ -5,277 +5,139 @@
 </p>
 
 <p align="center">
-  <img src="./apps/desktop/public/molibot-icon.png" alt="Molibot logo" width="168" />
+  <img src="./apps/desktop/public/molibot-icon.png" alt="Molibot icon" width="128" />
 </p>
 
-<h2 align="center">A memory-first personal AI Agent that grows with your work.</h2>
+<h2 align="center">An AI assistant that remembers your work and helps you finish it.</h2>
 
 <p align="center">
-  Local-first · Long-running context · Configurable agents · Your data, your control
-</p>
-
-<p align="center">
-  <a href="https://github.com/gusibi/molibot/releases/latest">
-    <img src="https://img.shields.io/github/v/release/gusibi/molibot?label=Download&color=blue" alt="Download latest release">
-  </a>
-  <a href="https://deepwiki.com/gusibi/molibot">
-    <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
-  </a>
+  Runs locally · Projects and files · Memory you control · Scheduled tasks
 </p>
 
 <p align="center">
-  <img src="./assets/screenshots/chat.png" alt="Molibot desktop chat" width="800" />
+  <a href="https://github.com/gusibi/molibot/releases/latest">Download for macOS</a> ·
+  <a href="#quick-start">Get started</a> ·
+  <a href="https://github.com/gusibi/molibot/issues">Share feedback</a>
 </p>
 
-Molibot is a local-first personal AI Agent for people who want more than a new chat window. It is built around two promises:
+Molibot is a personal AI assistant for ongoing projects, document work, and recurring tasks. Work with local files, inspect the results, keep useful preferences and context in memory, and schedule work you repeat.
 
-- **Current release.** v2.9.40 (Desktop v0.9.40)
+You choose the model and control which tools, files, and memories the assistant can use.
 
-- **Easy to start.** Download the macOS app, pick a model provider, and start chatting — one runtime serves the Desktop app, Web, Telegram, Feishu, Weixin, QQ, and the CLI.
-- **Grows with you.** Governed long-term memory, daily memory reflection, and reviewable automations mean the Agent learns your preferences, projects, and habits over time — and you can keep or reject each daily candidate directly from private Telegram or Feishu buttons without opening the app.
+<p align="center">
+  <img src="./assets/screenshots/chat.png" alt="Molibot desktop workspace showing a conversation and task progress" width="900" />
+</p>
 
-## 🚀 Major Features in Latest Upgrade (V2.8+)
+<!-- IMAGE 1: Replace the image above with a GIF or linked video cover for a 60–90 second real task demo.
+Show: provide a document → the Agent processes it → open the resulting file. Use sanitized material.
+Save the asset in assets/screenshots/ and update the image path above; link a video cover to the video.
+-->
 
-This release introduces two major runtime and UI pillars that make Molibot significantly more powerful and extensible:
+## Start with something you need done
 
-### 🔌 OpenConnector: Unified Third-Party Integrations
-OpenConnector integrates Cloudflare and Molibot to connect external services seamlessly. It enables safe runtime credential configuration and connected-account discovery.
-- **Local-First & Secure:** Saved access tokens are kept safely in your local workspace and are never sent in summaries or exposed to standard LLM prompts.
-- **Agent Gateway Integration:** When configured, it derives a managed, real-time remote MCP connection for your Agents, automatically registering connected services with zero manual configuration.
-- **Category Filter Catalog:** Navigate third-party providers with a responsive, double-column settings interface with category counts, active indicators, and safe homepage deep links.
+### Turn documents into usable results
 
-### 📦 Mini App Platform: Local-First Application Runtime
-Molibot now runs **Mini Apps** inside the desktop client and Agent loop, letting you extend the agent's tools and UI.
-- **Hosted UI & Unified Runtimes:** Mini Apps run inside a highly locked-down iframe sandbox on a custom local origin, sharing the same state module and SQLite database as their background agent tools.
-- **Automated Installation & Provenance:** Install instantly from local folders, `.zip` archives, or GitHub repositories. Manifest and directory checks protect the host system during install and upgrade, and new code activates without restarting Molibot.
-- **Unified Composer Integration:** Call installed apps using `@app-id` in the composer (with syntax-highlighted pills) or check the Sidebar's Mini Apps section to view and open recent apps.
-- **Explicit Host Bridges:** Apps can contribute message/selection/attachment actions, fill an editable chat draft or attach a file to it without ever sending, jump to a conversation, and use host-routed text/transcription through `ctx.ai` while credentials stay inside Molibot.
-- **Results You Can Act On:** A tool result can carry a compact summary card, deep-link back into its own app panel (`molibot://miniapp/<id>/<path>`), and set a quiet unread count or dot on its sidebar row — no system notifications, no interrupting popups.
-- **Working Reference Apps:** Todo demonstrates deterministic capture; Note presents safe Markdown and reflects Agent writes in an already-open panel; Meeting Notes presents a focused recording-studio workspace with native pause/resume and microphone/save health, streams bounded 10-second blocks into a live transcript, rolls provisional notes every minute, and stores finished meetings in a searchable, status-filtered History library; MD Preview renders Markdown with Momo Paper, Vercel Geist, and Macaron (甜彩微排) themes, copies WeChat Official Account-ready inline rich text, and maps local images to Cloudflare R2; Prompt Box provides cloud-synchronized prompt management with pb.onlinestool.com, one-click chat composer insertion, and right-click message capture.
-- **Lightweight Mini Chat:** The optional Astryx-powered Mini Chat streams the explicitly selected PI/custom model with per-request priority over the global text route (or follows the Mini App default) using bounded user/assistant history and `low` reasoning, then stores the completed reply in its own SQLite conversations. Conversation deletion uses an in-app confirmation dialog compatible with the Mini App iframe sandbox. An optional short system prompt belongs only to Mini Chat; Agent defaults, memory, Skills, and tools stay unloaded. Its teal two-bubble icon joins the colorful built-in app family, while the aligned, shadow-free narrow-screen layout preserves reading width.
-- **Developer Scaffolding:** Includes a built-in `miniapp-creator` Skill and Agent template with a runnable template, database WAL mutation, and code scaffolds.
+Give Molibot a PDF, Word document, or spreadsheet to extract key points, organize information, or create a new document. Inspect files and outputs beside the conversation, then ask for changes.
 
-## Why Molibot?
+For example, attach a project brief and try:
 
-Most AI chats start from scratch. Molibot focuses on the work that accumulates.
+> Extract the goals, action items, and open questions from this project brief into a Markdown file. Flag any missing information.
 
-- **Remember what matters.** Governed memory keeps useful preferences and project context available, while giving you visibility and control over what is saved and injected.
-- **Choose what survives a turn.** Explicit “do not remember”, “not searchable”, and “this turn only” instructions independently control memory, conversation search, and future model context; deleting data remains a separate, target-specific action.
-- **Shape your own Agent.** Profiles, Skills, tools, and model routes let you define how an Agent should work instead of relying on one fixed assistant. Built-in Agent template updates are applied from Agent settings; edited copies are backed up before replacement.
-- **Keep each conversation on its chosen model.** Chat model selection is Session-scoped and restart-persistent, while Settings remains the explicit place for changing global defaults.
-- **Choose model and thinking depth without losing provider context.** Desktop Chat, Project Chat, and Settings group model choices by provider into single-line rows; Settings reloads the inventory after Provider edits, while each Session keeps its own selected model.
-- **Use consistent controls everywhere.** Desktop settings, Project settings, and onboarding share one accessible, theme-aware macOS-style selection menu with independently clickable rows, keyboard navigation, checked state, and enough width for long model names.
-- **Keep advanced settings usable at every window size.** Entity editors portal to the window's centered top layer and share one bounded dialog with a scrolling body and fixed actions; advanced Skill search stays collapsed until requested, media and Sandbox forms keep balanced grids, and Memory can show its overview before slower datasets finish loading.
-- **Verify a model where you configure it.** Each Provider model editor tests its saved connection and keeps the passed/failed result beside the test action inside the dialog, without leaking transient feedback onto the Provider page behind it.
-- **Turn repeated Project prompts into readable shortcuts.** Project settings keeps custom commands in one aligned, labeled editor; typing `/` in Project Chat lists them without auto-sending, and controls use a quiet neutral focus treatment instead of blue or nested outlines.
-- **Schedule work inside a Project without involving a Bot.** Project settings and the global Automations workspace share one Project-task editor, scheduler, run history, and transcript. Each run uses the Project's current workspace and Agent context, follows the existing fresh task-session behavior, and keeps its result inside the app.
-- **Keep Chat context visible without visual noise.** A vertically aligned `# source / title` header distinguishes Web, Feishu, Telegram, QQ, Weixin, and Project conversations; its full passive surface drags the native window, the safely inset compact sidebar shares Settings' `228px` navigation baseline (older narrower saved widths clamp to it), and the Web row offers a direct new-Session shortcut without adding irrelevant actions to external channels. One title-bar search spans Web, Project, and external conversations with source filters and grouped 10-at-a-time results; each sidebar channel also reveals history 10 Sessions at a time in place, and later list revalidation keeps already revealed rows mounted.
-- **Recognize external channels at a glance.** The Desktop Chat Session rail uses bundled Reicon brand SVGs for Telegram, QQ, Weixin, and Feishu (using the Doubao logo), keeping the existing 16px icon slot and a local neutral fallback for channels without a brand asset.
-- **Give Web its own visual anchor.** The Desktop Chat Session rail uses a bundled, code-generated Safari-style compass SVG with a blue/cyan gradient and red/white needle, keeping the same 16px slot without a network dependency.
-- **Start an Agent task without a blank canvas.** An empty local Session offers three quiet quick starts that fill and focus the existing composer without sending, so the user can edit the draft or ignore the suggestions entirely.
-- **Keep identity controls and long Project histories compact.** The composer uses a single Bot initial with the full name available in its accessible picker, keeps the permission-mode label arrow-free, holds Bot badges within a restrained design-token palette, and reveals each Project's Session history 10 rows at a time through “More conversations.”
-- **Read code and reply details without visual friction.** Chat Markdown shares the Artifact Inspector's GitHub/Primer light and dark syntax palette. Reply metrics and model/memory provenance remain inline when space permits; a narrow message column merges them and Mini App actions into one self-dismissing details menu.
-- **Inspect external conversations without duplicated chrome.** Read-only Telegram, Feishu, QQ, and Weixin transcripts combine their source and Desktop read-only state into one quiet footer line.
-- **Inspect code like a repository.** The right-side Artifact Inspector now follows a GitHub / Primer workspace language: a source tree on a neutral canvas, flat file tabs, a path/action header, GitHub-colored code/preview surfaces, and recognizable language/media file icons without any online icon fetch. Newly written HTML opens as a sandboxed rendered page instead of an empty diff. JSON opens as the original highlighted source by default; parsing into a collapsible tree is an explicit action, with bounded fallbacks for large or invalid documents. CSV/TSV and XLS/XLSX files use read-only tables with sheet tabs where applicable, while DOCX and PPTX use lazy read-only document/slide previews. Project file rows stay on one line, Agent-touched files use filename color instead of a separate status dot, Changes rows show per-file `+added / −deleted` counts, and diff gutters scroll with their code. If macOS denies access to an iCloud, Desktop, or Documents Project, the panel offers a native same-directory reauthorization action instead of leaving only a raw filesystem error.
-- **Review each turn's final files.** Completed replies show one flat Created/Updated file list without repeating the legacy attachment strip. Open the whole list or a single item—including rendered HTML from an ordinary Session—in the Artifact Inspector to inspect its current final content; successful Session scratch writes register directly, without requiring Git snapshots or a separate `attach` call. Opening remains reliable while the Inspector is refreshing the same Session file list, and Session-owned generated images remain previewable even when the conversation belongs to a Project.
-- **Stay oriented in long sidebars.** Conversation and Project share one sticky first-level title slot, so the visible heading follows the section currently being scrolled without stacking extra chrome.
-- **Open Mini Apps like real applications.** Desktop presents manifest icons in the bounded Mini App manager, the recent-first 10-item sidebar section, and Inspector chrome; its sidebar section uses the same compact header rhythm as Conversation and Project, staying transparent in normal flow and showing edge-faded glass only while pinned, while installation, enablement, opening, and removal stay together in one discoverable application-library surface.
-- **Build Mini Apps with receipts, not promises.** The Creator builds in Session scratch, runtime-smokes against temporary data, atomically installs through the shared manager, and reads back the installed version and manifest hash before it can report completion.
-- **Trust what each message shows.** Desktop transcripts retain provider errors and completed replies with their actual response model, while message links open safely in the system browser without navigating away from Molibot.
-- **Follow work in the order it happened.** Live Chat keeps its current process open, completed work collapses to a stable time/tool/file summary, and one ordered timeline preserves reasoning, narration, and tool lifecycles—including events that land inside one animation frame. Repeated successful reads, changes, searches, and commands condense into readable action rows without hiding active, failed, or unknown tools.
-- **Navigate long conversations by turn.** Desktop Chat, Project Chat, and external transcripts gain a quiet left-edge user-prompt rail after five turns, with immediate Dock-style hover, a readable user/reply preview, keyboard access, and history-safe streaming.
-- **Use each model's real thinking depths.** Built-in models follow pi 0.84.3's per-model levels; custom models and built-ins without capability metadata expose all seven canonical choices (`off / minimal / low / medium / high / xhigh / max`) without guessed remapping.
-- **Configure providers without losing context.** Web and Desktop use the same searchable provider-first workspace, with connection/auth status and a scan-friendly model inventory in one place; Desktop groups model families by the prefix before the first `-`, and newly saved models appear in the Chat selector immediately without restarting.
-- **Follow Pi's provider catalog and tune custom requests.** Built-in provider/model candidates come from the shared Pi registry, while custom models can persist request-level JSON sampling parameters. Pi request telemetry, raw stop reasons, and explicit end-turn signals stay correlated with the existing Run Trace.
-- **Configure generation and recognition independently.** Web and Desktop Image Settings have separate Generation and Recognition tabs. Recognition keeps original images intact for vision-capable primary models and lets text-only models call ordered API engines through `read(path, prompt)`; multiple engines, testing, failover order, and restart persistence are configurable without Channel-specific logic. Desktop keeps multi-engine editors expanded while typing, aligns the tab strip to the shared settings column, uses a narrow credential-safe projection, and recovers cleanly after the local service returns. A local CLI adapter is reserved for phase two.
-- **Recover local MCP tools without restarting Molibot.** Web and Desktop distinguish enabled configuration from the live connection, show disconnect/error details, and provide immediate enable, disable, reconnect, and delete controls. Explicit reconnect now fails honestly when that server remains unavailable, and Session loading checks the requested server rather than aggregate connection counts; Agent tool exposure remains explicitly gated.
-- **Explore without destroying history.** Fork from an AI reply in main Chat or Project Chat to create a visible child Session that includes that reply while leaving the parent untouched; editing a user message remains an explicit in-place rewrite.
-- **Work where you already are.** Use one local runtime from Web, macOS Desktop, Telegram, Feishu, Weixin, QQ, or the CLI.
-- **Diagnose media failures at the shared boundary.** Voice-transcription errors carry safe provider/model, audio, timing, and upstream trace details across every channel without logging credentials or cookies.
-- **Keep execution in your hands.** Tasks, approvals, sandbox policy, and run records make automation visible rather than opaque; Desktop resolves approvals across Host Bash, MCP tools, and file writes through the same Session-scoped card flow. Host Bash decisions execute the stored command and return its result to the originating tool call before continuation. Background approval continuations retain structured tool activity and one final answer; Desktop follows server run status until the turn settles or needs another approval.
-- **Manage Agent todos, reminders, and automations as real resources.** Runtime Tasks support create, list, inspect, update, and delete by stable id; unscheduled todos never trigger, and the optional Todo Mini App keeps its own data and never becomes a dependency of the base Agent.
-- **Keep Todo titles readable.** Built-in Todo row actions float over the right edge instead of taking a permanent flex slot, so long task titles use the full list width while hover, touch, and keyboard actions remain available.
-- **Deliver formal documents with a verification receipt.** The Agent can generate DOCX, XLSX, and PDF files in Project or Session scratch, then re-open and validate their text, sheets, and typed cells before it reports success or attaches them; PPTX export remains deferred.
-- **Treat a reminder as delivered only when the channel agrees.** Short restart gaps catch up once, expired reminders skip explicitly, offline transports fail visibly, and the live acceptance probe covers Desktop/Web, Telegram, and Feishu without coupling Runtime Tasks to the optional Todo Mini App.
-- **Contain third-party runtime failures.** Mini Apps—including Agent-side scratch validation before install—and installed Pi extensions execute outside the service process with memory limits, deadlines, cancellation, and process-tree termination, so an extension exit or infinite loop cannot take down every channel; this is fault isolation, not an OS permission sandbox.
-- **Reference Project files without turning UI syntax into a path.** Composer references display as `@[file](path)`, resolve against the registered Project root at runtime, and file-change claims require a successful write/edit receipt.
-- **Fail closed when isolation is unavailable.** With Bash sandbox enabled, a missing or failed sandbox blocks the command instead of running it on the host. Host execution requires either an explicit sandbox-off choice or Host Bash approval.
-- **Filter and inspect operational logs without reading a wall of text.** Desktop Service Logs separates LLM calls, tool use, Subagent work, severity, status, and Run correlation; every row opens full pretty JSON or original text while long IDs stay compact in the list. The active file rolls automatically at 20 MiB with five retained archives, independently of SQLite Trace.
-- **Let long work fail safely.** Parent and delegated budgets are separate, completed tool results survive context recovery, and interrupted inbound tasks wait for an explicit retry instead of disappearing or replaying side effects automatically.
-- **Reject oversized context before it reaches a model.** The Runtime budgets the final system prompt, tools, history, and current turn, compacts or caps only the model-facing copy when needed, and preserves the user's original message for audit.
-- **Control messages sent during a running task with one tap.** Telegram and Feishu queue the new message and show Stop / Steer buttons: stop the current work or inject that exact message immediately, without copying queue IDs or typing commands. Feishu immediately acknowledges the click and replaces the card with the final result, falling back to a text receipt if card updating fails. Once accepted, the injected text also survives provider timeouts and whole-attempt retries instead of disappearing before the successful response.
-- **Keep every completed reply.** When one Agent run produces a primary answer plus terminal supplements, Chat displays each one instead of letting the last message hide an earlier complete result; after completion, reasoning and tool-loop progress fold into one expandable process row.
-- **Tune appearance in two independent dimensions.** Choose Brightness (`Light` / `Dark` / `System`) separately from Theme family (`Minimal (macOS)`, `Rosé Pine`, `Catppuccin`, or `Midnight`). Rosé Pine pairs Dawn/Moon, Catppuccin pairs Latte/Macchiato, and Midnight includes the Daybreak light companion; Chat, Settings, and the right-hand File Inspector follow the same semantic theme tokens, while Chat and Settings retain their native macOS sidebar material with a translucent, blurred glass layer.
-- **Review a Plan where the decision happens.** A proposed Plan stays complete and visible at the bottom of its turn beside the confirmation actions; substantial read-only investigation can use Scout/Planner Subagents without giving Plan mode an indirect write or Bash path.
-- **Keep every message inside its reading column.** Long prose and paths wrap naturally; code, tables, math, diagrams, and diffs preserve their layout with a local horizontal scroller instead of widening Chat or Project Chat.
-- **Inspect diagrams without losing their source.** Every Mermaid block can switch between its rendered preview and selectable source, copy the exact diagram text, or expand into the shared zoom-and-pan viewer.
-- **Contain broken diagrams without breaking the window.** Invalid Mermaid remains a local, readable source fallback inside its message; Mermaid's own temporary error renderer cannot escape into the Desktop shell or force a restart.
-- **Render D2 without shipping a local compiler.** Complete `d2` blocks use the Desktop service's server-side renderer, follow the selected light/dark appearance, and keep a selectable source fallback when the renderer is unavailable.
-- **Keep Chinese tables readable.** Chat Markdown table previews use the UTF-8 CSV viewer instead of a binary workbook parser, preserving CJK headers and cells.
-- **Keep Skill invocations semantic.** A selected Skill returns to the transcript as a Skill card with its name and the user's request; its authoritative local file reference remains available to the Agent without exposing the path as message prose.
-- **Keep the data local.** Your runtime, configuration, conversations, and operational state stay on infrastructure you control.
+Molibot supports PDF, DOCX, and XLSX extraction, plus DOCX, XLSX, and PDF export. Image recognition needs a vision-capable model or a separately configured recognition service. See [tools and document processing](docs/features/tools-skills-and-mcp.md).
+
+<!-- IMAGE 2: File workflow. Suggested path: assets/screenshots/readme-files.png.
+Show the input document, the response, and the final artifact open in the right panel, rather than only chat text.
+When ready, insert here:
+![From project documents to an inspectable output file](./assets/screenshots/readme-files.png)
+-->
+
+### Keep working on the same project
+
+Add a local folder as a Project to keep its conversations and files in one workspace. Project context stays separate from ordinary personal conversations; long-term memory can retain useful preferences and background so you repeat less setup.
+
+For example, ask in a project conversation:
+
+> Read this folder's project brief and progress notes. Summarize the current status and suggest next steps, citing the source files.
+
+You can inspect, edit, and delete memories, and control whether a turn enters memory or future context. Memory does not guarantee recall of every message or replace your source documents. See [Project workspaces](docs/features/desktop-project-workspace.md) and [personal Agent and memory](docs/features/personal-agent-and-memory.md).
+
+<!-- IMAGE 3: Project and memory. Suggested path: assets/screenshots/readme-project.png.
+Show a sanitized real project: project conversations, the current task, and its files. If showing memory, use an actual saved entry.
+When ready, insert here:
+![Continuing work in a project workspace](./assets/screenshots/readme-project.png)
+-->
+
+### Put recurring work on a schedule
+
+Create one-time or recurring tasks in Automations, then inspect their run history and results. Projects can also have scheduled tasks that use their own context and keep results inside the app.
+
+For example, create a weekly task for a Project containing your work notes:
+
+> Every Friday, summarize this week's project notes into a draft status report, including completed work and open questions.
+
+The local runtime must be running, with the model and required services available. Tasks cannot execute on time while the computer is asleep or off; recovery depends on the task type and catch-up rules. See [scheduled task execution and recovery](docs/features/scheduled-task-execution-and-recovery.md).
+
+If you regularly discuss your work in Molibot, you can also enable [Daily Materials](docs/guides/daily-materials.md) to turn authorized conversations into source material in a selected Project for reflection or writing.
+
+## Adapt it to your workflow
+
+- **Choose your model.** Connect a supported model account, API key, or custom compatible endpoint. Manage providers in Settings and select models in conversations.
+- **Use chat channels.** Configure Telegram, Feishu, Weixin, or QQ to access the same local runtime. Each channel needs its own credentials and connection setup.
+- **Add tools and workflows.** Extend the assistant through Skills, MCP, and OpenConnector. Individual external services need separate configuration.
+- **Use Mini Apps.** Install tools for notes, todos, meeting notes, or Markdown preview, or ask the Agent to help create a personal app. See the [Mini App guide](docs/guides/miniapps/authoring.md).
+- **Control execution.** Use permission modes, approvals, and run records to inspect Agent actions and stop tasks when needed.
 
 ## Quick start
 
-### Option A · Download the macOS app (recommended)
+### Download for macOS
 
-1. Download the latest `Molibot_*.dmg` from [Releases](https://github.com/gusibi/molibot/releases/latest) (Apple Silicon).
-2. Open the app. Molibot starts its local runtime automatically — no terminal setup required.
-3. In **Settings → AI Providers**, use **Sign in now** for a supported account (including Kimi Coding, ChatGPT/Codex, Claude, Copilot, OpenRouter, Radius, and xAI), or add an API key.
-4. Start chatting with Momo, the first-use default Agent. The app can also live in the menu bar and keep running in the background.
+You need an Apple Silicon Mac and a working model account or API key. Check [Releases](https://github.com/gusibi/molibot/releases/latest) for the currently available installers.
 
-### Option B · Run from source
+1. Download `Molibot_*_aarch64.dmg`, install, and open the app. The local runtime starts automatically.
+2. In **Settings → AI Providers**, connect a supported account or enter an API key, then choose an available model.
+3. Open a conversation with Momo, the default assistant. Attach a real document and try the document task above.
+4. Inspect the output and ask for a revision. Create a Project when you want to keep working with a local folder.
 
-Requires Node.js 22.19 or newer. The macOS Desktop release bundles the project's pinned Node 22.23.1 runtime automatically.
+If the connection fails, test it in the provider settings and check account authorization, available quota, and endpoint configuration.
+
+### Run from source
+
+Requires Git, Node.js 22.19 or newer, and Corepack. These commands use the pnpm version specified by the repository:
 
 ```bash
+git clone https://github.com/gusibi/molibot.git
+cd molibot
 corepack enable
 pnpm install
 pnpm link --global
-
 cp .env.example .env
 molibot init
 molibot
 ```
 
-Then open `http://localhost:3040`, configure an AI provider, and create or confirm an Agent before starting a chat.
+Open `http://localhost:3040`, configure a model provider, create or confirm an Agent, and start chatting. The default data directory is `~/.molibot`; see [.env.example](.env.example) for environment configuration.
 
-Molibot uses pi-mono 0.84.3 through one shared server runtime: built-in model catalogs, API-key/OAuth resolution, main and sub-Agent streaming, compaction, and readable context identity share the same upper-layer boundary. New ordinary Sessions use `s-YYYYMMDD-xxxx` across App/Web, Projects, and channels; automation contexts use `t-YYYYMMDD-xxxx`, while existing legacy ids remain readable. OAuth-capable providers can be connected from Web or Desktop Settings with browser, device-code, or manual-redirect flows; regular Moonshot global/China endpoints continue to use `MOONSHOT_API_KEY`, while Kimi subscription login uses `kimi-coding`. Custom OpenAI-compatible and Anthropic-compatible endpoints remain isolated to their saved Bot/settings snapshot, while system instructions stay in pi's top-level context instead of being serialized as transcript messages. OpenAI-compatible requests choose `system` or `developer` from the selected custom model's saved `supportedRoles`, not from SDK URL heuristics.
+## Before you start
 
-Built-in Providers such as OpenCode use Pi's own catalog and transport, so they do not need a Base URL; only self-hosted/custom Providers require one. If a key belongs to an aggregator such as OpenRouter, select that built-in Provider (or configure a custom endpoint) instead of using the OpenCode Provider.
+- **Model costs.** Molibot does not include model credits. Model and third-party service providers set their own fees and usage limits.
+- **Local storage and external requests.** Configuration, conversations, and run records are stored locally. Cloud models receive the messages, file content, and relevant memories needed for a task; external tools also send requests to their services. Running locally does not mean fully offline.
+- **Personal use.** Molibot targets single-owner local deployments. Desktop releases focus on macOS. Other platforms can try running from source; this does not imply equivalent desktop support.
+- **Review results.** Model output needs verification. Check content and permissions before external delivery, public publishing, or destructive actions. Molibot does not publish social content by default.
 
-For provider configuration, channels, deployment, and environment variables, see the [documentation](#documentation).
+## Feedback and contributions
 
-## A look inside
+Try Molibot with a task you actually need to finish. Whether it works or gets stuck, share your experience through [GitHub Issues](https://github.com/gusibi/molibot/issues):
 
-### One workspace for all your Agents
+- What you wanted to accomplish and how you usually do it.
+- Where you got stuck, or what the output got wrong.
+- Your platform, Molibot version, and model. Sanitized screenshots or errors help; do not include keys or private data.
 
-Every Agent gets a place in Agent City — see at a glance who is on duty and working, then point at a floor to inspect that Agent's live details.
-
-<p align="center">
-  <img src="./assets/screenshots/agents.png" alt="Agents — Task Dispatch Center" width="800" />
-</p>
-
-### An Agent that learns you, on a schedule
-
-System tasks like **Daily Memory Reflection** review recent conversations and distill durable memories — so the Agent gets more useful the more you use it. The configured private Telegram or Feishu destination receives the usual summary followed by numbered Keep / Don't keep cards; other channels and group chats never receive candidate content. Your own automations and one-time tasks live alongside them, with full run history.
-
-<p align="center">
-  <img src="./assets/screenshots/auto-tasks.png" alt="Auto tasks — automations and system tasks" width="800" />
-</p>
-
-### Settings that stay understandable
-
-Language, startup behavior, menu-bar mode, notifications, and appearance — all in plain terms, with each page explaining its own sharing scope. Form controls use one standard size, and time fields open the host-native picker when available. Memory Reflection and Daily Materials share one authorized Telegram/Feishu completion destination, configurable from either plugin card while keeping separate notification switches.
-
-<p align="center">
-  <img src="./assets/screenshots/setting-general.png" alt="Settings — General" width="800" />
-</p>
-
-### Know exactly what your Agent costs
-
-A local usage dashboard tracks requests, token trends, cache hit ratio, and token distribution — aggregate counts only, no credentials ever leave your machine. Range/model/Bot/channel controls keep a compact, evenly spaced filter row without overlapping at the supported minimum window, while Trace puts exact diagnostic IDs behind a low-emphasis optional “More filters” disclosure.
-
-<p align="center">
-  <img src="./assets/screenshots/setting-usage.png" alt="Settings — Usage dashboard" width="800" />
-</p>
-
-## What you can do today
-
-| Capability | What it gives you |
-| --- | --- |
-| [Personal Agent and Memory](docs/features/personal-agent-and-memory.md) | Momo as the first-use default, built-in Agent templates including Workplace English Coach, governed long-term memory, and isolated project or Agent context. |
-| [Channels and Surfaces](docs/features/channels-and-surfaces.md) | One local runtime across browser, macOS Desktop, chat channels, and the terminal. |
-| [Tools, Skills, and MCP](docs/features/tools-skills-and-mcp.md) | Configurable Agent behavior, guarded web access, route-driven image/OCR analysis, PDF/DOCX/XLSX extraction, and controlled access to reusable workflows and external tools. |
-| [Assistant Capability Matrix](docs/requirements/personal-assistant-capability-matrix.md) | The single current four-state view of delivered, partial, pending-verification, and not-started work/life assistant capabilities. |
-| [Automatic Durable Execution](docs/requirements/automatic-durable-execution-prd.md) | Persistent, inspectable long-task foundation with accepted-Plan step execution, tiered lazy promotion, virtual Web profile routing, versioned progress, side-effect receipts, fail-closed recovery, bounded untrusted evidence reads, source-channel approvals, short-handle controls, and Desktop status surfaces; full cold-start/cross-channel acceptance remains in progress. |
-| [Project Automations PRD](docs/requirements/project-automations-prd.md) | Periodic Runtime Tasks scoped to a Project, with watched JSON scheduling, current Project context, fresh app-only Sessions, shared Desktop CRUD/history, and no Bot or Channel delivery. |
-| [Session Permission Modes](docs/requirements/permission-modes-prd.md) | Plan, Manual, Accept edits, and Auto in an independent composer control, with pre-inference tool narrowing, artifact-backed checklists, unified decisions, and planning, execution, review, feedback, and revision in the same Session. |
-| [OpenConnector](docs/requirements/openconnector-cloudflare-and-molibot-plan.md) | Connect third-party services with secure runtime tokens and dynamic remote MCP integration. |
-| [Mini App Platform](docs/guides/miniapps/authoring.md) | Build local-first apps with tools, hosted UI, message actions, the composer bridge, controlled uploads and host AI. |
-| [Plugin-owned Settings and Storage](docs/requirements/plugin-owned-settings-prd.md) | Partially delivered plugin contract: Web and native Desktop provide the same four-item catalog and dedicated pages, independent storage, theme/height-aware and clone-safe custom UI hosting, and the External Subagent reference migration with environment-gated enablement plus fail-closed per-provider execution; enhanced-pi installation and remaining migrations are tracked here. |
-| [External Subagent](docs/requirements/plugin-owned-settings-prd.md) | Run OpenAI Codex or Claude Code as a one-shot child Agent through the built-in plugin: PATH detection or on-demand binary install, JSON-RPC transport, bilingual theme-aware settings with detect/install/test, and upgrade that preserves config and data. |
-| [Automation, Approvals, and Sandbox](docs/features/automation-approvals-and-sandbox.md) | Scheduled work and execution controls that stay inspectable and reviewable. |
-| [Desktop Project Workspace](docs/features/desktop-project-workspace.md) | Native macOS chat, projects, files, Agent City, automations, and Settings in one local workspace, with one stable live reply per Project turn and Finder-style native sidebar materials. |
-
-OpenConnector is available in Desktop under **Settings → Tools → OpenConnector**. Its connection settings stay collapsed until needed; the compact local-cached catalog exposes category counts, active services, and Provider logos, supports explicit manual refresh and saved-token reveal/hide, opens Provider setup, and exposes the real-time managed remote MCP to Agents through the bundled read-only Skill. See the [deployment and integration design](docs/requirements/openconnector-cloudflare-and-molibot-plan.md).
-The Provider directory uses a readable two-column layout with one compact search/status/multi-category filter row; selecting several categories includes Providers from any selected category.
-Each Provider owns its card boundary, so odd result counts leave a clean empty column instead of drawing an empty row cell.
-Provider identity stays left-aligned while connection state and management actions form a consistent right-aligned group.
-When OpenConnector supplies a Provider homepage, its logo and name open that official site in the system browser.
-When enabled and configured, the derived `open-connector` service also appears in **Settings → Tools → MCP** with its live connection state and a Managed label. Reconnect is available there; configuration remains owned by the OpenConnector page.
-
-Project runs generate `SYSTEM_PROMPT.preview.md` in the Project's Molibot workspace. Its header lists only effective prompt sources: Project rules come from `AGENTS.md`, `AGENT.md`, or `CLAUDE.md`; runtime context retains `USER.md` but excludes Bot/Agent identity and persona profiles.
-When a user explicitly invokes a Skill, that choice takes precedence over automatic outcome routing; otherwise media, current-information, and scheduling requests use their dedicated runtime tools before generic Skill discovery.
-
-## How Molibot grows with you
-
-Momo is Molibot's example of the experience this project is building toward: a personal Agent that learns your working context, remembers the projects you return to, and becomes more useful through review and feedback.
-
-Concretely, the loop works like this:
-
-1. **You just chat and work** — across Desktop, Web, or any connected channel, in shared or isolated contexts.
-2. **Molibot reflects daily** — system tasks review recent conversations and propose durable memories about your preferences, projects, and habits.
-3. **You stay in control** — memory is governed: you can inspect, edit, and delete what is saved, and see what gets injected into each conversation.
-4. **The Agent gets sharper** — future conversations start with the context that matters, instead of from zero.
-
-The current runtime already supports durable sessions, memory governance, configurable Agent profiles, tools, tasks, and human control. The next growth-plan experiments build on that foundation with a visible Agent growth log and human-reviewed content candidates. Those experiments are not automatic publishing features, and they are not required to use Molibot.
-
-## Available surfaces
-
-| Surface | Use it for |
-| --- | --- |
-| macOS Desktop | Native chat, project workspaces, files, automations, and Settings with WKWebView-safe, Finder-calibrated translucent/blurred sidebar material plus AppKit-derived semantic colors across Light, Dark, Midnight, and System appearances. |
-| Web | Browser chat, Settings, and session access. |
-| Telegram | Personal chat access, runtime controls, and file delivery. |
-| Feishu | Personal chat access with channel-native media and interaction support. |
-| Weixin | Local personal conversations and media delivery. |
-| QQ | Local chat access with rich message and media support. |
-| CLI | Terminal-based local conversations. |
-
-Conversations follow you: a chat started on the Web can continue on Desktop, and channel sessions share the same local runtime and memory.
+Use cases, documentation improvements, bug fixes, and code contributions are welcome. Read the [contribution guidelines](AGENTS.md) before development.
 
 ## Documentation
 
-### Get started
-
-- [Feature overview](docs/features/)
-- [Documentation map](docs/README.md)
-- [Environment reference](.env.example)
-- [Daily materials guide](docs/guides/daily-materials.md)
-- [Session control commands](docs/guides/session-control/session-control-commands.md)
-- [Automatic Durable Execution PRD](docs/requirements/automatic-durable-execution-prd.md)
-- [Session Permission Modes PRD](docs/requirements/permission-modes-prd.md)
-
-### Build and extend
-
-- [Architecture](docs/archive/designs/v1-architecture.md)
-- [Agent runtime design](docs/designs/architecture/agent-redesign-v2.2.md)
-- [Memory namespace and turn-retention decision](docs/adr/0001-memory-namespace-and-turn-retention.md)
-- [Plugin authoring](docs/guides/plugins/plugin-authoring.md)
-- [Plugin-owned settings PRD](docs/requirements/plugin-owned-settings-prd.md) — current delivery status and remaining work for dedicated plugin routes, package-provided settings UI, and independent owner-global storage
-- [Mini App authoring](docs/guides/miniapps/authoring.md) — build in scratch, validate the Runtime, and atomically install an app with its own agent tools, UI and data
-- [Mini App shortcuts](docs/guides/miniapps/authoring.md#using-an-installed-mini-app) — use `/miniapps` to list apps, then `@app-id` to target one directly for a turn
-- [Deferred tool authoring](docs/guides/tools/deferred-tool-authoring.md)
-- [Agent development series](docs/agent-dev-series/README.md)
-
-### Track the project
-
-- [Current feature record](features.md)
-- [Product roadmap](prd.md)
-- [Release notes](CHANGELOG.md)
-- [UI Design Guidelines](DESIGN.md) — macOS product rules and the [quiet, precise, tactile art direction](DESIGN.md#art-direction), applied through shared conversation components; [Dark Theme Spec](design.dark.md)
-- Desktop numeric-field layout regression: set `CHROME_BIN` to a Chromium executable and run `node --test apps/desktop/src/number-input-layout.test.mjs` (isolated fixtures; no user settings access).
-- [Collaboration and contribution rules](AGENTS.md) — Defines execution and approval boundaries, required validation, and documentation updates by impact.
-
-## Current boundaries
-
-- The desktop app currently ships for macOS on Apple Silicon; other platforms can run from source.
-- Molibot is designed for local, single-owner deployments. Configure your own model provider and credentials.
-- Channel behavior depends on the credentials and integrations you enable locally.
-- Treat destructive, credential-bearing, and public actions as reviewed workflows until you have validated them in your own environment.
-- Momo's growth-log and content-candidate experiments are under development. Molibot does not publish to external social platforms by default.
-
-## License and support
-
-Use GitHub Issues for bug reports and feature requests, and GitHub Discussions for questions and ideas.
+- [Documentation map](docs/README.md) · [Feature guides](docs/features/)
+- [Current capabilities and boundaries](docs/requirements/personal-assistant-capability-matrix.md) · [Release notes](CHANGELOG.md)
+- [Delivery record](features.md) · [Requirements and plans](prd.md)
+- [Skills, tools, and MCP](docs/features/tools-skills-and-mcp.md) · [Plugin development](docs/guides/plugins/plugin-authoring.md)
+- [Architecture decisions](docs/adr/) · [Agent development series](docs/agent-dev-series/README.md)

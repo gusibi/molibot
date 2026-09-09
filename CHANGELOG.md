@@ -1,5 +1,17 @@
 # Molibot ChangeLog
 
+### Added: Duotone Reicon icons for showcase surfaces (2026-09-09)
+
+Empty states, the project welcome panel, and the Artifact panel's empty file lists now render Reicon's duotone weight — a two-tone treatment that inherits theme colors across light/dark and every theme family — through a local generated `DuotoneIcon` component, while functional and status icons at 16px and below stay linear Outline. The duotone bodies are generated from the official Reicon icon data by `scripts/generate-duotone-icons.mjs` (adopt icons by extending its manifest; same-concept substitutes such as Stopwatch for Timer are explicit, reviewed entries), so glyphs that have no official duotone — plain Check, X, Loader, chevrons — fall back to Outline instead of faking it. The hybrid weight rule is documented in DESIGN.md's Foundations.
+
+### Fixed: Dollar amounts no longer render as math formulas (2026-09-09)
+
+Any line with two `$` signs — "订阅费每月 $10，一年 $120", a table cell "$10/月，年付 $100" — used to have the text between the dollars swallowed into a KaTeX formula, because the chat renderer enabled the math extension's non-standard single-dollar rule; the same blanket sanitizer rules also stripped the inline styles and MathML layer that real formulas need, so genuine math rendered misaligned. The renderer now uses the library's standard delimiters — `$x$` and `$$…$$` still render as math while price shapes survive verbatim — and the sanitizer keeps KaTeX's styles scoped to `.katex` subtrees, so raw HTML in model output still cannot carry styling or scripts.
+
+### Changed: Composer invocation tokens render as rich kind-tinted pills (2026-09-09)
+
+Slash commands, Skills, `@miniapp` selectors and persisted `@[file](path)` / `[$Skill](…/SKILL.md)` references in the input box now show as clearly visible pills — tinted and ringed in the entity's hue (command blue, Skill purple, Mini App teal, files neutral) — instead of the barely-there highlight that previously left pasted file references as raw unstyled Markdown. The overlay stays strictly paint-only, so caret and CJK input remain untouched.
+
 ### Added: Open Mini Apps without leaving the conversation (2026-09-09)
 
 Chat and Project headers now offer a searchable Mini App quick menu with icons, favorites, recent apps, loading/error states, and a link back to the full Launchpad. Persisted `@app-id` invocations also expose a localized Open button. Both routes reuse the existing right-side Inspector, preserve the current conversation state, and keep quick-access preferences scoped to the connected service.
