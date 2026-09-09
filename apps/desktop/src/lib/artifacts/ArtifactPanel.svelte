@@ -1,7 +1,7 @@
 <script lang="ts">
   import AngleDown from "reicon-svelte/icons/AngleDown";
   import At from "reicon-svelte/icons/At";
-  import BranchUp from "reicon-svelte/icons/BranchUp";
+  import DuotoneIcon from "../icons/duotone/DuotoneIcon.svelte";
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import Check from "reicon-svelte/icons/Check";
   import Cloud from "reicon-svelte/icons/Cloud";
@@ -1092,7 +1092,7 @@
             {#if store.gitError}
               <div class="project-panel-error" role="alert">{store.gitError}</div>
             {:else if store.git?.status === "unavailable"}
-              <p class="file-empty"><BranchUp size={20} aria-hidden="true" /><span>{copy.projectGitUnavailable}</span><small>{store.git.reason}</small></p>
+              <p class="file-empty"><DuotoneIcon name="BranchUp" size={20} aria-hidden="true" /><span>{copy.projectGitUnavailable}</span><small>{store.git.reason}</small></p>
             {:else if gitEntries.length}
               <div class="project-change-scope" role="tablist" aria-label={copy.projectChangesTab} use:tablist>
                 <button
@@ -1149,10 +1149,10 @@
                   {/each}
                 </ul>
               {:else}
-                <p class="file-empty"><CodeFile size={20} aria-hidden="true" /><span>{copy.projectChangesSessionEmpty}</span></p>
+                <p class="file-empty"><DuotoneIcon name="CodeFile" size={20} aria-hidden="true" /><span>{copy.projectChangesSessionEmpty}</span></p>
               {/if}
             {:else if !store.gitLoading}
-              <p class="file-empty"><CodeFile size={20} aria-hidden="true" /><span>{copy.projectChangesEmpty}</span></p>
+                <p class="file-empty"><DuotoneIcon name="CodeFile" size={20} aria-hidden="true" /><span>{copy.projectChangesEmpty}</span></p>
             {/if}
           {:else}
             <p class="project-panel-scope">{copy.projectAttachmentsHint}</p>
@@ -1187,7 +1187,7 @@
                 {/each}
               </ul>
             {:else if !attachmentsLoading}
-              <p class="file-empty"><Paperclip size={20} aria-hidden="true" /><span>{copy.projectAttachmentsEmpty}</span></p>
+              <p class="file-empty"><DuotoneIcon name="Paperclip" size={20} aria-hidden="true" /><span>{copy.projectAttachmentsEmpty}</span></p>
             {/if}
           {/if}
         </div>
@@ -1220,7 +1220,7 @@
             {#if attachmentsLoading && attachments.length === 0}
               <p class="file-empty"><span>{copy.filesLoading}</span></p>
             {:else if filteredAttachments.length === 0}
-              <p class="file-empty"><Paperclip size={20} aria-hidden="true" /><span>{copy.noFiles}</span></p>
+              <p class="file-empty"><DuotoneIcon name="Paperclip" size={20} aria-hidden="true" /><span>{copy.noFiles}</span></p>
             {:else}
               <ul class="project-entry-list project-session-file-list">
                 {#each filteredAttachments as file (file.id)}

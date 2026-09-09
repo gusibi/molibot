@@ -84,6 +84,7 @@
     "@astryxdesign/core": "0.5.4",
     "@astryxdesign/theme-neutral": "0.5.4",
     "@internationalized/date": "^3.12.1",
+    "@iconify-json/reicon": "^1.2.4",
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.3",

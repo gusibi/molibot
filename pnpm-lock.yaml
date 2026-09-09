@@ -129,6 +129,9 @@ importers:
       '@astryxdesign/theme-neutral':
         specifier: 0.5.4
         version: 0.5.4(@astryxdesign/core@0.5.4(@stylexjs/stylex@0.19.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)
+      '@iconify-json/reicon':
+        specifier: ^1.2.4
+        version: 1.2.4
       '@internationalized/date':
         specifier: ^3.12.1
         version: 3.12.2
@@ -689,6 +692,9 @@ packages:
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
+
+  '@iconify-json/reicon@1.2.4':
+    resolution: {integrity: sha512-fDKTz5Y8WZLPr/np3R5cRCx2S14qP/+aiKMNk9EYrGhoeKa0S0WBjR0X7vwn6qRtFskjAaNNpOAU+SMeC5ItUQ==}
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -3937,6 +3943,10 @@ snapshots:
   '@hono/node-server@1.19.14(hono@4.12.27)':
     dependencies:
       hono: 4.12.27
+
+  '@iconify-json/reicon@1.2.4':
+    dependencies:
+      '@iconify/types': 2.0.0
 
   '@iconify/types@2.0.0': {}
 

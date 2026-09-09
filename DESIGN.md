@@ -484,6 +484,22 @@ body typography, financial imagery, and presentation frames are not app defaults
   focal content surfaces defined in Art direction.
 - Status never relies on color alone. Pair color with readable text and, where useful,
   a dot, icon, or shape. Reserve red for terminal failure or destructive actions.
+- Reicon ships Outline, Filled, and (data-only) duotone weights, and the app uses
+  them as a hybrid system. Functional and status icons at 16px and below — nav
+  tiles, row actions, buttons, spinners, and every status signal — stay linear
+  Outline, keeping Filled only for the existing active-state accents. Decorative
+  showcase icons at 20px and larger — empty states, welcome panels, and
+  panel-level empty file lists — use the duotone weight through the local
+  `DuotoneIcon` component (`apps/desktop/src/lib/icons/duotone/`), whose bodies
+  are generated from the official Reicon data by
+  `scripts/generate-duotone-icons.mjs`; add an icon by extending the script's
+  manifest and regenerating, never by hand-editing the generated module. A glyph
+  without an official duotone falls back to its Outline component instead of
+  substituting a different concept; the manifest may map a name to an official
+  same-concept duotone (for example `Timer` → `stopwatch-duotone`) and that
+  mapping is a reviewed, explicit entry. Duotone layers paint with `currentColor`
+  and a baked 50% secondary layer, so the icons inherit theme colors across
+  brightness and family — never restyle the layers individually.
 
 ### macOS semantic color roles
 

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import Folder from "reicon-svelte/icons/Folder";
   import Gear from "reicon-svelte/icons/Gear";
   import Magnifier from "reicon-svelte/icons/Magnifier";
   import Sidebar from "reicon-svelte/icons/Sidebar";
+  import DuotoneIcon from "../icons/duotone/DuotoneIcon.svelte";
   import { onDestroy, tick } from "svelte";
   import type { Translation } from "../i18n";
   import { newProjectSession, projectsStore } from "../stores/projects.svelte";
@@ -162,5 +162,5 @@
   </section>
   {#if settingsOpen}<ProjectSettingsDialog {project} {copy} {modelOptions} onClose={() => (settingsOpen = false)} />{/if}
 {:else}
-  <section class="project-welcome"><Folder size={28} aria-hidden="true" /><h1>{copy.projectWelcome}</h1><p>{copy.projectWelcomeHint}</p></section>
+  <section class="project-welcome"><DuotoneIcon name="Folder" size={28} aria-hidden="true" /><h1>{copy.projectWelcome}</h1><p>{copy.projectWelcomeHint}</p></section>
 {/if}
