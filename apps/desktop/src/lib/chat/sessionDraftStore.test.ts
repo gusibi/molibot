@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   NEW_CONVERSATION_KEY,
   SessionDraftStore,
+  composerDraftKey,
   emptyDraft,
   sessionDraftKey
 } from "./sessionDraftStore.js";
@@ -10,6 +11,13 @@ import {
 test("sessionDraftKey and NEW_CONVERSATION_KEY", () => {
   assert.equal(sessionDraftKey("personal", "s-1"), "personal:s-1");
   assert.equal(NEW_CONVERSATION_KEY, "__new_conversation__");
+});
+
+test("composerDraftKey routes the active session to its own key and no session to the shared draft", () => {
+  assert.equal(composerDraftKey("s-1", "personal"), "personal:s-1");
+  assert.equal(composerDraftKey("", ""), NEW_CONVERSATION_KEY);
+  // The session id decides: an active session always gets its own key.
+  assert.equal(composerDraftKey("s-9", ""), ":s-9");
 });
 
 test("emptyDraft defaults to medium thinking", () => {

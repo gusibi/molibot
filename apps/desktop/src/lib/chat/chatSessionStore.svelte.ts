@@ -6,8 +6,7 @@ import {
 } from "./sessionRuntimeRegistry.svelte";
 import {
   SessionDraftStore,
-  NEW_CONVERSATION_KEY,
-  sessionDraftKey
+  NEW_CONVERSATION_KEY
 } from "./sessionDraftStore";
 import type { ConversationLabels, UiMessage } from "./conversationController.svelte";
 import type { SessionStatusDot } from "./sessionStatusDot";
@@ -250,12 +249,6 @@ export class ChatSessionStore {
 
   async resumeActivePlan(planId: string): Promise<void> {
     await this.registry.active?.controller.resumePlan(planId);
-  }
-
-  /** Draft key the composer should be bound to right now. */
-  currentDraftKey(): string {
-    const active = this.registry.active;
-    return active ? sessionDraftKey(active.profileId, active.sessionId) : NEW_CONVERSATION_KEY;
   }
 
   /** Disposes a specific session's runtime (e.g. after it was deleted). */

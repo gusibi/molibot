@@ -172,6 +172,7 @@
   import { miniAppsCatalog, clearMiniAppBadge } from "./lib/stores/miniapps.svelte";
   import { catalogMessageActions, invokeTranscriptMessageAction } from "./lib/miniapps/messageActions";
   import { fetchDesktopMiniAppAttachment } from "./lib/api";
+  import { composerDraftKey } from "./lib/chat/sessionDraftStore";
   import type { FeedbackEvent } from "./lib/native/feedbackCoordinator";
 
   export let copy: Translation;
@@ -1157,19 +1158,25 @@
     return { profileId, sessionId };
   }
 
-  // Mirror the composer locals into the draft store for the outgoing session,
-  // then load the incoming session's draft back into the locals (plan §10.1).
-  function syncDraftOut(): void {
-    const key = chatStore.currentDraftKey();
-    chatStore.draftStore.setText(key, messageInput);
-    chatStore.draftStore.setFiles(key, pendingFiles);
-    chatStore.draftStore.setThinking(key, thinkingLevel);
-  }
-  function loadDraftIn(): void {
-    const draft = chatStore.draftStore.get(chatStore.currentDraftKey());
-    messageInput = draft.text;
-    pendingFiles = draft.files;
-    thinkingLevel = draft.thinkingLevel;
+  // The draft store is the composer's single source of truth, and this one
+  // reactive block owns both directions: a draft-key change (session switch,
+  // new-conversation draft, first message) loads the incoming draft into the
+  // composer locals; every other change mirrors the locals straight back into
+  // the store. Switch sites used to have to remember to call syncDraftOut
+  // before the switch and loadDraftIn after — the connect-time default
+  // selection didn't, and text typed into a session was lost for good.
+  let activeDraftKey = "";
+  $: {
+    const key = composerDraftKey(chatState.activeSessionId, chatState.activeProfileId);
+    if (key !== activeDraftKey) {
+      activeDraftKey = key;
+      const draft = chatStore.draftStore.get(key);
+      messageInput = draft.text;
+      pendingFiles = draft.files;
+      thinkingLevel = draft.thinkingLevel;
+    } else {
+      chatStore.draftStore.update(key, { text: messageInput, files: pendingFiles, thinkingLevel });
+    }
   }
   let pendingSettingsRefresh = false;
   let refreshingSettings = false;
@@ -1422,7 +1429,6 @@
     const sessionId = entry.sessionId;
     return () => {
       void chatStore.selectSession(profileId, sessionId);
-      loadDraftIn();
       void refreshFiles(profileId, sessionId);
     };
   }
@@ -1439,11 +1445,9 @@
     const target = lastItem ?? webItems[0] ?? null;
     if (target) {
       chatStore.selectSession(target.botId, target.sessionId);
-      loadDraftIn();
       void refreshFiles(target.botId, target.sessionId);
     } else {
       chatStore.newConversationDraft(defaultBot());
-      loadDraftIn();
     }
   }
 
@@ -1536,9 +1540,7 @@
     conversationsExpanded = true;
     expandedChannels = { ...expandedChannels, web: true };
     persistSidebarTree();
-    syncDraftOut();
     chatStore.newConversationDraft(defaultBot());
-    loadDraftIn();
     // A fresh draft starts on the global default; a pick here is held in
     // draftModelKey until the session is created.
     draftModelKey = "";
@@ -1561,9 +1563,7 @@
     viewMode = "local";
     projectPaneActive = false;
     closeExternalTranscript();
-    syncDraftOut();
     chatStore.selectSession(item.botId, item.sessionId);
-    loadDraftIn();
     persistSelected(item.botId, item.sessionId);
     void refreshFiles(item.botId, item.sessionId);
   }
@@ -1595,10 +1595,7 @@
       channelItems = { ...channelItems, [item.channel]: remaining };
       if (viewMode === "local" && item.sessionId === activeSessionId) {
         if (remaining[0]) openSession(remaining[0]);
-        else {
-          chatStore.newConversationDraft(defaultBot());
-          loadDraftIn();
-        }
+        else chatStore.newConversationDraft(defaultBot());
       }
       await loadChannel(item.channel);
     } catch (cause) {
@@ -1640,7 +1637,6 @@
   function fillEmptyPrompt(prompt: string): void {
     if (messageInput.trim()) return;
     messageInput = prompt;
-    chatStore.draftStore.setText(chatStore.currentDraftKey(), prompt);
     void tick().then(() => chatInputArea?.focusInput());
   }
 
@@ -2137,7 +2133,6 @@
     if (modelSelectionHydrating) return;
     const text = messageInput;
     thinkingLevel = clampedThinkingLevel;
-    chatStore.draftStore.setThinking(chatStore.currentDraftKey(), thinkingLevel);
     const files = pendingFiles;
     const editingId = editingMessageId;
     const editingSession = editingSessionId;
@@ -2363,9 +2358,7 @@
       if (inheritedModel) sessionModelOverrides.set(child.id, inheritedModel);
       editingMessageId = "";
       editingSessionId = "";
-      syncDraftOut();
       chatStore.selectSession(activeProfileId, child.id);
-      loadDraftIn();
       persistSelected(activeProfileId, child.id);
       await loadChannel("web", false);
       void refreshFiles(activeProfileId, child.id);
@@ -2474,7 +2467,6 @@
 
   function changeThinking(value: DesktopThinkingLevel): void {
     thinkingLevel = clampDesktopThinkingLevel(value, thinkingLevelOptions);
-    chatStore.draftStore.setThinking(chatStore.currentDraftKey(), thinkingLevel);
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {

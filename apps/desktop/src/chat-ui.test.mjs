@@ -111,6 +111,7 @@ const runtimeSource = read("../../../src/lib/server/app/runtime.ts");
 const providersStore = read("./lib/stores/providers.svelte.ts");
 const conversationController = read("./lib/chat/conversationController.svelte.ts");
 const chatSessionStore = read("./lib/chat/chatSessionStore.svelte.ts");
+const sessionDraftStore = read("./lib/chat/sessionDraftStore.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
 const markdown = read("./lib/markdown.ts");
 const markdownInteractions = read("./lib/markdownInteractions.ts");
@@ -549,14 +550,33 @@ test("sidebars remove floating depth and keep a stable glass divider", () => {
 });
 
 test("empty local Chat starts an editable draft instead of disabling the composer", () => {
-  assert.match(view, /const target = lastItem \?\? webItems\[0\] \?\? null;[\s\S]*if \(target\)[\s\S]*else \{\s*chatStore\.newConversationDraft\(defaultBot\(\)\);\s*loadDraftIn\(\);\s*\}/);
-  assert.match(view, /if \(remaining\[0\]\) openSession\(remaining\[0\]\);\s*else \{\s*chatStore\.newConversationDraft\(defaultBot\(\)\);\s*loadDraftIn\(\);\s*\}/);
+  assert.match(view, /const target = lastItem \?\? webItems\[0\] \?\? null;[\s\S]*if \(target\)[\s\S]*else \{\s*chatStore\.newConversationDraft\(defaultBot\(\)\);\s*\}/);
+  assert.match(view, /if \(remaining\[0\]\) openSession\(remaining\[0\]\);\s*else chatStore\.newConversationDraft\(defaultBot\(\)\);/);
+});
+
+test("composer drafts persist through one reactive mirror, not manual switch-site sync", () => {
+  // The draft store is the composer's source of truth: a single reactive block
+  // loads the incoming session's draft when the draft key changes and mirrors
+  // every composer mutation back into the store. The manual syncDraftOut /
+  // loadDraftIn pairs at each switch site could not survive contact with
+  // reality — the connect-time default selection ran without one and text
+  // typed into a session was lost for good (2026-09).
+  assert.match(view, /const key = composerDraftKey\(chatState\.activeSessionId, chatState\.activeProfileId\);\s*if \(key !== activeDraftKey\) \{\s*activeDraftKey = key;\s*const draft = chatStore\.draftStore\.get\(key\);\s*messageInput = draft\.text;\s*pendingFiles = draft\.files;\s*thinkingLevel = draft\.thinkingLevel;\s*\} else \{\s*chatStore\.draftStore\.update\(key, \{ text: messageInput, files: pendingFiles, thinkingLevel \}\);/);
+  // No switch-site sync may come back, and no direct store writes outside the
+  // mirror: a forgotten sync is exactly the bug class this deletes.
+  assert.doesNotMatch(view, /syncDraftOut\(|loadDraftIn\(/);
+  assert.doesNotMatch(view, /draftStore\.(setText|setFiles|setThinking)\(/);
+  // The key rule is one shared pure function, so the mirror and anything else
+  // reading the draft store can never disagree about the current key.
+  assert.match(view, /import \{ composerDraftKey \} from "\.\/lib\/chat\/sessionDraftStore";/);
+  assert.match(sessionDraftStore, /export function composerDraftKey\(activeSessionId: string, activeProfileId: string\): string/);
+  assert.doesNotMatch(chatSessionStore, /currentDraftKey/);
 });
 
 test("empty local Chat offers Agent quick starts that fill and focus without sending", () => {
   assert.match(conversationLiveView, /conversation-empty-actions/);
   assert.match(conversationLiveView, /onclick=\{\(\) => onEmptyAction\?\.\(action\.prompt\)\}/);
-  assert.match(view, /function fillEmptyPrompt\(prompt: string\)[\s\S]*messageInput = prompt;[\s\S]*draftStore\.setText[\s\S]*chatInputArea\?\.focusInput\(\)/);
+  assert.match(view, /function fillEmptyPrompt\(prompt: string\)[\s\S]*messageInput = prompt;[\s\S]*chatInputArea\?\.focusInput\(\)/);
   assert.doesNotMatch(view.match(/function fillEmptyPrompt\(prompt: string\)[\s\S]*?\n  \}/)?.[0] ?? "", /sendMessage|onSend/);
   assert.match(i18n, /emptyChatQuickStartHint: "选择一个起点，只会填入输入框/);
   assert.match(i18n, /emptyChatQuickStartHint: "Choose a starting point\. It only fills the composer/);
@@ -2139,7 +2159,6 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.match(composerModelMenu, /\{#each thinkingLevelOptions as level/);
   assert.match(composerModelMenu, /\{#each modelGroups as group/);
   assert.match(composerModelMenu, /role="menuitemradio"/);
-  assert.match(view, /chatStore\.draftStore\.setThinking\(chatStore\.currentDraftKey\(\), thinkingLevel\)/);
   assert.match(view, /onChangeThinking=\{changeThinking\}/);
   assert.match(projectChat, /onChangeThinking=\{changeThinking\}/);
   assert.match(view, /thinkingLevelLabel=\{thinkingLabel\}/);

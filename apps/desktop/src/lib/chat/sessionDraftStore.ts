@@ -19,6 +19,16 @@ export function sessionDraftKey(profileId: string, sessionId: string): string {
   return `${profileId}:${sessionId}`;
 }
 
+/**
+ * Draft key the live composer binds to right now: the active session's key, or
+ * the single new-conversation draft when no session is active. One rule, shared
+ * by the store and the ChatView mirror, so the two can never disagree about
+ * which draft the composer is currently editing.
+ */
+export function composerDraftKey(activeSessionId: string, activeProfileId: string): string {
+  return activeSessionId ? sessionDraftKey(activeProfileId, activeSessionId) : NEW_CONVERSATION_KEY;
+}
+
 export interface SessionDraft {
   text: string;
   files: File[];
