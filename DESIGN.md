@@ -665,6 +665,14 @@ block, status color, and sidebar tint must resolve through the same family block
   machine-readable path in persisted content but render as the same Skill invocation
   card used by a `/name` composer selection. The visible transcript shows the Skill
   identity and following user prose, never the local `SKILL.md` path as a Markdown link.
+- Composer invocation tokens stay entities while typing: `/command`, `/skill`,
+  `@miniapp`, and persisted `@[file.md](path)` / `[$Skill](.../SKILL.md)` selectors all
+  render through the token overlay as kind-tinted pills — command accent, Skill purple,
+  Mini App teal, file neutral — plus an inset ring in the same hue, the same hues the
+  suggestion menu and invocation cards use so an entity keeps its color from menu to
+  composer to transcript. The pill is background and box-shadow only and may never move
+  a glyph: the overlay mirrors the textarea glyph-for-glyph, and any advance change
+  drifts the tint off the text and misplaces the CJK IME candidate window.
 - Chat headers identify the active source with a quiet `#` + initial micro-tag
   (for example W, F, T, or P), not a large avatar. The accessible label and title
   expose the full source name. A quiet slash expresses the source/title hierarchy;

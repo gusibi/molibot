@@ -1,4 +1,5 @@
 import type { DesktopComposerSuggestion } from "@molibot/desktop-contract";
+import { parseProjectFileReferences } from "@molibot/shared/projectFileReference";
 
 /**
  * What the suggestion menu renders. The server catalog carries commands, Skills
@@ -9,10 +10,13 @@ export type ComposerMenuItem = Omit<DesktopComposerSuggestion, "kind"> & {
   kind: DesktopComposerSuggestion["kind"] | "file";
 };
 
+/** Every entity the highlight overlay can pill, including client-side file references. */
+export type ComposerSegmentKind = DesktopComposerSuggestion["kind"] | "file";
+
 /** One run of composer text: plain prose (`kind: null`) or a recognized invocation token. */
 export interface ComposerSegment {
   text: string;
-  kind: DesktopComposerSuggestion["kind"] | null;
+  kind: ComposerSegmentKind | null;
 }
 
 export interface ComposerInvocation {
@@ -59,27 +63,44 @@ export function classifyComposerSuggestion(
 }
 
 /**
- * Splits composer text into plain runs and recognized invocation tokens so the
- * highlight overlay can pill every `/command`, `/skill` or `@miniapp` at any
- * offset — not only a leading one. A candidate only counts at a word boundary
- * (message start or after whitespace), mirroring the suggestion triggers, and
- * an unknown token stays plain text.
+ * Splits composer text into plain runs and recognized entities so the highlight
+ * overlay can pill every `/command`, `/skill`, `@miniapp` and persisted
+ * reference at any offset — not only a leading one. A bare token only counts at
+ * a word boundary (message start or after whitespace), mirroring the suggestion
+ * triggers, and an unknown token stays plain text. Persisted Markdown selectors
+ * (`@[file.md](path)`, `[$Skill](.../SKILL.md)`) count anywhere: their shape is
+ * specific enough that they only exist as real references, and they read as one
+ * entity instead of link soup.
  */
 export function segmentComposerInvocations(
   content: string,
   items: DesktopComposerSuggestion[] = catalog
 ): ComposerSegment[] {
   const text = String(content ?? "");
-  const segments: ComposerSegment[] = [];
-  let cursor = 0;
+  const ranges: { start: number; end: number; kind: ComposerSegmentKind }[] = [];
+  for (const reference of parseProjectFileReferences(text)) {
+    ranges.push({ start: reference.start, end: reference.end, kind: "file" });
+  }
+  for (const match of text.matchAll(/\[\$[^\]\r\n]+\]\([^\r\n]*?\/SKILL\.md\)/gi)) {
+    const start = match.index ?? 0;
+    ranges.push({ start, end: start + match[0].length, kind: "skill" });
+  }
   for (const match of text.matchAll(/[/@][a-z0-9][a-z0-9:_-]*/gi)) {
     const start = match.index ?? 0;
     if (start > 0 && !/\s/.test(text[start - 1])) continue;
+    if (ranges.some((range) => start >= range.start && start < range.end)) continue;
     const hit = items.find((item) => item.label.toLowerCase() === match[0].toLowerCase());
     if (!hit) continue;
-    if (start > cursor) segments.push({ text: text.slice(cursor, start), kind: null });
-    segments.push({ text: match[0], kind: hit.kind });
-    cursor = start + match[0].length;
+    ranges.push({ start, end: start + match[0].length, kind: hit.kind });
+  }
+  ranges.sort((a, b) => a.start - b.start || b.end - a.end);
+  const segments: ComposerSegment[] = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.start < cursor) continue;
+    if (range.start > cursor) segments.push({ text: text.slice(cursor, range.start), kind: null });
+    segments.push({ text: text.slice(range.start, range.end), kind: range.kind });
+    cursor = range.end;
   }
   if (cursor < text.length) segments.push({ text: text.slice(cursor), kind: null });
   return segments;

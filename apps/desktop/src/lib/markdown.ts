@@ -29,7 +29,15 @@ hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("html", xml);
 
 marked.use({ gfm: true, breaks: false });
-marked.use(markedKatex({ throwOnError: false, nonStandard: true }));
+// `nonStandard: false` is the library default and is load-bearing: with it on,
+// any two `$` on one line turn the text between them into math ("每月 $10，一年
+// $120" rendered as a formula, table cells included). The standard rule still
+// renders real math ($x$, $$x$$) but requires the closing `$` to sit against
+// whitespace/punctuation — so the common price shape (closing `$` followed by
+// a digit) stays literal, as does an opening `$` right after punctuation.
+// Residual edge: a bare `$` before whitespace ("涨幅在 $10 到 $ 之间") is still
+// ambiguous math; that is the library rule's own boundary.
+marked.use(markedKatex({ throwOnError: false, nonStandard: false }));
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -39,6 +47,32 @@ function escapeHtml(value: string): string {
     '"': "&quot;",
     "'": "&#39;"
   })[character] ?? character);
+}
+
+// KaTeX output needs two things the blanket rules used to strip: the MathML
+// tags of its hidden semantic layer, and inline styles (strut heights, kerning)
+// on the visible .katex-html spans — without them real formulas render
+// misaligned. Style therefore stays forbidden everywhere except inside a
+// .katex subtree, so raw HTML in model output still cannot carry styling. This
+// module owns the app's only DOMPurify call. The hook is installed lazily
+// because a DOM-less import (Node unit suites) gets a DOMPurify that has
+// neither sanitize nor addHook.
+let katexSanitizeHooked = false;
+function sanitizeChatHtml(html: string): string {
+  if (!katexSanitizeHooked) {
+    katexSanitizeHooked = true;
+    DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
+      if (data.attrName !== "style") return;
+      const element = node as Element | null;
+      if (!element || typeof element.closest !== "function" || !element.closest(".katex")) {
+        data.keepAttr = false;
+      }
+    });
+  }
+  return DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true, mathMl: true },
+    FORBID_TAGS: ["style"]
+  });
 }
 
 export interface RenderMarkdownOptions {
@@ -62,6 +96,12 @@ export interface RenderMarkdownOptions {
    * written.
    */
   resolveImage?: (href: string) => string | null | undefined;
+  /**
+   * Test seam: Node suites have no DOM for DOMPurify, so they inject an
+   * identity pass to exercise the marked pipeline itself. Production leaves
+   * this unset and gets the DOMPurify path.
+   */
+  sanitize?: (html: string) => string;
 }
 
 /**
@@ -151,11 +191,7 @@ export function renderMarkdown(source: string, copyCodeLabel = "Copy code", opti
     return `<img src="${escapeHtml(src)}" alt="${escapeHtml(String(alt ?? ""))}"${title ? ` title="${escapeHtml(String(title))}"` : ""}>`;
   };
   const html = marked.parse(String(source ?? ""), { async: false, renderer }) as string;
-  const sanitized = wrapTables(DOMPurify.sanitize(html, {
-    USE_PROFILES: { html: true },
-    FORBID_TAGS: ["style"],
-    FORBID_ATTR: ["style"]
-  }), openTableLabel);
+  const sanitized = wrapTables(options.sanitize ? options.sanitize(html) : sanitizeChatHtml(html), openTableLabel);
   if (cacheKey !== null) {
     renderCache.set(cacheKey, sanitized);
     if (renderCache.size > RENDER_CACHE_LIMIT) {

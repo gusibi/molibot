@@ -1056,6 +1056,12 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   assert.match(styles, /\.invocation-message\[data-kind="miniapp"\]/);
   assert.match(styles, /\.composer-token\[data-kind="miniapp"\]/);
   assert.match(styles, /\.slash-suggestion-icon\[data-kind="miniapp"\]/);
+  // Persisted Markdown selectors are entities too: the highlight overlay must
+  // pill `@[file.md](path)` and `[$Skill](.../SKILL.md)` instead of leaving the
+  // raw link soup unstyled, and the file pill has its own neutral kind style.
+  assert.match(catalog, /parseProjectFileReferences/);
+  assert.match(catalog, /SKILL\\.md/);
+  assert.match(styles, /\.composer-token\[data-kind="file"\]/);
   // Pitfall 4: an undefined var() fails silently, so both invocation hues must
   // exist as real tokens in the light AND dark declarations.
   assert.equal(styles.match(/--miniapp-accent:/g)?.length, 9);
@@ -1115,6 +1121,21 @@ test("issue 8 chat polish stays wired across shared Chat and Project surfaces", 
   assert.match(overflowMenu, /event\.key !== "ArrowDown" && event\.key !== "ArrowUp"/);
   assert.match(overflowMenu, /event\.key === "Escape"/);
   assert.match(logsSection, /desktop_logs/);
+});
+
+test("chat markdown keeps KaTeX on standard delimiters and scopes style to .katex", () => {
+  // nonStandard:true made any two `$` on one line render as math ("每月 $10，
+  // 一年 $120" became a formula). The sanitizer must keep KaTeX's MathML tags
+  // and its .katex-scoped inline styles, while raw HTML still cannot style.
+  assert.match(markdown, /nonStandard:\s*false/);
+  assert.doesNotMatch(markdown, /nonStandard:\s*true/);
+  assert.match(markdown, /USE_PROFILES:\s*\{\s*html:\s*true,\s*mathMl:\s*true\s*\}/);
+  assert.match(markdown, /uponSanitizeAttribute/);
+  assert.match(markdown, /closest\("\.katex"\)/);
+  assert.match(markdown, /FORBID_TAGS:\s*\["style"\]/);
+  assert.doesNotMatch(markdown, /FORBID_ATTR/);
+  // The visual KaTeX layer only renders correctly with its stylesheet loaded.
+  assert.match(read("./main.ts"), /katex\/dist\/katex\.min\.css/);
 });
 
 test("Project settings exposes inherited model and thinking defaults in a fixed footbar", () => {
@@ -3424,13 +3445,15 @@ test("Chat and sidebar typography goes through the type scale, never raw px", ()
 // advances the text drifts the tint off the glyphs and misplaces the caret and
 // the CJK IME candidate window. The two axes have completely different budgets
 // and the old `padding: 1px 5px; margin: 0 -5px` had them backwards: 1px
-// vertical (where padding is free and 3px was available) and 5px horizontal
-// (where only ~2px fits before the following glyph paints over the tint).
+// vertical (where padding is free but ~3.5px is the ceiling before pills
+// stacked across a wrap merge) and 5px horizontal (where only ~4px fits before
+// the ring paints through the following glyph in the spaced cases).
 test("composer token pill sizes its two axes against their real budgets", () => {
-  // Vertical fills the line box: 16.5px glyph box inside a 22px line.
-  assert.match(styles, /--composer-token-bleed-y:\s*3px;/);
-  // Horizontal must stay under the 3.8px inter-word space at the body rank.
-  assert.match(styles, /--composer-token-bleed-x:\s*2px;/);
+  // Vertical reads taller than the glyphs but stops before wrapped pills touch.
+  assert.match(styles, /--composer-token-bleed-y:\s*3\.5px;/);
+  // Horizontal reads as real chip padding without painting through the
+  // inter-word space at the body rank.
+  assert.match(styles, /--composer-token-bleed-x:\s*4px;/);
 
   const pill = styles.match(/\.composer-token \{([^}]*)\}/)?.[1];
   assert.ok(pill, ".composer-token rule must exist");
@@ -3449,8 +3472,9 @@ test("composer token pill sizes its two axes against their real budgets", () => 
     assert.match(variant, /--composer-token-tint:/);
     assert.doesNotMatch(variant, /(?<!-)\bbackground:/, `${kind} must retint through the custom property, not re-set background`);
   }
-  // `overflow: hidden` would shave the bleed off the first token on a line.
-  assert.match(styles, /\.composer-highlight \{[^}]*overflow: clip; overflow-clip-margin: var\(--composer-token-bleed-y\)/);
+  // `overflow: hidden` would shave the bleed off the first token on a line, and
+  // the clip margin must cover the LARGER of the two bleeds.
+  assert.match(styles, /\.composer-highlight \{[^}]*overflow: clip; overflow-clip-margin: max\(var\(--composer-token-bleed-x\), var\(--composer-token-bleed-y\)\)/);
 
   // The overlay and the textarea must read the SAME tokens: they are twin text
   // metrics that happen to live in two rules, and one drifting breaks alignment.
