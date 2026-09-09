@@ -1001,13 +1001,11 @@ a:focus-visible {
   display: inline-flex;
   width: auto !important;
   min-width: 28px;
-  gap: 6px;
   padding-inline: 8px;
   color: var(--label-secondary);
 }
 .miniapps-quick-trigger[aria-expanded="true"],
 .miniapps-quick-trigger:hover { background: var(--fill); color: var(--label-primary); }
-.miniapps-quick-trigger-label { font-size: var(--fs-meta); line-height: 1; }
 .miniapps-quick-menu {
   position: absolute;
   top: calc(100% + 8px);
@@ -1059,9 +1057,6 @@ a:focus-visible {
 .miniapps-quick-all { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; margin-top: 8px; padding: 0 8px; border: 0; border-top: 1px solid var(--separator); background: transparent; color: var(--accent); font-size: var(--fs-meta); text-align: left; cursor: pointer; }
 .miniapps-quick-all:hover { color: var(--label-primary); }
 .miniapps-quick button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--popover-bg, var(--card-bg)), 0 0 0 4px var(--accent); }
-@media (max-width: 720px) {
-  .miniapps-quick-trigger-label { display: none; }
-}
 
 .durable-header-badge {
   display: inline-flex;

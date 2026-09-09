@@ -4230,6 +4230,7 @@ test("the conversation offers one shared Mini App opener from the header and inv
   assert.match(miniAppsQuickMenu, /onOpenApp\(app\.id\)/);
   assert.match(miniAppsQuickMenu, /loadMiniAppQuickAccess/);
   assert.match(miniAppsQuickMenu, /recordMiniAppRecent/);
+  assert.match(miniAppsQuickMenu, /remainingApps/);
   assert.match(miniAppsQuickMenu, /catalogEndpoint/);
   assert.match(miniAppsQuickMenu, /loadMiniApps\(endpoint\)\.then/);
   assert.match(miniAppsQuickMenu, /miniAppsStore\.loadError/);

@@ -71,6 +71,9 @@
       .map((id) => availableApps.find((app) => app.id === id))
       .filter((app): app is DesktopMiniAppItem => app !== undefined && !quickAccess.favoriteIds.includes(app.id))
   );
+  const remainingApps = $derived(
+    availableApps.filter((app) => !quickAccess.favoriteIds.includes(app.id))
+  );
   const hasSearch = $derived(Boolean(normalizedQuery));
 
   function persistQuickAccess(next: MiniAppQuickAccessState): void {
@@ -148,7 +151,6 @@
     onclick={() => void toggleMenu()}
   >
     <Grid size={16} aria-hidden="true" />
-    <span class="miniapps-quick-trigger-label">{copy.miniAppsNav}</span>
   </button>
 
   {#if open}
@@ -242,11 +244,11 @@
               {/each}
             </div>
           </section>
-        {:else if favoriteApps.length === 0}
+        {:else if remainingApps.length > 0}
           <section class="miniapps-quick-group">
             <h3>{copy.miniAppsAll}</h3>
             <div class="miniapps-quick-list" role="list" aria-label={copy.miniAppsAll}>
-              {#each availableApps as app (app.id)}
+              {#each remainingApps as app (app.id)}
                 <div class="miniapps-quick-row" role="listitem" aria-label={app.name}>
                   <button class="miniapps-quick-open" type="button" onclick={() => openApp(app)}>
                     <MiniAppIcon src={app.iconDataUri} label={app.name} size="list" />

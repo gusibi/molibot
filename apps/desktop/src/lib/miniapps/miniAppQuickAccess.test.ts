@@ -52,9 +52,9 @@ test("favorite and recent actions are idempotent and keep the recent list bounde
   state = toggleMiniAppFavorite(state, "todo");
   assert.deepEqual(state.favoriteIds, []);
 
-  for (let index = 0; index < 7; index += 1) {
+  for (let index = 0; index < 12; index += 1) {
     state = recordMiniAppRecent(state, `app-${index}`);
   }
   state = recordMiniAppRecent(state, "app-4");
-  assert.deepEqual(state.recentIds, ["app-4", "app-6", "app-5", "app-3", "app-2"]);
+  assert.deepEqual(state.recentIds, ["app-4", "app-11", "app-10", "app-9", "app-8", "app-7", "app-6", "app-5", "app-3", "app-2"]);
 });

@@ -9,7 +9,7 @@ export interface MiniAppQuickAccessStorage {
 }
 
 const STORAGE_PREFIX = "molibot-miniapp-quick-access:";
-const RECENT_LIMIT = 5;
+const RECENT_LIMIT = 10;
 
 function emptyQuickAccess(): MiniAppQuickAccessState {
   return { favoriteIds: [], recentIds: [] };

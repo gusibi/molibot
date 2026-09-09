@@ -749,7 +749,7 @@ block, status color, and sidebar tint must resolve through the same family block
 - Conversation headers may expose a compact Mini Apps quick menu beside the existing
   search and file actions. It is an anchored, keyboard-accessible popover that lists
   only enabled, healthy apps, searches name and description, and keeps favorites and
-  the five most recent app opens as connection-scoped UI preferences. A persisted
+  the ten most recent app opens as connection-scoped UI preferences. A persisted
   Mini App invocation may expose the same single-purpose Open action; both entry
   points use the existing Inspector seam and preserve the active conversation, draft,
   reader position, and streaming turn. The menu must provide explicit loading,
