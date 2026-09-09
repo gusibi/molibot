@@ -26,7 +26,7 @@ const EXTRACTION_STATES: SessionExtractionStatus[] = [
   "failed"
 ];
 const EXTRACTION_STATE_SET = new Set<string>(EXTRACTION_STATES);
-const BULK_KINDS: BulkOperationKind[] = ["archive", "restore", "delete"];
+const BULK_KINDS: BulkOperationKind[] = ["archive", "restore", "delete", "purge"];
 const EXTRACTION_MODES = ["extract", "extract-and-archive"] as const;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 

@@ -11,6 +11,7 @@
   import { Switch } from "$lib/components/ui/switch";
   import { Tabs, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+  import { renderMarkdown } from "$lib/ui/markdown";
   import { locale, type LocaleKey } from "$lib/ui/i18n";
 
   type View = "active" | "archived" | "trashed";
@@ -58,10 +59,23 @@
     failureReasons: string[];
   }
 
+  interface PreviewAttachment {
+    original: string;
+    local: string;
+    mediaType: "image" | "audio" | "video" | "file";
+    mimeType?: string;
+    size?: number;
+  }
+
+  /** Full projected transcript row — the same shape the chat UI renders. */
   interface PreviewMessage {
+    id?: string;
     role: string;
     content: string;
     createdAt: string;
+    model?: string;
+    thinking?: string;
+    attachments?: PreviewAttachment[];
   }
 
   const COPY: Record<LocaleKey, Record<string, string>> = {
@@ -139,15 +153,18 @@
       prevPage: "上一页",
       nextPage: "下一页",
       pageOf: "第 {page} / {pages} 页，共 {total} 项",
-      previewTitle: "相邻预览",
+      previewTitle: "会话预览",
       previewClose: "关闭预览",
       previewLoading: "正在加载预览...",
       previewFailed: "预览加载失败",
       previewEmpty: "该会话暂无消息。",
+      previewAttachments: "附件",
+      you: "你",
       sourceUnavailable: "来源不可用：该会话已被彻底清除，关联的记忆与产物不受影响。",
       deleteTitle: "确认删除",
       deleteCount: "将删除 {count} 个会话。",
       deleteRecovery: "恢复期 30 天，期间可在回收站恢复；到期后彻底清除。",
+      deletePermanent: "这些会话已在回收站中，将立即彻底清除，此操作无法恢复。",
       deleteScope: "仅删除会话自有数据；已保存的记忆与独立产物会保留。",
       deleteRetainedLink: "查看关联保留物 →",
       btnCancel: "取消",
@@ -254,10 +271,13 @@
       previewLoading: "Loading preview...",
       previewFailed: "Preview failed",
       previewEmpty: "No messages yet.",
+      previewAttachments: "Attachments",
+      you: "You",
       sourceUnavailable: "Source unavailable: this session was purged. Linked memories and artifacts are unaffected.",
       deleteTitle: "Confirm deletion",
       deleteCount: "{count} sessions will be deleted.",
       deleteRecovery: "30-day recovery in trash, restorable until expiry; purged afterwards.",
+      deletePermanent: "These sessions are already in the trash and will be purged immediately. This cannot be undone.",
       deleteScope: "Only Session-owned data is removed; saved memories and independent artifacts survive.",
       deleteRetainedLink: "Inspect retained items →",
       btnCancel: "Cancel",
@@ -323,13 +343,13 @@
   let lastClickedIdx = -1;
 
   let previewId: string | null = null;
+  let previewItem: ManagedItem | null = null;
   let previewTitle = "";
   let previewMessages: PreviewMessage[] = [];
   let previewLoading = false;
   let previewError: string | null = null;
   let previewExtraction: ExtractionDetail | null = null;
   let previewExtractionLoading = false;
-  let savedScrollY = 0;
 
   let bulkBusy = false;
   let bulkMessage: string | null = null;
@@ -510,9 +530,9 @@
     }
   }
 
-  async function openPreview(id: string): Promise<void> {
-    savedScrollY = window.scrollY;
-    previewId = id;
+  async function openPreview(item: ManagedItem): Promise<void> {
+    previewId = item.conversationId;
+    previewItem = item;
     previewTitle = "";
     previewMessages = [];
     previewError = null;
@@ -520,7 +540,7 @@
     previewExtraction = null;
     previewExtractionLoading = true;
     try {
-      const response = await fetch(`/api/sessions/managed/preview?conversationId=${encodeURIComponent(id)}`);
+      const response = await fetch(`/api/sessions/managed/preview?conversationId=${encodeURIComponent(item.conversationId)}`);
       const payload = (await response.json()) as {
         ok?: boolean;
         error?: string;
@@ -538,7 +558,7 @@
       previewLoading = false;
     }
     try {
-      const response = await fetch(`/api/sessions/managed/extraction/status?conversationId=${encodeURIComponent(id)}`);
+      const response = await fetch(`/api/sessions/managed/extraction/status?conversationId=${encodeURIComponent(item.conversationId)}`);
       const payload = (await response.json()) as { ok?: boolean; error?: string; extraction?: ExtractionDetail };
       if (response.ok && payload?.ok && payload.extraction) {
         previewExtraction = payload.extraction;
@@ -554,10 +574,29 @@
 
   function closePreview(): void {
     previewId = null;
+    previewItem = null;
     previewMessages = [];
     previewError = null;
     previewExtraction = null;
-    requestAnimationFrame(() => window.scrollTo({ top: savedScrollY }));
+  }
+
+  function base64url(value: string): string {
+    const bytes = new TextEncoder().encode(value);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  /** Same-origin URL for one attachment's bytes; mirrors the desktop client. */
+  function attachmentUrl(attachment: PreviewAttachment): string {
+    if (!previewItem) return "#";
+    const params = new URLSearchParams({
+      profileId: previewItem.botId || "default",
+      sessionId: previewItem.conversationId,
+      fileId: base64url(attachment.local)
+    });
+    if (previewItem.projectId) params.set("projectId", previewItem.projectId);
+    return `/api/web/files?${params.toString()}`;
   }
 
   function selectionPayload(): { targets?: Array<{ conversationId: string; expectedVersion: number | null }>; selectionId?: string } {
@@ -584,11 +623,14 @@
     bulkBusy = true;
     bulkError = null;
     bulkMessage = null;
+    // In the trash view "delete" means permanent removal, so it executes the
+    // explicit `purge` kind; everywhere else it is the recoverable trash move.
+    const serverKind = kind === "delete" && view === "trashed" ? "purge" : kind;
     try {
       const response = await fetch("/api/sessions/managed/bulk", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind, ...selectionPayload(), idempotencyKey: crypto.randomUUID() })
+        body: JSON.stringify({ kind: serverKind, ...selectionPayload(), idempotencyKey: crypto.randomUUID() })
       });
       const payload = (await response.json()) as {
         ok?: boolean;
@@ -1058,7 +1100,7 @@
                   {/if}
                 </TableCell>
                 <TableCell>
-                  <Button size="sm" variant="ghost" onclick={(event) => { event.stopPropagation(); void openPreview(item.conversationId); }}>
+                  <Button size="sm" variant="ghost" onclick={(event) => { event.stopPropagation(); void openPreview(item); }}>
                     {t("btnPreview")}
                   </Button>
                 </TableCell>
@@ -1076,61 +1118,90 @@
   </div>
 
   {#if previewId}
-    <div class="channel-card">
-      <div class="channel-card-header">
-        <div>
-          <h2 class="channel-card-title">{t("previewTitle")}</h2>
-          <p class="channel-card-desc">{previewTitle || previewId}</p>
-        </div>
-        <div class="channel-actions">
+    <div
+      class="providers-modal-backdrop"
+      role="presentation"
+      on:click={() => closePreview()}
+      on:keydown={(event) => event.key === "Escape" && closePreview()}
+    >
+      <div class="providers-modal-card session-preview-modal" role="dialog" aria-modal="true" aria-label={t("previewTitle")}>
+        <div class="providers-auth-modal-head">
+          <div>
+            <h2 class="channel-card-title">{t("previewTitle")}</h2>
+            <p class="settings-item-desc">{previewTitle || previewId}</p>
+          </div>
           <Button size="sm" variant="outline" onclick={closePreview}>{t("previewClose")}</Button>
         </div>
-      </div>
-      <div class="channel-card-body">
-        {#if previewLoading}
-          <Skeleton />
-          <p class="channel-hint">{t("previewLoading")}</p>
-        {:else if previewError}
-          <Alert variant="destructive"><AlertDescription>{previewError}</AlertDescription></Alert>
-        {:else if previewMessages.length === 0}
-          <p class="channel-hint">{t("previewEmpty")}</p>
-        {:else}
-          {#each previewMessages as message (message.createdAt + message.role + message.content.slice(0, 24))}
-            <div class="channel-field">
-              <p class="settings-item-label">{message.role} · {formatDate(message.createdAt)}</p>
-              <p class="settings-item-desc">{message.content}</p>
+        <div class="session-preview-scroll">
+          {#if previewLoading}
+            <Skeleton />
+            <p class="channel-hint">{t("previewLoading")}</p>
+          {:else if previewError}
+            <Alert variant="destructive"><AlertDescription>{previewError}</AlertDescription></Alert>
+          {:else if previewMessages.length === 0}
+            <p class="channel-hint">{t("previewEmpty")}</p>
+          {:else}
+            {#each previewMessages as message (message.id ?? message.createdAt + message.role)}
+              <article class="session-msg" data-role={message.role}>
+                <p class="session-msg-meta">{message.role === "user" ? t("you") : "Molibot"} · {formatDate(message.createdAt)}{message.model ? ` · ${message.model}` : ""}</p>
+                {#if message.content}
+                  <div class="session-msg-content">{@html renderMarkdown(message.content)}</div>
+                {/if}
+                {#if message.attachments?.length}
+                  <div class="session-msg-attachments">
+                    <p class="session-msg-attachments-label">{t("previewAttachments")}</p>
+                    <div class="session-attachment-grid">
+                      {#each message.attachments as attachment (attachment.local)}
+                        {#if attachment.mediaType === "image"}
+                          <a class="session-attachment-media" href={attachmentUrl(attachment)} target="_blank" rel="noreferrer">
+                            <img src={attachmentUrl(attachment)} alt={attachment.original} loading="lazy" decoding="async" />
+                          </a>
+                        {:else if attachment.mediaType === "audio"}
+                          <!-- svelte-ignore a11y_media_has_caption -->
+                          <audio class="session-attachment-media" controls preload="metadata" src={attachmentUrl(attachment)}></audio>
+                        {:else if attachment.mediaType === "video"}
+                          <!-- svelte-ignore a11y_media_has_caption -->
+                          <video class="session-attachment-media" controls preload="metadata" src={attachmentUrl(attachment)}></video>
+                        {:else}
+                          <a class="session-attachment-chip" href={attachmentUrl(attachment)} target="_blank" rel="noreferrer">{attachment.original}</a>
+                        {/if}
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              </article>
+            {/each}
+          {/if}
+          {#if previewExtractionLoading}
+            <Skeleton />
+          {:else if previewExtraction}
+            <div class="session-preview-extraction">
+              <p class="settings-item-label">{t("colExtraction")} · {extractionLabel(previewExtraction.status)}</p>
+              {#if previewExtraction.processedThroughId || previewExtraction.messageRevision}
+                <p class="settings-item-desc">
+                  {t("extractRange")}: {previewExtraction.processedThroughId ?? "—"}{previewExtraction.messageRevision
+                    ? ` · ${previewExtraction.messageRevision}`
+                    : ""}
+                </p>
+              {/if}
+              {#if previewExtraction.savedMemoryIds.length > 0 || previewExtraction.savedDocRefs.length > 0}
+                <p class="settings-item-desc">
+                  {t("extractRetained")}: {t("extractMemories")} {previewExtraction.savedMemoryIds.length} · {t("extractDocs")} {previewExtraction.savedDocRefs.length}
+                  <a class="text-primary hover:underline font-medium" href="/settings/memory">{t("extractViewMemory")}</a>
+                </p>
+              {/if}
+              {#each previewExtraction.savedDocRefs as doc}
+                <p class="settings-item-desc">{doc.title ?? doc.docId} · {doc.docId}</p>
+              {/each}
+              {#if previewExtraction.pendingCandidateIds.length > 0}
+                <p class="settings-item-desc">{t("extractPending")}: {previewExtraction.pendingCandidateIds.join(", ")}</p>
+              {/if}
+              {#each previewExtraction.failureReasons as reason}
+                <p class="settings-item-desc">{reason}</p>
+              {/each}
             </div>
-          {/each}
-        {/if}
-        {#if previewExtractionLoading}
-          <Skeleton />
-        {:else if previewExtraction}
-          <div class="channel-field">
-            <p class="settings-item-label">{t("colExtraction")} · {extractionLabel(previewExtraction.status)}</p>
-            {#if previewExtraction.processedThroughId || previewExtraction.messageRevision}
-              <p class="settings-item-desc">
-                {t("extractRange")}: {previewExtraction.processedThroughId ?? "—"}{previewExtraction.messageRevision
-                  ? ` · ${previewExtraction.messageRevision}`
-                  : ""}
-              </p>
-            {/if}
-            {#if previewExtraction.savedMemoryIds.length > 0 || previewExtraction.savedDocRefs.length > 0}
-              <p class="settings-item-desc">
-                {t("extractRetained")}: {t("extractMemories")} {previewExtraction.savedMemoryIds.length} · {t("extractDocs")} {previewExtraction.savedDocRefs.length}
-                <a class="text-primary hover:underline font-medium" href="/settings/memory">{t("extractViewMemory")}</a>
-              </p>
-            {/if}
-            {#each previewExtraction.savedDocRefs as doc}
-              <p class="settings-item-desc">{doc.title ?? doc.docId} · {doc.docId}</p>
-            {/each}
-            {#if previewExtraction.pendingCandidateIds.length > 0}
-              <p class="settings-item-desc">{t("extractPending")}: {previewExtraction.pendingCandidateIds.join(", ")}</p>
-            {/if}
-            {#each previewExtraction.failureReasons as reason}
-              <p class="settings-item-desc">{reason}</p>
-            {/each}
-          </div>
-        {/if}
+          {/if}
+        </div>
       </div>
     </div>
   {/if}
@@ -1270,7 +1341,7 @@
     <div class="providers-modal-card" role="alertdialog" aria-modal="true" aria-label={t("deleteTitle")}>
       <h2 class="channel-card-title">{t("deleteTitle")}</h2>
       <p class="settings-item-desc">{fill(t("deleteCount"), { count: deleteFacts.count })}</p>
-      <p class="settings-item-desc">{t("deleteRecovery")}</p>
+      <p class="settings-item-desc">{view === "trashed" ? t("deletePermanent") : t("deleteRecovery")}</p>
       <p class="settings-item-desc">{t("deleteScope")}</p>
       <p class="channel-hint"><a class="text-primary hover:underline font-medium" href="/settings/memory">{t("deleteRetainedLink")}</a></p>
       <div class="channel-actions">

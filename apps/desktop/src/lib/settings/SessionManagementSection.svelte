@@ -1,13 +1,22 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { DesktopExtractionStatus, DesktopManagedSessionItem, DesktopManagedViewState } from "../api";
+  import type { DesktopSessionFile } from "@molibot/desktop-contract";
+  import {
+    fetchDesktopFileBlob,
+    listDesktopSessionFiles
+  } from "../api";
+  import type { Translation } from "../i18n";
+  import { saveBlobAsFile } from "../saveFile";
+  import { formatMessageTime } from "../chat/messageTime";
+  import ConversationTranscript from "../chat/ConversationTranscript.svelte";
+  import type { TranscriptAttachmentActions, TranscriptMessage } from "../chat/transcript";
   import Dialog from "../components/ui/Dialog.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
   import StatusBadge from "../components/ui/StatusBadge.svelte";
-  import type { Translation } from "../i18n";
   import { formatNaturalDateTime } from "../presentation";
   import { session, navigateSettings } from "../stores/session.svelte";
   import {
@@ -40,9 +49,19 @@
   let newBotId = $state("");
   let newBotMode = $state<"inherit" | "disabled" | "custom">("inherit");
   let newBotDays = $state(30);
-  let savedPreviewScroll = $state(0);
+
+  // Preview-modal attachment media: mirrors ChatView's transcript media maps —
+  // files provide the record, blobs become object URLs keyed by `local` path.
+  let previewFiles = $state<DesktopSessionFile[]>([]);
+  let previewMediaUrls = $state(new Map<string, string>());
+  let previewMediaLoading = $state(new Set<string>());
+  let previewMediaFailed = $state(new Set<string>());
+  let previewCopiedId = $state("");
+  let previewCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
   const endpoint = $derived(session.serviceReady && session.endpoint ? session.endpoint : "");
+  const previewItem = $derived(sessionManagementStore.previewItem);
+  const previewFileByLocal = $derived(new Map(previewFiles.map((file) => [file.local, file])));
   const viewTabs = $derived<Array<{ id: DesktopManagedViewState; label: string; count: number }>>([
     { id: "active", label: session.text.sessionMgmtTabActive, count: sessionManagementStore.counts.active },
     { id: "archived", label: session.text.sessionMgmtTabArchived, count: sessionManagementStore.counts.archived },
@@ -120,18 +139,139 @@
     return item.retain ? `${stateLabel} · ${copy.sessionMgmtRetain}` : stateLabel;
   }
 
-  function openPreview(conversationId: string): void {
-    const scroller = document.querySelector(".settings-scroll");
-    savedPreviewScroll = scroller?.scrollTop ?? 0;
-    void openSessionPreview(endpoint, conversationId);
+  /** Web profile that owns the session's workspace; external/project branches
+   * of the files API ignore it but require it non-empty. */
+  function previewProfileId(item: DesktopManagedSessionItem): string {
+    return item.source === "external" ? item.botId || "external" : item.botId || "default";
+  }
+
+  function openPreview(item: DesktopManagedSessionItem): void {
+    previewFiles = [];
+    revokePreviewMedia();
+    previewMediaFailed = new Set();
+    previewCopiedId = "";
+    void openSessionPreview(endpoint, item);
+    void loadPreviewFiles(item);
   }
 
   function closePreview(): void {
     closeSessionPreview();
-    requestAnimationFrame(() => {
-      const scroller = document.querySelector(".settings-scroll");
-      if (scroller) scroller.scrollTop = savedPreviewScroll;
-    });
+    previewFiles = [];
+    revokePreviewMedia();
+  }
+
+  function revokePreviewMedia(): void {
+    for (const url of previewMediaUrls.values()) URL.revokeObjectURL(url);
+    previewMediaUrls = new Map();
+    previewMediaLoading = new Set();
+  }
+
+  async function loadPreviewFiles(item: DesktopManagedSessionItem): Promise<void> {
+    try {
+      const files = await listDesktopSessionFiles(
+        endpoint,
+        previewProfileId(item),
+        item.conversationId,
+        item.projectId || undefined
+      );
+      if (sessionManagementStore.previewItem?.conversationId !== item.conversationId) return;
+      previewFiles = files;
+    } catch {
+      previewFiles = [];
+    }
+  }
+
+  async function loadPreviewMedia(file: DesktopSessionFile): Promise<void> {
+    const item = sessionManagementStore.previewItem;
+    if (!endpoint || !item) return;
+    if (previewMediaUrls.has(file.local) || previewMediaLoading.has(file.local)) return;
+    const conversationId = item.conversationId;
+    const loading = new Set(previewMediaLoading);
+    loading.add(file.local);
+    previewMediaLoading = loading;
+    try {
+      const blob = await fetchDesktopFileBlob(
+        endpoint,
+        previewProfileId(item),
+        conversationId,
+        file.id,
+        false,
+        item.projectId || undefined
+      );
+      // The dialog may have closed (URLs revoked) or switched conversations
+      // while the fetch was in flight; a late URL would leak its blob.
+      if (sessionManagementStore.previewItem?.conversationId !== conversationId) {
+        URL.revokeObjectURL(URL.createObjectURL(blob));
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const next = new Map(previewMediaUrls);
+      next.set(file.local, url);
+      previewMediaUrls = next;
+    } catch {
+      const failed = new Set(previewMediaFailed);
+      failed.add(file.local);
+      previewMediaFailed = failed;
+    } finally {
+      const done = new Set(previewMediaLoading);
+      done.delete(file.local);
+      previewMediaLoading = done;
+    }
+  }
+
+  async function downloadPreviewFile(file: DesktopSessionFile): Promise<void> {
+    const item = sessionManagementStore.previewItem;
+    if (!endpoint || !item) return;
+    try {
+      const blob = await fetchDesktopFileBlob(
+        endpoint,
+        previewProfileId(item),
+        item.conversationId,
+        file.id,
+        true,
+        item.projectId || undefined
+      );
+      await saveBlobAsFile(blob, file.original);
+    } catch (cause) {
+      sessionManagementStore.previewError = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  const previewAttachmentActions = $derived({
+    filesByLocal: previewFileByLocal,
+    mediaUrls: previewMediaUrls,
+    mediaLoading: previewMediaLoading,
+    mediaFailed: previewMediaFailed,
+    loadMedia: (file: DesktopSessionFile) => void loadPreviewMedia(file),
+    canPreview: (file: DesktopSessionFile): boolean => file.mediaType === "image" || file.mediaType === "audio" || file.mediaType === "video",
+    preview: (file: DesktopSessionFile) => void loadPreviewMedia(file),
+    download: (file: DesktopSessionFile) => void downloadPreviewFile(file)
+  } satisfies TranscriptAttachmentActions);
+
+  async function copyPreviewMessage(message: TranscriptMessage): Promise<void> {
+    if (!message.content) return;
+    try {
+      await navigator.clipboard.writeText(message.content);
+      previewCopiedId = message.id ?? "";
+      if (previewCopiedTimer) clearTimeout(previewCopiedTimer);
+      previewCopiedTimer = setTimeout(() => {
+        previewCopiedId = "";
+        previewCopiedTimer = null;
+      }, 1500);
+    } catch { /* clipboard unavailable */ }
+  }
+
+  const previewMessageActions = $derived(
+    sessionManagementStore.previewMessages.length > 0
+      ? {
+          copiedId: previewCopiedId,
+          onCopy: (message: TranscriptMessage) => void copyPreviewMessage(message)
+        }
+      : null
+  );
+
+  function formatPreviewTime(value: string): string {
+    return formatMessageTime(value, session.text.groupYesterday);
   }
 
   function onRowClick(event: MouseEvent, item: DesktopManagedSessionItem, idx: number): void {
@@ -259,7 +399,7 @@
           <div class="settings-row-actions">
             <StatusBadge label={rowStateLabel(item, session.text)} state={item.state === "active" ? "ready" : item.state === "archived" ? "warning" : "error"} />
             <StatusBadge label={sessionExtractionLabel(rowExtractionStatus(item))} state={rowExtractionStatus(item) === "failed" ? "error" : rowExtractionStatus(item) === "unprocessed" ? "disconnected" : "ready"} />
-            <button class="secondary-button" type="button" onclick={() => openPreview(item.conversationId)}>{session.text.sessionMgmtPreviewRow}</button>
+            <button class="secondary-button" type="button" onclick={() => openPreview(item)}>{session.text.sessionMgmtPreviewRow}</button>
           </div>
         </div>
       {/each}
@@ -275,38 +415,48 @@
   </div>
 
   {#if sessionManagementStore.previewId}
-    <div class="settings-card" data-session-management="preview">
-      <div class="settings-row">
-        <div class="profile-info">
-          <strong>{session.text.sessionMgmtPreviewTitle}</strong>
-          <p>{sessionManagementStore.previewTitle || sessionManagementStore.previewId}</p>
+    <Dialog
+      open={Boolean(sessionManagementStore.previewId)}
+      labelledBy="session-mgmt-preview-title"
+      contentClass="session-preview-dialog"
+      onOpenChange={(next) => { if (!next) closePreview(); }}
+    >
+      <header class="entity-editor-head">
+        <div>
+          <strong id="session-mgmt-preview-title">{sessionManagementStore.previewTitle || sessionManagementStore.previewId}</strong>
+          <p>
+            {session.text.sessionMgmtPreviewTitle}
+            {#if sessionManagementStore.previewReadOnly} · {session.text.sessionMgmtPreviewReadOnly}{/if}
+          </p>
         </div>
-        <div class="settings-row-actions"><button class="secondary-button" type="button" onclick={closePreview}>{session.text.sessionMgmtPreviewClose}</button></div>
-      </div>
-      {#if sessionManagementStore.previewLoading}
-        <SkeletonRows count={3} label={session.text.sessionMgmtPreviewLoading} />
-      {:else if sessionManagementStore.previewUnavailable}
-        <div class="settings-row"><p>{session.text.sessionMgmtSourceUnavailable}</p></div>
-      {:else if sessionManagementStore.previewError}
-        <div class="settings-row"><p class="error-message" role="alert">{sessionManagementStore.previewError}</p></div>
-      {:else if sessionManagementStore.previewMessages.length === 0}
-        <div class="settings-row"><p>{session.text.sessionMgmtPreviewEmpty}</p></div>
-      {:else}
-        {#if sessionManagementStore.previewReadOnly}
-          <div class="settings-row"><p>{session.text.sessionMgmtPreviewReadOnly}</p></div>
-        {/if}
-        {#each sessionManagementStore.previewMessages as message, index (message.createdAt + message.role + index)}
-          <div class="settings-row">
-            <div class="profile-info">
-              <strong>{message.role} · {formatNaturalDateTime(message.createdAt, session.locale)}</strong>
-              <p>{message.content}</p>
-            </div>
+        <div class="settings-row-actions">
+          <button class="secondary-button" type="button" onclick={closePreview}>{session.text.sessionMgmtPreviewClose}</button>
+        </div>
+      </header>
+      <div class="session-preview-body">
+        {#if sessionManagementStore.previewLoading}
+          <SkeletonRows count={3} label={session.text.sessionMgmtPreviewLoading} />
+        {:else if sessionManagementStore.previewUnavailable}
+          <EmptyState title={session.text.sessionMgmtSourceUnavailable} icon="clock-counter-clockwise" />
+        {:else if sessionManagementStore.previewError}
+          <p class="error-message" role="alert">{sessionManagementStore.previewError}</p>
+        {:else if sessionManagementStore.previewMessages.length === 0}
+          <EmptyState title={session.text.sessionMgmtPreviewEmpty} icon="chat-circle-dots" />
+        {:else}
+          <div class="messages session-preview-messages">
+            <ConversationTranscript
+              messages={sessionManagementStore.previewMessages}
+              copy={session.text}
+              formatTime={formatPreviewTime}
+              assistantName={session.text.appName}
+              attachmentActions={previewAttachmentActions}
+              messageActions={previewMessageActions}
+              {endpoint}
+            />
           </div>
-        {/each}
-      {/if}
-      {#if sessionManagementStore.previewExtraction}
-        <div class="settings-row">
-          <div class="profile-info">
+        {/if}
+        {#if sessionManagementStore.previewExtraction}
+          <div class="session-preview-extraction">
             <strong>{session.text.sessionMgmtColExtraction} · {sessionExtractionLabel(sessionManagementStore.previewExtraction.status)}</strong>
             {#if sessionManagementStore.previewExtraction.processedThroughId || sessionManagementStore.previewExtraction.messageRevision}
               <p>{session.text.sessionMgmtExtractRange}: {sessionManagementStore.previewExtraction.processedThroughId ?? "—"}{sessionManagementStore.previewExtraction.messageRevision ? ` · ${sessionManagementStore.previewExtraction.messageRevision}` : ""}</p>
@@ -317,11 +467,13 @@
             {#each sessionManagementStore.previewExtraction.savedDocRefs as doc (doc.docId)}<p>{doc.title ?? doc.docId} · {doc.docId}</p>{/each}
             {#if sessionManagementStore.previewExtraction.pendingCandidateIds.length > 0}<p>{session.text.sessionMgmtExtractPending}: {sessionManagementStore.previewExtraction.pendingCandidateIds.join(", ")}</p>{/if}
             {#each sessionManagementStore.previewExtraction.failureReasons as reason}<p>{session.text.sessionMgmtExtractFailures}: {reason}</p>{/each}
+            <div class="settings-row-actions">
+              <button class="secondary-button" type="button" onclick={() => { closePreview(); navigateSettings("memory"); }}>{session.text.sessionMgmtExtractViewMemory}</button>
+            </div>
           </div>
-          <div class="settings-row-actions"><button class="secondary-button" type="button" onclick={() => { closePreview(); navigateSettings("memory"); }}>{session.text.sessionMgmtExtractViewMemory}</button></div>
-        </div>
-      {/if}
-    </div>
+        {/if}
+      </div>
+    </Dialog>
   {/if}
 
   <div class="settings-card" data-session-management="policy">
@@ -397,7 +549,7 @@
       <div class="modal-body settings-form">
         <div class="settings-field settings-field-wide">
           <p>{fill(session.text.sessionMgmtDeleteCount, { count: sessionManagementStore.deleteFacts.count })}</p>
-          <p>{fill(session.text.sessionMgmtDeleteRecovery, { days: sessionManagementStore.deleteFacts.retentionDays })}</p>
+          <p>{sessionManagementStore.view === "trashed" ? session.text.sessionMgmtDeletePermanent : fill(session.text.sessionMgmtDeleteRecovery, { days: sessionManagementStore.deleteFacts.retentionDays })}</p>
           <p id="session-mgmt-delete-scope">{session.text.sessionMgmtDeleteScope}</p>
         </div>
       </div>

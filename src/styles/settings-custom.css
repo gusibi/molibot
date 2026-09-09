@@ -3948,3 +3948,132 @@
   color: var(--muted-foreground);
   margin: 0;
 }
+
+/* Session management transcript preview modal: restores the conversation in a
+   chat-like reading layout instead of an inline text list. Tokens follow
+   theme.css so light/dark both resolve natively. */
+.session-preview-modal {
+  max-width: 56rem;
+  padding: 0;
+  gap: 0;
+}
+
+.session-preview-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  padding: 1rem 1.25rem 1.25rem;
+  overflow-y: auto;
+}
+
+.session-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-width: min(92%, 46rem);
+}
+
+.session-msg[data-role="user"] {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.session-msg-meta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.session-msg-content {
+  padding: 0.625rem 0.875rem;
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
+  border-radius: 0.75rem;
+  background: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.session-msg[data-role="user"] .session-msg-content {
+  background: color-mix(in oklab, var(--primary) 10%, var(--card));
+}
+
+.session-msg-content > :first-child { margin-top: 0; }
+.session-msg-content > :last-child { margin-bottom: 0; }
+
+.session-msg-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+.session-msg-content pre {
+  overflow-x: auto;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--foreground) 6%, var(--card));
+}
+
+.session-msg-content code {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.8125rem;
+}
+
+.session-msg-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  width: 100%;
+}
+
+.session-msg-attachments-label {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.session-attachment-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.session-attachment-media {
+  display: block;
+  max-width: min(320px, 100%);
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
+  border-radius: 0.5rem;
+}
+
+.session-attachment-media img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: inherit;
+}
+
+.session-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+}
+
+.session-attachment-chip:hover { color: var(--primary); }
+
+.session-preview-extraction {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}

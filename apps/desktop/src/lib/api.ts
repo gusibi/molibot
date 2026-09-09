@@ -23,6 +23,7 @@ import type {
   DesktopChannelTestRequest,
   DesktopChannelTestResponse,
   DesktopConversationActivity,
+  DesktopConversationMessage,
   DesktopConversationPlan,
   DesktopConversationChannel,
   DesktopConversationItem,
@@ -3748,11 +3749,12 @@ export interface DesktopManagedListResult {
   offset: number;
 }
 
-export interface DesktopManagedPreviewMessage {
-  role: string;
-  content: string;
-  createdAt: string;
-}
+/**
+ * Full projected transcript row — the same shape the chat transcript renders,
+ * so a preview can restore the real conversation UI (attachments, thinking,
+ * steps included) instead of a bare text list.
+ */
+export type DesktopManagedPreviewMessage = DesktopConversationMessage;
 
 export interface DesktopManagedPreview {
   conversationId: string;
@@ -3798,7 +3800,7 @@ export interface DesktopBulkResultItem {
 
 export interface DesktopBulkResult {
   operationId: string;
-  kind: "archive" | "restore" | "delete";
+  kind: "archive" | "restore" | "delete" | "purge";
   counts: DesktopBulkCounts;
   items: DesktopBulkResultItem[];
 }
@@ -3916,7 +3918,7 @@ export async function createDesktopManagedSelection(
 }
 
 export interface DesktopBulkExecuteInput {
-  kind: "archive" | "restore" | "delete";
+  kind: "archive" | "restore" | "delete" | "purge";
   targets?: DesktopBulkTarget[];
   selectionId?: string;
   idempotencyKey: string;

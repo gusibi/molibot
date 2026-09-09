@@ -54,6 +54,7 @@ export const sessionManagementStore = $state({
   lastSelectedIdx: -1,
   selectingAll: false,
   previewId: "",
+  previewItem: null as DesktopManagedSessionItem | null,
   previewTitle: "",
   previewReadOnly: false,
   previewMessages: [] as DesktopManagedPreviewMessage[],
@@ -148,6 +149,7 @@ export function setSessionView(endpoint: string, view: DesktopManagedViewState):
   if (store.view === view) return;
   store.view = view;
   store.previewId = "";
+  store.previewItem = null;
   store.previewReadOnly = false;
   store.previewMessages = [];
   store.previewError = "";
@@ -243,9 +245,12 @@ export async function selectAllMatchingSessions(endpoint: string): Promise<void>
   }
 }
 
-export async function openSessionPreview(endpoint: string, conversationId: string): Promise<void> {
+/** Opens the modal preview; `item` carries the source context the transcript
+ * needs to resolve attachment bytes (botId = web profile, projectId, source). */
+export async function openSessionPreview(endpoint: string, item: DesktopManagedSessionItem): Promise<void> {
   const store = sessionManagementStore;
-  store.previewId = conversationId;
+  store.previewId = item.conversationId;
+  store.previewItem = item;
   store.previewTitle = "";
   store.previewReadOnly = false;
   store.previewMessages = [];
@@ -254,7 +259,7 @@ export async function openSessionPreview(endpoint: string, conversationId: strin
   store.previewExtraction = null;
   store.previewLoading = true;
   try {
-    const preview = await loadDesktopManagedPreview(endpoint, conversationId);
+    const preview = await loadDesktopManagedPreview(endpoint, item.conversationId);
     store.previewTitle = preview.title;
     store.previewReadOnly = preview.readOnly === true;
     store.previewMessages = preview.messages;
@@ -266,7 +271,7 @@ export async function openSessionPreview(endpoint: string, conversationId: strin
     store.previewLoading = false;
   }
   try {
-    store.previewExtraction = await loadDesktopExtractionStatus(endpoint, conversationId);
+    store.previewExtraction = await loadDesktopExtractionStatus(endpoint, item.conversationId);
   } catch {
     store.previewExtraction = null;
   }
@@ -275,6 +280,7 @@ export async function openSessionPreview(endpoint: string, conversationId: strin
 export function closeSessionPreview(): void {
   const store = sessionManagementStore;
   store.previewId = "";
+  store.previewItem = null;
   store.previewTitle = "";
   store.previewReadOnly = false;
   store.previewMessages = [];
@@ -291,11 +297,14 @@ function selectionPayload(): { targets?: DesktopBulkTarget[]; selectionId?: stri
   };
 }
 
-/** Delete goes through the confirmation dialog first (`requestSessionDelete`). */
+/** Delete goes through the confirmation dialog first (`requestSessionDelete`).
+ * In the trash view "delete" means permanent removal, so it executes the
+ * explicit `purge` kind; everywhere else it is the recoverable trash move. */
 export async function runSessionBulk(endpoint: string, kind: "archive" | "restore" | "delete"): Promise<void> {
   const store = sessionManagementStore;
   if (sessionManagementSelectedCount() === 0 || store.bulkBusy) return;
   if (kind === "delete" && !store.confirmDelete) return;
+  const serverKind = kind === "delete" && store.view === "trashed" ? "purge" : kind;
   store.bulkBusy = true;
   store.bulkError = "";
   store.bulkCounts = null;
@@ -303,7 +312,7 @@ export async function runSessionBulk(endpoint: string, kind: "archive" | "restor
   store.extractResults = [];
   try {
     const result = await executeDesktopManagedBulk(endpoint, {
-      kind,
+      kind: serverKind,
       ...selectionPayload(),
       idempotencyKey: crypto.randomUUID()
     });

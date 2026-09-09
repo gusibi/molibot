@@ -36,6 +36,8 @@ export interface AssembleSessionLifecycleDeps {
   /** Explicit probe wins; otherwise one is built from `busyReaders`. */
   isBusy?: (conversationId: string) => boolean;
   busyReaders?: SessionBusyReaders;
+  /** Owner-initiated purge executor for "delete" from the trash view. */
+  purgeTrashed?: (conversationId: string) => void;
 }
 
 const falsyReaders: Required<SessionBusyReaders> = {
@@ -88,6 +90,7 @@ export function assembleSessionLifecycle(deps: AssembleSessionLifecycleDeps): Se
     extraction: deps.extraction,
     listExternal: deps.listExternal,
     isExternalSession: deps.isExternalSession,
-    isBusy: deps.isBusy ?? createSessionBusyProbe(deps.busyReaders ?? {})
+    isBusy: deps.isBusy ?? createSessionBusyProbe(deps.busyReaders ?? {}),
+    purgeTrashed: deps.purgeTrashed
   });
 }

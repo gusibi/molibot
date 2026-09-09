@@ -53,7 +53,7 @@ export interface SessionBulkServiceDeps {
   trashRetentionDays?: number;
 }
 
-const BULK_KINDS: BulkOperationKind[] = ["archive", "restore", "delete"];
+const BULK_KINDS: BulkOperationKind[] = ["archive", "restore", "delete", "purge"];
 
 function countItems(items: BulkOperationItem[]): BulkCounts {
   const counts: BulkCounts = { total: items.length, succeeded: 0, skipped: 0, failed: 0 };
@@ -280,7 +280,14 @@ export class SessionBulkService {
         case "archive":
           return this.lifecycle.archive(base);
         case "delete":
+          // Recoverable: active/archived sessions enter the trash. Deleting an
+          // already-trashed session is an idempotent no-op — permanent removal
+          // is the explicit `purge` kind the trash view sends.
           return this.lifecycle.trash(base);
+        case "purge":
+          // Owner-initiated immediate removal of trashed sessions, reusing the
+          // scheduled sweep's cross-store purge through the lifecycle port.
+          return this.lifecycle.purgeTrashed(base);
         case "restore": {
           // Dispatch on the current state, then let the single-item operation
           // re-verify ownership and eligibility as usual.

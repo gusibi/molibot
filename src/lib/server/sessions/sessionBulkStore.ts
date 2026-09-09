@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir } from "$lib/server/infra/db/storage.js";
 
-export type BulkOperationKind = "archive" | "restore" | "delete";
+export type BulkOperationKind = "archive" | "restore" | "delete" | "purge";
 export type BulkItemStatus = "succeeded" | "skipped" | "failed";
 
 export interface BulkTarget {

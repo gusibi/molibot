@@ -24,6 +24,16 @@ test("desktop HTTP scope allows project registry and session routes", () => {
   assert.ok(allowedUrls.has("http://localhost:*/api/settings/projects*"));
 });
 
+// Regression guard: the session-management settings section calls
+// `/api/settings/session-auto-archive`; missing it from this scope surfaced as
+// "url not allowed on the configured scope" on every policy action. Any new
+// `/api/settings/...` family used by the desktop MUST be added here too.
+test("desktop HTTP scope allows the session auto-archive policy API", () => {
+  for (const host of ["127.0.0.1", "localhost"]) {
+    assert.ok(allowedUrls.has(`http://${host}:*/api/settings/session-auto-archive*`));
+  }
+});
+
 test("desktop HTTP scope allows only the image recognition projection and test route", () => {
   for (const host of ["127.0.0.1", "localhost"]) {
     assert.ok(allowedUrls.has(`http://${host}:*/api/desktop/image-recognition`));

@@ -7,6 +7,22 @@
 - **状态边界**：收藏和最近使用保存在连接作用域的桌面 UI 偏好中；目录加载按连接防止旧连接响应覆盖新连接，失效/停用应用不出现在快捷列表，Inspector 继续显示既有不可用原因。
 - **规范与测试**：设计规则写入 `DESIGN.md`；quick-access 偏好 save → 新建 store → load、去重、连接隔离和最近列表上限有单测覆盖。验证：desktop 测试 240/240、聊天 UI 230/230、`svelte-check` 0 错 0 警、Desktop Vite build、cargo test 60/60 通过；冷启动自动尝试因已有进程占用 `127.0.0.1:1420` 未能启动独立 Tauri 窗口。
 
+### 聊天输入草稿持久化根修：草稿存储成为唯一事实源（2026-09-09，已实现）
+
+- **症状**：会话里正在输入的内容会在某些会话切换后丢失——能否保住草稿取决于「那条切换路径有没有记得手动调 sync」：`openSession`/`newConversation`/fork 记得，服务连接时的默认选座（`selectDefaultSession`，含点侧边栏导航触发的 `connect()`）不记得，直接 `loadDraftIn()` 覆盖 `messageInput`，未保存的输入就此丢失。
+- **根修（结构性，消掉整类问题）**：废弃「切换时手动 syncDraftOut/loadDraftIn」模式，ChatView 改为单一 `$:` 镜像块双向负责——草稿 key 变化（切会话/新建草稿/首条消息建会话）时载入新会话草稿，其余任何变化（打字、加附件、改 thinking 级别、小程序 composer.insert、发送清空、失败回填）即时镜像回 `draftStore`。任何路径切换会话都不可能再丢草稿，也不存在「哪条路径忘了 sync」。草稿 key 规则提炼为纯函数 `composerDraftKey()`（`sessionDraftStore.ts`），镜像块与 store 共用一份，不会再对「当前在编辑哪个草稿」产生分歧；随之失去全部调用方的 `ChatSessionStore.currentDraftKey()` 直接删除。
+- **机器守卫**：`chat-ui.test.mjs` 新增结构性守卫（镜像块存在且双向、全文件禁止 `syncDraftOut(`/`loadDraftIn(`/`draftStore.setText|setFiles|setThinking(` 回潮、key 规则只在共享层定义）；`sessionDraftStore.test.ts` 补 `composerDraftKey` 路由用例，并把该测试文件接入 desktop test script（此前未接入）。
+- 验证：desktop tsx 262/262（含补接的 sessionDraftStore 7 项）、`node --test` 守卫 239/239、`svelte-check` 0 错 0 警、`vite build` 通过、cargo test 通过（未触及 Rust）；冷启动冒烟走查未做（需打包 Tauri 窗口，留待发布前验证）。
+
+### 回收站删除根修：显式 purge 操作让「彻底清除」真正生效（2026-09-08，已实现）
+
+- **症状**：回收站内选中会话点「删除」确认后毫无变化——会话永远留在回收站。
+- **根因**：批量 `delete` 一律走 `lifecycle.trash()`，而 trash 对已回收会话是幂等成功（直接返回 succeeded 的 no-op）。回收站视图发的就是 delete kind，服务端"成功"了但什么都没做：既没有跨存储清除，也不从列表消失。到期 30 天的定时 sweep 是唯一的清除路径，用户主动删除这条路根本不存在。
+- **根修（共享层）**：bulk 操作新增显式 `purge` kind（`delete` 语义一字不改：进回收站/对已回收幂等）；lifecycle 服务新增 `purgeTrashed` 操作（owner 授权重查 + retain 保护 + busy 探针门槛与其余操作一致，执行体经注入端口复用 `SessionTrashCleanupService` 的跨存储 purge：搜索投影 → UI 会话文件 → Agent Context → 删 lifecycle 行，部分失败记 cleanup intent 可恢复）；runtime 装配把 cleanup 服务先建并接入端口（顺序调整，`reconcilePending`/runtime 暴露引用不变）。客户端在回收站视图把删除映射为 purge（web `doBulk` / desktop `runSessionBulk`），删除意图精确保留到操作记录与重试。
+- **文案**：回收站视图的删除确认改为「这些会话已在回收站中，将立即彻底清除，此操作无法恢复。」（双语），其余视图维持 30 天恢复期说明。
+- **机器守卫**：`sessionBulkService.test.ts` +2（purge 真删除：lifecycle 行与 UI 会话文件消失、普通 delete 在回收站仍是幂等 no-op 且对 active 会话进回收站；busy 会话 purge 被 skip 保留）；夹具接入与生产同形的 trash cleanup 端口。
+- 验证：会话域 147/147（含 bulk 12）；桌面 `svelte-check` 0 错 0 警、store 12/12；Web `vite build` 通过；隔离实例冷路径走查：trash A/B → purge API 成功且预览诚实返回 source-unavailable → UI 回收站选 B → 删除 → 确认（显示立即清除文案）→ 回收站 (0)、"No matching sessions"。
+
 ### Mini Chat 输入乱码与频繁中断修复：后台生成 + IME 守卫升级（2026-09-08，已实现，closes #47）
 
 - **症状**（issue #47）：Mini Chat 输入框输入中文后残留拼音乱码（如 "wff"）；回复频繁显示「回复已中断」/「Could not reach the Molibot service.」，长回复几乎必中断。

@@ -100,6 +100,8 @@ export function buildProductionSessionLifecycle(input: {
   extraction?: SessionExtractionStatusSource;
   clock?: () => Date;
   dataRoot?: string;
+  /** Owner-initiated purge executor ("delete" from the trash view). */
+  purgeTrashed?: (conversationId: string) => void;
 }): SessionLifecycleService {
   return assembleSessionLifecycle({
     sessions: input.sessions,
@@ -109,7 +111,8 @@ export function buildProductionSessionLifecycle(input: {
     extraction: input.extraction,
     listExternal: () => listManagedExternalCandidates(input.dataRoot ?? resolve(config.dataDir)),
     isExternalSession: isExternalSessionId,
-    busyReaders: realSessionBusyReaders()
+    busyReaders: realSessionBusyReaders(),
+    purgeTrashed: input.purgeTrashed
   });
 }
 

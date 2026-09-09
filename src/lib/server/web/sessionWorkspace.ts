@@ -1,7 +1,6 @@
 import type { ConversationMessage } from "$lib/shared/types/message";
 import { getRuntime } from "$lib/server/app/runtime";
-import { toWebExternalUserId } from "$lib/server/web/identity";
-import { getProjectRuntimeContext, getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import { getProjectRuntimeContext, getWebRuntimeContext, resolveWebConversationIdentity } from "$lib/server/web/runtimeContext";
 
 /**
  * Authorized lookup of a Session's workspace directory.
@@ -39,13 +38,21 @@ export function resolveAuthorizedConversation(input: {
       workspaceDir: getProjectRuntimeContext(projectId).store.getWorkspaceDir()
     };
   }
-  const externalUserId = toWebExternalUserId(input.userId, input.profileId);
-  const conversation = runtime.sessions.getConversationById(input.sessionId, "web", externalUserId);
+  // The Desktop sidebar (plan §12) aggregates every Web owner's conversations,
+  // so resolve the real owner from the index like the sessions read API does;
+  // trusting the caller's derived identity alone 404s browser-created sessions
+  // whose owner carries a real user id.
+  const identity = resolveWebConversationIdentity({
+    profileId: input.profileId,
+    userId: input.userId,
+    conversationId: input.sessionId
+  });
+  const conversation = runtime.sessions.getConversationById(input.sessionId, "web", identity.externalUserId);
   if (!conversation) return null;
   return {
-    externalUserId,
+    externalUserId: identity.externalUserId,
     conversation,
     messages: runtime.sessions.listMessages(conversation.id),
-    workspaceDir: getWebRuntimeContext(input.profileId).store.getWorkspaceDir()
+    workspaceDir: getWebRuntimeContext(identity.profileId).store.getWorkspaceDir()
   };
 }

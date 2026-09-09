@@ -366,7 +366,30 @@ test("preview failure on a purged source renders source-unavailable, and closing
     throw new Error(`Unexpected request: ${url}`);
   }) as typeof fetch;
   try {
-    await openSessionPreview("http://desktop.test", "gone");
+    await openSessionPreview("http://desktop.test", {
+      conversationId: "gone",
+      title: "Gone",
+      source: "local",
+      channel: "web",
+      botId: "default",
+      ownerExternalUserId: null,
+      createdAt: "2026-09-06T00:00:00.000Z",
+      updatedAt: "2026-09-06T00:00:00.000Z",
+      lastActivityAt: null,
+      userTurnCount: 0,
+      assistantTurnCount: 0,
+      state: "active",
+      version: 1,
+      retain: false,
+      archivedAt: null,
+      trashedAt: null,
+      extractionStatus: "unprocessed",
+      extractionRevision: null,
+      processedThroughId: null,
+      savedMemoryIds: [],
+      savedDocRefs: [],
+      pendingCandidateIds: []
+    });
     assert.equal(sessionManagementStore.previewId, "gone");
     assert.equal(sessionManagementStore.previewUnavailable, true);
     assert.deepEqual(sessionManagementStore.previewMessages, []);
@@ -375,6 +398,75 @@ test("preview failure on a purged source renders source-unavailable, and closing
     closeSessionPreview();
     assert.equal(sessionManagementStore.previewId, "");
     assert.equal(sessionManagementStore.previewUnavailable, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("successful preview keeps the full projected transcript (attachments included) and the source item", async () => {
+  const { sessionManagementStore, openSessionPreview, closeSessionPreview } = await freshStore();
+  const originalFetch = globalThis.fetch;
+  const projectedMessages = [
+    {
+      id: "m-1",
+      conversationId: "s-0",
+      role: "user",
+      content: "look at this",
+      createdAt: "2026-09-06T10:00:00.000Z",
+      attachments: [{ original: "photo.jpg", local: "attachments/photo.jpg", mediaType: "image" as const }]
+    },
+    {
+      id: "m-2",
+      conversationId: "s-0",
+      role: "assistant",
+      content: "here it is",
+      createdAt: "2026-09-06T10:00:05.000Z",
+      thinking: "hmm"
+    }
+  ];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/managed/preview")) {
+      return jsonResponse({ ok: true, preview: { conversationId: "s-0", title: "With image", state: "active", messages: projectedMessages } });
+    }
+    if (url.includes("/extraction/status")) return jsonResponse({ ok: false, error: "none" }, 404);
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+  try {
+    await openSessionPreview("http://desktop.test", {
+      conversationId: "s-0",
+      title: "With image",
+      source: "local",
+      channel: "web",
+      botId: "default",
+      ownerExternalUserId: null,
+      createdAt: "2026-09-06T00:00:00.000Z",
+      updatedAt: "2026-09-06T00:00:00.000Z",
+      lastActivityAt: null,
+      userTurnCount: 1,
+      assistantTurnCount: 1,
+      state: "active",
+      version: 3,
+      retain: false,
+      archivedAt: null,
+      trashedAt: null,
+      extractionStatus: "unprocessed",
+      extractionRevision: null,
+      processedThroughId: null,
+      savedMemoryIds: [],
+      savedDocRefs: [],
+      pendingCandidateIds: []
+    });
+    assert.equal(sessionManagementStore.previewId, "s-0");
+    assert.equal(sessionManagementStore.previewItem?.botId, "default");
+    assert.equal(sessionManagementStore.previewTitle, "With image");
+    assert.equal(sessionManagementStore.previewMessages.length, 2);
+    assert.equal(sessionManagementStore.previewMessages[0]?.attachments?.[0]?.original, "photo.jpg");
+    assert.equal(sessionManagementStore.previewMessages[1]?.thinking, "hmm");
+
+    closeSessionPreview();
+    assert.equal(sessionManagementStore.previewItem, null);
+    assert.deepEqual(sessionManagementStore.previewMessages, []);
   } finally {
     globalThis.fetch = originalFetch;
   }

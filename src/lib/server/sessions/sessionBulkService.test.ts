@@ -10,6 +10,7 @@ import { SessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleStor
 import { SessionLifecycleService } from "$lib/server/sessions/sessionLifecycleService.js";
 import { SessionBulkStore } from "$lib/server/sessions/sessionBulkStore.js";
 import { SessionBulkService } from "$lib/server/sessions/sessionBulkService.js";
+import { SessionTrashCleanupService } from "$lib/server/sessions/sessionTrashCleanup.js";
 
 const OWNER = "web:personal:web-anonymous";
 const OTHER = "web:other:web-anonymous";
@@ -49,7 +50,25 @@ function setup(): Fixture {
   sessions.setConversationSearchIndex(search, "web");
   const lifecycle = new SessionLifecycleStore(dbFile, { clock });
   const busy = new Set<string>();
-  const service = new SessionLifecycleService({ sessions, lifecycle, clock, isBusy: (id) => busy.has(id) });
+  // Same shape as the production wiring: the lifecycle purge port goes through
+  // the trash cleanup service's cross-store purge (UI file + lifecycle row).
+  const trashCleanup = new SessionTrashCleanupService({
+    lifecycle,
+    deleteUiConversation: (id) => {
+      const owner = sessions.getWebConversationOwner(id);
+      if (owner) sessions.deleteConversation(id, "web", owner);
+    },
+    listAgentChatIds: () => [],
+    deleteAgentSession: () => {},
+    finalizeSearchConversation: () => {}
+  });
+  const service = new SessionLifecycleService({
+    sessions,
+    lifecycle,
+    clock,
+    isBusy: (id) => busy.has(id),
+    purgeTrashed: (id) => trashCleanup.purgeTrashedNow(id)
+  });
   sessions.setSessionActivitySink(service);
   const bulk = new SessionBulkStore(dbFile, { clock });
   const bulkService = new SessionBulkService({ lifecycle: service, lifecycleRows: lifecycle, bulk });
@@ -295,6 +314,58 @@ test("large-operation progress stays readable after reconnect", (t) => {
   assert.equal(reread?.operationId, first.operationId);
   assert.deepEqual(reread?.counts, { total: 3, succeeded: 3, skipped: 0, failed: 0 });
   assert.equal(reread?.items.length, 3);
+});
+
+test("purge removes trashed sessions for good; plain delete stays a recoverable no-op there", (t) => {
+  const fx = setup();
+  t.after(() => fx.cleanup());
+  const trashed = makeConversation(fx);
+  const active = makeConversation(fx);
+  assert.equal(fx.service.trash({ conversationId: trashed.id, requesterExternalUserId: OWNER }).status, "succeeded");
+  assert.equal(fx.lifecycle.get(trashed.id)?.state, "trashed");
+
+  // Regression: the trash view's "delete" used to send the recoverable
+  // `delete` kind, which answered success as an idempotent no-op and the
+  // session stayed in the trash forever. The trash view now sends `purge`.
+  const purged = fx.bulkService.execute({
+    kind: "purge",
+    requesterExternalUserId: OWNER,
+    targets: [trashed.id],
+    idempotencyKey: "op-trash-purge-1"
+  });
+  assert.deepEqual(purged.counts, { total: 1, succeeded: 1, skipped: 0, failed: 0 });
+  // Gone for real: no lifecycle row, no UI conversation.
+  assert.equal(fx.lifecycle.get(trashed.id), null);
+  assert.ok(!fx.sessions.getWebConversationOwner(trashed.id));
+
+  // Plain `delete` keeps its recoverable semantics in every state.
+  const deleted = fx.bulkService.execute({
+    kind: "delete",
+    requesterExternalUserId: OWNER,
+    targets: [active.id],
+    idempotencyKey: "op-trash-purge-active"
+  });
+  assert.deepEqual(deleted.counts, { total: 1, succeeded: 1, skipped: 0, failed: 0 });
+  assert.equal(fx.lifecycle.get(active.id)?.state, "trashed");
+  assert.equal(fx.service.query({ requesterExternalUserId: OWNER, state: "trashed" }).length, 1);
+});
+
+test("purging a busy trashed session skips instead of destroying live work", (t) => {
+  const fx = setup();
+  t.after(() => fx.cleanup());
+  const trashed = makeConversation(fx);
+  assert.equal(fx.service.trash({ conversationId: trashed.id, requesterExternalUserId: OWNER }).status, "succeeded");
+  fx.busy.add(trashed.id);
+
+  const result = fx.bulkService.execute({
+    kind: "purge",
+    requesterExternalUserId: OWNER,
+    targets: [trashed.id],
+    idempotencyKey: "op-trash-purge-busy"
+  });
+  assert.deepEqual(result.counts, { total: 1, succeeded: 0, skipped: 1, failed: 0 });
+  assert.equal(result.items[0]?.reason, "busy");
+  assert.equal(fx.lifecycle.get(trashed.id)?.state, "trashed");
 });
 
 test("bulk restore returns archived and trashed sessions to their views", (t) => {

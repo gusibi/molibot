@@ -66,6 +66,14 @@ export interface SessionLifecycleServiceDeps {
   isExternalSession?: (conversationId: string) => boolean;
   /** Phase-two extraction receipts for managed-list status display and filtering. */
   extraction?: SessionExtractionStatusSource;
+  /**
+   * Owner-initiated purge executor ("delete" from the trash view). Cross-store
+   * deletion (UI file, Agent Context, search tombstone) is owned by the trash
+   * cleanup service; it throws on partial failure, which this service records
+   * as a `failed` item. Unwired, a purge request fails honestly instead of
+   * pretending to succeed.
+   */
+  purgeTrashed?: (conversationId: string) => void;
 }
 
 interface LocatedSession {
@@ -91,6 +99,7 @@ export class SessionLifecycleService {
   private readonly listExternal?: () => ExternalManagedCandidate[];
   private readonly isExternalSession: (conversationId: string) => boolean;
   private readonly extraction?: SessionExtractionStatusSource;
+  private readonly purgePort?: (conversationId: string) => void;
 
   constructor(deps: SessionLifecycleServiceDeps) {
     this.sessions = deps.sessions;
@@ -102,6 +111,7 @@ export class SessionLifecycleService {
     this.listExternal = deps.listExternal;
     this.isExternalSession = deps.isExternalSession ?? (() => false);
     this.extraction = deps.extraction;
+    this.purgePort = deps.purgeTrashed;
   }
 
   private nowIso(): string {
@@ -399,6 +409,34 @@ export class SessionLifecycleService {
       return { status: "succeeded", conversationId: next.conversationId, state: next.state, version: next.version };
     } catch (error) {
       if (error instanceof SessionLifecycleVersionConflictError) return this.skipped(row.conversationId, "stale_version");
+      return { status: "failed", conversationId: row.conversationId, reason: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
+   * Owner-initiated immediate purge of an already-trashed session ("delete"
+   * from the trash view). Same eligibility gates as every other mutation —
+   * ownership recheck, retention marker, busy probe — then the injected
+   * trash-cleanup executor removes Session-owned data cross-store and the
+   * lifecycle row disappears with it. Non-trashed sessions are
+   * `not_applicable`: reaching the trash first is the recoverable path.
+   */
+  purgeTrashed(input: { conversationId: string; requesterExternalUserId?: string; expectedVersion?: number }): LifecycleItemOutcome {
+    const resolved = this.authorizedRow(input.conversationId, input.requesterExternalUserId);
+    if (!("located" in resolved)) return resolved;
+    const { row } = resolved;
+    if (row.state !== "trashed") {
+      return this.skipped(row.conversationId, "not_applicable", `state is ${row.state}`);
+    }
+    if (row.retain) return this.skipped(row.conversationId, "protected", "remove the long-term retention marker before deletion");
+    if (this.isBusy(row.conversationId)) return this.skipped(row.conversationId, "busy");
+    if (!this.purgePort) {
+      return { status: "failed", conversationId: row.conversationId, reason: "purge executor is not wired" };
+    }
+    try {
+      this.purgePort(row.conversationId);
+      return { status: "succeeded", conversationId: row.conversationId, state: "trashed", version: row.version };
+    } catch (error) {
       return { status: "failed", conversationId: row.conversationId, reason: error instanceof Error ? error.message : String(error) };
     }
   }

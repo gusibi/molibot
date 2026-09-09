@@ -124,6 +124,20 @@ export class SessionTrashCleanupService {
     if (outcome.status === "failed") throw new Error(outcome.reason);
   }
 
+  /**
+   * Owner-initiated purge ("delete" from the trash view): no recovery-period
+   * wait — the session is already trashed and the user explicitly asked for
+   * removal. Throws on partial failure so the caller records a `failed`
+   * item; a session restored since the request is a no-op.
+   */
+  purgeTrashedNow(conversationId: string): void {
+    const id = String(conversationId ?? "").trim();
+    const row = id ? this.lifecycle.get(id) : null;
+    if (!row || row.state !== "trashed") return;
+    const outcome = this.purgeOne(id);
+    if (outcome.status === "failed") throw new Error(outcome.reason);
+  }
+
   private purgeOne(conversationId: string): LifecycleItemOutcome {
     const row = this.lifecycle.get(conversationId);
     const version = row?.version ?? 0;

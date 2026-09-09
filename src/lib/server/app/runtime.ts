@@ -207,8 +207,16 @@ function initializeRuntime(): RuntimeState {
     // Production lifecycle assembly: authorized search projection, read-only
     // external-channel projection and the real busy probe (live runner turns,
     // pending approvals, nonterminal linked tasks) — archive/delete genuinely
-    // refuse busy targets instead of a constant-false probe.
-    const sessionLifecycle = buildProductionSessionLifecycle({ sessions, extraction: sessionExtractionStore });
+    // refuse busy targets instead of a constant-false probe. The trash
+    // cleanup service is built first so "delete" from the trash view can
+    // purge immediately through the same cross-store ports as the scheduled
+    // 30-day sweep.
+    const sessionTrashCleanup = buildSessionTrashCleanup(sessions);
+    const sessionLifecycle = buildProductionSessionLifecycle({
+      sessions,
+      extraction: sessionExtractionStore,
+      purgeTrashed: (conversationId) => sessionTrashCleanup.purgeTrashedNow(conversationId)
+    });
     sessions.setSessionActivitySink(sessionLifecycle);
     // T6 automatic archive: the sweep reuses the same mutation service as
     // manual archive and persists progress in the Session-owned store.
@@ -224,10 +232,6 @@ function initializeRuntime(): RuntimeState {
       lifecycleRows: getSessionLifecycleStore(),
       bulk: new SessionBulkStore(storagePaths.sessionsDbFile)
     });
-    // T4 expired trash: purge + startup reconciliation ride the watched-event
-    // JSON + Runtime dispatcher with the same mechanism as auto-archive, over
-    // Session-owned data only (UI file, Agent Context, search projection).
-    const sessionTrashCleanup = buildSessionTrashCleanup(sessions);
     // T5 inbound衔接:归档新消息同身份恢复、trash 走新建. Channel 只收发,
     // 决策统一在这里装配;浏览路径不经过该策略,不恢复归档.
     sessions.setInboundLifecyclePolicy({

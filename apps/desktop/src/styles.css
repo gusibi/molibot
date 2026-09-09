@@ -3892,6 +3892,14 @@ a:focus-visible {
 .row-input { min-width: 0; max-width: 260px; height: var(--control-h); padding: 0 9px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: inherit; font: inherit; font-size: var(--fs-label); }
 .provider-editor { overflow: hidden; }
 .desktop-dialog-content.entity-editor-dialog { width: min(720px, calc(100vw - 48px)); max-height: min(86vh, 820px); }
+/* Session-management preview modal: reuses the full chat transcript renderer,
+ * so it gets a chat-proportioned stage rather than the narrow editor width. */
+.desktop-dialog-content.session-preview-dialog { width: min(860px, calc(100vw - 96px)); max-height: min(86vh, 900px); }
+.session-preview-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
+.session-preview-messages { flex: none; width: 100%; }
+.session-preview-extraction { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 0.5px solid var(--separator); border-radius: var(--rounded-sm); background: var(--surface-secondary, transparent); color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.session-preview-extraction strong { color: var(--label-primary); font-size: var(--fs-label); font-weight: 600; }
+.session-preview-extraction p { margin: 0; overflow-wrap: anywhere; }
 .entity-editor-form { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
 .entity-editor-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .entity-editor-head,
