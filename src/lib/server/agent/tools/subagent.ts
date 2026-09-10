@@ -115,6 +115,11 @@ export interface SubagentRunResult {
   task: string;
   output: string;
   stopReason: string;
+  /**
+   * The persisted approval request a `waiting_for_approval` result is parked
+   * on (issue #48: the wait must be attributable to a real request).
+   */
+  suspensionRequestId?: string;
   errorMessage?: string;
   usage: UsageStats;
   model?: string;
@@ -1241,6 +1246,7 @@ async function runSubagentOnce(
         : guardStop
           ? "error"
           : lastAssistant?.stopReason ?? "stop",
+      suspensionRequestId: hostBashApproval?.requestId,
       errorMessage: hostBashApproval
         ? undefined
         : guardStop?.reason ?? lastAssistant?.errorMessage,
@@ -1268,6 +1274,7 @@ async function runSubagentOnce(
         task,
         output: getAssistantText(lastAssistant),
         stopReason: "waiting_for_approval",
+        suspensionRequestId: hostBashApproval?.requestId,
         usage: buildUsage(messages),
         model: session.model?.id,
         budget: guard.snapshot(),
@@ -1635,7 +1642,8 @@ export function createSubagentTool(options: {
       };
 
       const emitEndEvent = async (
-        stopReason: "stop" | "aborted" | "error" | "waiting_for_approval"
+        stopReason: "stop" | "aborted" | "error" | "waiting_for_approval",
+        approvalRequestId?: string
       ): Promise<void> => {
         endEventSent = true;
         await options.emitRunnerEvent?.({
@@ -1643,7 +1651,8 @@ export function createSubagentTool(options: {
           phase: "end",
           mode: parsed.mode,
           taskCount: parsed.tasks.length,
-          stopReason
+          stopReason,
+          approvalRequestId
         });
       };
 
@@ -1795,6 +1804,7 @@ export function createSubagentTool(options: {
         }
 
         const endStopReason = summarizeSubagentStopReason(results);
+        const suspensionRequestId = results.find((result) => result.stopReason === "waiting_for_approval")?.suspensionRequestId;
         momLog("runner", "subagent_end", {
           chatId: options.chatId,
           mode: parsed.mode,
@@ -1802,7 +1812,7 @@ export function createSubagentTool(options: {
           hasFailure: endStopReason !== "stop",
           stopReasons: results.map((result) => result.stopReason)
         });
-        await emitEndEvent(endStopReason);
+        await emitEndEvent(endStopReason, suspensionRequestId);
 
         return {
           content: [{ type: "text", text: summarizeSubagentResultsForParent(parsed.mode, results) }],

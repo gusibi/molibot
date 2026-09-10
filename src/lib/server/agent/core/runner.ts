@@ -76,6 +76,7 @@ import {
   TOOL_FAILURE_BUDGET_RUNTIME_NOTICE
 } from "$lib/server/agent/core/runtimeNotices.js";
 import { getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import { APPROVAL_WAITING_METADATA_STATUS } from "$lib/server/approval/suspendedResult.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import {
   type ResolvedModelSelection,
@@ -207,6 +208,23 @@ export class MomRunner implements RunnerLike {
   private promptRefreshKey = "";
   private systemPromptReady = false;
   private activeProject: MomContext["project"] | undefined;
+  /**
+   * Set the moment one of this run's tools suspends on a real, persisted
+   * approval request. While it is set the run may not start new work: the
+   * before-tool barrier blocks every not-yet-started call, `shouldStopAfterTurn`
+   * ends the agent loop before another model round, and the attempt loop parks
+   * the run on `waiting_for_approval` instead of rolling back and re-prompting
+   * (which used to raise duplicate approval cards — issue #48). The request id
+   * is the persisted broker/Host Bash request this wait is accountable to.
+   */
+  private activeApprovalSuspension: { requestId: string } | null = null;
+  // Method access on purpose: a property read inside run()'s scope is narrowed
+  // by control-flow analysis to the run-start `null` assignment (the real
+  // assignments happen inside event callbacks), which types a truthy branch as
+  // `never` and fails to compile.
+  private approvalSuspensionRequestId(): string | null {
+    return this.activeApprovalSuspension?.requestId ?? null;
+  }
 
   private currentWorkingDir(): string {
     return resolveSessionWorkingDir(this.activeProject, this.store.getScratchDir(this.chatId));
@@ -627,12 +645,37 @@ export class MomRunner implements RunnerLike {
       },
     });
 
+    this.installApprovalSuspensionBarrier();
+
     if (this.store.readSessionOrigin?.(this.chatId, this.sessionId)?.archiveMode !== "shared") {
       const saved = this.store.loadContext(this.chatId, this.sessionId);
       if (saved.length > 0) {
         this.agent.state.messages = prepareMessagesForModelContext(saved);
       }
     }
+  }
+
+  /**
+   * While an approval wait is active, no new work may start (issue #48): the
+   * before-tool barrier blocks every not-yet-started call in the same batch
+   * (sequential batches included), and `shouldStopAfterTurn` ends the agent
+   * loop before another model round — including steering-injected turns. The
+   * wrapper reads a run-scoped field, so it is inert between runs and survives
+   * the agent instance being swapped in tests.
+   */
+  private installApprovalSuspensionBarrier(): void {
+    const agent = this.agent;
+    const productionBeforeToolCall = agent.beforeToolCall;
+    agent.beforeToolCall = async (context, signal) => {
+      if (this.activeApprovalSuspension) {
+        return {
+          block: true,
+          reason: `Tool call blocked: the run is suspended waiting for approval request ${this.activeApprovalSuspension.requestId}. Resolve the pending approval before starting more work.`
+        };
+      }
+      return productionBeforeToolCall?.call(agent, context, signal);
+    };
+    agent.shouldStopAfterTurn = async () => this.activeApprovalSuspension !== null;
   }
 
   isRunning(): boolean {
@@ -945,6 +988,7 @@ export class MomRunner implements RunnerLike {
     this.activeDurablePrefix = [];
     this.running = true;
     this.abortRequested = false;
+    this.activeApprovalSuspension = null;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
     this.activePayloadContext = undefined;
     logRunDetail({
@@ -1247,6 +1291,9 @@ export class MomRunner implements RunnerLike {
     this.activeMemoryWriteReceipts = [];
     this.activeMemoryToolHits = [];
     const emittedHostBashApprovalIds = new Set<string>();
+    // The most recent approval card forwarded through the tools sink — the
+    // request a suspending subagent was parked on (issue #48).
+    let forwardedApprovalRequestId: string | undefined;
     const shouldForwardHostBashApproval = (approval: HostBashApprovalPrompt | undefined): boolean => {
       if (!approval) return true;
       if (emittedHostBashApprovalIds.has(approval.requestId)) return false;
@@ -1344,11 +1391,24 @@ export class MomRunner implements RunnerLike {
             });
           }
         }
+        if (event.type === "subagent_execution" && event.phase === "end" && event.stopReason === "waiting_for_approval" && !this.activeApprovalSuspension) {
+          // A subagent suspended on an approval: park the whole run — the
+          // parent may not start more work while the child's request is open.
+          this.activeApprovalSuspension = { requestId: event.approvalRequestId ?? forwardedApprovalRequestId ?? "subagent" };
+          momLog("runner", "approval_suspension_detected", {
+            runId,
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            approvalRequestId: this.activeApprovalSuspension.requestId,
+            source: "subagent"
+          });
+        }
         const sink = this.activeRunnerEventSink;
         if (sink) {
           enqueue(() => sink(event));
         }
         if (event.type === "tool_execution_end" && event.hostBashApproval) {
+          forwardedApprovalRequestId = event.hostBashApproval.requestId;
           return;
         }
         if (event.type === "subagent_execution") {
@@ -1570,6 +1630,29 @@ export class MomRunner implements RunnerLike {
         }
         const hostBashApproval = extractHostBashApprovalPrompt(event.result);
         const forwardHostBashApproval = shouldForwardHostBashApproval(hostBashApproval);
+        // A tool suspended on a persisted approval request: record it before
+        // anything else in this run can start more work. The barrier (before
+        // tool call), the loop stop (`shouldStopAfterTurn`) and the
+        // `waiting_for_approval` park all key off this flag.
+        {
+          const suspended = (event as { result?: { terminate?: boolean; metadata?: Record<string, unknown>; details?: Record<string, unknown> } }).result;
+          const metadata = suspended?.metadata as Record<string, unknown> | undefined;
+          if (!this.activeApprovalSuspension && suspended?.terminate && metadata?.status === APPROVAL_WAITING_METADATA_STATUS) {
+            const requestId = String(
+              metadata.approvalRequestId
+              ?? (suspended.details as { approvalRequestId?: unknown; hostBashApproval?: { requestId?: unknown } } | undefined)?.approvalRequestId
+              ?? (suspended.details as { hostBashApproval?: { requestId?: unknown } } | undefined)?.hostBashApproval?.requestId
+              ?? "unknown"
+            );
+            this.activeApprovalSuspension = { requestId };
+            momLog("runner", "approval_suspension_detected", {
+              runId,
+              chatId: this.chatId,
+              sessionId: this.sessionId,
+              approvalRequestId: requestId
+            });
+          }
+        }
         if (ctx.onRunnerEvent) {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_end",
@@ -2293,6 +2376,14 @@ export class MomRunner implements RunnerLike {
             if (this.abortRequested) {
               stopReason = "aborted";
             }
+            if (this.activeApprovalSuspension) {
+              // The run parked on a real, persisted approval request (a tool
+              // result suspended it). The run row must say so — the out-of-band
+              // approve -> resume flow only picks up rows in this state — and
+              // the wait is not an error.
+              stopReason = "waiting_for_approval";
+              errorMessage = undefined;
+            }
             momLog("runner", "prompt_end", {
               runId,
               chatId: this.chatId,
@@ -2319,6 +2410,16 @@ export class MomRunner implements RunnerLike {
 
 
             const messages = this.agent.state.messages as AgentMessage[];
+            if (this.activeApprovalSuspension) {
+              // Park here. The attempt keeps its persisted steps — including the
+              // suspended toolResult the resume path rewrites — and must NOT
+              // roll back or re-prompt: a rolled-back suspension used to be
+              // retried as an "empty" answer, re-running the tool request and
+              // raising duplicate approval cards (issue #48). The suspension
+              // flag also ended the agent loop itself (shouldStopAfterTurn), so
+              // no model round ran after the wait began.
+              break;
+            }
             const attemptMessages = messages.slice(beforeAttempt.length);
             const terminalAssistants = attemptMessages
               .filter((item) => {
@@ -2849,6 +2950,13 @@ export class MomRunner implements RunnerLike {
         if (runAborted) {
           break;
         }
+        if (this.activeApprovalSuspension) {
+          // Parked on an approval: keep this attempt's persisted steps and stop
+          // candidate iteration. Falling through would classify the wait as an
+          // empty model response, roll the suspension back, and try the next
+          // candidate — re-raising the same approval (issue #48).
+          break;
+        }
         if (candidateFinalText || structuredPlanCompleted) {
           finalText = candidateFinalText;
           successfulCandidateIndex = candidateIndex;
@@ -2983,6 +3091,17 @@ export class MomRunner implements RunnerLike {
         momLog("runner", "final_structured_plan", { runId, chatId: this.chatId });
       } else if (stopReason === "aborted") {
         momLog("runner", "run_aborted", { runId, chatId: this.chatId });
+      } else if (stopReason === "waiting_for_approval" && this.activeApprovalSuspension) {
+        // A run parked on a persisted approval request is not an empty model
+        // response and not an error: nothing is said to the user here because
+        // the approval card is the answer surface. The run row commits as
+        // `waiting_for_approval` and the approve -> resume flow takes over.
+        momLog("runner", "run_suspended_for_approval", {
+          runId,
+          chatId: this.chatId,
+          sessionId: this.sessionId,
+          approvalRequestId: this.approvalSuspensionRequestId()
+        });
       } else {
         const modelInfo = [
           `provider: ${activeSelection.model.provider}`,

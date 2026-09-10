@@ -3,6 +3,7 @@ import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { ChannelRunnerPoolLike } from "$lib/server/agent/core/runnerPool.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
+import { APPROVAL_WAITING_METADATA_STATUS } from "$lib/server/approval/suspendedResult.js";
 import {
   retryApprovalAutoResume,
   APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
@@ -44,7 +45,7 @@ export function rewriteBrokerApprovalToolResultInContext(
         : String(msg.content ?? "");
       const isWaitingForApproval = textContent.includes("waiting for user approval")
         || textContent.includes("Waiting for user approval")
-        || msg.metadata?.status === "waiting_for_approval";
+        || msg.metadata?.status === APPROVAL_WAITING_METADATA_STATUS;
 
       if (detailsReqId === requestId || (!detailsReqId && isWaitingForApproval)) {
         msg.content = [{ type: "text", text: renderedOutput }];

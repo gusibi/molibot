@@ -191,6 +191,8 @@ export type RunnerUiEvent =
       taskIndex?: number;
       taskCount: number;
       stopReason?: "stop" | "aborted" | "error" | "waiting_for_approval";
+      /** The persisted approval request a suspending subagent is parked on. */
+      approvalRequestId?: string;
       errorMessage?: string;
       budget?: RunBudgetSnapshot;
       model?: string;

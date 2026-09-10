@@ -1,4 +1,5 @@
 import type { ApprovalGrant, ApprovalMatchContext, ApprovalRequest, ApprovalScope } from "$lib/server/approval/approvalTypes.js";
+import { PENDING_APPROVAL_TTL_MS as PENDING_REQUEST_TTL_MS } from "$lib/server/approval/approvalTypes.js";
 
 export interface ApprovalBrokerStore {
   listActiveGrants(): ApprovalGrant[];
@@ -96,6 +97,11 @@ export class ApprovalBroker {
   }
 
   listPendingRequests(): ApprovalRequest[] {
+    // Mirror Host Bash's read-path expiry: a pending request older than the TTL
+    // is dead — nobody can answer it from a stale card, and a user coming back
+    // hours later must see the real state (expired), not a card promising an
+    // action that will never be valid again (issue #48).
+    this.expirePendingRequests({ timeoutMs: PENDING_REQUEST_TTL_MS });
     return this.store.listPendingRequests();
   }
 

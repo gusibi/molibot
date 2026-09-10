@@ -2946,6 +2946,8 @@ a:focus-visible {
 /* States its own age, so a blocked run never reads as a hung service. */
 .approval-waiting { display: inline-flex; align-items: center; gap: 5px; color: var(--warning); font-size: var(--fs-meta); line-height: var(--lh-meta); }
 .approval-waiting .reicon { width: var(--icon-xs); height: var(--icon-xs); }
+/* Decision submission in flight: the card stays until the server confirms. */
+.approval-submitting { color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
 .approval-title { font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 600; letter-spacing: -.01em; }
 .approval-subtitle { color: var(--label-secondary); font-size: var(--fs-label); }
 .approval-command {

@@ -8,6 +8,9 @@
   export let subtitle = "";
   export let options: Array<{ id: string; label: string }> = [];
   export let disabled = false;
+  /** A decision is being submitted: keep the card interactive-looking but block re-submission. */
+  export let submitting = false;
+  export let submittingLabel = "";
   export let dangerOptionId = "reject";
   export let defaultOptionId = "";
   export let waitingLabel = "";
@@ -35,7 +38,7 @@
 
   onMount(() => {
     timer = setInterval(() => { elapsedMs = Date.now() - startedAt; }, 1_000);
-    unregister = registerDecisionCard(id, { element: cardElement, enabled: () => !disabled });
+    unregister = registerDecisionCard(id, { element: cardElement, enabled: () => !disabled && !submitting });
   });
 
   onDestroy(() => {
@@ -44,11 +47,11 @@
   });
 
   function resolve(optionId: string | undefined): void {
-    if (!disabled && optionId) onResolve(optionId);
+    if (!disabled && !submitting && optionId) onResolve(optionId);
   }
 
   function onKeydown(event: KeyboardEvent): void {
-    if (disabled || options.length === 0 || !ownsDecisionShortcuts(id)) return;
+    if (disabled || submitting || options.length === 0 || !ownsDecisionShortcuts(id)) return;
     const target = event.target as HTMLElement | null;
     if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -83,15 +86,17 @@
 
   <slot />
 
+  {#if submitting}<div class="approval-submitting" role="status">{submittingLabel}</div>{/if}
+
   <div class="approval-actions">
     {#if rejectOption}
-      <button type="button" class="approval-action approval-action-deny" {disabled} onclick={() => resolve(rejectOption.id)}>
+      <button type="button" class="approval-action approval-action-deny" disabled={disabled || submitting} onclick={() => resolve(rejectOption.id)}>
         {rejectOption.label}<span class="approval-key">{shortcutIndex.get(rejectOption.id)}</span>
       </button>
     {/if}
     <div class="approval-allow-group">
       {#each allowOptions as option (option.id)}
-        <button type="button" class="approval-action" class:approval-action-default={option.id === defaultOption?.id} {disabled} onclick={() => resolve(option.id)}>
+        <button type="button" class="approval-action" class:approval-action-default={option.id === defaultOption?.id} disabled={disabled || submitting} onclick={() => resolve(option.id)}>
           {option.label}<span class="approval-key">{shortcutIndex.get(option.id)}</span>
           {#if option.id === defaultOption?.id}<span class="approval-key">⌘⏎</span>{/if}
         </button>

@@ -337,6 +337,7 @@
   $: activityEntries = chatState.activities;
   $: pendingApproval = chatState.pendingApproval;
   $: pendingApprovals = chatState.pendingApprovals;
+  $: resolvingApprovalId = chatState.resolvingApprovalId;
   $: liveSteps = chatState.liveSteps;
   /** Node the transcript dock watches; Svelte clears it when the card unmounts. */
   let approvalElement: HTMLElement | null = null;
@@ -1051,6 +1052,8 @@
           payload={pendingApproval.payload}
           options={approvalOptions}
           defaultOptionId="approve_once"
+          submitting={resolvingApprovalId === pendingApproval.requestId}
+          submittingLabel={copy.approvalSubmitting}
           waitingLabel={copy.approvalWaiting}
           secondsLabel={copy.approvalWaitingSeconds}
           minutesLabel={copy.approvalWaitingMinutes}

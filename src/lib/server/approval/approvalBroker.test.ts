@@ -311,3 +311,22 @@ test("expirePendingRequests marks old pending requests expired", () => {
   assert.equal(store.getRequest("old")?.status, "expired");
   assert.equal(store.getRequest("fresh")?.status, "pending");
 });
+
+test("listPendingRequests expires pending requests past the shared TTL", () => {
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+  // The TTL is one hour, so a request created two hours ago is dead while one
+  // from a minute ago stays answerable (issue #48: a stale card must show the
+  // real expired state instead of promising an approval that can no longer be
+  // recorded).
+  const staleCreated = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const freshCreated = new Date(Date.now() - 60 * 1000).toISOString();
+  broker.createRequest(request({ id: "stale", createdAt: staleCreated }));
+  broker.createRequest(request({ id: "fresh", createdAt: freshCreated }));
+
+  const pending = broker.listPendingRequests();
+
+  assert.deepEqual(pending.map((item) => item.id), ["fresh"]);
+  assert.equal(store.getRequest("stale")?.status, "expired");
+  assert.equal(store.getRequest("fresh")?.status, "pending");
+});

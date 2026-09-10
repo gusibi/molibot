@@ -3,6 +3,15 @@ import type { ToolRiskLevel } from "$lib/server/agent/tools/toolTypes.js";
 export type ApprovalScope = "once" | "turn" | "session" | "workspace" | "persistent";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 
+/**
+ * How long a pending approval request stays answerable. Both approval backends
+ * (the shared broker and Host Bash) expire unanswered requests after this long
+ * on their read paths — a card older than the TTL shows the real expired state
+ * instead of an action that can never be approved again. One constant because
+ * the two backends previously drifted (issue #48).
+ */
+export const PENDING_APPROVAL_TTL_MS = 60 * 60 * 1000;
+
 export interface ApprovalGrant {
   id: string;
   scope: ApprovalScope;

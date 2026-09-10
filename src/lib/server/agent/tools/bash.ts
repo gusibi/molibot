@@ -21,6 +21,7 @@ import { executeApprovedHostBash, executeHostBashApproval } from "$lib/server/ag
 import { momWarn } from "$lib/server/agent/common/log.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { pollUntilResolved, type PollOutcome } from "$lib/server/approval/approvalWaiter.js";
+import { APPROVAL_INLINE_HANDSHAKE_WINDOW_MS, buildApprovalSuspensionResult } from "$lib/server/approval/suspendedResult.js";
 import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi, wrapCommandWithVenv, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { prepareToolSandboxExecution } from "$lib/server/agent/tools/sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
@@ -395,7 +396,7 @@ function requestApprovalFromBash(
 }
 
 /**
- * How long a run stays blocked waiting for approval before handing off.
+ * How long a run stays blocked waiting for approval before suspending.
  *
  * This is a short handshake window, not an approval deadline. Blocking here
  * holds the caller's connection open while emitting nothing — the web channel's
@@ -411,10 +412,13 @@ function requestApprovalFromBash(
  * ends cleanly with `waiting_for_approval` and the asynchronous
  * approve -> execute -> resume path takes over — the user can then take as long
  * as they like, which is the behaviour that was wanted in the first place.
+ *
+ * Shared with the generic broker path: two backends with two windows behaved
+ * differently at the same seam (issue #48), so both now read one constant.
  */
-const HOST_APPROVAL_INLINE_WINDOW_MS = 10 * 1000;
+const HOST_APPROVAL_INLINE_WINDOW_MS = APPROVAL_INLINE_HANDSHAKE_WINDOW_MS;
 const HOST_APPROVAL_POLL_INTERVAL_MS = 500;
-async function waitForHostBashApprovalAndExecute(input: {
+export async function waitForHostBashApprovalAndExecute(input: {
   store: HostBashStore;
   prompt: HostBashApprovalPrompt;
   scopeId: string;
@@ -424,14 +428,17 @@ async function waitForHostBashApprovalAndExecute(input: {
   waitTimeoutMs?: number;
 }): Promise<ToolResult> {
   const { store, prompt, ctx } = input;
-  const buildFallbackResult = (terminate = false): ToolResult => ({
-    ok: false,
-    error: input.requestText || "Tool execution is waiting for approval.",
-    metadata: {
-      status: "waiting_for_approval"
-    },
-    details: { ...input.fallbackDetails, hostBashApproval: prompt },
-    ...(terminate ? { terminate: true } : {})
+  // Every waiting outcome of this function suspends the run: `terminate` is
+  // unconditional and the suspended result carries the request id so the
+  // out-of-band approve -> execute -> resume flow finds it. The previous
+  // hand-built fallback omitted `terminate` on the window timeout, so the agent
+  // loop kept making model rounds — and raising further approvals — while the
+  // card sat unanswered (issue #48).
+  const buildFallbackResult = (): ToolResult => buildApprovalSuspensionResult({
+    requestId: prompt.requestId,
+    prompt,
+    errorText: input.requestText || "Tool execution is waiting for approval.",
+    extraDetails: input.fallbackDetails
   });
   const durableApprovalScope = await ctx.consumeDurableApproval?.({
     backend: "host_bash",
@@ -441,14 +448,14 @@ async function waitForHostBashApprovalAndExecute(input: {
   });
   if (durableApprovalScope) {
     const approved = store.approve(input.scopeId, prompt.requestId, { scope: durableApprovalScope });
-    if (!approved) return buildFallbackResult(true);
+    if (!approved) return buildFallbackResult();
   } else {
     const approvalDisposition = await ctx.onApprovalRequest?.({
       backend: "host_bash",
       requestId: prompt.requestId,
       prompt
     });
-    if (approvalDisposition === "defer") return buildFallbackResult(true);
+    if (approvalDisposition === "defer") return buildFallbackResult();
   }
   // Partial store doubles (tests) cannot be polled; keep the async approve flow.
   if (typeof store.getApprovalRecord !== "function") {
@@ -468,7 +475,12 @@ async function waitForHostBashApprovalAndExecute(input: {
     timeoutMs: input.waitTimeoutMs ?? HOST_APPROVAL_INLINE_WINDOW_MS,
     pollMs: HOST_APPROVAL_POLL_INTERVAL_MS,
     signal: ctx.signal,
-    onAbort: () => ({ ok: false, error: "Tool execution aborted while waiting for user approval." }),
+    onAbort: () => {
+      // An aborted wait (Stop) must leave a terminal approval state, so a late
+      // decision cannot resurrect an ended run (issue #48).
+      store.expirePending?.(prompt.requestId);
+      return { ok: false, error: "Tool execution aborted while waiting for user approval." };
+    },
     onTimeout: () => buildFallbackResult(),
     poll: async (): Promise<PollOutcome<ToolResult>> => {
       const record = store.getApprovalRecord!(prompt.requestId);
@@ -582,7 +594,15 @@ export function findApprovedHostBash(
   };
 }
 
-function isSandboxPermissionFailure(output: string): boolean {
+/**
+ * Decides whether a failed command's output is evidence the OS sandbox itself
+ * blocked it (only those signatures may escalate into a Host Bash approval
+ * request). Network failures — connection refused, DNS, transport — produce
+ * similar-looking "denied" wording but are NOT permission limits: escalating
+ * them into an approval card would ask the user to authorize a command that
+ * failed for an unrelated reason (issue #48).
+ */
+export function isSandboxPermissionFailure(output: string): boolean {
   // Only match signatures the OS sandbox itself produces. Generic words such as
   // "sandbox", "socket", or "access denied" appear in ordinary command output
   // and used to trigger spurious host-approval requests.

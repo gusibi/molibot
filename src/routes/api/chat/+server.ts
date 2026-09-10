@@ -439,6 +439,24 @@ export async function _handleWebHostToolsCommand(
       }
     };
 
+    // Atomically claim execution before running the command. The in-run bash
+    // waiter may still be polling (the user answered inside the handshake
+    // window) and it claims too — without this compare-and-set both sides
+    // executed the same command (prd §3.08 / issue #48: one decision, one
+    // execution).
+    if (typeof hostBashStore.claimExecution === "function" && !hostBashStore.claimExecution(approved.record.id)) {
+      // Say what actually happened: the waiter winning the claim means the
+      // command is running and its output will land in the conversation; any
+      // other state means the decision was already settled earlier.
+      const current = typeof hostBashStore.getApprovalRecord === "function"
+        ? hostBashStore.getApprovalRecord(approved.record.id)
+        : null;
+      lines.push("", current && (current.status === "approved" || current.status === "executing")
+        ? "Approved. The original task's own waiter claimed execution and is running the command; its output will appear in the conversation."
+        : `This approval was already processed (status: ${current?.status ?? "unknown"}).`);
+      return { ok: true, response: lines.join("\n"), approval: { status: "approved" } };
+    }
+
     try {
       const executed = await executeHostBashApproval({
         record: approved.record,

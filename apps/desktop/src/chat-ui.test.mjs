@@ -4561,3 +4561,38 @@ test("a service reconnect restores the viewed conversation instead of re-running
   // openSession — it must still become the restore anchor.
   assert.match(view, /onSessionCreated: \(profileId, sessionId\) => \{[\s\S]*?persistSelected\(profileId, sessionId\);/s);
 });
+
+test("an approval card stays until the server confirms and cannot double-submit", () => {
+  // Issue #48: the controller used to filter the card out of `pendingApprovals`
+  // before any server call, so a network error deleted the only copy of the
+  // approval with no way to retry.
+  assert.match(conversationController, /resolvingApprovalId/);
+  assert.match(conversationController, /if \(this\.resolvingApprovalId\) return/);
+  // The retire helper runs only after `resolveDesktopHostBash` answered, and
+  // the failure paths leave the card in place.
+  const resolveApproval = conversationController.slice(
+    conversationController.indexOf("async resolveApproval("),
+    conversationController.indexOf("private async syncPendingApproval")
+  );
+  assert.ok(resolveApproval.length > 0, "resolveApproval must exist");
+  assert.match(resolveApproval, /retireCard\(\)/);
+  assert.match(resolveApproval, /this\.resolvingApprovalId = null/);
+  const clears = resolveApproval.match(/this\.resolvingApprovalId = null/g) ?? [];
+  assert.ok(clears.length >= 2, "the submitting state must clear on success and failure paths");
+  // The submitting state is visible to the legacy host surfaces through the
+  // view store (pitfall #2: reading the field directly never re-renders).
+  assert.match(chatSessionStore, /resolvingApprovalId/);
+  assert.match(projectChatStoreSource, /resolvingApprovalId/);
+
+  // Both surfaces bind the submitting state to the visible card and show the
+  // submitting label; DecisionCard gates buttons and shortcuts on it.
+  for (const [surface, source] of [["chat", view], ["project", projectChat]]) {
+    assert.match(source, /submitting=\{resolvingApprovalId === pendingApproval\.requestId\}/, surface);
+    assert.match(source, /submittingLabel=\{copy\.approvalSubmitting\}/, surface);
+  }
+  assert.match(decisionCard, /export let submitting/);
+  assert.match(decisionCard, /disabled=\{disabled \|\| submitting\}/);
+  assert.match(decisionCard, /!disabled && !submitting && optionId/);
+  assert.match(decisionCard, /disabled \|\| submitting \|\| options\.length === 0/);
+  assert.match(decisionCard, /approval-submitting/);
+});

@@ -12,6 +12,9 @@
   export let payload: { path?: string; diff?: string; parameters?: Record<string, unknown> } | undefined;
   export let options: Array<{ id: string; label: string }> = [];
   export let disabled = false;
+  /** A decision is being submitted for this card (server has not confirmed yet). */
+  export let submitting = false;
+  export let submittingLabel = "";
   export let dangerOptionId = "reject";
   export let defaultOptionId = "";
   export let waitingLabel = "";
@@ -36,6 +39,8 @@
   {subtitle}
   {options}
   {disabled}
+  {submitting}
+  {submittingLabel}
   {dangerOptionId}
   {defaultOptionId}
   {waitingLabel}

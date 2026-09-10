@@ -12,6 +12,7 @@ import { getWorkspaceStore, type WorkspaceStore } from "$lib/server/workspaces/s
 import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import type { HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
 import { BrokerApprovalService, type ApprovalService } from "$lib/server/approval/approvalService.js";
+import { APPROVAL_INLINE_HANDSHAKE_WINDOW_MS, buildApprovalSuspensionResult } from "$lib/server/approval/suspendedResult.js";
 import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
 
@@ -98,7 +99,7 @@ const activeDebounceBatches = new Map<string, DebounceBatch>();
  * How long a run waits inline for an approval decision before suspending.
  *
  * This is a handshake window, not an approval deadline - the same contract as
- * Host Bash's `HOST_APPROVAL_INLINE_WINDOW_MS` (bash.ts). Blocking longer than
+ * Host Bash's inline window (bash.ts). Blocking longer than
  * this holds the caller's connection open while emitting nothing, and the whole
  * wait counts against every enclosing tool's execution timeout - which is how a
  * user answering six minutes late produced "approved, but stuck on 'Waiting for
@@ -112,7 +113,7 @@ const activeDebounceBatches = new Map<string, DebounceBatch>();
  * extra model turn. It must stay comfortably above the 1.5s debounce interval
  * so low/medium-risk aggregation still completes inside it.
  */
-const BROKER_APPROVAL_INLINE_WINDOW_MS = 30_000;
+const BROKER_APPROVAL_INLINE_WINDOW_MS = APPROVAL_INLINE_HANDSHAKE_WINDOW_MS;
 
 /**
  * Hard ceiling for one tool handler promise when the caller does not override
@@ -123,26 +124,6 @@ export const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 60 * 60 * 1000;
 
 /** The outcome of one approval wait, from the waiting tool's point of view. */
 export type ApprovalResolution = "approved" | "rejected" | "expired" | "window_expired";
-
-/**
- * The result a tool returns when its run must suspend for a user decision:
- * either the caller deferred (`onApprovalRequest` -> "defer") or the inline
- * window elapsed. Both paths produce the identical shape - the runner winds the
- * turn down on `terminate`, and the out-of-band approve -> resume flow finds the
- * suspended entry again by `details.approvalRequestId`.
- */
-function buildSuspendedApprovalResult(requestId: string, prompt: unknown): ToolResult {
-  return {
-    ok: false,
-    error: "Tool execution is waiting for user approval.",
-    metadata: {
-      approvalRequestId: requestId,
-      status: "waiting_for_approval"
-    },
-    details: { hostBashApproval: prompt, approvalRequestId: requestId },
-    terminate: true
-  };
-}
 
 export class ToolRuntime {
   private readonly approvalService?: ApprovalService;
@@ -241,7 +222,7 @@ export class ToolRuntime {
           // Recorded before returning, so the request the caller was handed is
           // the one an out-of-band resolve will find.
           this.approvalService?.createRequest(decision.request);
-          return buildSuspendedApprovalResult(decision.request.id, pendingPrompt);
+          return buildApprovalSuspensionResult({ requestId: decision.request.id, prompt: pendingPrompt });
         }
 
         const isHighRisk = tool.risk === "high" || tool.risk === "critical";
@@ -307,18 +288,21 @@ export class ToolRuntime {
           // (no lease, no connection held) and the out-of-band approve ->
           // resume path takes over; the request stays pending in the broker so
           // the user can answer however long they take.
-          return buildSuspendedApprovalResult(waitingRequestId, pendingPrompt);
+          return buildApprovalSuspensionResult({ requestId: waitingRequestId, prompt: pendingPrompt });
         } else {
           const status = resolution === "rejected" ? "rejected" : "expired";
           const errorMsg = resolution === "rejected"
             ? "Tool execution is rejected by user approval."
             : "Tool execution was aborted while waiting for user approval.";
+          // A terminal decision is not a wait: label the result with its real
+          // status so consumers never read a settled outcome as still-pending
+          // (issue #48). The card stays in details for the transcript record.
           return {
             ok: false,
             error: errorMsg,
             metadata: {
               approvalRequestId: waitingRequestId,
-              status: "waiting_for_approval"
+              status
             },
             details: {
               hostBashApproval: buildHostBashApprovalPrompt(buildBrokerApprovalRecord({

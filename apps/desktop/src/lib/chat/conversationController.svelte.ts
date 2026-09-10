@@ -44,6 +44,8 @@ export interface ConversationView {
   liveSteps: DesktopConversationStep[];
   pendingApproval: DesktopApprovalPrompt | null;
   pendingApprovals: DesktopApprovalPrompt[];
+  /** The request whose decision is currently being submitted (submitting state). */
+  resolvingApprovalId: string | null;
   queue: string[];
   /**
    * The session that owns the current/last turn. Hosts whose sessionId is
@@ -117,6 +119,12 @@ export class ConversationController {
   liveSteps = $state<DesktopConversationStep[]>([]);
   pendingApprovals = $state<DesktopApprovalPrompt[]>([]);
   pendingApproval = $derived(this.pendingApprovals[0] ?? null);
+  /**
+   * The approval decision currently being submitted, if any. While set, the
+   * matching card's buttons are disabled (submitting state) and further
+   * activations are ignored; the card itself stays until the server confirms.
+   */
+  resolvingApprovalId = $state<string | null>(null);
   queue = $state<string[]>([]);
   turnSessionId = $state("");
 
@@ -138,6 +146,7 @@ export class ConversationController {
     liveSteps: this.liveSteps,
     pendingApproval: this.pendingApproval,
     pendingApprovals: this.pendingApprovals,
+    resolvingApprovalId: this.resolvingApprovalId,
     queue: this.queue,
     turnSessionId: this.turnSessionId
   }));
@@ -550,13 +559,25 @@ export class ConversationController {
   async resolveApproval(decision: DesktopApprovalDecision): Promise<void> {
     const endpoint = this.host.endpoint();
     if (!endpoint || !this.pendingApproval) return;
+    // One decision in flight at a time: while a submission is unanswered the
+    // buttons are disabled, and a second activation (double-click, keyboard
+    // repeat) must not submit another decision — issue #48.
+    if (this.resolvingApprovalId) return;
     const labels = this.host.labels();
     const requestId = this.pendingApproval.requestId;
     const sessionId = this.sending ? this.turnSessionId || this.host.sessionId() : this.host.sessionId();
     const profileId = this.sending ? this.turnContext?.profileId ?? this.host.profileId() : this.host.profileId();
-    this.pendingApprovals = this.pendingApprovals.filter((approval) => approval.requestId !== requestId);
+    // The card stays visible until the server confirms the decision. Removing
+    // it optimistically turned a network failure into a lost approval with no
+    // way to retry (issue #48).
+    this.resolvingApprovalId = requestId;
     this.host.clearError();
     this.activity = labels.resuming;
+
+    /** Removes the card once the server has definitively taken the decision. */
+    const retireCard = (): void => {
+      this.pendingApprovals = this.pendingApprovals.filter((approval) => approval.requestId !== requestId);
+    };
 
     let decisionResolved = false;
     if (this.sending && this.abort) {
@@ -564,27 +585,44 @@ export class ConversationController {
       // the server can continue the run; the live stream will pick up the
       // resumed output and send() will handle reload/cleanup when it ends.
       try {
-        this.reportApprovalOutcome(await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision));
+        const result = await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision);
+        this.reportApprovalOutcome(result);
         decisionResolved = true;
+        retireCard();
       } catch (cause) {
+        // Submission failed: the card stays and the buttons re-enable, so the
+        // user can retry the same decision.
         this.host.setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        this.resolvingApprovalId = null;
       }
       if (!decisionResolved || this.sending) return;
     }
 
     // Offline path: the SSE stream already ended before the user acted.
     // Drive the approval → poll cycle ourselves.
-    if (sessionId !== this.host.sessionId()) return;
+    if (sessionId !== this.host.sessionId()) {
+      this.resolvingApprovalId = null;
+      return;
+    }
     this.turnSessionId = sessionId;
     this.turnContext = { profileId, projectId: this.host.projectId?.(), modelKey: this.host.modelKey?.(), thinkingLevel: this.host.thinkingLevel() };
     this.stopRequested = false;
     this.sending = true;
     try {
       if (!decisionResolved) {
-        const result = await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision);
-        if (sessionId !== this.host.sessionId()) return;
-        this.reportApprovalOutcome(result);
-        if (result.status === "not_found") return;
+        try {
+          const result = await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision);
+          if (sessionId !== this.host.sessionId()) return;
+          this.reportApprovalOutcome(result);
+          decisionResolved = true;
+          retireCard();
+          if (result.status === "not_found") return;
+        } catch (cause) {
+          if (sessionId !== this.host.sessionId()) return;
+          this.host.setError(cause instanceof Error ? cause.message : String(cause));
+          return;
+        }
       }
       // The approved command runs and the original turn resumes in the background,
       // appending its answer asynchronously; poll the transcript until it lands.
@@ -603,6 +641,7 @@ export class ConversationController {
     } finally {
       this.sending = false;
       this.activity = "";
+      this.resolvingApprovalId = null;
     }
   }
 

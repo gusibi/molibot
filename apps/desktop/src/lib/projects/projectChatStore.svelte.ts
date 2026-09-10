@@ -71,6 +71,7 @@ export interface ProjectChatState {
   liveSteps: DesktopConversationStep[];
   pendingApproval: DesktopApprovalPrompt | null;
   pendingApprovals: DesktopApprovalPrompt[];
+  resolvingApprovalId: string | null;
   queue: string[];
   statusDots: Map<string, SessionStatusDot>;
 }
@@ -157,6 +158,7 @@ export class ProjectChatStore {
       liveSteps: controller?.liveSteps ?? [],
       pendingApproval: controller?.pendingApproval ?? null,
       pendingApprovals: controller?.pendingApprovals ?? [],
+      resolvingApprovalId: controller?.resolvingApprovalId ?? null,
       queue: controller?.queue ?? [],
       statusDots: buildDots(this.registry.list())
     };

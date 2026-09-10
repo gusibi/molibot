@@ -270,3 +270,50 @@ test("listPending, listWhitelist, and listHistory support category filtering", (
   // Test hasAnyData
   assert.equal(store.hasAnyData(), true);
 });
+
+test("expirePending leaves a terminal state so a late decision cannot resurrect a run", () => {
+  const store = createStore();
+  const requested = store.requestApproval(requestInput());
+  const id = requested.approval!.id;
+
+  assert.equal(store.expirePending(id), true);
+  assert.equal(store.getApprovalRecord(id)?.status, "expired");
+  assert.ok(!store.approve("scope-1", id, { scope: "once" }), "an expired record cannot be approved");
+  assert.equal(store.expirePending("hba-missing"), false);
+});
+
+test("a stale executing record is closed as outcome-unknown and never re-runs", () => {
+  const store = createStore();
+  const requested = store.requestApproval(requestInput());
+  const id = requested.approval!.id;
+
+  store.approve("scope-1", id, { scope: "once" });
+  assert.equal(store.claimExecution(id), true);
+  // Simulate the crash: the claimant never called markExecution. Backdate the
+  // record past the stale window by rewriting created_at.
+  (store as any).db.prepare(`
+    UPDATE approvals
+    SET created_at = ?
+    WHERE type = 'request' AND id = ?
+  `).run(new Date(Date.now() - 60 * 60 * 1000).toISOString(), id);
+
+  // Any read path runs the recovery: the record must land in an explicit
+  // outcome-unknown terminal state, not stay "executing" forever.
+  store.listHistory();
+  const record = store.getApprovalRecord(id);
+  assert.equal(record?.status, "failed");
+  assert.match(record?.errorText ?? "", /result is unknown|未知/i);
+  // The claim is gone, so nobody can re-execute through the approved path.
+  assert.equal(store.claimExecution(id), false, "a recovered record must not be claimable again");
+});
+
+test("a fresh executing record is left untouched by the recovery", () => {
+  const store = createStore();
+  const requested = store.requestApproval(requestInput());
+  const id = requested.approval!.id;
+  store.approve("scope-1", id, { scope: "once" });
+  store.claimExecution(id);
+
+  store.listHistory();
+  assert.equal(store.getApprovalRecord(id)?.status, "executing");
+});

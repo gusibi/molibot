@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import { ensureApprovalsTable, migrateLegacyApprovalTables } from "$lib/server/approval/approvalSchema.js";
+import { PENDING_APPROVAL_TTL_MS } from "$lib/server/approval/approvalTypes.js";
 import {
   coerceApprovalMode,
   createHostBashApprovalRecord,
@@ -86,7 +87,6 @@ function normalizeStatus(input: unknown): HostBashApprovalStatus {
 }
 
 // Pending approvals older than this are auto-expired so stale cards stop accepting clicks.
-const PENDING_APPROVAL_TTL_MS = 60 * 60 * 1000;
 
 function capabilityToToolId(capability: string): string {
   if (capability.startsWith("bash:")) return capability.slice(5);
@@ -540,6 +540,51 @@ export class HostBashStore {
     return Number(result.changes ?? 0) > 0;
   }
 
+  /**
+   * Expires one pending record explicitly — used when the waiting run is
+   * aborted (Stop / timeout): the wait must leave a terminal approval state so
+   * a late decision cannot resurrect an ended run (issue #48).
+   */
+  expirePending(recordId: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE approvals
+      SET status = 'expired', resolved_at = ?
+      WHERE type = 'request' AND id = ? AND status = 'pending'
+    `).run(new Date().toISOString(), recordId);
+    return Number(result.changes ?? 0) > 0;
+  }
+
+  /**
+   * Crash recovery with explicit outcome verification (issue #48): a record
+   * stuck in `executing` means a claim was made but the process died before the
+   * result was recorded — the command may or may not have run. Such a record is
+   * closed as `failed` with an outcome-unknown note so no path re-runs it
+   * blindly and the UI states the truth instead of spinning forever. Mirrors
+   * the read-path expiry pattern of `expireStalePending`.
+   */
+  // Commands are hard-capped at 600s, so an executing record older than this
+  // has no live executor: the claimant died before recording the outcome.
+  private static readonly EXECUTING_STALE_MS = 30 * 60 * 1000;
+
+  private recoverStaleExecuting(): void {
+    const cutoff = new Date(Date.now() - HostBashStore.EXECUTING_STALE_MS).toISOString();
+    const stale = this.db.prepare(`
+      SELECT id, action_json FROM approvals
+      WHERE type = 'request' AND status = 'executing'
+        AND COALESCE(json_extract(action_json, '$.executedAt'), created_at) < ?
+    `).all(cutoff) as Array<{ id: string; action_json: string }>;
+    for (const row of stale) {
+      const action = parseJson<any>(row.action_json, {});
+      action.executedAt = action.executedAt ?? new Date().toISOString();
+      action.errorText = "Service was interrupted while this command was executing; its result is unknown. Verify whether the command took effect instead of re-running it blindly.";
+      this.db.prepare(`
+        UPDATE approvals
+        SET status = 'failed', action_json = @action_json, resolved_at = @resolved_at
+        WHERE type = 'request' AND id = @id AND status = 'executing'
+      `).run({ id: row.id, action_json: JSON.stringify(action), resolved_at: new Date().toISOString() });
+    }
+  }
+
   getApprovalRecord(recordId: string): HostBashApprovalRecord | null {
     const row = this.db.prepare(`
       SELECT * FROM approvals WHERE type = 'request' AND id = ? LIMIT 1
@@ -618,6 +663,7 @@ export class HostBashStore {
   }
 
   listHistory(filters?: HostBashListFilters): HostBashApprovalRecord[] {
+    this.recoverStaleExecuting();
     const query = String(filters?.query ?? "").trim().toLowerCase();
     const status = filters?.status && filters.status !== "all" ? filters.status : null;
     const approvalMode = filters?.approvalMode && filters.approvalMode !== "all" ? filters.approvalMode : null;

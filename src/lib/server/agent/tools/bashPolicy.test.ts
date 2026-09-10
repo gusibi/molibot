@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { decideBashToolPolicy, findFileToolRedirect, resolveBashContainment } from "$lib/server/agent/tools/bashPolicy.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
+import { isSandboxPermissionFailure } from "$lib/server/agent/tools/bash.js";
 
 test("bash policy redirects standalone file readers to the read tool", () => {
   assert.match(findFileToolRedirect("cat notes.md") ?? "", /read tool/);
@@ -140,4 +141,28 @@ test("a shell file-reader is still redirected before any mode is consulted", () 
   });
   assert.equal(decision.type, "deny");
   assert.match((decision as { reason: string }).reason, /read tool/);
+});
+
+test("only real sandbox signatures escalate into a host approval, network failures do not", () => {
+  // Confirmed sandbox/permission limits -> escalation path.
+  for (const output of [
+    "bash: line 1: /usr/sbin/networksetup: Operation not permitted",
+    "ls: foo: Permission denied",
+    "sandbox-exec: profile error",
+    "dhcpclient: SCDynamicStore failed: EPERM"
+  ]) {
+    assert.equal(isSandboxPermissionFailure(output), true, `expected escalation for: ${output}`);
+  }
+
+  // Ordinary network/transport failures -> a real diagnostic, no approval card
+  // (issue #48: a connection refusal is not a permission limit).
+  for (const output of [
+    "curl: (7) Failed to connect to localhost port 3000: Connection refused",
+    "ping: cannot resolve example.invalid: Unknown host",
+    "npm ERR! network fetch failed with status 503",
+    "git fetch fatal: could not read from remote repository",
+    "getaddrinfo ENOTFOUND api.example.com"
+  ]) {
+    assert.equal(isSandboxPermissionFailure(output), false, `network failure must not escalate: ${output}`);
+  }
 });
