@@ -3169,6 +3169,73 @@ a:focus-visible {
 .composer-permission-trigger[aria-disabled="true"] { opacity: .45; cursor: default; }
 .composer-permission-popover { right: auto; left: 0; width: min(320px, calc(100vw - 40px)); transform-origin: bottom left; }
 .composer-permission-popover .composer-menu-options { padding-top: 0; }
+.execution-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.execution-mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  text-align: left;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-panel);
+  background: var(--card-bg);
+  color: var(--label-primary);
+  padding: 12px;
+  cursor: pointer;
+}
+.execution-mode-card:hover { background: var(--fill); }
+.execution-mode-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.execution-mode-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
+  font-weight: 500;
+  color: var(--label-primary);
+}
+.execution-mode-card-header .reicon { color: var(--label-secondary); }
+.execution-mode-desc {
+  color: var(--label-secondary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+}
+
+.settings-advanced-group {
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-panel);
+  background: var(--card-bg);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.settings-advanced-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--label-secondary);
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
+  font-weight: 500;
+  user-select: none;
+}
+.settings-advanced-group > summary:hover { color: var(--label-primary); }
+.settings-advanced-group .settings-advanced-chevron { transition: transform var(--duration-fast) var(--ease-standard); }
+.settings-advanced-group[open] > summary .settings-advanced-chevron { transform: rotate(180deg); }
+.settings-advanced-group > .settings-section-hint { margin: 8px 0 0; }
+
+.composer-permission-source {
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--separator);
+  color: var(--label-tertiary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+}
 .composer-permission-popover .composer-menu-options > button { min-height: 48px; }
 .composer-permission-popover .composer-menu-options > button > .reicon:first-child { flex: none; width: var(--icon-md); height: var(--icon-md); margin-left: 0; color: var(--label-secondary); }
 .composer-model-trigger {

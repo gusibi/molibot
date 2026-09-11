@@ -64,14 +64,14 @@ test("External Subagent reference migration full acceptance seam", async () => {
     assert.equal(resolveExternalSubagentConfig(settingsStore.load()).codexEnabled, false);
     assert.equal(resolveExternalSubagentConfig(settingsStore.load()).claudeCodeEnabled, false);
 
-    // 4. Save custom configuration via contract store
+    // 4. Save custom configuration via contract store. Permission modes are no
+    // longer provider configuration: the session's effective execution policy
+    // is translated at dispatch time.
     const configStore = getPluginConfigStore();
     const writeRes = await configStore.writeConfig("external-subagent", 1, {
       codexEnabled: true,
-      codexPermissionMode: "approve-for-me",
       codexPath: "/custom/bin/codex",
       claudeCodeEnabled: true,
-      claudeCodePermissionMode: "acceptEdits",
       claudeCodePath: "/custom/bin/claude"
     });
     assert.equal(writeRes.ok, true);
@@ -89,14 +89,13 @@ test("External Subagent reference migration full acceptance seam", async () => {
     assert.equal(restartedConfig.status, "ok");
     if (restartedConfig.status === "ok") {
       assert.equal(restartedConfig.values.codexEnabled, true);
-      assert.equal(restartedConfig.values.codexPermissionMode, "approve-for-me");
       assert.equal(restartedConfig.values.codexPath, "/custom/bin/codex");
       assert.equal(restartedConfig.values.claudeCodeEnabled, true);
-      assert.equal(restartedConfig.values.claudeCodePermissionMode, "acceptEdits");
+      assert.equal(restartedConfig.values.claudeCodePath, "/custom/bin/claude");
     }
     const restartedDetail = catalog.getPluginDetail("external-subagent", restartedSettings);
-    assert.equal(restartedDetail?.settingsValues?.codexPermissionMode, "approve-for-me");
-    assert.equal(restartedDetail?.settingsValues?.claudeCodePermissionMode, "acceptEdits");
+    assert.equal(restartedDetail?.settingsValues?.codexPermissionMode, undefined, "the permission mode is not provider configuration");
+    assert.equal(restartedDetail?.settingsValues?.claudeCodePermissionMode, undefined);
 
     // 6. Runtime settings action executes in fault domain
     const actionRes = await invokePluginSettingsAction({
@@ -134,6 +133,18 @@ test("External Subagent reference migration full acceptance seam", async () => {
     Object.assign(storagePaths, originals);
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("external adapters translate the session's effective mode and report unsupported modes", async () => {
+  const { translatePolicyForClaudeCode, translatePolicyForCodex } = await import("$lib/server/plugins/externalSubagent/policyTranslation.js");
+  assert.equal(translatePolicyForClaudeCode("plan"), "plan");
+  assert.equal(translatePolicyForClaudeCode("accept_edits"), "acceptEdits");
+  assert.equal(translatePolicyForClaudeCode("auto"), "bypassPermissions");
+  assert.throws(() => translatePolicyForClaudeCode("manual"), /cannot honor/);
+  assert.equal(translatePolicyForCodex("accept_edits"), "approve-for-me");
+  assert.equal(translatePolicyForCodex("auto"), "dangerously-bypass-approvals-and-sandbox");
+  assert.throws(() => translatePolicyForCodex("manual"), /cannot honor/);
+  assert.throws(() => translatePolicyForCodex("plan"), /cannot honor/);
 });
 
 test("structural guard: generic settings schema, defaults, and sanitizers have no externalSubagent special cases", () => {

@@ -314,7 +314,7 @@ export async function renameProject(projectId: string, name: string): Promise<bo
 
 export async function saveProjectSettings(
   projectId: string,
-  patch: { name: string; instructions: string; modelKey: string | null; thinkingLevel: DesktopProject["thinkingLevel"] | null; sandboxEnabled: boolean | null; toolProgress: DesktopProject["toolProgress"] | null; showReasoning: DesktopProject["showReasoning"] | null; runLogNotice: boolean | null; customCommands: DesktopProject["customCommands"] }
+  patch: { name: string; instructions: string; modelKey: string | null; thinkingLevel: DesktopProject["thinkingLevel"] | null; toolProgress: DesktopProject["toolProgress"] | null; showReasoning: DesktopProject["showReasoning"] | null; runLogNotice: boolean | null; customCommands: DesktopProject["customCommands"] }
 ): Promise<boolean> {
   if (!projectId || !projectsStore.endpoint || projectsStore.busy) return false;
   projectsStore.busy = "project-settings";

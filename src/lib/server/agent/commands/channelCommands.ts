@@ -19,6 +19,9 @@ import {
   type ModelRoute
 } from "$lib/server/settings/modelSwitch.js";
 import { applyAgentModelRoutingOverride, resolveModel } from "$lib/server/agent/routing/modelRouting.js";
+import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
+import { PERMISSION_MODES } from "$lib/server/agent/permissions/decidePermission.js";
+import { resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import type { AgentModelRouting } from "$lib/server/settings/schema.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import {
@@ -1250,38 +1253,40 @@ export class SharedRuntimeCommandService<TTarget> {
       return true;
     }
 
-    if (cmd === "/sandbox") {
+    if (cmd === "/mode") {
       const sessionId = this.options.store.getActiveSession(input.scopeId);
       const args = rawArg.split(/\s+/).filter(Boolean);
 
       if (args.length === 0) {
-        await this.options.sendText(input.target, this.formatSandboxStatus(input.scopeId, sessionId));
+        await this.options.sendText(input.target, this.formatModeStatus(input.scopeId, sessionId));
         return true;
       }
 
       const scope = args[0]?.toLowerCase();
+      const isModeToken = (value: string | undefined): value is PermissionMode =>
+        PERMISSION_MODES.includes(value as PermissionMode);
 
       // Session override only requires store access, not updateSettings
       if (scope !== "bot" && scope !== "agent") {
         const action = scope;
-        let nextValue: boolean | null;
-        if (action === "on") nextValue = true;
-        else if (action === "off") nextValue = false;
-        else if (action === "reset") nextValue = null;
-        else {
-          await this.options.sendText(input.target, this.sandboxUsageText());
+        const nextValue: PermissionMode | null = action === "reset" ? null : isModeToken(action) ? action : null;
+        if (action !== "reset" && !isModeToken(action)) {
+          await this.options.sendText(input.target, this.modeUsageText());
           return true;
         }
 
-        this.options.store.setSessionSandboxOverride(input.scopeId, sessionId, nextValue);
+        this.options.store.setSessionPermissionModeOverride(input.scopeId, sessionId, nextValue);
         await this.options.sendText(
           input.target,
           [
-            this.renderMarkdownBulletList(this.text("Sandbox updated", "沙盒配置已更新"), [
+            this.renderMarkdownBulletList(this.text("Execution mode updated", "执行权限模式已更新"), [
               { label: this.text("Session", "会话"), value: this.code(sessionId) },
-              { label: this.text("Override", "覆盖值"), value: nextValue === null ? this.text("inherit", "继承") : this.boolText(nextValue) }
+              {
+                label: this.text("Override", "覆盖值"),
+                value: nextValue === null ? this.text("inherit", "继承") : this.code(nextValue)
+              }
             ]),
-            this.formatSandboxStatus(input.scopeId, sessionId)
+            this.formatModeStatus(input.scopeId, sessionId)
           ].join("\n\n")
         );
         return true;
@@ -1304,22 +1309,20 @@ export class SharedRuntimeCommandService<TTarget> {
           return true;
         }
 
-        let nextValue: boolean | undefined;
-        if (action === "on") nextValue = true;
-        else if (action === "off") nextValue = false;
-        else if (action === "reset") nextValue = undefined;
-        else {
-          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Sandbox bot usage", "机器人沙盒用法"), ["/sandbox bot [on|off|reset]"]));
+        const nextValue: PermissionMode | undefined =
+          action === "reset" ? undefined : isModeToken(action) ? action : undefined;
+        if (action !== "reset" && !isModeToken(action)) {
+          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Mode bot usage", "机器人权限模式用法"), ["/mode bot [plan|manual|accept_edits|auto|reset]"]));
           return true;
         }
 
         const instances = channelSettings.instances.map((inst) => {
           if (inst.id === instanceId) {
-            return { ...inst, sandboxEnabled: nextValue };
+            return { ...inst, permissionMode: nextValue };
           }
           return inst;
         });
-        
+
         this.options.updateSettings({
           channels: {
             ...settings.channels,
@@ -1330,11 +1333,14 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(
           input.target,
           [
-            this.renderMarkdownBulletList(this.text("Sandbox updated", "沙盒配置已更新"), [
+            this.renderMarkdownBulletList(this.text("Execution mode updated", "执行权限模式已更新"), [
               { label: this.text("Bot", "机器人"), value: this.code(instanceId) },
-              { label: this.text("Override", "覆盖值"), value: nextValue === undefined ? this.text("inherit", "继承") : this.boolText(nextValue) }
+              {
+                label: this.text("Override", "覆盖值"),
+                value: nextValue === undefined ? this.text("inherit", "继承") : this.code(nextValue)
+              }
             ]),
-            this.formatSandboxStatus(input.scopeId, sessionId)
+            this.formatModeStatus(input.scopeId, sessionId)
           ].join("\n\n")
         );
         return true;
@@ -1352,18 +1358,16 @@ export class SharedRuntimeCommandService<TTarget> {
           return true;
         }
 
-        let nextValue: boolean | undefined;
-        if (action === "on") nextValue = true;
-        else if (action === "off") nextValue = false;
-        else if (action === "reset") nextValue = undefined;
-        else {
-          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Sandbox agent usage", "Agent 沙盒用法"), ["/sandbox agent [on|off|reset]"]));
+        const nextValue: PermissionMode | undefined =
+          action === "reset" ? undefined : isModeToken(action) ? action : undefined;
+        if (action !== "reset" && !isModeToken(action)) {
+          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Mode agent usage", "Agent 权限模式用法"), ["/mode agent [plan|manual|accept_edits|auto|reset]"]));
           return true;
         }
 
         const agents = settings.agents.map((ag) => {
           if (ag.id === agentId) {
-            return { ...ag, sandboxEnabled: nextValue };
+            return { ...ag, permissionMode: nextValue };
           }
           return ag;
         });
@@ -1373,11 +1377,14 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(
           input.target,
           [
-            this.renderMarkdownBulletList(this.text("Sandbox updated", "沙盒配置已更新"), [
+            this.renderMarkdownBulletList(this.text("Execution mode updated", "执行权限模式已更新"), [
               { label: "Agent", value: this.code(agentId) },
-              { label: this.text("Override", "覆盖值"), value: nextValue === undefined ? this.text("inherit", "继承") : this.boolText(nextValue) }
+              {
+                label: this.text("Override", "覆盖值"),
+                value: nextValue === undefined ? this.text("inherit", "继承") : this.code(nextValue)
+              }
             ]),
-            this.formatSandboxStatus(input.scopeId, sessionId)
+            this.formatModeStatus(input.scopeId, sessionId)
           ].join("\n\n")
         );
         return true;
@@ -1385,24 +1392,24 @@ export class SharedRuntimeCommandService<TTarget> {
 
       // Default to session override
       const action = scope;
-      let nextValue: boolean | null;
-      if (action === "on") nextValue = true;
-      else if (action === "off") nextValue = false;
-      else if (action === "reset") nextValue = null;
-      else {
-        await this.options.sendText(input.target, this.sandboxUsageText());
+      const nextValue: PermissionMode | null = action === "reset" ? null : isModeToken(action) ? action : null;
+      if (action !== "reset" && !isModeToken(action)) {
+        await this.options.sendText(input.target, this.modeUsageText());
         return true;
       }
 
-      this.options.store.setSessionSandboxOverride(input.scopeId, sessionId, nextValue);
+      this.options.store.setSessionPermissionModeOverride(input.scopeId, sessionId, nextValue);
       await this.options.sendText(
         input.target,
         [
-          this.renderMarkdownBulletList(this.text("Sandbox updated", "沙盒配置已更新"), [
+          this.renderMarkdownBulletList(this.text("Execution mode updated", "执行权限模式已更新"), [
             { label: this.text("Session", "会话"), value: this.code(sessionId) },
-            { label: this.text("Override", "覆盖值"), value: nextValue === null ? this.text("inherit", "继承") : this.boolText(nextValue) }
+            {
+              label: this.text("Override", "覆盖值"),
+              value: nextValue === null ? this.text("inherit", "继承") : this.code(nextValue)
+            }
           ]),
-          this.formatSandboxStatus(input.scopeId, sessionId)
+          this.formatModeStatus(input.scopeId, sessionId)
         ].join("\n\n")
       );
       return true;
@@ -2218,20 +2225,23 @@ export class SharedRuntimeCommandService<TTarget> {
     return lines.join("\n");
   }
 
-  private resolveSandboxState(scopeId: string, sessionId: string): BooleanLayerStatus {
+  private resolveEffectiveMode(scopeId: string, sessionId: string): { mode: PermissionMode; source: string } {
     const settings = this.options.getSettings();
     const instance = settings.channels[this.options.channel]?.instances.find((inst) => inst.id === this.options.instanceId);
-    const agentId = instance?.agentId;
-    const agent = agentId ? settings.agents.find((row) => row.id === agentId) : undefined;
-    const sessionOverride = this.options.store.getSessionSandboxOverride(scopeId, sessionId);
-    const botOverride = instance?.sandboxEnabled;
-    const agentOverride = agent?.sandboxEnabled;
-    const globalDefault = settings.toolSandbox.enabled;
-
-    if (sessionOverride !== null) return { enabled: sessionOverride, source: `session:${sessionId}`, globalDefault, botOverride, sessionOverride };
-    if (botOverride !== undefined) return { enabled: botOverride, source: `bot:${this.options.instanceId}`, globalDefault, botOverride, sessionOverride };
-    if (agentOverride !== undefined) return { enabled: agentOverride, source: `agent:${agentId}`, globalDefault, botOverride, sessionOverride };
-    return { enabled: globalDefault, source: "global", globalDefault, botOverride, sessionOverride };
+    const resolved = resolveEffectivePermissionMode({
+      getSettings: () => settings,
+      chatId: scopeId,
+      sessionId,
+      store: this.options.store,
+      channel: this.options.channel,
+      botId: this.options.instanceId
+    });
+    const source = resolved.source === "session"
+      ? `session:${sessionId}`
+      : resolved.source === "instance"
+        ? `bot:${instance?.id ?? this.options.instanceId}`
+        : resolved.source;
+    return { mode: resolved.mode, source };
   }
 
   private resolveTtsToolSummary(settings: RuntimeSettings): { label: string; detail: string } {
@@ -2284,7 +2294,7 @@ export class SharedRuntimeCommandService<TTarget> {
     const visionRoute = this.resolveRouteSummary(effectiveSettings, "vision");
     const sttRoute = this.resolveRouteSummary(effectiveSettings, "stt");
     const ttsTool = this.resolveTtsToolSummary(settings);
-    const sandboxState = this.resolveSandboxState(scopeId, sessionId);
+    const effectiveMode = this.resolveEffectiveMode(scopeId, sessionId);
     const runLogNotice = this.resolveRunLogNoticeStatus(scopeId, sessionId);
     const displayStatus = this.resolveDisplayStatus();
     const { skills } = loadSkillsFromWorkspace(this.options.workspaceDir, scopeId, {
@@ -2323,7 +2333,7 @@ export class SharedRuntimeCommandService<TTarget> {
           : []
       ),
       { label: this.text("Provider mode", "提供方模式"), value: settings.providerMode },
-      { label: "Sandbox", value: `${sandboxState.enabled ? "on" : "off"} (${sandboxState.source})` },
+      { label: "Mode", value: `${effectiveMode.mode} (${effectiveMode.source})` },
       { label: "Runlog notice", value: `${runLogNotice.enabled ? "on" : "off"} (${runLogNotice.source})` },
       { label: "Tool progress", value: `${displayStatus.toolProgress.value} (${displayStatus.toolProgress.source})` },
       { label: "Show reasoning", value: `${displayStatus.showReasoning.value} (${displayStatus.showReasoning.source})` },
@@ -2397,7 +2407,7 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/skills-detail", value: d("show full details for all loaded skills", "查看所有已加载技能的完整详情") },
       { label: "/thinking [default|off|minimal|low|medium|high|xhigh|max]", value: d("show or change thinking for current session only", "查看或仅修改当前会话的思考级别") },
       { label: "/models <route> [index|key]", value: d("show or switch model for a route (text|vision|stt|tts|subagent); for text/vision/stt on an agent-bound bot it sets the agent's model — use /models <route> global to follow global", "查看或切换指定路由的模型（text|vision|stt|tts|subagent）；绑定 agent 的 bot 切 text/vision/stt 时写入该 agent，/models <route> global 可恢复跟随全局") },
-      { label: "/sandbox [scope] [on|off|reset]", value: d("show or change sandbox override (session / bot / agent)", "查看或修改沙盒覆盖（会话 / 机器人 / Agent）") },
+      { label: "/mode [scope] [plan|manual|accept_edits|auto|reset]", value: d("show or change the execution permission mode (session / bot / agent)", "查看或修改执行权限模式（会话 / 机器人 / Agent）") },
       { label: "/runlog [latest|<runId>|list]", value: d("show or list archived run logs", "查看或列出归档运行记录") },
       { label: "/runlog status | [bot|global] <on|off|reset>", value: d("show or change automatic runlog notice", "查看或修改自动 runlog 通知") },
       { label: "/toolprogress [off|new|all|verbose|reset]", value: d("show or change tool progress display for this bot", "查看或修改当前机器人的工具进度显示") },
@@ -2508,82 +2518,48 @@ export class SharedRuntimeCommandService<TTarget> {
     return true;
   }
 
-  private sandboxUsageText(): string {
-    return this.renderMarkdownCommandList(this.text("Sandbox usage", "沙盒用法"), [
-      "/sandbox [on|off|reset]",
-      "/sandbox bot [on|off|reset]",
-      "/sandbox agent [on|off|reset]"
+  private modeUsageText(): string {
+    return this.renderMarkdownCommandList(this.text("Execution mode usage", "执行权限模式用法"), [
+      "/mode [plan|manual|accept_edits|auto|reset]",
+      "/mode bot [plan|manual|accept_edits|auto|reset]",
+      "/mode agent [plan|manual|accept_edits|auto|reset]"
     ]);
   }
 
-  private formatSandboxStatus(scopeId: string, sessionId: string): string {
+  private formatModeStatus(scopeId: string, sessionId: string): string {
     const settings = this.options.getSettings();
     const channel = this.options.channel;
     const instanceId = this.options.instanceId;
-    
-    // 1. Session Override
-    const sessionOverride = this.options.store.getSessionSandboxOverride(scopeId, sessionId);
-    const sessionText = sessionOverride === true
-      ? this.text("ON (Override)", "开启（覆盖）")
-      : sessionOverride === false
-        ? this.text("OFF (Override)", "关闭（覆盖）")
-        : this.text("Inherit", "继承");
 
-    // 2. Bot Override
+    const sessionOverride = this.options.store.getSessionPermissionModeOverride(scopeId, sessionId);
     const instance = settings.channels[channel]?.instances.find((inst) => inst.id === instanceId);
-    const botOverride = instance?.sandboxEnabled;
-    const botText = botOverride === true
-      ? this.text("ON (Override)", "开启（覆盖）")
-      : botOverride === false
-        ? this.text("OFF (Override)", "关闭（覆盖）")
-        : this.text("Inherit", "继承");
-
-    // 3. Agent Override
+    const botOverride = instance?.permissionMode;
     const agentId = instance?.agentId;
     const agent = agentId ? settings.agents.find((a) => a.id === agentId) : null;
-    const agentOverride = agent?.sandboxEnabled;
-    const agentText = agentOverride === true
-      ? this.text("ON (Override)", "开启（覆盖）")
-      : agentOverride === false
-        ? this.text("OFF (Override)", "关闭（覆盖）")
-        : this.text("Inherit", "继承");
+    const agentOverride = agent?.permissionMode;
+    const globalDefault = settings.permissionMode ?? "accept_edits";
 
-    // 4. Global Default
-    const globalDefault = settings.toolSandbox.enabled;
-    const globalText = globalDefault ? this.text("ON (Default)", "开启（默认）") : this.text("OFF (Default)", "关闭（默认）");
-
-    // Resolved Status
-    let resolved = globalDefault;
-    let resolvedFrom = "Global Default";
-    
-    if (agentOverride !== undefined) {
-      resolved = agentOverride;
-      resolvedFrom = `Agent Override (${agentId})`;
-    }
-    if (botOverride !== undefined) {
-      resolved = botOverride;
-      resolvedFrom = `Bot Override (${instanceId})`;
-    }
-    if (sessionOverride !== null) {
-      resolved = sessionOverride;
-      resolvedFrom = `Session Override (${sessionId})`;
-    }
+    const effective = this.resolveEffectiveMode(scopeId, sessionId);
+    const layerValue = (value: string | null | undefined): string =>
+      value === undefined || value === null
+        ? this.text("Inherit", "继承")
+        : this.code(value);
 
     return [
-      this.renderMarkdownBulletList(this.text("Sandbox configuration", "沙盒配置"), [
+      this.renderMarkdownBulletList(this.text("Execution & permissions", "执行与权限"), [
         {
-          label: this.text("Resolved status", "最终状态"),
+          label: this.text("Resolved mode", "生效模式"),
           value: this.text(
-            `${resolved ? "enabled" : "disabled"} (via ${resolvedFrom})`,
-            `${resolved ? "已开启" : "已关闭"}（来源：${resolvedFrom}）`
+            `${effective.mode} (via ${effective.source})`,
+            `${effective.mode}（来源：${effective.source}）`
           )
         },
-        { label: this.text("Session override", "会话覆盖"), value: `${this.code(sessionId)}: ${sessionText}` },
-        { label: this.text("Bot override", "机器人覆盖"), value: `${this.code(instanceId)}: ${botText}` },
-        { label: this.text("Agent override", "Agent 覆盖"), value: `${this.code(agentId ?? "none")}: ${agentText}` },
-        { label: this.text("Global default", "全局默认"), value: globalText }
+        { label: this.text("Session override", "会话覆盖"), value: `${this.code(sessionId)}: ${layerValue(sessionOverride)}` },
+        { label: this.text("Bot override", "机器人覆盖"), value: `${this.code(instanceId)}: ${layerValue(botOverride)}` },
+        { label: this.text("Agent override", "Agent 覆盖"), value: `${this.code(agentId ?? "none")}: ${layerValue(agentOverride)}` },
+        { label: this.text("Global default", "全局默认"), value: this.code(globalDefault) }
       ]),
-      this.sandboxUsageText()
+      this.modeUsageText()
     ].join("\n\n");
   }
 }

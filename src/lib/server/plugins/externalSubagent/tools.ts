@@ -2,6 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { ExternalSubagentRuntime } from "#external-subagent";
 import { assertExternalSubagentProviderEnabled, resolveExternalSubagentConfig } from "./config.js";
+import { translatePolicyForClaudeCode, translatePolicyForCodex } from "./policyTranslation.js";
 import type { FeaturePluginContext } from "$lib/server/plugins/types.js";
 import { pluginDataDir } from "$lib/server/plugins/contract/paths.js";
 
@@ -36,7 +37,7 @@ export function createCodexSubagentTool(context: FeaturePluginContext): AgentToo
       const settings = context.getSettings();
       const pluginSettings = resolveExternalSubagentConfig(settings);
       assertExternalSubagentProviderEnabled(pluginSettings, "codex");
-      const permissionMode = pluginSettings.codexPermissionMode;
+      const permissionMode = translatePolicyForCodex(context.executionMode ?? "accept_edits");
       const customPath = pluginSettings.codexPath;
 
       const result = await sharedRuntime.run("codex", {
@@ -89,7 +90,7 @@ export function createClaudeCodeSubagentTool(context: FeaturePluginContext): Age
       const settings = context.getSettings();
       const pluginSettings = resolveExternalSubagentConfig(settings);
       assertExternalSubagentProviderEnabled(pluginSettings, "claude-code");
-      const permissionMode = pluginSettings.claudeCodePermissionMode;
+      const permissionMode = translatePolicyForClaudeCode(context.executionMode ?? "accept_edits");
       const customPath = pluginSettings.claudeCodePath;
 
       const result = await sharedRuntime.run("claude-code", {

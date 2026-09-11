@@ -7,16 +7,11 @@ import type { PermissionMode } from "$lib/server/agent/permissions/decidePermiss
 export interface SessionPreferences {
   thinkingLevelOverride?: RuntimeThinkingLevel | null;
   hostApprovalMode?: "default" | "session";
-  sandboxOverride?: boolean | null;
   runLogNoticeOverride?: boolean | null;
   /**
-   * Session-scoped permission mode. Sits beside `sandboxOverride` on purpose:
-   * they are the two axes of the same decision (what may this touch / do we ask
-   * first), they share one override chain, and keeping them in one container is
-   * what makes a single settings round-trip cover both.
-   *
-   * `null`/absent means "not set here" and falls through to the global default,
-   * never "off".
+   * The session-scoped execution permission mode — the one session-scoped
+   * execution control. `null`/absent means "not set here" and falls through to
+   * the override chain, never "off".
    */
   permissionModeOverride?: PermissionMode | null;
 }

@@ -241,9 +241,11 @@ test("reported Desktop settings pages use the shared macOS-style IosSwitch", () 
     "HostBashSection",
     "ProfilesSection",
     "WebSearchSection",
-    "SandboxSection",
     "PluginsSection"
   ];
+  // The Execution-environment section no longer owns a toggle: sandbox
+  // participation follows the unified permission mode, so it has no switch at
+  // all (asserted by the execution-environment contract test).
 
   for (const sectionName of affectedSettingsSections) {
     const source = read(`./lib/settings/${sectionName}.svelte`);
@@ -3184,7 +3186,7 @@ test("settings navigation keeps the current product taxonomy and entity editors 
   assert.match(app, /id: "tools", sections: \["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"\]/);
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
   assert.match(app, /id: "activity", sections: \["runHistory", "usage", "trace", "logs", "hostBash"\]/);
-  assert.match(app, /id: "system", sections: \["runtimeEnv", "sandbox", "plugins", "diagnostics"\]/);
+  assert.match(app, /id: "system", sections: \["runtimeEnv", "executionPermissions", "sandbox", "plugins", "diagnostics"\]/);
   for (const [formId, key] of Object.entries(formSectionKey)) {
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
     assert.match(sections[key], /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
@@ -3313,21 +3315,22 @@ test("built-in provider configuration reuses saved Web settings without pollutin
   assert.match(styles, /\.settings-content \.settings-scroll:has\(\.settings-footbar\)\s*\{[^}]*padding-bottom:/s);
 });
 
-test("Sandbox settings expose the strictness slider, full policy editing, diagnostics, and a fixed save footer", () => {
+test("Execution environment declares the backend, keeps advanced restrictions collapsed, and has a fixed save footer", () => {
+  // Unified execution modes: the sandbox section no longer owns a preset
+  // slider or an enable switch — participation follows the permission mode.
   assert.match(sections.sandbox, /id="desktop-sandbox-form"/);
-  assert.match(sections.sandbox, /id: "locked"/);
-  assert.match(sections.sandbox, /id: "readonly"/);
-  assert.match(sections.sandbox, /id: "standard"/);
-  assert.match(sections.sandbox, /id: "full"/);
-  assert.match(sections.sandbox, /class="sandbox-slider-input"/);
-  assert.match(sections.sandbox, /applyLevelByIndex\(Number\(event\.currentTarget\.value\)\)/);
+  assert.match(sections.sandbox, /session\.text\.executionEnvBackend/);
+  assert.match(sections.sandbox, /backend\.supportedPlatform/);
+  assert.match(sections.sandbox, /backend\.dependenciesAvailable/);
+  assert.match(sections.sandbox, /class="settings-advanced-group"/);
+  assert.match(sections.sandbox, /session\.text\.sandboxAdvanced/);
   assert.match(sections.sandbox, /session\.text\.sandboxEnvAllow/);
   assert.match(sections.sandbox, /session\.text\.sandboxNetworkAllow/);
   assert.match(sections.sandbox, /session\.text\.sandboxFilesystemAllowWrite/);
   assert.match(sections.sandbox, /form="desktop-sandbox-form"/);
-  assert.match(styles, /\.sandbox-slider-track-wrap\s*\{/s);
-  assert.match(styles, /\.sandbox-slider\[data-level="full"\]\s*\{[^}]*--slider-accent:\s*var\(--danger\);/s);
-  assert.match(styles, /\.sandbox-slider\[data-level="locked"\]\s*\{[^}]*--slider-accent:\s*var\(--online\);/s);
+  assert.match(sections.sandbox, /class="settings-footbar"/);
+  assert.doesNotMatch(sections.sandbox, /sandbox-slider|id: "locked"|IosSwitch/);
+  assert.match(styles, /\.settings-advanced-group\s*\{/s);
 });
 
 test("Geist CSS references only defined variables and keyframes", () => {

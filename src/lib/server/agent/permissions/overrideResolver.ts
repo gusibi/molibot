@@ -77,27 +77,33 @@ export function resolveScopeRecords(
   return { instance, agent };
 }
 
-export function resolveSessionScopedOverride<T>(
+/**
+ * The one walk over the shared precedence, also reporting which level decided.
+ * The UI renders the source ("inherited from the global default" vs
+ * "overridden for this conversation") from this one result instead of
+ * re-deriving the precedence per surface.
+ */
+export function resolveSessionScopedOverrideWithSource<T>(
   settings: RuntimeSettings,
   identity: SessionScopeIdentity,
   lookups: OverrideChainLookups<T>
-): T {
+): { value: T; source: "session" | "project" | "instance" | "agent" | "global" } {
   const sessionValue = lookups.session?.();
-  if (sessionValue !== undefined && sessionValue !== null) return sessionValue;
+  if (sessionValue !== undefined && sessionValue !== null) return { value: sessionValue, source: "session" };
 
-  if (lookups.project !== undefined && lookups.project !== null) return lookups.project;
+  if (lookups.project !== undefined && lookups.project !== null) return { value: lookups.project, source: "project" };
 
   const { instance, agent } = resolveScopeRecords(settings, identity);
 
   if (instance && lookups.instance) {
     const value = lookups.instance(instance);
-    if (value !== undefined && value !== null) return value;
+    if (value !== undefined && value !== null) return { value, source: "instance" };
   }
 
   if (agent && lookups.agent) {
     const value = lookups.agent(agent);
-    if (value !== undefined && value !== null) return value;
+    if (value !== undefined && value !== null) return { value, source: "agent" };
   }
 
-  return lookups.global();
+  return { value: lookups.global(), source: "global" };
 }

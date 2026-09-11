@@ -107,7 +107,7 @@ export function beginNewAgent(): void {
     name: "",
     description: "",
     enabled: true,
-    sandboxEnabled: null,
+    permissionMode: null as "plan" | "manual" | "accept_edits" | "auto" | null,
     modelRouting: { textModelKey: "", sttModelKey: "" },
     files: emptyAgentFiles()
   };
@@ -127,7 +127,7 @@ export async function beginAgentEdit(agentId: string): Promise<void> {
       name: agent.name,
       description: agent.description,
       enabled: agent.enabled,
-      sandboxEnabled: agent.sandboxEnabled,
+      permissionMode: agent.permissionMode,
       modelRouting: { ...agent.modelRouting },
       files: { ...emptyAgentFiles(), ...(await loadDesktopAgentFiles(endpoint, agent.id)) }
     };
@@ -156,7 +156,7 @@ export async function saveAgentEditor(): Promise<void> {
       name: agentEdit.name,
       description: agentEdit.description,
       enabled: agentEdit.enabled,
-      sandboxEnabled: agentEdit.sandboxEnabled,
+      permissionMode: agentEdit.permissionMode,
       modelRouting: agentEdit.modelRouting
     });
     await saveDesktopAgentFiles(endpoint, agentEdit.id.trim(), agentEdit.files);

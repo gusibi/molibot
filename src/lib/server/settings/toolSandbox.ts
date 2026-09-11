@@ -1,6 +1,5 @@
 import type {
   ToolSandboxEnvInheritMode,
-  ToolSandboxInitFailureMode,
   ToolSandboxSettings
 } from "$lib/server/settings/schema.js";
 
@@ -19,9 +18,14 @@ const DEFAULT_DENY_WRITE = [
   "*.key"
 ];
 
+/**
+ * Advanced sandbox restrictions only. The sandbox participates when the
+ * effective permission mode is manual/accept_edits; full access (auto) runs on
+ * the host and never consults these fields. The default network posture is
+ * unrestricted so ordinary package downloads and API calls need no domain list;
+ * explicit restrictions remain available as advanced settings.
+ */
 export const defaultToolSandboxSettings: ToolSandboxSettings = {
-  enabled: true,
-  initFailureMode: "block",
   envFilePath: ".env",
   env: {
     inheritMode: "minimal",
@@ -56,20 +60,18 @@ function sanitizeStringList(input: unknown, fallback: string[] = []): string[] {
   return out;
 }
 
-function sanitizeInitFailureMode(input: unknown): ToolSandboxInitFailureMode {
-  const value = String(input ?? "").trim();
-  if (value === "block") return value;
-  // `warn-disable` is a legacy fail-open value. Keep accepting persisted payloads,
-  // but always migrate them to the only safe runtime behavior.
-  return "block";
-}
-
 function sanitizeEnvInheritMode(input: unknown, fallback: ToolSandboxEnvInheritMode): ToolSandboxEnvInheritMode {
   const value = String(input ?? "").trim();
   if (value === "minimal" || value === "allowlist" || value === "full") return value;
   return fallback;
 }
 
+/**
+ * Unknown persisted fields (the removed `enabled`/`initFailureMode` controls)
+ * are dropped here: sanitizing on both save and load means an old payload
+ * simply loses them, and sandbox participation is decided by the permission
+ * mode at run time.
+ */
 export function sanitizeToolSandboxSettings(input: unknown, fallback: ToolSandboxSettings = defaultToolSandboxSettings): ToolSandboxSettings {
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const env = source.env && typeof source.env === "object" ? source.env as Record<string, unknown> : {};
@@ -83,8 +85,6 @@ export function sanitizeToolSandboxSettings(input: unknown, fallback: ToolSandbo
   const fallbackFilesystem = fallback.filesystem ?? defaultToolSandboxSettings.filesystem;
 
   return {
-    enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
-    initFailureMode: sanitizeInitFailureMode(source.initFailureMode),
     envFilePath: String(source.envFilePath ?? fallback.envFilePath ?? defaultToolSandboxSettings.envFilePath).trim()
       || defaultToolSandboxSettings.envFilePath,
     env: {

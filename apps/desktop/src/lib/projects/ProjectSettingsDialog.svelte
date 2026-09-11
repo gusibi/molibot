@@ -26,7 +26,6 @@
   let instructions = project.instructions ?? "";
   let modelKey = project.modelKey ?? "";
   let thinkingLevel: "" | DesktopThinkingLevel = project.thinkingLevel ?? "";
-  let sandboxEnabled = project.sandboxEnabled === undefined ? "" : project.sandboxEnabled ? "on" : "off";
   let toolProgress = project.toolProgress ?? "";
   let showReasoning = project.showReasoning ?? "";
   let runLogNotice = project.runLogNotice === undefined ? "" : project.runLogNotice ? "on" : "off";
@@ -104,7 +103,6 @@
       instructions,
       modelKey: modelKey || null,
       thinkingLevel: thinkingLevel || null,
-      sandboxEnabled: sandboxEnabled === "" ? null : sandboxEnabled === "on",
       toolProgress: (toolProgress || null) as DesktopProject["toolProgress"] | null,
       showReasoning: (showReasoning || null) as DesktopProject["showReasoning"] | null,
       runLogNotice: runLogNotice === "" ? null : runLogNotice === "on",
@@ -134,7 +132,6 @@
         <label class="settings-field settings-field-wide"><span>{copy.projectInstructions}</span><textarea rows="5" bind:value={instructions} placeholder={withEllipsis(copy.projectInstructionsHint)}></textarea></label>
         <label class="settings-field"><span>{copy.projectDefaultModel}</span><SelectControl value={modelKey} ariaLabel={copy.projectDefaultModel} options={[{ value: "", label: copy.projectFollowGlobal }, ...modelOptions.map((model) => ({ value: model.key, label: modelOptionCopy(model).name }))]} onChange={(value) => modelKey = value} /></label>
         <label class="settings-field"><span>{copy.projectDefaultThinking}</span><SelectControl value={thinkingLevel} ariaLabel={copy.projectDefaultThinking} options={[{ value: "", label: copy.projectFollowGlobal }, ...thinkingLevelOptions.map((level) => ({ value: level, label: thinkingLabel(level) }))]} onChange={(value) => thinkingLevel = value as "" | DesktopThinkingLevel} /></label>
-        <label class="settings-field"><span>{copy.projectSandbox}</span><SelectControl value={sandboxEnabled} ariaLabel={copy.projectSandbox} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "on", label: copy.profileSandboxOn }, { value: "off", label: copy.profileSandboxOff }]} onChange={(value) => sandboxEnabled = value} /><small>{copy.projectSandboxHint}</small></label>
         <label class="settings-field"><span>{copy.projectToolProgress}</span><SelectControl value={toolProgress} ariaLabel={copy.projectToolProgress} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "new", label: copy.projectDisplayNew }, { value: "all", label: copy.projectDisplayAll }, { value: "verbose", label: copy.projectDisplayVerbose }]} onChange={(value) => toolProgress = value as typeof toolProgress} /></label>
         <label class="settings-field"><span>{copy.projectReasoning}</span><SelectControl value={showReasoning} ariaLabel={copy.projectReasoning} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "on", label: copy.projectDisplayOn }, { value: "stream", label: copy.projectDisplayStream }, { value: "new", label: copy.projectDisplayNew }]} onChange={(value) => showReasoning = value as typeof showReasoning} /></label>
         <label class="settings-field"><span>{copy.projectRunlogNotice}</span><SelectControl value={runLogNotice} ariaLabel={copy.projectRunlogNotice} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "on", label: copy.projectDisplayOn }, { value: "off", label: copy.projectDisplayOff }]} onChange={(value) => runLogNotice = value} /></label>

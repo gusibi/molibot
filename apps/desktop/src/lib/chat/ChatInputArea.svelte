@@ -71,6 +71,8 @@
   /** Passed through to the composer menu; absent host = no permission page. */
   export let permissionMode: "plan" | "manual" | "accept_edits" | "auto" = "accept_edits";
   export let permissionModeOptions: readonly ("plan" | "manual" | "accept_edits" | "auto")[] = [];
+  /** Where the effective mode comes from — rendered as "inherited from …" in the menu. */
+  export let permissionModeSource: "session" | "project" | "instance" | "agent" | "global" = "global";
   export let onChangePermissionMode: ((value: "plan" | "manual" | "accept_edits" | "auto") => void) | undefined = undefined;
   let activeSuggestionIndex = 0;
   let suggestionsDismissed = false;
@@ -283,6 +285,7 @@
           {copy}
           value={permissionMode}
           options={permissionModeOptions}
+          source={permissionModeSource}
           disabled={sending}
           onChange={onChangePermissionMode}
         />

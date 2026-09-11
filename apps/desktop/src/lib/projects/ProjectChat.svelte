@@ -56,7 +56,9 @@
   export let activeMatchId = "";
   type PermissionMode = "plan" | "manual" | "accept_edits" | "auto";
   const permissionModeOptions: readonly PermissionMode[] = ["plan", "manual", "accept_edits", "auto"];
+  type PermissionSource = "session" | "project" | "instance" | "agent" | "global";
   let permissionMode: PermissionMode = "accept_edits";
+  let permissionModeSource: PermissionSource = "global";
   let permissionHydrationSession = "";
   let message = "";
   // Last file reference consumed from the panel. Guards the reactive block
@@ -166,8 +168,11 @@
   }
   $: if (view.endpoint && view.selectedSessionId && view.selectedSessionId !== permissionHydrationSession) {
     permissionHydrationSession = view.selectedSessionId;
-    void loadDesktopSessionPermission(view.endpoint, "personal", view.selectedSessionId).then((mode) => {
-      if (view.selectedSessionId === permissionHydrationSession) permissionMode = mode;
+    void loadDesktopSessionPermission(view.endpoint, "personal", view.selectedSessionId).then(({ mode, source }) => {
+      if (view.selectedSessionId === permissionHydrationSession) {
+        permissionMode = mode;
+        permissionModeSource = source;
+      }
     }).catch(() => undefined);
   }
 
@@ -1120,6 +1125,7 @@
     onChangeThinking={changeThinking}
     {permissionMode}
     {permissionModeOptions}
+    permissionModeSource={permissionModeSource}
     onChangePermissionMode={changePermissionMode}
   >
     {#if editingMessageId}

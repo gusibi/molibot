@@ -16,7 +16,7 @@ export interface DesktopWebProfile {
   enabled: boolean;
   agentId: string;
   agentName: string;
-  sandboxEnabled?: boolean;
+  permissionMode?: "plan" | "manual" | "accept_edits" | "auto" | null;
 }
 
 export interface DesktopWebProfilesResponse {
@@ -36,7 +36,8 @@ export interface DesktopWebProfileSaveRequest {
   name: string;
   enabled: boolean;
   agentId: string;
-  sandboxEnabled?: boolean;
+  /** null = inherit from the override chain; never "off". */
+  permissionMode?: "plan" | "manual" | "accept_edits" | "auto" | null;
 }
 
 export interface DesktopProfileFilesResponse {
@@ -327,8 +328,16 @@ export interface DesktopActiveRunsResponse { ok: true; generatedAt: string; item
 export interface DesktopActiveRunActionResponse { ok: true; result: "stopped" | "cleared"; }
 
 export interface DesktopSandboxSummary {
-  enabled: boolean;
-  initFailureMode: "warn-disable" | "block";
+  /** The one sandbox backend; replaces the preset selector and enable switch. */
+  backend: {
+    id: string;
+    name: string;
+    supportedPlatform: boolean;
+    dependenciesAvailable: boolean;
+    supportsNetworkDomainRestrictions: boolean;
+    supportsFilesystemRestrictions: boolean;
+    supportsEnvInjection: boolean;
+  };
   envFilePath: string | null;
   envFilePathConfiguredExternally: boolean;
   env: {
@@ -339,8 +348,7 @@ export interface DesktopSandboxSummary {
   network: { allowedDomains: string[]; deniedDomains: string[] };
   filesystem: { denyRead: string[]; allowWrite: string[]; denyWrite: string[] };
   diagnostics: {
-    supportedPlatform: boolean;
-    dependenciesAvailable: boolean;
+    platform: string;
     envFileExists: boolean;
     envFileReadable: boolean;
     sandboxInitialized: boolean;
@@ -353,8 +361,6 @@ export interface DesktopSandboxSummary {
 }
 
 export interface DesktopSandboxUpdateRequest {
-  enabled?: boolean;
-  initFailureMode?: "warn-disable" | "block";
   envFilePath?: string;
   env?: {
     inheritMode?: "minimal" | "allowlist" | "full";
@@ -368,6 +374,17 @@ export interface DesktopSandboxUpdateRequest {
 export interface DesktopSandboxResponse {
   ok: true;
   sandbox: DesktopSandboxSummary;
+}
+
+/** The installation-wide default execution mode ("Execution & permissions" settings). */
+export interface DesktopExecutionDefaultResponse {
+  ok: true;
+  mode: "plan" | "manual" | "accept_edits" | "auto";
+}
+
+export interface DesktopExecutionDefaultPatchResponse {
+  ok: true;
+  mode: "plan" | "manual" | "accept_edits" | "auto";
 }
 
 export interface DesktopSandboxPatchResponse {
@@ -1348,7 +1365,8 @@ export interface DesktopAgentItem {
   name: string;
   description: string;
   enabled: boolean;
-  sandboxEnabled: boolean | null;
+  /** null = inherit from the override chain; never "off". */
+  permissionMode: "plan" | "manual" | "accept_edits" | "auto" | null;
   modelOverrides: number;
   modelRouting: { textModelKey: string; sttModelKey: string };
 }
@@ -1359,7 +1377,8 @@ export interface DesktopAgentSaveRequest {
   name: string;
   description: string;
   enabled: boolean;
-  sandboxEnabled: boolean | null;
+  /** null = inherit from the override chain; never "off". */
+  permissionMode: "plan" | "manual" | "accept_edits" | "auto" | null;
   modelRouting: { textModelKey: string; sttModelKey: string };
 }
 
@@ -1656,7 +1675,8 @@ export interface DesktopChannelInstance {
   agentId: string;
   allowedChatCount: number;
   allowedChatIds: string[];
-  sandboxEnabled: boolean | null;
+  /** null = inherit from the override chain; never "off". */
+  permissionMode: "plan" | "manual" | "accept_edits" | "auto" | null;
   fields: Record<string, string>;
   configuredSecrets: string[];
 }
@@ -1670,7 +1690,8 @@ export interface DesktopChannelSaveRequest {
   name: string;
   enabled: boolean;
   agentId: string;
-  sandboxEnabled: boolean | null;
+  /** null = inherit from the override chain; never "off". */
+  permissionMode: "plan" | "manual" | "accept_edits" | "auto" | null;
   allowedChatIds: string[];
   fields: Record<string, string>;
   secretValues?: Record<string, string>;

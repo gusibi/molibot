@@ -14,7 +14,7 @@ function agent(overrides: Partial<AgentSettings> = {}): AgentSettings {
     name: "Default Agent",
     description: "Handles general chat",
     enabled: true,
-    sandboxEnabled: true,
+    permissionMode: "auto",
     modelRouting: { textModelKey: "custom:gpt-4o", sttModelKey: "" },
     ...overrides
   } as AgentSettings;
@@ -24,25 +24,25 @@ function settings(overrides: Partial<RuntimeSettings> = {}): RuntimeSettings {
   return { agents: [agent()], ...overrides } as RuntimeSettings;
 }
 
-test("buildDesktopAgentItem projects display fields and counts model overrides", () => {
+test("buildDesktopAgentItem projects display fields, mode, and counts model overrides", () => {
   const item = buildDesktopAgentItem(agent());
 
   assert.equal(item.id, "default");
   assert.equal(item.name, "Default Agent");
   assert.equal(item.description, "Handles general chat");
   assert.equal(item.enabled, true);
-  assert.equal(item.sandboxEnabled, true);
+  assert.equal(item.permissionMode, "auto");
   assert.equal(item.modelOverrides, 1);
   assert.equal(item.modelRouting.textModelKey, "custom:gpt-4o");
 });
 
-test("buildDesktopAgentItem treats missing routing/sandbox as no overrides and inherited", () => {
+test("buildDesktopAgentItem treats missing routing/mode as no overrides and inherited", () => {
   const item = buildDesktopAgentItem(
-    agent({ id: "lean", name: "", sandboxEnabled: undefined, modelRouting: undefined, enabled: false })
+    agent({ id: "lean", name: "", permissionMode: undefined, modelRouting: undefined, enabled: false })
   );
 
   assert.equal(item.name, "lean");
-  assert.equal(item.sandboxEnabled, null);
+  assert.equal(item.permissionMode, null);
   assert.equal(item.modelOverrides, 0);
   assert.equal(item.enabled, false);
 });
@@ -53,7 +53,7 @@ test("buildDesktopAgentItem never leaks unprojected agent fields while exposing 
     name: "X",
     description: "ok to show",
     enabled: true,
-    sandboxEnabled: false,
+    permissionMode: "plan",
     modelRouting: { textModelKey: "custom:secret-model-id", sttModelKey: "" },
     // fields that may exist on the runtime object but must never reach the WebView
     systemPrompt: "SECRET-INSTRUCTIONS",
@@ -74,11 +74,11 @@ test("saveDesktopAgent adds or replaces one normalized agent", () => {
   const current = settings({ agents: [agent(), agent({ id: "other" })] });
   const next = saveDesktopAgent(current, {
     previousId: "default", id: "default", name: "Renamed", description: "Updated", enabled: false,
-    sandboxEnabled: null, modelRouting: { textModelKey: "", sttModelKey: "stt:v1" }
+    permissionMode: null, modelRouting: { textModelKey: "", sttModelKey: "stt:v1" }
   });
   assert.equal(next.length, 2);
   assert.equal(next.find((item) => item.id === "default")?.name, "Renamed");
-  assert.equal(next.find((item) => item.id === "default")?.sandboxEnabled, undefined);
+  assert.equal(next.find((item) => item.id === "default")?.permissionMode, undefined);
   assert.equal(next.find((item) => item.id === "default")?.modelRouting?.sttModelKey, "stt:v1");
 });
 

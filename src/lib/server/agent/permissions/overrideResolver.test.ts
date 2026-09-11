@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   resolveScopeRecords,
-  resolveSessionScopedOverride
+  resolveSessionScopedOverrideWithSource
 } from "$lib/server/agent/permissions/overrideResolver.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
@@ -32,7 +32,7 @@ function settingsFixture(): RuntimeSettings {
 const IDENTITY = { chatId: "c", sessionId: "s", channel: "web", botId: "bot-a" };
 
 test("the session level wins over everything below it", () => {
-  const value = resolveSessionScopedOverride<string>(settingsFixture(), IDENTITY, {
+  const { value } = resolveSessionScopedOverrideWithSource<string>(settingsFixture(), IDENTITY, {
     session: () => "session",
     project: "project",
     instance: () => "instance",
@@ -43,7 +43,7 @@ test("the session level wins over everything below it", () => {
 });
 
 test("project wins when the session has no value", () => {
-  const value = resolveSessionScopedOverride<string>(settingsFixture(), IDENTITY, {
+  const { value } = resolveSessionScopedOverrideWithSource<string>(settingsFixture(), IDENTITY, {
     session: () => null,
     project: "project",
     instance: () => "instance",
@@ -55,7 +55,7 @@ test("project wins when the session has no value", () => {
 
 test("the chain falls through instance and agent to the global default", () => {
   const order: string[] = [];
-  const value = resolveSessionScopedOverride<string>(settingsFixture(), IDENTITY, {
+  const { value } = resolveSessionScopedOverrideWithSource<string>(settingsFixture(), IDENTITY, {
     session: () => { order.push("session"); return null; },
     project: undefined,
     instance: () => { order.push("instance"); return undefined; },
@@ -69,7 +69,7 @@ test("the chain falls through instance and agent to the global default", () => {
 test("a level that returns false is a value, not an absence", () => {
   // The bug this prevents: treating `false` as "not set" would make "sandbox
   // off at this level" silently inherit "on" from the level above.
-  const value = resolveSessionScopedOverride<boolean>(settingsFixture(), IDENTITY, {
+  const { value } = resolveSessionScopedOverrideWithSource<boolean>(settingsFixture(), IDENTITY, {
     session: () => false,
     global: () => true
   });
@@ -78,7 +78,7 @@ test("a level that returns false is a value, not an absence", () => {
 
 test("null and undefined both mean keep looking", () => {
   for (const empty of [null, undefined]) {
-    const value = resolveSessionScopedOverride<string>(settingsFixture(), IDENTITY, {
+    const { value } = resolveSessionScopedOverrideWithSource<string>(settingsFixture(), IDENTITY, {
       session: () => empty,
       global: () => "global"
     });
@@ -102,7 +102,7 @@ test("an unknown channel or bot resolves no records and still terminates", () =>
   assert.equal(records.instance, undefined);
   assert.equal(records.agent, undefined);
 
-  const value = resolveSessionScopedOverride<string>(settingsFixture(), { channel: "nope", botId: "nobody" }, {
+  const { value } = resolveSessionScopedOverrideWithSource<string>(settingsFixture(), { channel: "nope", botId: "nobody" }, {
     instance: () => "instance",
     agent: () => "agent",
     global: () => "global"

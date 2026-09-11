@@ -33,6 +33,13 @@ export interface FeaturePluginContext {
   getSettings: () => RuntimeSettings;
   cwd: string;
   workspaceDir: string;
+  /**
+   * The creating attempt's effective execution mode. Plugins whose tools
+   * delegate to external runtimes translate it instead of keeping their own
+   * permission settings; absent (direct construction outside a run) they fall
+   * back to the global default mode.
+   */
+  executionMode?: "plan" | "manual" | "accept_edits" | "auto";
 }
 
 export type PluginSettingFieldType = "boolean" | "text" | "password" | "select";

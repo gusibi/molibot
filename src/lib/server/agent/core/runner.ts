@@ -20,13 +20,13 @@ import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { applyAssistantStreamEvent } from "$lib/server/agent/core/assistantStream.js";
 import { withFirstTokenTimeout } from "$lib/server/agent/core/firstTokenStreamTimeout.js";
 import { buildPromptInputEnvelope } from "$lib/server/agent/prompts/promptInput.js";
+import { permissionModeInstructionsFor } from "$lib/server/agent/prompts/modeInstructions.js";
 import { resolveToolFileTarget } from "$lib/server/app/toolFilePaths.js";
 import { createMomTools } from "$lib/server/agent/tools/index.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { getMcpServerStatuses, getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
 import { effectiveMcpServers, hasConfiguredMcpServers } from "$lib/server/settings/openConnector.js";
-import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
-import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
+import { resolveEffectiveExecutionPolicy, type ExecutionTarget } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
 import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { estimateContextTokens, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
@@ -241,17 +241,16 @@ export class MomRunner implements RunnerLike {
       }
     | undefined;
 
-  private getEffectiveSandboxEnabled(): boolean {
+  private getExecutionTarget(): ExecutionTarget {
     const botId = basename(this.store.getWorkspaceDir()) || "unknown";
-    return resolveEffectiveSandboxSettings({
+    return resolveEffectiveExecutionPolicy({
       getSettings: this.getSettings,
       chatId: this.chatId,
       sessionId: this.sessionId,
       store: this.store,
       channel: this.channel,
-      botId,
-      projectOverride: this.activeProject?.sandboxEnabled
-    }).enabled;
+      botId
+    }).executionTarget;
   }
 
   private activeHookContext: HookContext | undefined;
@@ -387,7 +386,7 @@ export class MomRunner implements RunnerLike {
           ? resolvePlannedBashDisplayName({
               command: args.command,
               hostBashStore: getHostBashStore(),
-              sandboxAttempted: this.getEffectiveSandboxEnabled()
+              executionTarget: this.getExecutionTarget()
             })
           : resolveToolDisplayName(context.toolCall.name);
         const rawLabel = args.label || context.toolCall.name;
@@ -463,7 +462,7 @@ export class MomRunner implements RunnerLike {
       afterToolCall: async (context) => {
         const displayName = resolveToolDisplayName(context.toolCall.name, {
           result: context.result,
-          sandboxAttempted: this.getEffectiveSandboxEnabled()
+          executionTarget: this.getExecutionTarget()
         });
         if (this.activeHookContext) {
           this.hookManager.emit(
@@ -1020,14 +1019,18 @@ export class MomRunner implements RunnerLike {
     };
 
     const settings = applyTurnModelOverride(this.getSettings(), ctx.modelKeyOverride);
-    const permissionMode = clampModeForChannel(resolveEffectivePermissionMode({
+    // One effective policy per attempt, resolved in the shared runtime and
+    // passed to tool dispatch, file access, shell execution and the prompt.
+    // No channel clamping: every transport honors the resolved mode.
+    const executionPolicy = resolveEffectiveExecutionPolicy({
       getSettings: () => settings,
       chatId: this.chatId,
       sessionId: this.sessionId,
       store: this.store,
       channel: this.channel,
       botId
-    }), this.channel);
+    });
+    const permissionMode = executionPolicy.mode;
     const settingsError = await validateRuntimeSettings(settings);
     if (settingsError) {
       stopReason = "error";
@@ -1541,7 +1544,7 @@ export class MomRunner implements RunnerLike {
           ? resolvePlannedBashDisplayName({
               command: args.command,
               hostBashStore: getHostBashStore(),
-              sandboxAttempted: this.getEffectiveSandboxEnabled()
+              executionTarget: this.getExecutionTarget()
             })
           : resolveToolDisplayName(event.toolName);
         const rawLabel = args.label || event.toolName;
@@ -1588,7 +1591,7 @@ export class MomRunner implements RunnerLike {
         }
         const displayName = resolveToolDisplayName(event.toolName, {
           result: event.result,
-          sandboxAttempted: this.getEffectiveSandboxEnabled()
+          executionTarget: this.getExecutionTarget()
         });
         const status = event.isError ? "✗" : "✓";
         const budgetBlocked = this.budgetBlockedToolCallIds.has(event.toolCallId);
@@ -1900,11 +1903,7 @@ export class MomRunner implements RunnerLike {
             "Close the turn with a short reply written for the user, in the language they used. Say what now holds — what was recorded, changed, or found — carrying over the concrete details the tool result reports. Do not mention tool names, parameter names, internal identifiers, or the call itself: the user sees only your reply, and can tell the action succeeded only from it. If the tool result already reads as a complete answer, relay it as-is rather than restating it."
           ]
         : [];
-      const permissionModeInstructions = permissionMode === "plan"
-        ? [
-            "This Session is in Plan mode. Investigate with the available read-only tools. For substantial codebase investigation, delegate focused discovery or planning to the read-only subagent roles scout and planner. Then call exitPlan exactly once with a concrete ordered plan. Do not claim to have changed files or executed commands. The plan is a structured product object, so ordinary Markdown alone is not a substitute for exitPlan."
-          ]
-        : [];
+      const permissionModeInstructions = permissionModeInstructionsFor(permissionMode);
       const promptInput = buildPromptInputEnvelope({
         messageText: effectiveInputText,
         // The selector routed the turn and is stripped from what the model

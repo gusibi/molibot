@@ -195,7 +195,7 @@ export function projectAgentCity(input: AgentCityProjectionInput): AgentCityProj
     name: "Global",
     description: "",
     enabled: true,
-    sandboxEnabled: null,
+    permissionMode: null,
     modelOverrides: 0,
     modelRouting: { textModelKey: "", sttModelKey: "" }
   } satisfies DesktopAgentItem;

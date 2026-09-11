@@ -3,6 +3,7 @@ import {
   sanitizeHostBashId,
   type ApprovedHostBashEntry
 } from "$lib/server/hostBash/index.js";
+import type { ExecutionTarget } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 
 function extractToolResultDetails(result: unknown): Record<string, unknown> | undefined {
   if (!result || typeof result !== "object") return undefined;
@@ -14,10 +15,19 @@ interface HostBashLookupStore {
   getApprovedEntry(toolId: string): ApprovedHostBashEntry | null | undefined;
 }
 
+/**
+ * The label says where the command runs: "Sandbox" when this attempt's
+ * execution target is the sandbox, plain "bash" when it runs on the host (full
+ * access or an approved Host Bash capability resolves its own label first).
+ */
+function bashLabelForTarget(executionTarget: ExecutionTarget | undefined): string {
+  return executionTarget === "sandbox" ? "Sandbox" : "bash";
+}
+
 export function resolvePlannedBashDisplayName(options: {
   command?: unknown;
   hostBashStore?: HostBashLookupStore;
-  sandboxAttempted?: boolean;
+  executionTarget?: ExecutionTarget;
 } = {}): string {
   if (typeof options.command === "string" && options.hostBashStore) {
     try {
@@ -28,12 +38,12 @@ export function resolvePlannedBashDisplayName(options: {
       // If the command is not eligible for Host Bash, fall back to the normal bash/sandbox label.
     }
   }
-  return options.sandboxAttempted ? "Sandbox" : "bash";
+  return bashLabelForTarget(options.executionTarget);
 }
 
 export function resolveToolDisplayName(
   toolName: string,
-  options: { result?: unknown; sandboxAttempted?: boolean } = {}
+  options: { result?: unknown; executionTarget?: ExecutionTarget } = {}
 ): string {
   if (toolName !== "bash") return toolName;
   const details = extractToolResultDetails(options.result);
@@ -45,5 +55,5 @@ export function resolveToolDisplayName(
     if (typeof details.sandboxWarning === "string" && details.sandboxWarning) return "Sandbox disabled";
     if (details.sandboxApplied === false) return toolName;
   }
-  return options.sandboxAttempted ? "Sandbox" : toolName;
+  return bashLabelForTarget(options.executionTarget);
 }

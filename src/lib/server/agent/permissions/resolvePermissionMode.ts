@@ -1,17 +1,28 @@
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { DEFAULT_PERMISSION_MODE, type PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
-import { resolveSessionScopedOverride } from "$lib/server/agent/permissions/overrideResolver.js";
+import { resolveSessionScopedOverrideWithSource } from "$lib/server/agent/permissions/overrideResolver.js";
+import type { ToolSandboxSettings } from "$lib/server/settings/index.js";
+
+export type PermissionModeSource = "session" | "project" | "instance" | "agent" | "global";
+
+export interface ResolvedPermissionMode {
+  mode: PermissionMode;
+  /** Which level of the override chain decided, so the UI can say "inherited from …". */
+  source: PermissionModeSource;
+}
 
 /**
  * The effective permission mode for a run, resolved through the same five-level
- * chain as the sandbox flag: session → project → bot instance → agent → global.
+ * chain every session-scoped setting uses: session → project → bot instance →
+ * agent → global.
  *
- * Deliberately the same shape as `resolveEffectiveSandboxSettings`, and sharing
- * its resolver rather than restating the precedence (Permission Modes PRD §102,
- * CLAUDE.md pitfall 7). The two are the orthogonal halves of one decision —
- * what may this call touch, and do we ask first — so they must agree on *whose*
- * setting wins.
+ * Every transport receives the mode it resolved — Plan and Manual are honoured
+ * on channels (Plan is read-only and needs no interaction surface; Manual's
+ * approval suspends the run through the existing defer/`waiting_for_approval`
+ * path and is resolved from wherever the owner actually is). There is no
+ * clamping: clamping Manual to Accept Edits silently widened permissions on
+ * transports without an approval card, which the unified-mode spec forbids.
  */
 export function resolveEffectivePermissionMode(options: {
   getSettings: () => RuntimeSettings;
@@ -22,10 +33,9 @@ export function resolveEffectivePermissionMode(options: {
   botId?: string;
   agentId?: string;
   projectOverride?: PermissionMode;
-}): PermissionMode {
+}): ResolvedPermissionMode {
   const settings = options.getSettings();
-
-  return resolveSessionScopedOverride<PermissionMode>(
+  const resolved = resolveSessionScopedOverrideWithSource<PermissionMode>(
     settings,
     {
       chatId: options.chatId,
@@ -52,20 +62,55 @@ export function resolveEffectivePermissionMode(options: {
       global: () => settings.permissionMode ?? DEFAULT_PERMISSION_MODE
     }
   );
+  return { mode: resolved.value, source: resolved.source };
 }
 
 /**
- * Plan and Manual have no interaction surface outside the desktop app: Plan
- * needs an ExitPlan confirmation card, and Manual would send an approval card
- * for every single file write (product decision, 2026-08-10).
+ * Where commands run for the active attempt. The mode decides — there is no
+ * separate sandbox-enabled switch left:
  *
- * Channels therefore see the nearest mode they can actually honour. Clamping
- * up rather than down is the safe direction only because the two clamped modes
- * are *stricter* than the result — a channel user who set Plan elsewhere gets
- * Accept edits, which still asks before host commands and third-party calls.
+ * - `auto` executes directly on the host (full access);
+ * - `plan` executes nothing (read-only toolset);
+ * - `manual` / `accept_edits` default to the sandbox, with host access gated by
+ *   the mode's approval path.
  */
-export function clampModeForChannel(mode: PermissionMode, channel: string): PermissionMode {
-  const isDesktopSurface = channel === "web" || channel === "cli";
-  if (isDesktopSurface) return mode;
-  return mode === "plan" || mode === "manual" ? "accept_edits" : mode;
+export type ExecutionTarget = "sandbox" | "host" | "none";
+
+/**
+ * The one effective execution policy for an attempt: the selected mode, where
+ * it came from, the execution target it implies, and the sandbox restrictions
+ * that apply (only when the sandbox actually participates). Tool dispatch,
+ * shell execution, file access, approval decisions, subagent creation, the
+ * system prompt and the UI all read this same result.
+ */
+export interface EffectiveExecutionPolicy {
+  mode: PermissionMode;
+  source: PermissionModeSource;
+  executionTarget: ExecutionTarget;
+  /** Present only when `executionTarget === "sandbox"`. */
+  sandbox?: ToolSandboxSettings;
+}
+
+export function resolveEffectiveExecutionPolicy(options: {
+  getSettings: () => RuntimeSettings;
+  chatId?: string;
+  sessionId?: string;
+  store?: MomRuntimeStore;
+  channel?: string;
+  botId?: string;
+  agentId?: string;
+  projectOverride?: PermissionMode;
+}): EffectiveExecutionPolicy {
+  const settings = options.getSettings();
+  const resolved = resolveEffectivePermissionMode(options);
+  const executionTarget: ExecutionTarget =
+    resolved.mode === "auto" ? "host"
+    : resolved.mode === "plan" ? "none"
+    : "sandbox";
+  return {
+    mode: resolved.mode,
+    source: resolved.source,
+    executionTarget,
+    sandbox: executionTarget === "sandbox" ? settings.toolSandbox : undefined
+  };
 }

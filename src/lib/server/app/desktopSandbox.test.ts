@@ -6,7 +6,6 @@ import { buildDesktopSandboxSummary, buildDesktopSandboxUpdate } from "./desktop
 
 function diagnostics(overrides: Partial<ToolSandboxDiagnostics> = {}): ToolSandboxDiagnostics {
   return {
-    enabled: true,
     platform: "darwin",
     supportedPlatform: true,
     dependenciesAvailable: true,
@@ -24,11 +23,13 @@ function diagnostics(overrides: Partial<ToolSandboxDiagnostics> = {}): ToolSandb
   };
 }
 
-test("buildDesktopSandboxSummary exposes editable policy but drops resolved absolute env paths and values", () => {
+test("buildDesktopSandboxSummary declares the backend and drops resolved absolute env paths and values", () => {
   const summary = buildDesktopSandboxSummary(defaultToolSandboxSettings, diagnostics());
 
-  assert.equal(summary.enabled, true);
-  assert.equal(summary.initFailureMode, "block");
+  assert.equal(summary.backend.id, "anthropic-local-sandbox");
+  assert.equal(summary.backend.supportedPlatform, true);
+  assert.equal(summary.backend.dependenciesAvailable, true);
+  assert.equal(summary.backend.supportsNetworkDomainRestrictions, true);
   assert.equal(summary.envFilePath, ".env");
   assert.equal(summary.envFilePathConfiguredExternally, false);
   assert.equal(summary.env.inheritMode, "minimal");
@@ -37,8 +38,7 @@ test("buildDesktopSandboxSummary exposes editable policy but drops resolved abso
   assert.deepEqual(summary.network.allowedDomains, ["*"]);
   assert.deepEqual(summary.filesystem.denyRead, ["~/.ssh", "~/.aws", "~/.gnupg", ".env", ".env.*"]);
 
-  assert.equal(summary.diagnostics.supportedPlatform, true);
-  assert.equal(summary.diagnostics.dependenciesAvailable, true);
+  assert.equal(summary.diagnostics.platform, "darwin");
   assert.equal(summary.diagnostics.sandboxInitialized, true);
   assert.equal(summary.diagnostics.sandboxError, null);
   assert.equal(summary.diagnostics.envKeysAvailable, 3);
@@ -50,6 +50,9 @@ test("buildDesktopSandboxSummary exposes editable policy but drops resolved abso
   assert.equal(serialized.includes("/Users/"), false);
   assert.equal(serialized.includes("SECRET_KEY"), false);
   assert.equal(serialized.includes("envKeysAvailable\""), true);
+  // The removed controls must not reappear in the wire contract.
+  assert.equal("enabled" in summary, false);
+  assert.equal("initFailureMode" in summary, false);
 });
 
 test("buildDesktopSandboxSummary hides an existing absolute env file setting without losing its configured state", () => {
@@ -67,15 +70,12 @@ test("buildDesktopSandboxSummary hides an existing absolute env file setting wit
 test("buildDesktopSandboxUpdate sanitizes full policy lists and preserves an omitted absolute env path", () => {
   const current = { ...defaultToolSandboxSettings, envFilePath: "/private/example/.env" };
   const updated = buildDesktopSandboxUpdate(current, {
-    enabled: true,
-    initFailureMode: "block",
     env: { inheritMode: "minimal", allow: [" OPENAI_API_KEY ", "OPENAI_API_KEY"], deny: ["MOLIBOT_*"] },
     network: { allowedDomains: ["github.com", "github.com"], deniedDomains: ["example.com"] },
     filesystem: { denyRead: ["~/.ssh"], allowWrite: ["scratch"], denyWrite: ["*.pem"] }
   });
 
   assert.equal(updated.envFilePath, "/private/example/.env");
-  assert.equal(updated.initFailureMode, "block");
   assert.deepEqual(updated.env.allow, ["OPENAI_API_KEY"]);
   assert.deepEqual(updated.network.allowedDomains, ["github.com"]);
   assert.deepEqual(updated.filesystem.allowWrite, ["scratch"]);
@@ -85,14 +85,13 @@ test("buildDesktopSandboxUpdate accepts only project-relative env file replaceme
   assert.equal(buildDesktopSandboxUpdate(defaultToolSandboxSettings, { envFilePath: "config/agent.env" }).envFilePath, "config/agent.env");
   assert.throws(() => buildDesktopSandboxUpdate(defaultToolSandboxSettings, { envFilePath: "/tmp/agent.env" }), /relative/);
   assert.throws(() => buildDesktopSandboxUpdate(defaultToolSandboxSettings, { envFilePath: "../agent.env" }), /relative/);
-  assert.throws(() => buildDesktopSandboxUpdate(defaultToolSandboxSettings, { envFilePath: "~\/.env" }), /relative/);
+  assert.throws(() => buildDesktopSandboxUpdate(defaultToolSandboxSettings, { envFilePath: "~/.env" }), /relative/);
 });
 
 test("buildDesktopSandboxSummary surfaces a sandbox error and missing env counts", () => {
   const summary = buildDesktopSandboxSummary(
-    { ...defaultToolSandboxSettings, enabled: false },
+    defaultToolSandboxSettings,
     diagnostics({
-      enabled: false,
       sandboxInitialized: false,
       sandboxError: "seatbelt not available",
       envKeysAvailable: [],
@@ -100,7 +99,6 @@ test("buildDesktopSandboxSummary surfaces a sandbox error and missing env counts
     })
   );
 
-  assert.equal(summary.enabled, false);
   assert.equal(summary.diagnostics.sandboxInitialized, false);
   assert.equal(summary.diagnostics.sandboxError, "seatbelt not available");
   assert.equal(summary.diagnostics.envKeysMissing, 2);

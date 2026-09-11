@@ -9,7 +9,6 @@ import { SessionRuntimeRegistry } from "./chat/sessionRuntimeRegistry.svelte";
 import { SessionDraftStore } from "./chat/sessionDraftStore";
 import {
   addToFollowUpQueue,
-  applyDesktopSandboxPreset,
   buildDiagnosticsSummary,
   deleteDesktopProvider,
   discoverDesktopProviderModels,
@@ -40,7 +39,6 @@ import {
   parseDesktopApproval,
   parseDesktopSandboxList,
   providerItemToUpdateRequest,
-  detectDesktopSandboxPreset,
   resolveOnboardingAgentSelection,
   resolveOnboardingRepairTarget,
   resolveOnboardingStartStep,
@@ -319,27 +317,12 @@ test("sandbox list parsing trims, splits, and deduplicates policy entries", () =
   assert.deepEqual(parseDesktopSandboxList("github.com, npmjs.org\ngithub.com\n"), ["github.com", "npmjs.org"]);
 });
 
-test("sandbox presets match Web policy templates and detect custom changes", () => {
-  const locked = applyDesktopSandboxPreset("locked");
-  assert.equal(locked.initFailureMode, "block");
-  assert.deepEqual(locked.network?.allowedDomains, []);
-  assert.deepEqual(locked.filesystem?.allowWrite, ["/tmp"]);
-  assert.equal(detectDesktopSandboxPreset(locked), "locked");
-
-  const readonly = applyDesktopSandboxPreset("readonly");
-  assert.deepEqual(readonly.network?.allowedDomains, ["*"]);
-  assert.deepEqual(readonly.filesystem?.allowWrite, ["/tmp", "scratch"]);
-  assert.equal(detectDesktopSandboxPreset(readonly), "readonly");
-
-  const standard = applyDesktopSandboxPreset("standard");
-  assert.equal(standard.env?.inheritMode, "allowlist");
-  assert.deepEqual(standard.filesystem?.allowWrite, [".", "/tmp", "scratch"]);
-  assert.equal(detectDesktopSandboxPreset({ ...standard, network: { ...standard.network, deniedDomains: ["example.com"] } }), "custom");
-
-  const full = applyDesktopSandboxPreset("full");
-  assert.deepEqual(full.network?.allowedDomains, ["*"]);
-  assert.deepEqual(full.filesystem?.allowWrite, [".", "/tmp", "scratch"]);
-  assert.equal(detectDesktopSandboxPreset(full), "full");
+test("sandbox policy parsing never resurrects the removed enable switch or presets", () => {
+  // The unified execution modes removed the sandbox four-preset selector and
+  // the enable toggle: the only sandbox request the client can build carries
+  // advanced restrictions, and participation follows the permission mode.
+  const parsed = parseDesktopSandboxList("github.com, npmjs.org\ngithub.com\n");
+  assert.deepEqual(parsed, ["github.com", "npmjs.org"]);
 });
 
 function externalSummary(overrides: Partial<DesktopExternalSessionsSummary> = {}): DesktopExternalSessionsSummary {
@@ -1007,8 +990,8 @@ test("buildExternalChannelNav lists every configured Bot per channel with sessio
         total: 2,
         enabled: 2,
         instances: [
-          { id: "tg-sales", name: "Sales Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], sandboxEnabled: null, fields: {}, configuredSecrets: [] },
-          { id: "tg-support", name: "Support Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], sandboxEnabled: null, fields: {}, configuredSecrets: [] }
+          { id: "tg-sales", name: "Sales Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [] },
+          { id: "tg-support", name: "Support Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [] }
         ]
       }
     ],
@@ -1043,7 +1026,7 @@ test("buildExternalChannelNav keeps configured Bots with zero sessions and appen
         total: 1,
         enabled: 1,
         instances: [
-          { id: "tg-idle", name: "Idle Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], sandboxEnabled: null, fields: {}, configuredSecrets: [] }
+          { id: "tg-idle", name: "Idle Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [] }
         ]
       }
     ],
@@ -1178,8 +1161,8 @@ test("summarizeOnboardingChannels projects ordered rows and counts connected", (
         total: 2,
         enabled: 1,
         instances: [
-          { id: "t1", name: "Bot 1", enabled: true, agentId: "default", allowedChatCount: 3, allowedChatIds: ["1", "2", "3"], sandboxEnabled: null, fields: {}, configuredSecrets: [] },
-          { id: "t2", name: "Bot 2", enabled: false, agentId: "default", allowedChatCount: 0, allowedChatIds: [], sandboxEnabled: null, fields: {}, configuredSecrets: [] }
+          { id: "t1", name: "Bot 1", enabled: true, agentId: "default", allowedChatCount: 3, allowedChatIds: ["1", "2", "3"], permissionMode: null, fields: {}, configuredSecrets: [] },
+          { id: "t2", name: "Bot 2", enabled: false, agentId: "default", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [] }
         ]
       },
       {
@@ -1187,7 +1170,7 @@ test("summarizeOnboardingChannels projects ordered rows and counts connected", (
         total: 1,
         enabled: 0,
         instances: [
-          { id: "f1", name: "FS", enabled: false, agentId: "default", allowedChatCount: 1, allowedChatIds: ["chat-1"], sandboxEnabled: null, fields: {}, configuredSecrets: [] }
+          { id: "f1", name: "FS", enabled: false, agentId: "default", allowedChatCount: 1, allowedChatIds: ["chat-1"], permissionMode: null, fields: {}, configuredSecrets: [] }
         ]
       }
     ],
@@ -1267,12 +1250,12 @@ test("resolveOnboardingRepairTarget records the initially missing prerequisite",
 
 test("resolveOnboardingAgentSelection prefers the active profile's enabled linked agent", () => {
   const profiles: DesktopWebProfile[] = [
-    { id: "one", name: "One", enabled: true, agentId: "agent-1", agentName: "One", sandboxEnabled: false },
-    { id: "two", name: "Two", enabled: false, agentId: "agent-2", agentName: "Two", sandboxEnabled: false }
+    { id: "one", name: "One", enabled: true, agentId: "agent-1", agentName: "One", permissionMode: "manual" },
+    { id: "two", name: "Two", enabled: false, agentId: "agent-2", agentName: "Two", permissionMode: "manual" }
   ];
   const agents: DesktopAgentItem[] = [
-    { id: "agent-1", name: "Agent One", description: "", enabled: true, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
-    { id: "agent-2", name: "Agent Two", description: "", enabled: true, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
+    { id: "agent-1", name: "Agent One", description: "", enabled: true, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
+    { id: "agent-2", name: "Agent Two", description: "", enabled: true, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
   ];
 
   assert.deepEqual(resolveOnboardingAgentSelection(profiles, agents, "two"), {
@@ -1284,11 +1267,11 @@ test("resolveOnboardingAgentSelection prefers the active profile's enabled linke
 
 test("resolveOnboardingAgentSelection falls back to usable entries and reports incomplete data", () => {
   const profiles: DesktopWebProfile[] = [
-    { id: "one", name: "One", enabled: false, agentId: "disabled", agentName: "", sandboxEnabled: false }
+    { id: "one", name: "One", enabled: false, agentId: "disabled", agentName: "", permissionMode: "manual" }
   ];
   const agents: DesktopAgentItem[] = [
-    { id: "disabled", name: "Disabled", description: "", enabled: false, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
-    { id: "usable", name: "Usable", description: "", enabled: true, sandboxEnabled: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
+    { id: "disabled", name: "Disabled", description: "", enabled: false, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
+    { id: "usable", name: "Usable", description: "", enabled: true, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
   ];
 
   assert.deepEqual(resolveOnboardingAgentSelection(profiles, agents, "missing"), {

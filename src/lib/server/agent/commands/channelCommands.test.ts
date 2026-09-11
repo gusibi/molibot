@@ -17,7 +17,7 @@ function minimalStore() {
     getSessionThinkingLevelOverride: () => null,
     getSessionHostApprovalMode: () => "default",
     setSessionHostApprovalMode: () => "session",
-    getSessionSandboxOverride: () => null,
+    getSessionPermissionModeOverride: () => null,
     getSessionRunLogNoticeOverride: () => null,
     setSessionRunLogNoticeOverride: () => null,
     listRunSummaries: () => [],
@@ -166,7 +166,7 @@ test("status command includes current session token stats", async () => {
   assert.match(sent[0] ?? "", /- \*\*Session token total\*\*: 181/);
   assert.match(sent[0] ?? "", /- \*\*Session input\/output\*\*: 123 \/ 45/);
   assert.match(sent[0] ?? "", /- \*\*Compactions\*\*: 1/);
-  assert.match(sent[0] ?? "", /- \*\*Sandbox\*\*: on \(global\)/);
+  assert.match(sent[0] ?? "", /- \*\*Mode\*\*: accept_edits \(global\)/);
   assert.match(sent[0] ?? "", /- \*\*Runlog notice\*\*: off \(global\)/);
   assert.match(sent[0] ?? "", /- \*\*Tool progress\*\*: all \(global\)/);
   assert.match(sent[0] ?? "", /- \*\*Show reasoning\*\*: off \(global\)/);

@@ -11,40 +11,11 @@ import {
   setSandboxProvider,
   getSandboxProvider,
   prepareToolSandboxExecution,
-  resolveEffectiveSandboxSettings,
-  liftSandboxForPermissionMode,
   type SandboxProvider
 } from "$lib/server/agent/tools/sandbox.js";
 
-test("liftSandboxForPermissionMode lifts network to allow-all only for Auto (PRD §3.65)", () => {
-  const strictish = structuredClone(defaultToolSandboxSettings);
-  strictish.enabled = true;
-  strictish.network.allowedDomains = ["npmjs.org"];
-  strictish.network.deniedDomains = ["evil.example"];
-
-  // Non-auto modes and undefined keep the policy untouched.
-  assert.equal(liftSandboxForPermissionMode(strictish, undefined), strictish);
-  assert.equal(liftSandboxForPermissionMode(strictish, "plan"), strictish);
-  assert.equal(liftSandboxForPermissionMode(strictish, "manual"), strictish);
-  assert.equal(liftSandboxForPermissionMode(strictish, "accept_edits"), strictish);
-
-  // Auto lifts network to allow-all; the rest of the policy is preserved.
-  const lifted = liftSandboxForPermissionMode(strictish, "auto");
-  assert.deepEqual(lifted.network, { allowedDomains: ["*"], deniedDomains: [] });
-  assert.deepEqual(lifted.filesystem, strictish.filesystem);
-  assert.deepEqual(lifted.env, strictish.env);
-
-  // Disabled sandbox stays disabled; already-open policy returns the same object.
-  const disabled = { ...strictish, enabled: false };
-  assert.equal(liftSandboxForPermissionMode(disabled, "auto"), disabled);
-  const open = { ...strictish, network: { allowedDomains: ["*"], deniedDomains: [] } };
-  assert.equal(liftSandboxForPermissionMode(open, "auto"), open);
-});
-
 test("sanitizeToolSandboxSettings keeps safe defaults for invalid input", () => {
   const settings = sanitizeToolSandboxSettings({
-    enabled: true,
-    initFailureMode: "unknown",
     envFilePath: "",
     env: {
       inheritMode: "bogus",
@@ -62,8 +33,6 @@ test("sanitizeToolSandboxSettings keeps safe defaults for invalid input", () => 
     }
   });
 
-  assert.equal(settings.enabled, true);
-  assert.equal(settings.initFailureMode, defaultToolSandboxSettings.initFailureMode);
   assert.equal(settings.envFilePath, defaultToolSandboxSettings.envFilePath);
   assert.deepEqual(settings.env.allow, ["OPENAI_API_KEY", "TAVILY_API_KEY"]);
   assert.deepEqual(settings.env.deny, ["MOLIBOT_*"]);
@@ -71,15 +40,28 @@ test("sanitizeToolSandboxSettings keeps safe defaults for invalid input", () => 
   assert.deepEqual(settings.filesystem.denyWrite, ["*.key"]);
 
   const override = sanitizeToolSandboxSettings(
-    { initFailureMode: "warn-disable", env: { inheritMode: "minimal" } },
+    { env: { inheritMode: "minimal" } },
     {
       ...defaultToolSandboxSettings,
-      initFailureMode: "block",
       env: { ...defaultToolSandboxSettings.env, inheritMode: "full" }
     }
   );
-  assert.equal(override.initFailureMode, "block");
   assert.equal(override.env.inheritMode, "minimal");
+});
+
+test("the default sandbox network posture is unrestricted and obsolete controls are dropped", () => {
+  // Unified execution modes: the sandbox participates by mode, not by a saved
+  // switch, and ordinary package downloads need no domain list. Persisted
+  // `enabled`/`initFailureMode` fields from the removed controls are dropped
+  // by the sanitizer on both save and load.
+  assert.deepEqual(defaultToolSandboxSettings.network, { allowedDomains: ["*"], deniedDomains: [] });
+  const stale = sanitizeToolSandboxSettings({
+    ...defaultToolSandboxSettings,
+    enabled: false,
+    initFailureMode: "warn-disable"
+  } as never);
+  assert.equal("enabled" in stale, false);
+  assert.equal("initFailureMode" in stale, false);
 });
 
 test("buildToolSandboxEnv injects only allowed env keys from workspace env file", () => {
@@ -98,7 +80,6 @@ test("buildToolSandboxEnv injects only allowed env keys from workspace env file"
 
     const settings = sanitizeToolSandboxSettings({
       ...defaultToolSandboxSettings,
-      enabled: true,
       envFilePath: join(workspaceDir, ".env.sandbox.local"),
       env: {
         inheritMode: "minimal",
@@ -137,7 +118,6 @@ test("buildToolSandboxEnv falls back to process env for allowlisted keys missing
 
     const settings = sanitizeToolSandboxSettings({
       ...defaultToolSandboxSettings,
-      enabled: true,
       envFilePath: join(workspaceDir, ".env.sandbox.local"),
       env: {
         inheritMode: "minimal",
@@ -161,7 +141,7 @@ test("buildToolSandboxEnv falls back to process env for allowlisted keys missing
   }
 });
 
-test("buildSandboxEnvFileInjection exposes only policy-allowed file-only secrets for the host fallback", () => {
+test("buildSandboxEnvFileInjection exposes only policy-allowed file-only secrets for host execution", () => {
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-sandbox-hostinject-"));
   const previousPlain = process.env.PLAIN;
   // BOT_API_TOKEN is a file-only secret in this fixture, so it must not exist in
@@ -183,7 +163,6 @@ test("buildSandboxEnvFileInjection exposes only policy-allowed file-only secrets
 
     const settings = sanitizeToolSandboxSettings({
       ...defaultToolSandboxSettings,
-      enabled: true,
       envFilePath: join(workspaceDir, ".env.sandbox.local"),
       env: {
         inheritMode: "full",
@@ -193,15 +172,13 @@ test("buildSandboxEnvFileInjection exposes only policy-allowed file-only secrets
     });
 
     const injection = buildSandboxEnvFileInjection(settings);
-    // File-only secret is injected so the host fallback can reach it.
+    // File-only secret is injected so host execution (full access or the
+    // sandbox-denial fallback) can reach it.
     assert.equal(injection.BOT_API_TOKEN, "file-token");
     // Denied keys never leak to the host.
     assert.equal(injection.TELEGRAM_BOT_TOKEN, undefined);
     // Keys already in the parent process env are skipped (host inherits them).
     assert.equal(injection.PLAIN, undefined);
-
-    // Disabled sandbox never injects file secrets into the host fallback.
-    assert.deepEqual(buildSandboxEnvFileInjection({ ...settings, enabled: false }), {});
 
     // allowlist mode only injects file-only keys named in allow.
     const allowlisted = buildSandboxEnvFileInjection({
@@ -229,7 +206,6 @@ test("sandbox diagnostics deny direct reads of the workspace env file", async ()
     const settings = sanitizeToolSandboxSettings(defaultToolSandboxSettings);
     const diagnostics = await getToolSandboxDiagnostics(settings, workspaceDir);
 
-    assert.equal(diagnostics.enabled, true);
     assert.equal(diagnostics.envFilePath.endsWith(".env"), true);
     assert.equal(diagnostics.effectiveFilesystem.denyRead.includes(diagnostics.envFilePath), true);
     assert.equal(diagnostics.effectiveFilesystem.denyWrite.includes(diagnostics.envFilePath), true);
@@ -241,10 +217,10 @@ test("sandbox diagnostics deny direct reads of the workspace env file", async ()
 
 test("pluggable sandbox provider dynamically intercepts sandbox execution", async () => {
   const originalProvider = getSandboxProvider();
-  
+
   let initializedWithConfig: any = null;
   let wrappedCommand: string | null = null;
-  
+
   const dummyProvider: SandboxProvider = {
     name: "dummy-test-sandbox",
     checkDependencies() {
@@ -270,10 +246,7 @@ test("pluggable sandbox provider dynamically intercepts sandbox execution", asyn
     setSandboxProvider(dummyProvider);
     assert.equal(getSandboxProvider(), dummyProvider);
 
-    const settings = sanitizeToolSandboxSettings({
-      ...defaultToolSandboxSettings,
-      enabled: true
-    });
+    const settings = sanitizeToolSandboxSettings(defaultToolSandboxSettings);
 
     const result = await prepareToolSandboxExecution({
       settings,
@@ -319,7 +292,7 @@ test("sandbox network keeps loopback reachable despite upstream NO_PROXY bypass"
   try {
     setSandboxProvider(capturingProvider);
     await prepareToolSandboxExecution({
-      settings: sanitizeToolSandboxSettings({ ...defaultToolSandboxSettings, enabled: true }),
+      settings: sanitizeToolSandboxSettings(defaultToolSandboxSettings),
       cwd: "/mock-cwd",
       workspaceDir: "/mock-workspace",
       command: "curl http://localhost:5040/health",
@@ -335,7 +308,7 @@ test("sandbox network keeps loopback reachable despite upstream NO_PROXY bypass"
   }
 });
 
-test("enabled sandbox blocks execution when its provider is unavailable", async () => {
+test("the sandbox backend fails closed when its provider is unavailable", async () => {
   const originalProvider = getSandboxProvider();
   const unavailableProvider: SandboxProvider = {
     name: "missing-test-sandbox",
@@ -359,11 +332,7 @@ test("enabled sandbox blocks execution when its provider is unavailable", async 
     setSandboxProvider(unavailableProvider);
     await assert.rejects(
       prepareToolSandboxExecution({
-        settings: {
-          ...defaultToolSandboxSettings,
-          enabled: true,
-          initFailureMode: "warn-disable"
-        },
+        settings: defaultToolSandboxSettings,
         cwd: "/mock-cwd",
         workspaceDir: "/mock-workspace",
         command: "echo must-not-run",
@@ -376,97 +345,6 @@ test("enabled sandbox blocks execution when its provider is unavailable", async 
   }
 });
 
-test("sandbox defaults and legacy failure settings remain fail-closed", () => {
-  assert.equal(defaultToolSandboxSettings.initFailureMode, "block");
+test("sandbox defaults keep the minimal env-inheritance posture", () => {
   assert.equal(defaultToolSandboxSettings.env.inheritMode, "minimal");
-
-  const migrated = sanitizeToolSandboxSettings({ initFailureMode: "warn-disable" });
-  assert.equal(migrated.initFailureMode, "block");
-});
-
-test("resolveEffectiveSandboxSettings correctly prioritizes scopes", () => {
-  const mockSettings = {
-    toolSandbox: {
-      enabled: false,
-      initFailureMode: "warn-disable",
-      envFilePath: "",
-      env: { inheritMode: "minimal", allow: [], deny: [] },
-      network: { allowedDomains: [] },
-      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] }
-    },
-    channels: {
-      telegram: {
-        instances: [
-          {
-            id: "my_bot",
-            name: "My Bot",
-            enabled: true,
-            agentId: "my_agent",
-            credentials: {},
-            allowedChatIds: [],
-            sandboxEnabled: true
-          }
-        ]
-      }
-    },
-    agents: [
-      {
-        id: "my_agent",
-        name: "My Agent",
-        description: "",
-        enabled: true,
-        sandboxEnabled: false
-      }
-    ]
-  } as any;
-
-  const getSettings = () => mockSettings;
-
-  // Case 1: Global Default
-  const res1 = resolveEffectiveSandboxSettings({ getSettings });
-  assert.equal(res1.enabled, false);
-
-  // Case 2: Agent Override
-  const res2 = resolveEffectiveSandboxSettings({ getSettings, agentId: "my_agent" });
-  assert.equal(res2.enabled, false);
-
-  // Case 3: Bot Override
-  const res3 = resolveEffectiveSandboxSettings({ getSettings, channel: "telegram", botId: "my_bot" });
-  assert.equal(res3.enabled, true);
-
-  // Case 4: Session Override
-  const mockStore = {
-    getSessionSandboxOverride: (chatId: string, sessionId: string) => false
-  } as any;
-  const res4 = resolveEffectiveSandboxSettings({
-    getSettings,
-    store: mockStore,
-    chatId: "chat1",
-    sessionId: "session1",
-    channel: "telegram",
-    botId: "my_bot"
-  });
-  assert.equal(res4.enabled, false);
-
-  // Case 5: Session Override (true)
-  const mockStoreTrue = {
-    getSessionSandboxOverride: (chatId: string, sessionId: string) => true
-  } as any;
-  const res5 = resolveEffectiveSandboxSettings({
-    getSettings,
-    store: mockStoreTrue,
-    chatId: "chat1",
-    sessionId: "session1",
-    channel: "telegram",
-    botId: "my_bot"
-  });
-  assert.equal(res5.enabled, true);
-});
-
-test("Project sandbox override sits below Session and above Bot/global", () => {
-  const settings = { toolSandbox: { ...defaultToolSandboxSettings, enabled: true }, channels: {}, agents: [] } as never;
-  const store = { getSessionSandboxOverride: () => null } as never;
-  assert.equal(resolveEffectiveSandboxSettings({ getSettings: () => settings, store, chatId: "c", sessionId: "s", projectOverride: false }).enabled, false);
-  const sessionStore = { getSessionSandboxOverride: () => true } as never;
-  assert.equal(resolveEffectiveSandboxSettings({ getSettings: () => settings, store: sessionStore, chatId: "c", sessionId: "s", projectOverride: false }).enabled, true);
 });

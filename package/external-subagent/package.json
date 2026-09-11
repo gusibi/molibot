@@ -1,6 +1,6 @@
 {
   "name": "@molibot/external-subagent",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "External Subagent runtime and adapters for Codex and Claude Code",
   "type": "module",
   "main": "./src/index.ts",
@@ -11,7 +11,7 @@
       "manifestVersion": 1,
       "id": "external-subagent",
       "name": "External Subagent",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "description": "Run OpenAI Codex and Claude Code as standalone external subagents",
       "engines": {
         "molibot": ">=2.0.0"
@@ -37,18 +37,18 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "codexEnabled": { "type": "boolean" },
-            "codexPermissionMode": {
-              "type": "string",
-              "enum": ["never", "approve-for-me", "dangerously-bypass-approvals-and-sandbox"]
+            "codexEnabled": {
+              "type": "boolean"
             },
-            "codexPath": { "type": "string" },
-            "claudeCodeEnabled": { "type": "boolean" },
-            "claudeCodePermissionMode": {
-              "type": "string",
-              "enum": ["dontAsk", "acceptEdits", "auto", "plan", "bypassPermissions"]
+            "codexPath": {
+              "type": "string"
             },
-            "claudeCodePath": { "type": "string" }
+            "claudeCodeEnabled": {
+              "type": "boolean"
+            },
+            "claudeCodePath": {
+              "type": "string"
+            }
           }
         },
         "ui": {

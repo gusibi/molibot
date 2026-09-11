@@ -29,7 +29,7 @@ function floorFixture(overrides: Partial<AgentCityFloor> = {}): AgentCityFloor {
       name: "Scout",
       description: "",
       enabled: true,
-      sandboxEnabled: null,
+      permissionMode: null,
       modelOverrides: 0,
       modelRouting: { textModelKey: "", sttModelKey: "" }
     },

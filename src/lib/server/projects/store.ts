@@ -24,12 +24,10 @@ export interface ProjectRecord {
   instructions?: string;
   modelKey?: string;
   thinkingLevel?: RuntimeThinkingLevel;
-  sandboxEnabled?: boolean;
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
   runLogNotice?: boolean;
   customCommands?: ProjectCustomCommand[];
-  sandboxProfileId?: string;
   approvalProfileId?: string;
   createdAt: string;
   updatedAt: string;
@@ -73,12 +71,10 @@ interface ProjectRow {
   instructions: string | null;
   model_key: string | null;
   thinking_level: string | null;
-  sandbox_enabled: number | null;
   tool_progress: string | null;
   show_reasoning: string | null;
   run_log_notice: number | null;
   custom_commands: string | null;
-  sandbox_profile_id: string | null;
   approval_profile_id: string | null;
   created_at: string;
   updated_at: string;
@@ -160,12 +156,10 @@ function rowToProject(row: ProjectRow): ProjectRecord {
     thinkingLevel: RUNTIME_THINKING_LEVELS.includes(row.thinking_level as RuntimeThinkingLevel)
       ? row.thinking_level as RuntimeThinkingLevel
       : undefined,
-    sandboxEnabled: row.sandbox_enabled === null ? undefined : row.sandbox_enabled === 1,
     toolProgress: (["off", "new", "all", "verbose"] as const).includes(row.tool_progress as never) ? row.tool_progress as ProjectRecord["toolProgress"] : undefined,
     showReasoning: (["off", "on", "stream", "new"] as const).includes(row.show_reasoning as never) ? row.show_reasoning as ProjectRecord["showReasoning"] : undefined,
     runLogNotice: row.run_log_notice === null ? undefined : row.run_log_notice === 1,
     customCommands: parseCustomCommandsColumn(row.custom_commands),
-    sandboxProfileId: row.sandbox_profile_id || undefined,
     approvalProfileId: row.approval_profile_id || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -203,12 +197,10 @@ export class ProjectStore {
         instructions TEXT,
         model_key TEXT,
         thinking_level TEXT,
-        sandbox_enabled INTEGER,
         tool_progress TEXT,
         show_reasoning TEXT,
         run_log_notice INTEGER,
         custom_commands TEXT,
-        sandbox_profile_id TEXT,
         approval_profile_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -227,7 +219,6 @@ export class ProjectStore {
     const columns = new Set((db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>).map((row) => row.name));
     if (!columns.has("model_key")) db.exec("ALTER TABLE projects ADD COLUMN model_key TEXT");
     if (!columns.has("thinking_level")) db.exec("ALTER TABLE projects ADD COLUMN thinking_level TEXT");
-    if (!columns.has("sandbox_enabled")) db.exec("ALTER TABLE projects ADD COLUMN sandbox_enabled INTEGER");
     if (!columns.has("tool_progress")) db.exec("ALTER TABLE projects ADD COLUMN tool_progress TEXT");
     if (!columns.has("show_reasoning")) db.exec("ALTER TABLE projects ADD COLUMN show_reasoning TEXT");
     if (!columns.has("run_log_notice")) db.exec("ALTER TABLE projects ADD COLUMN run_log_notice INTEGER");
@@ -316,8 +307,8 @@ export class ProjectStore {
       for (let suffix = 2; ids.has(id); suffix += 1) id = `${baseId}-${suffix}`;
       const now = new Date().toISOString();
       db.prepare(`INSERT INTO projects (
-        id, name, root_path, instructions, model_key, thinking_level, sandbox_profile_id, approval_profile_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`)
+        id, name, root_path, instructions, model_key, thinking_level, approval_profile_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`)
         .run(id, name, validation.resolved, String(input.instructions ?? "").trim() || null, String(input.modelKey ?? "").trim() || null, input.thinkingLevel ?? null, now, now);
       return rowToProject(db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as unknown as ProjectRow);
     } catch (error) {
@@ -328,7 +319,7 @@ export class ProjectStore {
     }
   }
 
-  update(id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: ProjectRecord["thinkingLevel"] | null; sandboxEnabled?: boolean | null; toolProgress?: ProjectRecord["toolProgress"] | null; showReasoning?: ProjectRecord["showReasoning"] | null; runLogNotice?: boolean | null; customCommands?: ProjectCustomCommand[] | null }): ProjectRecord | null {
+  update(id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: ProjectRecord["thinkingLevel"] | null; toolProgress?: ProjectRecord["toolProgress"] | null; showReasoning?: ProjectRecord["showReasoning"] | null; runLogNotice?: boolean | null; customCommands?: ProjectCustomCommand[] | null }): ProjectRecord | null {
     const existing = this.get(id);
     if (!existing) return null;
     const name = patch.name === undefined ? existing.name : String(patch.name).trim();
@@ -344,7 +335,6 @@ export class ProjectStore {
     const instructions = patch.instructions === undefined ? existing.instructions : String(patch.instructions).trim() || undefined;
     const modelKey = patch.modelKey === undefined ? existing.modelKey : String(patch.modelKey ?? "").trim() || undefined;
     const thinkingLevel = patch.thinkingLevel === undefined ? existing.thinkingLevel : patch.thinkingLevel ?? undefined;
-    const sandboxEnabled = patch.sandboxEnabled === undefined ? existing.sandboxEnabled : patch.sandboxEnabled ?? undefined;
     const toolProgress = patch.toolProgress === undefined ? existing.toolProgress : patch.toolProgress ?? undefined;
     const showReasoning = patch.showReasoning === undefined ? existing.showReasoning : patch.showReasoning ?? undefined;
     const runLogNotice = patch.runLogNotice === undefined ? existing.runLogNotice : patch.runLogNotice ?? undefined;
@@ -356,8 +346,8 @@ export class ProjectStore {
     if (showReasoning && !["off", "on", "stream", "new"].includes(showReasoning)) throw new Error("Invalid Project reasoning setting.");
     const db = this.openDb();
     try {
-      db.prepare("UPDATE projects SET name = ?, root_path = ?, instructions = ?, model_key = ?, thinking_level = ?, sandbox_enabled = ?, tool_progress = ?, show_reasoning = ?, run_log_notice = ?, custom_commands = ?, updated_at = ? WHERE id = ?")
-        .run(name, rootPath, instructions ?? null, modelKey ?? null, thinkingLevel ?? null, sandboxEnabled === undefined ? null : Number(sandboxEnabled), toolProgress ?? null, showReasoning ?? null, runLogNotice === undefined ? null : Number(runLogNotice), customCommands && customCommands.length > 0 ? JSON.stringify(customCommands) : null, new Date().toISOString(), existing.id);
+      db.prepare("UPDATE projects SET name = ?, root_path = ?, instructions = ?, model_key = ?, thinking_level = ?, tool_progress = ?, show_reasoning = ?, run_log_notice = ?, custom_commands = ?, updated_at = ? WHERE id = ?")
+        .run(name, rootPath, instructions ?? null, modelKey ?? null, thinkingLevel ?? null, toolProgress ?? null, showReasoning ?? null, runLogNotice === undefined ? null : Number(runLogNotice), customCommands && customCommands.length > 0 ? JSON.stringify(customCommands) : null, new Date().toISOString(), existing.id);
       return rowToProject(db.prepare("SELECT * FROM projects WHERE id = ?").get(existing.id) as unknown as ProjectRow);
     } finally {
       db.close();

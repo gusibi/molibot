@@ -81,7 +81,7 @@
     name: copy.agentStudioGlobalName,
     description: copy.agentStudioGlobalDescription,
     enabled: true,
-    sandboxEnabled: null,
+    permissionMode: null,
     modelOverrides: 0,
     modelRouting: { textModelKey: "", sttModelKey: "" }
   } satisfies DesktopAgentItem;

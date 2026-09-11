@@ -4,7 +4,7 @@ import type { DesktopWebProfile } from "@molibot/desktop-contract";
 import { emptyProfileFiles } from "../settings/profileFiles";
 import { session, setError, notifySettingsChanged } from "./session.svelte";
 
-export type ProfileEditor = { previousId?: string; isNew: boolean; id: string; name: string; enabled: boolean; agentId: string; sandboxEnabled?: boolean; files: Record<string, string> };
+export type ProfileEditor = { previousId?: string; isNew: boolean; id: string; name: string; enabled: boolean; agentId: string; permissionMode: "plan" | "manual" | "accept_edits" | "auto" | null; files: Record<string, string> };
 
 export const profilesStore = $state({
   webProfiles: [] as DesktopWebProfile[],
@@ -54,7 +54,7 @@ export async function toggleProfile(profile: DesktopWebProfile): Promise<void> {
 }
 
 export function beginNewProfile(): void {
-  profilesStore.profileEdit = { isNew: true, id: newProfileId(), name: "", enabled: true, agentId: "", files: emptyProfileFiles() };
+  profilesStore.profileEdit = { isNew: true, id: newProfileId(), name: "", enabled: true, agentId: "", permissionMode: null, files: emptyProfileFiles() };
   profilesStore.actionMessage = "";
 }
 
@@ -71,7 +71,7 @@ export async function beginProfileEdit(profile: DesktopWebProfile): Promise<void
       name: profile.name,
       enabled: profile.enabled,
       agentId: profile.agentId,
-      sandboxEnabled: profile.sandboxEnabled,
+      permissionMode: profile.permissionMode ?? null,
       files: { ...emptyProfileFiles(), ...(await loadDesktopProfileFiles(endpoint, profile.id)) }
     };
   } catch (cause) {
@@ -98,7 +98,7 @@ export async function saveProfileEditor(): Promise<void> {
       name: profileEdit.name.trim(),
       enabled: profileEdit.enabled,
       agentId: profileEdit.agentId,
-      sandboxEnabled: profileEdit.sandboxEnabled
+      permissionMode: profileEdit.permissionMode
     });
     await saveDesktopProfileFiles(endpoint, saved.id, profileEdit.files);
     profilesStore.endpoint = "";

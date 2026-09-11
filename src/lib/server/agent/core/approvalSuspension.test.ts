@@ -19,6 +19,7 @@ const { defaultRuntimeSettings } = await import("$lib/server/settings/defaults.j
 const { getApprovalBroker } = await import("$lib/server/approval/approvalBroker.js");
 const { resumeSuspendedBrokerApproval } = await import("$lib/server/channels/shared/brokerApprovalResume.js");
 const { storagePaths } = await import("$lib/server/infra/db/storage.js");
+const { getHostBashStore } = await import("$lib/server/hostBash/index.js");
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 
 function createTestSettings(): RuntimeSettings {
@@ -359,6 +360,230 @@ test("a mixed batch suspends without starting another model round", async () => 
   assert.equal(existsSync(join(workspaceDir, "mixed.txt")), false, "the gated write has not executed");
   const pending = broker.listPendingRequests().filter((r) => r.sessionId === sessionId);
   assert.equal(pending.length, 1, "the write raised exactly one approval request");
+
+  rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// Unified execution modes: Auto = full access through the real dispatcher.
+// Every scenario below drives the real Runner → Agent loop → shared tool
+// runtime → approval/HOST-Bash storage and asserts only observable behavior.
+// ---------------------------------------------------------------------------
+
+function brokerPendingFor(sessionId: string): number {
+  return getApprovalBroker().listPendingRequests().filter((r) => r.sessionId === sessionId).length;
+}
+
+function hostBashPendingFor(chatId: string): number {
+  return getHostBashStore().listPending(chatId).length;
+}
+
+test("full access executes a host command directly: no approval, no suspension, one execution", async () => {
+  const chatId = "auto-chat-host";
+  const sessionId = "auto-session-host";
+  const { runner, store, script, workspaceDir } = await createHarness({
+    chatId,
+    sessionId,
+    responses: [
+      { toolCalls: [{ id: "tc-1", name: "bash", arguments: { label: "probe", command: "printf 'auto-host-ran'" } }] },
+      { text: "Done." }
+    ]
+  });
+  // Session override picks full access; the global default stays manual.
+  store.setSessionPermissionModeOverride(chatId, sessionId, "auto");
+
+  const result = await runner.run(createRunContext({ chatId, sessionId, text: "run the probe command" }));
+  assert.equal(result.stopReason, "stop", `expected an unattended completion, got ${result.stopReason}`);
+  assert.equal(script.callCount(), 2, "exactly one tool round plus the answer");
+  assert.equal(runRowStatus(result.runId), "completed");
+  assert.equal(brokerPendingFor(sessionId), 0, "no broker approval may be created in full access");
+  assert.equal(hostBashPendingFor(chatId), 0, "no Host Bash approval may be created in full access");
+
+  rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test("full access honors an explicit host-access request without creating an approval card", async () => {
+  const chatId = "auto-chat-explicit";
+  const sessionId = "auto-session-explicit";
+  const { runner, store, script, workspaceDir } = await createHarness({
+    chatId,
+    sessionId,
+    responses: [
+      { toolCalls: [{ id: "tc-1", name: "bash", arguments: { label: "probe", command: "printf 'explicit-host-access'", hostApproval: { reason: "Model explicitly requested host access." } } }] },
+      { text: "Done." }
+    ]
+  });
+  store.setSessionPermissionModeOverride(chatId, sessionId, "auto");
+
+  const result = await runner.run(createRunContext({ chatId, sessionId, text: "run it on the host" }));
+  assert.equal(result.stopReason, "stop");
+  assert.equal(brokerPendingFor(sessionId), 0);
+  assert.equal(hostBashPendingFor(chatId), 0, "the model's request shape must not change whether approval is needed");
+
+  rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test("full access writes a file that the sandbox denyWrite policy blocks in restricted modes", async () => {
+  const chatId = "auto-chat-keyfile";
+  const sessionId = "auto-session-keyfile";
+  const { runner, store, script, workspaceDir } = await createHarness({
+    chatId,
+    sessionId,
+    responses: [
+      { toolCalls: [{ id: "tc-1", name: "write", arguments: { path: "service.key", content: "PROBE=1", label: "write probe" } }] },
+      { text: "Written." }
+    ]
+  });
+  store.setSessionPermissionModeOverride(chatId, sessionId, "auto");
+
+  const result = await runner.run(createRunContext({ chatId, sessionId, text: "write the key file" }));
+  assert.equal(result.stopReason, "stop");
+  assert.equal(script.callCount(), 2);
+  // The write tool routes plain file names into the dated artifact folder, so
+  // locate the file by name anywhere under the workspace.
+  const findWritten = (): string | null => {
+    const stack = [workspaceDir];
+    while (stack.length) {
+      const dir = stack.pop()!;
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) stack.push(full);
+        else if (entry.name === "service.key") return full;
+      }
+    }
+    return null;
+  };
+  const written = findWritten();
+  assert.ok(written, "full access removes sandbox file restrictions (denyWrite *.key) for file tools");
+  assert.equal(readFileSync(written, "utf8"), "PROBE=1");
+  assert.equal(brokerPendingFor(sessionId), 0);
+
+  rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test("full access performs a manage-class management operation without a permission card", async () => {
+  const chatId = "auto-chat-install";
+  const sessionId = "auto-session-install";
+  const { runner, store, script, workspaceDir } = await createHarness({
+    chatId,
+    sessionId,
+    responses: [
+      { toolCalls: [{ id: "tc-1", name: "extensionManage", arguments: { action: "list" } }] },
+      { text: "Listed." }
+    ]
+  });
+  store.setSessionPermissionModeOverride(chatId, sessionId, "auto");
+
+  const result = await runner.run(createRunContext({ chatId, sessionId, text: "list the extensions" }));
+  assert.equal(result.stopReason, "stop");
+  assert.equal(script.callCount(), 2, "the management operation executed and the run continued");
+  assert.equal(brokerPendingFor(sessionId), 0, "installations must not raise approval cards in full access");
+
+  rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test("a messaging channel honors Manual instead of silently widening it", async () => {
+  const chatId = "telegram-chat-manual";
+  const sessionId = "telegram-session-manual";
+  const broker = getApprovalBroker();
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-approval-suspension-ws-"));
+  const store = new MomRuntimeStore(workspaceDir);
+  const script = createScriptedStreamFn([
+    { toolCalls: [{ id: "tc-1", name: "write", arguments: { path: "channel-manual.txt", content: "must wait", label: "write probe" } }] },
+    { text: "Waiting." }
+  ]);
+  const pool = new RunnerPool(
+    "telegram",
+    store,
+    () => createTestSettings(),
+    (patch: Partial<RuntimeSettings>) => ({ ...createTestSettings(), ...patch }),
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createTestMemory() as any
+  );
+  const runner = pool.get(chatId, sessionId);
+  (runner as any).agent.streamFunction = script.streamFn;
+
+  const result = await runner.run(createRunContext({ chatId, sessionId, text: "write the file", onApprovalRequest: deferAlways }));
+  assert.equal(result.stopReason, "waiting_for_approval", "manual mode must suspend, never silently execute as accept edits");
+  assert.equal(existsSync(join(workspaceDir, "channel-manual.txt")), false, "the gated write has not executed on the channel");
+  assert.equal(broker.listPendingRequests().filter((r) => r.sessionId === sessionId).length, 1);
+  assert.equal(script.callCount(), 1);
+
+  rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test("switching from full access restores restrictions on the next attempt", async () => {
+  const chatId = "auto-chat-switch";
+  const sessionId = "auto-session-switch";
+  const broker = getApprovalBroker();
+  const { runner, store, script, workspaceDir } = await createHarness({
+    chatId,
+    sessionId,
+    responses: [
+      { toolCalls: [{ id: "tc-1", name: "write", arguments: { path: "switch.txt", content: "first", label: "write probe" } }] },
+      { text: "First done." },
+      { toolCalls: [{ id: "tc-2", name: "write", arguments: { path: "switch.txt", content: "second", label: "write probe" } }] },
+      { text: "Waiting." }
+    ]
+  });
+  store.setSessionPermissionModeOverride(chatId, sessionId, "auto");
+
+  const first = await runner.run(createRunContext({ chatId, sessionId, text: "write the file" }));
+  assert.equal(first.stopReason, "stop", "full access runs unattended");
+  const findSwitch = (): string | null => {
+    const stack = [workspaceDir];
+    while (stack.length) {
+      const dir = stack.pop()!;
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) stack.push(full);
+        else if (entry.name === "switch.txt") return full;
+      }
+    }
+    return null;
+  };
+  assert.ok(findSwitch(), "the full-access attempt wrote the file");
+
+  // Back to manual: the very next attempt must ask again.
+  store.setSessionPermissionModeOverride(chatId, sessionId, "manual");
+  const second = await runner.run(createRunContext({ chatId, sessionId, text: "write the file again", onApprovalRequest: deferAlways }));
+  assert.equal(second.stopReason, "waiting_for_approval", "the restriction is restored for the next attempt");
+  assert.equal(broker.listPendingRequests().filter((r) => r.sessionId === sessionId).length, 1);
+  assert.equal(readFileSync(findSwitch()!, "utf8"), "first", "the restricted attempt has not written");
+
+  rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test("changing the mode never retrospectively approves a pending request", async () => {
+  const chatId = "auto-chat-pending";
+  const sessionId = "auto-session-pending";
+  const broker = getApprovalBroker();
+  const { runner, pool, store, script, workspaceDir } = await createHarness({
+    chatId,
+    sessionId,
+    responses: [
+      { toolCalls: [{ id: "tc-1", name: "write", arguments: { path: "pending.txt", content: "pending work", label: "write probe" } }] },
+      { text: "Rejected, moving on." }
+    ]
+  });
+
+  const result = await runner.run(createRunContext({ chatId, sessionId, text: "write the file", onApprovalRequest: deferAlways }));
+  assert.equal(result.stopReason, "waiting_for_approval");
+  const pending = broker.listPendingRequests().filter((r) => r.sessionId === sessionId);
+  assert.equal(pending.length, 1);
+
+  // Granting full access afterwards must not execute the stored request by
+  // itself, and the stored request stays resolvable on its own terms.
+  store.setSessionPermissionModeOverride(chatId, sessionId, "auto");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(existsSync(join(workspaceDir, "pending.txt")), false, "a pending request cannot be revived by changing mode");
+
+  const resolved = broker.resolveRequest({ requestId: pending[0].id, status: "rejected" });
+  assert.ok(resolved.request);
+  const resumed = await resumeSuspendedBrokerApproval({ scopeId: chatId, sessionId, requestId: pending[0].id, status: "rejected", toolName: "write", store, pool, channel: "web" });
+  assert.equal(resumed, true, "the stored request resolves on its own terms after the mode change");
+  assert.equal(existsSync(join(workspaceDir, "pending.txt")), false, "a rejected request never executes, in any mode");
 
   rmSync(workspaceDir, { recursive: true, force: true });
 });

@@ -49,7 +49,7 @@ test("forkSessionBeforeEntry copies through the fork point and inherits preferen
     store.appendContextMessage(chatId, message("user", "second"), parentId);
     store.appendContextMessage(chatId, message("assistant", "second answer"), parentId);
     store.setSessionThinkingLevelOverride(chatId, parentId, "high");
-    store.setSessionSandboxOverride(chatId, parentId, true);
+    store.setSessionPermissionModeOverride(chatId, parentId, "auto");
     store.setSessionHostApprovalMode(chatId, parentId, "session");
     const entries = store.listSessionMessageEntries(chatId, parentId);
 
@@ -62,7 +62,7 @@ test("forkSessionBeforeEntry copies through the fork point and inherits preferen
     assert.deepEqual(store.loadContext(chatId, childId).map((item) => item.role), ["user", "assistant", "user"]);
     assert.deepEqual(store.listSessionMessageEntries(chatId, childId).map((entry) => entry.id), entries.slice(0, 3).map((entry) => entry.id));
     assert.equal(store.getSessionThinkingLevelOverride(chatId, childId), "high");
-    assert.equal(store.getSessionSandboxOverride(chatId, childId), true);
+    assert.equal(store.getSessionPermissionModeOverride(chatId, childId), "auto");
     assert.equal(store.getSessionHostApprovalMode(chatId, childId), "default");
 
     const reloaded = new MomRuntimeStore(dir);

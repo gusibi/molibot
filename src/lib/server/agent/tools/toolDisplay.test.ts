@@ -5,7 +5,8 @@ import { resolvePlannedBashDisplayName, resolveToolDisplayName } from "$lib/serv
 test("resolveToolDisplayName marks sandboxed bash without changing other tools", () => {
   assert.equal(resolveToolDisplayName("read"), "read");
   assert.equal(resolveToolDisplayName("bash"), "bash");
-  assert.equal(resolveToolDisplayName("bash", { sandboxAttempted: true }), "Sandbox");
+  assert.equal(resolveToolDisplayName("bash", { executionTarget: "sandbox" }), "Sandbox");
+  assert.equal(resolveToolDisplayName("bash", { executionTarget: "host" }), "bash");
   assert.equal(resolveToolDisplayName("bash", { result: { details: { sandboxApplied: true } } }), "Sandbox");
   assert.equal(resolveToolDisplayName("bash", { result: { details: { hostBash: true } } }), "Host Bash");
   assert.equal(resolveToolDisplayName("bash", { result: { details: { sandboxBlocked: true } } }), "Sandbox blocked");
@@ -29,11 +30,11 @@ test("resolvePlannedBashDisplayName prefers approved Host Bash over sandbox labe
   assert.equal(resolvePlannedBashDisplayName({
     command: "printf 'hello'",
     hostBashStore,
-    sandboxAttempted: true
+    executionTarget: "sandbox"
   }), "Host Bash");
   assert.equal(resolvePlannedBashDisplayName({
     command: "cat ./file.txt",
     hostBashStore,
-    sandboxAttempted: true
+    executionTarget: "sandbox"
   }), "Sandbox");
 });

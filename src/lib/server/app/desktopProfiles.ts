@@ -35,7 +35,9 @@ export function saveDesktopWebProfile(
     name: String(request.name ?? "").trim() || id,
     enabled: request.enabled !== false,
     agentId,
-    sandboxEnabled: request.sandboxEnabled === undefined ? undefined : Boolean(request.sandboxEnabled)
+    permissionMode: request.permissionMode === null || request.permissionMode === undefined
+      ? undefined
+      : request.permissionMode
   };
   return [...instances.filter((instance) => instance.id !== id && instance.id !== previousId), next];
 }
@@ -51,7 +53,7 @@ export function deleteDesktopWebProfile(settings: RuntimeSettings, profileId: st
 /**
  * Builds a new `channels.web.instances` array with only the `name`, `enabled`,
  * and/or linked `agentId` fields of the matching profile patched. All other
- * fields (credentials, allowedChatIds, sandboxEnabled, display) are
+ * fields (credentials, allowedChatIds, permissionMode, display) are
  * preserved verbatim so a credential-safe Desktop toggle never erases the
  * server-owned configuration it does not see.
  */
@@ -99,6 +101,6 @@ export function summarizeDesktopWebProfile(
     enabled: instance.enabled !== false,
     agentId: instance.agentId ?? "",
     agentName: agent?.name?.trim() || "",
-    sandboxEnabled: instance.sandboxEnabled
+    permissionMode: instance.permissionMode ?? null
   };
 }

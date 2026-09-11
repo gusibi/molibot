@@ -1,22 +1,20 @@
-// Sandbox policy settings — state + orchestration.
+// Execution environment (sandbox backend + advanced restrictions) settings.
 //
 // Wraps the pure transport helpers in `../api` with the UI state (loading
 // flags, working draft, pristine snapshot for dirty detection) consumed by
-// `settings/SandboxSection.svelte`.
+// `settings/SandboxSection.svelte`. There is no enable switch and no preset
+// here: sandbox participation follows the effective permission mode, so this
+// store only shapes the advanced restrictions that apply to sandboxed
+// commands.
 import {
-  applyDesktopSandboxPreset,
-  detectDesktopSandboxPreset,
   loadDesktopSandbox,
   parseDesktopSandboxList,
-  saveDesktopSandbox,
-  type DesktopSandboxPreset
+  saveDesktopSandbox
 } from "../api";
 import type { DesktopSandboxSummary, DesktopSandboxUpdateRequest } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
 export type SandboxEditor = {
-  enabled: boolean;
-  initFailureMode: "warn-disable" | "block";
   envFilePath: string;
   preserveExternalEnvFilePath: boolean;
   envInheritMode: "minimal" | "allowlist" | "full";
@@ -42,8 +40,6 @@ export const sandboxStore = $state({
 
 export function sandboxSummaryToEditor(summary: DesktopSandboxSummary): SandboxEditor {
   return {
-    enabled: summary.enabled,
-    initFailureMode: summary.initFailureMode,
     envFilePath: summary.envFilePath ?? "",
     preserveExternalEnvFilePath: summary.envFilePathConfiguredExternally,
     envInheritMode: summary.env.inheritMode,
@@ -59,8 +55,6 @@ export function sandboxSummaryToEditor(summary: DesktopSandboxSummary): SandboxE
 
 export function buildSandboxRequest(draft: SandboxEditor): DesktopSandboxUpdateRequest {
   const request: DesktopSandboxUpdateRequest = {
-    enabled: draft.enabled,
-    initFailureMode: draft.initFailureMode,
     env: {
       inheritMode: draft.envInheritMode,
       allow: parseDesktopSandboxList(draft.envAllowText),
@@ -80,33 +74,8 @@ export function buildSandboxRequest(draft: SandboxEditor): DesktopSandboxUpdateR
   return request;
 }
 
-/** Preset detected from the current draft, or "custom" when nothing matches. */
-export function detectSandboxPreset(draft: SandboxEditor): DesktopSandboxPreset | "custom" {
-  return detectDesktopSandboxPreset(buildSandboxRequest(draft));
-}
-
 export function updateSandboxEdit(updater: (draft: SandboxEditor) => SandboxEditor): void {
   if (sandboxStore.sandboxEdit) sandboxStore.sandboxEdit = updater(sandboxStore.sandboxEdit);
-}
-
-export function applySandboxPreset(name: DesktopSandboxPreset): void {
-  const preset = applyDesktopSandboxPreset(name);
-  if (!preset.env || !preset.network || !preset.filesystem) return;
-  sandboxStore.sandboxEdit = {
-    enabled: preset.enabled ?? true,
-    initFailureMode: preset.initFailureMode ?? "block",
-    envFilePath: preset.envFilePath ?? ".env",
-    preserveExternalEnvFilePath: false,
-    envInheritMode: preset.env.inheritMode ?? "minimal",
-    envAllowText: (preset.env.allow ?? []).join("\n"),
-    envDenyText: (preset.env.deny ?? []).join("\n"),
-    networkAllowText: (preset.network.allowedDomains ?? []).join("\n"),
-    networkDenyText: (preset.network.deniedDomains ?? []).join("\n"),
-    denyReadText: (preset.filesystem.denyRead ?? []).join("\n"),
-    allowWriteText: (preset.filesystem.allowWrite ?? []).join("\n"),
-    denyWriteText: (preset.filesystem.denyWrite ?? []).join("\n")
-  };
-  sandboxStore.actionMessage = "";
 }
 
 export function resetSandboxEditor(): void {

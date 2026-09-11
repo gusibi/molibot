@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { createBashTool, getBashToolDefinition } from "$lib/server/agent/tools/bash.js";
 import { normalizeCommandOutput } from "$lib/server/agent/tools/helpers.js";
 import { truncateMiddle } from "$lib/server/agent/tools/truncate.js";
-import { defaultToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { getHostBashStore, createHostBashApprovalRecord, type ApprovedHostBashEntry, type HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
@@ -187,16 +186,13 @@ test("bash leaves non-artifact root support files in place", async () => {
   }
 });
 
-test("bash keeps legacy host env inheritance when tool sandbox is disabled", async () => {
+test("bash keeps host env inheritance when execution targets the host", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   const previous = process.env.MOLIBOT_BASH_HOST_ENV_TEST;
   process.env.MOLIBOT_BASH_HOST_ENV_TEST = "host-visible";
   try {
     const tool = createBashTool(cwd, {
-      sandbox: {
-        settings: { ...defaultToolSandboxSettings, enabled: false },
-        workspaceDir: cwd
-      }
+      executionTarget: "host"
     });
     const result = await tool.execute("tool-1", {
       label: "bash",
@@ -298,15 +294,12 @@ test("bash requests persistent host approval for longbridge pipeline with safe h
   }
 });
 
-test("bash ignores hostApproval and runs directly when tool sandbox is disabled", async () => {
+test("bash ignores hostApproval and runs directly in full access", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   const pendingApprovals: HostBashApprovalRecord[] = [];
   try {
     const tool = createBashTool(cwd, {
-      sandbox: {
-        settings: { ...defaultToolSandboxSettings, enabled: false },
-        workspaceDir: cwd
-      },
+      executionTarget: "host",
       hostApproval: {
         channel: "telegram",
         chatId: "chat-1",
@@ -441,10 +434,7 @@ test("bash executes approved Host Bash without calling sandbox shell", async () 
   try {
     const def = getBashToolDefinition({
       cwd,
-      sandbox: {
-        settings: { ...defaultToolSandboxSettings, enabled: true },
-        workspaceDir: cwd
-      },
+      executionTarget: "sandbox",
       hostApproval: {
         channel: "telegram",
         chatId: "chat-1",
@@ -498,10 +488,7 @@ test("bash executes approved host pipeline with safe helper without calling sand
   try {
     const def = getBashToolDefinition({
       cwd,
-      sandbox: {
-        settings: { ...defaultToolSandboxSettings, enabled: true },
-        workspaceDir: cwd
-      },
+      executionTarget: "sandbox",
       hostApproval: {
         channel: "telegram",
         chatId: "chat-1",
@@ -587,10 +574,7 @@ test("bash executes approved same-tool chained commands with safe helper through
   try {
     const def = getBashToolDefinition({
       cwd,
-      sandbox: {
-        settings: { ...defaultToolSandboxSettings, enabled: true },
-        workspaceDir: cwd
-      },
+      executionTarget: "sandbox",
       hostApproval: {
         channel: "telegram",
         chatId: "chat-1",
@@ -721,17 +705,7 @@ test("bash auto-requests host approval after sandbox permission failure for sing
   dbStore.db.exec("DELETE FROM approvals");
   try {
     const tool = createBashTool(cwd, {
-      sandbox: {
-        settings: {
-          ...defaultToolSandboxSettings,
-          enabled: true,
-          filesystem: {
-            ...defaultToolSandboxSettings.filesystem,
-            denyRead: [...defaultToolSandboxSettings.filesystem.denyRead, blockedFile]
-          }
-        },
-        workspaceDir: cwd
-      },
+      executionTarget: "sandbox",
       hostApproval: {
         channel: "telegram",
         chatId: "chat-1",
@@ -781,17 +755,7 @@ test("bash falls back to host bash after sandbox denial when session approval mo
   dbStore.db.exec("DELETE FROM approvals");
   try {
     const tool = createBashTool(cwd, {
-      sandbox: {
-        settings: {
-          ...defaultToolSandboxSettings,
-          enabled: true,
-          filesystem: {
-            ...defaultToolSandboxSettings.filesystem,
-            denyRead: [...defaultToolSandboxSettings.filesystem.denyRead, blockedFile]
-          }
-        },
-        workspaceDir: cwd
-      },
+      executionTarget: "sandbox",
       hostApproval: {
         channel: "telegram",
         chatId: "chat-1",
@@ -829,62 +793,50 @@ test("bash falls back to host bash after sandbox denial when session approval mo
   }
 });
 
-test("bash auto-approves the sandbox-denial host fallback in Auto permission mode (PRD §3.65)", async () => {
+test("full access executes a host command directly: no sandbox first, no approval card", async () => {
+  // The unified Auto promise: the command never runs inside a sandbox, so
+  // there is no denial to parse and re-run; a failed host command reports its
+  // actual error instead of requesting sandbox approval.
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
-  const blockedFile = join(cwd, "blocked.txt");
-  writeFileSync(blockedFile, "secret", "utf8");
-  let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
   const dbStore = getHostBashStore() as any;
   dbStore.db.exec("DELETE FROM approvals");
   try {
     const tool = createBashTool(cwd, {
-      sandbox: {
-        settings: {
-          ...defaultToolSandboxSettings,
-          enabled: true,
-          filesystem: {
-            ...defaultToolSandboxSettings.filesystem,
-            denyRead: [...defaultToolSandboxSettings.filesystem.denyRead, blockedFile]
-          }
-        },
-        workspaceDir: cwd
-      },
+      executionTarget: "host",
       hostApproval: {
         channel: "web",
         chatId: "chat-1",
         scopeId: "chat-1",
         sessionId: "session-1",
-        // Default session mode: without the Auto flag this path would block on
-        // an approval card; the flag alone must drive the host fallback.
-        store: hostApprovalStore("default") as any,
-        autoApproveSandboxEscalation: true,
-        getSettings: () => settings,
-        updateSettings: (patch: any) => {
-          settings = { ...settings, ...patch } as RuntimeSettings;
-          return settings;
-        }
-      } as any
-    });
-    const result = await tool.execute("tool-1", {
-      label: "bash",
-      command: `cat ${JSON.stringify(blockedFile)}`
+        store: hostApprovalStore("default") as any
+      }
     });
 
-    const details = result.details as { sandboxWarning?: string } | undefined;
-    // Machines where the sandbox provider is unavailable skip the denial
-    // path (same guard as the session-mode test above).
-    if (!details?.sandboxWarning?.includes("Auto mode auto-approves")) {
-      return;
-    }
-    assert.match(firstText(result), /secret/);
-    assert.match(firstText(result), /\[AUTO\] Sandbox was bypassed/);
+    const ok = await tool.execute("tool-1", {
+      label: "bash",
+      command: "printf 'host-ran-directly'"
+    });
+    assert.equal(firstText(ok), "host-ran-directly");
     assert.equal(getHostBashStore().listPending("chat-1").length, 0);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/Sandbox is not supported|sandbox-runtime|dependencies/i.test(message)) {
-      return;
-    }
-    throw error;
+
+    // An explicit hostApproval request obeys Auto too: same direct execution,
+    // still no pending permission request.
+    const explicit = await tool.execute("tool-2", {
+      label: "bash",
+      command: "printf 'explicit-host-access'",
+      hostApproval: { reason: "Model asked for host access explicitly." }
+    });
+    assert.equal(firstText(explicit), "explicit-host-access");
+    assert.equal(getHostBashStore().listPending("chat-1").length, 0);
+    assert.equal(Boolean(explicit.details && "hostBashApproval" in explicit.details), false);
+
+    // A failing host command reports its real error; no approval is created.
+    // The standalone tool wrapper surfaces failures as thrown errors.
+    await assert.rejects(
+      tool.execute("tool-3", { label: "bash", command: "exit 9" }),
+      /exited with code 9/
+    );
+    assert.equal(getHostBashStore().listPending("chat-1").length, 0);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

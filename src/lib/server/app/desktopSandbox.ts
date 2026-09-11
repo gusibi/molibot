@@ -1,8 +1,6 @@
-import type {
-  ToolSandboxSettings,
-  ToolSandboxDiagnostics
-} from "$lib/server/agent/tools/sandbox";
-import type { RuntimeSettings } from "$lib/server/settings";
+import type { ToolSandboxDiagnostics } from "$lib/server/agent/tools/sandbox";
+import { getExecutionBackend } from "$lib/server/agent/exec/executionBackend";
+import type { ToolSandboxSettings, RuntimeSettings } from "$lib/server/settings";
 import { isAbsolute } from "node:path";
 import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox";
 import type { DesktopSandboxSummary, DesktopSandboxUpdateRequest } from "$lib/shared/desktop";
@@ -14,19 +12,35 @@ function isSafeRelativeEnvPath(value: string): boolean {
 }
 
 /**
- * Maps the tool-sandbox settings + diagnostics into a credential-safe Desktop
- * summary. Environment values and resolved absolute paths are never returned.
- * Configured env key names are editable because the Web settings page exposes
- * the same policy surface; they do not contain the corresponding values.
+ * Maps the sandbox backend declaration + advanced restrictions into a
+ * credential-safe Desktop summary. Environment values and resolved absolute
+ * paths are never returned. Configured env key names are editable because the
+ * settings page exposes the same policy surface; they do not contain the
+ * corresponding values.
+ *
+ * There is no enabled switch and no preset here: sandbox participation follows
+ * the effective permission mode, so the summary declares the backend (its
+ * identity, restriction capabilities and diagnostics) and the advanced
+ * restrictions that apply to sandboxed commands only.
  */
 export function buildDesktopSandboxSummary(
   settings: ToolSandboxSettings,
   diagnostics: ToolSandboxDiagnostics
 ): DesktopSandboxSummary {
   const envPathIsSafe = isSafeRelativeEnvPath(settings.envFilePath);
+  // One declaration: the summary reads the live backend's capabilities rather
+  // than restating them, so the UI can never drift from the adapter.
+  const capabilities = getExecutionBackend("sandbox").capabilities;
   return {
-    enabled: settings.enabled,
-    initFailureMode: settings.initFailureMode,
+    backend: {
+      id: capabilities.id,
+      name: capabilities.displayName,
+      supportedPlatform: diagnostics.supportedPlatform,
+      dependenciesAvailable: diagnostics.dependenciesAvailable,
+      supportsNetworkDomainRestrictions: capabilities.supportsNetworkDomainRestrictions,
+      supportsFilesystemRestrictions: capabilities.supportsFilesystemRestrictions,
+      supportsEnvInjection: capabilities.supportsEnvInjection
+    },
     envFilePath: envPathIsSafe ? settings.envFilePath : null,
     envFilePathConfiguredExternally: !envPathIsSafe,
     env: {
@@ -44,8 +58,7 @@ export function buildDesktopSandboxSummary(
       denyWrite: [...settings.filesystem.denyWrite]
     },
     diagnostics: {
-      supportedPlatform: diagnostics.supportedPlatform,
-      dependenciesAvailable: diagnostics.dependenciesAvailable,
+      platform: diagnostics.platform,
       envFileExists: diagnostics.envFileExists,
       envFileReadable: diagnostics.envFileReadable,
       sandboxInitialized: diagnostics.sandboxInitialized,
@@ -72,8 +85,6 @@ export function buildDesktopSandboxUpdate(
   }
 
   return sanitizeToolSandboxSettings({
-    enabled: request.enabled ?? current.enabled,
-    initFailureMode: request.initFailureMode ?? current.initFailureMode,
     envFilePath,
     env: {
       inheritMode: request.env?.inheritMode ?? current.env.inheritMode,
@@ -92,7 +103,7 @@ export function buildDesktopSandboxUpdate(
   }, current);
 }
 
-/** Reads the tool-sandbox settings from a RuntimeSettings snapshot. */
+/** Reads the sandbox advanced-restriction settings from a RuntimeSettings snapshot. */
 export function readDesktopSandboxSettings(settings: RuntimeSettings): ToolSandboxSettings {
   return settings.toolSandbox;
 }

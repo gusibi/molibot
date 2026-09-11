@@ -3,12 +3,9 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
 import { SandboxManager, type SandboxRuntimeConfig as AnthropicSandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import { resolveSessionScopedOverride } from "$lib/server/agent/permissions/overrideResolver.js";
-import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
 import { config } from "$lib/server/app/env.js";
-import type { ToolSandboxSettings, RuntimeSettings } from "$lib/server/settings/index.js";
+import type { ToolSandboxSettings } from "$lib/server/settings/index.js";
 import { getPythonToolingDir, getSandboxVenvDir } from "$lib/server/agent/tools/helpers.js";
-import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 
 // Decoupled Configuration Types
 export interface SandboxNetworkConfig {
@@ -115,7 +112,7 @@ export interface ToolSandboxPrepareInput {
   cwd: string;
   workspaceDir: string;
   command: string;
-  env: NodeJS.ProcessEnv;
+  env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
 }
 
@@ -128,7 +125,6 @@ export interface ToolSandboxPrepareResult {
 }
 
 export interface ToolSandboxDiagnostics {
-  enabled: boolean;
   platform: NodeJS.Platform;
   supportedPlatform: boolean;
   dependenciesAvailable: boolean;
@@ -289,10 +285,10 @@ export function buildToolSandboxEnv(settings: ToolSandboxSettings, workspaceDir:
 // therefore vanish the moment a command falls back to the host, producing misleading
 // "missing token" failures. This returns the env-file-sourced keys the sandbox
 // env policy (inheritMode/allow/deny) would have injected, so the fallback path
-// can grant the same secrets the sandbox already would. Keys also present in the
-// parent process env are skipped — the host already inherits those directly.
+// and direct host execution (full access) can grant the same secrets the sandbox
+// already would. Keys also present in the parent process env are skipped — the
+// host already inherits those directly.
 export function buildSandboxEnvFileInjection(settings: ToolSandboxSettings): Record<string, string> {
-  if (!settings.enabled) return {};
   const envFilePath = resolveEnvFilePath(settings);
   const { values } = readEnvFile(envFilePath);
   const out: Record<string, string> = {};
@@ -306,7 +302,6 @@ export function buildSandboxEnvFileInjection(settings: ToolSandboxSettings): Rec
 }
 
 export interface ToolSandboxEnvStartupReport {
-  enabled: boolean;
   envFilePath: string;
   envKeysInjected: string[];
   envKeysMissing: string[];
@@ -318,7 +313,6 @@ export function getToolSandboxEnvStartupReport(
 ): ToolSandboxEnvStartupReport {
   const envDetails = buildToolSandboxEnv(settings, workspaceDir);
   return {
-    enabled: settings.enabled,
     envFilePath: envDetails.envFilePath,
     envKeysInjected: envDetails.injectedKeys,
     envKeysMissing: envDetails.missingKeys
@@ -394,15 +388,6 @@ function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string,
 }
 
 export async function prepareToolSandboxExecution(input: ToolSandboxPrepareInput): Promise<ToolSandboxPrepareResult> {
-  if (!input.settings.enabled) {
-    return {
-      command: input.command,
-      env: input.env,
-      inheritProcessEnv: true,
-      sandboxApplied: false
-    };
-  }
-
   if (!isSupportedPlatform()) {
     throw new Error(`Sandbox unavailable: Sandbox is not supported on ${process.platform}. Command was not executed.`);
   }
@@ -444,7 +429,7 @@ export async function getToolSandboxDiagnostics(
   let sandboxInitialized = false;
   let sandboxError: string | undefined;
 
-  if (settings.enabled && supportedPlatform && dependenciesAvailable) {
+  if (supportedPlatform && dependenciesAvailable) {
     try {
       const effective = buildEffectiveSandboxConfig(settings, cwd, workspaceDir);
       const allowAll = isAllowAll(settings.network.allowedDomains);
@@ -460,7 +445,6 @@ export async function getToolSandboxDiagnostics(
 
   const effective = buildEffectiveSandboxConfig(settings, cwd, workspaceDir);
   return {
-    enabled: settings.enabled,
     platform: process.platform,
     supportedPlatform,
     dependenciesAvailable,
@@ -482,70 +466,6 @@ export async function getToolSandboxDiagnostics(
       denyRead: effective.filesystem?.denyRead ?? [],
       allowWrite: effective.filesystem?.allowWrite ?? [],
       denyWrite: effective.filesystem?.denyWrite ?? []
-    }
-  };
-}
-
-export function resolveEffectiveSandboxSettings(options: {
-  getSettings: () => RuntimeSettings;
-  chatId?: string;
-  sessionId?: string;
-  store?: MomRuntimeStore;
-  channel?: string;
-  botId?: string;
-  agentId?: string;
-  projectOverride?: boolean;
-}): ToolSandboxSettings {
-  const settings = options.getSettings();
-  const baseSettings = settings.toolSandbox;
-
-  // The five-level precedence lives in one place and is shared with the
-  // permission mode; only the per-level lookups are sandbox-specific
-  // (Permission Modes PRD §104, CLAUDE.md pitfall 7).
-  const enabled = resolveSessionScopedOverride<boolean>(
-    settings,
-    {
-      chatId: options.chatId,
-      sessionId: options.sessionId,
-      channel: options.channel,
-      botId: options.botId,
-      agentId: options.agentId
-    },
-    {
-      session: () =>
-        options.store && options.chatId && options.sessionId
-          ? options.store.getSessionSandboxOverride(options.chatId, options.sessionId)
-          : null,
-      project: options.projectOverride,
-      instance: (instance) => instance.sandboxEnabled as boolean | undefined,
-      agent: (agent) => agent.sandboxEnabled as boolean | undefined,
-      global: () => baseSettings.enabled
-    }
-  );
-
-  return enabled === baseSettings.enabled ? baseSettings : { ...baseSettings, enabled };
-}
-
-/**
- * Auto-mode linkage (PRD §3.65): the product-owner decision is that "Auto"
- * means "run unattended" — the session's effective sandbox network is lifted
- * to allow-all so domain allowlists cannot silently kill commands and trigger
- * host-bash escalation approval cards. This is the single shared place where
- * the two axes meet; callers must not re-implement the lift per tool.
- */
-export function liftSandboxForPermissionMode(
-  settings: ToolSandboxSettings,
-  mode: PermissionMode | undefined
-): ToolSandboxSettings {
-  if (!mode || mode !== "auto" || !settings.enabled) return settings;
-  if (isAllowAll(settings.network.allowedDomains) && !(settings.network.deniedDomains ?? []).length) {
-    return settings;
-  }
-  return {
-    ...settings,
-    network: {
-      allowedDomains: ["*"],
-      deniedDomains: []
     }
   };
 }

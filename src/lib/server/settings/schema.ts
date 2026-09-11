@@ -142,7 +142,6 @@ export interface AgentSettings {
   name: string;
   description: string;
   enabled: boolean;
-  sandboxEnabled?: boolean;
   /** Undefined = inherit; never "off". Resolved by the shared override chain. */
   permissionMode?: PermissionMode;
   modelRouting?: AgentModelRouting;
@@ -186,7 +185,6 @@ export interface ChannelInstanceSettings {
   agentId?: string;
   credentials: Record<string, string>;
   allowedChatIds: string[];
-  sandboxEnabled?: boolean;
   /** Undefined = inherit; never "off". Resolved by the shared override chain. */
   permissionMode?: PermissionMode;
   display?: ChannelInstanceDisplaySettings;
@@ -531,7 +529,6 @@ export interface TtsGenerateSettings {
 }
 
 
-export type ToolSandboxInitFailureMode = "warn-disable" | "block";
 export type ToolSandboxEnvInheritMode = "minimal" | "allowlist" | "full";
 
 export interface ToolSandboxEnvSettings {
@@ -551,9 +548,13 @@ export interface ToolSandboxFilesystemSettings {
   denyWrite: string[];
 }
 
+/**
+ * Advanced sandbox restrictions. Whether the sandbox participates at all is
+ * decided by the effective permission mode (manual/accept_edits → sandbox,
+ * auto → host, plan → no execution), not by a switch here — these fields only
+ * shape sandboxed commands and never apply to host execution.
+ */
 export interface ToolSandboxSettings {
-  enabled: boolean;
-  initFailureMode: ToolSandboxInitFailureMode;
   envFilePath: string;
   env: ToolSandboxEnvSettings;
   network: ToolSandboxNetworkSettings;

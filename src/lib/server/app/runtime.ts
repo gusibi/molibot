@@ -133,7 +133,7 @@ function logSandboxEnvStartup(state: RuntimeState): void {
   const report = getToolSandboxEnvStartupReport(state.settings.toolSandbox, config.webWorkspaceDir);
   const prefix = `${runtimeLabel("runtime")} sandbox_env`;
   console.log(
-    `${prefix} enabled=${report.enabled ? color("true", ANSI_GREEN) : color("false", ANSI_YELLOW)} env_file=${report.envFilePath} injected=[${formatList(report.envKeysInjected)}]`
+    `${prefix} env_file=${report.envFilePath} injected=[${formatList(report.envKeysInjected)}]`
   );
   if (report.envKeysMissing.length > 0) {
     console.warn(

@@ -51,11 +51,10 @@ import { ToolRegistry, ToolRuntime, defaultPolicyDecider, createDefaultApprovalR
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
-import { wrapCommandWithVenv, execCommand } from "$lib/server/agent/tools/helpers.js";
-import { liftSandboxForPermissionMode, prepareToolSandboxExecution, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
+import { bindExecutionEnvironment, type BoundExecutionEnvironment } from "$lib/server/agent/exec/executionBackend.js";
 import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
 import { decideToolPermission } from "$lib/server/agent/permissions/toolPermissionGate.js";
-import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
+import { resolveEffectiveExecutionPolicy, type EffectiveExecutionPolicy } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { buildRunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 import { getConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
@@ -153,7 +152,7 @@ export function createMomTools(options: {
   workspaceId?: string;
   timezone: string;
   messageTimestamp?: string | number | Date;
-  project?: { id?: string; name?: string; rootPath: string; scratchDir: string; sandboxEnabled?: boolean };
+  project?: { id?: string; name?: string; rootPath: string; scratchDir: string };
   store: MomRuntimeStore;
   memory: MemoryGateway;
   memoryWritesAllowed?: boolean;
@@ -189,33 +188,27 @@ export function createMomTools(options: {
     projectRoot: options.project?.rootPath
   });
   const botId = basename(options.workspaceDir) || "unknown";
-  const sandboxSettings = resolveEffectiveSandboxSettings({
+  // The one effective execution policy for this attempt: mode, where it came
+  // from, the execution target it implies, and the sandbox restrictions that
+  // apply (only when the sandbox participates). Tool dispatch, shell
+  // execution, file access, subagents and the prompt all read this result.
+  const policy: EffectiveExecutionPolicy = resolveEffectiveExecutionPolicy({
     getSettings: options.getSettings,
     chatId: options.chatId,
     sessionId: options.sessionId,
     store: options.store,
     channel: options.channel,
-    botId,
-    projectOverride: options.project?.sandboxEnabled
+    botId
   });
-  // The second axis, resolved through the same identity and the same chain.
-  // Channels see Plan/Manual clamped away: neither has an interaction surface
-  // outside the desktop app (product decision 2026-08-10).
-  const permissionMode = clampModeForChannel(
-    resolveEffectivePermissionMode({
-      getSettings: options.getSettings,
-      chatId: options.chatId,
-      sessionId: options.sessionId,
-      store: options.store,
-      channel: options.channel,
-      botId
-    }),
-    options.channel
-  );
-  // Auto means "run unattended": the session's effective sandbox network is
-  // lifted to allow-all in the shared layer (PRD §3.65) so allowlists cannot
-  // silently fail commands into host-bash approval cards.
-  const effectiveSandboxSettings = liftSandboxForPermissionMode(sandboxSettings, permissionMode);
+  const permissionMode = policy.mode;
+  // Bound once per attempt: settings changes govern the next attempt and never
+  // relocate a command that is already running. Plan mode binds an explicit
+  // no-execution environment instead of a silent host fallback.
+  const executionEnvironment: BoundExecutionEnvironment = bindExecutionEnvironment({
+    executionTarget: policy.executionTarget,
+    workspaceDir: options.workspaceDir,
+    sandboxSettings: options.getSettings().toolSandbox
+  });
   const exitPlanTool = wrapSerializedTool(createExitPlanTool({
     scratchDir: options.store.getScratchDir(options.chatId),
     sessionId: options.executionSessionId ?? options.sessionId,
@@ -314,7 +307,8 @@ export function createMomTools(options: {
   const featureTools = createFeaturePluginTools({
     getSettings: options.getSettings,
     cwd: options.cwd,
-    workspaceDir: options.workspaceDir
+    workspaceDir: options.workspaceDir,
+    executionMode: permissionMode
   }).map((tool) => wrapSerializedTool(tool));
 
   let tools: AgentTool<any>[] = [];
@@ -334,7 +328,7 @@ export function createMomTools(options: {
         tool,
         input,
         ctx,
-        sandboxEnabled: effectiveSandboxSettings.enabled,
+        sandboxEnabled: policy.executionTarget === "sandbox",
         permissionMode,
         buildApprovalRequest: () => createDefaultApprovalRequest(tool, input, ctx)
       });
@@ -343,7 +337,7 @@ export function createMomTools(options: {
     // Reading an installed receipt executes no app code and needs no approval.
     // validate/install do load owner-selected server code in-process, so the
     // critical classification below deliberately sends those actions through
-    // the approval broker.
+    // the approval broker in restricted modes.
     if (tool.id === "miniAppManage" && (input as { action?: unknown })?.action === "inspect") {
       return { type: "allow" };
     }
@@ -357,7 +351,7 @@ export function createMomTools(options: {
         thirdPartyHint: tool.thirdPartyHint
       },
       {
-        sandboxEnabled: effectiveSandboxSettings.enabled,
+        sandboxEnabled: policy.executionTarget === "sandbox",
         allowedWriteRoots,
         cwd: options.cwd
       }
@@ -379,11 +373,12 @@ export function createMomTools(options: {
       };
     }
 
-    // `risk` keeps its own duty: a high/critical tool still reaches the broker
-    // even when the mode would allow its effect, so Auto cannot silently
-    // auto-approve an installer (rule 1 of the matrix) or a destructive Mini
-    // App tool.
-    if (tool.risk === "high" || tool.risk === "critical") {
+    // `risk` keeps its own duty in restricted modes: a high/critical tool still
+    // reaches the broker even when the mode would allow its effect, so Accept
+    // edits cannot silently approve an installer or a destructive Mini App
+    // tool. Full access removes exactly this gate — an Auto run must not
+    // produce a permission card for an installation.
+    if ((tool.risk === "high" || tool.risk === "critical") && permissionMode !== "auto") {
       return {
         type: "approval_required",
         request: createDefaultApprovalRequest(tool, input, ctx)
@@ -435,40 +430,22 @@ export function createMomTools(options: {
         run: async (cmd, runOpts) => {
           const targetCwd = runOpts?.cwd ?? options.cwd;
           const timeoutSeconds = runOpts?.timeoutMs ? runOpts.timeoutMs / 1000 : undefined;
-          
           const sandboxEnv = artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: artifactDir } : {};
-          const wrappedCommand = wrapCommandWithVenv(cmd);
-          const sandboxed = effectiveSandboxSettings.enabled
-            ? await prepareToolSandboxExecution({
-                settings: effectiveSandboxSettings,
-                workspaceDir: options.workspaceDir,
-                cwd: targetCwd,
-                command: wrappedCommand,
-                env: sandboxEnv,
-                signal
-              })
-            : {
-                command: wrappedCommand,
-                env: sandboxEnv,
-                inheritProcessEnv: true,
-                sandboxApplied: false,
-                warning: undefined
-              };
 
-          const result = await execCommand(sandboxed.command, {
+          const result = await executionEnvironment.execute({
+            command: cmd,
             cwd: targetCwd,
             timeoutSeconds,
             signal,
-            env: sandboxed.env,
-            inheritProcessEnv: sandboxed.inheritProcessEnv
+            env: sandboxEnv
           });
 
           return {
             exitCode: result.code,
             stdout: result.stdout,
             stderr: result.stderr,
-            sandboxApplied: sandboxed.sandboxApplied,
-            warning: sandboxed.warning
+            sandboxApplied: result.sandboxApplied,
+            warning: result.warning
           };
         }
       },
@@ -618,10 +595,15 @@ export function createMomTools(options: {
   // The operator's deny list binds every tool that writes, not just `bash`.
   // Before this, `toolSandbox.filesystem.denyWrite` was configured in Settings
   // and silently did nothing to `write`/`edit` (Permission Modes PRD, slice 0).
-  const filesystemPolicy = {
-    denyWrite: effectiveSandboxSettings.filesystem.denyWrite,
-    allowWrite: effectiveSandboxSettings.filesystem.allowWrite
-  };
+  // Full access does not apply sandbox file restrictions — file tools obey the
+  // same effective policy as commands — so no policy is handed down there;
+  // restricted modes keep the sensitive-file protections.
+  const filesystemPolicy = policy.sandbox
+    ? {
+      denyWrite: policy.sandbox.filesystem.denyWrite,
+      allowWrite: policy.sandbox.filesystem.allowWrite
+    }
+    : undefined;
 
   const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir, outputLayout, filesystemPolicy });
   registry.register(writeToolDef);
@@ -634,10 +616,7 @@ export function createMomTools(options: {
     artifactDir,
     relocateRootArtifacts: !options.project,
     toolOutputDir,
-    sandbox: {
-      settings: effectiveSandboxSettings,
-      workspaceDir: options.workspaceDir
-    },
+    executionTarget: policy.executionTarget,
     hostApproval: {
       channel: options.channel,
       chatId: options.chatId,
@@ -652,10 +631,7 @@ export function createMomTools(options: {
       }),
       runId: options.runId,
       store: options.store,
-      ignoreSessionApprovalMode: options.isolateSessionHostApproval,
-      // Auto mode auto-approves the sandbox-denial → host-bash escalation
-      // (PRD §3.65); manage-class tools still ask via the approval broker.
-      autoApproveSandboxEscalation: permissionMode === "auto"
+      ignoreSessionApprovalMode: options.isolateSessionHostApproval
     }
   });
   registry.register(bashToolDef);
@@ -970,6 +946,9 @@ export function createMomTools(options: {
       getSettings: options.getSettings,
       emitRunnerEvent: options.emitRunnerEvent,
       runId: options.runId,
+      // Delegated work follows the parent task's permissions: the child's
+      // execution environment and approval outcomes come from this policy.
+      executionPolicy: policy,
       allowedAgents: permissionMode === "plan" ? ["scout", "planner"] : undefined,
       excludedTools: permissionMode === "plan" ? ["bash"] : undefined
     }),

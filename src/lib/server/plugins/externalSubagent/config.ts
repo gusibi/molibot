@@ -1,13 +1,14 @@
 import { getPluginConfigStore } from "$lib/server/plugins/contract/configStore.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 
+// External providers receive the session's effective execution policy through
+// `policyTranslation.ts`; enablement, executable paths and connection settings
+// are the only provider-owned configuration left here.
 export interface ResolvedExternalSubagentConfig {
   enabled: boolean;
   codexEnabled: boolean;
-  codexPermissionMode: "never" | "approve-for-me" | "dangerously-bypass-approvals-and-sandbox";
   codexPath?: string;
   claudeCodeEnabled: boolean;
-  claudeCodePermissionMode: "dontAsk" | "acceptEdits" | "auto" | "plan" | "bypassPermissions";
   claudeCodePath?: string;
 }
 
@@ -39,9 +40,7 @@ export function resolveExternalSubagentConfig(settings?: RuntimeSettings): Resol
     return {
       enabled: false,
       codexEnabled: false,
-      codexPermissionMode: "never",
-      claudeCodeEnabled: false,
-      claudeCodePermissionMode: "dontAsk"
+      claudeCodeEnabled: false
     };
   }
 
@@ -52,10 +51,8 @@ export function resolveExternalSubagentConfig(settings?: RuntimeSettings): Resol
   return {
     enabled: true,
     codexEnabled: values.codexEnabled === true,
-    codexPermissionMode: (values.codexPermissionMode as any) || "never",
     codexPath: typeof values.codexPath === "string" && values.codexPath.trim() ? values.codexPath.trim() : undefined,
     claudeCodeEnabled: values.claudeCodeEnabled === true,
-    claudeCodePermissionMode: (values.claudeCodePermissionMode as any) || "dontAsk",
     claudeCodePath: typeof values.claudeCodePath === "string" && values.claudeCodePath.trim() ? values.claudeCodePath.trim() : undefined
   };
 }

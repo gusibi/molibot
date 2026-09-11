@@ -220,7 +220,6 @@ export interface DesktopProject {
   instructions?: string;
   modelKey?: string;
   thinkingLevel?: DesktopThinkingLevel;
-  sandboxEnabled?: boolean;
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
   runLogNotice?: boolean;
@@ -345,7 +344,7 @@ export async function createDesktopProject(endpoint: string, input: { name: stri
   })).project;
 }
 
-export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: DesktopThinkingLevel | null; sandboxEnabled?: boolean | null; toolProgress?: DesktopProject["toolProgress"] | null; showReasoning?: DesktopProject["showReasoning"] | null; runLogNotice?: boolean | null; customCommands?: DesktopProjectCustomCommand[] | null }): Promise<DesktopProject> {
+export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: DesktopThinkingLevel | null; toolProgress?: DesktopProject["toolProgress"] | null; showReasoning?: DesktopProject["showReasoning"] | null; runLogNotice?: boolean | null; customCommands?: DesktopProjectCustomCommand[] | null }): Promise<DesktopProject> {
   return (await requestJson<{ ok: true; project: DesktopProject }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
   })).project;
@@ -786,13 +785,19 @@ export async function performDesktopContractPluginLifecycle(
   return payload.ok;
 }
 
+export type SessionPermissionSource = "session" | "project" | "instance" | "agent" | "global";
+
 export async function loadDesktopSessionPermission(
   endpoint: string,
   profileId: string,
   conversationId: string
-): Promise<"plan" | "manual" | "accept_edits" | "auto"> {
+): Promise<{ mode: "plan" | "manual" | "accept_edits" | "auto"; source: SessionPermissionSource }> {
   const query = new URLSearchParams({ profileId, conversationId });
-  return (await requestJson<{ ok: true; mode: "plan" | "manual" | "accept_edits" | "auto" }>(endpoint, `/api/desktop/session-permission?${query}`)).mode;
+  const payload = await requestJson<{ ok: true; mode: "plan" | "manual" | "accept_edits" | "auto"; source: SessionPermissionSource }>(
+    endpoint,
+    `/api/desktop/session-permission?${query}`
+  );
+  return { mode: payload.mode, source: payload.source };
 }
 
 export async function saveDesktopSessionPermission(
@@ -1057,50 +1062,6 @@ export async function saveDesktopSandbox(endpoint: string, input: DesktopSandbox
   return payload.sandbox;
 }
 
-export type DesktopSandboxPreset = "full" | "standard" | "readonly" | "locked";
-
-const SANDBOX_DEFAULT_DENY_READ = ["~/.ssh", "~/.aws", "~/.gnupg", ".env", ".env.*"];
-const SANDBOX_DEFAULT_DENY_WRITE = [".env", ".env.*", "*.pem", "*.key"];
-const SANDBOX_BUILD_DOMAINS = [
-  "npmjs.org", "*.npmjs.org", "registry.npmjs.org", "registry.yarnpkg.com",
-  "pypi.org", "*.pypi.org", "github.com", "*.github.com", "api.github.com", "raw.githubusercontent.com"
-];
-
-const DESKTOP_SANDBOX_PRESETS: Record<DesktopSandboxPreset, DesktopSandboxUpdateRequest> = {
-  full: {
-    enabled: true,
-    initFailureMode: "block",
-    envFilePath: ".env",
-    env: { inheritMode: "minimal", allow: [], deny: [] },
-    network: { allowedDomains: ["*"], deniedDomains: [] },
-    filesystem: { denyRead: SANDBOX_DEFAULT_DENY_READ, allowWrite: [".", "/tmp", "scratch"], denyWrite: SANDBOX_DEFAULT_DENY_WRITE }
-  },
-  standard: {
-    enabled: true,
-    initFailureMode: "block",
-    envFilePath: ".env",
-    env: { inheritMode: "allowlist", allow: [], deny: [] },
-    network: { allowedDomains: SANDBOX_BUILD_DOMAINS, deniedDomains: [] },
-    filesystem: { denyRead: SANDBOX_DEFAULT_DENY_READ, allowWrite: [".", "/tmp", "scratch"], denyWrite: SANDBOX_DEFAULT_DENY_WRITE }
-  },
-  readonly: {
-    enabled: true,
-    initFailureMode: "block",
-    envFilePath: ".env",
-    env: { inheritMode: "minimal", allow: [], deny: [] },
-    network: { allowedDomains: ["*"], deniedDomains: [] },
-    filesystem: { denyRead: SANDBOX_DEFAULT_DENY_READ, allowWrite: ["/tmp", "scratch"], denyWrite: SANDBOX_DEFAULT_DENY_WRITE }
-  },
-  locked: {
-    enabled: true,
-    initFailureMode: "block",
-    envFilePath: ".env",
-    env: { inheritMode: "minimal", allow: [], deny: [] },
-    network: { allowedDomains: [], deniedDomains: [] },
-    filesystem: { denyRead: SANDBOX_DEFAULT_DENY_READ, allowWrite: ["/tmp"], denyWrite: SANDBOX_DEFAULT_DENY_WRITE }
-  }
-};
-
 export function parseDesktopSandboxList(input: string): string[] {
   const seen = new Set<string>();
   const values: string[] = [];
@@ -1111,45 +1072,6 @@ export function parseDesktopSandboxList(input: string): string[] {
     values.push(value);
   }
   return values;
-}
-
-export function applyDesktopSandboxPreset(name: DesktopSandboxPreset): DesktopSandboxUpdateRequest {
-  const preset = DESKTOP_SANDBOX_PRESETS[name];
-  return {
-    ...preset,
-    env: { ...preset.env, allow: [...(preset.env?.allow ?? [])], deny: [...(preset.env?.deny ?? [])] },
-    network: { allowedDomains: [...(preset.network?.allowedDomains ?? [])], deniedDomains: [...(preset.network?.deniedDomains ?? [])] },
-    filesystem: {
-      denyRead: [...(preset.filesystem?.denyRead ?? [])],
-      allowWrite: [...(preset.filesystem?.allowWrite ?? [])],
-      denyWrite: [...(preset.filesystem?.denyWrite ?? [])]
-    }
-  };
-}
-
-function sandboxListsMatch(left: string[] | undefined, right: string[] | undefined): boolean {
-  const a = [...(left ?? [])].sort();
-  const b = [...(right ?? [])].sort();
-  return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
-export function detectDesktopSandboxPreset(input: DesktopSandboxUpdateRequest): DesktopSandboxPreset | "custom" {
-  if (input.enabled !== true) return "custom";
-  for (const name of ["full", "standard", "readonly", "locked"] as const) {
-    const preset = DESKTOP_SANDBOX_PRESETS[name];
-    if (
-      input.initFailureMode === preset.initFailureMode &&
-      input.env?.inheritMode === preset.env?.inheritMode &&
-      sandboxListsMatch(input.env?.allow, preset.env?.allow) &&
-      sandboxListsMatch(input.env?.deny, preset.env?.deny) &&
-      sandboxListsMatch(input.network?.allowedDomains, preset.network?.allowedDomains) &&
-      sandboxListsMatch(input.network?.deniedDomains, preset.network?.deniedDomains) &&
-      sandboxListsMatch(input.filesystem?.denyRead, preset.filesystem?.denyRead) &&
-      sandboxListsMatch(input.filesystem?.allowWrite, preset.filesystem?.allowWrite) &&
-      sandboxListsMatch(input.filesystem?.denyWrite, preset.filesystem?.denyWrite)
-    ) return name;
-  }
-  return "custom";
 }
 
 export interface DesktopHostBashPermissions {

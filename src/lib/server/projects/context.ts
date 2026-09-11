@@ -39,7 +39,6 @@ export function buildRunnerProjectContext(
     name: project.name,
     rootPath: project.rootPath,
     instructions: project.instructions,
-    sandboxEnabled: project.sandboxEnabled,
     toolProgress: project.toolProgress,
     showReasoning: project.showReasoning,
     runLogNotice: project.runLogNotice,

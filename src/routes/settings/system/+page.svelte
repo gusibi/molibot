@@ -37,10 +37,6 @@
     gatewayNotifyInterval: number;
   }
 
-  interface ToolSandboxSettings {
-    enabled: boolean;
-  }
-
   interface RuntimeSettings {
     locale: LocaleKey;
     serverPort: number;
@@ -49,7 +45,7 @@
     subagentRuntime: SubagentRuntimeSettings;
     browserAutomation: BrowserAutomationSettings;
     display?: GlobalDisplaySettings;
-    toolSandbox?: ToolSandboxSettings;
+    permissionMode?: "plan" | "manual" | "accept_edits" | "auto";
   }
 
   interface VersionInfo {
@@ -123,13 +119,15 @@
       gatewayNotifyIntervalHint: "限制向外部渠道（如飞书、微信、Telegram）发送进度消息的频率，设为 0 表示实时发送不限频。",
       saveDisplay: "保存显示与思考设置",
       savingDisplay: "保存中...",
-      sandboxTitle: "工具沙盒安全限制",
-      sandboxSubtitle: "沙盒可以在隔离环境下执行 AI 编写的代码与 Bash 命令，避免破坏宿主机系统。",
-      sandboxEnabled: "启用工具执行沙盒",
-      sandboxEnabledHint: "强烈建议开启。如果关闭，助手的所有 Bash 命令和代码执行将在宿主机直接运行。",
-      sandboxDetailLink: "前往沙盒详细策略页面配置网络与文件读写规则",
-      saveSandbox: "保存沙盒设置",
-      savingSandbox: "保存中...",
+      sandboxTitle: "默认执行权限模式",
+      sandboxSubtitle: "新会话默认使用的权限模式；全自动（完全访问）会移除 Molibot 审批并直接使用宿主机。",
+      permissionModeLabel: "默认执行模式",
+      permissionModeDefault: "跟随默认（接受修改）",
+      modePlan: "计划",
+      modeManual: "手动",
+      modeAcceptEdits: "接受修改",
+      modeAuto: "全自动（完全访问）",
+      sandboxDetailLink: "前往执行环境页面配置沙箱网络与文件读写规则",
       deployment: "部署信息",
       githubRepo: "GitHub 地址",
       githubRepoHint: "只读。请通过部署环境或 molibot manage 修改，不在 Web UI 内编辑。",
@@ -205,13 +203,15 @@
       gatewayNotifyIntervalHint: "Frequency limit for sending progress messages to chat channels. Set to 0 to send immediately without limits.",
       saveDisplay: "Save display & reasoning settings",
       savingDisplay: "Saving...",
-      sandboxTitle: "Tool Sandbox Security",
-      sandboxSubtitle: "The sandbox executes AI-generated code and Bash commands in an isolated environment to prevent system damage.",
-      sandboxEnabled: "Enable Tool Execution Sandbox",
-      sandboxEnabledHint: "Highly recommended. If disabled, all Bash commands and code will run directly on the host system.",
-      sandboxDetailLink: "Go to Sandbox Policy page to configure network & filesystem rules",
-      saveSandbox: "Save sandbox settings",
-      savingSandbox: "Saving...",
+      sandboxTitle: "Default Execution Permission Mode",
+      sandboxSubtitle: "The mode new conversations start with; Full Access removes Molibot approvals and runs on the host.",
+      permissionModeLabel: "Default execution mode",
+      permissionModeDefault: "Follow default (Accept edits)",
+      modePlan: "Plan",
+      modeManual: "Manual",
+      modeAcceptEdits: "Accept edits",
+      modeAuto: "Auto (Full Access)",
+      sandboxDetailLink: "Go to the execution environment page to configure sandbox network & filesystem rules",
       deployment: "Deployment",
       githubRepo: "GitHub URL",
       githubRepoHint: "Read-only. Change it through deployment environment or molibot manage, not the Web UI.",
@@ -261,7 +261,7 @@
   let showReasoning: "off" | "on" | "stream" | "new" = "off";
   let gatewayNotifyInterval = 0;
 
-  let sandboxEnabled = true;
+  let permissionMode: "" | "plan" | "manual" | "accept_edits" | "auto" = "";
 
   $: copy = COPY[$locale];
 
@@ -344,8 +344,8 @@
         showReasoning = settings.display.showReasoning ?? showReasoning;
         gatewayNotifyInterval = settings.display.gatewayNotifyInterval ?? gatewayNotifyInterval;
       }
-      if (settings.toolSandbox) {
-        sandboxEnabled = settings.toolSandbox.enabled ?? sandboxEnabled;
+      if (settings.permissionMode) {
+        permissionMode = settings.permissionMode;
       }
       versionInfo = {
         ok: Boolean(versionPayload?.ok),
@@ -401,9 +401,7 @@
             showReasoning,
             gatewayNotifyInterval: Number(gatewayNotifyInterval)
           },
-          toolSandbox: {
-            enabled: sandboxEnabled
-          }
+          permissionMode: permissionMode || "accept_edits"
         })
       });
       const payload = await response.json();
@@ -730,12 +728,15 @@
           </div>
         </div>
         <div class="channel-card-body">
-          <div class="channel-toggle-row">
-            <div class="channel-toggle-label">
-              <Label for="sandbox-enabled">{copy.sandboxEnabled}</Label>
-              <p>{copy.sandboxEnabledHint}</p>
-            </div>
-            <IosSwitch id="sandbox-enabled" bind:checked={sandboxEnabled} disabled={loading} />
+          <div class="channel-field">
+            <Label for="system-permission-mode">{copy.permissionModeLabel}</Label>
+            <NativeSelect id="system-permission-mode" bind:value={permissionMode} disabled={loading}>
+              <NativeSelectOption value="">{copy.permissionModeDefault}</NativeSelectOption>
+              <NativeSelectOption value="plan">{copy.modePlan}</NativeSelectOption>
+              <NativeSelectOption value="manual">{copy.modeManual}</NativeSelectOption>
+              <NativeSelectOption value="accept_edits">{copy.modeAcceptEdits}</NativeSelectOption>
+              <NativeSelectOption value="auto">{copy.modeAuto}</NativeSelectOption>
+            </NativeSelect>
           </div>
 
           <div class="pt-2">

@@ -1,29 +1,16 @@
 <script lang="ts">
-  import Check from "reicon-svelte/icons/Check";
-  import Folder from "reicon-svelte/icons/Folder";
-  import Globe from "reicon-svelte/icons/Globe";
-  import Lightning from "reicon-svelte/icons/Lightning";
-  import LockOpen from "reicon-svelte/icons/LockOpen";
-  import Pen from "reicon-svelte/icons/Pen";
+  import ChevronDown from "reicon-svelte/icons/ChevronDown";
   import Shield from "reicon-svelte/icons/Shield";
-  import ShieldCheck from "reicon-svelte/icons/ShieldCheck";
-  import TerminalSquare from "reicon-svelte/icons/TerminalSquare";
-  import Tuning from "reicon-svelte/icons/Tuning";
   import { onDestroy } from "svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
-  import type { DesktopSandboxPreset } from "../api";
-  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
   import StatusBadge from "../components/ui/StatusBadge.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import { session } from "../stores/session.svelte";
-  import { tablist } from "../a11y/tablist";
   import { trackUnsaved } from "../unsavedGuard";
   import {
     sandboxStore,
-    applySandboxPreset,
-    detectSandboxPreset,
     loadSandbox,
     refreshSandboxDiagnostics,
     resetSandboxEditor,
@@ -39,261 +26,83 @@
     }
   });
 
-  const activeSandboxPreset = $derived(sandboxStore.sandboxEdit ? detectSandboxPreset(sandboxStore.sandboxEdit) : "custom");
   const sandboxDirty = $derived(sandboxStore.sandboxEdit !== null && JSON.stringify(sandboxStore.sandboxEdit) !== sandboxStore.pristine);
 
-  // Strictest → most permissive, mirrored from the web settings page.
-  const SLIDER_LEVELS = $derived([
-    {
-      id: "locked",
-      title: session.text.sandboxPresetLocked,
-      hint: session.text.sandboxPresetLockedHint,
-      badge: session.text.sandboxPresetLockedBadge,
-      network: session.text.sandboxPresetNetOffline,
-      filesystem: session.text.sandboxPresetFsTemp,
-      env: session.text.sandboxPresetEnvMinimal
-    },
-    {
-      id: "readonly",
-      title: session.text.sandboxPresetReadonly,
-      hint: session.text.sandboxPresetReadonlyHint,
-      badge: session.text.sandboxPresetReadonlyBadge,
-      network: session.text.sandboxPresetNetAll,
-      filesystem: session.text.sandboxPresetFsReadonly,
-      env: session.text.sandboxPresetEnvMinimal
-    },
-    {
-      id: "standard",
-      title: session.text.sandboxPresetStandard,
-      hint: session.text.sandboxPresetStandardHint,
-      badge: session.text.sandboxPresetStandardBadge,
-      network: session.text.sandboxPresetNetDev,
-      filesystem: session.text.sandboxPresetFsWorkspace,
-      env: session.text.sandboxPresetEnvAllowlist
-    },
-    {
-      id: "full",
-      title: session.text.sandboxPresetFull,
-      hint: session.text.sandboxPresetFullHint,
-      badge: session.text.sandboxPresetFullBadge,
-      network: session.text.sandboxPresetNetAll,
-      filesystem: session.text.sandboxPresetFsWorkspace,
-      env: session.text.sandboxEnvFull
-    }
-  ] as const);
-
-  const sliderIndex = $derived(
-    activeSandboxPreset === "custom"
-      ? -1
-      : SLIDER_LEVELS.findIndex((l) => l.id === activeSandboxPreset)
-  );
-  const isCustom = $derived(sliderIndex === -1);
-
-  function applyLevelByIndex(index: number): void {
-    const level = SLIDER_LEVELS[index];
-    if (level) applySandboxPreset(level.id as DesktopSandboxPreset);
-  }
+  // Declared backend capabilities decide which advanced settings exist; with
+  // one backend there is no selector of unimplemented choices to show.
+  const backend = $derived(sandboxStore.sandbox?.backend ?? null);
+  const backendReady = $derived(backend !== null && backend.supportedPlatform && backend.dependenciesAvailable);
 
   onDestroy(trackUnsaved(() => sandboxDirty));
 </script>
 
 {#if !session.serviceReady}
   <SettingGroup><EmptyState title={session.text.sandboxUnavailable} icon="shield-slash" /></SettingGroup>
-{:else if sandboxStore.loading || !sandboxStore.sandbox || !sandboxStore.sandboxEdit}
+{:else if sandboxStore.loading || !sandboxStore.sandbox || !sandboxStore.sandboxEdit || !backend}
   <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
 {:else}
   <form id="desktop-sandbox-form" onsubmit={(event) => { event.preventDefault(); void saveSandboxPolicy(); }}>
-  <div class="sandbox-spectrum-card settings-card">
-    <div class="sandbox-spectrum-header">
-      <div class="sandbox-spectrum-title-row">
-        <strong>{session.text.sandboxPresets}</strong>
-        <p class="settings-section-hint">{session.text.sandboxPresetsHint}</p>
-      </div>
-    </div>
-
-    <!-- Tier cards as quick direct-click presets -->
-    <div class="sandbox-tier-grid" role="radiogroup" aria-label={session.text.sandboxPresets} use:tablist={'[role="radio"]'}>
-      {#each SLIDER_LEVELS as level, index (level.id)}
-        {@const selected = !isCustom && sliderIndex === index}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={selected}
-          tabindex={selected || (isCustom && index === 0) ? 0 : -1}
-          class="sandbox-tier-card"
-          class:active={selected}
-          data-tier={level.id}
-          onclick={() => applyLevelByIndex(index)}
-        >
-          <div class="sandbox-tier-card-header">
-            <div class="sandbox-tier-icon-wrap" data-tier={level.id}>
-              {#if level.id === "locked"}
-                <ShieldCheck class="sandbox-tier-icon" size={15} aria-hidden="true" />
-              {:else if level.id === "readonly"}
-                <Globe class="sandbox-tier-icon" size={15} aria-hidden="true" />
-              {:else if level.id === "standard"}
-                <Pen class="sandbox-tier-icon" size={15} aria-hidden="true" />
-              {:else}
-                <LockOpen class="sandbox-tier-icon" size={15} aria-hidden="true" />
-              {/if}
-            </div>
-            <div class="sandbox-tier-title-group">
-              <span class="sandbox-tier-title">{level.title}</span>
-              <span class="sandbox-tier-badge" data-tier={level.id}>{level.badge}</span>
-            </div>
-            {#if selected}
-              <div class="sandbox-tier-check-mark" aria-hidden="true">
-                <Check size={10} />
-              </div>
-            {/if}
-          </div>
-
-          <p class="sandbox-tier-desc">{level.hint}</p>
-
-          <div class="sandbox-tier-tags">
-            <span class="sandbox-tier-tag" title={session.text.sandboxNetwork}>
-              <Globe class="sandbox-pill-icon" size={11} aria-hidden="true" />
-              {level.network}
-            </span>
-            <span class="sandbox-tier-tag" title={session.text.sandboxFilesystem}>
-              <Folder class="sandbox-pill-icon" size={11} aria-hidden="true" />
-              {level.filesystem}
-            </span>
-            <span class="sandbox-tier-tag" title={session.text.sandboxEnvironment}>
-              <TerminalSquare class="sandbox-pill-icon" size={11} aria-hidden="true" />
-              {level.env}
-            </span>
-          </div>
-        </button>
-      {/each}
-    </div>
-
-    <!-- Integrated Spectrum Track Bar -->
-    <div class="sandbox-slider" data-level={isCustom ? "custom" : SLIDER_LEVELS[sliderIndex].id}>
-      <div class="sandbox-spectrum-meta">
-        <span class="sandbox-spectrum-bound">
-          <Shield size={12} aria-hidden="true" />
-          {session.text.sandboxPresetStrictest}
-        </span>
-        <span class="sandbox-spectrum-status">
-          {#if isCustom}
-            <span class="status-badge" data-state="disconnected">{session.text.sandboxPresetCustom}</span>
-          {:else}
-            <span class="sandbox-slider-badge">{SLIDER_LEVELS[sliderIndex].title} · {SLIDER_LEVELS[sliderIndex].badge}</span>
-          {/if}
-        </span>
-        <span class="sandbox-spectrum-bound">
-          {session.text.sandboxPresetPermissive}
-          <Lightning size={12} aria-hidden="true" />
-        </span>
-      </div>
-
-      <div class="sandbox-slider-track-wrap">
-        <div class="sandbox-slider-track" aria-hidden="true"></div>
-        <div
-          class="sandbox-slider-fill"
-          style="width: {isCustom ? '0%' : `${(sliderIndex / (SLIDER_LEVELS.length - 1)) * 100}%`}"
-          aria-hidden="true"
-        ></div>
-        <input
-          class="sandbox-slider-input"
-          type="range"
-          min="0"
-          max={SLIDER_LEVELS.length - 1}
-          step="1"
-          value={isCustom ? 0 : sliderIndex}
-          aria-label={session.text.sandboxPresets}
-          oninput={(event) => applyLevelByIndex(Number(event.currentTarget.value))}
-        />
-        {#each SLIDER_LEVELS as level, index (level.id)}
-          <button
-            class="sandbox-slider-stop"
-            class:active={!isCustom && sliderIndex === index}
-            style="left: {(index / (SLIDER_LEVELS.length - 1)) * 100}%"
-            type="button"
-            aria-label={level.title}
-            aria-pressed={!isCustom && sliderIndex === index}
-            onclick={() => applyLevelByIndex(index)}
-          ></button>
-        {/each}
-      </div>
-    </div>
-
-    <!-- Custom Policy Notice when fine-tuning details below -->
-    {#if isCustom}
-      <div class="sandbox-custom-callout">
-        <div class="sandbox-custom-callout-icon">
-          <Tuning size={15} aria-hidden="true" />
-        </div>
-        <div class="sandbox-custom-callout-text">
-          <strong>{session.text.sandboxPresetCustom}</strong>
-          <p>{session.text.sandboxCustomInEffect}</p>
-        </div>
-        <button
-          type="button"
-          class="secondary-button sandbox-custom-reset-btn"
-          onclick={() => applySandboxPreset("standard")}
-        >
-          {session.text.sandboxResetToStandard}
-        </button>
-      </div>
+  <SettingGroup title={session.text.executionEnvBackend} description={session.text.executionEnvBackendHint}>
+    <SettingRow title={session.text.executionEnvBackendName}>
+      <span class="diag-value"><Shield size={12} style="vertical-align:-2px" aria-hidden="true" /> {backend.name}</span>
+    </SettingRow>
+    <SettingRow title={session.text.sandboxSupported}>
+      <StatusBadge label={backend.supportedPlatform ? session.text.yes : session.text.no} state={backend.supportedPlatform ? "ready" : "error"} />
+    </SettingRow>
+    <SettingRow title={session.text.sandboxDeps}>
+      <StatusBadge label={backend.dependenciesAvailable ? session.text.yes : session.text.no} state={backend.dependenciesAvailable ? "ready" : "error"} />
+    </SettingRow>
+    {#if !backendReady}
+      <SettingRow title={session.text.executionEnvBackendUnavailable}>
+        <span class="diag-value run-history-failed">{session.text.executionEnvBackendUnavailableHint}</span>
+      </SettingRow>
     {/if}
-  </div>
-
-  <SettingGroup title={session.text.sandboxRuntime} contentClass="provider-editor">
-    <SettingRow title={session.text.sandboxEnabled} description={session.text.sandboxEnabledDesc}>
-      <IosSwitch
-        checked={sandboxStore.sandboxEdit.enabled}
-        ariaLabel={session.text.sandboxEnabled}
-        onCheckedChange={(checked) => updateSandboxEdit((draft) => ({ ...draft, enabled: checked }))}
-      />
-    </SettingRow>
-    <SettingRow title={session.text.sandboxInitFailure} description={session.text.sandboxInitFailureHint}>
-      <SelectControl value={sandboxStore.sandboxEdit.initFailureMode} ariaLabel={session.text.sandboxInitFailure} options={[{ value: "block", label: session.text.sandboxInitBlock }]} onChange={(value) => updateSandboxEdit((draft) => ({ ...draft, initFailureMode: value as SandboxEditor["initFailureMode"] }))} />
-    </SettingRow>
-    <SettingRow title={session.text.sandboxEnvInherit} description={session.text.sandboxEnvInheritHint}>
-      <SelectControl value={sandboxStore.sandboxEdit.envInheritMode} ariaLabel={session.text.sandboxEnvInherit} options={[{ value: "minimal", label: session.text.sandboxEnvMinimal }, { value: "allowlist", label: session.text.sandboxEnvAllowlist }, { value: "full", label: session.text.sandboxEnvFull }]} onChange={(value) => updateSandboxEdit((draft) => ({ ...draft, envInheritMode: value as SandboxEditor["envInheritMode"] }))} />
+    <SettingRow title={session.text.executionEnvModeNote}>
+      <span class="diag-value">{session.text.executionEnvModeNoteValue}</span>
     </SettingRow>
   </SettingGroup>
 
-  <SettingGroup title={session.text.sandboxEnvironment} contentClass="provider-editor">
-    <div class="settings-form sandbox-policy-form">
-      <label class="settings-field settings-field-wide"><span>{session.text.sandboxEnvFile}</span><input value={sandboxStore.sandboxEdit.envFilePath} placeholder=".env…" autocomplete="off" spellcheck="false" oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, envFilePath: event.currentTarget.value }))} /><small>{sandboxStore.sandboxEdit.preserveExternalEnvFilePath && !sandboxStore.sandboxEdit.envFilePath ? session.text.sandboxEnvPathExternal : session.text.sandboxEnvPathHint}</small></label>
-      <label class="settings-field"><span>{session.text.sandboxEnvAllow}</span><textarea rows="6" value={sandboxStore.sandboxEdit.envAllowText} placeholder={'OPENAI_API_KEY\nTAVILY_API_KEY\n…'} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, envAllowText: event.currentTarget.value }))}></textarea></label>
-      <label class="settings-field"><span>{session.text.sandboxEnvDeny}</span><textarea rows="6" value={sandboxStore.sandboxEdit.envDenyText} placeholder={'TELEGRAM_BOT_TOKEN\nMOLIBOT_*\n…'} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, envDenyText: event.currentTarget.value }))}></textarea></label>
-    </div>
-  </SettingGroup>
+  <details class="settings-advanced-group">
+    <summary>
+      <ChevronDown class="settings-advanced-chevron" size={14} aria-hidden="true" />
+      {session.text.sandboxAdvanced}
+    </summary>
+    <p class="settings-section-hint">{session.text.sandboxAdvancedHint}</p>
 
-  <div class="sandbox-policy-grid sandbox-policy-stack">
-    <div class="settings-card provider-editor">
-      <div class="provider-editor-toolbar"><div><strong>{session.text.sandboxNetwork}</strong><p>{session.text.sandboxNetworkHint}</p></div></div>
-      <div class="settings-form sandbox-policy-form single-column">
-        <label class="settings-field"><span>{session.text.sandboxNetworkAllow}</span><textarea rows="8" value={sandboxStore.sandboxEdit.networkAllowText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, networkAllowText: event.currentTarget.value }))}></textarea></label>
-        <label class="settings-field"><span>{session.text.sandboxNetworkDeny}</span><textarea rows="4" value={sandboxStore.sandboxEdit.networkDenyText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, networkDenyText: event.currentTarget.value }))}></textarea></label>
+    <SettingGroup title={session.text.sandboxEnvironment} contentClass="provider-editor">
+      <div class="settings-form sandbox-policy-form">
+        <label class="settings-field settings-field-wide"><span>{session.text.sandboxEnvFile}</span><input value={sandboxStore.sandboxEdit.envFilePath} placeholder=".env…" autocomplete="off" spellcheck="false" oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, envFilePath: event.currentTarget.value }))} /><small>{sandboxStore.sandboxEdit.preserveExternalEnvFilePath && !sandboxStore.sandboxEdit.envFilePath ? session.text.sandboxEnvPathExternal : session.text.sandboxEnvPathHint}</small></label>
+        <label class="settings-field"><span>{session.text.sandboxEnvInherit}</span><SelectControl value={sandboxStore.sandboxEdit.envInheritMode} ariaLabel={session.text.sandboxEnvInherit} options={[{ value: "minimal", label: session.text.sandboxEnvMinimal }, { value: "allowlist", label: session.text.sandboxEnvAllowlist }, { value: "full", label: session.text.sandboxEnvFull }]} onChange={(value) => updateSandboxEdit((draft) => ({ ...draft, envInheritMode: value as SandboxEditor["envInheritMode"] }))} /></label>
+        <label class="settings-field"><span>{session.text.sandboxEnvAllow}</span><textarea rows="6" value={sandboxStore.sandboxEdit.envAllowText} placeholder={'OPENAI_API_KEY\nTAVILY_API_KEY\n…'} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, envAllowText: event.currentTarget.value }))}></textarea></label>
+        <label class="settings-field"><span>{session.text.sandboxEnvDeny}</span><textarea rows="6" value={sandboxStore.sandboxEdit.envDenyText} placeholder={'TELEGRAM_BOT_TOKEN\nMOLIBOT_*\n…'} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, envDenyText: event.currentTarget.value }))}></textarea></label>
+      </div>
+    </SettingGroup>
+
+    <div class="sandbox-policy-grid sandbox-policy-stack">
+      <div class="settings-card provider-editor">
+        <div class="provider-editor-toolbar"><div><strong>{session.text.sandboxNetwork}</strong><p>{session.text.sandboxNetworkHint}</p></div></div>
+        <div class="settings-form sandbox-policy-form single-column">
+          <label class="settings-field"><span>{session.text.sandboxNetworkAllow}</span><textarea rows="8" value={sandboxStore.sandboxEdit.networkAllowText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, networkAllowText: event.currentTarget.value }))}></textarea></label>
+          <label class="settings-field"><span>{session.text.sandboxNetworkDeny}</span><textarea rows="4" value={sandboxStore.sandboxEdit.networkDenyText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, networkDenyText: event.currentTarget.value }))}></textarea></label>
+        </div>
+      </div>
+      <div class="settings-card provider-editor">
+        <div class="provider-editor-toolbar"><div><strong>{session.text.sandboxFilesystem}</strong><p>{session.text.sandboxFilesystemHint}</p></div></div>
+        <div class="settings-form sandbox-policy-form single-column">
+          <label class="settings-field"><span>{session.text.sandboxFilesystemAllowWrite}</span><textarea rows="4" value={sandboxStore.sandboxEdit.allowWriteText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, allowWriteText: event.currentTarget.value }))}></textarea></label>
+          <label class="settings-field"><span>{session.text.sandboxFilesystemDenyRead}</span><textarea rows="4" value={sandboxStore.sandboxEdit.denyReadText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, denyReadText: event.currentTarget.value }))}></textarea></label>
+          <label class="settings-field"><span>{session.text.sandboxFilesystemDenyWrite}</span><textarea rows="4" value={sandboxStore.sandboxEdit.denyWriteText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, denyWriteText: event.currentTarget.value }))}></textarea></label>
+        </div>
       </div>
     </div>
-    <div class="settings-card provider-editor">
-      <div class="provider-editor-toolbar"><div><strong>{session.text.sandboxFilesystem}</strong><p>{session.text.sandboxFilesystemHint}</p></div></div>
-      <div class="settings-form sandbox-policy-form single-column">
-        <label class="settings-field"><span>{session.text.sandboxFilesystemAllowWrite}</span><textarea rows="4" value={sandboxStore.sandboxEdit.allowWriteText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, allowWriteText: event.currentTarget.value }))}></textarea></label>
-        <label class="settings-field"><span>{session.text.sandboxFilesystemDenyRead}</span><textarea rows="4" value={sandboxStore.sandboxEdit.denyReadText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, denyReadText: event.currentTarget.value }))}></textarea></label>
-        <label class="settings-field"><span>{session.text.sandboxFilesystemDenyWrite}</span><textarea rows="4" value={sandboxStore.sandboxEdit.denyWriteText} oninput={(event) => updateSandboxEdit((draft) => ({ ...draft, denyWriteText: event.currentTarget.value }))}></textarea></label>
-      </div>
-    </div>
-  </div>
+  </details>
 
   <SettingGroup title={session.text.sandboxDiagnostics} description={session.text.sandboxDiagnosticsHint}>
     <svelte:fragment slot="action">
       <button class="secondary-button" type="button" disabled={sandboxStore.diagnosing} onclick={() => void refreshSandboxDiagnostics()}>{sandboxStore.diagnosing ? session.text.loading : session.text.sandboxRunDiagnostics}</button>
     </svelte:fragment>
-    <SettingRow title={session.text.sandboxSupported}>
-      <StatusBadge label={sandboxStore.sandbox.diagnostics.supportedPlatform ? session.text.yes : session.text.no} state={sandboxStore.sandbox.diagnostics.supportedPlatform ? "ready" : "error"} />
-    </SettingRow>
-    <SettingRow title={session.text.sandboxDeps}>
-      <StatusBadge label={sandboxStore.sandbox.diagnostics.dependenciesAvailable ? session.text.yes : session.text.no} state={sandboxStore.sandbox.diagnostics.dependenciesAvailable ? "ready" : "error"} />
-    </SettingRow>
     <SettingRow title={session.text.sandboxInitialized}>
-      <StatusBadge label={sandboxStore.sandbox.diagnostics.sandboxInitialized ? session.text.yes : sandboxStore.sandbox.enabled ? session.text.no : session.text.sandboxDisabledState} state={!sandboxStore.sandbox.enabled || sandboxStore.sandbox.diagnostics.sandboxInitialized ? "ready" : "error"} />
+      <StatusBadge label={sandboxStore.sandbox.diagnostics.sandboxInitialized ? session.text.yes : session.text.no} state={sandboxStore.sandbox.diagnostics.sandboxInitialized ? "ready" : "error"} />
     </SettingRow>
     {#if sandboxStore.sandbox.diagnostics.sandboxError}
       <SettingRow title={session.text.sandboxError}>

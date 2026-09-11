@@ -804,7 +804,6 @@ export function sanitizeSingleAgent(input: unknown): AgentSettings {
     name: String(item.name ?? "").trim() || id,
     description: String(item.description ?? "").trim(),
     enabled: item.enabled === undefined ? true : Boolean(item.enabled),
-    sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
     permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
     modelRouting: sanitizeAgentModelRouting(item.modelRouting)
   });
@@ -1032,7 +1031,6 @@ export function sanitizeSingleChannelInstance(input: unknown): ChannelInstanceSe
     allowedChatIds: Array.isArray(item.allowedChatIds)
       ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
       : [],
-    sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
     permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
     display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined
   };

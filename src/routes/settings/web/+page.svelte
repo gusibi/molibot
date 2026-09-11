@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
-  import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -21,7 +20,7 @@
     name: string;
     enabled: boolean;
     agentId: string;
-    sandboxEnabled?: boolean;
+    permissionMode?: string;
     profileFiles: Record<string, string>;
     isNew: boolean;
   }
@@ -48,10 +47,13 @@
       idLocked: "创建后 Profile ID 将被锁定，以保持工作区路径和引用稳定。",
       enableLabel: "启用该 Profile 实例",
       enableDesc: "禁用的 Profile 将保留但无法在运行时选择。",
-      sandboxLabel: "沙箱覆盖",
-      sandboxDesc: "覆盖此 Profile 的全局沙箱设置。留空则继承全局设置。",
-      forceOn: "强制开启",
-      forceOff: "强制关闭",
+      permissionModeLabel: "权限模式",
+      permissionModeDesc: "覆盖此 Profile 会话使用的权限模式；继承全局时使用系统默认执行模式。",
+      inheritOption: "继承全局",
+      modePlan: "计划",
+      modeManual: "手动",
+      modeAcceptEdits: "接受修改",
+      modeAuto: "全自动（完全访问）",
       resetBtn: "重置",
       linkedAgentLabel: "关联 Agent",
       noAgentFallback: "无 Agent（仅使用全局兜底）",
@@ -90,10 +92,13 @@
       idLocked: "Profile ID is locked after creation to keep workspace paths and references stable.",
       enableLabel: "Enable this profile instance",
       enableDesc: "Disabled profiles stay saved but are not selectable at runtime.",
-      sandboxLabel: "Sandbox override",
-      sandboxDesc: "Override the global sandbox setting for this profile. Leave unchecked to inherit.",
-      forceOn: "Force ON",
-      forceOff: "Force OFF",
+      permissionModeLabel: "Permission mode",
+      permissionModeDesc: "Overrides the permission mode for this profile's conversations; inherit uses the system default execution mode.",
+      inheritOption: "Inherit global",
+      modePlan: "Plan",
+      modeManual: "Manual",
+      modeAcceptEdits: "Accept edits",
+      modeAuto: "Auto (Full Access)",
       resetBtn: "Reset",
       linkedAgentLabel: "Linked Agent",
       noAgentFallback: "No agent (global fallback only)",
@@ -144,6 +149,7 @@
       name: "",
       enabled: true,
       agentId: "",
+      permissionMode: undefined,
       profileFiles: emptyProfileFiles(),
       isNew: true
     };
@@ -156,6 +162,7 @@
       name: profile.name.trim(),
       enabled: Boolean(profile.enabled),
       agentId: profile.agentId.trim(),
+      permissionMode: profile.permissionMode || undefined,
       profileFiles: Object.fromEntries(
         profileFileNames.map((fileName) => [fileName, String(profile.profileFiles[fileName] ?? "")])
       ),
@@ -202,13 +209,13 @@
             name?: string;
             enabled?: boolean;
             agentId?: string;
-            sandboxEnabled?: boolean;
+            permissionMode?: string;
           }) => ({
             id: profile.id ?? createProfileId(),
             name: profile.name ?? "",
             enabled: profile.enabled ?? true,
             agentId: profile.agentId ?? "",
-            sandboxEnabled: profile.sandboxEnabled,
+            permissionMode: profile.permissionMode,
             profileFiles: emptyProfileFiles(),
             isNew: false
           }))
@@ -328,7 +335,7 @@
             name: normalized.name,
             enabled: normalized.enabled,
             agentId: normalized.agentId,
-            sandboxEnabled: normalized.sandboxEnabled,
+            permissionMode: normalized.permissionMode ?? null,
             credentials: {},
             allowedChatIds: []
           }
@@ -480,36 +487,16 @@
                 <IosSwitch id="web-profile-enabled" bind:checked={selectedProfile.enabled} />
               </div>
 
-              <div class="channel-toggle-row">
-                <div class="channel-toggle-label">
-                  <Label for="web-profile-sandbox">{copy.sandboxLabel}</Label>
-                  <p>{copy.sandboxDesc}</p>
-                </div>
-                <div class="channel-toggle-controls">
-                  {#if selectedProfile.sandboxEnabled !== undefined}
-                    <Badge variant={selectedProfile.sandboxEnabled ? "secondary" : "destructive"}>
-                      {selectedProfile.sandboxEnabled ? copy.forceOn : copy.forceOff}
-                    </Badge>
-                  {/if}
-                  <IosSwitch
-                    id="web-profile-sandbox"
-                    checked={selectedProfile.sandboxEnabled === true}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        selectedProfile.sandboxEnabled = true;
-                      } else if (selectedProfile.sandboxEnabled === true) {
-                        selectedProfile.sandboxEnabled = false;
-                      } else {
-                        selectedProfile.sandboxEnabled = undefined;
-                      }
-                    }}
-                  />
-                  {#if selectedProfile.sandboxEnabled !== undefined}
-                    <Button variant="ghost" size="sm" type="button" onclick={() => { selectedProfile.sandboxEnabled = undefined; }}>
-                      {copy.resetBtn}
-                    </Button>
-                  {/if}
-                </div>
+              <div class="channel-field">
+                <Label for="web-profile-permission-mode">{copy.permissionModeLabel}</Label>
+                <NativeSelect id="web-profile-permission-mode" bind:value={selectedProfile.permissionMode}>
+                  <NativeSelectOption value="">{copy.inheritOption}</NativeSelectOption>
+                  <NativeSelectOption value="plan">{copy.modePlan}</NativeSelectOption>
+                  <NativeSelectOption value="manual">{copy.modeManual}</NativeSelectOption>
+                  <NativeSelectOption value="accept_edits">{copy.modeAcceptEdits}</NativeSelectOption>
+                  <NativeSelectOption value="auto">{copy.modeAuto}</NativeSelectOption>
+                </NativeSelect>
+                <p class="channel-hint">{copy.permissionModeDesc}</p>
               </div>
 
               <div class="channel-field">

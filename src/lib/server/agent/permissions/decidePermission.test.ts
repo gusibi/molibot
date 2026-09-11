@@ -10,10 +10,14 @@ import {
 import type { ToolEffect } from "$lib/server/agent/tools/toolClassification.js";
 
 /**
- * PRD acceptance §1: the full matrix, asserted cell by cell rather than
- * through the implementation's own logic. Writing the table out is the point —
- * a test that recomputes the decision would pass against any bug the
+ * Unified execution-mode spec: the full matrix, asserted cell by cell rather
+ * than through the implementation's own logic. Writing the table out is the
+ * point — a test that recomputes the decision would pass against any bug the
  * implementation has.
+ *
+ * Auto is full access: it allows everything Molibot can gate. Accept edits is
+ * the routine-project-work mode: project writes and sandboxed commands are
+ * automatic, out-of-bounds / host / external effects ask.
  */
 
 const EFFECTS: ToolEffect[] = ["read", "write", "execute", "network", "installed_app", "third_party", "manage"];
@@ -25,28 +29,27 @@ const CASES: Array<Row & { plan: string; manual: string; accept_edits: string; a
   { effect: "read", containment: "not_applicable", plan: "allow", manual: "allow", accept_edits: "allow", auto: "allow" },
 
   { effect: "write", containment: "in_allowed_root", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
-  { effect: "write", containment: "outside_allowed_root", plan: "deny", manual: "ask", accept_edits: "ask", auto: "ask" },
+  { effect: "write", containment: "outside_allowed_root", plan: "deny", manual: "ask", accept_edits: "ask", auto: "allow" },
 
   { effect: "execute", containment: "sandboxed", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
-  { effect: "execute", containment: "host", plan: "deny", manual: "ask", accept_edits: "ask", auto: "ask" },
+  { effect: "execute", containment: "host", plan: "deny", manual: "ask", accept_edits: "ask", auto: "allow" },
   { effect: "execute", containment: "host_granted", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
 
   { effect: "network", containment: "not_applicable", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
 
   // An installed Mini App / pi extension: the owner already approved the
   // install through `manage`, so a non-destructive call is not asked about
-  // again (decision 2026-08-10).
+  // again. The app declaring "this one deletes things" is still asked about in
+  // restricted modes; full access is the owner's standing approval.
   { effect: "installed_app", containment: "not_applicable", hint: "undeclared", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
   { effect: "installed_app", containment: "not_applicable", hint: "read_only", plan: "deny", manual: "ask", accept_edits: "allow", auto: "allow" },
-  // ...but the app declaring "this one deletes things" is not covered by the
-  // install grant.
-  { effect: "installed_app", containment: "not_applicable", hint: "destructive", plan: "deny", manual: "ask", accept_edits: "ask", auto: "ask" },
+  { effect: "installed_app", containment: "not_applicable", hint: "destructive", plan: "deny", manual: "ask", accept_edits: "ask", auto: "allow" },
 
   { effect: "third_party", containment: "not_applicable", hint: "read_only", plan: "deny", manual: "ask", accept_edits: "ask", auto: "allow" },
-  { effect: "third_party", containment: "not_applicable", hint: "undeclared", plan: "deny", manual: "ask", accept_edits: "ask", auto: "ask" },
-  { effect: "third_party", containment: "not_applicable", hint: "destructive", plan: "deny", manual: "ask", accept_edits: "ask", auto: "ask" },
+  { effect: "third_party", containment: "not_applicable", hint: "undeclared", plan: "deny", manual: "ask", accept_edits: "ask", auto: "allow" },
+  { effect: "third_party", containment: "not_applicable", hint: "destructive", plan: "deny", manual: "ask", accept_edits: "ask", auto: "allow" },
 
-  { effect: "manage", containment: "not_applicable", plan: "deny", manual: "ask", accept_edits: "ask", auto: "ask" }
+  { effect: "manage", containment: "not_applicable", plan: "deny", manual: "ask", accept_edits: "ask", auto: "allow" }
 ];
 
 test("decidePermission: the full mode x effect x containment matrix", () => {
@@ -68,12 +71,17 @@ test("decidePermission: the full mode x effect x containment matrix", () => {
   }
 });
 
-test("manage asks in every mode, Auto included", () => {
-  // Installing third-party code is never automatic: the request can come from
-  // content the agent read rather than from the owner (pitfall 21d).
-  for (const mode of PERMISSION_MODES) {
-    const decision = decidePermission({ mode, effect: "manage", containment: "not_applicable" });
-    assert.equal(decision, mode === "plan" ? "deny" : "ask", `manage must never auto-allow in ${mode}`);
+test("Auto never asks and never denies: full access is the product promise", () => {
+  // A mode that still produced permission cards would be the old partial
+  // automation under a new name. Availability, schema validation and
+  // correctness checks are orthogonal and stay out of this matrix.
+  for (const effect of EFFECTS) {
+    for (const containment of ["sandboxed", "host", "host_granted", "in_allowed_root", "outside_allowed_root", "not_applicable"] as Containment[]) {
+      for (const hint of ["read_only", "destructive", "undeclared"] as const) {
+        const decision = decidePermission({ mode: "auto", effect, containment, thirdPartyHint: hint });
+        assert.equal(decision, "allow", `auto/${effect}/${containment}/${hint} must allow`);
+      }
+    }
   }
 });
 
@@ -96,30 +104,30 @@ test("Plan denies everything that is not a local read", () => {
   }
 });
 
-test("an unavailable sandbox is host containment, and host never auto-allows", () => {
-  // pitfall 15: enabled-sandbox failures must fail closed. The call site reports
-  // `host` when the sandbox could not start, so this is the line that stops a
-  // provider error from silently becoming "run it on the host".
-  for (const mode of PERMISSION_MODES) {
+test("restricted modes never auto-allow an unsandboxed command", () => {
+  // pitfall 15: enabled-sandbox failures must fail closed. The call site
+  // reports `host` when the sandbox could not start, so restricted modes gate
+  // it. Auto never consults the sandbox, so the failure mode cannot arise.
+  for (const mode of ["manual", "accept_edits"] as const) {
     const decision = decidePermission({ mode, effect: "execute", containment: "host" });
     assert.notEqual(decision, "allow", `${mode} must not auto-allow an unsandboxed command`);
   }
 });
 
-test("Accept edits and Auto differ on exactly one thing", () => {
-  // If these two modes ever agree on every row, one of them has no reason to
-  // exist and the menu is lying to the user.
-  const differing: string[] = [];
-  for (const row of CASES) {
-    if (row.accept_edits !== row.auto) {
-      differing.push(`${row.effect}/${row.hint ?? row.containment}`);
-    }
-  }
-  assert.deepEqual(
-    differing,
-    ["third_party/read_only"],
-    "Accept edits and Auto must differ on exactly one row, or one of them has no reason to exist"
+test("Accept edits asks for every external effect, Auto allows them all", () => {
+  // The reason both modes exist: Accept edits is project-scoped routine work;
+  // Auto is the owner standing behind every effect the task produces.
+  const externalRows = CASES.filter((row) =>
+    row.effect === "third_party" || row.effect === "manage"
+    || (row.effect === "write" && row.containment === "outside_allowed_root")
+    || (row.effect === "execute" && row.containment === "host")
+    || (row.effect === "installed_app" && row.hint === "destructive")
   );
+  assert.ok(externalRows.length >= 6);
+  for (const row of externalRows) {
+    assert.equal(row.accept_edits, "ask", `accept_edits/${row.effect}`);
+    assert.equal(row.auto, "allow", `auto/${row.effect}`);
+  }
 });
 
 test("an installed app is trusted more than an external MCP server", () => {
@@ -135,34 +143,23 @@ test("an installed app is trusted more than an external MCP server", () => {
   assert.equal(external, "ask");
 });
 
-test("installing is still gated even though calling an installed app is not", () => {
+test("installing is gated in restricted modes", () => {
   // Otherwise the trust would be circular: anything could install itself and
-  // then run freely.
-  for (const mode of ["manual", "accept_edits", "auto"] as const) {
+  // then run freely. Only full access stands behind installs.
+  for (const mode of ["manual", "accept_edits"] as const) {
     assert.equal(decidePermission({ mode, effect: "manage", containment: "not_applicable" }), "ask", mode);
   }
+  assert.equal(decidePermission({ mode: "auto", effect: "manage", containment: "not_applicable" }), "allow");
 });
 
-test("a declared readOnlyHint relaxes only Auto, and destructive always wins", () => {
-  assert.equal(
-    decidePermission({ mode: "auto", effect: "third_party", containment: "not_applicable", thirdPartyHint: "read_only" }),
-    "allow"
-  );
+test("a missing third-party annotation never reads as read-only in Accept edits", () => {
   assert.equal(
     decidePermission({ mode: "accept_edits", effect: "third_party", containment: "not_applicable", thirdPartyHint: "read_only" }),
-    "ask",
-    "the relaxation must not leak below Auto"
-  );
-  assert.equal(
-    decidePermission({ mode: "auto", effect: "third_party", containment: "not_applicable", thirdPartyHint: "destructive" }),
     "ask"
   );
-  // Absent annotation defaults to the safe value even when the field is omitted
-  // entirely, not just when it is explicitly "undeclared".
   assert.equal(
-    decidePermission({ mode: "auto", effect: "third_party", containment: "not_applicable" }),
-    "ask",
-    "a missing annotation is never read as read-only"
+    decidePermission({ mode: "accept_edits", effect: "third_party", containment: "not_applicable" }),
+    "ask"
   );
 });
 

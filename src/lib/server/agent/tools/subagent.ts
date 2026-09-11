@@ -42,8 +42,8 @@ import { createBashTool, type BashToolHostApprovalOptions } from "$lib/server/ag
 import { createEditTool } from "$lib/server/agent/tools/edit.js";
 import { createReadTool } from "$lib/server/agent/tools/read.js";
 import { createWriteTool } from "$lib/server/agent/tools/write.js";
-import { liftSandboxForPermissionMode, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
-import { clampModeForChannel, resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
+import { bindExecutionEnvironment } from "$lib/server/agent/exec/executionBackend.js";
+import { resolveEffectiveExecutionPolicy, type EffectiveExecutionPolicy } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { settleWithCooperativeTimeout } from "$lib/server/agent/core/cooperativeTimeout.js";
 import { ExternalSubagentRuntime } from "#external-subagent";
 import { pluginDataDir } from "$lib/server/plugins/contract/paths.js";
@@ -52,6 +52,7 @@ import {
   isExternalSubagentProviderEnabled,
   resolveExternalSubagentConfig
 } from "$lib/server/plugins/externalSubagent/config.js";
+import { translatePolicyForClaudeCode, translatePolicyForCodex } from "$lib/server/plugins/externalSubagent/policyTranslation.js";
 import {
   evaluateSubagentEvent,
   resolveSubagentBudgetLimits,
@@ -846,43 +847,18 @@ function createBashDefinition(
   settings: RuntimeSettings,
   readOnly: boolean,
   artifactDir?: string,
-  hostApproval?: BashToolHostApprovalOptions
+  hostApproval?: BashToolHostApprovalOptions,
+  executionPolicy?: EffectiveExecutionPolicy
 ): ToolDefinition {
-  const botId = basename(workspaceDir) || "unknown";
-  const resolvedSandboxSettings = resolveEffectiveSandboxSettings({
-    getSettings: () => settings,
-    chatId: hostApproval?.chatId,
-    sessionId: hostApproval?.sessionId,
-    store: hostApproval?.store,
-    channel: hostApproval?.channel,
-    botId
-  });
-  // Same shared Auto-mode linkage as the main tool path (PRD §3.65): a
-  // subagent of an Auto session must not hit narrower sandbox walls than the
-  // parent, or the denial just resurfaces as an approval card from the child.
-  const permissionMode = hostApproval
-    ? clampModeForChannel(
-        resolveEffectivePermissionMode({
-          getSettings: () => settings,
-          chatId: hostApproval.chatId,
-          sessionId: hostApproval.sessionId,
-          store: hostApproval.store,
-          channel: hostApproval.channel,
-          botId
-        }),
-        hostApproval.channel
-      )
-    : undefined;
-  const sandboxSettings = liftSandboxForPermissionMode(resolvedSandboxSettings, permissionMode);
+  // The child inherits the parent attempt's effective policy explicitly —
+  // delegated work follows the parent task's permissions, execution location
+  // included — instead of re-resolving settings that could drift mid-run.
+  const policy = executionPolicy
+    ?? resolveEffectiveExecutionPolicy({ getSettings: () => settings });
   const tool = createBashTool(cwd, {
     artifactDir,
-    hostApproval: hostApproval
-      ? { ...hostApproval, autoApproveSandboxEscalation: permissionMode === "auto" }
-      : undefined,
-    sandbox: {
-      settings: sandboxSettings,
-      workspaceDir
-    }
+    hostApproval,
+    executionTarget: policy.executionTarget
   });
   const schema = Type.Object({
     command: Type.String(),
@@ -918,6 +894,7 @@ function createCustomTools(
     settings: RuntimeSettings;
     artifactDir?: string;
     hostApproval?: BashToolHostApprovalOptions;
+    executionPolicy?: EffectiveExecutionPolicy;
   }
 ): ToolDefinition[] {
   const readOnlyShell = agent.name === "scout" || agent.name === "planner" || agent.name === "reviewer";
@@ -929,7 +906,8 @@ function createCustomTools(
       options.settings,
       readOnlyShell,
       options.artifactDir,
-      options.hostApproval
+      options.hostApproval,
+      options.executionPolicy
     )
   ];
   if (agent.name === "worker") {
@@ -946,6 +924,8 @@ interface RunSingleSubagentOptions {
   settings: RuntimeSettings;
   artifactDir?: string;
   hostApproval?: BashToolHostApprovalOptions;
+  /** The parent attempt's effective execution policy; child work inherits it. */
+  executionPolicy?: EffectiveExecutionPolicy;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
   signal?: AbortSignal;
   subagentSessionId?: string;
@@ -1055,7 +1035,8 @@ async function runSubagentOnce(
     chatId: options.chatId,
     settings: options.settings,
     artifactDir: options.artifactDir,
-    hostApproval: options.hostApproval
+    hostApproval: options.hostApproval,
+    executionPolicy: options.executionPolicy
   });
 
   momLog("runner", "subagent_session_creating", {
@@ -1375,9 +1356,12 @@ async function runSingleSubagent(
     const providerId = agent.name === "claude-code" ? "claude-code" : "codex";
     const pluginSettings = resolveExternalSubagentConfig(options.settings);
     assertExternalSubagentProviderEnabled(pluginSettings, providerId);
+    // The parent task's effective policy governs the external runtime; the
+    // adapter translation reports any mode it cannot honor instead of
+    // waiting on approvals the owner will never see.
     const permissionMode = providerId === "claude-code"
-      ? pluginSettings.claudeCodePermissionMode
-      : pluginSettings.codexPermissionMode;
+      ? translatePolicyForClaudeCode(options.executionPolicy?.mode ?? "accept_edits")
+      : translatePolicyForCodex(options.executionPolicy?.mode ?? "accept_edits");
     const customPath = providerId === "claude-code"
       ? pluginSettings.claudeCodePath
       : pluginSettings.codexPath;
@@ -1544,6 +1528,8 @@ export function createSubagentTool(options: {
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
   runId?: string;
   requestedByDepth?: number;
+  /** The parent attempt's effective execution policy; delegated work inherits it. */
+  executionPolicy?: EffectiveExecutionPolicy;
   /** Restrict delegation roles for read-only contexts such as Plan mode. */
   allowedAgents?: readonly SubagentName[];
   /** Remove tools that a restricted parent mode must not delegate indirectly. */
@@ -1712,6 +1698,7 @@ export function createSubagentTool(options: {
             settings,
             artifactDir: options.artifactDir,
             hostApproval,
+            executionPolicy: options.executionPolicy,
             emitRunnerEvent: options.emitRunnerEvent,
             signal,
             subagentSessionId,

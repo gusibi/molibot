@@ -1206,39 +1206,10 @@ export class MomRuntimeStore {
     return value;
   }
 
-  getSessionSandboxOverride(chatId: string, sessionId?: string): boolean | null {
-    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
-    const val = this.readSessionHeader(chatId, id).preferences?.sandboxOverride;
-    if (val === true) return true;
-    if (val === false) return false;
-    return null;
-  }
-
-  setSessionSandboxOverride(
-    chatId: string,
-    sessionId: string,
-    value: boolean | null
-  ): boolean | null {
-    const id = this.sanitizeSessionId(sessionId);
-    this.updateSessionHeader(chatId, id, (current) => {
-      const nextPreferences = { ...(current.preferences ?? {}) };
-      if (value === null) {
-        delete nextPreferences.sandboxOverride;
-      } else {
-        nextPreferences.sandboxOverride = value;
-      }
-      return {
-        ...current,
-        preferences: Object.keys(nextPreferences).length > 0 ? nextPreferences : undefined
-      };
-    });
-    return value;
-  }
-
   /**
-   * Session-scoped permission mode. Stored beside `sandboxOverride` in the same
-   * preferences container: they are the two axes of one decision and share the
-   * override chain, so one round-trip covers both.
+   * Session-scoped permission mode — the one session-scoped execution control.
+   * The sandbox has no session override: whether it participates follows the
+   * effective mode.
    *
    * An unrecognized persisted value resolves to `null` (fall through to the
    * default) rather than being handed back as a mode — a settings file written

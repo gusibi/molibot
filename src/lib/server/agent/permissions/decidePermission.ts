@@ -1,13 +1,15 @@
 import type { ThirdPartyHint, ToolEffect } from "$lib/server/agent/tools/toolClassification.js";
 
 /**
- * Session-scoped permission modes: whether to ask the user, decoupled from the
- * sandbox, which governs what a call can touch.
+ * The one set of execution permission modes, shared by the settings default and
+ * the conversation-window override. Strictly monotone: Plan ⊂ Manual ⊂ Accept
+ * edits ⊂ Auto.
  *
- * Strictly monotone: Plan ⊂ Manual ⊂ Accept edits ⊂ Auto. There is deliberately
- * no Bypass — the "stop asking me" need is served by Auto plus an owner-scoped
- * persistent grant, which consents to a *specific command* rather than
- * abandoning the gate for a whole session (Permission Modes PRD §70).
+ * Auto means **full access**: every Molibot execution-approval gate is removed
+ * for the active task and commands run directly on the host — no sandbox first,
+ * no approval card, no `waiting_for_approval` for a newly dispatched operation.
+ * It covers exactly what Molibot itself can gate; it does not grant OS
+ * privileges, third-party account authorization, or disabled capabilities.
  */
 export type PermissionMode = "plan" | "manual" | "accept_edits" | "auto";
 
@@ -54,17 +56,20 @@ export interface DecidePermissionInput {
  * standing up a runtime — the previous gate was an anonymous closure inside
  * `tools/index.ts` and could not be tested at all.
  *
- * Three rules hold across every row and are asserted individually in the tests,
+ * Rules that hold across every row and are asserted individually in the tests,
  * because each one is a place a future edit would plausibly get wrong:
  *
- * 1. **`manage` always asks, including in Auto.** It downloads and executes
- *    third-party code, and "install this plugin" can arrive in content the
- *    agent read rather than from the owner (CLAUDE.md pitfall 21d).
- * 2. **`deny` only ever appears in Plan.** Everywhere else "not allowed" is
+ * 1. **`deny` only ever appears in Plan.** Everywhere else "not allowed" is
  *    expressed as `ask`, so the user always has a way through.
- * 3. **An unavailable sandbox never downgrades to `allow`.** The call site
- *    reports `host` containment when the sandbox could not start, and `host`
- *    is gated (CLAUDE.md pitfall 15 — enabled sandbox must fail closed).
+ * 2. **Auto never asks and never denies.** Full access is the product promise:
+ *    a mode that still produced permission cards would be the old partial
+ *    automation under a new name. Tool availability, schema validation and
+ *    correctness checks are orthogonal and keep working.
+ * 3. **An unavailable sandbox never downgrades a restricted mode to `allow`.**
+ *    The call site reports `host` containment when the sandbox could not
+ *    start, and restricted modes gate host execution (CLAUDE.md pitfall 15 —
+ *    enabled sandbox must fail closed). Auto does not consult the sandbox at
+ *    all, so the failure mode cannot arise there.
  */
 export function decidePermission(input: DecidePermissionInput): PermissionDecision {
   const { mode, effect, containment } = input;
@@ -85,18 +90,25 @@ export function decidePermission(input: DecidePermissionInput): PermissionDecisi
   // Manual asks before every effect that is not a plain local read.
   if (mode === "manual") return "ask";
 
-  if (effect === "manage") return "ask"; // rule 1, in both remaining modes
+  // Auto is full access: host commands, file operations, MCP, installations and
+  // third-party calls all run without a Molibot approval card (rule 2).
+  if (mode === "auto") return "allow";
 
   switch (effect) {
+    case "manage":
+      // Downloads and executes third-party code. Restricted modes ask: "install
+      // this plugin" can arrive in content the agent read rather than from the
+      // owner (CLAUDE.md pitfall 21d).
+      return "ask";
+
     case "write":
       // Accept edits is exactly this line: writes inside a root the operator
-      // allows are automatic. Outside, both modes still ask — Auto is not
-      // "write anywhere".
+      // allows are automatic. Outside, it still asks.
       return containment === "in_allowed_root" ? "allow" : "ask";
 
     case "execute":
-      // Sandboxed or already granted is routine; a bare host escape is not, in
-      // either mode. `host` also covers "the sandbox failed to start" (rule 3).
+      // Sandboxed or already granted is routine; a bare host escape is not.
+      // `host` also covers "the sandbox failed to start" (rule 3).
       return containment === "sandboxed" || containment === "host_granted" ? "allow" : "ask";
 
     case "network":
@@ -104,20 +116,16 @@ export function decidePermission(input: DecidePermissionInput): PermissionDecisi
 
     case "installed_app":
       // The owner installed this code deliberately, and that install was itself
-      // gated by `manage` (which asks in every mode). A destructive call is
-      // still asked about: `destructiveHint` is the app saying "this one
-      // deletes things", and an install grant does not cover that.
+      // gated by `manage`. A destructive call is still asked about:
+      // `destructiveHint` is the app saying "this one deletes things", and an
+      // install grant does not cover that.
       return hint === "destructive" ? "ask" : "allow";
 
     case "third_party":
-      // The one difference between Accept edits and Auto (PRD §79), so both
-      // modes have a reason to exist rather than differing by feel.
-      //
-      // Auto may auto-allow a call the server itself declared read-only
-      // (decision 3, 2026-08-10). `destructive` and `undeclared` still ask: a
-      // missing annotation is not evidence of anything, and a contradictory
-      // pair was already resolved to `destructive` upstream.
-      if (mode === "auto" && hint === "read_only") return "allow";
+      // The one axis Accept edits is conservative about: a server-declared
+      // read-only call is still an external integration the owner has not
+      // blessed for unattended effects. `destructive` and `undeclared` ask all
+      // the more: a missing annotation is not evidence of anything.
       return "ask";
 
     default: {

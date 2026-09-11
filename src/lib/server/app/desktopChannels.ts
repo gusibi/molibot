@@ -41,7 +41,7 @@ export function buildDesktopChannelInstance(
     agentId: instance.agentId ?? "",
     allowedChatCount: Array.isArray(instance.allowedChatIds) ? instance.allowedChatIds.length : 0,
     allowedChatIds: Array.isArray(instance.allowedChatIds) ? instance.allowedChatIds.map(String) : [],
-    sandboxEnabled: instance.sandboxEnabled === undefined ? null : Boolean(instance.sandboxEnabled),
+    permissionMode: instance.permissionMode ?? null,
     fields: Object.fromEntries(policy.visible.map((key) => [key, String(credentials[key] ?? "")])) ,
     configuredSecrets: policy.secret.filter((key) => String(credentials[key] ?? "").trim().length > 0)
   };
@@ -94,7 +94,7 @@ export function saveDesktopChannelInstance(settings: RuntimeSettings, request: D
     name: String(request.name ?? "").trim() || id,
     enabled: request.enabled !== false,
     agentId,
-    sandboxEnabled: request.sandboxEnabled === null ? undefined : Boolean(request.sandboxEnabled),
+    permissionMode: request.permissionMode === null ? undefined : request.permissionMode,
     credentials,
     allowedChatIds: Array.from(new Set((request.allowedChatIds ?? []).map((value) => String(value).trim()).filter(Boolean)))
   };

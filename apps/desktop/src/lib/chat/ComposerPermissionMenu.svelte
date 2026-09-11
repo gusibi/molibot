@@ -21,6 +21,8 @@
   export let value: PermissionModeOption = "accept_edits";
   export let options: readonly PermissionModeOption[] = [];
   export let disabled = false;
+  /** Where the effective mode comes from; the footer says "inherited from …" when not overridden here. */
+  export let source: "session" | "project" | "instance" | "agent" | "global" = "global";
   export let onChange: (value: PermissionModeOption) => void;
 
   let root: HTMLDetailsElement;
@@ -29,6 +31,13 @@
 
   $: label = modeLabel(value);
   $: TriggerIcon = modeIcon(value);
+  $: sourceLabel = {
+    session: copy.permissionModeSourceSession,
+    project: copy.permissionModeSourceProject,
+    instance: copy.permissionModeSourceInstance,
+    agent: copy.permissionModeSourceAgent,
+    global: copy.permissionModeSourceGlobal
+  }[source];
 
   function modeLabel(mode: PermissionModeOption): string {
     return {
@@ -130,6 +139,7 @@
           </button>
         {/each}
       </div>
+      <div class="composer-permission-source">{sourceLabel}</div>
     </div>
   {/if}
 </details>

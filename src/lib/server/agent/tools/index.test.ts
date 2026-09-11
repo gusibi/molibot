@@ -192,3 +192,94 @@ test("Plan mode exposes a role-restricted subagent without the write-capable run
     /scopedTools\.filter\(\(tool\) => tool\.name === "subagent"\)/
   );
 });
+
+// ---------------------------------------------------------------------------
+// Unified execution modes: third-party (MCP) tools through the real ToolRuntime.
+// ---------------------------------------------------------------------------
+
+test("a non-read MCP operation runs without an approval card in full access and asks in accept edits", async () => {
+  const { createMomTools } = await import("$lib/server/agent/tools/index.js");
+  const { getApprovalBroker } = await import("$lib/server/approval/approvalBroker.js");
+  const { MomRuntimeStore } = await import("$lib/server/agent/session/store.js");
+  const { defaultRuntimeSettings } = await import("$lib/server/settings/defaults.js");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { storagePaths } = await import("$lib/server/infra/db/storage.js");
+
+  // The approval broker persists to settings.sqlite; point it at a temporary
+  // database before the singleton is first constructed so this test neither
+  // reads nor writes the real one, and leftovers cannot leak between runs.
+  const isolationRoot = mkdtempSync(join(tmpdir(), "molibot-tools-mcp-db-"));
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsDbFile = join(isolationRoot, "settings.sqlite");
+
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-tools-mcp-"));
+  const store = new MomRuntimeStore(workspaceDir);
+  const executions: Array<Record<string, unknown>> = [];
+  const fakeMcpTool = {
+    name: "mcp__srv__query",
+    label: "mcp__srv__query",
+    description: "Fictitious MCP tool with non-read effects.",
+    parameters: { type: "object", additionalProperties: true },
+    execute: async (_toolCallId: string, params: Record<string, unknown>) => {
+      executions.push(params);
+      return { content: [{ type: "text", text: "mcp executed" }] };
+    }
+  };
+
+  const baseSettings = {
+    ...defaultRuntimeSettings,
+    permissionMode: "manual" as const
+  };
+
+  const buildTools = (mode: "manual" | "auto") => {
+    return createMomTools({
+      channel: "web",
+      cwd: workspaceDir,
+      workspaceDir,
+      chatId: "chat-mcp",
+      sessionId: "session-mcp",
+      timezone: "UTC",
+      store,
+      memory: {
+        syncExternalMemories: async () => {},
+        createProfileTurnSnapshot: async () => ({ fingerprint: "profile", items: [] }),
+        createPromptSnapshot: async () => ({ createdAt: "", fingerprint: "", query: "", promptText: "", selected: [], longTerm: [], daily: [] })
+      } as never,
+      getSettings: () => ({ ...baseSettings, permissionMode: mode }) as never,
+      updateSettings: (patch) => ({ ...baseSettings, ...patch }) as never,
+      getSelectedMcpServerIds: () => new Set<string>(),
+      setSelectedMcpServerIds: () => {},
+      getLoadedMcpTools: () => [fakeMcpTool] as never,
+      refreshLoadedMcpTools: async () => ({ statuses: [], toolCount: 1 }),
+      uploadFile: async () => {}
+    });
+  };
+
+  const prepare = (mode: "manual" | "auto") => {
+    const tools = buildTools(mode);
+    const wrapTool = (tools as unknown as { wrapTool: (tool: unknown) => { execute: (id: string, params: unknown) => Promise<{ error?: string; details?: { status?: string } }> } }).wrapTool;
+    return wrapTool(fakeMcpTool);
+  };
+
+  try {
+    // Full access: the non-read MCP call goes straight through.
+    const autoTool = prepare("auto");
+    const autoResult = await autoTool.execute("tc-auto", { serverId: "srv", toolName: "query" });
+    assert.equal(autoResult.error, undefined);
+    assert.equal(executions.length, 1, "the MCP tool executed exactly once");
+    assert.equal(getApprovalBroker().listPendingRequests().filter((r) => r.sessionId === "session-mcp").length, 0, "no approval request in full access");
+
+    // Accept edits: the same call raises an approval request instead.
+    executions.length = 0;
+    const restrictedTool = prepare("accept_edits");
+    const restrictedResult = await restrictedTool.execute("tc-restricted", { serverId: "srv", toolName: "query" });
+    assert.match(String(restrictedResult.error ?? ""), /approval/i);
+    assert.equal(executions.length, 0, "the restricted call has not executed");
+    assert.equal(getApprovalBroker().listPendingRequests().filter((r) => r.sessionId === "session-mcp").length, 1, "exactly one approval request exists");
+  } finally {
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(isolationRoot, { recursive: true, force: true });
+  }
+});

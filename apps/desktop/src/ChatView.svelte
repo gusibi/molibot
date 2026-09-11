@@ -89,8 +89,10 @@
   } from "./lib/api";
 
   type PermissionMode = "plan" | "manual" | "accept_edits" | "auto";
+  type PermissionSource = "session" | "project" | "instance" | "agent" | "global";
   const permissionModeOptions: readonly PermissionMode[] = ["plan", "manual", "accept_edits", "auto"];
   let permissionMode: PermissionMode = "accept_edits";
+  let permissionModeSource: PermissionSource = "global";
   let draftPermissionMode: PermissionMode = "accept_edits";
   const sessionPermissionModes = new Map<string, PermissionMode>();
   let permissionHydrationSession = "";
@@ -1130,6 +1132,7 @@
       publishSessionPlan(resolved.plan);
       if (decision === "accept" && chatStore.registry.active === entry) {
         permissionMode = resolved.mode;
+        permissionModeSource = "session";
         sessionPlanInspector.set({
           plan: resolved.plan,
           complete: () => void resolvePlan(message, resolved.plan, "complete")
@@ -1355,9 +1358,12 @@
     permissionHydrationSession = activeSessionId;
     const cached = sessionPermissionModes.get(activeSessionId);
     if (cached) permissionMode = cached;
-    else void loadDesktopSessionPermission(connectedEndpoint, activeProfileId, activeSessionId).then((mode) => {
+    else void loadDesktopSessionPermission(connectedEndpoint, activeProfileId, activeSessionId).then(({ mode, source }) => {
       sessionPermissionModes.set(activeSessionId, mode);
-      if (activeSessionId === permissionHydrationSession) permissionMode = mode;
+      if (activeSessionId === permissionHydrationSession) {
+        permissionMode = mode;
+        permissionModeSource = source;
+      }
     }).catch(() => undefined);
   }
 
@@ -3396,6 +3402,7 @@
         onChangeThinking={changeThinking}
         {permissionMode}
         {permissionModeOptions}
+        permissionModeSource={permissionModeSource}
         onChangePermissionMode={changePermissionMode}
       >
         <svelte:fragment slot="mention">

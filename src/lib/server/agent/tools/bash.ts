@@ -2,8 +2,6 @@ import { existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { config } from "$lib/server/app/env.js";
-import type { ToolSandboxSettings } from "$lib/server/settings/index.js";
 import type {
   ApprovedHostBashEntry,
   HostBashCommandClassification,
@@ -18,12 +16,10 @@ import {
   sanitizeHostBashId
 } from "$lib/server/hostBash/index.js";
 import { executeApprovedHostBash, executeHostBashApproval } from "$lib/server/agent/hostBashExec.js";
-import { momWarn } from "$lib/server/agent/common/log.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { pollUntilResolved, type PollOutcome } from "$lib/server/approval/approvalWaiter.js";
 import { APPROVAL_INLINE_HANDSHAKE_WINDOW_MS, buildApprovalSuspensionResult } from "$lib/server/approval/suspendedResult.js";
-import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi, wrapCommandWithVenv, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
-import { prepareToolSandboxExecution } from "$lib/server/agent/tools/sandbox.js";
+import { execCommand, normalizeCommandOutput, stripAnsi, wrapCommandWithVenv, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
 import { buildTempOutputPath as buildSpillPath } from "$lib/server/agent/tools/outputSpill.js";
 import type { ToolDefinition, ToolExecutionContext, ToolResult } from "$lib/server/agent/tools/toolTypes.js";
@@ -75,11 +71,6 @@ interface ParsedHostBashCommand {
   classification: HostBashCommandClassification;
 }
 
-export interface BashToolSandboxOptions {
-  settings: ToolSandboxSettings;
-  workspaceDir: string;
-}
-
 export interface BashToolHostApprovalOptions {
   channel: string;
   chatId: string;
@@ -90,8 +81,6 @@ export interface BashToolHostApprovalOptions {
   runId?: string;
   store: MomRuntimeStore;
   ignoreSessionApprovalMode?: boolean;
-  /** Auto permission mode: sandbox-denial escalation auto-approves instead of asking (PRD §3.65). */
-  autoApproveSandboxEscalation?: boolean;
   hostBashStore?: HostBashStore;
   requestedByDepth?: number;
   approvalWaitTimeoutMs?: number;
@@ -632,12 +621,19 @@ export function getBashToolDefinition(
     artifactDir?: string;
     relocateRootArtifacts?: boolean;
     toolOutputDir?: string;
-    sandbox?: BashToolSandboxOptions;
+    /**
+     * Where this attempt's commands run, decided by the effective execution
+     * policy. `"host"` (full access) bypasses the whole approval apparatus:
+     * no grant lookup, no sandbox, no approval card — the command runs
+     * directly and reports its real outcome.
+     */
+    executionTarget?: "sandbox" | "host" | "none";
     hostApproval?: BashToolHostApprovalOptions;
   }
 ): ToolDefinition {
   const artifactDir = options.artifactDir?.trim();
   const relocateRootArtifacts = options.relocateRootArtifacts !== false;
+  const hostFullAccess = options.executionTarget === "host";
   return {
     id: "bash",
     name: "bash",
@@ -649,15 +645,16 @@ export function getBashToolDefinition(
     sideEffectClass: "non_idempotent",
     handler: async (params: any, ctx) => {
       const hostBashStore = options.hostApproval?.hostBashStore ?? getHostBashStore();
-      const hostBashClassification = options.hostApproval
-        ? classifyHostBashCommand(params.command)
-        : null;
-      const parsedHostBashCommand = options.hostApproval
-        ? tryParseHostBashCommand(params.command)
-        : null;
-      const approvedHostBash = options.hostApproval
-        ? findApprovedHostBash(hostBashStore, parsedHostBashCommand, options.hostApproval.owner)
-        : undefined;
+      const parsedHostBashCommand = hostFullAccess
+        ? null
+        : options.hostApproval
+          ? tryParseHostBashCommand(params.command)
+          : null;
+      const approvedHostBash = hostFullAccess
+        ? undefined
+        : options.hostApproval
+          ? findApprovedHostBash(hostBashStore, parsedHostBashCommand, options.hostApproval.owner)
+          : undefined;
 
       if (approvedHostBash && parsedHostBashCommand) {
         const executed = await executeApprovedHostBash({
@@ -674,7 +671,6 @@ export function getBashToolDefinition(
         };
       }
 
-      const hostFullAccess = options.sandbox?.settings.enabled === false;
       if (params.hostApproval && !hostFullAccess) {
         if (!options.hostApproval) {
           return { ok: false, error: "Host Bash approval is not configured for this bash tool instance." };
@@ -750,13 +746,15 @@ export function getBashToolDefinition(
       if (result.exitCode !== 0) {
         let errorBody = `${rendered}\n\nCommand exited with code ${result.exitCode}`.trim();
         if (result.sandboxApplied && options.hostApproval && isSandboxPermissionFailure(rendered)) {
+          // Session-approved host fallback only. Full access never gets here —
+          // it executes on the host in the first place, so there is no sandbox
+          // denial to re-run after — and restricted modes ask through the Host
+          // Bash approval card below.
           const sessionApproved =
             !options.hostApproval.ignoreSessionApprovalMode
             && options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session";
-          const autoApproved = options.hostApproval.autoApproveSandboxEscalation === true;
-          if (sessionApproved || autoApproved) {
-            const wrappedCommand = wrapCommandWithVenv(params.command);
-            const fallbackResult = await execCommand(wrappedCommand, {
+          if (sessionApproved) {
+            const fallbackResult = await execCommand(wrapCommandWithVenv(params.command), {
               cwd: ctx.cwd,
               timeoutSeconds: params.timeout,
               inheritProcessEnv: true
@@ -776,9 +774,7 @@ export function getBashToolDefinition(
                 ...details,
                 hostBash: true,
                 sandboxApplied: false,
-                sandboxWarning: sessionApproved
-                  ? "Sandbox blocked this command. Re-ran with session-approved host bash fallback."
-                  : "Sandbox blocked this command. Re-ran on host: Auto mode auto-approves sandbox denials."
+                sandboxWarning: "Sandbox blocked this command. Re-ran with session-approved host bash fallback."
               },
               fallbackMovedArtifacts
             );
@@ -787,7 +783,7 @@ export function getBashToolDefinition(
             }
             return {
               ok: true,
-              content: [{ type: "text", text: `${fallbackBuilt.rendered}\n\n[${sessionApproved ? "SESSION" : "AUTO"}] Sandbox was bypassed for this session after a permission denial.`.trim() }],
+              content: [{ type: "text", text: `${fallbackBuilt.rendered}\n\n[SESSION] Sandbox was bypassed for this session after a permission denial.`.trim() }],
               details: fallbackBuilt.details
             };
           }
@@ -813,9 +809,12 @@ export function getBashToolDefinition(
               waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs
             });
           }
-          const reason = hostBashClassification?.kind === "one-time-script"
-            ? hostBashClassification.reason
-            : "Automatic approval could not reduce this command to a reusable Host Bash capability.";
+          const reason = (() => {
+            const classification = classifyHostBashCommand(params.command);
+            return classification.kind === "one-time-script"
+              ? classification.reason
+              : "Automatic approval could not reduce this command to a reusable Host Bash capability.";
+          })();
           errorBody += `\n\n[SANDBOX] This command appears to need host-level access, but automatic approval kept it as one-time only: ${reason}`;
         } else if (result.sandboxApplied) {
           errorBody += "\n\n[SANDBOX] This command ran inside the OS sandbox. If it failed due to filesystem or network restrictions (e.g. \"Operation not permitted\", \"Permission denied\", socket/IPC errors), request host access through `bash` with `hostApproval.reason`. Once approved, runtime will execute the stored host action automatically. Do not retry the same command through plain bash.";
@@ -836,7 +835,7 @@ export function createBashTool(cwd: string, options?: {
   artifactDir?: string;
   relocateRootArtifacts?: boolean;
   toolOutputDir?: string;
-  sandbox?: BashToolSandboxOptions;
+  executionTarget?: "sandbox" | "host" | "none";
   hostApproval?: BashToolHostApprovalOptions;
 }): AgentTool<typeof bashSchema> {
   const def = getBashToolDefinition({ cwd, ...options });

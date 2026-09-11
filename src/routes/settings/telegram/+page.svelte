@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
-  import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -24,7 +23,7 @@
     agentId: string;
     token: string;
     allowedChatIds: string;
-    sandboxEnabled?: boolean;
+    permissionMode?: string;
     profileFiles: Record<string, string>;
     isNew: boolean;
   }
@@ -54,10 +53,13 @@
       streamDesc: "实时流式传输 Agent 响应。默认开启。",
       linkedAgentLabel: "关联 Agent",
       noAgentFallback: "无 Agent（仅使用全局兜底）",
-      sandboxLabel: "沙箱覆盖",
-      sandboxDesc: "覆盖此 Bot 的全局沙箱设置。留空则继承全局设置。",
-      forceOn: "强制开启",
-      forceOff: "强制关闭",
+      permissionModeLabel: "权限模式",
+      permissionModeDesc: "覆盖此 Bot 会话使用的权限模式；继承全局时使用系统默认执行模式。",
+      inheritOption: "继承全局",
+      modePlan: "计划",
+      modeManual: "手动",
+      modeAcceptEdits: "接受修改",
+      modeAuto: "全自动（完全访问）",
       resetBtn: "重置",
       tokenLabel: "Bot Token",
       show: "显示",
@@ -98,10 +100,13 @@
       streamDesc: "Stream agent responses in real-time. Default on.",
       linkedAgentLabel: "Linked Agent",
       noAgentFallback: "No agent (global fallback only)",
-      sandboxLabel: "Sandbox override",
-      sandboxDesc: "Override the global sandbox setting for this bot. Leave unchecked to inherit.",
-      forceOn: "Force ON",
-      forceOff: "Force OFF",
+      permissionModeLabel: "Permission mode",
+      permissionModeDesc: "Overrides the permission mode for this bot's conversations; inherit uses the system default execution mode.",
+      inheritOption: "Inherit global",
+      modePlan: "Plan",
+      modeManual: "Manual",
+      modeAcceptEdits: "Accept edits",
+      modeAuto: "Auto (Full Access)",
       resetBtn: "Reset",
       tokenLabel: "Bot token",
       show: "Show",
@@ -155,7 +160,7 @@
       agentId: "",
       token: "",
       allowedChatIds: "",
-      sandboxEnabled: undefined,
+      permissionMode: undefined,
       profileFiles: emptyBotFiles(),
       isNew: true
     };
@@ -175,7 +180,7 @@
         .map((v) => v.trim())
         .filter(Boolean)
         .join(","),
-      sandboxEnabled: bot.sandboxEnabled,
+      permissionMode: bot.permissionMode || undefined,
       profileFiles: Object.fromEntries(
         botFileNames.map((fileName) => [fileName, String(bot.profileFiles[fileName] ?? "")])
       ),
@@ -224,7 +229,7 @@
             agentId?: string;
             credentials?: { token?: string; streamOutput?: string };
             allowedChatIds?: string[];
-            sandboxEnabled?: boolean;
+            permissionMode?: string;
           }) => ({
             id: bot.id ?? createBotId(),
             name: bot.name ?? "",
@@ -233,7 +238,7 @@
             agentId: bot.agentId ?? "",
             token: bot.credentials?.token ?? "",
             allowedChatIds: (bot.allowedChatIds ?? []).join(","),
-            sandboxEnabled: bot.sandboxEnabled,
+            permissionMode: bot.permissionMode,
             profileFiles: emptyBotFiles(),
             isNew: false
           }))
@@ -352,7 +357,7 @@
             name: normalized.name,
             enabled: normalized.enabled,
             agentId: normalized.agentId,
-            sandboxEnabled: selected.sandboxEnabled,
+            permissionMode: selected.permissionMode ?? null,
             credentials: { token: normalized.token, streamOutput: String(normalized.streamOutput) },
             allowedChatIds: normalized.allowedChatIds
               .split(",")
@@ -512,36 +517,16 @@
                 </NativeSelect>
               </div>
 
-              <div class="channel-toggle-row">
-                <div class="channel-toggle-label">
-                  <Label for="tg-sandbox">{copy.sandboxLabel}</Label>
-                  <p>{copy.sandboxDesc}</p>
-                </div>
-                <div class="channel-toggle-controls">
-                  {#if selectedBot.sandboxEnabled !== undefined}
-                    <Badge variant={selectedBot.sandboxEnabled ? "secondary" : "destructive"}>
-                      {selectedBot.sandboxEnabled ? copy.forceOn : copy.forceOff}
-                    </Badge>
-                  {/if}
-                  <IosSwitch
-                    id="tg-sandbox"
-                    checked={selectedBot.sandboxEnabled === true}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        selectedBot.sandboxEnabled = true;
-                      } else if (selectedBot.sandboxEnabled === true) {
-                        selectedBot.sandboxEnabled = false;
-                      } else {
-                        selectedBot.sandboxEnabled = undefined;
-                      }
-                    }}
-                  />
-                  {#if selectedBot.sandboxEnabled !== undefined}
-                    <Button variant="ghost" size="sm" type="button" onclick={() => { selectedBot.sandboxEnabled = undefined; }}>
-                      {copy.resetBtn}
-                    </Button>
-                  {/if}
-                </div>
+              <div class="channel-field">
+                <Label for="tg-permission-mode">{copy.permissionModeLabel}</Label>
+                <NativeSelect id="tg-permission-mode" bind:value={selectedBot.permissionMode}>
+                  <NativeSelectOption value="">{copy.inheritOption}</NativeSelectOption>
+                  <NativeSelectOption value="plan">{copy.modePlan}</NativeSelectOption>
+                  <NativeSelectOption value="manual">{copy.modeManual}</NativeSelectOption>
+                  <NativeSelectOption value="accept_edits">{copy.modeAcceptEdits}</NativeSelectOption>
+                  <NativeSelectOption value="auto">{copy.modeAuto}</NativeSelectOption>
+                </NativeSelect>
+                <p class="channel-hint">{copy.permissionModeDesc}</p>
               </div>
 
               <div class="channel-field">

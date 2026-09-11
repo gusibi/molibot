@@ -16,7 +16,7 @@ function instance(overrides: Partial<ChannelInstanceSettings> = {}): ChannelInst
     agentId: "default",
     credentials: { token: "123456:SECRET-BOT-TOKEN", appSecret: "sk-secret-app" },
     allowedChatIds: ["chat-1", "chat-2"],
-    sandboxEnabled: true,
+    permissionMode: "manual",
     ...overrides
   } as ChannelInstanceSettings;
 }
@@ -30,7 +30,7 @@ test("buildDesktopChannelInstance drops secret values and exposes editable non-s
   assert.equal(item.agentId, "default");
   assert.equal(item.allowedChatCount, 2);
   assert.deepEqual(item.allowedChatIds, ["chat-1", "chat-2"]);
-  assert.equal(item.sandboxEnabled, true);
+  assert.equal(item.permissionMode, "manual");
 
   const serialized = JSON.stringify(item);
   assert.equal(serialized.includes("SECRET-BOT-TOKEN"), false);
@@ -46,14 +46,14 @@ test("channel save preserves omitted secrets, replaces explicit secrets, and nor
   } as unknown as RuntimeSettings;
   const saved = saveDesktopChannelInstance(settings, {
     channel: "telegram", previousId: "default", id: "default", name: "Updated", enabled: true,
-    agentId: "default", sandboxEnabled: null, allowedChatIds: [" chat-1 ", "chat-1", "chat-2"],
+    agentId: "default", permissionMode: null, allowedChatIds: [" chat-1 ", "chat-1", "chat-2"],
     fields: { streamOutput: "false" }
   });
   assert.equal(saved[0].credentials.token, "old-secret");
   assert.equal(saved[0].credentials.streamOutput, "false");
   assert.deepEqual(saved[0].allowedChatIds, ["chat-1", "chat-2"]);
   const replaced = saveDesktopChannelInstance({ ...settings, channels: { telegram: { instances: saved } } } as RuntimeSettings, {
-    channel: "telegram", id: "default", name: "Updated", enabled: true, agentId: "default", sandboxEnabled: null,
+    channel: "telegram", id: "default", name: "Updated", enabled: true, agentId: "default", permissionMode: null,
     allowedChatIds: [], fields: { streamOutput: "true" }, secretValues: { token: "new-secret" }
   });
   assert.equal(replaced[0].credentials.token, "new-secret");
@@ -82,8 +82,8 @@ test("buildDesktopChannelsSummary excludes web, orders known channels, and count
   assert.equal(JSON.stringify(summary).includes("SECRET-BOT-TOKEN"), false);
 });
 
-test("buildDesktopChannelInstance treats missing sandbox override as inherited", () => {
-  const item = buildDesktopChannelInstance(instance({ sandboxEnabled: undefined, allowedChatIds: [] }));
-  assert.equal(item.sandboxEnabled, null);
+test("buildDesktopChannelInstance treats missing mode override as inherited", () => {
+  const item = buildDesktopChannelInstance(instance({ permissionMode: undefined, allowedChatIds: [] }));
+  assert.equal(item.permissionMode, null);
   assert.equal(item.allowedChatCount, 0);
 });

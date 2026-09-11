@@ -11,9 +11,9 @@ import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
  * The rule is save → *fresh store* → load, against a temporary directory: a
  * getter that reads back from the same in-process instance proves nothing about
  * what survives a restart, and narrow serialization is exactly how a field
- * silently resets. `sandboxOverride` had no coverage at all before this file;
- * `permissionModeOverride` is added next to it because the two share a
- * container, an override chain and a failure mode.
+ * silently resets. `permissionModeOverride` is the one session-scoped
+ * execution control: the sandbox has no session override, because whether it
+ * participates follows the effective mode.
  */
 
 function withStore(fn: (store: MomRuntimeStore, dir: string) => void): void {
@@ -75,34 +75,23 @@ test("every valid mode round-trips", () => {
   }
 });
 
-test("mode and sandbox coexist without overwriting each other", () => {
+test("the mode coexists with sibling preferences without overwriting them", () => {
   // They share one `preferences` object, so a setter that replaced the
-  // container instead of merging would drop the other axis. This is the
+  // container instead of merging would drop the other entries. This is the
   // narrow-serialization failure pitfall 11 describes, in its smallest form.
   withStore((store, dir) => {
     const sessionId = store.getActiveSession(CHAT);
-    store.setSessionSandboxOverride(CHAT, sessionId, false);
+    store.setSessionRunLogNoticeOverride(CHAT, sessionId, true);
     store.setSessionPermissionModeOverride(CHAT, sessionId, "manual");
 
     const reopened = new MomRuntimeStore(dir);
-    assert.equal(reopened.getSessionSandboxOverride(CHAT, sessionId), false, "sandbox survived the mode write");
+    assert.equal(reopened.getSessionRunLogNoticeOverride(CHAT, sessionId), true, "runlog notice survived the mode write");
     assert.equal(reopened.getSessionPermissionModeOverride(CHAT, sessionId), "manual");
 
     // ...and in the other order.
-    reopened.setSessionSandboxOverride(CHAT, sessionId, true);
+    reopened.setSessionRunLogNoticeOverride(CHAT, sessionId, null);
     const again = new MomRuntimeStore(dir);
-    assert.equal(again.getSessionPermissionModeOverride(CHAT, sessionId), "manual", "the mode survived the sandbox write");
-    assert.equal(again.getSessionSandboxOverride(CHAT, sessionId), true);
-  });
-});
-
-test("sandbox override round-trips too", () => {
-  withStore((store, dir) => {
-    const sessionId = store.getActiveSession(CHAT);
-    store.setSessionSandboxOverride(CHAT, sessionId, false);
-    assert.equal(new MomRuntimeStore(dir).getSessionSandboxOverride(CHAT, sessionId), false);
-
-    store.setSessionSandboxOverride(CHAT, sessionId, null);
-    assert.equal(new MomRuntimeStore(dir).getSessionSandboxOverride(CHAT, sessionId), null);
+    assert.equal(again.getSessionPermissionModeOverride(CHAT, sessionId), "manual", "the mode survived the sibling write");
+    assert.equal(again.getSessionRunLogNoticeOverride(CHAT, sessionId), null);
   });
 });

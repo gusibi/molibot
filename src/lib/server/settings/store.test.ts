@@ -543,7 +543,7 @@ test("OpenConnector settings survive a full save and settings store restart", ()
   }
 });
 
-test("fail-closed sandbox settings survive a full save and settings store restart", () => {
+test("advanced sandbox restrictions survive a full save and settings store restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-sandbox-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;
   const originalSettingsDbFile = storagePaths.settingsDbFile;
@@ -552,15 +552,16 @@ test("fail-closed sandbox settings survive a full save and settings store restar
 
   const toolSandbox = {
     ...defaultRuntimeSettings.toolSandbox,
-    enabled: true,
-    initFailureMode: "block" as const,
     env: { inheritMode: "allowlist" as const, allow: ["CI"], deny: ["TOKEN"] },
     network: { allowedDomains: ["registry.npmjs.org"], deniedDomains: ["example.com"] },
     filesystem: { denyRead: [".env"], allowWrite: ["scratch"], denyWrite: ["*.pem"] }
   };
 
   try {
-    new SettingsStore().save({ ...defaultRuntimeSettings, toolSandbox });
+    // A payload still carrying the removed enabled/initFailureMode controls
+    // round-trips without them: sanitize drops the obsolete fields on save and
+    // load, so a stale client cannot resurrect the enable switch.
+    new SettingsStore().save({ ...defaultRuntimeSettings, toolSandbox: { ...toolSandbox, enabled: true, initFailureMode: "block" } as never });
     const restarted = new SettingsStore().load();
     assert.deepEqual(restarted.toolSandbox, toolSandbox);
   } finally {

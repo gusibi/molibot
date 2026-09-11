@@ -22,7 +22,7 @@ export const GET: RequestHandler = async ({ url }) => {
   const conversationId = String(url.searchParams.get("conversationId") ?? "").trim();
   if (!conversationId) return json({ ok: false, error: "conversationId is required" }, { status: 400 });
   const { runtime, normalizedProfile, runtimeContext, chatId } = context(profileId, conversationId);
-  const mode = resolveEffectivePermissionMode({
+  const resolved = resolveEffectivePermissionMode({
     getSettings: runtime.getSettings,
     chatId,
     sessionId: conversationId,
@@ -30,7 +30,9 @@ export const GET: RequestHandler = async ({ url }) => {
     channel: "web",
     botId: basename(runtimeContext.store.getWorkspaceDir()) || normalizedProfile
   });
-  return json({ ok: true, mode }, { headers: { "Cache-Control": "no-store" } });
+  // The UI renders "overridden for this conversation" vs "inherited from …"
+  // from this one result instead of re-deriving the precedence itself.
+  return json({ ok: true, mode: resolved.mode, source: resolved.source }, { headers: { "Cache-Control": "no-store" } });
 };
 
 export const POST: RequestHandler = async ({ request }) => {

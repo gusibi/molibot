@@ -25,7 +25,7 @@ export function buildDesktopAgentItem(agent: AgentSettings): DesktopAgentItem {
     name: agent.name || agent.id,
     description: agent.description ?? "",
     enabled: agent.enabled !== false,
-    sandboxEnabled: agent.sandboxEnabled === undefined ? null : Boolean(agent.sandboxEnabled),
+    permissionMode: agent.permissionMode ?? null,
     modelOverrides: countModelOverrides(agent),
     modelRouting: {
       textModelKey: agent.modelRouting?.textModelKey ?? "",
@@ -43,7 +43,7 @@ export function saveDesktopAgent(settings: RuntimeSettings, request: DesktopAgen
     name: String(request.name ?? "").trim() || id,
     description: String(request.description ?? "").trim(),
     enabled: request.enabled !== false,
-    sandboxEnabled: request.sandboxEnabled === null ? undefined : Boolean(request.sandboxEnabled),
+    permissionMode: request.permissionMode === null ? undefined : request.permissionMode,
     modelRouting: sanitizeAgentModelRouting(request.modelRouting)
   };
   return [...settings.agents.filter((item) => item.id !== id && item.id !== previousId), agent];

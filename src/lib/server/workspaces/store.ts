@@ -11,7 +11,6 @@ export interface WorkspaceRecord {
   rootPath?: string;
   enabledSkillPaths: string[];
   enabledToolIds: string[];
-  sandboxProfileId?: string;
   approvalProfileId?: string;
   memoryScope: WorkspaceMemoryScope;
   createdAt: string;
@@ -24,7 +23,6 @@ interface WorkspaceRow {
   root_path: string | null;
   enabled_skill_paths: string;
   enabled_tool_ids: string;
-  sandbox_profile_id: string | null;
   approval_profile_id: string | null;
   memory_scope: string;
   created_at: string;
@@ -62,7 +60,6 @@ function rowToWorkspace(row: WorkspaceRow): WorkspaceRecord {
     rootPath: row.root_path || undefined,
     enabledSkillPaths: parseStringList(row.enabled_skill_paths),
     enabledToolIds: parseStringList(row.enabled_tool_ids),
-    sandboxProfileId: row.sandbox_profile_id || undefined,
     approvalProfileId: row.approval_profile_id || undefined,
     memoryScope: sanitizeMemoryScope(row.memory_scope),
     createdAt: row.created_at,
@@ -83,7 +80,6 @@ export class WorkspaceStore {
         root_path TEXT,
         enabled_skill_paths TEXT NOT NULL DEFAULT '[]',
         enabled_tool_ids TEXT NOT NULL DEFAULT '[]',
-        sandbox_profile_id TEXT,
         approval_profile_id TEXT,
         memory_scope TEXT NOT NULL DEFAULT 'workspace',
         created_at TEXT NOT NULL,
@@ -108,19 +104,17 @@ export class WorkspaceStore {
           root_path,
           enabled_skill_paths,
           enabled_tool_ids,
-          sandbox_profile_id,
           approval_profile_id,
           memory_scope,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         DEFAULT_WORKSPACE_ID,
         "Personal",
         null,
         "[]",
         "[]",
-        null,
         null,
         "workspace",
         now,
@@ -160,7 +154,6 @@ export class WorkspaceStore {
     rootPath?: string;
     enabledSkillPaths?: string[];
     enabledToolIds?: string[];
-    sandboxProfileId?: string;
     approvalProfileId?: string;
     memoryScope?: WorkspaceMemoryScope;
   }): WorkspaceRecord {
@@ -177,18 +170,16 @@ export class WorkspaceStore {
           root_path,
           enabled_skill_paths,
           enabled_tool_ids,
-          sandbox_profile_id,
           approval_profile_id,
           memory_scope,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           root_path = excluded.root_path,
           enabled_skill_paths = excluded.enabled_skill_paths,
           enabled_tool_ids = excluded.enabled_tool_ids,
-          sandbox_profile_id = excluded.sandbox_profile_id,
           approval_profile_id = excluded.approval_profile_id,
           memory_scope = excluded.memory_scope,
           updated_at = excluded.updated_at
@@ -198,7 +189,6 @@ export class WorkspaceStore {
         input.rootPath ? String(input.rootPath).trim() : null,
         stringifyStringList(input.enabledSkillPaths),
         stringifyStringList(input.enabledToolIds),
-        input.sandboxProfileId ? String(input.sandboxProfileId).trim() : null,
         input.approvalProfileId ? String(input.approvalProfileId).trim() : null,
         sanitizeMemoryScope(input.memoryScope),
         createdAt,

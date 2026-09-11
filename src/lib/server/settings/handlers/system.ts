@@ -10,6 +10,7 @@ import type { RuntimeSettings } from "../schema.js";
 import { sanitizeLocale } from "./locale.js";
 import { validateServerPortPatch, validateTimezonePatch } from "../validators.js";
 import type { SettingsAccessor } from "./locale.js";
+import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES } from "$lib/server/agent/permissions/decidePermission.js";
 
 export interface SystemConfig {
   locale: RuntimeSettings["locale"];
@@ -19,6 +20,7 @@ export interface SystemConfig {
   subagentRuntime: RuntimeSettings["subagentRuntime"];
   browserAutomation: RuntimeSettings["browserAutomation"];
   display: RuntimeSettings["display"];
+  permissionMode: RuntimeSettings["permissionMode"];
   toolSandbox: RuntimeSettings["toolSandbox"];
   events: RuntimeSettings["events"];
 }
@@ -33,6 +35,7 @@ export function readSystemConfig(runtime: SettingsAccessor): SystemConfig {
     subagentRuntime: s.subagentRuntime,
     browserAutomation: s.browserAutomation,
     display: s.display,
+    permissionMode: s.permissionMode ?? DEFAULT_PERMISSION_MODE,
     toolSandbox: s.toolSandbox,
     events: s.events
   };
@@ -46,6 +49,7 @@ type SystemPatch = {
   subagentRuntime?: unknown;
   browserAutomation?: unknown;
   display?: unknown;
+  permissionMode?: unknown;
   toolSandbox?: unknown;
   events?: unknown;
 };
@@ -106,6 +110,11 @@ export async function updateSystemConfig(runtime: SettingsAccessor, patch: Syste
   }
   if (patch.browserAutomation !== undefined) settingsPatch.browserAutomation = sanitizeBrowserAutomation(patch.browserAutomation, current.browserAutomation);
   if (patch.display !== undefined) settingsPatch.display = sanitizeDisplay(patch.display, current.display ?? defaultRuntimeSettings.display);
+  if (patch.permissionMode !== undefined) {
+    settingsPatch.permissionMode = PERMISSION_MODES.includes(patch.permissionMode as never)
+      ? patch.permissionMode as RuntimeSettings["permissionMode"]
+      : current.permissionMode ?? DEFAULT_PERMISSION_MODE;
+  }
   if (patch.toolSandbox !== undefined) settingsPatch.toolSandbox = sanitizeToolSandboxSettings(patch.toolSandbox, current.toolSandbox);
   if (patch.events !== undefined) settingsPatch.events = sanitizeEventExecutionSettings(patch.events, current.events);
 
@@ -126,6 +135,7 @@ export async function updateSystemConfig(runtime: SettingsAccessor, patch: Syste
     subagentRuntime: updated.subagentRuntime,
     browserAutomation: updated.browserAutomation,
     display: updated.display,
+    permissionMode: updated.permissionMode ?? DEFAULT_PERMISSION_MODE,
     toolSandbox: updated.toolSandbox,
     events: updated.events
   };

@@ -118,14 +118,14 @@ test("a declared effect is never second-guessed by the tool name", () => {
   // re-deriving it from the id is exactly the name-guessing that
   // getRuntimeToolClassification exists to prevent.
   const result = decideToolPermission(
-    "auto",
+    "accept_edits",
     { toolId: "miniapp__notes__add", input: {}, effect: "installed_app", thirdPartyHint: "read_only" },
     { sandboxEnabled: true }
   );
   assert.equal(result.decision, "allow");
 
   const destructive = decideToolPermission(
-    "auto",
+    "accept_edits",
     { toolId: "miniapp__notes__add", input: {}, effect: "installed_app", thirdPartyHint: "destructive" },
     { sandboxEnabled: true }
   );
@@ -148,10 +148,11 @@ test("Accept edits auto-approves a project write but still asks outside it", () 
   assert.equal(outside.decision, "ask");
 });
 
-test("turning the sandbox off does not become a Bypass mode", () => {
-  // The regression this whole slice exists to prevent: `bashPolicy` used to
-  // return `allow` the moment the sandbox was off, so "no sandbox" silently
-  // meant "never ask" — the Bypass档 the PRD refuses to ship.
+test("host containment stays gated in restricted modes", () => {
+  // Restricted modes still gate host execution: a sandbox that failed to
+  // start (or an explicit host target outside full access) never silently
+  // becomes "run it". Only full access (Auto) allows host containment, and
+  // there the host is the declared execution target, not a sandbox failure.
   const result = decideToolPermission(
     "manual",
     { toolId: "bash", input: { command: "rm -rf /" } },
@@ -160,10 +161,13 @@ test("turning the sandbox off does not become a Bypass mode", () => {
   assert.equal(result.containment, "host");
   assert.equal(result.decision, "ask");
 
-  // ...and it does not become allow in the loosest mode either.
+  assert.equal(
+    decideToolPermission("accept_edits", { toolId: "bash", input: {} }, { sandboxEnabled: false }).decision,
+    "ask"
+  );
   assert.equal(
     decideToolPermission("auto", { toolId: "bash", input: {} }, { sandboxEnabled: false }).decision,
-    "ask"
+    "allow"
   );
 });
 
@@ -202,12 +206,16 @@ test("an installed Mini App runs without a card in the default mode", () => {
   );
 });
 
-test("installing code asks in every mode", () => {
-  for (const mode of ["manual", "accept_edits", "auto"] as const) {
+test("installing code asks in restricted modes and runs in full access", () => {
+  for (const mode of ["manual", "accept_edits"] as const) {
     assert.equal(
       decideToolPermission(mode, { toolId: "miniAppManage", input: { action: "install" } }, { sandboxEnabled: true }).decision,
       "ask",
       mode
     );
   }
+  assert.equal(
+    decideToolPermission("auto", { toolId: "miniAppManage", input: { action: "install" } }, { sandboxEnabled: false }).decision,
+    "allow"
+  );
 });

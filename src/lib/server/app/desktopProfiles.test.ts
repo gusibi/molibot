@@ -27,7 +27,7 @@ function fixture(): RuntimeSettings {
             agentId: "agent-1",
             credentials: { token: "must-not-leak" },
             allowedChatIds: ["123"],
-            sandboxEnabled: true
+            permissionMode: "auto"
           },
           {
             id: "secondary",
@@ -109,12 +109,12 @@ test("patchDesktopWebProfile falls back to the id when name is cleared", () => {
 test("saveDesktopWebProfile creates a profile and preserves server-owned fields on edits", () => {
   const settings = fixture();
   const created = saveDesktopWebProfile(settings, {
-    id: "new-profile", name: "New", enabled: true, agentId: "agent-2", sandboxEnabled: false
+    id: "new-profile", name: "New", enabled: true, agentId: "agent-2"
   });
   const newProfile = created.find((row) => row.id === "new-profile");
   assert.deepEqual(newProfile?.credentials, {});
   assert.deepEqual(newProfile?.allowedChatIds, []);
-  assert.equal(newProfile?.sandboxEnabled, false);
+  assert.equal(newProfile?.permissionMode ?? null, null);
 
   const editedSettings = { ...settings, channels: { ...settings.channels, web: { instances: created } } };
   const edited = saveDesktopWebProfile(editedSettings, {
