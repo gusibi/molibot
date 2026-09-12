@@ -161,9 +161,10 @@ export async function selectProjectSession(id: string, projectId = projectsStore
   projectsStore.messagesLoading = cached.length === 0;
   projectsStore.error = "";
   try {
-    const messages = await loadDesktopProjectSession(projectsStore.endpoint, projectId, id);
+    const loaded = await loadDesktopProjectSession(projectsStore.endpoint, projectId, id);
     if (generation !== sessionSelectionGeneration || projectsStore.selectedProjectId !== projectId || projectsStore.selectedSessionId !== id) return;
-    const committed = hydration?.commit(messages as NonNullable<Parameters<typeof projectChatStore.selectSession>[2]>);
+    const messages = loaded.messages as NonNullable<Parameters<typeof projectChatStore.selectSession>[2]>;
+    const committed = hydration?.commit(messages, loaded.usage);
     if (committed !== false) projectsStore.messages = messages;
   } catch (cause) {
     if (generation !== sessionSelectionGeneration || projectsStore.selectedProjectId !== projectId || projectsStore.selectedSessionId !== id) return;

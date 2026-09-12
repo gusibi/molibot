@@ -94,6 +94,17 @@ export interface MiniAppUsageSummary {
   durationMs: number;
 }
 
+/**
+ * Cumulative usage attributed to one session: every ledger record carrying
+ * that session id, summed per token kind. `coverageStart` is the earliest
+ * included record's timestamp (null with no records) — the explicit boundary
+ * of what the ledger can prove for sessions that predate per-session
+ * attribution.
+ */
+export interface SessionUsageSummary extends UsageTotals {
+  coverageStart: string | null;
+}
+
 function emptyTotals(): UsageTotals {
   return {
     requests: 0,
@@ -430,6 +441,24 @@ export class AiUsageTracker {
         monthly
       }
     };
+  }
+
+  /**
+   * Sums every record attributed to `sessionId`. Zero-token error records only
+   * bump `requests`; records without the session id (Mini Apps, assistant
+   * helpers) never match, so cross-session leakage is impossible by construction.
+   */
+  getSessionUsage(sessionId: string): SessionUsageSummary {
+    const wanted = String(sessionId ?? "").trim();
+    const totals = emptyTotals();
+    if (!wanted) return { ...totals, coverageStart: null };
+    let coverageStart: string | null = null;
+    for (const record of this.list()) {
+      if (record.sessionId !== wanted) continue;
+      addTotals(totals, record);
+      if (coverageStart === null || record.ts < coverageStart) coverageStart = record.ts;
+    }
+    return { ...totals, coverageStart };
   }
 
   getMiniAppUsageLast30Days(timeZone: string): MiniAppUsageSummary[] {

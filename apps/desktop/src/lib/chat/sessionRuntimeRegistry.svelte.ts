@@ -15,7 +15,7 @@ import {
   type SessionRuntimeKey,
   type SessionStatusDot
 } from "./sessionStatusDot";
-import type { DesktopMessageAttachment, DesktopThinkingLevel } from "@molibot/desktop-contract";
+import type { DesktopMessageAttachment, DesktopSessionUsageSummary, DesktopThinkingLevel } from "@molibot/desktop-contract";
 
 /**
  * Per-session runtime registry (plan §7.3 / §13). Replaces the old single
@@ -31,12 +31,23 @@ import type { DesktopMessageAttachment, DesktopThinkingLevel } from "@molibot/de
  * design).
  */
 
+/**
+ * A transcript load may ride the server-summed session usage summary next to
+ * the messages (one authoritative request per reload). A bare array keeps the
+ * entry's current usage untouched.
+ */
+export interface TranscriptLoad {
+  messages: UiMessage[];
+  /** `null` = the ledger could not be read (explicit unavailable state). */
+  usage?: DesktopSessionUsageSummary | null;
+}
+
 export interface SessionRuntimeDeps {
   endpoint(): string;
   modelReady(): boolean;
   labels(): ConversationLabels;
   /** Re-fetches a session's transcript as `UiMessage[]` (host owns the mapping). */
-  loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[]>;
+  loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[] | TranscriptLoad>;
   refreshSessions?(profileId: string, sessionId: string): Promise<void>;
   afterMutate?(profileId: string, sessionId: string): void;
   /**
@@ -57,6 +68,8 @@ export interface SessionRuntimeEntry {
   readonly sessionId: string;
   readonly controller: ConversationController;
   readonly messages: UiMessage[];
+  /** Server-summed usage for THIS session; null until the first transcript load reports it. */
+  readonly usage: DesktopSessionUsageSummary | null;
   readonly error: string;
   readonly status: SessionRunStatus;
   readonly lastRunId: string | undefined;
@@ -72,8 +85,10 @@ export interface SessionRuntimeEntry {
 }
 
 export interface TranscriptHydration {
-  /** Installs a fetched transcript only when no turn started during its request. */
-  commit(messages: UiMessage[]): boolean;
+  /** Installs a fetched transcript only when no turn started during its request.
+   *  An optional usage summary rides the same commit so every transcript path
+   *  (entry reload or host hydration lease) keeps the panel equally fresh. */
+  commit(messages: UiMessage[], usage?: DesktopSessionUsageSummary | null): boolean;
 }
 
 function inferAttachmentKind(file: File): DesktopMessageAttachment["mediaType"] {
@@ -91,6 +106,7 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
   readonly controller: ConversationController;
 
   messages = $state<UiMessage[]>([]);
+  usage = $state<DesktopSessionUsageSummary | null>(null);
   error = $state("");
   status = $state<SessionRunStatus>("idle");
   lastRunId = $state<string | undefined>(undefined);
@@ -184,9 +200,10 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
     const turnSequence = this.controller.turnSequence;
     const startedWhileSending = this.controller.sending;
     return {
-      commit: (messages) => {
+      commit: (messages, usage) => {
         if (startedWhileSending || this.controller.sending || turnSequence !== this.controller.turnSequence) return false;
         this.messages = messages;
+        if (usage !== undefined) this.usage = usage;
         return true;
       }
     };
@@ -196,10 +213,18 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
     this.beginTranscriptHydration().commit(messages);
   }
 
+  /** Usage is entry-scoped (pinned to this session), so a late background
+   *  reload can never paint another session's panel. */
+  private applyLoad(result: UiMessage[] | TranscriptLoad): UiMessage[] {
+    if (Array.isArray(result)) return result;
+    if (result.usage !== undefined) this.usage = result.usage;
+    return result.messages;
+  }
+
   async reloadFromServer(): Promise<void> {
     const hydration = this.beginTranscriptHydration();
     try {
-      const messages = await this.deps.loadTranscript(this.profileId, this.sessionId);
+      const messages = this.applyLoad(await this.deps.loadTranscript(this.profileId, this.sessionId));
       hydration.commit(messages);
     } catch (cause) {
       // Keep the existing transcript, but never swallow the failure: a silent
@@ -212,7 +237,7 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
   /** The owning controller may commit its final or stopped transcript while `sending` is still true. */
   private async reloadFromServerForTurn(): Promise<void> {
     try {
-      this.messages = await this.deps.loadTranscript(this.profileId, this.sessionId);
+      this.messages = this.applyLoad(await this.deps.loadTranscript(this.profileId, this.sessionId));
     } catch (cause) {
       // The optimistic turn transcript stays visible; flag that it may be stale.
       this.setError(this.transcriptLoadFailedMessage(cause));

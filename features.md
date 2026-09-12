@@ -1,4 +1,22 @@
+### 输入框统计面板改为 Session 累计口径（2026-09-12，已交付）
+
+- 背景：owner 反馈「最后一条回复显示 51.1k tokens，容量环却只有 2.49万」——两者都对但口径不同：回复下方是本轮全部模型调用的用量之和（含缓存读取，两次调用把共享上下文各计一次），容量环是最近一次请求的输入上下文。经比对用量页账本确认数字自洽（24,730 + 26,380 = 51,110；186 + 24,704 = 24,890）。按已确认的 [Session 用量需求](docs/requirements/session-usage-summary.md) 把输入框统计面板改成 Session 累计为主。
+- 服务端：`AiUsageTracker.getSessionUsage(sessionId)` 按账本 sessionId 聚合（总/输入/输出/缓存读取/缓存写入 + `coverageStart` 覆盖边界）；`/api/sessions/[id]` 与 Project 会话详情路由随 transcript 返回 `usage` 汇总，账本读取失败返回 `available:false`，与真实零用量可区分。
+- 桌面端：`ComposerContextMenu` 重排——「本会话累计用量」（总 tokens + 输入/输出/缓存读取/缓存写入 + 累计缓存命中率）为主区，「当前上下文」单列其下；进度环表达当前已使用上下文占用。usage 挂在会话 registry entry 上（entry 与 sessionId 绑定，后台会话刷新不会串到当前面板）；主 Chat 与 Project Chat 复用同一组件与口径，中英文案齐备。
+- 口径修正：删除原「每轮命中率的算术平均」（平均缓存命中率 76% 这类数字），命中率改为累计缓存读取 / 累计完整输入（spec 验收口径 8,114/84,028 = 9.66%）；缓存读取/写入作为输入明细，不再与完整输入相加。
+- 二次修正（同日，owner 提出一轮对话后累计与上下文"对不上"）：上下文一栏从「最近一次请求的输入」改为「**当前上下文**（已使用上下文）」= 最后一次请求输入（含缓存）+ 该次回复输出，即下一次发送的起点（真实案例 17,246 + 2,393 = 19,639，不再是孤立的 1.72万）。中间工具调用的输出已包含在最后一次输入内，回合聚合输出只带来每次几十 token 的正偏差；无快照旧会话退化为回合聚合用量对照模型配置窗口。配套解释了该轮累计 8.63万 的构成：一轮 6 次调用 = 首次尝试 3 次（最后一次空响应触发 `empty_response_retry` 整轮重跑）+ 重跑 3 次，gemini-3.8-flash-high 路由不回报缓存（命中率 0% 属实回报）。
+- 验证：tracker 汇总测试 2 例（spec 验收数字 88,084/9.66% + 未知会话零值）+ presentation 测试 16 例（含 19,639 当前上下文场景）全过；desktop 测试链 297 + 守卫 255 全过（`presentation.test.ts` 顺带注册进测试链，此前不在链内）；svelte-check 0 错误；tsc 无新增错误；desktop 与服务端 build 通过。隔离实例冷启动冒烟：临时 DATA_DIR 起服务 → 建会话 → 注入账本记录 → API 返回累计 88,084 且排除他会话记录 → 重启后累计不变 → 全新会话显式零值。**桌面 UI 真机走查未做**：需在 app 里开面板确认布局（中英/明暗/窄宽）。
+
+### 模型请求携带会话亲和头 x-molibot-session（2026-09-12，已交付）
+
+- 背景：用户会话经 cli-proxy-api 调 opencode Go 路由的模型（如 deepseek-v4.1-flash-oc）每轮全部 400 `MissingSessionID`——opencode Go 要求第三方客户端带 `x-opencode-session`（每会话稳定 ID）用于会话粘性路由与提示缓存优化；同时用户在用量页看到的 0 token 记录即这些失败调用（失败无 usage 可报，但会话路径落库时未标记 error 状态，视觉上像"成功但 0 用量"）。
+- 方案（owner 确认）：molibot 发自有通用头 `x-molibot-session: <sessionId>`，上游方言在代理层映射（cli-proxy-api 配 `x-opencode-session: "$x-molibot-session"`），molibot 不耦合任何单一上游的头名。
+- 实现：注入点收在共享漏斗 `streamWithPiRuntime`——`options.sessionId` 存在时合并 `x-molibot-session` 头（`withSessionAffinityHeaders`，pi-ai 原生 `options.headers` 最后合并）；runner 主循环（含全部 fallback 候选尝试）与标题总结链路（conversationId 作为 sessionId）传入会话身份。无会话的调用（设置页连通性测试、owner 级助手）不带头，行为不变。
+- 边界：图像识别引擎与 durable preflight 的 dispatch 暂未传 sessionId（当前无上游需要），后续有需要时同样只需在调用方传 `options.sessionId`；subagent 经 pi-agent-core 自有 Agent 实例分发，不在本漏斗内。
+- 验证：新增 `piRuntime.sessionHeaders.test.ts` 3 例（带头/保留已有头/无会话不动）+ titleSummarizer sessionId 透传 1 例全过；runner.test 36/36、runnerHelpers 7/7、piTelemetry 3/3 回归全过；tsc 无新增错误。**端到端未验证**：需用户在 cli-proxy-api 配好映射并重启后跑一轮对话，确认 `model-errors.jsonl` 不再出现 MissingSessionID。
+
 ### 执行与权限保存失败修复 + 桌面 API 传输守卫（2026-09-12，已交付）
+
 
 - 用户反馈「执行与权限」设置保存永远显示「保存失败，请重试。」。根因：`ExecutionPermissionsSection.svelte` 是全仓库唯一绕过共享 api transport、直接用原生 `fetch` 调 sidecar 的组件——桌面 webview 源是 Tauri 自定义协议、sidecar API 在 `http://127.0.0.1:<port>`，原生 fetch 属跨源请求且 sidecar 不带 CORS 头：PATCH 的预检（OPTIONS 405）必挂，GET 响应同样不可读但被 `.catch(() => undefined)` 静默吞掉（页面显示的「已保存模式」从未真正加载过，一直显示代码初始值）。curl、服务端直测、同源浏览器全部通过，唯独 app 内必挂，因此 issue #49 的服务端验证没拦住。
 - 修复：`api.ts` 新增 `saveDesktopExecutionDefault`（走 `requestJson`/`fetchFromDesktop`，Tauri 内自动切 HTTP plugin 由 Rust 侧发请求），组件加载/保存两处全部换成共享 helper；加载失败从静默吞掉改为可见错误横幅（与 sandbox 加载一致）。服务端 `/api/desktop/execution-default` 无需改动（curl 直测 GET/PATCH 全链路正常）。

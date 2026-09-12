@@ -1039,8 +1039,27 @@ export interface DesktopConversationPlan {
   durableExecutionId?: string;
 }
 
+/**
+ * Server-summed model usage attributed to one session (docs/requirements/
+ * session-usage-summary.md). `available: false` means the ledger could not be
+ * read — it must never render as zero usage. `coverageStart` marks the
+ * earliest recorded call, the explicit boundary for sessions predating
+ * per-session attribution.
+ */
+export interface DesktopSessionUsageSummary {
+  available: boolean;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  coverageStart: string | null;
+}
+
 export interface DesktopSessionDetail extends DesktopSessionSummary {
   messages: DesktopConversationMessage[];
+  usage: DesktopSessionUsageSummary;
 }
 
 /** Per-session text-model override (routing key). Empty string = follow global default. */

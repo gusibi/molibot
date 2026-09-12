@@ -7,6 +7,7 @@
   import {
     DESKTOP_THINKING_LEVELS,
     type DesktopModelOption,
+    type DesktopSessionUsageSummary,
     type DesktopThinkingLevel
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
@@ -77,6 +78,8 @@
    * the panel's empty state ("usage appears after the first reply").
    */
   export let contextUsage: ComposerContextUsage | null = null;
+  /** Server-summed cumulative usage of the active session (panel's primary section). */
+  export let sessionUsage: DesktopSessionUsageSummary | null = null;
   /** Passed through to the composer menu; absent host = no permission page. */
   export let permissionMode: "plan" | "manual" | "accept_edits" | "auto" = "accept_edits";
   export let permissionModeOptions: readonly ("plan" | "manual" | "accept_edits" | "auto")[] = [];
@@ -332,7 +335,7 @@
       {/if}
     </div>
     <div class="composer-selectors" slot="selectors">
-      <ComposerContextMenu {copy} {locale} usage={contextUsage} />
+      <ComposerContextMenu {copy} {locale} usage={contextUsage} {sessionUsage} />
       <ComposerModelMenu
         {copy}
         {modelOptions}

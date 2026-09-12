@@ -134,6 +134,7 @@ import type {
   DesktopSessionRun,
   DesktopSessionRunsResponse,
   DesktopSessionSummary,
+  DesktopSessionUsageSummary,
   DesktopTaskResponse,
   DesktopTaskSummary,
   DesktopTaskActionRequest,
@@ -365,8 +366,16 @@ export async function createDesktopProjectSession(endpoint: string, id: string):
   return { session: payload.session, reused: payload.reused };
 }
 
-export async function loadDesktopProjectSession(endpoint: string, projectId: string, conversationId: string): Promise<DesktopProjectMessage[]> {
-  return (await requestJson<{ ok: true; messages: DesktopProjectMessage[] }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(conversationId)}`)).messages;
+export async function loadDesktopProjectSession(
+  endpoint: string,
+  projectId: string,
+  conversationId: string
+): Promise<{ messages: DesktopProjectMessage[]; usage: DesktopSessionUsageSummary | null }> {
+  const payload = await requestJson<{ ok: true; messages: DesktopProjectMessage[]; usage?: DesktopSessionUsageSummary }>(
+    endpoint,
+    `/api/settings/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(conversationId)}`
+  );
+  return { messages: payload.messages, usage: payload.usage ?? null };
 }
 
 export async function renameDesktopProjectSession(endpoint: string, projectId: string, conversationId: string, title: string): Promise<DesktopProjectSession> {

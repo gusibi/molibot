@@ -9,6 +9,21 @@ import {
 import { deleteWebSession } from "$lib/server/web/sessionLifecycle.js";
 import { loadConversationMessages } from "$lib/server/web/conversationProjection.js";
 import { resolveWebConversationIdentity } from "$lib/server/web/runtimeContext.js";
+import type { DesktopSessionUsageSummary } from "$lib/shared/desktop.js";
+
+/**
+ * Session usage rides the transcript response so the composer panel reads one
+ * authoritative summary; a ledger read failure surfaces as `available: false`
+ * instead of silently rendering as zero usage.
+ */
+function sessionUsageSummary(sessionId: string): DesktopSessionUsageSummary {
+  try {
+    return { available: true, ...getRuntime().usageTracker.getSessionUsage(sessionId) };
+  } catch {
+    return { available: false, requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, coverageStart: null };
+  }
+}
+
 export const GET: RequestHandler = async ({ params, url }) => {
   const id = params.id;
   const userId = sanitizeWebUserId(url.searchParams.get("userId"));
@@ -43,7 +58,8 @@ export const GET: RequestHandler = async ({ params, url }) => {
       updatedAt: conversation.updatedAt,
       parentSessionId: conversation.parentSessionId,
       forkedFromMessageId: conversation.forkedFromMessageId,
-      messages
+      messages,
+      usage: sessionUsageSummary(id)
     }
   });
 };

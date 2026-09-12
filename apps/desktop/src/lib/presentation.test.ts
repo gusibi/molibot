@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   deriveComposerContextUsage,
+  deriveSessionUsageView,
   formatContextTokens,
   formatNaturalDateTime,
   formatNaturalSchedule,
@@ -102,12 +103,12 @@ test("context tokens read 万-based in Chinese and compact in English", () => {
   assert.equal(formatContextTokens(1_000_000, "en"), "1m");
 });
 
-test("context usage derives the last snapshot and mean per-call cache hit rate", () => {
+test("context usage derives the last snapshot plus its trailing reply", () => {
   const usage = deriveComposerContextUsage([
     { role: "user" },
     {
       role: "assistant",
-      usage: { inputTokens: 100, cacheReadTokens: 300, cacheWriteTokens: 100 },
+      usage: { inputTokens: 100, outputTokens: 60, cacheReadTokens: 300, cacheWriteTokens: 100 },
       contextBreakdown: {
         contextWindow: 100_000,
         estimatedTokens: 1_000,
@@ -120,8 +121,8 @@ test("context usage derives the last snapshot and mean per-call cache hit rate",
     {
       role: "assistant",
       // The turn-aggregated usage double-counts context across calls; the
-      // panel must use the snapshot call's own input side instead.
-      usage: { inputTokens: 200, cacheReadTokens: 600, cacheWriteTokens: 200 },
+      // panel must use the snapshot call's own input side plus its reply.
+      usage: { inputTokens: 200, outputTokens: 150, cacheReadTokens: 600, cacheWriteTokens: 200 },
       contextBreakdown: {
         contextWindow: 100_000,
         estimatedTokens: 2_000,
@@ -134,11 +135,10 @@ test("context usage derives the last snapshot and mean per-call cache hit rate",
   ]);
 
   assert.ok(usage);
-  assert.equal(usage.usedTokens, 1_000);
+  assert.equal(usage.usedTokens, 1_150);
   assert.equal(usage.contextWindow, 100_000);
-  assert.equal(usage.percent, 1);
-  // Mean of the two per-call rates (0.6, 0.6), not a token-weighted sum.
-  assert.equal(usage.cacheHitRate, 0.6);
+  assert.ok(Math.abs(usage.percent - 1.15) < 1e-9);
+  assert.equal("cacheHitRate" in usage, false);
   assert.deepEqual(
     usage.categories.map((category) => [category.key, category.percent]),
     [
@@ -150,6 +150,29 @@ test("context usage derives the last snapshot and mean per-call cache hit rate",
       ["other", 1]
     ]
   );
+});
+
+// Real session shape (s-20260913-tpyk): the last call's reported input plus
+// its reply output is what the NEXT dispatch starts from — not the turn-
+// aggregated usage (86k) and not the input alone (17.2k).
+test("current context equals the last call's input plus its reply output", () => {
+  const usage = deriveComposerContextUsage([
+    {
+      role: "assistant",
+      usage: { inputTokens: 17_246, outputTokens: 2_393, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      contextBreakdown: {
+        contextWindow: 1_048_576,
+        estimatedTokens: 17_421,
+        breakdown: { messages: 6_302, mcpTools: 0, systemTools: 4_185, systemPrompt: 6_840, skills: 94, other: 0 },
+        inputTokens: 17_246,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0
+      }
+    }
+  ]);
+  assert.ok(usage);
+  assert.equal(usage.usedTokens, 19_639);
+  assert.ok(Math.abs(usage.percent - (19_639 / 1_048_576) * 100) < 1e-9);
 });
 
 test("context usage returns null without a snapshot and clamps an overfull window", () => {
@@ -166,7 +189,6 @@ test("context usage returns null without a snapshot and clamps an overfull windo
     }
   }]);
   assert.equal(overfull?.percent, 100);
-  assert.equal(overfull?.cacheHitRate, null);
 });
 
 test("a snapshot's window wins over the selected model's configured fallback", () => {
@@ -187,22 +209,21 @@ test("a snapshot's window wins over the selected model's configured fallback", (
   assert.equal(usage?.contextWindow, 100_000);
 });
 
-// Sessions transcribed before snapshots existed still carry real per-call
-// usage: capacity and cache rate render from it, category rows stay hidden.
+// Sessions transcribed before snapshots existed still carry real per-turn
+// usage: capacity renders from it (turn input + output), category rows hidden.
 test("without a snapshot the panel degrades to reported usage plus the configured model window", () => {
   const usage = deriveComposerContextUsage([
     { role: "user" },
     {
       role: "assistant",
-      usage: { inputTokens: 1_000, cacheReadTokens: 27_000, cacheWriteTokens: 0 }
+      usage: { inputTokens: 1_000, outputTokens: 500, cacheReadTokens: 27_000, cacheWriteTokens: 0 }
     }
   ], 200_000);
   assert.ok(usage);
-  assert.equal(usage.usedTokens, 28_000);
+  assert.equal(usage.usedTokens, 28_500);
   assert.equal(usage.contextWindow, 200_000);
-  assert.ok(Math.abs(usage.percent - 14) < 1e-9);
+  assert.ok(Math.abs(usage.percent - 14.25) < 1e-9);
   assert.deepEqual(usage.categories, []);
-  assert.equal(usage.cacheHitRate, 27_000 / 28_000);
 });
 
 test("resolveModelContextWindow reads the selected option and defaults to 0", () => {
@@ -215,19 +236,58 @@ test("resolveModelContextWindow reads the selected option and defaults to 0", ()
   assert.equal(resolveModelContextWindow(options, "missing"), 0);
 });
 
-// The cache line always renders when the transcript has usage: an all-zero
-// transcript shows a real 0% (the provider reported no cache hits), and mixed
-// data shows the mean of per-call rates.
-test("cache hit rate renders 0 when no call reports cache activity", () => {
-  const allZero = deriveComposerContextUsage([
-    { role: "assistant", usage: { inputTokens: 12_000, cacheReadTokens: 0, cacheWriteTokens: 0 } },
-    { role: "assistant", usage: { inputTokens: 13_000, cacheReadTokens: 0, cacheWriteTokens: 0 } }
-  ], 1_000_000);
-  assert.equal(allZero?.cacheHitRate, 0);
+// The cumulative hit ratio comes from summed tokens (spec acceptance: 8,114
+// cache-read of 84,028 full input = 9.66%; averaging the per-turn 9.9%/10.4%/8.7%
+// would show 6.3%-style wrong numbers). Zero input stays null, never a fake 0%.
+test("session usage folds cache into full input and derives the cumulative hit rate", () => {
+  const view = deriveSessionUsageView({
+    available: true,
+    requests: 4,
+    inputTokens: 75_914,
+    outputTokens: 4_056,
+    cacheReadTokens: 8_114,
+    cacheWriteTokens: 0,
+    totalTokens: 88_084,
+    coverageStart: "2026-09-12T10:00:00.000Z"
+  });
 
-  const mixed = deriveComposerContextUsage([
-    { role: "assistant", usage: { inputTokens: 12_000, cacheReadTokens: 0, cacheWriteTokens: 0 } },
-    { role: "assistant", usage: { inputTokens: 1_000, cacheReadTokens: 11_000, cacheWriteTokens: 0 } }
-  ], 1_000_000);
-  assert.ok(mixed && mixed.cacheHitRate !== null && mixed.cacheHitRate > 0);
+  assert.ok(view);
+  assert.equal(view.inputTokens, 84_028);
+  assert.equal(view.totalTokens, 88_084);
+  assert.equal(view.outputTokens, 4_056);
+  assert.ok(Math.abs((view.hitRate ?? 0) - 0.0966) < 0.0005);
+
+  const noInput = deriveSessionUsageView({
+    available: true,
+    requests: 1,
+    inputTokens: 0,
+    outputTokens: 500,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 500,
+    coverageStart: null
+  });
+  assert.equal(noInput?.hitRate, null);
+});
+
+test("session usage view is null when the ledger is unavailable, zero only when truly empty", () => {
+  assert.equal(deriveSessionUsageView(null), null);
+  assert.equal(
+    deriveSessionUsageView({ available: false, requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, coverageStart: null }),
+    null
+  );
+  const empty = deriveSessionUsageView({
+    available: true,
+    requests: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+    coverageStart: null
+  });
+  assert.deepEqual(
+    empty && [empty.requests, empty.totalTokens, empty.inputTokens, empty.hitRate],
+    [0, 0, 0, null]
+  );
 });

@@ -111,19 +111,20 @@ export interface ComposerContextUsageCategory {
 export interface ComposerContextUsage {
   /** 0 when the window is unknown (no snapshot and no model config): the panel then hides the bar and percent. */
   contextWindow: number;
-  /** Real prompt size of the last model call: input + cache read + cache write. */
+  /**
+   * Context in use right now: the last model call's input (incl. cache) plus
+   * that call's reply — the size the NEXT dispatch starts from.
+   */
   usedTokens: number;
   /** `usedTokens / contextWindow` in percent, clamped for display; 0 without a window. */
   percent: number;
-  /** Mean of per-call cache hit rates across the transcript; null without usage data. */
-  cacheHitRate: number | null;
   /** Empty for sessions without a dispatch snapshot: the category rows stay hidden. */
   categories: ComposerContextUsageCategory[];
 }
 
 type ContextUsageSourceMessage = {
   role: string;
-  usage?: { inputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
   contextBreakdown?: {
     contextWindow: number;
     estimatedTokens: number;
@@ -145,41 +146,51 @@ export function resolveModelContextWindow(
 /**
  * Derives the composer context-usage panel data from a transcript. The
  * snapshot rides the last assistant row that carries one (each model call
- * refreshes it); `usedTokens` comes from that call's own input side because
- * the turn-aggregated `usage` double-counts shared context across calls.
+ * refreshes it); `usedTokens` = that call's own input side (cache included)
+ * plus its reply output — the live context the next dispatch starts from.
+ * Intermediate tool-call outputs of the turn are already inside the last
+ * call's input, and the transcript only carries the turn-aggregated output,
+ * so the sum slightly overcounts by those (a few dozen tokens per call).
+ * Cache hit rate lives in the session usage summary (cumulative token sums),
+ * never in a per-call mean.
  *
- * Sessions transcribed before snapshots existed still have the real per-call
- * usage: they degrade to reported usage against `fallbackContextWindow` (the
- * selected model's config), with category rows omitted. `null` means the
- * transcript has no model usage at all (fresh conversation).
+ * Sessions transcribed before snapshots existed still have the real per-turn
+ * usage: they degrade to turn-aggregated usage (input + output) against
+ * `fallbackContextWindow` (the selected model's config), with category rows
+ * omitted — multi-call turns overcount there, and that is the best the data
+ * offers. `null` means the transcript has no model usage at all (fresh
+ * conversation).
  */
 export function deriveComposerContextUsage(
   messages: readonly ContextUsageSourceMessage[],
   fallbackContextWindow = 0
 ): ComposerContextUsage | null {
   let snapshot: NonNullable<ContextUsageSourceMessage["contextBreakdown"]> | null = null;
+  let snapshotOutputTokens = 0;
   let lastUsage: NonNullable<ContextUsageSourceMessage["usage"]> | null = null;
-  const hitRates: number[] = [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message.role !== "assistant") continue;
     const usage = message.usage;
-    if (usage) {
-      const denominator = (usage.inputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
-      if (denominator > 0) {
-        hitRates.push((usage.cacheReadTokens ?? 0) / denominator);
-        if (!lastUsage) lastUsage = usage;
-      }
+    if (
+      usage &&
+      !lastUsage &&
+      (usage.inputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0) > 0
+    ) {
+      lastUsage = usage;
     }
-    if (!snapshot) snapshot = message.contextBreakdown ?? null;
+    if (!snapshot && message.contextBreakdown) {
+      snapshot = message.contextBreakdown;
+      snapshotOutputTokens = Math.max(0, Math.round(usage?.outputTokens ?? lastUsage?.outputTokens ?? 0));
+    }
   }
   if (!snapshot && !lastUsage) return null;
   const contextWindow = snapshot && snapshot.contextWindow > 0 ? snapshot.contextWindow : fallbackContextWindow;
-  const usedSource = snapshot ?? lastUsage!;
-  const usedTokens = Math.max(
-    0,
-    Math.round((usedSource.inputTokens ?? 0) + (usedSource.cacheReadTokens ?? 0) + (usedSource.cacheWriteTokens ?? 0))
-  );
+  const inputSide = snapshot
+    ? (snapshot.inputTokens ?? 0) + (snapshot.cacheReadTokens ?? 0) + (snapshot.cacheWriteTokens ?? 0)
+    : (lastUsage!.inputTokens ?? 0) + (lastUsage!.cacheReadTokens ?? 0) + (lastUsage!.cacheWriteTokens ?? 0);
+  const outputTokens = snapshot ? snapshotOutputTokens : Math.max(0, Math.round(lastUsage?.outputTokens ?? 0));
+  const usedTokens = Math.max(0, Math.round(inputSide) + outputTokens);
   const percent = contextWindow > 0 ? Math.min(100, (usedTokens / contextWindow) * 100) : 0;
   const total = snapshot && snapshot.estimatedTokens > 0 ? snapshot.estimatedTokens : 1;
   const order: ComposerContextUsageCategory["key"][] = ["messages", "mcpTools", "systemTools", "systemPrompt", "skills", "other"];
@@ -193,8 +204,53 @@ export function deriveComposerContextUsage(
     contextWindow,
     usedTokens,
     percent,
-    cacheHitRate: hitRates.length ? hitRates.reduce((sum, rate) => sum + rate, 0) / hitRates.length : null,
     categories
+  };
+}
+
+/** The session usage summary the detail API returns (structurally typed). */
+export interface SessionUsageSummarySource {
+  available: boolean;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  coverageStart: string | null;
+}
+
+/** Panel-ready cumulative session usage. */
+export interface ComposerSessionUsage {
+  requests: number;
+  totalTokens: number;
+  /** Full input: uncached + cache read + cache write; the cache rows are its breakdown, not additions. */
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  /** Cumulative cache read / full input; null without any reported input (never a fabricated 0%). */
+  hitRate: number | null;
+}
+
+/**
+ * Derives the session-cumulative panel section from the server summary.
+ * `null` when the ledger could not be read — the panel then shows an explicit
+ * unavailable state instead of zero usage.
+ */
+export function deriveSessionUsageView(summary: SessionUsageSummarySource | null | undefined): ComposerSessionUsage | null {
+  if (!summary?.available) return null;
+  const cacheReadTokens = Math.max(0, Math.round(summary.cacheReadTokens ?? 0));
+  const cacheWriteTokens = Math.max(0, Math.round(summary.cacheWriteTokens ?? 0));
+  const inputTokens = Math.max(0, Math.round(summary.inputTokens ?? 0)) + cacheReadTokens + cacheWriteTokens;
+  return {
+    requests: Math.max(0, Math.round(summary.requests ?? 0)),
+    totalTokens: Math.max(0, Math.round(summary.totalTokens ?? 0)),
+    inputTokens,
+    outputTokens: Math.max(0, Math.round(summary.outputTokens ?? 0)),
+    cacheReadTokens,
+    cacheWriteTokens,
+    hitRate: inputTokens > 0 ? Math.min(1, Math.max(0, cacheReadTokens / inputTokens)) : null
   };
 }
 

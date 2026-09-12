@@ -159,6 +159,7 @@
   import type { SessionFileTouches } from "./lib/projects/sessionFileTouches";
   const EMPTY_TOUCHES: SessionFileTouches = { written: new Set(), all: new Set() };
   import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
+  import type { TranscriptLoad } from "./lib/chat/sessionRuntimeRegistry.svelte";
   import { stickToBottom } from "./lib/chat/stickToBottom";
   import { openWorkspacePaneState, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
   import {
@@ -879,6 +880,9 @@
   // otherwise reported usage against the selected model's configured window;
   // null (empty-state panel) only when no assistant row has usage at all.
   $: composerContextUsage = deriveComposerContextUsage(messages, resolveModelContextWindow(modelOptions, activeModelKey));
+  // Session-cumulative usage section: server-summed, entry-scoped, null while
+  // the draft/new-conversation pane has no session to attribute usage to.
+  $: sessionUsage = draftMode ? null : chatState.usage;
   $: streamingText = chatState.streamingText;
   $: streamingThinking = chatState.streamingThinking;
   $: activity = chatState.activity;
@@ -1119,10 +1123,14 @@
     };
   }
 
-  async function loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[]> {    const detail = await loadDesktopSession(connectedEndpoint, profileId, sessionId);
-    return detail.messages
-      .filter((message) => message.role === "user" || message.role === "assistant")
-      .map((message) => ({ ...message }));
+  async function loadTranscript(profileId: string, sessionId: string): Promise<TranscriptLoad> {
+    const detail = await loadDesktopSession(connectedEndpoint, profileId, sessionId);
+    return {
+      messages: detail.messages
+        .filter((message) => message.role === "user" || message.role === "assistant")
+        .map((message) => ({ ...message })),
+      usage: detail.usage ?? null
+    };
   }
 
   async function resolvePlan(
@@ -3433,6 +3441,7 @@
         {copy}
         {locale}
         contextUsage={composerContextUsage}
+        {sessionUsage}
         {sending}
         disabled={!modelReady || (!draftMode && !activeSessionId) || modelSelectionHydrating}
         canSend={Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}

@@ -3443,6 +3443,9 @@ a:focus-visible {
 .composer-context-value { margin-left: auto; color: var(--label-primary); font-weight: 500; font-variant-numeric: tabular-nums; }
 .composer-context-cache { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--separator); color: var(--label-secondary); font-size: var(--fs-label); }
 .composer-context-cache strong { color: var(--label-primary); font-weight: 500; font-variant-numeric: tabular-nums; }
+.composer-context-section { display: grid; gap: 9px; padding-top: 12px; border-top: 1px solid var(--separator); }
+.composer-context-section-label { min-width: 0; overflow: hidden; color: var(--label-primary); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.composer-context-sublabel { margin: 0; color: var(--label-secondary); font-size: var(--fs-label); line-height: var(--lh-label); }
 .execution-mode-grid {
   display: grid;
   /* Fixed 2×2: auto-fit wraps 4 cards into 3+1 on the 720px settings column. */

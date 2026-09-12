@@ -3,7 +3,8 @@ import {
   SessionRuntimeRegistry,
   type SessionRuntimeDeps,
   type SessionRuntimeEntry,
-  type TranscriptHydration
+  type TranscriptHydration,
+  type TranscriptLoad
 } from "../chat/sessionRuntimeRegistry.svelte";
 import { SessionDraftStore } from "../chat/sessionDraftStore";
 import type { ConversationLabels, UiMessage } from "../chat/conversationController.svelte";
@@ -12,6 +13,7 @@ import type {
   DesktopApprovalDecision,
   DesktopApprovalPrompt,
   DesktopConversationStep,
+  DesktopSessionUsageSummary,
   DesktopThinkingLevel
 } from "@molibot/desktop-contract";
 import { loadDesktopProjectSession, type DesktopActivityEntry } from "../api";
@@ -62,6 +64,8 @@ export interface ProjectChatStoreDeps {
 export interface ProjectChatState {
   activeSessionId: string;
   messages: UiMessage[];
+  /** Active session's server-summed usage; null until its transcript load reports it. */
+  usage: DesktopSessionUsageSummary | null;
   error: string;
   sending: boolean;
   streamingText: string;
@@ -130,12 +134,12 @@ export class ProjectChatStore {
    *  session reloads against its own project. Project messages carry the same
    *  shape as conversation messages aside from the wider `role` union, which the
    *  transcript renderer treats as an opaque string. */
-  private async loadTranscript(_profileId: string, sessionId: string): Promise<UiMessage[]> {
+  private async loadTranscript(_profileId: string, sessionId: string): Promise<TranscriptLoad> {
     const endpoint = this.deps?.endpoint();
-    if (!endpoint) return [];
+    if (!endpoint) return { messages: [], usage: null };
     const projectId = this.sessionProjectIds.get(sessionId) ?? "";
-    const messages = await loadDesktopProjectSession(endpoint, projectId, sessionId);
-    return messages as unknown as UiMessage[];
+    const { messages, usage } = await loadDesktopProjectSession(endpoint, projectId, sessionId);
+    return { messages: messages as unknown as UiMessage[], usage };
   }
 
   /**
@@ -149,6 +153,7 @@ export class ProjectChatStore {
     return {
       activeSessionId: entry?.sessionId ?? "",
       messages: entry?.messages ?? [],
+      usage: entry?.usage ?? null,
       error: entry?.error ?? "",
       sending: controller?.sending ?? false,
       streamingText: controller?.streamingText ?? "",

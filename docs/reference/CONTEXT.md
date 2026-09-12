@@ -13,6 +13,22 @@ _Avoid_: User session, users data
 The model-facing continuation state of a conversation, including model and tool history.
 _Avoid_: UI history, Session UI data
 
+**Reply Usage**:
+The cumulative model-token usage attributed to one user turn, including the model calls before and after its tool results. It belongs beneath that turn's reply.
+_Avoid_: Session usage, reply length, context size
+
+**Session Usage**:
+The cumulative model-token usage incurred by one conversation across its lifetime. Context compaction or deletion of individual messages does not reduce usage already incurred.
+_Avoid_: Context capacity, last reply usage
+
+**Context Occupancy**:
+The context in use right now: the last model request's input (cached input included) plus that request's reply — the size the next dispatch starts from, measured against the model's context window.
+_Avoid_: Session consumption, cumulative token usage, input-only size
+
+**Session Cache Hit Ratio**:
+The fraction of a conversation's reported input tokens served by cache reads, calculated from summed token counts. It is distinct from an arithmetic mean of turn-level percentages.
+_Avoid_: Average reply hit rate, cache savings, output-token ratio
+
 **Memory Namespace**:
 The authorization and ownership boundary of a durable memory. New user facts and preferences use `owner:<ownerId>`; project facts use `project:<ownerId>:<projectId>`; Agent self-knowledge uses `agent:<botId>`; published-content reference uses `content:<botId>`. `chat:<botId>:<channel>:<chatId>` is a conversation retrieval boundary, not the default home for durable personal memory.
 _Avoid_: Storage path, Session ID, memory type

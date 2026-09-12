@@ -2,7 +2,8 @@ import { toStore } from "svelte/store";
 import {
   SessionRuntimeRegistry,
   type SessionRuntimeDeps,
-  type SessionRuntimeEntry
+  type SessionRuntimeEntry,
+  type TranscriptLoad
 } from "./sessionRuntimeRegistry.svelte";
 import {
   SessionDraftStore,
@@ -14,7 +15,8 @@ import type {
   DesktopApprovalDecision,
   DesktopApprovalPrompt,
   DesktopConversationStep,
-  DesktopSessionRun
+  DesktopSessionRun,
+  DesktopSessionUsageSummary
 } from "@molibot/desktop-contract";
 import {
   createDesktopSession,
@@ -46,8 +48,8 @@ export interface ChatSessionStoreDeps {
   endpoint(): string;
   modelReady(): boolean;
   labels(): ConversationLabels;
-  /** Loads a session transcript as `UiMessage[]` (host owns role filtering). */
-  loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[]>;
+  /** Loads a session transcript; may ride the server usage summary. */
+  loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[] | TranscriptLoad>;
   /** Re-fetch the sidebar's expanded-channel list after a turn/session change. */
   refreshSidebar?(): Promise<void>;
   /** Post-mutation hook (e.g. scroll to bottom). */
@@ -71,6 +73,8 @@ export interface ChatSessionState {
   draftMode: boolean;
   draftProfileId: string;
   messages: UiMessage[];
+  /** Active session's server-summed usage; null until its transcript load reports it. */
+  usage: DesktopSessionUsageSummary | null;
   error: string;
   sending: boolean;
   streamingText: string;
@@ -133,6 +137,7 @@ export class ChatSessionStore {
       draftMode: this.draftMode,
       draftProfileId: this.draftProfileId,
       messages: entry?.messages ?? [],
+      usage: entry?.usage ?? null,
       error: entry?.error ?? "",
       sending: controller?.sending ?? false,
       streamingText: controller?.streamingText ?? "",

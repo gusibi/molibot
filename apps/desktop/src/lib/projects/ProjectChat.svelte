@@ -339,6 +339,9 @@
   // Composer context-usage panel: snapshot when present, otherwise reported
   // usage against the selected model's window; null only without any usage.
   $: composerContextUsage = deriveComposerContextUsage(messages, resolveModelContextWindow(modelOptions, activeModelKey));
+  // Session-cumulative usage section: server-summed, entry-scoped (same
+  // contract as the main chat's composer panel).
+  $: sessionUsage = chatState.usage;
   $: activity = chatState.activity;
   $: streamingText = chatState.streamingText;
   $: streamingThinking = chatState.streamingThinking;
@@ -1092,6 +1095,7 @@
     {copy}
     locale={session.locale}
     contextUsage={composerContextUsage}
+    {sessionUsage}
     {sending}
     disabled={!projectsStore.selectedSessionId || !modelReady}
     canSend={Boolean(message.trim()) || pendingFiles.length > 0}
